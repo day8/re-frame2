@@ -818,11 +818,28 @@ transition and highlights NOTHING — it does not paint a guard-failed edge
 colour. This is a SUPERSET enhancement, only possible because re-frame2 emits
 `:rf.machine/guard-evaluated` (observable-everything ethos).
 
-DOM pins: the guard-blocked event-node + its `__in` (source → event-node) edge
-half carry `data-guard-blocked="true"`; the `__out` (event-node → target) half
-carries `data-guard-blocked="false"` (rf2-4nxgqq — the highlight stops at the
-event-node). The chart root surfaces the sorted set on
-`data-guard-blocked-edge-ids` (mirroring `data-fired-edge-ids`).
+**DOM pins (rf2-bdwolc — corrected).** The CANONICAL guard-blocked DOM pins are
+the **guard-blocked event-node** and the **chart root**:
+
+- the guard-blocked event-node (`[data-testid^="rf-mv-chart-event-"]`) carries
+  `data-guard-blocked="true"` UNCONDITIONALLY (its `IF <guard>` chip also
+  carries `data-guard-blocked`);
+- the chart root surfaces the sorted set on `data-guard-blocked-edge-ids`
+  (mirroring `data-fired-edge-ids`).
+
+The per-half `:guardBlocked` STATE (`__in` true / `__out` false per rf2-4nxgqq —
+the highlight stops at the event-node) is **projection/rendering data, NOT an
+edge-half DOM pin**. It drives the half's stroke + arrowhead colour, but no
+`data-guard-blocked` attribute exists on the `__in` / `__out` edge DOM:
+`chart.edges/transition-edge` emits the edge-label element (and its
+`data-guard-blocked` / `data-fired` attrs) ONLY when the edge has a non-empty
+`:eventLabel` (`(when (seq label) …)`), and under events-as-nodes (rf2-qo5xy)
+both halves carry an EMPTY label (the text rides the event-node). A test that
+needs the per-half blocked treatment asserts the `:guardBlocked` projection
+value (a `chart.projection` unit test), not an edge-half DOM attribute. (Earlier
+revisions of this doc claimed the `__in` / `__out` halves carried
+`data-guard-blocked` DOM attrs; they do not — the event-node + chart-root are
+the real pins.)
 
 ### Relationship to the focused-transition lens (rf2-99rhe)
 

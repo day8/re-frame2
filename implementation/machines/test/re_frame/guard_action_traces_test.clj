@@ -5,6 +5,8 @@
     :rf.machine/guard-evaluated
       {:guard-id <kw-or-fn>
        :input    {:data <data> :event <event-vec>}
+       :state    <active-state>   ;; rf2-tjm3u2 — the active state the
+                                  ;; guard ran against (source disambiguation)
        :outcome  :pass | :fail}
 
     :rf.machine/action-ran
@@ -73,7 +75,12 @@
         (is (= {:ready? false} (-> g :tags :input :data))
             "input :data carries the snapshot's :data slot")
         (is (= [:go] (-> g :tags :input :event))
-            "input :event carries the originating event vec")))))
+            "input :event carries the originating event vec")
+        ;; rf2-tjm3u2 — the active state the guard ran against is stamped
+        ;; so a consumer can disambiguate which state's edge a block
+        ;; belongs to (two states reusing the same event + guard id).
+        (is (= :idle (-> g :tags :state))
+            ":state carries the active state the guard was evaluated against")))))
 
 (deftest guard-evaluated-pass-outcome
   (testing "guard returning true emits :pass outcome and the transition fires"
