@@ -273,6 +273,35 @@
       (cond-> (contains? (projection/fork-branch-container-ids parsed) nil)
         (assoc "elk.layered.crossingMinimization.semiInteractive" "true"))))
 
+(defn compute-layout-key
+  "rf2-9qbn0g — the memo key the chart uses to decide whether to re-run the
+  ELK layout pass. Pure; extracted as a directly-assertable fn so the cache-
+  invalidation contract is regression-guarded. (Named `compute-layout-key`,
+  not `layout-key`, because the component binds a local `layout-key` r/atom
+  that would shadow it.)
+
+  The key folds together every input that changes the laid-out result:
+
+    - `definition`     — the machine topology;
+    - `elk-direction`  — the RESOLVED direction ELK is fed (`:tb`/`:lr`);
+    - `layout-options` — host ELK overrides;
+    - `density`        — drives the derived container padding (rf2-8q5pt);
+    - `context-rows`   — the root-container Context band height (rf2-8z1rca);
+    - `adaptive?`      — the post-ELK MODE flag (rf2-9qbn0g).
+
+  `adaptive?` MUST be in the key even though `elk-direction` already is: the
+  post-ELK transform (parallel transpose + back-edge reroute) is gated by the
+  RAW `:auto` opt-in, NOT the resolved direction. When `:auto` resolves to the
+  SAME direction as a forced/default `:tb` (a linear or parallel machine,
+  where `post-elk/aspect-direction` returns `:tb`), `elk-direction` is
+  identical for `:direction :tb` and `:direction :auto`. Without the flag a
+  `:tb → :auto → :tb` flip would NOT invalidate the cache — the back-edge
+  reroute / parallel transpose would never apply on opt-IN and would
+  stale-stay on opt-OUT. The flag makes the flip re-run the pass (apply then
+  remove the transform) while ELK is still fed the resolved `elk-direction`."
+  [definition elk-direction layout-options density context-rows adaptive?]
+  [definition elk-direction layout-options density context-rows adaptive?])
+
 (defn- ->elk-input
   "Build an elk.js JS-side input graph for the given parsed nodes +
   edges + direction. Parallel machines (rf2-lkwev) get a hierarchical
@@ -1280,7 +1309,21 @@
             ;; rf2-8z1rca — `context-rows` joins the layout key so adding /
             ;; removing context (which changes the reserved root top padding)
             ;; re-runs ELK rather than rendering against the prior band height.
-            this-key   [definition elk-direction layout-options density context-rows]
+            ;; rf2-9qbn0g — `adaptive?` (the post-ELK MODE flag) joins the key.
+            ;; The pass is keyed by the RESOLVED `elk-direction`, but the post-
+            ;; ELK transform (parallel transpose + back-edge reroute) is gated
+            ;; by the RAW `:auto` opt-in, not the resolved direction. When
+            ;; `:auto` resolves to the SAME direction as a forced/default `:tb`
+            ;; (a linear / parallel machine, where `aspect-direction` returns
+            ;; `:tb`), `elk-direction` is identical for `:direction :tb` and
+            ;; `:direction :auto`, so toggling the prop did NOT invalidate the
+            ;; cached layout — the back-edge reroute / parallel transpose never
+            ;; applied on opt-IN, and stale-stayed on opt-OUT. Folding the
+            ;; opt-in flag into the key makes a `:tb → :auto → :tb` flip re-run
+            ;; the pass (apply then remove the transform) while still feeding
+            ;; the resolved `elk-direction` to ELK.
+            this-key   (compute-layout-key definition elk-direction layout-options
+                                           density context-rows adaptive?)
             ;; rf2-d9ro2 — one ELK pass. `measured-dims` is nil on the
             ;; FIRST pass (nodes not yet rendered/measured) and the
             ;; xyflow-measured `{node-id {:width :height}}` map on the

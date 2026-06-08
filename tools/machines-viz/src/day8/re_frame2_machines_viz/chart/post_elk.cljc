@@ -476,15 +476,23 @@
           ;; LEFT-align the stacked column to the leftmost region's root x
           ;; (Stately stacks the regions in one vertical column, not at their
           ;; original side-by-side x-offsets).
-          column-x      (->> region-nodes
-                             (map #(:x (get positions (:id %) {:x 0})))
-                             (reduce min 0))
+          ;;
+          ;; rf2-qp613a — compute the column origin from the ACTUAL region
+          ;; positions only, NOT seeded with 0. A root-container-wrapped chart
+          ;; positions its region containers relative to the root frame's
+          ;; padding/header, so every region origin is POSITIVE; seeding the
+          ;; reduce with 0 (`(reduce min 0 …)`) clamped a positive origin to
+          ;; zero, sliding the stacked column up/left into the reserved root
+          ;; chrome. `(reduce min …)` over the region xs/ys alone preserves the
+          ;; leftmost/topmost region's true origin (and stays total — the
+          ;; outer `if-not (:parallel? …)` guarantees ≥1 region here).
+          region-xs     (map #(:x (get positions (:id %) {:x 0})) region-nodes)
+          region-ys     (map #(:y (get positions (:id %) {:y 0})) region-nodes)
+          column-x      (reduce min region-xs)
           ;; the column's top (the y the first region's band starts at) —
           ;; preserve the topmost region's original root y so the stack
           ;; doesn't jump to the canvas origin.
-          column-y      (->> region-nodes
-                             (map #(:y (get positions (:id %) {:y 0})))
-                             (reduce min 0))
+          column-y      (reduce min region-ys)
           ;; 1 + 2 — transpose each region interior, then re-stack containers.
           ;; We fold over the ordered regions, accumulating the running y
           ;; cursor for the vertical column.
@@ -620,10 +628,18 @@
   The chip is lifted to mid-height between the source and target centres
   (the Stately compact mid-height return) and bowed `back-edge-detour-offset`
   px to the LEAVING side (the side the source exits toward — left of the
-  spine for a `:tb` layout, biasing the loop away from the forward column).
-  The `__in` segment runs source → out the side → the lifted chip; the
-  `__out` runs chip → in to the target — a clean detour AROUND the cluster
-  rather than the deep plunge."
+  spine for a `:tb` layout, above the flow row for an `:lr` layout, biasing
+  the loop away from the forward column / row). The `__in` segment runs
+  source → out the side → the lifted chip; the `__out` runs chip → in to the
+  target — a clean detour AROUND the cluster rather than the deep plunge.
+
+  rf2-hpe9ws — the elbow construction MIRRORS the flow axis. For `:tb`
+  (vertical flow) the route leaves the source SIDEWAYS to the side lane
+  (`detour-x`, keeping the source's y) then runs vertically to the lifted
+  chip; for `:lr` (horizontal flow) it must leave the source VERTICALLY to
+  the side lane (`detour-y`, keeping the source's x) then run horizontally
+  to the chip. A `:tb`-shaped elbow on an `:lr` layout would run along the
+  flow row first, crossing the forward edges (the bug)."
   [edge positions direction]
   (let [src (:source edge)
         tgt (:target edge)
@@ -636,8 +652,8 @@
             ;; mid-point between the endpoints (the Stately mid-height return)
             mid-flow {:x (/ (+ (:x sc) (:x tc)) 2)
                       :y (/ (+ (:y sc) (:y tc)) 2)}
-            ;; bow to the LEFT of the spine for :tb (above for :lr) — the
-            ;; quiet side a return route hugs.
+            ;; bow to the LEFT of the spine for :tb (above the row for :lr) —
+            ;; the quiet side a return route hugs.
             detour-x (if tb? (- (:x mid-flow) back-edge-detour-offset) (:x mid-flow))
             detour-y (if tb? (:y mid-flow) (- (:y mid-flow) back-edge-detour-offset))
             ;; the lifted event-node position (top-left): centre the chip at
@@ -648,13 +664,23 @@
                     :y (- detour-y (/ ev-h 2))}
             chip-c {:x detour-x :y detour-y}]
         {:event-pos  ev-pos
-         ;; source centre → side → lifted chip
+         ;; source centre → out the side lane → lifted chip. The elbow leaves
+         ;; the source ORTHOGONAL to the flow axis: sideways (to detour-x) for
+         ;; :tb so it then runs vertically up the lane; upward (to detour-y)
+         ;; for :lr so it then runs horizontally along the lane (rf2-hpe9ws —
+         ;; mirror the elbow, don't reuse the :tb shape).
          :in-points  [sc
-                      {:x detour-x :y (:y sc)}
+                      (if tb?
+                        {:x detour-x :y (:y sc)}
+                        {:x (:x sc) :y detour-y})
                       chip-c]
-         ;; lifted chip → side → target centre
+         ;; lifted chip → in to the target. Mirror: the elbow drops back onto
+         ;; the target ORTHOGONAL to the flow axis — to the target's x then
+         ;; into it for :tb, to the target's y then into it for :lr.
          :out-points [chip-c
-                      {:x detour-x :y (:y tc)}
+                      (if tb?
+                        {:x detour-x :y (:y tc)}
+                        {:x (:x tc) :y detour-y})
                       tc]}))))
 
 (defn reroute-back-edges

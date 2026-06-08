@@ -139,6 +139,47 @@
      :edge-points {}
      :edge-labels {}}))
 
+(defn- row-positions
+  "rf2-hpe9ws — the `:lr` mirror of `col-positions`: lay every REAL state node
+  out in a single horizontal ROW (x = layer index × step) in parse order,
+  with each transition's synthetic event-node placed at the layer to the
+  RIGHT of its source. A back-edge's source is the rightmost state, so its
+  event-node sinks to the far RIGHT (greater x than both endpoints) — the
+  `:lr` analogue of the §4.3.1 sunk signature `col-positions` builds on y.
+
+  Returns `{:positions … :edge-points {} :edge-labels {}}`."
+  [parsed]
+  (let [step 100
+        states (->> (:nodes parsed)
+                    (remove #(or (:region? %) (:root-container? %)
+                                 (:machine-root? %) (:parallel-root? %))))
+        layer-of (into {} (map-indexed (fn [i n] [(:id n) i]) states))
+        state-pos (into {}
+                        (map (fn [n]
+                               [(:id n) {:x (* step (get layer-of (:id n) 0))
+                                         :y 200
+                                         :width 120 :height 50}]))
+                        states)
+        max-layer (reduce max 0 (vals layer-of))
+        event-pos (into {}
+                        (keep (fn [e]
+                                (when (:target e)
+                                  (let [sl (get layer-of (:source e))
+                                        tl (get layer-of (:target e))]
+                                    ;; forward edge: event between source +
+                                    ;; target; back-edge (target left of
+                                    ;; source): event sinks to the far right.
+                                    [(projection/event-node-id e)
+                                     {:x (if (< tl sl)
+                                           (* step (inc max-layer)) ;; sunk right
+                                           (* step (+ sl 0.5)))
+                                      :y 200
+                                      :width 96 :height 34}]))))
+                        (:edges parsed))]
+    {:positions   (merge state-pos event-pos)
+     :edge-points {}
+     :edge-labels {}}))
+
 ;; ====================================================================
 ;; Step 0 — the OPT-IN gate (rf2-lamdfl + rf2-gnrkke redo)
 ;; ====================================================================
@@ -301,6 +342,50 @@
         (is (apply = ys) "transposed children share a y (horizontal row)")
         (is (not (apply = xs)) "transposed children spread on x")))))
 
+(deftest transpose-preserves-positive-region-origin
+  ;; rf2-qp613a — for a root-container-wrapped chart the region containers are
+  ;; positioned relative to the root frame's padding/header, so every region
+  ;; origin is POSITIVE. The column origin must be computed from the ACTUAL
+  ;; region positions, NOT `(reduce min 0 …)` which clamped a positive origin
+  ;; to zero and slid the stacked column up/left into the reserved root chrome.
+  (let [parsed (layout/project-definition parallel-machine)
+        desc   (post-elk/region-descendant-ids parsed)
+        audio-rid (layout/region-node-id :audio)
+        video-rid (layout/region-node-id :video)
+        ;; the root frame reserves chrome: a left padding (60) + a top
+        ;; header band (120). BOTH region containers start at that positive
+        ;; origin (side-by-side: audio at root-x, video offset right).
+        root-x 60
+        root-y 120
+        child-col (fn [ids]
+                    (into {} (map-indexed
+                               (fn [i id] [id {:x 20 :y (+ 40 (* 80 i))
+                                               :width 120 :height 50}])
+                               ids)))
+        positions (merge
+                    {audio-rid {:x root-x        :y root-y :width 200 :height 400}
+                     video-rid {:x (+ root-x 400) :y root-y :width 200 :height 400}}
+                    (child-col (sort (get desc audio-rid)))
+                    (child-col (sort (get desc video-rid))))
+        stub {:positions positions :edge-points {} :edge-labels {}}
+        out  (post-elk/transpose-parallel-regions stub parsed)
+        np   (:positions out)]
+    (testing "the stacked column preserves the leftmost region's POSITIVE x origin"
+      (is (= root-x (:x (get np audio-rid)))
+          "audio container keeps the reserved root x (not clamped to 0)")
+      (is (= root-x (:x (get np video-rid)))
+          "video container left-aligns to the same positive column x"))
+
+    (testing "the stacked column preserves the topmost region's POSITIVE y origin"
+      (is (= root-y (:y (get np audio-rid)))
+          "the topmost (audio) band starts at the reserved root y (not 0)")
+      (is (>= (:y (get np video-rid)) root-y)
+          "the second band stacks below, still inside the reserved frame"))
+
+    (testing "the column does NOT slide into the reserved root chrome"
+      (is (>= (:x (get np audio-rid)) root-x))
+      (is (>= (:y (get np audio-rid)) root-y)))))
+
 (defn- x-overlap?
   "Do two boxes `{:x :width}` overlap along the x-axis (open intervals)? Pure."
   [a b]
@@ -442,6 +527,82 @@
     (testing "both segments are multi-point detour routes"
       (is (>= (count in-points) 3))
       (is (>= (count out-points) 3)))))
+
+(deftest back-edge-detour-lr-mirrors-the-elbow
+  ;; rf2-hpe9ws — on an :lr layout the back-edge detour must MIRROR the elbow:
+  ;; leave the source VERTICALLY to the side lane (above the row), then run
+  ;; horizontally to the lifted chip — NOT run along the flow row first (the
+  ;; :tb elbow shape, which would cross the forward edges).
+  (let [parsed (layout/project-definition door-cyclic-machine)
+        ;; an :lr row layout where the back-edge event-node sank to the far
+        ;; RIGHT of both endpoints (the :lr sunk signature).
+        stub   (row-positions parsed)
+        positions (:positions stub)
+        back-e (first (filter (fn [e]
+                                (and (= (:source e) (layout/node-id [:alarming]))
+                                     (= (:target e) (layout/node-id [:locked]))))
+                              (:edges parsed)))]
+    (testing "the :lr back-edge IS detected (its event-node sank to the right)"
+      (is (true? (post-elk/back-edge? back-e positions :lr))))
+
+    (let [sc (#'post-elk/node-center positions (:source back-e))
+          tc (#'post-elk/node-center positions (:target back-e))
+          {:keys [event-pos in-points out-points]}
+          (post-elk/back-edge-detour back-e positions :lr)
+          ev-w   projection/event-node-elk-width
+          ev-h   projection/event-node-elk-height
+          chip-cx (+ (:x event-pos) (/ ev-w 2))
+          chip-cy (+ (:y event-pos) (/ ev-h 2))
+          in-elbow  (second in-points)
+          out-elbow (second out-points)]
+      (testing "the chip is lifted ABOVE the flow row (bowed off the :lr spine on y)"
+        (is (< chip-cy (:y sc))
+            "rerouted chip y is above the source/target row")
+        (is (= (:y sc) (:y tc))
+            "sanity: the :lr endpoints share the flow row"))
+
+      (testing "the chip lands mid-WIDTH between the endpoints (the :lr flow axis)"
+        (is (<= (min (:x sc) (:x tc)) chip-cx (max (:x sc) (:x tc)))))
+
+      (testing "the __in elbow leaves the source VERTICALLY (keeps source x, drops to the lane y)"
+        ;; the bug used {:x detour-x :y (:y sc)} — running along the flow row
+        ;; first. The :lr mirror keeps the source's x and moves to the lane y.
+        (is (= (:x sc) (:x in-elbow))
+            "the in-elbow shares the source's x (leaves vertically, not along the row)")
+        (is (= chip-cy (:y in-elbow))
+            "the in-elbow drops to the side-lane y before running horizontally"))
+
+      (testing "the __out elbow re-enters the target VERTICALLY (keeps target x at the lane y)"
+        (is (= (:x tc) (:x out-elbow))
+            "the out-elbow shares the target's x (drops onto the target vertically)")
+        (is (= chip-cy (:y out-elbow))
+            "the out-elbow stays at the lane y until it is above the target")))))
+
+(deftest back-edge-detour-tb-keeps-its-elbow
+  ;; rf2-hpe9ws — guard the :tb branch is UNCHANGED by the mirror: the :tb
+  ;; elbow still leaves the source SIDEWAYS (to the side lane x) keeping the
+  ;; source's y, the historical shape.
+  (let [parsed (layout/project-definition door-cyclic-machine)
+        stub   (col-positions parsed)
+        positions (:positions stub)
+        back-e (first (filter (fn [e]
+                                (and (= (:source e) (layout/node-id [:alarming]))
+                                     (= (:target e) (layout/node-id [:locked]))))
+                              (:edges parsed)))
+        sc (#'post-elk/node-center positions (:source back-e))
+        tc (#'post-elk/node-center positions (:target back-e))
+        {:keys [in-points out-points]}
+        (post-elk/back-edge-detour back-e positions :tb)
+        in-elbow  (second in-points)
+        out-elbow (second out-points)]
+    (testing "the :tb __in elbow keeps the source's y and moves to the side lane x"
+      (is (= (:y sc) (:y in-elbow))
+          "the in-elbow shares the source's y (leaves sideways, the :tb shape)")
+      (is (not= (:x sc) (:x in-elbow))
+          "the in-elbow moves off the spine x to the side lane"))
+    (testing "the :tb __out elbow keeps the target's y and stays on the side lane x"
+      (is (= (:y tc) (:y out-elbow))
+          "the out-elbow shares the target's y (the :tb shape)"))))
 
 (deftest reroute-back-edges-rewrites-positions-and-routes
   (let [parsed (layout/project-definition door-cyclic-machine)
