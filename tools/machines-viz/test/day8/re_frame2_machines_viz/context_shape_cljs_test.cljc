@@ -109,15 +109,73 @@
           "quoted predicate symbols map onto number / string captions"))))
 
 (deftest non-map-schema-falls-back-to-inferred
-  (testing "rf2-3q4k5b — a non-`:map` `:data-schema` (validates :data as a
-            whole, no per-key table) yields no declared shape; the derivation
-            falls back to the inferred `:data` sample."
+  (testing "rf2-3q4k5b — a `:data-schema` that is NOT (and does not WRAP) a
+            `:map` — it validates :data as a whole, no per-key table — yields
+            no declared shape; the derivation falls back to the inferred
+            `:data` sample."
     (let [result (cs/static-context-shape
                    {:initial     :s
                     :data        {:n 1}
-                    :data-schema [:and [:map [:n :int]] [:fn 'some?]]
+                    ;; A scalar/refinement schema with no contained :map.
+                    :data-schema [:and :int [:fn 'pos?]]
                     :states      {:s {}}})]
-      ;; The top-level head is :and, not :map → no per-key declared table.
       (is (= {:n "number"} (:shape result)))
       (is (true? (:inferred? result))
           "non-:map schema → fall back to inferred from the :data sample"))))
+
+;; ---- declared-over-inferred: empty + wrapped map schemas (rf2-2btfzr) ---
+
+(deftest empty-map-schema-is-declared-not-inferred
+  (testing "rf2-2btfzr — a declared-but-EMPTY `[:map]` is AUTHORITATIVE: an
+            empty shape with `:inferred? false`. Declared-but-empty ≠
+            undeclared — the misleading one-sample `:data` keys MUST NOT be
+            inferred (EP-0005 declared-over-inferred contract)."
+    (let [result (cs/static-context-shape
+                   {:initial     :s
+                    ;; A partial/misleading sample that, pre-fix, leaked
+                    ;; through as inferred context.
+                    :data        {:secret 1 :nonce "x"}
+                    :data-schema [:map]
+                    :states      {:s {}}})]
+      (is (= {} (:shape result))
+          "empty `[:map]` → empty authoritative shape, not the :data sample")
+      (is (false? (:inferred? result))
+          "declared (even empty) → inferred? false")
+      (is (not (contains? (:shape result) :secret))
+          "undeclared sample key :secret is NOT rendered as inferred context")
+      (is (not (contains? (:shape result) :nonce))
+          "undeclared sample key :nonce is NOT rendered as inferred context"))))
+
+(deftest empty-closed-map-schema-is-declared-not-inferred
+  (testing "rf2-2btfzr — a declared-but-empty `[:map {:closed true}]` (an
+            opening props map, no entries) is likewise AUTHORITATIVE-empty,
+            not inferred."
+    (let [result (cs/static-context-shape
+                   {:initial     :s
+                    :data        {:secret 1}
+                    :data-schema [:map {:closed true}]
+                    :states      {:s {}}})]
+      (is (= {} (:shape result))
+          "empty closed `[:map …]` → empty authoritative shape")
+      (is (false? (:inferred? result)))
+      (is (not (contains? (:shape result) :secret))
+          "undeclared sample key is NOT rendered as inferred context"))))
+
+(deftest wrapped-map-schema-is-declared-not-inferred
+  (testing "rf2-2btfzr — a `:map` WRAPPED in a Malli refinement (`[:and [:map
+            …] [:fn …]]`) is unwrapped: the contained `:map`'s declared keys
+            win, and undeclared sample keys are NOT inferred."
+    (let [result (cs/static-context-shape
+                   {:initial     :s
+                    ;; The sample carries an EXTRA undeclared key :secret —
+                    ;; pre-fix this leaked through as inferred context because
+                    ;; the :and head was treated as non-:map.
+                    :data        {:n 1 :secret 99}
+                    :data-schema [:and [:map [:n :int]] [:fn 'some?]]
+                    :states      {:s {}}})]
+      (is (= {:n "number"} (:shape result))
+          "unwrapped `:map`'s declared key :n wins; :secret is excluded")
+      (is (false? (:inferred? result))
+          "wrapped declared `:map` → inferred? false (authoritative)")
+      (is (not (contains? (:shape result) :secret))
+          "undeclared sample key :secret is NOT rendered as inferred context"))))
