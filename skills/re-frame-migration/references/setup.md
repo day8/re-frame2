@@ -16,11 +16,11 @@ Operational detail for two early steps: the **React-19 / Reagent-2 floor gate** 
 
 ## The React-19 / Reagent-2 floor gate (pre-flight — run before M-0)
 
-> **This is a go/no-go gate, not a footnote.** Run all four checks below *before* you touch any dep coord. For a codebase already on React 19 it is a fast pass — read the four checks, confirm each, move on. For the rest of the v1 population (overwhelmingly React 17/18 + Reagent 1.x) this gate is the single largest and riskiest part of the whole migration, and the blocking case (check 2) must be discovered here — not deep inside a failed compile loop after the coord swap.
+> **This is a go/no-go gate, not a footnote.** Run all five checks below *before* you touch any dep coord. For a codebase already on React 19 *and* a current build toolchain it is a fast pass — read the checks, confirm each, move on. For the rest of the v1 population (overwhelmingly React 17/18 + Reagent 1.x, often on a years-old shadow-cljs) this gate is the single largest and riskiest part of the whole migration, and the blocking cases — the component-library blocker (Check 2) and the toolchain-skew compile failure (Check 4) — must be discovered here, not deep inside a failed compile loop after the coord swap.
 
 **Why this comes first.** re-frame2's substrate adapters target React 19. The `day8/re-frame2-reagent` bridge runs on Reagent 2.x, which ships against React 19 (it loads `reagent.dom.client` — the `createRoot` path); Reagent 1.x is no longer supported. UIx and Helix hit the same floor — all three substrates target React 19. So a v1 codebase on React 17/18 must clear a forced React → 19 (and, for Reagent, Reagent → 2.x) upgrade *and the cascade it drags in* — the component library, React-coupled JS deps, and any hand-rolled render call site — before the coord swap can succeed. If `package.json` still pins `react`/`react-dom` to 17 or 18 when the swap lands, the build either fails at module-resolve time or compiles and then crashes on first render against React-19-only API surfaces.
 
-The four checks, in order:
+The five checks, in order (Checks 1–3 are the React side; Check 4 is the ClojureScript-toolchain side; Check 5 is the go/no-go):
 
 ### Check 1 — Downstream React-lib compatibility audit
 
@@ -55,12 +55,30 @@ Scan the source for surviving hand-rolled React-DOM **legacy** call sites — ch
 
 Most v1 codebases route their root mount through Reagent and never call `ReactDOM.render` directly, so this is usually empty — but a flag here, found pre-flight, is far cheaper than a runtime crash. A read-only search such as `rg -n 'ReactDOM\.(render|hydrate|unmountComponentAtNode)'` over the source tree surfaces them; flag each for the author.
 
-### Check 4 — Explicit go / no-go
+### Check 4 — CLJS / shadow-cljs / Closure-compiler toolchain-skew check (hits almost every older shadow-cljs app)
+
+Checks 1–3 cover the **React side** of the floor. This check covers the **ClojureScript side** — the `ClojureScript ↔ shadow-cljs ↔ Closure-compiler` coupling — and it is just as much a pre-flight blocker, because it surfaces as a *compile* failure that **looks like a migration bug but is pure toolchain skew**.
+
+**The coupling.** re-frame2 core pins a recent ClojureScript, which in turn carries a recent **Google Closure Compiler**. shadow-cljs invokes the Closure compiler through internal classes whose field/method signatures track the Closure version. If the project's shadow-cljs predates the Closure that re-frame2's CLJS pin drags in, the **older shadow-cljs calls a Closure internal that has changed shape** — and the build dies with a cryptic JVM-level error, *not* a re-frame error:
+
+```
+java.lang.NoSuchFieldError: ... shadow.build.closure.JsInspector ... (e.g. a Node / PARSE_RESULTS field)
+```
+
+This is **not** a migration bug, a coord conflict, or anything in the app's own source. It is shadow-cljs and the Closure compiler being out of lockstep — the older shadow-cljs binary was compiled against an older Closure API surface than the one now on the classpath via the newer CLJS.
+
+**What to check.** Compare the project's `shadow-cljs` version (in `package.json` `devDependencies`, or `shadow-cljs.edn`'s own dep) and its ClojureScript pin against the versions re-frame2 builds with. The authoritative reference is **re-frame2's own `implementation/package.json` (the `shadow-cljs` pin) and `implementation/core/deps.edn` (the `org.clojure/clojurescript` pin)** in the pinned checkout — read the actual values there rather than hard-coding a number, since they move release to release. (At the time of writing the reference builds against **shadow-cljs `3.4.10`** and **ClojureScript `1.12.145`**.)
+
+**What to do.** If the project's shadow-cljs (and/or its CLJS pin) predates re-frame2's, **bump shadow-cljs to the version re-frame2 builds with** (and let the newer CLJS ride in via the re-frame2 deps, or bump the project's explicit CLJS pin to match). This is a `package.json` `devDependencies` edit (`"shadow-cljs": "<reference-version>"`) plus a `npm install` — the **author** runs the install (cardinal rule 5); the skill identifies the skew and prints the target version. A shadow-cljs from the same era as the project's old CLJS will almost always be too old, so for any v1 app that has not touched its build toolchain recently, **expect this bump** — surface it in the gate rather than letting it detonate as a `NoSuchFieldError` mid-compile, where it reads like a migration failure and sends the operator chasing a non-existent re-frame bug.
+
+(Distinct from the **classpath-collision** edge case below, which is a *coord conflict* over `re-frame/re-frame`. This is a *version-skew* between two build-tool components, not a duplicate dependency — different symptom, different fix.)
+
+### Check 5 — Explicit go / no-go
 
 Decide and record the gate outcome before proceeding:
 
-- **GO** — React already at 19 (or cleanly bumpable), and every Check-1/Check-2 library has a React-19-compatible target **or an empirically-verified runtime pass** (Check-2 option 4), and Check-3 is empty or its call sites are slated for the `createRoot` rewrite. Carry the React/Reagent bump and any component-lib bumps into the M-0 pass below, then continue. (For a project already on React 19 with a React-19-ready component library, this is the fast path — the gate adds minutes, not weeks.)
-- **NO-GO** — any Check-2 component library (or a load-bearing Check-1 dep) has no React-19 release **and** no empirical runtime pass. **Stop here.** Do not edit any dep coord. Report the blocker and the options to the author; the migration resumes once the blocker is resolved.
+- **GO** — React already at 19 (or cleanly bumpable), and every Check-1/Check-2 library has a React-19-compatible target **or an empirically-verified runtime pass** (Check-2 option 4), and Check-3 is empty or its call sites are slated for the `createRoot` rewrite, and Check-4's shadow-cljs/CLJS toolchain is current or slated to be bumped to the reference version. Carry the React/Reagent bump, any component-lib bumps, and the shadow-cljs bump into the M-0 pass below, then continue. (For a project already on React 19 with a React-19-ready component library and a current toolchain, this is the fast path — the gate adds minutes, not weeks.)
+- **NO-GO** — any Check-2 component library (or a load-bearing Check-1 dep) has no React-19 release **and** no empirical runtime pass. **Stop here.** Do not edit any dep coord. Report the blocker and the options to the author; the migration resumes once the blocker is resolved. (Check-4 toolchain skew is **not** a NO-GO — it is a known, mechanical shadow-cljs bump carried into M-0; flag it so it isn't mistaken for a migration bug mid-compile.)
 
 **The React/Reagent bump itself**, once the gate is GO. If `package.json` pins `react`/`react-dom` to 17 or 18, bump both to `^19` (Reagent users are simultaneously on Reagent 2.x — that rides in via the `day8/re-frame2-reagent` adapter, not a separate `package.json` pin unless the project pins Reagent directly):
 
