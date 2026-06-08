@@ -18,6 +18,7 @@ Most concepts map cleanly. A handful of slots re-frame2 **deliberately renames o
 | **actions** (`actions` / named actions) | `:action` / `:entry` / `:exit` + the top-level `:actions` map | Convergence on the *name*. **Divergence:** no action-vector `[a1 a2 a3]` per slot — one fn or one named registered compound. `:entry`/`:exit` are a single fn or single keyword, never vectors. |
 | **`assign({...})`** | action returns `{:data new-data}` (and/or `{:fx [...]}`) | **Divergence (name/shape):** no `[:assign {...}]` form. Symmetric with `reg-event-fx`'s `{:db :fx}`. The invariant matches xstate's `assign` though: callbacks may only update `:data` — they cannot nudge the machine into an undeclared state. |
 | **`context`** (extended state) | `:data` (the machine's private map, distinct from `app-db`) | **Divergence (name):** re-frame2 calls the slot `:data`, tracking FSM / `gen_statem` "state data" vocabulary and avoiding re-frame's already-overloaded "context" (interceptor pipeline + React context). |
+| **typed `context`** (`setup({ types: { context } })`) | `:data-schema` (top-level Malli validator for `:data`) | Convergence on the role — both declare the context's shape and make it tool-renderable. **Divergence (enforcement):** XState's typed context is compile-time-only and erased at runtime; re-frame2's `:data-schema` is an *actually-running* Malli validation in dev (and an opt-in at production boundaries), at zero production cost. See §Declaring a `:data-schema`. |
 | **`invoke`** (state-bound child actor) | `:spawn` (and `:spawn-all` for fan-out-and-join) | **Divergence (name):** the most semantically-loaded slot is renamed on purpose, to break the "almost-correct xstate code" trap and align with the imperative `:rf.machine/spawn` fx. No `:onSnapshot`/`autoForward`/multiple-`:invoke`-per-state. See `spawn.md`. |
 | **`invoke onError`** (child→parent failure **transition**) | `:spawn`'s `:on-error` transition + `:error? true` final leaf | Convergence — re-frame2 ships `invoke onError` first-class as a control-flow **transition** (not observability-only). The child designates an error terminal with `:final? true :error? true`; the parent's `:spawn` declares `:on-error` (an `:on`-shaped transition spec). See `spawn.md` §`:on-error`. |
 | **`onDone`** (child→parent completion) | `:final?` leaf + parent `:spawn`'s `:on-done` + `:output-key` | Convergence — re-frame2 ships first-class final-state-with-parent-notification. See `spawn.md`. |
@@ -89,7 +90,7 @@ The basic (non-parallel, non-hierarchical) form:
 (rf/dispatch [:my/feature [:start]])
 ```
 
-The machine map's top-level keys are documented in Spec 005 §Transition table top-level keys: `:initial` (the entry state for non-parallel machines), `:data` (initial shared data), `:guards` and `:actions` (named lookup tables), `:states` (the transition table). For parallel machines, `:type :parallel` + `:regions` replaces `:initial` + `:states` — see `regions.md`.
+The machine map's top-level keys are documented in Spec 005 §Transition table top-level keys: `:initial` (the entry state for non-parallel machines), `:data` (initial shared data), `:data-schema` (optional Malli validator for `:data` — see §Declaring a `:data-schema`), `:guards` and `:actions` (named lookup tables), `:states` (the transition table). For parallel machines, `:type :parallel` + `:regions` replaces `:initial` + `:states` — see `regions.md`.
 
 ## State-node shape
 
@@ -142,6 +143,45 @@ Per the inspectability bias (Spec 005 §Inspectability bias): named entries surf
 Every callback receives **one context map** — `(fn [{:keys [data event state meta]}] ...)` — and destructures the keys it needs. `data` is the snapshot's `:data` slot (a plain map); `event` is the inbound event vector; `state` is the discrete FSM keyword; `meta` is any user `:meta` on the snapshot. Actions return `{:data new-data :fx [...]}` (either key optional); guards return truthy/falsey. See `call-guard` and `call-action` in `re-frame.machines.transition`.
 
 There is **no positional `(data event)` arity and no opt-in 3-arity escape hatch** — the runtime always delivers the full context map and the destructure pattern decides what's bound. `:state` and `:meta` are available for introspection with no flag (Spec 005 §Snapshot introspection — `:state` / `:meta`). The uniform single-map shape is deliberate: it eliminates the paste-from-`:guard`-into-`:on-spawn` trap (an `id` silently bound to the event vector, or vice-versa) that slot-specific positional signatures would create.
+
+## Declaring a `:data-schema`
+
+A machine's `:data` slot is its *context* in xstate terms — the value it carries across transitions. A machine spec MAY declare an optional top-level **`:data-schema`** key: a Malli validator for that `:data`. The key is unqualified, like `:data` / `:guards` / `:actions`:
+
+```clojure
+(def AuthData
+  [:map
+   [:retries :int]
+   [:token   {:sensitive? true} [:maybe :string]]])
+
+(rf/reg-machine :session/auth
+  {:initial     :anon
+   :data        {:retries 0 :token nil}
+   :data-schema AuthData
+   :states      {:anon           {:on {:login :authenticating}}
+                 :authenticating {...}
+                 :authed         {...}}})
+```
+
+It is spelled `:data-schema`, not the bare `:schema` every other `reg-*` kind uses, because the machine spec is the *only* registration surface where the validated value has a visible sibling key — `:data` and `:data-schema` sit side by side, so the key says exactly what it validates at the point of greatest ambiguity. The schema governs the user-domain `:data` only: the snapshot's `:state` is validated structurally at registration (an unknown transition target fails with `:rf.error/machine-unresolved-target`), and the reserved `:rf/*` snapshot slots are framework-owned.
+
+**What it buys you — three things:**
+
+1. **Validation.** In dev builds (`re-frame.interop/debug-enabled?` is `true`) the runtime validates `:data` against the schema at every macrostep-commit boundary, at bootstrap, and at spawn time. A violation emits `:rf.error/schema-validation-failure` with `:where :machine-data` and rolls back the whole cascade (the same lifecycle position and rollback the `:where :app-db` check uses). Under `:advanced` + `goog.DEBUG=false` the validation site DCEs to a no-op — dev-only by default; for production validation at a system boundary (e.g. an SSR-hydrate that restores a machine snapshot from the wire) reach for the `:rf.schema/at-boundary` interceptor on that specific event.
+
+2. **Declared context shape.** With a `:data-schema` present, a machine visualiser renders the context shape **authoritatively** from the declared `[:map [k type] …]` entries — the re-frame2 analog of XState v5's typed context (which Stately's inspector renders as a `Context:` header). Without a schema, a viz can only *infer* key→type from one sample of the initial `:data`, which a partial initial map can mislead. Declaring the schema turns that one-sample guess into a reliable, reader-trustable contract.
+
+3. **`:sensitive?` redaction.** A `:sensitive?` (or `:large?`) Malli property on a `:data` slot — `[:token {:sensitive? true} [:maybe :string]]` above — marks that slot for redaction at trace / wire egress, so the value does not leak raw into a transition trace, an inspector snapshot, or the epoch wire. (For coarse, whole-machine redaction, putting `:sensitive? true` in the `reg-machine` *registration metadata* stamps every `:rf.machine/*` event in the machine's cascade — the per-slot schema property is the finer-grained surface for redacting only specific keys.)
+
+```clojure
+;; Whole-machine redaction via registration metadata:
+(rf/reg-machine :session/auth {:doc "…" :sensitive? true} AuthMachineSpec)
+;; vs per-slot redaction via the :data-schema property (above) — redact :token only.
+```
+
+A machine with **no** `:data-schema` is unchanged: its `:data` is free-form and unvalidated, and a viz infers (and badges as inferred) its context shape.
+
+See Spec 005 §Schema validation and §`:data-schema` is the re-frame2 analog of XState v5 typed context for the full contract.
 
 ## Subscribing to a machine
 
