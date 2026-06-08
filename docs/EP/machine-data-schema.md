@@ -1,4 +1,6 @@
-# EP: Machine `:data` Schema (`defmachine` `:data-schema`)
+# EP-0005: Machine `:data` Schema (`defmachine` `:data-schema`)
+
+Number: EP-0005
 
 Status: proposal
 
@@ -7,6 +9,8 @@ Type: Standards Track
 Date: 2026-06-08
 
 Created: 2026-06-08
+
+Author: re-frame2 maintainers
 
 Target Artifact: `day8/re-frame2-machines`
 
@@ -224,6 +228,21 @@ other (CLARITY-of-name vs cross-registration-consistency).
 - The app/runtime partition rename of `[:rf/runtime :machines :snapshots]` →
   `[:rf.runtime/machines :snapshots]`. That is the App/Runtime Partition EP's
   concern; this EP uses today's path and sequences after it if both land.
+
+## Relationships
+
+This EP is largely independent but shares one path with the partition EP.
+
+- **Sequences after the app/runtime partition rename.** This EP's redaction
+  bridge targets the machine-snapshot path `[:rf/runtime :machines :snapshots]`,
+  which the [App/Runtime Partition EP](app-db-runtime-partition.md) (listed under
+  `Requires`) renames to `[:rf.runtime/machines :snapshots]`. If both land, the
+  redaction-bridge work sequences *after* the partition rename so it targets the
+  final path. The two are otherwise independent.
+- **In-bead relationships.** For the relationship to the closed beads `rf2-wto1k`
+  (deferred declared-context option A) and `rf2-5tz9p` (inferred-context badge),
+  see [Relationship To `rf2-5tz9p` And `rf2-wto1k`](#relationship-to-rf2-5tz9p-and-rf2-wto1k)
+  below.
 
 ## Benchmark Standard And Prior Art
 
@@ -515,7 +534,7 @@ introduced — `:data-schema` is an unqualified spec-map key like `:data` /
 - machines-viz infers `Context: count: number` badged "inferred from :data"
   (`rf2-5tz9p`), exactly as today.
 
-## Alternatives Considered
+## Rejected Ideas
 
 ### A. Status quo — keep `:schema`, do nothing else
 
@@ -563,6 +582,25 @@ project ships no external alpha yet, the only consumers are in-repo testbeds,
 examples, and tests, all updated in the same work. A short-lived registration
 diagnostic — *"machine spec carries `:schema`; rename to `:data-schema`"* — can
 ease the in-repo migration during implementation, then be removed.
+
+## Migration
+
+Migration is in-repo only and mechanical (option B):
+
+- **Rename the key.** `(:schema spec)` → `(:data-schema spec)` in
+  `data_validation.cljc`, the `machine-meta` round-trip, and every in-repo machine
+  spec, testbed, example, and test that declares a machine `:data` schema. This is
+  a one-token edit per machine spec.
+- **Drive legacy usage loud.** Ship the short-lived `:schema`-present registration
+  diagnostic during the rename so any missed call site surfaces, then remove it.
+  (Whether to ship the diagnostic at all or do a silent atomic in-repo rename is
+  [Open Issue 4](#open-issues).)
+- **No app-side migration.** With no external alpha, there are no downstream
+  consumers; the rename is contained to this repo and lands in the same work.
+
+The redaction bridge and machines-viz changes (gaps 2–3) add new behavior rather
+than migrating existing usage; their sequencing is in the
+[Reference Implementation Plan](#reference-implementation-plan-if-adopted) below.
 
 ## Security And Privacy Considerations
 
@@ -623,7 +661,7 @@ Sequential, because spec/005 is a machines HOT-ZONE file.
 6. **Docs/examples bead.** Update any in-repo machine spec using `:schema` →
    `:data-schema`; refresh the machines guide if it teaches the key.
 
-## Open Questions (for Mike)
+## Open Issues
 
 1. **Naming (the load-bearing one).** Rename `:schema` → `:data-schema`
    (option B, recommended — local clarity + your ruling A) or keep `:schema`
@@ -640,6 +678,23 @@ Sequential, because spec/005 is a machines HOT-ZONE file.
    consumers yet)?
 5. **Scope of the spec edit.** Should the §XState-parity subsection live in
    spec/005 (recommended, beside §Schema validation) or in a machines guide doc?
+
+## Recommendation
+
+Adopt **Option B**: rename `defmachine`'s existing `:schema` key to
+`:data-schema` for the machine's `:data` (its context, the re-frame2 analog of
+XState v5 typed context), and close the remaining gaps.
+
+The rename buys local clarity — the key now names what it validates — and the work
+that follows is the real engineering: close the schema→marks **redaction** bridge
+so `:sensitive?` slots are elided in snapshot egress (gap 2, precise per-slot R1),
+switch machines-viz to **declared-over-inferred** Context shape (gap 3, the
+deferred `rf2-wto1k` option A), and document the XState-v5 parity (gap 4). Validation
+itself already shipped under `rf2-jbbp7`, so this EP corrects the premise that
+machine `:data` is un-schema'd and finishes the documented-but-non-functional
+privacy capability. The final naming call is Mike's (see [Open
+Issues](#open-issues)), because it inverts the "mirrors every other `reg-*` kind"
+symmetry rationale Spec 005 currently uses.
 
 ## Sources Consulted
 

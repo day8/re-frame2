@@ -9,25 +9,17 @@ EPs are *proposals*, not normative specification. The normative artefact remains
 ## Conventions
 
 - One EP per file, **flat** in this directory, kebab-case named, each self-contained.
-- Front matter: a one-line `Status:` (`proposal` / `accepted` / `superseded`), a `Date:`, and a `Related:` list of guide/spec links.
-- Add new EPs to the table below and to the `EP` section of [`mkdocs.yml`](https://github.com/day8/re-frame2/blob/main/mkdocs.yml).
+- Each EP carries a stable PEP-style **number** (`EP-0001`, `EP-0002`, …) assigned in `Created`-date order (oldest = `EP-0001`). The number lives in the doc's header metadata (`Number:`), its H1 title, and the index below. Numbers are stable and never reused; the descriptive filename is kept (the number does not rename the file).
+- Header metadata block: `Number`, `Status` (`proposal` / `accepted` / `superseded`), `Type`, `Date`, `Created`, `Author`, `Target Artifact`, and `Requires` (dependency EPs/specs). Inter-EP dependencies live **in each EP** — its `Requires:` header and a `Relationships` section — not here.
+- Standard sections, modelled on [`subscription-inputs.md`](subscription-inputs.md): Abstract, Motivation, Goals/Non-Goals, Relationships, Specification, Rationale / Runtime Semantics, Backwards Compatibility, Migration, Rejected Ideas, Open Issues, Recommendation.
+- Add new EPs to the table below (next free number) and to the `EP` section of [`mkdocs.yml`](https://github.com/day8/re-frame2/blob/main/mkdocs.yml).
 
 ## Index
 
-| EP | Status | Summary |
-|----|--------|---------|
-| [App/Runtime Partition](app-db-runtime-partition.md) | proposal | A frame owns two durable partitions — user-owned **app-db** (`:db`) and framework-owned **runtime-db** (`:rf.db/runtime`) — committed coherently by one cascade. Removes the footgun where an ordinary `:db` return silently clobbers machine / routing / elision / SSR runtime state, while preserving one coherent app+runtime snapshot for time-travel and SSR. |
-| [Explicit Frame Target Resolution](frame-target-resolution.md) | proposal | Remove ambient `:rf/default` fallback. Frame-scoped operations must resolve their target from explicit frame context (frame id/handle, provider, cascade, lexical binding, or tool/session target), and missing context fails instead of mutating or reading the wrong frame. |
-| [Parametric Subscription Inputs](subscription-inputs.md) | proposal | Restore the useful part of re-frame v1's two-function `reg-sub` shape by adding input functions that return a vector of query vectors. Keep `:<-` as static-input sugar while making query-vector-parametric subscription dependencies pure, inspectable, JVM-runnable, and Xray-visible. |
-| [Resource Queries](resource-queries.md) | proposal | An optional `day8/re-frame2-resources` artefact for declarative server-state — the re-frame2 answer to TanStack Query / RTK Query / SWR / `shipclojure/re-frame-query`. Resource identity, caching, staleness, dedupe, tag invalidation, active-owner lifecycle/GC, route + SSR preload, built on managed-HTTP (Spec 014) and the runtime partition. |
-| [Machine `:data` Schema](machine-data-schema.md) | proposal | Rename `defmachine`'s existing `:schema` key → `:data-schema` for the machine's `:data` (its context), the re-frame2 analog of XState v5 typed context. Corrects the premise that machine `:data` is un-schema'd (validation already shipped under rf2-jbbp7); the real work is closing the schema→marks **redaction** bridge so `:sensitive?` slots are elided in snapshot egress, switching machines-viz to **declared-over-inferred** Context shape (the deferred wto1k option-A), and documenting the XState parity. |
-
-## Relationships
-
-The **App/Runtime Partition** EP is foundational: **Resource Queries** stores its cache in the framework-owned runtime partition (`:rf.runtime/resources`) that EP introduces, so the partition should land (or its key vocabulary be fixed) before resources rely on it.
-
-The **Explicit Frame Target Resolution** EP is a cross-cutting safety proposal. It should be resolved before large frame-aware features such as resource queries, Xray control surfaces, SSR hydration helpers, and work-ledger tooling harden their public APIs.
-
-The **Parametric Subscription Inputs** EP is a Reactive Substrate proposal. It should be resolved before resource-query, route-model, or Hasura helpers lean on parameterized subscription view models, because it determines whether those helpers use static `:<-`, vector-of-query-vectors input functions, or broader app-db reads.
-
-The **Machine `:data` Schema** EP touches the same `[:rf/runtime :machines :snapshots]` path the **App/Runtime Partition** EP renames to `[:rf.runtime/machines :snapshots]`; if both land, the machine-data-schema redaction-bridge work sequences after the partition rename so it targets the final path. It is otherwise independent.
+| EP | Title | Status | Summary |
+|----|-------|--------|---------|
+| [EP-0001](app-db-runtime-partition.md) | Frame App/Runtime Partitions | proposal | A frame owns two durable partitions — user-owned **app-db** (`:db`) and framework-owned **runtime-db** (`:rf.db/runtime`) — committed coherently by one cascade, removing the footgun where a fresh `:db` return clobbers runtime state. |
+| [EP-0002](frame-target-resolution.md) | Explicit Frame Target Resolution | proposal | Remove the ambient `:rf/default` fallback; frame-scoped operations resolve their target from explicit frame context, and missing context fails instead of touching the wrong frame. |
+| [EP-0003](resource-queries.md) | Resource Queries | proposal | An optional `day8/re-frame2-resources` artefact for declarative server-state — the re-frame2 answer to TanStack Query / RTK Query / SWR — with resource identity, caching, invalidation, lifecycle/GC, and route + SSR preload. |
+| [EP-0004](subscription-inputs.md) | Parametric Subscription Inputs | proposal | Restore v1's two-function `reg-sub` shape via input functions that return a vector of query vectors, keeping `:<-` as static-input sugar and dependencies pure, inspectable, JVM-runnable, and Xray-visible. |
+| [EP-0005](machine-data-schema.md) | Machine `:data` Schema | proposal | Rename `defmachine`'s `:schema` key to `:data-schema` for the machine's `:data` context, close the schema→marks redaction bridge, switch machines-viz to declared-over-inferred Context shape, and document XState v5 parity. |

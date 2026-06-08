@@ -242,11 +242,11 @@ nav:
 
   - EP:
     - EP/README.md
-    - "App/Runtime Partition": EP/app-db-runtime-partition.md
-    - "Explicit Frame Target Resolution": EP/frame-target-resolution.md
-    - "Parametric Subscription Inputs": EP/subscription-inputs.md
-    - "Resource Queries": EP/resource-queries.md
-    - "Machine :data Schema": EP/machine-data-schema.md
+    - "EP-0001 Frame App/Runtime Partitions": EP/app-db-runtime-partition.md
+    - "EP-0002 Explicit Frame Target Resolution": EP/frame-target-resolution.md
+    - "EP-0003 Resource Queries": EP/resource-queries.md
+    - "EP-0004 Parametric Subscription Inputs": EP/subscription-inputs.md
+    - "EP-0005 Machine :data Schema": EP/machine-data-schema.md
 
   - API:
     # Section label IS the API overview page (navigation.indexes, rf2-qgpkm).

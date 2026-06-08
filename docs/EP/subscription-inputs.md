@@ -1,4 +1,6 @@
-# EP: Parametric Subscription Inputs
+# EP-0004: Parametric Subscription Inputs
+
+Number: EP-0004
 
 Status: proposal
 
@@ -7,6 +9,8 @@ Type: Standards Track
 Date: 2026-06-08
 
 Created: 2026-06-08
+
+Author: re-frame2 maintainers
 
 Target Artifact: `day8/re-frame2-core`
 
@@ -143,6 +147,23 @@ programmers, Xray, tests, and AI agents.
 - Do not allow ordinary input functions to choose dependencies from app-db.
 - Do not make subscriptions perform fetching or other effects.
 - Do not make every possible parametric edge enumerable at registration time.
+
+## Relationships
+
+This is a Reactive Substrate proposal that other view-model EPs build on:
+
+- **Resolves before resource/route/Hasura subscription view-models.** This EP
+  should be resolved before the [Resource Queries EP](resource-queries.md), the
+  route-model helpers, or Hasura helpers lean on parameterized subscription view
+  models, because it determines whether those helpers use static `:<-`,
+  vector-of-query-vectors input functions, or broader app-db reads. Downstream
+  view-model surfaces should not commit a subscription-input shape until this EP
+  is resolved.
+- **Composes with explicit frame target resolution.** Input query vectors are
+  frame-agnostic data; the runtime resolves them in the frame of the outer
+  subscription. See the [Explicit Frame Target Resolution
+  EP](frame-target-resolution.md) (listed under `Requires`) and the
+  [§Frame resolution](#frame-resolution) section below.
 
 ## Specification
 
