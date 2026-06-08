@@ -56,7 +56,7 @@ The point: walk this list against **every** inventoried add-on's source in **one
 
 Separately from the add-ons, grep the **app's own source** for the v1 feature surfaces that trip an M/O-rule. This is the same trigger-surface scan `references/breaking-changes.md` indexes — run it up front rather than discovering each on a compile. The high-frequency ones:
 
-> **This step is where the SILENT-fail rules get caught — and the only place.** Several surfaces below (`{:db fresh}` boots → M-15b, top-level `:dispatch` keys → M-8, the signal-fn `reg-sub` → M-71, `^:flush-dom` → M-16) **compile clean** and break only at runtime ([`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)). They live in **application code**, not dependency surfaces — so a dependency scan never sees them, and the compile gives you no wall to hit. This up-front app-source grep is the exhaustive sweep that finds them; the [boot smoke-test](runtime-smoke-test.md) is the only thing that later confirms the fix landed. Grep **every** site for each silent surface in one pass — do not march the wall.
+> **This step is where the SILENT-fail rules get caught — and the only place.** Several surfaces below (`{:db fresh}` boots → M-15b, top-level `:dispatch` keys → M-8, the signal-fn `reg-sub` → M-71, `^:flush-dom` → M-16, **unary `reg-fx` handlers → M-51**) **compile clean** and break only at runtime ([`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)). They live in **application code**, not dependency surfaces — so a dependency scan never sees them, and the compile gives you no wall to hit. This up-front app-source grep is the exhaustive sweep that finds them; the [boot smoke-test](runtime-smoke-test.md) is the only thing that later confirms the fix landed. Grep **every** site for each silent surface in one pass — do not march the wall.
 
 | v1 feature surface in the app | Rule |
 |---|---|
@@ -65,6 +65,7 @@ Separately from the add-ons, grep the **app's own source** for the v1 feature su
 | `reg-sub-raw` | **M-18** |
 | `reg-sub` with **two trailing fns** (the v1 3-arity signal-function form) — the v1 signal fn returned `subscribe` reactions; the v2 `input-fn` returns a vector of query vectors; the live-reaction shape is rejected at registration (`:rf.error/reg-sub-bad-args`) | **M-71** |
 | `^:flush-dom` event metadata | **M-16** |
+| Unary `reg-fx` handler `(fn [args] …)` — v2 invokes every fx with **two** args `(fn [_ args] …)`; the unary form binds the runtime's context-map to `args` and **silently drops** the real fx args (CLJS) — **silent** | **M-51** |
 | top-level `:dispatch` / `:dispatch-n` / `:http` / user-fx keys in effect maps | **M-8** |
 | `(reset! re-frame.db/app-db ...)` top-level seeding | **M-15** |
 | `:initialize-db` / `:bootstrap` / `:app/reset` returning a wholesale `{:db fresh}` (no `:rf/runtime`) — **silent** | **M-15b** |

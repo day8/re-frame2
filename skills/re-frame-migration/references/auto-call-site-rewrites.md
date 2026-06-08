@@ -265,7 +265,8 @@ The single highest-impact mechanical rewrite. The transformation is structural.
 {:db ...
  :fx [[:dispatch <event-vec>]]}
 
-{:fx [[:dispatch-later <map>] ...]}           ; one entry per map in the original vector
+{:fx [[:dispatch-later <map>] ...]}           ; one entry per map in the original vector;
+                                              ; rename each map's :dispatch key → :event (M-16)
 
 {:fx [[:dispatch <e1>] [:dispatch <e2>] ...]} ; one entry per event-vec
 
@@ -318,13 +319,15 @@ If the handler was `reg-event-db`, promote it to `reg-event-fx` so it can return
 
 ### M-16 — `^:flush-dom` metadata
 
+The v2 `:dispatch-later` fx reads **`:event`** (its handler destructures `{:keys [ms event]}`) — NOT `:dispatch`. A `:dispatch` key here is silently ignored and nothing fires. (v1's *top-level* `:dispatch-later` used `:dispatch` inside each map AND took a **vector of maps**; v2's `:dispatch-later` fx takes a **single map** keyed `:event`.)
+
 ```clojure
 ;; SEARCH
 ^:flush-dom <event-vec>
 
 ;; REWRITE
-;; Wrap in a :dispatch-later fx
-{:fx [[:dispatch-later {:ms 0 :dispatch <event-vec>}]] ...}
+;; Wrap in a :dispatch-later fx — note the :event key
+{:fx [[:dispatch-later {:ms 0 :event <event-vec>}]] ...}
 ```
 
 Old form:
@@ -336,7 +339,7 @@ Old form:
 New form:
 ```clojure
 {:db (assoc db :processing true)
- :fx [[:dispatch-later {:ms 0 :dispatch [:do-work]}]]}
+ :fx [[:dispatch-later {:ms 0 :event [:do-work]}]]}
 ```
 
 ---
