@@ -712,6 +712,46 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:resolved-inputs  [:vector :any]]
    [:frame            {:optional true} :keyword]])
 
+(def RegSubBadArgsTags
+  ;; Per Spec 009 §Error catalogue (`:rf.error/reg-sub-bad-args`): a `reg-sub`
+  ;; registration whose arg shape is not one of the three accepted forms
+  ;; (app-db reader / static `:<-` / parametric two-function). Registration-
+  ;; time / dev-only — does NOT ride the production error-emit listener.
+  [:map
+   [:category   [:= :rf.error/reg-sub-bad-args]]
+   [:rf.sub/id  :keyword]
+   [:received   :any]                       ;; the offending arg shape
+   [:reason     :string]
+   [:frame      {:optional true} :keyword]])
+
+(def SubInputFnExceptionTags
+  ;; Per Spec 009 §Error catalogue (`:rf.error/sub-input-fn-exception`): a
+  ;; parametric sub's `input-fn` threw while materializing a concrete node.
+  ;; `:where` discriminates the reactive cache-miss path from the pure
+  ;; `compute-sub` resolution path.
+  [:map
+   [:category          [:= :rf.error/sub-input-fn-exception]]
+   [:rf.sub/id         :keyword]
+   [:rf.sub/query-v    [:vector :any]]
+   [:where             [:enum :reactive :compute-sub]]
+   [:exception-message :string]
+   [:exception-data    {:optional true} :any]
+   [:frame             {:optional true} :keyword]])
+
+(def SubInputFnBadReturnTags
+  ;; Per Spec 009 §Error catalogue (`:rf.error/sub-input-fn-bad-return`): a
+  ;; parametric sub's `input-fn` returned a value other than a vector of query
+  ;; vectors (scalar, map, bare keyword, reaction, derefable, malformed query
+  ;; vector). `:returned` carries the offending return shape / class.
+  [:map
+   [:category   [:= :rf.error/sub-input-fn-bad-return]]
+   [:rf.sub/id  :keyword]
+   [:rf.sub/query-v [:vector :any]]
+   [:where      [:enum :reactive :compute-sub]]
+   [:returned   :any]
+   [:reason     :string]
+   [:frame      {:optional true} :keyword]])
+
 (def NoSuchHandlerTags
   [:map
    [:category          :keyword]

@@ -85,7 +85,7 @@ Neither is rowed in this projection. Applications and tools MUST NOT depend on t
 | `reg-event-db` | M | `(reg-event-db id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | front-porch | 002 | Macro for source-coord capture. See [MIGRATION §M-5](../migration/from-re-frame-v1/README.md) for higher-order-use migration. |
 | `reg-event-fx` | M | `(reg-event-fx id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | front-porch | 002 | Handler accepts `(fn [m] ...)` or `(fn [m event-vec] ...)`. |
 | `reg-event-ctx` | M | `(reg-event-ctx id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | advanced | 002 | Lower-level than `reg-event-db`/`-fx` — the full-context handler form; reach for it when you need to manipulate the interceptor context directly. |
-| `reg-sub` | M | `(reg-sub id ?metadata signal-fn? computation-fn)` | v1 (preserved + extended) | front-porch | 002 | `:<-` sugar preserved. The only sub-registration form in v2. |
+| `reg-sub` | M | `(reg-sub id ?metadata input-fn? computation-fn)` | v1 (preserved + extended) | front-porch | 002 | The only sub-registration form in v2. Three input-production modes (app-db reader / static `:<-` / parametric `input-fn`) — see [§`reg-sub` input-production modes](#reg-sub-input-production-modes). The optional first fn is a v2 **`input-fn`** (`query-v → vector-of-query-vectors`), NOT a v1 reaction-returning signal fn. `:<-` sugar preserved. |
 | `reg-fx` | M | `(reg-fx id ?metadata handler)` | v1 (preserved + extended) | front-porch | 002 | Unary or binary handler. |
 | `reg-cofx` | M | `(reg-cofx id ?metadata handler)` | v1 (preserved) | front-porch | 002 | Reading a sub's value from a handler is by cofx-wrapping — see [Guide ch.05 §Reading a subscription from a handler](../docs/guide/07-effects-and-coeffects.md#reading-a-subscription-from-a-handler). **Inline-interceptor alternative.** An interceptor map `{:id ... :before (fn [ctx] (assoc-in ctx [:coeffects k] v))}` is a legal participant in any event's interceptor vector and may inject coeffects without going through the registry. `reg-cofx` + `inject-cofx` is the canonical path (id-addressable: test-stub by id, REPL hot-rebind, Xray enumeration, parameterised reuse); the inline form is the escape hatch for define-once/use-locally/never-stubbed cases. Rubric and worked example: [Guide ch.05 §When ceremony outweighs benefit](../docs/guide/07-effects-and-coeffects.md#when-the-ceremony-isnt-worth-it--the-inline-escape-hatch). Design decision. |
 | `reg-frame` | M | `(reg-frame id metadata)` | v1 | front-porch | 002 | Atomic create + register. |
@@ -103,6 +103,51 @@ Neither is rowed in this projection. Applications and tools MUST NOT depend on t
 | `reg-route` | M | `(reg-route id metadata)` | v1 | advanced | 012 | Optional routing artefact. |
 | `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 | advanced | 011 | Optional SSR artefact. New registry kind `:head`; routes name a registered head via `:head` route metadata. Captures source-coords; under the optional-artefact wrapper convention the surface routes through the `:ssr/reg-head` late-bind hook. |
 | `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` | v1 | advanced | 011 | Optional SSR artefact. New registry kind `:error-projector`; named per-frame via the frame's `:ssr {:public-error-id ...}` metadata (per `reg-frame` / `make-frame`). |
+
+### `reg-sub` input-production modes
+
+`reg-sub` supports **three input-production modes**. Every subscription has an *input query-vector producer*: layer-1 has no producer; `:<-` is the literal producer; `input-fn` is the query-parametric producer.
+
+| Mode | Form | Meaning |
+|---|---|---|
+| App-db reader | `(reg-sub id computation-fn)` | No upstream subscriptions. The computation fn receives `app-db` and the outer `query-v`. |
+| Static inputs | `(reg-sub id :<- q1 :<- q2 computation-fn)` | Inputs are literal query vectors known at registration. |
+| Parametric inputs | `(reg-sub id input-fn computation-fn)` | Inputs are computed from the outer `query-v` when a concrete cache entry is materialized. |
+
+The two-function form's first fn is a v2 **`input-fn`** — a **pure** function from the outer `query-v` to a vector of input query vectors. It is **not** a v1 signal function: it must not call `subscribe`, deref `app-db`, dispatch, mutate, or perform IO; it receives only the outer `query-v`; and it must not return live reactions. The `computation-fn` receives the vector of resolved input values (in the same order) and the outer `query-v`.
+
+```clojure
+(rf/reg-sub
+  :article/page
+  (fn input-fn [[_ article-id]]
+    [[:article/by-id article-id]
+     [:comments/for-article article-id]
+     [:viewer/current]])
+  (fn computation-fn [[article comments viewer] [_ article-id]]
+    {:id article-id :article article :comments comments
+     :can-edit? (:edit? viewer)}))
+```
+
+**Input grammar.** An `input-fn` MUST return a vector, and every element of that vector MUST be a query vector (a vector whose first element is a keyword):
+
+```clojure
+input-return := [query-vector*]      ;; query-vector := vector with a keyword head
+```
+
+```clojure
+;; Accepted
+[[:article/by-id id] [:viewer/current]]   ;; multiple inputs
+[[:item/by-id id]]                        ;; single input — still a vector OF query vectors
+[]                                        ;; no inputs (unusual but valid)
+
+;; Rejected — see :rf.error/sub-input-fn-bad-return
+:viewer/current                           ;; bare keyword
+[:article/by-id id]                       ;; scalar query vector (ambiguous: arg vs two inputs)
+[[:article/by-id id] :viewer]             ;; mixed vector + bare keyword
+{:article [:article/by-id id]}            ;; map return
+```
+
+The scalar query-vector rejection is deliberate: `[:x :y]` is ambiguous at this boundary (one query with argument `:y`, vs two inputs). The only accepted single-query spelling is `[[:x :y]]`. No bare keyword shorthand, no map return, no reaction/derefable. Use `:<-` for static inputs; reach for `input-fn` **only** when the upstream query vectors need values from the outer `query-v`. The static `:<-` form is exactly a constant `input-fn` (`(fn [_] [[:items] [:filter]])`). Per [006 §Subscription input producers](006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn), [008 §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm), and [Conventions §`reg-sub` input grammar](Conventions.md#reg-sub-input-grammar--input-fn-returns-a-vector-of-query-vectors). Registration-shape and input-return errors signal loudly via `:rf.error/reg-sub-bad-args`, `:rf.error/sub-input-fn-exception`, and `:rf.error/sub-input-fn-bad-return` (catalogued in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
 
 ### Clearing registrations
 
@@ -432,7 +477,7 @@ For tooling, agents, story tools, 10x.
 | `frame-meta` | Fn | `(frame-meta frame-id)` | v1 | tooling | ✓ | 002 |
 | `app-db-value` | Fn | `(app-db-value frame-id)` → app-db value (plain map) — the out-of-band value read (renamed from `get-frame-db`). The front-porch read is `subscribe`; `app-db-value` is the non-reactive snapshot read for tools, tests, REPL, and fx/handler bodies. | v1 | advanced | ✓ | 002 |
 | `snapshot-of` | Fn | `(snapshot-of path)` / `(snapshot-of path opts)` | v1 | tooling | ✓ | 002 |
-| `sub-topology` | Fn | `(sub-topology)` → `{sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}` — static dependency graph from `:<-` declarations. Pure data over the registrar; `:inputs` always present (empty for layer-1); the per-entry `:doc` / `:ns` / `:line` / `:file` keys are present when registration carries them. | v1 | tooling | ✓ | 002 |
+| `sub-topology` | Fn | `(sub-topology)` → `{sub-id {:input-kind <kind> :inputs <inputs> :doc :ns :line :file}}` — static dependency graph over the registrar. Pure data; the per-entry `:doc` / `:ns` / `:line` / `:file` keys are present when registration carries them. `:input-kind` discriminates `:db` (layer-1; `:inputs []`), `:static` (`:<-` chains; `:inputs` is the vector of literal input query vectors), and `:parametric` (`input-fn`; `:inputs :parametric` — the realized edge set is NOT statically enumerable, only the literal `:<-` edges are). Live realized parametric edges per concrete query vector are exposed by the sub-cache inspection surface, not here. Per [006 §Subscription input producers](006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn). | v1 | tooling | ✓ | 002 |
 | `sub-cache` | Fn | `(sub-cache frame-id)` → live cache state | v1 | tooling | ✗ (CLJS-only) | 002 |
 
 Schema-introspection accessors — `app-schemas`, `app-schema-at`, `app-schemas-digest` — are rowed canonically in [§Schemas](#schemas).
