@@ -183,6 +183,44 @@
     (fn [ctx] ctx))
   (is (= [[]] (:sensitive (marks/marks-for :cofx :auth/jwt)))))
 
+;; ---- union-marks! — additive merge (rf2-w46fpt / EP-0005) ----------------
+;;
+;; The per-(kind, id) marks-table analogue of `add-marks` merging into the
+;; app-db elision registry. `register-marks!` REPLACES the entry in full (it
+;; matches the registrar's slot semantics); `union-marks!` MERGES, so a
+;; schema-derived mark set and a manual one compose rather than clobber.
+
+(deftest union-marks-creates-entry-when-absent
+  (marks/union-marks! :event :u1 {:sensitive [[:data :token]] :large [[:data :blob]]})
+  (let [m (marks/marks-for :event :u1)]
+    (is (= [[:data :token]] (:sensitive m)))
+    (is (= [[:data :blob]] (:large m)))))
+
+(deftest union-marks-unions-with-existing
+  (marks/register-marks! :event :u2 {:sensitive [[:data :a]]})
+  (marks/union-marks!    :event :u2 {:sensitive [[:data :b]]})
+  (is (= #{[:data :a] [:data :b]}
+         (set (:sensitive (marks/marks-for :event :u2))))
+      "union-marks! merges into the existing register-marks! entry"))
+
+(deftest union-marks-dedups
+  (marks/register-marks! :event :u3 {:sensitive [[:data :a]]})
+  (marks/union-marks!    :event :u3 {:sensitive [[:data :a] [:data :b]]})
+  (is (= [[:data :a] [:data :b]] (:sensitive (marks/marks-for :event :u3)))
+      "a path already present is not duplicated; order preserved"))
+
+(deftest union-marks-noop-without-paths
+  (marks/register-marks! :event :u4 {:sensitive [[:data :a]]})
+  (marks/union-marks!    :event :u4 {})
+  (is (= [[:data :a]] (:sensitive (marks/marks-for :event :u4)))
+      "a mark-key-free meta is a no-op (does NOT clear, unlike register-marks!)"))
+
+(deftest union-marks-ors-whole-output-flags
+  (marks/register-marks! :sub :u5 {:sensitive? false})
+  (marks/union-marks!    :sub :u5 {:sensitive? true})
+  (is (true? (:sensitive? (marks/marks-for :sub :u5)))
+      "whole-output :sensitive? flags OR (true wins)"))
+
 ;; ---- emit-time projection ----------------------------------------------
 
 (deftest event-arg-sensitive-path-redacts-in-trace

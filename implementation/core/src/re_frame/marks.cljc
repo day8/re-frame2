@@ -107,6 +107,60 @@
       (swap! kind->id->marks assoc-in [kind id] marks)))
   nil)
 
+(defn- union-path-vecs
+  "Union `existing` and `added` path-vector collections, preserving order
+  (existing first, then any added paths not already present) and dropping
+  non-vector / duplicate entries. Returns a vector, or nil when the union
+  is empty — so the caller can omit an empty slot rather than stash `[]`."
+  [existing added]
+  (let [seen   (volatile! #{})
+        result (reduce (fn [acc p]
+                         (let [p (vec p)]
+                           (if (or (not (vector? p)) (contains? @seen p))
+                             acc
+                             (do (vswap! seen conj p)
+                                 (conj acc p)))))
+                       []
+                       (concat (coerce-paths existing) (coerce-paths added)))]
+    (when (seq result) result)))
+
+(defn union-marks!
+  "Union a mark declaration into the existing `(kind, id)` marks entry —
+  the per-(kind, id) marks-table analogue of `add-marks` merging into a
+  frame's app-db elision registry (Spec 015 §App-db marks). Returns nil.
+  No-op when `meta` carries no `:sensitive` / `:large` paths.
+
+  Unlike `register-marks!` (which REPLACES the entry in full, matching the
+  registrar's slot semantics), this MERGES: the supplied `:sensitive` /
+  `:large` path vectors UNION with whatever the entry already holds, so a
+  registration with a schema-derived mark set AND a manually-registered
+  one ends up with BOTH (Spec 015 §Conflict between the two sources is
+  resolved by union — there is no way for one source to unmark a path the
+  other marked). The whole-output `:sensitive?` / `:large?` flags, when
+  present in `meta`, OR into the entry (true wins).
+
+  Used by `reg-machine`'s `:data-schema` redaction bridge (EP-0005): the
+  schema's per-slot `:sensitive?` / `:large?` paths (snapshot-rooted under
+  `[:data …]`) union into the machine's `:event`-keyed marks entry, so a
+  token marked `:sensitive?` in a `:data-schema` is redacted in snapshot
+  egress (`project-machine-tags`) exactly like an app-db slot — and a
+  machine that ALSO carries a manual `register-marks!` keeps both sets."
+  [kind id meta]
+  (let [added (normalise-marks meta)]
+    (when added
+      (swap! kind->id->marks update-in [kind id]
+             (fn [existing]
+               (let [union-s (union-path-vecs (:sensitive existing) (:sensitive added))
+                     union-l (union-path-vecs (:large existing)     (:large added))
+                     sens?   (or (:sensitive? existing) (:sensitive? added))
+                     large?  (or (:large? existing)     (:large? added))]
+                 (cond-> {}
+                   union-s          (assoc :sensitive  union-s)
+                   union-l          (assoc :large      union-l)
+                   (some? sens?)    (assoc :sensitive? (boolean sens?))
+                   (some? large?)   (assoc :large?     (boolean large?))))))))
+  nil)
+
 (defn marks-for
   "Return the registered mark declaration for `(kind, id)`, or nil.
 
@@ -885,6 +939,8 @@
 
 (late-bind/set-fn! :marks/project-trace-event project-trace-event)
 (late-bind/set-fn! :marks/register-marks!     register-marks!)
+(late-bind/set-fn! :marks/union-marks!        union-marks!)
+(late-bind/set-fn! :marks/marks-for           marks-for)
 (late-bind/set-fn! :marks/resolve-sub-output-marks resolve-sub-output-marks)
 (late-bind/set-fn! :marks/mark-sub-output!    mark-sub-output!)
 (late-bind/set-fn! :marks/clear-marks!        clear-marks!)

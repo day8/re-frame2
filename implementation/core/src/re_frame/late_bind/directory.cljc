@@ -146,6 +146,14 @@
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"
     :description "Stash a registration's :sensitive / :large declarations in the per-(kind, id) marks table at registration time."}
+   {:key         :marks/union-marks!
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-w46fpt"
+    :description "UNION a mark declaration into the existing per-(kind, id) marks entry (additive merge, vs register-marks!'s full replace) — the marks-table analogue of add-marks merging into the app-db elision registry. Consumed by re-frame.machines' reg-machine :data-schema redaction bridge (EP-0005): the schema's per-slot :sensitive? / :large? paths (snapshot-rooted under [:data …]) union into the machine's :event-keyed marks so a sensitive :data slot is redacted in snapshot egress (project-machine-tags) like an app-db slot, AND a machine that also carries a manual register-marks! keeps both sets (Spec 015 §union-by-source)."}
+   {:key         :marks/marks-for
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-w46fpt"
+    :description "Read the registered mark declaration for a (kind, id), or nil. Consumed by re-frame.machines' reg-machine :data-schema bridge (EP-0005) to CAPTURE any manually-registered machine marks BEFORE reg-event-fx's bare-meta register-marks! clears them, so the bridge can re-union the manual set alongside the schema-derived one (order-independent union-by-source)."}
    {:key         :marks/project-trace-event
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"
