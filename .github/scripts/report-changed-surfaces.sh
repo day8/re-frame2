@@ -238,6 +238,26 @@ else
         case "$file" in
           implementation/schemas/*) template_expensive=true ;;
         esac
+        # rf2-2h1yhk — SCI-bundle freshness. The docs/cljs live-cell
+        # playground vendors a prebuilt shadow-cljs bundle
+        # (docs/cljs/playground-rf2.js) that BAKES IN the machines artefact
+        # (re-frame.machines is :require'd by the SCI build, and the bundle
+        # carries the reserved :rf.machine/* lifecycle keywords). That bundle
+        # is committed + deployed verbatim, never rebuilt by docs.yml — so a
+        # rename of a reserved machine keyword in implementation/machines/**
+        # (e.g. :rf.machine/bootstrap -> :rf.machine/start) leaves the
+        # deployed bundle silently stale, with NO surface here firing the
+        # playground gate. Fire `playground` for any implementation/machines/*
+        # change so the tools-playground job runs the freshness guard
+        # (scripts/check-playground-sci-freshness.sh) against the committed
+        # bundle and fails the PR if it is out of sync. (Core / reagent-slim
+        # are also baked in but are not scoped here: the guard's contract is
+        # the machines lifecycle marker, and firing playground on every core
+        # change would add a heavy JVM+Playwright job to most PRs. The nightly
+        # full matrix covers the broader drift.)
+        case "$file" in
+          implementation/machines/*) playground=true ;;
+        esac
         ;;
       spec/conformance/fixtures/*)
         # rf2-qmiiz — Fixtures under spec/conformance/fixtures/*.edn

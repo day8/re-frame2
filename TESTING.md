@@ -301,7 +301,7 @@ boolean GitHub-Actions outputs per surface:
 | `mcp_live` | re-frame2-pair-mcp / mcp-base / mcp-conformance changed; gates the live MCP coverage. |
 | `story_xray_browser` | Story / Xray runtime source changed under `tools/{story,xray}/{src,testbeds}/**` AND the changed file has a runtime extension (`.cljs`, `.cljc`, `.js`, `.cjs`, `.css`, `.scss`). Per rf2-k9ekz the trigger is narrowed: Markdown specs under `tools/{story,xray}/spec/**`, JVM unit tests under `tools/{story,xray}/test/**`, `deps.edn`, `README.md`, and `*.txt` do NOT fire it — they cannot affect chrome and so cannot invalidate the Playwright gate. Not set by the `-mcp` wrappers (they don't run in a browser). |
 | `skills_structural` | `skills/re-frame2-pair/*` or `skills/shared/*` changed. |
-| `playground` | `docs/tools/playground/*` changed, OR one of the three committed bundles (`docs/cljs/playground.js`, `docs/cljs/playground.css`, `docs/cljs/playground-rf2.js`) was hand-edited; gates `tools-playground` (smoke + bundle-drift). |
+| `playground` | `docs/tools/playground/*` changed, OR one of the three committed bundles (`docs/cljs/playground.js`, `docs/cljs/playground.css`, `docs/cljs/playground-rf2.js`) was hand-edited, OR (rf2-2h1yhk) `implementation/machines/*` changed — the SCI bundle bakes in the machines artefact + its reserved `:rf.machine/*` lifecycle keywords, so a keyword rename there can stale the committed `playground-rf2.js` with no other surface firing. Gates `tools-playground` (smoke + bundle-drift + SCI-bundle freshness guard `scripts/check-playground-sci-freshness.sh`). |
 
 A few "blast-radius" inputs force the full sweep:
 
@@ -385,7 +385,8 @@ must re-run the matrix).
 | S2 | `implementation/core/*` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |   |   | ✓ | ✓ | ✓ | ✓ |   |   |   |
 | S3 | `implementation/adapters/reagent-slim/*`, `examples/reagent-slim/counter_slim_and_fast/*`, `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ |   |   |   |   |   |   |   |   |
 | S4 | `implementation/adapters/*` (other) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   |
-| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` | ✓ |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
+| S5 | `implementation/{schemas,machines,routing,flows,http,ssr,ssr-ring,epoch}/*`, `implementation/deps.edn` (note: `schemas/*` also fires `template_expensive`; `machines/*` also fires `playground` — see S5a) | ✓ |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |
+| S5a | `implementation/machines/*` (rf2-2h1yhk — the SCI bundle bakes in the machines artefact + its reserved `:rf.machine/*` lifecycle keywords, so a keyword rename can stale the committed `playground-rf2.js`; in ADDITION to the S5 columns it fires `playground`) | ✓ |   | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   | ✓ |
 | S6 | `spec/conformance/fixtures/*` | ✓ |   | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |   |   |
 | S7 | `implementation/shadow-cljs.edn`, `implementation/package.json`, `implementation/package-lock.json`, `implementation/scripts/*` |   |   | ✓ | ✓ | ✓ | ✓ | ✓ |   |   |   |   |   |   |   |   |
 | S8 | `examples/*` (excluding the orchestrator scripts called out in S8a) |   |   |   | ✓ |   |   |   |   |   |   |   |   |   |   |   |
@@ -421,7 +422,7 @@ PR time; one row per output here so the table stays scannable).
 | `mcp_live` | `mcp-conformance-re-frame2-pair` (live + hermetic) |
 | `story_xray_browser` | `story-xray-browser` (PR-smoke, Playwright — Xray feature-matrix `--smoke` + Story play-scripts only; the full Xray matrix, Story feature-load, and Story static run nightly in `expensive-tests.yml` — see the Story/Xray split above) |
 | `skills_structural` | `skills-structural` |
-| `playground` | `tools-playground` (Playwright smoke of both bundles + byte-diff `git diff --exit-code` of the deterministic esbuild `docs/cljs/playground.{js,css}` + smoke/structural-validity gate on the non-deterministic Closure `docs/cljs/playground-rf2.js`) |
+| `playground` | `tools-playground` (Playwright smoke of both bundles + byte-diff `git diff --exit-code` of the deterministic esbuild `docs/cljs/playground.{js,css}` + smoke/structural-validity gate on the non-deterministic Closure `docs/cljs/playground-rf2.js` + (rf2-2h1yhk) the SCI-bundle freshness guard `scripts/check-playground-sci-freshness.sh`, which content-checks the committed `playground-rf2.js` against the current machine lifecycle creation marker so a keyword rename cannot leave it stale) |
 
 
 ## Diagnostic / skip-ok gates

@@ -2500,6 +2500,19 @@ jobs:
           fi
           echo "Committed SCI bundle OK (${bytes} bytes; smoke validated a fresh rebuild of the same source)."
 
+      # SCI-bundle freshness guard (rf2-2h1yhk). The structural check above
+      # cannot catch a bundle that is structurally valid but STALE on a
+      # reserved-keyword rename (the :rf.machine/bootstrap -> :rf.machine/start
+      # drift). This content check asserts the COMMITTED bundle agrees with
+      # current implementation source on the machine lifecycle creation marker
+      # (derived from transition.cljc), without a flaky cross-machine rebuild
+      # diff. Fired here, and also armed by an implementation/machines/* change
+      # via report-changed-surfaces.sh (which sets playground=true) so a
+      # keyword rename that re-bundles is not required for the gate to run.
+      - name: Verify committed SCI bundle is fresh (machine lifecycle marker)
+        working-directory: .
+        run: sh scripts/check-playground-sci-freshness.sh
+
   # ---------------------------------------------------------------------------
   # Required-checks aggregator (rf2-dtvmb).
   #
