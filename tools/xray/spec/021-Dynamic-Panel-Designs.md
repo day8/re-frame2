@@ -1025,7 +1025,7 @@ for the work cost of rebuilding auto-layout / zoom-pan-fit from scratch.
 | License | MIT |
 | Bundle cost | ~50-80KB gzipped depending on which xyflow submodules are imported |
 | Mount mechanic | xyflow is a React component; Xray is Reagent. Use Reagent's React-component interop (`reagent/adapt-react-class` or `[:>` syntax) to mount xyflow inside the Xray Machines-panel Reagent component. |
-| Adapter layer | ~100 LoC CLJS — one-way walker from re-frame2 machine spec → xyflow's node/edge JSON. Lives at `tools/xray/src/day8/re_frame2_xray/machines/xyflow_adapter.cljs` (new ns implied by this design). |
+| Adapter layer | The live render path is the shared machines-viz `MachineChart` (`day8.re-frame2-machines-viz.chart`), mounted via the Xray-side `panels/machine_canvas.cljs` wrapper (rf2-gpzb4 — 2026-05-21 the SVG renderer gave way to xyflow). The original design's standalone `tools/xray/src/.../machines/xyflow_adapter.cljs` ns was never created; a self-contained, JVM-portable pure projector + palette catalogue survive off the live path as a unit-tested fallback at `panels/machines/topology.cljs` (`project`) + `panels/machines/xyflow_style.cljs`. |
 
 **Visual conventions to recreate (Stately reference, Xray palette):**
 
@@ -1034,7 +1034,7 @@ for the work cost of rebuilding auto-layout / zoom-pan-fit from scratch.
 | Nested state containment | xyflow's group/parent-node mechanic. Parent state renders as a containing rect; child states are nested xyflow nodes whose `parentNode` references the parent. |
 | Transition edge animation | xyflow's `animated: true` edge prop. Color via Xray palette (`:accent` — the single GitHub-blue accent — for "fired this epoch"; `:text-tertiary` for "registered but not fired this epoch"). |
 | Current-state highlight pulse | Custom node CSS class that applies the `pulse` keyframe (~1.2s ease-in-out; CSS-variable interpolated through `--rf-xray-motion-scale` so `prefers-reduced-motion` collapses it). Pulse outline color = `:green` (the panel-domain accent). |
-| Auto-layout | xyflow's built-in `getLayoutedElements` helper (dagre algorithm). One-shot layout on first render; cached per machine-id; recomputed only when topology changes. |
+| Auto-layout | **elkjs** (the Eclipse Layout Kernel, `Layered` algorithm) runs as xyflow's layout backend inside `MachineChart` (2026-05-19 ELK lock — superseded the originally-sketched dagre `getLayoutedElements`). Async one-shot layout, cached per machine-id; recomputed only when topology changes. |
 | Zoom + pan + fit | xyflow's built-in `Controls` component (re-styled to match Xray's button chrome). Default zoom: fit-on-mount with 20px padding. `[− 100% +] [Fit][Reset]` chrome already shown in the existing mockups maps 1:1 to xyflow's `Controls`. |
 | Label-on-edge transitions | xyflow's `label` prop on edges; rendered inline on the edge, not in a side legend. Font: JetBrains Mono 10px (`:micro` size). |
 | Parallel-state side-by-side | Parallel-region containers render as sibling group-nodes with a dashed border (`:border-default` at `dash-array: 4 4`). Inner states laid out independently per region. |
@@ -1145,11 +1145,14 @@ active-node / dashed compound container / inline guard+action labels +
 the `after: ◴ Ns → :event` countdown ring are the visual elements the
 Figma design fixes; xyflow renders them with the §6.0 palette mapping.
 
-Layout direction: **left-to-right by default** (matches typical state-
-machine convention; xyflow's dagre layout option `rankdir: 'LR'`).
-Operator can flip to top-to-bottom via Settings → View → Machines layout
-direction (deferred to follow-on bead). Default zoom: fit-on-mount with
-20px padding around the bounding box of all nodes.
+Layout direction: **top-to-bottom by default** (elk's `elk.direction
+DOWN`, the `MachineChart` default Xray does not override). The original
+sketch called for a left-to-right `rankdir: 'LR'` default; the elkjs
+backend that shipped (`MachineChart`, 2026-05-19 ELK lock) maps `:lr` →
+elk `RIGHT` / `:tb` → elk `DOWN` and defaults to `DOWN`. Operator-facing
+direction flip (Settings → View → Machines layout direction) is deferred
+to a follow-on bead. Default zoom: fit-on-mount with 20px padding around
+the bounding box of all nodes.
 
 ### §6.3 Queries
 
@@ -5350,24 +5353,37 @@ the edge id keeps every branch addressable in xyflow.
 
 #### §17.4.4 Layout direction + default zoom
 
-- **Direction**: left-to-right (xyflow `dagre` `rankdir: 'LR'`) — matches
-  Stately's convention; matches reading order.
+- **Direction**: top-to-bottom (elk `elk.direction DOWN`, the
+  `MachineChart` default Xray does not override). The original sketch
+  called for a left-to-right dagre `rankdir: 'LR'`; the elkjs backend
+  that shipped maps `:lr` → elk `RIGHT` / `:tb` → elk `DOWN` and defaults
+  to `DOWN`.
 - **Default zoom**: `fitView` on mount with 20px padding around the
   bounding box. The `Fit` button in the Controls re-runs `fitView`.
-- **Min/max zoom**: 0.25× to 2×. Wheel-zoom enabled.
-- **Pan**: drag-to-pan on the canvas background; node-drag disabled
-  (it's a read-only render).
+- **Min/max zoom**: 0.2× to 4.0× (`MachineChart`'s `minZoom` / `maxZoom`).
+  Wheel-zoom enabled.
+- **Pan**: drag-to-pan on the canvas background (xyflow `panOnDrag`);
+  node-drag disabled (`nodesDraggable false` — read-only render).
 
 #### §17.4.5 Xray-palette token integration into xyflow style props
 
-Sketched in §6.0; restated here as the canonical reference the
-xyflow-adapter bead (§17.5) implements against:
+Sketched in §6.0. **NOTE (drift reconcile, rf2-r1u79d):** the live
+Machines panel renders through the shared machines-viz `MachineChart`,
+which carries its OWN Stately-style node/edge styling — the catalogue
+below is NOT the live styling source. It survives as the self-contained,
+JVM-portable **fallback** palette at
+`tools/xray/src/day8/re_frame2_xray/panels/machines/xyflow_style.cljs`
+(unit-tested, off the hot path), paired with the
+`panels/machines/topology.cljs` `project` projector. The originally-
+designed standalone `xyflow_adapter.cljs` ns (§6.0 / §17.5) was never
+created.
 
 ```clojure
-;; tools/xray/src/day8/re_frame2_xray/machines/xyflow_style.cljs
-;; The single source of truth for xyflow visual props.
+;; tools/xray/src/day8/re_frame2_xray/panels/machines/xyflow_style.cljs
+;; The single source of truth for the FALLBACK projector's xyflow
+;; visual props (the live panel styles through machines-viz MachineChart).
 
-(ns day8.re-frame2-xray.machines.xyflow-style
+(ns day8.re-frame2-xray.panels.machines.xyflow-style
   (:require [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack type-scale duration-css with-alpha]]))
 
@@ -5452,14 +5468,16 @@ pass implies. Format: title + 2-line description + dependencies.
 Mayor reviews + files these alongside the structural per-panel beads
 already drafted in §13.
 
-- **rf2-?????** — *Xray: xyflow integration adapter — re-frame2 machine
-  spec → xyflow JSON.* New ns
-  `tools/xray/src/day8/re_frame2_xray/machines/xyflow_adapter.cljs`
-  walks `reg-machine` topology + per-epoch transition trace and emits
-  xyflow nodes/edges JSON. Plus `xyflow_style.cljs` per §17.4.5. Plus
-  Reagent ↔ React mount wiring per §6.0. Depends: xyflow added to
-  `package.json` (~50-80KB gzipped, MIT). Gates: Machines panel
-  redesign (§6).
+- **DONE (superseded · rf2-gpzb4)** — *Xray: xyflow integration adapter
+  — re-frame2 machine spec → xyflow JSON.* Shipped NOT as the originally-
+  sketched standalone `machines/xyflow_adapter.cljs` ns, but via the
+  shared machines-viz `MachineChart` (`day8.re-frame2-machines-viz.chart`
+  — xyflow + **elkjs** layout) wrapped by Xray's `panels/machine_canvas.
+  cljs`. The pure projector + palette catalogue (`panels/machines/
+  topology.cljs` `project` + `panels/machines/xyflow_style.cljs`) survive
+  off the live path as a unit-tested JVM-portable fallback. xyflow +
+  elkjs are machines-viz `devDependency`s (bundle-isolated from
+  production).
 
 - **rf2-?????** — *Xray: edn-inspector renderer component — lazy tree
   + inline diff + keyword accent + clickable paths.* New ns
