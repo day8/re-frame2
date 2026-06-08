@@ -512,9 +512,6 @@
     :producer-ns 're-frame.epoch
     :design-bead "rf2-nj6p7"
     :description "Commit a :halted-* epoch record for a drain halt whose halting event never ran (the per-event depth-exceed boundary). Unlike :epoch/settle! it does NOT skip an empty buffer — under per-event epochs the already-settled events each harvested their own buffer, so the buffer is empty at halt; this synthesises the halting event's :halted-depth record from an explicit trigger. Already-settled siblings are durable (no whole-drain rollback)."}
-   {:key         :epoch/discard-buffer!
-    :producer-ns 're-frame.epoch
-    :description "Discard the in-flight epoch buffer without committing."}
    {:key         :epoch/capture-event
     :producer-ns 're-frame.epoch
     :description "Capture an event into the in-flight epoch buffer."}

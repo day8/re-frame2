@@ -14,7 +14,7 @@
 ;; `:rf.epoch/restore-during-drain`, plus `:rf.error/no-such-handler`
 ;; for the unknown-frame case), the per-cascade trace-capture buffer
 ;; the router and the trace surface feed via `:epoch/capture-event` /
-;; `:epoch/settle!` / `:epoch/discard-buffer!` late-bind hooks,
+;; `:epoch/settle!` late-bind hooks,
 ;; the `:rf.epoch/snapshotted` and `:rf.epoch/restored`
 ;; trace events, and the `:sub-runs` / `:renders` / `:effects`
 ;; per-cascade projections — ships as a separate Maven artefact so apps
@@ -41,9 +41,9 @@
 ;; And require `re-frame.epoch` in any namespace that calls
 ;; `rf/epoch-history`, `rf/restore-epoch`, `rf/register-epoch-listener!`,
 ;; `rf/unregister-epoch-listener!`, or `(rf/configure! :epoch-history ...)` —
-;; loading the namespace publishes the three late-bind hooks
-;; (`:epoch/settle!`, `:epoch/discard-buffer!`,
-;; `:epoch/capture-event`) that the router and the trace surface look up
+;; loading the namespace publishes the two late-bind hooks
+;; (`:epoch/settle!`, `:epoch/capture-event`)
+;; that the router and the trace surface look up
 ;; at drain-settle and per-trace emit time, plus the four query / control hooks
 ;; (`:epoch/epoch-history`, `:epoch/restore-epoch`,
 ;; `:epoch/register-epoch-listener!`, `:epoch/unregister-epoch-listener!`,
