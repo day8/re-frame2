@@ -225,6 +225,23 @@
                   "elk.layered.cycleBreaking.strategy"))
           "DEPTH_FIRST cycle-breaking is set"))))
 
+(deftest elk-layout-options-pins-consider-model-order
+  (testing "rf2-k504af — the root model-order lever: every graph carries
+            elk.layered.considerModelOrder NODES_AND_EDGES so ELK honours
+            the input model order (nodes AND edges) as a tiebreaker through
+            layering + crossing-minimisation. Pairs with the per-initial-edge
+            elk.layered.priority.direction lever (pinned in projection's
+            initial-edge-priority-direction test) to pull the initial state
+            to the START of its region's flow even in a PURE-CYCLIC parallel
+            region, where DEPTH_FIRST + child-model-order alone SLIPS. Present
+            on flat, nested, and parallel graphs alike — removing this root
+            lever must not stay green."
+    (doseq [parsed [(flat-parsed) (nested-parsed) (parallel-parsed)]]
+      (is (= "NODES_AND_EDGES"
+             (get (chart/elk-layout-options parsed nil :tb)
+                  "elk.layered.considerModelOrder"))
+          "root considerModelOrder NODES_AND_EDGES is set"))))
+
 (deftest elk-layout-options-direction-from-arg
   (testing "rf2-gpa9k — elk.direction is forced from the direction arg
             (:lr → RIGHT, :tb → DOWN), independent of the switch"
