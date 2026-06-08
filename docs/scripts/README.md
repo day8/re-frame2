@@ -2,24 +2,41 @@
 
 Build-time and content-generation helpers for the docs site.
 
-## `generate-tutorial-screenshots.cjs`
+There are two independent tutorial screenshot generators — one for
+[Story](../story/index.md), one for [Xray](../xray/index.md). They have
+different testbeds, serving models, and output directories. Run them
+separately; the sections below document each in full.
 
-Drives Playwright through the Xray testbed and captures the annotated
-screenshots embedded in the [Xray](../xray/index.md) tutorial.
+| Generator | Tutorial | Output |
+| --------- | -------- | ------ |
+| `generate-story-tutorial-screenshots.cjs` | [Story](../story/index.md) | `docs/images/story/story-tutorial-*.png` |
+| `generate-tutorial-screenshots.cjs` | [Xray](../xray/index.md) | `docs/images/xray/*.png` |
 
-## `generate-story-tutorial-screenshots.cjs`
+The output PNGs for both generators are tracked in git, so the MkDocs
+site renders without needing shadow-cljs or Playwright at build time.
+Re-running either generator is opt-in.
+
+## Story — `generate-story-tutorial-screenshots.cjs`
 
 Drives Playwright through the live Story testbeds and captures the
 screenshots embedded in the [Story](../story/index.md) tutorial.
 
-The generator expects the Story example bundles to be compiled first:
+The generator serves the compiled Story testbed bundles from
+`implementation/out` over its own internal HTTP server, then captures
+each Story shell scene. No external orchestrator is required — just the
+compiled bundles.
+
+### How to run
+
+Compile the Story example bundles first, then run the generator from the
+repo root:
 
 ```bash
 cd implementation
-npm install
+npm install                                   # one-time
 npx shadow-cljs compile :examples/login-form \
-                          :examples/counter-with-stories \
-                          :examples/nine-states-with-stories
+                        :examples/counter-with-stories \
+                        :examples/nine-states-with-stories
 cd ..
 node docs/scripts/generate-story-tutorial-screenshots.cjs
 ```
@@ -30,30 +47,43 @@ It writes:
 docs/images/story/story-tutorial-*.png
 ```
 
+### Determinism notes
+
+- Viewport pinned to **1440×900**.
+- Each scene waits for a distinctive `[data-test=...]` anchor before
+  shooting.
+- The "seen help" flag is pre-seeded in `localStorage` so the
+  first-run help overlay never appears.
+
 ### When to re-run
 
-Re-run after any UI change that would alter how the panels look. The output
-PNGs are tracked in git, so re-running is opt-in — the docs site doesn't
-depend on Playwright being available at build time.
+Re-run after any Story UI change that would alter how the panels look,
+then commit the regenerated PNGs alongside the doc page.
+
+## Xray — `generate-tutorial-screenshots.cjs`
+
+Drives a headless Chromium through the Xray testbed and captures the
+annotated screenshots embedded in the [Xray](../xray/index.md) tutorial.
+
+Unlike the Story generator, this one does **not** serve the bundles
+itself — it expects a static server already running (the example
+orchestrator) and navigates the Xray testbed URLs against it.
 
 ### How to run
 
 The pipeline needs the example bundles compiled and served. The
-canonical examples test orchestrator (`npm run test:examples` from
-`implementation/`) does both, then runs its own assertion suite and tears
-down the server.
-
-For screenshot regeneration we just need the server. The simplest
-sequence:
+canonical examples test orchestrator
+(`examples/scripts/serve-and-run-examples-tests.cjs`, invoked via
+`npm run test:examples` from `implementation/`) builds and serves every
+example bundle on `http://127.0.0.1:8040` (its default port; override
+with `EXAMPLES_PORT`, and point this script at the same port via
+`SCREENSHOT_BASE_URL`).
 
 ```bash
-# Terminal A — build + serve the example bundles
+# Terminal A — build + serve the example bundles on :8040
 cd implementation
 npm install                                  # one-time
-npx shadow-cljs compile examples/counter examples/counter-with-stories
-# stage the index.html files
-node ../examples/scripts/serve-and-run-examples-tests.cjs
-# (or run an http-server over implementation/out/examples directly)
+npm run test:examples
 ```
 
 ```bash
@@ -73,6 +103,11 @@ docs/images/xray/*.png
 - Viewport pinned to **1280×800**.
 - Xray's first paint is gated by waiting for
   `[data-testid="rf-xray-shell"]`.
+
+### When to re-run
+
+Re-run after any Xray UI change that would alter how the panels look,
+then commit the regenerated PNGs alongside the doc page.
 
 ### Annotations (data-driven)
 
@@ -107,7 +142,7 @@ Resolved regions paint a 3-px stroke with a white halo for contrast,
 a rounded-corner label background, and (optionally) an SVG arrow with
 arrowhead marker.
 
-### Adding a new scene
+### Adding a new Xray scene
 
 1. Add the scene to `generate-tutorial-screenshots.cjs` `SCENES.push(...)`:
    ```js
