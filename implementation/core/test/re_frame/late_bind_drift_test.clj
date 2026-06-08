@@ -173,6 +173,45 @@
                 (some #(str/includes? % ns-decl) all-source)))
             producers)))
 
+(def ^:private ns-decl-re
+  "Match the leading `(ns <fully.qualified.name>` declaration of a
+  Clojure(Script) source file. Used to map a source file back to the
+  namespace symbol it declares so an entry's claimed `:producer-ns`
+  can be matched against the publications in THAT ns's file."
+  #"\(ns\s+([a-zA-Z][a-zA-Z0-9.!?*+\-]*)")
+
+(defn- ns-of-file
+  "The namespace symbol declared by `f`, or nil if no `(ns ...)` form is
+  present (some support files are plain `require` scripts)."
+  [^java.io.File f]
+  (some-> (re-find ns-decl-re (slurp f)) second symbol))
+
+(defn- direct-set-fn-keys-in-file
+  "Keys published from `f` via a literal `(late-bind/set-fn! :key ...)`
+  call. EXCLUDES the indirected shapes (`route-hook!`, `chain-fn!`,
+  `set-fns!`): those publish from a shared spine / adapter-registration
+  ns rather than from the file that declares the logical producer, so
+  per-file ns attribution is not meaningful for them."
+  [^java.io.File f]
+  (match-keys set-fn-call-re (slurp f)))
+
+(defn- direct-set-fn-keys-by-ns
+  "Map `ns symbol → set of keys that ns's own file publishes via a direct
+  `(late-bind/set-fn! :key ...)` call site`. Used to verify that a
+  directory entry whose key is published directly names the ns that
+  actually carries the `set-fn!` call — not merely an ns that exists in
+  tree and happens to share a prefix with the real publisher
+  (`re-frame.schemas` vs `re-frame.schemas.malli`, rf2-bf4d8r)."
+  []
+  (reduce (fn [acc f]
+            (if-let [ns-sym (ns-of-file f)]
+              (let [ks (direct-set-fn-keys-in-file f)]
+                (cond-> acc
+                  (seq ks) (update ns-sym (fnil into #{}) ks)))
+              acc))
+          {}
+          (source-files)))
+
 ;; ---- assertions ----------------------------------------------------------
 
 (deftest every-directory-entry-has-required-fields
@@ -218,6 +257,46 @@
           (str "These directory entries claim a producer ns that doesn't exist in "
                "implementation/**/src — fix :producer-ns or delete the entry:\n  "
                (str/join "\n  " stale))))))
+
+(deftest every-directly-published-entry-names-its-set-fn-ns
+  (testing "Each directly-published entry's :producer-ns is the ns carrying its (late-bind/set-fn! :key ...) site (rf2-bf4d8r)"
+    ;; Stronger than `every-directory-entry-has-a-real-producer`, which only
+    ;; checked that the claimed ns's `(ns ...)` form exists SOMEWHERE in tree.
+    ;; That let `:schemas/humanize-explain!` claim `re-frame.schemas` while the
+    ;; sole publisher was `re-frame.schemas.malli` — the claimed ns exists, so
+    ;; the looser gate stayed green. This gate pins a DIRECTLY-published entry
+    ;; (one whose key has a literal `set-fn!` call site) to that real site: at
+    ;; least one claimed producer ns must be a ns that directly publishes the
+    ;; key. Scoped to direct `set-fn!` publications only — keys published via
+    ;; the indirected `route-hook!` / `chain-fn!` / `set-fns!` shapes flow from
+    ;; a shared spine / adapter-registration ns, so per-file ns attribution is
+    ;; not meaningful for them and they are intentionally out of scope here.
+    (let [direct-by-ns (direct-set-fn-keys-by-ns)
+          direct-keys  (reduce into #{} (vals direct-by-ns))
+          mismatched   (->> directory/hooks
+                            ;; only entries whose key is published via a direct set-fn!
+                            (filter (fn [{:keys [key]}] (contains? direct-keys key)))
+                            (remove
+                             (fn [{:keys [key producer-ns]}]
+                               (let [producers (if (sequential? producer-ns)
+                                                 producer-ns
+                                                 [producer-ns])]
+                                 (some #(contains? (get direct-by-ns %) key)
+                                       producers))))
+                            (map (fn [{:keys [key producer-ns]}]
+                                   (str key " claims " (pr-str producer-ns)
+                                        " but the set-fn! call site is in "
+                                        (pr-str (->> direct-by-ns
+                                                     (keep (fn [[ns ks]] (when (ks key) ns)))
+                                                     sort
+                                                     vec)))))
+                            sort)]
+      (is (empty? mismatched)
+          (str "These directory entries name a :producer-ns that does NOT carry the "
+               "matching (late-bind/set-fn! :key ...) call site — point :producer-ns "
+               "at the real publisher (or use a vector for genuinely multi-publisher "
+               "keys):\n  "
+               (str/join "\n  " mismatched))))))
 
 (deftest every-directory-entry-is-actually-published
   (testing "Every directory entry's :key has at least one (late-bind/set-fn! :key ...) call site"
