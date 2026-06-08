@@ -480,6 +480,26 @@
   ends. Distinct from `region__` (region containers) by construction."
   "__rf2_machine_root__")
 
+(def root-container-id
+  "rf2-q129z8 — the stable string id for the synthetic ROOT-CONTAINER node:
+  the Stately-Studio-style NAMED FRAME that wraps the WHOLE machine. Every
+  top-level node (flat states, the synthetic `machine-root` chip, parallel
+  regions) nests UNDER this container via `:parent-id`, so ELK sizes the
+  frame to HUG its children and reflows it on resize — exactly as a
+  compound-state container already hugs its substates. This ABSORBS the
+  pre-q129z8 corner-pinned overlay chrome (the floating root title strip +
+  Context panel, `chart.cljs`) into a proper frame HEADER: the machine name
+  + inferred Context shape now ride the container's own header band, drawn
+  by `chart.nodes/root-container-node`.
+
+  Carries leading + trailing `__` no real `node-id` can mint (every
+  non-alphanumeric segment char hex-escapes, so a state path never produces
+  a bare double-underscore boundary at the ends). Distinct from
+  `__rf2_machine_root__` (the in-graph routing chip — a SIBLING child INSIDE
+  this frame, not the frame itself) and from `region__` (region containers)
+  by construction."
+  "__rf2_root_container__")
+
 (defn region-node-id
   "Stable string id for a parallel region's synthetic compound node.
   Prefixed `region__` so it never collides with a state `node-id`
@@ -947,6 +967,45 @@
      :initial-path nil
      :parallel?    true}))
 
+(defn wrap-in-root-container
+  "rf2-q129z8 — wrap a projected `{:nodes :edges}` graph in the synthetic
+  ROOT-CONTAINER frame (the Stately-Studio-style NAMED box around the whole
+  machine). Re-points every CURRENT top-level node (a node with no
+  `:parent-id`) to nest UNDER `root-container-id`, and PREPENDS the root
+  container node so the parent-before-child / source-before-edge ordering
+  invariant holds (the same reason region/compound parents lead).
+
+  Edges are untouched: they address nodes by id, and nesting a node changes
+  only its `:parent-id`, never its id. ELK then sizes the frame to HUG its
+  children (the compound-container `INCLUDE_CHILDREN` + `elk.padding` path
+  already wired in `chart.cljs` / `chart.projection`, triggered now that the
+  graph carries a `:parent-id`), and xyflow renders the children inside the
+  frame via `parentId` (rf2-xh1lm).
+
+  The container's `:label` is a neutral placeholder here (the pure layer has
+  no machine-id); `chart.projection/xyflow-graph` overrides it with the
+  machine name + threads the inferred Context shape into the container's
+  `:data` so `chart.nodes/root-container-node` paints the frame HEADER —
+  absorbing the pre-q129z8 corner-pinned title strip + Context overlay.
+
+  A graph with no nodes (nil / empty definition) is returned unchanged — an
+  empty frame would be vacuous chrome."
+  [{:keys [nodes] :as graph}]
+  (if (empty? nodes)
+    graph
+    (let [rewrapped (mapv (fn [n]
+                            (cond-> n
+                              (nil? (:parent-id n))
+                              (assoc :parent-id root-container-id)))
+                          nodes)
+          root-node {:id             root-container-id
+                     :path           []
+                     :label          "machine"
+                     :depth          0
+                     :root-container? true
+                     :compound?      true}]
+      (assoc graph :nodes (into [root-node] rewrapped)))))
+
 (defn project-definition
   "Project a machine definition into a flat `{:nodes :edges
   :initial-path}` graph. Pure fn — JVM-runnable.
@@ -957,17 +1016,26 @@
   projection). Each region surfaces a synthetic `:region?` compound
   node and its states carry `:region` + `:parent-id` for xyflow
   `parentId` grouping (rf2-xh1lm — v12 reads `parentId`); the result
-  also carries `:parallel? true`."
+  also carries `:parallel? true`.
+
+  rf2-q129z8 — the whole graph is then wrapped in a synthetic
+  ROOT-CONTAINER frame (`wrap-in-root-container`): a Stately-Studio-style
+  NAMED box that hugs the entire topology and carries the machine name +
+  Context shape in its header (replacing the old corner-pinned overlay
+  chrome). Every prior top-level node nests under it; ELK sizes + reflows
+  the frame around its children. An empty graph (nil definition) is left
+  unwrapped."
   [definition]
-  (cond
-    (nil? definition)
-    {:nodes [] :edges [] :initial-path nil}
+  (-> (cond
+        (nil? definition)
+        {:nodes [] :edges [] :initial-path nil}
 
-    (= :parallel (:type definition))
-    (project-parallel definition)
+        (= :parallel (:type definition))
+        (project-parallel definition)
 
-    :else
-    (project-flat definition)))
+        :else
+        (project-flat definition))
+      wrap-in-root-container))
 
 (defn highlight-id
   "Resolve a single-active snapshot `:state` value to the node-id used

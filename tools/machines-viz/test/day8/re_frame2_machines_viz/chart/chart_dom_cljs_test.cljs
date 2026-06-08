@@ -375,21 +375,27 @@
           (is (= "compact" (.getAttribute root "data-density"))
               "density unaffected by theme — orthogonal knobs"))))))
 
-(deftest chart-renders-root-title-strip
-  (testing "rf2-az6e2 — the chart frame renders a ROOT MACHINE TITLE
-            STRIP carrying the machine name; a non-parallel machine
-            reports data-parallel=\"false\"."
+(deftest chart-renders-root-container-frame-with-title
+  (testing "rf2-q129z8 — the chart renders the synthetic ROOT-CONTAINER
+            FRAME (the Stately-style named box wrapping the whole machine)
+            whose HEADER carries the machine name; a non-parallel machine's
+            frame reports data-parallel=\"false\". This replaces the old
+            corner-pinned root title strip (the chrome now rides the frame
+            that hugs + tracks the topology)."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/flow :definition idle-loading-done}
         (fn [_root node]
-          (let [strip (.querySelector node "[data-testid$=\"-root-title\"]")]
-            (is (some? strip) "root title strip is present")
-            (is (re-find #"flow" (.-textContent strip))
-                "root title strip carries the machine name")
-            (is (= "false" (.getAttribute strip "data-parallel"))
-                "non-parallel machine flagged data-parallel=false")))))))
+          (let [frame (.querySelector node "[data-root-container=\"true\"]")
+                title (.querySelector node
+                        "[data-testid^=\"rf-mv-chart-root-container-title-\"]")]
+            (is (some? frame) "the root-container frame is present")
+            (is (= "false" (.getAttribute frame "data-parallel"))
+                "non-parallel machine's frame flagged data-parallel=false")
+            (is (some? title) "the frame header title strip is present")
+            (is (re-find #"flow" (.-textContent title))
+                "the frame header carries the machine name")))))))
 
 ;; ---- state-node :tags surface (rf2-so5b0) -------------------------------
 
@@ -503,28 +509,31 @@
 
 ;; ---- root context chrome (rf2-vcnvj) ------------------------------------
 
-(deftest chart-renders-root-context-panel-from-static-shape
-  (testing "rf2-vcnvj — when a machine declares `:data`, the chart paints
-            the root Context panel from the supplied `:machine-data` (the
-            static context shape the Xray topology path derives). The
-            panel sits at the top-left of the frame."
+(deftest chart-renders-root-container-context-band-from-static-shape
+  (testing "rf2-q129z8 — when a machine declares `:data`, the chart paints
+            the Context BAND inside the ROOT-CONTAINER frame header from the
+            supplied `:machine-data` (the static context shape the Xray
+            topology path derives). This replaces the old corner-pinned
+            Context panel — the Context now rides INSIDE the frame that hugs
+            the topology."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/ctx :definition machine-level-on-machine
          :machine-data {:hits "number" :seen "vector"}}
         (fn [_root node]
-          (let [panel (.querySelector node
-                        "[data-testid$=\"-machine-data-panel\"]")]
-            (is (some? panel) "the root Context panel mounted")
-            (is (= "2" (.getAttribute panel "data-key-count"))
-                "the panel reports both declared context keys")))))))
+          (let [band (.querySelector node
+                       "[data-testid^=\"rf-mv-chart-root-container-context-\"]")]
+            (is (some? band) "the root-container Context band mounted")
+            (is (= "2" (.getAttribute band "data-key-count"))
+                "the band reports both declared context keys")))))))
 
-(deftest chart-context-panel-shows-inferred-badge-by-default
-  (testing "rf2-5tz9p — the root Context panel carries an 'inferred from
-            :data' badge by default, marking its key→type-caption contents
-            as an INFERRED shape (the sole production feeder), not a
-            declared schema and not the live runtime :data."
+(deftest chart-context-band-shows-inferred-badge-by-default
+  (testing "rf2-q129z8 / rf2-5tz9p — the root-container Context band carries
+            an 'inferred from :data' badge by default, marking its
+            key→type-caption contents as an INFERRED shape (the sole
+            production feeder), not a declared schema and not the live
+            runtime :data."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -532,15 +541,15 @@
          :machine-data {:hits "number" :seen "vector"}}
         (fn [_root node]
           (let [badge (.querySelector node
-                        "[data-testid$=\"-machine-data-inferred-badge\"]")]
+                        "[data-testid^=\"rf-mv-chart-root-container-context-inferred-\"]")]
             (is (some? badge) "the inferred-from-:data badge mounted")
             (is (= "inferred from :data" (.-textContent badge))
                 "the badge reads 'inferred from :data'")))))))
 
-(deftest chart-context-panel-suppresses-inferred-badge-when-live
-  (testing "rf2-5tz9p — a host feeding LIVE :data values passes
+(deftest chart-context-band-suppresses-inferred-badge-when-live
+  (testing "rf2-q129z8 / rf2-5tz9p — a host feeding LIVE :data values passes
             `:machine-data-inferred? false`; the inferred badge is then
-            omitted (the panel still renders the values)."
+            omitted (the band still renders the values)."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -548,9 +557,11 @@
          :machine-data {:hits 3 :seen [:a :b]}
          :machine-data-inferred? false}
         (fn [_root node]
-          (is (some? (.querySelector node "[data-testid$=\"-machine-data-panel\"]"))
-              "the Context panel still renders for live values")
-          (is (nil? (.querySelector node "[data-testid$=\"-machine-data-inferred-badge\"]"))
+          (is (some? (.querySelector node
+                       "[data-testid^=\"rf-mv-chart-root-container-context-\"]"))
+              "the Context band still renders for live values")
+          (is (nil? (.querySelector node
+                      "[data-testid^=\"rf-mv-chart-root-container-context-inferred-\"]"))
               "no inferred badge when machine-data-inferred? is false"))))))
 
 ;; ---- empty / nil definition placeholders --------------------------------

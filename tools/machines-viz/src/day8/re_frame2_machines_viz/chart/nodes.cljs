@@ -732,6 +732,146 @@
        [:> Handle {:type "source" :position pos-right
                    :style {:opacity 0}}]])))
 
+;; ---- root-container node (rf2-q129z8) -----------------------------------
+
+(defn root-container-node
+  "rf2-q129z8 — the synthetic ROOT-CONTAINER frame: the Stately-Studio-style
+  NAMED box that wraps the WHOLE machine. xyflow places every top-level node
+  (flat states, the `machine-root` chip, parallel regions) inside this
+  container via the `parentId` mechanic (the same way `compound-node` holds
+  its substates); ELK sizes the frame to HUG its children and reflows it on
+  resize, so the frame TRACKS the topology instead of the pre-q129z8
+  corner-pinned overlay that stuck to the drawing surface.
+
+  The frame absorbs the old floating root chrome into a proper HEADER:
+
+    - a full-width TITLE STRIP carrying the MACHINE NAME (`:machineName`,
+      from the host's `:machine-id`), with a subtle `∥` glyph for a parallel
+      root (`:parallel`);
+    - an optional CONTEXT band UNDER the title (`:context` — the inferred
+      key→type-caption shape the host feeds via `:machine-data`), with a
+      quiet `inferred from :data` badge unless `:contextInferred` is false.
+
+  Structural chrome, not a state: NEUTRAL border (no runtime accent — the
+  projector never marks it `:active`), no `:onClick`. The painted box FILLS
+  the xyflow node box ELK sized (`width/height:100%`, no `min-*`), matching
+  `compound-node` / `parallel-region-node` so the border tracks the box
+  exactly. The body is `pointer-events:none` so clicks fall through to the
+  nested states (the header re-enables nothing — the root frame is not
+  selectable); the four invisible cardinal handles keep any future
+  root-level edge endpoint legal (the same posture as `compound-node`)."
+  [^js props]
+  (let [d        (.-data props)
+        vc       (chart-constants d)
+        ct       (palette-of d)
+        label    (or (.-machineName d) (.-label d) "machine")
+        parallel? (boolean (.-parallel d))
+        context  (js->clj (.-context d))
+        inferred? (boolean (.-contextInferred d))
+        {:keys [compound-radius container-title-height container-title-pad-x
+                container-title-px container-divider-width
+                stroke-width]} vc]
+    (r/as-element
+      [:div {:data-testid (str "rf-mv-chart-root-container-" (.-id props))
+             :data-node-id (.-id props)
+             :data-root-container "true"
+             :data-parallel (str parallel?)
+             :style {:position       "relative"
+                     :width          "100%"
+                     :height         "100%"
+                     :background     (:container-body-bg ct)
+                     :border         (str stroke-width "px solid "
+                                          (:container-border ct))
+                     :border-radius  (str compound-radius "px")
+                     ;; rf2-q129z8 — clicks fall through to nested states.
+                     :pointer-events "none"}}
+       ;; FULL-WIDTH HEADER — machine name (+ ∥ for parallel) and, under it,
+       ;; the optional Context band. The header sits at the top of the frame
+       ;; box (ELK reserves the container top padding for it).
+       [:div {:data-testid (str "rf-mv-chart-root-container-header-" (.-id props))
+              :style {:position "absolute"
+                      :top      0
+                      :left     0
+                      :right    0
+                      :display        "flex"
+                      :flex-direction "column"}}
+        ;; TITLE STRIP.
+        [:div {:data-testid (str "rf-mv-chart-root-container-title-" (.-id props))
+               :style {:display     "flex"
+                       :align-items "center"
+                       :gap         "6px"
+                       :height      (str container-title-height "px")
+                       :padding     (str "0 " container-title-pad-x "px")
+                       :background    (:container-header-bg ct)
+                       :border-bottom (str container-divider-width "px solid "
+                                           (:divider ct))
+                       :border-top-left-radius  (str compound-radius "px")
+                       :border-top-right-radius (str compound-radius "px")
+                       :font-family sans-stack
+                       :font-size   (str container-title-px "px")
+                       :font-weight 700
+                       :letter-spacing "0.02em"
+                       :color       (:text-primary ct)
+                       :white-space "nowrap"
+                       :overflow    "hidden"
+                       :text-overflow "ellipsis"
+                       :user-select "none"}}
+         (when parallel?
+           [:span {:data-testid (str "rf-mv-chart-root-container-parallel-glyph-"
+                                     (.-id props))
+                   :style {:opacity 0.6
+                           :font-family sans-stack}}
+            "∥"])
+         [:span {:style {:overflow "hidden"
+                         :text-overflow "ellipsis"}}
+          label]]
+        ;; CONTEXT band (under the title) — the inferred key→type shape.
+        (when (seq context)
+          [:div {:data-testid (str "rf-mv-chart-root-container-context-" (.-id props))
+                 :data-key-count (str (count context))
+                 :style {:display        "flex"
+                         :flex-direction "column"
+                         :gap            "2px"
+                         :padding        "5px 10px 6px"
+                         :font-family    chart-label-stack
+                         :font-size      "10px"
+                         :line-height    1.3
+                         :color          (:text-secondary ct)
+                         :background      (:container-header-bg ct)
+                         :border-bottom   (str container-divider-width "px solid "
+                                               (:divider ct))}}
+           [:div {:style {:display        "flex"
+                          :align-items    "baseline"
+                          :gap            "5px"
+                          :margin-bottom  "1px"}}
+            [:span {:style {:font-size      "8px"
+                            :font-weight    700
+                            :letter-spacing "0.06em"
+                            :text-transform "uppercase"
+                            :color          (:text-tertiary ct)}}
+             "Context"]
+            (when inferred?
+              [:span {:data-testid (str "rf-mv-chart-root-container-context-inferred-"
+                                        (.-id props))
+                      :title "Inferred from one sample of the machine's :data — not a declared schema"
+                      :style {:font-size   "8px"
+                              :font-weight 500
+                              :font-style  "italic"
+                              :color       (:text-tertiary ct)}}
+               "inferred from :data"])]
+           (for [[k v] context]
+             ^{:key k}
+             [:div {:style {:display     "flex"
+                            :gap         "5px"
+                            :align-items "baseline"
+                            :white-space "nowrap"
+                            :overflow    "hidden"
+                            :text-overflow "ellipsis"}}
+              [:span {:style {:color (:accent ct) :font-weight 600}} k]
+              [:span {:style {:color (:text-tertiary ct)}} ":"]
+              [:span {:style {:overflow "hidden" :text-overflow "ellipsis"}} v]])])]
+       (four-cardinal-handles)])))
+
 ;; ---- machine-root node (rf2-vcnvj) --------------------------------------
 
 (defn machine-root-node
@@ -855,6 +995,10 @@
   #js {"state"           state-node
        "compound"        compound-node
        "parallel-region" parallel-region-node/parallel-region-node
+       ;; rf2-q129z8 — the synthetic ROOT-CONTAINER frame (the Stately-style
+       ;; named box wrapping the whole machine; absorbs the old corner-pinned
+       ;; root title strip + Context overlay into a proper frame header).
+       "root-container"  root-container-node
        "initial-marker"  initial-marker
        ;; rf2-vcnvj — the synthetic root-context chip a machine-level
        ;; (top-level `:on`) fallback routes from (projected once, not
