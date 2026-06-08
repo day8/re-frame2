@@ -471,7 +471,7 @@ Every effect — including dispatching another event, scheduling a delayed dispa
 ```clojure
 {:db (assoc db :counter 1)
  :fx [[:dispatch       [:counter/saved]]
-      [:dispatch-later {:ms 1000 :dispatch [:counter/cleanup]}]
+      [:dispatch-later {:ms 1000 :event [:counter/cleanup]}]
       [:http           {:method :get :url "/api/items"}]
       [:localstorage/set {:key "counter" :value 1}]]}
 ```

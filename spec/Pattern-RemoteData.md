@@ -235,7 +235,7 @@ Repeating fetches at a fixed interval. Use `:dispatch-later` to schedule the nex
 (rf/reg-event-fx :articles/poll
   (fn [_ _]
     {:fx [[:dispatch [:articles/load]]
-          [:dispatch-later {:ms 30000 :dispatch [:articles/poll]}]]}))
+          [:dispatch-later {:ms 30000 :event [:articles/poll]}]]}))
 ```
 
 A pause/resume pair (`:articles/poll-pause`, `:articles/poll-resume`) reads from a `:articles/poll-active?` sub if the user wants UI control over polling.
