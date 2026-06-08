@@ -96,7 +96,7 @@ The panel projects each trace event into a row. Per
 {:id         <int>              ;; trace event :id (stable per-process key)
  :time       <ms-since-epoch>   ;; from the trace event :time
  :where      <kw>               ;; :event / :sub-return / :cofx / :app-db / :fx-args
- :failing-id <kw|nil>           ;; the artefact id whose :spec failed
+ :failing-id <kw|nil>           ;; the registration/boundary id whose schema validation failed
  :path       <vector|nil>       ;; only for app-db failures
  :received   <any>              ;; the rejected value
  :explain    <any|nil>          ;; the validator's explanation
