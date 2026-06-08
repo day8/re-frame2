@@ -97,7 +97,7 @@ The error-handling surface is **split** across the dev/prod gate. Getting this b
 **Dev-only (production-elided per [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code)):**
 
 - The raw **trace stream** and `register-listener!` listeners — no events delivered in prod.
-- Dev-side enrichments on the always-on path: `:rf.trace/dispatch-id` correlation, `:rf.trace/trigger-handler` source-coord, the `:rf.error/bad-on-error-return` / `:rf.error/on-error-policy-exception` validation traces, and the retain-N ring buffer.
+- Dev-side enrichments on the always-on path: `:rf.trace/dispatch-id` correlation, `:rf.trace/trigger-handler` source-coord, the `:rf.error/bad-on-error-return` validation trace, and the retain-N ring buffer. (Note: `:rf.error/on-error-policy-exception` is NOT dev-only — per rf2-avnzbp a policy-fn throw fans out through the always-on error-emit listener so the bug stays observable in production.)
 
 So: route **production** error monitoring through the `:on-error` slot and/or `register-error-listener!` (always-on); use `register-listener!` only for the **dev** loop.
 

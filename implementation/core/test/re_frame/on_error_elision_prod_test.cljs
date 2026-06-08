@@ -90,22 +90,35 @@
     (is (nil? (rf/dispatch-sync [:prod/quiet-throw]))
         "dispatch-sync returns nil; the drain settled after the exception")))
 
-(deftest on-error-policy-exception-is-swallowed-under-prod
-  (testing "Per Spec 009 §1052: when the `:on-error` policy fn itself
-            throws, the runtime MUST NOT recursively invoke the policy
-            on its own exception. The always-on substrate catches the
-            policy's throw silently — the cascade does not abort, the
-            drain settles."
-    (rf/reg-frame :rf/default
-                  {:on-error (fn [_error-event]
-                               (throw (ex-info "policy itself threw" {})))})
-    (rf/reg-event-db :prod/policy-throw
-                     (fn [_db _]
-                       (throw (ex-info "handler threw" {}))))
-    ;; Should NOT throw — the policy fn's exception is caught inside
-    ;; error-emit/dispatch-on-error!.
-    (is (nil? (rf/dispatch-sync [:prod/policy-throw]))
-        "dispatch-sync returned nil despite both handler AND policy throwing")))
+(deftest on-error-policy-exception-emits-loudly-under-prod
+  (testing "Per rf2-avnzbp + rf2-ciy: when the `:on-error` policy fn
+            itself throws, the runtime MUST NOT recursively invoke the
+            policy on its own exception — but it MUST NOT silently swallow
+            it either. Under `:advanced` + `goog.DEBUG=false`,
+            `:rf.error/on-error-policy-exception` fans out through the
+            always-on listener (axis 1) so the policy-fn bug stays
+            observable in production, while recovery still proceeds (the
+            cascade does not abort, the drain settles)."
+    (let [seen (atom [])]
+      (rf/register-error-listener!
+        :prod/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [_error-event]
+                                 (throw (ex-info "policy itself threw" {})))})
+      (rf/reg-event-db :prod/policy-throw
+                       (fn [_db _]
+                         (throw (ex-info "handler threw" {}))))
+      ;; Should NOT throw — the policy fn's exception is caught + emitted.
+      (is (nil? (rf/dispatch-sync [:prod/policy-throw]))
+          "dispatch-sync returned nil despite both handler AND policy throwing")
+      (let [policy-rec (some #(when (= :rf.error/on-error-policy-exception (:error %)) %) @seen)]
+        (is (some? policy-rec)
+            ":rf.error/on-error-policy-exception survives goog.DEBUG=false — loud, not swallowed")
+        (is (= :rf/default (:frame policy-rec)))
+        (is (some? (:exception policy-rec)))
+        (is (= :rf.error/handler-exception (:original policy-rec))
+            ":original correlates the policy failure with the original error under prod")))))
 
 ;; ---- rf2-bacs4 corpus-wide listener survives goog.DEBUG=false -----------
 

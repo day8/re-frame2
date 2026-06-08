@@ -878,6 +878,24 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:reason        :string]
    [:recovery      [:= :no-recovery]]])
 
+(def OnErrorPolicyExceptionTags
+  ;; Per 009 §Error event catalogue (`:rf.error/on-error-policy-exception`,
+  ;; rf2-ciy / rf2-avnzbp): a frame's `:on-error` policy fn itself threw
+  ;; while processing an error event. Surfaced LOUDLY through the always-on
+  ;; listener (surface #4) — listener-only, NOT recursively re-invoking the
+  ;; policy (#5). `:original` correlates the policy failure with the
+  ;; `:operation` of the error the policy was handling; `:frame` names the
+  ;; policy's host frame. The runtime then applies the original error's
+  ;; per-category default recovery.
+  [:map
+   [:category          [:= :rf.error/on-error-policy-exception]]
+   [:original          {:optional true} :keyword]
+   [:frame             {:optional true} :keyword]
+   [:exception         {:optional true} :any]
+   [:exception-message {:optional true} :string]
+   [:exception-data    {:optional true} :any]
+   [:recovery          [:= :no-recovery]]])
+
 (def FlowEvalExceptionTags
   [:map
    [:category :keyword]

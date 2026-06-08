@@ -8,7 +8,9 @@
   Fired from every production-reachable runtime `:rf.error/*` site
   (handler / interceptor / cofx exceptions, flow exceptions, reserved-fx
   typed throws, reactive + compute-sub exceptions, frame-destroyed
-  dispatch / subscribe, no-such-handler, no-such-sub):
+  dispatch / subscribe, no-such-handler, no-such-sub, and — fired by this
+  ns itself — `:rf.error/on-error-policy-exception` when a frame's
+  `:on-error` policy fn throws):
 
     1. Corpus-wide listener registry (BROAD, axis 1 / surface #4) —
        every fn registered through [[register-error-listener!]] receives
@@ -48,7 +50,14 @@
 
   Both paths are independent (a buggy listener cannot block the policy
   fn; a buggy policy fn cannot block listeners). Both are try/catch
-  wrapped.
+  wrapped. A LISTENER throw is silently dropped (a sibling-isolation
+  concern, not a framework error). A POLICY-FN throw is NOT silent: it is
+  surfaced LOUDLY as `:rf.error/on-error-policy-exception` through the
+  always-on listener (axis 1, listener-only — NOT re-invoking the policy:
+  unbounded-recursion guard), then recovery proceeds with the original
+  error's per-category default (per rf2-ciy / rf2-avnzbp + the loud-
+  failure posture). See [[fire-on-error-policy!]] / [[emit-policy-
+  exception!]].
 
   Listener REGISTRATION sites SHOULD use `goog.DEBUG=false` as a
   belt-and-braces gate alongside an explicit config flag. The substrate
@@ -62,6 +71,7 @@
   (:require [re-frame.elision        :as elision]
             [re-frame.emit-substrate :as emit]
             [re-frame.frame          :as frame]
+            [re-frame.interop        :as interop]
             [re-frame.late-bind      :as late-bind]
             [re-frame.source-coords  :as source-coords]))
 
@@ -96,14 +106,66 @@
 
 ;; ---- emission -------------------------------------------------------------
 
+(defn- emit-policy-exception!
+  "A frame's `:on-error` policy fn itself threw while processing an error
+  event. Surface `:rf.error/on-error-policy-exception` LOUDLY through the
+  always-on listener registry (axis 1 / surface #4) so the policy-fn bug
+  is observable in production rather than silently swallowed (the
+  loud-failure posture per rf2-2hvga / rf2-avnzbp), then RECOVER — the
+  exception does not propagate to user code; the caller falls back to the
+  original error's documented per-category recovery.
+
+  LISTENER-ONLY: this fans out NO axis-2 policy invocation. Per rf2-ciy
+  the runtime does NOT recursively invoke the policy on its own exception
+  — that would risk unbounded recursion (a buggy policy fn would re-throw
+  on the re-emission, re-trigger the policy, …). We deliberately fan a
+  tight record straight at the listener registry rather than re-entering
+  [[dispatch-on-error!]], so there is no path back into
+  [[fire-on-error-policy!]].
+
+  The tight record carries the same listener shape as every other
+  category (`:error :event :event-id :frame :time :exception :elapsed-ms`)
+  with `:event`/`:event-id`/`:elapsed-ms` nil — the policy throw has no
+  failing event vector of its own; `:exception` is the policy's throw
+  (message + ex-data ride on it) and `:frame` is the policy's host frame.
+  Per the catalogue row's `:original` tag (per [[dispatch-on-error!]]
+  §catalogue + the `:rf/error-event` envelope), the operation of the
+  error the policy was processing rides on the record so observability
+  shippers can correlate the policy failure with the error that triggered
+  it. `:original` is an additive slot (open-map convention) — listeners
+  filtering on the tight key set ignore it."
+  [frame-id error-event policy-ex]
+  (let [original (when (map? error-event) (:operation error-event))
+        record   (cond-> {:error      :rf.error/on-error-policy-exception
+                          :event      nil
+                          :event-id   nil
+                          :frame      frame-id
+                          :time       (interop/now-ms)
+                          :exception  policy-ex
+                          :elapsed-ms nil}
+                   original (assoc :original original))]
+    ;; Axis 1 ONLY — fan straight at the listener registry; never re-enter
+    ;; the policy path (no recursion).
+    ((:fan-out registry) record)
+    nil))
+
 (defn- fire-on-error-policy!
   "Invoke the frame's `:on-error` policy fn with `error-event`. No-op
   when `error-event` is nil (the LISTENER-ONLY caller signal — see
   [[dispatch-on-error!]] §two-axis catalogue), when the frame is
   unregistered, when no `:on-error` slot is configured, or when the
-  slot is not a fn. Per Spec 009 §1052 policy-fn exceptions are caught
-  here so a buggy policy fn cannot break the cascade. Returns the
-  policy fn's return value or nil."
+  slot is not a fn.
+
+  Per Spec 009 §Error event catalogue (`:rf.error/on-error-policy-
+  exception`, rf2-ciy) + rf2-avnzbp: a policy-fn throw is caught here so
+  a buggy policy fn cannot break the cascade — but it is NOT silently
+  swallowed. The throw is surfaced LOUDLY as
+  `:rf.error/on-error-policy-exception` through the always-on listener
+  (axis 1, via [[emit-policy-exception!]]) so the bug is observable in
+  production, then recovery proceeds (the caller applies the original
+  error's per-category default). The runtime does NOT recursively invoke
+  the policy on its own exception (unbounded-recursion guard). Returns
+  the policy fn's return value, or nil on a policy throw / no-op."
   [frame-id error-event]
   (when (some? error-event)
     (when-let [f (frame/frame frame-id)]
@@ -111,7 +173,8 @@
         (when (fn? policy)
           (try
             (policy error-event)
-            (catch #?(:clj Throwable :cljs :default) _ nil)))))))
+            (catch #?(:clj Throwable :cljs :default) policy-ex
+              (emit-policy-exception! frame-id error-event policy-ex))))))))
 
 (defn dispatch-on-error!
   "Surface an `:rf.error/*` event through the always-on error-emit
