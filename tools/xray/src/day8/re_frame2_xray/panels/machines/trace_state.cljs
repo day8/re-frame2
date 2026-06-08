@@ -134,6 +134,47 @@
                          (get-in ev [:payload :from]))]
     (normalise-path (or before-state from))))
 
+;; ---- raw (un-normalised) before/after state -----------------------------
+;;
+;; rf2-8ncxrf — a PARALLEL machine's snapshot `:state` is a region-MAP
+;; (`{:climate :idle :fan :off}`), one active leaf per orthogonal region
+;; (Spec 005 §Parallel regions). `from-path-from-trace` / `to-path-from-trace`
+;; run that value through `normalise-path`, which returns nil for a map —
+;; correct for the single-active path resolvers, but it means a parallel
+;; transition's before/after vanish there and `extract-fired-edge-ids` lights
+;; NO edge for an event that fired in N regions at once. The parallel branch
+;; needs the RAW `:state` value (keyword / vector / region-map) so it can
+;; iterate the per-region (from, to) pairs. These readers mirror the
+;; before/after slot tolerance of the path readers but DON'T normalise.
+
+(defn- before-state-from-trace
+  "Pull the RAW (un-normalised) `:before` (source) state value off a
+  `:rf.machine/transition` trace — a keyword, a path vector, OR a
+  parallel region-MAP. Same slot tolerance as `from-path-from-trace`
+  (modern `:tags :before :state`, legacy `:tags :from` / `:from` /
+  `:payload :from`); returns the value verbatim (no path coercion)."
+  [ev]
+  (let [before-state (get-in ev [:tags :before :state])]
+    (if (some? before-state)
+      before-state
+      (or (get-in ev [:tags :from])
+          (:from ev)
+          (get-in ev [:payload :from])))))
+
+(defn- after-state-from-trace
+  "Pull the RAW (un-normalised) `:after` (target) state value off a
+  `:rf.machine/transition` trace — a keyword, a path vector, OR a
+  parallel region-MAP. Same slot tolerance as `to-path-from-trace`
+  (modern `:tags :after :state`, legacy `:tags :to` / `:to` /
+  `:payload :to`); returns the value verbatim (no path coercion)."
+  [ev]
+  (let [after-state (get-in ev [:tags :after :state])]
+    (if (some? after-state)
+      after-state
+      (or (get-in ev [:tags :to])
+          (:to ev)
+          (get-in ev [:payload :to])))))
+
 (defn- event-from-trace
   "Pull the event keyword off a `:rf.machine/transition` trace event.
 
@@ -214,6 +255,77 @@
 
 ;; ---- fired-edge ids (machines-viz canonical) ----------------------------
 
+(defn- single-transition-fired-ids
+  "Fired-edge ids for ONE single-active (flat / compound) transition: the
+  `(from*, to*, event*)` paths read off the trace (already path-coerced).
+  A STATE-LOCAL edge matches on all three; falls back to a MACHINE-LEVEL
+  (top-level `:on`) edge matched on (to, event) alone — rf2-vcnvj projects
+  the fallback ONCE from the synthetic MACHINE-ROOT node, so its
+  `:from-path` is the root context `[]`, not the concrete leaf the runtime
+  fired it from. Without that fallback the door `:door/audit` fallback
+  firing from `:alarming` would highlight no edge. Returns a seq of ids."
+  [edges from* to* event*]
+  (let [local (keep (fn [e]
+                      (when (and (not (:machine-level? e))
+                                 (= from*  (:from-path e))
+                                 (= to*    (:to-path e))
+                                 (= event* (:event e)))
+                        (:id e)))
+                    edges)]
+    (if (seq local)
+      local
+      (keep (fn [e]
+              (when (and (:machine-level? e)
+                         (= to*    (:to-path e))
+                         (= event* (:event e)))
+                (:id e)))
+            edges))))
+
+(defn- parallel-transition-fired-ids
+  "Fired-edge ids for ONE PARALLEL multi-region transition (rf2-8ncxrf).
+
+  A `:type :parallel` machine's snapshot `:state` is a region-MAP — one
+  active leaf per orthogonal region (Spec 005 §Parallel regions). A single
+  external event (e.g. `[:hvac/power-cycle]`) fires transitions in N
+  regions at once, but the runtime emits ONE `:rf.machine/transition`
+  whose `:before` / `:after` carry the WHOLE composite region-map (per
+  `lifecycle_fx.registration/commit-or-finalize`). So the fired EDGES are
+  the per-region edges of every region that CHANGED — derived from the
+  before/after region-map, NOT from a single (from, to) pair.
+
+  `project-parallel` (machines-viz `chart.layout`) region-SCOPES each
+  region's edges: an edge's `:from-path` / `:to-path` are the IN-REGION
+  paths (e.g. `[:idle]` → `[:running]`) and its `:source` is
+  `(region-scoped-id region from-path)` — the SAME injective id-scheme
+  `highlight-ids` resolves a region-map against (rf2-wnzha). Edges carry
+  no `:region` key, so two regions sharing a state NAME would collide on
+  the `(from, to, event)` triple; we disambiguate by matching the edge's
+  region-scoped `:source` against `(region-scoped-id region from-path)`,
+  guaranteeing each fired id belongs to the region that actually moved.
+
+  Only regions whose `(from ≠ to)` contribute — an event that moves some
+  regions and leaves others resting lights exactly the moved regions.
+  Per-region `from` / `to` are coerced through `normalise-path` (a region
+  value is a keyword or in-region vector). Returns a seq of ids."
+  [edges before-map after-map event*]
+  (when event*
+    (mapcat
+      (fn [[region region-before]]
+        (let [region-after (get after-map region)
+              from*        (normalise-path region-before)
+              to*          (normalise-path region-after)]
+          ;; Skip a region that did not move, or whose paths don't coerce.
+          (when (and from* to* (not= region-before region-after))
+            (let [scoped-source (chart-layout/region-scoped-id region from*)]
+              (keep (fn [e]
+                      (when (and (= from*         (:from-path e))
+                                 (= to*           (:to-path e))
+                                 (= event*        (:event e))
+                                 (= scoped-source (:source e)))
+                        (:id e)))
+                    edges)))))
+      before-map)))
+
 (defn extract-fired-edge-ids
   "Given a machine `definition`, a vector of `:rf.machine/transition`
   trace events for the focused epoch, and the `machine-id` of interest,
@@ -236,45 +348,38 @@
   Transitions that don't carry an explicit event-id are excluded (they
   can't be matched to a declared edge).
 
+  rf2-8ncxrf — PARALLEL multi-region transitions. A `:type :parallel`
+  machine's `:before` / `:after` `:state` is a region-MAP, and ONE event
+  fires transitions in N regions simultaneously yet emits ONE trace. The
+  per-event branch detects the region-map shape and lights EVERY changed
+  region's edge (`parallel-transition-fired-ids`), so the focused Machine
+  view renders all N fired region-transitions — not a blank chart (the
+  single-active path returns nil for a map, which is why the event-focused
+  view showed NO transition for `[:hvac/power-cycle]`).
+
   Returns `#{}` for a nil/empty definition or no matching transitions."
   [definition trace-events machine-id]
   (let [edges (:edges (chart-layout/project-definition definition))]
     (->> (machine-transitions trace-events machine-id)
          (mapcat
            (fn [ev]
-             (let [from*  (from-path-from-trace ev)
-                   to*    (to-path-from-trace ev)
-                   event* (event-from-trace ev)]
-               (when (and from* to* event*)
-                 ;; A transition trace carries the concrete (from, to,
-                 ;; event) the runtime took. A STATE-LOCAL edge matches on
-                 ;; all three. A MACHINE-LEVEL (top-level `:on`) fallback,
-                 ;; however, is now projected ONCE from the synthetic
-                 ;; MACHINE-ROOT node (rf2-vcnvj) — its `:from-path` is the
-                 ;; root context `[]`, not the concrete leaf the runtime
-                 ;; fired it from. So when a trace's (from, event, to)
-                 ;; matches NO state-local edge, fall back to matching the
-                 ;; machine-level edge on (to, event) alone — the single
-                 ;; root-sourced chip lights regardless of which leaf
-                 ;; inherited it (the correct visual for a machine-wide
-                 ;; fallback). Without this fallback the door `:door/audit`
-                 ;; fallback firing from `:alarming` would highlight no
-                 ;; edge at all.
-                 (let [local (keep (fn [e]
-                                     (when (and (not (:machine-level? e))
-                                                (= from*  (:from-path e))
-                                                (= to*    (:to-path e))
-                                                (= event* (:event e)))
-                                       (:id e)))
-                                   edges)]
-                   (if (seq local)
-                     local
-                     (keep (fn [e]
-                             (when (and (:machine-level? e)
-                                        (= to*    (:to-path e))
-                                        (= event* (:event e)))
-                               (:id e)))
-                           edges)))))))
+             (let [event*      (event-from-trace ev)
+                   before-raw  (before-state-from-trace ev)
+                   after-raw   (after-state-from-trace ev)]
+               (if (or (map? before-raw) (map? after-raw))
+                 ;; PARALLEL multi-region: derive from the region-maps so
+                 ;; every region that moved this event lights its edge.
+                 (parallel-transition-fired-ids
+                   edges
+                   (if (map? before-raw) before-raw {})
+                   (if (map? after-raw) after-raw {})
+                   event*)
+                 ;; Single-active (flat / compound): the existing
+                 ;; (from, to, event) match + machine-level fallback.
+                 (let [from* (from-path-from-trace ev)
+                       to*   (to-path-from-trace ev)]
+                   (when (and from* to* event*)
+                     (single-transition-fired-ids edges from* to* event*)))))))
          set)))
 
 ;; ---- guard-blocked-edge ids (rf2-fzrzlw) --------------------------------
