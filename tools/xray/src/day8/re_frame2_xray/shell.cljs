@@ -141,6 +141,7 @@
             [day8.re-frame2-xray.panels.l2-timeline :as l2-timeline]
             [day8.re-frame2-xray.palette :as palette]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
+            [day8.re-frame2-xray.settings.editor-hint :as editor-hint]
             [day8.re-frame2-xray.settings.popup :as settings-popup]
             [day8.re-frame2-xray.views.edn-inspector-popup
              :as edn-inspector-popup]
@@ -2665,6 +2666,15 @@
     ;; through the shell's `:rf/xray` frame-provider, and the modal
     ;; short-circuits to nil when `:rf.xray/settings-open?` is false.
     [settings-popup/Modal]
+    ;; Open-in-editor 'pick an editor in Settings' hint toast
+    ;; (rf2-4s08ov). Same shell-root mount discipline as the modals so
+    ;; its subscribe resolves through the `:rf/xray` frame-provider; the
+    ;; toast is `position: absolute` in the bottom-right corner and
+    ;; short-circuits to nil when `:rf.xray/editor-hint-open?` is false.
+    ;; Shown when an open-in-editor chip is clicked but no editor is
+    ;; effectively configured (host never set `:rf.xray/editor`, no
+    ;; operator override) — instead of the silent `vscode:` no-op.
+    [editor-hint/Toast]
     ;; Cancellation-cascade popover (rf2-59e7k) — single waterfall view
     ;; of the rf2-wvkn cancellation contract. Opened from the Trace tab
     ;; (right-click a destroy-event row → 'Show cancellation cascade')

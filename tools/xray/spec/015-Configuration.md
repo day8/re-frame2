@@ -232,6 +232,41 @@ Tests cover the resolution order, the localStorage round-trip, and
 the `open-chip` / `:rf.xray/open-in-editor` consumers under
 `tools/xray/test/day8/re_frame2_xray/settings/editor_override_cljs_test.cljs`.
 
+#### Unconfigured-host DX hint (rf2-4s08ov)
+
+A host that wires only the bare preload never sets `:rf.xray/editor`,
+so the open-in-editor chip targets the framework default `:vscode`.
+The URI resolves and `Location.assign` fires — but if VS Code is not
+the developer's editor, the OS has no `vscode:` protocol handler and
+the click is a **silent no-op** the JS layer cannot observe (the
+no-handler-installed clean-no-op fallback in
+[`007-UX-IA.md` §URI construction](./007-UX-IA.md#uri-construction-normative)).
+rf2-ffijtp documented the fix (hosts MUST set `:rf.xray/editor`);
+rf2-4s08ov surfaces it at click-time.
+
+When `config/editor-configured?` is false — NEITHER the host
+explicitly set `:rf.xray/editor` NOR a valid operator override sits in
+`[:general :editor-override]` — the `:rf.xray/open-in-editor` event-fx
+MUST NOT fire the silent `:rf.editor/open` navigation. Instead it
+dispatches `:rf.xray/editor-hint-show`, which mounts a small,
+non-intrusive bottom-corner toast ("No editor configured") carrying an
+**Open Settings** button that lands the operator on the General-tab
+editor picker (`:rf.xray/editor-hint-open-settings` →
+`:rf.xray/settings-open`). The toast is dismissable (✕ / Esc) and
+self-dismisses on Open-Settings.
+
+`editor-configured?` is true the moment EITHER the host calls
+`set-editor!` / `(configure! {:rf.xray/editor …})` (an explicit set —
+even of `:vscode` — counts as confirmation) OR a valid operator
+override is present. In that state the chip click resolves + navigates
+exactly as before; the hint never fires. A malformed override
+(rejected by `valid-editor-override?`) does NOT count as configured —
+it degrades to the unconfigured state like `get-editor` does.
+
+Tests cover the predicate (`config_test.clj`), the event-fx routing
+(`open_in_editor_cljs_test.cljs`), and the toast events / sub / render
++ Open-Settings wiring (`settings/editor_hint_cljs_test.cljs`).
+
 ### `:rf.xray/project-root`
 
 The on-disk root prepended to the source-coord's classpath-relative

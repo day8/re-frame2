@@ -49,6 +49,72 @@
     (config/configure! {:rf.xray/editor :idea})
     (is (= :idea (config/get-editor)))))
 
+;; ---- editor-configured? (rf2-4s08ov — open-in-editor DX hint) ----------
+;;
+;; The predicate the open-in-editor event-fx reads to decide whether to
+;; navigate or surface the 'pick an editor in Settings' hint. True iff
+;; the host explicitly set an editor OR a valid operator override exists.
+
+(deftest editor-configured-false-for-bare-default
+  (testing "rf2-4s08ov — a host that never set an editor (the bare
+            framework-default :vscode) is NOT configured"
+    ;; Clear the explicit flag the fixture's `set-editor!` set, and the
+    ;; override slot, to model the bare-preload host.
+    (reset! config/editor-explicitly-set? false)
+    (config/update-setting! :general :editor-override nil)
+    (is (false? (config/editor-configured?)))))
+
+(deftest editor-configured-true-when-host-set
+  (testing "rf2-4s08ov — an explicit set-editor! (even :vscode) counts
+            as configured"
+    (reset! config/editor-explicitly-set? false)
+    (config/update-setting! :general :editor-override nil)
+    (config/set-editor! :vscode)
+    (is (true? (config/editor-configured?))
+        "explicit :vscode counts — the host confirmed the editor")
+    (config/set-editor! :cursor)
+    (is (true? (config/editor-configured?)))))
+
+(deftest editor-configured-cleared-by-nil-reset
+  (testing "rf2-4s08ov — set-editor! nil clears the explicit flag so the
+            hint re-arms"
+    (config/set-editor! :cursor)
+    (is (true? (config/editor-configured?)))
+    (config/set-editor! nil)
+    (config/update-setting! :general :editor-override nil)
+    (is (false? (config/editor-configured?)))))
+
+(deftest editor-configured-true-when-operator-override
+  (testing "rf2-4s08ov — a valid operator override counts as configured
+            even with no host set"
+    (reset! config/editor-explicitly-set? false)
+    (config/update-setting! :general :editor-override :cursor)
+    (is (true? (config/editor-configured?)))
+    ;; A custom-template override also counts.
+    (config/update-setting! :general :editor-override
+                            {:custom "subl://open?url={path}"})
+    (is (true? (config/editor-configured?)))
+    ;; Clean up the override slot for the next test.
+    (config/update-setting! :general :editor-override nil)))
+
+(deftest editor-configured-false-for-malformed-override
+  (testing "rf2-4s08ov — a malformed override (rejected by
+            valid-editor-override?) does NOT count as configured — it
+            degrades to the unconfigured state like get-editor does"
+    (reset! config/editor-explicitly-set? false)
+    (config/update-setting! :general :editor-override :not-a-real-editor)
+    (is (false? (config/editor-configured?)))
+    (config/update-setting! :general :editor-override nil)))
+
+(deftest configure-editor-sets-configured-flag
+  (testing "rf2-4s08ov — configure! {:rf.xray/editor …} flips
+            editor-configured? on (it routes through set-editor!)"
+    (reset! config/editor-explicitly-set? false)
+    (config/update-setting! :general :editor-override nil)
+    (is (false? (config/editor-configured?)))
+    (config/configure! {:rf.xray/editor :cursor})
+    (is (true? (config/editor-configured?)))))
+
 (deftest configure-without-editor-leaves-preference
   (testing "configure! without :rf.xray/editor leaves the preference unchanged"
     (config/set-editor! :cursor)

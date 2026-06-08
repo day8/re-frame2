@@ -1,0 +1,149 @@
+(ns day8.re-frame2-xray.settings.editor-hint-cljs-test
+  "CLJS tests for the open-in-editor 'pick an editor in Settings' hint
+  toast (rf2-4s08ov).
+
+  Asserts:
+  - `:rf.xray/editor-hint-show` / `-dismiss` flip the
+    `:rf.xray/editor-hint-open?` sub.
+  - `Toast` short-circuits to nil when closed, renders the toast +
+    'Open Settings' button when open.
+  - `:rf.xray/editor-hint-open-settings` opens the Settings popup
+    (General tab) and dismisses the toast.
+
+  Uses the explicit map-shape `use-fixtures` (per the `cljs.test/async`
+  requirement — the open-settings test drains the async router queue
+  that the `:rf.xray/editor-hint-open-settings` event-fx's `:dispatch`
+  fx feeds), mirroring `popup_dispatch_routing_cljs_test.cljs`."
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
+            [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.settings.editor-hint :as editor-hint]
+            [day8.re-frame2-xray.test-support :as xray-test-support]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+
+;; ---- fixture (map shape per cljs.test/async requirement) ---------------
+
+(def ^:private fixture-snap (atom nil))
+
+(defn- setup-runtime! []
+  (xray-test-support/reset-all!)
+  (trace-collector/reset-for-test!)
+  (config/reset-settings!)
+  (reset! fixture-snap (test-support/snapshot-registrar))
+  (reset! frame/frames {})
+  (substrate-adapter/dispose-adapter!)
+  (substrate-adapter/install-adapter! plain-atom/adapter)
+  (frame/ensure-default-frame!)
+  (registry/register-xray-handlers!)
+  (frame/reg-frame :rf/xray {}))
+
+(defn- teardown-runtime! []
+  (when-let [snap @fixture-snap]
+    (test-support/restore-registrar! snap)
+    (reset! fixture-snap nil))
+  (reset! frame/frames {}))
+
+(use-fixtures :each
+  {:before setup-runtime!
+   :after  teardown-runtime!})
+
+;; ---- hiccup walker (mirrors popup_dispatch_routing) --------------------
+
+(declare expand-tree)
+
+(defn- expand-tree
+  [tree]
+  (cond
+    (and (vector? tree) (fn? (first tree)))
+    (expand-tree (apply (first tree) (rest tree)))
+
+    (vector? tree)
+    (mapv expand-tree tree)
+
+    (seq? tree)
+    (map expand-tree tree)
+
+    :else
+    tree))
+
+(defn- hiccup-seq [tree]
+  (let [expanded (expand-tree tree)]
+    (tree-seq (some-fn vector? seq?) seq expanded)))
+
+(defn- find-by-testid [tree testid]
+  (some (fn [node]
+          (when (and (vector? node)
+                     (map? (second node))
+                     (= testid (:data-testid (second node))))
+            node))
+        (hiccup-seq tree)))
+
+;; ---- events + sub -------------------------------------------------------
+
+(deftest show-and-dismiss-flip-the-sub
+  (rf/with-frame :rf/xray
+    (is (false? @(rf/subscribe [:rf.xray/editor-hint-open?]))
+        "closed by default")
+    (rf/dispatch-sync [:rf.xray/editor-hint-show])
+    (is (true? @(rf/subscribe [:rf.xray/editor-hint-open?]))
+        "show flips the sub on")
+    (rf/dispatch-sync [:rf.xray/editor-hint-dismiss])
+    (is (false? @(rf/subscribe [:rf.xray/editor-hint-open?]))
+        "dismiss flips it back off")))
+
+;; ---- Toast render ------------------------------------------------------
+
+(deftest toast-renders-nil-when-closed
+  (rf/with-frame :rf/xray
+    (is (nil? (editor-hint/Toast))
+        "Toast renders nil when editor-hint-open? is false")))
+
+(deftest toast-renders-when-open
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/editor-hint-show]))
+  (rf/with-frame :rf/xray
+    (let [rendered (editor-hint/Toast)]
+      (is (some? rendered)
+          "Toast renders hiccup when editor-hint-open? is true")
+      (is (find-by-testid rendered "rf-xray-editor-hint-toast")
+          "the toast root is present")
+      (is (find-by-testid rendered "rf-xray-editor-hint-open-settings")
+          "the 'Open Settings' button is present")
+      (is (find-by-testid rendered "rf-xray-editor-hint-dismiss")
+          "the dismiss ✕ button is present"))))
+
+;; ---- open-settings wiring ----------------------------------------------
+
+(deftest open-settings-opens-popup-on-general-and-dismisses
+  (testing "rf2-4s08ov — :rf.xray/editor-hint-open-settings dismisses the
+            toast (synchronously in :db) and opens the Settings popup,
+            which lands on the :general tab (the editor picker's home)"
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/editor-hint-show]))
+    (is (true? (boolean (:editor-hint-open? (rf/app-db-value :rf/xray))))
+        "toast is open before Open-Settings")
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/editor-hint-open-settings]))
+    ;; The :db dismiss is synchronous; the settings-open lands via the
+    ;; async `:dispatch` fx, so poll the router drain before asserting.
+    (async done
+      (-> (test-support/poll-until
+            #(true? (boolean (:settings-open? (rf/app-db-value :rf/xray))))
+            {:label "settings popup opens after editor-hint-open-settings"
+             :timeout-ms 1000})
+          (.then (fn [_]
+                   (let [db (rf/app-db-value :rf/xray)]
+                     (is (false? (boolean (:editor-hint-open? db)))
+                         "the toast is dismissed when Settings opens")
+                     (is (true? (boolean (:settings-open? db)))
+                         "the Settings popup is open")
+                     (is (= :general (:settings-active-tab db))
+                         "Settings opens on the General tab — the editor
+                          picker's home"))
+                   (done)))
+          (.catch (fn [e] (is false (.-message e)) (done)))))))

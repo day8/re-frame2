@@ -32,6 +32,12 @@
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (defn reset-editor! []
+  ;; rf2-4s08ov — reset the operator-override slot too so a sibling
+  ;; test's `[:general :editor-override]` write does not leak into the
+  ;; chip-render tests' `get-editor` reads. `reset-settings!` clears the
+  ;; whole settings map (incl. the override slot); `set-editor! :vscode`
+  ;; re-arms the host default + the editor-explicitly-set? flag.
+  (config/reset-settings!)
   (config/set-editor! :vscode)
   (config/set-project-root! nil))
 
@@ -487,6 +493,100 @@
       (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
              (:uri (first @captured-editor-fx)))
           "fx's :uri ≡ chip's :href once :project-root is configured"))))
+
+;; ---- rf2-4s08ov — open-in-editor DX hint when no editor configured ------
+;;
+;; The rf2-ffijtp finding: a host that wired only the bare preload never
+;; set `:rf.xray/editor`, so the chip targets the framework default
+;; `:vscode`. The URI resolves and `Location.assign` fires, but if VS
+;; Code is not the developer's editor the OS has no `vscode:` handler and
+;; the click is a SILENT no-op. Instead of that silent navigation, the
+;; event-fx surfaces the 'pick an editor in Settings' hint toast. The
+;; block below pins the contract:
+;;
+;;   1. When NEITHER the host nor the operator has confirmed an editor
+;;      (`config/editor-configured?` false), the open-in-editor event
+;;      routes to `:rf.xray/editor-hint-show` (NOT `:rf.editor/open`).
+;;   2. Once the host explicitly sets an editor (even `:vscode`), or an
+;;      operator override is present, the click resolves + navigates as
+;;      before — the hint never fires.
+
+(defn- setup-unconfigured!
+  "Like `setup!` but clears the editor-explicitly-set? flag + any
+  operator override so `config/editor-configured?` is false — the bare
+  host scenario rf2-4s08ov targets."
+  []
+  (setup!)
+  ;; `reset-editor!` (via the fixture) called `set-editor! :vscode`,
+  ;; which flips the explicit flag on. Clear it back to the
+  ;; unconfigured framework-default state.
+  (reset! config/editor-explicitly-set? false)
+  (config/update-setting! :general :editor-override nil))
+
+(deftest open-in-editor-event-hints-when-no-editor-configured
+  (testing "rf2-4s08ov — with NO editor effectively configured, the
+            event does NOT fire `:rf.editor/open` (the silent vscode:
+            navigation) — it routes to the editor-hint instead"
+    (setup-unconfigured!)
+    (is (false? (config/editor-configured?))
+        "precondition: editor is the unconfirmed framework default")
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/open-in-editor
+                         {:file "src/x.cljs" :line 1}])
+      (is (= 0 (count @captured-editor-fx))
+          "no `:rf.editor/open` fx fires — the silent vscode: nav is
+           replaced by the hint dispatch")))
+  ;; Reset the override slot so the leaked `nil` write does not bleed
+  ;; into sibling tests' `get-editor` reads.
+  (config/update-setting! :general :editor-override nil))
+
+(deftest editor-hint-show-and-dismiss-flip-the-sub
+  (testing "rf2-4s08ov — the `:rf.xray/editor-hint-show` /
+            `-dismiss` events flip the `:rf.xray/editor-hint-open?`
+            sub (the toast's mount gate)"
+    (setup!)
+    (rf/with-frame :rf/xray
+      (is (false? @(rf/subscribe [:rf.xray/editor-hint-open?]))
+          "closed by default")
+      (rf/dispatch-sync [:rf.xray/editor-hint-show])
+      (is (true? @(rf/subscribe [:rf.xray/editor-hint-open?]))
+          "shown after editor-hint-show")
+      (rf/dispatch-sync [:rf.xray/editor-hint-dismiss])
+      (is (false? @(rf/subscribe [:rf.xray/editor-hint-open?]))
+          "dismissed after editor-hint-dismiss"))))
+
+(deftest open-in-editor-event-navigates-when-host-set-editor
+  (testing "rf2-4s08ov — once the host explicitly sets an editor (even
+            the framework-default :vscode), the click resolves + fires
+            `:rf.editor/open` as before; the hint never fires"
+    (setup-unconfigured!)
+    (config/set-editor! :vscode)
+    (is (true? (config/editor-configured?))
+        "an explicit set — even of :vscode — counts as configured")
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/open-in-editor
+                         {:file "src/x.cljs" :line 1}])
+      (is (= 1 (count @captured-editor-fx))
+          "the open fx fires for an explicitly-configured editor")
+      (is (= "vscode://file/src/x.cljs:1:1"
+             (:uri (first @captured-editor-fx)))))))
+
+(deftest open-in-editor-event-navigates-when-operator-override-set
+  (testing "rf2-4s08ov — an operator override (no host set) also counts
+            as configured: the click navigates, no hint"
+    (setup-unconfigured!)
+    (config/update-setting! :general :editor-override :cursor)
+    (is (true? (config/editor-configured?)))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/open-in-editor
+                         {:file "src/x.cljs" :line 10}])
+      (is (= "cursor://file/src/x.cljs:10:1"
+             (:uri (first @captured-editor-fx)))
+          "the override editor's URI rides the fx"))
+    ;; Reset the override slot so :cursor does not bleed into sibling
+    ;; tests' `get-editor` reads (the fixture resets the editor atom +
+    ;; project-root but NOT the settings override slot).
+    (config/update-setting! :general :editor-override nil)))
 
 ;; ---- click-time navigation (rf2-muvs8) ----------------------------------
 ;;
