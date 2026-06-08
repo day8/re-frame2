@@ -690,12 +690,12 @@
             :include-runtime-db? true; the value then routes through the
             value walker (per-slot elision still applies)"
     (seed-sensitive-schema!)
-    (let [v {:state [:active] :auth {:password "shh"}}]
-      (let [out (runtime/egress-runtime-db-value v {:include-runtime-db? true})]
-        (is (= [:active] (:state out))
-            "the runtime-db value crosses when the trusted-local opt-in is set")
-        (is (= :rf/redacted (get-in out [:auth :password]))
-            "the partition opt-in COMPOSES with per-slot sensitive elision — it does not override it")))))
+    (let [v   {:state [:active] :auth {:password "shh"}}
+          out (runtime/egress-runtime-db-value v {:include-runtime-db? true})]
+      (is (= [:active] (:state out))
+          "the runtime-db value crosses when the trusted-local opt-in is set")
+      (is (= :rf/redacted (get-in out [:auth :password]))
+          "the partition opt-in COMPOSES with per-slot sensitive elision — it does not override it"))))
 
 (deftest get-app-db-does-not-leak-runtime-db-partition
   (testing "EP-0001 rf2-jj1xer — get-app-db reads ONLY the app-db partition
