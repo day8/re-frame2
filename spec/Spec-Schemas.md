@@ -624,6 +624,8 @@ Each error / warning category enumerated in [009 §Error event catalogue](009-In
 
 Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from the `:rf/error-event` envelope above; the per-category schemas below describe the *additional* category-specific keys. Open-map convention applies — implementations may add fields additively without breaking consumers (per [§Schema convention](#schema-convention)).
 
+> **One carve-out.** `:rf.error/on-error-policy-exception` (`OnErrorPolicyExceptionRecord`, below) is the lone category that does NOT ride the dev-trace `:rf/error-event` surface and therefore carries NO `:tags` payload. It is fanned directly at the always-on error-emit listener (surface #4), so its schema describes a #4 listener *record* — discriminated by a top-level `:error` slot (not `:category`) and with no `:recovery` slot. See its definition for the full rationale (rf2-xto1tx).
+
 ```clojure
 ;; --- runtime: handler / sub / fx / interceptor exceptions ---
 
@@ -877,22 +879,40 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:reason        :string]
    [:recovery      [:= :no-recovery]]])
 
-(def OnErrorPolicyExceptionTags
+(def OnErrorPolicyExceptionRecord
   ;; Per 009 §Error event catalogue (`:rf.error/on-error-policy-exception`,
   ;; rf2-ciy / rf2-avnzbp): a frame's `:on-error` policy fn itself threw
-  ;; while processing an error event. Surfaced LOUDLY through the always-on
-  ;; listener (surface #4) — listener-only, NOT recursively re-invoking the
-  ;; policy (#5). `:original` correlates the policy failure with the
-  ;; `:operation` of the error the policy was handling; `:frame` names the
-  ;; policy's host frame. The runtime then applies the original error's
-  ;; per-category default recovery.
+  ;; while processing an error event.
+  ;;
+  ;; CARVED OUT of the dev-trace `:tags` framing (rf2-xto1tx). Unlike every
+  ;; other row in this section, this category NEVER rides the dev-trace
+  ;; `:rf/error-event` surface — it is fanned LOUDLY and DIRECTLY at the
+  ;; always-on error-emit listener registry (surface #4), listener-only, with
+  ;; NO recursive re-invocation of the per-frame `:on-error` policy (#5) (the
+  ;; unbounded-recursion guard). It therefore survives `goog.DEBUG=false` and
+  ;; is never silently swallowed in CLJS prod. The shape below is the
+  ;; #4 listener RECORD (`{:error :event :event-id :frame :time :exception
+  ;; :elapsed-ms}`, per 009 §What IS available in production) — NOT a `:tags`
+  ;; payload. There is no `:category` / `:recovery` key
+  ;; (those are dev-trace-event keys); the discriminator is the top-level
+  ;; `:error` slot. `:event` / `:event-id` / `:elapsed-ms` are carried as
+  ;; `nil` (the policy throw has no failing event vector of its own).
+  ;; `:exception` is the policy fn's throwable (the object — message + ex-data
+  ;; ride on it; NOT a serialised string). `:original` is the original
+  ;; operation **keyword** (`(:operation error-event)` — NOT an event vector),
+  ;; an additive top-level slot correlating the policy failure with the error
+  ;; the policy was handling. `:frame` names the policy's host frame. After
+  ;; the loud emit the runtime applies the original error's per-category
+  ;; default recovery.
   [:map
-   [:category          [:= :rf.error/on-error-policy-exception]]
-   [:original          {:optional true} :keyword]
-   [:frame             {:optional true} :keyword]
-   [:exception         {:optional true} :any]
-   [:exception-message {:optional true} :string]
-   [:recovery          [:= :no-recovery]]])
+   [:error      [:= :rf.error/on-error-policy-exception]]
+   [:frame      {:optional true} :keyword]
+   [:exception  {:optional true} :any]       ;; the policy fn's throwable (object, not a string)
+   [:original   {:optional true} :keyword]   ;; the original operation keyword, NOT an event vector
+   [:event      {:optional true} [:maybe [:vector :any]]]   ;; nil — no failing event vector of its own
+   [:event-id   {:optional true} [:maybe :keyword]]         ;; nil
+   [:time       {:optional true} :any]                      ;; emit timestamp (host clock)
+   [:elapsed-ms {:optional true} [:maybe :int]]])           ;; nil
 
 (def FlowEvalExceptionTags
   [:map
