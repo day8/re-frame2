@@ -233,14 +233,19 @@
   buffer carries no `:event/run-start` (the depth-exceed halting event,
   per rf2-nj6p7), or nil to let `build-record` derive the trigger from
   the buffer (the normal `:ok` path)."
-  [frame-id db-before db-after events outcome halt-reason trigger-event]
+  [frame-id frame-state-before frame-state-after events outcome halt-reason trigger-event]
   ;; Per rf2-wp70d / Tool-Pair §Time-travel §Redaction hook:
   ;; `maybe-redact` runs ONCE per record between `build-record` and
   ;; ring-append / listener fan-out so the ring and listeners see the
   ;; SAME redacted shape. The `:rf.epoch/sensitive?` rollup inside
   ;; `build-record` runs FIRST — the rollup reflects raw signals even
   ;; when the redact-fn erases the leaves it keyed on.
-  (let [base   (assembly/build-record frame-id db-before db-after
+  ;;
+  ;; EP-0001 (rf2-3aizt1, decision #2): the canonical snapshot unit is the
+  ;; whole frame-state (both partitions); `build-record` stores it as
+  ;; `:frame-state-before` / `:frame-state-after` and derives the
+  ;; `:db-before` / `:db-after` app-db projections.
+  (let [base   (assembly/build-record frame-id frame-state-before frame-state-after
                                       events outcome halt-reason)
         ;; Pin the explicit trigger when supplied AND the buffer didn't
         ;; already resolve one (the halting event never ran, so no
@@ -303,12 +308,12 @@
   Spec 005 §macrostep); they do not allocate a new epoch.
 
   Arities:
-    (settle! frame-id db-before db-after)
+    (settle! frame-id frame-state-before frame-state-after)
       Clean per-event settle. `:outcome` is `:ok`. Equivalent to passing
       `:ok` as `outcome` explicitly. Skips recording when the captured
       buffer is empty (a truly empty cascade — likely a rejected
       dispatch — is degenerate and would emit a misleading record).
-    (settle! frame-id db-before db-after outcome halt-reason)
+    (settle! frame-id frame-state-before frame-state-after outcome halt-reason)
       Drain-boundary commit with explicit outcome. The runtime commits
       one of three outcomes: `:ok` / `:halted-depth` / `:halted-destroy`
       (`:halted-handler-exception` is a schema-reserved value the
@@ -323,11 +328,14 @@
       entirely; the schema admits absent slots, rejects nil values
       (per rf2-kl5p1 / audit r3 §F1).
 
-  `db-before` is the app-db value snapshotted before the cascade began;
-  `db-after` is the value the runtime settled to — equal to `db-before`
-  for atomic-rollback halts (`:halted-depth`), the live container value
-  for the destroy path (`:halted-destroy`), the post-drain value for
-  `:ok`. The captured trace buffer is harvested here and projected into
+  `frame-state-before` is the whole frame-state value (both partitions)
+  snapshotted before the cascade began; `frame-state-after` is the value
+  the runtime settled to — equal to `frame-state-before` for atomic-rollback
+  halts (`:halted-depth`), the live frame-state for the destroy path
+  (`:halted-destroy`), the post-drain value for `:ok`. EP-0001 (rf2-3aizt1,
+  decision #2): the canonical snapshot unit is the whole frame-state;
+  `build-record` derives the `:db-before` / `:db-after` app-db projections
+  from it. The captured trace buffer is harvested here and projected into
   the record.
 
   Emits `:rf.epoch/snapshotted` with a `:outcome` tag so trace listeners
@@ -341,9 +349,9 @@
   Both fns share the private `commit-record!` helper; `commit-halt-record!`
   synthesises the halting event's trigger explicitly while `settle!` lets
   `build-record` derive it from the harvested buffer."
-  ([frame-id db-before db-after]
-   (settle! frame-id db-before db-after :ok nil))
-  ([frame-id db-before db-after outcome halt-reason]
+  ([frame-id frame-state-before frame-state-after]
+   (settle! frame-id frame-state-before frame-state-after :ok nil))
+  ([frame-id frame-state-before frame-state-after outcome halt-reason]
    (when interop/debug-enabled?
      ;; Per rf2-nj6p7: scoped harvest — take only the settling event's
      ;; traces (its `:dispatch-id` + pre-cascade tagalongs), LEAVING any
@@ -362,7 +370,7 @@
        ;; per rf2-nj6p7) use `commit-halt-record!` instead, which
        ;; synthesises the halting event's trigger explicitly.
        (when (seq events)
-         (commit-record! frame-id db-before db-after events outcome
+         (commit-record! frame-id frame-state-before frame-state-after events outcome
                          halt-reason nil))))))
 
 (defn- commit-halt-record!
@@ -377,8 +385,8 @@
   explicit `trigger-event` so devtools (Xray, re-frame2-pair) get a
   clear 'drain halted here' marker following the runaway `:ok` epochs.
 
-  `db-before` / `db-after` are equal — the halting event made no db write
-  (it never ran). Per rf2-nj6p7 the already-settled sibling events are
+  `frame-state-before` / `frame-state-after` are equal — the halting event
+  made no write (it never ran). Per rf2-nj6p7 the already-settled sibling events are
   DURABLE (their `:ok` epochs and db writes survive); there is no
   whole-drain rollback under per-event epochs — see the router's
   `handle-depth-exceeded!` and the report note on the rule-3 reconcile.
@@ -392,10 +400,10 @@
   helper; `settle!` lets `build-record` derive the trigger from the
   harvested buffer (an `:event/run-start` is always present on the
   clean path) and skips on an empty buffer."
-  [frame-id db-before db-after outcome halt-reason trigger-event]
+  [frame-id frame-state-before frame-state-after outcome halt-reason trigger-event]
   (when interop/debug-enabled?
     (let [events (state/harvest-buffer! frame-id)]
-      (commit-record! frame-id db-before db-after events outcome
+      (commit-record! frame-id frame-state-before frame-state-after events outcome
                       halt-reason trigger-event))))
 
 ;; ---- restore --------------------------------------------------------------
@@ -480,7 +488,14 @@
     (if (= :fail outcome)
       (do (tool-pair/emit-precondition-failure! op tags)
           false)
-      (let [db-before (frame/frame-app-db-value frame-id)]
+      (let [;; EP-0001 (rf2-3aizt1): the canonical snapshot unit is the whole
+            ;; frame-state. `reset-frame-db!` replaces ONLY the app-db
+            ;; partition (Mike ruling #10 — a db-shaped name never silently
+            ;; touches runtime-db), so the after-frame-state carries the new
+            ;; app-db with the live runtime-db preserved unchanged. Restore of
+            ;; this synthetic epoch reinstalls that coherent frame-state.
+            fs-before (frame/frame-state-value frame-id)
+            fs-after  (assoc fs-before frame/app-partition-key new-db)]
         ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION of the one
         ;; physical frame-state container — `frame/app-db-container` is now a
         ;; READ-ONLY projection, so a direct `replace-container!` on it
@@ -495,7 +510,7 @@
         ;; the record!/notify-listeners! split so ring + listeners see
         ;; the SAME redacted shape on this synthetic record too.
         (let [record (assembly/maybe-redact
-                       (assoc (assembly/build-record frame-id db-before new-db [])
+                       (assoc (assembly/build-record frame-id fs-before fs-after [])
                               :event-id      :rf.epoch/db-replaced
                               :trigger-event [:rf.epoch/db-replaced]))]
           (state/record! record)

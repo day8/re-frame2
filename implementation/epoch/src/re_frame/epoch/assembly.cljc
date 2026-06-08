@@ -30,6 +30,7 @@
   (:require [re-frame.elision :as elision]
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.state :as state]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
@@ -356,9 +357,21 @@
 ;; ---- record assembly ------------------------------------------------------
 
 (defn build-record
-  ([frame-id db-before db-after events]
-   (build-record frame-id db-before db-after events :ok nil))
-  ([frame-id db-before db-after events outcome halt-reason]
+  ([frame-id frame-state-before frame-state-after events]
+   (build-record frame-id frame-state-before frame-state-after events :ok nil))
+  ([frame-id frame-state-before frame-state-after events outcome halt-reason]
+   ;; EP-0001 (rf2-3aizt1, decision #2): the CANONICAL snapshot unit is the
+   ;; whole frame-state (`{:rf.db/app … :rf.db/runtime …}`) — both partitions.
+   ;; `restore-epoch` rewinds to `:frame-state-after`, reviving machines /
+   ;; routes / elision / SSR runtime-db state, not just app-db. The
+   ;; `:db-before` / `:db-after` slots are kept as the OPTIONAL app-db
+   ;; PROJECTION (`(:rf.db/app frame-state-…)`) so pair tools can render
+   ;; app-db diffs cheaply without re-projecting (Spec-Schemas
+   ;; §`:rf/epoch-record`). The two `db-*` projections are also what the
+   ;; sensitive-path rollup + redacted-modified count read — schema-declared
+   ;; sensitive declarations target app-db paths (Spec 015), so the rollup
+   ;; reasons over the app-db projection, not the whole frame-state.
+   ;;
    ;; Per rf2-v0jwt §Outcomes — :outcome is required and pins the
    ;; drain-boundary outcome. The reference runtime commits one of three:
    ;; :ok / :halted-depth / :halted-destroy. (:halted-handler-exception
@@ -381,7 +394,13 @@
    ;; trigger-less buffer is `on-frame-destroyed!`'s `:halted-destroy`
    ;; commit; the conditional `cond->` slots make that record valid
    ;; against the schema.
-   (let [{:keys [event-id event dispatch-id]} (capture/find-trigger-event events)
+   (let [;; App-db projection of the canonical frame-state — the `:db-before`
+         ;; / `:db-after` slots + the sensitive-rollup signal. `frame-state`
+         ;; may be nil on a halted-destroy path whose pre-cascade snapshot is
+         ;; absent; `(:rf.db/app nil)` is nil, which consumers already tolerate.
+         db-before (get frame-state-before frame/app-partition-key)
+         db-after  (get frame-state-after  frame/app-partition-key)
+         {:keys [event-id event dispatch-id]} (capture/find-trigger-event events)
          ;; Per rf2-ecu37: one fused walk producing all three
          ;; projections, replacing three independent transducer
          ;; passes over the same buffer. Mirrors `find-trigger-event`'s
@@ -391,6 +410,8 @@
          ;; the record-level boolean rollup mirrors the trace-event
          ;; `:sensitive?` stamp (rf2-isdwf) so listener consumers and
          ;; the projected-record helper branch on one slot per record.
+         ;; Sensitive declarations target app-db paths, so it reasons over
+         ;; the app-db projection (`db-before` / `db-after`).
          sensitive? (sensitive-rollup frame-id db-before db-after events)
          ;; Per rf2-dl3gx and Security.md §Epoch privacy posture: the
          ;; record-level integer counter of schema-declared sensitive
@@ -404,6 +425,11 @@
      (cond-> {:epoch-id           (state/next-epoch-id)
               :frame              frame-id
               :committed-at       (interop/now-ms)
+              ;; CANONICAL (decision #2): the whole frame-state both before
+              ;; and after — restore rewinds to `:frame-state-after`.
+              :frame-state-before frame-state-before
+              :frame-state-after  frame-state-after
+              ;; OPTIONAL app-db projection — cheap tool diffs.
               :db-before          db-before
               :db-after           db-after
               :outcome            outcome

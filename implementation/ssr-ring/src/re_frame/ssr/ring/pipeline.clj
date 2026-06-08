@@ -336,13 +336,18 @@
             (assoc head-bag
                    :hash-str  hash-str
                    :body-html body-html)))
-        ;; app-db-value reads the named frame explicitly; no with-frame
-        ;; needed. Kept outside the block so the explicit frame-id read
-        ;; is visible — pulling the snapshot AFTER the render walk is
-        ;; load-bearing (a continuation drain inside the walker may
-        ;; mutate app-db; the payload must reflect the post-walk value).
+        ;; app-db-value / runtime-db-value read the named frame explicitly; no
+        ;; with-frame needed. Kept outside the block so the explicit frame-id
+        ;; read is visible — pulling the snapshot AFTER the render walk is
+        ;; load-bearing (a continuation drain inside the walker may mutate
+        ;; the frame-state; the payload must reflect the post-walk value).
+        ;; EP-0001 (rf2-30kzz2): the runtime-db value rides the payload as the
+        ;; serializable `:rf/runtime-db` slice (machine snapshots, route slice,
+        ;; elision declarations, SSR metadata) so the client hydrates a
+        ;; coherent frame-state — `build-payload` projects it.
         app-db      (rf/app-db-value frame-id)
-        rf-payload  (payload/build-payload frame-id app-db hash-str
+        runtime-db  (rf/runtime-db-value frame-id)
+        rf-payload  (payload/build-payload frame-id app-db runtime-db hash-str
                                            {:version       version
                                             :schema-digest schema-digest
                                             :payload       payload})

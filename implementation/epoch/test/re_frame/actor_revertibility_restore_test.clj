@@ -18,10 +18,17 @@
                          transition (NOT :rf.error/no-such-handler).
 
   Before the fix, a spawned actor's liveness lived in the registrar
-  (outside the frame value), so `restore-epoch` (app-db only) could not
-  revert it. After the fix (LAZY-RESOLVER), spawn/destroy are pure app-db
-  writes and an actor's liveness IS its snapshot's presence in the
-  (revertible) frame value — so `restore-epoch` reverts it perfectly.
+  (outside the frame value), so `restore-epoch` could not revert it. After
+  the fix (LAZY-RESOLVER), spawn/destroy are pure frame-state writes and an
+  actor's liveness IS its snapshot's presence in the (revertible) runtime-db
+  partition — so `restore-epoch` reverts it perfectly.
+
+  EP-0001 (rf2-vzld77 / rf2-3aizt1): machine snapshots are runtime-db
+  partition state at `[:rf.runtime/machines :snapshots <id>]`; the epoch now
+  captures the whole frame-state (`:frame-state-before/-after`, decision #2)
+  and `restore-epoch` reinstalls both partitions via `replace-frame-state!`,
+  so reverting a spawn / destroy reverts the runtime-db liveness. These three
+  end-to-end repros (deferred by rf2-vzld77) are re-enabled here.
 
   Spec: [Spec 005 §Spawning §Liveness is derived from app-db] and
   [000-Vision Goal 2 — Frame state revertibility]."
@@ -52,7 +59,10 @@
                 (epoch/clear-epoch-listeners!))}))
 
 (defn- snapshot [machine-id]
-  (get-in (rf/app-db-value :test/main) [:rf/runtime :machines :snapshots machine-id]))
+  ;; EP-0001 (rf2-vzld77 / rf2-3aizt1): machine snapshots are runtime-db
+  ;; partition state at [:rf.runtime/machines :snapshots <id>].
+  (get-in (rf/runtime-db-value :test/main)
+          [:rf.runtime/machines :snapshots machine-id]))
 
 (defn- last-epoch-id []
   (:epoch-id (last (rf/epoch-history :test/main))))
@@ -80,14 +90,14 @@
 
 ;; ---- rewind PAST A SPAWN — no orphaned handler ----------------------------
 
-;; EP-0001 (rf2-vzld77) — DEFERRED to bead 7 (rf2-3aizt1). These end-to-end
+;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1). These end-to-end
 ;; restore-epoch repros revert actor LIVENESS, which is a spawned actor's
 ;; snapshot presence in the runtime-db partition (rf2-vzld77 moved snapshots
-;; there). `restore-epoch` still restores the app-db partition only (per bead
-;; 5), and the epoch record captures `:db-before/-after` = app-db only — so
-;; restoring/reverting runtime-db state needs the frame-state capture+restore
-;; work in bead 7. `#_` reader-discards each form until then.
-#_(deftest restore-past-spawn-leaves-no-orphan
+;; there). bead 7 made the epoch capture the whole frame-state
+;; (`:frame-state-before/-after`) and `restore-epoch` reinstall BOTH partitions
+;; via `replace-frame-state!`, so reverting/restoring runtime-db state works
+;; end-to-end.
+(deftest restore-past-spawn-leaves-no-orphan
   (testing "rf2-a2sn1 — restore-epoch to BEFORE a spawn reverts the
             actor's liveness; no orphaned handler survives (the
             {:handler-survived-restore? true} leak is closed)"
@@ -122,8 +132,8 @@
 
 ;; ---- rewind PAST A DESTROY — liveness comes back (the key fix) ------------
 
-;; EP-0001 (rf2-vzld77) — DEFERRED to bead 7 (rf2-3aizt1): see note above.
-#_(deftest restore-past-destroy-rematerialises-liveness
+;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1): see note above.
+(deftest restore-past-destroy-rematerialises-liveness
   (testing "rf2-a2sn1 (the key fix) — restore-epoch to when an actor was
             ALIVE re-materialises its liveness: a dispatch to it RESOLVES
             via the lazy resolver and drives a transition (NOT
@@ -161,8 +171,8 @@
 
 ;; ---- a missing TYPE is still a genuine missing-handler --------------------
 
-;; EP-0001 (rf2-vzld77) — DEFERRED to bead 7 (rf2-3aizt1): see note above.
-#_(deftest restore-with-missing-type-still-fails-missing-handler
+;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1): see note above.
+(deftest restore-with-missing-type-still-fails-missing-handler
   (testing "rf2-a2sn1 — a spawned-actor snapshot whose TYPE was
             unregistered is NOT restorable: restore-epoch fires
             :rf.epoch/restore-missing-handler (the singleton-style

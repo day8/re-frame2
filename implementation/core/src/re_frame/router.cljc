@@ -1908,11 +1908,11 @@
   Per Spec-Schemas §`:rf/epoch-record` §Outcomes: commit a `:halted-depth`
   epoch record so devtools (Xray, re-frame2-pair) get a clear 'drain
   halted here' marker following the runaway `:ok` epochs. The halting
-  event never ran, so its record's `:db-before` / `:db-after` both equal
-  the current (last-settled) db value and its buffer is empty —
-  `commit-halt-record!` synthesises the record from the halting event's
-  trigger. Listeners receive it like any other; `restore-epoch` refuses
-  non-`:ok` targets."
+  event never ran, so its record's `:frame-state-before` /
+  `:frame-state-after` both equal the current (last-settled) frame-state
+  value and its buffer is empty — `commit-halt-record!` synthesises the
+  record from the halting event's trigger. Listeners receive it like any
+  other; `restore-epoch` refuses non-`:ok` targets."
   [frame-id router depth last-event]
   (let [{:keys [queue]} @router
         queue-size      (count queue)
@@ -1924,10 +1924,12 @@
         ;; at the halt seam (defensive — the depth-exceed path always has a
         ;; pending child under the runaway-cascade pattern that trips it).
         halting-event   (or (:event (peek queue)) last-event)
-        ;; Current durable db value — the state the last-settled event
-        ;; left behind. The halting event makes no write, so :db-before
-        ;; equals :db-after on its record.
-        db-now          (frame/frame-app-db-value frame-id)
+        ;; Current durable frame-state value — the state the last-settled
+        ;; event left behind. The halting event makes no write, so
+        ;; :frame-state-before equals :frame-state-after on its record.
+        ;; EP-0001 (rf2-3aizt1, decision #2): the whole frame-state (both
+        ;; partitions), not app-db alone.
+        fs-now          (frame/frame-state-value frame-id)
         halt-reason     {:operation  :rf.error/drain-depth-exceeded
                          :depth      depth
                          :queue-size queue-size
@@ -1946,9 +1948,9 @@
     (when-let [commit-halt! (late-bind/get-fn-cached :epoch/commit-halt-record!)]
       ;; The halting event never ran, so the capture buffer is empty and
       ;; `settle!` would skip; `commit-halt-record!` commits regardless,
-      ;; pinning the halting event's trigger. :db-before equals :db-after
-      ;; — the halting event made no write.
-      (commit-halt! frame-id db-now db-now :halted-depth halt-reason
+      ;; pinning the halting event's trigger. :frame-state-before equals
+      ;; :frame-state-after — the halting event made no write.
+      (commit-halt! frame-id fs-now fs-now :halted-depth halt-reason
                     halting-event))))
 
 (defn- settle-event-epoch!
@@ -1966,10 +1968,14 @@
 
   `settle!` itself skips an empty buffer (a rejected/aborted dispatch that
   never fired `:event/run-start`), so a no-handler / frame-destroyed early
-  exit commits no misleading record."
-  [frame-id db-before db-after]
+  exit commits no misleading record.
+
+  EP-0001 (rf2-3aizt1, decision #2): `frame-state-before` / `frame-state-after`
+  are whole frame-state values (both partitions); `build-record` derives the
+  `:db-before` / `:db-after` app-db projections from them."
+  [frame-id frame-state-before frame-state-after]
   (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
-    (settle! frame-id db-before db-after)))
+    (settle! frame-id frame-state-before frame-state-after)))
 
 ;; ---- drain-loop! phases ---------------------------------------------------
 ;;
@@ -2041,9 +2047,10 @@
   (`re-frame.epoch.listeners/on-frame-destroyed!`), invoked synchronously
   from `frame/destroy-frame!` (step 8) the instant the handler destroyed
   its own frame. That site carries the cascade's harvested buffer AND the
-  pre-cascade / destroy-time db snapshots (threaded via
-  `frame/*cascade-db-before*` + the destroy-time container read), so it
-  builds a record with real `:db-before` / `:db-after` per Spec-Schemas
+  pre-cascade / destroy-time frame-state snapshots (threaded via
+  `frame/*cascade-frame-state-before*` + the destroy-time container read), so it
+  builds a record with real `:frame-state-before` / `:frame-state-after`
+  (and their `:db-*` app-db projections) per Spec-Schemas
   §`:rf/epoch-record` §Outcomes. Routing a second `:halted-destroy` commit
   through `settle!` here would either no-op on the now-empty (already-
   harvested-by-the-hook) buffer or, worse, double-fan a duplicate record to
@@ -2072,15 +2079,17 @@
 
   Per rf2-u6jsj/rf2-nj6p7 §Drain versus event — the epoch unit: the epoch
   boundary is the dequeued EVENT, not the drain. Each event takes its OWN
-  pre-cascade `db-before` snapshot immediately before `process-event!` and
-  its OWN post-cascade `db-after` immediately after; `settle-event-epoch!`
-  commits one `:rf/epoch-record` per event. A drain that processes a
-  parent and an `:fx [[:dispatch …]]` child it queued therefore commits
-  TWO records — one per event — even though both settled in the same
-  drain. The per-event `db-before` is also bound to
-  `frame/*cascade-db-before*` around `process-event!` so a handler that
-  destroys its own frame mid-drain can recover the pre-cascade snapshot
-  for its `:halted-destroy` epoch record (rf2-9neiq)."
+  pre-cascade `frame-state-before` snapshot immediately before
+  `process-event!` and its OWN post-cascade `frame-state-after` immediately
+  after; `settle-event-epoch!` commits one `:rf/epoch-record` per event. A
+  drain that processes a parent and an `:fx [[:dispatch …]]` child it queued
+  therefore commits TWO records — one per event — even though both settled in
+  the same drain. EP-0001 (rf2-3aizt1, decision #2): the snapshot is the whole
+  frame-state (both partitions), so an epoch carries machine snapshots / route
+  slice / SSR metadata, not just app-db. The per-event `frame-state-before` is
+  also bound to `frame/*cascade-frame-state-before*` around `process-event!`
+  so a handler that destroys its own frame mid-drain can recover the
+  pre-cascade snapshot for its `:halted-destroy` epoch record (rf2-9neiq)."
   [frame-id router drain-depth]
   (loop [depth      0
          last-event nil]
@@ -2113,20 +2122,26 @@
       :else
       (if-let [envelope (take-event! router)]
         ;; Per rf2-nj6p7: per-event epoch boundary. Snapshot this event's
-        ;; OWN db-before, run it to completion, snapshot its db-after, and
-        ;; settle its epoch — before the next event is dequeued.
-        (let [db-before (frame/frame-app-db-value frame-id)]
-          ;; Per rf2-9neiq: expose this event's pre-cascade db-before to a
+        ;; OWN frame-state-before, run it to completion, snapshot its
+        ;; frame-state-after, and settle its epoch — before the next event is
+        ;; dequeued.
+        ;;
+        ;; EP-0001 (rf2-3aizt1, decision #2): the canonical snapshot unit is
+        ;; the whole frame-state (both partitions — app-db + runtime-db), so
+        ;; an epoch carries (and `restore-epoch` rewinds to) machine snapshots
+        ;; / the route slice / SSR metadata, not just app-db.
+        (let [fs-before (frame/frame-state-value frame-id)]
+          ;; Per rf2-9neiq: expose this event's pre-cascade frame-state to a
           ;; handler that calls `destroy-frame!` on its OWN frame mid-drain.
-          ;; `destroy-frame!`'s epoch hook reads `frame/*cascade-db-before*`
-          ;; for the `:halted-destroy` record's `:db-before` slot (the
-          ;; pre-cascade snapshot) — the value app-db held before this
-          ;; in-flight event's cascade began, which is otherwise gone by the
-          ;; time the (post-dissoc) epoch hook fires.
-          (binding [frame/*cascade-db-before* db-before]
+          ;; `destroy-frame!`'s epoch hook reads `frame/*cascade-frame-state-before*`
+          ;; for the `:halted-destroy` record's pre-cascade snapshot — the
+          ;; value the frame-state held before this in-flight event's cascade
+          ;; began, which is otherwise gone by the time the (post-dissoc)
+          ;; epoch hook fires.
+          (binding [frame/*cascade-frame-state-before* fs-before]
             (process-event! envelope))
-          (let [db-after (frame/frame-app-db-value frame-id)]
-            (settle-event-epoch! frame-id db-before db-after))
+          (let [fs-after (frame/frame-state-value frame-id)]
+            (settle-event-epoch! frame-id fs-before fs-after))
           (recur (inc depth) (:event envelope)))
         ::settled))))
 

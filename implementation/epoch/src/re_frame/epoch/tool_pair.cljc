@@ -138,13 +138,35 @@
     (let [machine (:rf/machine reg)]
       (get-in machine [:meta :rf/snapshot-version]))))
 
+;; EP-0001 (rf2-vzld77 / rf2-3aizt1 / rf2-k4xe7u) — the machine snapshots
+;; and route slice are DURABLE runtime-db partition state. rf2-vzld77 moved
+;; them to the namespaced runtime-db root keys `:rf.runtime/machines` /
+;; `:rf.runtime/routing`; the restore-precondition readers below take the
+;; runtime-db PARTITION value (`(:rf.db/runtime frame-state)`) and walk those
+;; namespaced paths. Pre-fix they read the retired app-db `[:rf/runtime …]`
+;; path off the epoch-recorded app-db (which is now empty → silently nil), so
+;; the missing-handler-machine + version-drift preconditions no longer fired
+;; (rf2-k4xe7u). The epoch now captures the whole frame-state (decision #2),
+;; so `check-restore-preconditions!` passes the runtime-db partition here.
+(def ^:private machine-snapshots-path
+  "Path to the machine-snapshots map inside the runtime-db partition value."
+  [:rf.runtime/machines :snapshots])
+
+(def ^:private route-current-id-path
+  "Path to the active route's `:id` inside the runtime-db partition value."
+  [:rf.runtime/routing :current :id])
+
 (defn missing-references
-  "Walk the recorded db for ids that are no longer present in the
-  registrar. Closed v1 surface — `[:rf/runtime :machines :snapshots]` (each machine-id
-  must reference a registered machine via the public event registry,
-  per Spec 005 §Registration — machines are event handlers tagged
-  with `:rf/machine?`) and `:route` (`:id` must reference a registered
-  :route).
+  "Walk the recorded runtime-db partition for ids that are no longer present
+  in the registrar. Closed v1 surface — `[:rf.runtime/machines :snapshots]`
+  (each machine-id must reference a registered machine via the public event
+  registry, per Spec 005 §Registration — machines are event handlers tagged
+  with `:rf/machine?`) and `:route` (`[:rf.runtime/routing :current :id]` must
+  reference a registered :route).
+
+  `runtime-db` is the `:rf.db/runtime` partition of the epoch-recorded
+  frame-state (EP-0001 rf2-3aizt1 / rf2-k4xe7u — machine snapshots + route
+  slice are runtime-db state, NOT the retired app-db `[:rf/runtime …]` path).
 
   Per rf2-ocg1: machine lookup goes through the event registry, NOT
   the internal `:head` registrar kind. The latter is unrelated to
@@ -155,48 +177,53 @@
   snapshot. Such a snapshot is a VALID restore target iff its TYPE still
   resolves (registered TYPE keyword, or inline `:definition` carried on
   the snapshot). The `:machines/actor-resolvable?` hook makes that
-  determination from app-db; consult it before flagging a snapshot whose
-  id is not directly registered. A SINGLETON whose registration was
-  cleared (a `reg-machine`'d machine, no `:rf/machine-type` on its
-  snapshot) still surfaces as missing — `actor-resolvable?` returns false
-  for it. Absent the machines artefact the hook is nil and the prior
+  determination from the runtime-db partition (it reads
+  `[:rf.runtime/machines :snapshots <id>]`); consult it before flagging a
+  snapshot whose id is not directly registered. A SINGLETON whose
+  registration was cleared (a `reg-machine`'d machine, no `:rf/machine-type`
+  on its snapshot) still surfaces as missing — `actor-resolvable?` returns
+  false for it. Absent the machines artefact the hook is nil and the prior
   registrar-only check stands.
 
   Returns a vector of {:kind <kind> :id <id>} entries. Empty when
   every reference resolves."
-  [db]
+  [runtime-db]
   (let [actor-resolvable? (late-bind/get-fn :machines/actor-resolvable?)
-        ;; Machines under [:rf/runtime :machines :snapshots]: a singleton
+        ;; Machines under [:rf.runtime/machines :snapshots]: a singleton
         ;; references a registered machine (`:rf/machine? true`, per Spec
         ;; 005 §Registration); a spawned actor (rf2-a2sn1) has no
         ;; per-instance registration but is restorable when its
-        ;; `:rf/machine-type` resolves through `actor-resolvable?`.
+        ;; `:rf/machine-type` resolves through `actor-resolvable?` (which
+        ;; reads the runtime-db partition).
         missing-machines
-        (for [[machine-id _snapshot] (get-in db [:rf/runtime :machines :snapshots])
+        (for [[machine-id _snapshot] (get-in runtime-db machine-snapshots-path)
               :when (and (not (machine-registration machine-id))
                          (not (and actor-resolvable?
-                                   (actor-resolvable? db machine-id))))]
+                                   (actor-resolvable? runtime-db machine-id))))]
           {:kind :machine :id machine-id})
         ;; Active route
         missing-route
-        (when-let [route-id (get-in db [:rf/runtime :routing :current :id])]
+        (when-let [route-id (get-in runtime-db route-current-id-path)]
           (when-not (registrar/lookup :route route-id)
             [{:kind :route :id route-id}]))]
     (vec (concat missing-machines missing-route))))
 
 (defn machine-version-mismatch
-  "Walk the recorded db's `[:rf/runtime :machines :snapshots]` for snapshot version drift.
-  The recorded snapshot may carry `:rf/snapshot-version` under
-  `:meta`; the registered machine definition carries
-  `:rf/snapshot-version` under its own `:meta`. When they differ,
+  "Walk the recorded runtime-db partition's `[:rf.runtime/machines :snapshots]`
+  for snapshot version drift. The recorded snapshot may carry
+  `:rf/snapshot-version` under `:meta`; the registered machine definition
+  carries `:rf/snapshot-version` under its own `:meta`. When they differ,
   return the first mismatch as
   `{:machine-id <id> :recorded <int> :current <int>}`. nil when no
   mismatch is found.
 
+  `runtime-db` is the `:rf.db/runtime` partition of the epoch-recorded
+  frame-state (EP-0001 rf2-3aizt1 / rf2-k4xe7u).
+
   Per rf2-ocg1: both versions are read through the public Spec 005
   §Snapshot shape contract — the snapshot's `[:meta :rf/snapshot-version]`
   and the registered machine's `[:meta :rf/snapshot-version]`."
-  [db]
+  [runtime-db]
   (some (fn [[machine-id snapshot]]
           (let [recorded (snapshot-version snapshot)]
             (when (some? recorded)
@@ -205,7 +232,7 @@
                   {:machine-id machine-id
                    :recorded   recorded
                    :current    current})))))
-        (get-in db [:rf/runtime :machines :snapshots])))
+        (get-in runtime-db machine-snapshots-path)))
 
 ;; ---- shared precondition helpers ------------------------------------------
 
@@ -309,7 +336,19 @@
                      :halt-reason (:halt-reason epoch)}}
 
           :else
-          (let [db-target (:db-after epoch)]
+          (let [;; EP-0001 (rf2-3aizt1, decision #2): the canonical restore
+                ;; target is the whole frame-state. The app-db partition
+                ;; (`:db-after` is its retained projection — equal to
+                ;; `(:rf.db/app frame-state-after)`) feeds the schema check;
+                ;; the runtime-db partition feeds the machine / route
+                ;; reference + version checks (rf2-k4xe7u — snapshots + route
+                ;; slice are runtime-db state). Read both off the canonical
+                ;; `:frame-state-after`, falling back to the `:db-after`
+                ;; projection for the app-db slice (always present alongside).
+                frame-state-target (:frame-state-after epoch)
+                db-target          (or (get frame-state-target frame/app-partition-key)
+                                       (:db-after epoch))
+                runtime-target     (get frame-state-target frame/runtime-partition-key)]
             ;; Each helper is called once and its result bound, so the
             ;; failure path walks the recorded db / schema set / machine
             ;; map exactly once per check (rf2-081zk).
@@ -329,15 +368,15 @@
                          :schema-digest-current  (assembly/current-schema-digest frame-id)
                          :failing-paths          (vec failing-paths)}}
 
-              (if-let [missing (seq (missing-references db-target))]
-                ;; (5) Missing handler referenced from db?
+              (if-let [missing (seq (missing-references runtime-target))]
+                ;; (5) Missing handler referenced from runtime-db?
                 {:outcome :fail
                  :op      :rf.epoch/restore-missing-handler
                  :tags    {:frame    frame-id
                            :epoch-id epoch-id
                            :missing  (vec missing)}}
 
-                (if-let [{:keys [machine-id recorded current]} (machine-version-mismatch db-target)]
+                (if-let [{:keys [machine-id recorded current]} (machine-version-mismatch runtime-target)]
                   ;; (6) Machine snapshot version drift?
                   {:outcome :fail
                    :op      :rf.epoch/restore-version-mismatch
@@ -386,14 +425,25 @@
                :frame frame-id}}))
 
 (defn perform-restore!
-  "Carry out the actual `app-db` rewind once preconditions have passed.
-  Replaces the frame's container with `epoch`'s `:db-after` and emits
-  `:rf.epoch/restored`. Returns `true` on a real write.
+  "Carry out the actual frame-state rewind once preconditions have passed.
+  Replaces the frame's whole frame-state with `epoch`'s `:frame-state-after`
+  (BOTH partitions — app-db AND runtime-db) and emits `:rf.epoch/restored`.
+  Returns `true` on a real write.
+
+  EP-0001 (rf2-3aizt1, decisions #2 + #9): restore rewinds to the canonical
+  `:frame-state-after` via `replace-frame-state!`, reviving machine
+  snapshots, the route slice, elision declarations, and SSR metadata
+  (runtime-db state) — not just the app-db partition. Without this, a
+  rewind past a machine spawn / destroy left the actor's snapshot un-reverted
+  (the Goal-2 revertibility leak the actor-revertibility tests pin). Falls
+  back to the retained `:db-after` projection (app-db only) for legacy
+  records that carry no `:frame-state-after` — those install runtime-db nil,
+  matching the pre-EP behaviour.
 
   Per rf2-7i872 (validate-then-destroy race): re-resolves the container at
   the write boundary via `live-container-or-fail`. If the frame was
   destroyed between the precondition pass and now, the container is nil and
-  `replace-container!` would silently no-op — so instead of emitting
+  `replace-frame-state!` would silently no-op — so instead of emitting
   `:rf.epoch/restored` and returning `true` (a FALSE success), this emits
   the canonical `:rf.error/no-such-handler` (kind `:frame`) failure trace
   and returns `false`, matching the destroyed-frame contract."
@@ -402,13 +452,17 @@
     (if (= :fail outcome)
       (do (emit-precondition-failure! op tags)
           false)
-      (let [db-target (:db-after epoch)]
-        ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION of the one
-        ;; physical frame-state container — `frame/app-db-container` is now
-        ;; a READ-ONLY projection, so a direct `replace-container!` on it
-        ;; throws. `restore-epoch` rewinds the app-db partition only here;
-        ;; the full frame-state (runtime-db) restore is bead 7 (rf2-3aizt1).
-        (frame/replace-app-db! frame-id db-target)
+      (let [frame-state-target
+            (or (:frame-state-after epoch)
+                ;; Legacy / synthetic record with only the app-db projection:
+                ;; install it as the app-db partition; runtime-db installs nil.
+                {frame/app-partition-key (:db-after epoch)})]
+        ;; EP-0001 (rf2-3aizt1): write the WHOLE frame-state — both partitions
+        ;; in ONE atomic install through the one physical frame-state
+        ;; container. `frame/app-db-container` / `runtime-db-container` are
+        ;; READ-ONLY projections, so the write goes through
+        ;; `replace-frame-state!`.
+        (frame/replace-frame-state! frame-id frame-state-target)
         (trace/emit! :rf.epoch :rf.epoch/restored
                      {:frame    frame-id
                       :epoch-id (:epoch-id epoch)})
@@ -486,6 +540,36 @@
   [v frame-id]
   (when (some? v)
     (elision/elide-wire-value v {:frame frame-id})))
+
+(defn- elide-frame-state-slot
+  "Project a `:frame-state-before` / `:frame-state-after` slot for off-box
+  egress (EP-0001 rf2-3aizt1, Mike ruling #14). The frame-state value is
+  `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`; the two partitions
+  egress under DIFFERENT default policies:
+
+    - `:rf.db/app` — the application state. Elided through the standard
+      `elide-wire-value` walk (sensitive paths → `:rf/redacted`, large
+      paths → markers), the SAME projection the `:db-before` / `:db-after`
+      app-db projections receive.
+
+    - `:rf.db/runtime` — the framework runtime-db. REDACTED by default off-box
+      (Mike ruling #14 — Spec 011 §Off-box redaction + Security.md §Epoch
+      privacy posture): the runtime-db side is substituted with the
+      `:rf/redacted` sentinel rather than walked, so machine snapshots /
+      route slice / SSR metadata do not egress to AI / log channels by
+      default. Trusted-local tools that need richer diagnostics request them
+      explicitly (a future opt); the default fails closed.
+
+  Nil-preserving (a halted-destroy record may carry a nil frame-state slot;
+  the projection MUST NOT fabricate a value)."
+  [fs frame-id]
+  (when (some? fs)
+    (cond-> fs
+      (contains? fs :rf.db/app)
+      (update :rf.db/app elision/elide-wire-value {:frame frame-id})
+      ;; Default-redact the runtime-db side off-box (ruling #14).
+      (contains? fs :rf.db/runtime)
+      (assoc :rf.db/runtime :rf/redacted))))
 
 (defn- reroot-trace-event-db-slots
   "Per rf2-ta0y7: the `:rf.event/db-pending` (t1) and
@@ -596,13 +680,20 @@
     (mapv elide-sub-run-row sub-runs)))
 
 (defn projected-record
-  "Project an `:rf/epoch-record` for off-box egress. Routes the four
-  full-value payload slots (`:db-before`, `:db-after`, `:trigger-event`,
-  `:trace-events`) through `re-frame.elision/elide-wire-value` against
-  the record's frame, with the off-box defaults
-  `:include-sensitive? false` / `:include-large? false`. Sensitive
-  paths land as `:rf/redacted`; large paths land as
+  "Project an `:rf/epoch-record` for off-box egress. Routes the
+  full-value payload slots (`:frame-state-before`, `:frame-state-after`,
+  `:db-before`, `:db-after`, `:trigger-event`, `:trace-events`) through
+  `re-frame.elision/elide-wire-value` against the record's frame, with the
+  off-box defaults `:include-sensitive? false` / `:include-large? false`.
+  Sensitive paths land as `:rf/redacted`; large paths land as
   `:rf.size/large-elided` markers per the §Composition rule.
+
+  EP-0001 (rf2-3aizt1, decision #2 + Mike ruling #14): the CANONICAL
+  `:frame-state-before` / `:frame-state-after` slots egress with their
+  `:rf.db/app` partition elided (the same projection the `:db-*` slots get)
+  and their `:rf.db/runtime` partition DEFAULT-REDACTED to `:rf/redacted`
+  off-box — machine snapshots / route slice / SSR metadata do not egress to
+  AI / log channels by default (see `elide-frame-state-slot`).
 
   The structured `:sub-runs` rows are ALSO value-bearing (rf2-at60h):
   each carries the sub's computed `:prev-value` / `:value`. Their
@@ -638,6 +729,16 @@
   (when (map? record)
     (let [frame-id (:frame record)]
       (cond-> record
+        ;; EP-0001 (rf2-3aizt1, decision #2 + ruling #14): the CANONICAL
+        ;; frame-state slots egress with the app-db partition elided and the
+        ;; runtime-db partition default-redacted off-box (see
+        ;; `elide-frame-state-slot`).
+        (contains? record :frame-state-before)
+        (update :frame-state-before elide-frame-state-slot frame-id)
+
+        (contains? record :frame-state-after)
+        (update :frame-state-after  elide-frame-state-slot frame-id)
+
         (contains? record :db-before)
         (update :db-before     elide-payload-slot frame-id)
 

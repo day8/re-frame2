@@ -273,3 +273,56 @@
         (is (= :declare-payload-policy
                (:recovery (ex-data e)))
             "error ex-data names the recovery action")))))
+
+;; ---- runtime-db projection (EP-0001 rf2-30kzz2) --------------------------
+
+(def sample-runtime-db
+  {:rf.runtime/machines {:snapshots {:auth.session/abc {:state :authenticated}}}
+   :rf.runtime/routing  {:current          {:id :route/home}
+                         ;; transient client-local caches — must NOT ride the wire
+                         :scroll-positions {"/" {:x 0 :y 240}}
+                         :nav-token-counter 7}
+   :rf.runtime/elision  {:declarations {[:auth :token] {:sensitive? true}}}
+   :rf.runtime/ssr      {:hydration {:server-hash "h1"}}})
+
+(deftest project-runtime-db-ships-durable-omits-transient
+  (testing "project-runtime-db ships machines / route :current / elision / ssr
+            and drops the transient scroll / nav-token routing caches"
+    (let [slice (payload-policy/project-runtime-db sample-runtime-db)]
+      (is (= {:snapshots {:auth.session/abc {:state :authenticated}}}
+             (:rf.runtime/machines slice))
+          "machine snapshots ride the wire whole")
+      (is (= {:current {:id :route/home}} (:rf.runtime/routing slice))
+          "only the durable :current route slice rides; scroll / nav-token caches are dropped")
+      (is (= {:declarations {[:auth :token] {:sensitive? true}}}
+             (:rf.runtime/elision slice))
+          "elision declarations ride the wire")
+      (is (= {:hydration {:server-hash "h1"}} (:rf.runtime/ssr slice))
+          "SSR hydration metadata rides the wire")
+      (is (not (contains? (:rf.runtime/routing slice) :scroll-positions)))
+      (is (not (contains? (:rf.runtime/routing slice) :nav-token-counter))))))
+
+(deftest project-runtime-db-nil-and-empty
+  (testing "nil / empty / non-map runtime-db projects to nil so build-payload
+            omits the optional :rf/runtime-db key"
+    (is (nil? (payload-policy/project-runtime-db nil)))
+    (is (nil? (payload-policy/project-runtime-db {})))
+    (is (nil? (payload-policy/project-runtime-db "not-a-map")))
+    (is (nil? (payload-policy/project-runtime-db {:rf.runtime/routing {:scroll-positions {}}}))
+        "a runtime-db with ONLY transient routing keys projects to nil")))
+
+(deftest build-payload-emits-runtime-db-when-present
+  (testing "build-payload rides a non-nil :runtime-db opt as :rf/runtime-db,
+            and omits the key when nil (client-only / no-server-runtime shape)"
+    (let [rt-slice (payload-policy/project-runtime-db sample-runtime-db)
+          with-rt  (payload-policy/build-payload
+                     :rf/default {:public/page :dashboard} "h1"
+                     {:version "1.0" :runtime-db rt-slice})
+          without  (payload-policy/build-payload
+                     :rf/default {:public/page :dashboard} "h1"
+                     {:version "1.0" :runtime-db nil})]
+      (is (= rt-slice (:rf/runtime-db with-rt))
+          "the projected runtime-db slice rides as :rf/runtime-db")
+      (is (= {:public/page :dashboard} (:rf/app-db with-rt)))
+      (is (not (contains? without :rf/runtime-db))
+          "a nil runtime-db omits the optional key"))))
