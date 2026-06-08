@@ -1490,7 +1490,15 @@
     filters-opt         :rf.xray/filters
     filters-key-opt     :rf.xray/filters-storage-key
     :as opts}]
-  (when (some? editor-opt)
+  ;; rf2-eilutf — gate on key PRESENCE, not value `some?`. `set-editor!`
+  ;; already treats `nil` as the reset-to-default + clear-the-explicit-
+  ;; flag case (the per-key setter's documented contract); gating on
+  ;; `some?` here made the bulk `configure!` surface NON-equivalent to
+  ;; `set-editor!` — `(configure! {:rf.xray/editor nil})` silently
+  ;; no-op'd, leaving `editor-configured?` stuck true after a host tried
+  ;; to reset. Mirror every other key below (all `contains?`-gated) so an
+  ;; explicit `nil` resets and an ABSENT key leaves the atom untouched.
+  (when (contains? opts :rf.xray/editor)
     (set-editor! editor-opt))
   (when (contains? opts :rf.xray/project-root)
     (set-project-root! project-root-opt))

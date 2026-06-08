@@ -681,3 +681,91 @@
       (is (= [] @calls)
           "http: and javascript: navigations refused at the open!
            boundary even though `open!` is called directly"))))
+
+;; ---- rf2-r4q6y3 — direct chip click routes through the hint decision ----
+;;
+;; Pre-rf2-r4q6y3 the in-DOM `open-chip` `:on-click` called `open!`
+;; directly, bypassing the rf2-4s08ov configured/hint decision the
+;; panel-side `:rf.xray/open-in-editor` event-fx already applied. An
+;; unconfigured host therefore silently navigated to the implicit
+;; `vscode:` URI from the chip — the exact silent no-op rf2-4s08ov set
+;; out to replace. `chip-click!` now applies the same decision:
+;;
+;;   1. Configured editor                 → navigate (`open!`).
+;;   2. Unconfigured + `:rf/xray` present → show the hint toast.
+;;   3. Unconfigured + no frame           → standalone fallback: navigate.
+
+(defn- unconfigure-editor! []
+  ;; Model the bare-preload host: clear the explicit flag the fixture's
+  ;; `set-editor! :vscode` set + any operator override.
+  (reset! config/editor-explicitly-set? false)
+  (config/update-setting! :general :editor-override nil))
+
+(deftest chip-click-navigates-when-editor-configured
+  (testing "rf2-r4q6y3 — with an editor configured, a direct chip click
+            navigates via the navigator seam exactly as before; the hint
+            never enters the path"
+    (setup!)
+    (config/set-editor! :cursor)          ; explicit set = configured
+    (is (true? (config/editor-configured?)))
+    (let [[nav calls] (capturing-navigator)]
+      (with-stub-navigator nav
+        #(open-in-editor/chip-click! "cursor://file/src/x.cljs:1:1"))
+      (is (= ["cursor://file/src/x.cljs:1:1"] @calls)
+          "configured editor → direct navigation"))))
+
+(deftest chip-click-does-not-navigate-when-unconfigured-with-frame
+  (testing "rf2-r4q6y3 — with NO editor configured and a live :rf/xray
+            shell frame, a direct chip click does NOT silently navigate
+            (the bug); it routes to the hint instead"
+    (setup!)
+    (unconfigure-editor!)
+    (is (false? (config/editor-configured?)))
+    (is (some? (frame/frame :rf/xray)) "precondition: shell frame present")
+    (let [[nav calls] (capturing-navigator)]
+      (with-stub-navigator nav
+        #(open-in-editor/chip-click! "vscode://file/src/x.cljs:1:1"))
+      (is (= [] @calls)
+          "unconfigured + frame → no silent navigation"))
+    (config/update-setting! :general :editor-override nil)))
+
+(deftest chip-click-shows-hint-when-unconfigured-with-frame
+  (testing "rf2-r4q6y3 — the unconfigured + frame chip click dispatches
+            `:rf.xray/editor-hint-show` on :rf/xray (consistent with the
+            panel-side event-fx + #3486). Captured synchronously via a
+            `rf/dispatch` spy so the assertion is deterministic without
+            an async router drain."
+    (setup!)
+    (unconfigure-editor!)
+    ;; `rf/dispatch` is a compile-time MACRO that expands to a call to
+    ;; `rf/dispatch*` (the runtime fn-form), so the spy goes on
+    ;; `rf/dispatch*` — redefing the macro var (or `router/dispatch!`,
+    ;; which `dispatch*` captured at def-time) would intercept nothing.
+    (let [dispatched (atom [])]
+      (with-redefs [rf/dispatch* (fn [ev & opts]
+                                   (swap! dispatched conj {:event ev :opts (vec opts)}))]
+        (open-in-editor/chip-click! "vscode://file/src/x.cljs:1:1"))
+      (is (= 1 (count @dispatched))
+          "exactly one dispatch — the hint, no navigation dispatch")
+      (is (= [:rf.xray/editor-hint-show] (:event (first @dispatched)))
+          "the hint-show event is dispatched")
+      (is (= :rf/xray (:frame (first (:opts (first @dispatched)))))
+          "dispatched on the :rf/xray shell frame where the hint lives"))
+    (config/update-setting! :general :editor-override nil)))
+
+(deftest chip-click-standalone-fallback-navigates-without-frame
+  (testing "rf2-r4q6y3 — with NO editor configured AND no :rf/xray frame
+            (the standalone / static-host fallback — nowhere for a hint
+            toast to mount), the chip falls back to direct navigation.
+            This is the documented standalone contract."
+    (setup!)
+    (unconfigure-editor!)
+    ;; Tear down the shell frame so there is no hint target.
+    (reset! frame/frames {})
+    (is (nil? (frame/frame :rf/xray)) "precondition: no shell frame")
+    (is (false? (config/editor-configured?)))
+    (let [[nav calls] (capturing-navigator)]
+      (with-stub-navigator nav
+        #(open-in-editor/chip-click! "vscode://file/src/x.cljs:1:1"))
+      (is (= ["vscode://file/src/x.cljs:1:1"] @calls)
+          "unconfigured + no frame → standalone best-effort navigation"))))

@@ -1410,20 +1410,35 @@ no-op the JS layer cannot detect (the No-handler-installed fallback
 above). rf2-ffijtp documented the fix; rf2-4s08ov makes the chip
 itself guide the developer.
 
-- **Trigger.** The panel-side `:rf.xray/open-in-editor` event-fx reads
-  `config/editor-configured?`. When false — NEITHER the host
-  explicitly set `:rf.xray/editor` NOR a valid operator override is
-  present — the event MUST NOT fire the silent `:rf.editor/open`
-  navigation. It dispatches `:rf.xray/editor-hint-show` instead.
+- **Trigger.** BOTH open-in-editor surfaces read
+  `config/editor-configured?` and route through the same decision when
+  it is false (NEITHER the host explicitly set `:rf.xray/editor` NOR a
+  valid operator override is present): neither may fire the silent
+  `:rf.editor/open` navigation.
+  - The panel-side `:rf.xray/open-in-editor` event-fx dispatches
+    `:rf.xray/editor-hint-show`.
+  - The in-DOM `open-chip` `<a>` routes its `:on-click` through
+    `open-in-editor/chip-click!` (rf2-r4q6y3), which dispatches
+    `[:rf.xray/editor-hint-show]` on the `:rf/xray` frame when that
+    shell frame is present, and falls back to the best-effort `open!`
+    only when there is no `:rf/xray` frame for the toast to mount in
+    (the standalone / static-host contract). This closes the gap where
+    a Static-mode source chip could still silently navigate to the
+    implicit `vscode:` URI on an unconfigured host.
 - **Configured = navigate.** `editor-configured?` is true the moment
   EITHER the host calls `set-editor!` / `configure!` (an explicit set,
-  even of `:vscode`, counts) OR a valid operator override exists. In
+  even of `:vscode`, counts; `(configure! {:rf.xray/editor nil})`
+  resets it — rf2-eilutf) OR a valid operator override exists. In
   that state the click resolves + navigates exactly as before; the
   hint never fires. A malformed override degrades to unconfigured.
 - **The hint.** A small, non-intrusive bottom-corner toast ("No
   editor configured") with a one-line note and an **Open Settings**
   button. The toast is NOT a modal — it does not block the chrome. It
-  is dismissable (✕ / Esc) and self-dismisses on Open-Settings.
+  self-dismisses on Open-Settings and is dismissable via the ✕ button
+  or **Esc**. Because a non-modal `role=status` toast MUST NOT trap
+  focus, the reachable Esc path is the shell-level global keydown
+  listener (`keybinding/handle-keydown`, rf2-wpvy6f), which dismisses
+  the hint when open and falls through otherwise.
 - **Open-Settings.** `:rf.xray/editor-hint-open-settings` dismisses
   the toast and dispatches `:rf.xray/settings-open`, which lands the
   operator on the General tab — the editor picker's home.

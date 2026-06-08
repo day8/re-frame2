@@ -32,8 +32,17 @@
   level keydown-dispatch story lives in the Playwright lane (rf2-s2bhn)
   on a real document."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
-            [day8.re-frame2-xray.keybinding :as keybinding]))
+            [day8.re-frame2-xray.defaults :as defaults]
+            [day8.re-frame2-xray.keybinding :as keybinding]
+            [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-support :as xray-test-support]
+            [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- helpers -------------------------------------------------------------
 
@@ -626,3 +635,99 @@
           "nil restores the default")
       (finally
         (config/set-keybinding-enabled! true)))))
+
+;; ---- (7) Esc dismisses the editor-hint toast (rf2-wpvy6f) ----------------
+;;
+;; The hint toast is a non-modal `role=status` surface that must NOT trap
+;; focus (it would steal it from the host app), so its own in-DOM
+;; `on-key-down` never receives Esc in the normal click flow. The
+;; shell-level global `handle-keydown` is the reachable Esc path: it
+;; dismisses the hint whenever it is open, and falls through (no consume)
+;; whenever it is closed so other Esc consumers / the host are
+;; undisturbed.
+;;
+;; Unlike the pure-predicate tests above, these need a live `:rf/xray`
+;; frame with the editor-hint events registered, so they bootstrap the
+;; re-frame runtime (mirrors editor_hint_cljs_test.cljs's fixture).
+
+(defn- handle-keydown
+  "Reach the private dispatcher via var access."
+  [event]
+  (#'keybinding/handle-keydown event))
+
+(defn- mk-keydown-event
+  "Synthetic KeyboardEvent with prevent/stop spies + a `key`. Records
+  whether preventDefault / stopPropagation were called so a test can
+  assert the listener consumed (or did NOT consume) the key."
+  [k]
+  (let [prevented (atom false)
+        stopped   (atom false)]
+    {:event   (js-obj "key"             k
+                      "preventDefault"  (fn [] (reset! prevented true))
+                      "stopPropagation" (fn [] (reset! stopped true)))
+     :prevented prevented
+     :stopped   stopped}))
+
+(defn- setup-xray-runtime! []
+  (xray-test-support/reset-all!)
+  (trace-collector/reset-for-test!)
+  (reset! frame/frames {})
+  (substrate-adapter/dispose-adapter!)
+  (substrate-adapter/install-adapter! plain-atom/adapter)
+  (frame/ensure-default-frame!)
+  (registry/register-xray-handlers!)
+  (frame/reg-frame :rf/xray {}))
+
+(deftest esc-dismisses-open-editor-hint
+  (testing "rf2-wpvy6f — when the editor-hint toast is OPEN, the global
+            handle-keydown consumes Esc and dispatches
+            :rf.xray/editor-hint-dismiss on :rf/xray, closing the toast"
+    (setup-xray-runtime!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/editor-hint-show]))
+    (is (true? (boolean (:editor-hint-open?
+                         (frame/frame-app-db-value defaults/default-frame-id))))
+        "precondition: toast is open")
+    (let [{:keys [event prevented stopped]} (mk-keydown-event "Escape")]
+      (handle-keydown event)
+      (is @prevented "Esc was consumed — preventDefault called")
+      (is @stopped   "Esc was consumed — stopPropagation called"))
+    ;; The dismiss dispatch is synchronous (`rf/dispatch` queues, but the
+    ;; reg-event-db lands on the next router tick); drain via dispatch-sync
+    ;; on a no-op to flush, then assert. Use dispatch-sync directly to be
+    ;; deterministic.
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/editor-hint-dismiss]))
+    (is (false? (boolean (:editor-hint-open?
+                          (frame/frame-app-db-value defaults/default-frame-id))))
+        "toast is dismissed")))
+
+(deftest esc-falls-through-when-hint-closed
+  (testing "rf2-wpvy6f — when the toast is CLOSED, Esc is NOT consumed by
+            the editor-hint branch (no preventDefault / stopPropagation),
+            so it falls through to the host and other Esc consumers"
+    (setup-xray-runtime!)
+    (is (false? (boolean (:editor-hint-open?
+                          (frame/frame-app-db-value defaults/default-frame-id))))
+        "precondition: toast is closed")
+    (let [{:keys [event prevented stopped]} (mk-keydown-event "Escape")]
+      (handle-keydown event)
+      (is (false? @prevented)
+          "closed toast → Esc not consumed (preventDefault not called)")
+      (is (false? @stopped)
+          "closed toast → Esc not consumed (stopPropagation not called)"))))
+
+(deftest editor-hint-open-predicate-reads-frame-app-db
+  (testing "rf2-wpvy6f — the private editor-hint-open? reader reflects the
+            :rf/xray frame's :editor-hint-open? app-db slot, and is false
+            when the frame is absent"
+    (setup-xray-runtime!)
+    (is (false? (#'keybinding/editor-hint-open?))
+        "false when the slot is unset")
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/editor-hint-show]))
+    (is (true? (#'keybinding/editor-hint-open?))
+        "true once the toast is shown")
+    (reset! frame/frames {})
+    (is (false? (#'keybinding/editor-hint-open?))
+        "false when the :rf/xray frame is absent — Esc falls through")))

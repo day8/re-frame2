@@ -130,6 +130,16 @@
   the frame-aware dispatcher injected by the `reg-view` body so the
   deferred `:on-click` handlers land on the surrounding instance frame."
   [dispatch]
+  ;; rf2-wpvy6f — the PRIMARY, reachable Esc-dismissal path is the
+  ;; shell-level global keydown listener (`keybinding/handle-keydown`),
+  ;; which dismisses the hint whenever it is open regardless of where
+  ;; focus sits. This toast is a non-modal `role=status` surface and
+  ;; MUST NOT trap focus (that would steal it from the host app), so in
+  ;; the normal click flow focus is never inside the toast and this
+  ;; in-DOM handler does not receive Esc. It is retained as
+  ;; defense-in-depth for the case where focus DOES land inside the
+  ;; toast (e.g. after the operator tabs to / clicks a button in it),
+  ;; so Esc still works there too.
   [:div {:data-testid "rf-xray-editor-hint-toast"
          :role        "status"
          :aria-live   "polite"
