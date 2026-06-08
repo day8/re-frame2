@@ -6,7 +6,7 @@
   actor has NO per-instance event-handler registration. Spawn is a pure
   app-db write (install the snapshot + the spawn-registry slot); destroy
   is a pure app-db remove. An actor's liveness IS exactly the presence
-  of its snapshot at `[:rf/runtime :machines :snapshots <actor-id>]` in
+  of its snapshot at `[:rf.runtime/machines :snapshots <actor-id>]` in
   the frame's value — so `restore-epoch` (which reverts app-db only)
   reverts liveness perfectly, with ZERO registrar drift. This closes the
   Goal-2 revertibility leak: rewinding past a spawn no longer leaves an

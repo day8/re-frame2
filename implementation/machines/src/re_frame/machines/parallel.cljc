@@ -253,7 +253,7 @@
   "Per Spec 005 §Per-region `:spawn` / `:after` / `:always` scoping:
   spawn / destroy / after-schedule / after-cancel fxs emitted by a region
   carry an `:rf/spawn-id` that's the in-region prefix-path. To keep the
-  runtime-owned `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` slot unique
+  runtime-owned `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot unique
   per-region (and per-region `:after` epoch tracking distinct from sibling
   regions), prepend the region name onto the `:rf/spawn-id`."
   [region-name fx]
@@ -316,7 +316,7 @@
 ;;   - run each region as a synthetic single-machine spec via
 ;;     `region-machine`,
 ;;   - prefix per-region fx with the region name via
-;;     `prefix-region-spawn-id` so per-region `[:rf/runtime :machines :spawned ...]` /
+;;     `prefix-region-spawn-id` so per-region `[:rf.runtime/machines :spawned ...]` /
 ;;     `:after`-epoch tracking slots stay distinct from siblings,
 ;;   - short-circuit to a `result/fail` if any region's step fails,
 ;;   - commit `:tags` via `commit-tags-parallel` AFTER every region has
@@ -459,7 +459,7 @@
               ;; Per rf2-r09fc: stamp the REAL parent machine-id onto the
               ;; synthetic region-spec so any declarative `:spawn` / `:after`
               ;; the region fires keys its
-              ;; `[:rf/runtime :machines :spawned <parent> <invoke-id>]` slot
+              ;; `[:rf.runtime/machines :spawned <parent> <invoke-id>]` slot
               ;; (and the child's `:data :rf/parent-id`) under the actual
               ;; spawning parent — NOT the `:rf/transition-pure` fallback
               ;; `run-spawn-phase` / `build-after-fx` apply when

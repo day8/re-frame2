@@ -450,6 +450,30 @@
                                   (assoc current app-partition-key new-db))
       new-db)))
 
+(defn swap-runtime-db!
+  "Mutate the frame's runtime-db PARTITION: read the current runtime-db
+  value, compute `(apply f runtime-db args)`, and install the result into the
+  runtime-db partition of the one physical frame-state container (app-db
+  untouched). Returns the new runtime-db, or nil if the frame is not
+  registered.
+
+  The runtime-db sibling of `swap-frame-db!` — the canonical \"mutate the
+  frame's runtime-db\" surface for framework subsystems' direct (out-of-
+  cascade / mid-fx) writes (machine spawn / destroy / update-snapshot,
+  routing scroll/can-leave fx). Models `swap!` over the runtime-db partition;
+  under the single-drainer invariant (Spec 002 §Single drainer per frame) the
+  read-then-replace is effectively atomic. Per Spec 002 §The two-partition
+  frame contract — runtime-db is reserved BY CONVENTION (decision #4); this
+  is the framework-authority write surface."
+  [id f & args]
+  (when-let [container (frame-state-container id)]
+    (let [current        (adapter/read-container container)
+          old-runtime-db (get current runtime-partition-key)
+          new-runtime-db (apply f old-runtime-db args)]
+      (adapter/replace-container! container
+                                  (assoc current runtime-partition-key new-runtime-db))
+      new-runtime-db)))
+
 ;; ---- lifecycle-vs-drain serialization (rf2-2woz9) -------------------------
 ;;
 ;; Some per-frame registry mutations must be ATOMIC with respect to that
@@ -863,9 +887,10 @@
   (if-let [teardown! (late-bind/get-fn :machines/teardown-on-frame-destroy!)]
     (teardown! id)
     ;; Fallback path — minimal contract when the machines artefact is absent.
-    (let [container  (app-db-container id)
-          db         (when container (adapter/read-container container))
-          machines   (get-in db [:rf/runtime :machines :snapshots])
+    ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+    (let [container  (runtime-db-container id)
+          rt         (when container (adapter/read-container container))
+          machines   (get-in rt [:rf.runtime/machines :snapshots])
           abort-http (late-bind/get-fn :http/abort-on-actor-destroy)]
       (doseq [[machine-id snapshot] machines]
         (when abort-http

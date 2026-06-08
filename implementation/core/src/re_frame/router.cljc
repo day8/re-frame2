@@ -632,10 +632,17 @@
   Per rf2-jbbp7 / Spec 010 §Per-step recovery row 7: AND-conjoins the
   app-db validator with `:machines/validate-machine-data!` (the
   `:where :machine-data` boundary). The machine walker iterates
-  `[:rf/runtime :machines :snapshots]` and validates each snapshot's `:data` against the
-  registered machine's top-level `:schema`. Both validators run on
-  every commit so the operator gets the full failure surface; the
-  conjunction means a `false` from either rolls back the cascade.
+  `[:rf.runtime/machines :snapshots]` in the new RUNTIME-DB value (EP-0001
+  rf2-vzld77 — machine snapshots are durable runtime-db state) and validates
+  each snapshot's `:data` against the registered machine's `:data-schema`.
+
+  EP-0001 (rf2-vzld77): each validator runs against its OWN partition's new
+  value — app-db schema validation on `db-after`, machine-data validation on
+  `runtime-db-after` — and only when that partition was actually written this
+  commit (`app-effect?` / `rt-effect?`). The conjunction means a `false` from
+  either rolls back the WHOLE transition; a runtime-only machine commit still
+  gets its `:data-schema` boundary, and an app-only commit no longer pays for
+  a machine-data walk over a runtime-db that did not change.
 
   Defensive truth-coercion: a host-thrown validator (e.g. a buggy
   user-supplied :schemas/set-schema-validator! fn) is caught and
@@ -657,7 +664,7 @@
   is the validator/late-bind machinery itself failing wholesale — the
   trace makes that visible without masking app-db from the rest of the
   cascade."
-  [db-after event-id frame]
+  [db-after runtime-db-after app-effect? rt-effect? event-id frame]
   (let [emit-swallow!
         ;; Surface a swallowed validator throw so it is never invisible
         ;; (rf2-ss06u.3). DCE-gated inside `trace/emit-error!`.
@@ -674,31 +681,38 @@
                      :recovery  :no-recovery}
               event-id (assoc :failing-id event-id))))
         app-ok?
+        ;; App-db schema validation runs only when a `:db` effect produced a
+        ;; new app-db (app schemas validate app-db only — Mike ruling #11).
         ;; Sticky hook (rf2-f72pd) — fires per-dispatch.
-        (if-let [validate (late-bind/get-fn-cached :schemas/validate-app-schema!)]
-          (try
-            ;; nil-coerce: treat a nil return as success (don't roll
-            ;; back) so a host that returns nil rather than true on a
-            ;; clean validate keeps working.
-            (let [result (validate db-after event-id frame)]
-              (if (nil? result) true result))
-            (catch #?(:clj Throwable :cljs :default) ex
-              (emit-swallow! :app-db ex)
-              true))
+        (if (and app-effect?
+                 (late-bind/get-fn-cached :schemas/validate-app-schema!))
+          (let [validate (late-bind/get-fn-cached :schemas/validate-app-schema!)]
+            (try
+              ;; nil-coerce: treat a nil return as success (don't roll
+              ;; back) so a host that returns nil rather than true on a
+              ;; clean validate keeps working.
+              (let [result (validate db-after event-id frame)]
+                (if (nil? result) true result))
+              (catch #?(:clj Throwable :cljs :default) ex
+                (emit-swallow! :app-db ex)
+                true)))
           true)
         machines-ok?
         ;; Per rf2-jbbp7 — the machine-data boundary (Spec 005 §Schema
-        ;; validation). The hook is absent when the machines artefact
-        ;; isn't on the classpath; absent → true (no machines means no
-        ;; machine-data to validate).
-        (if-let [validate-md (late-bind/get-fn-cached
-                               :machines/validate-machine-data!)]
-          (try
-            (let [result (validate-md db-after event-id frame)]
-              (if (nil? result) true result))
-            (catch #?(:clj Throwable :cljs :default) ex
-              (emit-swallow! :machine-data ex)
-              true))
+        ;; validation). EP-0001 (rf2-vzld77): machine snapshots are durable
+        ;; runtime-db state, so this validates the new RUNTIME-DB value and
+        ;; runs only when a `:rf.db/runtime` effect landed this commit. The
+        ;; hook is absent when the machines artefact isn't on the classpath;
+        ;; absent → true (no machines means no machine-data to validate).
+        (if (and rt-effect?
+                 (late-bind/get-fn-cached :machines/validate-machine-data!))
+          (let [validate-md (late-bind/get-fn-cached :machines/validate-machine-data!)]
+            (try
+              (let [result (validate-md runtime-db-after event-id frame)]
+                (if (nil? result) true result))
+              (catch #?(:clj Throwable :cljs :default) ex
+                (emit-swallow! :machine-data ex)
+                true)))
           true)]
     ;; Both must conform for the cascade to keep its commit; the per-
     ;; failure traces have already been emitted independently so the
@@ -960,6 +974,7 @@
             partitions (cond-> {}
                          app-effect? (assoc frame/app-partition-key     new-db)
                          rt-effect?  (assoc frame/runtime-partition-key (:rf.db/runtime effects)))
+            new-runtime-db (:rf.db/runtime effects)
             ;; ONE atomic frame-state install. Returns the set of partition
             ;; keys that actually changed by `=`.
             changed    (frame/commit-frame-transition! frame partitions)
@@ -971,19 +986,26 @@
                        {:rf.trace/event-id event-id :rf.event/v emit-event :frame frame}))
         ;; Partition-tagged frame-state-changed — when EITHER partition changed.
         (emit-frame-state-changed! event-id emit-event frame changed)
-        ;; App-db schema validation is app-db-only; it runs only when a `:db`
-        ;; effect produced a new app-db. A runtime-only commit skips it (app
-        ;; schemas do not describe runtime-db, Mike ruling #11).
-        (if (or (not app-effect?)
-                (run-post-commit-validation! new-db event-id frame))
+        ;; Post-commit validation runs per-partition (EP-0001 rf2-vzld77):
+        ;; app-db schema validation on the new app-db (only when a `:db` effect
+        ;; landed — app schemas validate app-db only, Mike ruling #11) AND the
+        ;; machine-data `:where :machine-data` boundary on the new runtime-db
+        ;; (only when a `:rf.db/runtime` effect landed — machine snapshots are
+        ;; durable runtime-db state). A `false` from either rolls back the
+        ;; WHOLE transition.
+        (if (run-post-commit-validation! new-db new-runtime-db
+                                         app-effect? rt-effect? event-id frame)
           (do
             ;; (rf2-p806o) Loud-failure guard for the `{:db fresh-map}`
-            ;; footgun — surfaces a durable `:db` commit that wholesale-
-            ;; replaced app-db and dropped a live `:rf/runtime` subsystem.
-            ;; (Pre-bead-6, runtime subsystems still live at `:rf/runtime`
-            ;; INSIDE app-db, so the footgun and this guard remain on the
-            ;; app-db partition; bead 6 migrates them to runtime-db.) Fires
-            ;; only after a durable app-db commit.
+            ;; footgun. EP-0001 (rf2-vzld77): framework runtime subsystems
+            ;; no longer live in app-db under `:rf/runtime` — they are in the
+            ;; runtime-db partition — so the original footgun (a fresh `:db`
+            ;; map dropping co-located `:rf/runtime`) is structurally gone
+            ;; (Conventions §The clobber footgun is eliminated structurally).
+            ;; The detector is kept as a no-op net for any residual app-db
+            ;; `:rf/runtime` key until bead 9 (rf2-tfepxu) adds the legacy-
+            ;; root hard error; a clean migrated app-db carries no such key,
+            ;; so it never fires.
             (when app-effect?
               (detect-dropped-runtime-state! db-before new-db event-id emit-event frame))
             true)

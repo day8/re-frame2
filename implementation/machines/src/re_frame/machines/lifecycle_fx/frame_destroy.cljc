@@ -14,8 +14,8 @@
        (preserves the rf2-wvkn `:http/abort-on-actor-destroy` contract
        across every destroy trigger including frame destroy).
     4. Apply the unified app-db teardown projection — dissoc
-       `[:rf/runtime :machines :snapshots <id>]`, release `[:rf/runtime :machines :system-ids <sid>]` when the
-       actor was system-id-bound, prune `[:rf/runtime :machines :spawned]` slots.
+       `[:rf.runtime/machines :snapshots <id>]`, release `[:rf.runtime/machines :system-ids <sid>]` when the
+       actor was system-id-bound, prune `[:rf.runtime/machines :spawned]` slots.
     5. Unregister the live actor event handler so subsequent dispatch
        to the address surfaces `:rf.error/no-such-handler` cleanly.
     6. Emit `:rf.machine.lifecycle/destroyed` with
@@ -34,7 +34,7 @@
 
   Source-of-truth on order: a process-side
   `re-frame.machines.spawn-order` atom records each spawned actor at
-  install time. Snapshots that landed via direct `[:rf/runtime :machines :snapshots]` assoc
+  install time. Snapshots that landed via direct `[:rf.runtime/machines :snapshots]` assoc
   (test fixtures, hydration payloads) are not tracked in the channel
   but DO live in app-db — the walker covers them as a stragglers pass
   after the recorded vector drains."
@@ -50,14 +50,15 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn- frame-machines-snapshot
-  "Snapshot of `[:rf/runtime :machines :snapshots]` on `frame-id`'s app-db (a map of
-  actor-id → snapshot), or an empty map. Read at the start of the walk
-  so we have a stable view of which actors were live; the walk itself
-  swaps the container and these reads are not re-evaluated."
+  "Snapshot of `[:rf.runtime/machines :snapshots]` on `frame-id`'s
+  RUNTIME-DB (a map of actor-id → snapshot), or an empty map. Read at the
+  start of the walk so we have a stable view of which actors were live; the
+  walk itself swaps the container and these reads are not re-evaluated.
+  EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state."
   [frame-id]
-  (let [container (frame/app-db-container frame-id)
-        db        (when container (adapter/read-container container))]
-    (or (get-in db (paths/snapshot-path)) {})))
+  (let [container (frame/runtime-db-container frame-id)
+        rt        (when container (adapter/read-container container))]
+    (or (get-in rt (paths/snapshot-path)) {})))
 
 (defn- emit-lifecycle-destroyed!
   "Emit the legacy `:rf.machine.lifecycle/destroyed` notification per
@@ -96,9 +97,9 @@
   against double-invocation, fail-soft against missing artefacts.
 
   Per rf2-vsigt the orchestration is:
-   1. Snapshot `[:rf/runtime :machines :snapshots]` once.
+   1. Snapshot `[:rf.runtime/machines :snapshots]` once.
    2. Build the disposal order: recorded spawn-order reversed (newest
-      first) + any straggler actor-ids that live in `[:rf/runtime :machines :snapshots]`
+      first) + any straggler actor-ids that live in `[:rf.runtime/machines :snapshots]`
       but were never recorded (singleton handlers seeded directly,
       hydration payloads, test fixtures). Stragglers run after the
       recorded actors in app-db iteration order — there is no
@@ -126,7 +127,7 @@
           ;; Reverse recorded vector → newest spawn first.
           newest-first (reverse recorded)
           recorded-set (set recorded)
-          ;; Stragglers: actor-ids in [:rf/runtime :machines :snapshots] but absent
+          ;; Stragglers: actor-ids in [:rf.runtime/machines :snapshots] but absent
           ;; from the recorded spawn-order vector. Covers singleton
           ;; machines (registered via `reg-machine`), hydrated SSR
           ;; payloads, and test fixtures that seed snapshots directly.

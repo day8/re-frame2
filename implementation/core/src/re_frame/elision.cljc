@@ -2,11 +2,20 @@
   "Schema-first wire-boundary elision.
 
   Canonical declarations come from app-schema slot metadata:
-  `{:large? true}` hydrates `[:rf/runtime :elision :declarations]`, and
+  `{:large? true}` hydrates `[:rf.runtime/elision :declarations]`, and
   `{:sensitive? true}` hydrates
-  `[:rf/runtime :elision :sensitive-declarations]`. Handler metadata
+  `[:rf.runtime/elision :sensitive-declarations]`. Handler metadata
   `:sensitive?` remains the coarse escape hatch for cross-cutting
-  handlers. There are no imperative large-path APIs."
+  handlers. There are no imperative large-path APIs.
+
+  EP-0001 (rf2-vzld77): the elision declaration registry is DURABLE,
+  serializable framework state (it must survive epoch-restore / SSR-
+  hydration so an off-box projection redacts consistently), so it lives in
+  the frame's **runtime-db** partition at `[:rf.runtime/elision …]` — NOT in
+  app-db (where it briefly sat under the retired `:rf/runtime` root). Per
+  Conventions §Reserved runtime-db keys. Reads come off the runtime-db
+  projection; writes go through `frame/swap-runtime-db!` (the runtime-db
+  partition write surface)."
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -65,47 +74,46 @@
 
 (defn- registry-of
   [frame-id]
-  (when-let [container (frame/app-db-container frame-id)]
-    (get-in (adapter/read-container container) [:rf/runtime :elision])))
+  (when-let [container (frame/runtime-db-container frame-id)]
+    (get-in (adapter/read-container container) [:rf.runtime/elision])))
 
 (defn ^:no-doc write-elision-slot
-  "Set or clear the per-frame elision registry inside `db`. When `new-reg`
-  is non-empty it lands at `[:rf/runtime :elision]`. When empty, the
-  slot is removed — and if the resulting `:rf/runtime` becomes empty,
-  the `:rf/runtime` key itself is dissoc'd so apps that never used
-  framework state don't manifest a stray nil container.
+  "Set or clear the per-frame elision registry inside `runtime-db`. When
+  `new-reg` is non-empty it lands at `[:rf.runtime/elision]`. When empty,
+  the `:rf.runtime/elision` key is removed so a frame that never used
+  elision doesn't manifest a stray nil sub-tree.
 
   Internal helper; exposed (with `^:no-doc`) so the sibling
   `re-frame.marks` ns — which writes through the SAME slot via
   `add-marks` / `set-marks` / `clear-app-db-marks!` — can share a
-  single source of truth for the runtime-prune logic. Not part of the
-  public API."
-  [db new-reg]
+  single source of truth for the prune logic. Not part of the
+  public API.
+
+  EP-0001 (rf2-vzld77): operates on the runtime-db partition value (the
+  elision registry is durable framework state — Conventions §Reserved
+  runtime-db keys), no longer on the app-db `:rf/runtime` root."
+  [runtime-db new-reg]
   (cond
     (seq new-reg)
-    (assoc-in db [:rf/runtime :elision] new-reg)
+    (assoc runtime-db :rf.runtime/elision new-reg)
 
-    ;; Clearing — only mutate when there's actually an :elision slot to
-    ;; clear, so apps that never used elision don't get a stray
-    ;; `:rf/runtime nil` entry.
-    (and (contains? db :rf/runtime)
-         (contains? (get db :rf/runtime) :elision))
-    (let [next-runtime (dissoc (get db :rf/runtime) :elision)]
-      (if (seq next-runtime)
-        (assoc db :rf/runtime next-runtime)
-        (dissoc db :rf/runtime)))
+    ;; Clearing — only mutate when there's actually an :rf.runtime/elision
+    ;; slot to clear, so a frame that never used elision doesn't get a
+    ;; stray nil entry.
+    (contains? runtime-db :rf.runtime/elision)
+    (dissoc runtime-db :rf.runtime/elision)
 
     :else
-    db))
+    runtime-db))
 
 (defn ^:no-doc swap-elision-slot!
   "Read-transform-write helper for the per-frame elision registry.
 
-  Reads the registry at `[:rf/runtime :elision]` from `frame-id`'s
-  app-db, applies `(f reg) -> new-reg`, and writes the result back
-  through `write-elision-slot` (which prunes a stranded `:rf/runtime`
-  when the slot clears). No-op when the frame's container does not
-  exist. Returns nil.
+  Reads the registry at `[:rf.runtime/elision]` from `frame-id`'s
+  runtime-db, applies `(f reg) -> new-reg`, and writes the result back
+  through `write-elision-slot` (which removes a stranded
+  `:rf.runtime/elision` when the slot clears). No-op when the frame's
+  container does not exist. Returns nil.
 
   Internal helper; exposed (with `^:no-doc`) so the sibling
   `re-frame.marks` ns — which mutates the SAME slot from its
@@ -113,16 +121,17 @@
   paths — can share a single source of truth for the read-transform-
   write skeleton. Not part of the public API.
 
-  EP-0001 (rf2-adwcv6): writes through `frame/swap-frame-db!` (the app-db
-  partition of the one physical frame-state container) rather than a direct
-  `replace-container!` — `frame/app-db-container` is now a READ-ONLY
-  projection. The elision registry still lives at `[:rf/runtime :elision]`
-  INSIDE app-db until bead 6 (rf2-vzld77) migrates elision to runtime-db, so
-  this stays an app-db write."
+  EP-0001 (rf2-vzld77): writes through `frame/swap-runtime-db!` (the
+  runtime-db partition of the one physical frame-state container) — the
+  elision registry is durable framework state and lives in runtime-db, not
+  in the retired app-db `:rf/runtime` root."
   [frame-id f]
-  (frame/swap-frame-db! frame-id
-                        (fn [old-db]
-                          (write-elision-slot old-db (f (get-in old-db [:rf/runtime :elision])))))
+  (frame/swap-runtime-db! frame-id
+                          (fn [old-runtime-db]
+                            (let [old-runtime-db (or old-runtime-db {})]
+                              (write-elision-slot
+                                old-runtime-db
+                                (f (get-in old-runtime-db [:rf.runtime/elision]))))))
   nil)
 
 (defn declarations
@@ -168,7 +177,7 @@
   (vec (keys schema-decls)))
 
 (defn populate-elision-from-schemas!
-  "Populate `[:rf/runtime :elision :declarations]` from `{:large? true}`
+  "Populate `[:rf.runtime/elision :declarations]` from `{:large? true}`
   schema slot metadata. Returns the populated paths."
   ([] (populate-elision-from-schemas! (frame/current-frame)))
   ([frame-id]
@@ -178,7 +187,7 @@
      (schema-declarations frame-id :schemas/extract-large-paths-from-schema))))
 
 (defn populate-sensitive-from-schemas!
-  "Populate `[:rf/runtime :elision :sensitive-declarations]` from
+  "Populate `[:rf.runtime/elision :sensitive-declarations]` from
   `{:sensitive? true}` schema slot metadata. Returns the populated
   paths."
   ([] (populate-sensitive-from-schemas! (frame/current-frame)))

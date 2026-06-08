@@ -19,7 +19,7 @@
     - Declarative :spawn that desugars into [:rf.machine/spawn args]
       on entry and [:rf.machine/destroy actor-id] on exit; deterministic
       actor ids via the in-snapshot :rf/spawn-counter (declarative) / the
-      frame's app-db [:rf/runtime :machines :spawn-counter <machine-id>]
+      frame's app-db [:rf.runtime/machines :spawn-counter <machine-id>]
       slot (hand-emitted) — no process-global state (rf2-gr8q / rf2-owvvr;
       the body comment below + spawn.cljc both note the global atom is gone).
     - Declarative :spawn-all — spawn-and-join sugar over N parallel
@@ -28,7 +28,7 @@
     - The :rf.machine/dispatch-to-system reserved fx-id — a machine
       action sends a message to its spawned child actor by :system-id
       (the fx counterpart to the dispatch-to-system FN).
-    - Snapshot at [:rf/runtime :machines :snapshots <id>] in app-db.
+    - Snapshot at [:rf.runtime/machines :snapshots <id>] in app-db.
     - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
 
   Public surface re-exported from the sub-namespaces:
@@ -79,7 +79,7 @@
 ;; snapshot's `:rf/spawn-counter` slot via
 ;; `re-frame.machines.transition/allocate-spawned-id`; hand-emitted
 ;; spawn fxs allocate from the frame's app-db slot at
-;; `[:rf/runtime :machines :spawn-counter <machine-id>]` inside the
+;; `[:rf.runtime/machines :spawn-counter <machine-id>]` inside the
 ;; spawn-fx db-swap (per rf2-owvvr — the single-reserved-root contract).
 ;; `machine-transition` is a pure function — no module-level mutable
 ;; state, deterministic from its (machine snapshot event) arguments.
@@ -108,12 +108,12 @@
 ;; ---- query API (Spec 005 §Querying machines) -----------------------------
 ;;
 ;; Three thin lookup fns over the existing event registry and the
-;; runtime-owned `[:rf/runtime :machines :system-ids]` reverse index — derived views, not a
+;; runtime-owned `[:rf.runtime/machines :system-ids]` reverse index — derived views, not a
 ;; new registry kind. `(rf/machines)` filters event handlers whose
 ;; registration metadata carries `:rf/machine? true`; `(rf/machine-meta
 ;; id)` returns the registered machine's spec map; `(rf/machine-by-
 ;; system-id sid)` resolves the spawned-machine id currently bound to
-;; `sid` in the active frame's `[:rf/runtime :machines :system-ids]` reverse index.
+;; `sid` in the active frame's `[:rf.runtime/machines :system-ids]` reverse index.
 ;;
 ;; These query fns live on the public artefact surface (not a level
 ;; below) since they're how Spec 005 §Querying machines is reached.
@@ -139,7 +139,7 @@
 
 (defn machine-by-system-id
   "Look up the spawned-machine id currently bound to `system-id` in the
-  active frame's `[:rf/runtime :machines :system-ids]` reverse index, or nil. The `frame`
+  active frame's `[:rf.runtime/machines :system-ids]` reverse index, or nil. The `frame`
   arg defaults to the current frame (per `frame/current-frame`); pass
   an explicit frame-id for cross-frame lookups.
 
@@ -147,7 +147,9 @@
   ([system-id]
    (machine-by-system-id system-id (frame/current-frame)))
   ([system-id frame-id]
-   (get-in (frame/frame-app-db-value frame-id) (paths/system-id-path system-id))))
+   ;; EP-0001 (rf2-vzld77): the system-ids reverse index is durable
+   ;; machine runtime-db state — read it off the runtime-db partition.
+   (get-in (frame/frame-runtime-db-value frame-id) (paths/system-id-path system-id))))
 
 ;; ---- :rf.machine/dispatch-to-system — action→spawned-actor messaging fx --
 ;;
@@ -165,13 +167,13 @@
 ;; ride together in the single `args` slot. This mirrors `:rf.machine/spawn`
 ;; (args is a single spec map) and `:dispatch` (args is a single event
 ;; vector). Frame-aware: the fx-ctx's `:frame` resolves the binding in the
-;; emitting frame's `[:rf/runtime :machines :system-ids]` reverse index and
+;; emitting frame's `[:rf.runtime/machines :system-ids]` reverse index and
 ;; targets the queued dispatch at the same frame — consistent with
 ;; `spawn-fx` / `update-snapshot-fx`.
 
 (defn dispatch-to-system-fx
   "fx handler for `:rf.machine/dispatch-to-system`. Resolves `system-id`
-  through the emitting frame's `[:rf/runtime :machines :system-ids]`
+  through the emitting frame's `[:rf.runtime/machines :system-ids]`
   reverse index and dispatches `event` to the bound actor. No-op when the
   system-id is unbound (symmetric with the `dispatch-to-system` FN's
   no-op fall-through). Per Spec 005 §Cross-machine messaging by name."
@@ -194,7 +196,7 @@
 
   Spawn-id allocation lives inside the parent snapshot's
   `:rf/spawn-counter` slot (declarative `:spawn`) or the frame's
-  app-db at `[:rf/runtime :machines :spawn-counter <machine-id>]`
+  app-db at `[:rf.runtime/machines :spawn-counter <machine-id>]`
   (hand-emitted spawn); both reset automatically with the registrar
   snapshot/restore + frame reset, so this hook only handles the
   frame-scoped wall-clock timer table. The 0-arity / 1-arity split
@@ -222,7 +224,7 @@
   spawn-fx)
 
 (fx/reg-fx :rf.machine/destroy
-  {:doc "Destroy a spawned machine instance and clear its `[:rf/runtime :machines :snapshots machine-id]` slot. Per Spec 005 §Declarative :spawn."}
+  {:doc "Destroy a spawned machine instance and clear its `[:rf.runtime/machines :snapshots machine-id]` slot. Per Spec 005 §Declarative :spawn."}
   destroy-machine-fx)
 
 (fx/reg-fx :rf.machine/spawn-all-init
@@ -256,24 +258,28 @@
 ;; re-installs the subs after `registrar/clear-all!`. `:reload` is
 ;; shallow — a sub registered inside the sub-namespace wouldn't re-fire.
 
-(subs/reg-sub :rf/machine
+;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
+;; the framework machine subs read the frame's RUNTIME-DB projection
+;; (`reg-runtime-sub`) — the `db`-position arg is the runtime-db value (Spec
+;; 002 §Subscriptions read the partition they belong to).
+(subs/reg-runtime-sub :rf/machine
   {:doc "Subscribe to a machine's current snapshot `{:state <kw> :data <map> :tags <set>}`. Returns nil for an unknown or not-yet-initialised machine. Per Spec 005 §Subscribing to machines via sub-machine."}
-  (fn [db [_ machine-id]]
-    (get-in db (paths/snapshot-path machine-id))))
+  (fn [runtime-db [_ machine-id]]
+    (get-in runtime-db (paths/snapshot-path machine-id))))
 
 ;; Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1): the
 ;; `:rf/machine-has-tag?` framework sub returns `true` iff the named
 ;; machine's current snapshot's `:tags` set contains the queried tag.
 ;; A machine that hasn't been initialised yet (no snapshot at
-;; `[:rf/runtime :machines :snapshots <id>]`) returns `false`.
+;; `[:rf.runtime/machines :snapshots <id>]`) returns `false`.
 ;;
 ;; Derived sub — reads the snapshot via `get-in` rather than chaining
 ;; off `:rf/machine` — so a view that only cares about whether a specific
 ;; tag is present re-renders only when the containment-bit flips.
-(subs/reg-sub :rf/machine-has-tag?
+(subs/reg-runtime-sub :rf/machine-has-tag?
   {:doc "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Returns `true` iff the named machine's snapshot's `:tags` set contains `tag`, `false` otherwise (including unknown / not-yet-initialised machines). Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1)."}
-  (fn [db [_ machine-id tag]]
-    (contains? (get-in db (paths/snapshot-path machine-id :tags)) tag)))
+  (fn [runtime-db [_ machine-id tag]]
+    (contains? (get-in runtime-db (paths/snapshot-path machine-id :tags)) tag)))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;

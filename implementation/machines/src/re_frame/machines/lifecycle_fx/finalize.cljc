@@ -9,13 +9,13 @@
        (single / compound / parallel-all-regions-final).
     2. Read the child's `:data` slot designated by the final state's
        `:output-key` — call it `result`. Absent `:output-key` ⇒ nil.
-    3. Look up the parent's spec at `[:rf/runtime :machines :snapshots <parent-id>]` and find
+    3. Look up the parent's spec at `[:rf.runtime/machines :snapshots <parent-id>]` and find
        the `:spawn` map at `:rf/spawn-id` (the prefix-path the runtime
        stamped on the child's `:data` at spawn time). Extract `:on-done`.
     4. Run `:on-done` against the parent's `:data` with `result`.
     5. Emit `:rf.machine/done` trace (D6).
-    6. Tear down the child: dissoc snapshot, clear `[:rf/runtime :machines :spawned ...]`
-       slot, clear `[:rf/runtime :machines :system-ids <sid>]` (D8 — AFTER `:on-done` ran),
+    6. Tear down the child: dissoc snapshot, clear `[:rf.runtime/machines :spawned ...]`
+       slot, clear `[:rf.runtime/machines :system-ids <sid>]` (D8 — AFTER `:on-done` ran),
        emit `:rf.machine/destroyed` with `:reason :rf.machine/finished`
        (D6 enrichment), abort in-flight HTTP, unregister handler (D4).
 
@@ -114,12 +114,14 @@
     machine        — the runtime-stamped machine spec (the finishing actor's)
     machine-id     — the finishing actor's id (its event-handler key)
     frame-id       — the frame the actor runs in
-    db             — the app-db AT the time the handler was invoked
+    runtime-db     — the runtime-db partition value AT the time the handler
+                     was invoked (machine snapshots are durable runtime-db
+                     state — EP-0001 rf2-vzld77); returned under `:rf.db/runtime`
     next-snapshot  — the post-transition snapshot (the caller already
                      determined it is final by recomputing from `:state`)
     _inner-event   — the event that caused the finish (for diagnostics)
     extra-fx       — the fx vector from the transition (passed through)"
-  [machine machine-id frame-id db next-snapshot _inner-event extra-fx]
+  [machine machine-id frame-id runtime-db next-snapshot _inner-event extra-fx]
   ;; (rf2-nahfm) Run the actor's active configuration `:exit` cascade
   ;; FIRST so the final state's `:exit` actions fire from the auto-
   ;; destroy teardown (Spec 005 §Final states §Composition with
@@ -137,14 +139,14 @@
         exit-ok?      (result/ok? exit-result)
         next-snapshot (if exit-ok? (result/snap exit-result) next-snapshot)
         exit-fx       (if exit-ok? (vec (result/fx exit-result)) [])
-        db            (if exit-ok?
+        runtime-db    (if exit-ok?
                         ;; Project the post-`:exit` snapshot back into
-                        ;; the db so any reader between `:exit` and the
+                        ;; runtime-db so any reader between `:exit` and the
                         ;; teardown projection (e.g. `:on-done` reading
-                        ;; the child via `[:rf/runtime :machines :snapshots]`) sees the
+                        ;; the child via `[:rf.runtime/machines :snapshots]`) sees the
                         ;; final state's writes.
-                        (assoc-in db (paths/snapshot-path machine-id) next-snapshot)
-                        db)
+                        (assoc-in runtime-db (paths/snapshot-path machine-id) next-snapshot)
+                        runtime-db)
         _             (when (not exit-ok?)
                         ;; Same destroy-exit failure shape as the explicit-
                         ;; destroy path (`exit-cascade/run-child-exit!`) —
@@ -192,7 +194,7 @@
                         (cond
                           (:rf/machine? m) (:rf/machine m)
                           :else            (resolver/spec-from-snapshot
-                                             (get-in db (paths/snapshot-path parent-id))))))
+                                             (get-in runtime-db (paths/snapshot-path parent-id))))))
         spawn-spec  (when (and parent-meta invoke-id)
                       (find-spawn-spec-at parent-meta invoke-id))
         on-done-fn  (:on-done spawn-spec)
@@ -217,7 +219,7 @@
                         :error?     error-leaf?
                         :frame      frame-id})
         ;; (3) Apply :on-done to the parent's `:data`. The parent's
-        ;; snapshot lives at [:rf/runtime :machines :snapshots <parent-id>]; we read it,
+        ;; snapshot lives at [:rf.runtime/machines :snapshots <parent-id>]; we read it,
         ;; pass the unified context-map (`{:data :result}`) to
         ;; `:on-done`, and write the new `:data` back. Per Spec 005
         ;; §Final states / rf2-grw4i / rf2-v0rrr the callback receives
@@ -229,7 +231,7 @@
         ;; success-leaf → `:data` callback).
         db-after-on-done
         (if (and on-done-fn parent-id (not on-error?))
-          (let [parent-snap     (get-in db parent-path)
+          (let [parent-snap     (get-in runtime-db parent-path)
                 parent-data     (:data parent-snap)
                 new-parent-data (try
                                   (on-done-fn {:data parent-data :result result})
@@ -245,13 +247,13 @@
                                                         :recovery   :no-recovery})
                                     parent-data))]
             (if (and parent-snap (some? new-parent-data))
-              (assoc-in db (conj parent-path :data) new-parent-data)
-              db))
-          db)
+              (assoc-in runtime-db (conj parent-path :data) new-parent-data)
+              runtime-db))
+          runtime-db)
         ;; (4) Apply the unified teardown projection (per rf2-lha2t):
         ;; dissoc the child's snapshot, release any `:system-id`
         ;; reverse-index entry (D8 — after on-done ran), and clear the
-        ;; parent's `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` slot with
+        ;; parent's `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot with
         ;; the lazy-allocation prune. Returns `[new-db released-sid]`;
         ;; `released-sid` is resolved against db-after-on-done before
         ;; the reverse index is mutated.
@@ -290,7 +292,10 @@
     ;; error leaf, like any `:final?`); this only ROUTES the failure.
     (when on-error?
       (spawn-error/dispatch-spawn-error! frame-id parent-id invoke-id result))
-    {:db db-after-destroy
+    ;; Machine snapshots are durable runtime-db state (EP-0001 rf2-vzld77):
+    ;; the finalize teardown is a runtime-db write, returned under
+    ;; `:rf.db/runtime` (the framework-authority partition effect), NOT `:db`.
+    {:rf.db/runtime db-after-destroy
      ;; rf2-nahfm — append the destroy-time `:exit` cascade's fx to
      ;; the transition's fx vector so any `:exit`-emitted dispatches /
      ;; HTTP / etc. fire as part of the same epoch.

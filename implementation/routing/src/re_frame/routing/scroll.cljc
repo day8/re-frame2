@@ -3,9 +3,9 @@
   fxs for re-frame2 routing.
 
   Per Spec 012 §Scroll restoration §Multi-frame routing. Per-frame
-  saved-position map at `[:rf/runtime :routing :scroll-positions]`,
+  saved-position map at `[:rf.runtime/routing :scroll-positions]`,
   LRU-capped by `scroll-positions-cap`. Recency anchor lives at
-  `[:rf/runtime :routing :scroll-positions-order]` as an internal
+  `[:rf.runtime/routing :scroll-positions-order]` as an internal
   vector. Both sit under the framework-owned `:rf/runtime` root
   (spec/Conventions §Reserved app-db keys, Spec-Schemas §`:rf/runtime`)
   so all routing runtime state in app-db sits beneath the single
@@ -28,26 +28,26 @@
 (defn lookup-scroll-position
   "Return the saved [x y] for url in this frame's app-db, or nil if none."
   [db url]
-  (get-in db [:rf/runtime :routing :scroll-positions url]))
+  (get-in db [:rf.runtime/routing :scroll-positions url]))
 
 (defn save-scroll-position
   "Pure: return db with the scroll position for url recorded at
-  [:rf/runtime :routing :scroll-positions url]. Used inside :db effect
+  [:rf.runtime/routing :scroll-positions url]. Used inside :db effect
   maps so scroll positions live under the frame boundary (Spec 012
   §Multi-frame routing). The map is LRU-capped at `scroll-positions-cap`
   entries — re-saving an existing url promotes it to most-recent; new
   saves past the cap evict the least-recently-used entry."
   [db url xy]
-  (let [order   (or (get-in db [:rf/runtime :routing :scroll-positions-order]) [])
+  (let [order   (or (get-in db [:rf.runtime/routing :scroll-positions-order]) [])
         order'  (-> (filterv #(not= url %) order)
                     (conj url))
         over    (- (count order') scroll-positions-cap)
         dropped (when (pos? over) (subvec order' 0 over))
         order'' (if (pos? over) (subvec order' over) order')
-        positions  (as-> (or (get-in db [:rf/runtime :routing :scroll-positions]) {}) m
+        positions  (as-> (or (get-in db [:rf.runtime/routing :scroll-positions]) {}) m
                      (if dropped (apply dissoc m dropped) m)
                      (assoc m url xy))]
-    (update-in db [:rf/runtime :routing] assoc
+    (update-in db [:rf.runtime/routing] assoc
                :scroll-positions       positions
                :scroll-positions-order order'')))
 
@@ -65,7 +65,7 @@
 (defn route-descriptor
   "Build the {:id :params :query} descriptor used by :rf.nav/scroll's
   :from / :to args from a route slice (or nil if no slice yet). The
-  slice lives at [:rf/runtime :routing :current]."
+  slice lives at [:rf.runtime/routing :current]."
   [route-slice]
   (when (and route-slice (:id route-slice))
     (route-descriptor* (:id route-slice)
@@ -128,14 +128,14 @@
   capture miss. Emitted by both nav entry points before the transition
   commits so a later `:restore` to this URL finds the saved position."
   [db]
-  (when-let [url (current-route-url (get-in db [:rf/runtime :routing :current]))]
+  (when-let [url (current-route-url (get-in db [:rf.runtime/routing :current]))]
     [:rf.nav/capture-scroll {:url url}]))
 
 (def capture-scroll-meta
   "Metadata for the `:rf.nav/capture-scroll` fx registration."
   {:platforms #{:client}
    :doc       "Capture the current browser scroll position under the
-per-frame [:rf/runtime :routing :scroll-positions <url>] map before
+per-frame [:rf.runtime/routing :scroll-positions <url>] map before
 leaving a route."})
 
 (defn capture-scroll-handler
@@ -147,10 +147,12 @@ leaving a route."})
        (let [pos (or position
                      [(or (.-scrollX js/window) (.-pageXOffset js/window) 0)
                       (or (.-scrollY js/window) (.-pageYOffset js/window) 0)])]
-         (frame/swap-frame-db! (or frame :rf/default)
-                               save-scroll-position
-                               url
-                               pos)))
+         ;; EP-0001 (rf2-vzld77): scroll-position caches are durable routing
+         ;; runtime-db state — write the runtime-db partition.
+         (frame/swap-runtime-db! (or frame :rf/default)
+                                 save-scroll-position
+                                 url
+                                 pos)))
      :clj
      (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                   {:fx-id :rf.nav/capture-scroll :url url})))

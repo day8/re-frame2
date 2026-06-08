@@ -69,7 +69,7 @@
 (defn run-child-exit!
   "Run the destroy-time `:exit` cascade for the actor identified by
   `actor-id` in frame `frame-id`. No-op when the actor has no live
-  snapshot at `[:rf/runtime :machines :snapshots actor-id]` or no resolvable machine spec.
+  snapshot at `[:rf.runtime/machines :snapshots actor-id]` or no resolvable machine spec.
 
   On a successful cascade: writes the post-cascade snapshot back to
   app-db (so callers reading the snapshot between `:exit` and the
@@ -85,9 +85,9 @@
   final snapshot before clearing."
   [frame-id actor-id]
   (when actor-id
-    (let [db       (frame/frame-app-db-value frame-id)
-          snapshot (when db (get-in db (paths/snapshot-path actor-id)))
-          machine  (resolve-machine-spec actor-id snapshot)]
+    (let [runtime-db (frame/frame-runtime-db-value frame-id)
+          snapshot   (when runtime-db (get-in runtime-db (paths/snapshot-path actor-id)))
+          machine    (resolve-machine-spec actor-id snapshot)]
       (when (and snapshot machine)
         (let [r (parallel/run-active-exit-cascade machine snapshot)]
           (if (result/fail? r)
@@ -98,16 +98,17 @@
             ;; `traces/emit-destroy-exit-failure!`.
             (traces/emit-destroy-exit-failure! actor-id frame-id (result/info r))
             (result/with-ok [new-snap exit-fx] r
-              ;; (4) Write the post-exit snapshot back. The write is
-              ;; transient — the unified teardown projection runs
-              ;; immediately after this and dissocs `[:rf/runtime :machines :snapshots
-              ;; actor-id]`. Tools that observe the app-db between
+              ;; (4) Write the post-exit snapshot back to runtime-db. The
+              ;; write is transient — the unified teardown projection runs
+              ;; immediately after this and dissocs `[:rf.runtime/machines :snapshots
+              ;; actor-id]`. Tools that observe runtime-db between
               ;; `:exit` and teardown see the `:exit`-time `:data`
               ;; writes; the production-runtime cost is one extra
-              ;; swap-frame-db! per destroy.
+              ;; swap-runtime-db! per destroy. Machine snapshots are
+              ;; durable runtime-db state (rf2-vzld77).
               (when (not= snapshot new-snap)
-                (frame/swap-frame-db! frame-id
-                                      (fn [d] (assoc-in d (paths/snapshot-path actor-id) new-snap))))
+                (frame/swap-runtime-db! frame-id
+                                        (fn [rt] (assoc-in rt (paths/snapshot-path actor-id) new-snap))))
               ;; (5) Fire the `:exit`-emitted fx via the standard fx
               ;; interpreter. Use the frame's `:platform` (defaults to
               ;; :client) so platform-gated fx behave consistently with

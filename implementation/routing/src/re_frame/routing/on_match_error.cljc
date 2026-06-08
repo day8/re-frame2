@@ -5,11 +5,11 @@
   (a handler throws, a registered fx errors, or a downstream handler
   errors during the drain — per Spec 009's structured error contract),
   the runtime:
-    1. Sets `[:rf/runtime :routing :current :transition]` to `:error`.
-    2. Populates `[:rf/runtime :routing :current :error]` with the
+    1. Sets `[:rf.runtime/routing :current :transition]` to `:error`.
+    2. Populates `[:rf.runtime/routing :current :error]` with the
        structured error map (schema `:rf/error` per Spec 009 §error-contract).
     3. If the route declares `:on-error`, dispatches it. The handler
-       reads `(get-in db [:rf/runtime :routing :current :error])` for
+       reads `(get-in db [:rf.runtime/routing :current :error])` for
        the error context.
 
   Mechanism: a corpus-wide listener on the always-on error-emit
@@ -17,7 +17,7 @@
   receives every `:rf.error/handler-exception` record. The listener
   discriminates 'is this exception from an :on-match dispatch?' by:
     - reading the failing record's `:frame`
-    - reading that frame's route slice at [:rf/runtime :routing :current]
+    - reading that frame's route slice at [:rf.runtime/routing :current]
     - checking `:transition` is `:loading` (the slice is mid-drain)
     - checking the failing record's full `:event` vector IS one of the
       active route's declared `:on-match` vectors (rf2-cgh8q —
@@ -117,13 +117,15 @@
   "`:rf.route.internal/on-match-error` event-fx handler. Registered by
   the `re-frame.routing` façade so a `:reload` of the façade re-runs the
   registration."
-  [{:keys [db]} [_ {:keys [error nav-token]}]]
+  [{rdb :rf.db/runtime} [_ {:keys [error nav-token]}]]
     ;; Per Spec 012 §Per-route error handling. Nav-token-guarded: if a
     ;; newer navigation has already bumped :nav-token, this error
     ;; belongs to a superseded drain and is dropped (matches
-    ;; :rf.route.internal/settle-transition's epoch check).
-    (let [current-token (get-in db [:rf/runtime :routing :current :nav-token])
-          current-id    (get-in db [:rf/runtime :routing :current :id])
+    ;; :rf.route.internal/settle-transition's epoch check). EP-0001
+    ;; (rf2-vzld77): the route slice is durable routing runtime-db state.
+    (let [db            (or rdb {})
+          current-token (get-in db [:rf.runtime/routing :current :nav-token])
+          current-id    (get-in db [:rf.runtime/routing :current :id])
           route-meta    (when current-id (registrar/lookup :route current-id))
           on-error-ev   (:on-error route-meta)]
       (if (not= nav-token current-token)
@@ -133,12 +135,12 @@
         ;; underlying :rf.error/handler-exception for observability).
         {}
         (cond->
-          {:db (-> db
-                   (assoc-in [:rf/runtime :routing :current :transition] :error)
-                   (assoc-in [:rf/runtime :routing :current :error]      error))}
+          {:rf.db/runtime (-> db
+                              (assoc-in [:rf.runtime/routing :current :transition] :error)
+                              (assoc-in [:rf.runtime/routing :current :error]      error))}
           ;; Spec 012 §Per-route error handling: a declared :on-error
           ;; receives no payload — the handler reads
-          ;; `(get-in db [:rf/runtime :routing :current :error])` for
+          ;; `(get-in db [:rf.runtime/routing :current :error])` for
           ;; the error context. Vector form `[:ev-id ...]` dispatches
           ;; as-is; bare keyword wraps as `[:ev-id]`.
           on-error-ev
@@ -158,8 +160,9 @@
   Per Spec 012 §Per-route error handling and rf2-ye7sh."
   [{:keys [error event-id frame exception] :as record}]
   (when (= :rf.error/handler-exception error)
-    (let [db            (frame/frame-app-db-value frame)
-          route-slice   (when db (get-in db [:rf/runtime :routing :current]))
+    ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+    (let [rdb           (frame/frame-runtime-db-value frame)
+          route-slice   (when rdb (get-in rdb [:rf.runtime/routing :current]))
           route-id      (:id route-slice)
           transition    (:transition route-slice)
           nav-token     (:nav-token route-slice)

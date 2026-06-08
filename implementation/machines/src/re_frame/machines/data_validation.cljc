@@ -13,7 +13,7 @@
   either rolls back the `:db` commit).
 
   The post-commit validator (`validate-machine-data!`) walks the
-  freshly-committed `[:rf/runtime :machines :snapshots]` map, looks up each machine's spec
+  freshly-committed `[:rf.runtime/machines :snapshots]` map, looks up each machine's spec
   via `re-frame.machines/machine-meta`, and validates `(:data
   snapshot)` against `(:data-schema spec)` through the schemas artefact's
   registered validator-fn. Snapshots whose machine declares no
@@ -125,19 +125,23 @@
     true))
 
 (defn validate-machine-data!
-  "Walk every snapshot under `[:rf/runtime :machines :snapshots]` in `db` and validate its
-  `:data` against the registered machine's `:data-schema`. Returns true
-  iff every snapshot conformed (or carried no schema / no validator);
-  false on first failure with the per-snapshot trace already emitted.
+  "Walk every snapshot under `[:rf.runtime/machines :snapshots]` in
+  `runtime-db` and validate its `:data` against the registered machine's
+  `:data-schema`. Returns true iff every snapshot conformed (or carried no
+  schema / no validator); false on first failure with the per-snapshot trace
+  already emitted.
 
-  The router calls this after `:db` commit alongside
-  `validate-app-schema!`; on `false` the router rolls back the
-  cascade (same mechanism as `:where :app-db` rollback).
+  EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
+  this validator runs against the new RUNTIME-DB value (the `:rf.db/runtime`
+  effect a machine macrostep commit produces) — NOT app-db. The router calls
+  it after the partitioned commit whenever a runtime-db effect landed; on
+  `false` the router rolls back the WHOLE transition (same mechanism as the
+  `:where :app-db` rollback).
 
   Per Spec 009 §Production builds the body lives inside a
   `(when interop/debug-enabled? ...)` gate so production builds
   return `true` unconditionally."
-  [db _event-id _frame-id]
+  [runtime-db _event-id _frame-id]
   ;; `event-id` and `frame-id` are accepted but unused at this boundary
   ;; (the per-snapshot emit already names the machine); the arity matches
   ;; `validate-app-schema!` so the late-bind hook the router consumes can
@@ -157,7 +161,7 @@
                  true)
                ok?))
         true
-        (get-in db (paths/snapshot-path)))
+        (get-in runtime-db (paths/snapshot-path)))
       true)
     true))
 

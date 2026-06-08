@@ -72,7 +72,7 @@
   `mutate!` is the 0-arg thunk that drives `window.history` on CLJS (a
   no-op on JVM — the caller passes a CLJS-only thunk under a reader
   conditional). Non-URL-bound frames skip the history mutation: the
-  frame's route slice at `[:rf/runtime :routing :current]` still
+  frame's route slice at `[:rf.runtime/routing :current]` still
   updates — only the browser-URL sync is suppressed. Per Spec 012
   §Multi-frame routing this is the right default for story-variant /
   devcard / per-test fixtures."
