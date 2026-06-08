@@ -418,11 +418,11 @@
     :rf.frame/id   the running frame's id — the runtime-context spelling of
                    the frame id, distinct from the public `:frame` opt.
 
-  The runtime-db partition has no physical slot until the one-container
-  frame-state lands in rf2-adwcv6 (bead 5); until then `frame-runtime-db-
-  value` reads `nil` for a live frame, which is the correct injected value
-  (an empty/absent runtime-db). The shape is final — bead 5 grows a populated
-  `:rf.db/runtime` coeffect for free.
+  The runtime-db partition is a real frame-state slot (the one-container
+  frame-state, rf2-adwcv6): `frame-runtime-db-value` reads the live runtime-db
+  projection — `{}` for a fresh frame, the populated partition once a
+  subsystem (machines / routing / elision / ssr) has written to it — and that
+  value is injected by reference as the `:rf.db/runtime` coeffect.
 
   `:rf/framework-authority?` is a NON-coeffect context flag (not visible to
   handler bodies) recording whether THIS handler has framework-write
@@ -437,9 +437,9 @@
   [envelope frame frame-record handler-meta fx-overrides]
   (let [event       (:event envelope)
         db-value    (frame/frame-app-db-value frame)
-        ;; populated in rf2-adwcv6 (bead 5): the runtime-db partition has no
-        ;; physical slot yet, so this reads `nil` (an absent runtime-db) for a
-        ;; live frame. Injected by reference per Spec 002 §Event context.
+        ;; The live runtime-db projection: `{}` for a fresh frame, the
+        ;; populated partition once a subsystem has written to it. Injected by
+        ;; reference per Spec 002 §Event context.
         runtime-db  (frame/frame-runtime-db-value frame)]
     {:coeffects (cond-> {:db            db-value
                          :event         event
@@ -719,161 +719,6 @@
     ;; operator sees every violation, not just the first.
     (and app-ok? machines-ok?)))
 
-;; ---- dropped-runtime-state diagnostic (rf2-p806o) -------------------------
-;;
-;; Loud-failure guard for the `{:db fresh-map}` footgun. All framework-owned
-;; per-frame runtime state lives under the single `:rf/runtime` root (per
-;; Conventions §Reserved app-db keys) — `:machines` snapshots, `:routing`
-;; slices, `:elision` declarations, `:ssr` hydration metadata — DELIBERATELY,
-;; so it reverts atomically with app-db on a frame revert / restore-epoch /
-;; time-travel (000 §Frame state revertibility). The cost of that placement is
-;; a footgun: an event handler that returns `{:db (build-fresh-db ...)}` —
-;; e.g. a v1→v2 boot-machine action that builds a fresh app-db from scratch
-;; and forgets `:rf/runtime` — performs a WHOLESALE REPLACE that silently
-;; drops every live machine snapshot (and every other live subsystem). The
-;; machine then silently dies: subsequent dispatches to it are no-ops, the
-;; app hangs on its loading spinner, and there is ZERO diagnostic.
-;;
-;; The clobber itself is INTENDED (Conventions:155 + 177) — preserving /
-;; merging `:rf/runtime` across a `:db` replace would BREAK the revertibility
-;; invariant (restore-epoch would leak current machine state into a restored-
-;; past db). So the fix is a DIAGNOSTIC, not a merge: surface the silent drop
-;; loudly, leave the (intended) clobber alone.
-;;
-;; DISCRIMINATOR — must not false-fire on the legitimate wholesale replaces:
-;;
-;;   - `restore-epoch` / `reset-frame-db!` install a COMPLETE db via a DIRECT
-;;     `adapter/replace-container!` call (re-frame.epoch) — they NEVER flow
-;;     through a `:db` effect, so they never reach this commit path at all.
-;;   - the `:rf.machine/destroy` / `:rf.machine/update-snapshot` fxs mutate
-;;     the snapshot map via `frame/swap-frame-db!` (a direct container swap in
-;;     do-fx, AFTER this commit) — likewise never a `:db` effect here.
-;;   - `:rf/hydrate` IS a `reg-event-fx` whose `:db` effect reaches this path,
-;;     but it installs the server's COMPLETE db carrying its OWN `:rf/runtime`
-;;     (and runs at boot, before any client-side machine has spawned, so the
-;;     pre-commit db carries no live snapshot to drop).
-;;
-;; So the structural test is exact: fire ONLY for a subsystem that was
-;; NON-EMPTY in the pre-handler db and is ABSENT-OR-EMPTY in the committed db
-;; — i.e. a live subsystem VANISHED with NO replacement. A subsystem whose
-;; value merely CHANGED (still present post-commit) does not fire; a complete-
-;; db replace that re-installs the subsystem does not fire. Generalised across
-;; all four `:rf/runtime` sub-containers (cheap + consistent — core owns the
-;; root); machine snapshots additionally surface the dropped `<machine-id>`s
-;; so the operator sees exactly which machines died.
-;;
-;; Dev-only: the whole body is gated on `interop/debug-enabled?` so production
-;; (`:advanced` + `goog.DEBUG=false`) DCE-elides the comparison, the reason
-;; string, and the emit.
-
-(def ^:private machine-snapshots-path
-  "Literal app-db path to the machines snapshot map. Core owns the
-  `:rf/runtime` root (Conventions §Reserved app-db keys) and reads it
-  structurally — there is no static dependency on the machines artefact,
-  whose `re-frame.machines.paths/snapshot-path` mirrors this vector."
-  [:rf/runtime :machines :snapshots])
-
-(defn- dropped-machine-ids
-  "Pure: the set of `<machine-id>`s whose snapshot was present in
-  `db-before`'s machines `:snapshots` map and is ABSENT in `new-db`'s. The
-  liveness signal for the `:machines` subsystem is a populated `:snapshots`
-  map — `{:snapshots {}}` carries no live machine, so this set is the right
-  per-machine granularity (a single-actor `:db`-teardown that leaves siblings
-  alive is correctly NOT reported as a whole-subsystem drop). Returns nil
-  when nothing dropped."
-  [db-before new-db]
-  (let [before (get-in db-before machine-snapshots-path)]
-    (when (seq before)
-      (let [after   (get-in new-db machine-snapshots-path)
-            dropped (into #{}
-                          (remove #(contains? after %))
-                          (keys before))]
-        (when (seq dropped) dropped)))))
-
-(defn- dropped-runtime-subsystems
-  "Pure: compare the pre-handler `db-before` against the committed `new-db`
-  and return a vector of `{:subsystem <key> :dropped-machine-ids <set-or-nil>}`
-  for each `:rf/runtime` sub-container whose LIVE content vanished across the
-  commit with no replacement. Returns nil when nothing was dropped.
-
-  Liveness is per-subsystem:
-
-    - `:machines` — keyed on the `:snapshots` map: fires for each
-      `<machine-id>` whose snapshot was present before and is absent after
-      (surfaced in `:dropped-machine-ids`). `{:snapshots {}}` carries no live
-      machine; a single-actor teardown that leaves siblings alive does not
-      fire. The whole `:machines` map shape (`:snapshots` / `:system-ids` /
-      `:spawned` / `:spawn-counter`) is irrelevant — snapshots are the live
-      signal.
-
-    - every OTHER subsystem (`:routing`, `:elision`, `:ssr`, plus any future
-      sub-container) — generic: fires when the subsystem value was NON-EMPTY
-      before and is ABSENT-OR-EMPTY after. A subsystem whose value merely
-      changed (still non-empty post-commit) is NOT a drop.
-
-  `:dropped-machine-ids` is present only on the `:machines` entry."
-  [db-before new-db]
-  (let [before-rt (get db-before :rf/runtime)]
-    (when (map? before-rt)
-      (let [after-rt   (get new-db :rf/runtime)
-            machine-ids (dropped-machine-ids db-before new-db)
-            others     (reduce-kv
-                         (fn [acc subsystem before-val]
-                           (if (and (not= :machines subsystem)
-                                    (seq before-val)
-                                    (empty? (get after-rt subsystem)))
-                             (conj acc {:subsystem subsystem})
-                             acc))
-                         []
-                         before-rt)
-            dropped    (cond-> others
-                         machine-ids
-                         (conj {:subsystem :machines
-                                :dropped-machine-ids machine-ids}))]
-        (when (seq dropped) dropped)))))
-
-(defn- detect-dropped-runtime-state!
-  "Emit `:rf.warning/runtime-state-dropped` (per Spec 009 §Error event
-  catalogue) when the durable `:db` commit dropped a non-empty `:rf/runtime`
-  subsystem (the `{:db fresh-map}` footgun, rf2-p806o). One warning per
-  dropped subsystem so the operator sees the full surface. Dev-only — the
-  body is `interop/debug-enabled?`-gated so production DCE-elides it.
-
-  `:recovery :no-recovery` — the warning is purely diagnostic; the drop has
-  already committed (and is intended-on-purpose per the revertibility
-  invariant), so there is nothing for the runtime to undo. The actionable
-  fix lives in the `:reason`: merge the prior `:rf/runtime` into the fresh
-  db, or perform the reset via `reg-event-db` returning an `update`-ed db
-  rather than a from-scratch replace."
-  [db-before new-db event-id event frame]
-  (when interop/debug-enabled?
-    (doseq [{:keys [subsystem dropped-machine-ids]}
-            (dropped-runtime-subsystems db-before new-db)]
-      (trace/emit! :warning :rf.warning/runtime-state-dropped
-                   (cond-> {:rf.trace/event-id event-id
-                            :rf.event/v        event
-                            :frame             frame
-                            :subsystem         subsystem
-                            :recovery          :no-recovery
-                            :reason
-                            (str "Event `" event-id "` returned a `:db` effect that "
-                                 "WHOLESALE-REPLACED app-db and dropped the live "
-                                 "`[:rf/runtime " subsystem "]` subsystem with no "
-                                 "replacement"
-                                 (when (seq dropped-machine-ids)
-                                   (str " — machine snapshot(s) "
-                                        (pr-str dropped-machine-ids)
-                                        " were lost, so those machines are now dead "
-                                        "(later dispatches to them are silent no-ops)"))
-                                 ". `:rf/runtime` lives in app-db deliberately so it "
-                                 "reverts atomically on restore-epoch / time-travel; "
-                                 "a from-scratch `{:db fresh}` therefore clobbers it. "
-                                 "Fix: thread `(:rf/runtime db)` into the fresh map, "
-                                 "or build the new db with `update`/`assoc` over the "
-                                 "existing db rather than replacing it wholesale.")}
-                     (seq dropped-machine-ids)
-                     (assoc :dropped-machine-ids dropped-machine-ids))))))
-
 (defn- emit-frame-state-changed!
   "Emit the partition-tagged `:rf.event/frame-state-changed` trace
   (EP-0001 decision #6 / Spec 009 §Canonical per-event trace sequence).
@@ -995,20 +840,14 @@
         ;; WHOLE transition.
         (if (run-post-commit-validation! new-db new-runtime-db
                                          app-effect? rt-effect? event-id frame)
-          (do
-            ;; (rf2-p806o) Loud-failure guard for the `{:db fresh-map}`
-            ;; footgun. EP-0001 (rf2-vzld77): framework runtime subsystems
-            ;; no longer live in app-db under `:rf/runtime` — they are in the
-            ;; runtime-db partition — so the original footgun (a fresh `:db`
-            ;; map dropping co-located `:rf/runtime`) is structurally gone
-            ;; (Conventions §The clobber footgun is eliminated structurally).
-            ;; The detector is kept as a no-op net for any residual app-db
-            ;; `:rf/runtime` key until bead 9 (rf2-tfepxu) adds the legacy-
-            ;; root hard error; a clean migrated app-db carries no such key,
-            ;; so it never fires.
-            (when app-effect?
-              (detect-dropped-runtime-state! db-before new-db event-id emit-event frame))
-            true)
+          ;; EP-0001 (rf2-vzld77): framework runtime subsystems no longer live
+          ;; in app-db under `:rf/runtime` — they are in the runtime-db
+          ;; partition — so the `{:db fresh-map}` footgun (rf2-p806o: a fresh
+          ;; `:db` map dropping co-located `:rf/runtime`) is structurally gone
+          ;; (Conventions §The clobber footgun is eliminated structurally). The
+          ;; legacy `:rf/runtime` app-db key becomes a hard error in bead 9
+          ;; (rf2-tfepxu); no per-commit detector is needed here.
+          true
           (do
             ;; Roll back the WHOLE transition (both partitions) to the
             ;; pre-handler frame-state so the frame stays coherent — app-db
