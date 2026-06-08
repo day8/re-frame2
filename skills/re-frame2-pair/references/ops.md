@@ -42,7 +42,7 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those, the MCP form is `
 
 ## Frames
 
-Set and inspect the operating frame (SKILL.md §Multi-frame model). Every read/write op resolves an operating frame: an explicit per-call `frame: ":foo"` arg wins, else the session pin, else the sole registered **app frame**, else `:ambiguous-frame` for mutating ops.
+Set and inspect the operating frame (SKILL.md §Multi-frame model). Every read/write op resolves an operating frame: an explicit per-call `frame: ":foo"` arg wins, else the session pin, else the sole registered **app frame**, else `:ambiguous-frame`. **Both reads and writes refuse** rather than guess — the read helpers (`subs-sample` / `read-sub!` / `sub-cache-info`) return `:reason :ambiguous-frame` rather than silently reading `:rf/default`.
 
 **Reserved tool frames are excluded from the ambiguity count (rf2-3bu3d.4).** `:rf/*` reserved tool frames — Xray's `:rf/xray`, an SSR slot, … (per [Conventions.md §Reserved namespaces](../../../spec/Conventions.md)) — are devtool surfaces the tooling mounted, not the app you are pairing against, so they are removed before counting. A single-app session that *also* carries an `:rf/xray` frame (the common Xray-instrumented case) has exactly one app frame and resolves to it automatically — **no `frames/select` is needed**. Only a session with two-plus genuine *app* frames is ambiguous. The carve-out is `:rf/default`: it shares the `:rf/*` root but IS the universal default app frame, so it is always counted as an app frame.
 

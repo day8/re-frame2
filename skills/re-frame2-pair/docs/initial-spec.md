@@ -152,7 +152,7 @@ Structured `{:ok? false :reason ...}` — every script. Recognised reasons:
 | `:debug-disabled` | `interop/debug-enabled?` is false (production build) |
 | `:ns-not-loaded` | `:missing :re-frame2` — re-frame2 isn't loaded into the runtime |
 | `:no-frames-registered` | App hasn't called `(rf/init!)` yet |
-| `:ambiguous-frame` | Multiple frames; mutating ops require explicit selection |
+| `:ambiguous-frame` | Multiple app frames, none selected; both reads and writes refuse rather than default to `:rf/default` — pin one or pass `frame` |
 | `:eval-error`, `:cljs-eval-error` | nREPL or CLJS-eval surfaced an exception |
 | `:no-epoch-recorded` | `dispatch-sync` returned but no record landed; recording disabled or frame destroyed |
 | `:rf.epoch/restore-*` | One of the restore failure modes (Tool-Pair §Time-travel lists seven; six fire under `:rf.epoch/*`, plus **Unknown frame** under `:rf.error/no-such-handler`) |
