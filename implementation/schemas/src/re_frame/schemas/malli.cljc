@@ -78,7 +78,6 @@
 
 (late-bind/set-fn! :schemas/malli-validate  malli.core/validate)
 (late-bind/set-fn! :schemas/malli-explain   malli.core/explain)
-(late-bind/set-fn! :schemas/malli-humanize  malli.error/humanize)
 
 ;; rf2-2ek7t — also publish the canonical :schemas/humanize-explain!
 ;; hook so consumers (Xray's violation block, future tools) read

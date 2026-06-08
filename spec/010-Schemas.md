@@ -246,8 +246,7 @@ The raw `:explain` value the registered explainer produces is structurally preci
 
 The humanize hook is a late-bind extension point — same opt-in pattern as `set-schema-validator!` / `set-schema-explainer!` / `set-schema-printer!`:
 
-- **Producer hook key**: `:schemas/humanize-explain!` (published by `re-frame.schemas`).
-- **Adapter hook key**: `:schemas/malli-humanize` (published by `re-frame.schemas.malli` — the CLJS reference's Malli adapter installs `malli.error/humanize`; the producer routes through it via the standard validator-fn extension point).
+- **Hook key**: `:schemas/humanize-explain!`. The producer (`re-frame.schemas`) consumes it; each port's validator adapter publishes it. The CLJS reference's Malli adapter (`re-frame.schemas.malli`) installs `malli.error/humanize` directly under this key on ns-load.
 
 When the hook is installed, the schemas artefact's `emit-validation-failure!` helper augments every `:rf.error/schema-validation-failure` trace event's `:tags` map with `:explain-humanized` alongside the existing `:explain`. Consumers read `:explain-humanized` when present and fall back to `:explain` otherwise — non-Malli validators (or apps that haven't required the Malli adapter ns) ship raw `:explain` only, and tools must degrade gracefully.
 
@@ -579,7 +578,7 @@ What the extension point does NOT cover: a *mix* of validators in one process. T
 
 ### Schema implies validation on CLJS (Malli wired by the artefact)
 
-On the CLJS reference, **requiring the schemas artefact wires the default Malli validator automatically** — there is nothing extra to opt into. The `re-frame.schemas` facade `:require`s the `re-frame.schemas.malli` adapter ns, whose only job is to publish `malli.core/validate` / `malli.core/explain` / `malli.error/humanize` into the framework's late-bind hook table on ns-load (`:schemas/malli-validate` / `:schemas/malli-explain` / `:schemas/malli-humanize`). The schemas artefact's default validator consults these hooks on every call:
+On the CLJS reference, **requiring the schemas artefact wires the default Malli validator automatically** — there is nothing extra to opt into. The `re-frame.schemas` facade `:require`s the `re-frame.schemas.malli` adapter ns, whose only job is to publish `malli.core/validate` / `malli.core/explain` / `malli.error/humanize` into the framework's late-bind hook table on ns-load (`:schemas/malli-validate` / `:schemas/malli-explain` / `:schemas/humanize-explain!`). The schemas artefact's default validator consults these hooks on every call:
 
 ```clojure
 (ns my-app.core
