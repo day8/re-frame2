@@ -94,6 +94,20 @@
     (fn [[target _epoch-history] _query]
       (rf/app-db-value target)))
 
+  ;; EP-0001 (rf2-vzld77) — the observed frame's LIVE runtime-db partition
+  ;; value. Framework subsystem durable state (machine snapshots, the route
+  ;; slice, the spawn registry) moved out of app-db `:rf/runtime` into the
+  ;; reserved `:rf.db/runtime` partition; panels that inspect that state
+  ;; (Machines inspector, Routing tab) source it from here rather than from
+  ;; `:rf.xray/target-frame-db` (which carries app-db only). Sibling of the
+  ;; app-db target sub above; same `:epoch-history` dependency so it
+  ;; recomputes on every committed transition the panel is following.
+  (rf/reg-sub :rf.xray/target-frame-runtime-db
+    :<- [:rf.xray/observed-frame]
+    :<- [:rf.xray/epoch-history]
+    (fn [[target _epoch-history] _query]
+      (rf/runtime-db-value target)))
+
   ;; rf2-70tkv — derive the panel's epoch-id from the spine sub
   ;; `:rf.xray/focus` rather than the legacy `:rf.xray/selected-
   ;; epoch-id` slot. The spine sub auto-tracks head in LIVE mode

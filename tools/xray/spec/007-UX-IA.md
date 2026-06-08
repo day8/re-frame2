@@ -1883,8 +1883,8 @@ genuinely per-frame surface each Static panel projects:
 
 | Tab | Frame-scoped (picker changes it) | Process-global (cross-frame) |
 |---|---|---|
-| **Machines** | live machine snapshots (the `:rf/machines` runtime area — `[:rf/runtime :machines :snapshots]` in the target-frame db) | the machine-definition catalogue |
-| **Routes** | the current-route slice (the `:rf/route` runtime area — `[:rf/runtime :routing :current]`) | the route-definition catalogue |
+| **Machines** | live machine snapshots (the `:rf/machines` runtime area — `[:rf.runtime/machines :snapshots]` in the target-frame **runtime-db**, EP-0001 rf2-vzld77) | the machine-definition catalogue |
+| **Routes** | the current-route slice (the `:rf/route` runtime area — `[:rf.runtime/routing :current]` in the target-frame **runtime-db**, EP-0001 rf2-vzld77) | the route-definition catalogue |
 | **Schemas** | the app-db-schema side-table (`schemas-by-frame`) | event-spec + sub-spec rows |
 | **Flows** | the flows registry (`{frame-id {flow-id …}}`, [Spec 013](../../../spec/013-Flows.md)) | — (fully per-frame) |
 | **Interceptors** | — | interceptor chains (live on globally registered events) |

@@ -53,7 +53,8 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :article/load
-  {:doc "Load the article matching `[:rf/runtime :routing :current :params :slug]`.
+  {:doc "Load the article matching `[:rf.runtime/routing :current :params :slug]`
+         (EP-0001: the route slice is durable runtime-db state).
 
          This handler demonstrates Spec 014's *default reply addressing*:
          no `:on-success` / `:on-failure` is supplied, so the framework
@@ -62,7 +63,7 @@
          body branches on `(:rf/reply msg)` — one event id, two roles."
    :rf.http/decode-schemas [schema/ArticleResponse]}
   [(rf/inject-cofx :realworld/now)]
-  (fn [{:keys [db realworld/now]} [_ msg]]
+  (fn [{:keys [db realworld/now] rt :rf.db/runtime} [_ msg]]
     (if-let [reply (:rf/reply msg)]
       ;; Reply branch — handle success or failure.
       (case (:kind reply)

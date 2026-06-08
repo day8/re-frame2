@@ -515,13 +515,15 @@
       (or override (rf/registrations :route))))
 
   (rf/reg-sub :rf.xray/current-route-slice
-    :<- [:rf.xray/target-frame-db]
+    :<- [:rf.xray/target-frame-runtime-db]
     :<- [:rf.xray/current-route-slice-override]
-    (fn [[target-db override] _query]
+    (fn [[target-runtime-db override] _query]
       (cond
-        (some? override) override
-        (map? target-db) (get-in target-db [:rf/runtime :routing :current])
-        :else            nil)))
+        (some? override)        override
+        ;; EP-0001 (rf2-vzld77): the route slice is durable runtime-db state
+        ;; at `[:rf.runtime/routing :current]`, no longer in app-db.
+        (map? target-runtime-db) (get-in target-runtime-db [:rf.runtime/routing :current])
+        :else                   nil)))
 
   ;; View-facing composite (topology-plus-overlay shape, rf2-3kjlo) -------
 

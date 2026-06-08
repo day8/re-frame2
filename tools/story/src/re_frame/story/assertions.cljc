@@ -507,8 +507,11 @@
                       (pr-str needle)))}))
 
 (defn- evaluate-state-is
-  [db [machine-id state]]
-  (let [snap   (get-in db [:rf/runtime :machines :snapshots machine-id])
+  "EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
+  the `:state-is` assertion reads the snapshot off the frame's runtime-db
+  partition value (`runtime-db`), NOT app-db."
+  [runtime-db [machine-id state]]
+  (let [snap   (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])
         actual (:state snap)
         passed? (= state actual)]
     {:passed?    passed?
@@ -1011,7 +1014,7 @@
   on the tape when this handler runs; the assertion's own epoch has not yet
   settled — and assertion events are excluded from the projection anyway."
   [assertion-id evaluator-kind]
-  (fn [{:keys [db] :as cofx} event-vec]
+  (fn [{:keys [db] rt :rf.db/runtime :as cofx} event-vec]
     (let [start-ms     (interop/now-ms)
           payload      (vec (rest event-vec))
           frame-id     (frame-id-from-cofx cofx)
@@ -1021,7 +1024,9 @@
                          :path-matches    (evaluate-path-matches    frame-id db payload)
                          :sub-equals      (evaluate-sub-equals      frame-id db payload)
                          :dispatched?     (evaluate-dispatched?     (dispatched-events frame-id) payload)
-                         :state-is        (evaluate-state-is        db payload)
+                         ;; EP-0001 (rf2-vzld77): machine snapshots live in
+                         ;; runtime-db; read the `:rf.db/runtime` coeffect.
+                         :state-is        (evaluate-state-is        (or rt {}) payload)
                          :no-warnings     (evaluate-no-warnings     (warnings frame-id) payload)
                          :effect-emitted  (evaluate-effect-emitted  (emitted-fx frame-id) payload))
           elapsed-ms   (- (interop/now-ms) start-ms)

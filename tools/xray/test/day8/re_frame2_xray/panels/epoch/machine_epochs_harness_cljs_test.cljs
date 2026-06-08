@@ -85,8 +85,9 @@
     (rf/dispatch-sync [id [:rf.machine/start]])))
 
 (defn- snapshot [machine-id]
-  (get-in (rf/app-db-value :rf/default)
-          [:rf/runtime :machines :snapshots machine-id]))
+  ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+  (get-in (rf/runtime-db-value :rf/default)
+          [:rf.runtime/machines :snapshots machine-id]))
 
 (defn- drive!
   "Dispatch one event into `machine-id` and return the trace stream it
@@ -458,8 +459,8 @@
       (is (= :authenticating (:state (snapshot :session/flow))))
       (is (some #(= :rf.machine.spawn/spawned (:operation %)) (:trace-events record))
           "(a) the spawn fx emitted :rf.machine.spawn/spawned")
-      (is (some? (get-in (rf/app-db-value :rf/default)
-                         [:rf/runtime :machines :spawned :session/flow [:authenticating]]))
+      (is (some? (get-in (rf/runtime-db-value :rf/default)
+                         [:rf.runtime/machines :spawned :session/flow [:authenticating]]))
           "(c) the spawn-registry slot binds the child actor id"))))
 
 (deftest session-child-final-fires-on-done-and-auto-destroys
@@ -471,8 +472,8 @@
             snapshot is cleared."
     (setup!)
     (drive! :session/flow [:session/open])              ; spawn child
-    (let [child-id (get-in (rf/app-db-value :rf/default)
-                           [:rf/runtime :machines :spawned :session/flow [:authenticating]])
+    (let [child-id (get-in (rf/runtime-db-value :rf/default)
+                           [:rf.runtime/machines :spawned :session/flow [:authenticating]])
           record   (drive! child-id [:succeed :session/token-abc])
           dests    (filterv #(= :rf.machine/destroyed (:operation %)) (:trace-events record))]
       (is (some #(= :rf.machine/finished (-> % :tags :reason)) dests)

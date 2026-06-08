@@ -376,6 +376,10 @@
    :rf.xray/suppressed-sensitive-count
    :rf.xray/target-frame
    :rf.xray/target-frame-db
+   ;; EP-0001 (rf2-vzld77) — the observed frame's runtime-db partition value;
+   ;; sibling of target-frame-db sourcing the durable framework state (machine
+   ;; snapshots, route slice) that moved out of app-db into runtime-db.
+   :rf.xray/target-frame-runtime-db
    ;; rf2-7hwwe — `:after` countdown ring hover slot (rich tooltip lifecycle).
    :rf.xray/timer-hover
    :rf.xray/trace-buffer
