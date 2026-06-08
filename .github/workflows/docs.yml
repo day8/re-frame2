@@ -147,6 +147,15 @@ jobs:
       - name: Validate doc links (targets + anchors)
         run: python scripts/check_doc_slugs.py --verbose
 
+      # docs/EP/README.md restates each EP's `Status:` line in its index
+      # table; the two drift by hand (EP-0001 sat at `accepted` while the
+      # index still said `proposal`). This guard fails the build when an
+      # index status no longer matches its EP. It already runs in the PR-gate
+      # spine (scripts/test-fast-pr.sh); this mirrors that here so CI enforces
+      # it too (rf2-bxsnp7). See scripts/check_ep_status_sync.py.
+      - name: Validate EP README status-sync
+        run: python scripts/check_ep_status_sync.py --verbose
+
       # Stage the spec/ + migration/ trees under docs/ so MkDocs (which
       # requires docs_dir to be a child of the config file) can see them.
       # The local equivalent is `cp -r spec docs/spec && cp -r migration
