@@ -737,6 +737,88 @@
               (transition-candidates spec)))
       machine-on)))
 
+(defn- normalise-root-targets
+  "rf2-3v3gv1 — normalise a PARALLEL-ROOT `:on` candidate's `:target` into a
+  vector of region-qualified absolute targets `[[<region> & <in-region-path>]
+  …]`, mirroring the runtime resolver (`re-frame.machines.parallel/
+  normalise-root-targets`) so the projected edges address the SAME regions the
+  engine moves. Per the grammar (Spec 005 §Root parallel `:on`):
+
+    - nil / absent → `[]` (TARGETLESS / action-only — runs `:action` / `:fx`,
+      moves no region);
+    - a vector of KEYWORDS (`[:a :two]`) → ONE region-qualified target (head =
+      region name, rest = the in-region path); wrapped to `[[:a :two]]`;
+    - a vector of VECTORS (`[[:a :x] [:b :y]]`) → MULTIPLE region-qualified
+      targets, returned as-is.
+
+  An empty vector return means action-only — the caller self-anchors a
+  terminal/internal root chip rather than emitting a moved-region edge."
+  [target]
+  (cond
+    (nil? target)                        []
+    (and (vector? target)
+         (every? vector? target))        (vec target)
+    (vector? target)                     [target]
+    :else                                []))
+
+(defn- collect-parallel-root-edges
+  "rf2-3v3gv1 — emit edges for a `:type :parallel` machine's OWN top-level
+  `:on` (the ROOT parallel transition — the ancestor fallback for its regions,
+  Spec 005 §Root parallel `:on`). Shipped runtime semantics: when no region
+  handles the event the root `:on` fires, moving one or more REGION-QUALIFIED
+  targets atomically (untargeted regions stay put). Pre-fix the chart
+  projection modelled the per-region `:on` fallbacks (via `project-flat` →
+  `collect-machine-edges`) but DROPPED the parallel root's own `:on`, so Xray
+  could neither render the transition in topology nor highlight it on a focused
+  event.
+
+  Each candidate projects ONCE PER region-qualified target, sourced from the
+  synthetic MACHINE-ROOT node (`machine-root-id`) into the region's
+  in-region target — exactly as a flat machine's `collect-machine-edges`
+  fallback sources its chip from the root. The edge carries:
+
+    - `:from []` (the root context, so `edge-source-id` mints `machine-root-id`),
+    - `:to [<region> & <in-region-path>]` (the absolute region-qualified path
+      the runtime applies — its node-id is `region-scoped-id` of the region +
+      in-region path, re-pointed in `project-parallel` below),
+    - `:machine-level? true` (an inherited root fallback — distinct from a
+      region-local transition; the fired-edge matcher + SCXML emitter key off
+      this), AND
+    - `:parallel-root-on? true` (this is the PARALLEL root's `:on`, not a flat
+      machine-level fallback — `project-parallel` re-points its `:target` to
+      the region-scoped node rather than a top-level state).
+
+  A TARGETLESS / action-only root `:on` candidate (no region-qualified target)
+  self-anchors on the machine-root node and is flagged `:internal? true`,
+  rendering as a hanging action chip (the parallel-root `:on-done` shape) — it
+  runs the action / `:fx` and moves no region. Returns a seq of edge maps."
+  [root-on]
+  (when (seq root-on)
+    (mapcat
+      (fn [[event-id spec]]
+        (mapcat
+          (fn [candidate]
+            (let [targets (normalise-root-targets (:target candidate))
+                  base    {:from              []
+                           :event             event-id
+                           :guard             (:guard candidate)
+                           :action            (:action candidate)
+                           :machine-level?    true
+                           :parallel-root-on? true}]
+              (if (seq targets)
+                ;; One edge per region-qualified target (single- or multi-
+                ;; region). `:to` is the absolute region-qualified path.
+                (map (fn [tgt]
+                       (cond-> (assoc base :to (vec tgt))
+                         (reenter? candidate) (assoc :reenter? true)))
+                     targets)
+                ;; Targetless / action-only — self-anchor on the machine-root
+                ;; node as an internal chip (moves no region).
+                [(cond-> (assoc base :to [] :internal? true)
+                   (reenter? candidate) (assoc :reenter? true))])))
+          (transition-candidates spec)))
+      root-on)))
+
 ;; ---- public projection --------------------------------------------------
 
 (defn- project-flat
@@ -959,11 +1041,69 @@
                      :label     "parallel"
                      :depth     0
                      :parallel-root? true
-                     :compound? false})]
-    {:nodes        (vec (concat (mapcat :nodes per-region)
+                     :compound? false})
+        ;; rf2-3v3gv1 — the PARALLEL ROOT's own `:on` (the ancestor fallback,
+        ;; Spec 005 §Root parallel `:on`). A root `:on` with region-qualified
+        ;; target(s) moves one or more regions when no region-local transition
+        ;; handles the event; pre-fix the projection dropped it entirely. Each
+        ;; edge is sourced from the synthetic MACHINE-ROOT chip (the same
+        ;; anchor a flat machine's `collect-machine-edges` fallback uses) into
+        ;; the REGION-SCOPED target node — so the chip reads as the machine-
+        ;; wide fallback hanging into the region it moves. A targetless action-
+        ;; only root `:on` (`:to []`, `:internal? true`) self-anchors on the
+        ;; machine-root chip (a hanging action affordance, moves no region).
+        root-on-raw (collect-parallel-root-edges (:on definition))
+        root-on-edges
+        (->> root-on-raw
+             (reduce
+               (fn [{:keys [seen out]} e]
+                 (let [base (edge-id (:to e) e)
+                       n    (get seen base 0)
+                       id   (if (zero? n) base (str base "__" n))
+                       ;; `edge-source-id` mints `machine-root-id` for a
+                       ;; `:machine-level?` edge; the TARGET is region-scoped
+                       ;; for a region-qualified `:to [<region> & path]`, or
+                       ;; the machine-root node itself for the targetless
+                       ;; (internal) self-anchored case.
+                       to-path  (:to e)
+                       target   (if (:internal? e)
+                                  machine-root-id
+                                  (region-scoped-id (first to-path)
+                                                    (vec (rest to-path))))]
+                   {:seen (assoc seen base (inc n))
+                    :out  (conj out
+                                (assoc e
+                                  :id          id
+                                  :source      (edge-source-id e)
+                                  :target      target
+                                  :from-path   (:from e)
+                                  :to-path     (:to e)
+                                  :event-label (edge-label e)))}))
+               {:seen {} :out []})
+             :out
+             vec)
+        ;; rf2-3v3gv1 — surface the synthetic MACHINE-ROOT chip ONLY when the
+        ;; parallel root declares an `:on` (mirrors `project-flat`'s
+        ;; rf2-vcnvj root-node-when-fallback-exists rule). Distinct from the
+        ;; parallel-ROOT `:on-done` node (`parallel-root-segment`); a machine
+        ;; with no root `:on` keeps the pre-fix node set unchanged.
+        machine-root-node (when (seq root-on-edges)
+                            {:id            machine-root-id
+                             :path          []
+                             :label         "root"
+                             :depth         0
+                             :machine-root? true
+                             :compound?     false})]
+    {;; rf2-3v3gv1 — the synthetic MACHINE-ROOT chip (when present) LEADS the
+     ;; node vector, ahead of the regions whose scoped target nodes its root
+     ;; `:on` edges address (xyflow's parent-before-child / source-before-edge
+     ;; ordering invariant — the same reason region/compound parents lead).
+     :nodes        (vec (concat (when machine-root-node [machine-root-node])
+                                (mapcat :nodes per-region)
                                 (when root-node [root-node])))
      :edges        (vec (concat (mapcat :edges per-region)
-                                root-od-edges))
+                                root-od-edges
+                                root-on-edges))
      :initial-path nil
      :parallel?    true}))
 

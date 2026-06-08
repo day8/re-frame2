@@ -281,8 +281,104 @@
                 (:id e)))
             edges))))
 
+(defn- cascade-from-trace
+  "rf2-l8ls6w — pull the structured `:cascade` step vector off a
+  `:rf.machine/transition` trace. The runtime stamps it under `:tags :cascade`
+  (modern) — `commit-or-finalize` (`lifecycle_fx/registration`) emits
+  `(trace/emit! :rf.machine :rf.machine/transition {… :cascade cascade})`, so
+  it lands under `:tags`. A legacy/test-fixture flat `:cascade` is tolerated.
+  Returns the step vector (possibly empty) — never nil."
+  [ev]
+  (or (get-in ev [:tags :cascade])
+      (:cascade ev)
+      []))
+
+(defn- handled-regions-from-cascade
+  "rf2-l8ls6w — the SET of region names a parallel macrostep actually HANDLED
+  this transition, read off the trace's structured `:cascade`. Each cascade
+  step carries `:region <region-name>` (stamped by the single-machine engine
+  from the synthetic region-spec's `:rf/region` — `transition.cljc` §structured
+  cascade steps); a region that handled the event contributes at least one
+  step (`:exit` / `:action` / `:entry`), a RESTING region (declined the event)
+  contributes none. This is the discriminator that distinguishes a HANDLED-
+  unchanged region (a real self/internal transition with `before == after` +
+  a non-empty cascade) from a region that simply did not move. Returns the set
+  of non-nil `:region`s present in the cascade."
+  [cascade]
+  (into #{} (keep :region) cascade))
+
+(defn- region-local-fired-ids
+  "rf2-8ncxrf — fired-edge ids for ONE region that CHANGED state (its
+  `before ≠ after`). The region-scoped match: the edge's `:from-path` /
+  `:to-path` are the IN-REGION paths and its `:source` is
+  `(region-scoped-id region from)` — the same injective id-scheme
+  `highlight-ids` resolves a region-map against (rf2-wnzha), so two regions
+  sharing a state NAME never cross-match. Returns a seq of ids (empty when no
+  region-LOCAL edge matched — e.g. the region moved via the parallel ROOT
+  `:on`; that fallback is matched by `region-root-on-fired-ids`)."
+  [edges region from* to* event*]
+  (let [scoped-source (chart-layout/region-scoped-id region from*)]
+    (keep (fn [e]
+            (when (and (= from*         (:from-path e))
+                       (= to*           (:to-path e))
+                       (= event*        (:event e))
+                       (= scoped-source (:source e)))
+              (:id e)))
+          edges)))
+
+(defn- region-root-on-fired-ids
+  "rf2-3v3gv1 — fired-edge ids for ONE region that the parallel ROOT `:on`
+  moved (the ancestor fallback — Spec 005 §Root parallel `:on`). When no
+  region-LOCAL transition handles the event, the root `:on` fires, moving one
+  or more REGION-QUALIFIED targets. `project-parallel`
+  (`collect-parallel-root-edges`) projects each such edge from the synthetic
+  MACHINE-ROOT chip with a region-qualified `:to-path` `[<region> &
+  <in-region-path>]` (NOT a region-scoped in-region `:from-path`/`:source`
+  like a region-local edge), so the region-local match above can't reach it.
+
+  We match a root `:on` edge (`:parallel-root-on? true`) whose region-
+  qualified `:to-path` head names THIS region and whose tail is the region's
+  in-region `to*`, on the event. `to*` is the moved region's in-region path
+  (a keyword coerces to a 1-vector); the edge's region-qualified `:to-path`
+  is `(cons region to*)`. Returns a seq of ids."
+  [edges region to* event*]
+  (let [qualified-to (vec (cons region to*))]
+    (keep (fn [e]
+            (when (and (:parallel-root-on? e)
+                       (= qualified-to (:to-path e))
+                       (= event*       (:event e)))
+              (:id e)))
+          edges)))
+
+(defn- region-self-internal-fired-ids
+  "rf2-l8ls6w — fired-edge ids for ONE region that was HANDLED but whose state
+  did NOT change (`before == after`): a real targetless/internal or external
+  self transition (`:target :same-state`). The runtime emits a
+  `:rf.machine/transition` (the macrostep was not a no-op — the handled
+  region's cascade is non-empty) and machines-viz projects the self edge, yet
+  the before/after region-map shows no change for the region, so
+  `region-local-fired-ids` (which keys on `from ≠ to`) skips it and Xray
+  highlights nothing.
+
+  A self/internal edge in the region is region-scoped exactly like any region
+  edge: its `:from-path == :to-path == self*` (the resting/self path) and its
+  `:source` is `(region-scoped-id region self*)`. We match on the region-
+  scoped source + `from == to == self*` + event, lighting BOTH the external
+  self-loop (`:from-path == :to-path`, no `:internal?`) and the internal
+  action-only edge (`:internal? true`, also self-anchored). Returns a seq of
+  ids."
+  [edges region self* event*]
+  (let [scoped-source (chart-layout/region-scoped-id region self*)]
+    (keep (fn [e]
+            (when (and (= self*         (:from-path e))
+                       (= self*         (:to-path e))
+                       (= event*        (:event e))
+                       (= scoped-source (:source e)))
+              (:id e)))
+          edges)))
+
 (defn- parallel-transition-fired-ids
-  "Fired-edge ids for ONE PARALLEL multi-region transition (rf2-8ncxrf).
+  "Fired-edge ids for ONE PARALLEL multi-region transition.
 
   A `:type :parallel` machine's snapshot `:state` is a region-MAP — one
   active leaf per orthogonal region (Spec 005 §Parallel regions). A single
@@ -290,40 +386,57 @@
   regions at once, but the runtime emits ONE `:rf.machine/transition`
   whose `:before` / `:after` carry the WHOLE composite region-map (per
   `lifecycle_fx.registration/commit-or-finalize`). So the fired EDGES are
-  the per-region edges of every region that CHANGED — derived from the
-  before/after region-map, NOT from a single (from, to) pair.
+  derived from the before/after region-map PLUS the structured `:cascade`,
+  NOT from a single (from, to) pair.
 
-  `project-parallel` (machines-viz `chart.layout`) region-SCOPES each
-  region's edges: an edge's `:from-path` / `:to-path` are the IN-REGION
-  paths (e.g. `[:idle]` → `[:running]`) and its `:source` is
-  `(region-scoped-id region from-path)` — the SAME injective id-scheme
-  `highlight-ids` resolves a region-map against (rf2-wnzha). Edges carry
-  no `:region` key, so two regions sharing a state NAME would collide on
-  the `(from, to, event)` triple; we disambiguate by matching the edge's
-  region-scoped `:source` against `(region-scoped-id region from-path)`,
-  guaranteeing each fired id belongs to the region that actually moved.
+  Per region, three outcomes light an edge:
 
-  Only regions whose `(from ≠ to)` contribute — an event that moves some
-  regions and leaves others resting lights exactly the moved regions.
-  Per-region `from` / `to` are coerced through `normalise-path` (a region
-  value is a keyword or in-region vector). Returns a seq of ids."
-  [edges before-map after-map event*]
+    - **rf2-8ncxrf — region CHANGED via a region-local transition.** `from ≠
+      after`; the region-scoped (from, to, event) match (`region-local-fired-
+      ids`) lights the moved region's edge.
+    - **rf2-3v3gv1 — region CHANGED via the parallel ROOT `:on`.** `from ≠
+      after` but NO region-local edge matched — the move came from the root
+      `:on` ancestor fallback. `region-root-on-fired-ids` lights the root-
+      sourced chip whose region-qualified `:to-path` names this region. (A
+      root `:on` moving a region while a region-local edge ALSO matches the
+      (from,to,event) cannot happen — the root `:on` is suppressed ENTIRELY
+      when any region handles the event, Spec 005; so the two are mutually
+      exclusive per region.)
+    - **rf2-l8ls6w — region HANDLED but UNCHANGED.** `before == after` yet the
+      region appears in the `:cascade` (a real self/internal transition fired
+      with a non-empty cascade). `region-self-internal-fired-ids` lights the
+      self/internal edge. A region that simply DECLINED the event (RESTING —
+      absent from the cascade) lights nothing.
+
+  `handled-regions` is the set of region names the cascade recorded (from
+  `handled-regions-from-cascade`). Per-region `from` / `to` are coerced
+  through `normalise-path` (a region value is a keyword or in-region vector).
+  Returns a seq of ids."
+  [edges before-map after-map event* handled-regions]
   (when event*
     (mapcat
       (fn [[region region-before]]
         (let [region-after (get after-map region)
               from*        (normalise-path region-before)
               to*          (normalise-path region-after)]
-          ;; Skip a region that did not move, or whose paths don't coerce.
-          (when (and from* to* (not= region-before region-after))
-            (let [scoped-source (chart-layout/region-scoped-id region from*)]
-              (keep (fn [e]
-                      (when (and (= from*         (:from-path e))
-                                 (= to*           (:to-path e))
-                                 (= event*        (:event e))
-                                 (= scoped-source (:source e)))
-                        (:id e)))
-                    edges)))))
+          (cond
+            ;; CHANGED: region-local match, falling back to the root `:on`
+            ;; ancestor fallback when no region-local edge moved it.
+            (and from* to* (not= region-before region-after))
+            (let [local (region-local-fired-ids edges region from* to* event*)]
+              (if (seq local)
+                local
+                (region-root-on-fired-ids edges region to* event*)))
+
+            ;; HANDLED-but-UNCHANGED: a real self/internal transition with
+            ;; before == after + a non-empty cascade for this region. A
+            ;; RESTING region (= but absent from the cascade) lights nothing.
+            (and from*
+                 (= region-before region-after)
+                 (contains? handled-regions region))
+            (region-self-internal-fired-ids edges region from* event*)
+
+            :else nil)))
       before-map)))
 
 (defn extract-fired-edge-ids
@@ -357,6 +470,21 @@
   single-active path returns nil for a map, which is why the event-focused
   view showed NO transition for `[:hvac/power-cycle]`).
 
+  rf2-3v3gv1 — PARALLEL ROOT `:on` (the ancestor fallback — Spec 005 §Root
+  parallel `:on`). When no region-local transition handles the event the root
+  `:on` fires, moving one or more region-qualified targets; the move shows in
+  the before/after region-map but is sourced from the synthetic MACHINE-ROOT
+  chip (region-qualified `:to-path`), not a region-local edge — so the per-
+  region branch falls back to matching the root-sourced chip.
+
+  rf2-l8ls6w — HANDLED-but-UNCHANGED parallel regions. A parallel region can
+  fire a real targetless/internal or self transition with `before == after`
+  and a non-empty cascade; the before/after region-map shows no change, so the
+  pure region-map diff skipped it. The per-region branch reads the trace's
+  structured `:cascade` (`handled-regions-from-cascade`) to distinguish a
+  HANDLED-unchanged region (lights its self/internal edge) from a RESTING
+  region that simply declined the event (lights nothing).
+
   Returns `#{}` for a nil/empty definition or no matching transitions."
   [definition trace-events machine-id]
   (let [edges (:edges (chart-layout/project-definition definition))]
@@ -367,13 +495,16 @@
                    before-raw  (before-state-from-trace ev)
                    after-raw   (after-state-from-trace ev)]
                (if (or (map? before-raw) (map? after-raw))
-                 ;; PARALLEL multi-region: derive from the region-maps so
-                 ;; every region that moved this event lights its edge.
+                 ;; PARALLEL multi-region: derive from the region-maps + the
+                 ;; structured cascade so every region that moved (region-local
+                 ;; or via the root `:on`) OR was handled-unchanged lights its
+                 ;; edge.
                  (parallel-transition-fired-ids
                    edges
                    (if (map? before-raw) before-raw {})
                    (if (map? after-raw) after-raw {})
-                   event*)
+                   event*
+                   (handled-regions-from-cascade (cascade-from-trace ev)))
                  ;; Single-active (flat / compound): the existing
                  ;; (from, to, event) match + machine-level fallback.
                  (let [from* (from-path-from-trace ev)

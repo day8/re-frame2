@@ -4,12 +4,14 @@
 
   ## What it renders
 
-  The Static Topology body embeds `machine-canvas/Chart` — the same
-  interactive viewport adapter the Dynamic Machines panel uses — so
-  Static users get zoom / pan / fit with the same gestures and the
-  same keyboard shortcuts (`+` / `-`, arrows, `f`, `0`). Stately and
-  XState's static / read-only chart views get the same affordances;
-  Xray's static surface should match.
+  The Static Topology body embeds `machine-canvas/Chart` — the SAME
+  MachineChart surface the Dynamic Machines panel renders (rf2-gpzb4
+  xyflow migration). So the Static and Dynamic surfaces are the same
+  chart; pan / zoom / fit are driven by the mouse + xyflow's own
+  on-canvas controls (drag to pan, wheel / pinch to zoom, the controls
+  buttons to fit), NOT by Xray-owned keyboard shortcuts. There are NO
+  implemented keyboard shortcuts (`+` / `-`, arrows, `f`, `0`) on either
+  surface — viewport gestures are xyflow's.
 
   Static differs from Dynamic in two respects:
 
@@ -22,11 +24,17 @@
        state's path) — not the Dynamic panel's inspector-lens
        navigation event.
 
-  The per-machine viewport slot is shared with the Dynamic Machine
-  Inspector — if the user pans / zooms in either surface, the other
-  picks up the same viewport when it next mounts. That matches the
-  user model: 'this is the chart for machine X, parked in this
-  view.'
+  ## Viewport
+
+  There is NO stored, shared per-machine viewport slot — Static and
+  Dynamic do NOT hand a saved pan / zoom between each other. Each
+  surface's viewport lives inside its own xyflow instance for the
+  mount's lifetime. Fit-on-entry is the one piece Xray drives: entering
+  the Static Machines tab bumps a `:fit-signal` nonce (rf2-6tw7t) that
+  re-frames the topology (xyflow's one-shot `:fitView` + the layout-key
+  auto-fit both leave a re-entered chart stale), so the chart opens
+  framed to its content. After that, pan / zoom is the user's via the
+  mouse + xyflow controls.
 
   ## Empty states
 
@@ -71,10 +79,11 @@
   "Render the interactive MachineChart canvas for `definition`. NO
   highlight + NO after-rings — Static Topology is a static-read.
 
-  rf2-md9oz — delegates to `machine-canvas/Chart` (same adapter the
-  Dynamic Machines panel uses) so the user gets zoom / pan / fit
-  + keyboard shortcuts on the Static surface too. The static-
-  flavoured opts are:
+  rf2-md9oz — delegates to `machine-canvas/Chart` (the same MachineChart
+  surface the Dynamic Machines panel renders) so the user gets mouse /
+  controls-driven xyflow zoom / pan / fit on the Static surface too (no
+  Xray-owned keyboard shortcuts — viewport gestures are xyflow's). The
+  static-flavoured opts are:
 
     :show-after-rings?      false  — no focused-event lens on static.
     :testid                        — overrides the inner SVG testid

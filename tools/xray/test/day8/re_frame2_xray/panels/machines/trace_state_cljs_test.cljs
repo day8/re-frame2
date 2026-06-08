@@ -801,3 +801,302 @@
       (is (= 2 (count fired)) "both region edges fired")
       (is (every? projected-ids fired)
           "each parallel fired id is one the live chart actually rendered"))))
+
+;; ---- extract-fired-edge-ids: ROOT parallel `:on` (rf2-3v3gv1) ------------
+;;
+;; A `:type :parallel` machine's OWN top-level `:on` is the ANCESTOR FALLBACK
+;; for its regions (Spec 005 §Root parallel `:on`). When no region-LOCAL
+;; transition handles the event the root `:on` fires, moving one or more
+;; REGION-QUALIFIED targets. The before/after region-map shows the move, but
+;; the moved region's edge is sourced from the synthetic MACHINE-ROOT chip
+;; (region-qualified :to-path), NOT a region-local edge — so the region-local
+;; (from, to, event) match misses it and `extract-fired-edge-ids` falls back
+;; to matching the root-sourced chip whose :to-path names the moved region.
+
+(defn- root-on-edge-id
+  "Look up the canonical machines-viz edge id for the PARALLEL-ROOT `:on` edge
+  whose region-qualified `:to-path` and `:event` match — projected through the
+  SAME public chart.layout/project-definition the live chart uses."
+  [definition to-path event]
+  (->> (:edges (chart-layout/project-definition definition))
+       (some (fn [e]
+               (when (and (:parallel-root-on? e)
+                          (= to-path (:to-path e))
+                          (= event   (:event e)))
+                 (:id e))))))
+
+(deftest fired-ids-parallel-root-on-single-region-target
+  (testing "rf2-3v3gv1 — a root :on moving ONE region (no region-local edge)
+            lights the MACHINE-ROOT-sourced chip for that region; the
+            untargeted region lights nothing"
+    ;; Mirrors spec/conformance/fixtures/parallel-root-on-single-region-target:
+    ;; ONE -> {a:two, b:one}. No region declares :one; the root :on moves :a.
+    (let [def           {:type    :parallel
+                         :on      {:one {:target [:a :two]}}
+                         :regions {:a {:initial :one :states {:one {} :two {}}}
+                                   :b {:initial :one :states {:one {} :two {}}}}}
+          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
+          a-id          (root-on-edge-id def [:a :two] :one)
+          events        [{:operation :rf.machine/transition
+                          :tags {:machine-id :par
+                                 :before {:state {:a :one :b :one}}
+                                 :after  {:state {:a :two :b :one}}
+                                 :event  [:one]
+                                 ;; only :a was handled (by the root :on
+                                 ;; applied to :a); :b rested.
+                                 :cascade [{:kind :exit  :region :a :state [:one]}
+                                           {:kind :entry :region :a :state [:two]}]}}]
+          fired         (trace-state/extract-fired-edge-ids def events :par)]
+      (is (string? a-id) "the root :on edge for region :a exists")
+      (is (= #{a-id} fired)
+          "only the MACHINE-ROOT-sourced chip into :a lights; :b stays dark")
+      (is (every? projected-ids fired)
+          "the fired id is a real live-chart edge id"))))
+
+(deftest fired-ids-parallel-root-on-multi-region-target
+  (testing "rf2-3v3gv1 — a root :on with multiple region-qualified targets
+            lights BOTH region chips; an untargeted region lights nothing"
+    ;; Mirrors parallel-root-on-multi-region-target: advance -> {a:x, b:y, c:one}.
+    (let [def           {:type    :parallel
+                         :on      {:advance {:target [[:a :x] [:b :y]]}}
+                         :regions {:a {:initial :one :states {:one {} :x {}}}
+                                   :b {:initial :one :states {:one {} :y {}}}
+                                   :c {:initial :one :states {:one {}}}}}
+          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
+          a-id          (root-on-edge-id def [:a :x] :advance)
+          b-id          (root-on-edge-id def [:b :y] :advance)
+          events        [{:operation :rf.machine/transition
+                          :tags {:machine-id :par
+                                 :before {:state {:a :one :b :one :c :one}}
+                                 :after  {:state {:a :x :b :y :c :one}}
+                                 :event  [:advance]
+                                 :cascade [{:kind :entry :region :a :state [:x]}
+                                           {:kind :entry :region :b :state [:y]}]}}]
+          fired         (trace-state/extract-fired-edge-ids def events :par)]
+      (is (string? a-id))
+      (is (string? b-id))
+      (is (= #{a-id b-id} fired)
+          "both root-:on chips light; the untargeted :c stays dark")
+      (is (every? projected-ids fired)))))
+
+(deftest fired-ids-parallel-root-on-suppressed-by-region-local
+  (testing "rf2-3v3gv1 — when a region handles the event LOCALLY the root :on
+            is suppressed entirely; only the region-local edge lights"
+    ;; Mirrors parallel-root-on-region-wins: GO -> {a:two, b:one}. :a handles
+    ;; :go locally; the root :go (which would move BOTH) is suppressed, so :b
+    ;; stays. The region-local :a edge lights — NOT the root chip.
+    (let [def        {:type    :parallel
+                      :on      {:go {:target [[:a :two] [:b :two]]}}
+                      :regions {:a {:initial :one
+                                    :states  {:one {:on {:go :two}} :two {}}}
+                                :b {:initial :one :states {:one {} :two {}}}}}
+          projected  (:edges (chart-layout/project-definition def))
+          local-a    (->> projected
+                          (some (fn [e]
+                                  (when (and (not (:parallel-root-on? e))
+                                             (= [:one] (:from-path e))
+                                             (= [:two] (:to-path e))
+                                             (= :go (:event e))
+                                             (= "region__a__one" (:source e)))
+                                    (:id e)))))
+          events     [{:operation :rf.machine/transition
+                       :tags {:machine-id :par
+                              :before {:state {:a :one :b :one}}
+                              :after  {:state {:a :two :b :one}}
+                              :event  [:go]
+                              :cascade [{:kind :exit  :region :a :state [:one]}
+                                        {:kind :entry :region :a :state [:two]}]}}]
+          fired      (trace-state/extract-fired-edge-ids def events :par)]
+      (is (string? local-a) "the region-local :a :one→:two edge exists")
+      (is (= #{local-a} fired)
+          "the region-local edge lights; the suppressed root :on chip does NOT"))))
+
+(deftest fired-ids-parallel-root-on-agree-with-projected-chart-edge-ids
+  (testing "rf2-3v3gv1 — every root-:on fired id is a real projected chart edge :id"
+    (let [def           {:type    :parallel
+                         :on      {:go-all {:target [[:a :two] [:b :two]]}}
+                         :regions {:a {:initial :one :states {:one {} :two {}}}
+                                   :b {:initial :one :states {:one {} :two {}}}}}
+          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
+          events        [{:operation :rf.machine/transition
+                          :tags {:machine-id :par
+                                 :before {:state {:a :one :b :one}}
+                                 :after  {:state {:a :two :b :two}}
+                                 :event  [:go-all]
+                                 :cascade [{:kind :entry :region :a :state [:two]}
+                                           {:kind :entry :region :b :state [:two]}]}}]
+          fired         (trace-state/extract-fired-edge-ids def events :par)]
+      (is (= 2 (count fired)) "both targeted regions' root chips fired")
+      (is (every? projected-ids fired)
+          "each root-:on fired id is one the live chart actually rendered"))))
+
+;; ---- extract-fired-edge-ids: HANDLED-but-UNCHANGED parallel (rf2-l8ls6w) --
+;;
+;; A parallel region can fire a real targetless/INTERNAL or external SELF
+;; transition with before == after (the region's leaf is unchanged) AND a
+;; non-empty cascade. The runtime emits :rf.machine/transition and machines-viz
+;; projects the self edge, but the before/after region-map shows no change, so
+;; the pure region-map diff skipped it and Xray highlighted nothing. The fix
+;; reads the trace's structured :cascade to distinguish a HANDLED-unchanged
+;; region (light its self/internal edge) from a RESTING region (light nothing).
+
+(deftest fired-ids-parallel-self-transition-before-equals-after
+  (testing "rf2-l8ls6w — a region firing an external SELF transition
+            (:target :same-state, before == after) lights its self-loop edge,
+            distinguished from a resting region by the cascade"
+    (let [def        {:type    :parallel
+                      :regions {:a {:initial :idle
+                                    :states  {:idle {:on {:ping {:target :same-state
+                                                                 :action :log}}}}}
+                                :b {:initial :idle
+                                    :states  {:idle {:on {:other :done}
+                                                     } :done {}}}}}
+          projected  (:edges (chart-layout/project-definition def))
+          self-id    (->> projected
+                          (some (fn [e]
+                                  (when (and (= [:idle] (:from-path e))
+                                             (= [:idle] (:to-path e))
+                                             (= :ping (:event e))
+                                             (= "region__a__idle" (:source e)))
+                                    (:id e)))))
+          ;; :a handled :ping as a self transition (before == after); :b
+          ;; declined :ping entirely (RESTING — no cascade step).
+          events     [{:operation :rf.machine/transition
+                       :tags {:machine-id :par
+                              :before {:state {:a :idle :b :idle}}
+                              :after  {:state {:a :idle :b :idle}}
+                              :event  [:ping]
+                              :cascade [{:kind :exit   :region :a :state [:idle]}
+                                        {:kind :action :region :a :state []
+                                         :action :log}
+                                        {:kind :entry  :region :a :state [:idle]}]}}]
+          fired      (trace-state/extract-fired-edge-ids def events :par)]
+      (is (string? self-id) "the :a self-loop edge exists")
+      (is (= #{self-id} fired)
+          "the HANDLED-unchanged :a self edge lights; the RESTING :b lights nothing"))))
+
+(deftest fired-ids-parallel-internal-transition-before-equals-after
+  (testing "rf2-l8ls6w — a region firing an INTERNAL transition (no :target,
+            action-only — before == after) lights its internal self-anchored
+            edge off the non-empty cascade"
+    (let [def       {:type    :parallel
+                     :regions {:a {:initial :idle
+                                   :states  {:idle {:on {:tick {:action :count}}}}}
+                               :b {:initial :idle
+                                   :states  {:idle {} }}}}
+          projected (:edges (chart-layout/project-definition def))
+          internal-id (->> projected
+                           (some (fn [e]
+                                   (when (and (:internal? e)
+                                              (= [:idle] (:from-path e))
+                                              (= [:idle] (:to-path e))
+                                              (= :tick (:event e))
+                                              (= "region__a__idle" (:source e)))
+                                     (:id e)))))
+          events    [{:operation :rf.machine/transition
+                      :tags {:machine-id :par
+                             :before {:state {:a :idle :b :idle}}
+                             :after  {:state {:a :idle :b :idle}}
+                             :event  [:tick]
+                             :cascade [{:kind :action :region :a :state []
+                                        :action :count}]}}]
+          fired     (trace-state/extract-fired-edge-ids def events :par)]
+      (is (string? internal-id) "the :a internal self-anchored edge exists")
+      (is (= #{internal-id} fired)
+          "the internal HANDLED-unchanged :a edge lights off the cascade"))))
+
+(deftest fired-ids-parallel-resting-region-lights-nothing
+  (testing "rf2-l8ls6w — a region whose before == after AND is ABSENT from the
+            cascade (a RESTING region that declined the event) lights nothing,
+            even if a self/internal edge for the event exists in the projection"
+    (let [def       {:type    :parallel
+                     :regions {:a {:initial :idle
+                                   :states  {:idle {:on {:ping {:action :log}}}}}
+                               :b {:initial :idle
+                                   :states  {:idle {:on {:other :done}} :done {}}}}}
+          ;; :b moved on :other; :a has a self/internal :ping edge but :ping
+          ;; was NOT this event — :a rested (no cascade step). Only :b lights.
+          projected (:edges (chart-layout/project-definition def))
+          b-id      (->> projected
+                         (some (fn [e]
+                                 (when (and (= [:idle] (:from-path e))
+                                            (= [:done] (:to-path e))
+                                            (= :other (:event e))
+                                            (= "region__b__idle" (:source e)))
+                                   (:id e)))))
+          events    [{:operation :rf.machine/transition
+                      :tags {:machine-id :par
+                             :before {:state {:a :idle :b :idle}}
+                             :after  {:state {:a :idle :b :done}}
+                             :event  [:other]
+                             ;; only :b handled :other; :a is RESTING.
+                             :cascade [{:kind :exit  :region :b :state [:idle]}
+                                       {:kind :entry :region :b :state [:done]}]}}]
+          fired     (trace-state/extract-fired-edge-ids def events :par)]
+      (is (string? b-id))
+      (is (= #{b-id} fired)
+          "only the moved :b region lights; the resting :a (absent from
+           cascade) lights nothing even though it has a :ping self edge"))))
+
+(deftest fired-ids-parallel-mixed-moved-and-handled-unchanged
+  (testing "rf2-l8ls6w — one event moves region :a (changed) AND fires a self
+            transition in region :b (handled-unchanged): BOTH light"
+    (let [def       {:type    :parallel
+                     :regions {:a {:initial :one
+                                   :states  {:one {:on {:go :two}} :two {}}}
+                               :b {:initial :idle
+                                   :states  {:idle {:on {:go {:target :same-state
+                                                              :action :note}}}}}}}
+          projected (:edges (chart-layout/project-definition def))
+          a-id      (->> projected
+                         (some (fn [e]
+                                 (when (and (= [:one] (:from-path e))
+                                            (= [:two] (:to-path e))
+                                            (= :go (:event e))
+                                            (= "region__a__one" (:source e)))
+                                   (:id e)))))
+          b-self-id (->> projected
+                         (some (fn [e]
+                                 (when (and (= [:idle] (:from-path e))
+                                            (= [:idle] (:to-path e))
+                                            (= :go (:event e))
+                                            (= "region__b__idle" (:source e)))
+                                   (:id e)))))
+          events    [{:operation :rf.machine/transition
+                      :tags {:machine-id :par
+                             :before {:state {:a :one :b :idle}}
+                             :after  {:state {:a :two :b :idle}}
+                             :event  [:go]
+                             :cascade [{:kind :exit   :region :a :state [:one]}
+                                       {:kind :entry  :region :a :state [:two]}
+                                       {:kind :exit   :region :b :state [:idle]}
+                                       {:kind :action :region :b :state [] :action :note}
+                                       {:kind :entry  :region :b :state [:idle]}]}}]
+          fired     (trace-state/extract-fired-edge-ids def events :par)]
+      (is (string? a-id) "the :a moved edge exists")
+      (is (string? b-self-id) "the :b self edge exists")
+      (is (= #{a-id b-self-id} fired)
+          "the moved :a edge AND the handled-unchanged :b self edge BOTH light"))))
+
+(deftest fired-ids-parallel-no-cascade-keeps-changed-region-behaviour
+  (testing "rf2-l8ls6w — a trace with NO :cascade (legacy / hand-built) still
+            lights every CHANGED region (the pre-fix behaviour is preserved);
+            only handled-UNCHANGED detection needs the cascade"
+    (let [def        (hvac-definition)
+          projected  (:edges (chart-layout/project-definition def))
+          climate-id (->> projected
+                          (some (fn [e]
+                                  (when (and (= [:idle]    (:from-path e))
+                                             (= [:running] (:to-path e))
+                                             (= :hvac/power-cycle (:event e)))
+                                    (:id e)))))
+          ;; climate moved; no :cascade on the trace at all.
+          events     [{:operation :rf.machine/transition
+                       :tags {:machine-id :hvac/controller
+                              :before {:state {:climate :idle :fan :off}}
+                              :after  {:state {:climate :running :fan :off}}
+                              :event  [:hvac/power-cycle]}}]
+          fired      (trace-state/extract-fired-edge-ids
+                       def events :hvac/controller)]
+      (is (= #{climate-id} fired)
+          "the changed climate region still lights without a cascade"))))
