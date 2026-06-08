@@ -17,8 +17,10 @@ Phase 2 — Bump (M-0)
        └── clean compile ─────────────────┤
                                           ▼
                           Apply / triage the Phase-0a SILENT-fail plan
-                          (these don't surface at compile — applied
-                           regardless of whether the compile failed)
+                          + the M-70 bare-interceptor sweep
+                          (none surface at compile — applied
+                           regardless of whether the compile failed;
+                           M-70 is loud-at-RUNTIME, not silent)
                                           │
                                           ▼
                           Phase 4 — compile + tests + BOOT SMOKE-TEST
@@ -37,6 +39,7 @@ The sweep order below is for the failures a compile *surfaces*. Two classes of b
 
 - **Forced removals/conversions** — broken add-ons, off-contract requires, classpath-colliding transitives — are known and planned from **Phase 0a** ([`inventory-and-plan.md`](inventory-and-plan.md)): the inventory scans each add-on's source up front so they're fixed in one sweep rather than one-per-recompile. Use the Phase-0a plan's ordering to clear the forced compile-blockers (so the post-M-0 compile gate is reachable).
 - **SILENT-fail rules** ([`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)) — `{:db fresh}` boots (M-15b), top-level `:dispatch` keys (M-8), the signal-fn `reg-sub` (M-71), `^:flush-dom` (M-16), unary `reg-fx` handlers (M-51 — `(fn [args] …)` binds the ctx-map to `args` on CLJS and silently drops the real fx args) — **compile clean** and never appear as a compile failure. They're caught by the Phase-0a app-source grep and **applied/triaged whether or not the compile failed**; the [boot smoke-test](runtime-smoke-test.md) is the only thing that confirms the fix landed. A clean compile does NOT route you straight to the report — the planned silent-fail hits still apply, and the smoke-test still runs.
+- **The M-70 bare-interceptor sweep** — *loud-at-runtime, not silent, but carried the same way.* A bare (non-vector) interceptor in a `reg-event-(db|fx|ctx)` slot **compiles clean** and then **throws `:rf.error/reg-event-bare-interceptor` at ns-load** (aborting the offending ns → the app hangs at boot). Because the *compile* never surfaces it, it rides the **same Phase-0a up-front structural grep** as the silent rules (scan every `reg-event-*` second-arg *shape*, flag any bare interceptor regardless of identity), is **applied whether or not the compile failed**, and the [boot smoke-test](runtime-smoke-test.md) (row #6) surfaces any survivor's throw on the console. Its sweep-group slot is **Group 5 (item 19a)** below; it differs from the silent rows only in failure mode, not in detector. → [`auto-cross-cutting.md` §Bare interceptor](auto-cross-cutting.md#bare-interceptor--vector-wrap-m-70--mechanical-loud-at-runtime-not-loud-at-compile).
 
 Use the sweep order below for whatever the compile surfaces.
 
@@ -92,6 +95,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | Order | Rule | Why here |
 |---|---|---|
 | 19 | **M-21** | Drop `debug` / `trim-v` (mechanical). Flag `on-changes` / `enrich` / `after` (Type B). |
+| 19a | **M-70** | Bare (non-vector) interceptor in a `reg-event-(db\|fx\|ctx)` slot → `[vector]`. Mechanical (Type A), but **loud-at-RUNTIME, not loud-at-compile** — `reg-event-*` throws `:rf.error/reg-event-bare-interceptor` at ns-load, the compile passes. So it can't ride march-the-wall: it's found by the **Phase-0a up-front structural grep** (scan every `reg-event-*` second-arg shape; flag any bare interceptor by *shape*, not identity) and confirmed by the boot smoke-test. Pairs with M-21 (same interceptors-slot surface). See [`auto-cross-cutting.md` §Bare interceptor](auto-cross-cutting.md#bare-interceptor--vector-wrap-m-70--mechanical-loud-at-runtime-not-loud-at-compile). |
 | 20 | **M-17** | `reg-global-interceptor` / `clear-global-interceptor` removed. Single-frame: mechanical. Multi-frame: ask. |
 | 21 | **M-7** | `reg-fx` / `reg-cofx` `:platforms` default; add `:platforms #{:client}` for browser-only fx. |
 | 21a | **M-58** | Trace-redaction factory rename. `with-redacted` → `redact-interceptor`. Single-symbol mechanical rename. v2-pre-rename only. |

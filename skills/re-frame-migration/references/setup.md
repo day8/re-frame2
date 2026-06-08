@@ -95,7 +95,7 @@ The author then runs `npm install` (or the project's package-manager equivalent)
 
 ## The coord swap (M-0)
 
-Run this only after the React-19 floor gate above returns **GO**. The dep-coord swap and the React/Reagent bump land in the same M-0 pass.
+Run this only after the React-19 floor gate above returns **GO**. The dep-coord swap, the React/Reagent bump, **any component-lib bumps, and the shadow-cljs/CLJS toolchain bump (Check 4)** all land in the same M-0 pass — carry every GO-state edit the gate identified into this one dep-file pass, so the post-M-0 compile runs against the fully-current toolchain (an older shadow-cljs left in place detonates the first compile with the cryptic `NoSuchFieldError`, Check 4). The **author runs the `npm install`** for the React/component/shadow-cljs bumps (cardinal rule 5); the skill makes the `package.json` edits and prints the install command.
 
 ### The swap itself
 
