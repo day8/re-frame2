@@ -166,7 +166,15 @@
   (let [event-str    (wire/arg raw-args :event)
         build-id     (wire/arg-build conn raw-args)
         frame        (some-> (wire/arg raw-args :frame) args/->frame-keyword)
-        fx-overrides (when-let [o (wire/arg raw-args :fx-overrides)] (js->clj o :keywordize-keys true))
+        ;; rf2-hf7m9j — coerce override VALUES (colon-prefixed string ->
+        ;; keyword) and REJECT any other value. A raw `js->clj
+        ;; :keywordize-keys true` leaves a `{":http": ":stub-http"}`
+        ;; target as the string `":stub-http"`, which core silently falls
+        ;; through to the original fx — for dry-run that defeats the
+        ;; no-fx-execute guarantee (a string override can replace the
+        ;; recording stub and fire the real effect). See `parse-fx-overrides`.
+        fx-r         (args/parse-fx-overrides (wire/arg raw-args :fx-overrides))
+        fx-overrides (when (= :ok (first fx-r)) (second fx-r))
         ;; rf2-z7roa — dry-run is an AI-facing READ surface (it returns
         ;; the would-be app-db + recorded fx args). Gate its egress on
         ;; the SAME `--allow-sensitive-reads` posture as snapshot /
@@ -188,11 +196,16 @@
                        (pr-str frame)
                        (ef/emit (ef/rt-call 'current-frame)))
         [tag payload] (parse-event-edn event-str)]
-    (case tag
-      :err
+    (cond
+      ;; rf2-hf7m9j — reject an invalid fx-overrides target up front so a
+      ;; string stub can't silently defeat the no-fx-execute guarantee.
+      (= :err (first fx-r))
+      (js/Promise.resolve (wire/err-text (second fx-r)))
+
+      (= :err tag)
       (js/Promise.resolve (wire/err-text payload))
 
-      :ok
+      :else
       (let [event-vec payload
             opts-form (cond-> {}
                         frame        (assoc :frame frame)

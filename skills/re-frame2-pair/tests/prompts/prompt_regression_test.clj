@@ -480,6 +480,35 @@
              "rf2-7a1mkv finding 3)."))))
 
 ;; ---------------------------------------------------------------------------
+;; snapshot uses plural `frames`, not singular `frame` (rf2-hf7m9j finding 2)
+;; ---------------------------------------------------------------------------
+;;
+;; The `snapshot` MCP tool reads only the plural `:frames` arg
+;; (snapshot.cljs parses `(args/parse-frames-arg (wire/arg ... :frames))`)
+;; — it has NO singular `frame` arg, unlike dispatch / get-path / read-sub.
+;; The variant-diff recipe used to call `snapshot {frame: ...}` (singular),
+;; which the tool ignores: it would snapshot the operating frame twice and
+;; produce a false comparison. These guards fail if a snapshot recipe
+;; regresses to the singular form.
+
+(deftest snapshot-recipe-uses-plural-frames-not-singular-frame
+  (testing "the variant-diff recipe selects frames via plural `frames`, not singular `frame` (rf2-hf7m9j)"
+    (let [section (recipe-section @recipes-md "Diff two variants")]
+      (is (seq section)
+          "recipes.md missing the 'Diff two variants' heading.")
+      (is (str/includes? section "snapshot {frames:")
+          (str "the variant-diff recipe no longer calls `snapshot "
+               "{frames: [...]}` (plural). snapshot has no singular "
+               "`frame` arg — it parses only :frames (snapshot.cljs) — so "
+               "a singular call snapshots the operating frame twice and "
+               "yields a false comparison (rf2-hf7m9j finding 2)."))
+      (is (not (re-find #"snapshot \{frame:" section))
+          (str "the variant-diff recipe calls `snapshot {frame: ...}` "
+               "(singular) — the tool ignores that arg. Use `snapshot "
+               "{frames: [\":...\"]}` (plural), or pin one operating frame "
+               "at a time (rf2-hf7m9j finding 2).")))))
+
+;; ---------------------------------------------------------------------------
 ;; Run
 ;; ---------------------------------------------------------------------------
 

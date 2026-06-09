@@ -47,8 +47,19 @@
       (.getParentFile)    ;; tests/
       (.getParentFile)))  ;; skills/shared/
 
+(def ^:private repo-root
+  (-> shared-root
+      (.getParentFile)    ;; skills/
+      (.getParentFile)))  ;; repo root
+
 (def ^:private surfaces-md
   (delay (slurp (io/file shared-root "tool-pair-surfaces.md"))))
+
+(def ^:private tool-pair-spec-md
+  (delay (slurp (io/file repo-root "spec/Tool-Pair.md"))))
+
+(def ^:private security-spec-md
+  (delay (slurp (io/file repo-root "spec/Security.md"))))
 
 (defn- contains-any? [text alts]
   (some #(str/includes? text %) alts))
@@ -350,6 +361,74 @@
                "its recorded samples from elision — samples are value egress "
                "and route through `elide-wire-value` before entering the "
                "change log (rf2-7g9htq.3).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock — the linked authoritative direct-read privacy specs describe the
+;; runtime-db elision registry, NOT the retired app-db one (rf2-kvpr74)
+;;
+;; `tool-pair-surfaces.md` points agents at spec/Tool-Pair.md §Direct-read
+;; privacy and spec/Security.md §Direct-read privacy as the "Full contract".
+;; Per EP-0001 the elision declaration registry is durable runtime-db state
+;; at `[:rf.runtime/elision …]` (implementation/core/src/re_frame/elision.cljc),
+;; NOT the retired app-db `[:rf/runtime :elision …]` root. A spec that still
+;; teaches the app-db path in CURRENT TENSE produces false-green direct-read
+;; privacy checks (a walker reading a dead registry emits raw values). This
+;; guard fails on a CURRENT-TENSE `[:rf/runtime :elision …]` reference in
+;; either linked spec or the shared leaf, allowing only explicit retired-
+;; history mentions (a line that names the path as retired / no-longer-used).
+;; ---------------------------------------------------------------------------
+
+(defn- retired-framing?
+  "True if the line names the legacy path inside an explicit retired-history
+   framing (so it is documentation OF the retirement, not a live claim)."
+  [line]
+  (let [l (str/lower-case line)]
+    (boolean (or (str/includes? l "retired")
+                 (str/includes? l "no longer")
+                 (str/includes? l "legacy")
+                 (str/includes? l "formerly")
+                 (str/includes? l "used to")
+                 (str/includes? l "briefly sat")))))
+
+(defn- current-tense-app-db-elision-lines
+  "Return the lines of `md` that reference the retired app-db elision
+   registry `[:rf/runtime :elision …]` in a CURRENT-TENSE framing (i.e. not
+   inside a retired-history sentence)."
+  [md]
+  (->> (str/split-lines md)
+       (filter #(re-find #"\[:rf/runtime\s+:elision" %))
+       (remove retired-framing?)))
+
+(deftest tool-pair-spec-elision-registry-is-runtime-db-not-app-db
+  (testing "spec/Tool-Pair.md direct-read privacy no longer teaches the app-db [:rf/runtime :elision] registry in current tense (rf2-kvpr74)"
+    (let [bad (current-tense-app-db-elision-lines @tool-pair-spec-md)]
+      (is (empty? bad)
+          (str "spec/Tool-Pair.md references the RETIRED app-db "
+               "`[:rf/runtime :elision …]` elision registry in current "
+               "tense. Per EP-0001 the registry is runtime-db state at "
+               "`[:rf.runtime/elision …]` (elision.cljc). Update the text "
+               "or frame the mention as retired history. Offending line(s): "
+               (pr-str bad))))))
+
+(deftest security-spec-elision-registry-is-runtime-db-not-app-db
+  (testing "spec/Security.md no longer teaches the app-db [:rf/runtime :elision] registry in current tense (rf2-kvpr74)"
+    (let [bad (current-tense-app-db-elision-lines @security-spec-md)]
+      (is (empty? bad)
+          (str "spec/Security.md references the RETIRED app-db "
+               "`[:rf/runtime :elision …]` elision registry in current "
+               "tense. Per EP-0001 the sensitive-rollup reads the runtime-db "
+               "`[:rf.runtime/elision :sensitive-declarations]` registry. "
+               "Update the text or frame the mention as retired history. "
+               "Offending line(s): " (pr-str bad))))))
+
+(deftest shared-leaf-elision-registry-is-runtime-db-not-app-db
+  (testing "tool-pair-surfaces.md no longer teaches the app-db [:rf/runtime :elision] registry in current tense (rf2-kvpr74)"
+    (let [bad (current-tense-app-db-elision-lines @surfaces-md)]
+      (is (empty? bad)
+          (str "tool-pair-surfaces.md references the RETIRED app-db "
+               "`[:rf/runtime :elision …]` registry in current tense. The "
+               "walker reads the runtime-db `[:rf.runtime/elision …]` "
+               "registry (elision.cljc). Offending line(s): " (pr-str bad))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

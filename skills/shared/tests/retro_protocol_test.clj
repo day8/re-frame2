@@ -83,6 +83,13 @@
 (def ^:private readme-md
   (delay (slurp-rel skills-root "README.md")))
 
+(def ^:private pair-retro-known-frictions-md
+  (delay (slurp-rel skills-root
+                    "re-frame2-pair-retro/references/known-frictions.md")))
+
+(def ^:private pair-retro-evals-json
+  (delay (slurp-rel skills-root "re-frame2-pair-retro/evals/evals.json")))
+
 ;; ---------------------------------------------------------------------------
 ;; Section extraction — like the re-frame2-pair prompt-regression substrate, each
 ;; assertion targets the *section* the lock belongs in, so a sloppy edit
@@ -749,6 +756,98 @@
                  "document-runnable replay shape. The fixtures aren't "
                  "CI-runnable; if the README implies they are, future "
                  "maintainers will be confused."))))))
+
+;; ---------------------------------------------------------------------------
+;; Pair-retro production/probe/filing drift (rf2-dhnixf)
+;;
+;; Finding 1 — the production-elision known-friction must not claim "every
+;; Tool-Pair surface elides"; the dev-gated surfaces (trace / epoch / schema
+;; / source-coord) go dark, but orientation / registry-frame shape, the
+;; direct-read primitives, and the always-on error-emit substrate still
+;; answer.
+;; Finding 2 — the attach-failure guidance + eval fixtures must teach the
+;; current diagnostic ladder (:nrepl-unreachable / :build-not-running /
+;; :no-runtime-connected / :runtime-loaded-but-preload-missing), not the
+;; legacy blanket :runtime-not-preloaded as the normal-case reason.
+;; Finding 3 — the README routing index must carry the optional-label /
+;; fail-open filing model, not a mandatory `pair-mcp` label.
+;; ---------------------------------------------------------------------------
+
+(deftest pair-retro-production-elision-not-blanket
+  (testing "the production-elision friction no longer claims every Tool-Pair surface elides (rf2-dhnixf finding 1)"
+    (let [body @pair-retro-known-frictions-md]
+      (is (not (str/includes? body "every Tool-Pair surface elides"))
+          (str "known-frictions.md carries the blanket 'every Tool-Pair "
+               "surface elides' claim. Only the dev-gated surfaces (trace / "
+               "epoch / schema / source-coord) elide under "
+               "debug-enabled?=false; orientation / registry-frame shape, "
+               "the direct-read primitives, and the always-on error substrate "
+               "still answer (rf2-dhnixf finding 1)."))
+      (is (contains-any? body ["orient" "orientation"])
+          (str "the narrowed production-elision friction must name "
+               "orientation / registry-frame shape as a surface that still "
+               "answers in a production-elided build (rf2-dhnixf finding 1)."))
+      (is (contains-any? body ["error-emit" "error substrate" "always-on"])
+          (str "the narrowed production-elision friction must call out the "
+               "always-on error-emit substrate as separate from the dev "
+               "trace surface (rf2-dhnixf finding 1).")))))
+
+(deftest pair-retro-teaches-diagnostic-ladder-not-blanket-reason
+  (testing "attach-failure guidance teaches the diagnostic ladder (rf2-dhnixf finding 2)"
+    (let [body @pair-retro-known-frictions-md]
+      (is (and (str/includes? body ":runtime-loaded-but-preload-missing")
+               (str/includes? body ":no-runtime-connected")
+               (str/includes? body ":build-not-running")
+               (str/includes? body ":nrepl-unreachable"))
+          (str "known-frictions.md no longer enumerates the current attach "
+               "diagnostic ladder (:nrepl-unreachable / :build-not-running / "
+               ":no-runtime-connected / :runtime-loaded-but-preload-missing). "
+               "The legacy blanket :runtime-not-preloaded must not be the "
+               "normal-case reason (rf2-dhnixf finding 2)."))
+      (is (contains-any? body ["degradation fallback" "fallback" "last-resort"
+                               "legacy"])
+          (str "known-frictions.md must frame :runtime-not-preloaded as the "
+               "fallback/legacy reason, not the normal-case verdict "
+               "(rf2-dhnixf finding 2).")))))
+
+(deftest pair-retro-eval-fixtures-cover-ladder-reasons
+  (testing "evals.json fixtures cover the current ladder reasons (rf2-dhnixf finding 2)"
+    (let [body @pair-retro-evals-json]
+      (is (str/includes? body ":runtime-loaded-but-preload-missing")
+          (str "evals/evals.json no longer carries a fixture using "
+               ":runtime-loaded-but-preload-missing (the concrete "
+               "missing-preload rung). A fixture must exercise the current "
+               "ladder so trigger guidance doesn't regress to the old "
+               "blanket reason (rf2-dhnixf finding 2)."))
+      (is (contains-any? body [":no-runtime-connected" ":build-not-running"
+                               ":nrepl-unreachable"])
+          (str "evals/evals.json no longer carries a fixture for a "
+               "non-preload ladder reason (:no-runtime-connected / "
+               ":build-not-running / :nrepl-unreachable). At least one "
+               "non-preload rung must be represented (rf2-dhnixf finding 2).")))))
+
+(deftest readme-routing-uses-optional-label-model
+  (testing "skills/README.md routing index carries the optional-label / fail-open filing model (rf2-dhnixf finding 3)"
+    (let [body @readme-md]
+      (is (str/includes? body "Labels are optional taxonomy")
+          (str "skills/README.md §Routing no longer states labels are "
+               "optional taxonomy, not a filing precondition. An agent "
+               "following the index could call `gh issue create --label "
+               "pair-mcp` as mandatory and fail filing on a repo without "
+               "that label (rf2-dhnixf finding 3)."))
+      (is (contains-any? body ["gh label list"])
+          (str "skills/README.md §Routing must reference `gh label list` "
+               "as the precondition for adding a `--label`, matching the "
+               "pair-retro filing contract (rf2-dhnixf finding 3)."))
+      (is (not (re-find #"(?m)\*\*with\*\* the `pair-mcp` label" body))
+          (str "skills/README.md §Routing still mandates filing **with** the "
+               "`pair-mcp` label. Align with the optional-label model: the "
+               "title/body carry the distinction; the label is optional "
+               "(rf2-dhnixf finding 3)."))
+      (is (str/includes? body "re-frame2-pair-retro/SKILL.md#filing-improvements")
+          (str "skills/README.md §Routing should point at re-frame2-pair-"
+               "retro's filing section rather than restate the operational "
+               "label rules (rf2-dhnixf finding 3).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

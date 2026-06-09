@@ -248,3 +248,38 @@
 (deftest parse-timeout-arg-rejects-fractional
   (let [[tag _] (args/parse-timeout-arg "timeout-ms" 12.5)]
     (is (= :err tag) "a fractional millisecond is not a valid integer deadline")))
+
+;; ---------------------------------------------------------------------------
+;; fx-overrides parse (rf2-hf7m9j) — over JSON-MCP the override VALUE
+;; arrives as a string. The documented colon-prefixed form coerces to a
+;; keyword (so core honours it as an id-redirect); any other value is
+;; rejected rather than silently falling through to the real fx.
+;; ---------------------------------------------------------------------------
+
+(deftest parse-fx-overrides-nil-and-absent
+  (is (= [:ok nil] (args/parse-fx-overrides nil)) "absent ⇒ ok nil")
+  (is (= [:ok nil] (args/parse-fx-overrides js/undefined)) "undefined ⇒ ok nil"))
+
+(deftest parse-fx-overrides-colon-string-coerces-to-keyword
+  (let [[tag m] (args/parse-fx-overrides #js {":http" ":stub-http"})]
+    (is (= :ok tag))
+    (is (= {:http :stub-http} m)
+        "colon-prefixed target string ⇒ keyword id-redirect")))
+
+(deftest parse-fx-overrides-multiple-targets
+  (let [[tag m] (args/parse-fx-overrides #js {":http" ":stub-http" ":navigate" ":noop-nav"})]
+    (is (= :ok tag))
+    (is (= {:http :stub-http :navigate :noop-nav} m))))
+
+(deftest parse-fx-overrides-null-value-is-noop-placeholder
+  (let [[tag m] (args/parse-fx-overrides #js {":http" nil})]
+    (is (= :ok tag))
+    (is (= {:http nil} m) "null ⇒ documented no-op placeholder, not a reject")))
+
+(deftest parse-fx-overrides-bare-string-rejected
+  (let [[tag _] (args/parse-fx-overrides #js {":http" "stub-http"})]
+    (is (= :err tag) "a non-colon string would silently fall through to the real fx")))
+
+(deftest parse-fx-overrides-non-string-rejected
+  (is (= :err (first (args/parse-fx-overrides #js {":http" 42}))) "number target rejected")
+  (is (= :err (first (args/parse-fx-overrides #js {":http" true}))) "boolean target rejected"))

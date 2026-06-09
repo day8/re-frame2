@@ -363,12 +363,12 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 **Procedure:**
 
-1. Snapshot each variant's `app-db`:
+1. Snapshot each variant's `app-db`. `snapshot` selects frames via the **plural `frames`** arg (an array of frame-id strings or `"all"`) — it has no singular `frame` arg, unlike `dispatch` / `get-path` / `read-sub`:
    ```
-   mcp__re-frame2-pair__snapshot {frame: ":story.counter/empty"}
-   mcp__re-frame2-pair__snapshot {frame: ":story.counter/loaded"}
+   mcp__re-frame2-pair__snapshot {frames: [":story.counter/empty"]}
+   mcp__re-frame2-pair__snapshot {frames: [":story.counter/loaded"]}
    ```
-   With the MCP `:summary` default, each result returns top-level keys + counts — drill into divergent keys with `get-path`.
+   (Or snapshot both in one round-trip — `snapshot {frames: [":story.counter/empty", ":story.counter/loaded"]}` — and diff the two entries.) With the MCP `:summary` default, each result returns top-level keys + counts — drill into divergent keys with `get-path`.
 2. Compute the diff. If both are small, return them inline and let the model narrate. If they're large, drive `clojure.data/diff` directly:
    ```
    mcp__re-frame2-pair__eval-cljs {
