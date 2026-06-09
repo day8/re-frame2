@@ -12,13 +12,14 @@ A **frame** is an **isolated runtime boundary**, identified by keyword, that own
 
 All frames share **one global handler registrar**. Multi-frame means "multiple instances of the same app's handlers" — devcards, isolated widgets, story variants, test fixtures — not "multiple different apps with different handler sets on one page." The latter use case (micro-frontends, embedded white-label widgets) is out of scope; iframes already serve it.
 
-**Single-frame is one shape of multi-frame.** A pre-registered `:rf/default` catches every dispatch and subscription that doesn't specify a frame. An app that only ever uses `:rf/default` is a multi-frame app with one frame in play — same runtime, same routing, same drain loop. The default isn't a migration shim; it's the no-ceremony case of the canonical addressing model.
+**Single-frame is one shape of multi-frame.** An app with one frame in play is a multi-frame app — same runtime, same routing, same drain loop — that has established exactly one frame scope. Inside that scope every dispatch and subscription stays ambient and ergonomic; the single frame is invisible *inside its own scope*. What there is **no longer** is a process-global `:rf/default` that catches operations issued under **no** scope at all: per [§Frame target resolution](#frame-target-resolution--the-carried-invariant) below (EP-0002), the runtime never synthesises a frame from absence. `:rf/default` remains a legal frame id a small app or test may **explicitly** choose; it is not a fallback the runtime infers.
 
 ## Goals
 
-This Spec inherits the constraints and goals from 000 and adds two frame-specific design rules:
+This Spec inherits the constraints and goals from 000 and adds three frame-specific design rules:
 
-- **Frame plurality is invisible to single-frame apps.** No new API surfaces in user code unless the user opts in.
+- **Frame plurality is invisible inside a frame's scope.** Once a root, provider, or lexical binding has established a frame, no new API surfaces in user code — dispatch and subscribe stay ambient and ergonomic inside that scope. What is **not** invisible is the absence of *any* scope: a frame-scoped operation issued with no carried frame and no established scope is a loud error, not a silent write to a conventional default (per [§Frame target resolution](#frame-target-resolution--the-carried-invariant), EP-0002). This refines — it does not wholesale revoke — the earlier "invisible to single-frame apps" goal: plurality is invisible *inside* a scope; only *rootless* invisibility is gone.
+- **Frame identity is carried, not found.** Frame identity is a value that travels with every causal token — a dispatch, an fx context, a captured callback, an epoch record, an SSR payload. An operation reads its frame from the token it holds; it never discovers one from the ambient world. This is the EP-0002 carried invariant, normatively stated in [§Frame target resolution](#frame-target-resolution--the-carried-invariant).
 - **Frame identity is a value, not a reference.** Frames are addressed by keyword in user code; runtime frame *records* are an internal detail.
 
 ## API at a glance
@@ -36,11 +37,11 @@ This Spec inherits the constraints and goals from 000 and adds two frame-specifi
 (rf/reg-view counter [label] ,,,)               ;; defn-shape; injects frame-bound `dispatch`/`subscribe`
 
 ;; Plain (non-view) APIs — frame-aware variants
-(rf/dispatch      [:foo])                          ;; defaults to :rf/default
-(rf/dispatch      [:foo] {:frame :todo             ;; opts map extends the dispatch envelope
+(rf/dispatch      [:foo])                          ;; ambient — requires an established frame scope (else :rf.error/no-frame-context)
+(rf/dispatch      [:foo] {:frame :todo             ;; opts map extends the dispatch envelope; explicit override always works
                           :fx-overrides {:my-app/http stub-fn}})
 (rf/dispatch-sync [:foo] {:fx-overrides {...}})    ;; same opts-arg shape, sync variant
-(rf/subscribe     [:bar])                          ;; defaults to :rf/default
+(rf/subscribe     [:bar])                          ;; ambient — requires an established frame scope
 (rf/subscribe     [:bar] {:frame :todo})           ;; opts arg targets a specific frame
 
 ;; Test/REPL helper
@@ -48,6 +49,218 @@ This Spec inherits the constraints and goals from 000 and adds two frame-specifi
   (rf/dispatch-sync [:init])
   @(rf/subscribe [:status]))
 ```
+
+## Frame target resolution — the carried invariant
+
+> **What this section is.** This is the normative core of frame addressing — the
+> contract that decides *which frame a frame-scoped operation acts on*. It is the
+> spec realisation of [EP-0002 (Explicit Frame Target Resolution)](../docs/EP/EP-0002-frame-target-resolution.md).
+> It is deliberately small: the rule is one invariant and a short derivation. The
+> migration that retires the old ambient `:rf/default` fallback is the EP's
+> implementation chain, not this section.
+
+### The invariant
+
+> **Frame identity is carried, not found.** Frame identity is a value that travels
+> with every **causal token** — a dispatch envelope, an fx context, a captured
+> callback, an epoch record, a trace event, an SSR payload. A frame-scoped operation
+> reads its frame from the token it is holding. **It never discovers one from the
+> ambient world, and it never synthesises one from absence.**
+
+A *frame-scoped operation* is any API that reads, writes, clears, registers,
+projects, or dispatches against frame-local state — app-db, runtime-db, the
+subscription cache, route, machine, HTTP, SSR, trace, epoch, mark, or elision
+state. (Process-global registrar enumeration — `frame-ids`, `frame-meta`,
+`registrations` — is **frame-neutral**: it does not invent a current frame and is
+not routed through this resolver.)
+
+**Absence is the corollary error.** A causal token that carries no frame stamp, in
+no established scope, cannot be honoured. The operation fails with
+`:rf.error/no-frame-context` rather than repairing absence by selecting a
+conventional default. This is the whole rule; everything below is its shape.
+
+### How a frame is carried — scope / hold / override
+
+Frame identity reaches an operation through exactly the three intents the Views
+chapter already teaches ([`docs/api/02-views.md`](../docs/api/02-views.md)). There is
+**no separate priority-list of "ambient places to search"** — that was the old
+four-tier chain, and removing its `:rf/default` floor is what this EP does.
+
+| Intent | Surfaces | What it is |
+|---|---|---|
+| **scope** | `with-frame` / `with-new-frame`, `frame-provider`, the router's per-handler binding | a frame established for a **synchronous** region — a render subtree, a lexical block, a handler invocation. Ambient *inside* the region. |
+| **hold** | `frame-handle`, `frame-bound-fn` / `frame-bound-fn*`, the dispatch envelope threaded through a cascade, a captured frame stamp on any deferred callback | the frame **reified as a value** and carried across boundaries — async hops, tool sessions, fx closures. |
+| **override** | the per-call `{:frame …}` opt | the frame named **explicitly at the call site**. Always wins; the right shape for callbacks, tools, tests, SSR. |
+
+At a boundary the three collapse to the only distinction that matters:
+
+- **carried as a value** — *hold* + *override*. Survives any boundary by
+  construction; nothing to evaporate.
+- **ambient in an established scope** — *scope*. Honest *because the scope is
+  explicit*; the danger was never "ambient", it was "ambient with an invented
+  floor". Remove the floor and ambient-from-an-explicit-scope is sound.
+
+**`hold` is the primary mental model; `scope` is sugar.** A *scope* evaporates at
+the first async hop — `with-frame` "supplies a frame only for the synchronous
+evaluation" — which is the same silent-absence failure family this contract
+abolishes. So the robust carrier is the **captured handle** (*hold*): `frame-handle`
+hands back `{:frame :dispatch :dispatch-sync :subscribe}` *bound to a frame by
+construction*; the frame is the functions you are holding, not something ambient
+that can unwind. Author async and tooling paths with *hold*; reach for *scope*
+(`with-frame`) only inside synchronous roots, never near an async boundary. See
+[§frame-handle](#frame-handle--the-keystone-affordance-cljs-reference) and
+[§React click-handler routing](#react-click-handler-routing--the-canonical-pattern)
+for the worked patterns.
+
+### One carrier, one name — the frame stamp
+
+Frame identity travels under **one canonical, inspectable shape** wherever a causal
+token flows: the **frame stamp**. The historically fragmented spellings — `:frame`
+(dispatch opt), `:rf.frame/id` (event context, per EP-0001), `:rf/frame-id` (SSR
+payload), and the tooling keys `url-owner-frame-id` / `:target-frame` /
+`:own-frame` / `default-target-frame` — are unified into this one carrier. The two
+public spellings users type are unchanged: **`:frame`** is the dispatch/subscribe
+**opt**; **`:rf.frame/id`** is its event-context spelling. Both name the same
+stamp.
+
+The genuinely distinct cases are **roles**, not unrelated keys, and they are
+expressed as **qualified** stamps:
+
+| Role | Meaning | Carries |
+|---|---|---|
+| target | the frame an operation acts on (the default, unqualified stamp) | the frame id |
+| URL owner | the frame that owns the browser URL and receives popstate (per [012-Routing.md](012-Routing.md)) | a qualified stamp |
+| inspected target | the host frame a tool inspects, distinct from the tool's own frame | a qualified stamp |
+| tool own | a tool's own state frame (e.g. `:rf/xray`) | a qualified stamp |
+
+Resolution is then "read the stamp on the token I hold"; `:rf.error/no-frame-context`
+is "this token carries no stamp"; conformance is "every causal token either carries
+a well-formed stamp or is explicitly classified frameless." One key to teach, one
+shape to validate, one thing for tools to render.
+
+### The error and its ladder
+
+`:rf.error/no-frame-context` is reserved for the **absence of a target**, not for a
+**bad** target. The two are distinct:
+
+- **Absent target.** No carried stamp, no established scope. Resolution fails with
+  `:rf.error/no-frame-context` **before** any frame-registry lookup — so a missing
+  context is never mis-reported as `:rf.error/frame-destroyed` for a synthesised
+  default.
+- **Bad explicit target.** A caller supplies `{:frame :ghost}` explicitly.
+  Resolution has *succeeded* (a stamp was carried); the registry lookup then reports
+  `:rf.error/frame-destroyed` or another no-such-frame shape per [§Destroy](#destroy).
+
+The frameless error is itself frameless: it is emitted through the **always-on error
+axis** (the production-survivable error-emit listener, surface #4 per
+[009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production)),
+not per-frame epoch capture. It carries **capture-site ancestry** through the
+existing `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` correlation graph,
+so the hardest case — a callback captured at handler X in frame Y whose continuation
+fires with no stamp after the cascade ended — is fully attributed even though the
+error has no frame of its own.
+
+A representative payload:
+
+```clojure
+{:rf.error/id :rf.error/no-frame-context
+ :operation   :dispatch
+ :where       :re-frame.router/dispatch!
+ :event-id    :todo/add
+ :recovery    :supply-frame}
+```
+
+### Two layers — strict core, tiered discovery
+
+The contract is **scoped to where each formulation is correct**. This is the key
+reconciliation: the embedded application path and the interactive tool path have
+different operator-presence, so they get different rules — *the same stamp*, a
+different policy on absence.
+
+- **Embedded app / runtime path — strict (Option C).** No operator is present, a
+  wrong target writes silently, and the operation must replay. Absence is
+  `:rf.error/no-frame-context`. The justification is **replay determinism +
+  temporal non-locality**, not purity: a silently-defaulted frame poisons replay
+  (`restore-epoch`, time-travel, Story / Causa determinism all become unsound), and
+  "sole live frame" is true only until a second frame appears — so an ambient floor
+  would let adding Xray, Story, or an SSR frame silently change the meaning of
+  distant, untouched application code.
+- **Interactive discovery layer — tiered (Tool-Pair / Xray / pair-MCP).** An
+  operator or agent is driving; ambiguity can prompt. This layer **keeps** its
+  proven four-tier operating-frame contract: ① explicit override → ② session-pinned
+  selection → ③ **sole registered *app* frame** (reserved `:rf/*` tool frames
+  excluded from the count) → ④ refuse. Tier 3 is **unique resolution, not
+  synthesis** — inventing a frame from nothing is unsound; observing that exactly
+  one registered app frame *is* the answer is a total, honest function — so it is
+  **not reconciled away**; it is scoped to the operator-present layer. The full
+  contract is owned by [Tool-Pair §Operating-frame resolution](Tool-Pair.md).
+
+**One ladder across both layers.** The three vocabularies that meet at this seam —
+`:rf.error/no-frame-context` (core, absent), `:ambiguous-frame` (tool, plural), and
+`:rf.tool/no-frame-selected` (tool, unselected) — are reconciled into **one ordered
+ladder**: **absent → ambiguous → unselected**. A core mutation that finds *absent*
+raises; a tool read that finds *plural* returns `:ambiguous-frame`; a tool surface
+with no pinned target returns `:rf.tool/no-frame-selected`. Same stamp, one ladder,
+different layer.
+
+### `:rf/default` is an ordinary id
+
+`:rf/default` carries **no framework privilege**. It is not created by `init!`, not
+the React-context default, not a lookup tier, and not a request the runtime infers
+from a missing `:rf.frame/id`. It remains a perfectly legal frame id that a small
+app, example, or test may **explicitly** register and select:
+
+```clojure
+(rf/reg-frame :rf/default {:doc "The app frame for this program."})
+
+(rf/with-frame :rf/default
+  (rf/dispatch [:app/boot]))
+```
+
+A migration may choose `:rf/default` as its explicit app-frame id; the runtime will
+not infer it.
+
+### What this revokes — and what it does not
+
+This contract **refines** the earlier goal "frame plurality is invisible to
+single-frame apps" rather than wholesale revoking it. A single-frame app under this
+contract still has exactly **one** root `frame-provider` / `with-frame`; *inside that
+scope* every call stays ambient and ergonomic — no `{:frame …}` typing, no ceremony.
+What dies is not in-scope invisibility but **rootless** invisibility: bare calls with
+no established scope at all — exactly the async-callback, tool, test-fixture, and SSR
+cases this EP rightly calls dangerous. The values ranking that makes this coherent is
+recorded once: **explicit, carried frame identity outranks v1 call-shape fidelity**
+(per [EP-0002 §Resolved Decisions R7](../docs/EP/EP-0002-frame-target-resolution.md#resolved-decisions)).
+
+### Resolver surface (contract)
+
+The central frame readers separate **reading** absence from **requiring** a frame.
+Low-level readers may return `nil` so detection, frame pickers, and tooling can model
+"no context" without throwing; public frame-scoped operations call the *require*
+helper and fail outside context — so the nil-returning reader never becomes a
+second, softer fallback.
+
+```clojure
+(frame/current-frame)
+;; the lexical/dynamic scope frame, or nil — a reader, does not repair absence
+
+(frame/resolve-current-frame)
+;; the dynamic-or-adapter-context scope frame, or nil — a reader, does not repair absence
+
+(frame/require-current-frame! operation payload)
+;; the frame stamp, or raises/emits :rf.error/no-frame-context
+```
+
+Public frame-scoped operations that resolve ambiently — `rf/dispatch`,
+`rf/subscribe`, `rf/current-frame-id`, no-arg `rf/frame-handle`, no-arg
+`rf/frame-bound-fn*`, and the context-defaulting read/clear helpers — call the
+*require* helper and fail outside context. The no-arg *hold*-capture forms
+(`frame-handle`, `frame-bound-fn*`) capture **only** when a real scope exists at
+capture time; capturing outside any scope is `:rf.error/no-frame-context`, never a
+captured default. The full migration of each call site — router envelope
+construction, the subscription/read surfaces, the React-context default, the
+framework-fx defaults, SSR, trace/elision projection, and the tool layer — is the
+EP-0002 implementation chain (see [EP-0002 §Bead Structure](../docs/EP/EP-0002-frame-target-resolution.md#bead-structure)).
 
 ## What lives in a frame
 
@@ -332,7 +545,16 @@ Equivalent to `(destroy-frame! :todo)` followed by `(reg-frame :todo <current-co
 
 ### `:rf/default`
 
-Registered by re-frame at load time, under the keyword `:rf/default`, as a regular registry entry. No special-casing in the lookup path. Listable in tooling. Overridable by re-registration: a user who really wants different default behaviour calls `(rf/reg-frame :rf/default <metadata>)` like any other frame; the surgical-update rules above apply, the metadata reflects the user-supplied keys, and the runtime emits `:rf.frame/re-registered` so tooling can detect the override. (Rare in practice; the only common case is widening `:drain-depth` for an app-wide debug session.)
+`:rf/default` is an **ordinary frame id** with no framework privilege (per
+[§Frame target resolution §`:rf/default` is an ordinary id](#rfdefault-is-an-ordinary-id)).
+The runtime does **not** register it at load time, does **not** create it from
+`init!`, and does **not** infer it from a missing frame stamp. It is a perfectly
+legal keyword a small app, example, or test may **explicitly** register and select
+via `(rf/reg-frame :rf/default <metadata>)`, like any other frame — the
+surgical-update rules above apply, and the runtime emits `:rf.frame/re-registered`
+on re-registration. A migration may adopt `:rf/default` as its explicit app-frame
+id; the runtime will not infer it. Absence of any frame is `:rf.error/no-frame-context`,
+not a silent selection of `:rf/default`.
 
 ### Frame presets — capability bundles for common configurations
 
@@ -502,19 +724,22 @@ The router reads the envelope's `:frame`, looks up the frame in the registry, an
 
 ### How `:frame` gets attached
 
-In priority order, where the frame keyword comes from:
+The frame stamp on the envelope is supplied through the **scope / hold / override**
+intents of [§Frame target resolution](#frame-target-resolution--the-carried-invariant) —
+**not** a priority list of ambient places that bottoms out in a default. There is no
+`:rf/default` fallback rung; absence is `:rf.error/no-frame-context`.
 
-1. **Explicit `:frame` in the dispatch opts map.** `(dispatch [:foo] {:frame :todo})` always wins. The opts map's keys flow straight into the dispatch envelope.
-2. **Lexical `dispatch` injected by `reg-view`.** The closure carries the frame keyword resolved from React context at render. (See View Ergonomics, below.) Internally, the injected `dispatch` is `(fn [event] (dispatch event {:frame <captured>}))`.
-3. **Dynamic binding.** Inside `(with-frame :todo ...)` (test/REPL helper), a Clojure dynamic var carries the frame; the bare `(rf/dispatch [:foo])` in the body picks it up. This makes `(with-frame :todo (rf/dispatch [:foo]))` Just Work without an opts map. **The router establishes the same binding around every running handler** (per [§Dispatches issued from inside a handler body](#dispatches-issued-from-inside-a-handler-body) below), so a synchronous `(rf/dispatch [:foo])` from inside a handler running on `:todo` also resolves to `:todo` — not `:rf/default`.
-4. **Default.** `:rf/default`.
+1. **override** — explicit `:frame` in the dispatch opts map. `(dispatch [:foo] {:frame :todo})` always wins; the opts map's keys flow straight into the dispatch envelope.
+2. **hold** — a carried stamp. `reg-view`-injected `dispatch` carries the frame captured from React context at render (internally `(fn [event] (dispatch event {:frame <captured>}))`); a `frame-handle` / `frame-bound-fn*` op carries the frame captured at creation; a cascade child inherits `:frame` from the parent envelope threaded through the queue.
+3. **scope** — an established synchronous region. Inside `(with-frame :todo …)` a dynamic var carries the frame, so a bare `(rf/dispatch [:foo])` in the body resolves to `:todo`. **The router establishes the same scope around every running handler** (per [§Dispatches issued from inside a handler body](#dispatches-issued-from-inside-a-handler-body) below), so a synchronous `(rf/dispatch [:foo])` from inside a handler running on `:todo` resolves to `:todo`.
+4. **absent** — none of the above. `(rf/dispatch [:foo])` with no carried stamp and no established scope fails with `:rf.error/no-frame-context` (per [§The error and its ladder](#the-error-and-its-ladder)). The runtime does not synthesise a frame.
 
 ### Dispatches issued from inside a handler body
 
 The router binds the dynamic-var tier of the resolution chain to the in-flight event's `:frame` for the duration of `process-event!`. The contract is:
 
 - **Synchronous dispatch from inside a handler body routes to the handler's frame.** A `reg-event-fx` whose body calls `(rf/dispatch [:child])` and returns `{}` dispatches `:child` to the same frame the parent is running on. The same applies to `(rf/frame-handle)` and `(rf/current-frame-id)` — both read the dynamic-var tier first.
-- **Async callbacks escape the binding.** When a handler defers work via `js/setTimeout`, `js/Promise.then`, `requestAnimationFrame`, or any other host-level async primitive, the deferred callback fires on a fresh stack with no dynamic binding. A bare `(rf/dispatch [:child])` from inside the callback falls through to `:rf/default`. This is a fundamental property of dynamic scope — not a bug.
+- **Async callbacks escape the scope.** When a handler defers work via `js/setTimeout`, `js/Promise.then`, `requestAnimationFrame`, or any other host-level async primitive, the deferred callback fires on a fresh stack with no dynamic binding — the *scope* has evaporated. A bare `(rf/dispatch [:child])` from inside the callback carries no stamp and fails with `:rf.error/no-frame-context` (it does **not** fall through to `:rf/default`). This is why async paths must use *hold*: capture the frame as a value before the boundary. The escape is a fundamental property of dynamic scope; the loud failure is the contract working as designed (per [§Frame target resolution](#frame-target-resolution--the-carried-invariant)).
 
 The three frame-safe affordances for async callbacks are, in canonical-first order:
 
@@ -689,17 +914,17 @@ Form-1/2/3 component handling, plain Reagent fns and the `frame-handle` affordan
 
 ### The multi-frame surface — choose by intent
 
-The frame affordances are organised by **what you are trying to do**, not by mechanism (a front-porch / back-room split):
+The frame affordances are organised by **what you are trying to do**, not by mechanism (a front-porch / back-room split). They are the three carried-invariant intents of [§Frame target resolution](#frame-target-resolution--the-carried-invariant) plus the read/lifecycle surface:
 
-- **Single-frame (no frames in play):** `dispatch`, `dispatch-sync`, `subscribe` — resolve the active frame ambiently.
-- **Scope:** `with-frame` (pin to an existing frame), `with-new-frame` (create + own + destroy), `frame-provider` (React subtree).
-- **Hold (carry a frame's ops as a value, across async):** `frame-handle` (common), `frame-bound-fn` / `frame-bound-fn*` (advanced wrap).
+- **Ambient (inside an established scope):** `dispatch`, `dispatch-sync`, `subscribe` — resolve the active frame from the surrounding *scope*. They require a scope: with none established, they fail with `:rf.error/no-frame-context` (they do not select a default).
+- **Scope:** `with-frame` (pin to an existing frame), `with-new-frame` (create + own + destroy), `frame-provider` (React subtree). Synchronous; evaporates at an async hop.
+- **Hold (carry a frame's ops as a value, across async):** `frame-handle` (common), `frame-bound-fn` / `frame-bound-fn*` (advanced wrap). The robust carrier — the **primary** model for async and tooling.
 - **Override:** the `{:frame …}` opt — first-class explicit routing for tools / tests / SSR / fx handlers.
 - **Reads / lifecycle:** `app-db-value`, `runtime-db-value`, `frame-state-value`, `current-frame-id`, `snapshot-of`, `destroy-frame!`, `make-frame`, `reg-frame`, `frame-ids`, `frame-meta`.
 
 ### `frame-handle` — the keystone affordance (CLJS reference)
 
-Ambient frame lookup (dynamic var → React context → `:rf/default`) does **not** survive async boundaries. `frame-handle` is the answer: it captures the frame at CREATION time and returns an OPERATION BUNDLE whose ops always target the captured frame.
+Ambient *scope* lookup (dynamic var → React context) does **not** survive async boundaries — and there is no `:rf/default` floor underneath it, so a bare ambient call after the scope unwinds fails rather than silently targeting a default. `frame-handle` is the answer — the *hold* primitive: it captures the frame at CREATION time and returns an OPERATION BUNDLE whose ops always target the captured frame.
 
 ```clojure
 (rf/frame-handle)            ;; capture the ambient frame (current-frame-id)
@@ -786,7 +1011,7 @@ For non-React async callbacks — `setTimeout`, `setInterval`, `Promise.then`, w
 - **`:fx [[:dispatch ...]]`** — the canonical pattern for handler-emitted dispatches; the fx-walker threads the frame through automatically.
 - **`:fx [[:dispatch-later ...]]`** — closure-captured frame, survives the timer.
 
-All five (`frame-handle`, `frame-bound-fn`, `frame-bound-fn*`, `:dispatch`, `:dispatch-later`) share the same shape: render/handler-time capture of the frame as a closure value, which then rides through to call time. The bare-dispatch-from-an-async-callback case is the *only* one where the frame falls through — and it triggers the `:rf.warning/dispatch-from-async-callback-fell-through-to-default` warning to surface the misuse.
+All five (`frame-handle`, `frame-bound-fn`, `frame-bound-fn*`, `:dispatch`, `:dispatch-later`) share the same shape: render/handler-time capture of the frame as a closure value, which then rides through to call time. The bare-dispatch-from-an-async-callback case is the *only* one where the scope has unwound with no carried stamp — and under [§Frame target resolution](#frame-target-resolution--the-carried-invariant) it **fails loudly** with `:rf.error/no-frame-context` rather than falling through to a default. (The legacy `:rf.warning/dispatch-from-async-callback-fell-through-to-default` warning vocabulary — which described falling through to `:rf/default` as a tolerated-but-warned outcome — is retired by EP-0002; the loud error replaces it. Vocabulary retirement across [Spec-Schemas](Spec-Schemas.md) / [009](009-Instrumentation.md) is the EP's trace/elision chain bead.)
 
 ### Subscriptions composing across the signal graph
 
@@ -898,10 +1123,17 @@ A thin wrapper over the rendering library's React context. It puts the **keyword
 Implementation skeleton (Reagent flavour):
 
 ```clojure
-(defonce ^:private frame-context (js/React.createContext :rf/default))
+;; The React-context default is a NO-PROVIDER SENTINEL, not :rf/default —
+;; absence of a provider must be detectable as absence (per EP-0002), so the
+;; read tier can return nil and the resolver can fail loudly rather than
+;; synthesise a default. See [§Frame target resolution].
+(defonce ^:private frame-context (js/React.createContext ::no-frame))
 
 (defn frame-provider [props & children]
-  (let [frame (or (:frame props) :rf/default)]
+  ;; `:frame` is REQUIRED. There is no `(or (:frame props) :rf/default)` floor:
+  ;; a frame-provider with no :frame is a configuration error
+  ;; (:rf.error/no-frame-context), not a silent default.
+  (let [frame (:frame props)]
     ;; `:r>` bypasses Reagent's `convert-prop-value`; the props map flows
     ;; to React as a raw JS object. That bypass preserves the namespace
     ;; of namespaced frame keywords (`:tenant/admin`), which stock
@@ -910,7 +1142,13 @@ Implementation skeleton (Reagent flavour):
     (into [:r> (.-Provider frame-context) #js {:value frame}] children)))
 ```
 
-A missing or `nil` `:frame` falls through to `:rf/default` — matches the no-provider case (defensive default). An explicit `(rf/frame-provider {} ...)` is therefore equivalent to no provider at all; tooling-generated trees that elide the prop don't blow up.
+`frame-provider` **requires** `:frame`. There is no missing-`:frame`-falls-through-to-`:rf/default`
+floor: an explicit `(rf/frame-provider {} …)` with no frame establishes no usable
+scope, and descendant ambient calls fail with `:rf.error/no-frame-context` (per
+[§Frame target resolution](#frame-target-resolution--the-carried-invariant)) rather
+than targeting a conventional default. Tooling-generated trees must supply the frame
+explicitly. (The exact migration of the React-context default, the corrupted-context
+detector, and the shared substrate spine is the EP-0002 root/view chain bead.)
 
 `rf/frame-provider` is the canonical user-facing API; the lower-level `re-frame.views/build-frame-provider` factory remains as the **substrate hook** (per [Spec 006 §`(register-context-provider frame-keyword)`](006-ReactiveSubstrate.md#register-context-provider-frame-keyword--component)) — adapter implementors register a context-provider component through it, and `rf/frame-provider` delegates to whatever the active adapter returned.
 
@@ -1590,7 +1828,7 @@ re-frame2 commits to a queryable public registrar for every kind of registered e
 | `(rf/app-db-value id)` | Current **app-db** partition value (a plain map) for the named frame. Returns nil if the frame is not registered. | Yes |
 | `(rf/runtime-db-value id)` | Current **runtime-db** partition value for the named frame (framework-owned subsystem state). Returns nil if the frame is not registered. Tooling / privileged-runtime read. | Yes |
 | `(rf/frame-state-value id)` | The coherent **frame-state** projection `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. Returns nil if the frame is not registered. The full-frame read for SSR / epoch / time-travel / Xray. | Yes |
-| `(rf/snapshot-of path)` / `(rf/snapshot-of path opts)` | Snapshot value at a path in a frame's `app-db` (typically a machine snapshot). One-arg form uses `:rf/default` frame; two-arg accepts `{:frame frame-id}`. | Yes |
+| `(rf/snapshot-of path)` / `(rf/snapshot-of path opts)` | Snapshot value at a path in a frame's `app-db` (typically a machine snapshot). One-arg form resolves the frame from the surrounding *scope* (and fails with `:rf.error/no-frame-context` outside any scope — it does not default to `:rf/default`); two-arg accepts `{:frame frame-id}`. | Yes |
 | `(rf/sub-topology)` | **Static** dependency graph over the registrar: a map of `sub-id → {:input-kind <kind>, :inputs <inputs>, :doc, :ns/:line/:file}`. `:input-kind` is `:db` / `:static` / `:parametric`; `:inputs` carries the literal `:<-` input query vectors for `:static`, `[]` for `:db`, and `:parametric` for an `input-fn` sub (whose realized edge set is not statically enumerable — realized edges per concrete query vector live in `sub-cache`). Pure data derived from the registrar at registration time. | Yes |
 | `(rf/sub-cache id)` | **Runtime** cache state for a frame: which subs are currently materialised, their current cached values, dependent components if any. Requires the reactive runtime. | **No** — CLJS-only |
 
@@ -1646,6 +1884,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 
 | Decision | Pointer |
 |---|---|
+| Frame target resolution — the carried invariant (EP-0002 / rf2-u5o1bo) — frame identity is **carried, not found**: it travels with every causal token as one canonical **frame stamp**, read via the **scope / hold / override** triad (no ambient priority-list, no `:rf/default` floor); absence is `:rf.error/no-frame-context` (emitted always-on, with capture-site ancestry); `hold` is the primary async-safe carrier, `scope` is sync sugar; `:rf/default` is an ordinary id the runtime never infers; **strict embedded core vs tiered interactive discovery** (Tool-Pair keeps tier-3 unique resolution) reconciled into one **absent → ambiguous → unselected** ladder; rationale leads with **replay determinism** | [§Frame target resolution](#frame-target-resolution--the-carried-invariant), [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md), [Tool-Pair](Tool-Pair.md) |
 | Two-partition frame contract (EP-0001 / rf2-h0d6s6, 14 rulings) — a frame owns user **app-db** (`:db`) + framework **runtime-db** (`:rf.db/runtime`), held as ONE physical frame-state container with app-db/runtime-db projection reactions; an ordinary `:db` return replaces only app-db; `:rf.db/runtime` reserved by convention (not a security boundary); both whole-value and operation-style runtime writes; partition-aware invalidation falls out of projection-equality (no dirty flags); `reset-frame!` resets the whole frame; accessors `app-db-value`/`runtime-db-value`/`frame-state-value`, mutators `replace-app-db!`/`replace-runtime-db!`/`replace-frame-state!` | [§The two-partition frame contract](#the-two-partition-frame-contract), [Conventions §The two-partition frame contract](Conventions.md#the-two-partition-frame-contract) |
 | Frame presets — closed v1 set `:default` / `:test` / `:story` / `:ssr-server`; expansion is `(merge expansion user-supplied-metadata)` with user keys winning on conflict; adding a fifth preset is a Spec-change-only operation; `:devcards` (subsumed by `:story`), `:repl` (subsumed by `:default`), `:replay` (too coupled to Tool-Pair to stabilise) considered and not adopted in v1 | [§Frame presets](#frame-presets--capability-bundles-for-common-configurations) |
 | `reg-frame` re-registration is a surgical update by default; `reset-frame!` is the opt-in full replace; `destroy-frame!` removes from registry | [§Re-registration — surgical update](#re-registration--surgical-update), [§reset-frame! — full replace, opt-in](#reset-frame--full-replace-opt-in) |
