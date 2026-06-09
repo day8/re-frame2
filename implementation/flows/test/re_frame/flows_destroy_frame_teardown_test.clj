@@ -239,3 +239,97 @@
         "the new frame has no inherited last-inputs row")
     (is (nil? (registrar/lookup :flow :area))
         "the new frame has no inherited :flow registrar slot")))
+
+;; ---- rf2-zbxvqj: reg-flow must not resurrect stale flows on a dead frame --
+;;
+;; Pre-fix, `reg-flow` against an absent/destroyed frame ran the registration
+;; thunk DIRECTLY (call-serialized-with-drain! runs the thunk in-line for a
+;; non-live frame), installing a `flows` row, an elision declaration, and a
+;; `:flow` registrar slot stamped with the dead frame-id. A later `reg-frame`
+;; reusing that id then inherited the resurrected flow. The fix rejects the
+;; registration BEFORE any state mutates.
+
+(deftest reg-flow-against-destroyed-frame-rejects-and-mutates-nothing
+  (testing "Per rf2-zbxvqj: reg-flow on a DESTROYED frame throws a stable
+            structured error and leaves flows / last-inputs / the :flow
+            registrar untouched (no dormant state for the dead frame)"
+    (rf/reg-frame :fc/scratch {:doc "scratch frame, then destroyed"})
+    (frame/destroy-frame! :fc/scratch)
+    (is (nil? (frame/frame :fc/scratch))
+        "precondition: the frame is non-live after destroy-frame!")
+    ;; Snapshot the three mutation surfaces BEFORE the rejected call.
+    (let [flows-before    (flows/flows-snapshot)
+          inputs-before   (flows/last-inputs-snapshot)
+          registrar-before (registrar/lookup :flow :leak/probe)
+          thrown          (atom nil)]
+      (try
+        (rf/reg-flow {:id     :leak/probe
+                      :inputs [[:n]]
+                      :output (fn [n] (* (or n 0) 10))
+                      :path   [:out]}
+                     {:frame :fc/scratch})
+        (catch clojure.lang.ExceptionInfo e
+          (reset! thrown (ex-data e))))
+      (is (= :rf.error/flow-frame-not-live (:rf.error/id @thrown))
+          "rejected with the stable :rf.error/flow-frame-not-live discriminator")
+      (is (= :fc/scratch (:frame @thrown))
+          "the error names the offending frame id")
+      (is (= flows-before (flows/flows-snapshot))
+          "flows registry is unchanged — no resurrected flow row")
+      (is (= inputs-before (flows/last-inputs-snapshot))
+          "last-inputs is unchanged")
+      (is (= registrar-before (registrar/lookup :flow :leak/probe))
+          "the shared :flow registrar slot is unchanged (no dead-frame stamp)")
+      (is (nil? (registrar/lookup :flow :leak/probe))
+          "specifically: no :flow registrar slot was installed"))))
+
+(deftest reg-flow-against-never-registered-frame-rejects
+  (testing "Per rf2-zbxvqj: reg-flow against a NEVER-registered (typo'd) frame
+            id is rejected the same way as a destroyed one — no dormant state"
+    (is (nil? (frame/frame :fc/never))
+        "precondition: the frame id was never registered")
+    (let [flows-before     (flows/flows-snapshot)
+          registrar-before (registrar/lookup :flow :typo/flow)
+          thrown           (atom nil)]
+      (try
+        (rf/reg-flow {:id     :typo/flow
+                      :inputs [[:n]]
+                      :output (fn [n] (or n 0))
+                      :path   [:out]}
+                     {:frame :fc/never})
+        (catch clojure.lang.ExceptionInfo e
+          (reset! thrown (ex-data e))))
+      (is (= :rf.error/flow-frame-not-live (:rf.error/id @thrown))
+          "rejected with the same stable discriminator as the destroyed-frame case")
+      (is (= flows-before (flows/flows-snapshot))
+          "flows registry is unchanged")
+      (is (nil? (registrar/lookup :flow :typo/flow))
+          "no :flow registrar slot was installed")
+      (is (= registrar-before (registrar/lookup :flow :typo/flow))
+          "the :flow registrar slot is unchanged"))))
+
+(deftest reg-flow-after-destroy-then-reg-frame-reuse-starts-without-resurrected-flow
+  (testing "Per rf2-zbxvqj: a reg-flow against a frame in its destroyed window,
+            followed by re-registering that frame id, leaves the fresh frame
+            with NO inherited flow — the resurrection path is closed"
+    (rf/reg-frame :fc/scratch {:doc "first incarnation"})
+    (frame/destroy-frame! :fc/scratch)
+    ;; The resurrection attempt — rejected, mutates nothing.
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"rf.error/flow-frame-not-live"
+          (rf/reg-flow {:id     :leak/probe
+                        :inputs [[:n]]
+                        :output (fn [n] (* (or n 0) 10))
+                        :path   [:out]}
+                       {:frame :fc/scratch}))
+        "reg-flow on the dead frame is rejected")
+    ;; Re-register the same id and drive a drain — the stale flow must NOT run.
+    (rf/reg-frame :fc/scratch {:doc "second incarnation"})
+    (rf/reg-event-db :fc/set-n (fn [_ [_ v]] {:n v}))
+    (rf/dispatch-sync [:fc/set-n 7] {:frame :fc/scratch})
+    (is (not (contains? (flows/flows-snapshot) :fc/scratch))
+        "the re-registered frame inherited no flow-registry slot")
+    (is (nil? (registrar/lookup :flow :leak/probe))
+        "no resurrected :flow registrar slot survived into the new frame")
+    (is (nil? (get (frame/frame-app-db-value :fc/scratch) :out))
+        "the stale flow did not run — no [:out] write in the fresh frame's app-db")))
