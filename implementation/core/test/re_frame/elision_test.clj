@@ -23,14 +23,16 @@
   ;; `config` is a `defonce` (survives `:reload`); restore the documented
   ;; default so a configure tweak in one test does not leak into the next.
   (elision/configure! {:rf.size/threshold-bytes 16384})
-  ;; EP-0002 (rf2-5q7um6): reg-app-schema + the zero-arity
+  ;; EP-0002 (rf2-5q7um6 + rf2-gjq3ow): reg-app-schema + the zero-arity
   ;; populate-*-from-schemas! / declarations / sensitive-declarations
   ;; readers are context-required frame-local — an ambient call under no
-  ;; scope raises :rf.error/no-frame-context. Pin :rf/default as the
-  ;; established scope so those ambient registration/populate calls carry a
-  ;; frame stamp (the elide-wire-value wire-egress path still floors to
-  ;; :rf/default until rf2-gjq3ow makes it fail-closed, so both read the
-  ;; same :rf/default registry — consistent end-to-end).
+  ;; scope raises :rf.error/no-frame-context. The zero-arity
+  ;; `elide-wire-value` now resolves its frame from the carried scope and
+  ;; FAILS CLOSED (whole-value `:rf/redacted`) when none is established
+  ;; (rf2-gjq3ow). Pin :rf/default as the ambient scope so those ambient
+  ;; registration / populate / elide calls carry a frame stamp and read the
+  ;; same :rf/default registry — consistent end-to-end. Tests that want to
+  ;; exercise the frameless-egress fail-closed branch unbind / override.
   (frame/ensure-default-frame!)
   (binding [frame/*current-frame* :rf/default]
     (test-fn)))
@@ -431,6 +433,48 @@
                    [:user/name]  {:value "Ada" :ref-count 1}}]
     (is (= sub-cache (rf/elide-wire-value sub-cache))
         "No declarations ⇒ walker returns the sub-cache shape verbatim")))
+
+;; ---------------------------------------------------------------------------
+;; EP-0002 (rf2-gjq3ow) — wire-egress fails CLOSED when no frame is carried.
+;;
+;; `elide-wire-value` resolves its frame from the carried stamp: explicit
+;; `:frame` opt (*override*) → the in-effect scope (*scope*). There is no
+;; `:rf/default` floor. With no carried frame the per-frame elision registry
+;; is unreachable, so the whole value is conservatively redacted to
+;; `:rf/redacted` rather than shipped verbatim under no policy (which would
+;; be the silent leak the contract abolishes). `:rf.size/include-sensitive?
+;; true` is the deliberate opt-out — the caller waived sensitive redaction,
+;; so the value rides through (identity walk against an empty policy).
+;; ---------------------------------------------------------------------------
+
+(deftest frameless-egress-fails-closed
+  ;; The fixture pins `*current-frame* :rf/default`; unbind it to model a
+  ;; token that crossed an async / tool boundary and lost its stamp.
+  (binding [frame/*current-frame* nil]
+    (is (= :rf/redacted (rf/elide-wire-value {:a 1 :b [2 3]}))
+        "no carried frame ⇒ whole value redacted (no :rf/default borrow)")
+    (is (= :rf/redacted (rf/elide-wire-value 42))
+        "fail-closed applies to scalars too — nothing escapes without a frame")
+    (is (= :rf/redacted (rf/elide-wire-value {:secret "shh"} {}))
+        "an explicit empty opts map does not supply a frame ⇒ still fail-closed")))
+
+(deftest frameless-egress-explicit-frame-override-resolves
+  ;; An explicit `:frame` override resolves regardless of the ambient scope:
+  ;; the contract's *override* tier. With no scope but an explicit frame,
+  ;; the named frame's (empty) registry applies — identity, not fail-closed.
+  (binding [frame/*current-frame* nil]
+    (is (= {:a 1} (rf/elide-wire-value {:a 1} {:frame :rf/default}))
+        "explicit :frame override resolves a known frame ⇒ its policy applies")))
+
+(deftest frameless-egress-include-sensitive-opt-out
+  ;; `:rf.size/include-sensitive? true` is the deliberate opt-out: a caller
+  ;; that has waived sensitive redaction gets the value verbatim even with
+  ;; no carried frame (identity walk against an empty policy).
+  (binding [frame/*current-frame* nil]
+    (is (= {:a 1 :b [2 3]}
+           (rf/elide-wire-value {:a 1 :b [2 3]}
+                                {:rf.size/include-sensitive? true}))
+        "include-sensitive? true ⇒ frameless value rides verbatim (opt-out)")))
 
 ;; ---------------------------------------------------------------------------
 ;; Collection-nested schema-declared elision at direct-read egress
