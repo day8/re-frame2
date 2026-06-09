@@ -166,9 +166,18 @@ jobs:
         working-directory: implementation/core
         run: clojure -M:test
 
+      # The Reagent/UIx/Helix adapter :test aliases have no JVM-runnable
+      # tests of their own (the adapter ns is :cljs-only). These steps are
+      # classpath/deps probes — the empty case needs no `|| echo`
+      # fallback because the cognitect test-runner returns 0 when there
+      # are no matching test namespaces. A non-zero exit means a REAL
+      # failure (a deps/classpath break) and MUST stop the release, so we
+      # do not swallow it — mirrors the per-adapter probe jobs in
+      # .github/workflows/test.yml (rf2-1s2mhh / follow-up rf2-xcyaei
+      # finding 4).
       - name: JVM tests (reagent artefact, classpath probe)
         working-directory: implementation/adapters/reagent
-        run: clojure -M:test || echo "no JVM-runnable tests in reagent artefact (expected)"
+        run: clojure -M:test
 
       # The reagent-slim artefact (rf2-5djt Stage 4, rf2-6hyy) ships a
       # JVM-runnable test namespace — reagent2.impl.component-test (the
@@ -182,11 +191,11 @@ jobs:
 
       - name: JVM tests (uix artefact, classpath probe)
         working-directory: implementation/adapters/uix
-        run: clojure -M:test || echo "no JVM-runnable tests in uix artefact (expected)"
+        run: clojure -M:test
 
       - name: JVM tests (helix artefact, classpath probe)
         working-directory: implementation/adapters/helix
-        run: clojure -M:test || echo "no JVM-runnable tests in helix artefact (expected)"
+        run: clojure -M:test
 
       - name: JVM tests (schemas artefact)
         working-directory: implementation/schemas
