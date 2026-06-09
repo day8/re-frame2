@@ -51,6 +51,25 @@ before the bounded allowlists run.** Concretely:
   `mcp-base.args/safe-keyword`), so a wire string outside the set never
   mints a fresh keyword. **Keys outside these sets are dropped** at their
   level — they neither intern nor reach a handler.
+
+  For the **top-level `tools/call` argument** level specifically, a
+  dropped key is no longer SILENTLY discarded (rf2-ovmc5e). Its RAW
+  STRING form is recorded as Clojure **metadata** on the normalised
+  arguments map under `protocol/unknown-arg-keys-meta` — never as a map
+  entry (so it cannot reach a handler) and never keywordised (so the
+  no-intern invariant is preserved verbatim). The dispatcher
+  (`wire-pipeline/invoke-tool`) reads that metadata BEFORE handler
+  dispatch and, when non-empty, returns a tool-level `isError: true`
+  diagnostic naming the unknown keys, the tool, and **that tool's**
+  allowed argument-key set (the descriptor's input-schema property keys
+  — the same names `tools/list` advertises). So a non-schema-validating
+  host or hand-rolled agent that typos a control knob (`:timeuot-ms`,
+  `:include-sensitve`) gets agent-recoverable feedback rather than a
+  successful-looking call that silently defaulted. The server is the
+  authoritative backstop for the advertised `additionalProperties false`
+  contract; it no longer depends on the client validating. The
+  `:rf.error` id on the structured slot is
+  `:rf.story-mcp/unknown-arguments`.
 - Genuinely data-bearing nested maps keep string keys at ingress and are
   routed through each surface's own **bounded** keyword policy:
   - `:cell-overrides` KEYS are resolved through `safe-keyword` against
@@ -115,7 +134,7 @@ The server uses the standard JSON-RPC 2.0 error codes:
 | `-32700` | Parse error | Malformed JSON. The reply carries `id: null`; the run-loop survives and continues reading. |
 | `-32600` | Invalid request | The frame is JSON but not a valid JSON-RPC request shape. |
 | `-32601` | Method not found | Unknown method name. |
-| `-32602` | Invalid params | `tools/call` `name` is missing or not a string. Argument-shape failures do NOT surface here — each tool self-validates (`required-arg` / `coerce-body`) and returns an `isError: true` tool result, not a protocol error. |
+| `-32602` | Invalid params | `tools/call` `name` is missing or not a string. Argument-shape failures do NOT surface here — each tool self-validates (`required-arg` / `coerce-body`) and returns an `isError: true` tool result, not a protocol error. An unknown top-level argument KEY (rf2-ovmc5e) likewise returns an `isError: true` tool result (`:rf.error :rf.story-mcp/unknown-arguments`) before dispatch, not a protocol error. |
 | `-32603` | Internal error | An unexpected exception during dispatch. |
 
 **Tool-execution errors** (a tool ran, but its semantic failed —
@@ -125,6 +144,21 @@ agent see the failure mode without aborting the conversation. See
 [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md) for an
 example: a write-surface call when writes are gated off returns
 `isError: true` with a documented hint, not `-32601`.
+
+**Unknown top-level argument keys** (rf2-ovmc5e) are diagnosed, not
+silently dropped. A caller-supplied `tools/call` argument key outside
+the bounded `protocol/arg-keys` allowlist is kept (as a raw string,
+never interned) only as metadata for the dispatcher; before the handler
+runs, `wire-pipeline/invoke-tool` returns an `isError: true` result
+naming the unknown key(s), the tool, and that tool's allowed argument
+key set (the descriptor's advertised property names). This makes the
+server the authoritative backstop for each descriptor's
+`additionalProperties false` contract — a non-schema-validating host
+that typos a control knob gets recoverable feedback instead of a
+successful-looking call that defaulted. Nested data-bearing key
+policies (`:cell-overrides`, object-form write `:body`) keep their own
+bounded per-surface drop semantics — only the TOP-LEVEL MCP argument
+level diagnoses.
 
 ## `initialize` handshake
 
