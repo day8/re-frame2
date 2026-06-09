@@ -165,7 +165,7 @@ An app-owned `:app.csrf/active-token` cofx exposes the session token to action h
 
 Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite=Lax`, `HttpOnly`, `Secure`) are host concerns — the pattern names *where* the check happens (in the action handler, before any state mutation), not *which* token scheme the app uses.
 
-The CSRF token field is also on the `[:rf.http :sensitive-headers]` denylist via the `X-CSRF-Token` / `X-XSRF-Token` entries in the standard set ([014 §Header denylist](014-HTTPRequests.md#1-header-denylist-always-on)) — when the token is carried in a request header (the JS-fetch path), the redaction is automatic. When carried in a form-body field, the value is redacted by the same trace-sanitisation mechanism whenever the action handler is marked `:sensitive? true`.
+The CSRF token field is also on the `[:rf.http :sensitive-headers]` denylist via the `X-CSRF-Token` / `X-XSRF-Token` entries in the standard set ([014 §Header denylist](014-HTTPRequests.md#1-header-denylist-always-on)) — when the token is carried in a request header (the JS-fetch path), the redaction is automatic. When carried in a form-body field that lands in `app-db`, mark the token's app-db slot sensitive at the schema — `[:csrf-token {:sensitive? true} [:string {:min 1}]]` — so a schema-validation-failure trace redacts the value at that path ([010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)). Sensitivity is path-marked at the data value, not declared on the handler that touched it.
 
 ## File uploads — multipart POST
 
@@ -175,8 +175,7 @@ Forms that accept file uploads use `enctype="multipart/form-data"`. The host ada
 {:filename     "avatar.png"
  :content-type "image/png"
  :size         24816
- :tempfile     <host-specific handle>
- :sensitive?   <bool, set by app convention>}
+ :tempfile     <host-specific handle>}
 ```
 
 The `:tempfile` is host-specific (Ring exposes a `java.io.File`; other adapters expose a stream handle); the action handler MUST treat it as opaque and pass it to a file-storage fx (S3 PUT, disk write, etc.) without dereferencing in the event handler.
@@ -185,7 +184,7 @@ The `:tempfile` is host-specific (Ring exposes a `java.io.File`; other adapters 
 
 - File contents MUST NOT appear in trace events. Implementations MUST treat the `:tempfile` slot as opaque and emit only the metadata fields (`:filename`, `:content-type`, `:size`) in trace events.
 - The header denylist ([014 §Header denylist](014-HTTPRequests.md#1-header-denylist-always-on)) applies unchanged for multipart requests: `Authorization`, `Cookie`, etc. remain redacted.
-- When the form is sensitive (`:sensitive? true` on the action's request per [014 §Per-request / per-call `:sensitive?`](014-HTTPRequests.md#3-per-request--per-call-sensitive)), implementations MUST redact the entire `:form-params` map in trace events — file metadata included, because filenames can themselves leak (`/tmp/passport.pdf`).
+- When the form's fields land in `app-db`, mark the container slot sensitive at the schema (`[:upload {:sensitive? true} ...]`) so a schema-validation-failure trace redacts the whole `:form-params`-derived value at that path — file metadata included, because filenames can themselves leak (`/tmp/passport.pdf`) ([010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)). On the JS-fetch submit path that re-POSTs via `:rf.http/managed`, the request-side cascade is redacted by the per-request / per-call `:sensitive?` flag instead ([014 §Per-request / per-call `:sensitive?`](014-HTTPRequests.md#3-per-request--per-call-sensitive)).
 
 Apps that need fine-grained file-vs-field privacy (sensitive password field + non-sensitive avatar file in the same form) split into two separate POSTs.
 
@@ -235,7 +234,7 @@ Apps without a form slice (e.g. a pure-API endpoint that happens to share the ac
 - **Using a client-navigation event for the server redirect.** The client routing event `[:rf.route/navigate …]` is a no-op on the server ([011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx)); use `:rf.server/redirect` (the server-only fx) for the POST-redirect-GET pattern. (And do not reach for a navigate fx under `:rf.nav/*` — the framework ships none; `:rf.route/navigate` is the shipped programmatic-navigation event.)
 - **Reading the CSRF token from a hardcoded value or a query string.** Sessions rotate tokens; cofx-binding via the app-owned `:app.csrf/active-token` is the single source of truth. Apps that put the token in a URL leak it to referrer logs.
 - **Using `302 Found` for POST success.** Some clients re-POST on `302`; the canonical POST-redirect-GET status is `303 See Other`. The `:rf.server/redirect` fx defaults to 302 for GET-side redirects (per [011 §Standard fx](011-SSR.md#standard-fx)); apps MUST explicitly set `:status 303` for post-action redirects.
-- **Letting file uploads hit a `:sensitive? false` handler.** When a form mixes sensitive (password) and non-sensitive (avatar) fields, split into two POSTs; do not rely on per-field redaction. The trace-event sanitisation is map-level, not field-level.
+- **Relying on per-field redaction in a mixed form.** When a form mixes sensitive (password) and non-sensitive (avatar) fields, split into two POSTs. Redaction is path-marked at the schema slot and applies to the whole value at that path — it is map-level, not field-level — so a single `:sensitive?` mark on a container slot redacts every sibling field under it. Two POSTs (each with its own slot) is the only way to redact one field but not its sibling.
 - **Writing to `app-db` from a multipart upload handler.** The `:tempfile` handle is opaque; pass it to a file-storage fx and write only the resulting URL or storage-id into `app-db`. The drain runs to fixed point; long-running uploads from inside the handler block the request thread.
 
 ## Conformance checklist
@@ -248,7 +247,7 @@ A form-action implementation conforms to this convention when:
 - `:rf/server-init` routes GET → page loader; POST → action event. Apps MAY collapse the two when the route's action and loader share an event.
 - The action handler carries a `:schema` matching the form schema, so the standard `:schema` boundary check runs on every POST. Server-side validation is NEVER skipped, even when client validation matches.
 - On schema failure, the per-form slice's `:errors` map is populated and the page re-renders; on schema success, the handler emits `[:rf.server/redirect {:status 303 :location "..."}]`.
-- The action handler MUST mark `:sensitive? true` when the form's fields carry credentials, PII, or other secrets; trace-event redaction follows from [009-Instrumentation.md §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) and [014 §Privacy](014-HTTPRequests.md#privacy).
+- When the form's fields carry credentials, PII, or other secrets, the credential-bearing app-db slots MUST be marked `{:sensitive? true}` at the schema so a schema-validation-failure trace redacts the value at that path ([010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)); on the JS-fetch submit path, the re-POST via `:rf.http/managed` additionally carries the per-request / per-call `:sensitive?` flag ([014 §Per-request / per-call `:sensitive?`](014-HTTPRequests.md#3-per-request--per-call-sensitive)). Sensitivity is a property of the data value at a path, not a flag on the action handler.
 - Multipart uploads expose files as `{:filename :content-type :size :tempfile}` maps; file contents NEVER appear in trace events.
 - The same event runs unchanged on both platforms; platform-divergent effects (server-only `:rf.server/redirect` vs the client-only `:rf.route/navigate` routing event) compose via `:platforms` gating.
 
