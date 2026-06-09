@@ -129,3 +129,38 @@
       (r/flush)
       (is (= [:first :second :third] @order)
           "all enqueued callbacks fire in enqueue order on a single drain"))))
+
+;; ---- (4) copied / wrapped adapter map routes to the live hook (rf2-dkl5z1) --
+;;
+;; `route-hook!` routes by stable token (the canonical :rf.adapter/* :kind),
+;; not object identity — so a copied / wrapped stock-Reagent adapter map STILL
+;; drives its live `:adapter/after-render` hook. Pre-fix, installing an
+;; `assoc`'d copy made the routed closure's identity guard fail and the hook
+;; fell through to the `(constantly nil)` chain bottom: `interop/after-render`
+;; became a silent no-op (the callback would never fire on r/flush).
+
+(deftest copied-adapter-map-routes-to-live-after-render-hook
+  (testing "a copied stock-Reagent adapter map still drives the live
+            :adapter/after-render hook (rf2-dkl5z1)"
+    (let [original (substrate-adapter/current-adapter-spec)
+          copied   (assoc reagent-adapter/adapter :rf.test/instrumentation-wrapper true)
+          fired    (atom 0)]
+      (substrate-adapter/dispose-adapter!)
+      (substrate-adapter/install-adapter! copied)
+      (try
+        (is (false? (identical? reagent-adapter/adapter (substrate-adapter/current-adapter-spec)))
+            "precondition: the installed copy is NOT identical to the routed canonical map")
+        (is (= :rf.adapter/reagent (substrate-adapter/current-adapter))
+            "precondition: the copy preserves the canonical :kind token")
+        (interop/after-render (fn [] (swap! fired inc)))
+        (is (zero? @fired) "after-render still DEFERS under the copied map")
+        (r/flush)
+        (is (= 1 @fired)
+            (str "the callback FIRED on the render-queue drain under the COPIED"
+                 " Reagent adapter map — the routed :adapter/after-render hook"
+                 " dispatched to its live impl despite the copy's distinct"
+                 " identity (rf2-dkl5z1)"))
+        (finally
+          (r/flush)
+          (substrate-adapter/dispose-adapter!)
+          (substrate-adapter/install-adapter! original))))))

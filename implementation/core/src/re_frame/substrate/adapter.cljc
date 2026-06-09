@@ -432,6 +432,68 @@
         f (:register-context-provider a)]
     (when f (f frame-keyword))))
 
+;; ---- adapter routing token (rf2-dkl5z1) -----------------------------------
+;;
+;; Hook routing (below) and the public test-react `mount!` guard must answer
+;; one question: "is the adapter THIS hook/driver belongs to the one
+;; (rf/init!)-installed right now?" The original answer was raw object
+;; identity — `(identical? adapter-spec (current-adapter-spec))`. That is
+;; WRONG against a copied or wrapped canonical adapter map: a user (or the
+;; already-tested adapter-swap pattern in `boot_test`) that
+;; `assoc`/`merge`/`update`s a canonical adapter map for instrumentation or
+;; local overrides installs a value-equal map with a DIFFERENT identity, so
+;; every routed hook silently falls through to the chain/fallback — boot is
+;; green but UIx/Helix lose `:adapter/current-frame` React-context
+;; resolution, view source/view-id wrapping, after-render, and derived-value
+;; disposal; Reagent/reagent-slim lose the ratom-family hooks including the
+;; `:adapter/derived-container?` guard; test-react `mount!` throws even
+;; though a test-react-shaped map is installed. Spec 006
+;; §Frame-provider via React context requires the `:adapter/current-frame`
+;; hook to resolve to the LIVE routed impl, so a frozen-identity guard that
+;; serves stale (inert) hooks for a copied map is a correctness bug.
+;;
+;; The fix: route by a STABLE token carried in the installed map rather than
+;; object identity. The token is the adapter's canonical `:kind`
+;; discriminator (`:rf.adapter/reagent`, `:rf.adapter/uix`, …) — a value
+;; that survives `assoc`/`merge`/copy, so a copied canonical map still
+;; dispatches to its adapter's live hooks. A genuinely custom adapter that
+;; did NOT pick a canonical `:rf.adapter/*` kind (its `:kind` is absent or
+;; `:custom`) has no distinguishing token, so it falls back to object
+;; identity — two distinct `:custom` adapters can never be conflated by a
+;; shared `:custom` keyword.
+
+(defn- canonical-kind?
+  "True when `kind` is a canonical framework adapter kind — a keyword in the
+  reserved `:rf.adapter/*` namespace (per Spec 006 §Adapter introspection /
+  Conventions §Reserved namespaces). `:custom` and `nil` are NOT canonical:
+  they carry no per-adapter distinguishing token, so routing for those
+  falls back to object identity."
+  [kind]
+  (and (keyword? kind) (= "rf.adapter" (namespace kind))))
+
+(defn same-adapter?
+  "True when adapter spec map `a` is, for hook-routing / driver-guard
+  purposes, the SAME adapter as `b`. Stable-token comparison (rf2-dkl5z1):
+  when both maps carry the same canonical `:rf.adapter/*` `:kind`, they are
+  the same adapter even across a copy/`assoc`/`merge` (the token survives
+  structural edits), so a copied canonical adapter map still routes to its
+  live hooks. Otherwise (a non-canonical / `:custom` / kindless adapter, or
+  mismatched kinds) it falls back to object identity so two distinct custom
+  adapters are never conflated by a shared `:custom` keyword. Nil-safe: a
+  nil `b` (no adapter installed) is never the same as a non-nil `a`.
+
+  Public so adapter-side driver guards that gate on \"is MY adapter the
+  installed one?\" (e.g. the Test-React `mount!` driver) share the one
+  stable-token predicate `route-hook!` uses, rather than re-deriving an
+  object-identity check that would reject a copied canonical map."
+  [a b]
+  (boolean
+    (and a b
+         (let [ka (:kind a)]
+           (if (canonical-kind? ka)
+             (= ka (:kind b))
+             (identical? a b))))))
+
 ;; ---- late-bind hook routing (rf2-0d35) ------------------------------------
 ;;
 ;; Each CLJS adapter (reagent, reagent-slim, uix, helix) publishes ~7-9
@@ -450,16 +512,26 @@
 ;; The chain terminates with fallback-fn — typically `(constantly nil)`,
 ;; `(constantly false)` for predicates, or `#(frame/current-frame)`
 ;; for the React-context-tier `:adapter/current-frame` hook.
+;;
+;; The active-adapter check is `same-adapter?` (stable-token routing,
+;; rf2-dkl5z1), NOT raw object identity — so a copied / wrapped canonical
+;; adapter map still dispatches to its adapter's live hooks.
 
 (defn route-hook!
   "Install `impl-fn` under late-bind hook `hook-key`, wrapped so the call
-  dispatches to `impl-fn` ONLY when `adapter-spec` is the currently
-  (rf/init!)-installed adapter; otherwise it chains to the previously-
-  registered handler. When no previous handler is registered (this is
-  the first/only adapter to publish this hook), the routed closure
+  dispatches to `impl-fn` ONLY when `adapter-spec` is — by stable token —
+  the currently (rf/init!)-installed adapter; otherwise it chains to the
+  previously-registered handler. When no previous handler is registered
+  (this is the first/only adapter to publish this hook), the routed closure
   returns `(fallback-fn)`.
 
-  See `spec/006-ReactiveSubstrate.md` for the adapter routing contract.
+  Routing is by stable token (`same-adapter?`, rf2-dkl5z1): a copied or
+  wrapped canonical adapter map (same `:rf.adapter/*` `:kind`) still
+  dispatches to its adapter's live impl, rather than falling through to the
+  chain/fallback because object identity changed.
+
+  See `spec/006-ReactiveSubstrate.md` §Frame-provider via React context for
+  the adapter routing contract.
 
   3-arg form: defaults `fallback-fn` to `(constantly nil)` — the
   most common shape across the adapters (nil-fallback semantics).
@@ -472,6 +544,6 @@
    (let [previous (late-bind/get-fn hook-key)]
      (late-bind/set-fn! hook-key
        (fn routed-hook [& args]
-         (if (identical? adapter-spec (current-adapter-spec))
+         (if (same-adapter? adapter-spec (current-adapter-spec))
            (apply impl-fn args)
            (if previous (apply previous args) (fallback-fn))))))))
