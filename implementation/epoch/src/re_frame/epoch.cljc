@@ -532,6 +532,98 @@
           (listeners/notify-listeners! record))
         true))))
 
+(defn- record-synthetic-replace-epoch!
+  "Record a synthetic `:rf.epoch/db-replaced` epoch for a pair-tool
+  injection and fan it out. Shared by the three partition-replace perform
+  helpers (`perform-replace-app-db!` records its own inline copy for
+  historical reasons; the runtime-db / frame-state helpers route through
+  here). `fs-before` / `fs-after` are the pre- and post-replace coherent
+  frame-state values; restore of this synthetic record reinstalls
+  `fs-after`, and restore of a PRIOR epoch rewinds past the injection.
+
+  Per rf2-wp70d: `maybe-redact` runs once between assembly and the
+  record!/notify-listeners! split so ring + listeners see the SAME
+  redacted shape. Per rf2-qs6dl: stamps the synthetic epoch as the
+  frame's last-settled so post-settle re-renders attribute back to it
+  rather than the next real cascade."
+  [frame-id fs-before fs-after]
+  (let [record (assembly/maybe-redact
+                 (assoc (assembly/build-record frame-id fs-before fs-after [])
+                        :event-id      :rf.epoch/db-replaced
+                        :trigger-event [:rf.epoch/db-replaced]))]
+    (state/record! record)
+    (state/set-last-settled-epoch! frame-id (:epoch-id record))
+    (trace/emit! :rf.epoch :rf.epoch/db-replaced
+                 {:frame       frame-id
+                  :rf.epoch/id (:epoch-id record)})
+    (listeners/notify-listeners! record)
+    record))
+
+(defn- perform-replace-runtime-db!
+  "Carry out the runtime-db replacement once preconditions have passed —
+  the runtime-db sibling of `perform-replace-app-db!`. Replaces ONLY the
+  runtime-db partition (app-db preserved unchanged), records a synthetic
+  `:rf/epoch-record` (so `restore-epoch` can rewind the prior state),
+  emits `:rf.epoch/db-replaced`, and fans the record out to listeners.
+  Returns `true` on a real write.
+
+  Per rf2-7i872 (validate-then-destroy race): re-resolves the live
+  container at the write boundary via `live-container-or-fail`. If the
+  frame was destroyed between the precondition pass and now, this reports
+  the canonical `:rf.error/no-such-handler` (kind `:frame`) failure and
+  returns `false` rather than recording a synthetic epoch for a destroyed
+  frame, matching the destroyed-frame contract."
+  [frame-id new-runtime-db]
+  (let [{:keys [outcome op tags]} (tool-pair/live-container-or-fail frame-id)]
+    (if (= :fail outcome)
+      (do (tool-pair/emit-precondition-failure! op tags)
+          false)
+      (let [;; The canonical snapshot unit is the whole frame-state.
+            ;; `replace-runtime-db!` replaces ONLY the runtime-db partition
+            ;; (app-db preserved), so the after-frame-state carries the live
+            ;; app-db with the new runtime-db. Restore of this synthetic
+            ;; epoch reinstalls that coherent frame-state.
+            fs-before (frame/frame-state-value frame-id)
+            fs-after  (assoc fs-before frame/runtime-partition-key new-runtime-db)]
+        ;; Write the runtime-db PARTITION of the one physical frame-state
+        ;; container; `frame/runtime-db-container` is a READ-ONLY projection,
+        ;; so the write goes through `frame/replace-runtime-db!`.
+        (frame/replace-runtime-db! frame-id new-runtime-db)
+        (record-synthetic-replace-epoch! frame-id fs-before fs-after)
+        true))))
+
+(defn- perform-replace-frame-state!
+  "Carry out the full-frame (both-partition) replacement once preconditions
+  have passed — the whole-frame sibling of `perform-replace-app-db!`.
+  Replaces BOTH partitions atomically (`{:rf.db/app … :rf.db/runtime …}`),
+  records a synthetic `:rf/epoch-record` (so `restore-epoch` can rewind the
+  prior state), emits `:rf.epoch/db-replaced`, and fans the record out to
+  listeners. Returns `true` on a real write.
+
+  Per rf2-7i872 (validate-then-destroy race): re-resolves the live
+  container at the write boundary via `live-container-or-fail`. If the
+  frame was destroyed between the precondition pass and now, this reports
+  the canonical `:rf.error/no-such-handler` (kind `:frame`) failure and
+  returns `false`, matching the destroyed-frame contract."
+  [frame-id new-frame-state]
+  (let [{:keys [outcome op tags]} (tool-pair/live-container-or-fail frame-id)]
+    (if (= :fail outcome)
+      (do (tool-pair/emit-precondition-failure! op tags)
+          false)
+      (let [fs-before (frame/frame-state-value frame-id)
+            ;; The canonical after-frame-state is the coherent two-partition
+            ;; value the caller installs. A missing partition key installs
+            ;; `nil` for that partition (a full-frame replace is whole-value
+            ;; by contract — see `frame/replace-frame-state!`); normalise the
+            ;; recorded after-state to the same coherent shape.
+            fs-after  {frame/app-partition-key     (get new-frame-state frame/app-partition-key)
+                       frame/runtime-partition-key (get new-frame-state frame/runtime-partition-key)}]
+        ;; Write BOTH partitions in ONE atomic install through the one
+        ;; physical frame-state container via `frame/replace-frame-state!`.
+        (frame/replace-frame-state! frame-id new-frame-state)
+        (record-synthetic-replace-epoch! frame-id fs-before fs-after)
+        true))))
+
 (defn replace-app-db!
   "Replace `frame-id`'s `app-db` partition with `new-db`, bypassing the
   dispatch loop. Per Tool-Pair §Pair-tool writes. Renamed from
@@ -574,6 +666,75 @@
   Returns `true` on success, `false` on any failure."
   [frame-id]
   (replace-app-db! frame-id {}))
+
+(defn replace-runtime-db!
+  "Replace `frame-id`'s `runtime-db` partition with `new-runtime-db`,
+  bypassing the dispatch loop. The runtime-db sibling of `replace-app-db!`
+  (Tool-Pair §Pair-tool writes). Privileged runtime / full-frame tool
+  surface for injecting framework-owned subsystem state (machine
+  snapshots, route slice, …); the app-db partition is preserved unchanged.
+
+  Records a synthetic `:rf/epoch-record` so `restore-epoch` can rewind the
+  previous state; emits `:rf.epoch/db-replaced` on success.
+
+  Failure modes (each is a no-op on `runtime-db` and returns `false`,
+  emitting a structured error trace — the shared four-mutator failure
+  surface per Spec 009 §Trace events):
+
+    :rf.error/no-such-handler                   — frame not registered
+    :rf.epoch/replace-app-db-during-drain       — drain in flight
+    :rf.epoch/replace-app-db-schema-mismatch    — new-runtime-db fails the
+                                                   framework-owned runtime-db
+                                                   validator (reg-runtime-schema)
+
+  Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
+
+  Returns `true` on success, `false` on any failure."
+  [frame-id new-runtime-db]
+  (if-not interop/debug-enabled?
+    false
+    (let [{:keys [outcome op tags]} (tool-pair/check-replace-runtime-db-preconditions! frame-id new-runtime-db)]
+      (case outcome
+        :ok   (perform-replace-runtime-db! frame-id new-runtime-db)
+        :fail (do (tool-pair/emit-precondition-failure! op tags)
+                  false)))))
+
+(defn replace-frame-state!
+  "Replace BOTH of `frame-id`'s partitions atomically with `new-frame-state`
+  (`{:rf.db/app … :rf.db/runtime …}`), bypassing the dispatch loop — the
+  full-frame install for tool-driven replay / fixture install (Tool-Pair
+  §Pair-tool writes). The whole-frame sibling of `replace-app-db!`; a
+  db-shaped name never silently replaces runtime-db, so this is the
+  explicit full-frame surface (Mike ruling #10). A missing partition key
+  installs `nil` for that partition (a full-frame replace is whole-value
+  by contract).
+
+  Records a synthetic `:rf/epoch-record` so `restore-epoch` can rewind the
+  previous state; emits `:rf.epoch/db-replaced` on success.
+
+  Failure modes (each is a no-op on the frame-state and returns `false`,
+  emitting a structured error trace — the shared four-mutator failure
+  surface per Spec 009 §Trace events):
+
+    :rf.error/no-such-handler                   — frame not registered
+    :rf.epoch/replace-app-db-during-drain       — drain in flight
+    :rf.epoch/replace-app-db-schema-mismatch    — the app-db partition fails
+                                                   the frame's app-schema set
+                                                   OR the runtime-db partition
+                                                   fails the framework-owned
+                                                   runtime-db validator
+
+  Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
+
+  Returns `true` on success, `false` on any failure."
+  [frame-id new-frame-state]
+  (if-not interop/debug-enabled?
+    false
+    (let [{:keys [outcome op tags]} (tool-pair/check-replace-frame-state-preconditions! frame-id new-frame-state)]
+      (case outcome
+        :ok   (perform-replace-frame-state! frame-id new-frame-state)
+        :fail (do (tool-pair/emit-precondition-failure! op tags)
+                  false)))))
 
 ;; ---- projected egress -----------------------------------------------------
 ;;
@@ -683,6 +844,8 @@
    :epoch/restore-epoch       restore-epoch
    :epoch/replace-app-db!     replace-app-db!
    :epoch/reset-app-db!       reset-app-db!
+   :epoch/replace-runtime-db! replace-runtime-db!
+   :epoch/replace-frame-state! replace-frame-state!
 
    ;; ---- listener + config surface ----------------------------------
    :epoch/register-epoch-listener!   register-epoch-listener!

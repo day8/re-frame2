@@ -1562,9 +1562,14 @@
 ;;   failure modes; a db-shaped name never silently replaces runtime-db.
 ;; - `reset-app-db!` resets the app-db partition to `{}` while preserving
 ;;   live runtime-db — the app-db sibling of the whole-frame `reset-frame!`.
-;; - `replace-runtime-db!` / `replace-frame-state!` write the physical
-;;   frame-state container's partitions through the atomic
-;;   `frame/commit-frame-transition!` path (rf2-adwcv6, bead 5).
+;; - `replace-runtime-db!` / `replace-frame-state!` are epoch-backed
+;;   Tool-Pair injection writes (rf2-szbzei): each records a synthetic
+;;   `:rf/epoch-record` so `restore-epoch` can rewind past the injection,
+;;   returns a boolean, shares the drain-guard + the framework-owned
+;;   runtime-db schema-validation contract, and raises
+;;   `:rf.error/epoch-artefact-missing` when the epoch artefact is absent.
+;;   They late-bind through `re-frame.epoch` exactly as the app-db pair
+;;   does (via `:epoch/replace-runtime-db!` / `:epoch/replace-frame-state!`).
 
 (def ^{:doc "Replace `frame-id`'s `app-db` partition with `app-db`,
   bypassing the dispatch loop. The canonical Tool-Pair write surface for
@@ -1596,40 +1601,37 @@
   `:epoch/reset-app-db!`."}
   reset-app-db!    rf-epoch/reset-app-db!)
 
-(defn replace-runtime-db!
-  "Replace ONLY `frame-id`'s `runtime-db` partition with `runtime-db` — the
-  framework-owned subsystem state. Privileged runtime / full-frame tool
-  surface; app-db is untouched. Atomic install through the one physical
-  frame-state container. Returns the set of changed frame-state partition
-  keys (a subset of `#{:rf.db/app :rf.db/runtime}`; empty when the supplied
-  value `=` the current runtime-db), or `nil` for an unknown / destroyed
-  frame.
+(def ^{:doc "Replace ONLY `frame-id`'s `runtime-db` partition with
+  `runtime-db` — the framework-owned subsystem state (machine snapshots,
+  route slice, …). Privileged runtime / full-frame Tool-Pair injection
+  surface; app-db is untouched. Records a synthetic `:rf/epoch-record` so
+  `restore-epoch` can rewind. Returns `true` on success, `false` on a
+  documented failure (unknown frame, drain in flight, runtime-db schema
+  mismatch). Dev-only (gated on `interop/debug-enabled?`). Raises
+  `:rf.error/epoch-artefact-missing` when the epoch artefact is absent.
 
-  EP-0001 (rf2-adwcv6): real partition write — installs the runtime-db slice
-  of the single physical frame-state container via
-  `frame/commit-frame-transition!`. Supports whole-value replacement
-  (decision #5: restore / hydration / reset use this; ordinary subsystem
-  writes prefer operation-style helpers). Per Spec 002 §Frame-state value
-  accessors and mutators and API.md `replace-runtime-db!`."
-  [frame-id runtime-db]
-  (frame/replace-runtime-db! frame-id runtime-db))
+  rf2-szbzei: epoch-backed Tool-Pair injection write — the runtime-db
+  sibling of `replace-app-db!`. Per Spec 002 §Frame-state value accessors
+  and mutators, Tool-Pair §Pair-tool writes, and API.md
+  `replace-runtime-db!`. Late-bound via `:epoch/replace-runtime-db!`."}
+  replace-runtime-db!    rf-epoch/replace-runtime-db!)
 
-(defn replace-frame-state!
-  "Replace BOTH partitions of `frame-id` atomically with `frame-state`
-  (`{:rf.db/app … :rf.db/runtime …}`) — the full-frame install for
-  tool-driven replay / fixture install (epoch restore, time travel, SSR
-  hydration, frame reset, test-fixture install). A db-shaped name never
-  silently replaces runtime-db — this is the explicit full-frame surface
-  (Mike ruling #10). Both partitions install in ONE atomic write. Returns
-  the set of changed frame-state partition keys, or `nil` for an unknown /
-  destroyed frame.
+(def ^{:doc "Replace BOTH partitions of `frame-id` atomically with
+  `frame-state` (`{:rf.db/app … :rf.db/runtime …}`) — the full-frame
+  install for tool-driven replay / fixture install (epoch restore, time
+  travel, SSR hydration, frame reset, test-fixture install). A db-shaped
+  name never silently replaces runtime-db — this is the explicit full-frame
+  surface (Mike ruling #10). Records a synthetic `:rf/epoch-record` so
+  `restore-epoch` can rewind. Returns `true` on success, `false` on a
+  documented failure (unknown frame, drain in flight, app-db OR runtime-db
+  schema mismatch). Dev-only (gated on `interop/debug-enabled?`). Raises
+  `:rf.error/epoch-artefact-missing` when the epoch artefact is absent.
 
-  EP-0001 (rf2-adwcv6): real full-frame install — both partitions written to
-  the single physical frame-state container in one atomic
-  `frame/commit-frame-transition!`. Per Spec 002 §Frame-state value
-  accessors and mutators and API.md `replace-frame-state!`."
-  [frame-id frame-state]
-  (frame/replace-frame-state! frame-id frame-state))
+  rf2-szbzei: epoch-backed Tool-Pair injection write — the full-frame
+  sibling of `replace-app-db!`. Per Spec 002 §Frame-state value accessors
+  and mutators, Tool-Pair §Pair-tool writes, and API.md
+  `replace-frame-state!`. Late-bound via `:epoch/replace-frame-state!`."}
+  replace-frame-state!   rf-epoch/replace-frame-state!)
 
 ;; Per Security.md §Epoch privacy posture and rf2-mrsck — single
 ;; normative projection helpers for off-box epoch egress.

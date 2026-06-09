@@ -33,6 +33,14 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
+            ;; rf2-szbzei — the runtime-db schema-validation precondition on
+            ;; replace-runtime-db! / replace-frame-state! routes through the
+            ;; machine-data boundary's `:schemas/validate-with-registered-fn`
+            ;; hook, which in turn consults `:schemas/malli-validate` (published
+            ;; by this .malli adapter ns). Without it the registered-validator
+            ;; soft-passes and the runtime-db-validation-fires test can't drive
+            ;; a real schema failure. Side-effect require — alias unused.
+            [re-frame.schemas.malli]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
             [re-frame.elision]
@@ -2317,6 +2325,265 @@
                 "ex-data carries :reason as a string")))
         (finally
           (late-bind/set-fn! hook-key original))))))
+
+;; ---- replace-runtime-db! / replace-frame-state! (rf2-szbzei) ---------------
+;;
+;; Per Tool-Pair §Pair-tool writes the four partition-aware injection
+;; mutators are ALL epoch-backed dev/tooling writes. rf2-szbzei extends
+;; the epoch-backed write path (previously app-db-only) to the runtime-db
+;; and full-frame mutators. The invariants below mirror the app-db-pair
+;; tests above, proving the four contract points the bead enumerates:
+;;
+;;   1. A replace-runtime-db! / replace-frame-state! injection records a
+;;      synthetic :rf.epoch/db-replaced epoch, and restore-epoch of a PRIOR
+;;      epoch rewinds PAST the injection.
+;;   2. Boolean return (true on success).
+;;   3. :rf.error/epoch-artefact-missing when the late-bind hook is nil.
+;;   4. Runtime-db schema validation fires (against the framework-owned
+;;      runtime-db validator — the machine-data boundary), rejecting an
+;;      injection whose snapshot :data violates its machine's :data-schema.
+
+(deftest replace-runtime-db!-replaces-runtime-only-preserving-app-db
+  (testing "replace-runtime-db! replaces ONLY the runtime-db partition
+            (app-db preserved); returns true on success"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 7 :cart {:items [1 2]}}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (is (= {:n 7 :cart {:items [1 2]}} (rf/app-db-value :test/main)))
+
+    (is (true? (rf/replace-runtime-db! :test/main {:rf.runtime/routing {:current {:id :home}}}))
+        "replace-runtime-db! returns true on success")
+    (is (= {:rf.runtime/routing {:current {:id :home}}}
+           (rf/runtime-db-value :test/main))
+        "runtime-db partition holds the injected value")
+    (is (= {:n 7 :cart {:items [1 2]}} (rf/app-db-value :test/main))
+        "app-db partition is PRESERVED — replace-runtime-db! never touches it")))
+
+(deftest replace-runtime-db!-records-undo-epoch-and-restore-rewinds-past
+  (testing "replace-runtime-db! records a synthetic :rf.epoch/db-replaced
+            epoch so restore-epoch can rewind PAST the runtime-db injection"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    ;; A real cascade that seeds a runtime-db value to rewind back to.
+    (rf/replace-runtime-db! :test/main {:rf.runtime/routing {:current {:id :start}}})
+    (let [seed-record (some (fn [r] (when (= :seed (:event-id r)) r))
+                            (rf/epoch-history :test/main))
+          pre-count   (count (rf/epoch-history :test/main))
+          ok?         (rf/replace-runtime-db! :test/main {:rf.runtime/routing {:current {:id :end}}})
+          history     (rf/epoch-history :test/main)
+          fresh       (last history)]
+      (is (true? ok?) "boolean true return")
+      (is (= (inc pre-count) (count history)) "a synthetic epoch was appended")
+      (is (= :rf.epoch/db-replaced (:event-id fresh))
+          "the synthetic record sentinels the pair-tool injection")
+      (is (= [:rf.epoch/db-replaced] (:trigger-event fresh))
+          "trigger-event mirrors the sentinel")
+      (is (= {:current {:id :start}}
+             (get-in fresh [:frame-state-before :rf.db/runtime :rf.runtime/routing]))
+          "frame-state-before captured the pre-injection runtime-db")
+      (is (= {:current {:id :end}}
+             (get-in fresh [:frame-state-after :rf.db/runtime :rf.runtime/routing]))
+          "frame-state-after captured the post-injection runtime-db")
+      ;; Restore the epoch BEFORE the second injection — rewinds PAST it.
+      (is (true? (rf/restore-epoch :test/main (:epoch-id seed-record)))
+          "restore-epoch returns true")
+      (is (= {:n 7} (rf/app-db-value :test/main))
+          "app-db rewound to the seed epoch")
+      (is (nil? (get-in (rf/runtime-db-value :test/main)
+                        [:rf.runtime/routing :current]))
+          "runtime-db rewound PAST the injection (the seed epoch carried no route)"))))
+
+(deftest replace-runtime-db!-raises-when-epoch-artefact-missing
+  (testing "rf/replace-runtime-db! raises :rf.error/epoch-artefact-missing
+            when the :epoch/replace-runtime-db! late-bind hook is nil — the
+            write surface cannot degrade silently (the caller's invariant is
+            'undo works after this call')"
+    (let [hook-key :epoch/replace-runtime-db!
+          original (late-bind/get-fn hook-key)]
+      (try
+        (late-bind/set-fn! hook-key nil)
+        (let [thrown (try (rf/replace-runtime-db! :any/frame {})
+                          nil
+                          (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? thrown)
+              "replace-runtime-db! throws when the epoch artefact is absent")
+          (is (= ":rf.error/epoch-artefact-missing" (.getMessage thrown))
+              "the documented error category appears in the message")
+          (let [data (ex-data thrown)]
+            (is (= 'rf/replace-runtime-db! (:where data))
+                "ex-data carries :where = 'rf/replace-runtime-db!")
+            (is (= :no-recovery (:recovery data))
+                "ex-data carries :recovery = :no-recovery")
+            (is (string? (:reason data))
+                "ex-data carries :reason as a string")))
+        (finally
+          (late-bind/set-fn! hook-key original))))))
+
+(deftest replace-runtime-db!-failure-unknown-frame
+  (testing "replace-runtime-db! on an unknown frame returns false and emits
+            :rf.error/no-such-handler (kind :frame)"
+    (let [recorded (record-trace!)
+          ok?      (rf/replace-runtime-db! :no.such/frame {:rf.runtime/machines {}})]
+      (is (false? ok?))
+      (is (has-error-op? @recorded :rf.error/no-such-handler))
+      (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                     @recorded)]
+        (is (= :frame (:kind (:tags ev))))
+        (is (= :no.such/frame (:frame (:tags ev))))))))
+
+(deftest replace-runtime-db!-failure-during-drain
+  (testing "replace-runtime-db! called from inside a drain returns false and
+            emits :rf.epoch/replace-app-db-during-drain (the shared
+            four-mutator failure op); runtime-db unchanged by the rejected call"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [recorded (record-trace!)
+          attempt  (atom nil)]
+      (rf/reg-event-db :try-rt
+        (fn [db _]
+          (reset! attempt (rf/replace-runtime-db! :test/main {:rf.runtime/machines {:m 1}}))
+          db))
+      (rf/dispatch-sync [:try-rt] {:frame :test/main})
+
+      (is (false? @attempt) "replace-runtime-db! returned false from inside the drain")
+      (is (nil? (get (rf/runtime-db-value :test/main) :rf.runtime/machines))
+          "runtime-db unchanged — the in-drain injection was rejected")
+      (let [ev (some (fn [ev]
+                       (when (= :rf.epoch/replace-app-db-during-drain
+                                (:operation ev))
+                         ev))
+                     @recorded)]
+        (is (some? ev) ":rf.epoch/replace-app-db-during-drain fired")
+        (is (= :test/main (:frame (:tags ev))))))))
+
+(deftest replace-runtime-db!-failure-schema-mismatch
+  (testing "replace-runtime-db! with a runtime-db whose machine snapshot :data
+            violates its registered :data-schema returns false; emits
+            :rf.epoch/replace-app-db-schema-mismatch; runtime-db unchanged"
+    (rf/reg-frame :test/main {})
+    ;; Register a machine carrying a :data-schema; the framework-owned
+    ;; runtime-db validator (the machine-data boundary) validates each
+    ;; snapshot's :data against it.
+    (rf/reg-machine :rf.szbzei/door
+      {:initial     :idle
+       :data        {:n 1}
+       :data-schema [:map [:n [:int {:min 0}]]]
+       :states      {:idle {}}})
+
+    (let [pre      (rf/runtime-db-value :test/main)
+          recorded (record-trace!)
+          ;; A runtime-db whose snapshot :data (:n -5) violates [:int {:min 0}].
+          ok?      (rf/replace-runtime-db! :test/main
+                     {:rf.runtime/machines
+                      {:snapshots {:rf.szbzei/door {:state :idle :data {:n -5}}}}})]
+      (is (false? ok?) "runtime-db injection rejected on schema mismatch")
+      (is (= pre (rf/runtime-db-value :test/main))
+          "runtime-db unchanged after a rejected injection")
+      (let [ev (some (fn [ev]
+                       (when (= :rf.epoch/replace-app-db-schema-mismatch
+                                (:operation ev))
+                         ev))
+                     @recorded)]
+        (is (some? ev) ":rf.epoch/replace-app-db-schema-mismatch fired")
+        (is (= :test/main (:frame (:tags ev))))
+        (is (vector? (:failing-paths (:tags ev)))
+            "trace carries the failing paths")))))
+
+(deftest replace-frame-state!-replaces-both-partitions
+  (testing "replace-frame-state! installs BOTH partitions atomically; returns
+            true on success"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (is (true? (rf/replace-frame-state! :test/main
+                 {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}}))
+        "replace-frame-state! returns true on success")
+    (is (= {:a 7} (rf/app-db-value :test/main)) "app-db partition installed")
+    (is (= {:rf.runtime/routing {:r 1}} (rf/runtime-db-value :test/main))
+        "runtime-db partition installed")
+    (is (= {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}}
+           (rf/frame-state-value :test/main))
+        "frame-state reads back the coherent both-partition snapshot")))
+
+(deftest replace-frame-state!-records-undo-epoch-and-restore-rewinds-past
+  (testing "replace-frame-state! records a synthetic :rf.epoch/db-replaced
+            epoch so restore-epoch can rewind PAST the full-frame injection"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (let [seed-record (some (fn [r] (when (= :seed (:event-id r)) r))
+                            (rf/epoch-history :test/main))
+          pre-count   (count (rf/epoch-history :test/main))
+          ok?         (rf/replace-frame-state! :test/main
+                        {:rf.db/app {:a :injected}
+                         :rf.db/runtime {:rf.runtime/routing {:r :injected}}})
+          history     (rf/epoch-history :test/main)
+          fresh       (last history)]
+      (is (true? ok?) "boolean true return")
+      (is (= (inc pre-count) (count history)) "a synthetic epoch was appended")
+      (is (= :rf.epoch/db-replaced (:event-id fresh))
+          "the synthetic record sentinels the pair-tool injection")
+      (is (= {:rf.db/app {:a :injected}
+              :rf.db/runtime {:rf.runtime/routing {:r :injected}}}
+             (:frame-state-after fresh))
+          "frame-state-after captured BOTH injected partitions")
+      ;; Restore the seed epoch — rewinds PAST the full-frame injection.
+      (is (true? (rf/restore-epoch :test/main (:epoch-id seed-record))))
+      (is (= {:n 7} (rf/app-db-value :test/main))
+          "app-db rewound past the injection")
+      (is (nil? (:rf.runtime/routing (rf/runtime-db-value :test/main)))
+          "runtime-db rewound past the injection too"))))
+
+(deftest replace-frame-state!-raises-when-epoch-artefact-missing
+  (testing "rf/replace-frame-state! raises :rf.error/epoch-artefact-missing
+            when the :epoch/replace-frame-state! late-bind hook is nil"
+    (let [hook-key :epoch/replace-frame-state!
+          original (late-bind/get-fn hook-key)]
+      (try
+        (late-bind/set-fn! hook-key nil)
+        (let [thrown (try (rf/replace-frame-state! :any/frame {:rf.db/app {} :rf.db/runtime {}})
+                          nil
+                          (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? thrown)
+              "replace-frame-state! throws when the epoch artefact is absent")
+          (is (= ":rf.error/epoch-artefact-missing" (.getMessage thrown)))
+          (let [data (ex-data thrown)]
+            (is (= 'rf/replace-frame-state! (:where data))
+                "ex-data carries :where = 'rf/replace-frame-state!")
+            (is (= :no-recovery (:recovery data)))
+            (is (string? (:reason data)))))
+        (finally
+          (late-bind/set-fn! hook-key original))))))
+
+(deftest replace-frame-state!-failure-runtime-schema-mismatch
+  (testing "replace-frame-state! rejects an injection whose runtime-db
+            partition fails the framework-owned runtime-db validator —
+            either partition's schema failure rejects the whole atomic install"
+    (rf/reg-frame :test/main {})
+    (rf/reg-machine :rf.szbzei/gate
+      {:initial     :idle
+       :data        {:n 1}
+       :data-schema [:map [:n [:int {:min 0}]]]
+       :states      {:idle {}}})
+    (rf/reg-event-db :seed (fn [_ _] {:ok true}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [pre-app (rf/app-db-value :test/main)
+          pre-rt  (rf/runtime-db-value :test/main)
+          ok?     (rf/replace-frame-state! :test/main
+                    {:rf.db/app {:fresh :app}
+                     :rf.db/runtime
+                     {:rf.runtime/machines
+                      {:snapshots {:rf.szbzei/gate {:state :idle :data {:n -1}}}}}})]
+      (is (false? ok?) "the whole install rejected on a runtime-db schema failure")
+      (is (= pre-app (rf/app-db-value :test/main))
+          "app-db unchanged — the atomic install was rolled back wholesale")
+      (is (= pre-rt (rf/runtime-db-value :test/main))
+          "runtime-db unchanged too"))))
 
 ;; ---- capture-event! skip-ops cross-contamination (rf2-htf28) ---------------
 ;;
