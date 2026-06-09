@@ -118,8 +118,21 @@
   (when (exists? js/window)
     (query-param-from-search (-> js/window .-location .-search) param-name)))
 
+(defn- to-forward-slashes
+  "Canonicalise every path separator in `s` to a forward slash. A Windows
+  checkout root (`C:\\Users\\me\\code\\re-frame2`) and a POSIX one
+  (`/home/dev/re-frame2`) thus reduce to the SAME `/`-separated form, the
+  canonical shape this helper emits — matching the launcher's build-env
+  normalisation (`implementation/scripts/dev-testbed.cjs`) and the
+  separator-agnostic editor-URI composer (`source_coords/editor_uri.cljc`,
+  which accepts both `/` and `\\` on input and joins with `/`)."
+  [s]
+  (str/replace s #"\\" "/"))
+
 (defn- strip-trailing-slash
-  "Return `s` without a single trailing slash, leaving a lone `\"/\"` intact."
+  "Return `s` without a single trailing forward slash, leaving a lone
+  `\"/\"` intact. Callers canonicalise backslashes to `/` first
+  (`to-forward-slashes`), so this only needs to consider forward slashes."
   [s]
   (if (and (> (count s) 1) (str/ends-with? s "/"))
     (subs s 0 (dec (count s)))
@@ -127,17 +140,24 @@
 
 (defn- join-root+subdir
   "Join a checkout `root` with the tool-relative testbed `subdir`,
-  normalising both sides so the result carries exactly one separator.
+  normalising both sides so the result carries exactly one separator and
+  uses the canonical forward-slash form on every platform.
 
-  `root` has any single trailing slash stripped (so `/repo/` + `sub`
-  never yields `/repo//sub`); `subdir` is trimmed and any leading
-  slash(es) removed (so callers may pass it with or without a leading
-  slash). A blank / nil / slash-only `subdir` collapses to the
-  normalised root verbatim."
+  Both sides are first canonicalised so any `\\` separator (a raw or
+  `%5C`-decoded Windows override root, e.g.
+  `C:\\Users\\me\\code\\re-frame2\\`) becomes `/` — so a Windows
+  `?project-root=` value joins exactly like a POSIX one rather than
+  yielding a `\\/` boundary (`C:\\...\\/tools/xray/testbeds`) that relied
+  on downstream tolerant path normalisation. `root` then has any single
+  trailing slash stripped (so `/repo/` + `sub` never yields `/repo//sub`);
+  `subdir` is trimmed and any leading slash(es) removed (so callers may
+  pass it with or without a leading slash). A blank / nil / slash-only
+  `subdir` collapses to the normalised root verbatim."
   [root subdir]
-  (let [normalized-root   (strip-trailing-slash (str/trim root))
+  (let [normalized-root   (-> root str/trim to-forward-slashes strip-trailing-slash)
         normalized-subdir (-> (or subdir "")
                               str/trim
+                              to-forward-slashes
                               (str/replace #"^/+" ""))]
     (if (seq normalized-subdir)
       (str normalized-root "/" normalized-subdir)
@@ -164,16 +184,19 @@
        hatch (CI, a reader on a different machine, a copied bundle served
        elsewhere). Wins over the build-time tier. Paste the checkout root
        unencoded, a literal `+` included (it is preserved, NOT decoded to
-       a space; see `query-param-from-search`); `subdir` is appended just
-       like tier 2.
+       a space; see `query-param-from-search`); a Windows root may use
+       `\\` separators (raw or `%5C`-encoded) and is canonicalised to `/`
+       (see `join-root+subdir`); `subdir` is appended just like tier 2.
     2. The build-time `repo-root` goog-define — the default for a normal
        `npm run dev ...` launch; `subdir` is appended.
     3. `nil` — neither root is available. The caller configures no root
        and open-in-editor is a graceful no-op (matching
        `set-project-root!`'s blank-input contract).
 
-  `subdir` is normalised (trim + leading-slash strip) so callers may
-  pass it with or without a leading slash."
+  Both root tiers and `subdir` are normalised to the canonical
+  forward-slash form (`\\` → `/`, trim, trailing/leading-slash strip) so
+  callers may pass either separator style with or without a leading
+  slash, and the result carries exactly one separator at every boundary."
   [subdir]
   (when-let [root (non-blank (or (query-param "project-root") repo-root))]
     (join-root+subdir root subdir)))

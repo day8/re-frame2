@@ -68,6 +68,7 @@
   The node degradation (no window → adapter returns nil → repo-root tier)
   is still asserted in `resolve-project-root-nil-when-root-blank` below."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [clojure.string :as str]
             [re-frame.testbed.config :as config]))
 
 ;; ---- private helper: non-blank -----------------------------------------
@@ -109,6 +110,29 @@
             the inner slash (documents the single-strip contract;
             normal callers never pass `//`)"
     (is (= "/repo/" (#'config/strip-trailing-slash "/repo//")))))
+
+;; ---- private helper: to-forward-slashes --------------------------------
+;;
+;; The canonicalisation step (rf2-d01s6s): a Windows path with `\`
+;; separators reduces to the same `/`-separated form a POSIX path already
+;; has, matching the launcher's build-env normalisation and the
+;; separator-agnostic editor-URI composer.
+
+(deftest to-forward-slashes-canonicalises-backslashes
+  (testing "every backslash becomes a forward slash; a path that is
+            already forward-slashed is unchanged; a literal + survives"
+    (is (= "C:/Users/me/code/re-frame2"
+           (#'config/to-forward-slashes "C:\\Users\\me\\code\\re-frame2"))
+        "a raw Windows checkout root canonicalises to forward slashes")
+    (is (= "C:/Users/me/code/re-frame2/"
+           (#'config/to-forward-slashes "C:\\Users\\me\\code\\re-frame2\\"))
+        "a trailing backslash canonicalises too (left for strip-trailing-slash)")
+    (is (= "/home/dev/re-frame2"
+           (#'config/to-forward-slashes "/home/dev/re-frame2"))
+        "an already-forward-slashed POSIX root is unchanged")
+    (is (= "C:/code/app+1"
+           (#'config/to-forward-slashes "C:\\code\\app+1"))
+        "a literal + is preserved through canonicalisation")))
 
 ;; ---- resolve-project-root: blank-root tier (default goog-define) -------
 
@@ -395,6 +419,115 @@
           "override and build-time tier compose to the identical on-disk path")
       (is (= "/home/dev/re-frame2+wip/tools/xray/testbeds/standard_epochs/core.cljs"
              via-override)))))
+
+;; ---- Windows override normalisation (rf2-d01s6s) -----------------------
+;;
+;; A Windows reader pasting `?project-root=C:\Users\me\code\re-frame2\`
+;; (raw `\` separators, with or without a trailing `\`) — or its
+;; %5C-encoded transport form — must resolve to a CLEAN, single-separator,
+;; forward-slash path, NOT the `C:\...\/tools/xray/testbeds` boundary
+;; duplication that relied on downstream tolerant path normalisation. Both
+;; root tiers go through the SAME canonicalising join, so this holds for
+;; the build-time `repo-root` tier as well as the query override.
+
+(deftest query-param-from-search-decodes-encoded-backslash
+  (testing "a %5C-encoded backslash in the override transport form decodes
+            to a literal `\\` (the join then canonicalises it to `/`)"
+    (is (= "C:\\Users\\me\\code\\re-frame2"
+           (#'config/query-param-from-search
+            "?project-root=C%3A%5CUsers%5Cme%5Ccode%5Cre-frame2" "project-root"))
+        "%5C → \\, %3A → : — the raw Windows root is reconstituted")))
+
+(deftest resolve-project-root-normalises-raw-windows-override
+  (testing "a raw Windows `?project-root=` value (with `\\` separators)
+            resolves to a clean forward-slash path with exactly one
+            separator at the root/subdir boundary — no `\\/` duplication"
+    (with-redefs [config/query-param (fn [param]
+                                       (when (= param "project-root")
+                                         "C:\\Users\\me\\code\\re-frame2"))
+                  config/repo-root ""]
+      (is (= "C:/Users/me/code/re-frame2/tools/xray/testbeds"
+             (config/resolve-project-root "tools/xray/testbeds"))
+          "backslashes canonicalised, subdir appended with one /"))))
+
+(deftest resolve-project-root-normalises-windows-override-trailing-backslash
+  (testing "a trailing `\\` on a raw Windows override never doubles the
+            separator (the exact `C:\\...\\/tools/...` symptom in the bead)"
+    (with-redefs [config/query-param (fn [param]
+                                       (when (= param "project-root")
+                                         "C:\\Users\\me\\code\\re-frame2\\"))
+                  config/repo-root ""]
+      (let [resolved (config/resolve-project-root "tools/xray/testbeds")]
+        (is (= "C:/Users/me/code/re-frame2/tools/xray/testbeds" resolved)
+            "trailing backslash canonicalised then stripped — single separator")
+        (is (not (str/includes? resolved "\\/"))
+            "no \\/ boundary duplication")
+        (is (not (str/includes? resolved "\\"))
+            "no backslash survives into the resolved path")
+        (is (not (str/includes? resolved "//"))
+            "no // boundary duplication")))))
+
+(deftest resolve-project-root-normalises-encoded-windows-override
+  (testing "the %5C-encoded transport form of a Windows override (with a
+            trailing %5C) resolves to the SAME clean forward-slash path as
+            the raw form — the override exists to survive URL transport"
+    (with-redefs [config/query-param
+                  (fn [param]
+                    (when (= param "project-root")
+                      ;; mirrors the decode-component output for
+                      ;; ?project-root=C%3A%5CUsers%5Cme%5Ccode%5Cre-frame2%5C
+                      (#'config/query-param-from-search
+                       "?project-root=C%3A%5CUsers%5Cme%5Ccode%5Cre-frame2%5C"
+                       "project-root")))
+                  config/repo-root ""]
+      (is (= "C:/Users/me/code/re-frame2/tools/xray/testbeds"
+             (config/resolve-project-root "tools/xray/testbeds"))
+          "encoded Windows root + trailing %5C → clean single-separator path"))))
+
+(deftest resolve-project-root-normalises-windows-build-time-tier
+  (testing "the build-time repo-root tier is normalised the same way —
+            a `\\`-separated define (e.g. an unnormalised launcher value)
+            still resolves to a clean forward-slash path"
+    (with-redefs [config/query-param (constantly nil)
+                  config/repo-root "C:\\Users\\me\\code\\re-frame2"]
+      (is (= "C:/Users/me/code/re-frame2/tools/story/testbeds"
+             (config/resolve-project-root "tools/story/testbeds"))))))
+
+(deftest windows-override-composes-to-intended-on-disk-file
+  (testing "rf2-d01s6s + rf2-w4yw9q: a Windows `?project-root=` override
+            composes with a representative classpath-relative source coord
+            to the intended on-disk file with the tool-source-root segment
+            present and exactly one separator everywhere — proving no
+            missing `tools/<tool>/testbeds` segment and no `\\/` / `//`
+            duplication in the path Xray/Story actually prefix"
+    (with-redefs [config/query-param (fn [param]
+                                       (when (= param "project-root")
+                                         "C:\\Users\\me\\code\\re-frame2\\"))
+                  config/repo-root ""]
+      (let [root (config/resolve-project-root "tools/xray/testbeds")
+            composed (composed-editor-path root "standard_epochs/core.cljs")]
+        (is (= "C:/Users/me/code/re-frame2/tools/xray/testbeds" root))
+        (is (= "C:/Users/me/code/re-frame2/tools/xray/testbeds/standard_epochs/core.cljs"
+               composed)
+            "the composed editor path reaches the actual on-disk source file")
+        (is (str/includes? composed "/tools/xray/testbeds/")
+            "the tool source-root segment is present (not missing)")
+        (is (not (str/includes? composed "\\"))
+            "no backslash survives")
+        (is (not (str/includes? composed "//"))
+            "no // boundary duplication")))))
+
+(deftest windows-override-preserves-literal-plus-in-checkout
+  (testing "a Windows checkout with a `+` in the path (e.g.
+            `C:\\code\\re-frame2+wip`) round-trips: `\\` → `/` but the
+            literal `+` is preserved (the existing rf2-xdsat.1 semantics)"
+    (with-redefs [config/query-param (fn [param]
+                                       (when (= param "project-root")
+                                         "C:\\code\\re-frame2+wip"))
+                  config/repo-root ""]
+      (is (= "C:/code/re-frame2+wip/tools/xray/testbeds"
+             (config/resolve-project-root "tools/xray/testbeds"))
+          "+ survives canonicalisation; \\ → /"))))
 
 ;; ---- public-surface stability sentinel ---------------------------------
 
