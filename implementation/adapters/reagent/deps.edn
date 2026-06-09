@@ -7,10 +7,14 @@
 ;; everything else.
 ;;
 ;; The core artefact already carries Reagent as a runtime dep because the
-;; CLJS-side re-frame.views layer is currently Reagent-coupled per the
-;; rf2-0hxm decision; the adapter split here ships the adapter map
+;; CLJS-side re-frame.views layer (the reg-view path) is Reagent-coupled
+;; per the rf2-0hxm decision; the adapter split here ships the adapter map
 ;; separately, which is the slice the bundle-isolation argument needs.
-;; Full views-layer decoupling lands with the UIx adapter (rf2-3yij).
+;; That coupling at views.cljs is preserved by design: the UIx adapter
+;; (rf2-3yij, shipped) added a parallel reg-view-uix (`defui`) rather than
+;; decoupling re-frame.views, and the React-hook substrates compose this
+;; ns's frame-aware-view wrapper around their own render-fns. See
+;; ../../core/deps.edn for the matching core-side note.
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../../core"}}
 
