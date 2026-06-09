@@ -224,6 +224,26 @@ jobs:
       - name: Verify re-frame2-setup counter vocabulary + lifecycle wording
         run: python scripts/check_skill_setup_counter_drift.py --verbose --ci
 
+      # Eval-packaging-consistency guard (rf2-ngw0wl, follows rf2-myge8z /
+      # PR #3653). There is NO repo-wide ship/no-ship policy for a skill's
+      # `evals/` dir — both stances coexist and are valid: most skills EXCLUDE
+      # it from `package.json` `files` (a repo-maintenance artifact; consumers
+      # run the skill, they don't re-run its gate), a minority INCLUDE it so a
+      # vendored copy can re-run its own gate. The invariant the gate enforces
+      # is PACKAGE/DOCS AGREEMENT: for each packaged skill with an `evals/` dir
+      # on disk, its prose (evals/README.md or the README directory-contents
+      # block) and its `files` array must not CONTRADICT each other on whether
+      # `evals/` ships. Catches the rf2-myge8z drift class generically without
+      # forcing one policy; silence is not a contradiction. The self-test proves
+      # the gate fires on both contradiction directions (and stays green on both
+      # agree cases + the sibling-mention guard) before the live scan asserts
+      # all current skills agree.
+      - name: Self-test the eval-packaging-consistency guard
+        run: python scripts/check_skill_eval_packaging.py --self-test --ci
+
+      - name: Verify skill eval-packaging docs agree with package.json files
+        run: python scripts/check_skill_eval_packaging.py --verbose --ci
+
   # PR-time gate for README link drift (rf2-br5u7). Source: the
   # rf2-oavap README sweep used a local `ai/link-sweep-v2.py` audit
   # that flagged 5 issues — 3 real, 2 false-positives caused by GitHub
