@@ -196,12 +196,13 @@
   container.
 
   This is deliberate and load-bearing: calling the schema-first
-  `elision/elide-wire-value` walker here would `deref` the frame's
-  app-db container (to read the `[:rf/runtime :elision ...]` registry) INSIDE the
-  reaction's compute fn. On a Reagent substrate that registers a
-  spurious reactive dependency on app-db for every layer-2+ sub —
-  breaking the glitch-free `db → layer-1 → layer-2` layering (the sub
-  would recompute on ANY app-db change, not just its own input's). The
+  `elision/elide-wire-value` walker here would `deref` one of the frame's
+  container projections (to read the `[:rf.runtime/elision ...]` registry
+  from the runtime-db partition) INSIDE the reaction's compute fn. On a
+  Reagent substrate that registers a spurious reactive dependency on a
+  frame container for every layer-2+ sub — breaking the glitch-free
+  `db → layer-1 → layer-2` layering (the sub would recompute on ANY
+  matching container change, not just its own input's). The
   marks chokepoint reads only process-scoped atoms, so it is
   reaction-safe. A schema-`:sensitive?` sub egresses `:prev-value` /
   `:value` as `:rf/redacted`; `:value-changed?` stays a plain boolean.

@@ -68,7 +68,7 @@
   `popstate` listener that dispatches `:rf.route/handle-url-change` to the
   current URL-owning frame (`url-owner-frame-id`, resolved at pop time),
   then sync the current URL into that frame's route slice at
-  `[:rf/runtime :routing :current]`. This is
+  `[:rf.runtime/routing :current]`. This is
   the inbound (browser → app) counterpart of the outbound
   `:rf.nav/push-url` gate: Back/Forward restores the owner frame's route,
   whether the owner is `:rf/default` or a non-default `:url-bound? true`

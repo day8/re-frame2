@@ -712,11 +712,15 @@
 
 (deftest computed-trace-elides-large-result
   (testing ":rf.flow/computed :result rides through elide-wire-value — schema-large path is elided"
-    ;; Seed the app-db with `merge` semantics so the schema-installed
-    ;; elision registry survives the :init handler. A replacing handler
-    ;; (e.g. `(fn [_ _] {:n 1})`) would wipe the `[:rf/runtime :elision]` slot
-    ;; before the flow's evaluate-time registry read.
-    (rf/reg-event-db :init (fn [db _] (merge db {:n 1})))
+    ;; A plain replacing `:init` handler is safe: under the two-partition
+    ;; contract a `:db` return replaces ONLY the app-db partition, so the
+    ;; schema-installed elision registry — which lives in the runtime-db
+    ;; partition at `[:rf.runtime/elision]` — survives untouched for the
+    ;; flow's evaluate-time registry read. (Pre-migration the registry sat
+    ;; in app-db under `:rf/runtime`, where a replacing handler WOULD have
+    ;; clobbered it; that footgun is structurally gone — see
+    ;; `re-frame.events/reject-legacy-runtime-root!`.)
+    (rf/reg-event-db :init (fn [_ _] {:n 1}))
     (rf/reg-flow {:id     :payload
                   :inputs [[:n]]
                   :output (fn [_] {:bytes "BIG"})
@@ -739,7 +743,7 @@
   (testing ":rf.flow/failed :inputs rides through elide-wire-value"
     ;; Register the flow that will throw; the input path is schema-
     ;; declared large so the walker substitutes the marker on emit.
-    (rf/reg-event-db :init (fn [db _] (merge db {:payload {:big "value"}})))
+    (rf/reg-event-db :init (fn [_ _] {:payload {:big "value"}}))
     (rf/reg-flow {:id     :boom
                   :inputs [[:payload]]
                   :output (fn [_] (throw (ex-info "boom" {})))
