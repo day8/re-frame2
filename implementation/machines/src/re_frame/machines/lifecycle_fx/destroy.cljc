@@ -309,8 +309,15 @@
   `:spawn-all` children-iteration teardown
   (`destroy-spawn-all-children!`) per the `args` shape. See the ns
   docstring for the form semantics."
-  [{frame-id :frame :or {frame-id :rf/default}} args]
-  (let [spawn-all? (and (map? args) (true? (:rf/spawn-all args)))]
+  [{frame-id :frame} args]
+  (let [;; EP-0002 carried invariant — the cascade envelope frame is the
+        ;; fx-context `:frame`; a nil stamp is an invariant failure
+        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+        frame-id   (frame/require-frame-stamp!
+                     frame-id :rf.machine/destroy
+                     {:where 'rf.machine/destroy
+                      :event-id (when (map? args) (:rf/parent-id args))})
+        spawn-all? (and (map? args) (true? (:rf/spawn-all args)))]
     (if spawn-all?
       (destroy-spawn-all-children! frame-id
                                    (:rf/parent-id args)

@@ -431,7 +431,21 @@
          (when (and clear-app-schemas? clear-fn)
            (clear-fn))
          (when init-fn (init-fn))
-         (test-fn)
+         ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
+         ;; and the framework operation surfaces (dispatch / subscribe /
+         ;; machine + http + routing fxs) now require a carried frame stamp.
+         ;; When the fixture installed an adapter it ALSO ensured the
+         ;; conventional `:rf/default` app frame (above), so it establishes
+         ;; that frame as the body's ambient scope — the carried-invariant
+         ;; equivalent of wrapping every test in `(with-frame :rf/default …)`.
+         ;; Tests that drive multiple frames / explicit `{:frame …}` overrides
+         ;; still work: an inner `with-frame` re-binds, and an explicit opt
+         ;; wins over the ambient scope. Adapter-less fixtures (the test
+         ;; installs its own frame) get no ambient scope.
+         (if adapter
+           (binding [frame/*current-frame* :rf/default]
+             (test-fn))
+           (test-fn))
          (finally
            (restore-registrar! snap)
            (when restore-fn (restore-fn schemas-snap))

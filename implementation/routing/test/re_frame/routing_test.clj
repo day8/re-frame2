@@ -59,6 +59,14 @@
   (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`, and
+  ;; routing/nav fxs now require a carried frame stamp. Register `:rf/default`
+  ;; explicitly as the conventional single app frame. URL ownership is now an
+  ;; EXPLICIT declaration (no `:rf/default`-owns-by-default floor), so this
+  ;; suite's URL-owning frame opts in via `{:url-bound? true}`; the body runs
+  ;; with `:rf/default` pinned as the ambient scope.
+  (rf/reg-frame :rf/default {:url-bound? true
+                             :doc "Routing-suite default app frame (explicit URL owner)."})
   ;; Framework events / fx (routing.cljc, ssr.cljc) are registered at
   ;; ns-load; clear-all! wiped them. Reload to resurrect.
   (require 're-frame.routing :reload)
@@ -68,7 +76,8 @@
   ;; the production façade).
   (require 're-frame.routing.test-support :reload)
   (routing/reset-counters!)
-  (test-fn))
+  (rf/with-frame :rf/default
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
@@ -4013,8 +4022,9 @@
             (Spec 012 §Multi-frame routing)"
     (let [traces (atom [])]
       (rf/register-listener! ::dup-bind (fn [ev] (swap! traces conj ev)))
-      ;; :rf/default is implicitly :url-bound? true. A second frame
-      ;; opting in collides.
+      ;; EP-0002 (rf2-nn0jqa): URL ownership is explicit. This suite's
+      ;; fixture registered `:rf/default {:url-bound? true}` as the declared
+      ;; owner, so a second frame opting in collides with it.
       (rf/reg-frame :my-frame {:url-bound? true})
       (rf/unregister-listener! ::dup-bind)
       (is (some (fn [ev]

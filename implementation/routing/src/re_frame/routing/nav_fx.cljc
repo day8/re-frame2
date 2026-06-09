@@ -20,43 +20,46 @@
 
 (defn url-bound?-from-config
   "Read `:url-bound?` from a frame's stored config map. `nil` when
-  unset. Default-on for `:rf/default` is applied at the call site, not
-  here, so the hook can discriminate explicit-`true` from default-`true`."
+  unset."
   [config]
   (when (map? config)
     (:url-bound? config)))
 
 (defn url-owner-frame-id
-  "Return the single frame allowed to mutate browser history. The default
-  frame owns the URL unless it explicitly opts out; otherwise the first
-  explicit non-default `:url-bound? true` frame wins deterministically.
-  Duplicate registrations still emit `:rf.error/duplicate-url-binding`,
-  but this predicate enforces the one-owner rule at fx time.
+  "Return the single frame that has EXPLICITLY declared browser-history
+  ownership via `(reg-frame :id {:url-bound? true})`, or `nil` when no
+  frame has declared it.
+
+  EP-0002 (rf2-nn0jqa) — URL ownership is an explicit host/bootstrap
+  policy, NOT an absence repair. The prior contract anchored ownership on
+  `:rf/default` (the default frame owned the URL unless it opted out);
+  under the carried invariant the runtime must NOT infer `:rf/default` as
+  the owner. An app declares its one URL-owning frame explicitly; `nil`
+  here means no owner is declared (a routing-config state, surfaced by the
+  callers — outbound history mutations no-op, the inbound popstate listener
+  skips). `:rf/default` may still BE the owner, but only when it carries an
+  explicit `{:url-bound? true}` like any other frame.
 
   Public (rather than `defn-`) so the ownership-resolution contract is
-  directly assertable — in particular the single-non-default-owner case
-  the step-deck testbed relies on (rf2-6qgbs.3): when `:rf/default` opts
-  OUT (`:url-bound? false`) a non-default `:url-bound? true` frame becomes
-  the owner. A reimplemented gate cannot catch a regression in THIS
-  resolution; the test must reach the real fn."
+  directly assertable — the single declared-owner case the step-deck
+  testbed relies on (rf2-6qgbs.3). A reimplemented gate cannot catch a
+  regression in THIS resolution; the test must reach the real fn."
   []
-  (let [frames       (registrar/registrations :frame)
-        default-meta (get frames :rf/default)]
-    (if-not (false? (url-bound?-from-config default-meta))
-      :rf/default
-      (->> frames
-           (filter (fn [[id meta]]
-                     (and (not= :rf/default id)
-                          (true? (url-bound?-from-config meta)))))
-           (sort-by (fn [[id _]] (str id)))
-           ffirst))))
+  (->> (registrar/registrations :frame)
+       (filter (fn [[_id meta]] (true? (url-bound?-from-config meta))))
+       (sort-by (fn [[id _]] (str id)))
+       ffirst))
 
 (defn url-bound-frame?
   "Return true when the frame named `frame-id` is the one active URL
   owner. Per Spec 012 §Multi-frame routing, duplicate `:url-bound? true`
-  declarations are reported AND non-owners are prevented from pushing."
+  declarations are reported AND non-owners are prevented from pushing.
+
+  EP-0002 — `nil` frame-id (or no declared owner) is never the owner: the
+  runtime no longer synthesises `:rf/default` ownership from absence."
   [frame-id]
-  (= (or frame-id :rf/default) (url-owner-frame-id)))
+  (and (some? frame-id)
+       (= frame-id (url-owner-frame-id))))
 
 ;; `:rf.nav/push-url` and `:rf.nav/replace-url` share one body: gate on
 ;; the calling frame's URL ownership, then either drive the browser

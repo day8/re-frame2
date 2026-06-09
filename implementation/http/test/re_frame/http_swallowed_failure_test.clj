@@ -53,8 +53,15 @@
    :sensitive?          false})
 
 (defn- ctx-on-failure-present []
+  ;; EP-0002 (rf2-nn0jqa): the present-:on-failure path actually dispatches
+  ;; the reply event, so the synthetic ctx must carry the frame stamp the
+  ;; reply dispatch reads (the `:on-failure nil` siblings are silenced and
+  ;; never dispatch, so they need none). `:rf/default` need not be a live
+  ;; frame here — the reply lands as a frame-destroyed no-op, which this
+  ;; test (asserting only the absence of a swallow warning) is indifferent to.
   {:explicit-on-failure {:supplied? true :value [:api/load-error]}
    :url                 "https://example.test/data"
+   :frame               :rf/default
    :sensitive?          false})
 
 (deftest on-failure-silenced?-detects-explicit-nil-only

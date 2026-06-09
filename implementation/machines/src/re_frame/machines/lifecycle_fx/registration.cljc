@@ -315,7 +315,10 @@
   `:rf.error/machine-snapshot-version-mismatch` event."
   [db runtime-db frame event machine base-initial]
   (let [machine-id    (first event)
-        frame-id      (or frame :rf/default)
+        ;; EP-0002 — `frame` is the cascade-threaded envelope frame the
+        ;; calling machine handler already asserted via
+        ;; `require-frame-stamp!`; no `:rf/default` repair here.
+        frame-id      frame
         platform      (or (:platform (frame/frame-meta frame-id)) :client)
         machine       (assoc machine
                              :rf/frame     frame-id
@@ -586,13 +589,21 @@
   (let [base-initial (delay (parallel/build-initial-snapshot
                               machine {:bootstrap-pending? false}))]
     (fn [{:keys [db frame] rt :rf.db/runtime :as _cofx} event]
+      ;; EP-0002 carried invariant: a machine handler is invoked inside an
+      ;; event cascade, so the cofx ALWAYS carries the envelope `:frame`
+      ;; (the HELD stamp). A nil stamp is an invariant failure — surface
+      ;; `:rf.error/no-frame-context`, never repair to a synthesised
+      ;; `:rf/default`.
+      (frame/require-frame-stamp!
+        frame :rf.machine/event-received
+        {:where 'rf-machines/make-machine-handler :event-id (first event)})
       ;; Per Spec 009 §:op-type vocabulary: `:rf.machine/event-received`
       ;; fires at the top of the handler so consumers see the inbound
       ;; event before any state derivation.
       (trace/emit! :rf.machine :rf.machine/event-received
                    {:machine-id (first event)
                     :event      event
-                    :frame      (or frame :rf/default)})
+                    :frame      frame})
       ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db
       ;; state. The handler reads the snapshot from the `:rf.db/runtime`
       ;; coeffect (a fresh frame's runtime-db is `nil` until first write —
@@ -885,7 +896,12 @@
   slot declares nothing — symmetric with `reg-machine`."
   [event frame-id]
   (let [actor-id   (first event)
-        runtime-db (frame/frame-runtime-db-value (or frame-id :rf/default))
+        ;; EP-0002 — `frame-id` is the cascade-threaded envelope frame the
+        ;; router's no-handler diagnostics pass in; read its runtime-db
+        ;; directly, no `:rf/default` repair. (A nil frame-id yields nil
+        ;; runtime-db → the genuine `:no-such-handler`, never a read against
+        ;; a synthesised default.)
+        runtime-db (frame/frame-runtime-db-value frame-id)
         snapshot   (when runtime-db (get-in runtime-db (paths/snapshot-path actor-id)))
         spec       (when snapshot (resolver/spec-from-snapshot snapshot))]
     (when spec
