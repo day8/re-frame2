@@ -28,18 +28,17 @@
   join/strip logic could have silently regressed cross-platform path
   construction.
 
-  ## Why these live under `src/` (not a sibling `test/` dir)
+  ## Where this lives
 
-  Every other tool wires a dedicated `tools/<tool>/test` source-path
-  into the top-level `implementation/shadow-cljs.edn` so `:node-test`
-  (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) discovers it. That
-  shadow-cljs.edn is a hot-zone file outside this slice's edit surface
-  (rf2-ynjts.23 is scoped to `tools/testbed-support/` only), and an
-  un-wired `test/` dir would be an orphaned never-run suite. The slice's
-  one already-wired source root is `tools/testbed-support/src`, so this
-  suite lives there. Nothing under `src/` `:require`s it, so it is dead
-  code for every build except `:node-test` (which finds it by the
-  `cljs-test$` ns regexp) and is tree-shaken out of any release bundle.
+  Like every other tool, `testbed-support` wires a dedicated
+  `tools/testbed-support/test` source-path into the top-level
+  `implementation/shadow-cljs.edn`, so `:node-test` (`npm run test:cljs`,
+  `:ns-regexp \"cljs-test$\"`) discovers this suite there. The runtime
+  helper source path (`tools/testbed-support/src`) carries the helper
+  namespaces only, keeping the same source/test separation the rest of
+  the repo uses (rf2-d0631h). Nothing under `src/` `:require`s this test,
+  so it is on the classpath only for the `:node-test` build that finds it
+  by the `cljs-test$` ns regexp and never reaches a release bundle.
 
   ## How the `?project-root=` override (tier 1) is pinned here
 

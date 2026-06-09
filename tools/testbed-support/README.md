@@ -93,10 +93,11 @@ forgetting the project-root config.
 ```
 tools/testbed-support/
 ├── README.md                                 ; this file
-└── src/re_frame/testbed/
-    ├── config.cljs                           ; resolve-project-root + the repo-root goog-define
+├── src/re_frame/testbed/
+│   ├── config.cljs                           ; resolve-project-root + the repo-root goog-define
+│   └── story_host.cljs                       ; mount-with-hash-routing! (live-app↔shell host)
+└── test/re_frame/testbed/
     ├── config_cljs_test.cljs                 ; CLJS unit tests for the resolver
-    ├── story_host.cljs                       ; mount-with-hash-routing! (live-app↔shell host)
     └── story_host_cljs_test.cljs             ; CLJS unit tests for the host harness
 ```
 
@@ -107,7 +108,9 @@ Clojars coord. It is consumed purely as an extra source path: the
 testbed builds add `../tools/testbed-support/src` to their source paths
 in [`implementation/shadow-cljs.edn`](../../implementation/shadow-cljs.edn),
 and seed `re-frame.testbed.config/repo-root` via that file's
-`:closure-defines`. Bundle-isolation holds: nothing under
+`:closure-defines`. The sibling `../tools/testbed-support/test` path is
+also listed so the always-on `:node-test` build discovers the unit
+suites (see below). Bundle-isolation holds: nothing under
 `implementation/` `:require`s it.
 
 ## How to test
@@ -116,9 +119,10 @@ Both `config_cljs_test.cljs` (the resolver) and `story_host_cljs_test.cljs`
 (the host harness's listener lifecycle / hot-reload behaviour) run as part
 of the always-on CLJS gate: `npm run test:cljs` from `implementation/`
 compiles the `:node-test` build, whose `:ns-regexp "cljs-test$"` discovers
-both namespaces through this slice's wired `../tools/testbed-support/src`
+both namespaces through this slice's wired `../tools/testbed-support/test`
 source path. There is no standalone test alias for this directory (no
-`deps.edn`); the suites live under `src/` precisely so that wired source
+`deps.edn`); the suites live under a dedicated `test/` root — the same
+src/test split every other tool/artefact uses — and the wired test source
 path picks them up.
 
 ## See also

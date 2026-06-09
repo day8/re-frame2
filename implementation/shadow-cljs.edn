@@ -180,12 +180,15 @@
                 ;; hardcoded personal-path defaults the Xray / Story
                 ;; testbeds previously copied; and
                 ;; `re-frame.testbed.story-host`, the live-app ↔ Story-shell
-                ;; hash-toggle host harness the showcase testbeds share. Both
-                ;; carry `*-cljs-test` suites under src/ that the :node-test
-                ;; build's `cljs-test$` ns-regexp discovers via this source
-                ;; path. Bundle-isolation contract holds (nothing under
+                ;; hash-toggle host harness the showcase testbeds share. The
+                ;; `src` path carries the helper namespaces; the dedicated
+                ;; `test` path carries the `*-cljs-test` suites the :node-test
+                ;; build's `cljs-test$` ns-regexp discovers — the same
+                ;; src/test split every other tool/artefact uses (rf2-d0631h).
+                ;; Bundle-isolation contract holds (nothing under
                 ;; implementation/ :requires it).
                 "../tools/testbed-support/src"
+                "../tools/testbed-support/test"
                 ;; Per rf2-kx74 examples/ is grouped per substrate. Each
                 ;; substrate root is its own shadow-cljs source path so
                 ;; the per-example namespaces (counter.core,
