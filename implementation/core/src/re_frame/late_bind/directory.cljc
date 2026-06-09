@@ -367,6 +367,10 @@
     :producer-ns 're-frame.machines
     :design-bead "rf2-a2sn1"
     :description "Epoch-restore precondition companion to :machines/resolve-actor-handler-meta. Returns true iff a recorded actor-id's snapshot in a candidate restore RUNTIME-DB partition (EP-0001 rf2-3aizt1 — snapshots are runtime-db state at [:rf.runtime/machines :snapshots <id>]) resolves to a live machine spec via its `:rf/machine-type` (registered TYPE or inline `:definition`). Lets `re-frame.epoch.tool-pair/missing-references` treat a spawned-actor snapshot as a VALID restore target — its per-instance handler is, by design, never registered — rather than a `:rf.epoch/restore-missing-handler`."}
+   {:key         :machines/spec-from-snapshot
+    :producer-ns 're-frame.machines
+    :design-bead "rf2-rlt3sv"
+    :description "Epoch-restore version-drift precondition companion to :machines/actor-resolvable?. Resolves a SPAWNED actor's CURRENT definition the same way dispatch does — from the snapshot's `:rf/machine-type` (a registered TYPE keyword resolved through the registrar, or an inline `:definition` spec map carried verbatim). `re-frame.epoch.tool-pair/machine-version-mismatch` reads the resolved spec's `[:meta :rf/snapshot-version]` so a spawned actor whose TYPE was hot-reloaded forward surfaces `:rf.epoch/restore-version-mismatch` instead of silently accepting an incompatible older snapshot (the snapshot key is an instance id, not a registered handler, so the singleton registrar probe never matched it)."}
    {:key         :machines/spawn-all-init-fx
     :producer-ns 're-frame.machines
     :description "Effect handler seeding the :spawn-all join state during spawn."}
