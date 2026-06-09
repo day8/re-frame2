@@ -76,10 +76,13 @@
 (def reset-counters!            registry/reset-counters!)
 (def default-max-decoded-keys   registry/default-max-decoded-keys)
 
-;; Scroll
+;; Scroll (rf2-1hncp2: host-side transient cache, not runtime-db)
 (def scroll-positions-cap       scroll/scroll-positions-cap)
 (def lookup-scroll-position     scroll/lookup-scroll-position)
 (def save-scroll-position       scroll/save-scroll-position)
+(def frame-scroll-cache         scroll/frame-scroll-cache)
+(def save-scroll-position!      scroll/save-scroll-position!)
+(def reset-scroll-cache!        scroll/reset-cache!)
 
 ;; Subs
 (def route-sub-fn               routing-subs/route-sub-fn)
@@ -205,7 +208,7 @@
 ;; (read the runtime-db projection); the `:rf.route/*` derived subs chain off
 ;; `:rf/route` unchanged.
 (subs/reg-runtime-sub :rf/route
-  {:doc "Subscribe to the current route slice `{:id :params :query :transition :error :fragment :nav-token}`. Layer-1-shaped read of the route slice at `[:rf.runtime/routing :current]` in the runtime-db partition — the per-frame routing-runtime keys (`:scroll-positions`, `:scroll-positions-order`, `:nav-token-counter`, `:pending-nav-counter`) sit as siblings at `[:rf.runtime/routing ...]`, so the slice carries only the published shape and the sub returns it directly. Per Spec 012."}
+  {:doc "Subscribe to the current route slice `{:id :params :query :transition :error :fragment :nav-token}`. Layer-1-shaped read of the route slice at `[:rf.runtime/routing :current]` in the runtime-db partition — the per-frame routing-runtime keys (`:nav-token-counter`, `:pending-nav-counter`, `:pending-navigation`) sit as siblings at `[:rf.runtime/routing ...]`, so the slice carries only the published shape and the sub returns it directly. Scroll positions are NOT a runtime-db sibling — they live in a host-side transient cache (rf2-1hncp2). Per Spec 012."}
   route-sub-fn)
 (subs/reg-sub :rf.route/id
   {:doc "Subscribe to the current route's `:id` keyword. Per Spec 012."}
@@ -266,6 +269,14 @@
 (late-bind/set-fn! :routing/reset-counters!    reset-counters!)
 (late-bind/set-fn! :routing/route-sub-fn       route-sub-fn)
 (late-bind/set-fn! :routing/current-url        current-url)
+
+;; rf2-1hncp2: release the destroyed frame's host-side transient
+;; scroll-position cache entry. `frame/destroy-frame!` invokes this by key
+;; (no static dep on routing — the artefact is optional). Analogous to the
+;; ssr / machines / flows / schemas per-frame teardown hooks; without it a
+;; long-running multi-frame / per-request-frame process would leak one
+;; scroll-cache entry per destroyed frame.
+(late-bind/set-fn! :routing/on-frame-destroyed! scroll/release-frame!)
 
 ;; Browser-history wiring (popstate → url-owner frame). CLJS-only; the
 ;; JVM build has no `window` so the install/remove fns are not defined

@@ -117,15 +117,18 @@
 
 (defn scroll-plan
   "Pure: build the `{:capture-fx :scroll-fx}` pair for a navigation.
-  `rdb` is the routing runtime-db value (carries the current slice + the
-  per-frame scroll-positions map). `route-meta` is the TARGET route's
-  metadata (for its `:scroll` strategy). `opts` is the navigate opts map
-  (or nil on the URL-driven path — no per-call `:scroll` override).
-  `default-strategy` is `:top` (forward) or `:restore` (popstate/SSR).
-  `url` keys the `:restore` saved-position lookup. Returns a map; either
-  fx may be nil (no current route to capture from; `:scroll false`
-  suppression)."
-  [{:keys [rdb route-meta opts default-strategy route-id params query fragment url]}]
+  `rdb` is the routing runtime-db value (carries the current slice — the
+  durable `:current` route fact). `scroll-cache` is the frame's host-side
+  transient scroll-position cache map (`{:positions :order}` from
+  `re-frame.routing.scroll/frame-scroll-cache`, threaded in EXPLICITLY by
+  the caller so this helper stays pure and never reaches the host atom —
+  rf2-1hncp2). `route-meta` is the TARGET route's metadata (for its
+  `:scroll` strategy). `opts` is the navigate opts map (or nil on the
+  URL-driven path — no per-call `:scroll` override). `default-strategy` is
+  `:top` (forward) or `:restore` (popstate/SSR). `url` keys the `:restore`
+  saved-position lookup. Returns a map; either fx may be nil (no current
+  route to capture from; `:scroll false` suppression)."
+  [{:keys [rdb scroll-cache route-meta opts default-strategy route-id params query fragment url]}]
   (let [strategy (scroll/resolve-scroll-strategy route-meta opts default-strategy)]
     {:capture-fx (scroll/capture-scroll-fx-entry rdb)
      :scroll-fx  (scroll/scroll-fx-entry
@@ -134,7 +137,7 @@
                                  (get-in rdb [:rf.runtime/routing :current]))
                     :to        (scroll/route-descriptor* route-id params query)
                     :saved-pos (when (= :restore strategy)
-                                 (scroll/lookup-scroll-position rdb url))
+                                 (scroll/lookup-scroll-position scroll-cache url))
                     :fragment  fragment})}))
 
 ;; ---- pre-commit telemetry intents ----------------------------------------

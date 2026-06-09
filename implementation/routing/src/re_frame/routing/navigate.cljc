@@ -20,6 +20,7 @@
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.plan :as plan]
             [re-frame.routing.registry :as registry]
+            [re-frame.routing.scroll :as scroll]
             [re-frame.routing.url :as url]
             [re-frame.trace :as trace]))
 
@@ -430,6 +431,12 @@
                   ;; URL-driven path.
                   {:keys [capture-fx scroll-fx]}
                   (plan/scroll-plan {:rdb              rdb
+                                     ;; rf2-1hncp2: saved scroll positions
+                                     ;; are a host-side transient cache (not
+                                     ;; runtime-db) — read the active frame's
+                                     ;; cache and thread it in explicitly so
+                                     ;; the planner stays pure.
+                                     :scroll-cache     (scroll/frame-scroll-cache frame)
                                      :route-meta       route-meta
                                      :opts             opts
                                      :default-strategy :top
