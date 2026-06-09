@@ -19,14 +19,16 @@ re-frame2 ships **eleven Maven artefacts in lockstep** (core + 7 per-feature + 3
 
 **Lockstep is a build/dependency discipline, not a boot-time runtime check.** `rf/init!` validates only that you handed it an adapter spec map (it rejects nil / non-map) and installs it; the adapter spec carries a `:kind` discriminator, **not** a VERSION field, so the runtime does not compare per-artefact versions at boot. (Verified: `implementation/core/src/re_frame/core.cljc` `init!` and `implementation/core/src/re_frame/substrate/adapter.cljc` `install-adapter!` carry no version metadata.) The enforcement that *does* exist is **build-time**: the generator template pins `:rf2-version` / `:shadow-version` / `:react-version` and a test (`tools/template/test/day8/re_frame2_template/version_lockstep_test.clj`) fails if the template's literals drift from their sources of truth. So keep every `day8/re-frame2-*` coordinate at one VERSION because a mixed set is **unsupported and undefined**, not because a guard will catch it for you.
 
-**Validate lockstep yourself.** The cheap check: grep your `deps.edn` for `day8/re-frame2-` coordinates and confirm every `:mvn/version` is identical.
+**Validate lockstep yourself.** The cheap check: grep your `deps.edn` for `day8/re-frame2-` coordinates and confirm every pin is identical. Pre-publish (git coords) every `:git/sha` must match; post-publish (Maven coords) every `:mvn/version` must match.
 
 ```bash
+# Pre-publish (git coords) — every printed SHA must be the same string:
+grep -oE 'day8/re-frame2[a-z-]* *\{:git/url[^}]*:git/sha "[^"]+"' deps.edn
+# Post-publish (Maven coords) — every printed version must be the same string:
 grep -oE 'day8/re-frame2[a-z-]* *\{:mvn/version "[^"]+"' deps.edn
-# every printed version must be the same string
 ```
 
-Picking a re-frame2 VERSION for your project means picking it once and using it everywhere a `day8/re-frame2-*` coordinate appears.
+Picking a re-frame2 pin for your project means picking it once (one `:git/sha` today, one `:mvn/version` post-publish) and using it everywhere a `day8/re-frame2-*` coordinate appears.
 
 ## The eleven artefacts
 
@@ -36,7 +38,7 @@ Picking a re-frame2 VERSION for your project means picking it once and using it 
 | `day8/re-frame2-reagent` | substrate | **Always (for a Reagent app).** The Reagent adapter map. |
 | `day8/re-frame2-uix` | substrate | Instead of `-reagent` if you target UIx. |
 | `day8/re-frame2-helix` | substrate | Instead of `-reagent` if you target Helix. |
-| `day8/re-frame2-schemas` | per-feature | **Day one** (the template attaches a whole-app-db schema). Required whenever you call `reg-app-schema` / `reg-app-schemas`; without it CLJS schema validation soft-passes per Spec 010. |
+| `day8/re-frame2-schemas` | per-feature | **Day one** (the template attaches a whole-app-db schema). **Required** whenever you call `reg-app-schema` / `reg-app-schemas` — and you must `:require` `re-frame.schemas` before the registrations. Without the artefact, those registration calls throw `:rf.error/schemas-artefact-missing` (a loud error, NOT a silent soft-pass). Requiring `re-frame.schemas` wires Malli automatically, so a registered schema validates (Spec 010 §Schema implies validation on CLJS). |
 | `day8/re-frame2-machines` | per-feature | When you call `reg-machine` or `make-machine-handler`. |
 | `day8/re-frame2-routing` | per-feature | When you dispatch `:rf.route/*` events or register routes. |
 | `day8/re-frame2-flows` | per-feature | When you call `reg-flow`. |
@@ -46,41 +48,48 @@ Picking a re-frame2 VERSION for your project means picking it once and using it 
 
 These eleven are the **publishable** lockstep set. (Two niche local roots — `day8/reagent-slim` and `day8/re-frame2-ssr-ring` — ride the same version but aren't part of greenfield.) Separately, the in-app devtools panel `day8/re-frame2-xray` ships on the same version line and is a **day-one** dep in the template (see the day-one shape below); it is tooling, not one of the eleven library artefacts.
 
-**Greenfield day-one shape.** This skill matches the [deps-new generator template](../README.md#relationship-to-the-generator-template) so the manual route and the one-command route land on the same scaffold. The template ships **four** re-frame2 coords on day one — core + the Reagent adapter, plus `day8/re-frame2-schemas` (the starter app attaches a whole-app-db schema; without this artefact CLJS soft-passes per Spec 010) and `day8/re-frame2-xray` (the in-app devtools panel, wired via `:devtools/preloads` and Xray-priority by default) — plus an explicit `reagent/reagent` pin.
+**Greenfield day-one shape.** This skill matches the [deps-new generator template](../README.md#relationship-to-the-generator-template) so the manual route and the one-command route land on the same scaffold. The template ships **four** re-frame2 coords on day one — core + the Reagent adapter, plus `day8/re-frame2-schemas` (the starter app attaches a whole-app-db schema; the artefact is required because the app calls `reg-app-schema`, and requiring `re-frame.schemas` wires Malli so the schema validates — omitting the artefact makes the registration throw `:rf.error/schemas-artefact-missing`, per Spec 010) and `day8/re-frame2-xray` (the in-app devtools panel, wired via `:devtools/preloads` and Xray-priority by default) — plus an explicit `reagent/reagent` pin.
 
 The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) stay pay-as-you-go: resist adding them until the author writes code that actually uses them, so apps that don't use them don't pay the classpath cost.
 
-## Discovering the current VERSION
+## Choosing the coordinate (publication state decides the shape)
 
-**The author picks the re-frame2 VERSION at kickoff; the skill never auto-selects.** Pinning the framework version makes the project reproducible and avoids silently chasing whatever has just shipped.
+**Pre-publish reality (today): re-frame2 is NOT on Clojars/npm yet.** The repo's [`README.md`](../../../README.md) §Status says artifacts have not been published to Clojars and NPM, and tells early users to add re-frame2 as a `:git/sha` coordinate. The `day8/re-frame2*` Maven coordinates **do not resolve** — a greenfield project that writes `{:mvn/version "<VERSION>"}` for the framework artefacts fails dependency resolution before it ever compiles. So the coordinate *shape* branches on publication state:
 
-For the author's reference (so they can pick), three sources, in order of authority:
+- **Before the first Clojars release (now):** use a **`:git/url` + `:git/sha`** coordinate for each `day8/re-frame2*` artefact, OR a **`:local/root`** coordinate against a reviewed checkout of the monorepo. This is the **only** working manual route today.
+- **After publication (forward-correct):** switch each artefact to `{:mvn/version "<VERSION>"}`. The `:mvn/version` shape below is the post-publish destination; it is not usable until the coordinates resolve on Clojars.
 
-1. **The repo's `VERSION` file** — `https://github.com/day8/re-frame2/blob/main/VERSION` is the single source of truth that release tags are cut from. The string in this file is the canonical VERSION for the next release.
-2. **`CHANGELOG.md`** — `https://github.com/day8/re-frame2/blob/main/CHANGELOG.md` lists the released VERSIONs with summaries. The latest non-unreleased entry is the latest released VERSION.
-3. **The GitHub releases page** — `https://github.com/day8/re-frame2/releases` shows the tags. The latest tag is `v<VERSION>`.
+**Two different "versions" — don't conflate them.** The repo `VERSION` / next-release string is what release *tags* are cut from; the *latest published Maven version* is whatever has actually shipped to Clojars (currently: none). Version discovery distinguishes them: a repo `VERSION` of `0.0.1.alpha` does **not** mean `{:mvn/version "0.0.1.alpha"}` resolves.
 
-For the bleeding edge (e.g. chasing a fix that hasn't released yet), the author can use a `:git/url` + `:git/sha` coord instead of `:mvn/version`. Niche; the skill takes the SHA from the author and writes it in — it does not pick.
+**The author picks the re-frame2 pin at kickoff; the skill never auto-selects.** Pinning makes the project reproducible and avoids silently chasing whatever has just shipped. For the author's reference (so they can pick a `:git/sha` today, or a `:mvn/version` once published), the sources in order of authority:
 
-(The generator template ships a **pinned baseline** — it hardcodes `:rf2-version`, `:shadow-version`, and `:react-version` in its `hooks.clj` so the one-command route hands you a known-good set with no discovery step. The version-discovery discipline above applies to the **manual** route and to later upgrades; the template route gives you a fixed pin you can bump.)
+1. **The repo's `VERSION` file** — `https://github.com/day8/re-frame2/blob/main/VERSION` is the single source of truth that release tags are cut from. The string here is the canonical VERSION for the **next** release — NOT a guarantee it is published.
+2. **`CHANGELOG.md`** — `https://github.com/day8/re-frame2/blob/main/CHANGELOG.md` lists released VERSIONs with summaries.
+3. **The GitHub releases page** — `https://github.com/day8/re-frame2/releases` shows the tags; a tag `v<VERSION>` gives the matching `:git/sha`.
+4. **Clojars** — `https://clojars.org/day8/re-frame2` (and the `*-reagent` / `*-schemas` / `*-xray` siblings) is the authority for whether a `:mvn/version` actually resolves. **If the artefact 404s on Clojars, `:mvn/version` is not an option yet** — use `:git/sha` / `:local/root`.
 
-**Never invent a version. Never silently pick `latest`.** Both are accidents the policy exists to prevent. If the author hasn't supplied a VERSION, stop and ask before editing any dep file.
+(The generator template ships a **pinned baseline** — it hardcodes `:rf2-version`, `:shadow-version`, and `:react-version` in its `hooks.clj`. Note the template still **emits** `:mvn/version` framework coords and is gated/verified against a `:local/root` rewrite pre-publish, per [`tools/template/spec/005-Repo-Split.md`](../../../tools/template/spec/005-Repo-Split.md) — so the one-command route, like the manual route, is not yet a published-coord scaffold. See [`../README.md` §Pre-split / pre-release caveat](../README.md#relationship-to-the-generator-template).)
+
+**Never invent a version. Never silently pick `latest`. Never write a `:mvn/version` framework coord that doesn't resolve on Clojars.** All three are accidents the policy exists to prevent. If the author hasn't supplied a pin, stop and ask before editing any dep file.
 
 ## `deps.edn` shape
 
-A minimal `deps.edn` for a greenfield re-frame2 project:
+A minimal `deps.edn` for a greenfield re-frame2 project. **Today (pre-publish), use the `:git/sha` shape** — the framework artefacts are not on Clojars:
 
 ```clojure
 {:paths ["src"]
  :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
          org.clojure/clojurescript {:mvn/version "1.12.145"}
 
-         day8/re-frame2            {:mvn/version "<VERSION>"}
-         day8/re-frame2-reagent    {:mvn/version "<VERSION>"}
-         day8/re-frame2-schemas    {:mvn/version "<VERSION>"}
-         day8/re-frame2-xray       {:mvn/version "<VERSION>"}
+         ;; Pre-publish: every day8/re-frame2* artefact pinned to ONE reviewed SHA.
+         ;; (deps.edn requires a per-coord :git/url; the four below share the same monorepo
+         ;; repo + the same <SHA> the author pinned at kickoff — the lockstep discipline.)
+         day8/re-frame2         {:git/url "https://github.com/day8/re-frame2.git" :git/sha "<SHA>" :deps/root "implementation/core"}
+         day8/re-frame2-reagent {:git/url "https://github.com/day8/re-frame2.git" :git/sha "<SHA>" :deps/root "implementation/adapters/reagent"}
+         day8/re-frame2-schemas {:git/url "https://github.com/day8/re-frame2.git" :git/sha "<SHA>" :deps/root "implementation/schemas"}
+         day8/re-frame2-xray    {:git/url "https://github.com/day8/re-frame2.git" :git/sha "<SHA>" :deps/root "tools/xray"}
 
-         reagent/reagent           {:mvn/version "2.0.1"}}
+         reagent/reagent        {:mvn/version "2.0.1"}}
 
  :aliases
  {;; The build alias the paired shadow-cljs.edn names via {:deps {:aliases [:shadow]}}.
@@ -95,7 +104,19 @@ A minimal `deps.edn` for a greenfield re-frame2 project:
    :main-opts   ["-m" "shadow.cljs.devtools.cli"]}}}
 ```
 
-Replace `<VERSION>` with the VERSION you discovered above (**every `day8/re-frame2-*` line gets the same value**) and `<shadow-version>` with the `shadow-cljs` version from the pinned `implementation/package.json` (the same version you write into `package.json` below — keep them in lockstep).
+Replace `<SHA>` with the reviewed commit the author pinned (**every `day8/re-frame2-*` line gets the same `<SHA>`** — that is how lockstep is held with git coords; confirm the `:deps/root` for each artefact against the monorepo layout) and `<shadow-version>` with the `shadow-cljs` version from the pinned `implementation/package.json` (the same version you write into `package.json` below — keep them in lockstep). A `:local/root` checkout (each `:deps/root` pointing at a local re-frame2 clone) is the equivalent dev-route alternative.
+
+**Post-publish shape (NOT usable until the coordinates resolve on Clojars).** Once `day8/re-frame2*` is published, each framework artefact switches to a single shared `:mvn/version`:
+
+```clojure
+;; AFTER PUBLICATION ONLY — these coords 404 on Clojars today.
+day8/re-frame2         {:mvn/version "<VERSION>"}
+day8/re-frame2-reagent {:mvn/version "<VERSION>"}
+day8/re-frame2-schemas {:mvn/version "<VERSION>"}
+day8/re-frame2-xray    {:mvn/version "<VERSION>"}
+```
+
+Replace `<VERSION>` with the published VERSION (**every `day8/re-frame2-*` line gets the same value**). Verify it resolves on Clojars first — see the version-discovery sources above.
 
 Notes on the pins:
 - The Clojure / ClojureScript versions match what the re-frame2 repo's own core artefact builds against (`implementation/core/deps.edn`) and what the generator template pins. You can use newer versions if shadow-cljs and Reagent support them; start with these.
