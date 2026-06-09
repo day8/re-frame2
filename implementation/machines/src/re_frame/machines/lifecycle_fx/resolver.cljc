@@ -1,11 +1,11 @@
 (ns re-frame.machines.lifecycle-fx.resolver
-  "Spawned-actor SPEC resolution from app-db (rf2-a2sn1) — the leaf helper
+  "Spawned-actor SPEC resolution from runtime-db (rf2-a2sn1) — the leaf helper
   beneath the lazy actor-handler resolver.
 
-  Per Spec 005 §Spawning §Liveness is derived from app-db: a spawned
+  Per Spec 005 §Spawning §Liveness is derived from runtime-db: a spawned
   actor has NO per-instance event-handler registration. Spawn is a pure
-  app-db write (install the snapshot + the spawn-registry slot); destroy
-  is a pure app-db remove. An actor's liveness IS exactly the presence
+  runtime-db write (install the snapshot + the spawn-registry slot); destroy
+  is a pure runtime-db remove. An actor's liveness IS exactly the presence
   of its snapshot at `[:rf.runtime/machines :snapshots <actor-id>]` in
   the frame's value — so `restore-epoch` (which reverts app-db only)
   reverts liveness perfectly, with ZERO registrar drift. This closes the

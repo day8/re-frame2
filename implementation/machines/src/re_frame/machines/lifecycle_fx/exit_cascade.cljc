@@ -19,13 +19,13 @@
   `re-frame.machines.parallel/run-active-exit-cascade` (which dispatches
   flat/compound to `re-frame.machines.transition`, and parallel to the
   per-region reduce). This file is the side-effect wrapper that:
-    1. resolves the actor's snapshot from the frame's app-db,
+    1. resolves the actor's snapshot from the frame's runtime-db,
     2. resolves the actor's machine spec — a spawned actor's TYPE rides
        its snapshot under `:rf/machine-type` (per rf2-a2sn1, spawned
        actors carry no per-instance registrar entry); a singleton's spec
        comes from its registered handler,
     3. runs the pure cascade,
-    4. writes the post-cascade snapshot back to app-db so any caller
+    4. writes the post-cascade snapshot back to runtime-db so any caller
        reading the snapshot AFTER `:exit` (e.g. `finalize-machine`'s
        `:on-done` projection — though that read happens before this
        runs, the write here is for tools observing the snapshot
@@ -72,7 +72,7 @@
   snapshot at `[:rf.runtime/machines :snapshots actor-id]` or no resolvable machine spec.
 
   On a successful cascade: writes the post-cascade snapshot back to
-  app-db (so callers reading the snapshot between `:exit` and the
+  runtime-db (so callers reading the snapshot between `:exit` and the
   teardown projection see `:exit`-time `:data` writes) and fires the
   emitted fx vector via `re-frame.fx/do-fx`. On a thrown action,
   surfaces a `:rf.error/machine-action-exception` trace (matching the

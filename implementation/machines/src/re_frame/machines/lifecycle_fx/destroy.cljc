@@ -6,7 +6,7 @@
   the fx vector whenever exit cascades cross a `:spawn`-bearing state.
   Per Spec 005 §Spawning, destroy unregisters the spawned actor's event
   handler, clears its snapshot at `[:rf.runtime/machines :snapshots <id>]` in the spawning
-  frame's app-db, and (if the actor was system-id-bound) clears the
+  frame's runtime-db, and (if the actor was system-id-bound) clears the
   `[:rf.runtime/machines :system-ids]` reverse index entry.
 
   Per rf2-t07u (Option A revised), `args` can be either:
@@ -15,7 +15,7 @@
     - a map `{:rf/parent-id ... :rf/spawn-id ...}` — the declarative-
       `:spawn` exit-cascade form, where the runtime resolves the actor
       id from `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` in the frame's
-      app-db.
+      runtime-db.
 
   Per rf2-6vmw, the map form may also carry `:rf/spawn-all true` —
   the declarative-`:spawn-all` exit-cascade form. The slot at
@@ -23,7 +23,7 @@
   `:children` sub-map has every spawned child id. The handler iterates
   `:children` and tears each one down, then clears the slot.
 
-  The actor-teardown app-db dance lives in
+  The actor-teardown runtime-db dance lives in
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
   call-sites."
   (:require [re-frame.frame :as frame]
