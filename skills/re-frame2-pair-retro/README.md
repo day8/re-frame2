@@ -28,10 +28,12 @@ It is intentionally diagnosis-first: the default outcome is a better understandi
 - `references/issue-template.md` — GitHub-issue drafting structure (with the shell-safety pattern for transcript-derived bodies)
 - `references/working-style.md` — diagnostic-posture rules applied per finding (evidence over vibes, symptom vs cause, direct/indirect friction, positive gaps, creativity after diagnosis)
 - `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) for re-authoring the skill; not loaded during normal operation
-- `evals/evals.json` — trigger-accuracy fixtures (which prompts should and should not activate the skill)
+- `evals/evals.json` — trigger-accuracy fixtures (which prompts should and should not activate the skill); a repo-maintenance artifact, deliberately **excluded** from the npm package `files` array (see below)
 - `.claude-plugin/plugin.json` — plugin packaging metadata
 - `agents/openai.yaml` — UI metadata for skill lists and invocation
 - `package.json`, `LICENSE` — npm packaging metadata and the MIT licence
+
+`spec/` carries skill-internal design/authoring meta-docs (not loaded during normal operation), and `evals/` holds the trigger-accuracy fixtures. Both are **excluded from the npm `files` array by design** — they are repo-maintenance artifacts that run from a full re-frame2 clone (where the description-optimisation loop can reach `evals/evals.json`), not material a packaged-skill consumer re-runs. This mirrors the sibling `re-frame2`, `re-frame2-setup`, and `re-frame2-pair` skills; `npm pack --dry-run` from this directory lists no `spec/` or `evals/` files.
 
 ## Relationship to other repos
 
