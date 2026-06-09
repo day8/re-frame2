@@ -56,7 +56,8 @@
   ((requiring-resolve 're-frame.machines/reset-timers!))
   (http-managed/clear-all-in-flight!)
   ;; rf2-r5m22 — the per-frame HTTP interceptor chain lives in a separate
-  ;; atom (`@http-managed/interceptors`), NOT the registrar `clear-all!`
+  ;; registry (internal to `re-frame.http-middleware`; observe via
+  ;; `http-managed/interceptors-snapshot`), NOT the registrar `clear-all!`
   ;; wipes above. Tests that register `:before` / `:after` interceptors
   ;; (the canned-path `:after` coverage) must clear it between tests, or
   ;; a leaked `:after` mutates every subsequent test's reply payload.

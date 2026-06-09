@@ -44,9 +44,9 @@
 (use-fixtures :each reset-runtime)
 
 (defn- slot-for
-  "Locate the stored slot for `id` on `frame-id` in @http-managed/interceptors."
+  "Locate the stored slot for `id` on `frame-id` in (http-managed/interceptors-snapshot)."
   [frame-id id]
-  (->> (get @http-managed/interceptors frame-id)
+  (->> (http-managed/interceptors-snapshot frame-id)
        (filter #(= id (:id %)))
        first))
 

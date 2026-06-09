@@ -24,9 +24,12 @@
 
   Tests below construct `HttpHeaders` via the public
   `HttpHeaders/of` factory and exercise the helper through its var so
-  the `defn-` stays private to the namespace."
+  the `defn-` stays private to the namespace.
+
+  rf2-hp772l — `jvm-headers->map` is JVM-platform-transport internal and
+  now lives in the per-platform adapter ns `re-frame.http-transport-jvm`."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.http-transport :as http-transport])
+            [re-frame.http-transport-jvm :as http-transport-jvm])
   (:import [java.net.http HttpHeaders]
            [java.util List Map]
            [java.util.function BiPredicate]))
@@ -50,7 +53,7 @@
                      (test [_ _ _] true))]
     (HttpHeaders/of ^Map java-map ^BiPredicate accept-all)))
 
-(def ^:private jvm-headers->map @#'http-transport/jvm-headers->map)
+(def ^:private jvm-headers->map @#'http-transport-jvm/jvm-headers->map)
 
 ;; ---- single-valued path stays string ---------------------------------------
 

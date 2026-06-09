@@ -131,19 +131,28 @@
 ;; `:require [re-frame.http-managed :as http-managed]`) see the same
 ;; surface they did pre-split.
 
-;; Registry surface — tests deref the atoms and call the snapshot fns.
-(def in-flight                   registry/in-flight)
-(def actor-in-flight             registry/actor-in-flight)
+;; Registry surface — the in-flight indexes are internal storage. Tests
+;; observe them through the immutable snapshot helpers and seed test state
+;; through `seed-in-flight-for-test!` (which preserves both-index invariants
+;; via `record-in-flight!`); the raw `in-flight` / `actor-in-flight` atoms
+;; are NOT re-exported (rf2-hp772l — turning test convenience into accidental
+;; mutable API let app code bypass `record-in-flight!` / `clear-in-flight!`
+;; and the actor-index cleanup).
 (def clear-all-in-flight!        registry/clear-all-in-flight!)
 (def in-flight-snapshot          registry/in-flight-snapshot)
 (def actor-in-flight-snapshot    registry/actor-in-flight-snapshot)
+(def seed-in-flight-for-test!    registry/seed-in-flight-for-test!)
 (def abort-on-actor-destroy      registry/abort-on-actor-destroy)
 
-;; Middleware surface — per rf2-6y3q. Tests deref @http-managed/interceptors.
-(def interceptors                middleware/interceptors)
+;; Middleware surface — per rf2-6y3q. The per-frame interceptor chain is
+;; internal storage; tests observe it through the immutable
+;; `interceptors-snapshot` helper rather than deref'ing the `interceptors`
+;; atom (which is NOT re-exported — rf2-hp772l). Registration / clearing
+;; route through `reg-http-interceptor` / `clear-http-interceptor`.
 (def reg-http-interceptor        middleware/reg-http-interceptor)
 (def clear-http-interceptor      middleware/clear-http-interceptor)
 (def clear-all-http-interceptors! middleware/clear-all-http-interceptors!)
+(def interceptors-snapshot       middleware/interceptors-snapshot)
 
 ;; Privacy surface — Spec 014 §Privacy (rf2-bma05). Header denylist lives
 ;; in `re-frame.http-privacy-headers`; the orchestrating composers
