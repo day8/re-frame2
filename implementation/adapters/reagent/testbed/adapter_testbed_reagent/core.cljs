@@ -11,7 +11,8 @@
    CLJS / browser tests and the Xray feature gate."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core    :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as reagent-adapter])
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- Events / subs ----------------------------------------------------------
 
@@ -26,7 +27,15 @@
 
 ;; -- View -------------------------------------------------------------------
 
-(defn root []
+;; EP-0002 (rf2-9o48ih): the render-time `subscribe` below resolves its
+;; frame from the closest enclosing `frame-provider` via React context —
+;; but ONLY a `reg-view`-registered component carries the `:contextType`
+;; static-field wiring Reagent needs to read that context (a plain Reagent
+;; fn's `(.-context cmp)` is the no-provider sentinel, so its subscribe
+;; would resolve nil → `:rf.error/no-frame-context` and the render crashes).
+;; So `root` is a `reg-view`, matching every other frame-scoped Reagent
+;; view in the codebase (Spec 002 §Reading the frame from React context).
+(reg-view root []
   (let [n @(rf/subscribe [:counter/value])]
     [:div
      [:h1 {:data-testid "rf-adapter-testbed-reagent"}

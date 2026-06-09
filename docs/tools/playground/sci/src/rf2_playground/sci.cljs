@@ -151,6 +151,33 @@
 ;; Mod-Enter reuses the same React root (and a Reaction stays live).
 (defonce ^:private roots (atom {}))
 
+(defn- frame-bind-component
+  "Bind the cell's render to `app-frame` so a render-time `subscribe` /
+  `dispatch` inside a PLAIN Reagent fn resolves (EP-0002 carried
+  invariant).
+
+  Playground cells are author-written plain `(defn foo [] …)` fns, NOT
+  `reg-view`-registered components. The frame-provider React-context tier
+  (`views/current-frame`) only resolves for components carrying the
+  `:contextType` static-field wiring `reg-view*` attaches — a plain fn's
+  `(.-context cmp)` is the no-provider sentinel, so its render-time
+  `subscribe` would resolve nil → `:rf.error/no-frame-context` and the
+  render throws (the runtime never synthesises a frame from absence).
+
+  So we re-establish the frame via the DYNAMIC-VAR tier instead: when the
+  cell value is a component-invocation vector `[f & args]` whose head `f`
+  is a fn, wrap that head with `frame-bound-fn*` capturing `app-frame`. The
+  wrapped fn re-binds `*current-frame*` on EVERY invocation — including each
+  React render — so the plain-fn's `subscribe`/`dispatch` resolve to
+  `:rf/default` regardless of the (reg-view-only) context tier. A non-fn
+  head (e.g. a plain `[:div …]` hiccup tag) needs no scope and rides
+  through untouched."
+  [component]
+  (if (and (vector? component)
+           (fn? (first component)))
+    (assoc component 0 (rf/frame-bound-fn* app-frame (first component)))
+    component))
+
 (defn ^:export renderLast
   "Render entry (cljs-rf2 cells). Eval `src` at the SCI top level (so
   a leading `(require ...)`'s aliases reach sibling forms — same reason
@@ -170,10 +197,12 @@
                  (let [rt (rdc/create-root target-el)]
                    (swap! roots assoc target-el rt)
                    rt))]
-    ;; Mount under a `frame-provider` so the cell component's render-time
-    ;; `subscribe` / `frame-handle` reads resolve to `:rf/default` via React
-    ;; context.
-    (rdc/render root [rf/frame-provider {:frame app-frame} component])
+    ;; Mount under a `frame-provider` (scopes any `reg-view`'d descendant the
+    ;; cell author writes) AND frame-bind the cell's own component fn so a
+    ;; render-time `subscribe` inside a PLAIN fn resolves `:rf/default` via the
+    ;; dynamic-var tier — the React-context tier alone reaches only reg-views.
+    (rdc/render root [rf/frame-provider {:frame app-frame}
+                      (frame-bind-component component)])
     nil))
 
 ;; ---------------------------------------------------------------------------

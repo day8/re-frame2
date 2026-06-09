@@ -286,6 +286,18 @@
   topic into the form — `cond->` over slot presence keeps the form
   topic-agnostic and the elision contract single-sourced.
 
+  EP-0002 (rf2-bd4div) — the walker opts thread the resolved operating
+  frame in as the explicit `:frame` override. The drain form runs on the
+  nREPL eval thread, which carries NO ambient `with-frame` scope, so a
+  frameless `re-frame.core/elide-wire-value` would FAIL CLOSED and redact
+  every cascade slot to `:rf/redacted` (the carried-frame invariant). We
+  resolve the operating frame app-side via
+  `(re-frame2-pair.runtime/current-frame)` and merge it into the opts —
+  the same idiom `elision/elide-sub-value-src` uses for the sub-cache
+  walker and `runtime/pair-dispatch!` uses for the dispatch override — so
+  the walker resolves against the frame's `[:rf/runtime :elision]`
+  registry instead of failing closed.
+
   Public (not `defn-`) so unit tests can pin the form shape directly —
   the form-string is the contract surface between MCP server and the
   app-side runtime."
@@ -298,7 +310,13 @@
          ;; `include-large?` (subscribe always elides, so emit markers ⇒
          ;; pass `false`). Pre-rf2-suoj2 this was `true` under the old
          ;; "enabled?" polarity that the helper inverted internally.
-         'opts  (ef/rt-raw (elision/elision-opts-edn false incl?))]
+         ;; EP-0002 (rf2-bd4div): merge the resolved operating frame in as
+         ;; the explicit `:frame` override (the nREPL eval thread carries
+         ;; no ambient frame scope, so a frameless elide-wire-value would
+         ;; fail closed → redact every cascade to `:rf/redacted`).
+         'opts  (ef/rt-raw
+                  (str "(merge {:frame (re-frame2-pair.runtime/current-frame)} "
+                       (elision/elision-opts-edn false incl?) ")"))]
         ;; Apply the walker to whichever slot the drain produced.
         ;; Per rf2-mscih cascade-bundle topics return `:cascades`; flat
         ;; topics return `:events`. `cond->` handles both without baking
