@@ -9,9 +9,24 @@
   description, inputSchema, outputSchema, annotations + handler. This
   generator reads that registry (NOT the config-dependent
   `tool-descriptors` projection — the manifest must be deterministic, so
-  it reads the raw schemas before the operator-gate `:include-sensitive`
-  strip) and projects each entry into the stable catalogue row defined
-  by `re-frame.mcp-base.descriptor-manifest`.
+  it reads the raw schemas, NOT the live operator gate) and projects
+  each entry into the stable catalogue row defined by
+  `re-frame.mcp-base.descriptor-manifest`.
+
+  GATED INPUTS (rf2-qo3wvp). The raw registry descriptor carries the
+  FULL `tools/list` input surface — including `:include-sensitive`, the
+  knob the default profile strips behind `--allow-sensitive-reads`.
+  Projecting it as a flat `:input-keys` made the manifest claim
+  `:include-sensitive` is on the DEFAULT surface, which it is not
+  (closed-by-default). The generator passes `registry/gated-input-keys`
+  (the config-independent set of keys the server gates off by default —
+  the SAME set `registry/strip-include-sensitive` removes at
+  `tools/list` time) to `dm/build-manifest`, so each row records the
+  gated subset in `:gated-input-keys`. The committed manifest now
+  distinguishes the two deterministic profiles: the default surface is
+  `:input-keys` minus `:gated-input-keys`; the gate-open surface is
+  `:input-keys` verbatim. The set is static, so the manifest stays
+  deterministic + config-independent.
 
   THE ARTEFACT. `tool-descriptors.edn` (next to this server's source
   root) — the committed, byte-stable projection of the registry.
@@ -47,7 +62,7 @@
   (io/file (System/getProperty "user.dir") "tool-descriptors.edn"))
 
 (defn build []
-  (dm/build-manifest server-id registry/tool-registry))
+  (dm/build-manifest server-id registry/tool-registry registry/gated-input-keys))
 
 (defn generate!
   "Regenerate tool-descriptors.edn from the live registry."
@@ -67,7 +82,7 @@
   exactly which of the manifest's governed slots drifted so a descriptor-
   only change is actionable without a manual whole-manifest diff."
   [old new]
-  (for [slot [:description :input-keys :required :output? :annotations :typicalTokens]
+  (for [slot [:description :input-keys :gated-input-keys :required :output? :annotations :typicalTokens]
         :let [o (get old slot)
               n (get new slot)]
         :when (not= o n)]
@@ -101,7 +116,7 @@
               (doseq [n removed] (println "    -" n)))
             (when (seq changed)
               (println "  Existing tools whose descriptor catalogue row changed"
-                       "(input-keys / required / output? / annotations / description / typicalTokens):")
+                       "(input-keys / gated-input-keys / required / output? / annotations / description / typicalTokens):")
               (doseq [{:keys [name old new]} changed]
                 (println "    ~" name)
                 (doseq [[slot o n] (row-slot-deltas old new)]
