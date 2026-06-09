@@ -37,6 +37,9 @@
      unmount thunk, and deep (grandchild) leaf-upward cascade ordering."
   (:require [re-frame.adapter.test-react :as test-react]
             [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.core :as rf]
+            [re-frame.subs :as subs]
+            [re-frame.frame :as frame]
             #?(:clj  [clojure.test :as ctest :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :as ctest :refer-macros [deftest is testing use-fixtures]])))
 
@@ -191,6 +194,97 @@
           "emitter still bound after dispose + reinstall")
       (finally
         (test-react/set-hiccup-emitter! nil)))))
+
+;; ---- dispose-adapter! clears every live frame's sub-cache (rf2-ghfkkk) ----
+;;
+;; The HIGH-severity finding: test-react's `dispose-adapter!` drained
+;; active-mounts (the host-resource MUST) but did NOT walk per-frame
+;; sub-caches the way the React adapters do via `spine/dispose-frame-sub-
+;; caches!`. Because `make-derived-value` is a plain IDeref reify whose
+;; reaction never auto-disposes (no IWatchable, no published :adapter/dispose!
+;; hook on CLJS), the `{:reaction … :ref-count n}` CACHE ENTRY — which lives
+;; on the FRAME, not the reaction — survived a dispose/reinstall cycle. A
+;; later subscribe could then read the stale cached value instead of
+;; recomputing from fresh state, breaking process isolation.
+;;
+;; The fix routes `dispose-adapter!` through the CLJC-safe shared helper
+;; `re-frame.subs.cache/clear-all-frame-sub-caches!`, the externally-visible
+;; counterpart of the spine walk. This test materializes a real frame
+;; sub-cache entry (with a ref-count), disposes the adapter, asserts the
+;; sub-cache is empty + the ref-count is gone, and verifies a re-subscribe
+;; after reinstall recomputes from the CURRENT app-db rather than serving a
+;; stale slot. Runs on both the JVM (`clojure -M:test`) and — by virtue of
+;; this ns also ending in `-test` — has a `-cljs-test` companion at
+;; `test_react_dispose_sub_cache_cljs_test.cljc` that exercises the same
+;; contract under `npm run test:cljs`.
+
+(defn- default-sub-cache-keys
+  "The set of cache-keys currently materialised in the :rf/default frame's
+  per-frame sub-cache. Empty when the frame is absent."
+  []
+  (if-let [cache (:sub-cache (frame/frame :rf/default))]
+    (set (keys @cache))
+    #{}))
+
+(defn- default-entry-ref-count
+  "The :ref-count on the :rf/default frame's sub-cache slot for `query-v`,
+  or nil if the slot is absent."
+  [query-v]
+  (get-in @(:sub-cache (frame/frame :rf/default)) [query-v :ref-count]))
+
+(deftest dispose-adapter-clears-frame-sub-cache-no-stale-cross-lifecycle-reads
+  (testing "dispose-adapter! clears every live frame's sub-cache entries +
+            ref-counts (the rf2-ghfkkk High finding): a materialised slot does
+            NOT survive a dispose/reinstall cycle, and a re-subscribe after
+            reinstall recomputes from the CURRENT app-db — no stale read."
+    ;; Start from a clean frame registry so prior tests in this ns can't leak
+    ;; a frame/cache in. The :each fixture installed test-react; ensure the
+    ;; :rf/default frame exists under it.
+    (reset! frame/frames {})
+    (frame/ensure-default-frame!)
+    (rf/reg-event-db ::seed (fn [_ [_ v]] {:n v}))
+    (rf/reg-sub ::n (fn [db _] (:n db)))
+    (try
+      ;; Seed app-db = {:n 1} and materialise a sub-cache entry by subscribing.
+      ;; Use the explicit-frame `subs/subscribe` (the macro resolves a render-
+      ;; time frame context headless tests do not establish).
+      (rf/dispatch-sync [::seed 1])
+      (let [r (subs/subscribe :rf/default [::n])]
+        (is (= 1 @r) "sub reads the seeded value")
+        (is (contains? (default-sub-cache-keys) [::n])
+            "subscribe materialised a cache slot on the frame")
+        (is (= 1 (default-entry-ref-count [::n]))
+            "the slot carries a ref-count of 1"))
+
+      ;; Dispose the adapter. Pre-fix this left the [::n] slot + its ref-count
+      ;; in the frame's sub-cache (the reaction never auto-disposes, so the
+      ;; entry survived). The fix walks every live frame's sub-cache and resets
+      ;; it.
+      (substrate-adapter/dispose-adapter!)
+      (is (empty? (default-sub-cache-keys))
+          "dispose-adapter! cleared the frame's sub-cache — no surviving slot")
+      (is (nil? (default-entry-ref-count [::n]))
+          "the stale ref-count is gone — not carried across the dispose")
+
+      ;; Reinstall and change the app-db. A re-subscribe MUST recompute from
+      ;; the new state (98 → 99 below), not serve a stale cached 1. If the
+      ;; pre-fix slot had survived, the re-subscribe would have aliased the old
+      ;; reaction and the isolation guarantee would be broken.
+      (substrate-adapter/install-adapter! test-react/adapter)
+      (rf/dispatch-sync [::seed 99])
+      (let [r2 (subs/subscribe :rf/default [::n])]
+        (is (= 99 @r2)
+            "re-subscribe after reinstall recomputed from the CURRENT app-db")
+        (is (= 1 (default-entry-ref-count [::n]))
+            "the rebuilt slot is a FRESH cache miss (ref-count back to 1), not
+             a resurrected stale entry")
+        (subs/unsubscribe :rf/default [::n]))
+      (finally
+        ;; Clean up: drop the test registrations + the frame so the ns's other
+        ;; tests (and the :each fixture's outer dispose) start clean. The
+        ;; adapter is left installed for the fixture's dispose to tear down.
+        (rf/clear-sub ::n)
+        (reset! frame/frames {})))))
 
 ;; ----------------------------------------------------------------------------
 ;; A'. Recursive child mounting — the structural seam the regressions ride on

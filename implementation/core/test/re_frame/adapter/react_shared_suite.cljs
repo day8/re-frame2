@@ -134,6 +134,26 @@
       (finally
         (set! (.-warn js/console) original)))))
 
+(defn- with-captured-console-warn+error
+  "Replace BOTH js/console.warn and js/console.error with recording shims
+  around `thunk`. Returns the vector of joined-message strings observed on
+  EITHER channel (React reports the void-element-children violation via
+  `console.error`). Restores both originals on the way out, even if thunk
+  throws. Used by the rf2-ghfkkk void-root DOM mount test to assert React
+  raised no void-element diagnostic."
+  [thunk]
+  (let [calls     (atom [])
+        orig-warn  (.-warn js/console)
+        orig-error (.-error js/console)]
+    (try
+      (set! (.-warn js/console)  (fn [& args] (swap! calls conj (apply str args))))
+      (set! (.-error js/console) (fn [& args] (swap! calls conj (apply str args))))
+      (thunk)
+      @calls
+      (finally
+        (set! (.-warn js/console)  orig-warn)
+        (set! (.-error js/console) orig-error)))))
+
 (defn- mint-kw
   "Mint a substrate-scoped keyword so the UIx and Helix suites never
   collide on a process-wide `defonce` (warn-once set, etc.)."
@@ -479,6 +499,58 @@
         (is (= n (count (distinct keys)))
             (str "all " n " per-item keys are distinct after the wrap-view passes — no collision; got "
                  (pr-str keys)))))))
+
+;; ===========================================================================
+;; void-element unmount-sentinel (rf2-ghfkkk) — wrap-view must NOT attach a
+;; child to a void DOM root (input / img / br / …). React rejects children on
+;; void elements and would raise a void-element error / break hydration; the
+;; sentinel must ride as a Fragment SIBLING instead. Headless structural
+;; assertion (runs under node-test for BOTH UIx + Helix via the macro); the
+;; DOM-mount counterpart (no warning + exactly-one :rf.view/unmounted) lives
+;; in `assert-void-root-view-unmount-no-warning` (browser gate).
+;; ===========================================================================
+
+(defn assert-void-root-view-sentinel-is-fragment-sibling
+  "rf2-ghfkkk: a registered view whose root is a VOID DOM element emerges
+  from the wrap-view passes as a `React.Fragment` holding the user's void
+  element (source-coord + data-rf-view attrs intact, and crucially NO
+  children) plus the unmount sentinel as a SIBLING — never as a child of
+  the void element. Headless `((rf/view id))` runs the full wrap-view path
+  under goog.DEBUG=true, so this pins the structure the DOM-mount test then
+  proves renders without a React void-element error. Parameterised ⇒ a gap
+  on UIx is a gap on Helix."
+  [{:keys [substrate-kw name]}]
+  (testing (str name " — void root: sentinel is a Fragment sibling, not a child of the void element")
+    (doseq [void-tag ["input" "img" "br"]]
+      (let [id      (mint-kw substrate-kw (str "void-root-" void-tag))
+            user-fn (fn [] (React/createElement void-tag #js {}))]
+        (rf/reg-view* id user-fn)
+        (let [out ((rf/view id))]
+          (is (some? out) (str "registered view returned a non-nil element (" void-tag ")"))
+          ;; The wrap output is a Fragment (its `type` is React.Fragment, a
+          ;; non-string symbol/object), NOT the bare void element.
+          (is (= (.-Fragment React) (.-type out))
+              (str "void <" void-tag "> root wrapped in a React.Fragment so the "
+                   "sentinel can be a sibling"))
+          (let [kids   (some-> ^js out .-props .-children)
+                ;; Fragment children: [annotated-void-el sentinel-el].
+                kids-v  (cond (array? kids) (vec kids) (nil? kids) [] :else [kids])
+                root-el (first kids-v)]
+            (is (= 2 (count kids-v))
+                "Fragment carries exactly two children: the void element + the sentinel")
+            (is (= void-tag (.-type root-el))
+                (str "first Fragment child is the user's <" void-tag "> root, type preserved"))
+            ;; The CRITICAL assertion: the void element itself has NO children.
+            (let [void-children (some-> ^js root-el .-props .-children)]
+              (is (or (nil? void-children)
+                      (and (array? void-children) (zero? (alength ^js void-children))))
+                  (str "the void <" void-tag "> element received NO children — React "
+                       "would raise a void-element error otherwise")))
+            ;; Source-coord + view-id attrs still land on the user's void root.
+            (is (string? (source-coord root-el))
+                "data-rf2-source-coord still annotates the void root")
+            (is (= (str id) (view-attr root-el))
+                "data-rf-view still annotates the void root")))))))
 
 ;; ===========================================================================
 ;; frame-context corrupted `_currentValue` (Spec 009 §Error contract) — G4
@@ -3544,4 +3616,61 @@
                     ":rf.view/render-key's head is the view-id")))
             (finally
               (trace-tooling/unregister-listener! ::view-unmounted-recorder)
+              (try (.unmount root) (catch :default _ nil))))))))))
+
+(defn assert-void-root-view-unmount-no-warning
+  "rf2-ghfkkk (DOM-mount counterpart of
+  `assert-void-root-view-sentinel-is-fragment-sibling`): a registered view
+  whose root is a VOID DOM element (`input`) mounts and unmounts under the
+  React-hook substrate with NO React void-element warning/error, and STILL
+  fires exactly one `:rf.view/unmounted` on teardown. Pre-fix the spine
+  appended the unmount sentinel as a CHILD of the void element, which React
+  rejects (console.error: 'input is a void element tag and must neither
+  have children nor use dangerouslySetInnerHTML') — and the broken element
+  could fail to mount, dropping the unmount emit. The Fragment-sibling fix
+  keeps the void root child-free while preserving the sentinel's teardown
+  arm.
+
+  Browser-DOM gate (real createRoot / unmount); skipped on node-test via
+  `with-browser-act`. cfg keys: :substrate-kw, :name."
+  [{:keys [substrate-kw name]}]
+  (testing (str name " — void <input> root: mounts/unmounts with no React void-element warning; :rf.view/unmounted still fires once (rf2-ghfkkk)")
+    (with-browser-act
+     (fn [act-fn]
+      (let [view-id  (mint-kw substrate-kw "void-root-unmount-probe")
+            recorded (atom [])]
+        (trace-tooling/register-listener! ::void-view-unmounted-recorder
+          (fn [ev]
+            (when (= :rf.view/unmounted (:operation ev))
+              (swap! recorded conj ev))))
+        ;; Registered view returns a VOID DOM root (an <input>). The spine's
+        ;; wrap-view must Fragment-wrap it with the sentinel as a sibling so
+        ;; React never sees children on the void element.
+        (rf/reg-view* view-id (fn [] (React/createElement "input" #js {:type "text"})))
+        (let [render-fn  (rf/view view-id)
+              host       (fn host-cmp [_props] (render-fn))
+              mount-node (make-mount-node!)
+              root       (react-dom-client/createRoot mount-node)
+              ;; Capture console.warn + console.error across the mount: React
+              ;; reports the void-element-children violation via console.error.
+              warns      (with-captured-console-warn+error
+                           (fn [] (act-fn (fn [] (.render root (React/createElement host #js {}))))))
+              void-msgs  (filter #(and (string? %)
+                                       (re-find #"(?i)void element" %))
+                                 warns)]
+          (try
+            (is (empty? void-msgs)
+                (str "no React void-element warning/error on mounting a void root; got "
+                     (pr-str (vec warns))))
+            (is (empty? @recorded)
+                "no :rf.view/unmounted before teardown")
+            (act-fn (fn [] (.unmount root)))
+            (is (= 1 (count @recorded))
+                "exactly one :rf.view/unmounted fired on teardown — the sentinel's
+                 useEffect cleanup still armed despite the void root")
+            (when-let [ev (first @recorded)]
+              (is (= view-id (:rf.view/id (:tags ev)))
+                  ":rf.view/id tag matches the registered void-root view"))
+            (finally
+              (trace-tooling/unregister-listener! ::void-view-unmounted-recorder)
               (try (.unmount root) (catch :default _ nil))))))))))

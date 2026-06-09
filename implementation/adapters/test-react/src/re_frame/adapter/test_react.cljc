@@ -55,6 +55,7 @@
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.atom-container :as atom-container]
+            [re-frame.subs.cache :as subs-cache]
             [re-frame.frame :as frame]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -72,13 +73,17 @@
   ;; a handful of times per case.
   ;;
   ;; rf2-pyp3n: IDeref ONLY — deliberately no IWatchable / no disposal
-  ;; protocol. The sub-cache's dispose/ref-count path therefore works on the
-  ;; JVM (interop.clj implements dispose by reaction identity) but is a
+  ;; protocol. The sub-cache's per-reaction dispose path therefore works on
+  ;; the JVM (interop.clj implements dispose by reaction identity) but is a
   ;; SILENT no-op under CLJS (this adapter withholds the :adapter/dispose! /
   ;; :adapter/add-on-dispose! late-bind hooks — see the routing block at the
   ;; foot of this ns — and interop.cljs routes through them, so unregistered
-  ;; hooks no-op). Acceptable for the test adapter: the derived value holds
-  ;; no host resources, so there is nothing for a dispose walk to release.
+  ;; hooks no-op). The derived value holds no host resources, so the
+  ;; PER-REACTION dispose has nothing to release. But the CACHE ENTRY itself
+  ;; (the `{:reaction … :ref-count n}` slot held on the frame) DOES survive a
+  ;; reaction that never auto-disposes — so `dispose-adapter!` MUST reset
+  ;; every live frame's sub-cache to clear stale entries + ref-counts across
+  ;; a dispose/reinstall cycle (rf2-ghfkkk). See `dispose-adapter!`.
   (reify
     #?(:clj clojure.lang.IDeref :cljs IDeref)
     (#?(:clj deref :cljs -deref) [_]
@@ -326,17 +331,35 @@
   ;; cycle. Matches plain-atom's dispose-adapter! (a no-op that leaves the
   ;; emitter alone).
   ;;
-  ;; rf2-pyp3n: this drains active-mounts (the host-resource MUST) but does
-  ;; NOT walk per-frame sub-caches the way the React adapters do via
-  ;; `spine/dispose-frame-sub-caches!` — this adapter is CLJC and the spine
-  ;; is CLJS-only. Acceptable because test-react's `make-derived-value` holds
-  ;; no host resources (plain IDeref reify); nothing for the walk to dispose.
+  ;; rf2-ghfkkk: this ALSO walks every live frame's per-frame sub-cache and
+  ;; resets it, the externally-visible counterpart of the React adapters'
+  ;; `spine/dispose-frame-sub-caches!` (Spec 006 §Adapter disposal lifecycle
+  ;; MUST 1 + §Lifetime contract — frame disposal §Adapter symmetry). The
+  ;; React-adapter walk is CLJS-only (the spine is CLJS-only); test-react is
+  ;; CLJC, so it routes through the CLJC-safe shared helper
+  ;; `subs-cache/clear-all-frame-sub-caches!` instead. Why this matters even
+  ;; though `make-derived-value` holds no host resource (plain IDeref reify,
+  ;; so the per-reaction dispose is a CLJS no-op): the CACHE ENTRIES + REF-
+  ;; COUNTS live on the FRAME, not the reaction, and a reaction that never
+  ;; auto-disposes leaves its `{:reaction … :ref-count n}` slot in the frame's
+  ;; sub-cache. Without this reset a test process carries stale slots + stale
+  ;; ref-counts across a dispose/reinstall cycle — a later subscribe reads the
+  ;; stale cached value instead of recomputing from fresh state, breaking
+  ;; isolation. The reset clears the slots so the next subscribe is a fresh
+  ;; cache miss that recomputes. (The helper fires BEFORE the active-mounts
+  ;; drain below, but order is immaterial — they touch disjoint state.)
+  ;;
   ;; Drain flat over active-mounts: children are themselves registered in
   ;; active-mounts (mount-tree! adds every mount, parent or child), so a flat
   ;; walk drains the whole forest without recursing through :children. We do
   ;; NOT route through the public unmount thunk (it would throw on the
   ;; currently-rendering? / render-depth guard) — forced teardown is the
   ;; escape hatch the guard deliberately cannot block.
+  ;;
+  ;; rf2-ghfkkk — dispose every live frame's sub-cache (the reactive-
+  ;; subscription MUST). CLJC-safe shared helper, equal semantics to the
+  ;; React adapters' spine walk.
+  (subs-cache/clear-all-frame-sub-caches!)
   (doseq [mount @active-mounts]
     (when @(:mounted? mount)
       (log-phase! mount :forced-teardown)
