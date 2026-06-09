@@ -59,13 +59,18 @@ Two notes before you read the code. Live cells are functions-only, so the view i
 ;; ---- A pretend network round-trip (no real server in a browser cell) ----
 ;; reg-fx handlers take (frame-ctx, args): the runtime context, then the
 ;; value the handler put in the :fx vector. Here the args are the draft map.
+;; The reply fires from a setTimeout — a deferred callback, outside the fx
+;; handler's frame scope — so it must CARRY the frame: read (:frame frame-ctx)
+;; at handler entry and pass {:frame frame} on the dispatch. A bare dispatch
+;; here would raise :rf.error/no-frame-context. (See chapter 18.)
 (rf/reg-fx :demo-form/fake-server
-  (fn [_frame-ctx {:keys [password]}]
-    (js/setTimeout
-     #(if (>= (count password) 8)
-        (rf/dispatch [:demo-form/succeeded])
-        (rf/dispatch [:demo-form/failed {:_form ["Server rejected the login."]}]))
-     700)))
+  (fn [frame-ctx {:keys [password]}]
+    (let [frame (:frame frame-ctx)]
+      (js/setTimeout
+       #(if (>= (count password) 8)
+          (rf/dispatch [:demo-form/succeeded] {:frame frame})
+          (rf/dispatch [:demo-form/failed {:_form ["Server rejected the login."]}] {:frame frame}))
+       700))))
 
 (rf/reg-event-db :demo-form/succeeded
   (fn [db _] (assoc-in db [:demo-form/slice :status] :submitted)))
