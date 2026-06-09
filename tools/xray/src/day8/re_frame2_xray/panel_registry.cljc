@@ -3,7 +3,7 @@
 
   ## The seam
 
-  Before this ns, `shell.cljs` carried a hard-coded vector of the 7
+  Before this ns, `shell.cljs` carried a hard-coded vector of the
   Dynamic tabs + a parallel case-switch in `detail-panel`; `static/
   shell.cljs` carried the same shape for the 6 Static tabs. Adding a
   tab (e.g. promoting Routing to its own L3 lens per rf2-nrbs9)

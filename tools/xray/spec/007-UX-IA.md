@@ -2090,7 +2090,9 @@ this rule.
   the canonical per-panel facade shape (`Panel` reg-view +
   `install!`) every mount-fn target adheres to.
 - [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) —
-  the per-panel content designs for the 7 Dynamic L4 panels (Epoch
+  the per-panel content designs for the 6 Dynamic L4 panels (Epoch
   is the §9.1 design; rf2-5gl5r retired the Event/Handler panel
-  that previously occupied §2 of this doc); the per-panel companion
-  to the Mode bifurcation rule above.
+  that previously occupied §2 of this doc; rf2-gbz39 removed the
+  Issues tab — issues now surface inline in the Epoch panel + the
+  L2 event-row pink-wash + the issues ribbon); the per-panel
+  companion to the Mode bifurcation rule above.
