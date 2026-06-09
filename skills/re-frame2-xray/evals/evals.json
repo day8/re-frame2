@@ -1,28 +1,149 @@
 {
  "skill_name": "re-frame2-xray",
- "schema_version": "1",
- "convention": "anthropics/skills/skill-creator evals.json — trigger-only fixture per references/schemas.md. Each entry carries `should_trigger` so skill-creator's description-optimisation loop can score train/held-out trigger accuracy.",
- "notes": "Positives (should_trigger: true) target the launch + tab-routing surface of skill SKILL.md across both modes (Dynamic event-spine + Static registry browse), the wired hotkeys (incl. the Dynamic <-> Static mode toggle), and the first-screen chrome around the tabs (time-travel inspect/Reset-rewind, filter pills, command palette, Settings). The launch-surface positives exercise the FULL public mount-verb set — the default true-inline panel (launch-default), the open-overlay! no-layout-host fallback (launch-overlay), the popout! pop-out window via both the visible chrome `⛶` top-bar button (launch-popout-button — a no-code question whose answer must name the shipped button, not a programmatic-only or future-right-click path; rf2-limfd4) and the programmatic API (launch-popout), and the programmatic init! (launch-programmatic) — plus the init!/configure!-vs-Settings boot-config contract (config-init-boot, config-init-vs-settings: init! sets boot defaults for :density / :buffer-depths, the Settings popup is the runtime override for the slots it exposes — e.g. epoch-history depth — merge order defaults < configure! < Settings). These guard against drift that omits an overlay/pop-out mount verb or conflates init! boot-config with the runtime Settings popup (rf2-3ppsg.1 / .2). NB: density is NOT a Settings-popup control (the radio was removed 2026-05-27); the config-init-vs-settings eval exercises the boot-default-vs-runtime-override contract through epoch-history, a slot the popup actually surfaces. Negatives target adjacent surfaces (re-frame2-pair drives Xray; re-frame2 authors host apps; spec discussion belongs to SKILL-REDIRECT) so the loop catches over-triggering.",
+ "schema_version": "2",
+ "convention": "anthropics/skills/skill-creator evals.json — per references/schemas.md. Two-layer fixture (rf2-bpj8dp): every entry carries `should_trigger` so skill-creator's description-optimisation loop can score train/held-out trigger accuracy; the high-drift positives ALSO carry `expected_output` + `expectations[]` (answer-quality assertions) so a description-optimisation pass that keeps the skill firing cannot mask an answer that has drifted behind the shipped Xray UI. Negatives keep `rationale` (no answer-quality layer — there is no right answer to assert).",
+ "notes": "Positives (should_trigger: true) target the launch + tab-routing + first-screen-chrome surface of SKILL.md across both modes (Dynamic event-spine + Static registry browse). The launch positives exercise the FULL public mount-verb set — the default true-inline panel (launch-default), the open-overlay! no-layout-host fallback (launch-overlay), the popout! pop-out window via both the visible chrome `⛶` top-bar button (launch-popout-button — a no-code question whose answer must name the shipped button, not a programmatic-only or future-right-click path; rf2-limfd4) and the programmatic API (launch-popout), and the programmatic init! (launch-programmatic) — plus the init!/configure!-vs-Settings boot-config contract (config-init-boot, config-init-vs-settings). The high-drift entries carry expectations[] that PIN current elegant-v2 guidance (visible pop-out button canonical / open-overlay! fallback-only / init! installs-but-does-not-open / Settings override order / passive inspect vs explicit Reset / Static Machines for full topology / redacted-by-default Snapshot / no standalone Issues|Hydration|Schemas Dynamic tab) AND reject stale guidance (wired r/R/* rewind keys, density radio in Settings, raw app-db snapshot by default, a re-frame-10x compatibility path). Negatives target adjacent surfaces (re-frame2-pair drives Xray; re-frame2 authors host apps; spec discussion belongs to SKILL-REDIRECT) so the loop catches over-triggering. NB: density is NOT a Settings-popup control (the radio was removed 2026-05-27); config-init-vs-settings exercises the boot-default-vs-runtime-override contract through epoch-history, a slot the popup actually surfaces.",
  "evals": [
- {"id": 1, "name": "launch-default", "should_trigger": true, "prompt": "How do I open Xray in my re-frame2 dev build?"},
- {"id": 2, "name": "launch-popout", "should_trigger": true, "prompt": "I want Xray on a second monitor — what's the call to pop it out into its own window?"},
- {"id": 27, "name": "launch-popout-button", "should_trigger": true, "prompt": "Is there a button in the Xray panel to pop it out to a second window without typing any code?"},
- {"id": 3, "name": "launch-programmatic", "should_trigger": true, "prompt": "How do I mount Xray from code? My app doesn't use shadow-cljs :preloads."},
+ {
+ "id": 1,
+ "name": "launch-default",
+ "should_trigger": true,
+ "prompt": "How do I open Xray in my re-frame2 dev build?",
+ "expected_output": "The agent names the default true-inline path: add the Xray preload to shadow-cljs :devtools/preloads AND a [data-rf-xray-host] column in the app layout, and Xray auto-opens on page load. It does NOT lead with open-overlay! / the overlay as the default. It may mention Ctrl+Shift+C toggles the shell.",
+ "expectations": [
+ "The output names the default true-inline panel (preload + a [data-rf-xray-host] layout column) as the canonical path, and says Xray auto-opens on page load.",
+ "The output does NOT present (xray/open-overlay!) / the overlay as the default launch path — at most it names it as a fallback for hosts with no layout column.",
+ "The output does NOT invent a launch hotkey other than the wired Ctrl+Shift+C shell toggle."
+ ]
+ },
+ {
+ "id": 2,
+ "name": "launch-popout",
+ "should_trigger": true,
+ "prompt": "I want Xray on a second monitor — what's the call to pop it out into its own window?",
+ "expected_output": "The agent gives (xray/popout!) (or window.day8.re_frame2_xray.popout_BANG_() from a console, with the call parens) as the programmatic path, AND notes that the canonical chrome path is the visible `⛶` top-bar pop-out button. It does not present popout! as the only / canonical path.",
+ "expectations": [
+ "The output names the programmatic call as (xray/popout!) — and if it gives the JS console form it includes the call parens (popout_BANG_()).",
+ "The output also mentions the visible `⛶` top-bar pop-out button as the canonical chrome path (not only the programmatic call).",
+ "The output does NOT claim a wired pop-out hotkey (there is none)."
+ ]
+ },
+ {
+ "id": 27,
+ "name": "launch-popout-button",
+ "should_trigger": true,
+ "prompt": "Is there a button in the Xray panel to pop it out to a second window without typing any code?",
+ "expected_output": "The agent answers YES and names the visible `⛶` pop-out button in the panel top-bar's right-icons cluster (dispatches :rf.xray/popout-shell) as the canonical no-code path. It does NOT answer that pop-out is programmatic-only, and does NOT invent a right-click / context-menu path.",
+ "expectations": [
+ "The output answers YES — there IS a visible pop-out button (the `⛶` top-bar / chrome-ribbon icon).",
+ "The output does NOT say pop-out is only available programmatically / only via (xray/popout!).",
+ "The output does NOT invent an unshipped affordance (right-click menu, a future hotkey) as the no-code path."
+ ]
+ },
+ {
+ "id": 3,
+ "name": "launch-programmatic",
+ "should_trigger": true,
+ "prompt": "How do I mount Xray from code? My app doesn't use shadow-cljs :preloads.",
+ "expected_output": "The agent says to call (xray/init! opts) after rf/init! to install the foundation, THEN call a mount verb — (xray/open!) / (xray/open-overlay!) / (xray/popout!) — because init! installs but does NOT open a panel. It notes init! is idempotent.",
+ "expectations": [
+ "The output uses (xray/init! ...) for the install step and calls it AFTER rf/init!.",
+ "The output explicitly states init! installs the foundation but does NOT open/show a panel by itself — a separate mount verb (open! / open-overlay! / popout!) is required to make it visible.",
+ "The output does NOT claim init! auto-opens the panel (only the preload schedules the page-load auto-open)."
+ ]
+ },
  {"id": 4, "name": "launch-hotkey", "should_trigger": true, "prompt": "What's the Ctrl+Shift+C hotkey wired to?"},
  {"id": 5, "name": "hotkey-mode-toggle", "should_trigger": true, "prompt": "Is there a keyboard shortcut to switch Xray between its Dynamic and Static modes?"},
  {"id": 6, "name": "panel-route-state", "should_trigger": true, "prompt": "Which Xray panel shows me when [:cart :items] last changed in app-db?"},
  {"id": 7, "name": "panel-route-machine", "should_trigger": true, "prompt": "Where in Xray do I see the current state of my checkout state machine?"},
- {"id": 8, "name": "panel-route-machine-canvas", "should_trigger": true, "prompt": "Which Xray tab shows my machine's full state-chart topology, not just what happened in this one event?"},
+ {
+ "id": 8,
+ "name": "panel-route-machine-canvas",
+ "should_trigger": true,
+ "prompt": "Which Xray tab shows my machine's full state-chart topology, not just what happened in this one event?",
+ "expected_output": "The agent routes to Static mode's Machines tab (the spine-INDEPENDENT topology browse — picker + zoom/pan/fit), NOT the Dynamic Machine tab (which is event-driven and blank on a non-machine epoch). It may note there is no standalone Dynamic 'Machines Canvas' tab (rf2-ga16q).",
+ "expectations": [
+ "The output routes the 'full topology, not just this event' question to Static mode's Machines tab.",
+ "The output distinguishes that from the Dynamic Machine tab (which is the event-driven, focused-epoch lens, blank when the focused event had no machine activity).",
+ "The output does NOT route this to a standalone Dynamic 'Machines Canvas' tab (it was removed)."
+ ]
+ },
  {"id": 9, "name": "static-browse-registry", "should_trigger": true, "prompt": "Where in Xray do I see ALL my registered machines, routes, and schemas at once — not just the focused event?"},
  {"id": 10, "name": "static-mode-name", "should_trigger": true, "prompt": "What is Xray's Static mode and how is it different from the normal event view?"},
- {"id": 11, "name": "panel-route-schema", "should_trigger": true, "prompt": "I'm getting schema violations — which Xray panel surfaces them and when did each one start?"},
- {"id": 12, "name": "panel-route-hydration", "should_trigger": true, "prompt": "My SSR hydration is mismatching — does Xray have a panel for that?"},
- {"id": 21, "name": "chrome-rewind", "should_trigger": true, "prompt": "How do I go back in time in Xray — scrub through history and rewind to an earlier epoch?"},
+ {
+ "id": 11,
+ "name": "panel-route-schema",
+ "should_trigger": true,
+ "prompt": "I'm getting schema violations — which Xray panel surfaces them and when did each one start?",
+ "expected_output": "The agent routes schema VIOLATIONS to the Epoch tab (they attach inline to the owning step) plus the L2 pink-wash for 'which epochs are broken'. It does NOT route them to a standalone Dynamic 'Schemas' tab (there is none) — though it may note the registered-schema CATALOGUE lives in Static mode's Schemas tab. It must not claim a dedicated Issues tab exists.",
+ "expectations": [
+ "The output routes schema violations to the Epoch tab (inline on the owning step) and/or the L2 pink-wash — the inline channels.",
+ "The output does NOT claim a standalone Dynamic 'Schemas' tab surfaces violations (the registry catalogue is Static-mode-only; violations are inline).",
+ "The output does NOT claim a dedicated Issues tab exists (it was removed, rf2-gbz39)."
+ ]
+ },
+ {
+ "id": 12,
+ "name": "panel-route-hydration",
+ "should_trigger": true,
+ "prompt": "My SSR hydration is mismatching — does Xray have a panel for that?",
+ "expected_output": "The agent says there is NO standalone Hydration tab; SSR hydration mismatches surface inline in the Epoch cascade plus the issues-ribbon / auto-open-on-error signal (they are :rf.error/* / :rf.ssr/* issues). It must not invent a Hydration Dynamic tab.",
+ "expectations": [
+ "The output states there is NO dedicated/standalone Hydration tab.",
+ "The output routes hydration mismatches to the Epoch tab (inline) + the issues-ribbon / auto-open-on-error signal.",
+ "The output does NOT invent a Dynamic 'Hydration' tab or a 'Chrome A11y' tab."
+ ]
+ },
+ {
+ "id": 21,
+ "name": "chrome-rewind",
+ "should_trigger": true,
+ "prompt": "How do I go back in time in Xray — scrub through history and rewind to an earlier epoch?",
+ "expected_output": "The agent distinguishes passive INSPECTION (picking an epoch in the L2 list / the ribbon nav rebases the panels but does NOT move the live app-db) from explicit REWIND (the `Reset` button on the L3 tab-bar ribbon, which calls restore-epoch to roll the live app-db to the focused epoch's :db-after). It does NOT teach r / R / * as wired rewind/re-dispatch/pin keys (those are spec-future only).",
+ "expectations": [
+ "The output explains that scrubbing / picking an epoch is passive inspection — panels rebase but the live app-db does NOT move.",
+ "The output names the explicit `Reset` button (L3 tab-bar ribbon) as the live rewind (restore-epoch to the focused epoch's :db-after).",
+ "The output does NOT present r / R / * as wired rewind / re-dispatch / pin keys (it may note they are spec-future / not yet wired)."
+ ]
+ },
  {"id": 22, "name": "chrome-filters", "should_trigger": true, "prompt": "Some of my events are missing from the Xray list and it says 'N hidden by filters' — how do I clear the filters?"},
- {"id": 23, "name": "chrome-palette", "should_trigger": true, "prompt": "What can I type into Xray's command palette when I press Cmd+K?"},
- {"id": 24, "name": "launch-overlay", "should_trigger": true, "prompt": "My app is a full-screen canvas with no right column for a [data-rf-xray-host] — how do I still open Xray?"},
+ {
+ "id": 23,
+ "name": "chrome-palette",
+ "should_trigger": true,
+ "prompt": "What can I type into Xray's command palette when I press Cmd+K?",
+ "expected_output": "The agent describes the fuzzy-ranked palette over its source kinds (panel jumps, recent events, frame switch, registered handlers, settings, command verbs) and names representative command verbs (e.g. Snapshot app-db, Clear trace buffer, Toggle mode, Open pop-out, Toggle theme). It confirms Cmd/Ctrl+K is wired (not struck).",
+ "expectations": [
+ "The output names the palette source kinds (at least: panel jumps / recent events / frame switch / registered handlers / settings / command verbs) or a clear superset.",
+ "The output names representative command verbs (e.g. Snapshot app-db, Clear trace buffer, Toggle mode/theme, Open pop-out).",
+ "The output confirms Cmd/Ctrl+K opens the palette (it is wired) — it does NOT say the K binding was struck/removed."
+ ]
+ },
+ {
+ "id": 24,
+ "name": "launch-overlay",
+ "should_trigger": true,
+ "prompt": "My app is a full-screen canvas with no right column for a [data-rf-xray-host] — how do I still open Xray?",
+ "expected_output": "The agent gives (xray/open-overlay!) (or window.day8.re_frame2_xray.open_overlay_BANG_()) as the supported FALLBACK for hosts that can't accommodate a layout column — it floats the shell above document.body. It frames overlay as the non-default fallback (the inline panel is canonical), not as the primary path.",
+ "expectations": [
+ "The output names (xray/open-overlay!) (or the JS console equivalent) as the way to open Xray with no [data-rf-xray-host] column.",
+ "The output frames the overlay as the supported FALLBACK / non-default path for hosts that can't host a layout column — not as the primary/canonical launch.",
+ "The output does NOT claim the overlay needs a layout column (it floats above document.body)."
+ ]
+ },
  {"id": 25, "name": "config-init-boot", "should_trigger": true, "prompt": "How do I set Xray's display density and epoch-history depth at startup from code, before anyone touches the Settings popup?"},
- {"id": 26, "name": "config-init-vs-settings", "should_trigger": true, "prompt": "If I set the epoch-history depth via (xray/init! {:buffer-depths {:epoch 50}}) but the user later changes it with the Settings popup slider, which one wins?"},
+ {
+ "id": 26,
+ "name": "config-init-vs-settings",
+ "should_trigger": true,
+ "prompt": "If I set the epoch-history depth via (xray/init! {:buffer-depths {:epoch 50}}) but the user later changes it with the Settings popup slider, which one wins?",
+ "expected_output": "The agent says the Settings popup wins — init!/configure! set the boot-time DEFAULT and the Settings popup is the runtime user-mutable OVERRIDE for the slots it exposes (epoch-history is one). It states the merge order defaults < configure! < Settings. It does NOT claim init! locks the value or that density is a Settings-popup control.",
+ "expectations": [
+ "The output says the Settings popup value wins over the init!/configure! boot default for epoch-history depth.",
+ "The output states (or clearly implies) the layered merge order: defaults < configure! < Settings.",
+ "The output does NOT claim density is a Settings-popup control (the density radio was removed 2026-05-27 — density is a boot/configure! concern only)."
+ ]
+ },
  {"id": 13, "name": "neg-drive-xray", "should_trigger": false, "prompt": "Use Xray to dispatch [:cart/apply-coupon \"SPRING25\"] and tell me what happens.", "rationale": "Driving Xray from a REPL is re-frame2-pair's surface, not the read-only tour."},
  {"id": 14, "name": "neg-implement-panel", "should_trigger": false, "prompt": "I want to add a new Xray panel for WebSocket connection lifecycle — walk me through the panel-facade/leaf split.", "rationale": "Implementing Xray is out of scope; route to tools/xray/spec/."},
  {"id": 15, "name": "neg-author-app", "should_trigger": false, "prompt": "Write a re-frame2 reg-event-fx that posts a login form and dispatches :login-success / :login-failure.", "rationale": "Authoring application code is re-frame2's job."},
