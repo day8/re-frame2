@@ -43,6 +43,7 @@
  */
 'use strict';
 
+const fs = require('node:fs');
 const path = require('node:path');
 
 const HERE = __dirname;
@@ -124,12 +125,64 @@ function trustedExe(name) {
 // always the currently-running Node, always outside the workspace by
 // construction — so they skip the PATH walk entirely (the same posture
 // the slice's `scripts/test-all.cjs` uses for its own node sub-tests).
+// Reproducible-install posture (rf2-vtp2er). A bare `npm install` mutates
+// dependency state on every run — it can rewrite node_modules and (for a
+// package without a committed lockfile) resolve semver ranges against
+// whatever the registry happens to publish at run time. That makes a local
+// `npm run test:mcp-conformance` not a pure verification command and leaves
+// dirty-worktree noise for workers. We pin each tool package to the most
+// reproducible install its on-disk state allows:
+//
+//   - A package WITH a committed package-lock.json (tools/mcp-conformance)
+//     installs via `npm ci`: a clean, lockfile-exact install that FAILS if
+//     package.json and the lock have drifted, rather than silently
+//     rewriting the lock. (`npm ci` requires the lock, so it can only be
+//     used where one is committed.)
+//   - A package WITHOUT a committed lockfile (tools/re-frame2-pair-mcp is a
+//     PUBLISHED npm package that deliberately .gitignores its lock — see
+//     tools/re-frame2-pair-mcp/.gitignore) falls back to `npm install`, but
+//     ONLY when its node_modules is absent. A present node_modules is
+//     treated as already-bootstrapped and the install is SKIPPED, so a
+//     repeated verification run does not re-mutate dependency state.
+//     Whether this package SHOULD carry a committed lockfile is a separate
+//     architecture decision flagged to the operator (rf2-vtp2er follow-up);
+//     this runner does not decide it.
+//
+// `resolveInstallStep` turns the declarative `install` marker into the
+// concrete exe/args (or a skip) at run time, against the live on-disk
+// lockfile / node_modules state.
+function hasCommittedLockfile(pkgDir) {
+  return fs.existsSync(path.join(pkgDir, 'package-lock.json'));
+}
+
+function nodeModulesPresent(pkgDir) {
+  return fs.existsSync(path.join(pkgDir, 'node_modules'));
+}
+
+function resolveInstallStep(step) {
+  const pkgDir = step.cwd;
+  if (hasCommittedLockfile(pkgDir)) {
+    // Lockfile-exact, fails on drift, never rewrites the lock.
+    return { ...step, exe: 'npm', args: ['ci'], skip: false };
+  }
+  if (nodeModulesPresent(pkgDir)) {
+    // Already bootstrapped + no committed lock to install against —
+    // skip rather than re-mutate. The compile/test steps that follow
+    // surface any genuinely-missing dep with an actionable error.
+    return { ...step, skip: true };
+  }
+  // No lock and no node_modules — first-run bootstrap. `npm install` is
+  // the only option here (npm ci requires a lock); it is reproducible
+  // enough for a first bootstrap and won't run again once node_modules
+  // exists.
+  return { ...step, exe: 'npm', args: ['install'], skip: false };
+}
+
 const STEPS = [
   // ---- prep ----
   {
     name: 'install tools/re-frame2-pair-mcp deps',
-    exe: 'npm',
-    args: ['install'],
+    install: true,
     cwd: PAIR_MCP,
     prep: true,
   },
@@ -142,8 +195,7 @@ const STEPS = [
   },
   {
     name: 'install tools/mcp-conformance deps',
-    exe: 'npm',
-    args: ['install'],
+    install: true,
     cwd: CONFORMANCE,
     prep: true,
   },
@@ -196,7 +248,21 @@ function banner(line) {
 const results = [];
 let firstFailure = null;
 
-for (const step of STEPS) {
+for (const rawStep of STEPS) {
+  // Install steps resolve their concrete command (npm ci / npm install /
+  // skip) from the live on-disk lockfile + node_modules state (rf2-vtp2er).
+  const step = rawStep.install ? resolveInstallStep(rawStep) : rawStep;
+
+  if (step.skip) {
+    banner(
+      '▷ ' + step.name +
+        '\n  cwd: ' + step.cwd +
+        '\n  SKIPPED: node_modules already present and no committed ' +
+        'lockfile to install against (reproducible-verify; rf2-vtp2er).',
+    );
+    continue;
+  }
+
   // Resolve the executable up-front: `node` steps use the absolute
   // `process.execPath`; native-tool steps resolve their bare name to a
   // trusted absolute path outside the workspace (rf2-1irs7 / rf2-33vvc).

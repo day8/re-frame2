@@ -273,6 +273,58 @@ for (const base of IMPL_LOOPBACK_LAUNCHERS) {
   });
 }
 
+// rf2-vtp2er — runner-consolidation guard. The browser-test and
+// story-static launchers were migrated off their bespoke copies of the
+// ownership-token / port-fallback protocol onto the shared
+// local-browser-harness.cjs primitives (the same API the Xray gate
+// consumes). Pin that: each must (a) import resolveServePort +
+// waitForOwnedHttpReady from the shared helper, and (b) NOT redefine the
+// local copies that previously lived inline (`function fetchToken`,
+// `function waitForReady`, `function isPortFree`, `function findFreePort`,
+// `function probe`). A future edit re-introducing a bespoke copy — the
+// exact three-implementations-in-one-surface drift the bead removed —
+// trips here. (Scanned over stripped source so a comment mentioning the
+// old names is not a false positive.)
+const CONSOLIDATED_LAUNCHERS = [
+  'serve-and-run-browser-tests.cjs',
+  'check-story-static.cjs',
+];
+const SHARED_HARNESS_IMPORT_RE = /require\(\s*['"]\.\/lib\/local-browser-harness\.cjs['"]\s*\)/;
+const RESOLVE_SERVE_PORT_RE = /\bresolveServePort\b/;
+const WAIT_OWNED_RE = /\bwaitForOwnedHttpReady\b/;
+const LOCAL_HARNESS_DEFN_RES = [
+  /function\s+fetchToken\b/,
+  /function\s+waitForReady\b/,
+  /function\s+isPortFree\b/,
+  /function\s+findFreePort\b/,
+  /function\s+probe\b/,
+];
+for (const base of CONSOLIDATED_LAUNCHERS) {
+  test(`${base}: consumes the shared local-browser-harness port/token primitives (rf2-vtp2er)`, () => {
+    const code = stripComments(
+      fs.readFileSync(path.join(SCRIPTS_DIR, base), 'utf8'),
+    );
+    assert.match(code, SHARED_HARNESS_IMPORT_RE,
+      `${base} must require ./lib/local-browser-harness.cjs.`);
+    assert.match(code, RESOLVE_SERVE_PORT_RE,
+      `${base} must resolve its serve port via the shared resolveServePort.`);
+    assert.match(code, WAIT_OWNED_RE,
+      `${base} must wait for owned readiness via the shared waitForOwnedHttpReady.`);
+  });
+
+  test(`${base}: does NOT redefine the consolidated harness primitives (rf2-vtp2er)`, () => {
+    const code = stripComments(
+      fs.readFileSync(path.join(SCRIPTS_DIR, base), 'utf8'),
+    );
+    for (const re of LOCAL_HARNESS_DEFN_RES) {
+      assert.doesNotMatch(code, re,
+        `${base} redefines a harness primitive that now lives in ` +
+          `./lib/local-browser-harness.cjs — import it instead of keeping ` +
+          `a bespoke copy (rf2-vtp2er consolidation).`);
+    }
+  });
+}
+
 // stripComments sanity: it must remove a forbidden token that appears
 // only in a comment, but keep one that appears in real code. Guards the
 // gate itself against false-negatives (a comment masking a live spawn)
