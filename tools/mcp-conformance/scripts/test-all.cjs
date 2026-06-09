@@ -52,6 +52,10 @@ const TESTS = [
     argv: ['--test', 'test/runner-watchdog.test.cjs'],
   },
   {
+    name: 'hermetic async cleanup awaited teardown (rf2-7ckmwx finding 1)',
+    argv: ['--test', 'test/runner-cleanup.test.cjs'],
+  },
+  {
     name: 'hermetic setup-command timeout (rf2-wqi4n4 finding 2)',
     argv: ['--test', 'test/hermetic-setup-timeout.test.cjs'],
   },
