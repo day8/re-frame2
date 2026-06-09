@@ -2442,6 +2442,132 @@
     (is (= " 12" (get-in (routing/match-url "/p3?page=%2012") [:query :page]))
         "leading-whitespace input stays a string on both hosts")))
 
+;; ---- rf2-fwz29i: OPTIONED Malli scalar schemas coerce like bare forms ----
+;;
+;; A scalar slot carrying ordinary Malli properties — `[:int {:min 1}]`,
+;; `[:uuid {...}]`, `[:double {...}]`, `[:boolean {...}]`, or an optioned
+;; enum `[:enum {...} :a :b]` — must coerce the URL string identically to
+;; its bare form (`:int`, `:uuid`, ...). The pre-fix table took the raw
+;; vector type-form, so `coerce-by-type-form` saw `[:int {:min 1}]` (not
+;; `:int`), skipped coercion, and the still-string value `"2"` failed the
+;; route's `[:int {:min 1}]` schema → `:validation-failed? true` → every
+;; valid deep link 404'd. `[:maybe inner]` wrappers coerce the inner type.
+
+(deftest rf2-fwz29i-optioned-scalar-query-coercion
+  (testing "optioned scalar :query schemas coerce equivalently to bare forms"
+    (rf/reg-route :route/items
+                  {:path  "/items"
+                   :query [:map
+                           [:page [:int {:min 1}]]
+                           [:ratio [:double {:min 0.0}]]
+                           [:id [:uuid {}]]
+                           [:archived [:boolean {}]]]})
+    (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
+          m (routing/match-url
+              (str "/items?page=2&ratio=1.5&id=" uuid-str "&archived=true"))]
+      (is (= :route/items (:route-id m)))
+      (is (= 2 (get-in m [:query :page]))
+          "[:int {:min 1}] coerces \"2\" to 2 (was \"2\" → validation-failed)")
+      (is (= 1.5 (get-in m [:query :ratio]))
+          "[:double {...}] coerces to a number")
+      (is (= (parse-uuid uuid-str) (get-in m [:query :id]))
+          "[:uuid {...}] coerces to a UUID object")
+      (is (true? (get-in m [:query :archived]))
+          "[:boolean {...}] coerces \"true\" to true")
+      (is (false? (:validation-failed? m))
+          "coerced typed values conform to their optioned schemas — no 404")))
+
+  (testing "an optioned :int slot still FAILS validation for a value that
+            violates the option (coercion happens, the option still bites)"
+    (rf/reg-route :route/min-page
+                  {:path  "/p"
+                   :query [:map [:page [:int {:min 5}]]]})
+    (let [m (routing/match-url "/p?page=2")]
+      (is (= 2 (get-in m [:query :page]))
+          "the string coerces to the number 2 (coercion is unconditional)")
+      (is (true? (:validation-failed? m))
+          "2 < :min 5 → validation still fails (the option is enforced)")))
+
+  (testing "a non-numeric value for an optioned :int stays a string and fails"
+    (rf/reg-route :route/min-page2
+                  {:path  "/p2"
+                   :query [:map [:page [:int {:min 1}]]]})
+    (let [m (routing/match-url "/p2?page=abc")]
+      (is (= "abc" (get-in m [:query :page]))
+          "non-integer-literal stays a string (host-symmetric passthrough)")
+      (is (true? (:validation-failed? m))
+          "the string fails the :int schema — fail-closed, not a crash"))))
+
+(deftest rf2-fwz29i-optioned-scalar-path-coercion
+  (testing "optioned scalar :params (path) schemas coerce like bare forms"
+    (rf/reg-route :route/page    {:path "/page/:n"      :params [:map [:n [:int {:min 1}]]]})
+    (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id [:uuid {}]]]})
+    (rf/reg-route :route/double  {:path "/d/:x"         :params [:map [:x [:double {:min 0.0}]]]})
+
+    (testing "[:int {:min 1}] path param coerces; validation passes"
+      (let [m (routing/match-url "/page/2")]
+        (is (= :route/page (:route-id m)))
+        (is (= 2 (get-in m [:params :n])) "\"2\" coerced to 2 (was string → 404)")
+        (is (false? (:validation-failed? m)))))
+
+    (testing "[:uuid {}] path param coerces to a #uuid; canonical route matches"
+      (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
+            m        (routing/match-url (str "/articles/" uuid-str))]
+        (is (= :route/article (:route-id m)))
+        (is (= (parse-uuid uuid-str) (get-in m [:params :id])))
+        (is (uuid? (get-in m [:params :id])))
+        (is (false? (:validation-failed? m)))))
+
+    (testing "[:double {:min 0.0}] path param coerces to a number"
+      (let [m (routing/match-url "/d/3.14")]
+        (is (= 3.14 (get-in m [:params :x])))
+        (is (false? (:validation-failed? m)))))
+
+    (testing "an optioned :int path value violating the option still fails"
+      (rf/reg-route :route/minp {:path "/m/:n" :params [:map [:n [:int {:min 5}]]]})
+      (let [m (routing/match-url "/m/2")]
+        (is (= 2 (get-in m [:params :n])) "coerced to the number 2")
+        (is (true? (:validation-failed? m)) "2 < :min 5 → validation fails")))))
+
+(deftest rf2-fwz29i-optioned-enum-keyword-allowlist
+  (testing "an optioned `[:enum {...} :asc :desc]` keeps the keyword
+            allowlist gate (opts map skipped); declared values intern,
+            others stay strings"
+    (rf/reg-route :route/sorted
+                  {:path  "/items"
+                   :query [:map [:sort [:enum {:default :asc} :asc :desc]]]})
+    (let [m1 (routing/match-url "/items?sort=asc")
+          m3 (routing/match-url "/items?sort=hostile-value")]
+      (is (= :asc (get-in m1 [:query :sort]))
+          "declared enum value interns to :asc even with an opts map")
+      (is (= "hostile-value" (get-in m3 [:query :sort]))
+          "value outside the allowlist stays a string — no unbounded intern"))))
+
+(deftest rf2-fwz29i-maybe-wrapper-coercion
+  (testing "[:maybe inner] coerces the present value against the inner
+            type (query side); a coerced value conforms to the :maybe schema"
+    (rf/reg-route :route/opt
+                  {:path  "/opt"
+                   :query [:map
+                           [:page [:maybe :int]]
+                           [:size [:maybe [:int {:min 1}]]]]})
+    (let [m (routing/match-url "/opt?page=7&size=3")]
+      (is (= 7 (get-in m [:query :page]))
+          "[:maybe :int] coerces \"7\" to 7")
+      (is (= 3 (get-in m [:query :size]))
+          "[:maybe [:int {:min 1}]] coerces through both wrapper and option")
+      (is (false? (:validation-failed? m))
+          "coerced values conform to the :maybe schemas")))
+
+  (testing "[:maybe :uuid] path param coerces; absent optional key is absent"
+    (rf/reg-route :route/maybe-art {:path   "/a/:id"
+                                    :params [:map [:id [:maybe :uuid]]]})
+    (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
+          m        (routing/match-url (str "/a/" uuid-str))]
+      (is (= (parse-uuid uuid-str) (get-in m [:params :id]))
+          "[:maybe :uuid] coerces the present capture to a UUID")
+      (is (false? (:validation-failed? m))))))
+
 ;; ---- rf2-3k3o7: keyword-interning cap on query keys + values -------------
 ;;
 ;; Symmetric with rf2-wu1n5's `:rf.http/max-decoded-keys` cap on JSON
