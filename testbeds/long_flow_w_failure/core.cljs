@@ -160,12 +160,25 @@
 ;; app-db (incl. :input, :a-result, :b-result, :c-result) is frozen at
 ;; tick N-1's committed value.
 
-;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local; a bare
-;; ns-load call raises :rf.error/no-frame-context. This testbed hosts on
-;; :rf/default, so name it explicitly for all three flows.
-(with-frame :rf/default
+;; main (rf2-3khbut): the three reg-flow calls moved OUT of ns-load and INTO
+;; `run` AFTER `rf/init!` via this fn — same fix as the sibling deliberate_throw
+;; testbed (main rf2-7gvnmy). A frame must be live or the rf2-zbxvqj guard in
+;; `reg-flow` rejects with :rf.error/flow-frame-not-live (no frame is live until
+;; init!). Registration order relative to the events/fx/subs above doesn't
+;; matter — the runtime topsorts the flow map before the first drain.
+;; EP-0002 (rf2-5q7um6 / rf2-9o48ih): reg-flow is context-required frame-local;
+;; it needs a CARRIED frame stamp. `run` calls this inside a
+;; `(with-frame :rf/default …)` scope so all three flows register against the
+;; explicitly-registered `:rf/default` frame (the runtime never synthesises one
+;; from absence). This testbed hosts on :rf/default.
+(defn- register-flows!
+  "Register the three cascade flows against the live `:rf/default` frame.
+  Called from `run` after `rf/init!` (and inside a `with-frame :rf/default`
+  scope) — a frame must be live or the rf2-zbxvqj guard in `reg-flow`
+  rejects with :rf.error/flow-frame-not-live."
+  []
 
-(rf/reg-flow
+  (rf/reg-flow
   {:id     ::flow-a
    :inputs [[:input]]
    :output (fn flow-a [input]
@@ -382,6 +395,11 @@
   ;; runs under the frame scope and the render is wrapped in a
   ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
   (rf/reg-frame :rf/default {})
+  ;; Both the three-flow registration (main rf2-3khbut: reg-flow must run AFTER
+  ;; init! against a live frame) and the boot dispatch run inside the carried
+  ;; `:rf/default` scope. The render is wrapped in a `frame-provider` so in-tree
+  ;; dispatch/subscribe resolve to `:rf/default`.
   (rf/with-frame :rf/default
+    (register-flows!)
     (rf/dispatch-sync [::initialise]))
   (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))
