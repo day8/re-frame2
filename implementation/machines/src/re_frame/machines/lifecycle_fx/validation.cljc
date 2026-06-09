@@ -930,6 +930,73 @@
               :slot   slot
               :target target}))))
 
+(defn- valid-after-delay-key?
+  "Per rf2-apfait + Spec-Schemas §`:rf/state-node` `:after` (1699-1705):
+  an `:after` map KEY (the delay) is well-formed iff it is one of the
+  three closed forms:
+
+    - a POSITIVE integer — literal milliseconds (the schema's `pos-int?`),
+    - a NON-EMPTY vector — a subscription vector `[sub-id & args]`
+      re-resolved at runtime (the schema's `[:vector :any]`),
+    - a FUNCTION — `(fn [{:keys [snapshot]}] ms)` computed once at entry
+      (the schema's `fn?`).
+
+  Mirrors `transition/classify-delay-source`'s `{:literal :sub :fn}`
+  triad, but applied as a REGISTRATION gate so an invalid static key
+  (`-1`, `0`, `\"soon\"`, `nil`, `[]`) is rejected at `reg-machine` time
+  rather than degrading to an `:rf.warning/no-clock-configured` no-op at
+  fx time. Dynamic resolutions (a sub vector / fn that RETURNS an invalid
+  ms at runtime) keep their fx-time warning — only the STATIC key shape is
+  gated here."
+  [delay-key]
+  (boolean
+    (or (and (integer? delay-key) (pos? delay-key))
+        (and (vector? delay-key) (seq delay-key))
+        (fn? delay-key))))
+
+(defn- validate-after-delays!
+  "Per rf2-apfait — reject any `:after` map KEY that is not a positive
+  integer, a non-empty subscription vector, or a function, at
+  registration. Walks every transition-bearing node: each state node
+  (`walk-state-nodes`), every region root + the parallel root, and the
+  flat-machine root — the same coverage the guard/action `:after` ref
+  check applies, so an invalid delay key cannot hide on a root fallback
+  `:after`.
+
+  Throws `:rf.error/machine-bad-after-delay` (a dedicated taxonomy member,
+  distinct from the value-side `:rf.error/machine-bad-after-spec` the
+  transition reducer raises for a malformed transition VALUE) so the error
+  widget / conformance can discriminate \"the delay key is wrong\" from
+  \"the transition spec is wrong\".
+
+  Keeps the runtime fx-time `:rf.warning/no-clock-configured` warning for
+  DYNAMIC delays (sub-vector / fn) that resolve to an invalid ms at
+  runtime — only the STATIC key shape is gated here."
+  [machine]
+  (let [check-key!
+        (fn [state-key delay-key]
+          (when-not (valid-after-delay-key? delay-key)
+            (throw (validation-error
+                     :rf.error/machine-bad-after-delay
+                     (str "the :after delay key " (pr-str delay-key)
+                          " on state " state-key " is invalid — an :after "
+                          "delay must be a POSITIVE integer (literal ms), a "
+                          "NON-EMPTY subscription vector ([sub-id & args]), or "
+                          "a function ((fn [{:keys [snapshot]}] ms)). Per "
+                          "Spec-Schemas §:rf/state-node :after.")
+                     {:state     state-key
+                      :slot      :after
+                      :delay-key delay-key}))))
+        roots (if (parallel/parallel? machine)
+                (cons machine (vals (:regions machine)))
+                [machine])]
+    (doseq [[state-key state-node] (walk-state-nodes machine)
+            [delay-key _t]         (:after state-node)]
+      (check-key! state-key delay-key))
+    (doseq [root           roots
+            [delay-key _t] (:after root)]
+      (check-key! :rf/root delay-key))))
+
 (defn- validate-transition-targets!
   "Per Spec 005 (005:441) + Spec-Schemas §TransitionTarget (rf2-w84jv):
   reject malformed-shape and unresolved transition `:target`s at registration
@@ -1003,7 +1070,14 @@
   compound `:on-done` / `:spawn :on-error`) must be a well-formed,
   resolvable target. Throws `:rf.error/machine-bad-target` (malformed
   shape) / `:rf.error/machine-unresolved-target` (keyword / vector that
-  names no declared state)."
+  names no declared state).
+
+  Per rf2-apfait + Spec-Schemas §`:rf/state-node` `:after`: every `:after`
+  map KEY (the delay) must be a positive integer, a non-empty subscription
+  vector, or a function. Throws `:rf.error/machine-bad-after-delay` for a
+  static key that is none of those (`-1`, `0`, `\"soon\"`, `nil`, `[]`) —
+  gated at registration rather than degrading to an fx-time
+  `:rf.warning/no-clock-configured` no-op."
   [machine]
   (validate-history! machine)
   (validate-parallel! machine)
@@ -1019,6 +1093,10 @@
     (validate-always-self-loop! path (peek path) n))
   ;; rf2-w84jv: every transition slot's `:target` shape + resolution.
   (validate-transition-targets! machine)
+  ;; rf2-apfait: every `:after` delay KEY must be a positive integer, a
+  ;; non-empty subscription vector, or a function — gated at registration
+  ;; rather than degrading to an fx-time :rf.warning/no-clock-configured.
+  (validate-after-delays! machine)
   ;; Validate guard/action references at construction time. machine-id
   ;; isn't known yet (it's the registration-site id), so error tags use
   ;; a placeholder; real misuse traces at handler-call time fill it in.
