@@ -235,6 +235,14 @@
   (suite/assert-view-unmount-emits-on-react-hook-teardown
     {:substrate-kw :uix :name "UIx"}))
 
+;; rf2-ghfkkk — a registered view returning a VOID DOM root (<input>) mounts
+;; + unmounts with no React void-element warning/error, and still fires
+;; exactly one :rf.view/unmounted (the unmount sentinel rides as a Fragment
+;; sibling, not a child of the void element). Probe built in the suite.
+(deftest void-root-view-unmount-no-warning
+  (suite/assert-void-root-view-unmount-no-warning
+    {:substrate-kw :uix :name "UIx"}))
+
 ;; ---- regression: frame-provider under the idiomatic `$` trailing-children shape (rf2-8svnm / rf2-z7hfp / rf2-7kii2) -
 ;;
 ;; The UIx twin of the Helix rf2-9ok1s defect, now pinning the moved-up

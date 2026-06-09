@@ -286,6 +286,33 @@
               (catch #?(:clj Throwable :cljs :default) _ nil))))
      (reset! cache {}))))
 
+(defn clear-all-frame-sub-caches!
+  "CLJC-safe adapter-disposal sub-cache walk: dispose every cached entry
+  in EVERY live frame's runtime sub-cache and reset each cache to `{}`.
+
+  This is the per-process counterpart to `clear-sub-cache!` (one frame) —
+  the externally-visible equal of `re-frame.substrate.spine/dispose-frame-
+  sub-caches!` (the CLJS-only walk wired into the React-shaped adapters'
+  `dispose-adapter!`), lifted into this CLJC ns so the CLJC adapters
+  (`test-react`, `plain-atom`) can satisfy Spec 006 §Adapter disposal
+  lifecycle MUST 1 (`dispose-adapter!` cancels all in-flight reactive
+  subscriptions across every live frame's sub-cache) without taking a
+  static dependency on the CLJS-only spine. Per Spec 006 §Lifetime
+  contract — frame disposal §Adapter symmetry: the adapter's
+  `dispose-adapter!` disposes every frame's sub-cache as part of process
+  teardown (rf2-ghfkkk).
+
+  Best-effort, per-frame: a throwing per-entry dispose does NOT abort the
+  rest of the walk — every other cached entry in the same frame AND every
+  subsequent frame's cache still gets disposed and reset (`clear-sub-cache!`
+  already swallows per-entry throws). Emits `:rf.sub/dispose` with
+  `:rf.sub/reason :cache-clear` per evicted slot (the closed-enum reason
+  shared with explicit `clear-sub-cache!` test/REPL teardown). Returns nil."
+  []
+  (doseq [frame-id (frame/frame-ids)]
+    (clear-sub-cache! frame-id))
+  nil)
+
 ;; ---- frame-destroy eviction (rf2-x3m8c) ----------------------------------
 ;;
 ;; `re-frame.frame/destroy-frame!` tears the destroyed frame's sub-cache

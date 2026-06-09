@@ -95,6 +95,10 @@
    {:test 'reg-view-react-key-preserved
     :fn   'assert-reg-view-react-key-preserved}
 
+   {:section "void-element unmount-sentinel (rf2-ghfkkk)"}
+   {:test 'void-root-view-sentinel-is-fragment-sibling
+    :fn   'assert-void-root-view-sentinel-is-fragment-sibling}
+
    {:section "frame-context corrupted (Spec 009)"}
    {:test 'frame-context-corrupted
     :fn   'assert-frame-context-corrupted}
