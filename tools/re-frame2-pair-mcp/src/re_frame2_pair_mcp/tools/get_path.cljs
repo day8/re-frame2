@@ -176,11 +176,26 @@
                                (pluck envelope)
                                {:kind :scalar-value
                                 :server-elided server-elided})
-                             {:keys [elided]} indicators]
-                         (wire/ok-text
-                           (wire/with-indicators
-                             (rebuild (dissoc envelope :elided-count) value)
-                             {:elided elided})))))
+                             {:keys [elided]} indicators
+                             rebuilt (wire/with-indicators
+                                       (rebuild (dissoc envelope :elided-count) value)
+                                       {:elided elided})]
+                         ;; rf2-wdxyx3 finding 2 — a known-tool runtime
+                         ;; failure (`:ok? false`, e.g. a singular
+                         ;; `:path-not-found` miss) MUST ride back as an
+                         ;; `isError` envelope, per the published wire
+                         ;; contract (spec/001-Wire-Protocol.md, API.md
+                         ;; §isError) and the dispatch/read-sub
+                         ;; no-silent-success parity model. An `ok-text`
+                         ;; wrapper let the failure cache as a normal success
+                         ;; (cache eligibility keys off `isError`, not
+                         ;; `:ok?`) and read as green by the MCP host. The
+                         ;; `:wholesale-read-of-reserved-frame` refusal is
+                         ;; built upstream as its own `err-text` and never
+                         ;; reaches this tail.)
+                         (if (false? (:ok? rebuilt))
+                           (wire/err-text rebuilt)
+                           (wire/ok-text rebuilt)))))
               (.catch (fn [err] (probe/err->result :get-path-failed err)))))]
     (cond
       ;; rf2-qef58 — server-side backstop: refuse a WHOLESALE root read

@@ -51,6 +51,7 @@
             [cljs.reader :as edn]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.cache :as cache]
+            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.precheck :as precheck]
             [re-frame2-pair-mcp.tools.wire :as wire]
@@ -75,12 +76,14 @@
 (def ^:private orig-get-path-tool       get-path/get-path-tool)
 (def ^:private orig-snapshot-tool       snapshot/snapshot-tool)
 (def ^:private orig-reset-operating-frame-tool operating-frame/reset-operating-frame-tool)
+(def ^:private orig-cljs-eval-value     nrepl/cljs-eval-value)
 
 (defn- restore-stubs! []
   (set! precheck/fetch-precheck-hash orig-fetch-precheck-hash)
   (set! get-path/get-path-tool       orig-get-path-tool)
   (set! snapshot/snapshot-tool       orig-snapshot-tool)
-  (set! operating-frame/reset-operating-frame-tool orig-reset-operating-frame-tool))
+  (set! operating-frame/reset-operating-frame-tool orig-reset-operating-frame-tool)
+  (set! nrepl/cljs-eval-value        orig-cljs-eval-value))
 
 (use-fixtures :each
   {:before (fn [] (cache/clear!))
@@ -657,4 +660,66 @@
                        "the mutation errored")
                    (is (= 1 (cache/size))
                        "an errored operating-frame call leaves the cache intact")
+                   (done)))))))
+
+;; rf2-wdxyx3 finding 2 — the REAL set-operating-frame :no-such-frame path.
+;; The prior test stubbed an `:isError true` reset; this one runs the
+;; actual `set-operating-frame-tool` against a stubbed nREPL that answers
+;; :no-such-frame, then drives THAT real result through `invoke`'s
+;; chokepoint. It proves the failure now rides as `isError` (no silent
+;; ok-text) AND that the chokepoint's `(not (isError? result))` flush
+;; guard therefore preserves the cache — the pin did NOT change, so a
+;; no-`:frame` cached read stays valid.
+(defn- probed-conn []
+  (let [conn (nrepl/make-conn 0 "127.0.0.1")]
+    (swap! conn assoc :probed-builds #{:app})
+    conn))
+
+(deftest real-set-operating-frame-no-such-frame-is-error-and-preserves-cache
+  (async done
+    (let [conn    (probed-conn)
+          gp-args (args-js {:cache "true" :path "[:k]"})]
+      (cache/apply-cache (mcp-result "{:k :frame-a}")
+                         {:tool "get-path"
+                          :args gp-args
+                          :enabled? true
+                          :build (wire/arg-build conn gp-args)
+                          :precheck-hash 42})
+      (is (= 1 (cache/size)) "cache primed")
+      ;; Stub nREPL so the REAL set-form runs and the runtime answers
+      ;; :no-such-frame (the requested frame isn't registered). The conn is
+      ;; pre-probed so ensure-runtime! short-circuits; the validate-then-pin
+      ;; form resolves to the failure envelope.
+      (set! nrepl/cljs-eval-value
+            (fn
+              ([_c _b _form]
+               (js/Promise.resolve {:ok? false :reason :no-such-frame
+                                    :frame :nope
+                                    :frames [:rf/default :stories]}))
+              ([_c _b _form _o]
+               (js/Promise.resolve {:ok? false :reason :no-such-frame
+                                    :frame :nope
+                                    :frames [:rf/default :stories]}))))
+      ;; Run the REAL tool to capture its actual result shape, then have
+      ;; `invoke` dispatch that exact result through the chokepoint flush
+      ;; guard. (Stubbing the entry-point with the real result keeps the
+      ;; flush decision under test while sidestepping the pipeline's
+      ;; build-resolution round-trips.)
+      (-> (operating-frame/set-operating-frame-tool
+            conn (args-js {:frame ":nope"}))
+          (.then (fn [real-result]
+                   (is (true? (j/get real-result :isError))
+                       "a real :no-such-frame set-operating-frame rides as isError")
+                   (set-stubs!
+                     {:reset-operating-frame-tool
+                      (fn [_conn _args] (js/Promise.resolve real-result))})
+                   ;; reset-operating-frame is also operating-frame-mutating;
+                   ;; feeding it the real isError result exercises the SAME
+                   ;; `(not (isError? result))` chokepoint guard.
+                   (tools/invoke conn "reset-operating-frame" (args-js {}) nil)))
+          (.then (fn [result]
+                   (is (true? (j/get result :isError))
+                       "the chokepoint sees the failed mutation as isError")
+                   (is (= 1 (cache/size))
+                       "the failed pin did not change the operating frame, so the cache is preserved")
                    (done)))))))

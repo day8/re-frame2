@@ -153,10 +153,17 @@
   explicit root `[]` of a reserved frame is refused.
 
   `frame` is the resolved frame keyword (may be nil when the agent let it
-  default to the operating frame — in that case the server can't know it
-  is reserved, so the guard does not fire; the snapshot/orient steer plus
-  the wire cap remain the backstop). `path` is the parsed singular path;
-  `paths` is the parsed batch vector-of-paths (`nil` when not a batch)."
+  default to the operating frame — in that case the server can't know the
+  resolved frame here, so this client-side guard does not fire on the
+  omitted-`:frame` path). That omitted-`:frame` case is NOT an escape
+  hatch: `set-operating-frame` refuses to PIN a reserved `:rf/*` tool
+  frame (rf2-wdxyx3 finding 1), so the runtime's `current-frame` resolver
+  can never return a reserved frame at tier 2 — an omitted-`:frame` read
+  resolves to an APP frame (or refuses with `:ambiguous-frame`), never a
+  tool frame. So the only way to address a reserved frame is the explicit
+  `:frame` arg, which this guard sees and refuses at root path. `path` is
+  the parsed singular path; `paths` is the parsed batch vector-of-paths
+  (`nil` when not a batch)."
   [frame path paths]
   (when (and (reserved-tool-frame? frame)
              (or (root-path? path)

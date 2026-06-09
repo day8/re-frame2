@@ -821,6 +821,21 @@
     {:isError? false
      :edn-submap {:ok? true :elision false}}}
 
+   {:fixture/id    :dispatch-dry-run/no-new-epoch
+    :fixture/doc   "dispatch-dry-run surfaces the runtime's {:ok? false :reason :no-new-epoch} as an isError envelope (rf2-wdxyx3 finding 2 — a non-landed dry-run is never a silent success; parity with dispatch/no-new-epoch)."
+    :fixture/tool  "dispatch-dry-run"
+    :fixture/args  {:event "[:noop]"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["dispatch-dry-run"          {:value {:ok? false :reason :no-new-epoch
+                                           :event [:noop] :frame :rf/default}
+                                   :elided-count 0}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :no-new-epoch}}}
+
    ;; ---------- restore-epoch (rf2-ee38b.18 — gated write) ----------------
    ;; The --allow-writes gate ships DEFAULT-OFF. The disabled fixture pins
    ;; the gate-closed envelope (no nREPL round-trip); the happy fixture
@@ -1006,7 +1021,7 @@
      :reason :missing-path}}
 
    {:fixture/id    :get-path/path-not-found
-    :fixture/doc   "get-path forwards the runtime's :path-not-found envelope."
+    :fixture/doc   "get-path surfaces the runtime's :path-not-found failure as an isError envelope (rf2-wdxyx3 finding 2 — a known-tool :ok? false is never a silent success)."
     :fixture/tool  "get-path"
     :fixture/args  {:path "[:no-such :key]"}
     :fixture/eval-script
@@ -1015,7 +1030,7 @@
                                    :path [:no-such :key]
                                    :deepest-valid-prefix []}]]
     :fixture/expect
-    {:isError? false
+    {:isError? true
      :edn-submap {:ok? false :reason :path-not-found}}}
 
    ;; ---------- read-dom (rf2-nfjil — raw DOM plane read) -----------------
@@ -1157,7 +1172,7 @@
      :edn-contains-keys #{:frames :selected :operating}}}
 
    {:fixture/id    :set-operating-frame/no-such-frame
-    :fixture/doc   "set-operating-frame on an unregistered frame refuses with :no-such-frame and lists the registered frames (Tool-Pair §Tool-surface obligations validation)."
+    :fixture/doc   "set-operating-frame on an unregistered frame refuses with :no-such-frame as an isError envelope (Tool-Pair §Tool-surface obligations + rf2-wdxyx3 finding 2 — the failed pin is not a silent success, so the invoke chokepoint won't flush the cache)."
     :fixture/tool  "set-operating-frame"
     :fixture/args  {:frame ":nope"}
     :fixture/eval-script
@@ -1168,8 +1183,19 @@
                                    :frame :nope
                                    :frames [:rf/default :stories]}]]
     :fixture/expect
-    {:isError? false
+    {:isError? true
      :edn-submap {:ok? false :reason :no-such-frame :frame :nope}}}
+
+   {:fixture/id    :set-operating-frame/reserved-tool-frame
+    :fixture/doc   "set-operating-frame refuses to pin a reserved :rf/* TOOL frame as the operating frame (rf2-wdxyx3 finding 1). Refused BEFORE any nREPL round-trip — a reserved frame is never the operating frame, so an omitted-:frame read can never resolve to it. :rf/default (an app frame) is allowed."
+    :fixture/tool  "set-operating-frame"
+    :fixture/args  {:frame ":rf/xray"}
+    ;; No eval expected — the refusal short-circuits before the round-trip.
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :reserved-tool-frame :frame :rf/xray}}}
 
    {:fixture/id    :set-operating-frame/missing-frame
     :fixture/doc   "set-operating-frame without :frame surfaces :missing-frame before any nREPL round-trip."
