@@ -352,6 +352,33 @@
             "after clear, the second request did NOT carry the auth header")
         (finally (stop-server! srv))))))
 
+;; ---- 5a. rf2-vl5xsp — single-arity clear FAILS CLOSED under no scope ------
+;;
+;; The fixture pins an ambient `*current-frame* :rf/default`, which MASKS the
+;; old facade floor (`clear-http-interceptor` single-arity used to recurse
+;; `[:rf/default id]`, synthesising the default before delegating). This test
+;; clears the ambient scope (`*current-frame* nil`) so NO frame is carried,
+;; then invokes the single-arity facade and asserts it raises the always-on
+;; `:rf.error/no-frame-context` rather than silently clearing against a
+;; synthesised `:rf/default` chain. Proves the EP-0002 carried invariant is
+;; live on the public `rf/clear-http-interceptor` surface — the floor is gone.
+
+(deftest clear-http-interceptor-single-arity-fails-closed-under-no-scope
+  (testing "rf2-vl5xsp — single-arity `rf/clear-http-interceptor` under NO
+            ambient frame raises :rf.error/no-frame-context (fails closed);
+            it does NOT synthesise a :rf/default target. The facade must
+            delegate frame resolution to the impl's require-current-frame!,
+            never inject :rf/default from absence."
+    (binding [frame/*current-frame* nil]
+      (let [thrown (try (rf/clear-http-interceptor :some-id)
+                        nil
+                        (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? thrown)
+            "single-arity clear with no carried frame must throw")
+        (is (= :rf.error/no-frame-context
+               (:rf.error/id (ex-data thrown)))
+            "the throw is the always-on :rf.error/no-frame-context — no :rf/default floor")))))
+
 ;; ---- 6. re-registering an id replaces in place ---------------------------
 
 (deftest re-registering-id-replaces-slot

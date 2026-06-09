@@ -50,6 +50,29 @@
     (let [chain (http-managed/interceptors-snapshot :rf/default)]
       (is (zero? (count chain))))))
 
+;; ---- 1a. rf2-vl5xsp — single-arity clear FAILS CLOSED under no scope ------
+;;
+;; The fixture pins an ambient `*current-frame* :rf/default`, which MASKS the
+;; old facade floor (the single-arity used to recurse `[:rf/default id]`,
+;; synthesising the default before delegating). Clear the ambient scope
+;; (`*current-frame* nil`) and assert the single-arity facade raises the
+;; always-on `:rf.error/no-frame-context` — proving the public surface fails
+;; closed and the :rf/default floor is gone.
+
+(deftest clear-http-interceptor-single-arity-fails-closed-under-no-scope
+  (testing "rf2-vl5xsp — single-arity `rf/clear-http-interceptor` under NO
+            ambient frame raises :rf.error/no-frame-context; it does NOT
+            synthesise a :rf/default target."
+    (binding [frame/*current-frame* nil]
+      (let [thrown (try (rf/clear-http-interceptor :some-id)
+                        nil
+                        (catch :default e e))]
+        (is (some? thrown)
+            "single-arity clear with no carried frame must throw")
+        (is (= :rf.error/no-frame-context
+               (:rf.error/id (ex-data thrown)))
+            "the throw is the always-on :rf.error/no-frame-context — no :rf/default floor")))))
+
 ;; ---- 2. registration order is preserved -----------------------------------
 
 (deftest registration-order-preserved

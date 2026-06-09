@@ -61,9 +61,12 @@
     `:before` — `(fn [ctx] ctx')`            request-side transform
     `:after`  — `(fn [ctx response] response')` response-side transform
 
-  plus optional `:frame` (default `:rf/default`) and any
+  plus an optional `:frame` (the EP-0002 *override*) and any
   `:rf/registration-metadata` keys (`:doc` / `:tags` / `:schema` /
-  `:sensitive?`). The two slots mirror the event-interceptor
+  `:sensitive?`). Absent an explicit `:frame`, the carried-invariant
+  scope chain resolves the target; under no scope the call raises
+  `:rf.error/no-frame-context` (no `:rf/default` is synthesised). The
+  two slots mirror the event-interceptor
   `{:id :before :after}` shape (Spec 002).
 
   The `:before` chain runs in REGISTRATION ORDER before the request
@@ -87,11 +90,17 @@
 
 (defwrapper clear-http-interceptor
   "Spec 014 §Middleware — clear an HTTP interceptor by id from a frame's
-  chain. Single-arity clears on `:rf/default`; two-arity targets the
-  named frame.
+  chain. EP-0002 context-required frame-local: the single-arity
+  `(clear-http-interceptor id)` resolves the frame through the
+  carried-invariant scope chain (a `with-frame` / frame-provider scope);
+  the two-arity `(clear-http-interceptor frame id)` names the frame
+  explicitly (the *override*). Under no scope and no explicit frame the
+  call raises `:rf.error/no-frame-context` — it does NOT synthesise a
+  `:rf/default` target. Both arities delegate to the late-bound impl,
+  which performs the frame resolution.
 
   Late-bound via `:http/clear-http-interceptor`. When the http artefact
   is absent the call raises `:rf.error/http-artefact-missing`."
   {:hook :http/clear-http-interceptor :artefact http-artefact :on-absent :throw}
-  ([id]       [:rf/default id])
+  ([id]       :delegate)
   ([frame id] :delegate))

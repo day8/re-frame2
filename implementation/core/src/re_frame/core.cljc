@@ -305,9 +305,12 @@
        interceptor-map)` — per rf2-uheqq the surface mirrors the
        event-interceptor `{:id :before :after}` shape: a single map
        carrying at least one of `:before (fn [ctx] ctx')` or
-       `:after (fn [ctx response] response')`, plus optional
-       `:frame` (default `:rf/default`) and any
-       `:rf/registration-metadata` slots."
+       `:after (fn [ctx response] response')`, plus an optional
+       `:frame` (the EP-0002 *override*) and any
+       `:rf/registration-metadata` slots. Absent an explicit `:frame`
+       the carried-invariant scope chain resolves the target; under no
+       scope the call raises `:rf.error/no-frame-context` (no
+       `:rf/default` is synthesised)."
        {:arglists '([id interceptor-map])})))
 
 ;; ---- reg-machine (bespoke — per-element coord stamping) -----------------
@@ -1734,10 +1737,14 @@
   with-managed-request-stubs*      rf-http/with-managed-request-stubs*)
 
 (def ^{:doc "Clear an HTTP interceptor by `id` from a frame's
-  `:rf.http/managed` middleware chain. Single-arity clears on
-  `:rf/default`; two-arity targets the named frame. Implementation ships
-  in `day8/re-frame2-http`. Per Spec 014 §Middleware. Late-bound via
-  `:http/clear-http-interceptor`."}
+  `:rf.http/managed` middleware chain. EP-0002 context-required
+  frame-local: the single-arity `(clear-http-interceptor id)` resolves
+  the frame through the carried-invariant scope chain; the two-arity
+  `(clear-http-interceptor frame id)` names the frame explicitly (the
+  *override*). Under no scope and no explicit frame the call raises
+  `:rf.error/no-frame-context` — it does NOT synthesise a `:rf/default`
+  target. Implementation ships in `day8/re-frame2-http`. Per Spec 014
+  §Middleware. Late-bound via `:http/clear-http-interceptor`."}
   clear-http-interceptor           rf-http/clear-http-interceptor)
 
 ;; reg-http-interceptor is a macro (per the defreg-macro form above) so
