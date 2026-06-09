@@ -279,10 +279,15 @@
 ;; ---- Spec 002 §:rf/default — ensure-default-frame! idempotence -----------
 
 (deftest ensure-default-frame-is-idempotent
-  (testing "calling ensure-default-frame! more than once does not duplicate or replace the default frame"
-    ;; reset-runtime already called rf/init! → ensure-default-frame!.
+  (testing "calling the TEST-ONLY ensure-default-frame! helper more than once does not duplicate or replace the default frame"
+    ;; Per EP-0002, init! no longer creates :rf/default. ensure-default-frame!
+    ;; survives only as a test-fixture helper; create the frame on demand,
+    ;; then prove repeat calls are idempotent.
+    (is (nil? (frame/frame :rf/default))
+        ":rf/default is absent after init! (the runtime never synthesises it)")
+    (frame/ensure-default-frame!)
     (let [original (frame/frame :rf/default)]
-      (is (some? original) ":rf/default exists after init!")
+      (is (some? original) ":rf/default exists after the test-only helper creates it")
       ;; Repeated calls should be no-ops on the already-registered frame.
       (frame/ensure-default-frame!)
       (frame/ensure-default-frame!)
