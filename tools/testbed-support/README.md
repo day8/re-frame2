@@ -59,14 +59,34 @@ six hosts (`counter_with_stories`, `login_form`, the `login` and
 scaffolding), already drifting in the per-testbed boot specifics they each add.
 
 `re-frame.testbed.story-host/mount-with-hash-routing!` owns that harness:
-the testbed does its own boot (Xray config, `rf/init!`, `story/configure!`,
-`:fx-overrides`, seed dispatches, CI hooks) and calls the helper LAST with
-its live-app root view. Five of the six hosts now call it (the four Story
-showcases above plus `panel_gallery`, which previously installed a bare
-per-`run` `hashchange` listener — rf2-x31vn); the **template copy stays
-standalone by design** — it is `resources/` scaffolding emitted into a fresh
-consumer project whose classpath has no access to this dev-repo-internal
-helper.
+the testbed does its own boot (Xray config, `rf/init!`, `:fx-overrides`,
+seed dispatches, CI hooks) and calls the helper LAST with its live-app root
+view. Five of the six hosts now call it (the four Story showcases above plus
+`panel_gallery`, which previously installed a bare per-`run` `hashchange`
+listener — rf2-x31vn); the **template copy stays standalone by design** — it
+is `resources/` scaffolding emitted into a fresh consumer project whose
+classpath has no access to this dev-repo-internal helper.
+
+### The open-in-editor project-root is a host responsibility (rf2-77wqzi)
+
+Story stamps each registered source-coord with a **classpath-relative**
+`:file` slot (e.g. `login/stories.cljs`); the 'open in editor' chip prepends
+an on-disk project-root to build a real editor URI. That config used to be
+left inline in every consuming `run` (`story/configure! {:rf.story/project-root …}`),
+and the two `examples/reagent` showcases silently forgot it — they mounted
+the shell fine but their Story source links resolved against a nil root, so
+OS editor handlers could not open the file (a false green).
+
+The optional second arg to `mount-with-hash-routing!` closes that gap: a
+consumer declares its tool-relative source subdir via `:story-subdir` (e.g.
+`{:story-subdir "examples/reagent"}`) and the host resolves the on-disk root
+through `resolve-project-root` (build-env define or `?project-root=` override,
+cross-platform) and calls `story/configure!` itself — which also bridges the
+root into Xray's slot. Omit the opt (or use the 1-arity call) when the
+consumer drives `story/configure!` itself. A blank subdir, or a checkout with
+no resolvable root, configures nothing (graceful no-op). Declaring the subdir
+means a Story-host consumer can no longer mount the shell while silently
+forgetting the project-root config.
 
 ## Layout
 
