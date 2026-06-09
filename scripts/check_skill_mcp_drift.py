@@ -212,6 +212,7 @@ MAPPINGS: list[Mapping] = [
             "unsubscribe",
             "list-subscriptions",
             "list-streams",
+            "get-stream-controls",
             "handler-meta",
             "list-handlers",
             "set-operating-frame",
