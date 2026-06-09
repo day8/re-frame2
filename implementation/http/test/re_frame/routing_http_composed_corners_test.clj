@@ -209,15 +209,17 @@
     ;; we're testing what cancel does to the EXTANT in-flight
     ;; bookkeeping, not the timing relative to a real network.
 
-    ;; To pin "cancel does not touch in-flight bookkeeping" we use a
-    ;; direct registry write to simulate an in-flight entry — that
-    ;; mirrors what http-handlers/managed-handler does at issue time
-    ;; without requiring an unsettled real network or a brittle stub.
-    (swap! http-managed/in-flight assoc :editor.save/draft
-           {:request-id :editor.save/draft
-            :url        "/api/editor/draft"
-            :abort-fn   (fn [] nil)})
-    (is (contains? @http-managed/in-flight :editor.save/draft)
+    ;; To pin "cancel does not touch in-flight bookkeeping" we seed an
+    ;; in-flight entry through the registry's test helper — that mirrors
+    ;; what http-handlers/managed-handler does at issue time (preserving
+    ;; both-index invariants) without requiring an unsettled real network
+    ;; or a brittle stub (rf2-hp772l — was a raw `swap!` of the in-flight
+    ;; atom).
+    (http-managed/seed-in-flight-for-test!
+      {:request-id :editor.save/draft
+       :url        "/api/editor/draft"
+       :abort-fn   (fn [_] nil)})
+    (is (contains? (http-managed/in-flight-snapshot) :editor.save/draft)
         "precondition: in-flight registry holds the active-route request")
 
     ;; User requests navigation to /home — leave guard blocks; pending-nav populates.
@@ -237,7 +239,7 @@
       ;; cancel of the navigation does not abort requests issued by the
       ;; route the user is staying on. Cleanup is the user's
       ;; responsibility (or the request's natural completion / abort).
-      (is (contains? @http-managed/in-flight :editor.save/draft)
+      (is (contains? (http-managed/in-flight-snapshot) :editor.save/draft)
           "post-cancel: in-flight registry still holds the active-route's request — cancel does NOT abort active-route HTTP")
 
       ;; Slice still reflects the active route (no nav happened).

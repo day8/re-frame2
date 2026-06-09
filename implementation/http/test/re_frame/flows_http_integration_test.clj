@@ -311,7 +311,7 @@
              and a flow throw aborts the event BEFORE install (atomicity
              contract rule a; split-brain prevention: no transport abort
              on a request whose app-db state still says it's pending)")
-        (is (contains? @http-managed/in-flight :load-articles)
+        (is (contains? (http-managed/in-flight-snapshot) :load-articles)
             "the side-channel in-flight registry STILL holds the request
              — finalise-failure! never ran because the abort-fn was never
              called")

@@ -26,7 +26,8 @@
             [re-frame.http-middleware :as middleware]
             [re-frame.http-privacy   :as privacy]
             [re-frame.http-registry  :as registry]
-            [re-frame.http-transport :as transport]))
+            [re-frame.http-transport :as transport]
+            [re-frame.http-transport-jvm :as transport-jvm]))
 
 ;; ---- rf2-apwkm — closed-set `:retry :on` validation ----------------------
 ;;
@@ -327,7 +328,9 @@
         ;; the transport will actually issue, redacted by the effective
         ;; sensitivity.
         sensitive?'  (privacy/request-sensitive? args-map' origin-event)
-        _            (transport/check-cljs-only-keys! args-map' sensitive?')
+        ;; rf2-hp772l — `check-cljs-only-keys!` is JVM per-row degradation
+        ;; tracing (a no-op on CLJS), owned by the JVM platform adapter.
+        _            (transport-jvm/check-cljs-only-keys! args-map' sensitive?')
         ;; rf2-uheqq — carry the post-:before middleware-ctx forward so
         ;; the response-side `:after` chain sees the EXACT same ctx its
         ;; sibling `:before`s ended with. Per Spec 014 §Middleware: a
