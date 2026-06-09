@@ -212,7 +212,7 @@ git -C <path-to-re-frame2> rev-parse HEAD          # the pinned commit
 git -C <path-to-re-frame2> remote get-url origin   # confirm it's day8/re-frame2
 ```
 
-Do **not** fetch `MIGRATION.md` from GitHub at runtime. **Record the pinned hash in the migration report** ([`output-format.md`](output-format.md)) alongside the chosen `<v2-version>` (next section) — both pin the migration to a reproducible point.
+These two are **read-only provenance checks the skill runs itself** — they inspect the corpus checkout without executing project code, so they are allow-listed (the scoped `Bash(git -C * rev-parse *)` / `Bash(git -C * remote get-url *)` entries in `SKILL.md`'s `allowed-tools`), and they sit on the *same* read-only side of the trust boundary as `rg`. They are NOT in the author-runs-it class (compile / test / install / smoke — see [`SKILL.md` cardinal rule 5](../SKILL.md)); that class is gated because it is arbitrary-code execution, which a `rev-parse` / `remote get-url` is not. Do **not** fetch `MIGRATION.md` from GitHub at runtime. **Record the pinned hash in the migration report** ([`output-format.md`](output-format.md)) alongside the chosen `<v2-version>` (next section) — both pin the migration to a reproducible point.
 
 ## Discovering the current VERSION
 
