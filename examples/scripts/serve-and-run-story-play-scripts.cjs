@@ -55,6 +55,7 @@ const {
   waitForHttpReady,
 } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 const { resolveStoryFeatureLoadPort } = require('./story-feature-load-port.cjs');
+const { cleanStageDirs } = require('./examples-staging.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
@@ -134,6 +135,16 @@ let exiting = false;
 
 function log(line) {
   process.stdout.write(`${line}\n`);
+}
+
+// Clean-stage boundary (rf2-bf4vdy): remove + recreate the testbed's output
+// dir BEFORE shadow-cljs compiles into it, so every served file is produced
+// from the current source this run — no stale file from a previous run can
+// satisfy a browser request the current testbed no longer produces. Cleans
+// only this one dir (not the shared OUT_ROOT); the helper path-guards the
+// target to live strictly under OUT_ROOT.
+function cleanTestbedOutDir() {
+  cleanStageDirs([TESTBED_OUT], OUT_ROOT);
 }
 
 function compileTestbed() {
@@ -733,6 +744,7 @@ async function main() {
   });
   const baseUrl = `http://127.0.0.1:${port}`;
 
+  cleanTestbedOutDir();
   compileTestbed();
   stageTestbedHtml();
 

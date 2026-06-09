@@ -47,7 +47,7 @@ const {
 // Shared staging helpers (rf2-pdo5mx) — the recursive copy + _shared fan-out
 // live in one place so the standalone-example dev runner (serve-example.cjs)
 // reuses the SAME staging this orchestrator does, rather than duplicating it.
-const { stageShared } = require('./examples-staging.cjs');
+const { stageShared, cleanStageDirs } = require('./examples-staging.cjs');
 const {
   createHarnessCleanup,
   spawnHarnessProcess,
@@ -155,6 +155,19 @@ function selectedExamples() {
   return selectEntries(FILTER_PATTERNS);
 }
 
+// Clean-stage boundary (rf2-bf4vdy): remove + recreate each SELECTED build's
+// output dir BEFORE shadow-cljs compiles into it, so every served file (the
+// compiled main.js, the staged index.html, the _shared fan-out, the extra
+// static assets) is produced from the CURRENT source this run — no stale file
+// from a previous local/CI run can satisfy a browser request the current
+// manifest/source no longer produces. We clean only the selected dirs (not the
+// shared OUT_ROOT) because a narrow run must not wipe sibling outputs; the
+// helper path-guards every target to live strictly under OUT_ROOT.
+function cleanSelectedOutDirs() {
+  const dirs = selectedExamples().map((e) => e.outDir);
+  if (dirs.length > 0) cleanStageDirs(dirs, OUT_ROOT);
+}
+
 function compileAll() {
   // Compile every build in one shadow-cljs invocation — faster: it
   // shares the JVM warmup across builds. Silent-on-success: shadow-
@@ -224,6 +237,7 @@ async function main() {
   // fails fast with a clear message instead of after a slow shadow build.
   const PORT = await resolveExamplesPort({ env: process.env });
 
+  cleanSelectedOutDirs();
   compileAll();
   stageHtml();
 
