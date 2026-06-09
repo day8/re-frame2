@@ -12,7 +12,6 @@
   (:require [reagent2.core             :as r]
             [reagent2.ratom            :as ratom]
             [reagent2.dom.client       :as rdc]
-            [reagent2.impl.batching    :as batching]
             [reagent2.impl.template    :as template]
             [re-frame.substrate.spine   :as spine]
             [re-frame.views            :as views]))
@@ -53,16 +52,24 @@
                          :rdc/render          (fn [root tree] (rdc/render root tree))
                          :rdc/hydrate-root    (fn [mount-point tree] (rdc/hydrate-root mount-point tree))
                          :rdc/unmount         (fn [root] (rdc/unmount root))
-                         ;; rf2-40a84 — synchronous render-flush op. Run `f`
-                         ;; (which may mutate a ratom / dispatch), then
-                         ;; `reagent2.impl.batching/flush!` SYNCHRONOUSLY drains
-                         ;; the rea-queue + forceUpdates every dirty component —
-                         ;; the rewrite's microtask scheduler is bypassed, so
-                         ;; the commit is NOT microtask/rAF-deferred and fires
-                         ;; even in a backgrounded / headless tab. (Distinct
-                         ;; from `reagent2.dom.client/flush-views!`, the
-                         ;; goog.DEBUG-gated act()-composing TEST primitive.)
-                         :rdc/flush-render!   (fn [f] (f) (batching/flush!))}}))
+                         ;; rf2-40a84 / rf2-0bz5ah — synchronous render-commit
+                         ;; op. Runs `f` (which may mutate a ratom / dispatch),
+                         ;; then drains the rea-queue + forceUpdates every dirty
+                         ;; component via `reagent2.impl.batching/flush!`, INSIDE
+                         ;; a `react-dom/flushSync` boundary so the forced
+                         ;; re-renders COMMIT TO THE DOM synchronously before the
+                         ;; op returns. Under React 19 `createRoot` a bare
+                         ;; `forceUpdate` from outside React's batching is
+                         ;; auto-batched (scheduled, not committed), so the
+                         ;; boundary is load-bearing — see
+                         ;; `reagent2.dom.client/flush-render!` for the full
+                         ;; rationale + the empirical proof
+                         ;; (`reagent_slim_flush_render_dom_cljs_test`). The
+                         ;; commit is NOT microtask/rAF-deferred and fires even
+                         ;; in a backgrounded / headless tab. (Distinct from
+                         ;; `reagent2.dom.client/flush-views!`, the goog.DEBUG-
+                         ;; gated act()-composing TEST primitive.)
+                         :rdc/flush-render!   rdc/flush-render!}}))
 
 (def set-hiccup-emitter!
   "Install the hiccup → HTML fn used by render-to-string. Last call wins.

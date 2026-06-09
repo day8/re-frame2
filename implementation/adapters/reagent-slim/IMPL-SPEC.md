@@ -453,6 +453,8 @@ For test code, `flush-views!` calls `react/act` (from `react` 19+'s test entry) 
 
 In production builds, `flush-views!` is gated on `js/goog.DEBUG` and DCEs entirely under `:advanced` + `goog.DEBUG=false` — the flush primitive is a test concern.
 
+The **production** synchronous render-commit is a distinct op: `reagent2.dom.client/flush-render!` (the adapter's `:flush-render!` slot, rf2-40a84). It runs `(f)` then `batching/flush!` **inside a `react-dom/flushSync` boundary** so the forced re-renders COMMIT TO THE DOM synchronously before it returns. The boundary is load-bearing under React 19 `createRoot`: a bare `forceUpdate` issued from outside React's batching context is auto-batched (scheduled, not committed), so without `flushSync` the DOM still reflects the OLD value when `batching/flush!` returns (rf2-0bz5ah — empirically pinned by `reagent_slim_flush_render_dom_cljs_test`). This mirrors the stock-Reagent adapter, whose `:flush-render!` runs `(f)` then `reagent.core/flush` (itself a `react-dom/flushSync` commit). Unlike `flush-views!`, `flush-render!` carries no `goog.DEBUG` gate — it is the production-grade headless commit path the re-frame2-pair MCP's dispatch→render→observe-DOM loop depends on (Spec 006 §`flush-render!`). `flushSync` is a stable React DOM API (top-level `react-dom`, not `react-dom/server`), so importing it into `reagent2.dom.client` keeps the bundle-isolation contract intact.
+
 ### §4.3 Differences from Reagent's `r/flush`
 
 | Concern | Reagent `r/flush` | rewrite `flush-views!` |

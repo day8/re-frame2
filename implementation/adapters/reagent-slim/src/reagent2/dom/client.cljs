@@ -63,6 +63,7 @@
   (:require [reagent2.impl.batching :as batching]
             [reagent2.impl.template :as template]
             ["react" :as react]
+            ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
 
 ;; ---------------------------------------------------------------------------
@@ -148,6 +149,49 @@
                 (.then (fn [_]
                          (batching/flush!)
                          (microtask-tick))))))))))
+
+;; ---------------------------------------------------------------------------
+;; flush-render! — production synchronous render-commit (rf2-40a84 / rf2-0bz5ah)
+;; ---------------------------------------------------------------------------
+;;
+;; The production-grade synchronous render-commit the adapter's
+;; `:flush-render!` slot services (distinct from the `act`-composing,
+;; goog.DEBUG-gated `flush-views!` test primitive above). Runs `f` (which
+;; may mutate a ratom / dispatch an event), then drains the rea-queue +
+;; forceUpdates every dirty component via `batching/flush!` — INSIDE a
+;; `react-dom/flushSync` boundary so the forced re-renders COMMIT TO THE
+;; DOM synchronously before this returns.
+;;
+;; Why the flushSync boundary is load-bearing (rf2-0bz5ah). Under React 19
+;; `createRoot`, a bare `forceUpdate` issued from outside React's batching
+;; context is subject to automatic batching: React SCHEDULES the re-render
+;; rather than committing it synchronously, so the DOM still reflects the
+;; OLD value when `batching/flush!` returns. `flushSync` forces React to
+;; flush all pending work — including those `forceUpdate`-scheduled
+;; re-renders — to the DOM before it returns. This mirrors the stock-Reagent
+;; adapter, whose `:flush-render!` runs `(f)` then `reagent.core/flush`
+;; (which itself commits via `react-dom/flushSync`). The reagent-slim
+;; flush-render DOM proof (`reagent_slim_flush_render_dom_cljs_test`)
+;; empirically pins this: without the boundary the post-flush assertion
+;; reads the old value.
+;;
+;; NOT rAF-scheduled ⇒ fires even in a backgrounded / headless tab — the
+;; capability the re-frame2-pair MCP's headless dispatch→render→observe-DOM
+;; loop depends on (Spec 006 §flush-render! + Spec Tool-Pair §Driving the
+;; render). Production-safe: `flushSync` is a stable React DOM API and this
+;; fn carries no goog.DEBUG gate (unlike `flush-views!`).
+
+(defn flush-render!
+  "Run `f`, then synchronously drain + COMMIT pending render work to the
+  DOM. Wraps `(do (f) (batching/flush!))` in `react-dom/flushSync` so the
+  forced re-renders commit synchronously under React 19 `createRoot`
+  (rf2-0bz5ah). Returns nil."
+  [f]
+  (react-dom/flushSync
+    (fn []
+      (f)
+      (batching/flush!)))
+  nil)
 
 ;; ---------------------------------------------------------------------------
 ;; Mount entries (Stage 4-D)
