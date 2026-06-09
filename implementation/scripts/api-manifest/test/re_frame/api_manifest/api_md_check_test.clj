@@ -156,3 +156,37 @@
            (otherwise this regression would be vacuous)")
       (is (true? (c/check!))
           "live drift: spec/API.md var-rows disagree with the manifest"))))
+
+;; ---------------------------------------------------------------------------
+;; Non-vacuous extracted-row floor (rf2-4ka7c2.2).
+;;
+;; api-md-check/check! reported OK whenever its problem list was empty — even
+;; with ZERO extracted var-rows. A table-shape / tier-header / marker-cell /
+;; parser drift that collapses extraction toward 0 would then pass green
+;; while most of spec/API.md's public-var references went unchecked. The
+;; floor turns a near-collapse into a FAILURE.
+;; ---------------------------------------------------------------------------
+
+(deftest zero-extracted-rows-violates-the-floor
+  (testing "ZERO extracted var-rows (a total parser collapse) trips the floor"
+    (is (some? (c/floor-violation 0))
+        "zero extracted rows must be a floor violation (vacuous OK refused)")))
+
+(deftest near-collapse-extraction-violates-the-floor
+  (testing "a near-collapse (a small subset extracted, well below the live
+            ~196) trips the floor"
+    (is (some? (c/floor-violation 5))
+        "5 extracted rows is a near-total collapse — must trip the floor")
+    (is (some? (c/floor-violation 149))
+        "149 rows is below the 150 floor — must trip it")))
+
+(deftest healthy-extraction-does-not-violate-the-floor
+  (testing "the live extracted-row count (~196) is comfortably above the floor"
+    (is (nil? (c/floor-violation 196))
+        "the live count must NOT trip the floor (no false positive)")
+    (is (nil? (c/floor-violation 150))
+        "exactly at the floor is acceptable (strictly-below trips)")
+    ;; And the REAL parse over the committed API.md is above the floor — the
+    ;; floor is calibrated below the live count, never tripping on real churn.
+    (is (nil? (c/floor-violation (count (c/parse-api-md-var-rows))))
+        "the real spec/API.md extraction must clear the floor")))

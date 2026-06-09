@@ -262,13 +262,37 @@
          (sort-by (juxt first second))
          vec)))
 
+(defn duplicate-rows
+  "Return a sorted vector of `[[namespace var] count]` for every
+   `[namespace var]` key carried by MORE THAN ONE manifest row (rf2-nlnd9y.2).
+
+   The manifest contract is one row per public var (this ns docstring's THE
+   ARTEFACT note). JVM-derived rows are unique by construction (a namespace's
+   `ns-publics` map has unique var names, and `extra-vars` adds distinct
+   pairs). But the curated `:cljs-only` sidecar rows are carried through
+   VERBATIM and concatenated with the JVM rows, with no uniqueness check — so
+   a duplicated `:cljs-only` entry, or a `:cljs-only` row colliding with a
+   JVM-derived row, produced a manifest with two rows for one var (possibly
+   with conflicting tier/kind/status/runtime metadata) and an inflated
+   `:var-count`. Downstream projections then either silently overwrite one
+   row (`index-by-ns+var` `assoc`) or tolerate multiple tiers — masking the
+   contradiction. Detecting duplicates HERE, before write / `--check`, keeps
+   the one-row-per-var invariant where it is generated."
+  [rows]
+  (->> rows
+       (group-by (juxt :namespace :var))
+       (keep (fn [[k group]] (when (> (count group) 1) [k (count group)])))
+       (sort-by (comp (juxt first second) first))
+       vec))
+
 (defn build-manifest
   "Build the full manifest data structure (the value written to
    spec/api-manifest.edn). Throws on missing / stale sidecar entries with
    an actionable message — that throw is what turns the drift-check red."
   [sidecar]
   (let [[rows missing] (build-rows sidecar)
-        stale          (stale-sidecar-entries sidecar)]
+        stale          (stale-sidecar-entries sidecar)
+        dups           (duplicate-rows rows)]
     (when (seq missing)
       (throw (ex-info
               (str "Public vars with no sidecar classification (add a "
@@ -284,6 +308,24 @@
                    "spec/api-manifest-metadata.edn):\n  "
                    (str/join "\n  " (map #(str/join "/" %) stale)))
               {:stale stale})))
+    ;; One-row-per-public-var invariant (rf2-nlnd9y.2). A duplicate
+    ;; `[namespace var]` — within `:cljs-only`, or between a `:cljs-only`
+    ;; row and a JVM-derived row — must FAIL generation / `--check`, never
+    ;; ship two rows for one var (which inflates :var-count and lets
+    ;; downstream projections silently overwrite or mask conflicting tiers).
+    (when (seq dups)
+      (throw (ex-info
+              (str "Duplicate manifest rows — these `[namespace var]` keys "
+                   "appear MORE THAN ONCE (the manifest is one row per public "
+                   "var). A duplicate within `:cljs-only`, or a `:cljs-only` "
+                   "row colliding with a JVM-derived row, must be removed from "
+                   "spec/api-manifest-metadata.edn (a JVM-loadable var must "
+                   "NOT also be hand-rowed under :cljs-only):\n  "
+                   (str/join "\n  "
+                             (map (fn [[[ns-str var-str] n]]
+                                    (str ns-str "/" var-str " (" n " rows)"))
+                                  dups)))
+              {:duplicates dups})))
     {:meta {:doc        (str "GENERATED public-API manifest — do NOT hand-edit "
                              "the :vars list. Regenerate with: clojure -M -m "
                              "re-frame.api-manifest.gen (run from "
