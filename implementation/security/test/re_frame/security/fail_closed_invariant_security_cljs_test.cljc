@@ -231,7 +231,7 @@
    "relative/path"             ;; bare relative segment (no leading /)
    "/path\twith\ttabs"         ;; embedded control chars
    "/path\nwith\nnewlines"     ;; embedded control chars
-   "/path null"])         ;; embedded NUL
+   "/path\u0000null"])         ;; embedded NUL
 
 (deftest untrusted-url-inputs-never-classify-in-app
   (testing "w3qgc#2 + rf2-3bv8o — every untrusted URL-sink input fails
