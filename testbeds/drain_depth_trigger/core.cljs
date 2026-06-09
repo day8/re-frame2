@@ -183,5 +183,9 @@
   ;; per [spec/002 §Surgical update] re-registering only changes the
   ;; supplied keys (here :drain-depth), the other defaults survive.
   (rf/reg-frame :rf/default {:drain-depth default-drain-depth})
-  (rf/dispatch-sync [::initialise])
-  (rdc/render react-root [root]))
+  ;; EP-0002 (rf2-9o48ih): scope the boot dispatch to the registered app
+  ;; frame and wrap the render in a `frame-provider` — the runtime never
+  ;; synthesises a frame from absence (the carried invariant).
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [::initialise]))
+  (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

@@ -115,7 +115,7 @@ The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event op
 ```clojure
 (def DispatchOpts
   [:map
-   [:frame                 {:optional true} :keyword]                       ;; defaults to :rf/default
+   [:frame                 {:optional true} :keyword]                       ;; the explicit override; absent → resolved from the established scope (no :rf/default fallback — EP-0002)
    [:fx-overrides          {:optional true} [:map-of :keyword :any]]
    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
    [:interceptors          {:optional true} [:vector :any]]
@@ -1384,21 +1384,18 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:feature  :keyword]
    [:fallback {:optional true} :any]])
 
-(def DispatchFromAsyncCallbackFellThroughTags
-  [:map
-   [:category     [:= :rf.warning/dispatch-from-async-callback-fell-through-to-default]]
-   [:event        [:vector :any]]
-   [:event-id     :keyword]
-   [:routed-to    [:= :rf/default]]
-   [:detected-at  :int]                              ;; wall-clock ms
-   [:reason       :string]
-   [:source-coord {:optional true} :any]])           ;; optional — `dispatch` is not macro-stamped, so the call-site coord may be absent
+;; RETIRED (EP-0002): `DispatchFromAsyncCallbackFellThroughTags` /
+;; `:rf.warning/dispatch-from-async-callback-fell-through-to-default` is gone.
+;; Under the carried-frame invariant there is no fall-through-to-`:rf/default` to
+;; warn about — a frameless async dispatch raises the structured
+;; `:rf.error/no-frame-context` error (its schema lives with the error catalogue),
+;; which carries capture-site ancestry via the `:rf.trace/dispatch-id` graph.
 
 (def CrossFrameDispatchSyncDuringDrainTags
   [:map
    [:category     [:= :rf.warning/cross-frame-dispatch-sync-during-drain]]
    [:caller-frame :keyword]                          ;; `*current-frame*` at the call site, or `:rf/none` when unbound
-   [:target-frame :keyword]                          ;; the `dispatch-sync!`'s `:frame` opt (or resolved default)
+   [:target-frame :keyword]                          ;; the `dispatch-sync!`'s `:frame` opt (or the frame resolved from the established scope)
    [:other-frame  :keyword]                          ;; an arbitrary mid-drain sibling — typically the caller's frame
    [:event        [:vector :any]]
    [:reason       :string]])
@@ -1476,7 +1473,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def HttpInterceptor
   [:map
-   [:frame  {:optional true} :keyword]   ;; defaults to :rf/default
+   [:frame  {:optional true} :keyword]   ;; the explicit override; absent → resolved from the established scope (no :rf/default fallback — EP-0002)
    [:id     :keyword]                    ;; addressable for clear-http-interceptor
    [:before [:=> [:cat :map] :map]]])    ;; (fn [ctx] ctx')
 

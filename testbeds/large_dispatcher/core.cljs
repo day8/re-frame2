@@ -42,7 +42,7 @@
             [re-frame.schemas]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ----------------------------------------------------------------------------
 ;; The canonical "large" payload — 20 KiB above the 16 KiB threshold
@@ -73,13 +73,17 @@
    [:schema-large-value {:large? true :hint "Nested schema-declared slot"}
     [:maybe :string]]])
 
-(rf/reg-app-schemas
-  {[:declared-large-value]
-   [:maybe [:string {:large? true :hint "Flat schema-declared slot"}]]
-   [:fx-declared-value]
-   [:maybe [:string {:large? true :hint "Second flat schema-declared slot"}]]
-   [:schema-bag]
-   SchemaLarge})
+;; EP-0002 (rf2-5q7um6): reg-app-schemas is context-required frame-local; a
+;; bare ns-load call raises :rf.error/no-frame-context. This testbed hosts on
+;; :rf/default, so name it explicitly.
+(with-frame :rf/default
+  (rf/reg-app-schemas
+    {[:declared-large-value]
+     [:maybe [:string {:large? true :hint "Flat schema-declared slot"}]]
+     [:fx-declared-value]
+     [:maybe [:string {:large? true :hint "Second flat schema-declared slot"}]]
+     [:schema-bag]
+     SchemaLarge}))
 
 ;; ----------------------------------------------------------------------------
 ;; App-db
@@ -248,12 +252,18 @@
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [::initialise])
-  ;; Populate the elision registry from any registered schemas
-  ;; carrying :large? marks. Per [API.md §`populate-elision-from-
-  ;; schemas!`] this walks the app-schema registry and writes
-  ;; `{:large? true :source :schema}` slots into the elision
-  ;; declarations map. The schema-driven path's declaration enters
-  ;; the registry without an explicit handler dispatch.
-  (rf/populate-elision-from-schemas!)
-  (rdc/render react-root [root]))
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — register `:rf/default` as the app frame, scope the boot
+  ;; dispatch + the frame-local elision population (a registration-time
+  ;; frame-local surface, EP §6), and wrap the render in a frame-provider.
+  (rf/reg-frame :rf/default {})
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [::initialise])
+    ;; Populate the elision registry from any registered schemas
+    ;; carrying :large? marks. Per [API.md §`populate-elision-from-
+    ;; schemas!`] this walks the app-schema registry and writes
+    ;; `{:large? true :source :schema}` slots into the elision
+    ;; declarations map. The schema-driven path's declaration enters
+    ;; the registry without an explicit handler dispatch.
+    (rf/populate-elision-from-schemas!))
+  (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

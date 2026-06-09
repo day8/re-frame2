@@ -122,7 +122,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 **Invariants.**
 - The `app-db` reactive container is opaque to the core; the [substrate adapter](006-ReactiveSubstrate.md) decides what it is (Reagent ratom in CLJS reference; plain atom for JVM/SSR/headless).
 - The frame's full state is reconstructible from its `app-db` *value* — adapter-internal state (Reagent reactions, React fibers, etc.) is not part of the frame value (load-bearing for [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) per [006 §Revertibility constraints](006-ReactiveSubstrate.md#revertibility-constraints-on-adapters)).
-- `:rf/default` is always present; user code that omits a frame on dispatch lands here ([002 §`:rf/default`](002-Frames.md#rfdefault)).
+- Frame identity is **carried, not found** (EP-0002): a dispatch resolves its frame from the scope it runs under, and the runtime never synthesises one from absence. There is **no** always-present `:rf/default`; a frameless dispatch fails with `:rf.error/no-frame-context` ([002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)).
 - The reserved `app-db` root `:rf/runtime` (with its `:machines`, `:routing`, and `:elision` sub-containers) is owned by the runtime ([Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)).
 
 ### 3. Router (per-frame FIFO)
@@ -232,8 +232,8 @@ Three lifecycles touch every component. Each is short. Putting them in one place
 2. **Registrar** is created (empty maps for each `kind`). Reserved-namespace policy installed.
 3. User code runs `reg-*` calls — handlers, subs, fx, cofx, views, machines, routes, frames. Each emits a `:rf.registry/handler-registered` trace event. Frames declared with `reg-frame` create their **frame container** (per-frame `app-db`, router, sub-cache, lifecycle).
 4. The **substrate adapter** initialises. CLJS reference: load Reagent, install the React-context shim used by `frame-provider` ([002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part)).
-5. `:rf/default` frame is guaranteed present.
-6. Each frame's `:on-create` dispatches (per [Pattern-Boot](Pattern-Boot.md)). The drain loop runs them; views mount; first render lands.
+5. No frame is created by boot. The application registers its app frame explicitly with `reg-frame` (step 3) and establishes it at the root with a `frame-provider` / `with-frame`; the runtime never synthesises `:rf/default` (EP-0002).
+6. Each frame's `:on-create` dispatches (per [Pattern-Boot](Pattern-Boot.md)). The drain loop runs them; views mount under their frame-provider; first render lands.
 
 ### Per-event drain
 

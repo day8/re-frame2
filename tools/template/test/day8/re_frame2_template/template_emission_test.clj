@@ -211,7 +211,16 @@
   ;; Compiled once at ns-load — the previous shape rebuilt the
   ;; java.util.regex.Pattern per call (×N framework files × N
   ;; references × 3 substrates = thousands of compiles per suite run).
-  (let [meta-clause "(?:\\^(?:\\w[\\w/.:?<>=*+!\\-]*|\\{[^}]*\\})\\s+)*"
+  ;; The `^{...}` metadata-map alternative tolerates ONE level of brace
+  ;; nesting (`\{(?:[^{}]|\{[^{}]*\})*\}`) so a `def` whose docstring embeds
+  ;; a literal map — e.g. `frame-provider`'s `Usage: [rf/frame-provider
+  ;; {:frame :todo} …]` — is still detected. The earlier `\{[^}]*\}` stopped
+  ;; at the FIRST inner `}`, so such a def's symbol was missed and any
+  ;; template reference to it tripped the audit (rf2-9o48ih: the EP-0002
+  ;; carried-frame scaffold references `rf/frame-provider`, the first
+  ;; template surface whose framework def carries an embedded-brace
+  ;; docstring).
+  (let [meta-clause "(?:\\^(?:\\w[\\w/.:?<>=*+!\\-]*|\\{(?:[^{}]|\\{[^{}]*\\})*\\})\\s+)*"
         sym-char    "[a-zA-Z*+!?<>=$%_\\-][\\w*+!?<>=$%\\-]*"]
     (re-pattern
       (str "\\(def(?:n-?|macro|multi|once|protocol|record|type)?\\s+"

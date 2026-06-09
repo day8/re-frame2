@@ -411,8 +411,15 @@
   through the standard transition cascade.
 
   No-op under `:platform :server` (per Spec 005 §SSR mode)."
-  [{frame-id :frame :or {frame-id :rf/default}} args]
-  (let [parent-id  (:rf/parent-id args)
+  [{frame-id :frame} args]
+  (let [;; EP-0002 carried invariant — the cascade envelope frame is the
+        ;; fx-context `:frame`; a nil stamp is an invariant failure
+        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+        frame-id   (frame/require-frame-stamp!
+                     frame-id :rf.machine/after-schedule
+                     {:where 'rf.machine/after-schedule
+                      :event-id (:rf/parent-id args)})
+        parent-id  (:rf/parent-id args)
         invoke-id  (:rf/spawn-id args)
         state      (:state args)
         delay-key  (:delay-key args)
@@ -454,8 +461,15 @@
   so the only cross-key axis we still iterate is `:delay` (one entry
   per :after map entry on the bearing state node — typically 1-3
   entries)."
-  [{frame-id :frame :or {frame-id :rf/default}} args]
-  (let [parent-id (:rf/parent-id args)
+  [{frame-id :frame} args]
+  (let [;; EP-0002 carried invariant — the cascade envelope frame is the
+        ;; fx-context `:frame`; a nil stamp is an invariant failure
+        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+        frame-id  (frame/require-frame-stamp!
+                    frame-id :rf.machine/after-cancel
+                    {:where 'rf.machine/after-cancel
+                     :event-id (:rf/parent-id args)})
+        parent-id (:rf/parent-id args)
         invoke-id (vec (:rf/spawn-id args))]
     (doseq [[k _entry] (get @after-timers frame-id)
             :when (and (= parent-id (:parent k))

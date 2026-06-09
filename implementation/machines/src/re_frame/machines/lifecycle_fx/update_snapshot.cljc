@@ -40,8 +40,15 @@
   in the emitting frame's runtime-db. No-op when the actor has no snapshot
   (destroyed / not-yet-materialised) or when `:rf/machine-id` is absent.
   Per Spec 005 §Snapshot-level escape hatch."
-  [{frame-id :frame :or {frame-id :rf/default}} args]
-  (let [machine-id (:rf/machine-id args)
+  [{frame-id :frame} args]
+  (let [;; EP-0002 carried invariant — the cascade envelope frame is the
+        ;; fx-context `:frame`; a nil stamp is an invariant failure
+        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+        frame-id   (frame/require-frame-stamp!
+                     frame-id :rf.machine/update-snapshot
+                     {:where 'rf.machine/update-snapshot
+                      :event-id (:rf/machine-id args)})
+        machine-id (:rf/machine-id args)
         patch      (:rf/patch args)]
     (when (and machine-id (map? patch))
       ;; Hard-disallow `:db` — symmetric with the action-effect path

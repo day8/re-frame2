@@ -71,7 +71,7 @@
             [re-frame.core :as rf]
             [re-frame.schemas]
             [re-frame.schemas.malli])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; SCHEMAS  (Spec 010 §`:large?` per-slot meta)
@@ -99,9 +99,19 @@
 ;; schema MUST permit nil. We wrap with `:maybe`; the `:large? true`
 ;; flag lives on the inner `:string` slot so the walker still surfaces
 ;; it under the `[:user/avatar-pdf]` registered path.
-(rf/reg-app-schema [:user/avatar-pdf]
-                   [:maybe [:string {:large? true
-                                     :hint   "Avatar PDF blob"}]])
+;;
+;; EP-0002 (rf2-5q7um6): `reg-app-schema` is context-required frame-local —
+;; a bare ns-load call under no scope raises `:rf.error/no-frame-context`
+;; (boot-time namespace loading is NOT a reason to synthesise `:rf/default`,
+;; per Spec 002 §Frame target resolution). This demo's app runs in the
+;; `:rf/default` frame (see `core/run`), so name it explicitly here via
+;; `with-frame` — the registration carries a frame stamp even though it
+;; lands at module-load before `init!`. (The broader testbed migration to a
+;; root provider is owned by the Story/tools bead rf2-bd4div.)
+(with-frame :rf/default
+  (rf/reg-app-schema [:user/avatar-pdf]
+                     [:maybe [:string {:large? true
+                                       :hint   "Avatar PDF blob"}]]))
 
 ;; ============================================================================
 ;; EVENTS  (Spec 009 §`:sensitive?`)

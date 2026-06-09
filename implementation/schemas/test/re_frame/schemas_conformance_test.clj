@@ -470,7 +470,14 @@
           ;; with the schemas in place — the on-create's db commit
           ;; will trigger validate-app-schema! against the new slate.
           _            (realise-app-schemas fixture)
-          _            (rf/reg-frame :rf/default frame-config)
+          ;; EP-0002 (rf2-5q7um6): the shared `tf/reset-runtime` pins
+          ;; `*current-frame* :rf/default` for the body. Unbind it around
+          ;; `reg-frame` so the fixture's `:on-create` cascade fires
+          ;; SYNCHRONOUSLY — `frame/reg-frame` async-queues on-create when
+          ;; `*current-frame*` is bound (Spec 002 §reg-frame from inside a
+          ;; handler), which would land the seed AFTER the first dispatch.
+          _            (binding [frame/*current-frame* nil]
+                         (rf/reg-frame :rf/default frame-config))
           dispatches   (or (:fixture/dispatches fixture) [])]
       (doseq [ev dispatches]
         (run-dispatch ev))

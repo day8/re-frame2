@@ -4,13 +4,13 @@
 
 Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider` to scope a React subtree, or carrying the current frame into an async callback via `frame-handle` / `frame-bound-fn`.
 
-## The teaching model: choose by intent
+## The teaching model: frame identity is carried, not found
 
-Most apps never touch any of this — a single-frame app just calls `rf/dispatch` / `rf/subscribe` and the framework resolves `:rf/default`. Reach for a frame affordance only when one of these intents applies:
+The one rule (EP-0002 carried invariant): **frame identity is a value that travels with every causal token; an operation reads its frame from the scope it runs under and never synthesises one from absence.** A single-frame app establishes exactly one frame at its root (a `frame-provider` / `with-frame`); *inside that scope* `rf/dispatch` / `rf/subscribe` stay ambient and ergonomic — no frame talk. There is **no implicit `:rf/default` floor**: a frame-scoped call issued under no scope fails loudly with `:rf.error/no-frame-context`. Reach for a frame affordance only when one of these intents applies:
 
 | Intent | Affordance |
 |---|---|
-| Single frame (the default) | `dispatch` / `dispatch-sync` / `subscribe` — no frame talk at all |
+| Inside an established frame scope (the common case) | `dispatch` / `dispatch-sync` / `subscribe` — no frame talk at all |
 | Pin a lexical scope to an existing frame | `with-frame` |
 | Create + own + destroy a frame for a scope (tests / SSR) | `with-new-frame` |
 | Scope a React subtree to a frame | `frame-provider` |
@@ -25,7 +25,7 @@ A `reg-view` body needs none of these for ordinary dispatch / subscribe — the 
 
 ## What a frame is
 
-A **frame** is an isolated runtime boundary holding **two durable partitions** plus its own router queue and sub-cache. Frames are identified by keywords. Every re-frame2 app has at least one — `:rf/default` — registered automatically on `init!`.
+A **frame** is an isolated runtime boundary holding **two durable partitions** plus its own router queue and sub-cache. Frames are identified by keywords. Every re-frame2 app establishes at least one — registered explicitly with `reg-frame` and scoped at the root with a `frame-provider` / `with-frame`. `init!` installs adapters and runtime capabilities but creates **no** frame; there is no auto-registered `:rf/default`.
 
 The two partitions:
 
@@ -67,28 +67,29 @@ Verified in `re-frame.frame` (`reg-frame`, `make-frame`, `destroy-frame!`). The 
 
 ## Frame resolution chain
 
-Three tiers (the frame-resolution chain in `re-frame.frame` / `re-frame.core`):
+Two scope tiers (the frame-resolution chain in `re-frame.frame` / `re-frame.core`), **with no `:rf/default` fallback rung** (EP-0002):
 
 1. **`*current-frame*` dynamic var** — bound by `with-frame`.
 2. **React context** (CLJS only) — read via the `:adapter/current-frame` late-bind hook, populated by the installed adapter under a `frame-provider`.
-3. **`:rf/default`** — fallback when neither of the above applies.
 
-`dispatch` and `subscribe` both default the target frame to `(rf/current-frame-id)`, but their explicit-routing surfaces differ — **`dispatch` / `dispatch-sync` take a trailing `{:frame …}` opts map; `subscribe` / `subscribe-once` / `unsubscribe` take a *leading* `frame-id` argument** (no opts map). The explicit form is first-class (tools, tests, SSR, fx handlers), not a workaround:
+If neither tier names a frame, the reader returns `nil` and a public frame-scoped operation raises `:rf.error/no-frame-context` — the chain never invents a default. (The explicit `{:frame …}` *override* / leading `frame-id` arg bypasses the chain entirely.)
+
+`dispatch` and `subscribe` both resolve the target frame from the established scope (via `require-current-frame!`, which raises outside any scope), but their explicit-routing surfaces differ — **`dispatch` / `dispatch-sync` take a trailing `{:frame …}` opts map; `subscribe` / `subscribe-once` / `unsubscribe` take a *leading* `frame-id` argument** (no opts map). The explicit form is first-class (tools, tests, SSR, fx handlers), not a workaround:
 
 ```clojure
 (rf/dispatch  [:foo] {:frame :stories})           ;; dispatch: trailing {:frame …} opt
 (rf/subscribe :stories [:my-sub])                 ;; subscribe: LEADING frame-id arg
-(rf/subscribe [:my-sub])                          ;; no frame-id → uses current-frame-id
+(rf/subscribe [:my-sub])                          ;; no frame-id → resolves the established scope (raises if none)
 ```
 
 A trailing `{:frame …}` map passed to `subscribe` is **not** an opts map — it would be read as the `query-v`, silently subscribing to the wrong query. To read a non-default frame's app-db as a plain value (no reaction), use `(rf/app-db-value :frame-id)`.
 
 ## Carrying the frame into async callbacks
 
-When you `setTimeout` or hand a callback to a promise, the ambient frame binding (dynamic var → React context) is gone by the time it runs. The keystone affordance is **`frame-handle`** — a per-frame OPERATION BUNDLE captured at creation time. Its ops always target the captured frame and survive async boundaries:
+When you `setTimeout` or hand a callback to a promise, the frame scope (dynamic var → React context) has unwound by the time it runs — so a bare `dispatch` inside it would raise `:rf.error/no-frame-context`. The keystone affordance is **`frame-handle`** — a per-frame OPERATION BUNDLE captured at creation time. Its ops carry the captured frame as a value and survive async boundaries:
 
 ```clojure
-(let [{:keys [dispatch]} (rf/frame-handle)]        ;; captures the ambient frame now
+(let [{:keys [dispatch]} (rf/frame-handle)]        ;; captures the scope's frame as a value, now
   (.then promise #(dispatch [:result-arrived %])))
 ```
 
@@ -122,15 +123,20 @@ Per-test isolated frame, from `examples/reagent/login/core.cljs`:
 
 Each test gets its own frame with its own app-db and its own fx-override map — concurrent tests can run with no cross-contamination.
 
-And configuring `:rf/default` at app boot:
+And establishing the app frame at boot (the runtime infers no frame, so you register it explicitly and scope it at the root):
 
 ```clojure
 ;; User-defined fxs sit under a user-feature prefix per
 ;; spec/Conventions.md §Reserved namespaces — never under `:rf.<feature>/…`,
 ;; which is reserved for framework-owned surfaces.
-(rf/reg-frame :rf/default
+(rf/reg-frame :app/login                      ;; an explicit app-frame id (a migration may pick :rf/default)
   {:doc          "Login demo frame."
    :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
+
+;; ...then establish it at the root so bare dispatch/subscribe resolve to it:
+(rdc/render root
+  [rf/frame-provider {:frame :app/login}
+   [app-root]])
 ```
 
 ## Frame metadata — what goes in it
@@ -154,15 +160,15 @@ Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` 
 [rf/frame-provider {:frame :stories} [my-story-shell]]
 ```
 
-`reg-view`-wrapped components participate automatically (the wrapper carries `:contextType`). Plain Reagent fns under a non-default `frame-provider` fall through to `:rf/default` — the runtime emits `:rf.warning/plain-fn-under-non-default-frame-once` to flag the footgun (the Reagent adapter's view-wiring; behaviour locked by `cross_spec_dom_cljs_test`).
+`reg-view`-wrapped components participate automatically (the wrapper carries `:contextType`). A plain Reagent fn carries no `:contextType`, so it **cannot read the provider's frame** from React context; its ambient `rf/subscribe` / `rf/dispatch` resolve to nil and raise `:rf.error/no-frame-context` (EP-0002) rather than silently routing to a default. Use `reg-view`, or capture a `(rf/frame-handle)` at render time and call its bound ops. (Per spec/004 §Plain Reagent fns; the old `:rf.warning/plain-fn-under-non-default-frame-once` warning is superseded by the loud error.)
 
 ## Common gotchas
 
 - **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:on-create`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`reg-frame` in `re-frame.frame`). Use `reset-frame!` for a full destroy+recreate.
 - **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *one* `:rf.machine.lifecycle/destroyed` trace carrying `:reason :parent-frame-destroyed` under `:tags` (the unified lifecycle channel — same op-type used at `reg-machine`'s `:created` emit); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. **Subsequent dispatch / subscribe does NOT throw** — the runtime recovers (a teardown / hot-reload race must not crash the caller) but still emits an observable `:rf.error/frame-destroyed` so a genuine use-after-destroy bug stays visible (the `recover-but-emit` contract). The two outcomes differ: a **dispatch** to a destroyed frame **no-ops** (the envelope is dropped, the drain continues) and emits the error; a **subscribe** **returns `nil`** (no reaction) and emits the error. Tests must assert the no-op / `nil` outcome plus the emitted trace — **never** a thrown exception or a try/catch path. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
 - **`with-frame` works on both CLJS and the JVM.** The `re-frame.core/with-frame` macro expands on both platforms — use it from JVM tests / SSR / REPL as well as CLJS. For programmatic frame-pinning where a macro is awkward, bind the current-frame dynamic var directly (see the frame-resolution chain above).
-- **Wrapping plain Reagent fns in a non-default `frame-provider` doesn't bind the frame.** Use `reg-view` so the `:contextType` wiring picks up the provider. Watch for the once-per-handler warning.
-- **`:rf/default` is implicit.** Don't re-`reg-frame :rf/default` unless you specifically want to attach metadata to it — calling it without any is a no-op.
+- **Wrapping plain Reagent fns in a `frame-provider` doesn't bind the frame.** A plain fn can't read the provider's frame from context, so its ambient `subscribe`/`dispatch` raise `:rf.error/no-frame-context`. Use `reg-view` so the `:contextType` wiring picks up the provider, or capture a `frame-handle`.
+- **`:rf/default` is an ordinary id, not a fallback.** The runtime never creates or infers it; it carries no privilege. You may register and scope it explicitly like any other frame (a migration sometimes picks it for familiarity), but a single-frame app is freer choosing a descriptive id like `:app/main` and establishing it at the root.
 
 ## Deeper material
 

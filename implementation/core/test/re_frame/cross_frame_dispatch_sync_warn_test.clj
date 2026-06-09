@@ -117,16 +117,23 @@
     ;; This is the negative test the bead's brief calls out: the same-
     ;; frame case must keep its existing :rf.error/dispatch-sync-in-handler
     ;; behaviour and NOT pick up the cross-frame warning by accident.
-    (rf/reg-event-db :leaf (fn [db _] (assoc db :leaf? true)))
+    ;;
+    ;; EP-0002 (rf2-9wa0lf): a frame is registered and BOTH dispatches
+    ;; carry it explicitly so the inner dispatch hits the same-frame
+    ;; reentry guard (rather than raising :rf.error/no-frame-context for a
+    ;; frameless call — there is no longer a :rf/default floor).
+    (rf/reg-frame :cfx.test/a {:doc "same-frame reentry frame"})
+    (rf/reg-event-db :leaf {:frame :cfx.test/a} (fn [db _] (assoc db :leaf? true)))
     (rf/reg-event-fx :nested-same-frame
+      {:frame :cfx.test/a}
       (fn [_ _]
-        ;; Same frame (:rf/default), no :frame opt — hits the same-frame
-        ;; reentry guard.
-        (rf/dispatch-sync [:leaf])
+        ;; Same frame, explicit :frame opt — hits the same-frame reentry
+        ;; guard (the cascade is mid-drain on :cfx.test/a).
+        (rf/dispatch-sync [:leaf] {:frame :cfx.test/a})
         {}))
 
     (let [recorded (record-traces! ::same-frame-still-errors)]
-      (rf/dispatch-sync [:nested-same-frame])
+      (rf/dispatch-sync [:nested-same-frame] {:frame :cfx.test/a})
 
       (is (= 1 (count (dsih-errors recorded)))
           "same-frame reentry still raises :rf.error/dispatch-sync-in-handler")

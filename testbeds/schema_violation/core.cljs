@@ -26,7 +26,7 @@
             [re-frame.schemas.malli]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ----------------------------------------------------------------------------
 ;; App-db + schemas
@@ -39,7 +39,11 @@
 (def AuthSlice
   [:map [:token :string]])
 
-(rf/reg-app-schema [:auth] AuthSlice)
+;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; bare ns-load call raises :rf.error/no-frame-context. This testbed hosts on
+;; :rf/default, so name it explicitly.
+(with-frame :rf/default
+  (rf/reg-app-schema [:auth] AuthSlice))
 
 (rf/reg-event-db ::initialise
   (fn [_db _ev]

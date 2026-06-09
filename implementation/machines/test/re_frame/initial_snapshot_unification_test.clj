@@ -36,9 +36,14 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`, and
+  ;; machine fxs require a carried frame stamp. Register `:rf/default`
+  ;; explicitly and pin it as the established scope for the body.
+  (frame/ensure-default-frame!)
   (require 're-frame.machines :reload)
   (machines/reset-timers!)
-  (test-fn))
+  (rf/with-frame :rf/default
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 

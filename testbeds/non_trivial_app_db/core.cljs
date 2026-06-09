@@ -281,5 +281,12 @@
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [::initialise])
-  (rdc/render react-root [root]))
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — `:rf/default` is this testbed's app frame, registered
+  ;; explicitly here (init! installs only the adapter). The boot dispatch
+  ;; runs under the frame scope and the render is wrapped in a
+  ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
+  (rf/reg-frame :rf/default {})
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [::initialise]))
+  (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

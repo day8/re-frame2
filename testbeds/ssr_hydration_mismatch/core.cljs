@@ -171,18 +171,28 @@
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
   (install-trace-listener!)
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — register `:rf/default` as the client app frame and scope the
+  ;; hydrate dispatch + render to it (the carried invariant). `:rf/hydrate`
+  ;; lands on the carried frame; `verify-hydration!` already names it.
+  (rf/reg-frame :rf/default {})
   (let [payload (read-server-payload)]
-    (when payload
-      ;; HOT PATH — :rf/hydrate replaces app-db; the payload's
-      ;; :rf/render-hash 'deadbeef' is stashed at
-      ;; [:rf/hydration :server-hash] so verify-hydration! can compare
-      ;; against the client's computed hash.
-      (rf/dispatch-sync [:rf/hydrate payload]))
-    (rdc/render react-root [root])
+    (rf/with-frame :rf/default
+      (when payload
+        ;; HOT PATH — :rf/hydrate replaces app-db; the payload's
+        ;; :rf/render-hash 'deadbeef' is stashed at
+        ;; [:rf/hydration :server-hash] so verify-hydration! can compare
+        ;; against the client's computed hash.
+        (rf/dispatch-sync [:rf/hydrate payload])))
+    (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]])
 
     ;; HOT PATH — the trigger site for :rf.ssr/hydration-mismatch.
     ;; The resolved tree hashes to a value that won't equal the
     ;; payload's 'deadbeef'; verify-hydration! emits the mismatch
     ;; trace which our listener routes to ::record-mismatch.
-    (let [tree ((rf/view :ssr-hydration-mismatch.core/root))]
-      (ssr/verify-hydration! :rf/default tree))))
+    ;; EP-0002 (rf2-9o48ih): invoking the reg-view'd root resolves its
+    ;; injected frame-bound bindings at call time, so do it under the
+    ;; client frame scope.
+    (rf/with-frame :rf/default
+      (let [tree ((rf/view :ssr-hydration-mismatch.core/root))]
+        (ssr/verify-hydration! :rf/default tree)))))

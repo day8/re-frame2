@@ -90,13 +90,15 @@
   default head per Spec 011 §Default head. Late-bound via
   :ssr/active-head.
 
-  Arities:
+    (active-head frame-id)   — explicit frame.
 
-    (active-head)            — uses the default frame `:rf/default`.
-    (active-head frame-id)"
+  EP-0002 (rf2-acjknb): head rendering is a frame-scoped read, so the
+  frame is CARRIED — supplied explicitly. The pre-EP no-arg form
+  synthesised `:rf/default` from absence; that ambient floor is removed.
+  A nil `frame-id` emits + throws `:rf.error/no-frame-context` rather
+  than rendering against a synthesised default frame."
   {:hook :ssr/active-head :artefact ssr-artefact :on-absent :throw
    :ex-data {:frame frame-id}}
-  ([]         :delegate)
   ([frame-id] :delegate))
 
 (defwrapper head-model->html

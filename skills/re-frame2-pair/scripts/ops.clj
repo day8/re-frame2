@@ -450,7 +450,7 @@
 
           (empty? (:frames health))
           (emit {:ok? false :reason :no-frames-registered
-                 :hint "Call (rf/init!) to register :rf/default, or wait for app boot."})
+                 :hint "No frame is registered yet. The app must reg-frame its app frame and establish it at the root (rf/init! creates no frame under EP-0002), or wait for app boot."})
 
           (:ambiguous-frame? health)
           (emit (assoc health :ok? true

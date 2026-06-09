@@ -52,7 +52,12 @@
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+    ;; EP-0002 (rf2-9o48ih): the test spins its OWN top-level frame via
+    ;; `make-frame`; opt out of the ambient `:rf/default` scope so the new
+    ;; frame's `:on-create` drains synchronously (top-level boot) rather than
+    ;; being treated as a mid-cascade child-frame creation.
+    {:adapter       reagent-adapter/adapter
+     :ambient-frame nil}))
 
 (defn- todos [frame]
   (get (rf/app-db-value frame) :todos))

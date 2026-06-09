@@ -129,41 +129,50 @@
 ;; ...]]` / `:dispatch-later` / `(:dispatch (rf/frame-handle))`) covered in the
 ;; deftests below.
 
-(deftest direct-dispatch-from-set-timeout-falls-through-to-default
-  (testing "raw rf/dispatch from a setTimeout callback escapes *current-frame* — documented gotcha"
+(deftest direct-dispatch-from-set-timeout-raises-no-frame-context
+  (testing "raw rf/dispatch from a setTimeout callback escapes *current-frame* — EP-0002 fails loudly"
+    ;; EP-0002 (rf2-9wa0lf) REFRAMES the rf2-yf97 gotcha: a raw
+    ;; `rf/dispatch` from a setTimeout callback no longer SILENTLY falls
+    ;; through to `:rf/default` (there is no `:rf/default` floor). The
+    ;; dead dynamic binding means no carried frame stamp, so the dispatch
+    ;; now FAILS LOUDLY with `:rf.error/no-frame-context`. The throw is
+    ;; caught here so the timer callback does not crash the host; the fix
+    ;; is to capture a `frame-handle` / use `:dispatch-later` (the
+    ;; deftests below). (Touched by the router bead to retire the old
+    ;; fall-through expectation + stop the uncaught-async crash; the
+    ;; adapter root/view migration bead — rf2-69r7ui — owns this surface
+    ;; more broadly.)
     (async done
       (seed-frames!)
-      (rf/reg-event-fx :rf-l5q3/defer-raw
-                       (fn [_ _]
-                         (js/setTimeout
-                           (fn [] (rf/dispatch [:rf-l5q3/landed-raw]))
-                           0)
-                         {}))
-      (rf/reg-event-db :rf-l5q3/landed-raw
-                       (fn [db _]
-                         (update db :received (fnil conj []) :landed-raw)))
-      (rf/dispatch-sync [:rf-l5q3/defer-raw] {:frame :rf-l5q3/tenant-a})
-      ;; Wait two macrotasks: one for the setTimeout(0), one for the
-      ;; router's next-tick drain after the queue is appended.
-      (js/setTimeout
-        (fn []
-          (js/setTimeout
-            (fn []
-              ;; Raw rf/dispatch from inside a setTimeout — bindings
-              ;; are gone, the dispatch envelope's :frame falls
-              ;; through to :rf/default. This is the documented
-              ;; gotcha: async-deferred direct dispatches need
-              ;; explicit capture, not dynamic binding. Per Spec 002
-              ;; §Dispatch resolution chain — dynamic var → adapter
-              ;; React-context → :rf/default. setTimeout callbacks
-              ;; satisfy none of the first two tiers.
-              (is (= [:landed-raw] (received :rf/default))
-                  ":landed-raw lands on :rf/default (dynamic binding is dead in the setTimeout callback)")
-              (is (empty? (received :rf-l5q3/tenant-a))
-                  ":tenant-a sees nothing — raw rf/dispatch can't recover the in-flight frame from a setTimeout")
-              (done))
-            10))
-        10))))
+      (let [raised (atom nil)]
+        (rf/reg-event-fx :rf-l5q3/defer-raw
+                         (fn [_ _]
+                           (js/setTimeout
+                             (fn []
+                               (try (rf/dispatch [:rf-l5q3/landed-raw])
+                                    (catch :default e
+                                      (reset! raised (:rf.error/id (ex-data e))))))
+                             0)
+                           {}))
+        (rf/reg-event-db :rf-l5q3/landed-raw
+                         (fn [db _]
+                           (update db :received (fnil conj []) :landed-raw)))
+        (rf/dispatch-sync [:rf-l5q3/defer-raw] {:frame :rf-l5q3/tenant-a})
+        ;; Wait two macrotasks: one for the setTimeout(0), one for the
+        ;; router's next-tick drain (had the dispatch enqueued).
+        (js/setTimeout
+          (fn []
+            (js/setTimeout
+              (fn []
+                (is (= :rf.error/no-frame-context @raised)
+                    "raw async dispatch raised :rf.error/no-frame-context (no :rf/default floor)")
+                (is (empty? (received :rf-l5q3/tenant-a))
+                    ":tenant-a sees nothing — the dispatch never enqueued")
+                (is (empty? (received :rf/default))
+                    ":rf/default sees nothing — there is no fall-through target")
+                (done))
+              10))
+          10)))))
 
 ;; ---- 3. :fx [[:dispatch ...]] from a setTimeout — workaround --------------
 ;;

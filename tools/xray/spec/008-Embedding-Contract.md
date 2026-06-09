@@ -331,6 +331,46 @@ Host code never sees the shell frame; the wrapper is an
 implementation detail of the mount-fn surface. Story (and any other
 host) embeds Xray with no awareness of the frame split.
 
+### Own frame vs target frame (EP-0002, rf2-bd4div)
+
+Xray holds **two distinct frame concepts**, and the carried-invariant
+([EP-0002](../../../docs/EP/EP-0002-frame-target-resolution.md) /
+[`spec/002-Frames.md` §Frame target resolution](../../../spec/002-Frames.md))
+keeps them strictly separate:
+
+| Frame | Meaning | Source |
+|---|---|---|
+| **own frame** (`defaults/default-frame-id`, `:rf/xray`) | Where the shell's OWN chrome state lives — selected tab, focused epoch, theme, modal/scrubber state, the frame picker's selection. | A fixed singleton (parameterized per instance, below). Mounted explicitly by the frame-provider wrapper above. |
+| **target frame** (`:rf.xray/target-frame` slot inside `:rf/xray`) | The HOST app frame Xray inspects — what the App-db / Machine / Routes / scrubber panels observe. | Selected by host config (`init! {:target-frame …}` / `set-target-frame!`), the frame picker, or the mount-time discovery policy. |
+
+The **target frame is NOT defaulted to `:rf/default`.** Under the
+carried invariant `:rf/default` is an ordinary id, never an
+absence-repair fallback. The target starts **UNSELECTED** (`nil`) and
+becomes selected only by one of the three sources above:
+
+- **host config** — `(xray/init! {:target-frame :app/main})` or
+  `(xray/set-target-frame! :app/main)`;
+- **the frame picker** — the operator-driven ribbon dropdown
+  (`:rf.xray/set-target-frame`);
+- **the mount-time discovery policy** — `spine/focusable-head-frame-id`
+  uniquely resolves the head app cascade's frame at first open. This is
+  the operator-present interactive tier (Tool-Pair §Operating-frame
+  resolution); it is **unique resolution, not synthesis** — when no
+  focusable cascade exists the target stays UNSELECTED.
+
+When the target is unselected (`:rf.xray/target-frame` → `nil`,
+`:rf.xray/observed-frame` → `nil`), the panels read `nil`'s app-db
+(itself `nil`) and render their unselected-target state; the frame
+picker prompts a choice. `set-target-frame! nil` resets to UNSELECTED —
+it no longer resets *through* `:rf/default`. The own-frame singleton
+(`:rf/xray`) is **distinct** from the inspected-target migration and is
+unchanged: it remains the explicit mount frame for the shell's chrome.
+
+`init!` accepts `:target-frame` (the inspected-host opt); the legacy
+`:default-frame` opt is **retired** (pre-alpha, no shim) because it
+conflated own-frame and target-frame and read like the ambient
+`:rf/default` fallback EP-0002 removes.
+
 ### Parameterized shell frame-id — N isolated instances (rf2-1w07r)
 
 The shell frame is **parameterized**, not a hard singleton. `shell-

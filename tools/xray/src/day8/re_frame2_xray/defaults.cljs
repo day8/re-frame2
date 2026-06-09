@@ -28,12 +28,30 @@
   :rf/xray)
 
 (def default-target-frame
-  "The default host frame Xray observes. Per `:rf/xray` frame
-  isolation (spec/008-Embedding-Contract.md §Frame isolation) Xray's
-  own state lives in `:rf/xray`; the `:target-frame` slot picks the
-  *observed* host frame (default `:rf/default` per Tool-Pair §Frame
-  naming — the canonical host frame). Read via the `:rf.xray/target-
-  frame` sub or written via the `:rf.xray/set-target-frame` event;
-  every panel that needs the host db reads through `:rf.xray/target-
-  app-db-value`."
-  :rf/default)
+  "The default OBSERVED-target state when no host frame has been
+  selected: **`nil` = UNSELECTED**.
+
+  EP-0002 (rf2-bd4div) — Xray distinguishes its OWN frame (`default-
+  frame-id`, `:rf/xray`, where the shell's chrome state lives) from the
+  inspected TARGET frame (the host app frame the scrubber / app-db /
+  machine-inspector panels observe). The target frame is NOT defaulted to
+  `:rf/default`: under the carried invariant `:rf/default` is an ordinary
+  id, never an absence-repair fallback (Spec 002 §Frame target resolution).
+  The target frame starts UNSELECTED and becomes selected only by:
+
+    - host config (`init! {:target-frame …}` / `set-target-frame!`),
+    - the frame picker (`:rf.xray/set-target-frame`), or
+    - the mount-time discovery policy (`focusable-head-frame-id` — the
+      operator-present interactive tier that uniquely resolves the head
+      app cascade's frame; unique resolution, NOT synthesis).
+
+  When none of those select a target the slot stays `nil`; the
+  `:rf.xray/target-frame` sub reports `nil` and the panels render their
+  unselected-target state (the frame picker prompts a choice) rather than
+  reading a synthesised `:rf/default`. `set-target-frame! nil` resets to
+  this UNSELECTED state — it no longer resets THROUGH `:rf/default`.
+
+  Read via the `:rf.xray/target-frame` sub or written via the
+  `:rf.xray/set-target-frame` event; panels that need the host db read
+  through `:rf.xray/target-app-db-value` (nil-safe when unselected)."
+  nil)

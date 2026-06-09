@@ -808,11 +808,15 @@
 
 (defn subscribe
   "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
-  build-and-cache on miss; reuse on hit. The 1-arity form resolves
-  the active frame via the `:adapter/current-frame` late-bind hook
-  (rf2-d4sf) so subscribe inside a with-frame or under a
-  frame-provider auto-routes through the 3-tier chain (dynamic var
-  → React context → :rf/default).
+  build-and-cache on miss; reuse on hit. The 1-arity ambient form
+  resolves the active frame through the carried-invariant scope/hold
+  chain via `frame/require-current-frame!` (EP-0002): a `with-frame` /
+  frame-provider scope (the `:adapter/current-frame` late-bind hook,
+  rf2-d4sf) or a captured `*current-frame*` stamp. There is NO
+  `:rf/default` floor — a subscribe issued under no established scope
+  raises `:rf.error/no-frame-context` rather than silently reading the
+  wrong frame. Pass the 2-arity `(subscribe frame-id query-v)` to read a
+  named frame from outside any scope (async callbacks, tools, tests, SSR).
 
   Per Spec 006 §Plain-fn-under-non-default-frame warning (rf2-d3k3):
   the 1-arity form runs the plain-fn detection check — if the
@@ -850,15 +854,33 @@
   miss path (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`)
   carries the invocation coord."
   ([query-v]
+   ;; EP-0002 §Subscriptions And Read Helpers — the carried-invariant
+   ;; read. The 1-arity ambient form resolves the frame through the
+   ;; scope/hold chain via `require-current-frame!`: a `with-frame` /
+   ;; frame-provider scope (`resolve-current-frame`) or a captured
+   ;; `*current-frame*` stamp. There is NO `:rf/default` floor — a
+   ;; subscribe issued under no established scope (no with-frame, no
+   ;; enclosing provider, no carried stamp) raises the always-on
+   ;; `:rf.error/no-frame-context` (with capture-site ancestry) rather
+   ;; than silently reading the wrong frame's app-db. The `extra` threads
+   ;; the sub-id into the error payload's `:event-id` slot so a frameless
+   ;; subscribe's error is attributed to the query it carried.
    #?(:cljs
-      (let [frame-id (frame/resolve-current-frame)]
+      (let [frame-id (frame/require-current-frame!
+                       :subscribe
+                       {:where    're-frame.subs/subscribe
+                        :event-id (first query-v)})]
         (when interop/debug-enabled?
           (when-let [warn! (late-bind/get-fn
                             :views/maybe-warn-plain-fn-under-non-default-frame!)]
             (warn! frame-id query-v)))
         (subscribe frame-id query-v))
       :clj
-      (subscribe (frame/resolve-current-frame) query-v)))
+      (subscribe (frame/require-current-frame!
+                   :subscribe
+                   {:where    're-frame.subs/subscribe
+                    :event-id (first query-v)})
+                 query-v)))
   ([frame-id query-v]
    ;; rf2-9hoos (CLJS, dev-only): record the view→sub edge — push this
    ;; query-v into the in-flight render's deref sink so `:rf.view/rendered`
@@ -1001,8 +1023,19 @@
   the slot alive via ref-count and are unaffected — `subscribe-once`'s
   decrement only drives the eviction when it owned the last reference.
 
-  See also: `subscribe`, `unsubscribe`, `compute-sub`, `inject-cofx`."
-  ([query-v] (subscribe-once (frame/resolve-current-frame) query-v))
+  See also: `subscribe`, `unsubscribe`, `compute-sub`, `inject-cofx`.
+
+  EP-0002: the 1-arity ambient form resolves the frame through the
+  scope/hold chain via `frame/require-current-frame!` — a one-shot read
+  under no established scope raises `:rf.error/no-frame-context`, never a
+  `:rf/default` floor. Pass the 2-arity form to read a named frame from
+  outside any scope."
+  ([query-v]
+   (subscribe-once (frame/require-current-frame!
+                     :subscribe-once
+                     {:where    're-frame.subs/subscribe-once
+                      :event-id (first query-v)})
+                   query-v))
   ([frame-id query-v]
    (let [reaction (subscribe frame-id query-v)
          v        (when reaction @reaction)]
@@ -1320,9 +1353,19 @@
 
   Per rf2-0ytl4 seam S-A: ref-counting and synchronous dispose live in
   `re-frame.subs.cache`; this facade fn holds the public API shape and
-  delegates to `subs-cache/unsubscribe!` after resolving the cache + key."
+  delegates to `subs-cache/unsubscribe!` after resolving the cache + key.
+
+  EP-0002: the 1-arity ambient form resolves the frame through the
+  scope/hold chain via `frame/require-current-frame!` — an unsubscribe
+  issued under no established scope raises `:rf.error/no-frame-context`,
+  never a `:rf/default` floor. Pass the 2-arity form to release a slot in
+  a named frame from outside any scope."
   ([query-v]
-   (unsubscribe (frame/resolve-current-frame) query-v))
+   (unsubscribe (frame/require-current-frame!
+                  :unsubscribe
+                  {:where    're-frame.subs/unsubscribe
+                   :event-id (first query-v)})
+                query-v))
   ([frame-id query-v]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
      ;; rf2-mrnur — thread `frame-id` through so the `:rf.sub/dispose`

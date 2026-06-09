@@ -49,6 +49,15 @@
 ;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
 ;; public `configure!` boundary — no test ns reaches into the private
 ;; `state/config` var.
+;;
+;; EP-0002 (rf2-9o48ih / rf2-nn0jqa): `init!` no longer synthesises
+;; `:rf/default`. The canonical fixture, when handed an `:adapter`, ALSO
+;; ensures the conventional `:rf/default` frame and binds it as the body's
+;; ambient scope — the carried-invariant equivalent of wrapping every test
+;; in `(with-frame :rf/default …)`. The bare framework-operation surfaces
+;; this suite drives therefore resolve a carried frame stamp without a
+;; hand-rolled `reg-frame` + `with-frame` here. Explicit `{:frame …}` opts
+;; in the bodies still win.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter

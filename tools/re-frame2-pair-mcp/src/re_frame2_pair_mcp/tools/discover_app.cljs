@@ -181,8 +181,18 @@
 
               (empty? (:frames health))
               (js/Promise.resolve
+                ;; EP-0002 (rf2-bd4div) — `rf/init!` installs adapters /
+                ;; runtime capabilities; it does NOT register `:rf/default`
+                ;; (the runtime never synthesises a default frame — Spec 002
+                ;; §`:rf/default` is an ordinary id). The app registers its
+                ;; own frame explicitly (`reg-frame` / a root provider), so
+                ;; the hint points at app boot / explicit registration
+                ;; rather than teaching `init!` as a way to create a default.
                 (wire/ok-text {:ok? false :reason :no-frames-registered
-                               :hint "Call (rf/init!) to register :rf/default, or wait for app boot."}))
+                               :hint (str "No frames registered yet. Wait for the app to boot, "
+                                          "or register a frame explicitly "
+                                          "(`re-frame.core/reg-frame` / a root frame-provider). "
+                                          "`rf/init!` installs adapters but does NOT create a frame.")}))
 
               (:ambiguous-frame? health)
               (do

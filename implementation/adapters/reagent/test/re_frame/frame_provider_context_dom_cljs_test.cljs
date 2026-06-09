@@ -8,7 +8,10 @@
     1. `re-frame.frame/*current-frame*` (dynamic var; set by `with-frame`
        / `frame-bound-fn`)
     2. closest enclosing `frame-provider` via React context
-    3. `:rf/default`
+    3. nil — no scope. EP-0002 (rf2-69r7ui): there is NO `:rf/default`
+       floor. The createContext default is the no-provider sentinel, the
+       reader returns nil, and a public frame-scoped op (subscribe /
+       dispatch / current-frame-id) raises `:rf.error/no-frame-context`.
 
   PR #195 (rf2-d4sf) made the React-context tier the *canonical* path
   for `(rf/subscribe ...)` and `(rf/dispatch ...)` from inside a
@@ -18,7 +21,11 @@
   audit (rf2-o423):
 
     1. Nested-provider inheritance — inner provider wins over outer.
-    2. Default-frame fallback — no provider in the tree → `:rf/default`.
+    2. No-provider → no-frame-context. EP-0002 (rf2-69r7ui): a view
+       rendered outside any `frame-provider` resolves to nil and a
+       subscribe / current-frame-id raises `:rf.error/no-frame-context`
+       (NOT a silent `:rf/default`). Establish an explicit provider to
+       scope a frame.
     3. Context-not-present error path — corrupted / non-keyword context
        value should surface diagnostically.
     4. Cross-frame subscribe resolution — subscribe routes against the
@@ -65,23 +72,39 @@
 
   Scenario-3 asserts the structured `:rf.error/frame-context-corrupted`
   trace event fires on a corrupted `_currentValue` read (rf2-8q66
-  closed). Recovery is `:replaced-with-default` — observable
-  behaviour at the call site is unchanged (still resolves to
-  `:rf/default`); the error event is the new diagnostic surface."
+  closed). EP-0002 (rf2-69r7ui): recovery is now `:no-frame-context` —
+  the reader returns nil (NOT a synthesised `:rf/default`); a public
+  frame-scoped op reading that nil then raises
+  `:rf.error/no-frame-context`. The corruption error event is its own
+  distinct diagnostic surface."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.dom.client :as rdc]
             ["react" :as React]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
+;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` OPTS OUT of the fixture's default
+;; ambient `*current-frame*` :rf/default scope. EVERY render-based test in this
+;; suite pins the React-context tier (tier 2) of the resolution chain — a
+;; reg-view inside a `frame-provider` must resolve the provider's frame, and a
+;; reg-view with NO provider must fail closed with `:rf.error/no-frame-context`.
+;; The React renders below run SYNCHRONOUSLY inside `flushSync`, i.e. still
+;; inside the test body's dynamic extent; an ambient :rf/default scope would
+;; satisfy `current-frame-id` / `subscribe` / dispatch at tier 1 and the
+;; React-context tier under test would never be consulted. Opting the whole
+;; suite out keeps the resolution honest. (Scenario-3 + the prop-stringified
+;; cases additionally `(binding [*current-frame* nil] …)` for belt-and-braces;
+;; that is idempotent here.)
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+    {:adapter reagent-adapter/adapter
+     :ambient-frame nil}))
 
 ;; ---- browser gate ----------------------------------------------------------
 
@@ -121,7 +144,9 @@
       ;; tells us unambiguously which frame served the read.
       (rf/dispatch-sync [:seed-1 :outer-app-db] {:frame outer})
       (rf/dispatch-sync [:seed-1 :inner-app-db] {:frame inner})
-      (rf/dispatch-sync [:seed-1 :default-app-db]) ;; :rf/default
+      ;; EP-0002 (rf2-69r7ui): no bare `:rf/default` seed — every dispatch
+      ;; carries an explicit frame. The inner-wins assertion compares
+      ;; against the two scoped frames, which is the whole contract here.
       (rf/reg-sub :scenario-1/v (fn [db _] (:v db)))
 
       (let [resolved-frame (atom nil)
@@ -149,33 +174,42 @@
             (finally
               (try (rdc/unmount root) (catch :default _ nil)))))))))
 
-;; ---- Scenario 2: default-frame fallback -----------------------------------
+;; ---- Scenario 2: no-provider → no-frame-context ---------------------------
 ;;
-;; Per Spec 006 §Frame-provider via React context: the createContext
-;; default is `:rf/default`, so a reg-view rendered with NO enclosing
-;; `frame-provider` resolves to `:rf/default`. This is the
-;; "single-frame app" baseline — apps that never wrap with
-;; `frame-provider` keep working unchanged.
+;; EP-0002 (rf2-69r7ui): the createContext default is the no-provider
+;; sentinel, NOT `:rf/default`. A reg-view rendered with NO enclosing
+;; `frame-provider` resolves to nil — there is no ambient floor — so a
+;; `subscribe` / `current-frame-id` raises `:rf.error/no-frame-context`.
+;; The single-frame-app baseline is now ONE explicit root
+;; `frame-provider` (or `with-frame`); inside that scope every call stays
+;; ergonomic. This scenario pins BOTH halves: (a) no-provider →
+;; no-frame-context, (b) an explicit provider scopes the frame correctly.
 
-(deftest scenario-2-default-frame-fallback
-  "Scenario 2 — default-frame fallback.
+(deftest scenario-2-no-provider-raises-no-frame-context
+  "Scenario 2 — no-provider → no-frame-context.
 
-   A reg-view rendered outside any `frame-provider` resolves to
-   `:rf/default` and its subscribes / dispatches route there."
+   A reg-view rendered outside any `frame-provider` resolves to nil; a
+   subscribe / current-frame-id inside it raises
+   `:rf.error/no-frame-context` (no silent `:rf/default`). Wrapping the
+   same probe in an explicit `[rf/frame-provider {:frame …}]` makes the
+   calls resolve correctly."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (do
+    (let [target :rf-22ds-2-scope]
+      (rf/reg-frame target {:doc "scenario-2 explicit-scope frame"})
       (rf/reg-event-db :seed-2 (fn [_ _] {:n 99}))
-      (rf/dispatch-sync [:seed-2])
+      (rf/dispatch-sync [:seed-2] {:frame target})
       (rf/reg-sub :scenario-2/n (fn [db _] (:n db)))
-      (let [resolved-frame (atom nil)
-            resolved-value (atom nil)]
-        (rf/reg-view* :rf.22ds-2/probe
-                      (fn probe-impl []
-                        (reset! resolved-frame (rf/current-frame-id))
-                        (reset! resolved-value @(rf/subscribe [:scenario-2/n]))
-                        [:div "default"]))
-        (let [render-fn  (rf/view :rf.22ds-2/probe)
+      ;; (a) No provider → the probe's current-frame-id / subscribe raise
+      ;; no-frame-context. Capture the error the render surfaces.
+      (let [render-error (atom nil)]
+        (rf/reg-view* :rf.22ds-2/probe-no-provider
+                      (fn probe-no-provider-impl []
+                        (try
+                          (rf/current-frame-id)
+                          (catch :default e (reset! render-error e)))
+                        [:div "no-provider"]))
+        (let [render-fn  (rf/view :rf.22ds-2/probe-no-provider)
               mount-node (make-mount-node!)
               root       (rdc/create-root mount-node)]
           (try
@@ -183,10 +217,34 @@
               (fn []
                 ;; No frame-provider in the tree.
                 (rdc/render root [render-fn])))
-            (is (= :rf/default @resolved-frame)
-                "no provider in the tree → resolution falls through to :rf/default (createContext default)")
+            (is (some? @render-error)
+                "no provider in the tree → current-frame-id raised (no :rf/default floor)")
+            (is (= :rf.error/no-frame-context
+                   (:rf.error/id (ex-data @render-error)))
+                "the raised error is :rf.error/no-frame-context")
+            (finally
+              (try (rdc/unmount root) (catch :default _ nil))))))
+      ;; (b) An explicit provider scopes the frame — the probe resolves
+      ;; correctly and the subscribe routes against the scoped frame.
+      (let [resolved-frame (atom nil)
+            resolved-value (atom nil)]
+        (rf/reg-view* :rf.22ds-2/probe-scoped
+                      (fn probe-scoped-impl []
+                        (reset! resolved-frame (rf/current-frame-id))
+                        (reset! resolved-value @(rf/subscribe [:scenario-2/n]))
+                        [:div "scoped"]))
+        (let [render-fn  (rf/view :rf.22ds-2/probe-scoped)
+              mount-node (make-mount-node!)
+              root       (rdc/create-root mount-node)]
+          (try
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root [rf/frame-provider {:frame target}
+                                  [render-fn]])))
+            (is (= target @resolved-frame)
+                "an explicit frame-provider scopes the frame the probe resolves to")
             (is (= 99 @resolved-value)
-                "subscribe routes against :rf/default's app-db")
+                "subscribe routes against the explicitly-scoped frame's app-db")
             (finally
               (try (rdc/unmount root) (catch :default _ nil)))))))))
 
@@ -200,10 +258,12 @@
 ;; rf2-8q66 closed: when `_currentValue` is a shape
 ;; `coerce-context-value` cannot resolve to a frame keyword (nil,
 ;; false, number, JS object, empty string), the runtime emits
-;; `:rf.error/frame-context-corrupted` (op-type `:error`, recovery
-;; `:replaced-with-default`) and falls through to `:rf/default`. The
-;; observable resolution still lands on `:rf/default` so apps don't
-;; break — the error event is the new diagnostic surface.
+;; `:rf.error/frame-context-corrupted` (op-type `:error`). EP-0002
+;; (rf2-69r7ui): recovery is now `:no-frame-context` and the reader
+;; returns **nil** (NOT a synthesised `:rf/default`) — a public
+;; frame-scoped op reading that nil then raises
+;; `:rf.error/no-frame-context`. The corruption event is its own distinct
+;; diagnostic surface, never silently folded into ordinary 'no scope'.
 
 (defn- corruption-traces [traces]
   (filter #(= :rf.error/frame-context-corrupted (:operation %)) @traces))
@@ -211,12 +271,13 @@
 (deftest scenario-3-context-corrupted-emits-structured-error
   "Scenario 3 — context-not-present / corrupted error path.
 
-   Asserts the rf2-8q66 contract: a non-coercible `_currentValue` on
-   the shared frame-context emits `:rf.error/frame-context-corrupted`
-   (op-type `:error`, recovery `:replaced-with-default`) and falls
-   through to `:rf/default`. The fall-through is the unchanged
-   pre-rf2-8q66 behaviour; the error event is the new observable
-   surface.
+   Asserts the rf2-8q66 + EP-0002 (rf2-69r7ui) contract: a non-coercible
+   `_currentValue` on the shared frame-context emits
+   `:rf.error/frame-context-corrupted` (op-type `:error`, recovery
+   `:no-frame-context`) and the reader returns nil — NOT a synthesised
+   `:rf/default`. The error event is the diagnostic surface; the nil
+   return is what makes a public frame-scoped op raise
+   `:rf.error/no-frame-context` rather than scope to a default.
 
    Direct test against the function-component-shape resolver because
    the only ways to corrupt `_currentValue` involve either bypassing
@@ -224,40 +285,50 @@
    does not allow) or directly poking the field — the latter is what
    we do here, since it is the substrate-level seam the resolver
    reads."
+  ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
+  ;; `*current-frame*` :rf/default scope (the carried-invariant equivalent of
+  ;; wrapping every adapter test in `(with-frame :rf/default …)`). The
+  ;; React-context corruption tier is the SECOND tier of
+  ;; `function-component-current-frame` — only consulted when no dynamic scope
+  ;; is bound. Clear the ambient scope so the `_currentValue` read (and its
+  ;; corruption detection) is actually exercised; otherwise the dynamic-var
+  ;; tier shadows it and the read resolves to :rf/default before the context
+  ;; is ever inspected.
+  (binding [frame/*current-frame* nil]
   (let [original (.-_currentValue ^js adapter-context/frame-context)]
     (with-trace-recorder! [traces]
       (try
-        (testing "nil _currentValue: error trace fires; resolves to :rf/default"
+        (testing "nil _currentValue: error trace fires; resolves to nil (no-frame-context)"
           (reset! traces [])
           (set! (.-_currentValue ^js adapter-context/frame-context) nil)
-          (is (= :rf/default (adapter-context/function-component-current-frame))
-              "still falls through to :rf/default (recovery preserved)")
+          (is (nil? (adapter-context/function-component-current-frame))
+              "returns nil — no synthesised :rf/default (EP-0002 carried invariant)")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs))
                 "one :rf.error/frame-context-corrupted event fired")
             (is (= :error (:op-type (first errs)))
                 ":op-type is :error per Spec 009 §Error contract")
-            (is (= :replaced-with-default (:recovery (first errs)))
-                ":recovery is :replaced-with-default — fall-through preserved")
+            (is (= :no-frame-context (:recovery (first errs)))
+                ":recovery is :no-frame-context — no synthesised default")
             (is (= :nil (-> errs first :tags :type))
                 ":tags :type names the corrupted shape")
             (is (contains? (-> errs first :tags) :received)
                 ":tags :received carries the offending value")))
-        (testing "false _currentValue: error trace fires; resolves to :rf/default"
+        (testing "false _currentValue: error trace fires; resolves to nil"
           (reset! traces [])
           (set! (.-_currentValue ^js adapter-context/frame-context) false)
-          (is (= :rf/default (adapter-context/function-component-current-frame))
-              "still falls through to :rf/default")
+          (is (nil? (adapter-context/function-component-current-frame))
+              "returns nil")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs))
                 "one error trace per corrupted read")
             (is (= :boolean (-> errs first :tags :type))
                 ":tags :type identifies false as a boolean shape")))
-        (testing "numeric _currentValue: error trace fires; resolves to :rf/default"
+        (testing "numeric _currentValue: error trace fires; resolves to nil"
           (reset! traces [])
           (set! (.-_currentValue ^js adapter-context/frame-context) 42)
-          (is (= :rf/default (adapter-context/function-component-current-frame))
-              "still falls through to :rf/default")
+          (is (nil? (adapter-context/function-component-current-frame))
+              "returns nil")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs))
                 "one error trace per corrupted read")
@@ -265,28 +336,28 @@
                 ":tags :type identifies the number shape")
             (is (= 42 (-> errs first :tags :received))
                 ":tags :received echoes the offending value")))
-        (testing "JS object _currentValue: error trace fires; resolves to :rf/default"
+        (testing "JS object _currentValue: error trace fires; resolves to nil"
           (reset! traces [])
           (set! (.-_currentValue ^js adapter-context/frame-context) #js {:not "a frame"})
-          (is (= :rf/default (adapter-context/function-component-current-frame))
-              "still falls through to :rf/default")
+          (is (nil? (adapter-context/function-component-current-frame))
+              "returns nil")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs))
                 "one error trace per corrupted read")
             (is (= :js-object (-> errs first :tags :type))
                 ":tags :type identifies the JS object shape")))
-        (testing "empty-string _currentValue: error trace fires; resolves to :rf/default"
+        (testing "empty-string _currentValue: error trace fires; resolves to nil"
           (reset! traces [])
           (set! (.-_currentValue ^js adapter-context/frame-context) "")
-          (is (= :rf/default (adapter-context/function-component-current-frame))
-              "still falls through to :rf/default")
+          (is (nil? (adapter-context/function-component-current-frame))
+              "returns nil")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs))
                 "one error trace per corrupted read")
             (is (= :empty-string (-> errs first :tags :type))
                 ":tags :type identifies empty-string distinctly from string")))
         (finally
-          (set! (.-_currentValue ^js adapter-context/frame-context) original))))))
+          (set! (.-_currentValue ^js adapter-context/frame-context) original)))))))
 
 ;; ---- Scenario 4: cross-frame subscribe resolution -------------------------
 ;;
@@ -306,10 +377,11 @@
     (let [target :rf-22ds-4-wrapped]
       (rf/reg-frame target {:doc "scenario-4 wrapped frame"})
       (rf/reg-event-db :seed-4 (fn [_ [_ v]] {:s v}))
-      ;; Different values in the two frames so the subscribed value
-      ;; tells us unambiguously which frame served the read.
+      ;; Seed the wrapped frame explicitly. EP-0002 (rf2-69r7ui): no bare
+      ;; `:rf/default` seed — the assertion is that the wrapped-frame
+      ;; subscribe resolves to the wrapped value, which the single scoped
+      ;; seed establishes.
       (rf/dispatch-sync [:seed-4 :wrapped] {:frame target})
-      (rf/dispatch-sync [:seed-4 :default]) ;; :rf/default
       (rf/reg-sub :scenario-4/s (fn [db _] (:s db)))
 
       (let [resolved (atom nil)]
@@ -344,11 +416,18 @@
 
    `(rf/dispatch ...)` (dispatch-sync here, for synchronous
    observability) from inside a wrapped reg-view targets the wrapped
-   frame; the wrapped frame's app-db is mutated, :rf/default's is not."
+   frame; the wrapped frame's app-db is mutated. A SIBLING registered
+   frame (no provider above it) is NOT stamped — the dispatch resolved
+   the wrapped frame via the provider, not some ambient default."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (let [target :rf-22ds-5-wrapped]
+    (let [target  :rf-22ds-5-wrapped
+          sibling :rf-22ds-5-sibling]
       (rf/reg-frame target {:doc "scenario-5 wrapped frame"})
+      ;; EP-0002 (rf2-69r7ui): no `:rf/default` floor — use an explicit
+      ;; sibling frame to prove the dispatch did NOT leak outside the
+      ;; provider scope.
+      (rf/reg-frame sibling {:doc "scenario-5 sibling (no provider above)"})
       (rf/reg-event-db :scenario-5/stamp (fn [db _] (assoc db :stamped :here)))
 
       (rf/reg-view* :rf.22ds-5/probe
@@ -365,8 +444,8 @@
                                 [render-fn]])))
           (is (= :here (:stamped (rf/app-db-value target)))
               "the wrapped frame's app-db carries the stamp — dispatch routed there")
-          (is (not= :here (:stamped (rf/app-db-value :rf/default)))
-              ":rf/default's app-db is NOT stamped — the dispatch did not fall through")
+          (is (not= :here (:stamped (rf/app-db-value sibling)))
+              "the sibling frame's app-db is NOT stamped — the dispatch resolved the provider's frame, not an ambient default")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 

@@ -649,25 +649,45 @@
   responsibility of `focus-cascade-reducer` et al.; this helper only
   aligns the per-frame history axis the epoch resolver reads from.
 
-  The current target is the `:target-frame` slot, defaulting to
-  `defaults/default-target-frame` when absent — the same resolution
-  `:rf.xray/epoch-recorded` / `:rf.xray/set-target-frame` apply. This
-  matters because the `:epoch-history` slot can be seeded WITHOUT a
-  `:target-frame` write (the `:rf.xray/sync-epoch-history` panel-gallery
-  seed path): treating an absent slot as the default frame keeps a
-  same-default-frame click a no-op so it does NOT clobber a
-  directly-seeded history with an empty framework ring.
+  The current target is the `:target-frame` slot, which is
+  `defaults/default-target-frame` (EP-0002 rf2-bd4div: **nil =
+  UNSELECTED**, NOT `:rf/default`) when absent — the same resolution
+  `:rf.xray/epoch-recorded` / `:rf.xray/set-target-frame` apply. When the
+  target is unselected, any real `frame-id` differs from nil, so a click
+  re-keys the slot onto the clicked cascade's frame (the first cross-frame
+  click out of the unselected state selects a target — exactly the
+  picker's 'observe this frame' gesture).
 
   nil `frame-id` (the cascade's frame is unknown — e.g. the 3-arg
   focus path) is a no-op: there is no frame to re-key onto, and
   clobbering `:target-frame` to nil would orphan every per-frame sub.
   The event handlers resolve `epoch-history-for-frame` via
-  `rf/epoch-history` at dispatch time, exactly as the picker path does."
+  `rf/epoch-history` at dispatch time, exactly as the picker path does.
+
+  EP-0002 (rf2-bd4div) — when the target is UNSELECTED (`:target-frame`
+  absent, now nil rather than the retired `:rf/default` default) and a
+  history was seeded DIRECTLY (the `:rf.xray/sync-epoch-history`
+  panel-gallery seed path, which writes `:epoch-history` without a
+  `:target-frame`), a focus-cascade onto `frame-id` ADOPTS that frame as
+  the target but PRESERVES the directly-seeded history — it does NOT
+  clobber it with the (empty) framework ring. This keeps the same
+  no-clobber contract the pre-EP `:rf/default`-default branch provided for
+  the direct-seed case (the seed IS that frame's history; the gallery
+  seeded it for the frame now being focused)."
   [db frame-id epoch-history-for-frame]
   (let [current-target (get db :target-frame defaults/default-target-frame)]
-    (if (or (nil? frame-id)
-            (= frame-id current-target))
-      db
+    (cond
+      ;; No frame to re-key onto.
+      (nil? frame-id) db
+      ;; Same target already selected → already keyed on this frame.
+      (= frame-id current-target) db
+      ;; Unselected target with a directly-seeded history → adopt the
+      ;; frame as target, preserve the seed (no framework-ring clobber).
+      (and (nil? current-target)
+           (seq (:epoch-history db)))
+      (assoc db :target-frame frame-id)
+      ;; Cross-frame re-key → switch target + load that frame's ring.
+      :else
       (assoc db
              :target-frame  frame-id
              :epoch-history (vec epoch-history-for-frame)))))

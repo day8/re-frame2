@@ -121,11 +121,18 @@
     (with-hook-as-nil :flows/run-flows-on-db
       (fn []
         (rf/init! plain-atom/adapter)
-        (rf/reg-event-db :flows-absent/init (fn [_ _] {:probe :ok}))
-        (is (do (rf/dispatch-sync [:flows-absent/init]) :ok)
-            "dispatch completes without throwing when the run-flows! hook is absent")
-        (is (= {:probe :ok} (rf/app-db-value :rf/default))
-            ":db commit lands even though the outermost-`:after` flow walker is a no-op")))))
+        ;; EP-0002 (rf2-5q7um6): `init!` no longer creates `:rf/default`,
+        ;; and a bare `dispatch-sync` under no established scope raises
+        ;; `:rf.error/no-frame-context`. Register `:rf/default` and pin it
+        ;; as the established scope so this absent-flows-artefact drain test
+        ;; carries a frame stamp (the carried invariant).
+        (frame/ensure-default-frame!)
+        (binding [frame/*current-frame* :rf/default]
+          (rf/reg-event-db :flows-absent/init (fn [_ _] {:probe :ok}))
+          (is (do (rf/dispatch-sync [:flows-absent/init]) :ok)
+              "dispatch completes without throwing when the run-flows! hook is absent")
+          (is (= {:probe :ok} (rf/app-db-value :rf/default))
+              ":db commit lands even though the outermost-`:after` flow walker is a no-op"))))))
 
 (deftest reset-last-inputs!-no-ops-when-flows-artefact-missing
   (testing "test-support's reset-runtime fixture no-ops when :flows/reset-last-inputs! hook is nil"

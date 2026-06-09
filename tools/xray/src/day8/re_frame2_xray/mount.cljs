@@ -427,9 +427,13 @@
     `set-frame-reducer` aligns the two axes; the first-mount path
     had to do the same. The seed-frame is the head focusable
     cascade's `:frame` (via `spine/focusable-head-frame-id` over the
-    same cascade projection panels read off), falling back to
-    `defaults/default-target-frame` when no focusable cascade exists
-    (cold start; only the `:ungrouped` bucket present). The
+    same cascade projection panels read off) — the operator-present
+    discovery tier that UNIQUELY resolves the head app cascade's frame
+    (EP-0002 rf2-bd4div: unique resolution, NOT `:rf/default` synthesis).
+    When no focusable cascade exists (cold start; only the `:ungrouped`
+    bucket present) the seed is `defaults/default-target-frame` =
+    **nil = UNSELECTED**: the target stays unselected (the frame picker
+    prompts a choice) rather than defaulting to `:rf/default`. The
     `:rf.xray/set-target-frame` event writes `:target-frame` and
     re-seeds `:epoch-history` from `(rf/epoch-history seed-frame)`
     in lockstep — symmetric with the picker path and the public

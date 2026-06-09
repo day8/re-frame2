@@ -92,10 +92,15 @@
   `trace-window`, `watch-epochs`, `subscribe`, `replace-app-db`)
   accepts an optional `:frame` arg targeting a named frame. Pre-
   rf2-ntuzf `eval-cljs` did NOT — the form ran against whatever
-  ambient frame context existed at the call site (the MCP server's
-  context is `:rf/default`), so `(rf/subscribe ...)` /
-  `(rf/dispatch ...)` inside an `eval-cljs` form silently targeted
-  `:rf/default` even in a multi-frame app.
+  ambient frame context existed at the call site.
+
+  EP-0002 (rf2-bd4div) — with no `:frame` arg the form carries NO frame
+  stamp, so a frame-scoped op inside it (`rf/subscribe` / `rf/dispatch` /
+  `rf/current-frame-id`) raises the always-on `:rf.error/no-frame-context`
+  rather than silently targeting a synthesised `:rf/default` (`:rf/default`
+  is an ordinary id, never an absence-repair fallback — Spec 002 §Frame
+  target resolution). Supply `:frame` to name the target explicitly. The
+  agent-facing rule: a frame-scoped `eval-cljs` form MUST carry `:frame`.
 
   When `:frame :rf/xray` is supplied, the form is wrapped server-side
   in `(re-frame.core/with-frame :rf/xray <user-form>)` before being
