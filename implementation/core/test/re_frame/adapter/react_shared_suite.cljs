@@ -489,43 +489,55 @@
   the shared frame-context. Pinned on U/H per the audit; this is the
   shared, parameterised version (rf2-sx77q G4). The corruption path lives
   in `re-frame.adapter.context/function-component-current-frame`, which
-  both React adapters wire into their `:adapter/current-frame` slot."
+  both React adapters wire into their `:adapter/current-frame` slot.
+
+  EP-0002 (rf2-69r7ui): the corruption recovery is now `:no-frame-context`
+  — `function-component-current-frame` returns **nil** (NOT a synthesised
+  `:rf/default`) on a disturbed boundary, so a public frame-scoped op
+  reading that nil fails loudly with `:rf.error/no-frame-context`. The
+  corruption is still reported as its own distinct
+  `:rf.error/frame-context-corrupted` category so a disturbed boundary is
+  not silently folded into ordinary 'no scope'."
   [{:keys [substrate-kw name]}]
-  (testing (str name " — frame-context: corrupted _currentValue emits + recovers")
+  (testing (str name " — frame-context: corrupted _currentValue emits + recovers to nil")
     (let [lk       (keyword "re-frame.adapter.react-shared-suite"
                             (str "fc-" (clojure.core/name substrate-kw)))
           original (.-_currentValue ^js adapter-context/frame-context)
           traces   (atom [])]
       (trace-tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
       (try
-        (testing "nil _currentValue: error trace fires; resolves to :rf/default"
+        (testing "nil _currentValue: error trace fires; resolves to nil (no-frame-context)"
           (reset! traces [])
           (set! (.-_currentValue ^js adapter-context/frame-context) nil)
-          (is (= :rf/default (adapter-context/function-component-current-frame))
-              "falls through to :rf/default (recovery preserved)")
+          (is (nil? (adapter-context/function-component-current-frame))
+              "returns nil — no synthesised :rf/default (EP-0002 carried invariant)")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs)) "one :rf.error/frame-context-corrupted event fired")
             (is (= :error (:op-type (first errs))) ":op-type is :error per Spec 009")
-            (is (= :replaced-with-default (:recovery (first errs)))
-                ":recovery is :replaced-with-default — fall-through preserved")
+            (is (= :no-frame-context (:recovery (first errs)))
+                ":recovery is :no-frame-context — no synthesised default")
             (is (= :nil (-> errs first :tags :type)) ":tags :type names the corrupted shape")))
-        (testing "number _currentValue: error trace fires; resolves to :rf/default"
+        (testing "number _currentValue: error trace fires; resolves to nil"
           (reset! traces [])
           (set! (.-_currentValue ^js adapter-context/frame-context) 42)
-          (is (= :rf/default (adapter-context/function-component-current-frame))
-              "falls through to :rf/default")
+          (is (nil? (adapter-context/function-component-current-frame))
+              "returns nil")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs)) "one error trace per corrupted read")
             (is (= :number (-> errs first :tags :type)))
             (is (= 42 (-> errs first :tags :received)) ":tags :received echoes the offending value")))
-        (testing "routed read via rf/current-frame-id also recovers"
+        (testing "routed read via rf/current-frame-id raises no-frame-context"
           (reset! traces [])
           (set! (.-_currentValue ^js adapter-context/frame-context) "")
-          (is (= :rf/default (rf/current-frame-id))
-              "adapter-routed read recovers to :rf/default")
+          ;; The adapter-routed reader resolves to nil; the public
+          ;; `current-frame-id` REQUIRES a frame, so it raises
+          ;; :rf.error/no-frame-context rather than synthesising a default.
+          (is (thrown-with-msg? :default #":rf.error/no-frame-context"
+                (rf/current-frame-id))
+              "adapter-routed public read raises no-frame-context on a corrupted boundary")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs))
-                "one error fired through the adapter-routed path")
+                "one frame-context-corrupted error fired through the adapter-routed path")
             (is (= :empty-string (-> errs first :tags :type))
                 ":tags :type distinguishes empty-string from a populated string")))
         (finally
@@ -581,27 +593,28 @@
   (when (and el (.-props el))
     (aget (.-props el) "children")))
 
-(defn assert-frame-provider-missing-frame-falls-through-to-default
-  "(build-frame-provider-element nil [...]) — no frame at all — falls
-  through to :rf/default per rf2-sixo. The provider-element's `:value`
-  slot carries :rf/default."
+(defn assert-frame-provider-missing-frame-raises-no-frame-context
+  "(build-frame-provider-element nil [...]) — no frame at all — is a
+  CONFIGURATION ERROR under EP-0002 (rf2-69r7ui). There is no
+  `(or frame-kw :rf/default)` floor: the core builder emits + throws
+  `:rf.error/no-frame-context` rather than synthesising a default, so a
+  tooling-generated tree that elides the frame fails loudly."
   [{:keys [name]}]
-  (testing (str name " — frame-provider core: missing frame falls through to :rf/default")
-    (let [el (spine/build-frame-provider-element nil [:fake-child-a :fake-child-b])]
-      (is (some? el) "build-frame-provider-element returned a React element")
-      (is (= :rf/default (provider-element-frame-kw el))
-          "missing frame defaulted to :rf/default"))))
+  (testing (str name " — frame-provider core: missing frame raises no-frame-context")
+    (is (thrown-with-msg? :default #":rf.error/no-frame-context"
+          (spine/build-frame-provider-element nil [:fake-child-a :fake-child-b]))
+        "missing frame raises :rf.error/no-frame-context (no :rf/default floor)")))
 
-(defn assert-frame-provider-nil-frame-falls-through-to-default
-  "(build-frame-provider-element nil [...]) — explicit nil frame — falls
-  through to :rf/default. The `(or frame-kw :rf/default)` clause covers
-  both the missing and nil cases."
+(defn assert-frame-provider-nil-frame-raises-no-frame-context
+  "(build-frame-provider-element nil [...]) — explicit nil frame — is the
+  same CONFIGURATION ERROR as the missing case (EP-0002, rf2-69r7ui): the
+  `(or frame-kw :rf/default)` floor is gone, so a nil frame raises
+  `:rf.error/no-frame-context` rather than defaulting."
   [{:keys [name]}]
-  (testing (str name " — frame-provider core: nil frame falls through to :rf/default")
-    (let [el (spine/build-frame-provider-element nil [:fake-child])]
-      (is (some? el))
-      (is (= :rf/default (provider-element-frame-kw el))
-          "nil frame defaulted to :rf/default"))))
+  (testing (str name " — frame-provider core: nil frame raises no-frame-context")
+    (is (thrown-with-msg? :default #":rf.error/no-frame-context"
+          (spine/build-frame-provider-element nil [:fake-child]))
+        "nil frame raises :rf.error/no-frame-context (no :rf/default floor)")))
 
 (defn assert-frame-provider-named-frame-preserved
   "A supplied frame keyword is preserved on the provider element's value

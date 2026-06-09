@@ -821,16 +821,22 @@
 
 (defn build-frame-provider-element
   "Substrate-agnostic CORE of the frame-provider (rf2-z7hfp). Given a
-  resolved frame keyword (or nil/missing) and a children value, returns
-  the shared frame Context Provider React element scoping that frame to
-  its subtree — inside the subtree, `(rf/frame-handle)` /
-  `reg-view`-registered descendants resolve to the named frame. Per
-  Spec 002 §What `frame-provider` is.
+  resolved frame keyword and a children value, returns the shared frame
+  Context Provider React element scoping that frame to its subtree —
+  inside the subtree, `(rf/frame-handle)` / `reg-view`-registered
+  descendants resolve to the named frame. Per Spec 002 §What
+  `frame-provider` is (CLJS reference).
 
-  Frame-resolution: when `frame-kw` is missing or `nil`, falls through to
-  `:rf/default` — defensive default that matches the no-provider
-  behaviour and avoids breaking tooling-generated trees that elide the
-  frame.
+  Frame-resolution: `frame-kw` is REQUIRED (EP-0002 carried invariant).
+  There is NO `(or frame-kw :rf/default)` floor — per Spec 002 §Frame
+  target resolution the runtime never synthesises a frame from absence.
+  A native frame-provider shell (UIx `defui` / Helix `defnc`) that
+  delegates here with a missing or `nil` `:frame` is a CONFIGURATION
+  ERROR: this fn emits `:rf.error/no-frame-context` through the always-on
+  error axis and throws, so a tooling-generated or hand-authored tree
+  that elides the frame fails loudly at the provider rather than silently
+  scoping every descendant call to a conventional default. This mirrors
+  the Reagent-side `re-frame.views.provider/frame-provider` contract.
 
   Children-normalisation: the native trailing-`$`-children idiom
   (rf2-7kii2) hands this core whatever shape each substrate's element
@@ -852,8 +858,15 @@
   code, so a keyword frame-id survives intact on every substrate by
   construction."
   [frame-kw children]
+  (when (nil? frame-kw)
+    (let [payload (frame/no-frame-context-payload
+                    :frame-provider
+                    {:where 're-frame.substrate.spine/build-frame-provider-element
+                     :recovery :supply-frame})]
+      (frame/emit-no-frame-context! payload)
+      (throw (ex-info (str (:rf.error/id payload)) payload))))
   (apply adapter-context/provider-element
-         (or frame-kw :rf/default)
+         frame-kw
          (cond
            (nil? children)              nil
            (array? children)            (array-seq children)
