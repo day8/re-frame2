@@ -97,8 +97,9 @@ const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8050';
 // The substring-trap protection (a bare `shop` must not be shadowed by a
 // worktree-name substring — see the saved-memory note) is preserved:
 // `selectEntries` still substring-matches, and patterns are matched only
-// against an entry's build id and its repo-relative / absolute spec path,
-// never an unrelated filesystem prefix.
+// against an entry's REPO-STABLE identities — its build id and its
+// repo-relative spec path — never the absolute spec path or any other
+// filesystem prefix (rf2-n4nc2o).
 const FILTER = (process.env.EXAMPLES_FILTER || '').trim();
 const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 const TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
