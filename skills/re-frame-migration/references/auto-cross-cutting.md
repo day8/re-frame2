@@ -299,13 +299,16 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
 
 > **A v1 app has no `init!` call site to "find". You must ADD one — and ADD it in the right place.** The `SEARCH` shape above assumes a `(rf/init!)` already exists (the v2-pre-rename case). A genuine v1 app has **no `init!` at all**: in v1 the registry is populated by `reg-event-*` at namespace-load and the global `app-db` ratom exists immediately, so v1 boot code dispatches freely — the canonical v1 boot is `(dispatch-sync [:initialize-db])` *then* `(reagent.dom/render …)`. M-40-as-a-rename does not cover this; for a v1 app, M-40 is an **add**, governed by this invariant.
 
-**The invariant:** `(rf/init! <adapter>)` MUST execute **before the first `dispatch` / `dispatch-sync` AND before the first render**. `init!` is what creates the `:rf/default` frame (it calls `frame/ensure-default-frame!` — verified at `implementation/core/src/re_frame/core.cljc`, the `init!` fn body). Until it runs, the default frame does not exist.
+**The invariant:** `(rf/init! <adapter>)` MUST execute **before the first `dispatch` / `dispatch-sync` AND before the first render**. Under EP-0002 (the carried-frame invariant), `init!` installs adapters and runtime capabilities **only — it does NOT create any frame**. There is **no ambient `:rf/default`** the runtime synthesises for you; frame identity is *carried, not found*. So a v1 boot needs **two** adds, not one: (1) `init!`, and (2) an explicitly-registered **app frame** that boot-time dispatches and the render run *under*. You register it (`reg-frame`) and establish it as a lexical scope (`with-frame`) or React scope (`frame-provider`).
 
-**The failure is SILENT — there is no compile error.** A `dispatch` / `dispatch-sync` issued before `init!` targets a `:rf/default` frame that does not yet exist; the router takes the missing-frame early-exit and surfaces **`:rf.error/frame-destroyed`** (verified: `re-frame.router/process-event!` early-exits via `handle-frame-destroyed!` when the frame record is `nil`, at `implementation/core/src/re_frame/router.cljc`). The dispatch **no-ops** — the event never runs, `app-db` is never seeded, the drain continues to the next envelope. The app simply does nothing at boot, with no error thrown to the console call site. This is among the hardest v2 failures to diagnose; cross-link the `:rf.error/frame-destroyed` symptom from the error catalogue ([`error-events.md`](error-events.md) → [Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue)).
+**Two distinct failure modes — both are surfaced loud now.**
 
-> **Field failure mode:** placing `(rf/init! adapter)` *inside* the render fn (e.g. a `mount-gui` defn) runs it **after** the boot code's seed `dispatch-sync` and any bootstrap dispatch — faithfully matching the rename shape and the examples, yet producing a non-booting app. Put `init!` at the **top of the boot function**, ahead of every boot-time dispatch and the render call.
+- **No `init!` (or `init!` too late).** The adapter/runtime isn't wired; the React-context tier of frame resolution is dead.
+- **No established frame scope.** A boot `(dispatch-sync [:initialize-db])` issued under no scope (no `with-frame`, no `frame-provider`) now fails **loudly** with **`:rf.error/no-frame-context`** — the runtime refuses to synthesise a frame from absence (it does **not** silently target a default). This is *better* than the old silent no-op: the error fires at the offending call site through the always-on error axis. Cross-link the symptom from the error catalogue ([`error-events.md`](error-events.md) → [Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue)).
 
-**Corrected canonical v2 boot order** (the `init!` line is the ADD for a v1 app):
+> **Field failure mode:** placing `(rf/init! adapter)` *inside* the render fn (e.g. a `mount-gui` defn) runs it **after** the boot code's seed `dispatch-sync` and any bootstrap dispatch. Put `init!` at the **top of the boot function**, ahead of every boot-time dispatch and the render call — and wrap the boot dispatches in the app frame's scope.
+
+**Corrected canonical v2 boot order** (a v1 app ADDs *both* the `init!` line and the app-frame registration + scope):
 
 ```clojure
 (ns my-app.core
@@ -313,13 +316,22 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
             [re-frame.adapter.reagent :as reagent]   ; the adapter ns (M-38)
             [reagent.dom.client :as rdomc]))         ; React-19 createRoot path
 
+(def app-frame :app/main)             ; pick an explicit app-frame id
+                                      ; (a migration MAY use :rf/default —
+                                      ;  but it is still registered, never inferred)
+
 (defn ^:export init []                ; the boot entry point
-  (rf/init! reagent/adapter)          ; 1. ADD THIS FIRST — creates :rf/default
-  (rf/dispatch-sync [:initialize-db]) ; 2. seed dispatch — now the frame exists
-  (mount-root))                        ; 3. render LAST
+  (rf/init! reagent/adapter)          ; 1. ADD: install adapter (creates NO frame)
+  (rf/reg-frame app-frame             ; 2. ADD: register the app frame...
+    {:on-create [:initialize-db]})    ;    ...seeding via :on-create (preferred), OR
+  (rf/with-frame app-frame            ;    establish a scope for any boot dispatch:
+    (rf/dispatch-sync [:initialize-db]))
+  (rdomc/render (rdomc/create-root el); 3. render LAST, UNDER a frame-provider:
+    [rf/frame-provider {:frame app-frame}
+     [app-root]]))
 ```
 
-If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → `react-dom/client` `createRoot` + `render`); the **ordering** rule here is independent of which mount API the app lands on — `init!` precedes whatever the render call becomes.
+Prefer seeding through the frame's `:on-create` (it runs synchronously at `reg-frame` time, inside the frame's own scope) over a separate boot `dispatch-sync`; reach for the explicit `with-frame` wrap only when boot logic must run extra dispatches before render. Either way, **the render is wrapped in a `frame-provider` for the app frame** so every bare `dispatch` / `subscribe` in the tree resolves against it. If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → `react-dom/client` `createRoot` + `render`); the **ordering** rule and the frame-provider wrap are independent of which mount API the app lands on.
 
 ---
 

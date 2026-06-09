@@ -174,7 +174,7 @@ These surfaces work the same across Reagent, UIx, and Helix. They're how views i
 
 ### When to reach for `frame-handle` / `frame-bound-fn`
 
-The verbs `dispatch` and `subscribe` read the current frame ambiently (dynamic var → React context → `:rf/default`) at call time. That's fine when the call sits *inside* the cascade — inside a render, an event handler, a sub computation. It breaks when the call sits *outside* the cascade — a Promise callback, a `setTimeout`, a WebSocket `onmessage`, an IntersectionObserver. By the time the callback fires, the ambient binding has unwound, and a bare `(rf/dispatch [::foo])` falls through to `:rf/default` (and trips the `:rf.warning/dispatch-from-async-callback-fell-through-to-default` warning).
+The verbs `dispatch` and `subscribe` read the current frame ambiently (dynamic var → React context) at call time. That's fine when the call sits *inside* an established scope — inside a render, an event handler, a sub computation, a `with-frame` block. It breaks when the call sits *outside* that scope — a Promise callback, a `setTimeout`, a WebSocket `onmessage`, an IntersectionObserver. By the time the callback fires, the ambient scope has unwound, the token carries no frame stamp, and a bare `(rf/dispatch [::foo])` fails loudly with `:rf.error/no-frame-context` (per [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant), the runtime never synthesises `:rf/default` from absence — frame identity is *carried*, not *found*).
 
 The fix is to capture the frame *at the point you have it* and carry it as a value:
 

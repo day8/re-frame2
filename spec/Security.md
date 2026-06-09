@@ -197,7 +197,7 @@ This section pins the cross-references into [Conventions.md](Conventions.md) and
 | Warning keyword | Owning spec | Security relevance |
 |---|---|---|
 | `:rf.warning/sensitive-without-redaction` | [009](009-Instrumentation.md) | Registration declares `:sensitive? true` but the interceptor chain has no `redact-interceptor` — emit-time advisory |
-| `:rf.warning/dispatch-from-async-callback-fell-through-to-default` | [009](009-Instrumentation.md) | An async-callback dispatch landed on `:rf/default` because frame-context binding did not survive — surface for tampered async resolution |
+| `:rf.error/no-frame-context` | [002](002-Frames.md#frame-target-resolution--the-carried-invariant) / [009](009-Instrumentation.md) | A frame-scoped op carried no frame stamp and ran under no scope — surface for lost/tampered frame context (EP-0002; replaces the retired `:rf.warning/dispatch-from-async-callback-fell-through-to-default`, which described a now-impossible silent fall-through to `:rf/default`). The structured error fails closed and carries capture-site ancestry. |
 
 ### Security-relevant reserved namespaces (catalogue: [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned))
 

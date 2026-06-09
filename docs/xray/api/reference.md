@@ -19,8 +19,8 @@ The canonical facade. The day-to-day require for host integrations: mount contro
 | `toggle!` | `(toggle!)` | Flip visibility. Wired to `Ctrl+Shift+C`. |
 | `popout!` | `(popout!)` | Open Xray in a same-origin second window. Own React root, own keybinding. |
 | `status` | `(status)` → map | Inspectable shell state. `{:mounted? :visible? :last-host-diagnostic ...}`. |
-| `target-frame` | `(target-frame)` → keyword | Read the currently-targeted host frame. One-shot read; not reactive. |
-| `set-target-frame!` | `(set-target-frame! frame-id)` → nil | Set the host frame Xray targets. `nil` resets to default. |
+| `target-frame` | `(target-frame)` → keyword \| nil | Read the currently-selected inspected-host frame, or `nil` when none is selected (never defaulted to `:rf/default`). One-shot read; not reactive. |
+| `set-target-frame!` | `(set-target-frame! frame-id)` → nil | Set the inspected-host frame Xray targets. `nil` resets to the **unselected** state (not `:rf/default`). |
 | `focus!` | `(focus! command)` → map | Host-facing focus handoff. Story and other hosts use it to focus a panel, epoch, cascade row, app-db path, or source target without rebuilding Xray's diagnostic UI. |
 | `valid-focus-panels` | set value | Canonical focusable panel ids: `#{:epoch :app-db :views :trace :machines :routes}`. |
 | `load-theme` | `(load-theme css-string)` → nil | Programmatic theme override. Installs or replaces a host CSS block; `nil` or blank clears the override. |

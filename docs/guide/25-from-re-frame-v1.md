@@ -36,7 +36,19 @@ The skill handles every part of this; the list is here so you know what's coming
 
 These are the broad shapes of breakage. The skill identifies and resolves them; this is the taxonomy so you can read a diff with comprehension instead of alarm.
 
-**Registrar imports.** Code that requires `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`, or `re-frame.alpha` directly was reaching past the front door, and v2 closes it. The single-import contract is `(:require [re-frame.core :as rf])`. Direct access to `re-frame.db/app-db` — always off-contract — is now firmly so; the accessor is `(rf/app-db-value :rf/default)`, returning a plain map. The reason for the tightening is the same reason chapter 18's frames work at all: when there can be N isolated app-db instances, "the global app-db atom" stops being a coherent thing to reach for, and the contract has to be a function call that names which frame you mean.
+**Registrar imports.** Code that requires `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`, or `re-frame.alpha` directly was reaching past the front door, and v2 closes it. The single-import contract is `(:require [re-frame.core :as rf])`. Direct access to `re-frame.db/app-db` — always off-contract — is now firmly so; the accessor is `(rf/app-db-value app-frame)`, naming your app frame and returning a plain map. The reason for the tightening is the same reason chapter 18's frames work at all: when there can be N isolated app-db instances, "the global app-db atom" stops being a coherent thing to reach for, and the contract has to be a function call that names which frame you mean.
+
+**You must establish an app frame.** This is the change most likely to bite a v1 codebase, and [chapter 18](18-frames.md) is the full story. v1 gave you an ambient global `app-db` that every bare `dispatch` / `subscribe` resolved against. v2 does **not**: frame identity is *carried, not found* — an operation reads its frame from the scope it runs under, and the runtime never synthesises one from absence. So a v1 app that just calls `(rf/dispatch [:boot])` at top level with no frame established now fails loudly with `:rf.error/no-frame-context`. The fix is one line of ceremony at your root: register an app frame and wrap your tree in a `frame-provider`. A migration *may* choose `:rf/default` as that frame's explicit id (it reads familiarly), but you still register and provide it — the framework will not infer it for you:
+
+```clojure
+(rf/reg-frame :app/main {:on-create [:boot]})        ;; or :rf/default if you prefer the familiar name
+
+(rdc/render root
+  [rf/frame-provider {:frame :app/main}
+   [app-root]])
+```
+
+Inside that tree, every bare `dispatch` / `subscribe` you already wrote works unchanged — the frame rides along ambiently. Only *rootless* calls (async callbacks that lost their scope, top-level boot code with no provider) need attention, and those are exactly the wrong-frame footguns v1 used to swallow silently. The migration skill rewrites bare top-level call sites into a root provider and flags async callbacks for an explicit `frame-handle` / `frame-bound-fn` capture.
 
 **Removed surfaces.** A handful of v1 affordances are gone, each with a defined replacement: `dispatch-with` / `dispatch-sync-with` fold into a two-arg `dispatch` with an opts map; `reg-global-interceptor` is gone because interceptors are frame-scoped in v2; `reg-sub-raw` gives way to `reg-sub` or the substrate adapter; the `^:flush-dom` event metadata becomes `:dispatch-later {:ms 0}`. None of these is a capability *loss* — they're consolidations, the same job done through one shape instead of several.
 
@@ -46,7 +58,7 @@ These are the broad shapes of breakage. The skill identifies and resolves them; 
 
 **Test harness rename.** `re-frame-test` becomes `re-frame.test-support`. The namespace moves; the test *bodies* usually don't change.
 
-**View-rendering boundary.** Plain Reagent fns keep working, but they earn a runtime warning if rendered under a non-default frame's subtree (single-frame apps never see it). `reg-view` adoption is opt-in modernisation, not a migration requirement.
+**View-rendering boundary.** Plain Reagent fns keep working when they render *under an established frame scope* — inside a `frame-provider`, they inherit the frame ambiently like any other call. What no longer works is a plain fn that dispatches or subscribes with *no* scope at all: that fails loudly with `:rf.error/no-frame-context` rather than the silent default-frame routing v1 allowed. `reg-view` adoption is opt-in modernisation (it injects frame-bound `dispatch` / `subscribe` and survives more boundaries cleanly), not a migration requirement — the requirement is simply that a frame scope exist above the view.
 
 When a failure matches none of the above, the skill surfaces it for human review rather than guessing. That's the cardinal rule again, and it's what keeps an automated migration trustworthy: it does the things it's sure of and asks about the rest.
 
