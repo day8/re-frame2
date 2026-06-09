@@ -568,6 +568,16 @@
   ["re-frame.routing" "save-scroll-position"]   {:tier :internal-public :owner "012" :status "v1"}
   ["re-frame.routing" "lookup-scroll-position"] {:tier :internal-public :owner "012" :status "v1"}
   ["re-frame.routing" "scroll-positions-cap"]   {:tier :internal-public :owner "012" :status "v1"}
+  ;; rf2-1hncp2: host-side transient scroll-cache seams. The cache moved off
+  ;; runtime-db to a module-level atom; these are the façade-published host
+  ;; wrappers over it (`frame-scroll-cache` reads a frame's cache for the
+  ;; pure nav-planner; `save-scroll-position!` writes it from the capture-fx;
+  ;; `reset-scroll-cache!` is the test-fixture reset). Internal-public test /
+  ;; tooling seams — same tier as the sibling scroll helpers above, not a
+  ;; front-porch user surface.
+  ["re-frame.routing" "frame-scroll-cache"]     {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "save-scroll-position!"]  {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "reset-scroll-cache!"]    {:tier :internal-public :owner "012" :status "v1"}
   ["re-frame.routing" "default-max-decoded-keys"] {:tier :internal-public :owner "012" :status "v1"}
   ["re-frame.routing" "reset-counters!"]        {:tier :internal-public :owner "012" :status "v1"}
 
