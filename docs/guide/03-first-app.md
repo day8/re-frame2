@@ -43,17 +43,21 @@ Here's the file, in full, with the boilerplate stripped to its bones:
    [:span @(subscribe [:counter/value])]
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 
-;; --- Mount: wire the substrate, seed the state, render ---
+;; --- Mount: wire the substrate, establish the frame, seed, render ---
 (defonce root
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)        ;; install the Reagent substrate
-  (rf/dispatch-sync [:counter/initialise])  ;; seed app-db before first render
-  (rdc/render root [counter]))
+  (rf/init! reagent-adapter/adapter)              ;; install the Reagent substrate
+  (rf/reg-frame :rf/default {})                   ;; establish this app's one frame
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [:counter/initialise]))     ;; seed app-db, scoped to the frame
+  (rdc/render root
+    [rf/frame-provider {:frame :rf/default}       ;; the whole tree runs in :rf/default
+     [counter]]))
 ```
 
-That's everything. Copy-paste-runnable. The five primitives are all in there, and I've grouped them with comments so you can see the shape before we pull it apart: **`reg-event-db`** registers the three events, **`reg-sub`** registers the one subscription, **`reg-view`** registers the view — and inside that view, **`dispatch`** sends events and **`subscribe`** reads state. Five names. That's the vocabulary. Let's go through them in the order the program uses them.
+That's everything. Copy-paste-runnable. The five primitives are all in there, and I've grouped them with comments so you can see the shape before we pull it apart: **`reg-event-db`** registers the three events, **`reg-sub`** registers the one subscription, **`reg-view`** registers the view — and inside that view, **`dispatch`** sends events and **`subscribe`** reads state. Five names. That's the vocabulary. (The three frame-establishing lines in the mount — `reg-frame`, `with-frame`, `frame-provider` — aren't a sixth primitive; they're the one-time root plumbing that says "this whole app runs in *this* frame," and the mount section at the end of the chapter unpacks them. Until then, just read them as "establish the app's frame at the root.") Let's go through the five in the order the program uses them.
 
 ## Events: the only things that change anything
 
@@ -164,27 +168,33 @@ The tradeoff is real but small: plain views skip the registry introspection. For
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)        ;; install the Reagent substrate
-  (rf/dispatch-sync [:counter/initialise])  ;; seed app-db before first render
-  (rdc/render root [counter]))
+  (rf/init! reagent-adapter/adapter)              ;; install the Reagent substrate
+  (rf/reg-frame :rf/default {})                   ;; establish this app's one frame
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [:counter/initialise]))     ;; seed app-db, scoped to the frame
+  (rdc/render root
+    [rf/frame-provider {:frame :rf/default}       ;; the whole tree runs in :rf/default
+     [counter]]))
 ```
 
-Everything above this point was pure data and pure functions. The mount is where the app touches the real world, and it's deliberately tiny and deliberately at the boundary. Four things happen.
+Everything above this point was pure data and pure functions. The mount is where the app touches the real world, and it's deliberately tiny and deliberately at the boundary. Five things happen.
 
 **`(defonce root ...)`** creates the React root exactly once. The `defonce` is load-bearing: when the file hot-reloads, you want the existing root to survive so React can patch it in place rather than tear down and re-mount from scratch. `defonce` means "def this if it isn't already defined" — survive the reload.
 
-**`(rf/init! reagent-adapter/adapter)`** wires re-frame2 to the Reagent substrate. The runtime needs to know which view library it's driving — Reagent vs UIx vs Helix vs server-side rendering — because that's how subscriptions know how to hook their reactivity into the right reactive system. We required `re-frame.adapter.reagent :as reagent-adapter` up top and pass its exported `adapter` Var. The call is **idempotent** — calling it twice is a no-op — so hot-reload is safe. This one Var is the *only* thing that differs between substrates; swap it for the UIx adapter and the entire rest of the file is unchanged, which is the whole adapter story in one line.
+**`(rf/init! reagent-adapter/adapter)`** wires re-frame2 to the Reagent substrate. The runtime needs to know which view library it's driving — Reagent vs UIx vs Helix vs server-side rendering — because that's how subscriptions know how to hook their reactivity into the right reactive system. We required `re-frame.adapter.reagent :as reagent-adapter` up top and pass its exported `adapter` Var. The call is **idempotent** — calling it twice is a no-op — so hot-reload is safe. This one Var is the *only* thing that differs between substrates; swap it for the UIx adapter and the entire rest of the file is unchanged, which is the whole adapter story in one line. (Note what `init!` does *not* do: it installs the substrate, it does not create a frame. That's the next line's job.)
 
-**`(rf/dispatch-sync [:counter/initialise])`** runs the initialiser *synchronously, in-line, right now* — by the time the next line executes, app-db is `{:counter/value 5}` and the first render shows `5` instead of flickering through an empty state. Why `dispatch-sync` here and not plain `dispatch`? Because plain `dispatch` puts the event on the queue and returns immediately — the handler runs a tick later. If the view rendered against an empty app-db on the way there, it'd show nothing, or pop briefly before the seeded value landed. `dispatch-sync` is the right hammer for *seed-before-render*: drain this one event right now, treat its result as part of mounting. You'll reach for `dispatch-sync` in exactly two places — at the boot boundary like this, and in tests where you want to assert on post-handler state without yielding to the queue. **Everywhere else, plain `dispatch`** — fire and forget, let the runtime order things.
+**`(rf/reg-frame :rf/default {})`** establishes the one frame this app runs in. This is the line that's new if you're coming from re-frame v1, and it's worth a sentence on *why* it exists. A re-frame2 app's events and subscriptions always run against a specific **frame** — an isolated instance of the app, holding its own app-db. The runtime never guesses one for you: a `dispatch` with no frame in scope fails loudly with `:rf.error/no-frame-context` rather than silently writing to some ambient global. A single-page app like this one has exactly one frame, named here `:rf/default` (any keyword works — `:rf/default` just reads familiarly), registered once at the root. The empty config map `{}` says "no boot event on creation"; we seed on the very next line instead. The full frames story — why they exist, when you'd ever want more than one — is [chapter 18](18-frames.md); here it's one line of root plumbing.
 
-**`(rdc/render root [counter])`** asks Reagent to render this hiccup at this root. `[counter]` is hiccup referencing the Var that `reg-view` defed. Without the `init!` above it, the runtime would have no adapter installed, and the first `subscribe`/`dispatch` from the view wouldn't know how to wire its reactivity to React. The `init!` is what makes the rest of the file mean anything. (For the call shape across UIx, Helix, and SSR — and why it's an explicit call at every boot site rather than magic — see [chapter 22 — Adapters](22-adapters.md).)
+**`(rf/with-frame :rf/default (rf/dispatch-sync [:counter/initialise]))`** runs the initialiser *synchronously, in-line, right now* — by the time the next line executes, the frame's app-db is `{:counter/value 5}` and the first render shows `5` instead of flickering through an empty state. The `with-frame` wrapper is what gives this top-level dispatch a frame to run in: outside a view there's no React `frame-provider` in scope, so we scope the dispatch lexically to `:rf/default`. Why `dispatch-sync` here and not plain `dispatch`? Because plain `dispatch` puts the event on the queue and returns immediately — the handler runs a tick later. If the view rendered against an empty app-db on the way there, it'd show nothing, or pop briefly before the seeded value landed. `dispatch-sync` is the right hammer for *seed-before-render*: drain this one event right now, treat its result as part of mounting. You'll reach for `dispatch-sync` in exactly two places — at the boot boundary like this, and in tests where you want to assert on post-handler state without yielding to the queue. **Everywhere else, plain `dispatch`** — fire and forget, let the runtime order things.
+
+**`(rdc/render root [rf/frame-provider {:frame :rf/default} [counter]])`** asks Reagent to render this hiccup at this root — but wrapped in a `frame-provider` that carries `:rf/default` down through the tree. That wrapper is what lets every bare `dispatch` / `subscribe` *inside* `counter` resolve to the right frame without you naming it at each call site: `reg-view` reads the frame from the provider at render time and bakes it into the injected `dispatch` / `subscribe`. Drop the provider and the view's first `subscribe` fails with `:rf.error/no-frame-context` — there is no ambient default underneath it. `[counter]` is hiccup referencing the Var that `reg-view` defed. And without the `init!` above it all, the runtime would have no adapter installed, and the first `subscribe`/`dispatch` from the view wouldn't know how to wire its reactivity to React. The `init!` is what makes the rest of the file mean anything. (For the call shape across UIx, Helix, and SSR — and why it's an explicit call at every boot site rather than magic — see [chapter 22 — Adapters](22-adapters.md).)
 
 ## The cascade, end to end
 
 Put it all together and here's the dynamic story, from page load to the first click:
 
-1. `run` is called. `(rf/init! reagent-adapter/adapter)` installs the Reagent substrate into the runtime.
-2. `(rf/dispatch-sync [:counter/initialise])` runs the initialiser synchronously. It returns `{:counter/value 5}`; app-db is now that value. Then `rdc/render` mounts `counter` at the root.
+1. `run` is called. `(rf/init! reagent-adapter/adapter)` installs the Reagent substrate into the runtime, and `(rf/reg-frame :rf/default {})` establishes the app's frame.
+2. `(rf/with-frame :rf/default (rf/dispatch-sync [:counter/initialise]))` runs the initialiser synchronously, scoped to the frame. It returns `{:counter/value 5}`; the frame's app-db is now that value. Then `rdc/render` mounts `counter` under a `frame-provider` for `:rf/default` at the root.
 3. The view's body runs. `@(subscribe [:counter/value])` returns `5`. The hiccup is `[:div [:button "-"] [:span 5] [:button "+"]]`. Reagent paints it.
 4. The user clicks `+`. The button's `:on-click` fires `(dispatch [:counter/inc])`. The event vector joins the queue. The click handler's job is over.
 5. The runtime pops the event, runs the `:counter/inc` handler: reads `{:counter/value 5}`, returns `{:counter/value 6}`. The runtime swaps app-db. The `:counter/value` subscription notices its input changed and recomputes to `6`. The `counter` view, which deref'd that sub, re-renders. The `<span>` now reads `6`.
@@ -195,7 +205,7 @@ Five steps, all named, no surprises, no magic. Chapter 04 takes that single clic
 
 Here's that same counter running in your browser — a real re-frame2 program, no toolchain, nothing hidden off-screen. Click into the cell and press **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac) to evaluate it. The first run takes a beat while the engine wakes up; after that it's instant. Then click the buttons.
 
-Two differences from the static listing above, both from the cell environment being functions-only: the view is a plain `defn` (not `reg-view`), and it calls the *qualified* `rf/dispatch` / `rf/subscribe` rather than the injected bare names. As promised, `reg-view` is just sugar over exactly this `defn`-plus-explicit-`rf/`-verbs shape — same component, two spellings. Everything else is line-for-line the program you just read.
+Three differences from the static listing above, all from the cell environment doing the boilerplate for you. Two come from it being functions-only: the view is a plain `defn` (not `reg-view`), and it calls the *qualified* `rf/dispatch` / `rf/subscribe` rather than the injected bare names. As promised, `reg-view` is just sugar over exactly this `defn`-plus-explicit-`rf/`-verbs shape — same component, two spellings. The third: you won't see the `init!` / `reg-frame` / `frame-provider` mount lines — the cell environment installs the substrate and establishes the `:rf/default` frame *around* your code, then mounts the cell's last form inside that frame, so a bare `rf/dispatch-sync` seed and the view's `rf/subscribe` both resolve without you wiring the root yourself. Everything else is line-for-line the program you just read.
 
 ```cljs-rf2
 (require '[reagent2.core :as r]
@@ -251,7 +261,7 @@ Want proof it scales? Suppose you want the counter to also remember its history 
 A few mistakes bite people new to the pattern. The good news, which is also half the pitch, is that **the trace surface catches every one of them by name** — if something silently doesn't work, your first move is to read the trace stream, where there's usually an event saying exactly what didn't fire.
 
 - **Calling `init!` more than once.** It's a one-shot at the boot boundary, and subsequent calls are diagnostic-emitting no-ops — but if your hot-reload setup re-evaluates the namespace on every save, wrap the `init!` in a `defonce`-shaped guard or you'll hand the app a fresh substrate on every keystroke.
-- **`dispatch` at the top of a namespace.** A top-level `dispatch` runs at *load* time — before the substrate is installed, before any frame exists. Boot-time events belong on the `:on-create` slot of a registered frame (or at the `init!` call site, *after* the adapter installs), not floating at the top of a file.
+- **`dispatch` at the top of a namespace, or with no frame in scope.** A top-level `dispatch` runs at *load* time — before the substrate is installed, before any frame exists. And even at the right moment, a `dispatch` / `dispatch-sync` with no frame established fails with `:rf.error/no-frame-context` — the runtime never guesses a frame for you (that's why the seed above is wrapped in `with-frame`). Boot-time events belong on the `:on-create` slot of a registered frame, or at the `init!` call site *after* the adapter installs *and* under a frame scope — not floating at the top of a file.
 - **`@(subscribe ...)` outside a view.** `subscribe` hands back a reactive thing; deref-ing it outside a view body works exactly once and then goes stale — there's no surrounding component to re-render when its value changes. Outside views, reach for `(rf/subscribe-once [:my-sub])`, the snapshotting read that doesn't try to set up a reactive dependency.
 - **Renaming the boot namespace and dropping the `init!` line.** Refactor `counter.core` into `myapp.boot` without carrying `init!` forward and the page mounts but every dispatch is a silent no-op against a substrate-less runtime. The trace stream shows `:rf.error/no-substrate` on the first event — which is exactly the kind of "the framework told me what I did wrong" moment the trace bus exists for.
 

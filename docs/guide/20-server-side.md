@@ -64,10 +64,15 @@ What does "its final state" mean now that a frame has two partitions (chapter 02
   (let [payload (read-server-payload)]
     (when payload
       (rf/dispatch-sync [:rf/hydrate payload] {:frame :app/main}))
-    (rdc/render root [(rf/view :app/root)])))
+    ;; The render is wrapped in a frame-provider for the SAME frame the
+    ;; hydration targeted — EP-0002 carries the hydration target through
+    ;; to the root provider so the view's subscribes resolve :app/main.
+    (rdc/render root
+      [rf/frame-provider {:frame :app/main}
+       [(rf/view :app/root)]])))
 ```
 
-A couple of shape notes so the code reads cleanly: `frame-state-value` returns the coherent two-partition *value* — `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, a plain map, not a deref-able container — so there's no `@`. (If you only need the app data, `app-db-value` returns just the app-db partition.) The serializable carve-out matters: only *durable* runtime-db facts ride the wire — host handles, in-flight HTTP, and server-only request/response accumulators are transient and stay home. `(rf/view :id)` looks up the registered render fn by id; the canonical hiccup head is that fn inside a vector (`[(rf/view :app/root)]`) so the emitter treats it as a component. `render-tree-hash` is a stable structural hash both sides compute from the same canonical-EDN representation — it's what makes mismatch detection (below) reliable.
+A couple of shape notes so the code reads cleanly: `frame-state-value` returns the coherent two-partition *value* — `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, a plain map, not a deref-able container — so there's no `@`. (If you only need the app data, `app-db-value` returns just the app-db partition.) The serializable carve-out matters: only *durable* runtime-db facts ride the wire — host handles, in-flight HTTP, and server-only request/response accumulators are transient and stay home. `(rf/view :id)` looks up the registered render fn by id; the canonical hiccup head is that fn inside a vector (`[(rf/view :app/root)]`) so the emitter treats it as a component. Note the client render wraps that tree in a `frame-provider` for `:app/main` — the *same* frame the hydration `dispatch-sync` targeted; under EP-0002 the hydration target is carried through to the root provider, so the view's subscribes resolve the hydrated frame rather than guessing one. `render-tree-hash` is a stable structural hash both sides compute from the same canonical-EDN representation — it's what makes mismatch detection (below) reliable.
 
 The default `:rf/hydrate` behaviour is **`:replace-frame-state`**: the server's serialised state replaces whatever the client bootstrap pre-seeded, installing both partitions in one atomic transition. This is locked, and the reasoning is sound — the server is authoritative for the initial state, and a defaulting *merge* policy would bury "which slice wins?" ordering bugs. If you genuinely need client-only transient state to survive (a `:browser/window-size` set by a resize listener that fired before hydration arrived), the customisation point is to re-register `:rf/hydrate` with your own handler that performs an explicit merge in the order *you* intend. The default replaces; opt-in merge is your choice and you own its semantics.
 
