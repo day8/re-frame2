@@ -25,7 +25,7 @@
             [clojure.string :as string]
             [day8.re-frame2-template.test-support
              :refer [tmp-dir delete-recursively run-template!
-                     read-edn file-exists?]]))
+                     run-template-opts! read-edn file-exists?]]))
 
 ;; --- Test helpers ----------------------------------------------------------
 ;;
@@ -851,5 +851,90 @@
                               #":rf\.error/template-bad-include-story-flag"
                               (run-template! tmp "acme/my-app" :reagent "yes"))
             "non-boolean :include-story? is rejected")
+        (finally
+          (delete-recursively tmp))))))
+
+;; --- argument-key gate (rf2-qck7t7 Finding #1) ----------------------------
+;;
+;; The substrate posture fails closed on bad VALUES; these tests pin the
+;; complementary strictness on the KEY set. Reserved-but-unimplemented
+;; flags and likely typos must fail closed rather than fail open into a
+;; misleading vanilla scaffold. Each asserts the emitted dir does NOT
+;; exist after the throw — the gate fires before any file is written.
+
+(defn- assert-no-scaffold-emitted!
+  [^java.nio.file.Path tmp]
+  (is (zero? (count (.listFiles (clojure.java.io/file (.toString tmp)))))
+      "the gate fired before any scaffold was emitted (tmp dir is empty)"))
+
+(deftest reserved-css-flag-rejected-test
+  (testing ":css :tailwind is reserved (gated on rf2-gthro) and fails
+            closed — it does NOT silently emit the default scaffold"
+    (let [tmp (tmp-dir "rf2-template-css-")]
+      (try
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/template-unsupported-flag"
+                              (run-template-opts! tmp "acme/my-app"
+                                                  {:css :tailwind}))
+            ":css :tailwind is rejected as an unsupported reserved flag")
+        (assert-no-scaffold-emitted! tmp)
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest reserved-include-ssr-flag-rejected-test
+  (testing ":include-ssr? true is reserved (gated on rf2-0m5ea) and fails
+            closed — it does NOT silently emit the default scaffold"
+    (let [tmp (tmp-dir "rf2-template-ssr-")]
+      (try
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/template-unsupported-flag"
+                              (run-template-opts! tmp "acme/my-app"
+                                                  {:include-ssr? true}))
+            ":include-ssr? true is rejected as an unsupported reserved flag")
+        (assert-no-scaffold-emitted! tmp)
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest misspelled-story-flag-rejected-test
+  (testing "a one-character Story-flag typo (:include-story, dropping the
+            ?) fails closed rather than scaffolding a Story-less app the
+            user believes has Story"
+    (let [tmp (tmp-dir "rf2-template-typo-")]
+      (try
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/template-unknown-flag"
+                              (run-template-opts! tmp "acme/my-app"
+                                                  {:include-story true}))
+            ":include-story (typo for :include-story?) is rejected")
+        (assert-no-scaffold-emitted! tmp)
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest pluralised-story-flag-rejected-test
+  (testing "the :include-stories? plural typo also fails closed"
+    (let [tmp (tmp-dir "rf2-template-typo2-")]
+      (try
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/template-unknown-flag"
+                              (run-template-opts! tmp "acme/my-app"
+                                                  {:include-stories? true}))
+            ":include-stories? (plural typo) is rejected")
+        (assert-no-scaffold-emitted! tmp)
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest harness-keys-not-rejected-test
+  (testing "the gate's allowlist does not false-reject deps-new harness
+            keys — a representative harness key (:overwrite) plus the
+            valid template flags scaffold cleanly"
+    (let [tmp (tmp-dir "rf2-template-harness-")]
+      (try
+        ;; :overwrite + :src-dirs are harness keys run-template-opts!
+        ;; already injects; add an explicit :substrate to confirm the
+        ;; happy path still emits with the gate in place.
+        (let [proj (run-template-opts! tmp "acme/my-app"
+                                       {:substrate :reagent})]
+          (is (file-exists? proj "deps.edn")
+              "a valid invocation still scaffolds with the gate active"))
         (finally
           (delete-recursively tmp))))))

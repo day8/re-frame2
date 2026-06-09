@@ -24,7 +24,7 @@
    ;; hot reload by default — no :after-load hook needed.
    ;; :devtools/preloads loads Xray in dev watch/compile builds.
    ;; Once rf/init! installs the adapter, Xray auto-mounts into
-   ;; resources/public/index.html's [data-rf-xray-host] left column.
+   ;; resources/public/index.html's [data-rf-xray-host] right-side host.
    ;; Cut from release builds automatically.
    :devtools   {:preloads [day8.re-frame2-xray.preload]}}
 

@@ -16,7 +16,10 @@
      - Substrates: Reagent / UIx / Helix (full matrix).
      - Flags: `:include-story?` (Reagent-only in v1; UIx + Helix variants
        follow once Story's adapter coverage matches Reagent's).
-     - Pending flags (deferred to later stages): `:css`, `:include-ssr?`.
+     - Pending flags (reserved, gated to later stages): `:css`,
+       `:include-ssr?`. Passing one today fails closed with
+       `:rf.error/template-unsupported-flag` (it is NOT silently dropped)
+       — see `gate-arg-keys!`.
 
    ## Substitution engine note
 
@@ -36,7 +39,8 @@
    The steady-state shape (see tools/template/spec/003-DepsNew-Rebuild-Plan.md
    §1) is the same matrix; additional flags (`:css`, `:include-ssr?`)
    slot in here once their upstream gates clear (rf2-gthro, rf2-0m5ea)."
-  (:require [clojure.string :as string]))
+  (:require [clojure.set :as set]
+            [clojure.string :as string]))
 
 ;; -- substrate registry -----------------------------------------------------
 ;;
@@ -97,6 +101,90 @@
                        :substrate substrate-kw
                        :valid     valid-substrates})))
     substrate-kw))
+
+;; -- argument-key gate -------------------------------------------------------
+;;
+;; deps-new hands `data-fn` a single map that merges its own harness keys
+;; (the project-name derivations + run metadata) with whatever top-level
+;; k/v args the caller passed. We accept exactly two template-specific
+;; flags today (`:substrate`, `:include-story?`); the `:css` / `:include-ssr?`
+;; flags are reserved-but-unimplemented (gated on rf2-gthro / rf2-0m5ea).
+;;
+;; The substrate posture already fails closed on bad values; this gate
+;; extends that strictness to the *key set* so a flag typo
+;; (`:include-story`) or a documented-future flag (`:css :tailwind`) can't
+;; fail open into a misleading vanilla scaffold (rf2-qck7t7 Finding #1).
+;;
+;; HOW WE DISTINGUISH HARNESS KEYS FROM TEMPLATE KEYS: deps-new's
+;; `preprocess-options` (org.corfield.new.impl) populates a fixed, known
+;; set of harness keys before `data-fn` runs. We pin the deps-new coord in
+;; this template's deps.edn (and the §3 release install), so that set is
+;; deterministic — we allowlist it and reject anything outside it. If the
+;; pinned deps-new version is bumped and adds a harness key, this list must
+;; grow in lockstep (the gate would otherwise false-reject the new key);
+;; `arg-key-gate-rejects-unknown-test` exercises a representative harness
+;; key to keep that coupling honest.
+
+(def ^:private deps-new-harness-keys
+  "The keys deps-new injects into the `data` map before `data-fn` runs
+   (deps-new pinned at v0.12.1 in deps.edn): the `preprocess-options`
+   project-name derivations + run metadata, the `:template-dir`
+   `apply-template-fns` adds just before invoking `data-fn`, plus the
+   caller-supplied harness opts that survive `preprocess-options`'
+   `dissoc` (`:src-dirs`, `:overwrite`). Verified against the pinned
+   coord's source (org.corfield.new.impl)."
+  #{:artifact/id :developer :git-dir :group/id :main :name :now/date
+    :now/year :overwrite :raw-name :scm/domain :scm/repo :scm/user
+    :src-dirs :target-dir :template :template-dir :top :user :version})
+
+(def ^:private template-flag-keys
+  "The template-specific flags we accept today."
+  #{:substrate :include-story?})
+
+(def ^:private reserved-flag-gates
+  "Reserved-but-unimplemented flags → the gating bead that must clear
+   before they go live. Passing one today fails closed rather than
+   scaffolding a vanilla app that silently lacks the feature."
+  {:css          "rf2-gthro (Tailwind v4 verification)"
+   :include-ssr? "rf2-0m5ea (SSR validation)"})
+
+(defn- gate-arg-keys!
+  "Fail closed on reserved or unknown template arguments.
+
+   - A reserved flag (`:css`, `:include-ssr?`) throws
+     `:rf.error/template-unsupported-flag`, naming the flag and its
+     gating bead — it is not silently dropped.
+   - Any key that is neither a deps-new harness key nor a live
+     template flag throws `:rf.error/template-unknown-flag` (catches
+     typos like `:include-story` / `:include-stories?`)."
+  [data]
+  (doseq [[flag gate] reserved-flag-gates]
+    (when (contains? data flag)
+      (throw (ex-info ":rf.error/template-unsupported-flag"
+                      {:rf.error/id :rf.error/template-unsupported-flag
+                       :where    'template/gate-arg-keys!
+                       :recovery :remove-flag
+                       :reason   (str (pr-str flag) " is reserved in the v1 "
+                                      "flag set but not yet implemented "
+                                      "(gated on " gate "). Remove it; "
+                                      "the scaffold can't honour it today.")
+                       :flag     flag
+                       :gate     gate}))))
+  (let [known   (set/union deps-new-harness-keys template-flag-keys)
+        unknown (remove known (keys data))]
+    (when (seq unknown)
+      (throw (ex-info ":rf.error/template-unknown-flag"
+                      {:rf.error/id :rf.error/template-unknown-flag
+                       :where    'template/gate-arg-keys!
+                       :recovery :fix-registration
+                       :reason   (str "Unknown template argument(s): "
+                                      (pr-str (vec unknown))
+                                      ". The accepted template flags are "
+                                      (pr-str template-flag-keys)
+                                      " (check for a typo, e.g. "
+                                      ":include-story -> :include-story?).")
+                       :unknown  (vec unknown)
+                       :accepted template-flag-keys})))))
 
 ;; -- :include-story? coercion ----------------------------------------------
 
@@ -190,6 +278,10 @@
    `:include-story?` for `template-fn`'s switch (`->subst-map` would
    otherwise coerce the keyword to a string)."
   [data]
+  ;; Fail closed on reserved + unknown arguments BEFORE any coercion, so a
+  ;; flag typo or a documented-future flag never produces a misleading
+  ;; vanilla scaffold (rf2-qck7t7 Finding #1).
+  (gate-arg-keys! data)
   (let [substrate       (coerce-substrate (:substrate data))
         include-story?  (coerce-include-story? (:include-story? data))]
     ;; Reagent-only guard — hoisted above the name-derivation `let` so the
