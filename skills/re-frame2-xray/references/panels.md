@@ -210,13 +210,14 @@ clutter of "no X here" placeholder cards. The APP STATE top section
 always renders even when the user-domain db is empty — it's the
 panel's anchor.
 
-**Underlying paths.** Per rf2-eguy4 phase-A the runtime owns a single
-`:rf/runtime` top-level slot; the operator-facing labels (`:rf/machines`,
-`:rf/route`, …) map to nested sub-paths via the `runtime-areas` lookup
-in
+**Underlying paths.** Framework durable state lives in the **runtime-db**
+partition (`:rf.db/runtime`, children under `:rf.runtime/*`) — a separate
+partition from the user app-db; the operator-facing labels (`:rf/machines`,
+`:rf/route`, …) map to nested runtime-db sub-paths via the `runtime-areas`
+lookup in
 [`panels/app_db_diff_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/app_db_diff_helpers.cljc)
-— e.g. `:rf/machines → [:rf/runtime :machines :snapshots]`,
-`:rf/route → [:rf/runtime :routing :current]`. Spec source:
+— e.g. `:rf/machines → [:rf.runtime/machines :snapshots]`,
+`:rf/route → [:rf.runtime/routing :current]`. Spec source:
 [`004-App-DB-Diff.md` §Reserved-keys group](../../../tools/xray/spec/004-App-DB-Diff.md).
 
 **Downstream-subs hover popover** (§021 §4.4) — hover any changed path

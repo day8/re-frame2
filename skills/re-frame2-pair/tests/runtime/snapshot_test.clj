@@ -54,7 +54,7 @@
  ;; rf2-3bu3d.6 — a reserved :rf/* TOOL frame (Xray's inspector frame).
  ;; Its :app-db is the huge tool-frame inspection state that the default
  ;; `:app` scope MUST exclude so the first read doesn't overflow on it.
- :rf/xray {:app-db {:rf/runtime {:xray-mega-state :massive}}
+ :rf/xray {:app-db {:xray/inspector {:xray-mega-state :massive}}
  :runtime-db {}
  :sub-cache {}
  :epochs []
@@ -170,7 +170,7 @@
  (let [snap (snapshot-state {:frames :all})]
  (is (= #{:rf/default :stories :rf/xray} (set (keys snap)))
  "explicit :all opts into tool-frame state")
- (is (= :massive (get-in snap [:rf/xray :app-db :rf/runtime :xray-mega-state]))
+ (is (= :massive (get-in snap [:rf/xray :app-db :xray/inspector :xray-mega-state]))
  "the tool frame's full state is included on the explicit opt-in")))
 
 (deftest explicit-app-keyword-matches-default

@@ -196,9 +196,9 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
 
 The frame's `:on-create` dispatches `[:app/boot [:rf.machine/start]]` (or the equivalent per the host); the machine self-initialises (per [005 §Restore semantics]) and runs. `:rf.machine/start` is the **only** reserved creation marker the runtime recognises (xstate parity with `createActor(m).start()`, per [005 §Synthetic creation marker](005-StateMachines.md#synthetic-creation-marker--rfmachinestart)) — there is no `:rf/start`.
 
-### Worked example — the singleton boot machine that survives the initial-db build
+### Worked example — the singleton boot machine
 
-The six-state machine above leaves three things implicit that a real migration has to get exactly right, in order. The boot machine is a **singleton** — addressed by its registered id, started once, and it must **survive the app's initial-db build**. Getting any one of these wrong is the canonical boot footgun: the machine starts, the initialise step replaces `app-db`, the birth snapshot is silently dropped, and the app hangs forever on its loading spinner.
+The six-state machine above leaves three things implicit that a real migration has to get exactly right. The boot machine is a **singleton** — addressed by its registered id and started once. A handler's wholesale `{:db fresh-map}` replace can no longer clobber it: the machine's snapshot lives in the framework-owned **runtime-db** partition, a separate slot that a `:db` return does not touch (per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract)). The classic v1 footgun — "the initialise step replaces `app-db` and the birth snapshot vanishes" — is structurally gone; the remaining boot failures are addressing and ordering, not clobber.
 
 This is the end-to-end recipe.
 
@@ -218,7 +218,7 @@ The boot machine is a **top-level singleton**: there is exactly one of it per ap
 (rf/dispatch [:app/boot [:auth.session/expired]]) ;; any later event
 ```
 
-This is **not** `spawn` and **not** `:system-id`. Those two surfaces (per [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn) and [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id)) exist for **dynamic / child actors** — instances created at runtime (one per row, one per request, one per worker), addressed by a runtime-allocated gensym id or a role-name bound in the per-frame `[:rf/runtime :machines :system-ids]` reverse index. A boot machine is none of those: there is one, it is known at registration time, and its name is the address. Reach for `:spawn` / `:system-id` only when boot itself spawns child actors (e.g. a per-phase `:http/get`, as the `:configuring` state above does).
+This is **not** `spawn` and **not** `:system-id`. Those two surfaces (per [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn) and [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id)) exist for **dynamic / child actors** — instances created at runtime (one per row, one per request, one per worker), addressed by a runtime-allocated gensym id or a role-name bound in the per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db). A boot machine is none of those: there is one, it is known at registration time, and its name is the address. Reach for `:spawn` / `:system-id` only when boot itself spawns child actors (e.g. a per-phase `:http/get`, as the `:configuring` state above does).
 
 #### 2. The eager kick from `:on-create` — using the correct marker
 
@@ -239,38 +239,26 @@ A singleton is created **lazily** by default — the initial-entry cascade folds
 
 `:rf.machine/start` is the reserved synthetic creation marker (per [005 §Synthetic creation marker](005-StateMachines.md#synthetic-creation-marker--rfmachinestart)) — xstate parity with `createActor(m).start()`. It is recognised by the machine runtime and by **nothing else**; there is no `:rf/start`. As a *pure init-kick* it runs the initial macrostep — the initial-entry cascade plus the eventless (`:always`) settle — then **stops**; it is never re-fed as a transition trigger.
 
-#### 3. Build the initial db so it does NOT clobber the birth snapshot
+#### 3. The wholesale `{:db fresh-map}` seed is safe — never write a `:rf/runtime` app-db root
 
-Here is the footgun. Machine snapshots live **in `app-db`** at `[:rf/runtime :machines :snapshots <id>]` (per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)) — deliberately, so machine state reverts atomically with `app-db` on `restore-epoch` / `replace-app-db` / time-travel. The consequence: a handler that does a **wholesale `{:db fresh-map}` replace** — the v1 `:initialize-db` idiom — drops `:rf/runtime` and every live machine snapshot with it. If that replace runs **after** the boot machine has started, the boot machine is silently dead and every subsequent dispatch to it is a no-op.
-
-There are two correct shapes; prefer the first.
-
-**(a) Pre-start initialise ordering (preferred).** Seed the wholesale fresh db **before** the boot machine is started, so there is no live snapshot to clobber. The `:db` and the `:dispatch` in the same handler return are committed in order — the `:db` lands first, then the eager kick runs against the already-seeded db:
+Machine snapshots live in the framework-owned **runtime-db** partition at `[:rf.runtime/machines :snapshots <id>]` (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)) — deliberately, so machine state reverts atomically with the frame-state container on `restore-epoch` / `replace-frame-state!` / time-travel. The runtime-db is a **separate partition** from app-db: a handler's `:db` return replaces only the app-db partition and **cannot touch** runtime-db (per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract)). So the v1 `:initialize-db` idiom — a wholesale `{:db fresh-map}` replace — is safe by construction: it leaves every live machine snapshot, the route slice, and the rest of runtime-db untouched. There is no clobber to avoid, no ordering constraint on the seed relative to the eager kick, and nothing to preserve across the replace.
 
 ```clojure
 (rf/reg-event-fx :app/initialise
   (fn [_ _]
-    {:db  {:config nil :user nil :ui {:theme :light}}  ;; the whole fresh db — no machine alive yet
-     :fx  [[:dispatch [:app/boot [:rf.machine/start]]]]}))   ;; THEN start boot
+    {:db  {:config nil :user nil :ui {:theme :light}}   ;; wholesale app-db reset — runtime-db is untouched
+     :fx  [[:dispatch [:app/boot [:rf.machine/start]]]]}))
 ```
 
-Rule of thumb: a wholesale `{:db fresh}` from **inside** a machine-driven cascade is an anti-pattern — the machine's own state lives in the db being replaced. Do the wholesale seed once, up front, before anything is alive.
+The one hard rule: **never put a `:rf/runtime` key in a `:db` value.** The former single-root `:rf/runtime` app-db key is **retired**; a `:db` carrying it at the top level is a hard error — the always-on guard throws `:rf.error/legacy-runtime-root` (per [Conventions §The legacy `:rf/runtime` root](Conventions.md#the-legacy-rfruntime-root-hard-error-in-final-form)). The old "carry `:rf/runtime` across the replace to preserve the snapshot" idiom is therefore both unnecessary (the partition is already untouched) and forbidden (it would throw). If a later event genuinely must seed or replace runtime-db state, it emits the reserved `:rf.db/runtime` effect (or uses `replace-runtime-db!` / `replace-frame-state!`), never an app-db key.
 
-**(b) The `assoc :rf/runtime` preserve idiom.** If a later event genuinely must rebuild the db wholesale while the boot machine is alive (a "reset to defaults" that keeps the session), carry the live `:rf/runtime` across the replace explicitly:
-
-```clojure
-(rf/reg-event-fx :app/reset
-  (fn [{:keys [db]} _]
-    {:db (assoc fresh-db :rf/runtime (:rf/runtime db))}))   ;; preserve the live snapshot
-```
-
-This is the same idiom the [MIGRATION guide](../migration/from-re-frame-v1/README.md) calls out for any v1 full-db-replace boot event adopted into v2: in v1 framework runtime did not live in `app-db`, so `{:db fresh}` was safe; in v2 it wipes machines, routing, elision, and SSR state unless `:rf/runtime` is preserved.
+This is the same correction the [MIGRATION guide](../migration/from-re-frame-v1/README.md) makes for any v1 full-db-replace boot event adopted into v2: in v1 framework runtime did not live in `app-db`, so `{:db fresh}` was safe; in v2 it is *again* safe — because runtime moved to its own partition rather than into an app-db root — provided the fresh db carries no retired `:rf/runtime` key.
 
 #### 4. The eager kick commits the birth snapshot before the entry `:fx` run
 
-The ordering in step 3(a) is reliable because the eager `[:rf.machine/start]` kick **commits the birth snapshot first**, then the initial state's `:entry` `:fx` flow out. The initial macrostep builds the snapshot (initial-entry cascade + `:always` settle), the runtime commits it to `[:rf/runtime :machines :snapshots :app/boot]`, and only then does the entry-dispatched work (the `:configuring` state's `:spawn` of `:http/get`, here) run as ordinary dispatched `:fx`. So by the time any boot-phase effect fires, the snapshot is already durably in `app-db` — there is no window in which a phase effect's reply lands before the machine exists.
+The eager `[:rf.machine/start]` kick **commits the birth snapshot first**, then the initial state's `:entry` `:fx` flow out. The initial macrostep builds the snapshot (initial-entry cascade + `:always` settle), the runtime commits it to `[:rf.runtime/machines :snapshots :app/boot]` in runtime-db, and only then does the entry-dispatched work (the `:configuring` state's `:spawn` of `:http/get`, here) run as ordinary dispatched `:fx`. So by the time any boot-phase effect fires, the snapshot is already durably in runtime-db — there is no window in which a phase effect's reply lands before the machine exists.
 
-This is also why the clobber in step 3 is silent today rather than a hard error: dropping the snapshot is just a `:db` value the runtime has no reason to second-guess. A sibling change makes a `:db`-replace that drops a live machine snapshot **loud** (a diagnostic when a commit removes a `[:rf/runtime :machines :snapshots <id>]` entry that was present pre-commit) — until that lands, the ordering discipline in step 3 is the only guard. Treat a boot machine that "never leaves `:configuring`" as a clobbered-snapshot symptom first.
+Because runtime-db is a separate partition, a boot machine that "never leaves `:configuring`" is **not** a clobbered-snapshot symptom (a `:db` replace cannot drop the snapshot). Look instead at the eager kick (step 2) — an unstarted machine, a wrong marker (`[:start]` instead of `[:rf.machine/start]`), or an `init!`-too-late ordering — and at the phase fx themselves.
 
 ### Worked example — auth-machine and the retry-ownership boundary
 
@@ -373,18 +361,20 @@ Cross-references: this section is the worked example referenced from [Spec 014 �
 
 A view subscribes to the machine snapshot via `sub-machine` (per [005 §Reading the snapshot](005-StateMachines.md)) and renders the visible-progress slice carried in `:data`:
 
+A view reads the machine snapshot through the framework-shipped `:rf/machine` sub (or its `sub-machine` wrapper, per [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine)), which resolves the snapshot from runtime-db at `[:rf.runtime/machines :snapshots <id>]` — never an app-db path. Derive the visible-progress slices from that snapshot:
+
 ```clojure
 (rf/reg-sub :app.boot/phase
-  (fn sub-app-boot-phase [db _]
-    (get-in db [:rf/runtime :machines :snapshots :app/boot :data :phase])))
+  :<- [:rf/machine :app/boot]                          ;; the boot snapshot, read from runtime-db
+  (fn sub-app-boot-phase [snap _] (get-in snap [:data :phase])))
 
 (rf/reg-sub :app.boot/error
-  (fn sub-app-boot-error [db _]
-    (get-in db [:rf/runtime :machines :snapshots :app/boot :data :error])))
+  :<- [:rf/machine :app/boot]
+  (fn sub-app-boot-error [snap _] (get-in snap [:data :error])))
 
 (rf/reg-sub :app.boot/state
-  (fn sub-app-boot-state [db _]
-    (get-in db [:rf/runtime :machines :snapshots :app/boot :state])))
+  :<- [:rf/machine :app/boot]
+  (fn sub-app-boot-state [snap _] (:state snap)))
 
 (rf/reg-view boot-screen []
   (let [state @(subscribe [:app.boot/state])
@@ -431,13 +421,13 @@ For the full mechanism menu see [Pattern-AsyncEffect §Parameter passing across 
 Server-side init via `:rf/server-init` (per [011 §Routing and SSR](011-SSR.md#routing-and-ssr) and [011 §Authentication / sessions](011-SSR.md#authentication--sessions)) is the server-side equivalent of boot. The handoff:
 
 - **Server-side** runs the boot phases that are server-meaningful: config, session resolution from the request, route resolution, server-side data fetches. Phases that are client-only (`:hydrating` from `localStorage`, real-time service connections) are skipped — `:platforms #{:client}` on the relevant fxs causes the server's fx resolver to no-op them (per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server)).
-- **Client-side**, after `:rf/hydrate` seeds `app-db` from the server payload, the boot machine starts in a state that reflects what the server already accomplished. The recommended convention: the server's last act is to write `[:rf/runtime :machines :snapshots :app/boot :state] = :hydrating` (or `:routing`) into the hydrated `app-db`; the client's boot machine reads its initial state from the snapshot per [005 §Restore semantics](005-StateMachines.md) and resumes from there.
+- **Client-side**, after `:rf/hydrate` seeds the frame-state container from the server payload, the boot machine starts in a state that reflects what the server already accomplished. The recommended convention: the server's last act is to write `[:rf.runtime/machines :snapshots :app/boot :state] = :hydrating` (or `:routing`) into the hydrated **runtime-db**; the client's boot machine reads its initial state from the snapshot per [005 §Restore semantics](005-StateMachines.md) and resumes from there.
 
-The two boots compose cleanly because the boot state machine's snapshot is a `app-db` slice — the same hydration channel that carries every other slice.
+The two boots compose cleanly because the boot state machine's snapshot is a runtime-db slice — and hydration carries both partitions (app-db and runtime-db) of the frame-state container through the same channel.
 
 ### Hot-reload — boot does not re-run
 
-In dev, hot-reload re-evaluates `reg-event-fx` forms; surgical `reg-frame` re-registration preserves `app-db` (per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update)). The boot machine's snapshot survives; its `:state` is `:ready` (or whichever terminal state it reached); the next dispatch routes via the new handler bodies but does not re-enter `:configuring`.
+In dev, hot-reload re-evaluates `reg-event-fx` forms; surgical `reg-frame` re-registration preserves the frame-state container — both the app-db and runtime-db partitions (per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update)). The boot machine's snapshot (in runtime-db) survives; its `:state` is `:ready` (or whichever terminal state it reached); the next dispatch routes via the new handler bodies but does not re-enter `:configuring`.
 
 This matches the locked rule: boot is **one-shot per app load**. Re-running is opt-in via `reset-frame!` (which does fire `:on-create` again) or an explicit `[:app/boot [:rf.machine/start]]` re-entry event.
 
