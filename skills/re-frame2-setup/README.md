@@ -22,7 +22,7 @@ the monorepo today (planned external home
 Invoke as `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`.
 
 > **Pre-split / pre-release caveat.** The standalone `day8/re-frame2-template`
-> repo isn't published yet (rf2-7jgkv / [`005-Repo-Split.md`](../../tools/template/spec/005-Repo-Split.md) §4),
+> repo isn't published yet (see [`005-Repo-Split.md`](../../tools/template/spec/005-Repo-Split.md) §4),
 > so the `io.github.day8/…` invocation above can't auto-resolve against a
 > released template today. Until the split lands, scaffold via the working
 > `:local/root` dev route against a checkout of this repo:
