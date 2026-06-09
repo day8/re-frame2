@@ -1320,6 +1320,238 @@ Hydration rules:
 - `refresh-error` should serialize only when the error envelope is allowed by
   the same privacy/size projection as data.
 
+### Restore and Replay
+
+[Benchmark Positioning](#benchmark-positioning) lists time-travel through
+frame-state as a structural advantage, and [EP-0002](EP-0002-frame-target-resolution.md)
+makes replay determinism the framework's decisive argument. Resources are
+runtime-managed read models over an in-flight work ledger, so a claimed
+"time-travel-safe" capability is not credible until it specifies what
+`restore-epoch` (EP-0001 epoch restore / time travel, and the same install path
+SSR hydration uses) means for `:rf.runtime/resources` and
+`:rf.runtime/work-ledger`. Without that contract, restore is a load-bearing hole:
+the EP sells revertibility but leaves resource state undefined after a rewind.
+
+Epoch restore installs both partitions wholesale — it replaces the entire
+frame-state value (`:rf.db/app` plus `:rf.db/runtime`), and does not run ordinary
+`:db` effect semantics ([EP-0001 §Full-frame restore](EP-0001-frame-partitions.md)).
+The resource and work-ledger slices ride inside `:rf.db/runtime`, so a restore
+overwrites them with their value as of the restored epoch. Host side tables
+(AbortControllers, stale/GC timers, transport promises) are **not** part of
+frame-state and are **not** rewound; they are transient by the EP-0001 durable/
+transient boundary (decision 13: "Host handles, request slots, trace rings,
+in-flight HTTP, and dirty caches stay transient... never serialized"). Restore
+must therefore reconcile a freshly-installed *durable snapshot* against the
+*live transient world* (host handles still attached to the pre-restore timeline,
+and network replies already on the wire that the runtime cannot recall).
+
+This section answers, per EP-0006 Clause 5, "what does epoch restore do to every
+value in this sub-tree?" The governing principle is the **anti-recycling rule**
+carried from the [`rf2-oosjmh` routing ruling](EP-0006-runtime-subsystem-contract.md#the-grading-table)
+(generalized into the runtime-subsystem contract, EP-0006 derived rule 1:
+allocator counters "must never rewind"):
+
+> A restored value must never let a stale generation or work-id be mistaken for
+> a live one. Epoch restore must not resurrect a superseded in-flight identity,
+> and must not rewind any monotonic allocator such that a post-restore allocation
+> can collide with a pre-restore identity still carried by an uncancellable
+> in-flight reply.
+
+This is the resource analogue of the routing nav-token hazard. The distinguishing
+factor is whether a stale identity from the old timeline can exist **outside** the
+restored frame-state — specifically an in-flight HTTP reply already dispatched and
+beyond cancellation — that a re-issued identity could collide with. For resources
+the answer is yes, so the same anti-recycling discipline applies.
+
+The contract has five parts, mirroring the five sub-tree questions an SSR/epoch
+projection must answer.
+
+#### 1. The generation allocator is monotonic and host-side; it does not rewind
+
+A resource generation is the correctness boundary for stale-reply suppression
+([§Race and In-Flight Semantics](#race-and-in-flight-semantics)): a reply may
+write an entry only if its work-id and generation still match the live entry. If
+epoch restore rewound the generation along with the rest of the entry, a
+pre-restore in-flight reply — already on the wire, uncancellable — could return
+carrying a generation the post-restore timeline has re-allocated, and be silently
+accepted as live. That is exactly the recycle the `rf2-oosjmh` ruling forbids.
+
+Therefore the **generation allocator is a per-frame, host-side monotonic
+high-water mark**, not a value rewound by restore. It follows the routing
+nav-token-counter precedent: keep the active identity durable on the entry
+(restored coherently), but keep the *allocator* host-side so it only ever moves
+forward across restores. After a restore, the next generation the runtime mints
+for any resource key strictly exceeds every generation any pre-restore in-flight
+reply could be carrying, so a stale reply's generation can never match a live
+entry's generation — collision is structurally impossible rather than
+probabilistically rare.
+
+This is deliberately the *opposite* discipline from machine spawn-ids
+([Spec 005 §Spawn-id allocator](../../spec/005-StateMachines.md#spawn-id-allocator--counter-location)),
+and the difference is principled. Spawn-id allocation is pure and re-derived from
+the restored snapshot during *deterministic replay*; recycling the same ids is
+intentional there because no spawn identity escapes the frame onto an
+uncancellable wire. A resource generation governs acceptance of a reply that
+*has* escaped the frame, so it must never be re-issued. The rule is: **an
+allocator whose identity can be carried by an out-of-frame, uncancellable
+continuation must never rewind; an allocator whose identities never leave the
+frame may be snapshot-local and replay-deterministic.** The work-ledger
+`:work/id` (which embeds the generation) inherits the same monotonicity: a
+restored ledger row's `:work/id` names a request that no longer exists, and a new
+attempt always mints a strictly-greater generation, so the two identities can
+never be confused.
+
+#### 2. In-flight work does not survive restore as live work
+
+Work-ledger rows describe attempts against the pre-restore timeline. On restore,
+every non-terminal row in the installed snapshot (`:queued` / `:running` /
+`:abort-requested`) references a request whose host handle no longer belongs to
+the restored timeline — the AbortController, timeout, and promise were never
+serialized and, after restore, are not the handles for the restored row. A
+restored non-terminal row is therefore **dangling**: it must not be treated as
+genuinely live work.
+
+On install, restore reconciles non-terminal rows as follows:
+
+- the row's `:work/id` is recorded as **dangling/superseded** (it can never again
+  match a live entry, because the generation allocator has moved past it per
+  part 1), and its host side-table slot is cleared;
+- the linked resource entry's `:current-work` pointer is cleared, because the
+  attempt it pointed at no longer exists;
+- the entry's `:status` settles to its last *stable* status from the restored
+  snapshot — `:loaded` if it has usable `:data`, `:error` if it was a failed
+  first load with no data, `:idle` if it never loaded — never left stranded in
+  `:loading` / `:fetching` pointing at a vanished request;
+- any pre-restore reply that subsequently lands (the on-the-wire continuation) is
+  suppressed by the ordinary work-id + generation check, because its identity is
+  now dangling. **No stale reply may mutate a post-restore entry.** This needs no
+  new mechanism: it is the mandatory stale-suppression boundary the EP already
+  requires, and part 1's monotonic allocator is what guarantees the dangling id
+  can never be re-minted.
+
+Whether the restored entry then *re-fetches* is a freshness decision (part 3),
+not an in-flight decision. Restore never silently continues old work; it settles
+the entry and lets policy decide whether new work starts.
+
+#### 3. Freshness after restore: lazy, not an eager refetch storm
+
+Restored entries carry absolute `:loaded-at` / `:stale-at` / `:invalidated-at`
+timestamps from the restored epoch. Against the live wall clock, a restore to an
+older epoch makes essentially everything restore *instantly stale*, and a restore
+to a future-relative epoch could make stale data look fresh. Two failure modes
+must be avoided: an **eager refetch storm** (every restored entry refetches at
+once, turning time-travel into a network thundering herd) and **silent
+acceptance of misleadingly-fresh timestamps**.
+
+The ruling, consistent with hydration (which faces the identical absolute-timestamp
+problem):
+
+- restore does **not** eagerly refetch. Freshness is evaluated lazily, the same
+  way hydration handles it: a restored entry renders its data immediately, and
+  refetches only on the next `ensure` from a live owner (route re-entry, focus/
+  reconnect revalidation, or an explicit event), gated by the entry's own
+  stale/fresh policy;
+- a restored entry with **no active owner** after restore is never refetched on
+  the strength of restore alone — it is subject to ordinary GC eligibility
+  (part 5);
+- absolute-timestamp ambiguity (a restored `:stale-at` that is implausible
+  against the live clock) is surfaced in a restore/hydration trace diagnostic,
+  exactly as clock skew is surfaced for SSR hydration, rather than silently
+  trusted;
+- this yields the desired property: **a restored epoch double-fetches nothing.**
+  No entry refetches merely because it was restored; refetch happens only when a
+  live cause demands it.
+
+#### 4. Owners revive or orphan by kind
+
+Restored `:active-owners` reference owner tokens from the pre-restore timeline.
+Whether a restored owner is *real* after restore depends on whether the thing it
+names is itself revertible:
+
+- **Machine owners** (`[:machine machine-id instance-id]`) revive. Machine
+  liveness is a pure function of the restored snapshot
+  ([Spec 005](../../spec/005-StateMachines.md)) — restoring frame-state restores
+  the machine and its instance id, so a machine owner the snapshot revives is a
+  genuine live lease again.
+- **Route owners** (`[:route route-id nav-token]`) revive **only if** the
+  restored routing state names the same live nav-token. Route state restores with
+  runtime-db ([EP-0001](EP-0001-frame-partitions.md)), and the active nav-token
+  (`:current`) is durable; but a restored route owner whose nav-token is not the
+  one the restored routing slice currently considers live is released as an
+  **orphan** rather than trusted (it is the resource analogue of the nav-token
+  supersession check).
+- **Lease/event owners** (`[:lease ...]`, `[:dashboard/opened ...]`) revive with
+  the snapshot, since they are recorded durably on the entry; their release path
+  is the same explicit `:rf.resource/release-owner` it always was.
+- **SSR owners** (`[:ssr request-id nav-token]`) do not survive a client-side
+  restore as live leases; they belong to a settled server render and are released
+  as orphans if present.
+
+Owner reconciliation runs on install: each restored owner is checked against the
+revived runtime state, surviving owners stay in `:active-owners` and the
+`:owner-index`, and orphaned owners are dropped with a trace row. This prevents a
+restored entry from being pinned alive (or refetched on focus/reconnect) by an
+owner that no longer exists.
+
+#### 5. Transient side tables and indexes are recomputed or cleared on install
+
+Two classes of state must be rebuilt rather than trusted across restore, both
+following established EP-0001 precedent.
+
+**Host transients are cleared, then recomputed on demand.** Stale timers, GC
+timers, AbortControllers, and transport promises are frame-scoped host handles
+that restore does not rebuild (EP-0001 decision 13). On install they are cleared
+for the affected frame; stale/GC scheduling is re-armed lazily from the restored
+entries' durable timestamps the next time the runtime touches each entry, exactly
+as [§Stale And GC Scheduling](#stale-and-gc-scheduling) already requires timers
+to be advisory and re-checked against durable facts. This mirrors EP-0001
+decision 12 (flow dirty-check caches are recomputed/cleared on restore) and the
+`rf2-egvm4t` precedent (spawned-actor marks are rehydrated from the restored
+snapshot on first dispatch rather than carried as a separate durable fact).
+
+**Indexes are recomputed from entries, never trusted from the snapshot.** The
+`:tag-index` and `:owner-index` are derived projections of the entries' `:tags`
+and `:active-owners`. They are declared **recomputable-from-entries**: on restore
+(and on SSR hydration) they are rebuilt from the installed `:entries` rather than
+read from the serialized snapshot, so a stale or partial index can never outlive
+the entries it describes (EP-0001 decision 13: runtime-db holds the serializable
+*facts* needed for restore; recomputable derivations are not durable truth, and
+EP-0006 derived rule 2: a mirror is a recomputable projection, never a second
+source of truth). This single rule then also serves SSR hydration: hydration
+likewise installs `:entries` and recomputes the indexes, so the durable wire
+payload need not carry them at all.
+
+#### Ledger row retention and identity
+
+Two ledger-design points are settled here because they directly govern what rides
+the restore/hydration/epoch wire.
+
+**Terminal ledger rows are pruned; the ledger is bounded.** Work records are
+created per attempt and reach a terminal status (`:completed` / `:failed` /
+`:timed-out` / `:suppressed` / `:cancelled`) with an outcome summary. Left
+unbounded, the ledger would be unbounded growth in serializable frame-state —
+worse than trace growth, because it rides SSR, hydration, and every epoch
+snapshot. The rule: a terminal row is **pruned on the linked entry's next
+successful transition**, with a small bounded per-resource-key tail retained only
+for Xray's recent-races view (the same bounded-history discipline the EP applies
+to traces). Hydration and epoch snapshots serialize only **non-terminal rows'
+summaries**; terminal rows are local Xray history, not durable wire payload. A
+restored snapshot therefore installs at most the bounded set of non-terminal
+rows, all of which part 2 immediately reconciles to dangling.
+
+**One identity per work record.** The work record must not carry both a
+`:work/id` `[:rf.work/resource resource-key generation]` and a near-duplicate
+`:stale-key` `[:resource resource-key generation]` that differ only in their head
+keyword while denormalizing the same `resource-key` + `generation` facts. That
+invites drift between two spellings of one identity — the precise one-carrier-one-name
+lesson of [EP-0002](EP-0002-frame-target-resolution.md) R3 and EP-0006 derived
+rule 2. **Stale suppression keys on `:work/id`**; the separate `:stale-key` is
+dropped. (If a future transport genuinely needs a transport-facing suppression
+token distinct from the internal work-id, it must be justified in the normative
+spec as a deliberate second identity, not left as an unexplained synonym.) This
+keeps the restore contract simple: there is exactly one identity per attempt to
+reconcile to dangling, and exactly one allocator (part 1) that must never rewind.
+
 ### Transport
 
 The initial scope ships with a single built-in transport:
@@ -2355,6 +2587,25 @@ Initial conformance fixtures should cover:
 - hydration no-double-fetch;
 - hydration omitted/redacted-data refetch behavior;
 - hydration scope isolation;
+- the `:tag-index` / `:owner-index` are recomputed from `:entries` on hydration
+  and never trusted from the serialized snapshot;
+- epoch restore settles non-terminal restored work-ledger rows to dangling,
+  clears the entry's `:current-work`, and settles the entry to its last stable
+  status;
+- the generation allocator is monotonic across restore: a post-restore
+  allocation strictly exceeds any pre-restore generation;
+- a pre-restore in-flight reply that lands after `restore-epoch` is suppressed by
+  the work-id + generation check and cannot mutate a post-restore entry;
+- restore does not eagerly refetch; restored entries refetch only on the next
+  live-owner `ensure`, and a restored epoch double-fetches nothing;
+- owner reconciliation on restore revives machine/route/lease owners that the
+  restored runtime state names live and orphans the rest (stale nav-tokens,
+  SSR owners);
+- host timers and abort handles are cleared on restore and re-armed lazily from
+  durable timestamps;
+- terminal work-ledger rows are pruned on the entry's next successful transition
+  and the ledger stays bounded across epoch/SSR snapshots;
+- stale suppression keys on `:work/id` (no separate `:stale-key` synonym);
 - frame isolation;
 - mutation patch/populate then invalidation;
 - cache growth and GC limits for list resources;
