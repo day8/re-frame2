@@ -467,42 +467,39 @@
   map — the projector / edge component then falls back to the bezier
   path."
   [elk-result]
-  (let [positions   (atom {})
-        edge-points (atom {})
-        ;; rf2-rlq97 — elk's COMPUTED edge-label positions (keyed by elk
-        ;; edge id), the label analogue of `:edge-points`. Empty under
-        ;; events-as-nodes (the transition text is on the event-node so
-        ;; edges carry no label for elk to place); populated for any
-        ;; labelled edge so the renderer reads elk's position rather than
-        ;; the geometric midpoint heuristic.
-        edge-labels (atom {})]
-    (letfn [(collect-edges! [^js node]
-              (let [edges (or (.-edges node) #js [])
-                    n     (alength edges)]
-                (dotimes [i n]
-                  (let [e   (aget edges i)
-                        pts (elk-edge-points e)
-                        lp  (elk-edge-label-pos e)]
-                    (when pts
-                      (swap! edge-points assoc (.-id e) pts))
-                    (when lp
-                      (swap! edge-labels assoc (.-id e) lp))))))
-            (walk! [^js node]
-              (collect-edges! node)
-              (let [children (or (.-children node) #js [])
-                    n        (alength children)]
-                (dotimes [i n]
-                  (let [c (aget children i)]
-                    (swap! positions assoc (.-id c)
-                           {:x      (or (.-x c) 0)
-                            :y      (or (.-y c) 0)
-                            :width  (or (.-width c) projection/state-node-min-width)
-                            :height (or (.-height c) projection/state-node-min-height)})
-                    (walk! c)))))]
-      (walk! elk-result))
-    {:positions   @positions
-     :edge-points @edge-points
-     :edge-labels @edge-labels}))
+  ;; Pure recursive walk threading a 3-key accumulator (rf2-crvxff —
+  ;; folded out three parallel `swap!`-accumulator atoms). `acc` carries
+  ;; `:positions` (node-id → box), `:edge-points` (edge-id → routed
+  ;; bend-points), and `:edge-labels` (edge-id → elk's COMPUTED label
+  ;; position; the label analogue of `:edge-points`, empty under
+  ;; events-as-nodes since the transition text rides on the event-NODE).
+  ;; `array-seq` lifts elk's JS `.children`/`.edges` arrays in index
+  ;; order so `assoc` last-write-wins ordering matches the old walk.
+  (letfn [(collect-edges [acc ^js node]
+            (reduce (fn [acc ^js e]
+                      (let [pts (elk-edge-points e)
+                            lp  (elk-edge-label-pos e)]
+                        (cond-> acc
+                          pts (assoc-in [:edge-points (.-id e)] pts)
+                          lp  (assoc-in [:edge-labels (.-id e)] lp))))
+                    acc
+                    (array-seq (or (.-edges node) #js []))))
+          (walk [acc ^js node]
+            ;; node's own edges first (matches the old walk!'s
+            ;; collect-edges!-then-recurse order), then each child:
+            ;; record its position, then walk it (which collects that
+            ;; child's edges + descends).
+            (reduce (fn [acc ^js c]
+                      (-> acc
+                          (assoc-in [:positions (.-id c)]
+                                    {:x      (or (.-x c) 0)
+                                     :y      (or (.-y c) 0)
+                                     :width  (or (.-width c) projection/state-node-min-width)
+                                     :height (or (.-height c) projection/state-node-min-height)})
+                          (walk c)))
+                    (collect-edges acc node)
+                    (array-seq (or (.-children node) #js []))))]
+    (walk {:positions {} :edge-points {} :edge-labels {}} elk-result)))
 
 ;; ---- error reporting (rf2-4lyvh) ----------------------------------------
 ;;
