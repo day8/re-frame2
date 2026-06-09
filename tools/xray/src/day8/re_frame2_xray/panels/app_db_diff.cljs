@@ -12,19 +12,24 @@
   The section model `app-db-diff-helpers/current-state-sections`
   produces drives the body:
 
-    - a TOP section — the app-db MINUS every reserved `:rf/*` key (the
-      user-domain app-db). Per spec/Conventions.md §Reserved app-db
-      keys the runtime owns ONE top-level slot, `:rf/runtime`, and any
-      `:rf.<subns>/*` keys the framework stashes at the root.
+    - a TOP section — the app-db MINUS every reserved `:rf*` key (the
+      user-domain app-db). Per spec/Conventions.md §Reserved namespaces
+      any `:rf/*` / `:rf.<subns>/*` key the framework stashes at the
+      app-db root is hidden from TOP.
     - one section per operator-facing runtime area (per the
       `runtime-areas` table — machines, routing, spawned, system-ids,
-      pending-navigation, elision — all nested under `:rf/runtime`).
-      Map-of-instances areas (`:rf/machines`, `:rf/spawned`) FAN OUT to
-      one named sub-section per instance (section title = the instance
-      id, e.g. `:title/flow`). Singleton slices (the current-route
-      slice at `[:rf/runtime :routing :current]` per spec/012 §The
-      `:rf/route` slice, and the rest) render as one section each.
-      Absent / empty areas still render, as an empty-state placeholder.
+      pending-navigation, elision), sourced from the SEPARATE runtime-db
+      partition (EP-0001 rf2-vzld77 / rf2-tj6w9l — the framework's durable
+      subsystem state moved out of app-db's `:rf/runtime` into the
+      `:rf.runtime/*` runtime-db roots; this panel reads it via
+      `:rf.xray/target-frame-runtime-db` + each focused epoch's runtime-db
+      pre/post-image, the same way the Machines inspector + Routing tab
+      do). Map-of-instances areas (`:rf/machines`, `:rf/spawned`) FAN OUT
+      to one named sub-section per instance (section title = the instance
+      id, e.g. `:title/flow`). Singleton slices (the current-route slice
+      at `[:rf.runtime/routing :current]` per spec/012 §The `:rf/route`
+      slice, and the rest) render as one section each. Absent / empty
+      areas are omitted (rf2-jcdvo).
 
   Values render through the canonical EDN widget's cljs-devtools
   current-state path (`views.edn-widget/inspect`), the same

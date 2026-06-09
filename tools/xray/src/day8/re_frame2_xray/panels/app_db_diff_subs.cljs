@@ -217,12 +217,26 @@
   ;;   with no diff overlay (unchanged from rf2-yng0y).
   (rf/reg-sub :rf.xray/app-db-current+diff
     :<- [:rf.xray/target-frame-db]
+    :<- [:rf.xray/target-frame-runtime-db]
     :<- [:rf.xray/epoch-history]
     :<- [:rf.xray/focus]
-    (fn [[db history focus] _query]
+    (fn [[db runtime-db history focus] _query]
       (let [epoch-id (:epoch-id focus)
             record   (when epoch-id (find-epoch-in-history history epoch-id))
-            before   (when record (:db-before record))]
+            before   (when record (:db-before record))
+            ;; EP-0001 (rf2-tj6w9l) — the reserved AREAS read the runtime-db
+            ;; PARTITION (machines / routing / elision moved there), so the
+            ;; section model needs the focused epoch's runtime-db value +
+            ;; pre-image too. The epoch record stores the WHOLE frame-state
+            ;; (`:frame-state-before` / `-after`, decision #2), each carrying
+            ;; the `:rf.db/runtime` partition; project it out so the runtime
+            ;; areas move per-epoch in lockstep with the app-db `:value` /
+            ;; `:before`. Cold boot / no focus → the LIVE runtime-db.
+            rt-value  (if record
+                        (get (:frame-state-after record) :rf.db/runtime)
+                        runtime-db)
+            rt-before (when record
+                        (get (:frame-state-before record) :rf.db/runtime))]
         {;; rf2-02j4r — `:value` is the focused epoch's `:db-after` (its
          ;; OWN post-state), so the inline diff is db-before(N) →
          ;; db-after(N) = epoch N's per-epoch delta, not the cumulative
@@ -233,37 +247,46 @@
          ;; `:value`, `:before` and `:epoch-id` all come from the SAME
          ;; record — they move together, never one-frame apart.
          :before   before
+         ;; The runtime-db partition value + pre-image for the focused
+         ;; epoch (the reserved areas' source post-EP-0001).
+         :runtime-value  rt-value
+         :runtime-before rt-before
          :epoch-id (when record epoch-id)})))
 
   ;; ---- rf2-okvit / rf2-ad7zx.11 — current-state section model ---------
   ;;
-  ;; Decomposes the atomic `{:value :before :epoch-id}` (above) into the
-  ;; section model `current-state-sections` produces: the TOP
-  ;; user-domain section (app-db minus reserved keys) + one section per
-  ;; reserved `:rf/*` area (machines/spawned fan out per instance; route
-  ;; + the other slices are singletons).
+  ;; Decomposes the atomic `{:value :before :runtime-value :runtime-before
+  ;; :epoch-id}` (above) into the section model `current-state-sections`
+  ;; produces: the TOP user-domain section (app-db minus reserved keys) +
+  ;; one section per reserved runtime subsystem (machines/spawned fan out
+  ;; per instance; route + the other slices are singletons).
   ;;
-  ;; The focused epoch's `:db-before` is threaded as the diff PRE-IMAGE
+  ;; EP-0001 (rf2-tj6w9l) — the TWO partitions feed two halves of the
+  ;; model: the app-db `:value` / `:before` drives the user-domain TOP
+  ;; section; the runtime-db `:runtime-value` / `:runtime-before` drives
+  ;; the reserved areas (machines / routing / elision moved to the
+  ;; runtime-db partition). Both move per focused-epoch in lockstep.
+  ;;
+  ;; The focused epoch's pre-images are threaded as the diff PRE-IMAGE
   ;; (spec/021 §4.3) so each section's changed nodes carry the inline
   ;; `← was X` annotation in place. Because this derives from the atomic
   ;; sub, the section model's `:before-top` / per-area `:before` slices
   ;; ALWAYS belong to the focused `:epoch-id` — no stale-`before`
   ;; intermediate frame (rf2-yng0y).
   ;;
-  ;; nil-safe — an absent / empty db yields an empty TOP + zero
+  ;; nil-safe — absent / empty partitions yield an empty TOP + zero
   ;; reserved-area entries (rf2-jcdvo — empty areas are filtered at
   ;; projection time so the renderer never draws placeholder cards).
   (rf/reg-sub :rf.xray/app-db-state
     :<- [:rf.xray/app-db-current+diff]
-    (fn [{:keys [value before]} _query]
-      ;; Diff-mode is entered iff a real pre-image is present, mirroring
-      ;; the pre-rf2-yng0y `(if-let [before (:db-before record)] …)`
-      ;; contract: an absent / nil `:db-before` (cold boot, or a record
-      ;; with no pre-image slot) renders plain current-state. The atomic
-      ;; sub carries `before` = the focused record's `:db-before` (or nil
-      ;; when no epoch is focused), so this preserves the exact prior
-      ;; diff/no-diff behaviour while inheriting the atomic sub's
-      ;; stale-`before`-free contract.
+    (fn [{:keys [value before runtime-value runtime-before]} _query]
+      ;; Diff-mode is entered iff a real app-db pre-image is present,
+      ;; mirroring the pre-rf2-yng0y `(if-let [before (:db-before record)]
+      ;; …)` contract: an absent / nil `:db-before` (cold boot, or a record
+      ;; with no pre-image slot) renders plain current-state. When diffing,
+      ;; the runtime areas diff against the SAME focused epoch's runtime-db
+      ;; pre-image.
       (if (some? before)
-        (h/current-state-sections value before)
-        (h/current-state-sections value)))))
+        (h/current-state-sections value runtime-value
+                                  {:app before :runtime runtime-before})
+        (h/current-state-sections value runtime-value)))))

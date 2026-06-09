@@ -106,6 +106,23 @@
   (frame/reg-frame :rf/default {})
   (rf/reset-frame-db! :rf/default db-value))
 
+(defn- seed-host-runtime-db!
+  "Install `runtime-db-value` into the host (:rf/default) frame's
+  RUNTIME-DB partition (EP-0001 rf2-tj6w9l — the App-DB panel sources its
+  reserved AREAS from the runtime-db partition via
+  `:rf.xray/target-frame-runtime-db`). A framework-authority
+  `reg-event-fx` returning the reserved `:rf.db/runtime` effect installs
+  the partition (the same path the machines / routing lifecycle-fx write);
+  `:rf/machine? true` marks it framework-authority so the runtime-write
+  diagnostic does not fire."
+  [runtime-db-value]
+  (frame/reg-frame :rf/default {})
+  (rf/reg-event-fx :rf.xray-test/seed-runtime-db
+    {:rf/machine? true}
+    (fn [_ _] {:rf.db/runtime runtime-db-value}))
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [:rf.xray-test/seed-runtime-db])))
+
 (defn- seed-xray!
   "Wire the Phase 5 sub graph + seed history + host-frame db. The
   test environment proxies the production wiring path (preload +
@@ -511,11 +528,13 @@
 (deftest panel-sections-reserved-areas
   (testing "reserved runtime subsystems render as their own sections:
             machines fan out one section per machine id; route is a
-            singleton. App-db lives under [:rf/runtime ...]."
-    (seed-host-frame! {:cart {:items [{:id 7}]}
-                       :rf/runtime {:routing  {:current {:id :app/cart}}
-                                    :machines {:snapshots {:auth       {:state :idle}
-                                                           :title/flow {:state :playing}}}}})
+            singleton. EP-0001 (rf2-tj6w9l): the runtime subsystems live
+            in the runtime-db partition at [:rf.runtime/...], NOT app-db's
+            retired :rf/runtime container."
+    (seed-host-frame! {:cart {:items [{:id 7}]}})
+    (seed-host-runtime-db! {:rf.runtime/routing  {:current {:id :app/cart}}
+                            :rf.runtime/machines {:snapshots {:auth       {:state :idle}
+                                                              :title/flow {:state :playing}}}})
     (registry/register-xray-handlers!)
     (frame/reg-frame :rf/xray {})
     (rf/with-frame :rf/xray

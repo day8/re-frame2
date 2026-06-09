@@ -149,60 +149,54 @@
 
 ;; ---- (3) reserved-keys partition ----------------------------------------
 ;;
-;; Per rf2-eguy4 phase-A the runtime owns ONE top-level slot — `:rf/runtime` —
-;; containing nested subsystem trees (`:machines :snapshots`, `:routing`,
-;; `:elision`, …). The panel still surfaces these as separate sections via
-;; the `runtime-areas` table; the reserved-keys partition now keys on the
-;; single `:rf/runtime` root.
+;; EP-0001 (rf2-vzld77 / rf2-tj6w9l): the runtime subsystems (machines /
+;; routing / elision) moved OUT of app-db's `:rf/runtime` container into a
+;; SEPARATE runtime-db partition keyed by the reserved `:rf.runtime/*`
+;; namespace. The App-DB panel surfaces them as sections via the
+;; `runtime-areas` table (now pointing into the runtime-db partition); the
+;; reserved-keys partition / `reserved-path?` now key on the reserved
+;; `:rf*` NAMESPACE family (a normal app-db diff triple is never reserved).
 
-(deftest reserved-app-db-keys-is-rf-runtime
-  (testing "reserved-app-db-keys contains the single :rf/runtime root
-            (per rf2-eguy4 phase-A)"
-    (is (= #{:rf/runtime} h/reserved-app-db-keys))))
+(deftest reserved-app-db-keys-is-empty-post-migration
+  (testing "EP-0001 (rf2-tj6w9l) — runtime subsystems moved to the
+            runtime-db partition, so app-db carries no reserved root key;
+            reserved-app-db-keys is empty"
+    (is (= #{} h/reserved-app-db-keys))))
 
-(deftest runtime-areas-covers-the-six-subsystems
+(deftest runtime-areas-covers-the-six-subsystems-in-runtime-db
   (testing "runtime-areas maps each operator-facing area-id to its
-            sub-path under :rf/runtime (per spec/Conventions.md
-            §Reserved app-db keys + rf2-eguy4 phase-A)"
-    (is (= [:rf/runtime :machines :snapshots]        (get h/runtime-areas :rf/machines)))
-    (is (= [:rf/runtime :machines :spawned]          (get h/runtime-areas :rf/spawned)))
-    (is (= [:rf/runtime :machines :system-ids]       (get h/runtime-areas :rf/system-ids)))
-    (is (= [:rf/runtime :routing :current]           (get h/runtime-areas :rf/route)))
-    (is (= [:rf/runtime :routing :pending-navigation] (get h/runtime-areas :rf/pending-navigation)))
-    (is (= [:rf/runtime :elision]                    (get h/runtime-areas :rf/elision)))))
+            sub-path under the RUNTIME-DB partition's reserved
+            :rf.runtime/* roots (EP-0001 rf2-vzld77 / rf2-tj6w9l)"
+    (is (= [:rf.runtime/machines :snapshots]         (get h/runtime-areas :rf/machines)))
+    (is (= [:rf.runtime/machines :spawned]           (get h/runtime-areas :rf/spawned)))
+    (is (= [:rf.runtime/machines :system-ids]        (get h/runtime-areas :rf/system-ids)))
+    (is (= [:rf.runtime/routing :current]            (get h/runtime-areas :rf/route)))
+    (is (= [:rf.runtime/routing :pending-navigation] (get h/runtime-areas :rf/pending-navigation)))
+    (is (= [:rf.runtime/elision]                     (get h/runtime-areas :rf/elision)))
+    ;; The OLD app-db `:rf/runtime` paths are GONE (the executable check
+    ;; for the stale-path regression rf2-tj6w9l flagged).
+    (is (not (some (fn [p] (= :rf/runtime (first p))) (vals h/runtime-areas)))
+        "no runtime-area path roots in the retired app-db :rf/runtime container")))
 
-(deftest reserved-path-true-for-rf-runtime-root
-  (testing "reserved-path? returns true when the first path key is :rf/runtime"
-    (is (true?  (h/reserved-path? [:rf/runtime :machines :snapshots :auth])))
-    (is (true?  (h/reserved-path? [:rf/runtime :routing :current])))
-    (is (true?  (h/reserved-path? [:rf/runtime])))
+(deftest reserved-path-true-for-reserved-namespace-root
+  (testing "reserved-path? catches the reserved :rf*-namespace family; a
+            normal app-db triple is never reserved (EP-0001 rf2-tj6w9l —
+            runtime subsystems no longer live in app-db)"
+    (is (true?  (h/reserved-path? [:rf/runtime :machines])) ":rf/* root")
+    (is (true?  (h/reserved-path? [:rf.machine/foo])) ":rf.<subns>/* root")
     (is (false? (h/reserved-path? [:cart :items])))
-    (is (false? (h/reserved-path? [:rf/machines :auth]))
-        "post rf2-eguy4 the OLD direct :rf/machines root is not a path consumers should emit")
+    (is (false? (h/reserved-path? [:user :name]))
+        "an ordinary user-domain app-db path is not reserved")
     (is (false? (h/reserved-path? [])))
     (is (false? (h/reserved-path? nil)))))
 
-(deftest partition-reserved-splits-the-vector
-  (testing "partition-reserved separates :rf/runtime-rooted triples from the rest"
-    (let [triples [{:op :modified :path [:cart :items] :before [] :after [1]}
-                   {:op :added    :path [:rf/runtime :routing :current] :before nil :after {:id :home}}
-                   {:op :modified :path [:user :name] :before "ada" :after "ben"}
-                   {:op :modified :path [:rf/runtime :machines :snapshots :auth]
-                    :before {} :after {:state :idle}}]
-          {:keys [reserved non-reserved]}
-          (h/partition-reserved triples)]
-      (is (= 2 (count reserved)))
-      (is (= 2 (count non-reserved)))
-      (is (every? #(h/reserved-path? (:path %)) reserved))
-      (is (every? #(not (h/reserved-path? (:path %))) non-reserved)))))
-
 (deftest reserved-summary-renders-current-runtime-subsystems
   (testing "reserved-summary projects populated runtime subsystem
-            sub-paths into [:area-id value] pairs, sorted by area-id"
-    (let [db {:user "ada"
-              :rf/runtime {:routing  {:current {:id :app/home}}
-                           :machines {:snapshots {:auth-id {:state :idle}}}}}
-          summary (h/reserved-summary db)
+            sub-paths out of the RUNTIME-DB partition value into
+            [:area-id value] pairs, sorted by area-id (EP-0001 rf2-tj6w9l)"
+    (let [runtime-db {:rf.runtime/routing  {:current {:id :app/home}}
+                      :rf.runtime/machines {:snapshots {:auth-id {:state :idle}}}}
+          summary (h/reserved-summary runtime-db)
           ks      (mapv first summary)]
       (is (= [:rf/machines :rf/route] ks)
           "sorted; only logical areas with a live value are surfaced")
@@ -210,14 +204,34 @@
               [:rf/route {:id :app/home}]]
              summary)))))
 
-;; ---- (3b) current-state sectioning (rf2-okvit) --------------------------
+(deftest partition-reserved-splits-on-reserved-namespace
+  (testing "partition-reserved separates triples whose path roots in the
+            reserved :rf* namespace family from the rest (EP-0001
+            rf2-tj6w9l — a normal app-db triple is non-reserved)"
+    (let [triples [{:op :modified :path [:cart :items] :before [] :after [1]}
+                   {:op :modified :path [:user :name] :before "ada" :after "ben"}
+                   {:op :added    :path [:rf.machine/transient :x] :before nil :after 1}]
+          {:keys [reserved non-reserved]}
+          (h/partition-reserved triples)]
+      (is (= 1 (count reserved)) "only the :rf.machine/* triple is reserved")
+      (is (= 2 (count non-reserved)) "the two user-domain triples are not")
+      (is (every? #(h/reserved-path? (:path %)) reserved))
+      (is (every? #(not (h/reserved-path? (:path %))) non-reserved)))))
+
+;; ---- (3b) current-state sectioning (rf2-okvit; EP-0001 rf2-tj6w9l) -------
 ;;
 ;; The app-db tab is a CURRENT-STATE inspector. `current-state-sections`
-;; splits the live app-db into:
+;; splits the frame's TWO partitions into:
 ;;   - TOP: app-db MINUS reserved keys (user-domain). ALWAYS present.
-;;   - one section per POPULATED reserved `:rf/*` area: machines/spawned
-;;     fan out one entry per instance id; route + the other slices are
-;;     singletons.
+;;   - one section per POPULATED reserved runtime area, read from the
+;;     SEPARATE runtime-db partition at the `:rf.runtime/*` paths:
+;;     machines/spawned fan out one entry per instance id; route + the
+;;     other slices are singletons.
+;;
+;; EP-0001 (rf2-tj6w9l): the runtime subsystems moved out of app-db's
+;; `:rf/runtime` into the runtime-db partition. The signature is now
+;; `(current-state-sections app-db runtime-db [before])` — the TOP reads
+;; app-db, the areas read runtime-db at `:rf.runtime/*`.
 ;;
 ;; rf2-jcdvo — empty / absent reserved areas are FILTERED at projection
 ;; time (omitted from `:areas` entirely). The renderer never draws
@@ -229,41 +243,39 @@
   (some (fn [a] (when (= area (:area a)) a)) (:areas model)))
 
 (deftest user-domain-db-strips-reserved-keys
-  (testing "user-domain-db drops every reserved :rf/*-namespaced key,
-            keeps the rest. Post rf2-eguy4 the single `:rf/runtime`
-            container holds the machine / routing / elision subtrees
-            and is filtered along with any other framework-internal
-            `:rf*` keys."
+  (testing "user-domain-db drops every reserved :rf*-namespaced key from
+            app-db, keeps the rest. Post EP-0001 the runtime subsystems
+            no longer live in app-db; this filter still hides any
+            framework-internal `:rf*` key a host stashes at the app-db
+            root."
     (is (= {:cart {:items []} :user "ada"}
            (h/user-domain-db {:cart {:items []}
                               :user "ada"
-                              :rf/runtime {:machines {:snapshots {:m {}}}
-                                           :routing  {:current {:id :home}}
-                                           :elision  {}}})))
+                              :rf.machine/transient {:x 1}})))
     (is (= {} (h/user-domain-db nil)) "nil db → empty map")
-    (is (= {} (h/user-domain-db {:rf/runtime {:routing {:current {:id :home}}}}))
+    (is (= {} (h/user-domain-db {:rf.machine/transient {:x 1}}))
         "reserved-keys-only db → empty user-domain map")))
 
 (deftest current-state-sections-top-is-user-domain
-  (testing "the :top section is the app-db minus the :rf/runtime container"
-    (let [db {:counter 5
-              :user {:name "ada"}
-              :rf/runtime {:routing {:current {:id :app/home}}}}
-          model (h/current-state-sections db)]
+  (testing "the :top section is the app-db minus any reserved :rf* key;
+            the runtime-db partition does NOT contribute to TOP"
+    (let [model (h/current-state-sections
+                  {:counter 5 :user {:name "ada"}}
+                  {:rf.runtime/routing {:current {:id :app/home}}})]
       (is (= {:counter 5 :user {:name "ada"}} (:top model))
-          ":top excludes the :rf/runtime container"))))
+          ":top is the user-domain app-db (runtime-db is the areas' source)"))))
 
 (deftest current-state-sections-enumerates-only-populated-areas
   (testing "rf2-jcdvo — :areas contains ONLY populated runtime
-            subsystems; empty / absent subsystems are omitted entirely
-            (no placeholder cards in the rendered panel)"
-    (let [model (h/current-state-sections {:counter 1})]
+            subsystems (read from runtime-db); empty / absent subsystems
+            are omitted entirely (no placeholder cards in the panel)"
+    (let [model (h/current-state-sections {:counter 1} {})]
       (is (= [] (:areas model))
-          "a user-domain-only db produces zero reserved-area entries"))
+          "an empty runtime-db produces zero reserved-area entries"))
     (let [model (h/current-state-sections
-                  {:counter 1
-                   :rf/runtime {:routing  {:current {:id :home}}
-                                :machines {:snapshots {:auth {:state :idle}}}}})
+                  {:counter 1}
+                  {:rf.runtime/routing  {:current {:id :home}}
+                   :rf.runtime/machines {:snapshots {:auth {:state :idle}}}})
           areas (set (map :area (:areas model)))]
       (is (= #{:rf/machines :rf/route} areas)
           "only the two populated areas appear; the other four reserved
@@ -274,10 +286,11 @@
 (deftest current-state-sections-machines-fan-out-one-per-instance
   (testing ":rf/machines fans out to one instance entry per machine id —
             section title = the machine id, NOT a single combined blob.
-            The snapshots map lives at [:rf/runtime :machines :snapshots]."
-    (let [db {:rf/runtime {:machines {:snapshots {:title/flow {:state :playing}
-                                                  :auth       {:state :idle}}}}}
-          area (area-by (h/current-state-sections db) :rf/machines)]
+            The snapshots map lives at [:rf.runtime/machines :snapshots]
+            in the runtime-db partition (EP-0001 rf2-tj6w9l)."
+    (let [runtime-db {:rf.runtime/machines {:snapshots {:title/flow {:state :playing}
+                                                        :auth       {:state :idle}}}}
+          area (area-by (h/current-state-sections {} runtime-db) :rf/machines)]
       (is (= :instances (:kind area)))
       (is (false? (:empty? area)))
       (is (= 2 (count (:instances area))))
@@ -290,9 +303,9 @@
 
 (deftest current-state-sections-spawned-fans-out-per-parent
   (testing ":rf/spawned (map-of-instances by parent id) lives at
-            [:rf/runtime :machines :spawned] and fans out per parent"
-    (let [db {:rf/runtime {:machines {:spawned {:parent-a {:invoke-1 :spawned-x}}}}}
-          area (area-by (h/current-state-sections db) :rf/spawned)]
+            [:rf.runtime/machines :spawned] and fans out per parent"
+    (let [runtime-db {:rf.runtime/machines {:spawned {:parent-a {:invoke-1 :spawned-x}}}}
+          area (area-by (h/current-state-sections {} runtime-db) :rf/spawned)]
       (is (= :instances (:kind area)))
       (is (= [:parent-a] (mapv :id (:instances area)))))))
 
@@ -300,22 +313,22 @@
   (testing "rf2-jcdvo — an absent OR present-but-empty :rf/machines
             registry is OMITTED from :areas entirely; no placeholder
             card reaches the renderer"
-    (is (nil? (area-by (h/current-state-sections {:counter 1}) :rf/machines))
-        "absent :rf/machines → no area entry")
+    (is (nil? (area-by (h/current-state-sections {:counter 1} {}) :rf/machines))
+        "absent :rf.runtime/machines → no area entry")
     (is (nil? (area-by (h/current-state-sections
-                         {:rf/runtime {:machines {:snapshots {}}}})
+                         {} {:rf.runtime/machines {:snapshots {}}})
                        :rf/machines))
         "present-but-empty registry → no area entry")))
 
 (deftest current-state-sections-route-is-singleton
-  (testing ":rf/route (logical area for [:rf/runtime :routing :current])
+  (testing ":rf/route (logical area for [:rf.runtime/routing :current])
             is a SINGLE current-route slice → :singleton kind, one
             section carrying the slice value"
     (let [route {:id :app/article :params {:id "A"}
                  :query {} :fragment nil :transition :idle
                  :error nil :nav-token "nav-1"}
           area  (area-by (h/current-state-sections
-                           {:rf/runtime {:routing {:current route}}})
+                           {} {:rf.runtime/routing {:current route}})
                          :rf/route)]
       (is (= :singleton (:kind area)))
       (is (false? (:empty? area)))
@@ -325,24 +338,25 @@
 (deftest current-state-sections-absent-route-is-omitted
   (testing "rf2-jcdvo — an absent :rf/route is OMITTED from :areas
             entirely; no placeholder card reaches the renderer"
-    (is (nil? (area-by (h/current-state-sections {:counter 1}) :rf/route))
-        "absent :rf/route → no area entry")))
+    (is (nil? (area-by (h/current-state-sections {:counter 1} {}) :rf/route))
+        "absent :rf.runtime/routing → no area entry")))
 
 (deftest current-state-sections-empty-singleton-collection-is-omitted
-  (testing "rf2-jcdvo — a present-but-empty singleton collection
-            (e.g. {} pending-nav at [:rf/runtime :routing :pending-navigation])
-            is OMITTED from :areas entirely"
+  (testing "rf2-jcdvo — a present-but-empty singleton collection (e.g. {}
+            pending-nav at [:rf.runtime/routing :pending-navigation]) is
+            OMITTED from :areas entirely"
     (is (nil? (area-by (h/current-state-sections
-                         {:rf/runtime {:routing {:pending-navigation {}}}})
+                         {} {:rf.runtime/routing {:pending-navigation {}}})
                        :rf/pending-navigation))
         "{} pending-navigation → no area entry")))
 
 (deftest current-state-sections-nil-and-empty-db-safe
-  (testing "rf2-jcdvo — nil-safe: nil / empty db yields an empty TOP +
-            ZERO reserved-area entries (every reserved area is empty so
-            every entry is filtered out)"
-    (doseq [db [nil {}]]
-      (let [model (h/current-state-sections db)]
+  (testing "rf2-jcdvo — nil-safe: nil / empty partitions yield an empty
+            TOP + ZERO reserved-area entries (every reserved area is empty
+            so every entry is filtered out)"
+    (doseq [app-db [nil {}]
+            rt     [nil {}]]
+      (let [model (h/current-state-sections app-db rt)]
         (is (= {} (:top model)))
         (is (= [] (:areas model))
             "no reserved-area entries — every reserved slot is empty so
@@ -352,60 +366,63 @@
   (testing "areas render in `reserved-area-order` — machines + spawned
             (the registries) lead, then the singleton slices. With every
             runtime subsystem populated, all six appear in canonical
-            order. Underlying app-db lives at [:rf/runtime …]."
-    (let [db    {:rf/runtime {:machines {:snapshots  {:auth {:state :idle}}
-                                         :spawned    {:parent {:invoke :child}}
-                                         :system-ids #{:app}}
-                              :routing  {:current             {:id :home}
-                                         :pending-navigation  {:to :next}}
-                              :elision  {:declarations {}}}}
-          model (h/current-state-sections db)]
+            order. The underlying values live at [:rf.runtime/…] in the
+            runtime-db partition (EP-0001 rf2-tj6w9l)."
+    (let [runtime-db {:rf.runtime/machines {:snapshots  {:auth {:state :idle}}
+                                            :spawned    {:parent {:invoke :child}}
+                                            :system-ids #{:app}}
+                      :rf.runtime/routing  {:current             {:id :home}
+                                            :pending-navigation  {:to :next}}
+                      :rf.runtime/elision  {:declarations {}}}
+          model (h/current-state-sections {} runtime-db)]
       (is (= h/reserved-area-order (mapv :area (:areas model)))))))
 
 ;; ---- inline-diff section model (spec/021 §4.3, rf2-ad7zx.11) -------------
 ;;
-;; The 2-arity `current-state-sections` threads a `db-before` pre-image
-;; so each section carries a `:before` slice for the inline `← changed`
-;; annotation. The 1-arity form (no pre-image) tags every section with
-;; the `no-diff` sentinel so the renderer falls back to plain
+;; The 3-arity `current-state-sections` threads a `{:app .. :runtime ..}`
+;; before-image so each section carries a `:before` slice for the inline
+;; `← changed` annotation. The 2-arity form (no pre-image) tags every
+;; section with the `no-diff` sentinel so the renderer falls back to plain
 ;; current-state.
 
-(deftest current-state-sections-1-arity-is-no-diff-everywhere
-  (testing "the 1-arity form tags TOP + every section with the no-diff
+(deftest current-state-sections-2-arity-is-no-diff-everywhere
+  (testing "the 2-arity form tags TOP + every section with the no-diff
             sentinel (renderer renders plain current-state, no annotation)"
     (let [model (h/current-state-sections
-                  {:counter 1
-                   :rf/runtime {:routing  {:current {:id :home}}
-                                :machines {:snapshots {:title/flow {:state :idle}}}}})]
+                  {:counter 1}
+                  {:rf.runtime/routing  {:current {:id :home}}
+                   :rf.runtime/machines {:snapshots {:title/flow {:state :idle}}}})]
       (is (= h/no-diff (:before-top model)) "TOP carries the no-diff sentinel")
       (doseq [a (:areas model)]
         (if (= :instances (:kind a))
           (doseq [inst (:instances a)]
             (is (= h/no-diff (:before inst))
-                "each instance no-diff in 1-arity"))
+                "each instance no-diff in 2-arity"))
           (is (= h/no-diff (:before a))
-              "each singleton no-diff in 1-arity"))))))
+              "each singleton no-diff in 2-arity"))))))
 
-(deftest current-state-sections-2-arity-top-before-is-prior-user-domain
-  (testing ":before-top is the user-domain slice of db-before (the
-            :rf/runtime container stripped), so the TOP section diffs old → new"
-    (let [before {:counter 1 :rf/runtime {:routing {:current {:id :home}}}}
-          after  {:counter 2 :rf/runtime {:routing {:current {:id :home}}}}
-          model  (h/current-state-sections after before)]
+(deftest current-state-sections-3-arity-top-before-is-prior-user-domain
+  (testing ":before-top is the user-domain slice of the app-db pre-image,
+            so the TOP section diffs old → new"
+    (let [model (h/current-state-sections
+                  {:counter 2}          ;; app-db now
+                  {}                     ;; runtime-db now
+                  {:app {:counter 1} :runtime {}})]
       (is (= {:counter 1} (:before-top model))
-          ":before-top excludes the :rf/runtime container, matching :top's shape")
+          ":before-top is the prior user-domain app-db")
       (is (= {:counter 2} (:top model))))))
 
-(deftest current-state-sections-2-arity-instance-before-is-prior-snapshot
+(deftest current-state-sections-3-arity-instance-before-is-prior-snapshot
   (testing "each machine instance carries its prior snapshot as :before;
             an instance absent before-cascade gets the `added` sentinel
-            (rf2-227cz — the freshly-created machine must light up
-            :added, NOT render plain like an unchanged one). Snapshots
-            live at [:rf/runtime :machines :snapshots]."
-    (let [before {:rf/runtime {:machines {:snapshots {:title/flow {:state :idle}}}}}
-          after  {:rf/runtime {:machines {:snapshots {:title/flow {:state :loaded}
-                                                       :auth       {:state :idle}}}}}
-          area   (area-by (h/current-state-sections after before) :rf/machines)
+            (rf2-227cz). Snapshots live at [:rf.runtime/machines
+            :snapshots] in the runtime-db pre/post-image."
+    (let [rt-before {:rf.runtime/machines {:snapshots {:title/flow {:state :idle}}}}
+          rt-after  {:rf.runtime/machines {:snapshots {:title/flow {:state :loaded}
+                                                       :auth       {:state :idle}}}}
+          area   (area-by (h/current-state-sections {} rt-after
+                                                    {:app {} :runtime rt-before})
+                          :rf/machines)
           flow   (some #(when (= :title/flow (:id %)) %) (:instances area))
           auth   (some #(when (= :auth (:id %)) %) (:instances area))]
       (is (= {:state :idle} (:before flow))
@@ -415,13 +432,15 @@
           "rf2-227cz — a freshly-spawned machine (absent in before) is
            the `added` sentinel, not `no-diff`"))))
 
-(deftest current-state-sections-2-arity-singleton-before-is-prior-slice
-  (testing "a singleton slice carries its prior value as :before; an
-            absent-before singleton gets the `added` sentinel (rf2-227cz)"
-    (let [before {:rf/runtime {:routing {:current {:id :home}}}}
-          after  {:rf/runtime {:routing  {:current {:id :cart}}
-                               :machines {:system-ids #{:app}}}}
-          model  (h/current-state-sections after before)
+(deftest current-state-sections-3-arity-singleton-before-is-prior-slice
+  (testing "a singleton slice carries its prior runtime-db value as
+            :before; an absent-before singleton gets the `added` sentinel
+            (rf2-227cz)"
+    (let [rt-before {:rf.runtime/routing {:current {:id :home}}}
+          rt-after  {:rf.runtime/routing  {:current {:id :cart}}
+                     :rf.runtime/machines {:system-ids #{:app}}}
+          model  (h/current-state-sections {} rt-after
+                                           {:app {} :runtime rt-before})
           route  (area-by model :rf/route)
           sysids (area-by model :rf/system-ids)]
       (is (= {:id :home} (:before route)) "route diffs old → new")
@@ -430,16 +449,17 @@
           "rf2-227cz — system-ids absent before-cascade → `added`
            (the slice appeared this epoch), not `no-diff`"))))
 
-(deftest current-state-sections-2-arity-nil-before-db-safe
-  (testing "a nil db-before (boot epoch — every slot is newly added) is
-            handled: before-db degrades to {}; an absent singleton slot
-            classifies `added` (rf2-227cz — the route slot appeared this
-            epoch)"
+(deftest current-state-sections-3-arity-nil-before-safe
+  (testing "a nil before-image map (boot epoch — every slot is newly
+            added) is handled: app/runtime befores degrade to {}; an
+            absent singleton slot classifies `added` (rf2-227cz — the
+            route slot appeared this epoch)"
     (let [model (h/current-state-sections
-                  {:counter 1 :rf/runtime {:routing {:current {:id :home}}}}
-                  nil)]
-      ;; nil db-before still flips diff? on (no-diff sentinel is the ONLY
-      ;; way to opt out), so the user-domain before is {} not the sentinel.
+                  {:counter 1}
+                  {:rf.runtime/routing {:current {:id :home}}}
+                  {:app nil :runtime nil})]
+      ;; A present (non-no-diff) before-image flips diff? on, so the
+      ;; user-domain before is {} (not the sentinel).
       (is (= {} (:before-top model)))
       (is (= h/added (:before (area-by model :rf/route)))
           "rf2-227cz — an added route slot (absent before) → `added`,

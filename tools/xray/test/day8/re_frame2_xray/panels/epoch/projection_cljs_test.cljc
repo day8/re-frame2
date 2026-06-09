@@ -1378,6 +1378,131 @@
                    :source-state :idle}))
           "missing event-id → nil (the source-key cannot be built)"))))
 
+;; ---- rf2-lai1qv — EXACT transition spec-path for inline source ----------
+;;
+;; The substrate now stamps the selected transition's exact spec-path
+;; DISCRIMINATOR (`:transition-slot`) on the `:rf.machine/action-ran`
+;; trace; `action-cascade-row` carries it onto the row and
+;; `cascade-row-source-key` builds the precise inline-source slot from it —
+;; addressing the candidate index, the `:after` delay-key, and the
+;; root-vs-state distinction the reconstruct-from-phase fallback could not.
+
+(deftest transition-slot->spec-prefix-test
+  (testing "rf2-lai1qv — the discriminator → inline-source spec-path PREFIX
+            covers every selection form"
+    ;; Single-map :on (index-free, matching the macro's bare-slot keying).
+    (is (= [:states :idle :on :submit]
+           (fmt/transition-slot->spec-prefix
+             {:slot :on :event-key :submit :decl-path [:idle] :candidate-idx nil})))
+    ;; Multi-candidate VECTOR :on carries the matched index.
+    (is (= [:states :a :states :b :on :go 2]
+           (fmt/transition-slot->spec-prefix
+             {:slot :on :event-key :go :decl-path [:a :b] :candidate-idx 2})))
+    ;; Root / parallel-root :on lives OUTSIDE :states (no :states prefix).
+    (is (= [:on :logout]
+           (fmt/transition-slot->spec-prefix
+             {:slot :on :event-key :logout :decl-path [] :root? true})))
+    ;; :always — index-free single-map AND nonzero vector candidate.
+    (is (= [:states :loading :always]
+           (fmt/transition-slot->spec-prefix
+             {:slot :always :decl-path [:loading] :candidate-idx nil})))
+    (is (= [:states :loading :always 1]
+           (fmt/transition-slot->spec-prefix
+             {:slot :always :decl-path [:loading] :candidate-idx 1})))
+    ;; :after — addresses the exact delay-key slot.
+    (is (= [:states :idle :after 1000]
+           (fmt/transition-slot->spec-prefix
+             {:slot :after :delay-key 1000 :decl-path [:idle] :candidate-idx nil})))
+    ;; Unrecognised / empty discriminator → nil (caller falls back).
+    (is (nil? (fmt/transition-slot->spec-prefix {})))
+    (is (nil? (fmt/transition-slot->spec-prefix
+                {:slot :on :decl-path [:idle]}))
+        ":on with no event-key cannot build a slot path")))
+
+(deftest cascade-row-source-key-candidate-vector-on-action-test
+  (testing "rf2-lai1qv — an inline `:action` on a multi-candidate `:on`
+            VECTOR resolves to the EXACT matched-candidate index, not the
+            reconstruct-from-phase index-0 / index-free shape"
+    (let [inline-fn (fn [_] {})]
+      (is (= [:states :idle :on :submit 2 :action]
+             (fmt/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :transition
+                :source-state :idle :event-id :submit
+                :transition-slot {:slot :on :event-key :submit
+                                  :decl-path [:idle] :candidate-idx 2}}))
+          "the carried discriminator's index (2) wins over the phase fallback")
+      ;; Without the discriminator the legacy reconstruction still applies
+      ;; (single-map / index-free shape).
+      (is (= [:states :idle :on :submit :action]
+             (fmt/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :transition
+                :source-state :idle :event-id :submit}))
+          "no discriminator → reconstruct-from-phase fallback"))))
+
+(deftest cascade-row-source-key-candidate-vector-on-guard-test
+  (testing "rf2-lai1qv — an inline `:guard` on a candidate-vector `:on`
+            resolves via an EXACT carried `:spec-path` (the substrate may
+            stamp it on the guard-evaluated trace)"
+    (let [inline-fn (fn [_] true)]
+      (is (= [:states :idle :on :submit 1 :guard]
+             (fmt/cascade-row-source-key
+               {:kind :guard :guard-id inline-fn
+                :source-state :idle :event-id :submit
+                :spec-path [:states :idle :on :submit 1 :guard]}))
+          "the carried exact :spec-path wins over reconstruction")
+      (is (= [:states :idle :on :submit :guard]
+             (fmt/cascade-row-source-key
+               {:kind :guard :guard-id inline-fn
+                :source-state :idle :event-id :submit}))
+          "no carried :spec-path → reconstruct-from-state+event fallback"))))
+
+(deftest cascade-row-source-key-after-action-test
+  (testing "rf2-lai1qv — an inline `:after` `:action` resolves to the EXACT
+            `[:states <s> :after <delay-key>]` slot (the delay-key the
+            reconstruct-from-phase path could not name)"
+    (let [inline-fn (fn [_] {})]
+      (is (= [:states :idle :after 1000 :action]
+             (fmt/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :after-action
+                :source-state :idle
+                :transition-slot {:slot :after :delay-key 1000
+                                  :decl-path [:idle] :candidate-idx nil}}))
+          "the carried delay-key (1000) addresses the exact :after slot")
+      ;; Legacy fallback: a row with no discriminator lands on the bare
+      ;; `[:states <s> :after :action]` (delay-key unknown).
+      (is (= [:states :idle :after :action]
+             (fmt/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :after-action
+                :source-state :idle}))
+          "no discriminator → reconstruct-from-phase fallback (no delay-key)"))))
+
+(deftest cascade-row-source-key-always-nonzero-candidate-test
+  (testing "rf2-lai1qv — an inline `:always` `:action` on a multi-candidate
+            VECTOR resolves to the EXACT nonzero candidate index, not the
+            index-free / index-0 shape"
+    (let [inline-fn (fn [_] {})]
+      (is (= [:states :loading :always 1 :action]
+             (fmt/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :always
+                :source-state :loading
+                :transition-slot {:slot :always :decl-path [:loading]
+                                  :candidate-idx 1}}))
+          "the carried candidate index (1) wins over the index-free fallback"))))
+
+(deftest cascade-row-source-key-root-on-fallback-test
+  (testing "rf2-lai1qv — a root / parallel-root `:on` `:action` (decl-path
+            []) resolves to a root-relative `[:on <event>]` slot OUTSIDE
+            `:states` — the reconstruct path's `:states`-prefixed shape was
+            wrong for a root transition"
+    (let [inline-fn (fn [_] {})]
+      (is (= [:on :logout :action]
+             (fmt/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :transition
+                :source-state :auth :event-id :logout
+                :transition-slot {:slot :on :event-key :logout
+                                  :decl-path [] :root? true :candidate-idx nil}}))
+          "root :on resolves to [:on :logout :action], no :states prefix"))))
+
 (deftest cascade-row-source-key-transition-row-test
   (testing "rf2-wwc3j — `:transition` row resolves to `[:states <src>
             :on <event>]` so the click-through opens the transition map

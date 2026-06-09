@@ -531,6 +531,78 @@
     (map? v)                        [v]
     :else (throw (ex-info (str bad-value-id) {:value v}))))
 
+(defn- candidate-vector-form?
+  "True iff `v` is the multi-candidate VECTOR form (`[{…} {…}]`) — the
+  only value-form the inline-source macro keys per-INDEX (single-map /
+  keyword / vector-target forms are keyed at the bare slot path). Used to
+  decide whether the selected candidate's index is meaningful for the
+  spec-path discriminator (rf2-lai1qv): for the index-free forms the
+  carried `:candidate-idx` is nil so `cascade-row-source-key` emits the
+  bare-slot shape that matches the macro's keying. Mirrors the
+  vector-of-maps arm of `normalise-candidates`."
+  [v]
+  (boolean (and (vector? v) (seq v) (every? map? v))))
+
+(defn- transition-slot
+  "Build the structured spec-path DISCRIMINATOR (rf2-lai1qv) carried on a
+  selected transition under `:rf/transition-slot`, so the Xray cascade
+  rows can address the EXACT inline-source spec-path slot rather than
+  reconstructing it from `source-state` / `event` / `phase` (which loses
+  the candidate index, the `:after` delay-key, and the root-vs-state
+  distinction). Pure data; substrate-side so it stays free of the
+  Xray-side `:states`-interleaved spec-path encoding (the tool builds the
+  spec-path FROM this discriminator).
+
+    {:decl-path     <state-path-vector or []>   ;; [] = root / parallel-root :on
+     :slot          :on | :always | :after
+     :event-key     <matched :on key, else nil> ;; exact / :ns/* / :* key
+     :delay-key     <:after delay key, else nil>
+     :candidate-idx <int or nil>                ;; nil = index-free (single-map / kw / vec-target)
+     :root?         <bool>}                      ;; true iff decl-path is []
+
+  `raw-value` is the RAW table value at the matched slot (the `:on <key>`
+  clause value, the `:always` value, or the `:after <delay>` value) —
+  only its vector-of-candidates shape decides whether `:candidate-idx` is
+  meaningful (`candidate-vector-form?`)."
+  [{:keys [decl-path slot event-key delay-key candidate-idx raw-value]}]
+  (let [decl-path (vec decl-path)]
+    {:decl-path     decl-path
+     :slot          slot
+     :event-key     event-key
+     :delay-key     delay-key
+     :candidate-idx (when (candidate-vector-form? raw-value) candidate-idx)
+     :root?         (empty? decl-path)}))
+
+(defn- finalize-on-transition-slot
+  "rf2-lai1qv — complete the PARTIAL `:on` `:rf/transition-slot`
+  `match-on-clause` stamped (slot / matched event-key / candidate-idx /
+  raw-value, but no decl-path) by folding in the `decl-path` the pick
+  site owns and running it through `transition-slot` (which computes
+  `:root?` and drops a non-vector form's index). A transition whose slot
+  is already complete (`:after` / `:always` matches carry the full
+  discriminator from their own pick sites) or absent (synthetic / pure-fn
+  callers) is returned unchanged. Pure data → data."
+  [transition decl-path]
+  (let [slot (:rf/transition-slot transition)]
+    (if (and slot (= :on (:slot slot)) (not (contains? slot :decl-path)))
+      (assoc transition :rf/transition-slot
+             (transition-slot (assoc slot :decl-path decl-path)))
+      transition)))
+
+(defn- select-passing-candidate-indexed
+  "Like `select-passing-candidate` but returns `[idx tspec]` — the
+  0-based index of the first guard-passing candidate alongside the
+  candidate map — or nil when none pass. The index is what the inline
+  source lookup needs to address a multi-candidate `:on` / `:after` /
+  `:always` vector's exact spec-path slot (rf2-lai1qv); the bare
+  `select-passing-candidate` wrapper drops it for callers that only need
+  the candidate."
+  [machine candidates snapshot event]
+  (some (fn [[idx t]]
+          (when (evaluate-guard machine (:guard t) snapshot event)
+            [idx t]))
+        (map-indexed vector candidates)))
+
 (defn- select-passing-candidate
   "Walk `candidates` (already normalised by `normalise-candidates`) in
   declaration order and return the first whose `:guard` passes against
@@ -541,10 +613,7 @@
   passes — it is the documented unconditional fallback that ends a
   guarded candidate list."
   [machine candidates snapshot event]
-  (some (fn [t]
-          (when (evaluate-guard machine (:guard t) snapshot event)
-            t))
-        candidates))
+  (second (select-passing-candidate-indexed machine candidates snapshot event)))
 
 (defn- after-epoch-path
   "Return the path inside the snapshot's `:data` map where the
@@ -652,10 +721,19 @@
         ;; transitions: first guard-pass wins; an unguarded candidate is the
         ;; unconditional fallback.
         (fn [prefix t]
-          (let [cands  (normalise-candidates t :rf.error/machine-bad-after-spec)
-                tspec  (select-passing-candidate machine cands snapshot event)]
+          (let [cands     (normalise-candidates t :rf.error/machine-bad-after-spec)
+                [idx tspec] (select-passing-candidate-indexed machine cands snapshot event)]
             (if tspec
-              {:transition tspec
+              {;; rf2-lai1qv — stamp the `:after` spec-path discriminator
+               ;; (decl-path prefix + the delay-key + the matched candidate
+               ;; index) so the Xray cascade row addresses the exact
+               ;; `[:states … :after <delay>]` inline-source slot.
+               :transition (assoc tspec :rf/transition-slot
+                                  (transition-slot {:decl-path     prefix
+                                                    :slot          :after
+                                                    :delay-key     delay-key
+                                                    :candidate-idx idx
+                                                    :raw-value     t}))
                :decl-path  prefix
                :delay      delay-key
                :epoch      carried-epoch}
@@ -796,13 +874,28 @@
                         ;; inherited E. Distinguishing absent from present-nil
                         ;; is the whole point of the forbidden idiom: absence ≠
                         ;; block.
+                        ;;
+                        ;; rf2-lai1qv — on a hit, stamp the PARTIAL spec-path
+                        ;; discriminator `:rf/transition-slot` (`:slot :on`, the
+                        ;; MATCHED key `k`, the candidate index, and the raw
+                        ;; value form). `decl-path` / `:root?` are filled by the
+                        ;; pick site (which owns the state-path prefix). The
+                        ;; discriminator lets the Xray cascade rows address the
+                        ;; exact inline-source slot for a multi-candidate `:on`.
                         (when (contains? on k)
-                          (select-passing-candidate
-                            machine
-                            (normalise-candidates
-                              (get on k)
-                              :rf.error/machine-bad-on-clause)
-                            snapshot event)))
+                          (let [raw-value (get on k)
+                                [idx t]   (select-passing-candidate-indexed
+                                            machine
+                                            (normalise-candidates
+                                              raw-value
+                                              :rf.error/machine-bad-on-clause)
+                                            snapshot event)]
+                            (when t
+                              (assoc t :rf/transition-slot
+                                     {:slot          :on
+                                      :event-key     k
+                                      :candidate-idx idx
+                                      :raw-value     raw-value})))))
         ;; Tier 1 — exact event-id. Tier 2 — `:ns/*` (skipped for a
         ;; non-namespaced event-id; `ns-key` is nil and `select` is never
         ;; called). Tier 3 — total `:*`. Most-specific wins; each tier is
@@ -1461,37 +1554,43 @@
   `:exit / :transition / :entry / :always / :after-action /
   :initial-entry / :destroy-exit` so the Xray Handler section's
   LIFECYCLE rendering can group rows by phase without spec-walking
-  at render time."
-  [machine snap action-ref event phase]
+  at render time.
+
+  Per rf2-lai1qv the optional `transition-slot` — the selected
+  transition's EXACT spec-path discriminator (`transition-slot`) — is
+  stamped on the emit under `:transition-slot` when present (only the
+  transition `:action` carries one; `:exit` / `:entry` boundary actions
+  pass nil). The Xray cascade row reads it to address the precise
+  inline-source slot (candidate index / `:after` delay-key / root) rather
+  than reconstructing the path from `source-state` / `event` / `phase`."
+  ([machine snap action-ref event phase]
+   (run-action machine snap action-ref event phase nil))
+  ([machine snap action-ref event phase transition-slot]
   (if action-ref
     (let [f         (resolve-action machine action-ref)
           parent-id (or (:rf/parent-id machine) (:id machine))
           ;; Per rf2-ko8jb: epoch-capture admission requires `:frame`.
-          frame-id  (:rf/frame machine)]
+          frame-id  (:rf/frame machine)
+          base-tags (cond-> {:machine-id parent-id
+                             :action-id  action-ref
+                             :phase      phase
+                             :input      {:data  (:data snap)
+                                          :event event}
+                             :frame      frame-id}
+                      transition-slot (assoc :transition-slot transition-slot))]
       (try
         (let [r (call-action f snap event)]
           (trace/emit! :rf.machine :rf.machine/action-ran
-                       {:machine-id parent-id
-                        :action-id  action-ref
-                        :phase      phase
-                        :input      {:data  (:data snap)
-                                     :event event}
-                        :outcome    (if (nil? r) :ok r)
-                        :frame      frame-id})
+                       (assoc base-tags :outcome (if (nil? r) :ok r)))
           (or r {}))
         (catch #?(:clj Throwable :cljs :default) e
           (trace/emit! :rf.machine :rf.machine/action-ran
-                       {:machine-id parent-id
-                        :action-id  action-ref
-                        :phase      phase
-                        :input      {:data  (:data snap)
-                                     :event event}
-                        :outcome    :rf.error/action-threw
-                        :exception  e
-                        :frame      frame-id})
+                       (assoc base-tags
+                              :outcome   :rf.error/action-threw
+                              :exception e))
           (result/fail {:action-ref action-ref
                         :exception  e}))))
-    {}))
+    {})))
 
 (defn enforce-db-disallow
   "Per Spec 005 §Hard-disallow `:db` (005:463): a machine action's effect
@@ -1608,7 +1707,7 @@
   ;; arity (which would churn every caller). `reduced` short-circuits on
   ;; the first throwing action, carrying the bare `:fail` Result.
   (let [acc (reduce
-              (fn [[acc-r cascade] {:keys [kind phase action state region source]}]
+              (fn [[acc-r cascade] {:keys [kind phase action state region source transition-slot]}]
                 (result/with-ok [snap fx] acc-r
                   (let [before-data (:data snap)
                         emit-phase  (or phase kind)
@@ -1623,7 +1722,7 @@
                                              :action action}
                                       source (assoc :source source))]
                     (if action
-                      (let [r0 (run-action machine snap action event emit-phase)]
+                      (let [r0 (run-action machine snap action event emit-phase transition-slot)]
                         (if (result/fail? r0)
                           (reduced [r0 cascade])
                           ;; Per Spec 005 §Hard-disallow `:db`: strip any `:db`
@@ -2210,7 +2309,14 @@
   merged, `:fx` collected), or a `result/fail` if the action threw. A
   targetless / action-less transition returns `(ok snap [])`."
   [machine snap transition event]
-  (let [r0 (run-action machine snap (:action transition) event :transition)]
+  (let [;; rf2-lai1qv — the root `:on` lives OUTSIDE `:states` (decl-path
+        ;; `[]`). `root-on-match` → `match-on-clause` stamped the partial
+        ;; `:on` discriminator; finalize it with the empty decl-path so the
+        ;; Xray cascade row addresses `[:on <event-key>]` (root-relative, no
+        ;; `:states` prefix) → `:root? true`.
+        transition (finalize-on-transition-slot transition [])
+        r0 (run-action machine snap (:action transition) event :transition
+                       (:rf/transition-slot transition))]
     (if (result/fail? r0)
       r0
       (let [r        (enforce-db-disallow machine r0 (:action transition) (:state snap))
@@ -2647,8 +2753,17 @@
                                  :region region :action (:exit n)})
                               (reverse exited-pairs)))
         action-steps  (when (:action transition)
-                        [{:kind :action :phase transition-phase :state (vec decl-path)
-                          :region region :action (:action transition)}])
+                        [(cond-> {:kind :action :phase transition-phase :state (vec decl-path)
+                                  :region region :action (:action transition)}
+                           ;; rf2-lai1qv — carry the selected transition's
+                           ;; EXACT spec-path discriminator onto the action
+                           ;; step so `run-action` can stamp it on the
+                           ;; `:rf.machine/action-ran` trace; the Xray cascade
+                           ;; row then addresses the precise inline-source slot
+                           ;; (candidate index / `:after` delay-key / root) the
+                           ;; reconstruct-from-phase path could not.
+                           (:rf/transition-slot transition)
+                           (assoc :transition-slot (:rf/transition-slot transition)))])
         ;; Per spec/009 §History trace events (line 291): each `:entry` step
         ;; produced by a history restore additively carries `:source`
         ;; (`:recorded`|`:default`) matching the `:rf.machine.history/restored`
@@ -2903,17 +3018,29 @@
   (path-walk/walk-path-leaf-to-root
     machine path
     (fn [prefix n]
-      (let [always (:always n)
-            always (cond
-                     (nil? always)    []
-                     (vector? always) always
-                     :else            [always])
-            hit    (some (fn [t]
-                           (when (evaluate-guard machine (:guard t) snapshot nil)
-                             t))
-                         always)]
+      (let [raw-always (:always n)
+            always     (cond
+                         (nil? raw-always)    []
+                         (vector? raw-always) raw-always
+                         :else                [raw-always])
+            [idx hit]  (some (fn [[i t]]
+                               (when (evaluate-guard machine (:guard t) snapshot nil)
+                                 [i t]))
+                             (map-indexed vector always))]
         (when hit
-          {:transition (assoc hit :decl-path prefix) :decl-path prefix})))))
+          ;; rf2-lai1qv — stamp the `:always` spec-path discriminator
+          ;; (decl-path prefix + the matched candidate index for the
+          ;; vector form; index-free for the single-map form, matching the
+          ;; macro's bare-`:always` keying) so the Xray cascade row
+          ;; addresses the exact inline-source slot.
+          {:transition (assoc hit
+                              :decl-path prefix
+                              :rf/transition-slot
+                              (transition-slot {:decl-path     prefix
+                                                :slot          :always
+                                                :candidate-idx idx
+                                                :raw-value     raw-always}))
+           :decl-path prefix})))))
 
 (def ^:private always-depth-limit-default
   ;; Per Spec 005 §Drain semantics: bounds the `:always` microstep loop
@@ -3362,7 +3489,18 @@
           ;; after-elapsed` event), `:transition` otherwise.
           (apply-transition-once
             machine snapshot event
-            (assoc (:transition match) :decl-path (:decl-path match))
+            (-> (:transition match)
+                (assoc :decl-path (:decl-path match))
+                ;; rf2-lai1qv — finalize the `:on` spec-path discriminator:
+                ;; `match-on-clause` stamped the PARTIAL `:rf/transition-slot`
+                ;; (slot / matched key / candidate-idx / raw value); the
+                ;; pick site owns the decl-path prefix (`[]` for a root /
+                ;; parallel-root `:on` fallback), so fold it through
+                ;; `transition-slot` to compute `:root?` + drop the index
+                ;; for index-free value forms. `:after` / `:always` matches
+                ;; already carry a complete discriminator from their pick
+                ;; sites, so only the `:on` partial is finalized here.
+                (finalize-on-transition-slot (:decl-path match)))
             (if (:delay match) :after-action :transition))
 
           :else

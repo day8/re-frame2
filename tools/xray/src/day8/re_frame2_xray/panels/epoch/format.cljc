@@ -295,11 +295,68 @@
                       (if state (pr-str state) "?"))
     (str (when kind (name kind)))))
 
+(defn transition-slot->spec-prefix
+  "rf2-lai1qv — turn the substrate's EXACT spec-path discriminator
+  (`:transition-slot`, stamped by `re-frame.machines.transition/
+  transition-slot` on a selected transition's `:rf.machine/action-ran`
+  emit) into the inline-source spec-path PREFIX — the path up to and
+  including the slot, BEFORE the `:action` / `:guard` leaf. The caller
+  appends the leaf.
+
+  The discriminator carries the matched declaration faithfully — the
+  candidate index for a multi-candidate VECTOR form (nil for the
+  index-free single-map / keyword / vector-target forms, matching the
+  macro's bare-slot keying), the `:after` delay-key, and the root-vs-state
+  distinction — so this resolves the EXACT slot that the
+  reconstruct-from-`source-state`/`event`/`phase` path could not (it
+  hardcoded candidate 0, could not name the `:after` delay-key, and
+  assumed a `:states` prefix even for a root `:on`).
+
+    {:slot :on :event-key :submit :decl-path [:idle] :candidate-idx nil}
+      => [:states :idle :on :submit]
+    {:slot :on :event-key :go :decl-path [:a :b] :candidate-idx 2}
+      => [:states :a :states :b :on :go 2]
+    {:slot :on :event-key :logout :decl-path [] :root? true}
+      => [:on :logout]                       ;; root / parallel-root :on
+    {:slot :always :decl-path [:loading] :candidate-idx 1}
+      => [:states :loading :always 1]
+    {:slot :always :decl-path [:loading] :candidate-idx nil}
+      => [:states :loading :always]          ;; single-map :always (k7yqod shape)
+    {:slot :after :delay-key 1000 :decl-path [:idle] :candidate-idx nil}
+      => [:states :idle :after 1000]
+
+  Returns nil for an unrecognised / empty discriminator (the caller then
+  falls back to the reconstruct-from-phase path). Pure data."
+  [{:keys [slot event-key delay-key candidate-idx decl-path]}]
+  (let [;; Root `:on` lives OUTSIDE `:states` (decl-path []); a state-scoped
+        ;; slot interleaves `:states`. `state-spec-path-prefix` returns nil
+        ;; for an empty path, which is exactly the root prefix.
+        prefix (or (proj/state-spec-path-prefix decl-path) [])
+        slot-path (case slot
+                    :on    (when event-key (conj prefix :on event-key))
+                    :always (conj prefix :always)
+                    :after (when (some? delay-key) (conj prefix :after delay-key))
+                    nil)]
+    (when slot-path
+      (cond-> slot-path
+        ;; A vector-candidate form carries the matched index; index-free
+        ;; forms (candidate-idx nil) stay at the bare-slot path, matching
+        ;; the macro's keying (rf2-k7yqod / rf2-lai1qv).
+        (some? candidate-idx) (conj candidate-idx)))))
+
 (defn cascade-row-source-key
   "Spec-path tuple used to look up a cascade row's source-coord on the
   registered machine spec. Pure-data; the view layer reuses this for the
   coord lookup so the source-link affordance reads off ONE authoritative
   key.
+
+  rf2-lai1qv — when the row carries an EXACT spec-path (`:spec-path`, an
+  explicit tuple) or the substrate's spec-path discriminator
+  (`:transition-slot`, for an inline transition `:action`), those WIN over
+  the reconstruct-from-`source-state`/`event`/`phase` path below. The
+  reconstruction is the fallback for rows lacking the carried slot
+  (named-handler keys, `:exit` / `:entry` boundary actions, timers, and
+  legacy traces without the discriminator).
 
   Per rf2-npvsx / rf2-vqja2 the lookup target differs by tuple shape:
   - Named `[:guards <id>]` / `[:actions <id>]` keys resolve to the
@@ -346,16 +403,30 @@
   - `:timer` → `[:states <state>...]`
     (D1 minimum-viable: the parent state's source-coord chip; richer
     per-`:after` coord is the D2 follow-on bead's surface)."
-  [{:keys [kind action-id guard-id phase source-state target-state event-id]
+  [{:keys [kind action-id guard-id phase source-state target-state event-id
+           spec-path transition-slot]
     timer-state :state}]
   (let [source-prefix (proj/state-spec-path-prefix source-state)
         target-prefix (proj/state-spec-path-prefix target-state)
-        timer-prefix  (proj/state-spec-path-prefix timer-state)]
+        timer-prefix  (proj/state-spec-path-prefix timer-state)
+        ;; rf2-lai1qv — the EXACT slot prefix the substrate's discriminator
+        ;; resolves to (candidate index / `:after` delay-key / root), or nil
+        ;; when the row carries no discriminator (boundary actions, named
+        ;; handlers, legacy traces).
+        slot-prefix   (when (map? transition-slot)
+                        (transition-slot->spec-prefix transition-slot))]
     (case kind
       :action
       (cond
         ;; Named-handler path (keyword id) — definition-site stamp.
         (keyword? action-id) [:actions action-id]
+        ;; rf2-lai1qv — an EXACT carried spec-path wins outright.
+        (vector? spec-path) spec-path
+        ;; rf2-lai1qv — the substrate's spec-path discriminator addresses
+        ;; the precise inline-source slot for the transition `:action`
+        ;; (candidate-vector `:on`, nonzero `:always` candidate, `:after`
+        ;; delay-key, root `:on`) — append the `:action` leaf.
+        slot-prefix (conj slot-prefix :action)
         ;; Inline-fn path — slot stamp under the relevant state.
         (contains? #{:entry :initial-entry} phase)
         (when target-prefix (conj target-prefix :entry))
@@ -365,11 +436,12 @@
         (when (and source-prefix event-id)
           (conj source-prefix :on event-id :action))
         (= :always phase)
-        ;; The index-free single-map shape (rf2-k7yqod). The macro keys a
+        ;; Fallback for a row WITHOUT the discriminator (legacy trace): the
+        ;; index-free single-map shape (rf2-k7yqod). The macro keys a
         ;; single-map `:always` at the bare `:always` path; the view's
         ;; read-back additionally probes the index-0 vector-candidate path
-        ;; so a `:always [{…}]` vector resolves too (rf2-lai1qv carries the
-        ;; exact matched index for richer multi-candidate resolution).
+        ;; so a `:always [{…}]` vector resolves too. The discriminator path
+        ;; above carries the EXACT matched index when present (rf2-lai1qv).
         (when source-prefix (conj source-prefix :always :action))
         (= :after-action phase)
         (when source-prefix (conj source-prefix :after :action))
@@ -378,6 +450,10 @@
       :guard
       (cond
         (keyword? guard-id) [:guards guard-id]
+        ;; rf2-lai1qv — an EXACT carried spec-path wins (the substrate may
+        ;; stamp `:spec-path` on the `:rf.machine/guard-evaluated` trace for
+        ;; an inline candidate-vector guard; `guard-cascade-row` carries it).
+        (vector? spec-path) spec-path
         :else
         (when (and source-prefix event-id)
           (conj source-prefix :on event-id :guard)))

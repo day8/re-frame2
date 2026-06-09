@@ -31,12 +31,13 @@
 
   ## Reserved-keys partition — `partition-reserved`
 
-  Per spec §Reserved-keys group the runtime owns ONE top-level key
-  (`:rf/runtime`) which nests the per-area sub-paths catalogued in the
-  `runtime-areas` table (machines, routing, system-ids, pending-
-  navigation, spawned, …). Diff triples whose path roots in
-  `:rf/runtime` render in a separate `[runtime]` group; the rest
-  render as slice mini-panels.
+  EP-0001 (rf2-vzld77 / rf2-tj6w9l): the runtime subsystems (machines /
+  routing / elision) moved out of app-db's `:rf/runtime` into a SEPARATE
+  runtime-db partition (`:rf.runtime/*`). The `[runtime]` group is built
+  from that partition via the `runtime-areas` table + `reserved-summary`;
+  `partition-reserved` / `reserved-path?` now key on the reserved `:rf*`
+  NAMESPACE family (a framework-internal slot a host might stash at the
+  app-db root) — a normal app-db diff triple is never reserved.
 
   ## rf2-e9tb0 — pin-store helpers dropped
 
@@ -57,34 +58,51 @@
 
 ;; ---- reserved keys --------------------------------------------------------
 
+(defn reserved-namespace-key?
+  "True when `k` is a qualified keyword in the reserved `:rf/*` or
+  `:rf.<subns>/*` namespace family per spec/Conventions.md §Reserved
+  namespaces. Catches any framework-internal key the runtime / framework
+  stashes at the app-db root (e.g. a transient `:rf.machine/*` slot). The
+  user-domain TOP section must hide all of these — they're framework
+  plumbing, not user-domain state. Pure data → bool."
+  [k]
+  (boolean
+    (when (qualified-keyword? k)
+      (let [ns (namespace k)]
+        (or (= ns "rf")
+            (str/starts-with? ns "rf."))))))
+
 (def reserved-app-db-keys
-  "Per spec/Conventions.md §Reserved app-db keys + the rf2-eguy4 phase-A
-  contract the runtime owns ONE top-level slot in `app-db`: `:rf/runtime`.
-  Diff triples whose path roots in `:rf/runtime` render in the `[runtime]`
-  group rather than as a slice mini-panel.
+  "EP-0001 (rf2-vzld77 / rf2-tj6w9l): the framework's durable subsystem
+  state — machine snapshots, the route slice, the spawn registry, the
+  elision registry — moved OUT of app-db's `:rf/runtime` container into a
+  SEPARATE runtime-db partition (the reserved `:rf.runtime/*` roots). So
+  app-db no longer carries a `:rf/runtime` slot, and a normal user-domain
+  app-db roots NO key in the reserved `:rf*` namespace family. This set is
+  kept EMPTY: the App-DB panel sources its reserved AREAS from the
+  runtime-db partition (the `runtime-areas` table below + the
+  `:rf.xray/target-frame-runtime-db` sub), not from app-db diff triples,
+  so nothing in an app-db diff is runtime-owned.
 
-  The `:rf/runtime` container nests the six logical runtime subsystems:
-
-  - `[:rf/runtime :machines :snapshots]` — machine snapshots (per spec/005-StateMachines.md)
-  - `[:rf/runtime :machines :system-ids]` — system-id reverse index
-  - `[:rf/runtime :machines :spawned]` — spawned-actor table
-  - `[:rf/runtime :routing :current]` — current route slice (per spec/012-Routing.md)
-  - `[:rf/runtime :routing :pending-navigation]` — pending-nav slot
-  - `[:rf/runtime :elision]` — wire-elision declaration registry (per spec/009-Instrumentation.md §Size elision)
-
-  The panel still surfaces these as separate sections via the
-  `runtime-areas` table below (logical area-id → sub-path) — the operator
-  sees one section per subsystem, but the underlying app-db shape is the
-  single `:rf/runtime` container."
-  #{:rf/runtime})
+  The broader reserved-NAMESPACE family (`reserved-namespace-key?` —
+  `:rf/*` / `:rf.<subns>/*`) is still used by `user-domain-db` to hide any
+  framework-internal slot a host might stash at the app-db root; that is a
+  separate, namespace-level filter from this (now-empty) root-key set."
+  #{})
 
 (defn reserved-path?
-  "True when `path`'s root key is a reserved-app-db key. Pure data →
-  bool."
+  "True when `path`'s root key is in the reserved-NAMESPACE family
+  (`:rf/*` / `:rf.<subns>/*`, per `reserved-namespace-key?`) — i.e. a
+  framework-internal slot the user-domain TOP section must not surface as
+  a slice mini-panel. EP-0001 (rf2-tj6w9l): the runtime subsystems
+  (machines / routing / elision) no longer live in app-db, so a normal
+  app-db diff triple is never reserved; this predicate now catches only a
+  framework-internal `:rf*`-namespaced root a host might stash in app-db.
+  Pure data → bool."
   [path]
   (boolean (and (sequential? path)
                 (seq path)
-                (contains? reserved-app-db-keys (first path)))))
+                (reserved-namespace-key? (first path)))))
 
 ;; ---- diff algorithm -------------------------------------------------------
 
@@ -241,41 +259,52 @@
 
 ;; ---- runtime subsystem area table ---------------------------------------
 ;;
-;; Per rf2-eguy4 phase-A the runtime owns a single `:rf/runtime` top-level
-;; slot containing nested subsystem trees. The panel still surfaces these
-;; as separate operator-facing sections; this table maps the logical
-;; area-id (the operator-facing label) to the sub-path under `:rf/runtime`
-;; that carries the area's value.
+;; EP-0001 (rf2-vzld77 / rf2-tj6w9l): the framework's durable subsystem
+;; state — machine snapshots, the route slice, the spawn registry, the
+;; elision registry — moved OUT of app-db's `:rf/runtime` container into a
+;; SEPARATE runtime-db partition (`:rf.db/runtime` in the frame-state),
+;; whose top-level keys are the reserved `:rf.runtime/*` namespace family
+;; (`:rf.runtime/machines` / `:rf.runtime/routing` / `:rf.runtime/elision`).
+;; The App-DB panel surfaces these as separate operator-facing sections;
+;; this table maps the logical area-id (the operator-facing label) to the
+;; sub-path UNDER THE RUNTIME-DB PARTITION VALUE that carries the area's
+;; value — sourced from `:rf.xray/target-frame-runtime-db` (the live
+;; partition) and each focused epoch's runtime-db pre/post-image (the
+;; `:rf.db/runtime` projection of `:frame-state-before` / `-after`),
+;; mirroring the Machines inspector + Routing tab which already read
+;; runtime-db at these paths.
 
 (def runtime-areas
-  "Logical area-id → sub-path under app-db. The area-ids are the
-  operator-facing labels carried in the panel's section model (kept
-  stable across the rf2-eguy4 phase-A reshape so caller / test code that
+  "Logical area-id → sub-path under the RUNTIME-DB partition value. The
+  area-ids are the operator-facing labels carried in the panel's section
+  model (stable across the EP-0001 migration so caller / test code that
   uses `:area :rf/machines` etc. still reads as before). The paths point
-  into the new `:rf/runtime` container (per spec/Conventions.md §Reserved
-  app-db keys + spec/002-Frames.md §The `:rf/runtime` container)."
-  {:rf/machines           [:rf/runtime :machines :snapshots]
-   :rf/spawned            [:rf/runtime :machines :spawned]
-   :rf/route              [:rf/runtime :routing :current]
-   :rf/system-ids         [:rf/runtime :machines :system-ids]
-   :rf/pending-navigation [:rf/runtime :routing :pending-navigation]
-   :rf/elision            [:rf/runtime :elision]})
+  into the runtime-db partition's reserved `:rf.runtime/*` roots (per
+  spec/Conventions.md §Reserved runtime-db keys + spec/002-Frames.md §The
+  two-partition frame contract; EP-0001 rf2-vzld77)."
+  {:rf/machines           [:rf.runtime/machines :snapshots]
+   :rf/spawned            [:rf.runtime/machines :spawned]
+   :rf/route              [:rf.runtime/routing :current]
+   :rf/system-ids         [:rf.runtime/machines :system-ids]
+   :rf/pending-navigation [:rf.runtime/routing :pending-navigation]
+   :rf/elision            [:rf.runtime/elision]})
 
 (defn reserved-summary
-  "Project the current runtime subsystem slots out of `db` into a sorted
-  vector of `[area-id value]` pairs for the panel's `[runtime]` group.
-  Drops areas with no live value so the group is sized by what's
-  actually populated.
+  "Project the current runtime subsystem slots out of the RUNTIME-DB
+  partition value `runtime-db` into a sorted vector of `[area-id value]`
+  pairs for the panel's `[runtime]` group. Drops areas with no live value
+  so the group is sized by what's actually populated.
 
   Logical area-ids (`:rf/machines`, `:rf/route`, …) are the operator-
   facing labels per the `runtime-areas` table; the values are read from
-  the nested `[:rf/runtime ...]` sub-paths (per rf2-eguy4 phase-A).
+  the `[:rf.runtime/...]` sub-paths (EP-0001 rf2-vzld77 — runtime-db
+  partition, no longer app-db `:rf/runtime`).
 
   Pure data → data."
-  [db]
+  [runtime-db]
   (vec
     (for [area-id (sort (keys runtime-areas))
-          :let    [v (get-in db (get runtime-areas area-id))]
+          :let    [v (get-in runtime-db (get runtime-areas area-id))]
           :when   (some? v)]
       [area-id v])))
 
@@ -336,29 +365,16 @@
   slices rendered as one section. Pure data."
   #{:rf/machines :rf/spawned})
 
-(defn reserved-namespace-key?
-  "True when `k` is a qualified keyword in the reserved `:rf/*` or
-  `:rf.<subns>/*` namespace family per spec/Conventions.md §Reserved
-  namespaces. Catches BOTH the single explicit reserved-app-db-key
-  (`:rf/runtime`) AND any other framework-internal key the runtime
-  stashes at the app-db root (e.g. `:rf.machine/*` slots). The
-  user-domain TOP section must hide all of these — they're framework
-  plumbing, not user-domain state. Pure data → bool."
-  [k]
-  (boolean
-    (when (qualified-keyword? k)
-      (let [ns (namespace k)]
-        (or (= ns "rf")
-            (str/starts-with? ns "rf."))))))
-
 (defn user-domain-db
   "Return `db` with every reserved `:rf*`-namespaced key removed —
   the user-domain app-db that heads the inspector's TOP section. The
-  filter catches both the single explicit reserved-app-db-key
-  (`:rf/runtime`, per spec/Conventions.md §Reserved app-db keys) AND
-  any framework-internal slot the runtime stashes under the broader
-  reserved-namespace family (e.g. `:rf.machine/*`). Pure data → map.
-  nil-safe (nil db → empty map)."
+  filter catches any framework-internal slot the framework stashes at the
+  app-db root under the reserved-namespace family (`:rf/*` /
+  `:rf.<subns>/*`, e.g. a transient `:rf.machine/*` slot). EP-0001
+  (rf2-tj6w9l) — the runtime subsystems no longer live in app-db (they
+  moved to the runtime-db partition), so in practice a normal app-db has
+  no reserved key to strip; the filter remains for any host that does
+  stash one. Pure data → map. nil-safe (nil db → empty map)."
   [db]
   (into {} (remove (fn [[k _v]] (reserved-namespace-key? k))) (or db {})))
 
@@ -429,10 +445,11 @@
     []))
 
 (defn current-state-sections
-  "Decompose a current `app-db` value into the app-db tab's
-  current-state section model (rf2-okvit):
+  "Decompose the frame's TWO partitions — the `app-db` value + the
+  `runtime-db` partition value — into the app-db tab's current-state
+  section model (rf2-okvit; EP-0001 rf2-vzld77 / rf2-tj6w9l):
 
-      {:top   <db-minus-reserved-keys>          ;; user-domain app-db
+      {:top   <app-db-minus-reserved-keys>      ;; user-domain app-db
        :areas [{:area  :rf/machines
                 :kind  :instances
                 :empty? false
@@ -443,7 +460,14 @@
                 :value {…}}
                …]}
 
-  One area entry per POPULATED reserved `:rf/*` key (in
+  The TOP user-domain section is the `app-db` value minus the reserved
+  `:rf*`-namespaced keys; the reserved AREAS are read from the SEPARATE
+  `runtime-db` partition value at the `[:rf.runtime/...]` `runtime-areas`
+  paths (EP-0001 — the framework's durable subsystem state moved out of
+  app-db's `:rf/runtime` into the runtime-db partition; this panel sources
+  it the same way the Machines inspector + Routing tab do).
+
+  One area entry per POPULATED reserved subsystem (in
   `reserved-area-order`). Map-of-instances areas
   (`map-of-instances-areas`) carry `:kind :instances` + an `:instances`
   vector (one entry per id); every other reserved area is
@@ -496,33 +520,46 @@
   prior user-domain map, so a NEW user-domain key already classifies
   `:added` per-key inside the diff engine.)
 
-  Pure data → data. JVM-runnable. nil-safe throughout (absent db,
-  empty db, absent reserved keys, empty registries, absent before-db)."
-  ([db] (current-state-sections db no-diff))
-  ([db db-before]
-   (let [db          (or db {})
-         diff?       (not= no-diff db-before)
-         before-db   (if diff? (or db-before {}) no-diff)
-         before-area (fn [area-id]
-                       (if diff?
-                         (let [path (get runtime-areas area-id)
-                               v    (get-in before-db path ::absent)]
-                           ;; rf2-227cz — in diff mode a singleton slice
-                           ;; absent in `before-db` is `:added` (the slot
-                           ;; appeared this epoch — e.g. first navigation
-                           ;; populating `:rf/route`), NOT `no-diff`. Only
-                           ;; a slot genuinely present (incl. present-nil)
-                           ;; diffs in place.
-                           (if (= ::absent v) added v))
-                         no-diff))]
-     {:top   (user-domain-db db)
+  ## Arities (EP-0001 rf2-tj6w9l)
+
+    (current-state-sections app-db runtime-db)
+      — current state, no diff (`:before-top` + each `:before` are the
+        `no-diff` sentinel).
+    (current-state-sections app-db runtime-db
+                            {:app <app-db-before> :runtime <runtime-db-before>})
+      — diff mode: the TOP diffs against the app-db pre-image, each
+        reserved area diffs against the runtime-db pre-image. Pass `nil`
+        / `no-diff` for the before-image map to stay in no-diff mode.
+
+  Pure data → data. JVM-runnable. nil-safe throughout (absent / empty
+  partitions, absent reserved keys, empty registries, absent before-images)."
+  ([app-db runtime-db] (current-state-sections app-db runtime-db no-diff))
+  ([app-db runtime-db before]
+   (let [app-db        (or app-db {})
+         runtime-db    (or runtime-db {})
+         diff?         (and (some? before) (not= no-diff before))
+         app-before    (if diff? (or (:app before) {}) no-diff)
+         runtime-before (if diff? (or (:runtime before) {}) no-diff)
+         before-area   (fn [area-id]
+                         (if diff?
+                           (let [path (get runtime-areas area-id)
+                                 v    (get-in runtime-before path ::absent)]
+                             ;; rf2-227cz — in diff mode a singleton slice
+                             ;; absent in the runtime-db pre-image is `:added`
+                             ;; (the slot appeared this epoch — e.g. first
+                             ;; navigation populating `:rf/route`), NOT
+                             ;; `no-diff`. Only a slot genuinely present (incl.
+                             ;; present-nil) diffs in place.
+                             (if (= ::absent v) added v))
+                           no-diff))]
+     {:top   (user-domain-db app-db)
       :before-top (if diff?
-                    (user-domain-db before-db)
+                    (user-domain-db app-before)
                     no-diff)
       :areas (vec
                (for [area reserved-area-order
                      :let [path        (get runtime-areas area)
-                           area-value  (get-in db path ::absent)
+                           area-value  (get-in runtime-db path ::absent)
                            present?    (not= ::absent area-value)
                            area-value  (when present? area-value)
                            entry       (if (contains? map-of-instances-areas area)
