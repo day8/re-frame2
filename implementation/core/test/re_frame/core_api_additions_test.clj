@@ -12,6 +12,7 @@
    - `(rf/frame-ids ns-prefix)` 1-arity filter. Per `spec/API.md`
      row 308 and Spec 002 §The public registrar query API."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
@@ -416,3 +417,22 @@
     (is (= {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}}
            (rf/frame-state-value :pp/fsm))
         "frame-state reads back the coherent both-partition snapshot")))
+
+(deftest partition-reader-docstrings-describe-post-landing-contract
+  (testing "the `runtime-db-value` / `frame-state-value` public docstrings
+            describe the LIVE post-rf2-adwcv6 contract — no pre-landing
+            placeholder wording (`nil` on a live frame / `until … lands`)
+            may reappear in `re-frame.core` (rf2-rxnnxh)"
+    ;; The facade is the REPL / tooling / agent-read surface; stale
+    ;; pre-partition text taught a false contract (nil on live frames).
+    ;; Pin both docstrings so the stale phrases can never silently return.
+    (let [stale-phrases ["until then" "until the physical partition lands"
+                         "reads nil even for a live frame"
+                         "lands in" "is nil until"]]
+      (doseq [sym ['runtime-db-value 'frame-state-value]]
+        (let [doc (:doc (meta (ns-resolve 're-frame.core sym)))]
+          (is (some? doc) (str sym " has a docstring"))
+          (doseq [phrase stale-phrases]
+            (is (not (str/includes? doc phrase))
+                (str sym "'s docstring must not carry the stale pre-landing "
+                     "phrase " (pr-str phrase)))))))))

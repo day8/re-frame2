@@ -216,11 +216,3 @@
         (comp (filter redact-interceptor?)
               (mapcat :paths))
         interceptors))
-
-(defn clear-suppression-cache!
-  "Compatibility hook name used by frame teardown. Path-D privacy has no
-  registration-warning cache, so this is intentionally a no-op."
-  []
-  nil)
-
-(late-bind/set-fn! :privacy/clear-suppression-cache! clear-suppression-cache!)

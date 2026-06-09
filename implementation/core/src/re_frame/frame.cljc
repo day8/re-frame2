@@ -1238,8 +1238,6 @@
                                       with `:rf.sub/reason
                                       :frame-destroy` (rf2-x3m8c).
     *. cleanup hooks (best-effort, no-op when artefact absent):
-         :privacy/clear-suppression-cache!  — reset sensitive-without-
-                                              redaction warn-once cache.
          :elision/clear-warning-cache!      — reset schema-first elision
                                               warning cache.
          :ssr/on-frame-destroyed            — clear SSR side-channel
@@ -1319,7 +1317,6 @@
         ;; their source watch). The projections watch the physical
         ;; frame-state container; disposing here releases those watches.
         (tear-down-partition-projections! f)
-        (safe-call-hook! :privacy/clear-suppression-cache!)
         (safe-call-hook! :elision/clear-warning-cache!)
         (safe-call-hook! :ssr/on-frame-destroyed id)
         (safe-call-hook! :machines/on-frame-destroyed! id)

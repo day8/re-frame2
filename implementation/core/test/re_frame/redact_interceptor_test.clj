@@ -33,7 +33,6 @@
   (reset! frame/frames {})
   (reset! schemas/schemas-by-frame {})
   (trace/clear-listeners!)
-  (privacy/clear-suppression-cache!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.elision :reload)
   (require 're-frame.schemas :reload)

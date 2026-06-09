@@ -1273,11 +1273,10 @@
   `nil` for an unknown / destroyed frame. The tool / privileged-runtime
   read of the framework partition.
 
-  EP-0001 (rf2-q4i9ko): introduces the read surface. The physical
-  runtime-db partition is built by the one-container frame-state work in
-  rf2-adwcv6 (bead 5); until then this reads `nil` even for a live frame.
-  Per Spec 002 §The two-partition frame contract and API.md
-  `runtime-db-value`."
+  EP-0001 (rf2-q4i9ko + rf2-adwcv6): the physical runtime-db partition is
+  live. A fresh frame's runtime-db starts `{}`; reads return the current
+  `:rf.db/runtime` projection off the one-container frame-state. Per Spec
+  002 §The two-partition frame contract and API.md `runtime-db-value`."
   [frame-id]
   (frame/frame-runtime-db-value frame-id))
 
@@ -1287,10 +1286,11 @@
   unknown / destroyed frame. The full-frame read for SSR / epoch /
   time-travel / Xray.
 
-  EP-0001 (rf2-q4i9ko): composes `app-db-value` with `runtime-db-value`.
-  The `:rf.db/runtime` slot is `nil` until the physical partition lands in
-  rf2-adwcv6 (bead 5); the projection shape is final. Per Spec 002 §The
-  two-partition frame contract and API.md `frame-state-value`."
+  EP-0001 (rf2-q4i9ko + rf2-adwcv6): reads the coherent two-partition
+  frame state off the one physical frame-state container. A fresh frame's
+  state is `{:rf.db/app {} :rf.db/runtime {}}`; the `:rf.db/runtime` slot
+  equals `runtime-db-value`. Per Spec 002 §The two-partition frame
+  contract and API.md `frame-state-value`."
   [frame-id]
   (frame/frame-state-value frame-id))
 
