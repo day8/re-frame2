@@ -69,7 +69,11 @@ const net = require('node:net');
 const path = require('node:path');
 const os = require('node:os');
 const crossSpawn = require('cross-spawn');
-const { resolveTrustedExe, safeUnlinkInside } = require('../lib/exec-safety.cjs');
+const {
+  resolveTrustedExe,
+  safeUnlinkInside,
+  safeReadFileInside,
+} = require('../lib/exec-safety.cjs');
 
 // We use `cross-spawn` instead of Node's `child_process.spawn` for the
 // two Windows-toolchain spawn sites (`npm` install + `npx shadow-cljs
@@ -248,20 +252,63 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function readPortFile() {
+// Discriminate a containment-escape refusal (a candidate whose realpath
+// resolves OUTSIDE FIXTURE_DIR) from a benign fs failure (EACCES, EBUSY
+// — a Windows lock, a permission quirk). The exec-safety helpers tag
+// every escape with the `symlink-escape accident-gating` marker; benign
+// failures carry an errno `code` and no such marker. rf2-khav7l: only an
+// escape is fatal — a transient lock must not abort the whole run.
+function isContainmentEscape(e) {
+  return !!(e && typeof e.message === 'string' &&
+    e.message.includes('symlink-escape accident-gating'));
+}
+
+// `candidates` + `fixtureDir` are parameterised (defaulting to the
+// module constants) so the rf2-khav7l call-site regression test can drive
+// this exact function against a temp fixture with a symlinked
+// `.shadow-cljs` — proving the poller refuses an external port file
+// without booting shadow-cljs + Chromium.
+function readPortFile(
+  candidates = NREPL_PORT_FILE_CANDIDATES,
+  fixtureDir = FIXTURE_DIR,
+) {
   // Walk every candidate path; return `{port, source}` for the first
   // file that parses to a finite integer. The `source` string is used
   // for diagnostics so a successful read tells you *which* path
   // satisfied the wait — useful when shadow-cljs's default cache-root
   // moves between versions.
-  for (const p of NREPL_PORT_FILE_CANDIDATES) {
+  //
+  // Per rf2-khav7l: route the read through `safeReadFileInside` — the
+  // SAME containment check the cleanup loop's `safeUnlinkInside` uses.
+  // Pre-fix this did a raw `fs.readFileSync` with NO realpath check, so
+  // a candidate (or candidate parent) symlinked OUTSIDE FIXTURE_DIR that
+  // the cleanup step CORRECTLY refused to delete could still be trusted
+  // as the live nREPL source — a stale external `nrepl.port` could then
+  // satisfy the port-file wait and steer the inner conformance tests at
+  // an unrelated runtime (false-red / false-green). `safeReadFileInside`
+  // THROWS on a containment escape; we let that propagate so an escaped
+  // candidate is a FATAL orchestration error, not a silently-trusted
+  // read. A candidate that simply doesn't exist yet returns `null` —
+  // try the next.
+  for (const p of candidates) {
+    let txt;
     try {
-      const txt = fs.readFileSync(p, 'utf8').trim();
-      const n = parseInt(txt, 10);
-      if (Number.isFinite(n)) return { port: n, source: p };
-    } catch {
-      // try next
+      const contents = safeReadFileInside(p, fixtureDir);
+      if (contents == null) continue; // not present yet — try next
+      txt = contents.trim();
+    } catch (e) {
+      // A containment escape (symlinked candidate / parent that resolves
+      // outside FIXTURE_DIR) is a fatal orchestration error — DO NOT fall
+      // through and trust the file. Re-throw with context so the caller's
+      // catch surfaces it as exit 2.
+      throw new Error(
+        `refusing to read nREPL port candidate ${p}: ${e.message} ` +
+          '(rf2-khav7l: an escaped/refused port file must not be trusted ' +
+          'as the live nREPL source).',
+      );
     }
+    const n = parseInt(txt, 10);
+    if (Number.isFinite(n)) return { port: n, source: p };
   }
   return null;
 }
@@ -605,11 +652,29 @@ async function main() {
   // symlinked candidate (or symlinked parent directory) that escapes
   // FIXTURE_DIR can't be coerced into deleting a file outside the
   // fixture tree.
+  //
+  // Per rf2-khav7l: a symlink-ESCAPE refusal on a load-bearing stale
+  // port candidate is FATAL — we do NOT log-and-continue and then later
+  // read that same escaped file as the live nREPL source. (Pre-fix the
+  // cleanup logged "continuing" on the escape and `readPortFile` then
+  // raw-read the same path with no containment check.) A BENIGN unlink
+  // failure (EACCES / EBUSY — a Windows file lock, a permission quirk)
+  // is still tolerated: it doesn't widen trust, and the read path now
+  // re-checks containment regardless. `isContainmentEscape` discriminates
+  // the two so a transient lock doesn't abort the whole run while a real
+  // escape does.
   for (const p of NREPL_PORT_FILE_CANDIDATES) {
     try {
       const removed = safeUnlinkInside(p, FIXTURE_DIR);
       if (removed) log(`removed stale port file ${p}`);
     } catch (e) {
+      if (isContainmentEscape(e)) {
+        throw new Error(
+          `stale nREPL port candidate ${p} escapes FIXTURE_DIR ` +
+            `(${e.message}); aborting — the runner must not continue and ` +
+            'later trust a port file it refused to clean (rf2-khav7l).',
+        );
+      }
       log(`could not remove stale port file ${p} (${e.message}); continuing`);
     }
   }
@@ -617,6 +682,12 @@ async function main() {
     const removed = safeUnlinkInside(FIXTURE_BUNDLE_PATH, FIXTURE_DIR);
     if (removed) log(`removed stale fixture bundle ${FIXTURE_BUNDLE_PATH}`);
   } catch (e) {
+    if (isContainmentEscape(e)) {
+      throw new Error(
+        `stale fixture bundle ${FIXTURE_BUNDLE_PATH} escapes FIXTURE_DIR ` +
+          `(${e.message}); aborting (rf2-khav7l).`,
+      );
+    }
     log(`could not remove stale fixture bundle ${FIXTURE_BUNDLE_PATH} (${e.message}); continuing`);
   }
 
@@ -967,4 +1038,16 @@ if (require.main === module) {
 // the async, timeout-bounded setup-command spawn; the test drives it
 // against a never-exiting child to prove a hung setup command is killed
 // within `SETUP_COMMAND_TIMEOUT_MS` instead of wedging the event loop.
-module.exports = { runTrusted, SETUP_COMMAND_TIMEOUT_MS };
+//
+// `readPortFile` + `isContainmentEscape` are exported for the rf2-khav7l
+// call-site regression harness (`port-file-escape.test.cjs`): it drives
+// `readPortFile` against a temp fixture whose `.shadow-cljs` is symlinked
+// outside, proving the poller REFUSES an external port file (throws)
+// rather than raw-reading it — the read-side guarantee that lets the
+// cleanup loop's escape-refusal be safe.
+module.exports = {
+  runTrusted,
+  SETUP_COMMAND_TIMEOUT_MS,
+  readPortFile,
+  isContainmentEscape,
+};

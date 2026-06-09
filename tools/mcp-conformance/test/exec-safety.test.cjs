@@ -30,7 +30,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { resolveTrustedExe, safeUnlinkInside } = require('../lib/exec-safety.cjs');
+const {
+  resolveTrustedExe,
+  safeUnlinkInside,
+  safeReadFileInside,
+} = require('../lib/exec-safety.cjs');
 
 // ---------------------------------------------------------------------
 // Test scratch dir
@@ -367,6 +371,150 @@ test('safeUnlinkInside: rejects empty / missing inputs', () => {
     assert.throws(() => safeUnlinkInside('/whatever', ''), /allowedRoot/);
     assert.throws(
       () => safeUnlinkInside('/whatever', '/this/path/does/not/exist/anywhere'),
+      /does not exist/,
+    );
+  } finally {
+    rmrf(root);
+  }
+});
+
+// ---------------------------------------------------------------------
+// safeReadFileInside (rf2-khav7l)
+//
+// The read-side counterpart to safeUnlinkInside: a port-file candidate
+// the cleanup step refused to UNLINK (because its realpath escapes the
+// allowed root) must ALSO be refused on READ — closing the
+// "refuse-delete-but-trust-read" split. Both helpers share the same
+// `resolveContainedLeaf` containment check, so a candidate that throws
+// from safeUnlinkInside throws identically from safeReadFileInside.
+// ---------------------------------------------------------------------
+
+test('safeReadFileInside: reads file inside allowed root', () => {
+  const root = freshTmpDir('read-ok');
+  try {
+    const target = path.join(root, 'nrepl.port');
+    fs.writeFileSync(target, '54321');
+    const contents = safeReadFileInside(target, root);
+    assert.equal(contents, '54321');
+  } finally {
+    rmrf(root);
+  }
+});
+
+test('safeReadFileInside: returns null when file does not exist', () => {
+  const root = freshTmpDir('read-missing');
+  try {
+    const target = path.join(root, 'never-existed.port');
+    assert.equal(safeReadFileInside(target, root), null);
+  } finally {
+    rmrf(root);
+  }
+});
+
+test('safeReadFileInside: honors an encoding-string option', () => {
+  const root = freshTmpDir('read-encoding');
+  try {
+    const target = path.join(root, 'nrepl.port');
+    fs.writeFileSync(target, 'abc');
+    const buf = safeReadFileInside(target, root, null); // null -> default utf8
+    assert.equal(buf, 'abc');
+    const raw = safeReadFileInside(target, root, { encoding: null });
+    assert.equal(Buffer.isBuffer(raw), true, 'encoding:null returns a Buffer');
+    assert.equal(raw.toString('utf8'), 'abc');
+  } finally {
+    rmrf(root);
+  }
+});
+
+test('safeReadFileInside: rejects when realpath escapes allowed root (symlinked leaf)', { skip: process.platform === 'win32' }, () => {
+  // The exact rf2-khav7l shape: a leaf `nrepl.port` inside the allowed
+  // root that is itself a symlink to an EXTERNAL port file. A naive
+  // `fs.readFileSync` would follow the link and trust the external
+  // port; safeReadFileInside must refuse, the same way safeUnlinkInside
+  // refuses to delete it.
+  const root = freshTmpDir('read-escape-leaf');
+  const outsideDir = freshTmpDir('read-escape-outside');
+  try {
+    const externalPort = path.join(outsideDir, 'nrepl.port');
+    fs.writeFileSync(externalPort, '9999'); // a stale EXTERNAL runtime's port
+    const candidate = path.join(root, 'nrepl.port');
+    const linked = trySymlink(externalPort, candidate);
+    if (!linked) return; // platform/permissions — soft-skip
+
+    assert.throws(
+      () => safeReadFileInside(candidate, root),
+      /symlink-escape/,
+    );
+  } finally {
+    rmrf(root);
+    rmrf(outsideDir);
+  }
+});
+
+test('safeReadFileInside: rejects when parent dir is a symlink escaping root', { skip: process.platform === 'win32' }, () => {
+  // The orchestrator's load-bearing case: `<root>/.shadow-cljs` is a
+  // symlink to an external dir carrying a stale `nrepl.port`. The
+  // candidate path APPEARS to live under the allowed root, but realpath
+  // resolves the parent symlink to outside it. The read must refuse —
+  // otherwise the runner trusts an external runtime's port.
+  const root = freshTmpDir('read-escape-parent');
+  const outsideDir = freshTmpDir('read-escape-parent-outside');
+  try {
+    const realSide = path.join(outsideDir, 'shadow-cljs');
+    fs.mkdirSync(realSide);
+    const externalPort = path.join(realSide, 'nrepl.port');
+    fs.writeFileSync(externalPort, '9999');
+
+    const symlinkedParent = path.join(root, '.shadow-cljs');
+    const linked = trySymlink(realSide, symlinkedParent);
+    if (!linked) return; // soft-skip
+
+    const candidate = path.join(symlinkedParent, 'nrepl.port');
+    assert.throws(
+      () => safeReadFileInside(candidate, root),
+      /symlink-escape/,
+    );
+  } finally {
+    rmrf(root);
+    rmrf(outsideDir);
+  }
+});
+
+test('safeReadFileInside: a candidate refused by safeUnlinkInside is also refused on read (rf2-khav7l parity)', { skip: process.platform === 'win32' }, () => {
+  // The crux of rf2-khav7l: prove the SAME escaped candidate that
+  // safeUnlinkInside refuses to delete is ALSO refused by
+  // safeReadFileInside. A future cleanup refactor cannot reintroduce the
+  // "refuse delete but trust read" split as long as this parity holds.
+  const root = freshTmpDir('read-unlink-parity');
+  const outsideDir = freshTmpDir('read-unlink-parity-outside');
+  try {
+    const realSide = path.join(outsideDir, 'shadow-cljs');
+    fs.mkdirSync(realSide);
+    const externalPort = path.join(realSide, 'nrepl.port');
+    fs.writeFileSync(externalPort, '9999');
+
+    const symlinkedParent = path.join(root, '.shadow-cljs');
+    const linked = trySymlink(realSide, symlinkedParent);
+    if (!linked) return; // soft-skip
+
+    const candidate = path.join(symlinkedParent, 'nrepl.port');
+    assert.throws(() => safeUnlinkInside(candidate, root), /symlink-escape/);
+    assert.throws(() => safeReadFileInside(candidate, root), /symlink-escape/);
+    // The external port file MUST still exist (neither op touched it).
+    assert.equal(fs.existsSync(externalPort), true);
+  } finally {
+    rmrf(root);
+    rmrf(outsideDir);
+  }
+});
+
+test('safeReadFileInside: rejects empty / missing inputs', () => {
+  const root = freshTmpDir('read-bad-inputs');
+  try {
+    assert.throws(() => safeReadFileInside('', root), /candidatePath/);
+    assert.throws(() => safeReadFileInside('/whatever', ''), /allowedRoot/);
+    assert.throws(
+      () => safeReadFileInside('/whatever', '/this/path/does/not/exist/anywhere'),
       /does not exist/,
     );
   } finally {

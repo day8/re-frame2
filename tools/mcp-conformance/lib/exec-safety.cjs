@@ -72,7 +72,19 @@
 //       doesn't exist. Throws on symlink-escape. Returns true if the
 //       file existed and was unlinked, false otherwise.
 //
-// Both helpers are pure-Node, no external deps; they're test-only
+//   safeReadFileInside(candidatePath, allowedRoot, options)
+//     → reads `candidatePath` iff its realpath (or, when the file
+//       doesn't exist, the realpath of its parent directory + basename)
+//       resolves under `realpath(allowedRoot)`. Returns the file
+//       contents (string, `utf8` default — pass `options.encoding` or a
+//       plain encoding string to override) on success, or `null` when
+//       the file doesn't exist. Throws on symlink-escape — the SAME
+//       containment check `safeUnlinkInside` enforces, so a candidate the
+//       cleanup step refused to unlink can NEVER be silently trusted as a
+//       read source (rf2-khav7l: the "refuse-delete-but-trust-read"
+//       split). Read failures other than ENOENT (e.g. EACCES) propagate.
+//
+// All three helpers are pure-Node, no external deps; they're test-only
 // fixtures (bundle-isolated by construction — `tools/mcp-conformance/`
 // is not on any production import path).
 
@@ -240,47 +252,51 @@ function resolveTrustedExe(name, opts) {
 }
 
 // ---------------------------------------------------------------------
-// safeUnlinkInside
+// Shared containment resolver for the fs helpers below.
 // ---------------------------------------------------------------------
 
 /**
- * Unlink `candidatePath` only when its realpath resolves under
- * `realpath(allowedRoot)`. Symlink-safe: if any parent component is a
- * symlink whose target escapes the allowed root, the unlink is
- * rejected. No-op when the file doesn't exist.
+ * Resolve a stable, symlink-followed absolute path for `candidatePath`
+ * and verify it stays under `realpath(allowedRoot)`. This is the SINGLE
+ * containment check both `safeUnlinkInside` (cleanup) and
+ * `safeReadFileInside` (port-file read) share — keeping them in one
+ * place is what closes the rf2-khav7l "refuse-delete-but-trust-read"
+ * split: a candidate the cleanup step refused to unlink resolves to the
+ * exact same escaped path here, so the read MUST refuse it too.
  *
- * Implementation: when the candidate exists we realpath it directly.
- * When it doesn't exist we realpath its *parent directory* + append
- * the basename and check that — this catches the symlinked-parent
- * case even when the file itself is absent (we still wouldn't want to
- * lstat-then-write through a parent symlink in a future call, but
- * here we just bail before unlink would do damage).
+ * When the leaf exists we realpath it directly. When it doesn't, we
+ * realpath the *parent directory* and re-attach the basename — this
+ * catches a symlinked parent (e.g. `<fixture>/.shadow-cljs` being a
+ * symlink whose target escapes the fixture) even when the leaf is
+ * absent.
  *
  * @param {string} candidatePath
  * @param {string} allowedRoot
- * @returns {boolean} true if the file existed and was unlinked,
- *                    false otherwise (file didn't exist).
- * @throws  If the candidate's realpath escapes the allowed root.
+ * @param {string} opName  caller name, for the error message.
+ * @returns {{ leafExists: boolean, resolvedLeaf: (string|null) }}
+ *          `resolvedLeaf` is null only when the parent directory itself
+ *          doesn't exist (so the leaf definitely doesn't either).
+ * @throws  If inputs are empty/missing, if `allowedRoot` is unreadable,
+ *          or if the candidate's realpath escapes the allowed root.
  */
-function safeUnlinkInside(candidatePath, allowedRoot) {
+function resolveContainedLeaf(candidatePath, allowedRoot, opName) {
   if (typeof candidatePath !== 'string' || candidatePath.length === 0) {
-    throw new Error('safeUnlinkInside: candidatePath must be a non-empty string');
+    throw new Error(`${opName}: candidatePath must be a non-empty string`);
   }
   if (typeof allowedRoot !== 'string' || allowedRoot.length === 0) {
-    throw new Error('safeUnlinkInside: allowedRoot must be a non-empty string');
+    throw new Error(`${opName}: allowedRoot must be a non-empty string`);
   }
   const allowedRootReal = realpathSyncOrNull(allowedRoot);
   if (!allowedRootReal) {
     throw new Error(
-      'safeUnlinkInside: allowedRoot does not exist or is unreadable: ' +
-        allowedRoot,
+      `${opName}: allowedRoot does not exist or is unreadable: ` + allowedRoot,
     );
   }
 
-  // lstat first: if the candidate doesn't exist at all, we're done.
-  // Using lstat (not stat) so a broken symlink at the leaf is still
-  // visible — we want to refuse to unlink even a dangling link if
-  // its location is outside the allowed root.
+  // lstat first: if the candidate doesn't exist at all, we still resolve
+  // the parent so a symlinked-parent escape is caught even with the leaf
+  // absent. Using lstat (not stat) so a broken/escaping symlink at the
+  // leaf is still visible.
   let leafExists;
   try {
     fs.lstatSync(candidatePath);
@@ -293,12 +309,6 @@ function safeUnlinkInside(candidatePath, allowedRoot) {
     }
   }
 
-  // Resolve a stable absolute path for the candidate. When the leaf
-  // exists we can realpath it directly; when it doesn't we realpath
-  // the parent directory (which MUST exist for unlink to be meaningful)
-  // and re-attach the basename. The parent-realpath path catches a
-  // symlinked parent — e.g. `<fixture>/.shadow-cljs` being a symlink
-  // to `/etc` — even when the leaf is absent.
   const dir = path.dirname(candidatePath);
   const base = path.basename(candidatePath);
   const parentReal = realpathSyncOrNull(dir);
@@ -317,24 +327,90 @@ function safeUnlinkInside(candidatePath, allowedRoot) {
 
   if (!resolvedLeaf) {
     // Parent directory itself doesn't exist; the file definitely
-    // doesn't either. Treat as no-op.
-    return false;
+    // doesn't either. No containment violation possible.
+    return { leafExists: false, resolvedLeaf: null };
   }
 
   if (!isPathInside(resolvedLeaf, allowedRootReal)) {
     throw new Error(
-      `safeUnlinkInside: refusing to unlink ${candidatePath} — resolved ` +
+      `${opName}: refusing to operate on ${candidatePath} — resolved ` +
         `path ${resolvedLeaf} is outside allowed root ${allowedRootReal} ` +
-        `(rf2-33vvc symlink-escape accident-gating).`,
+        `(rf2-33vvc / rf2-khav7l symlink-escape accident-gating).`,
     );
   }
 
+  return { leafExists, resolvedLeaf };
+}
+
+// ---------------------------------------------------------------------
+// safeUnlinkInside
+// ---------------------------------------------------------------------
+
+/**
+ * Unlink `candidatePath` only when its realpath resolves under
+ * `realpath(allowedRoot)`. Symlink-safe: if any parent component is a
+ * symlink whose target escapes the allowed root, the unlink is
+ * rejected. No-op when the file doesn't exist.
+ *
+ * @param {string} candidatePath
+ * @param {string} allowedRoot
+ * @returns {boolean} true if the file existed and was unlinked,
+ *                    false otherwise (file didn't exist).
+ * @throws  If the candidate's realpath escapes the allowed root.
+ */
+function safeUnlinkInside(candidatePath, allowedRoot) {
+  const { leafExists } = resolveContainedLeaf(
+    candidatePath,
+    allowedRoot,
+    'safeUnlinkInside',
+  );
   if (!leafExists) return false;
   fs.unlinkSync(candidatePath);
   return true;
 }
 
+// ---------------------------------------------------------------------
+// safeReadFileInside
+// ---------------------------------------------------------------------
+
+/**
+ * Read `candidatePath` only when its realpath resolves under
+ * `realpath(allowedRoot)`. Symlink-safe via the SAME containment check
+ * `safeUnlinkInside` enforces (`resolveContainedLeaf`), so a candidate
+ * the cleanup step refused to unlink cannot be silently trusted as a
+ * read source — the rf2-khav7l "refuse-delete-but-trust-read" split.
+ *
+ * @param {string} candidatePath
+ * @param {string} allowedRoot
+ * @param {(string|{encoding?: string})} [options]  Encoding string (or
+ *        an options object with `encoding`). Defaults to `'utf8'`.
+ * @returns {(string|Buffer|null)} the file contents on success, or
+ *          `null` when the file doesn't exist.
+ * @throws  If the candidate's realpath escapes the allowed root, or on
+ *          a read error other than ENOENT.
+ */
+function safeReadFileInside(candidatePath, allowedRoot, options) {
+  const { leafExists } = resolveContainedLeaf(
+    candidatePath,
+    allowedRoot,
+    'safeReadFileInside',
+  );
+  if (!leafExists) return null;
+  const readOpts =
+    typeof options === 'string' ? { encoding: options } : { encoding: 'utf8', ...options };
+  try {
+    return fs.readFileSync(candidatePath, readOpts);
+  } catch (e) {
+    // A race could remove the file between the containment check and the
+    // read; treat a now-missing file as "not present" rather than fatal.
+    // Any other error (EACCES, EISDIR, …) is genuine — propagate it.
+    if (e && e.code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
 module.exports = {
   resolveTrustedExe,
   safeUnlinkInside,
+  safeReadFileInside,
 };
