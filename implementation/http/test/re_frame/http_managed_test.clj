@@ -1230,6 +1230,86 @@
           (re-frame.http-test-support/uninstall-managed-request-stubs!)
           (late-bind/set-fn! :router/dispatch! original))))))
 
+;; ---- 11a-vn8qjv. scoped stubs compose under nesting -----------------------
+;;
+;; rf2-vn8qjv (issue 2) — `with-managed-request-stubs*` must be stack-safe
+;; for nested lexical scopes. Pre-fix every scope keyed off ONE global stub
+;; fx id (`:rf.http/managed-test-stub`): the inner scope's install replaced
+;; the outer handler and the inner's `finally` CLEARED it, so an outer-scope
+;; dispatch after the inner exit routed to a now-absent fx. The fix mints a
+;; UNIQUE fx id per scope and binds the override to that id, so the outer
+;; scope's fx + override survive a fully-nested inner scope.
+
+(deftest scoped-stubs-compose-under-nesting-rf2-vn8qjv
+  (testing "rf2-vn8qjv — an outer A stub wraps an inner B stub; after the
+            inner B scope exits, a later outer-scope request still routes to
+            the A stub (pre-fix the inner's teardown cleared the shared fx and
+            the outer dispatch hit a missing fx / wrong handler)"
+    ;; Distinct event + route per call site so each scope keys off its own url.
+    (rf/reg-event-fx :vn8qjv/load-a
+      (fn [{:keys [db]} [_ msg]]
+        (if-let [reply (:rf/reply msg)]
+          {:db (assoc db :result-a reply)}
+          {:fx [[:rf.http/managed {:request {:method :get :url "/a"} :decode :json}]]})))
+    (rf/reg-event-fx :vn8qjv/load-b
+      (fn [{:keys [db]} [_ msg]]
+        (if-let [reply (:rf/reply msg)]
+          {:db (assoc db :result-b reply)}
+          {:fx [[:rf.http/managed {:request {:method :get :url "/b"} :decode :json}]]})))
+    (rf/with-managed-request-stubs
+      {[:get "/a"] {:reply {:ok {:from :outer-a}}}}
+      ;; Inner scope B — distinct route + reply. Its install + teardown must
+      ;; not disturb the outer A scope.
+      (rf/with-managed-request-stubs
+        {[:get "/b"] {:reply {:ok {:from :inner-b}}}}
+        (rf/dispatch-sync [:vn8qjv/load-b])
+        (let [db (await-reply! #(some? (:result-b %)) 2000)]
+          (is (= {:from :inner-b} (get-in db [:result-b :value]))
+              "inner B scope routed to the B stub")))
+      ;; Inner scope has exited. The outer A scope's stub MUST still be live.
+      (rf/dispatch-sync [:vn8qjv/load-a])
+      (let [db (await-reply! #(some? (:result-a %)) 2000)]
+        (is (= :success (get-in db [:result-a :kind]))
+            "outer A scope still synthesised a reply after the inner B exit")
+        (is (= {:from :outer-a} (get-in db [:result-a :value]))
+            "outer A scope still routed to the A stub — not cleared by inner B teardown")))))
+
+;; ---- 11a-vn8qjv (lower-level). install/uninstall stack + no fx leak --------
+;;
+;; rf2-vn8qjv (issue 2) — the lower-level install/uninstall surface keeps the
+;; STABLE documented id (`:rf.http/managed-test-stub`, the `:fx-overrides`
+;; target users hardcode), but install snapshots the prior handler and
+;; uninstall restores it, so a nested install/uninstall pair leaves the outer
+;; install intact; a balanced top-level pair leaks no fx.
+
+(deftest lower-level-install-uninstall-stack-discipline-rf2-vn8qjv
+  (testing "rf2-vn8qjv — nested install/uninstall on the stable id restores the
+            outer handler; balanced top-level pair leaks no test fx"
+    (let [stub-id :rf.http/managed-test-stub]
+      (is (nil? (registrar/handler :fx stub-id))
+          "no stub fx registered before install")
+      (re-frame.http-test-support/install-managed-request-stubs!
+        {[:get "/outer"] {:reply {:ok {:from :outer}}}})
+      (let [outer-handler (registrar/handler :fx stub-id)]
+        (is (some? outer-handler) "outer install registered the stub fx")
+        ;; Nested install replaces the handler in place.
+        (re-frame.http-test-support/install-managed-request-stubs!
+          {[:get "/inner"] {:reply {:ok {:from :inner}}}})
+        (is (not (identical? outer-handler (registrar/handler :fx stub-id)))
+            "inner install replaced the handler")
+        ;; Inner uninstall RESTORES the outer handler (stack discipline).
+        (re-frame.http-test-support/uninstall-managed-request-stubs!)
+        (is (identical? outer-handler (registrar/handler :fx stub-id))
+            "inner uninstall restored the outer install's handler")
+        ;; Outer uninstall clears (no prior on the stack).
+        (re-frame.http-test-support/uninstall-managed-request-stubs!)
+        (is (nil? (registrar/handler :fx stub-id))
+            "balanced top-level install/uninstall leaves no leaked test fx")
+        ;; Idempotent: an extra uninstall is a safe no-op.
+        (re-frame.http-test-support/uninstall-managed-request-stubs!)
+        (is (nil? (registrar/handler :fx stub-id))
+            "extra uninstall is an idempotent no-op")))))
+
 ;; ---- 11b. canned-stub fxs gated on explicit test-support require (rf2-cdmle)
 ;;
 ;; Per rf2-cdmle (follow-up to rf2-zk08x): the gate that decides whether

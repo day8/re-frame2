@@ -666,7 +666,7 @@ The reply dispatch lands in the **same frame** the request was issued from. The 
 
 ## Middleware
 
-Per — apps repeatedly want to apply a transform to every outgoing `:rf.http/managed` request: attach a Bearer token, stamp a correlation-id, rewrite a base URL in dev. v1 ships a **per-frame request-side interceptor chain** that sits between the user's args and the transport.
+Apps repeatedly want to apply a transform to every `:rf.http/managed` request or response: attach a Bearer token, stamp a correlation-id, rewrite a base URL in dev (request side); parse rate-limit headers, compute response-time deltas, flag a 401 for auth refresh (response side). v1 ships a **per-frame interceptor chain** with both phases — a `:before` request-side transform that sits between the user's args and the transport, and an `:after` response-side transform that sits between the transport's reply and the `:on-success` / `:on-failure` dispatch. The shape mirrors the event-interceptor `{:id :before :after}` onion (Spec 002): symmetric on both sides, `:before` in registration order, `:after` in reverse.
 
 ### Shape
 
@@ -1312,15 +1312,10 @@ Adjacent surfaces that are first-class re-frame2 commitments but live in their o
 - **WebSocket** — bidirectional. Lives in [Pattern-WebSocket](Pattern-WebSocket.md); state-machine-shaped.
 - **GraphQL-specific batching / persisted queries.** Layer on top — `:rf.http/managed` hands you the decoded response, your application wraps for batching.
 - **HTTP/2 server push.** Not a re-frame2 concern; the platform handles it transparently.
-- **Response-side interceptors (`:after`).** v1's middleware contract is request-side only ([§Middleware](#middleware)). Apps that want to project / log / retry on response paths use `:accept` (domain-failure normalisation) and the trace stream; a future `:after` slot composes additively when it lands.
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items are **post-v1, untracked notes** — additive surfaces that do not block v1 and have no tracking bead filed yet (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). A tracking bead is filed for each only when its "deferred until …" condition is met.
-
-### Response-side middleware composition (post-v1)
-
-Per [§Middleware](#middleware) v1 ships request-side middleware only. A response-side `:after` slot — composing additively with `:accept` and `:before` — would let apps project / log / retry on response paths without per-event boilerplate. Deferred until the request-side surface settles in practice and the composition order with `:accept` is decided.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): both items are **post-v1, untracked notes** — additive surfaces that do not block v1 and have no tracking bead filed yet (so neither qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). A tracking bead is filed for each only when its "deferred until …" condition is met.
 
 ### Streaming responses (`:rf.http/streaming`) (post-v1)
 
@@ -1344,9 +1339,9 @@ Per [§Failure categories (closed set)](#failure-categories-closed-set) the fail
 
 Per [§Failure categories (closed set)](#failure-categories-closed-set) the `:rf.http/cors` row is CLJS-only — JVM transports never emit it. CORS is a browser-policy concern; the JVM has no cross-origin policy to enforce. The asymmetry is documented so tools that consume the trace stream don't assume the row exists on every host.
 
-### Request-side middleware only in v1
+### Per-frame interceptor chain with both request- and response-side phases
 
-Per [§Middleware](#middleware) the v1 middleware contract is per-frame request-side only — the interceptor chain sits between the user's args and the transport, not between the transport and the reply. The request-side cases (Bearer token, correlation-id, base-URL rewrite) all surfaced as the high-frequency pattern; response-side composition is deferred to [§Open questions](#open-questions). The request-side surface ships first because its shape is settled.
+Per [§Middleware](#middleware) the v1 middleware contract is a per-frame interceptor chain carrying both phases: a `:before` request-side transform between the user's args and the transport, and an `:after` response-side transform between the transport's reply and the `:on-success` / `:on-failure` dispatch. The request-side cases (Bearer token, correlation-id, base-URL rewrite) and the response-side cases (rate-limit header parsing, response-time telemetry, 401 auth-refresh tagging) were chosen as the high-frequency patterns. The two phases compose via one `{:id :before :after}` registration that mirrors the event-interceptor onion (Spec 002): `:before` runs in registration order, `:after` in reverse, and the `:after` sees the same ctx the `:before` chain produced for that request — so request-correlated response handling (e.g. a start-mark stamped by `:before`, read by `:after`) is a single-interceptor concern. Response-side composition with `:accept` is settled: `:accept` runs first inside the transport (domain-failure normalisation produces the `{:kind :success|:failure}` response), then the `:after` chain transforms that response before the reply dispatch.
 
 ### Frame-aware reply dispatch
 
