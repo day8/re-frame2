@@ -463,7 +463,6 @@
          ;; is not on the classpath.
          (when (and clear-app-schemas? clear-fn)
            (clear-fn))
-         (when init-fn (init-fn))
          ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
          ;; and the framework operation surfaces (dispatch / subscribe /
          ;; machine + http + routing fxs) now require a carried frame stamp.
@@ -490,10 +489,33 @@
          ;; scope models the genuine top-level boot those tests intend; their
          ;; in-body dispatches carry explicit `{:frame …}` or run inside a
          ;; `with-new-frame` scope, so they do not rely on the ambient frame.
+         ;;
+         ;; rf2-4775uc — the `:init-fn` runs UNDER the same ambient scope as the
+         ;; test body. `:init-fn` is per-suite setup that needs the registrar /
+         ;; adapter live (step 7) — e.g. re-running an app's `register-all!` /
+         ;; `install!` thunks. Those thunks can perform context-required
+         ;; frame-local ops (`reg-app-schema` / `reg-flow` / a bare `dispatch`),
+         ;; which resolve `*current-frame*` and raise `:rf.error/no-frame-context`
+         ;; under no scope (rf2-5q7um6). Pre-fix, `:init-fn` fired OUTSIDE this
+         ;; binding, so a bare frame-local op in setup threw frameless — and
+         ;; because the `:node-test` build runs every `*_cljs_test` ns in ONE
+         ;; shared JS runtime, that throw, landing during a concurrently-pending
+         ;; async test's `done` window, surfaced as the intermittent
+         ;; `unexpected reject: :rf.error/no-frame-context` +
+         ;; `Async test called done more than one time` suite-abort flake. Run
+         ;; `:init-fn` under the same carried-frame floor as the body so setup
+         ;; gets the same ambient scope the test does. (rf2-ofzxh9 patched one
+         ;; such call site, the websocket fixture's `reg-app-schema`; this
+         ;; closes the whole class at the fixture seam.) The `:ambient-frame nil`
+         ;; / adapter-less branch keeps `:init-fn` frameless — those tests own
+         ;; their frame creation and must not run setup under a synthetic scope.
          (if (and adapter ambient-frame)
            (binding [frame/*current-frame* ambient-frame]
+             (when init-fn (init-fn))
              (test-fn))
-           (test-fn))
+           (do
+             (when init-fn (init-fn))
+             (test-fn)))
          (finally
            (restore-registrar! snap)
            (when restore-fn (restore-fn schemas-snap))
