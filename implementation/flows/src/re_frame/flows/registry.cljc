@@ -787,6 +787,38 @@
    (validate-flow flow)
    (let [frame-id (or frame (frame/current-frame))
          flow-id  (:id flow)]
+     ;; rf2-zbxvqj: reject registration against a NON-LIVE frame BEFORE any
+     ;; state mutates. `frame/frame` returns nil when the frame record is
+     ;; absent (never registered, or `destroy-frame!`'s step-6 dissoc ran) OR
+     ;; present-but-`:destroyed?` (post-step-3, pre-step-6). Either way the
+     ;; frame is non-live and must not acquire flow state.
+     ;;
+     ;; The bug: `call-serialized-with-drain!` runs its thunk DIRECTLY for an
+     ;; absent/destroyed frame (frame.cljc §call-serialized-with-drain!), so
+     ;; without this guard the registration below unconditionally installed a
+     ;; `flows[frame-id flow-id]` row, an elision declaration, and a `:flow`
+     ;; registrar slot stamped with the dead `frame-id`. A later `reg-frame`
+     ;; reusing that id then inherited the resurrected flow — breaking the
+     ;; frame-destroy isolation contract (Spec 013 §destroy-frame! releases
+     ;; every per-frame flow slot / last-inputs row / dead registrar entry).
+     ;;
+     ;; Pre-alpha contract (acceptance): REJECT with a stable structured
+     ;; error category rather than create dormant state for a typo'd or
+     ;; destroyed frame id. `clear-flow` keeps its permissive absent-frame
+     ;; no-op (teardown must be idempotent); only this MUTATING path rejects.
+     (when (nil? (frame/frame frame-id))
+       (throw (ex-info (str :rf.error/flow-frame-not-live)
+                       {:rf.error/id :rf.error/flow-frame-not-live
+                        :where       'rf/reg-flow
+                        :recovery    :fix-registration
+                        :reason      (str "cannot register a flow against frame "
+                                          frame-id
+                                          " — the frame is not live (absent / never registered, "
+                                          "or torn down by destroy-frame!). Register the flow "
+                                          "against a live frame; a destroyed frame must not "
+                                          "acquire flow state (Spec 013 §destroy-frame!).")
+                        :frame       frame-id
+                        :flow        flow})))
      ;; ATOMIC check-and-insert (rf2-qxwib). The cycle check and the
      ;; commit are ONE `swap!` update fn over `@flows`: it reads the
      ;; frame's CURRENTLY-COMMITTED flow-map, runs topo-sort on the
