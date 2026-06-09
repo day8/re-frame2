@@ -306,6 +306,71 @@
         (finally
           (reset! late-bind/hooks snapshot))))))
 
+;; ---- rf2-4775uc — `:init-fn` runs under the body's ambient frame ----------
+;;
+;; The fixture's `:init-fn` is per-suite setup that needs the registrar /
+;; adapter live (docstring step 7) — e.g. re-running an app's
+;; `register-all!` / `install!` thunks, which can perform context-required
+;; frame-local ops (`reg-app-schema` / `reg-flow` / a bare `dispatch`). Those
+;; resolve `*current-frame*` and raise `:rf.error/no-frame-context` under no
+;; scope (rf2-5q7um6). Pre-fix the `:init-fn` ran OUTSIDE the ambient
+;; `*current-frame*` binding the fixture establishes around the body, so a
+;; bare frame-local op in setup threw frameless — surfacing (in the shared
+;; `:node-test` JS runtime) as the intermittent double-`done` suite-abort
+;; flake rf2-ofzxh9 / rf2-4775uc closed. Pin that the `:init-fn` now runs
+;; under the same carried-frame floor as the body.
+
+(deftest make-reset-runtime-fixture-runs-init-fn-under-ambient-frame
+  (testing "an adapter fixture runs `:init-fn` under the ambient `:rf/default`
+            scope, so a context-required frame-local op in setup does NOT
+            raise `:rf.error/no-frame-context` (rf2-4775uc)"
+    ;; Neutralise the enclosing `reset-runtime` fixture's ambient
+    ;; `(with-frame :rf/default …)` so the `:rf/default` we observe is the
+    ;; one THIS fixture binds around `:init-fn`, not the outer fixture's —
+    ;; mirroring the real flake context (cljs.test has no enclosing
+    ;; `with-frame`, so a frameless `:init-fn` would otherwise see nil).
+    (binding [frame/*current-frame* nil]
+      (let [seen-frame (atom :unset)
+            threw      (atom nil)]
+        (try
+          (let [fixture (ts/make-reset-runtime-fixture
+                          {:adapter plain-atom/adapter
+                           :init-fn (fn []
+                                      ;; A frame-local op the way an app's
+                                      ;; setup thunk would run it — bare, no
+                                      ;; explicit `{:frame …}`.
+                                      (reset! seen-frame (frame/current-frame))
+                                      (rf/reg-app-schema [:counter] :int))})]
+            (fixture (fn [] :ran)))
+          (catch Throwable t (reset! threw t)))
+        (is (nil? @threw)
+            "the bare `reg-app-schema` in `:init-fn` did not throw frameless")
+        (is (= :rf/default @seen-frame)
+            "`:init-fn` observed the ambient `:rf/default` scope (same as the
+             test body)")))))
+
+(deftest make-reset-runtime-fixture-init-fn-frameless-when-ambient-opted-out
+  (testing "`:ambient-frame nil` keeps `:init-fn` frameless — tests that own
+            their frame creation must not run setup under a synthetic scope
+            (rf2-4775uc / rf2-9o48ih)"
+    ;; Neutralise the enclosing `reset-runtime` fixture's ambient
+    ;; `(with-frame :rf/default …)` so we observe THIS fixture's scope
+    ;; decision (not the outer one's) — in the real flake context cljs.test
+    ;; has no such enclosing `with-frame`.
+    (binding [frame/*current-frame* nil]
+      (let [seen-frame (atom :unset)]
+        (let [fixture (ts/make-reset-runtime-fixture
+                        {:adapter       plain-atom/adapter
+                         :ambient-frame nil
+                         :init-fn       (fn []
+                                          (reset! seen-frame
+                                                  (frame/current-frame)))})]
+          (fixture (fn [] :ran)))
+        (is (nil? @seen-frame)
+            "no ambient frame was bound around `:init-fn` when
+             `:ambient-frame nil` opts out (the fixture leaves
+             `*current-frame*` unbound, so `current-frame` is nil)")))))
+
 ;; ---- rf2-j9phb (TE-R2.3) — destroy-frame! hook-cascade coverage -----------
 ;;
 ;; The other half of the round-2 audit finding. `destroy-frame!`'s
