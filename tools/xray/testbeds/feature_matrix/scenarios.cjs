@@ -2872,37 +2872,50 @@ async function runRoutesEpochs(page, state) {
       snap.currentId && snap.currentId.includes('routes-epochs/settings'),
     { timeoutMs: 10000, description: '#11 try-leave → guard blocked, CURRENT ROUTE stays :settings' },
   );
-  const pendingProbe = await page.evaluate(() => {
-    const el = document.querySelector('[data-testid="routes-epochs-current-strip"]');
-    const stripText = el ? (el.textContent || '') : null;
-    // Direct app-db probe of the pending-navigation slot — the canonical
-    // blocked-nav signal per Spec 012, independent of the strip render.
-    let pendingNav = null;
-    try {
-      const cljs = window.cljs && window.cljs.core;
-      const rf = window.re_frame && window.re_frame.core;
-      // `re-frame.core/app-db-value` returns the plain db VALUE (no deref)
-      // for the named frame (rf2-003ce renamed the former get-frame-db
-      // container accessor; the value accessor is the public read seam).
-      if (cljs && rf && typeof rf.app_db_value === 'function') {
-        const kw = (s) => {
-          const t = String(s).replace(/^:/, '');
-          const p = t.split('/');
-          return p.length === 2
-            ? (cljs.keyword.call ? cljs.keyword.call(null, p[0], p[1]) : cljs.keyword(p[0], p[1]))
-            : (cljs.keyword.call ? cljs.keyword.call(null, t) : cljs.keyword(t));
-        };
-        const db = rf.app_db_value(kw('rf/default'));
-        const path = cljs.PersistentVector.fromArray(
-          [kw('rf/runtime'), kw('routing'), kw('pending-navigation')], true);
-        const pn = db ? cljs.get_in(db, path) : null;
-        pendingNav = pn ? cljs.pr_str(pn) : null;
+  // rf2-wxu4l3 — the `afterBlocked` wait above resolves IMMEDIATELY because
+  // CURRENT ROUTE was already on :settings from rung #10, so a bare read of
+  // the pending-nav slot here races the #11 block cascade's runtime-db
+  // commit (the slice-stayed-put invariant proves nothing changed, but the
+  // commit that WRITES `:rf/pending-navigation` lands a tick later). Poll
+  // until the slot fills. The probe also reads the CORRECT location: per
+  // EP-0001 (rf2-vzld77) the pending-nav slot is durable routing RUNTIME-DB
+  // state at `[:rf.runtime/routing :pending-navigation]` — read via the
+  // public `re-frame.core/runtime-db-value` seam, NOT app-db (the former
+  // `app-db-value` probe at `[:rf/runtime :routing ...]` read the stale
+  // pre-EP-0001 partition + key and always saw nil). The deck strip
+  // (`:rf/pending-navigation` runtime-sub) is the secondary cross-check.
+  const pendingProbe = await waitForValue(
+    () => page.evaluate(() => {
+      const el = document.querySelector('[data-testid="routes-epochs-current-strip"]');
+      const stripText = el ? (el.textContent || '') : null;
+      let pendingNav = null;
+      try {
+        const cljs = window.cljs && window.cljs.core;
+        const rf = window.re_frame && window.re_frame.core;
+        if (cljs && rf && typeof rf.runtime_db_value === 'function') {
+          const kw = (s) => {
+            const t = String(s).replace(/^:/, '');
+            const p = t.split('/');
+            return p.length === 2
+              ? (cljs.keyword.call ? cljs.keyword.call(null, p[0], p[1]) : cljs.keyword(p[0], p[1]))
+              : (cljs.keyword.call ? cljs.keyword.call(null, t) : cljs.keyword(t));
+          };
+          const rdb = rf.runtime_db_value(kw('rf/default'));
+          const path = cljs.PersistentVector.fromArray(
+            [kw('rf.runtime/routing'), kw('pending-navigation')], true);
+          const pn = rdb ? cljs.get_in(rdb, path) : null;
+          pendingNav = pn ? cljs.pr_str(pn) : null;
+        }
+      } catch (err) {
+        pendingNav = `probe-error:${String(err)}`;
       }
-    } catch (err) {
-      pendingNav = `probe-error:${String(err)}`;
-    }
-    return { stripText, pendingNav };
-  });
+      return { stripText, pendingNav };
+    }),
+    (probe) =>
+      Boolean(probe.pendingNav && probe.pendingNav !== 'null') ||
+      /pending-navigation/.test(probe.stripText || ''),
+    { timeoutMs: 10000, description: '#11 try-leave → :rf/pending-navigation fills in runtime-db' },
+  );
   const pendingNavSet =
     Boolean(pendingProbe.pendingNav && pendingProbe.pendingNav !== 'null') ||
     /pending-navigation/.test(pendingProbe.stripText || '');
@@ -2990,10 +3003,21 @@ async function restartMachineTrack(page) {
 }
 
 // Read one machine's snapshot directly from its OWN `:machine/<track>` frame
-// app-db (rf2-q3lfm — per-machine frame isolation; snapshots no longer live
-// in `:rf/default`). Reconstructs the same `state … · tags …` text the old
-// `:rf/default` strip produced, scoped to the given track's frame, so the
+// RUNTIME-DB (rf2-q3lfm — per-machine frame isolation; snapshots no longer
+// live in `:rf/default`). Reconstructs the same `state … · tags …` text the
+// old `:rf/default` strip produced, scoped to the given track's frame, so the
 // per-machine assertions below read robustly. Returns `{ mounted, ... }`.
+//
+// rf2-wxu4l3 — machine snapshots are durable framework RUNTIME-DB state per
+// EP-0001 (rf2-vzld77; re-frame.machines.paths/snapshot-path): they live at
+// `[:rf.runtime/machines :snapshots <machine-id>]` in the runtime-db
+// PARTITION, read via the public `re-frame.core/runtime-db-value` seam — NOT
+// in app-db. The former `app-db-value` read at `[:rf/runtime :machines
+// :snapshots …]` looked at the stale pre-EP-0001 partition + key spelling and
+// always saw nil, so every track snapshot read back as `nil` (the door track
+// "booted to nil" symptom). The boot itself is correct (the door frame's
+// epoch ring shows :machine-epochs/boot-door → :door/main and runtime-db
+// carries `{:state :locked …}`); only this read seam was stale.
 //
 // `trackId` is the track name (e.g. 'door', 'media'); the frame id is
 // `:machine/<trackId>`. `machineIds` is the set of machine-ids the track
@@ -3002,8 +3026,8 @@ async function readTrackSnapshots(page, trackId, machineIds) {
   return page.evaluate(({ trackId, machineIds }) => {
     const cljs = window.cljs && window.cljs.core;
     const rf = window.re_frame && window.re_frame.core;
-    if (!cljs || !rf || typeof rf.app_db_value !== 'function') {
-      return { mounted: false, reason: 'cljs.core / re_frame.core.app_db_value unavailable' };
+    if (!cljs || !rf || typeof rf.runtime_db_value !== 'function') {
+      return { mounted: false, reason: 'cljs.core / re_frame.core.runtime_db_value unavailable' };
     }
     function keyword(s) {
       const trimmed = String(s).replace(/^:/, '');
@@ -3017,11 +3041,11 @@ async function readTrackSnapshots(page, trackId, machineIds) {
         ? cljs.keyword.call(null, trimmed)
         : cljs.keyword(trimmed);
     }
-    const db = rf.app_db_value(keyword(`:machine/${trackId}`));
-    if (db == null) return { mounted: false, reason: `no :machine/${trackId} app-db` };
+    const db = rf.runtime_db_value(keyword(`:machine/${trackId}`));
+    if (db == null) return { mounted: false, reason: `no :machine/${trackId} runtime-db` };
     function snapshot(machineId) {
       const path = cljs.PersistentVector.fromArray([
-        keyword(':rf/runtime'), keyword(':machines'),
+        keyword(':rf.runtime/machines'),
         keyword(':snapshots'), keyword(machineId),
       ], true);
       return cljs.get_in ? cljs.get_in(db, path) : null;

@@ -38,29 +38,45 @@
   `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded from the
   `browse-list` reg-view (a plain fn invoked as a Reagent component
   renders in its own cycle, so it cannot recover the frame itself).
+
+  `query` is the current search string, threaded from the `browse-list`
+  reg-view's own subscribe (rf2-wxu4l3) — this helper is a plain fn
+  invoked as a Reagent component, so it renders in its OWN cycle and
+  CANNOT recover the `:rf/xray` frame to `rf/subscribe` itself (Spec 004
+  §Plain Reagent fns do not pick up the surrounding frame; a bare
+  `subscribe` here throws `:rf.error/no-frame-context` and crashes the
+  whole Static surface). The reg-view body already derefs the same
+  `:rf.xray.static.machines/search` sub — pass that value down.
   rf2-1keg3 — the markup lives in the shared `search-box` component's
   `:pane` variant."
-  [dispatch]
-  (let [query @(rf/subscribe [:rf.xray.static.machines/search])]
-    [search-box/search-box
-     {:variant          :pane
-      :testid-prefix    "rf-xray-static-machines"
-      :dispatch         dispatch
-      :set-query-event  :rf.xray.static.machines/set-search
-      :on-clear-event   :rf.xray.static.machines/clear-search
-      :placeholder      "Search machines…"
-      :input-aria-label "Search registered machines"
-      :value            query}]))
+  [dispatch query]
+  [search-box/search-box
+   {:variant          :pane
+    :testid-prefix    "rf-xray-static-machines"
+    :dispatch         dispatch
+    :set-query-event  :rf.xray.static.machines/set-search
+    :on-clear-event   :rf.xray.static.machines/clear-search
+    :placeholder      "Search machines…"
+    :input-aria-label "Search registered machines"
+    :value            query}])
 
 ;; ---- sort cycle button --------------------------------------------------
 
 (defn- sort-button
   "Single-button sort cycle. Clicking cycles `Name → States → Live →
   Name…`. The label shows the current axis so the affordance is self-
-  describing."
-  [dispatch]
-  (let [k     @(rf/subscribe [:rf.xray.static.machines/sort-key])
-        label (get h/sort-key-labels k "Name")]
+  describing.
+
+  `sort-key` is the current sort axis, threaded from the `browse-list`
+  reg-view's own subscribe (rf2-wxu4l3) — this helper is a plain fn
+  invoked as a Reagent component, so it renders in its OWN cycle and
+  CANNOT recover the `:rf/xray` frame to `rf/subscribe` itself (Spec 004
+  §Plain Reagent fns do not pick up the surrounding frame; a bare
+  `subscribe` here throws `:rf.error/no-frame-context` and crashes the
+  whole Static surface). The reg-view body derefs the sub and passes the
+  value down."
+  [dispatch sort-key]
+  (let [label (get h/sort-key-labels sort-key "Name")]
     [:button
      {:data-testid "rf-xray-static-machines-sort"
       :on-click    (fn [_]
@@ -259,13 +275,18 @@
   []
   (let [{:keys [rows total visible selected-id]}
         @(rf/subscribe [:rf.xray.static.machines/data])
-        query @(rf/subscribe [:rf.xray.static.machines/search])]
+        query    @(rf/subscribe [:rf.xray.static.machines/search])
+        ;; rf2-wxu4l3 — deref the sort axis HERE (in the reg-view body, where
+        ;; the `:rf/xray` frame is in context) and thread it into the plain-fn
+        ;; `sort-button` helper, which renders in its own cycle and cannot
+        ;; recover the frame to subscribe itself.
+        sort-key @(rf/subscribe [:rf.xray.static.machines/sort-key])]
     [:div {:data-testid "rf-xray-static-machines-browse-list"
            :style {:display        "flex"
                    :flex-direction "column"
                    :height         "100%"
                    :background     (:bg-1 tokens)}}
-     [search-box dispatch]
+     [search-box dispatch query]
      [:div {:data-testid "rf-xray-static-machines-toolbar"
             :style {:display       "flex"
                     :align-items   "center"
@@ -276,7 +297,7 @@
                     :font-family   sans-stack
                     :font-size     (:caption type-scale)
                     :color         (:text-tertiary tokens)}}
-      [sort-button dispatch]
+      [sort-button dispatch sort-key]
       [:span {:data-testid "rf-xray-static-machines-count"
               :style {:margin-left "auto"}}
        (if (= total visible)

@@ -215,8 +215,12 @@ clean scrubbable arc in its own ring — switching switches WHICH
 isolated arc Xray shows, never interleaving, including across
 switch-and-return (pick A → step → pick B → step → return to A: A's
 ring is intact and resumes). The browser feature gate asserts this with
-a cross-frame flip + a per-track frame-snapshot read
-(`:machine/<track>` app-db, not `:rf/default`).
+a cross-frame flip + a per-track frame-snapshot read off the
+`:machine/<track>` frame's **runtime-db** partition (machine snapshots
+are durable framework runtime-db state at `[:rf.runtime/machines
+:snapshots <machine-id>]` per EP-0001 / `re-frame.machines.paths`, read
+via `re-frame.core/runtime-db-value` — NOT app-db, and not
+`:rf/default`).
 
 **Localized runner.** The multi-track / frame-per-machine machinery is
 machine-epochs-LOCAL (the deck's own ns); the shared `runner.core`
