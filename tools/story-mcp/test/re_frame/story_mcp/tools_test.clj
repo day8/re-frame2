@@ -490,10 +490,46 @@
       (is (success? r))
       (is (= [:story.button]
              (mapv :id (-> r :structuredContent :stories))))))
-  (testing "filtering by :test (no matches) returns empty"
-    (let [r (invoke "list-stories" {:tags ["test"]})]
+  (testing "filtering by :test (registered canonical tag, no story matches) returns empty"
+    (let [r (invoke "list-stories" {:tags ["test"]})
+          s (:structuredContent r)]
       (is (success? r))
-      (is (empty? (-> r :structuredContent :stories))))))
+      (is (empty? (:stories s)))
+      (is (not (contains? s :ignored-tags))
+          "a REGISTERED tag that simply matches no story is not 'ignored'")))
+  ;; rf2-wu1o2d — an unknown-only tag filter (a typo / stale tag) MUST
+  ;; return an empty result, NOT silently widen to the full catalogue.
+  ;; The supplied-but-unresolved name rides the `:ignored-tags` diagnostic.
+  (testing "filtering by an UNKNOWN-only tag returns empty, never the full catalogue"
+    (let [r (invoke "list-stories" {:tags [":docz"]})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (empty? (:stories s))
+          "unknown-only filter must NOT widen to all stories")
+      (is (= [":docz"] (:ignored-tags s))
+          "the unresolved supplied name is echoed back as a diagnostic")
+      (is (nil? (find-keyword "docz"))
+          "rf2-lqjbk: the unknown tag id MUST NOT have been interned")))
+  ;; A mixed known+unknown filter still applies the KNOWN tag and reports
+  ;; the dropped name.
+  (testing "mixed known+unknown filter applies the known tag and reports the ignored name"
+    (let [r (invoke "list-stories" {:tags [":docs" ":docz"]})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= [:story.button] (mapv :id (:stories s)))
+          "the known :docs tag still narrows")
+      (is (= [":docz"] (:ignored-tags s))
+          "the unknown name is reported, the known tag is honoured")
+      (is (nil? (find-keyword "docz"))
+          "rf2-lqjbk: the unknown tag id MUST NOT have been interned")))
+  ;; The no-`:tags` call is the ONLY path that returns the unfiltered
+  ;; registry — a supplied filter (even an all-unknown one) always filters.
+  (testing "no :tags arg returns the unfiltered catalogue (no :ignored-tags slot)"
+    (let [r (invoke "list-stories" {})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= [:story.button] (mapv :id (:stories s))))
+      (is (not (contains? s :ignored-tags))))))
 
 (deftest get-story-happy
   (let [r (invoke "get-story" {:story-id "story.button"})]
@@ -3034,7 +3070,20 @@
         (is (contains? props :include-sensitive)
             (str tname " missing :include-sensitive slot"))
         (is (= "boolean" (-> props :include-sensitive :type))
-            (str tname " :include-sensitive slot is not boolean-typed"))))))
+            (str tname " :include-sensitive slot is not boolean-typed")))))
+  ;; rf2-wu1o2d — pin the EXACT include-sensitive tool set against the
+  ;; registry so the spec's "three affected tools" prose (now corrected to
+  ;; six) and the descriptor strip can't silently drift apart. The set is
+  ;; precisely the descriptors that carry the slot — no more, no less.
+  (testing "the include-sensitive set is EXACTLY the descriptors carrying the slot (no drift)"
+    (let [carriers (->> registry/tool-registry
+                        (filter #(contains? (-> % :inputSchema :properties) :include-sensitive))
+                        (map :name)
+                        set)]
+      (is (= (set include-sensitive-tools) carriers)
+          "every descriptor carrying :include-sensitive must be in the pinned set, and vice versa")
+      (is (= 6 (count carriers))
+          "the affected set is six tools (spec/002 §sensitive-read gate) — not three"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Sensitive-read boot gate (rf2-g9fje)
@@ -3044,8 +3093,10 @@
 ;; (`--allow-sensitive-reads`). When the gate is closed:
 ;;
 ;;   1. `tools/list` omits `:include-sensitive` from the input schemas of
-;;      preview-variant / run-variant / read-failures (caller UX — no
-;;      ghost knob).
+;;      every affected tool — the six that surface live/plan-resolved
+;;      VALUES (preview-variant / run-variant / read-failures / run-a11y /
+;;      explain-variant / record-as-variant), i.e. every descriptor that
+;;      carries the slot (caller UX — no ghost knob).
 ;;   2. `:include-sensitive true` on a tool call is silently ignored at
 ;;      the egress helpers (defence-in-depth — even a caller who learned
 ;;      about the slot some other way can't exfiltrate raw values).
