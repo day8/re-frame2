@@ -24,8 +24,25 @@
 ;;;; that diverges from the tested template. Mirrors the shape of
 ;;;; `skills/shared/tests/retro_protocol_test.clj`.
 ;;;;
-;;;; Run:    bb tests/setup_drift_test.clj   (from skills/re-frame2-setup/)
-;;;; Exit:   0 = pass, non-zero = fail.
+;;;; Run locally:  bb tests/setup_drift_test.clj   (from skills/re-frame2-setup/)
+;;;; Exit:         0 = pass, non-zero = fail.
+;;;;
+;;;; CI: gated by the `skills-structural` job in .github/workflows/test.yml,
+;;;; which loops `skills/re-frame2-setup/tests/*_test.clj`. The job fires when
+;;;; `report-changed-surfaces.sh` classifies a `skills/re-frame2-setup/**`
+;;;; change as `skills_structural=true` (rf2-agi57x). So a fix this suite guards
+;;;; (the prose-drift Locks 1–12 below) can no longer regress silently —
+;;;; previously this was a local-only check.
+;;;;
+;;;; What this suite does NOT cover: it is a PROSE-DRIFT / structural guard, not
+;;;; a buildability smoke. It does not materialise the scaffold and run
+;;;; `npm install` + `npx shadow-cljs compile app` — that heavier
+;;;; generated-project smoke is deferred (pre-publish, the framework coords
+;;;; resolve only against a reviewed monorepo checkout, so a full end-to-end
+;;;; build isn't a cheap per-PR gate yet; tracked as a decision-flagged
+;;;; follow-up under rf2-agi57x). Run `npm run test:cljs` / the substrate
+;;;; contract tests for real-regression coverage of the wiring this skill
+;;;; teaches.
 ;;;;
 ;;;; NOT published — `package.json` :files excludes `tests/`.
 
@@ -240,11 +257,17 @@
 
 (deftest xray-host-dom-order-is-main-then-aside
   (testing "shadow-cljs.md index.html orders <main> before the <aside> host (right-side flow)"
-    (let [body @shadow-cljs-md
+    ;; Compare the actual HTML TAGS, not any prose mention of `data-rf-xray-host`
+    ;; (the canonical-block intro + the opt-out prose both name the host
+    ;; attribute before the index.html block, so a whole-body first-occurrence
+    ;; search would false-fail — guard against the markup, not the prose).
+    (let [body      @shadow-cljs-md
           main-idx  (str/index-of body "<main id=\"app\">")
-          aside-idx (str/index-of body "data-rf-xray-host")]
+          ;; the <aside ...> opening tag that carries data-rf-xray-host
+          aside-idx (some-> (re-find #"<aside[^>]*data-rf-xray-host" body)
+                            (->> (str/index-of body)))]
       (is (and (some? main-idx) (some? aside-idx))
-          "Could not find both <main id=\"app\"> and data-rf-xray-host in shadow-cljs.md.")
+          "Could not find both <main id=\"app\"> and the <aside ... data-rf-xray-host> tag in shadow-cljs.md.")
       (is (and main-idx aside-idx (< main-idx aside-idx))
           (str "shadow-cljs.md's index.html does not place <main id=\"app\"> "
                "BEFORE the <aside data-rf-xray-host>. Flex flow lays the "
@@ -585,6 +608,133 @@
                "registered, so there is no validation WORK — not a soft-pass "
                "(a registered schema DOES validate once re-frame.schemas is "
                "required) (rf2-ol8l7a).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock 11 — the FIRST canonical shadow-cljs.edn block carries the day-one Xray
+;; preload. rf2-agi57x.
+;;
+;; Xray is a day-one dep (deps-versions.md) and index.html ships the
+;; [data-rf-xray-host] column; the SKILL.md day-one shape + done-checklist both
+;; require `:devtools/preloads [day8.re-frame2-xray.preload]`. A prior revision
+;; presented the FIRST copyable shadow-cljs.edn block WITHOUT the preload (it
+;; arrived only in a later ":devtools (optional, for hot-reload)" section) — so
+;; the most obvious block to copy produced a compiling app whose right-side host
+;; stays empty: a false-green scaffold (the dep + host markup are present but
+;; nothing loads Xray). This guard fails if the day-one block drops the preload
+;; while the deps/checklist still require Xray, or if the section reverts to
+;; framing the preload as optional hot-reload material.
+;; ---------------------------------------------------------------------------
+
+(defn- first-shadow-build-block
+  "The FIRST ```clojure fenced block in shadow-cljs.md that contains a
+   `:builds` map — i.e. the canonical day-one build the author copies first.
+   CRLF-tolerant (the reference files use Windows line endings)."
+  [body]
+  (some (fn [block] (when (str/includes? block ":builds") block))
+        (map second (re-seq #"(?s)```clojure\r?\n(.*?)```" body))))
+
+(deftest day-one-shadow-build-includes-xray-preload
+  (testing "the first canonical shadow-cljs.edn build block wires the day-one Xray preload"
+    (let [block (first-shadow-build-block @shadow-cljs-md)]
+      (is (some? block)
+          "Could not find the first `:builds` shadow-cljs.edn block in shadow-cljs.md.")
+      (is (and block (str/includes? block "day8.re-frame2-xray.preload"))
+          (str "The FIRST canonical shadow-cljs.edn build block omits the "
+               "day-one `[day8.re-frame2-xray.preload]`. Xray is a day-one dep "
+               "and index.html ships the [data-rf-xray-host] column — the most "
+               "obvious block to copy must wire the preload that fills it, or "
+               "the scaffold compiles with a permanently-empty Xray host "
+               "(false-green) (rf2-agi57x)."))
+      (is (and block (str/includes? block ":devtools"))
+          (str "The first shadow-cljs.edn build block no longer carries the "
+               "`:devtools` map. The day-one preload lives under `:devtools "
+               "{:preloads [...]}` in the canonical block (rf2-agi57x)."))))
+  (testing "the day-one deps/checklist that REQUIRE Xray are still present (guard premise)"
+    (let [skill @skill-md]
+      ;; The guard above is only meaningful while the day-one shape still
+      ;; mandates Xray. If a future edit drops Xray from day-one entirely, this
+      ;; sub-test fails LOUDLY so the preload guard is revisited deliberately
+      ;; rather than silently mismatching the (now Xray-free) day-one shape.
+      (is (str/includes? skill ":devtools/preloads [day8.re-frame2-xray.preload]")
+          (str "SKILL.md no longer requires `:devtools/preloads "
+               "[day8.re-frame2-xray.preload]` in the day-one shape/checklist. "
+               "If Xray was deliberately dropped from day-one, revisit Lock 11 "
+               "(the preload-in-default-block guard) — it assumes Xray is "
+               "day-one (rf2-agi57x).")))))
+
+(deftest shadow-devtools-section-not-labelled-optional-hot-reload
+  (testing "the :devtools section header no longer frames the Xray preload as optional hot-reload material"
+    (let [body @shadow-cljs-md]
+      ;; The Contents TOC + the section header previously read
+      ;; ":devtools block (optional, for hot-reload)", implying the Xray preload
+      ;; is opt-in hot-reload tooling. It is the day-one default; only the
+      ;; SEPARATE ^:dev/after-load hook is opt-in.
+      (is (not (str/includes? body "optional, for hot-reload"))
+          (str "shadow-cljs.md still labels the `:devtools` section "
+               "\"optional, for hot-reload\". The Xray preload is the day-one "
+               "default (not optional hot-reload material); only the separate "
+               "`^:dev/after-load` hook is opt-in. Reframe the section header "
+               "(rf2-agi57x).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock 12 — the generator route is USER-RUN; the skill's allowed-tools do NOT
+;; grant `clojure -Tnew create`, and the UIx/Helix greenfield route the skill
+;; EXECUTES is the manual scaffold. rf2-agi57x.
+;;
+;; The skill documents the one-command `clojure -Tnew create …` generator as a
+;; complete alternative, but its `allowed-tools` front-matter grants only
+;; `clojure -Stree`, npm, and `shadow-cljs watch/compile` — NOT `-Tnew`. So the
+;; skill must frame the generator as something the AUTHOR runs, while the route
+;; the skill itself executes (esp. for UIx/Helix) is the manual scaffold whose
+;; commands the grant actually covers. A prior revision steered UIx/Helix users
+;; toward the generator as "the fastest/complete path" without flagging that the
+;; loaded skill cannot run it — weakening prompt ergonomics (the agent
+;; recommends a route it must then abandon or interrupt for extra tool access).
+;; These guards fail if the front-matter starts advertising `-Tnew`, or if the
+;; prose stops framing the generator as user-run / stops giving UIx/Helix an
+;; executable manual route.
+;; ---------------------------------------------------------------------------
+
+(deftest allowed-tools-do-not-grant-generator-command
+  (testing "SKILL.md allowed-tools front-matter does not grant `clojure -Tnew create`"
+    (let [skill @skill-md
+          ;; Isolate the YAML front-matter (between the first two `---` fences)
+          ;; so we test the actual tool GRANT, not the prose that legitimately
+          ;; shows the user-run generator command.
+          fm    (some-> (re-find #"(?s)^---\r?\n(.*?)\r?\n---" skill) second)]
+      (is (some? fm)
+          "Could not isolate the SKILL.md YAML front-matter (allowed-tools block).")
+      (is (and fm (not (str/includes? fm "-Tnew")))
+          (str "SKILL.md's allowed-tools front-matter now grants a `-Tnew` "
+               "command. The skill's executable path is the manual scaffold; "
+               "the generator is a USER-RUN route. If a deliberate decision "
+               "grants the generator command to the skill, update this guard "
+               "(rf2-agi57x).")))))
+
+(deftest generator-framed-as-user-run-not-skill-executed
+  (testing "SKILL.md cardinal rule frames the generator as user-run, not skill-executed"
+    (let [skill @skill-md]
+      (is (contains-any? skill ["USER-RUN route" "user-run route" "the author runs"
+                                "author runs the" "hand them the generator"
+                                "the **author** runs"])
+          (str "SKILL.md no longer frames the generator template as a USER-RUN "
+               "route. The skill's allowed-tools cannot execute `clojure -Tnew "
+               "create`; the prose must hand the author the command to run "
+               "rather than imply the skill runs it (rf2-agi57x)."))
+      ;; And the UIx/Helix path the skill EXECUTES must be the manual substrate
+      ;; views (already locked by Lock 7) — re-assert the executable framing.
+      (is (contains-any? skill ["manual seven-step" "manual scaffold"])
+          (str "SKILL.md no longer names the manual seven-step scaffold as the "
+               "path the skill executes (vs. the user-run generator). The "
+               "skill's executable route must be the one its allowed-tools "
+               "cover (rf2-agi57x)."))))
+  (testing "entry-namespace.md frames the generator as user-run / skill-doesn't-run-Tnew"
+    (let [body @entry-namespace-md]
+      (is (contains-any? body ["user-run" "the **author** invokes" "the author invokes"
+                               "does not run `clojure -Tnew`" "this skill does not run"])
+          (str "entry-namespace.md no longer frames the UIx/Helix generator "
+               "route as user-run. The skill cannot execute `clojure -Tnew`; "
+               "the author runs it (rf2-agi57x).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

@@ -2407,6 +2407,25 @@ jobs:
             bb "$test_file"
           done
 
+      # re-frame2-setup structural drift guard (rf2-agi57x). Previously a
+      # local-only check (`bb tests/setup_drift_test.clj` from
+      # skills/re-frame2-setup/), so fixes it guards — the build-discipline
+      # lockstep framing, the UIx/Helix template-pin parity, the right-side
+      # Xray host shape, the CSP dev/prod split, the npx-qualified commands,
+      # the substrate-views path, the publication-state coordinate branch, the
+      # loud schema-missing contract, the day-one Xray preload in the canonical
+      # shadow-cljs.edn block, and the user-run-generator framing — could
+      # regress without CI noticing. Loop every *_test.clj so a future
+      # setup-skill test is gated automatically (mirrors the shared loop above).
+      - name: Run re-frame2-setup structural tests
+        working-directory: skills/re-frame2-setup
+        run: |
+          set -euo pipefail
+          for test_file in tests/*_test.clj; do
+            echo "== $test_file =="
+            bb "$test_file"
+          done
+
   # ---------------------------------------------------------------------------
   # docs/cljs live-cell playground (rf2-ee38b.22).
   #
