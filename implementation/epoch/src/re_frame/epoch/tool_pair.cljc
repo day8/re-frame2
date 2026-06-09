@@ -484,7 +484,16 @@
   `replace-frame-state!` would silently no-op — so instead of emitting
   `:rf.epoch/restored` and returning `true` (a FALSE success), this emits
   the canonical `:rf.error/no-such-handler` (kind `:frame`) failure trace
-  and returns `false`, matching the destroyed-frame contract."
+  and returns `false`, matching the destroyed-frame contract.
+
+  Per rf2-s93722 (post-liveness teardown race): the liveness check above
+  closes only HALF the window — a frame destroyed AFTER `live-container-or-
+  fail` passes but BEFORE `replace-frame-state!` actually writes still slips
+  through. `frame/replace-frame-state!` returns `nil` for a destroyed frame
+  (a non-nil — possibly EMPTY — changed-key-set for a live frame, even a
+  no-op write), so we check that return: a `nil` return is the destroyed-
+  frame signal, surfaced as the same `:rf.error/no-such-handler` (kind
+  `:frame`) failure / `false` return BEFORE any success telemetry."
   [frame-id epoch]
   (let [{:keys [outcome op tags]} (live-container-or-fail frame-id)]
     (if (= :fail outcome)
@@ -494,17 +503,24 @@
             (or (:frame-state-after epoch)
                 ;; Legacy / synthetic record with only the app-db projection:
                 ;; install it as the app-db partition; runtime-db installs nil.
-                {frame/app-partition-key (:db-after epoch)})]
-        ;; EP-0001 (rf2-3aizt1): write the WHOLE frame-state — both partitions
-        ;; in ONE atomic install through the one physical frame-state
-        ;; container. `frame/app-db-container` / `runtime-db-container` are
-        ;; READ-ONLY projections, so the write goes through
-        ;; `replace-frame-state!`.
-        (frame/replace-frame-state! frame-id frame-state-target)
-        (trace/emit! :rf.epoch :rf.epoch/restored
-                     {:frame    frame-id
-                      :epoch-id (:epoch-id epoch)})
-        true))))
+                {frame/app-partition-key (:db-after epoch)})
+            ;; EP-0001 (rf2-3aizt1): write the WHOLE frame-state — both
+            ;; partitions in ONE atomic install through the one physical
+            ;; frame-state container. `frame/app-db-container` /
+            ;; `runtime-db-container` are READ-ONLY projections, so the write
+            ;; goes through `replace-frame-state!`.
+            ;; rf2-s93722: capture the return — `nil` means the frame was
+            ;; destroyed in the post-liveness window (no write happened); a
+            ;; non-nil changed-key-set (even empty) means the write landed.
+            changed (frame/replace-frame-state! frame-id frame-state-target)]
+        (if (nil? changed)
+          (do (emit-precondition-failure! :rf.error/no-such-handler
+                                          {:kind :frame :frame frame-id})
+              false)
+          (do (trace/emit! :rf.epoch :rf.epoch/restored
+                           {:frame    frame-id
+                            :epoch-id (:epoch-id epoch)})
+              true))))))
 
 ;; ---- replace-app-db! preconditions ----------------------------------------
 
