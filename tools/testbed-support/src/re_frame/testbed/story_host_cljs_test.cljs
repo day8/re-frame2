@@ -42,6 +42,9 @@
   touches React-DOM (there is no `#app` node, and no `js/document`, under
   `:node-test`)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
+            [re-frame.story.config :as story-config]
+            [re-frame.testbed.config :as testbed-config]
             [re-frame.testbed.story-host :as host]))
 
 ;; ---------------------------------------------------------------------------
@@ -102,12 +105,17 @@
   (reset! @#'host/root-view* nil))
 
 (use-fixtures :each
-  {:before (fn [] (reset-host-handles!))
+  {:before (fn []
+             (reset-host-handles!)
+             ;; The project-root tests below configure Story's project-root
+             ;; through the host; clear it before/after so neither leaks.
+             (story-config/set-project-root! nil))
    :after  (fn []
              ;; Remove the fake so it never leaks into another namespace's
              ;; tests; restore the node-test baseline (no `window`).
              (clear-window!)
-             (reset-host-handles!))})
+             (reset-host-handles!)
+             (story-config/set-project-root! nil))})
 
 ;; A trivial 0-arg root view stand-in (never rendered — mount-* are no-ops).
 (defn- dummy-view [] [:div "dummy"])
@@ -191,3 +199,130 @@
       (is (= 1 @switches)
           "one hash change runs the mount switch exactly once — proving a
            single active listener, not an N-deep stack"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-77wqzi — the host owns Story-host open-in-editor project-root config.
+;;
+;; Story stamps each registered source-coord with a CLASSPATH-RELATIVE
+;; `:file` slot (e.g. `login/stories.cljs`); the open-in-editor chip
+;; prepends an on-disk project-root to build a real editor URI. The two
+;; `examples/reagent` Story showcases previously mounted the shell fine but
+;; NEVER configured a root, so their Story source links resolved against a
+;; nil root and OS editor handlers could not open the file (a false green).
+;;
+;; The fix moved project-root config onto the host: a consumer declares its
+;; tool-relative source subdir via the `:story-subdir` opt and
+;; `mount-with-hash-routing!` resolves the on-disk root (through the shared
+;; `re-frame.testbed.config` build-env / `?project-root=` mechanism) and
+;; calls `story/configure!` itself. These tests pin that contract directly:
+;; the consumer can no longer mount the shell while silently forgetting the
+;; root. We exercise the private `configure-story-project-root!` (it carries
+;; no React-DOM / `js/window` dependency, so it runs under `:node-test`) and
+;; read Story's configured root back via `re-frame.story.config`.
+;; ---------------------------------------------------------------------------
+
+(deftest story-subdir-configures-absolute-project-root
+  (testing "rf2-77wqzi: declaring `:story-subdir` resolves the build-time
+            repo-root joined with that subdir and configures it as Story's
+            project-root — so a classpath-relative Story coord composes to an
+            ABSOLUTE on-disk path, not a nil-root relative one. Covers the
+            `examples/reagent` subdir the two example Story showcases use."
+    (with-redefs [testbed-config/repo-root "/home/dev/re-frame2"]
+      (#'host/configure-story-project-root! "examples/reagent")
+      (is (= "/home/dev/re-frame2/examples/reagent"
+             (story-config/get-project-root))
+          "Story's project-root is the absolute checkout/subdir join")
+      ;; The open-in-editor prepend is `(str root "/" file)`; reproduce that
+      ;; single join to prove a representative example Story coord reaches
+      ;; the intended on-disk file (under <checkout>/examples/reagent/...).
+      (let [composed (str (story-config/get-project-root) "/" "login/stories.cljs")]
+        (is (= "/home/dev/re-frame2/examples/reagent/login/stories.cljs"
+               composed)
+            "the composed editor path reaches the real example source file")
+        (is (str/includes? composed "/examples/reagent/")
+            "the example source-root segment is present (not missing)")))))
+
+(deftest example-story-builds-resolve-absolute-source-coords
+  (testing "rf2-77wqzi: the two example Story dev builds named in the bead —
+            `:examples/login-with-stories` and
+            `:examples/nine-states-with-stories` — both host their Story
+            sources under `examples/reagent`, so the host-owned config
+            resolves each build's representative Story coord to an ABSOLUTE
+            on-disk path under `<checkout>/examples/reagent/...`. This
+            enumerates the affected builds explicitly so a future regression
+            (dropping the `:story-subdir` opt or the build-env define) trips
+            here. Each entry is `[build-id story-coord expected-on-disk]`."
+    (with-redefs [testbed-config/repo-root "/home/dev/re-frame2"]
+      (doseq [[build coord expected]
+              [[:examples/login-with-stories
+                "login/stories.cljs"
+                "/home/dev/re-frame2/examples/reagent/login/stories.cljs"]
+               [:examples/nine-states-with-stories
+                "nine_states/stories.cljs"
+                "/home/dev/re-frame2/examples/reagent/nine_states/stories.cljs"]]]
+        (story-config/set-project-root! nil)
+        (#'host/configure-story-project-root! "examples/reagent")
+        (let [root     (story-config/get-project-root)
+              composed (str root "/" coord)]
+          (is (= "/home/dev/re-frame2/examples/reagent" root)
+              (str build " configures the absolute examples/reagent root"))
+          (is (= expected composed)
+              (str build " Story coord composes to the real on-disk file"))
+          (is (str/includes? composed "/examples/reagent/")
+              (str build " keeps the example source-root segment")))))))
+
+(deftest story-subdir-omitted-configures-no-root
+  (testing "rf2-77wqzi: a 1-arity call (no opts) and an explicitly nil/blank
+            `:story-subdir` configure NO project-root — the host leaves
+            Story's root untouched so a consumer that drives `story/configure!`
+            itself is not overridden, and the graceful-no-op contract holds"
+    (with-redefs [testbed-config/repo-root "/home/dev/re-frame2"]
+      ;; nil subdir → skip
+      (#'host/configure-story-project-root! nil)
+      (is (nil? (story-config/get-project-root))
+          "nil subdir configures nothing")
+      ;; blank subdir → skip
+      (#'host/configure-story-project-root! "   ")
+      (is (nil? (story-config/get-project-root))
+          "blank subdir configures nothing"))))
+
+(deftest story-subdir-with-no-resolvable-root-degrades-to-no-op
+  (testing "rf2-77wqzi: when a subdir is declared but NEITHER the build-time
+            define NOR a `?project-root=` override is present (the default
+            `:node-test` shape: blank repo-root, no js/window), the host
+            configures a nil root and open-in-editor degrades to a graceful
+            no-op rather than a broken relative link"
+    (with-redefs [testbed-config/repo-root ""]
+      (#'host/configure-story-project-root! "examples/reagent")
+      (is (nil? (story-config/get-project-root))
+          "no resolvable root → Story's root stays nil (no broken prefix)"))))
+
+(deftest mount-with-hash-routing-arity-2-configures-project-root
+  (testing "rf2-77wqzi: the public 2-arity entry threads `:story-subdir`
+            into the project-root config before wiring the router — the
+            exact call shape the two example Story hosts now use. We stub
+            the mount switch + a fake window so the router wiring is inert
+            and assert only that the project-root landed."
+    (let [{:keys [window]} (make-fake-window "#/")]
+      (install-window! window)
+      (with-redefs [testbed-config/repo-root "/home/dev/re-frame2"
+                    host/mount-app!     (constantly nil)
+                    host/mount-stories! (constantly nil)]
+        (host/mount-with-hash-routing! dummy-view {:story-subdir "examples/reagent"}))
+      (is (= "/home/dev/re-frame2/examples/reagent"
+             (story-config/get-project-root))
+          "the 2-arity call configured the resolved absolute root"))))
+
+(deftest mount-with-hash-routing-arity-1-leaves-root-untouched
+  (testing "rf2-77wqzi: the 1-arity entry (no opts) does NOT touch Story's
+            project-root — a consumer that calls `story/configure!` itself
+            keeps full control. We pre-set a root and confirm the host
+            leaves it intact."
+    (let [{:keys [window]} (make-fake-window "#/")]
+      (install-window! window)
+      (story-config/set-project-root! "/preset/by/consumer")
+      (with-redefs [host/mount-app!     (constantly nil)
+                    host/mount-stories! (constantly nil)]
+        (host/mount-with-hash-routing! dummy-view))
+      (is (= "/preset/by/consumer" (story-config/get-project-root))
+          "1-arity call left the consumer-set root untouched"))))

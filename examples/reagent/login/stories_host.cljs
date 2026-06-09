@@ -99,5 +99,11 @@
   ;; auto-installs the canonical Story vocabulary (rf2-p1ydc).
   (install-live-frame!)
   ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
-  ;; `#/stories` lands on the shell without a manual click-through.
-  (story-host/mount-with-hash-routing! login-app))
+  ;; `#/stories` lands on the shell without a manual click-through. The
+  ;; `:story-subdir` opt (rf2-77wqzi) tells the host this showcase's Story
+  ;; source-coords are classpath-relative to `examples/reagent`, so the host
+  ;; resolves the on-disk project-root (build-env define or `?project-root=`
+  ;; override, cross-platform) and calls `story/configure!` itself — that
+  ;; also bridges the root into Xray's slot. Without it the Story 'open in
+  ;; editor' chips would resolve `login/stories.cljs` against a nil root.
+  (story-host/mount-with-hash-routing! login-app {:story-subdir "examples/reagent"}))
