@@ -661,10 +661,12 @@
 
 (deftest boot-hydrate-verify-step-fires-mismatch-on-divergent-render
   (testing "rf2-lq2ou: hydrate!'s VERIFY step runs verify-hydration!
-            against the :render-tree-fn AFTER dispatching :rf/hydrate.
-            When the client render-tree hash != the server hash carried on
-            the payload, :rf.ssr/hydration-mismatch fires — the boot helper
-            wires the post-render mismatch detection symmetric with the
+            against the :render-tree-fn SYNCHRONOUSLY, immediately after
+            dispatching :rf/hydrate and before any host render (the
+            seed-and-synchronously-compute-tree contract — rf2-3w6dmy
+            finding 1). When the client render-tree hash != the server hash
+            carried on the payload, :rf.ssr/hydration-mismatch fires — the
+            boot helper wires mismatch detection symmetric with the
             server's :emit-hash? marker."
     (register-baseline-handlers!)
     (rf/reg-view* ::boot-root (fn [] [:div.app [:span "client-render"]]))
@@ -717,3 +719,48 @@
       ;; Sanity: the seed still landed (the verify step doesn't gate hydrate).
       (is (= 7 (rf/subscribe-once client-frame [:count]))
           ":rf/hydrate still applied the seeded slice"))))
+
+(deftest boot-hydrate-render-tree-fn-is-synchronous-and-post-seed
+  (testing "rf2-3w6dmy finding 1: hydrate!'s VERIFY contract is
+            seed-and-synchronously-compute-tree — :render-tree-fn is called
+            SYNCHRONOUSLY, BEFORE hydrate! returns, and AFTER :rf/hydrate
+            seeded app-db (so the pure client tree it computes reflects the
+            hydrated slice). It is NOT a post-mount/post-render callback: no
+            host render happens between :rf/hydrate and the call. This locks
+            the chosen contract in maintainer-visible terms."
+    (register-baseline-handlers!)
+    (let [client-frame (rf/make-frame {:doc "boot-helper sync-contract frame"
+                                       :platform :client
+                                       :ssr {:detect-mismatch? true}})
+          ;; Records WHEN render-tree-fn ran + WHAT app-db it saw.
+          called?       (atom false)
+          seen-count    (atom ::not-called)
+          payload       (build-server-payload
+                          :rf/default {:count 11 :title "seeded"}
+                          "server00"
+                          {:version 1 :payload [:count :title]})
+          returned      (ssr/hydrate!
+                          {:frame          client-frame
+                           :payload        payload
+                           :render-tree-fn (fn []
+                                             (reset! called? true)
+                                             ;; The fn reads the frame's
+                                             ;; app-db — which :rf/hydrate has
+                                             ;; ALREADY seeded by the time the
+                                             ;; verify step calls it.
+                                             (reset! seen-count
+                                                     (:count (rf/app-db-value client-frame)))
+                                             [:div.app [:span "client-render"]])})]
+      ;; SYNCHRONOUS: render-tree-fn ran during the hydrate! call, so the
+      ;; flag is already true once hydrate! has returned — no deferred
+      ;; tick, no host render boundary in between.
+      (is (true? @called?)
+          ":render-tree-fn was called synchronously within hydrate! (not deferred)")
+      ;; POST-SEED: it observed the HYDRATED app-db, proving the call lands
+      ;; after :rf/hydrate (step 2) — the pure client tree it computes is
+      ;; the projection of the server's slice the host is about to mount.
+      (is (= 11 @seen-count)
+          ":render-tree-fn ran AFTER :rf/hydrate seeded app-db (saw :count 11)")
+      ;; The helper returned the applied payload as documented.
+      (is (= payload returned)
+          "hydrate! returned the applied payload"))))

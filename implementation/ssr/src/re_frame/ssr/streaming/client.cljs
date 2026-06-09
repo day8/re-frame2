@@ -94,19 +94,26 @@
   `MutationObserver`."
   (:require [cljs.reader :as reader]
             [re-frame.frame :as frame]
+            [re-frame.ssr.constants :as constants]
+            [re-frame.ssr.streaming.constants :as wire]
             [re-frame.trace :as trace]))
 
 ;; ---- wire-shape constants (the attribute names the server stamps) ---------
 ;;
-;; Pinned here once so a rename of the server emitter's attribute names
-;; is a one-edit-each-side change. These MUST match
-;; `re-frame.ssr.streaming/{suspense-template,hydrate-delta-script}`.
+;; The server↔client streaming wire attribute names live in
+;; `re-frame.ssr.streaming.constants` so a rename is a one-edit change
+;; there, not a grep-driven sweep across server, client, and tests
+;; (rf2-3w6dmy finding 2). These MUST match the attributes
+;; `re-frame.ssr.streaming/{suspense-template,hydrate-delta-script}` stamp —
+;; they read from the SAME `wire` ns, so the agreement is enforced by the
+;; shared source rather than a comment. Aliased here so the call sites read
+;; the same as before.
 
-(def ^:private attr-suspense-id        "data-rf2-suspense-id")
-(def ^:private attr-suspense-fallback  "data-rf2-suspense-fallback")
-(def ^:private attr-suspense-resolved  "data-rf2-suspense-resolved")
-(def ^:private attr-suspense-failed    "data-rf2-suspense-failed")
-(def ^:private attr-suspense-hydrate   "data-rf2-suspense-hydrate")
+(def ^:private attr-suspense-id        wire/attr-suspense-id)
+(def ^:private attr-suspense-fallback  wire/attr-suspense-fallback)
+(def ^:private attr-suspense-resolved  wire/attr-suspense-resolved)
+(def ^:private attr-suspense-failed    wire/attr-suspense-failed)
+(def ^:private attr-suspense-hydrate   wire/attr-suspense-hydrate)
 
 ;; The client-owned LIVE mount element. The server emits the fallback
 ;; wrapped in a `<template>`, whose content is INERT by the HTML spec
@@ -117,9 +124,11 @@
 ;; target the resolved chunk replaces in-place. This is the canonical
 ;; streaming-hydration shape (visible fallback + a stable mount the
 ;; resolved subtree swaps into) — the same model React 18 / Solid use,
-;; expressed over the server's `<template>`-marker protocol.
-(def ^:private attr-suspense-mount     "data-rf2-suspense-mount")
-(def ^:private mount-tag               "rf-suspense")
+;; expressed over the server's `<template>`-marker protocol. Client-owned
+;; but pinned in the shared `wire` ns alongside the server-emitted
+;; attributes (rf2-3w6dmy finding 2).
+(def ^:private attr-suspense-mount     wire/attr-suspense-mount)
+(def ^:private mount-tag               wire/mount-tag)
 
 ;; ---- id parsing ------------------------------------------------------------
 
@@ -464,11 +473,14 @@
                   `js/document`. A test harness passes a detached
                   container so it can drive chunk-arrival deterministically.
     :payload-id — the id of the final-payload `<script>` whose arrival
-                  signals stream completion. Default `\"__rf_payload\"`
-                  (`re-frame.ssr.constants/payload-script-id`); accepted
-                  as an opt rather than required so the runtime needs no
-                  dependency on the constants ns and a host that
-                  overrode the shell's payload id can match it.
+                  signals stream completion. Default
+                  `re-frame.ssr.constants/payload-script-id`
+                  (`\"__rf_payload\"`) — the SAME constant
+                  `re-frame.ssr.boot/read-server-payload` reads, so the
+                  streaming runtime and the non-streaming bootstrap agree
+                  on the final-payload id by construction. Accepted as an
+                  opt so a host that overrode the shell's payload id can
+                  match it.
 
   Returns a 0-arity `stop!` fn that disconnects the observer early (so a
   host can tear the runtime down on its own schedule — e.g. an SPA
@@ -496,7 +508,7 @@
   ([{:keys [frame root payload-id]
      :or   {frame      :rf/default
             root       (when (exists? js/document) js/document)
-            payload-id "__rf_payload"}}]
+            payload-id constants/payload-script-id}}]
    ;; No DOM (a non-browser runtime / a host calling install! too early)
    ;; → no-op stop fn. The runtime is a DOM consumer by definition.
    (if (or (nil? root) (not (exists? js/MutationObserver)))

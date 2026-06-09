@@ -64,6 +64,7 @@
             [re-frame.ssr.emit :as emit]
             [re-frame.ssr.html-helpers :as html]
             [re-frame.ssr.payload-policy :as payload-policy]
+            [re-frame.ssr.streaming.constants :as wire]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -89,7 +90,7 @@
   and open/close-tag wrapping live here once. The three public builders
   below are thin one-liners over this."
   [id markers body-html]
-  (str "<template data-rf2-suspense-id=\""
+  (str "<template " wire/attr-suspense-id "=\""
        (html/escape-attr (str id))
        "\" " markers ">"
        body-html
@@ -99,14 +100,14 @@
   "The fallback chunk shape — emitted inline in the shell HTML so the
   browser paints a placeholder immediately."
   [id fallback-html]
-  (suspense-template id "data-rf2-suspense-fallback=\"1\"" fallback-html))
+  (suspense-template id (str wire/attr-suspense-fallback "=\"1\"") fallback-html))
 
 (defn resolved-template
   "The resolved-subtree chunk shape — flushed when a continuation drains
   successfully. The client-side streaming runtime swaps the matching
   fallback placeholder for this resolved content in DOM."
   [id resolved-html]
-  (suspense-template id "data-rf2-suspense-resolved=\"1\"" resolved-html))
+  (suspense-template id (str wire/attr-suspense-resolved "=\"1\"") resolved-html))
 
 (defn failed-template
   "The failed-continuation chunk shape — same wire shape as
@@ -115,7 +116,8 @@
   surfacing a 500. Per Spec 011 §Failure semantics — inline fallback."
   [id fallback-html]
   (suspense-template id
-                     "data-rf2-suspense-resolved=\"1\" data-rf2-suspense-failed=\"1\""
+                     (str wire/attr-suspense-resolved "=\"1\" "
+                          wire/attr-suspense-failed "=\"1\"")
                      fallback-html))
 
 (defn hydrate-delta-script
@@ -123,7 +125,7 @@
   reads the EDN, then `(swap! app-db merge delta)`s. Per Spec 011
   §Hydration interleaving."
   [id delta-edn]
-  (str "<script data-rf2-suspense-hydrate=\""
+  (str "<script " wire/attr-suspense-hydrate "=\""
        (html/escape-attr (str id))
        "\" type=\"application/edn\">"
        ;; rf2-7ksyr / rf2-rdxxa — EDN-aware escape: `<` inside string
