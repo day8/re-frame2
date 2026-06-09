@@ -6,6 +6,8 @@ This directory holds the **full set of worked Reagent examples** (counting each 
 
 Story Stage 8 (`tools/story` end-to-end on the counter) lives as a tool-owned testbed at [`tools/story/testbeds/counter_with_stories/`](../../tools/story/testbeds/counter_with_stories/) — catalogued with the tool that owns it rather than alongside the tutorial examples.
 
+Two examples additionally ship an **intentionally auxiliary Story showcase** layered over the example itself — [`login/`](login/) (`stories.cljs` + `stories_host.cljs` + `stories.index.html`, build `:examples/login-with-stories`, rf2-p8v0q) and [`nine_states/`](nine_states/) (build `:examples/nine-states-with-stories`, rf2-rgyia). Unlike the tool-owned counter testbed above, these are not separate testbeds: each sources its own example's real machine/views and enumerates the example's view-states as Story variants (with the Xray preload wired). They live in the example folder because they showcase *that* worked example; the example tree stays test-free (rf2-8cevm) — a Story showcase is a runnable inspection surface, not a test. See each example's README for the showcase run command.
+
 ## Layout
 
 ```
