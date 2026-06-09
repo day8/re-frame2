@@ -936,6 +936,21 @@
                                               :platform)))
                          (assoc :platform runtime-platform))
           frames-spec  (:fixture/frames fixture)
+          ;; EP-0002 (rf2-9o48ih) — the carried-invariant: registration-
+          ;; time frame-local surfaces (`reg-app-schema`, static
+          ;; `reg-flow`) and bare `dispatch-sync` with no explicit
+          ;; `{:frame …}` opt resolve their target from the established
+          ;; frame scope, never from an invented `:rf/default` floor (per
+          ;; Spec 002 §Frame target resolution + EP §6 registration-time
+          ;; rule). Single-frame fixtures register / dispatch against
+          ;; `:rf/default`; multi-frame fixtures (`:fixture/frames`) carry
+          ;; an explicit `:frame` opt on every dispatch (the override tier)
+          ;; and register flows dynamically via `:rf.fx/reg-flow` inside a
+          ;; per-frame cascade, so the static registration path is empty
+          ;; and the scope is only the default for the single-frame case.
+          scope-frame  (if (seq frames-spec)
+                         (:id (first frames-spec))
+                         :rf/default)
           ;; reset-runtime! created :rf/default WITHOUT an :on-create.
           ;; reg-frame against an existing id is a surgical update; destroy
           ;; first so :on-create fires when re-registered.
@@ -944,8 +959,10 @@
           ;; destroy (the new `:schemas/on-frame-destroyed!` hook drops
           ;; the frame's schema entries on destroy) and BEFORE the
           ;; re-create so the :on-create cascade validates against the
-          ;; fixture's declared slate.
-          _            (realise-app-schemas! fixture)
+          ;; fixture's declared slate. `reg-app-schema` is frame-scoped,
+          ;; so establish the scope explicitly.
+          _            (rf/with-frame scope-frame
+                         (realise-app-schemas! fixture))
           _            (cond
                          (seq frames-spec)
                          (doseq [f frames-spec]
@@ -955,9 +972,12 @@
           ;; Flow registration runs AFTER reg-frame: per Spec 013 flows
           ;; are frame-scoped, and the rf2-wbtjn destroy-frame! teardown
           ;; hook would wipe any flows registered before the destroy.
-          _            (realise-flows! fixture)
+          ;; `reg-flow` is frame-scoped — establish the scope explicitly.
+          _            (rf/with-frame scope-frame
+                         (realise-flows! fixture))
           dispatches   (or (:fixture/dispatches fixture) [])
           sub-registry (get-in fixture [:fixture/registry :sub] {})]
+      (rf/with-frame scope-frame
       (doseq [ev dispatches]
         (cond
           (map? ev)
@@ -998,7 +1018,7 @@
           (rf/dispatch-sync ev {:source :ssr-hydration})
 
           :else
-          (rf/dispatch-sync ev)))
+          (rf/dispatch-sync ev))))
       ;; :fixture/render-after-hydrate — simulate the client-side first
       ;; render so verify-hydration! can compare hashes.
       (when-let [render-spec (:fixture/render-after-hydrate fixture)]

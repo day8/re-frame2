@@ -41,7 +41,14 @@
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
   (save-variant/set-open-dialog-fn! nil)
-  (f))
+  ;; EP-0002 (rf2-bd4div) — the event-handler tests dispatch
+  ;; `:rf.story/save-current-as-variant` ambiently; that frame-scoped op
+  ;; now requires a carried frame stamp. Pin the ordinary `:rf/default`
+  ;; frame (registered just above) as the established scope for the test
+  ;; body so the dispatch lands on a real frame rather than raising
+  ;; :rf.error/no-frame-context.
+  (rf/with-frame :rf/default
+    (f)))
 
 (use-fixtures :each reset-all!)
 

@@ -54,7 +54,7 @@
             [re-frame.flows]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; FLOWS  (Spec 013 §Registration shape)
@@ -65,6 +65,13 @@
 
 (defn- line-total [{:keys [price qty]}]
   (* price qty))
+
+;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local; a bare
+;; ns-load call raises :rf.error/no-frame-context. This example runs in the
+;; :rf/default frame, so name it explicitly here. (The runtime-toggleable
+;; `:cart/discount-rate` flow is registered later via :rf.fx/reg-flow, which
+;; inherits the cascade frame — see the discount button handler.)
+(with-frame :rf/default
 
 (rf/reg-flow
   {:id     :cart/subtotal
@@ -97,7 +104,7 @@
    :output (fn [subtotal discount-rate]
              (let [rate (or discount-rate 0)]
                (Math/round (* subtotal (- 1 rate)))))
-   :path   [:cart :total]})
+   :path   [:cart :total]}))
 
 ;; ============================================================================
 ;; EVENTS

@@ -40,6 +40,17 @@
   (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`, and
+  ;; routing/nav fxs now require a carried frame stamp. Register `:rf/default`
+  ;; explicitly as the conventional single app frame. URL ownership is now an
+  ;; EXPLICIT declaration (no `:rf/default`-owns-by-default floor — `url-owner-
+  ;; frame-id` returns nil from absence), so this suite's URL-owning frame opts
+  ;; in via `{:url-bound? true}`; the body runs with `:rf/default` pinned as
+  ;; the ambient scope (the carried-invariant equivalent of wrapping every
+  ;; test in `(with-frame :rf/default …)`). Explicit `{:frame …}` opts and
+  ;; inner `with-frame`/`reg-frame` in the bodies still win.
+  (rf/reg-frame :rf/default {:url-bound? true
+                             :doc "Routing-suite default app frame (explicit URL owner)."})
   ;; Framework events / fx (routing.cljc, ssr.cljc) are registered at
   ;; ns-load; clear-all! wiped them. Reload to resurrect.
   (require 're-frame.routing :reload)
@@ -49,7 +60,8 @@
   ;; the production façade).
   (require 're-frame.routing.test-support :reload)
   (routing/reset-counters!)
-  (test-fn))
+  (rf/with-frame :rf/default
+    (test-fn)))
 
 (defn with-stub-validator
   "Install a tiny stub validator + explainer that interprets schemas as

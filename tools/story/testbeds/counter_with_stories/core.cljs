@@ -51,6 +51,15 @@
    [views/counter-card {:label "Count"}]
    [elision/elision-card]])
 
+;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence,
+;; so the live-app surface must render under an explicit frame scope. The
+;; Story shell side (`#/stories`) allocates its own per-variant frames; this
+;; wrapper scopes only the live-app `#/` surface to the testbed's
+;; `:rf/default` frame so `counter-app`'s reg-view-injected dispatch/subscribe
+;; resolve. Passed to the shared story-host as the live-app root view.
+(defn live-app-root []
+  [rf/frame-provider {:frame :rf/default} [counter-app]])
+
 ;; -- rf2-r1uod / rf2-5dphw — Xray 'Open in editor' project-root.
 ;;
 ;; Story testbeds register source-coords with classpath-relative `:file`
@@ -111,14 +120,21 @@
   ;; change.
   (story/configure! {:rf.story/global-args  {:locale :en}
                      :rf.story/project-root (resolve-project-root)})
-  ;; Seed the live app's `:count` slot.
-  (rf/dispatch-sync [:counter/initialise 5])
-  ;; Install the always-on event-emit listener. The listener prints
-  ;; every dispatched event's elided record to the browser console —
-  ;; visitors can see `:rf/redacted` substitution for the `:sensitive?`
-  ;; handler and the `:rf.size/large-elided` marker for the `:large?`
-  ;; schema slot without needing the trace surface or Xray attached.
-  (elision/install-listener!)
+  ;; EP-0002 (rf2-9o48ih): `init!` installs the adapter only — register the
+  ;; testbed's `:rf/default` app frame explicitly, then run the frame-local
+  ;; boot work (seed dispatch + elision listener install) inside its scope.
+  ;; The live-app render is frame-scoped via `live-app-root` (the
+  ;; `frame-provider` wrapper passed to the host below).
+  (rf/reg-frame :rf/default {})
+  (rf/with-frame :rf/default
+    ;; Seed the live app's `:count` slot.
+    (rf/dispatch-sync [:counter/initialise 5])
+    ;; Install the always-on event-emit listener. The listener prints
+    ;; every dispatched event's elided record to the browser console —
+    ;; visitors can see `:rf/redacted` substitution for the `:sensitive?`
+    ;; handler and the `:rf.size/large-elided` marker for the `:large?`
+    ;; schema slot without needing the trace surface or Xray attached.
+    (elision/install-listener!))
   ;; rf2-3qcxk — install the CI-as-test global hook the Playwright
   ;; play-script runner reads. Inert until the runner polls it; safe
   ;; to install unconditionally because the function body is gated
@@ -126,4 +142,4 @@
   (story-ci/install-ci-hooks!)
   ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
   ;; `#/stories` lands on the shell without a manual click-through.
-  (story-host/mount-with-hash-routing! counter-app))
+  (story-host/mount-with-hash-routing! live-app-root))

@@ -146,12 +146,19 @@ leaving a route."})
   [{:keys [frame]} {:keys [url position]}]
   #?(:cljs
      (when url
-       (let [pos (or position
+       (let [;; EP-0002 carried invariant — the fx context carries the
+             ;; cascade envelope frame as `:frame`; a nil stamp is an
+             ;; invariant failure (`:rf.error/no-frame-context`), never a
+             ;; synthesised `:rf/default`.
+             frame-id (frame/require-frame-stamp!
+                        frame :rf.nav/capture-scroll
+                        {:where 'rf.nav/capture-scroll-handler})
+             pos (or position
                      [(or (.-scrollX js/window) (.-pageXOffset js/window) 0)
                       (or (.-scrollY js/window) (.-pageYOffset js/window) 0)])]
          ;; EP-0001 (rf2-vzld77): scroll-position caches are durable routing
          ;; runtime-db state — write the runtime-db partition.
-         (frame/swap-runtime-db! (or frame :rf/default)
+         (frame/swap-runtime-db! frame-id
                                  save-scroll-position
                                  url
                                  pos)))

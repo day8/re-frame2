@@ -164,28 +164,36 @@
   clipboard is present (test runtimes). Returns nil."
   [target-frame]
   (try
-    (let [tf      (or target-frame :rf/default)
+    ;; EP-0002 (rf2-bd4div) — the snapshot targets the SELECTED inspected
+    ;; frame. When unselected (`target-frame` nil) this is a no-op: a
+    ;; whole-db egress to console/clipboard is a read of a specific host
+    ;; frame, never a synthesised `:rf/default` (Spec 002 §Frame target
+    ;; resolution). With no frame selected there is nothing to snapshot.
+    (let [tf      target-frame
           ;; Egress BEFORE anything reaches console/clipboard. Both are
           ;; off-box sinks; `egress-value`'s default polarity redacts
           ;; sensitive + size-elides large slots. No `:path` — the
           ;; whole-db snapshot IS the walked root, so root-keyed schema
           ;; declarations match directly. `with-frame tf` pins the
           ;; declaration lookup to the focused frame (see comment above).
-          payload (when (some? (frame/frame tf))
+          payload (when (and (some? tf) (some? (frame/frame tf)))
                     (rf/with-frame tf
                       (runtime/egress-value (rf/app-db-value tf))))
           tag     (str "[rf2-xray] palette snapshot · frame "
                        (pr-str tf))]
-      (when (and (exists? js/console) (.-log js/console))
-        (try
-          (.log js/console tag payload)
-          (catch :default _ nil)))
-      (when (and (exists? js/navigator)
-                 (.-clipboard js/navigator)
-                 (.-writeText (.-clipboard js/navigator)))
-        (try
-          (.writeText (.-clipboard js/navigator) (pr-str payload))
-          (catch :default _ nil))))
+      ;; Only emit when a target frame is selected — no unselected-state
+      ;; snapshot is written to either off-box sink.
+      (when (some? tf)
+        (when (and (exists? js/console) (.-log js/console))
+          (try
+            (.log js/console tag payload)
+            (catch :default _ nil)))
+        (when (and (exists? js/navigator)
+                   (.-clipboard js/navigator)
+                   (.-writeText (.-clipboard js/navigator)))
+          (try
+            (.writeText (.-clipboard js/navigator) (pr-str payload))
+            (catch :default _ nil)))))
     (catch :default _ nil))
   nil)
 
@@ -429,15 +437,17 @@
            :fx (conj base-fx [:dispatch [:rf.xray/reset-suppressed-counters]])}
 
           :palette/snapshot-app-db
-          ;; rf2-ybjkx — Snapshot the FOCUSED frame's app-db onto the
-          ;; console + clipboard. The focused-frame is the slot the
-          ;; L1 frame-picker writes (`:target-frame`); falling back to
-          ;; `:rf/default` when unset.
+          ;; rf2-ybjkx — Snapshot the SELECTED inspected frame's app-db
+          ;; onto the console + clipboard. The target is the slot the L1
+          ;; frame-picker writes (`:target-frame`). EP-0002 (rf2-bd4div) —
+          ;; pass the slot value THROUGH (nil = unselected); the
+          ;; `snapshot-app-db!` fx no-ops when unselected rather than
+          ;; snapshotting a synthesised `:rf/default`.
           {:db close-db
            :fx (conj base-fx
                      [:rf.xray.palette.fx/snapshot-app-db
                       {:target-frame
-                       (or (get db-with-recent :target-frame) :rf/default)}])}
+                       (get db-with-recent :target-frame)}])}
 
           :palette/toggle-theme
           ;; rf2-ybjkx — flip the Settings popup's theme slot via the

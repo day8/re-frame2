@@ -57,8 +57,10 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 
 (defn ^:export init []
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [:counter/initialise])
-  (rdc/render react-root [counter-app]))
+  (rf/reg-frame :app/main {:on-create [:counter/initialise]})
+  (rdc/render react-root
+    [rf/frame-provider {:frame :app/main}
+     [counter-app]]))
 ```
 
 That's the entire greenfield app. ~25 lines of substance, every re-frame2 primitive exercised once.
@@ -86,7 +88,7 @@ Inside the body, two locals are **auto-injected** by the macro:
 - `dispatch` — bound to the current frame's `dispatch` fn. Use it like `(dispatch [:counter/increment])`.
 - `subscribe` — bound to the current frame's `subscribe` fn. Use it like `@(subscribe [:counter/value])`.
 
-This is what makes registered views frame-aware without you threading the frame through every component. The macro resolves both at render time against whatever frame is in scope (the default frame, here; `frame-provider` lets multi-frame apps swap it for a subtree).
+This is what makes registered views frame-aware without you threading the frame through every component. The macro resolves both at render time against whatever frame is in scope — here `:app/main`, established by the root `frame-provider` in `init`; multi-frame apps wrap subtrees in additional `frame-provider`s to swap it. (There is no implicit default frame: the provider is what supplies the carried frame to the tree.)
 
 The result is regular Reagent hiccup. Reagent renders, the React 19 root commits, the DOM updates.
 
@@ -94,11 +96,11 @@ The result is regular Reagent hiccup. Reagent renders, the React 19 root commits
 
 `defonce` guards `react-root` against hot-reload. See `entry-namespace.md` for why.
 
-`init`'s three lines (in this order):
+`init`'s lines (in this order):
 
-1. `(rf/init! reagent-adapter/adapter)` — install the Reagent substrate adapter.
-2. `(rf/dispatch-sync [:counter/initialise])` — seed `app-db` to `{:counter/value 0}` before first render. `dispatch-sync` drains the event synchronously; the `app-db` is committed before `init` returns.
-3. `(rdc/render react-root [counter-app])` — mount.
+1. `(rf/init! reagent-adapter/adapter)` — install the Reagent substrate adapter (no frame is created here).
+2. `(rf/reg-frame :app/main {:on-create [:counter/initialise]})` — register the app frame; `:on-create` runs `[:counter/initialise]` synchronously (inside the frame's own scope) so `app-db` is `{:counter/value 0}` by the time `reg-frame` returns.
+3. `(rdc/render react-root [rf/frame-provider {:frame :app/main} [counter-app]])` — mount, wrapped in the frame-provider so the tree's `dispatch` / `subscribe` resolve to `:app/main`.
 
 ## Verifying it works
 
@@ -127,7 +129,8 @@ First-run failures, in roughly the order you'll hit them:
 
 If you see a blank page, open the browser console. Most failures land there with a clear error — but note the missing-sub case below is *silent* on this bare route:
 - `Cannot read property 'getElementById' of undefined` — script ran before DOM was ready; check `index.html` loads `main.js` at the *bottom* of `<body>`.
-- A thrown `:rf.error/no-adapter-installed` (reason: *"was called before `(rf/init! ...)`; require an adapter ns and pass its `adapter` Var"*) — a view subscribed/rendered before `(rf/init! ...)` seated an adapter. `rf/init!` didn't run before render: check `init` is the `:init-fn` shadow-cljs is calling. (There is no "frame not found" error — `:rf/default` is always auto-registered; the real failure is the absent adapter.)
+- A thrown `:rf.error/no-adapter-installed` (reason: *"was called before `(rf/init! ...)`; require an adapter ns and pass its `adapter` Var"*) — a view subscribed/rendered before `(rf/init! ...)` seated an adapter. `rf/init!` didn't run before render: check `init` is the `:init-fn` shadow-cljs is calling.
+- A thrown / emitted `:rf.error/no-frame-context` — the tree rendered with **no frame established**. Under EP-0002 the runtime infers no frame (there is no auto-registered `:rf/default`), so a bare `subscribe` / `dispatch` outside any scope fails loudly. Fix: wrap the root in `[rf/frame-provider {:frame :app/main} [root-view]]` and ensure `(rf/reg-frame :app/main …)` ran before render — see `init` above.
 - A blank/empty subscribed value with **no console error** (e.g. the number never appears) — a subscribe to an unregistered sub builds a nil-yielding reaction and emits `:rf.error/no-such-sub`; it does **not** throw. On this bare route there's no error-sink listener wired, so the miss surfaces only as a silent `nil` render — registrations didn't run. If you split subs into multiple namespaces, make sure `core.cljs` `:require`s them so they load. (The generator template wires an error-sink in `events.cljs` that pushes `:rf.error/no-such-sub` to the console; this minimal counter doesn't, so the only tell is the blank value.)
 
 **No schema errors? That's expected.** This counter attaches no app-db schema, so there is no schema-validation work to do — nothing has been registered, so nothing validates. (This is *not* a "soft-pass": with `day8/re-frame2-schemas` on the classpath, requiring `re-frame.schemas` wires Malli automatically, so the moment you `reg-app-schema` a schema it *does* validate — Spec 010 §Schema implies validation on CLJS. The absence of errors here means "no schema attached," not "validation ran and passed" and not "validation silently no-ops.")

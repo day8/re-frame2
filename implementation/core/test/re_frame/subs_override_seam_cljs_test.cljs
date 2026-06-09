@@ -22,12 +22,14 @@
        failure trace."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.subs :as subs]
             [re-frame.registrar :as registrar]
             [re-frame.late-bind :as late-bind]
             [re-frame.schemas.malli]                ;; install the default Malli validator
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.trace.tooling :as trace-tooling])
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ---- fixtures + helpers ---------------------------------------------------
 
@@ -47,13 +49,22 @@
         (when (and (map? ovr) (contains? ovr query-v))
           [(get ovr query-v)])))))
 
+;; EP-0002 (rf2-jue6sp): the override-seam tests exercise the ambient
+;; 1-arity subscribe read path, which now requires a carried frame stamp.
+;; A function fixture registers :rf/default explicitly and pins it as the
+;; established scope for the whole test body via with-frame (the map-shape
+;; :before hook cannot wrap the body).
 (use-fixtures :each
-  {:before (fn []
-             (registrar/clear-all!)
-             (reset! override-atom nil)
-             (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-             (install-test-resolver!))
-   :after  (fn [] (reset! override-atom nil))})
+  (fn [test-fn]
+    (registrar/clear-all!)
+    (reset! override-atom nil)
+    (try (rf/init! plain-atom/adapter) (catch :default _ nil))
+    (frame/ensure-default-frame!)
+    (install-test-resolver!)
+    (try
+      (with-frame :rf/default
+        (test-fn))
+      (finally (reset! override-atom nil)))))
 
 (defn- with-overrides* [m thunk]
   (reset! override-atom m)

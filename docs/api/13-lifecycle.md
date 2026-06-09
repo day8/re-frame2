@@ -13,7 +13,7 @@ There's also a small inspection surface for "what's currently installed?" — `c
   ```clojure
   (init! adapter-map)
   ```
-- **Description**: The idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; consumers require the ns and pass the Var, e.g. `(rf/init! reagent/adapter)`. Calling `(init!)` with no args raises a language-level `ArityException` at compile / load time — the no-arg arity was cut so the missing-adapter mistake surfaces before runtime. Calling `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified` at runtime. Ensures `:rf/default` frame is present.
+- **Description**: The idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; consumers require the ns and pass the Var, e.g. `(rf/init! reagent/adapter)`. Calling `(init!)` with no args raises a language-level `ArityException` at compile / load time — the no-arg arity was cut so the missing-adapter mistake surfaces before runtime. Calling `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified` at runtime. `init!` installs adapters and runtime capabilities only; per [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant) it does **not** create or guarantee any frame — you register your app frame explicitly (`reg-frame`) and establish it at your root.
 - **Example**:
   ```clojure
   (:require [re-frame.adapter.reagent :as reagent-adapter])
@@ -128,10 +128,14 @@ Full rationale: [Conventions §Configuration surfaces](../../spec/Conventions.md
 (defn ^:export main []
   (rf/init! reagent/adapter)
   (rf/configure! :trace-buffer {:cascades-retained 200})
-  (rdom/render [views/root] (js/document.getElementById "app")))
+  (rf/reg-frame :app/main {:on-create [:app/boot]})        ;; register the app frame
+  (rdom/render
+    [rf/frame-provider {:frame :app/main}                  ;; establish it at the root
+     [views/root]]
+    (js/document.getElementById "app")))
 ```
 
-That's the whole boot. `init!` installs the adapter and primes `:rf/default`; the side-effecting requires register the handlers / subs / routes into the registrar; `configure` tunes the runtime; the substrate's render fn mounts the root view.
+That's the whole boot. `init!` installs the adapter and runtime capabilities (it creates no frame); the side-effecting requires register the handlers / subs / routes into the registrar; `reg-frame` + `frame-provider` establish the app frame so every bare `dispatch` / `subscribe` under the tree resolves against it; `configure` tunes the runtime; the substrate's render fn mounts the root view.
 
 ## See also
 

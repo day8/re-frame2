@@ -51,13 +51,17 @@
 
 (defwrapper machine-by-system-id
   "Look up the spawned-machine id currently bound to `system-id` in the
-  active frame's `[:rf.runtime/machines :system-ids]` reverse index, or nil. The optional
-  `frame-id` arg targets an explicit frame; without it, resolution uses
-  the current frame (per `with-frame` / frame-provider, defaulting to
-  `:rf/default`).
+  active frame's `[:rf.runtime/machines :system-ids]` reverse index, or nil.
 
-  Per Spec 005 §Named addressing via :system-id. Returns nil when the
-  machines artefact is not on the classpath."
+  EP-0002 carried invariant: the optional `frame-id` arg is an explicit
+  override targeting a named frame; without it the 1-arity ambient form
+  resolves the frame through the scope/hold chain (`with-frame` /
+  frame-provider / a carried stamp) via `frame/require-current-frame!` —
+  a lookup under no established scope raises `:rf.error/no-frame-context`,
+  with NO `:rf/default` floor.
+
+  Per Spec 005 §Named addressing via :system-id + Spec 002 §Resolver
+  surface. Returns nil when the machines artefact is not on the classpath."
   {:hook :machines/machine-by-system-id :artefact machines-artefact :on-absent :nil}
   ([system-id]          :delegate)
   ([system-id frame-id] :delegate))

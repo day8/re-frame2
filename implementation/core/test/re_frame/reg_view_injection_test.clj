@@ -70,6 +70,11 @@
     (let [seen (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
+        ;; EP-0002 (rf2-69r7ui): the reg-view render-time frame-handle
+        ;; captures `(current-frame-id)`, which REQUIRES an established
+        ;; scope — there is no `:rf/default` floor. Render under an
+        ;; explicit `with-frame` scope so the handle captures a real frame.
+        (rf/reg-frame :rf2-cry25/click-frame {:doc "the render-time frame"})
         (rf/reg-event-db :rf2-cry25/clicked (fn [db _] db))
         ;; `dispatch` here is the INJECTED noun (shadowing the macro) per
         ;; Spec 004 §reg-view. The reg-view definition site is the coord
@@ -78,7 +83,8 @@
           [:button {:on-click #(dispatch [:rf2-cry25/clicked])} "go"])
         ;; Render the view + fire its on-click. The injected dispatch op
         ;; (from the render-time frame-handle) captured the active frame.
-        (let [click (on-click-of (rf/view :re-frame.reg-view-injection-test/click-view))]
+        (let [click (rf/with-frame :rf2-cry25/click-frame
+                      (on-click-of (rf/view :re-frame.reg-view-injection-test/click-view)))]
           (click))
         (let [ev (->> @seen
                       (filter #(= :rf.event/dispatched (:operation %)))
@@ -144,6 +150,12 @@
     (let [seen (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
+        ;; EP-0002 (rf2-69r7ui): the reg-view handle captures
+        ;; `(current-frame-id)` at render, which REQUIRES a scope. Render
+        ;; under an explicit `with-frame` so the :subscribe op runs against
+        ;; a real frame and the miss emits :rf.error/no-such-sub (rather
+        ;; than the render itself raising :rf.error/no-frame-context).
+        (rf/reg-frame :rf2-cry25/sub-frame {:doc "the render-time frame"})
         ;; :rf2-cry25/missing is NOT registered — the subscribe miss emits a
         ;; synchronous :rf.error/no-such-sub inside the :subscribe op's call.
         (rf/reg-view sub-view [_n]
@@ -151,7 +163,8 @@
         (let [view-fn (rf/view :re-frame.reg-view-injection-test/sub-view)]
           ;; Rendering invokes the :subscribe op (the @-deref forces the
           ;; build-and-cache miss → :rf.error/no-such-sub emit).
-          (view-fn 0))
+          (rf/with-frame :rf2-cry25/sub-frame
+            (view-fn 0)))
         (let [err (->> @seen
                        (filter #(= :rf.error/no-such-sub
                                    (get-in % [:tags :category])))

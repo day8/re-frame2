@@ -137,7 +137,7 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 - **`reg-view`** registers a view with the registrar. Public surface for declarative view registration.
 - **Pure `(state, props) → render-tree`.** Views are pure functions of their inputs.
 - **Render-tree is serialisable data.** Not opaque host objects with closures. The render-tree must serialise for SSR + view-tree tooling.
-- **Frame-provider.** Views run in the context of a default frame; a view rendered under a non-default frame must opt in. Per [`spec/004-Views.md`](https://day8.github.io/re-frame2/spec/004-Views/) §Frame propagation.
+- **Frame-provider.** Views run in the context of an explicitly-established frame (a root `frame-provider`); there is no ambient default (EP-0002). A `reg-view` reads the surrounding provider's frame via React context; a view rendered with no provider in scope has no frame and its ambient `dispatch`/`subscribe` raise `:rf.error/no-frame-context`. Per [`spec/004-Views.md`](https://day8.github.io/re-frame2/spec/004-Views/) §Frame propagation.
 - **Source-coord stamping.** Where the host supports it, registered views carry source coords for tooling.
 
 **What the CLJS reference did (example).** `reg-view` is a macro that captures source coords, returns a Reagent component, and registers the metadata. Render-tree is hiccup. Frame propagation uses Reagent's component context. Substrate-specific.

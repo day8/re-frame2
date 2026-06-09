@@ -5,10 +5,15 @@
   fixture (which always calls rf/init!), but no dedicated coverage exists
   for the four entry points themselves:
 
-    * init!                 — idempotent boot; explicit-adapter contract
+    * init!                 — idempotent boot; explicit-adapter contract.
+                              Per Spec 002 §`:rf/default` is an ordinary id
+                              (EP-0002) init! does NOT create a :rf/default
+                              frame — the runtime never synthesises a default.
     * install-adapter!      — single-adapter-per-process invariant
     * dispose-adapter!      — tear down + clear the slot
-    * ensure-default-frame! — :rf/default presence guarantee
+    * ensure-default-frame! — TEST-ONLY fixture helper that registers the
+                              ordinary :rf/default frame on demand (NOT a
+                              runtime path; init! no longer calls it).
 
   Per rf2-agql `(rf/init! ...)` requires an explicit adapter spec map.
   The no-arg form and the keyword form are both errors; the only
@@ -67,7 +72,7 @@
 ;; ---- tests ----------------------------------------------------------------
 
 (deftest init-is-idempotent
-  (testing "init! is idempotent — calling twice does not double-install or duplicate :rf/default"
+  (testing "init! is idempotent — calling twice does not double-install the adapter; it creates NO :rf/default frame"
     (is (nil? (adapter/current-adapter))
         "precondition: no adapter installed at the start of the test")
     (is (zero? (count-frames))
@@ -76,8 +81,10 @@
     (rf/init! plain-atom/adapter)
     (is (some? (adapter/current-adapter))
         "init! installs the supplied adapter")
-    (is (= 1 (default-frame-count))
-        "init! registers exactly one :rf/default frame")
+    (is (zero? (default-frame-count))
+        "init! creates NO :rf/default frame (EP-0002: the runtime never synthesises a default)")
+    (is (zero? (count-frames))
+        "init! registers no frames at all")
     (let [adapter-after-first (adapter/current-adapter-spec)
           frames-after-first  @frame/frames]
       ;; Second boot — should be a no-op.
@@ -86,8 +93,8 @@
           "the second init! does NOT re-install the adapter (same identity)")
       (is (= frames-after-first @frame/frames)
           "the second init! does NOT mutate the frames registry"))
-    (is (= 1 (default-frame-count))
-        ":rf/default appears exactly once after two init! calls")))
+    (is (zero? (default-frame-count))
+        ":rf/default is still absent after two init! calls")))
 
 (deftest install-adapter-rejects-double-install
   (testing "install-adapter! raises :rf.error/adapter-already-installed on a second call"
@@ -246,8 +253,8 @@
     (rf/init! plain-atom/adapter)
     (is (identical? plain-atom/adapter (adapter/current-adapter-spec))
         "init! with a literal adapter map installs that exact spec")
-    (is (= 1 (default-frame-count))
-        ":rf/default frame is present after the literal-adapter init!")))
+    (is (zero? (default-frame-count))
+        "no :rf/default frame is created by init! (EP-0002 — the runtime never synthesises a default)")))
 
 ;; ---- current-adapter vs current-adapter-spec (rf2-ivx3a) -----------------
 ;;
@@ -297,12 +304,17 @@
 (deftest adapter-swap-resets-substrate-state-keeps-registrar
   (testing "dispose then install a different adapter — registrar survives, substrate state resets"
     ;; Boot under adapter A (plain-atom), register a handler, register a
-    ;; non-default frame, and seed the default frame's app-db.
+    ;; non-default frame, and seed the default frame's app-db. Per EP-0002
+    ;; the runtime no longer synthesises :rf/default — this test declares it
+    ;; explicitly (an ordinary id) and runs ambient ops inside an explicit
+    ;; :rf/default scope, exactly as a single-frame app would.
     (rf/init! plain-atom/adapter)
     (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
     (rf/reg-sub      :n    (fn [db _] (:n db)))
+    (rf/reg-frame :rf/default {:doc "explicit app frame"})
     (rf/reg-frame :tenant-a {:doc "tenant-a"})
-    (rf/dispatch-sync [:seed 7])
+    (binding [frame/*current-frame* :rf/default]
+      (rf/dispatch-sync [:seed 7]))
     (is (= 7 (rf/subscribe-once :rf/default [:n]))
         "before swap: the seeded value is visible via the layer-1 sub")
     (let [registrar-before @registrar/kind->id->metadata]
@@ -345,7 +357,8 @@
         ;; Handlers from before the swap are still callable — registrar
         ;; preserved them. Issue a fresh dispatch and observe via B.
         (let [replace-pre @replace-calls]
-          (rf/dispatch-sync [:seed 99])
+          (binding [frame/*current-frame* :rf/default]
+            (rf/dispatch-sync [:seed 99]))
           (is (> @replace-calls replace-pre)
               "adapter B's :replace-container! was invoked by dispatch-sync (proves event commit routes through B, not the disposed A)"))
         (is (= 99 (rf/subscribe-once :rf/default [:n]))

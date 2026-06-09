@@ -2113,6 +2113,13 @@
   ([event-v] (pair-dispatch! event-v {}))
   ([event-v opts]
    (let [frame-id  (or (:frame opts) (current-frame))
+         ;; EP-0002 (rf2-9o48ih): the nREPL eval thread carries no ambient
+         ;; `with-frame` scope, so `rf/dispatch` would `require-current-frame!`
+         ;; and throw `:rf.error/no-frame-context`. Thread the resolved
+         ;; operating frame in as the explicit `:frame` override (the
+         ;; carried-invariant escape the router honours first) so the dispatch
+         ;; lands on the frame `current-frame` chose.
+         opts      (cond-> opts frame-id (assoc :frame frame-id))
          before-id (when frame-id (some-> (rf/epoch-history frame-id) peek :epoch-id))]
      (rf/dispatch event-v (merge {:origin :pair} opts))
      (let [after-id (when frame-id (some-> (rf/epoch-history frame-id) peek :epoch-id))
@@ -2148,6 +2155,11 @@
    (let [frame-id  (or (:frame opts) (current-frame))
          _         (when-not frame-id
                      (throw (ex-info "ambiguous frame" {:reason :ambiguous-frame})))
+         ;; EP-0002 (rf2-9o48ih): thread the resolved operating frame in as
+         ;; the explicit `:frame` override — the nREPL eval thread carries no
+         ;; ambient `with-frame` scope, so `rf/dispatch-sync` would otherwise
+         ;; `require-current-frame!` and throw `:rf.error/no-frame-context`.
+         opts      (assoc opts :frame frame-id)
          before-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
      (rf/dispatch-sync event-v (merge {:origin :pair} opts))
      (let [after-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]

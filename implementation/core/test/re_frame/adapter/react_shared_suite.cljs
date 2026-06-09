@@ -561,48 +561,80 @@
   the shared frame-context. Pinned on U/H per the audit; this is the
   shared, parameterised version (rf2-sx77q G4). The corruption path lives
   in `re-frame.adapter.context/function-component-current-frame`, which
-  both React adapters wire into their `:adapter/current-frame` slot."
+  both React adapters wire into their `:adapter/current-frame` slot.
+
+  EP-0002 (rf2-69r7ui): the corruption recovery is now `:no-frame-context`
+  — `function-component-current-frame` returns **nil** (NOT a synthesised
+  `:rf/default`) on a disturbed boundary, so a public frame-scoped op
+  reading that nil fails loudly with `:rf.error/no-frame-context`. The
+  corruption is still reported as its own distinct
+  `:rf.error/frame-context-corrupted` category so a disturbed boundary is
+  not silently folded into ordinary 'no scope'."
   [{:keys [substrate-kw name]}]
-  (testing (str name " — frame-context: corrupted _currentValue emits + recovers")
+  (testing (str name " — frame-context: corrupted _currentValue emits + recovers to nil")
+    ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
+    ;; `*current-frame*` :rf/default scope (the carried-invariant equivalent of
+    ;; wrapping every adapter test in `(with-frame :rf/default …)`). The
+    ;; React-context corruption tier is the SECOND tier of
+    ;; `function-component-current-frame` — it is only consulted when no dynamic
+    ;; scope is bound. Clear the ambient scope here so the `_currentValue` read
+    ;; (and its corruption detection) is actually exercised; otherwise the
+    ;; dynamic-var tier shadows it and the read resolves to :rf/default before
+    ;; the context is ever inspected.
+    (binding [frame/*current-frame* nil]
     (let [lk       (keyword "re-frame.adapter.react-shared-suite"
                             (str "fc-" (clojure.core/name substrate-kw)))
           original (.-_currentValue ^js adapter-context/frame-context)
           traces   (atom [])]
       (trace-tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
       (try
-        (testing "nil _currentValue: error trace fires; resolves to :rf/default"
+        (testing "nil _currentValue: error trace fires; resolves to nil (no-frame-context)"
           (reset! traces [])
           (set! (.-_currentValue ^js adapter-context/frame-context) nil)
-          (is (= :rf/default (adapter-context/function-component-current-frame))
-              "falls through to :rf/default (recovery preserved)")
+          (is (nil? (adapter-context/function-component-current-frame))
+              "returns nil — no synthesised :rf/default (EP-0002 carried invariant)")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs)) "one :rf.error/frame-context-corrupted event fired")
             (is (= :error (:op-type (first errs))) ":op-type is :error per Spec 009")
-            (is (= :replaced-with-default (:recovery (first errs)))
-                ":recovery is :replaced-with-default — fall-through preserved")
+            (is (= :no-frame-context (:recovery (first errs)))
+                ":recovery is :no-frame-context — no synthesised default")
             (is (= :nil (-> errs first :tags :type)) ":tags :type names the corrupted shape")))
-        (testing "number _currentValue: error trace fires; resolves to :rf/default"
+        (testing "number _currentValue: error trace fires; resolves to nil"
           (reset! traces [])
           (set! (.-_currentValue ^js adapter-context/frame-context) 42)
-          (is (= :rf/default (adapter-context/function-component-current-frame))
-              "falls through to :rf/default")
+          (is (nil? (adapter-context/function-component-current-frame))
+              "returns nil")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs)) "one error trace per corrupted read")
             (is (= :number (-> errs first :tags :type)))
             (is (= 42 (-> errs first :tags :received)) ":tags :received echoes the offending value")))
-        (testing "routed read via rf/current-frame-id also recovers"
+        (testing "routed read via rf/current-frame-id raises no-frame-context"
           (reset! traces [])
           (set! (.-_currentValue ^js adapter-context/frame-context) "")
-          (is (= :rf/default (rf/current-frame-id))
-              "adapter-routed read recovers to :rf/default")
+          ;; The adapter-routed reader resolves to nil; the public
+          ;; `current-frame-id` REQUIRES a frame, so it raises
+          ;; :rf.error/no-frame-context rather than synthesising a default.
+          (is (thrown-with-msg? :default #":rf.error/no-frame-context"
+                (rf/current-frame-id))
+              "adapter-routed public read raises no-frame-context on a corrupted boundary")
           (let [errs (corruption-traces traces)]
-            (is (= 1 (count errs))
-                "one error fired through the adapter-routed path")
+            ;; EP-0002 (rf2-9o48ih): the public `current-frame-id` resolves
+            ;; through the `:adapter/current-frame` routed-hook chain. In the
+            ;; multi-adapter node-test build (Reagent + UIx + Helix all loaded)
+            ;; that ambient resolution can read `_currentValue` more than once,
+            ;; so a corrupted boundary fires the structured diagnostic at least
+            ;; once (not exactly once — that exact-count contract holds only
+            ;; for the DIRECT `function-component-current-frame` calls above).
+            ;; The load-bearing contract is that the corruption IS surfaced
+            ;; (distinctly from ordinary 'no scope') AND the public read fails
+            ;; closed with `:rf.error/no-frame-context` (asserted above).
+            (is (pos? (count errs))
+                "frame-context-corrupted error fired through the adapter-routed path")
             (is (= :empty-string (-> errs first :tags :type))
                 ":tags :type distinguishes empty-string from a populated string")))
         (finally
           (trace-tooling/unregister-listener! lk)
-          (set! (.-_currentValue ^js adapter-context/frame-context) original))))))
+          (set! (.-_currentValue ^js adapter-context/frame-context) original)))))))
 
 ;; ===========================================================================
 ;; frame-provider CORE branches (rf2-7kjz8 / rf2-z7hfp) — folded from UIx's
@@ -653,27 +685,28 @@
   (when (and el (.-props el))
     (aget (.-props el) "children")))
 
-(defn assert-frame-provider-missing-frame-falls-through-to-default
-  "(build-frame-provider-element nil [...]) — no frame at all — falls
-  through to :rf/default per rf2-sixo. The provider-element's `:value`
-  slot carries :rf/default."
+(defn assert-frame-provider-missing-frame-raises-no-frame-context
+  "(build-frame-provider-element nil [...]) — no frame at all — is a
+  CONFIGURATION ERROR under EP-0002 (rf2-69r7ui). There is no
+  `(or frame-kw :rf/default)` floor: the core builder emits + throws
+  `:rf.error/no-frame-context` rather than synthesising a default, so a
+  tooling-generated tree that elides the frame fails loudly."
   [{:keys [name]}]
-  (testing (str name " — frame-provider core: missing frame falls through to :rf/default")
-    (let [el (spine/build-frame-provider-element nil [:fake-child-a :fake-child-b])]
-      (is (some? el) "build-frame-provider-element returned a React element")
-      (is (= :rf/default (provider-element-frame-kw el))
-          "missing frame defaulted to :rf/default"))))
+  (testing (str name " — frame-provider core: missing frame raises no-frame-context")
+    (is (thrown-with-msg? :default #":rf.error/no-frame-context"
+          (spine/build-frame-provider-element nil [:fake-child-a :fake-child-b]))
+        "missing frame raises :rf.error/no-frame-context (no :rf/default floor)")))
 
-(defn assert-frame-provider-nil-frame-falls-through-to-default
-  "(build-frame-provider-element nil [...]) — explicit nil frame — falls
-  through to :rf/default. The `(or frame-kw :rf/default)` clause covers
-  both the missing and nil cases."
+(defn assert-frame-provider-nil-frame-raises-no-frame-context
+  "(build-frame-provider-element nil [...]) — explicit nil frame — is the
+  same CONFIGURATION ERROR as the missing case (EP-0002, rf2-69r7ui): the
+  `(or frame-kw :rf/default)` floor is gone, so a nil frame raises
+  `:rf.error/no-frame-context` rather than defaulting."
   [{:keys [name]}]
-  (testing (str name " — frame-provider core: nil frame falls through to :rf/default")
-    (let [el (spine/build-frame-provider-element nil [:fake-child])]
-      (is (some? el))
-      (is (= :rf/default (provider-element-frame-kw el))
-          "nil frame defaulted to :rf/default"))))
+  (testing (str name " — frame-provider core: nil frame raises no-frame-context")
+    (is (thrown-with-msg? :default #":rf.error/no-frame-context"
+          (spine/build-frame-provider-element nil [:fake-child]))
+        "nil frame raises :rf.error/no-frame-context (no :rf/default floor)")))
 
 (defn assert-frame-provider-named-frame-preserved
   "A supplied frame keyword is preserved on the provider element's value
@@ -2079,7 +2112,14 @@
   (testing (str name " — #3 machine spawn at boot before adapter ready")
     (rf/reg-event-fx :init-shape
       (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:snapshots {:flow/boot {:state :armed :data {}}}}}}))
-    (rf/reg-frame :booted {:on-create [:init-shape]})
+    ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
+    ;; `*current-frame*` :rf/default scope. `reg-frame`'s `:on-create` dispatch
+    ;; branches on `*current-frame*` (in-flight-cascade heuristic, rf2-cufbh)
+    ;; between a synchronous top-level drain and an async child-frame queue.
+    ;; This test models a TOP-LEVEL boot — clear the ambient scope so the
+    ;; `:on-create` cascade drains synchronously and its seed is observable.
+    (binding [frame/*current-frame* nil]
+      (rf/reg-frame :booted {:on-create [:init-shape]}))
     (is (= :armed (get-in (rf/runtime-db-value :booted) [:rf.runtime/machines :snapshots :flow/boot :state]))
         ":on-create completed against an installed adapter — runtime-db carries the seed")))
 
@@ -2401,6 +2441,12 @@
   (let [tenant-a (mint-kw substrate-kw "dfc-tenant-a")
         tenant-b (mint-kw substrate-kw "dfc-tenant-b")
         seed     (mint-kw substrate-kw "dfc-seed")]
+    ;; EP-0002 (rf2-9wa0lf): `:rf/default` is an ordinary frame — `init!`
+    ;; no longer creates it. Register it explicitly so the `:rf/default`
+    ;; seed below lands and the "neither frame leaked" assertions across
+    ;; the dfc family compare against a real (empty) frame rather than a
+    ;; never-registered one.
+    (frame/ensure-default-frame!)
     (rf/reg-frame tenant-a {:doc "tenant-a frame"})
     (rf/reg-frame tenant-b {:doc "tenant-b frame"})
     (rf/reg-event-db seed (fn [_ [_ marker]] {:marker marker :received []}))
@@ -2459,24 +2505,44 @@
 
 (defn assert-dfc-raw-dispatch-from-set-timeout-falls-through
   "Raw rf/dispatch from a setTimeout callback escapes *current-frame* —
-  documented gotcha (rf2-l5q3). ASYNC: caller supplies `done`."
+  the documented gotcha (rf2-l5q3). EP-0002 (rf2-9wa0lf) REFRAMES the
+  outcome: the binding is dead in the async callback, so the raw dispatch
+  no longer SILENTLY falls through to `:rf/default` — there is no
+  `:rf/default` floor. It now FAILS LOUDLY with
+  `:rf.error/no-frame-context`, replacing the retired
+  `:rf.warning/dispatch-from-async-callback-fell-through-to-default`. The
+  fix is to capture a `frame-handle` / `frame-bound-fn` at render time
+  (covered by `assert-dfc-dispatch-later-survives-the-timer` et al.).
+  ASYNC: caller supplies `done`."
   [{:keys [substrate-kw name]} done]
-  (testing (str name " — raw rf/dispatch from setTimeout falls through to :rf/default")
+  (testing (str name " — raw rf/dispatch from setTimeout raises :rf.error/no-frame-context")
     (let [{:keys [tenant-a]} (dfc-seed-frames! substrate-kw)
           defer  (mint-kw substrate-kw "dfc-defer-raw")
-          landed (mint-kw substrate-kw "dfc-landed-raw")]
+          landed (mint-kw substrate-kw "dfc-landed-raw")
+          raised (atom nil)]
       (rf/reg-event-fx defer
-        (fn [_ _] (js/setTimeout (fn [] (rf/dispatch [landed])) 0) {}))
+        (fn [_ _]
+          (js/setTimeout
+            (fn []
+              ;; The dynamic binding is dead here — a raw dispatch has no
+              ;; carried frame stamp, so it raises. Catch it so the timer
+              ;; callback does not crash the host; record the id.
+              (try (rf/dispatch [landed])
+                   (catch :default e (reset! raised (:rf.error/id (ex-data e))))))
+            0)
+          {}))
       (rf/reg-event-db landed (fn [db _] (update db :received (fnil conj []) :landed-raw)))
       (rf/dispatch-sync [defer] {:frame tenant-a})
       (js/setTimeout
         (fn []
           (js/setTimeout
             (fn []
-              (is (= [:landed-raw] (dfc-received :rf/default))
-                  ":landed-raw lands on :rf/default (dynamic binding is dead in the setTimeout callback)")
+              (is (= :rf.error/no-frame-context @raised)
+                  "the raw async dispatch raised :rf.error/no-frame-context (no :rf/default floor)")
               (is (empty? (dfc-received tenant-a))
-                  "tenant-a sees nothing — raw rf/dispatch can't recover the in-flight frame from a setTimeout")
+                  "tenant-a sees nothing — the dispatch never enqueued")
+              (is (empty? (dfc-received :rf/default))
+                  ":rf/default sees nothing — there is no fall-through target")
               (done))
             10))
         10))))

@@ -19,12 +19,24 @@
   interceptor surface."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.http-managed :as http-managed]))
 
+;; EP-0002 (rf2-nn0jqa): the no-`:frame` `reg-http-interceptor` /
+;; `clear-http-interceptor` calls below resolve the frame through the
+;; carried-invariant scope chain (rf2-5q7um6), so the fixture registers
+;; `:rf/default` and pins it as the established scope for each test body —
+;; the wrapping fn form replaces the prior `:before`/`:after` map so the
+;; body can run inside `*current-frame*` :rf/default. Tests that name a
+;; frame explicitly (the per-frame-scope case) still override it.
 (use-fixtures :each
-  {:before (fn [] (http-managed/clear-all-http-interceptors!))
-   :after  (fn [] (http-managed/clear-all-http-interceptors!))})
+  (fn [t]
+    (http-managed/clear-all-http-interceptors!)
+    (frame/ensure-default-frame!)
+    (binding [frame/*current-frame* :rf/default]
+      (t))
+    (http-managed/clear-all-http-interceptors!)))
 
 ;; ---- 1. round-trip register / clear ---------------------------------------
 

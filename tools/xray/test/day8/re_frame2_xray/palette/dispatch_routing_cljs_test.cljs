@@ -97,12 +97,21 @@
     (tree-seq (some-fn vector? seq?) seq expanded)))
 
 (defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
+  ;; EP-0002 (rf2-bd4div): walking the rendered tree RE-INVOKES nested
+  ;; component fns (`expand-tree`), and those render-time `rf/subscribe`s
+  ;; resolve through the surrounding frame. The palette mounts in the
+  ;; `:rf/xray` own-frame, so the expansion must run under that scope —
+  ;; ambient (no-scope) re-expansion would raise `:rf.error/no-frame-context`
+  ;; rather than falling through to a synthesised `:rf/default`. (The
+  ;; click-time HANDLER is still invoked OUTSIDE any scope — that is the
+  ;; real click-fires-after-render path under test.)
+  (rf/with-frame :rf/xray
+    (some (fn [node]
+            (when (and (vector? node)
+                       (map? (second node))
+                       (= testid (:data-testid (second node))))
+              node))
+          (hiccup-seq tree))))
 
 ;; ---- click-time helpers ------------------------------------------------
 

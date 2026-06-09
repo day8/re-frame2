@@ -26,10 +26,21 @@
   (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`,
+  ;; and ambient subscribe / unsubscribe / clear-sub-cache! now require a
+  ;; carried frame stamp (no `:rf/default` floor). These cache tests
+  ;; exercise the ambient read surface against a single conventional app
+  ;; frame, so the fixture registers `:rf/default` explicitly and pins it
+  ;; as the established scope for the whole test body via `with-frame` —
+  ;; the standard "small app chooses :rf/default as its explicit id"
+  ;; shape. The frameless-read failure path is covered separately by
+  ;; `subscribe-frameless-read-raises-no-frame-context` below.
+  (frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  (test-fn))
+  (rf/with-frame :rf/default
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
@@ -702,3 +713,87 @@
                        (= :answer (:id (:tags ev)))))
                 @traces)
           "expected :rf.registry/handler-replaced trace"))))
+
+;; ===========================================================================
+;; rf2-jue6sp (EP-0002 §Subscriptions And Read Helpers) — ambient read
+;; surfaces require a carried frame; absence is :rf.error/no-frame-context,
+;; NOT a silent read of an invented :rf/default.
+;;
+;; The reset-runtime fixture pins `with-frame :rf/default` for the whole
+;; body, so these absence tests explicitly UNWIND that scope by rebinding
+;; `*current-frame*` to nil — modelling a read issued with no established
+;; scope and no carried stamp (the async-callback / tool / SSR case).
+;; ===========================================================================
+
+(defn- no-frame-context-ex?
+  "True when `thrown` is the EP-0002 absence error."
+  [thrown]
+  (and (some? thrown)
+       (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))))
+
+(deftest subscribe-frameless-read-raises-no-frame-context
+  (testing "1-arity subscribe / subscribe-once / unsubscribe / clear-sub-cache!
+            under NO established scope raise :rf.error/no-frame-context
+            instead of falling through to :rf/default (rf2-jue6sp)"
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    ;; Unwind the fixture's with-frame :rf/default scope → genuinely no
+    ;; carried stamp and no React-context provider (JVM).
+    (binding [frame/*current-frame* nil]
+      (let [e (try (rf/subscribe [:n]) nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (no-frame-context-ex? e)
+            "1-arity subscribe outside any scope raises :rf.error/no-frame-context")
+        (is (= :subscribe (:operation (ex-data e)))
+            ":operation attributes the failure to subscribe")
+        (is (= :n (:event-id (ex-data e)))
+            ":event-id carries the attempted sub-id")
+        (is (= :supply-frame (:recovery (ex-data e)))
+            ":recovery points the caller at supplying a frame"))
+      (is (no-frame-context-ex?
+            (try (rf/subscribe-once [:n]) nil
+                 (catch clojure.lang.ExceptionInfo e e)))
+          "1-arity subscribe-once outside any scope raises")
+      (is (no-frame-context-ex?
+            (try (rf/unsubscribe [:n]) nil
+                 (catch clojure.lang.ExceptionInfo e e)))
+          "1-arity unsubscribe outside any scope raises")
+      (is (no-frame-context-ex?
+            (try (rf/clear-sub-cache!) nil
+                 (catch clojure.lang.ExceptionInfo e e)))
+          "zero-arity clear-sub-cache! outside any scope raises"))))
+
+(deftest subscribe-under-with-frame-resolves-the-scope
+  (testing "1-arity subscribe under with-frame routes to the scope's frame —
+            the ambient form still works INSIDE a real scope (rf2-jue6sp)"
+    (rf/reg-frame :jue/scoped {:doc "explicit non-default scope"})
+    (rf/reg-event-db :seed (fn [_ [_ v]] {:v v}))
+    (rf/reg-sub :v (fn [db _] (:v db)))
+    (rf/dispatch-sync [:seed :scoped-value] {:frame :jue/scoped})
+    ;; Unwind the fixture scope first, then establish :jue/scoped.
+    (binding [frame/*current-frame* nil]
+      (rf/with-frame :jue/scoped
+        (is (= :scoped-value @(rf/subscribe [:v]))
+            "ambient subscribe resolves the with-frame scope, not :rf/default")))))
+
+(deftest subscribe-wrong-frame-prevention-for-reads
+  (testing "ambient reads land on the ESTABLISHED scope's frame, never bleed
+            into a sibling frame — the carried-invariant read isolation
+            (rf2-jue6sp; wrong-frame prevention for READS as well as writes)"
+    (rf/reg-frame :jue/left  {:doc "left frame"})
+    (rf/reg-frame :jue/right {:doc "right frame"})
+    (rf/reg-event-db :seed (fn [_ [_ v]] {:v v}))
+    (rf/reg-sub :v (fn [db _] (:v db)))
+    (rf/dispatch-sync [:seed :left-value]  {:frame :jue/left})
+    (rf/dispatch-sync [:seed :right-value] {:frame :jue/right})
+    (binding [frame/*current-frame* nil]
+      ;; Reading under the :jue/left scope sees ONLY :jue/left's app-db.
+      (rf/with-frame :jue/left
+        (is (= :left-value @(rf/subscribe [:v]))
+            "ambient read under :jue/left resolves :jue/left")
+        (is (not= :right-value @(rf/subscribe [:v]))
+            "the read did NOT bleed into the sibling :jue/right frame"))
+      ;; And under :jue/right it sees ONLY :jue/right's app-db.
+      (rf/with-frame :jue/right
+        (is (= :right-value @(rf/subscribe [:v]))
+            "ambient read under :jue/right resolves :jue/right")))))

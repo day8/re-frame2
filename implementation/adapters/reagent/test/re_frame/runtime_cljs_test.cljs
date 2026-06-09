@@ -751,17 +751,22 @@
         (is (= [child] inner)
             "children pass through unchanged")))))
 
-(deftest frame-provider-default-fallback-no-frame-key
-  (testing "frame-provider with no :frame key falls through to :rf/default"
-    (let [tree (rf/frame-provider {} [:span "x"])
-          [_ value & _] tree]
-      (is (= :rf/default value)
-          "missing :frame falls through to :rf/default — matches the no-provider case")))
-  (testing "frame-provider with explicit nil :frame falls through to :rf/default"
-    (let [tree (rf/frame-provider {:frame nil} [:span "x"])
-          [_ value & _] tree]
-      (is (= :rf/default value)
-          "nil :frame falls through to :rf/default"))))
+(deftest frame-provider-missing-frame-key-raises-no-frame-context
+  ;; EP-0002 (rf2-9o48ih) — inverted from the prior
+  ;; `frame-provider-default-fallback-no-frame-key`. Under the carried
+  ;; invariant there is no `(or (:frame props) :rf/default)` floor: a
+  ;; `frame-provider` with no (or nil) `:frame` is a CONFIGURATION ERROR
+  ;; — the provider raises `:rf.error/no-frame-context` rather than
+  ;; synthesising a default. `:frame` is a required prop (per Spec 002
+  ;; §Frame target resolution — the carried invariant).
+  (testing "frame-provider with no :frame key raises :rf.error/no-frame-context"
+    (is (thrown-with-msg? :default #":rf.error/no-frame-context"
+          (rf/frame-provider {} [:span "x"]))
+        "missing :frame is a config error — no :rf/default floor"))
+  (testing "frame-provider with explicit nil :frame raises :rf.error/no-frame-context"
+    (is (thrown-with-msg? :default #":rf.error/no-frame-context"
+          (rf/frame-provider {:frame nil} [:span "x"]))
+        "nil :frame is a config error — no :rf/default floor")))
 
 (deftest frame-provider-variadic-children
   (testing "frame-provider accepts zero, one, or many children"

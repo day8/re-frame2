@@ -38,4 +38,17 @@
   [:map {:closed true}
    [:counter/value :int]])
 
-(rf/reg-app-schema [] CounterDb)
+;; EP-0002 (carried-frame invariant, Spec 002 §Frame target resolution):
+;; app-db schemas are FRAME-LOCAL — `reg-app-schema` targets a frame and the
+;; runtime never synthesises one from absence. At namespace-load time no
+;; frame is established, so this registration MUST NOT run as a load-time
+;; side-effect (it would raise `:rf.error/no-frame-context`). Instead it is a
+;; boot step: `core/init` calls `register-schema!` AFTER `reg-frame` makes the
+;; app's `:rf/default` frame live, inside a `with-frame :rf/default` scope.
+;; (Contrast events/subs above, which are frame-agnostic global registrations
+;; and are fine at ns-load.)
+(defn register-schema!
+  "Attach the whole-app-db schema to the app's frame. Call once at boot,
+   under the app's frame scope (see core/init)."
+  []
+  (rf/reg-app-schema [] CounterDb))

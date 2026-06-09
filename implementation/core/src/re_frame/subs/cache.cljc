@@ -268,10 +268,15 @@
   generally prefers `make-reset-runtime-fixture` (per `test_support`) which
   bundles cache-clearing with registrar / frame state reset.
 
-  Zero-arity targets `:rf/default`; one-arity targets the named frame.
-  Returns nil. See also: `re-frame.subs/clear-sub` (registrar-side
-  counterpart)."
-  ([] (clear-sub-cache! :rf/default))
+  Zero-arity resolves the scope/hold stamp via
+  `frame/require-current-frame!` (EP-0002) — called under no established
+  scope it raises `:rf.error/no-frame-context` rather than clearing an
+  invented default. One-arity targets the named frame (the right shape
+  for fixtures / tools outside any scope). Returns nil. See also:
+  `re-frame.subs/clear-sub` (registrar-side counterpart)."
+  ([] (clear-sub-cache! (frame/require-current-frame!
+                          :clear-sub-cache!
+                          {:where 're-frame.subs.cache/clear-sub-cache!})))
   ([frame-id]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
      (doseq [[k entry] @cache]

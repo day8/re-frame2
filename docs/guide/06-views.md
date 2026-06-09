@@ -70,7 +70,7 @@ In real project code you'll more often see views registered with the **`reg-view
 This is the *same component*. `reg-view` is sugar over the `defn` shape, and it's worth knowing exactly what the sugar adds, because the live cells in this guide use `defn` (the live environment is functions-only) while the prose and your real code lean on `reg-view`. Two things change:
 
 1. **The view goes into the registry.** Registered under an auto-derived id, it sits alongside your events and subs where tooling can list it and introspect its metadata. (You'll meet why that matters in [17 — Tooling](17-tooling.md): the inspector resolves a clicked DOM node back to the `reg-view` that produced it.)
-2. **`dispatch` and `subscribe` are injected, frame-aware, into the body.** Inside a `reg-view`, you write `dispatch` and `subscribe` *without* the `rf/` prefix — the macro binds local, frame-correct versions so the view body never names a frame out loud. This is what lets the same view render in two isolated [frames](18-frames.md) at once, each reading and writing its own state, with the view none the wiser. In a plain `defn` (and so in every live cell here), you write the qualified `rf/dispatch` / `rf/subscribe`, which target the default frame — exactly right for a single-app page.
+2. **`dispatch` and `subscribe` are injected, frame-aware, into the body.** Inside a `reg-view`, you write `dispatch` and `subscribe` *without* the `rf/` prefix — the macro binds local, frame-correct versions so the view body never names a frame out loud. This is what lets the same view render in two isolated [frames](18-frames.md) at once, each reading and writing its own state, with the view none the wiser. In a plain `defn` (and so in every live cell here), you write the qualified `rf/dispatch` / `rf/subscribe`, which resolve the frame from the scope they render under — the root provider a single-app page establishes once.
 
 So: `defn` view with explicit `rf/dispatch`/`rf/subscribe`, or `reg-view` with injected `dispatch`/`subscribe` — same render function, the macro just adds registry presence and frame-awareness. The live cells below use the `defn` form; mentally map `dispatch`→`rf/dispatch` and you've read the `reg-view` form too.
 
@@ -170,12 +170,12 @@ The first part — don't dispatch *during render* — is just purity: rendering 
 
 The subtle part is the second clause, and here's the mechanism, because it's the kind of thing that "works" right up until it spectacularly doesn't. When you write `:on-click #(dispatch [:inc])` in hiccup, the substrate adapter *wraps* that lambda at render time so the eventual callback closes over the surrounding [frame](18-frames.md). That's the invisible service that makes a bare `dispatch` inside an `:on-click` route to the right frame without you ever writing `:frame` explicitly — and it covers every React-synthetic prop: `:on-change`, `:on-key-down`, `:on-animation-end`, all of them.
 
-What is *not* wrapped is anything you attach imperatively from inside the render body — `(.addEventListener el "animationend" ...)`, a raw `js/setTimeout`, a hand-rolled `requestAnimationFrame`. Those fire later, on a fresh stack, with no frame in scope, so a `dispatch` from inside them silently routes to the default frame. The view *works* in a single-frame app and then breaks the first time it's rendered inside a frame-provider — a failure that doesn't show up until you build a story canvas or a split-pane and is miserable to track down. So:
+What is *not* wrapped is anything you attach imperatively from inside the render body — `(.addEventListener el "animationend" ...)`, a raw `js/setTimeout`, a hand-rolled `requestAnimationFrame`. Those fire later, on a fresh stack, with no frame in scope, so a `dispatch` from inside them fails loudly with `:rf.error/no-frame-context` — the carried-frame invariant ([chapter 18](18-frames.md)) refuses to guess a frame for a token that lost its scope. That loud failure is on your side: it surfaces the moment you try it, instead of the old silent-misroute that only showed up once you built a story canvas or a split-pane and was miserable to track down. The fix is to capture the frame as a value (`frame-handle` / `frame-bound-fn`) at render time and carry it into the listener. So:
 
 ```clojure
 ;; WRONG — the listener is attached imperatively, outside the synthetic-event
-;; system; the dispatch fires on a fresh stack with no frame and silently
-;; routes to the default frame.
+;; system; the dispatch fires on a fresh stack with no frame in scope and
+;; fails loudly with :rf.error/no-frame-context.
 (rf/reg-view tile [props]
   [:div {:ref (fn [el]
                 (when el

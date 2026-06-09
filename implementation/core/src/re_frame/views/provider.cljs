@@ -86,12 +86,17 @@
   children in the shared frame Context Provider — inside the subtree,
   `(rf/frame-handle)` / `reg-view`-registered
   descendants resolve to the named frame. Per Spec 002 §What
-  `frame-provider` is.
+  `frame-provider` is (CLJS reference).
 
-  Reads `:frame` from props. When missing or `nil`, falls through to
-  `:rf/default` — defensive default that matches no-provider
-  behaviour and avoids breaking tooling-generated trees that elide
-  the prop.
+  `:frame` is REQUIRED (EP-0002 carried invariant). There is NO
+  `(or (:frame props) :rf/default)` floor: an explicit
+  `(rf/frame-provider {} …)` with no frame establishes no usable scope.
+  Per Spec 002 §Frame target resolution the runtime never synthesises a
+  frame from absence — a missing `:frame` is a CONFIGURATION ERROR. It
+  emits `:rf.error/no-frame-context` through the always-on error axis and
+  throws, so a tooling-generated or hand-authored tree that elides the
+  frame fails loudly at the provider rather than silently scoping every
+  descendant call to a conventional default.
 
   Reagent call shape:
 
@@ -109,7 +114,14 @@
   `build-frame-provider` is the lower-level substrate hook; this fn is
   the canonical user-facing surface."
   [props & children]
-  (let [frame-kw (or (:frame props) :rf/default)]
+  (let [frame-kw (:frame props)]
+    (when (nil? frame-kw)
+      (let [payload (frame/no-frame-context-payload
+                      :frame-provider
+                      {:where 're-frame.views.provider/frame-provider
+                       :recovery :supply-frame})]
+        (frame/emit-no-frame-context! payload)
+        (throw (ex-info (str (:rf.error/id payload)) payload))))
     (into [(build-frame-provider) frame-kw] children)))
 
 ;; ---- in-flight Reagent component -----------------------------------------
@@ -136,20 +148,25 @@
 (def ^:dynamic *current-frame* nil)
 
 (defn current-frame
-  "Resolution chain (per Spec 002 §Reading the frame from React context):
+  "Resolution chain (READER) per Spec 002 §Frame target resolution — the
+  carried invariant (EP-0002). Returns the scope frame, or **nil** when no
+  scope is established — it never synthesises `:rf/default` (the runtime
+  never repairs absence). The two tiers it observes:
+
     1. Dynamic var (set by with-frame).
     2. Closest enclosing frame-provider via React context.
-    3. :rf/default.
 
   Reagent-specific: the React-context tier reads `(.-context cmp)` on
   the in-flight Reagent component. Reagent's class-component machinery
   surfaces context to components whose `:contextType` matches the
   context object — that is the wiring `reg-view*` attaches via
   `{:contextType frame-context}`. Plain Reagent fns lack this wiring,
-  so `(.-context cmp)` is React's empty default — they fall through
-  to `:rf/default`. This narrowness is by design: it is what makes
-  the `:rf.warning/plain-fn-under-non-default-frame-once` warning
-  meaningful.
+  so `(.-context cmp)` is React's empty default — the no-provider
+  sentinel — and coercion returns nil (no scope). A public frame-scoped
+  operation reading nil then fails loudly via
+  `frame/require-current-frame!`; the `:rf.warning/plain-fn-under-non-
+  default-frame-once` narrowness contract (which the later EP-0002 view
+  bead sharpens into a no-frame-context path) keys off this same nil.
 
   The keyword/string coercion via
   `re-frame.adapter.context/coerce-context-value` is defensive cover
@@ -162,12 +179,18 @@
   Provider's `:value` reaches React as the original keyword (namespace
   preserved). The helper survives the slim rewrite because the
   defensive-cover use case for raw-hiccup mounts is independent of
-  which Reagent build is loaded."
+  which Reagent build is loaded.
+
+  `coerce-context-value` returns nil for the no-provider sentinel (a
+  namespaced keyword it does not special-case — it coerces only genuine
+  frame keywords / prop-stringified keywords), so a plain-fn read with no
+  enclosing Provider falls through to the trailing nil cleanly."
   []
   (or frame/*current-frame*
       (when-let [cmp (current-component)]
-        (adapter-context/coerce-context-value (.-context cmp)))
-      :rf/default))
+        (let [v (.-context cmp)]
+          (when-not (= v adapter-context/no-provider-sentinel)
+            (adapter-context/coerce-context-value v))))))
 
 ;; ---- per-render identity --------------------------------------------------
 ;;

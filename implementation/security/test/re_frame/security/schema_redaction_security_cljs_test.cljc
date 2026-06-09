@@ -36,6 +36,7 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.walk :as walk]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             ;; Publishes the Malli late-bind validate/explain hooks; without
             ;; it the default validator soft-passes and no failure fires.
             [re-frame.schemas.malli]
@@ -48,9 +49,27 @@
 ;; No adapter needed - `validate-app-schema!` is called directly (not via
 ;; dispatch), so a clean app-schema slate is all the harness requires.
 ;; CLJC-clean: the same fixture runs on JVM and node.
+;;
+;; EP-0002 (rf2-gjq3ow): `reg-app-schema` + `validate-app-schema!` are
+;; context-required frame-local (no `:rf/default` floor). The adapter-less
+;; reset fixture establishes no ambient scope, so the outer fixture below
+;; pins `:rf/default` as the carried scope for the test body — the
+;; carried-invariant equivalent of `(with-frame :rf/default …)`. Without it
+;; every `reg-app-schema` raises `:rf.error/no-frame-context`.
+;;
+;; Binding the dynamic var is sufficient (and necessary): `reg-app-schema`
+;; writes only to the schemas side-table keyed by frame-id and resolves the
+;; stamp through the scope reader, which reads the var — it needs neither a
+;; registered frame nor a state container. We deliberately do NOT call
+;; `ensure-default-frame!` here: it builds a container and so requires an
+;; installed adapter, which this adapter-less validate-direct suite has not
+;; got (it would raise `:rf.error/no-adapter-installed`).
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:clear-app-schemas? true}))
+    {:clear-app-schemas? true})
+  (fn [test-fn]
+    (binding [frame/*current-frame* :rf/default]
+      (test-fn))))
 
 ;; ---------------------------------------------------------------------------
 ;; Sentinel - a value that must NEVER appear unredacted in any trace slot.

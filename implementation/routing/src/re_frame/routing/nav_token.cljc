@@ -107,7 +107,12 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
   ;; §Threading the `:do` slot is the wrapped fx entry to perform.
   (let [do-entry        (get args :do)
         nav-token       (get args :nav-token)
-        frame-id        (or frame :rf/default)
+        ;; EP-0002 carried invariant — the fx context carries the cascade
+        ;; envelope frame as `:frame`; a nil stamp is an invariant failure
+        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+        frame-id        (frame/require-frame-stamp!
+                          frame :rf.route/with-nav-token
+                          {:where 'rf.route/with-nav-token-handler})
         frame-record    (frame/frame frame-id)
         ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
         rdb             (frame/frame-runtime-db-value frame-id)

@@ -824,7 +824,7 @@ So the CLJS reference has to **convert render-time frame knowledge into a closur
      (str label ": " n)]))
 ```
 
-Naming convention: **unqualified `dispatch`/`subscribe` inside `reg-view` are the frame-bound locals.** Qualified `re-frame.core/dispatch` continues to refer to the global function (defaults to `:rf/default`, also useful at the REPL).
+Naming convention: **unqualified `dispatch`/`subscribe` inside `reg-view` are the frame-bound locals.** Qualified `re-frame.core/dispatch` continues to refer to the global function — its ambient 1-arity form resolves the carried-invariant scope/hold chain (and raises `:rf.error/no-frame-context` outside any scope, EP-0002 — there is no `:rf/default` default); the explicit `(rf/dispatch [...] {:frame :id})` form is the REPL/test shape.
 
 This is the *implicit lexical injection* style chosen in 000 (the (α) option). It reads identically to today's re-frame view code. No env-arg change to view signatures.
 
@@ -866,45 +866,52 @@ The user's body runs inside that `let`. The full API surface (worked example, th
 
 Everything in this subsection is **CLJS-implementation detail**, not pattern contract. The pattern requires only that views render with an explicit frame identity; how that identity is plumbed through is implementation-specific.
 
-The `read-frame-from-context` function is implemented as a tiered lookup, with the dynamic-binding tier and default tier flanking the actual context read. The middle tier — the React-context read — is **substrate-specific** and each adapter publishes its own impl through the `:adapter/current-frame` late-bind hook (per [006 §Frame-provider via React context](006-ReactiveSubstrate.md#frame-provider-via-react-context)). The dynamic-var tier and the `:rf/default` tier are shared.
+The `read-frame-from-context` function is implemented as a tiered lookup: the dynamic-binding tier, then the React-context read, **bottoming out at nil** (no scope). The middle tier — the React-context read — is **substrate-specific** and each adapter publishes its own impl through the `:adapter/current-frame` late-bind hook (per [006 §Frame-provider via React context](006-ReactiveSubstrate.md#frame-provider-via-react-context)). The dynamic-var tier is shared. **There is no `:rf/default` tier** (EP-0002): the reader returns nil when no scope names a frame, and the public frame-scoped operation turns that nil into `:rf.error/no-frame-context` via `require-current-frame!`.
 
 ```clojure
+;; The createContext default is the NO-PROVIDER SENTINEL, not :rf/default —
+;; absence of a provider must be detectable as absence (per EP-0002), so the
+;; read tier returns nil and the resolver fails loudly rather than synthesise
+;; a default. (See [§What `frame-provider` is].)
 (defonce ^:private frame-context
-  (.createContext js/React :rf/default))
+  (.createContext js/React ::no-provider))
 
 ;; Reagent (class components, `:contextType` machinery)
 (defn- read-frame-from-context-reagent []
   (or *current-frame*                                ;; tier: dynamic var (set by `with-frame`)
       (when-let [cmp (reagent.core/current-component)]
         (let [ctx (.-context cmp)]                   ;; tier: closest enclosing `frame-provider`
-          (cond                                      ;; — class-component path: surfaces value
-            (keyword? ctx)                  ctx      ;;   only to components whose `:contextType`
-            (and (string? ctx) (not= "" ctx)) (keyword ctx))))
-      :rf/default))                                  ;; tier: default
+          (when-not (= ctx ::no-provider)            ;; — class-component path: surfaces value
+            (cond                                    ;;   only to components whose `:contextType`
+              (keyword? ctx)                  ctx    ;;   matches. A plain fn lacks the wiring, so
+              (and (string? ctx) (not= "" ctx)) (keyword ctx)))))))
+                                                     ;; tier: nil (no scope — NOT :rf/default)
 
 ;; UIx / Helix (function components, hook-driven)
 (defn- read-frame-from-context-fn-component []
   (or *current-frame*                                ;; tier: dynamic var
-      (when-some [v (.-_currentValue frame-context)] ;; tier: function-component path —
+      (let [v (.-_currentValue frame-context)]       ;; tier: function-component path —
         (cond                                        ;;   `_currentValue` is what React mutates
-          (keyword? v)                  v            ;;   as Provider boundaries are entered /
-          (and (string? v) (not= "" v)) (keyword v))) ;;  exited during render. No `(.-context cmp)`
-      :rf/default))                                  ;; tier: default
+          (= v ::no-provider)           nil          ;;   as Provider boundaries are entered /
+          (keyword? v)                  v            ;;   exited during render. No enclosing
+          (and (string? v) (not= "" v)) (keyword v) ;;   Provider → the sentinel → nil.
+          :else                         (do (emit-frame-context-corrupted! v) nil)))))
+                                                     ;; tier: nil (no scope — NOT :rf/default)
 ```
 
 How the React-context tier wires up:
 
 1. `frame-provider` is a React Context Provider whose `value` is the **keyword** (`:todo`), not a frame record. The shared context object lives in `re-frame.adapter.context/frame-context`; every adapter (Reagent, UIx, Helix) reads and writes the same `createContext` object, so a tree mixing substrates resolves to a single frame chain.
 2. `subscribe` and `dispatch` reach the resolution chain through the `:adapter/current-frame` late-bind hook. The active adapter's namespace registers the hook at load time, so `re-frame.subs` / `re-frame.router` (CLJC) stay free of a static dep on this CLJS-only file.
-3. **Reagent's class-component path** (`(.-context cmp)`) is intentionally narrow: Reagent's class-component machinery surfaces context only to components whose `:contextType` matches the context object — that is the wiring `reg-view*` attaches via `{:contextType frame-context}`. Plain Reagent fns lack the `:contextType` and therefore route to `:rf/default`. This narrowness is what makes the `:rf.warning/plain-fn-under-non-default-frame-once` warning (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) meaningful.
+3. **Reagent's class-component path** (`(.-context cmp)`) is intentionally narrow: Reagent's class-component machinery surfaces context only to components whose `:contextType` matches the context object — that is the wiring `reg-view*` attaches via `{:contextType frame-context}`. Plain Reagent fns lack the `:contextType`, so their `(.-context cmp)` is the no-provider sentinel — the reader returns **nil** (no scope), and a public frame-scoped op then raises `:rf.error/no-frame-context` (EP-0002). This narrowness is what makes the plain-fn footgun a *loud error* rather than a silent wrong-frame read (per [004 §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-the-footgun-is-now-a-loud-error)).
 4. **UIx / Helix's function-component path** (`_currentValue`) reflects the closest enclosing Provider regardless of any class-static metadata, because function components have no `(.-context cmp)` slot. UIx's `use-context` and Helix's `use-context` are both sugar over this read, so subscribe / dispatch and the substrate-native hook agree on the active frame.
 
-The context's value is the **keyword**, not the frame record: each consumer resolves the keyword against the global frame registry on every read, so re-registering a frame (including `:rf/default`) is picked up automatically on next render with no React-side invalidation.
+The context's value is the **keyword**, not the frame record: each consumer resolves the keyword against the global frame registry on every read, so re-registering a frame (including a registered `:rf/default`) is picked up automatically on next render with no React-side invalidation.
 
 #### Edge cases
 
-- **No `frame-provider` in scope.** Reagent's `(.-context cmp)` returns the React empty default (`#js {}`); the keyword/string check fails and the lookup falls through to `:rf/default`. Function-component substrates read `_currentValue` directly, which equals the createContext default (`:rf/default`).
-- **Render fn invoked outside Reagent** (REPL, tests). `reagent.core/current-component` returns `nil`; the React-context tier is skipped. `with-frame` covers tests that need a non-default frame; bare invocations get `:rf/default`.
+- **No `frame-provider` in scope.** Reagent's `(.-context cmp)` returns the no-provider sentinel; the reader returns nil (no scope). Function-component substrates read `_currentValue` directly, which equals the createContext sentinel default → nil. Either way a public frame-scoped op raises `:rf.error/no-frame-context` — there is no `:rf/default` fall-through (EP-0002).
+- **Render fn invoked outside Reagent** (REPL, tests). `reagent.core/current-component` returns `nil`; the React-context tier is skipped. `with-frame` (or an explicit `{:frame …}` opt) covers tests that need a frame; a bare invocation with no scope raises `:rf.error/no-frame-context`.
 - **Reagent prop-conversion of named values**. Stock Reagent's `convert-prop-value` (`reagent.impl.template`) stringifies named values when they pass as React props. The canonical user-facing surface (`rf/frame-provider`) sidesteps this by mounting the Provider via Reagent's `:r>` interop head — the props map flows to React as a raw JS object, so `:value :foo/bar` reaches React as the original keyword and the namespace is preserved across the React-context round trip on every adapter. A user who writes `[:> (.-Provider frame-context) {:value :foo}]` directly (raw `:>` interop, not `rf/frame-provider`) still passes through stock Reagent's prop-conversion under the classic adapter: `convert-prop-value` rewrites `:foo` to `"foo"`, and `re-frame.adapter.context/coerce-context-value` rounds the string back to a keyword. Note that `(name kw)` is lossy for namespaced keywords (`(name :auth/main)` → `"main"`); raw-hiccup mounts that need a namespaced frame-id should switch to `rf/frame-provider` or `re-frame.adapter.context/provider-element`.
 - **Concurrent rendering.** React 19 (and the React 18 concurrent renderer before it) may render the same component multiple times before commit. The context read is idempotent — same provider value across re-renders — so this is safe. Closures captured during render hold the keyword by value; re-render produces a new closure with the same keyword. See [§Open questions — Concurrent React rendering](#concurrent-react-rendering).
 
@@ -983,7 +990,7 @@ A React onClick / onKeyDown / onChange callback is built during render but fires
 
 All four feed `:frame` into the dispatch envelope synchronously (during the capture window). The router queue carries `:frame` on the envelope through the microtask boundary — the drain reads frame off the envelope, never re-resolves the dynamic var at drain time — so the dispatch is routed correctly even after React has popped its render and unwound the binding.
 
-What does NOT survive: a raw `(rf/dispatch [...])` from inside a React click handler where the frame is not explicitly captured at the call site. The dynamic var is gone, the React-context tier reads through `current-component` which is nil outside render, and the resolution falls through to `:rf/default`. The "I'm running under a `frame-provider`" knowledge is render-only — converting it to closure-bound state is the wrap step every robust callback takes.
+What does NOT survive: a raw `(rf/dispatch [...])` from inside a React click handler where the frame is not explicitly captured at the call site. The dynamic var is gone, the React-context tier reads through `current-component` which is nil outside render, so the resolution returns nil and the dispatch raises `:rf.error/no-frame-context` (EP-0002 — there is no `:rf/default` fall-through to silently absorb it). The "I'm running under a `frame-provider`" knowledge is render-only — converting it to closure-bound state is the wrap step every robust callback takes, and the loud error is what forces it.
 
 Example (Xray's HANDLER `:db` view-mode toggle, the bead's bug-class instance):
 
@@ -1891,7 +1898,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | `reg-frame` takes no `:db` config — frames always start with `app-db = {}`; initialisation runs through `:on-create` | [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) |
 | Frame-aware events outside views use the two-arg dispatch form `(rf/dispatch [:foo] {:frame :todo})`; `dispatch-to` / `dispatch-with` are not shipped | [§Routing: the dispatch envelope](#routing-the-dispatch-envelope) |
 | The CLJS reference's `frame-provider` (React context) is an *ergonomic optimisation* atop the pattern-level explicit-frame contract; observable behaviour matches explicit-frame addressing; SSR bypasses context | [§View ergonomics](#view-ergonomics-the-hard-part), [011-SSR.md](011-SSR.md) |
-| Plain Reagent fns under a non-default frame fire a one-shot warning per `(component-id, frame-id)`, elided in production | [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-with-a-loud-footgun-warning) |
+| Plain Reagent fns can't read the surrounding `frame-provider`'s frame; an ambient `subscribe`/`dispatch` in one raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` fall-through; supersedes the old warn-once) | [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-the-footgun-is-now-a-loud-error) |
 | Per-instance frames via anonymous `make-frame` for per-mount lifecycles | [§Per-instance frames — anonymous `make-frame`](#per-instance-frames--anonymous-make-frame) |
 | Per-frame and per-call overrides via `:fx-overrides`, `:interceptor-overrides`, `:interceptors` | [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides) |
 | `destroy-frame!` is the single normative teardown boundary every per-feature artefact (flows, machines, schemas, SSR, epoch) hangs its frame-scoped cleanup off; each artefact publishes a teardown hook the core invokes during destroy | [§Destroy](#destroy), [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown) |

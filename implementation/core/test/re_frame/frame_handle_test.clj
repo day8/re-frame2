@@ -26,6 +26,12 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`.
+  ;; Register it explicitly as an ordinary frame so the tests that
+  ;; observe `:rf/default`'s app-db (and the explicit-id capture cases)
+  ;; have a real frame; the no-arg capture forms still REQUIRE a carried
+  ;; scope at capture time (covered by the *-requires-scope tests below).
+  (frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
@@ -72,7 +78,10 @@
     (rf/reg-event-db :fh/seed (fn [_ [_ v]] {:value v}))
     (rf/reg-sub :fh/value (fn [db _] (:value db)))
     (rf/dispatch-sync [:fh/seed :B-value] {:frame :fh/B})
-    (rf/dispatch-sync [:fh/seed :default-value])
+    ;; Seed :rf/default explicitly (EP-0002: no ambient :rf/default floor)
+    ;; so the assertion can prove the captured subscribe reads :fh/B, not
+    ;; :rf/default's app-db.
+    (rf/dispatch-sync [:fh/seed :default-value] {:frame :rf/default})
     (let [{:keys [subscribe]} (rf/with-frame :fh/B (rf/frame-handle))
           reaction            (subscribe [:fh/value])]
       (is (= :B-value @reaction)
@@ -96,19 +105,37 @@
       (is (nil? (:touched? (rf/app-db-value :fh/other)))
           "the per-call :frame :fh/other was IGNORED — the handle is locked"))))
 
-;; ---- contract: (frame-handle) outside any with-frame captures :rf/default --
+;; ---- contract: (frame-handle) outside any scope RAISES (EP-0002) ---------
+;;
+;; rf2-jue6sp: the no-arg capture form captures ONLY when a real scope
+;; exists at capture time. Capturing outside any with-frame / provider
+;; raises :rf.error/no-frame-context — it does NOT capture :rf/default.
 
-(deftest frame-handle-outside-with-frame-defaults
-  (testing "(frame-handle) with no active with-frame captures :rf/default"
-    (rf/reg-event-db :fh/default-touch (fn [db _] (assoc db :touched? true)))
-    (let [h (rf/frame-handle)]
+(deftest frame-handle-outside-with-frame-raises-no-frame-context
+  (testing "(frame-handle) with no active scope raises :rf.error/no-frame-context
+            instead of capturing :rf/default (rf2-jue6sp)"
+    (is (nil? frame/*current-frame*) "no with-frame scope established")
+    (let [e (try (rf/frame-handle) nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e) "no-arg frame-handle outside any scope must throw")
+      (is (= :rf.error/no-frame-context (:rf.error/id (ex-data e)))
+          ":rf.error/id is the carried-invariant absence error")
+      (is (= :frame-handle (:operation (ex-data e)))
+          ":operation attributes the failure to frame-handle"))))
+
+(deftest frame-handle-explicit-frame-works-outside-scope
+  (testing "(frame-handle frame-id) needs no scope — the explicit-id capture
+            shape for async callbacks / tools / tests (rf2-jue6sp)"
+    (rf/reg-event-db :fh/explicit-touch (fn [db _] (assoc db :touched? true)))
+    (is (nil? frame/*current-frame*) "no scope established")
+    (let [h (rf/frame-handle :rf/default)]
       (is (= :rf/default (:frame h))
-          "the captured :frame is :rf/default outside any with-frame")
-      ((:dispatch h) [:fh/default-touch])
+          "the explicit frame-id is captured verbatim")
+      ((:dispatch h) [:fh/explicit-touch])
       (test-support/poll-until #(:touched? (rf/app-db-value :rf/default))
-                               {:label "default handle drains to :rf/default"})
+                               {:label "explicit handle drains to :rf/default"})
       (is (true? (:touched? (rf/app-db-value :rf/default)))
-          "the handle outside any with-frame routes to :rf/default"))))
+          "the explicit handle routes to the named frame"))))
 
 ;; ---- frame-bound-fn (macro) + frame-bound-fn* (fn, both arities) ---------
 
@@ -151,16 +178,40 @@
       (is (= 1 (:n (rf/app-db-value :fbf/C)))
           "the explicit frame-id was re-established inside the body"))))
 
+(deftest frame-bound-fn*-one-arity-outside-scope-raises
+  (testing "(frame-bound-fn* f) wrapped outside any scope raises
+            :rf.error/no-frame-context at WRAP time — it does not capture
+            :rf/default (rf2-jue6sp / EP-0002)"
+    (is (nil? frame/*current-frame*) "no with-frame scope established")
+    (let [e (try (rf/frame-bound-fn* (fn [] :unreached)) nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e) "no-arg frame-bound-fn* outside any scope must throw at wrap time")
+      (is (= :rf.error/no-frame-context (:rf.error/id (ex-data e)))
+          ":rf.error/id is the carried-invariant absence error")
+      (is (= :frame-bound-fn* (:operation (ex-data e)))
+          ":operation attributes the failure to frame-bound-fn*"))))
+
 ;; ---- renamed reads -------------------------------------------------------
 
-(deftest current-frame-id-returns-keyword
-  (testing "(current-frame-id) returns a keyword frame id"
+(deftest current-frame-id-requires-scope
+  (testing "(current-frame-id) reads the established scope's id inside a scope,
+            and raises :rf.error/no-frame-context outside any scope — no
+            :rf/default floor (rf2-jue6sp / EP-0002)"
     (rf/reg-frame :cfi/probe {:doc "probe"})
-    (is (= :rf/default (rf/current-frame-id))
-        "outside any with-frame: :rf/default")
-    (is (keyword? (rf/current-frame-id)) "always a keyword")
+    ;; Inside a scope: the bound id.
     (is (= :cfi/probe (rf/with-frame :cfi/probe (rf/current-frame-id)))
-        "inside with-frame: the bound id")))
+        "inside with-frame: the bound id")
+    (is (keyword? (rf/with-frame :cfi/probe (rf/current-frame-id)))
+        "always a keyword inside a scope")
+    ;; Outside any scope: the carried-invariant absence error.
+    (is (nil? frame/*current-frame*) "no with-frame scope established")
+    (let [e (try (rf/current-frame-id) nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e) "current-frame-id outside any scope must throw")
+      (is (= :rf.error/no-frame-context (:rf.error/id (ex-data e)))
+          "raises the carried-invariant absence error instead of :rf/default")
+      (is (= :current-frame-id (:operation (ex-data e)))
+          ":operation attributes the failure to current-frame-id"))))
 
 (deftest app-db-value-returns-a-value
   (testing "(app-db-value frame-id) returns the app-db VALUE (a plain map), not a container"

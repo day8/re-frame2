@@ -279,10 +279,15 @@
 ;; ---- Spec 002 §:rf/default — ensure-default-frame! idempotence -----------
 
 (deftest ensure-default-frame-is-idempotent
-  (testing "calling ensure-default-frame! more than once does not duplicate or replace the default frame"
-    ;; reset-runtime already called rf/init! → ensure-default-frame!.
+  (testing "calling the TEST-ONLY ensure-default-frame! helper more than once does not duplicate or replace the default frame"
+    ;; Per EP-0002, init! no longer creates :rf/default. ensure-default-frame!
+    ;; survives only as a test-fixture helper; create the frame on demand,
+    ;; then prove repeat calls are idempotent.
+    (is (nil? (frame/frame :rf/default))
+        ":rf/default is absent after init! (the runtime never synthesises it)")
+    (frame/ensure-default-frame!)
     (let [original (frame/frame :rf/default)]
-      (is (some? original) ":rf/default exists after init!")
+      (is (some? original) ":rf/default exists after the test-only helper creates it")
       ;; Repeated calls should be no-ops on the already-registered frame.
       (frame/ensure-default-frame!)
       (frame/ensure-default-frame!)
@@ -574,6 +579,12 @@
   (testing "reg-frame called inside a handler queues the child's :on-create
             asynchronously on the child's router — Spec 002 §reg-frame /
             make-frame called from inside a handler"
+    ;; EP-0002 (rf2-9o48ih): the parent frame is the carried scope for the
+    ;; bare parent dispatch below — register `:rf/default` explicitly (the
+    ;; fixture no longer synthesises it) and target it. The child frame is
+    ;; reg'd INSIDE the handler, so `*handler-scope*` is bound there and its
+    ;; `:on-create` correctly async-queues regardless of this scope.
+    (rf/reg-frame :rf/default {})
     (let [event-order  (atom [])
           captured-tick (atom [])]
       (rf/reg-event-db :child/boot
@@ -589,7 +600,7 @@
       ;; Capture the child's next-tick so we can deterministically inspect
       ;; the queue state at the moment the parent handler returns.
       (with-redefs [interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
-        (rf/dispatch-sync [:parent/spawn-child])
+        (rf/dispatch-sync [:parent/spawn-child] {:frame :rf/default})
 
         ;; The parent's handler body ran end-to-end, but the child's
         ;; :on-create handler did NOT run inline.
@@ -642,6 +653,11 @@
 (deftest child-frame-via-make-frame-also-async-from-handler
   (testing "make-frame from inside a handler also queues :on-create
             asynchronously — it shares the reg-frame code path"
+    ;; EP-0002 (rf2-9o48ih): register `:rf/default` as the carried scope for
+    ;; the bare parent dispatch (the fixture no longer synthesises it). The
+    ;; child is make-frame'd INSIDE the handler (`*handler-scope*` bound), so
+    ;; its `:on-create` async-queues correctly.
+    (rf/reg-frame :rf/default {})
     (let [order         (atom [])
           captured-tick (atom [])
           child-id      (atom nil)]
@@ -656,7 +672,7 @@
           (swap! order conj :parent/after-make-frame)
           {}))
       (with-redefs [interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
-        (rf/dispatch-sync [:parent/spawn-sub-actor])
+        (rf/dispatch-sync [:parent/spawn-sub-actor] {:frame :rf/default})
         (is (= [:parent/before-make-frame :parent/after-make-frame] @order)
             ":sub-actor/boot did not run inline")
         (is (some? @child-id) "make-frame returned a gensym'd id")
@@ -926,19 +942,35 @@
 ;; surface; this test pins their round-trip contract.
 
 (deftest frame-ids-round-trip
-  (testing "(rf/frame-ids) returns every registered, non-destroyed frame id
-            plus :rf/default"
+  (testing "(rf/frame-ids) returns every registered, non-destroyed frame id"
+    ;; EP-0002 (rf2-5q7um6): `:rf/default` is an ORDINARY id — `init!` no
+    ;; longer creates it, and `frame-ids` is a frame-neutral enumeration
+    ;; surface (it reports exactly the registered frames, never synthesises
+    ;; a default). It appears here only because this test registers it
+    ;; explicitly, alongside the user frames — proving the round-trip
+    ;; without leaning on a runtime-synthesised floor.
+    (rf/reg-frame :rf/default     {:doc "explicitly-registered ordinary default frame"})
     (rf/reg-frame :tenants/acme    {:doc "acme tenant"  :preset :default})
     (rf/reg-frame :tenants/widgets {:doc "widgets co"   :preset :default})
     (let [ids (rf/frame-ids)]
       (is (set? ids) "frame-ids returns a set")
       (is (contains? ids :rf/default)
-          ":rf/default appears alongside user-registered frames")
+          ":rf/default appears because it was EXPLICITLY registered (no runtime floor)")
       (is (contains? ids :tenants/acme))
       (is (contains? ids :tenants/widgets))
       ;; Sanity: a never-registered id is absent.
       (is (not (contains? ids :tenants/nonexistent))
-          "frame-ids excludes ids that were never registered"))))
+          "frame-ids excludes ids that were never registered")))
+  (testing "frame-ids does NOT synthesise :rf/default when it was never registered"
+    ;; Fresh slate (the :each fixture already reset frames + init!'d without
+    ;; creating :rf/default). Register only user frames.
+    (reset! frame/frames {})
+    (rf/init! plain-atom/adapter)
+    (rf/reg-frame :tenants/solo {:doc "sole user frame"})
+    (let [ids (rf/frame-ids)]
+      (is (not (contains? ids :rf/default))
+          "EP-0002: :rf/default is not present unless explicitly registered")
+      (is (contains? ids :tenants/solo)))))
 
 (deftest frame-meta-round-trip
   (testing "(rf/frame-meta id) returns the canonical flat :rf/frame-meta shape

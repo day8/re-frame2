@@ -8,15 +8,18 @@
   `:adapter/current-component` late-bind hook, which the active adapter
   installs at ns-load time.
 
-  Resolution chain (per Spec 002 §Reading the frame from React context):
+  Resolution chain (READER, per Spec 002 §Frame target resolution — the
+  carried invariant, EP-0002):
     1. `frame/*current-frame*` (dynamic var; set by `with-frame`)
     2. closest enclosing frame-provider via React context
-    3. `:rf/default`
+    3. nil — NO `:rf/default` floor (the runtime never synthesises a default)
 
   This file exercises the no-adapter path: with the hook unset (or
-  installed but with no in-flight component), tier 2 returns nil and
-  resolution falls through to tier 3 (`:rf/default`). This is exactly
-  the headless / pre-init shape the runtime relies on.
+  installed but with no in-flight component), tier 2 returns nil and the
+  reader returns nil ('no scope'). A public frame-scoped operation turns
+  that nil into a loud `:rf.error/no-frame-context` via
+  `frame/require-current-frame!`; the reader itself never repairs absence.
+  This is exactly the headless / pre-init shape the runtime relies on.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -39,15 +42,15 @@
         (late-bind/set-fn! hook-key original)))))
 
 (deftest current-frame-with-no-adapter-hook
-  (testing "current-frame falls through to :rf/default when the hook is unset"
+  (testing "current-frame returns nil (no scope) when the hook is unset — no :rf/default floor"
     (with-hook-as-nil :adapter/current-component
       (fn []
         (is (nil? (late-bind/get-fn :adapter/current-component))
             "precondition: the hook is unset")
-        ;; No dynamic var is bound, no adapter hook is installed → tier 3
-        ;; (:rf/default) is the only remaining tier.
-        (is (= :rf/default (views/current-frame))
-            "with no dynamic-var binding and no adapter hook, current-frame returns :rf/default")))))
+        ;; No dynamic var is bound, no adapter hook is installed → the
+        ;; reader returns nil (EP-0002: no :rf/default synthesis).
+        (is (nil? (views/current-frame))
+            "with no dynamic-var binding and no adapter hook, current-frame returns nil")))))
 
 (deftest current-frame-honours-dynamic-var-without-hook
   (testing "with the hook unset, the dynamic-var tier still wins"
@@ -61,11 +64,11 @@
   (testing "an installed hook that returns nil is equivalent to no hook"
     ;; A real adapter's `current-component` returns nil outside a render.
     ;; views.cljs must treat nil-from-hook the same as no-hook: skip the
-    ;; React-context tier, fall through to :rf/default.
+    ;; React-context tier, return nil ('no scope') — no :rf/default floor.
     (let [original (late-bind/get-fn :adapter/current-component)]
       (try
         (late-bind/set-fn! :adapter/current-component (constantly nil))
-        (is (= :rf/default (views/current-frame))
-            "hook returning nil → fall through to :rf/default")
+        (is (nil? (views/current-frame))
+            "hook returning nil → reader returns nil (no synthesis)")
         (finally
           (late-bind/set-fn! :adapter/current-component original))))))

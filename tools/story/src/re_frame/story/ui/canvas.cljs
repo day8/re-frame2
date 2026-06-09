@@ -73,7 +73,16 @@
   `React.createElement` directly. Reagent treats fn-returning-element
   as a valid render result, so this drops into normal hiccup trees."
   [props child]
-  (let [frame-kw (or (:frame props) :rf/default)]
+  ;; EP-0002 (rf2-bd4div) — the provider scopes the EXPLICIT variant frame
+  ;; (every caller passes `{:frame variant-id}`). The `:frame` prop is
+  ;; threaded through verbatim; there is NO `:rf/default` synthesis when it
+  ;; is absent (a frame-scoped render must name its frame — under the
+  ;; carried invariant `:rf/default` is an ordinary id, never an
+  ;; absence-repair floor, per Spec 002 §Frame target resolution). An
+  ;; absent prop establishes the no-provider sentinel, so descendant
+  ;; subscribes fail loud (`:rf.error/no-frame-context`) rather than
+  ;; silently reading a synthesised default frame.
+  (let [frame-kw (:frame props)]
     (adapter-context/provider-element frame-kw (r/as-element child))))
 
 ;; ---- styling -------------------------------------------------------------
