@@ -318,42 +318,73 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 #?(:cljs (defonce react-root (atom nil)))
 
+;; EP-0002 (rf2-9o48ih + rf2-acjknb): under the carried-frame invariant the
+;; runtime never synthesises a frame from absence — the SSR hydration target
+;; is CARRIED, established explicitly by the app and threaded through both
+;; `ssr/hydrate!` (the seed target) AND the root `frame-provider` (where every
+;; in-tree `dispatch`/`subscribe` resolves). This example uses `:rf/default`
+;; as its client app-frame id (a migration may pick `:rf/default`, but the
+;; runtime will not infer it). It MUST be a `:client`-platform frame so the
+;; `:rf.ssr/check-*` compatibility-check fxs the `:rf/hydrate` handler
+;; dispatches actually fire (Spec 011 §The :rf/hydrate event — a `:server`-
+;; platform frame skips them). The static `index.html` payload carries no
+;; `:rf/frame-id` (a real server stamps it via `handle-request` above), which
+;; is NOT a hydration-frame-id conflict — the explicit `:frame` stands; a
+;; present-but-different payload `:rf/frame-id` would surface a structured
+;; `:rf.error/hydration-frame-id-mismatch` (Spec 011 §The hydration payload).
+(def app-frame :rf/default)
+
 #?(:cljs
    (defn run []
      ;; Boot the runtime against the Reagent substrate. Idempotent — the
-     ;; first call installs the adapter and creates :rf/default; subsequent
-     ;; calls (e.g. shadow-cljs hot reloads) are no-ops.
+     ;; first call installs the adapter; subsequent calls (e.g. shadow-cljs
+     ;; hot reloads) are no-ops. `init!` installs the adapter but does NOT
+     ;; create a frame — EP-0002: the app establishes its frame explicitly
+     ;; (below) and the runtime never synthesises `:rf/default` from absence.
      ;;
      ;; Pass the adapter spec map directly. There is no
      ;; default-adapter registry — each adapter ns exports an `adapter`
      ;; var the consumer requires and passes here.
      (rf/init! reagent-adapter/adapter)
+     ;; Establish the carried client app-frame BEFORE hydrating into it.
+     ;; `reg-frame` is a surgical no-op on re-registration (hot-reload Just
+     ;; Works). `:platform :client` makes the hydrate compatibility-check
+     ;; fxs fire (Spec 011 §The :rf/hydrate event).
+     (rf/reg-frame app-frame {:doc      "ssr-example client app-frame"
+                              :platform :client})
      ;; `ssr/hydrate!` is the framework client-boot helper (Spec 011
      ;; §Client-side hydration boot helper). It READs the `__rf_payload`
      ;; script, dispatch-syncs `[:rf/hydrate payload]` to install the
-     ;; server's frame-state BEFORE first render (locked
-     ;; :replace-frame-state policy), and — given a `:render-tree-fn` — runs
-     ;; the post-hydrate VERIFY step: it hashes the client render-tree and
-     ;; compares it to the server's :rf/render-hash (stashed by the
+     ;; server's frame-state into the EXPLICIT `:frame` BEFORE first render
+     ;; (locked :replace-frame-state policy), and — given a `:render-tree-fn`
+     ;; — runs the post-hydrate VERIFY step: it hashes the client render-tree
+     ;; and compares it to the server's :rf/render-hash (stashed by the
      ;; framework `:rf/hydrate` handler at [:rf.runtime/ssr :hydration
      ;; :server-hash]), emitting :rf.ssr/hydration-mismatch on disagreement.
      ;; `:render-tree-fn` must return the SAME *resolved* hiccup tree the
      ;; server hashed — the server computed `(rf/render-tree-hash
      ;; ((rf/view :app/root)))`, so we CALL the view fn here, `((rf/view
      ;; :app/root))`, rather than the vector-wrapped component reference
-     ;; `[(rf/view :app/root)]` we hand Reagent to mount. The helper targets
-     ;; the default client frame. It returns the payload it applied (nil on
-     ;; a client-only first load with no payload script), so we can branch on
-     ;; "was this server-rendered?".
-     (let [payload (ssr/hydrate! {:render-tree-fn (fn [] ((rf/view :app/root)))})]
+     ;; `[(rf/view :app/root)]` we hand Reagent to mount. EP-0002: the
+     ;; hydration target is CARRIED — the same `app-frame` flows to
+     ;; `hydrate!` and the root `frame-provider`. It returns the payload it
+     ;; applied (nil on a client-only first load with no payload script), so
+     ;; we can branch on "was this server-rendered?".
+     (let [payload (ssr/hydrate! {:frame          app-frame
+                                  :render-tree-fn (fn [] ((rf/view :app/root)))})]
        (when-not payload
          ;; Client-only load (no server render): run the app's own
-         ;; bootstrap; the page renders the empty-articles fallback.
-         (rf/dispatch-sync [:ssr/client-bootstrap])))
+         ;; bootstrap against the carried frame; the page renders the
+         ;; empty-articles fallback.
+         (rf/dispatch-sync [:ssr/client-bootstrap] {:frame app-frame})))
      (when (exists? js/document)
        (when-not @react-root
          (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-       (rdc/render @react-root [(rf/view :app/root)]))))
+       ;; Wrap the mount in the carried frame's `frame-provider` so every
+       ;; in-tree `dispatch`/`subscribe` resolves to the hydrated frame.
+       (rdc/render @react-root
+                   [rf/frame-provider {:frame app-frame}
+                    [(rf/view :app/root)]]))))
 
 ;; The JVM-runnable headless tests for this example live in
 ;; re-frame.examples-test (implementation/core/test/), keeping this example
