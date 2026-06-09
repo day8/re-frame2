@@ -19,6 +19,7 @@
             [re-frame.story :as story]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.recorder :as recorder]
+            [re-frame.story.registrar :as story-registrar]
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.protocol :as proto]
             [re-frame.story-mcp.server :as server]
@@ -108,6 +109,23 @@
      :doc      "Pin http effect to a known response."
      :fx-id    :http
      :response {:status 200 :body "ok"}})
+  ;; rf2-294yq5 reconciliation — a test helper event the privacy tests
+  ;; wire into a variant's `:setup` so a declared-sensitive / `:large?`
+  ;; app-db schema is RE-APPLIED on every fresh run. rf2-294yq5.3 made
+  ;; `run-variant` destroy + reallocate the variant frame on each run,
+  ;; which drops any schema registered against the prior frame
+  ;; (`:schemas/on-frame-destroyed!`). For the wire-egress redaction to
+  ;; bite at egress (the END of the run), the schema must be present on
+  ;; the fresh frame — so we re-declare it from a `:setup` event (phase 2,
+  ;; after allocation). `reg-app-schema` is keyed by the explicit `:frame`
+  ;; so the re-declaration lands on the live variant frame regardless of
+  ;; the dispatch scope. Idempotent — re-registering an identical schema
+  ;; is a no-op overwrite.
+  (rf/reg-event-db
+    ::reapply-app-schema
+    (fn [db [_ frame-id path schema]]
+      (schemas/reg-app-schema path schema {:frame frame-id})
+      db))
   (t))
 
 (use-fixtures :each reset-story-and-config)
@@ -2088,32 +2106,81 @@
   (when (some? (frame-container variant-id))
     ((requiring-resolve 're-frame.frame/destroy-frame!) variant-id)))
 
-(defn- declare-sensitive!
-  "Register schema metadata for a sensitive slot on the named variant's
-  frame. The tool egress helper refreshes schema declarations before it
-  calls `elide-wire-value`."
-  [variant-id path]
+(defn- declare-app-schema!
+  "Register `schema` at `path` on `variant-id`'s frame for the privacy
+  tests, in a way that survives `run-variant`'s fresh-run boundary
+  (rf2-294yq5.3).
+
+  Two seams, mirroring `seed-app-db!`:
+
+  1. DIRECT REGISTRATION — `reg-app-schema` against the live frame, so
+     a non-lifecycle reader (`read-failures`, the direct-`elide-app-db`
+     unit tests) sees the declaration immediately.
+
+  2. `:setup` RE-DECLARATION — append a `[::reapply-app-schema frame path
+     schema]` step to the variant body's `:setup` so each fresh run
+     re-applies the schema to the freshly-allocated frame (phase 2, after
+     allocation). Without this the declaration is dropped when
+     `ensure-fresh-frame!` destroys the pre-run frame, and the wire-egress
+     walker (which runs at the END of the run) finds no sensitive/large
+     paths to redact. The step is idempotent — duplicate re-declarations
+     overwrite the same schema slot. Skipped when `variant-id` is not a
+     registered variant (nothing to append to)."
+  [variant-id path schema]
   (ensure-variant-frame! variant-id)
-  (schemas/reg-app-schema path [:any {:sensitive? true}]
-                          {:frame variant-id}))
+  (schemas/reg-app-schema path schema {:frame variant-id})
+  (when-let [body (story-registrar/handler-meta :variant variant-id)]
+    (story-registrar/reg-variant*
+      variant-id
+      (update body :events (fnil conj [])
+              [::reapply-app-schema variant-id path schema]))))
+
+(defn- declare-sensitive!
+  "Declare `path` `:sensitive?` on the named variant's frame. The tool
+  egress helper refreshes schema declarations before `elide-wire-value`,
+  which returns `:rf/redacted` for a declared-sensitive slot."
+  [variant-id path]
+  (declare-app-schema! variant-id path [:any {:sensitive? true}]))
 
 (defn- declare-large!
-  "Register schema metadata flagging a slot `:large?` on the named
-  variant's frame. The tool egress helper refreshes schema declarations
-  before `elide-wire-value`, which substitutes the slot's value with the
-  `:rf.size/large-elided` marker — the leaf the `:elided-large`
-  indicator counts (rf2-koq5m)."
+  "Declare `path` `:large?` on the named variant's frame. The tool egress
+  helper refreshes schema declarations before `elide-wire-value`, which
+  substitutes the slot's value with the `:rf.size/large-elided` marker —
+  the leaf the `:elided-large` indicator counts (rf2-koq5m)."
   [variant-id path]
-  (ensure-variant-frame! variant-id)
-  (schemas/reg-app-schema path [:any {:large? true}]
-                          {:frame variant-id}))
+  (declare-app-schema! variant-id path [:any {:large? true}]))
 
 (defn- seed-app-db!
-  "Write `db` into `variant-id`'s frame app-db. Helper for the privacy
-  tests so we can populate slots without invoking a full `run-variant`."
+  "Establish `db` as `variant-id`'s frame app-db for the privacy tests.
+
+  Two seams, because two classes of reader consume the result:
+
+  1. DIRECT WRITE (`replace-frame-db!`) — the immediate frame app-db. The
+     `read-failures` tests read the `:rf.story/assertions` accumulator
+     directly (no lifecycle re-run), so they need the value present on the
+     live frame right now.
+
+  2. `:db-seed` REGISTRATION — for the lifecycle readers
+     (`run-variant` / `preview-variant`). rf2-294yq5.3 added a fresh-run
+     boundary: `run-phase-0!` `destroy!`s any pre-existing frame BEFORE
+     allocation so a run never inherits a prior run's (or an externally
+     hand-written) app-db. That correctly wipes the direct write above. So
+     for the seeded state to survive INTO the run result it must be
+     re-established BY the lifecycle on every fresh run — which is exactly
+     the `:db-seed` rung (`runtime/run-db-seed!`, phase 0.5, applied after
+     allocation). We merge `db` onto the registered variant body's
+     `:db-seed` slot so each run re-seeds the fresh frame. The merge
+     preserves the rest of the registered body (`:args` / `:doc` / …).
+
+  Skips the `:db-seed` registration when `variant-id` is not a registered
+  variant (nothing to merge into) — the direct write still applies."
   [variant-id db]
   (ensure-variant-frame! variant-id)
-  (replace-frame-db! variant-id db))
+  (replace-frame-db! variant-id db)
+  (when-let [body (story-registrar/handler-meta :variant variant-id)]
+    (story-registrar/reg-variant*
+      variant-id
+      (update body :db-seed merge db))))
 
 (defmacro ^:private with-clean-frame
   "Bind `vid` to `variant-kw`, run `body` against a clean variant frame,
