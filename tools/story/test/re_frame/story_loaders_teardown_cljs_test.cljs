@@ -35,6 +35,7 @@
             [re-frame.story.frames     :as frames]
             [re-frame.story.loaders    :as loaders]
             [re-frame.story.schemas    :as schemas]
+            [re-frame.subs             :as subs]
             [malli.core                :as m]))
 
 ;; ---- fixtures -------------------------------------------------------------
@@ -44,9 +45,13 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-  (rf/reg-sub :rf/machine
-              (fn [db [_ machine-id]]
-                (get-in db [:rf/runtime :machines :snapshots machine-id])))
+  ;; Re-register the framework `:rf/machine` sub after the registrar clear.
+  ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
+  ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
+  ;; `:rf/runtime` path — mirror `re-frame.machines`.
+  (subs/reg-runtime-sub :rf/machine
+    (fn [runtime-db [_ machine-id]]
+      (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (reset! frames/stub-call-log {})

@@ -70,12 +70,14 @@
             [re-frame.story :as story]
             [re-frame.story.loaders :as loaders]
             [re-frame.story.ui.canvas :as canvas]
-            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]))
+            [re-frame.story.test-helpers.e2e-multi-frame :as e2e]
+            [re-frame.subs :as subs]))
 
 ;; Mirror the proven reset pattern in variant_lifecycle_e2e — full
 ;; registrar clear + manual re-register of the framework's `:rf/machine`
-;; sub + canonical-vocab install. Without this the lifecycle machine
-;; cannot resolve and the canvas reads `:pre-mount` indefinitely.
+;; sub (a runtime-db sub under EP-0001) + canonical-vocab install. Without
+;; this the lifecycle machine cannot resolve and the canvas reads
+;; `:pre-mount` indefinitely.
 
 (declare register-skeleton-variants!)
 
@@ -84,9 +86,13 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-  (rf/reg-sub :rf/machine
-              (fn [db [_ machine-id]]
-                (get-in db [:rf/runtime :machines :snapshots machine-id])))
+  ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): machine snapshots are durable
+  ;; RUNTIME-DB state at [:rf.runtime/machines :snapshots <id>] — the
+  ;; framework `:rf/machine` sub reads the runtime-db partition, NOT the
+  ;; retired app-db `:rf/runtime` path. Mirror `re-frame.machines`.
+  (subs/reg-runtime-sub :rf/machine
+    (fn [runtime-db [_ machine-id]]
+      (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (canvas/reset-first-rendered!)

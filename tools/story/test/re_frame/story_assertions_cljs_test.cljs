@@ -26,9 +26,16 @@
   (reset! frame/frames {})
   (try (rf/init! plain-atom/adapter)
        (catch :default _ nil))
-  (rf/reg-sub :rf/machine
-              (fn [db [_ machine-id]]
-                (get-in db [:rf/runtime :machines :snapshots machine-id])))
+  ;; Re-register the machines artefact's framework-shipped `:rf/machine`
+  ;; sub after the registrar clear. EP-0001 (rf2-vzld77 / rf2-ixb0bq):
+  ;; machine snapshots are durable RUNTIME-DB state at
+  ;; [:rf.runtime/machines :snapshots <id>], so the framework sub is a
+  ;; runtime-db sub (the db-position arg is the runtime-db value) — mirror
+  ;; `re-frame.machines` exactly. CLJS has no `require :reload` to re-fire
+  ;; the ns-load registration dropped by `registrar/clear-all!`.
+  (subs/reg-runtime-sub :rf/machine
+    (fn [runtime-db [_ machine-id]]
+      (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (story/install-canonical-vocabulary!)

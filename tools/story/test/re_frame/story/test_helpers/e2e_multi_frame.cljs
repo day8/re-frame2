@@ -69,6 +69,7 @@
   around `use-fixtures :each`) handles frame disposal and registrar
   restoration."
   (:require [re-frame.core :as rf]
+            [re-frame.subs :as subs]
             [re-frame.story :as story]
             [re-frame.story.ui.state :as ui-state]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as xray-e2e]
@@ -87,7 +88,11 @@
     machines artefact's ns-load registers this; a full
     `registrar/clear-all!` drops it, and CLJS has no
     `require :reload` to re-fire ns-load side effects. We re-fire
-    the registration manually here.
+    the registration manually here. EP-0001 (rf2-vzld77 / rf2-ixb0bq):
+    machine snapshots are durable RUNTIME-DB state, so the framework
+    sub is a runtime-db sub reading
+    `[:rf.runtime/machines :snapshots <id>]` — NOT the retired app-db
+    `:rf/runtime` path.
   - `story/install-canonical-vocabulary!` — register the
     `:rf.story.lifecycle/machine` + helper events the runtime
     depends on.
@@ -98,13 +103,14 @@
   Idempotent."
   []
   (story/clear-all!)
-  ;; Re-register the framework's `:rf/machine` sub after the clear-
-  ;; all. Mirrors the `reset-all!` pattern in
-  ;; `re-frame.story-runtime-cljs-test` — without this the lifecycle
-  ;; machine's snapshot reads cannot resolve.
-  (rf/reg-sub :rf/machine
-              (fn [db [_ machine-id]]
-                (get-in db [:rf/runtime :machines :snapshots machine-id])))
+  ;; Re-register the framework's `:rf/machine` sub after the clear-all.
+  ;; Mirrors the `reset-all!` pattern in `re-frame.story-runtime-cljs-test`.
+  ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
+  ;; `[:rf.runtime/machines :snapshots <id>]`, NOT the retired app-db
+  ;; `:rf/runtime` path.
+  (subs/reg-runtime-sub :rf/machine
+    (fn [runtime-db [_ machine-id]]
+      (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
   (story/install-canonical-vocabulary!)
   (ui-state/reset-shell-state!)
   nil)
