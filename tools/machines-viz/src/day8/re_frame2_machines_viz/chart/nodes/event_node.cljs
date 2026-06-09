@@ -41,6 +41,7 @@
             [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
              :refer [four-cardinal-handles chart-constants palette-of]]
             [day8.re-frame2-machines-viz.theme.tokens
+             :as tokens
              :refer [chart-label-stack]]))
 
 (defn- variant-glyph
@@ -260,8 +261,14 @@
                                               blocked? (:edge-guard-blocked ct)
                                               fired?   (:glow-fired ct)
                                               :else    (:glow ct))))
+                     ;; rf2-4o43j8 — event-driven + FINITE glow: ONE
+                     ;; motion-scaled iteration that settles to a stable
+                     ;; end-state (no `infinite` strobe) and collapses to a
+                     ;; settle frame under `prefers-reduced-motion`. The
+                     ;; static fired affordance (the `:glow-fired` box-shadow
+                     ;; above) persists after it completes.
                      :animation      (when fired?
-                                       "mv-chart-transition-glow 720ms ease-out infinite")
+                                       (tokens/glow-animation-css))
                      :transition     "border-color 120ms ease, background 120ms ease"}}
        ;; First line: optional fork priority-badge + event name / ⌚ <ms> /
        ;; ∞ + optional `IF <guard>`. rf2-uw3vmi — the numbered badge LEADS
