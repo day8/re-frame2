@@ -98,7 +98,7 @@ Patterns compose; a screen can use Forms on submit, RemoteData for the request, 
 |---|---|
 | Declaring a handler or schema slot as containing secrets / PII / large blobs | `references/cross-cutting/privacy-and-elision.md` |
 | Wiring Datadog / Sentry / Honeycomb production listeners that survive `goog.DEBUG=false` | `references/cross-cutting/production-observability.md` |
-| Authoring head/meta (`reg-head` / `render-head` / `active-head`) or a custom `:rf/hydrate` handler dispatching the version + schema-digest check fxs | `references/cross-cutting/ssr-authoring.md` |
+| Authoring head/meta (`reg-head` / `render-head` / `active-head`), or extending the framework's shipped `:rf/hydrate` handler (the runtime ships it by default — re-register only to change the merge policy, as documented framework-extension code) | `references/cross-cutting/ssr-authoring.md` |
 
 ## Testing your views
 

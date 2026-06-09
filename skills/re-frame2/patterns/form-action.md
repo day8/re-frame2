@@ -25,7 +25,7 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
 (rf/reg-view add-to-cart-form [item-id]
   (let [draft      @(rf/subscribe [:form.cart-add/draft])
         qty-error  @(rf/subscribe [:form.cart-add/field-error :quantity])
-        csrf-token @(rf/subscribe [:rf.csrf/token])]
+        csrf-token @(rf/subscribe [:app.csrf/token])]      ;; app-owned — re-frame2 ships no :rf.csrf/* surface
     [:form {:method    "POST"
             :action    "/cart/add"
             :on-submit (fn [e] (.preventDefault e)
@@ -57,8 +57,8 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
   {:doc    "Add an item to the cart. Same handler tree both platforms."
    :schema [:cat [:= :cart/add-item] AddToCartForm]}     ;; server-side schema check, never skipped
   [(rf/inject-cofx :rf.server/request)
-   (rf/inject-cofx :rf.csrf/active-token)]
-  (fn [{:keys [db rf.csrf/active-token]} [_ form-params]]
+   (rf/inject-cofx :app.csrf/active-token)]              ;; app-owned cofx — see §CSRF
+  (fn [{:keys [db app.csrf/active-token]} [_ form-params]]
     (if (not= (:csrf-token form-params) active-token)    ;; CSRF first — fail loud
       {:db (assoc-in db [:cart :add-form :errors :_form] ["Session expired. Refresh and retry."])
        :fx [[:rf.server/set-status 403]]}
@@ -66,14 +66,16 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
                (update-in [:cart :items] (fnil conj []) (select-keys form-params [:item-id :quantity]))
                (assoc-in  [:cart :add-form :status] :submitted))
        :fx [[:rf.server/redirect {:status 303 :location "/cart"}]   ;; server only
-             [:rf.nav/navigate "/cart"]]})))                        ;; client only — :platforms no-ops the wrong one
+             [:dispatch [:rf.route/navigate :route/cart]]]})))      ;; client only — shipped routing event
 ```
 
-The success/failure effects are the only platform-divergent slot. `:rf.server/redirect` is server-only; `:rf.nav/navigate` is client-only — `:platforms` gating no-ops the one each platform doesn't own.
+The success/failure effects are the only platform-divergent slot. `:rf.server/redirect` is the server-only POST-redirect-GET fx; on the client, navigate via the shipped routing event `[:rf.route/navigate :route/cart]` (dispatched through `:fx`) — `:platforms` gating no-ops the server redirect on the client. (`:rf.route/navigate` is the framework's programmatic-navigation event, registered by `day8/re-frame2-routing`; there is **no** `:rf.nav/navigate` fx. If you need a bare URL push rather than a route id, register an **app-owned** fx such as `:cart.nav/navigate` — the framework does not expose `:rf.nav/push-url` as a route-aware navigation surface.)
 
 ## CSRF
 
-Every form POST MUST carry a CSRF token; the server MUST reject a mismatched token *before any state mutation*. The session token lives at `[:rf.csrf :session-token]` (seeded by `:rf/server-init` from the request); the view subscribes to `[:rf.csrf/token]` and emits a hidden `csrf-token` field; a `:rf.csrf/active-token` cofx exposes the session token to the handler, which fails-closed with 403 on mismatch. Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite`/`HttpOnly`/`Secure`) are host concerns — the pattern names *where* the check happens, not *which* scheme.
+**re-frame2 ships no CSRF surface** — there is no `:rf.csrf/*` sub, cofx, or app-db slot, and `:rf/*` (every sub-namespace, `:rf.csrf/*` included) is reserved (`SKILL.md` Cardinal rule 7; `spec/Conventions.md` single-root reserved set). Register the CSRF surface under **your app's own feature prefix** — the `:app.csrf/*` ids below are illustrative placeholders for *your* registrations, not framework-provided surfaces (substitute `:auth.csrf/*` or whatever prefix your app owns).
+
+Every form POST MUST carry a CSRF token; the server MUST reject a mismatched token *before any state mutation*. Store the session token at an app-owned slot such as `[:app.csrf :session-token]` (seeded by `:rf/server-init` from the request); the view subscribes to an app-owned `[:app.csrf/token]` and emits a hidden `csrf-token` field; an app-owned `:app.csrf/active-token` cofx exposes the session token to the handler, which fails-closed with 403 on mismatch. Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite`/`HttpOnly`/`Secure`) are host concerns — the pattern names *where* the check happens, not *which* scheme.
 
 ## File uploads
 
@@ -90,9 +92,9 @@ Mixed sensitive + non-sensitive fields → name the sensitive payload paths in t
 
 - **Skipping the `action` attribute.** A JS-only form breaks progressive enhancement. Always emit `method` + `action`; `:on-submit` is additive.
 - **Validating only on the client.** Client validation is UX; the server is the authority. Re-run the schema check via `:schema` on every POST — never trust the body.
-- **`:rf.nav/navigate` for the server redirect.** It is client-only and no-ops server-side; use `:rf.server/redirect` for POST-redirect-GET.
+- **A client-navigation fx for the server redirect.** The client routing event `[:rf.route/navigate …]` is a no-op on the server; use `:rf.server/redirect` for POST-redirect-GET. (And do not invent `:rf.nav/navigate` — it does not exist; `:rf.route/navigate` is the shipped programmatic-navigation event.)
 - **`302 Found` for POST success.** Some clients re-POST on 302; the canonical status is **303 See Other**. Set `:status 303` explicitly.
-- **CSRF token from a hardcoded value or query string.** Sessions rotate tokens; `:rf.csrf/active-token` is the single source of truth. URL-borne tokens leak to referrer logs.
+- **CSRF token from a hardcoded value or query string.** Sessions rotate tokens; your app-owned `:app.csrf/active-token` cofx is the single source of truth. URL-borne tokens leak to referrer logs.
 - **Writing `app-db` from a multipart handler.** The drain runs to fixed point — a long upload inside the handler blocks the request thread. Hand the opaque `:tempfile` to a storage fx.
 
 ## Worked example

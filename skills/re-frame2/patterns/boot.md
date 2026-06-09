@@ -20,7 +20,7 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
 | `:spawn` per phase | Each phase spawns its async work (`:rf.http/managed` or a domain child like `:auth/restore-session`) and transitions on `:succeeded` / `:failed`. |
 | Consolidated `:entry` action | Per Spec 005, `:entry` is one fn or one registered id — never a vector. To update `:data` AND dispatch, write one action returning `{:data ..., :fx ...}`. |
 | `:after` (numeric delay) | Retry-with-backoff between failed phase and re-attempt. |
-| Machine snapshot in `app-db` | Boot UI reads `:state` and `:data :phase` via subs — one writer, one signal. |
+| Machine snapshot in runtime-db | The boot machine's snapshot lives in the runtime-db partition at `[:rf.runtime/machines :snapshots :app/boot]`; Boot UI reads `:state` and `:data :phase` via the framework `:rf/machine` sub — one writer, one signal. |
 | `:rf/server-init` + `:rf/hydrate` (SSR) | Server completes server-meaningful phases; client reads initial state from hydrated snapshot and resumes. |
 
 ## Canonical declaration (state-machine form)

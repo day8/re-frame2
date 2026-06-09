@@ -13,7 +13,7 @@ re-frame2 flows are the v2 incarnation of **re-frame v1's `on-changes` intercept
 | v1 `on-changes` | re-frame2 flow |
 |---|---|
 | Wired into a *specific event's* interceptor chain at registration time | Registered against a **frame** in the runtime; runs right after *every* event handler |
-| Inputs are a positional list → output fn | `:inputs` is a vector of app-db paths → positional `:output` fn (same shape) |
+| Inputs are a positional list → output fn | `:inputs` is a vector of frame-state paths → positional `:output` fn (same shape) — a bare path reads app-db; a `[:rf.db/runtime …]` path reads runtime-db |
 | Cannot be toggled at runtime | Toggle via `:rf.fx/reg-flow` / `:rf.fx/clear-flow` from a handler |
 
 If you can already picture it as `on-changes`, you have the model; the divergence is "registered + runtime-toggleable" instead of "baked into one event".
@@ -34,9 +34,9 @@ Use a **subscription** when the value is consumed only by views. Use a **state m
 ```clojure
 (rf/reg-flow
   {:id     :rectangle/area              ;; unique; feature-prefixed (never :rf/*)
-   :inputs [[:width] [:height]]         ;; vector of app-db paths
+   :inputs [[:width] [:height]]         ;; vector of frame-state paths (bare = app-db)
    :output (fn [w h] (* w h))           ;; pure: (in-1, in-2, ...) → output value
-   :path   [:area]                      ;; where the output is written in app-db
+   :path   [:area]                      ;; where the output is written — always app-db
    :doc    "Rectangle area from :width and :height."   ;; optional
    :schema [:int]})                     ;; optional Malli schema for the output
 
@@ -46,6 +46,22 @@ Use a **subscription** when the value is consumed only by views. Use a **state m
 ```
 
 `:inputs` order matches the positional args to `:output`. `reg-flow` returns the flow's `:id` (family-wide reg-* convention). Flows ship in `day8/re-frame2-flows` — the consuming ns must `(:require [re-frame.flows])` to publish the artefact's late-bind hooks, or `rf/reg-flow` raises `:rf.error/flows-artefact-missing` (same require-to-register convention as schemas / machines / routing).
+
+## Input partition — bare = app-db, `[:rf.db/runtime …]` = runtime-db
+
+An `:inputs` path is read against the pending **frame-state**, which has two partitions (EP-0001). The syntax is **binary**:
+
+```clojure
+[:cart :items]                                    ;; bare path → app-db (the common case)
+[:rf.db/runtime :rf.runtime/routing :current :id] ;; :rf.db/runtime-rooted → runtime-db
+```
+
+- A **bare** path (any leading element other than `:rf.db/runtime`) reads the pending **app-db** partition.
+- A path whose **first element is `:rf.db/runtime`** reads the pending **runtime-db** partition (the partition key is stripped before the `get-in`). There is **no** `[:rf.db/app …]` explicit-app form — bare *is* app-db.
+
+**Any** flow (user or framework) may read runtime-db this way, so a flow can derive a materialised value from route or machine state (`[:rf.db/runtime :rf.runtime/routing :current :id]`, `[:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :state]`). But the **write side is reserved**: a flow's `:path` and its `:output` always write **app-db only** — a flow never writes runtime-db. A runtime-only event (e.g. a pure route transition with no app-db change) still re-fires a flow that reads the changed runtime-db value, because the dirty-check keys on both partitions.
+
+Never read a retired `[:rf.runtime/…]` *app-db* path — runtime state never lived in app-db under that scheme; the shipped syntax is the `[:rf.db/runtime …]` partition-qualified input above.
 
 ## Canonical mini-example
 
@@ -80,6 +96,21 @@ From `examples/reagent/flows/core.cljs` — a cart whose subtotal and total are 
       {:fx [[:cart/order-placed total]]})))
 ```
 
+A flow may read framework runtime-db state via a `[:rf.db/runtime …]` input and materialise it into app-db — e.g. a banner that depends on the active route id (runtime-db) plus a cart flag (app-db):
+
+```clojure
+;; Mixed inputs: one bare app-db path + one runtime-db-qualified path.
+;; The runtime-db input reads the active route id at
+;; [:rf.runtime/routing :current :id]; the output still writes app-db only.
+(rf/reg-flow
+  {:id     :cart/show-checkout-banner?
+   :inputs [[:cart :items]
+            [:rf.db/runtime :rf.runtime/routing :current :id]]
+   :output (fn [items route-id]
+             (and (seq items) (= route-id :route/cart)))
+   :path   [:cart :show-checkout-banner?]})
+```
+
 ## Runtime toggle via fx
 
 Two reserved fx-ids register / clear a flow mid-event. They route to the **dispatching frame** automatically — no `:frame` arg to set. This is how feature gates and wizard steps engage / disengage a derivation v1's `on-changes` could not:
@@ -104,7 +135,7 @@ Two reserved fx-ids register / clear a flow mid-event. They route to the **dispa
 Flow evaluation happens **right after the event handler's interceptor chain — as the framework's outermost `:after` — transforming the pending `:db` effect before the single deferred install and before `:fx` walks**, once per event, over **this frame's** registered flows only:
 
 1. The interceptor chain runs (`:before`s, handler, then `:after`s in reverse). The flow transform is the **outermost `:after`**, so it fires last — after every other `:after` (incl. a `(path :slice)` interceptor's `:after`) has reshaped the handler's slice back into the full `:db` effect.
-2. The flow walk reads the chain's **pending `:db` effect** (not the live `app-db`) and walks the frame's flows in **topologically-sorted** order (dependency derived from `:path`/`:inputs` overlap). Each flow recomputes only if its input values changed by `=` since last run (the first walk of a newly-registered flow always fires), `assoc-in`-ing its output into the pending `:db` effect.
+2. The flow walk reads the chain's **pending frame-state** — the pending `:db` effect for bare app-db inputs and the pending `:rf.db/runtime` effect for `[:rf.db/runtime …]` inputs (not the live partitions) — and walks the frame's flows in **topologically-sorted** order (dependency derived from `:path`/`:inputs` overlap; a runtime-db input never creates a spurious edge, since outputs are always app-db paths). Each flow recomputes only if its input values changed by `=` since last run (the first walk of a newly-registered flow always fires), `assoc-in`-ing its output into the pending **`:db`** effect (outputs are app-db only).
 3. The single **deferred `:db` install** writes the flow-augmented value into `app-db`; sub-cache invalidates; `:rf.event/db-changed` fires here — after flows.
 4. `:fx` walks — so an `:fx` entry that reads `app-db` sees flow outputs (e.g. `[:dispatch [:react-to-area-change]]` works cleanly).
 
@@ -115,13 +146,13 @@ Flow evaluation happens **right after the event handler's interceptor chain — 
 - **One-drain registration lag.** A flow registered via `:rf.fx/reg-flow` first runs on the *next* drain — its initial output appears one event after registration. Dispatch a synthetic nudge event if you need the value immediately (the cart example dispatches `:cart/touch`).
 - **Cycles throw at registration.** If A depends on B and B on A, `reg-flow` throws `:rf.error/flow-cycle` with `:cycle` (an ordered vector with a closing repeat, e.g. `[:a :b :a]`).
 - **`clear-flow` vacates the path.** It `dissoc-in`s the `:path` (no opt-out). Copy the value elsewhere first if you need to keep it.
-- **`:output` must be pure and deterministic.** Same inputs → same output. A throw is a pre-install throw, so it **aborts the whole event** (atomicity contract): no `:db` install, `app-db` unchanged, no `:rf.event/db-changed`, `:fx` skipped — no partial commit (neither the handler's `:db` nor any prior flow's write lands). The throw surfaces as `:rf.error/flow-eval-exception`; every flow re-attempts on the next clean drain.
+- **`:output` must be pure and deterministic.** Same inputs → same output. The flow transform runs over the **pending frame-state** before install, so a throw is a pre-install throw and **aborts the whole pre-install cascade** (atomicity contract): nothing installs in *either* partition — the pending `:db` effect and the pending `:rf.db/runtime` effect are both discarded, `app-db` and runtime-db are left unchanged, no `:rf.event/db-changed`, `:fx` skipped — no partial commit (neither the handler's `:db`/`:rf.db/runtime` nor any prior flow's write lands). The throw surfaces as `:rf.error/flow-eval-exception`; every flow re-attempts on the next clean drain.
 - **Feature-prefix the `:id` and `:path`.** Never `:rf/*` (reserved). The two fx-ids `:rf.fx/reg-flow` / `:rf.fx/clear-flow` are the framework's; your flow's id is yours.
 - **Frame-scoped.** A flow belongs to one frame; the same id can register against two frames with different `:output`/`:path`. `clear-flow` and `destroy-frame!` teardown are frame-local.
 
 ## Deeper material
 
-Per-frame topsort + cycle-detection contract, the atomicity failure semantics (a flow throw aborts the whole event — no partial commit), the `:rf.flow/*` trace taxonomy, `:sensitive?` inheritance, frame-destroy teardown, and the v1-alpha-flows migration table: `SKILL-REDIRECT.md` → **EP — Flows (013)**, **EP — Instrumentation (009)**. The managed-external-effects umbrella `:rf.flow/*` belongs to: [`spec/Managed-Effects.md`](../../../../spec/Managed-Effects.md).
+Per-frame topsort + cycle-detection contract, the partition-qualified input resolution (binary `[:rf.db/runtime …]` syntax), the atomicity failure semantics (a flow throw aborts the whole pre-install cascade across both partitions — no partial commit), the `:rf.flow/*` trace taxonomy, `:sensitive?` inheritance, frame-destroy teardown, and the v1-alpha-flows migration table: `SKILL-REDIRECT.md` → **EP — Flows (013)**, **EP — Instrumentation (009)**. The managed-external-effects umbrella `:rf.flow/*` belongs to: [`spec/Managed-Effects.md`](../../../../spec/Managed-Effects.md).
 
 ---
 
