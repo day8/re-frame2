@@ -103,13 +103,20 @@
   (require 're-frame.ssr     :reload)
   (require 're-frame.ssr.head :reload)
   (require 're-frame.machines :reload)
+  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; framework operation + registration surfaces require a carried frame
+  ;; stamp. Register `:rf/default` + pin it as the body's ambient scope
+  ;; (the carried-invariant equivalent of `(with-frame :rf/default …)`);
+  ;; explicit `{:frame …}` opts / inner `with-frame` still win.
+  (rf/reg-frame :rf/default {})
   (let [captured (atom [])]
     (binding [*captured* captured]
       (trace/register-listener!
         ::flow-integration-recorder
         (fn [ev] (swap! captured conj ev)))
       (try
-        (test-fn)
+        (rf/with-frame :rf/default
+          (test-fn))
         (finally
           (trace/unregister-listener! ::flow-integration-recorder)
           (schemas/reset-schema-validator!))))))

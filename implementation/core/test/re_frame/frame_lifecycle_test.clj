@@ -579,6 +579,12 @@
   (testing "reg-frame called inside a handler queues the child's :on-create
             asynchronously on the child's router — Spec 002 §reg-frame /
             make-frame called from inside a handler"
+    ;; EP-0002 (rf2-9o48ih): the parent frame is the carried scope for the
+    ;; bare parent dispatch below — register `:rf/default` explicitly (the
+    ;; fixture no longer synthesises it) and target it. The child frame is
+    ;; reg'd INSIDE the handler, so `*handler-scope*` is bound there and its
+    ;; `:on-create` correctly async-queues regardless of this scope.
+    (rf/reg-frame :rf/default {})
     (let [event-order  (atom [])
           captured-tick (atom [])]
       (rf/reg-event-db :child/boot
@@ -594,7 +600,7 @@
       ;; Capture the child's next-tick so we can deterministically inspect
       ;; the queue state at the moment the parent handler returns.
       (with-redefs [interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
-        (rf/dispatch-sync [:parent/spawn-child])
+        (rf/dispatch-sync [:parent/spawn-child] {:frame :rf/default})
 
         ;; The parent's handler body ran end-to-end, but the child's
         ;; :on-create handler did NOT run inline.
@@ -647,6 +653,11 @@
 (deftest child-frame-via-make-frame-also-async-from-handler
   (testing "make-frame from inside a handler also queues :on-create
             asynchronously — it shares the reg-frame code path"
+    ;; EP-0002 (rf2-9o48ih): register `:rf/default` as the carried scope for
+    ;; the bare parent dispatch (the fixture no longer synthesises it). The
+    ;; child is make-frame'd INSIDE the handler (`*handler-scope*` bound), so
+    ;; its `:on-create` async-queues correctly.
+    (rf/reg-frame :rf/default {})
     (let [order         (atom [])
           captured-tick (atom [])
           child-id      (atom nil)]
@@ -661,7 +672,7 @@
           (swap! order conj :parent/after-make-frame)
           {}))
       (with-redefs [interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
-        (rf/dispatch-sync [:parent/spawn-sub-actor])
+        (rf/dispatch-sync [:parent/spawn-sub-actor] {:frame :rf/default})
         (is (= [:parent/before-make-frame :parent/after-make-frame] @order)
             ":sub-actor/boot did not run inline")
         (is (some? @child-id) "make-frame returned a gensym'd id")

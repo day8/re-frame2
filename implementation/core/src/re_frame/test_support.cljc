@@ -334,6 +334,17 @@
                     includes those entries, so they're restored on the
                     way out — they only disappear for the duration of
                     the test.
+    :ambient-frame
+                  — frame id (default `:rf/default`) the fixture binds as
+                    `re-frame.frame/*current-frame*` around the test body
+                    when an adapter is installed — the carried-invariant
+                    ambient scope for bare dispatches (EP-0002). Pass `nil`
+                    to OPT OUT: tests that create their own top-level frames
+                    via `make-frame` / `with-new-frame` need a clear ambient
+                    scope so a frame's `:on-create` drains synchronously
+                    rather than being treated as a mid-cascade child-frame
+                    creation. No-op for adapter-less fixtures (they never
+                    establish an ambient scope).
     :clear-app-schemas?
                   — boolean. When true, clear the schemas artefact's
                     per-frame side-table (`schemas/schemas-by-frame`)
@@ -368,7 +379,15 @@
         (test-support/make-reset-runtime-fixture
           {:adapter plain-atom/adapter}))"
   ([] (make-reset-runtime-fixture {}))
-  ([{:keys [adapter init-fn clear-kinds clear-app-schemas?]}]
+  ([{:keys [adapter init-fn clear-kinds clear-app-schemas?] :as opts}]
+   ;; `:ambient-frame` (EP-0002, rf2-9o48ih): the frame the fixture binds as
+   ;; the ambient scope when an adapter is installed. Default `:rf/default`
+   ;; when the key is OMITTED; an explicit `:ambient-frame nil` OPTS OUT.
+   ;; Resolved via `contains?` (not an `:or {… :rf/default}` destructure
+   ;; default) so this conventional-scope default is not mistaken for a
+   ;; frame-RESOLUTION absence-repair floor — it is an explicit fixture-
+   ;; option default, not the runtime synthesising a frame from absence
+   ;; (the no-rf-default-floor lint keys off the `:or`/`(or …)` shapes).
    ;; Stable ns-load baseline (rf2-7hwnu). `make-reset-runtime-fixture` is
    ;; called when the test ns's `(use-fixtures :each ...)` form is
    ;; evaluated — i.e. AT THIS TEST NS'S LOAD, after its `:require` chain
@@ -388,7 +407,10 @@
    ;; This subsumes the bespoke outer-fixture workarounds that the todomvc
    ;; (`ns-load-registrar` + `reinstate-todomvc-registrations`) and
    ;; conformance-corpus (`pretest-registrar`) tests carried.
-   (let [ns-load-baseline (snapshot-registrar)]
+   (let [ns-load-baseline (snapshot-registrar)
+         ambient-frame    (if (contains? opts :ambient-frame)
+                            (:ambient-frame opts)
+                            :rf/default)]
    (fn [test-fn]
      ;; Late-bind: when the schemas artefact is loaded, snap and restore
      ;; the per-frame schema registry around the test body. `clear-fn`
@@ -435,15 +457,30 @@
          ;; and the framework operation surfaces (dispatch / subscribe /
          ;; machine + http + routing fxs) now require a carried frame stamp.
          ;; When the fixture installed an adapter it ALSO ensured the
-         ;; conventional `:rf/default` app frame (above), so it establishes
-         ;; that frame as the body's ambient scope — the carried-invariant
-         ;; equivalent of wrapping every test in `(with-frame :rf/default …)`.
-         ;; Tests that drive multiple frames / explicit `{:frame …}` overrides
-         ;; still work: an inner `with-frame` re-binds, and an explicit opt
-         ;; wins over the ambient scope. Adapter-less fixtures (the test
-         ;; installs its own frame) get no ambient scope.
-         (if adapter
-           (binding [frame/*current-frame* :rf/default]
+         ;; conventional `:rf/default` app frame (above), so by default it
+         ;; establishes that frame as the body's ambient scope — the carried-
+         ;; invariant equivalent of wrapping every test in
+         ;; `(with-frame :rf/default …)`. Tests that drive multiple frames /
+         ;; explicit `{:frame …}` overrides still work: an inner `with-frame`
+         ;; re-binds, and an explicit opt wins over the ambient scope.
+         ;; Adapter-less fixtures (the test installs its own frame) get no
+         ;; ambient scope.
+         ;;
+         ;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` OPTS OUT of the ambient
+         ;; scope even when an adapter is installed. Tests that create their
+         ;; OWN top-level frames via `make-frame` / `with-new-frame` (the
+         ;; example testbeds: realworld, nine-states, long-running-work,
+         ;; todomvc) need this: a frame's `:on-create` dispatch branches on
+         ;; `*current-frame*` to choose between a synchronous top-level drain
+         ;; and an async child-frame queue (the in-flight-cascade heuristic,
+         ;; rf2-cufbh). An ambient `:rf/default` makes a top-level
+         ;; `make-frame` look mid-cascade, so its `:on-create` is async-queued
+         ;; and never drains before the test reads state. Clearing the ambient
+         ;; scope models the genuine top-level boot those tests intend; their
+         ;; in-body dispatches carry explicit `{:frame …}` or run inside a
+         ;; `with-new-frame` scope, so they do not rely on the ambient frame.
+         (if (and adapter ambient-frame)
+           (binding [frame/*current-frame* ambient-frame]
              (test-fn))
            (test-fn))
          (finally

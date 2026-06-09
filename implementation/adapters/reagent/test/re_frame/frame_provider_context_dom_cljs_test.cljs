@@ -82,6 +82,7 @@
             ["react" :as React]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
@@ -271,6 +272,16 @@
    does not allow) or directly poking the field — the latter is what
    we do here, since it is the substrate-level seam the resolver
    reads."
+  ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
+  ;; `*current-frame*` :rf/default scope (the carried-invariant equivalent of
+  ;; wrapping every adapter test in `(with-frame :rf/default …)`). The
+  ;; React-context corruption tier is the SECOND tier of
+  ;; `function-component-current-frame` — only consulted when no dynamic scope
+  ;; is bound. Clear the ambient scope so the `_currentValue` read (and its
+  ;; corruption detection) is actually exercised; otherwise the dynamic-var
+  ;; tier shadows it and the read resolves to :rf/default before the context
+  ;; is ever inspected.
+  (binding [frame/*current-frame* nil]
   (let [original (.-_currentValue ^js adapter-context/frame-context)]
     (with-trace-recorder! [traces]
       (try
@@ -333,7 +344,7 @@
             (is (= :empty-string (-> errs first :tags :type))
                 ":tags :type identifies empty-string distinctly from string")))
         (finally
-          (set! (.-_currentValue ^js adapter-context/frame-context) original))))))
+          (set! (.-_currentValue ^js adapter-context/frame-context) original)))))))
 
 ;; ---- Scenario 4: cross-frame subscribe resolution -------------------------
 ;;

@@ -165,7 +165,14 @@
   (rf/reg-event-fx :init-shape
     (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:snapshots {:flow/boot {:state :armed
                                                                             :data  {}}}}}}))
-  (rf/reg-frame :booted {:on-create [:init-shape]})
+  ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
+  ;; `*current-frame*` :rf/default scope. `reg-frame`'s `:on-create` dispatch
+  ;; branches on `*current-frame*` (in-flight-cascade heuristic, rf2-cufbh)
+  ;; between a synchronous top-level drain and an async child-frame queue.
+  ;; This test models a TOP-LEVEL boot — clear the ambient scope so the
+  ;; `:on-create` cascade drains synchronously and its seed is observable.
+  (binding [frame/*current-frame* nil]
+    (rf/reg-frame :booted {:on-create [:init-shape]}))
   (let [rt (rf/runtime-db-value :booted)]
     (is (= :armed (get-in rt [:rf.runtime/machines :snapshots :flow/boot :state]))
         ":on-create completed against an installed adapter — runtime-db carries the seed")))
@@ -689,6 +696,15 @@
   ;; contract by stamping `_currentValue` directly. React maintains
   ;; this field as part of its public-stable createContext API surface;
   ;; the field is the same path the read-side relies on.
+  ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
+  ;; `*current-frame*` :rf/default scope (the carried-invariant equivalent of
+  ;; wrapping every adapter test in `(with-frame :rf/default …)`). The
+  ;; React-context tier is the SECOND tier of `function-component-current-frame`
+  ;; — only consulted when no dynamic scope is bound. Clear the ambient scope
+  ;; so the `_currentValue` read (the contract under test) is actually
+  ;; exercised; otherwise the dynamic-var tier shadows it and every read
+  ;; resolves to :rf/default before the context is inspected.
+  (binding [frame/*current-frame* nil]
   (let [original (.-_currentValue ^js adapter-context/frame-context)]
     (try
       ;; String shape — what Reagent's prop-conversion produces.
@@ -700,13 +716,16 @@
       (set! (.-_currentValue ^js adapter-context/frame-context) :tenant-keyword-shape)
       (is (= :tenant-keyword-shape (adapter-context/function-component-current-frame))
           "keyword shape is preserved")
-      ;; Empty-string shape — falls through to :rf/default. Empty
-      ;; strings are not valid keyword names.
+      ;; Empty-string shape — EP-0002 (rf2-9o48ih): an empty string is not a
+      ;; coercible keyword and not the no-provider sentinel, so it is a
+      ;; corrupted `_currentValue`. The reader returns nil (no synthesised
+      ;; :rf/default floor); a public op reading nil then raises
+      ;; :rf.error/no-frame-context.
       (set! (.-_currentValue ^js adapter-context/frame-context) "")
-      (is (= :rf/default (adapter-context/function-component-current-frame))
-          "empty-string shape falls through to :rf/default")
+      (is (nil? (adapter-context/function-component-current-frame))
+          "empty-string is corrupted — resolves to nil, no :rf/default floor")
       (finally
-        (set! (.-_currentValue ^js adapter-context/frame-context) original)))))
+        (set! (.-_currentValue ^js adapter-context/frame-context) original))))))
 
 (deftest dispatch-default-frame-routes-via-react-context
   "rf2-d4sf — the dispatch envelope's `:frame` default is built via the

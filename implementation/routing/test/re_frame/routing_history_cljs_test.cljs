@@ -239,6 +239,16 @@
 ;; ---- routes used across the suite ---------------------------------------
 
 (defn- register-routes! []
+  ;; EP-0002 (rf2-9o48ih): URL ownership is now an EXPLICIT declaration —
+  ;; the runtime no longer infers `:rf/default` as the URL owner from
+  ;; absence (`url-owner-frame-id` returns nil unless a frame declares
+  ;; `:url-bound? true`). The fixture's `ensure-default-frame!` creates
+  ;; `:rf/default` WITHOUT the slot, so opt it in explicitly here as this
+  ;; suite's URL owner — otherwise `:rf.nav/push-url` / `:rf.nav/replace-url`
+  ;; never fire and the history stack stays at one entry. Tests that drive a
+  ;; non-default owner re-register `:rf/default {:url-bound? false}` AFTER
+  ;; this call, so their override wins.
+  (rf/reg-frame :rf/default {:url-bound? true})
   (rf/reg-route :hist/home     {:path "/"})
   (rf/reg-route :hist/cart     {:path "/cart"})
   (rf/reg-route :hist/checkout {:path "/checkout"})
@@ -369,14 +379,21 @@
 
 (deftest duplicate-url-bound-frame-does-not-push-cljs
   (testing "a second :url-bound? true frame is reported but not allowed to mutate browser history"
+    ;; EP-0002 (rf2-9o48ih): `register-routes!` now declares `:rf/default`
+    ;; `:url-bound? true` as the established URL owner. The deterministic
+    ;; owner among duplicate `:url-bound? true` frames is the alphabetically-
+    ;; first id (`url-owner-frame-id` sorts by `(str id)`), so the duplicate
+    ;; must sort AFTER `:rf/default` for `:rf/default` to remain the resolved
+    ;; owner — hence `:zz/duplicate-owner` (`:rf/default` < `:zz/…`). A push
+    ;; from the non-owner duplicate is suppressed.
     (register-routes!)
-    (rf/reg-frame :hist/duplicate-owner {:url-bound? true})
+    (rf/reg-frame :zz/duplicate-owner {:url-bound? true})
     (rf/dispatch-sync [:rf.route/navigate :hist/cart]
-                      {:frame :hist/duplicate-owner})
+                      {:frame :zz/duplicate-owner})
     (is (= ["/"] (:entries @*history-state*))
         "duplicate URL-bound frame did not push to browser history")
     (is (= :hist/cart
-           (:id (get-in (rf/runtime-db-value :hist/duplicate-owner) [:rf.runtime/routing :current])))
+           (:id (get-in (rf/runtime-db-value :zz/duplicate-owner) [:rf.runtime/routing :current])))
         "the non-owner frame still updates its own route slice")))
 
 ;; =========================================================================
@@ -541,6 +558,9 @@
 (deftest blocked-popstate-restores-url-cljs
   (testing "rf2-ede1h.3: a :can-leave guard blocking a Back/Forward popstate
             restores the browser URL to the slice's route; the slice stays put"
+    ;; EP-0002 (rf2-9o48ih): URL ownership is explicit — opt `:rf/default` in
+    ;; as the URL owner so the restore `:rf.nav/replace-url` fx fires.
+    (rf/reg-frame :rf/default {:url-bound? true})
     (rf/reg-route :hist/cart   {:path "/cart"})
     (rf/reg-route :hist/editor {:path      "/editor/articles/:id"
                                 :params    [:map [:id :string]]
@@ -604,6 +624,10 @@
 (deftest forward-nav-block-does-not-restore-url-cljs
   (testing "rf2-ede1h.3: a FORWARD-nav block emits NO :rf.nav/replace-url —
             the URL never moved, so there is nothing to restore"
+    ;; EP-0002 (rf2-9o48ih): URL ownership is explicit — opt `:rf/default` in
+    ;; as the URL owner (the assertion that NO replace-url fires is only
+    ;; meaningful when the frame COULD own the URL).
+    (rf/reg-frame :rf/default {:url-bound? true})
     (rf/reg-route :hist/cart   {:path "/cart"})
     (rf/reg-route :hist/editor {:path      "/editor/articles/:id"
                                 :params    [:map [:id :string]]
@@ -646,6 +670,9 @@
   (testing "rf2-8zvajk: :rf.route/continue after a blocked popstate moves the
             address bar to the requested URL — slice and URL agree, no new
             history entry"
+    ;; EP-0002 (rf2-9o48ih): URL ownership is explicit — opt `:rf/default` in
+    ;; as the URL owner so the continue `:rf.nav/replace-url` fx fires.
+    (rf/reg-frame :rf/default {:url-bound? true})
     (rf/reg-route :hist/cart   {:path "/cart"})
     (rf/reg-route :hist/editor {:path      "/editor/articles/:id"
                                 :params    [:map [:id :string]]

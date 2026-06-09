@@ -39,13 +39,21 @@
   (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`, and
+  ;; the framework operation surfaces now require a carried frame stamp.
+  ;; Register `:rf/default` explicitly and pin it as the body's ambient
+  ;; scope — the carried-invariant equivalent of wrapping every test in
+  ;; `(with-frame :rf/default …)`. Bare dispatches in the test bodies then
+  ;; resolve to `:rf/default`; explicit `{:frame …}` opts still win.
+  (rf/reg-frame :rf/default {})
   ;; Framework registrations live at namespace-load time; clear-all!
   ;; wiped them. Reload so :rf/route, :rf.route/* subs and the framework
   ;; fx (e.g. :rf.fx/reg-flow) survive between tests.
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  (test-fn))
+  (rf/with-frame :rf/default
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 

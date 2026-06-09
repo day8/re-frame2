@@ -473,11 +473,18 @@
   ;; right project-root on its first paint of any chip.
   (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — establish the host frame explicitly. URL ownership is now an
+  ;; explicit declaration, so opt the host frame in via `{:url-bound? true}`
+  ;; (otherwise `:rf.nav/push-url` no-ops and history-driven steps stall).
+  (rf/reg-frame host-frame {:url-bound? true})
   ;; Seed app-db and pull the current URL into the route slice (what a
-  ;; popstate / initial-load handler does). The default frame is the one
+  ;; popstate / initial-load handler does). The host frame is the one
   ;; Xray reads. The browser History listener is installed so step #9's
-  ;; back/forward emulation has somewhere to land.
+  ;; back/forward emulation has somewhere to land. Boot dispatches run
+  ;; under the host frame scope (the carried invariant).
   (rf/install-history-listener!)
-  (rf/dispatch-sync [:routes-epochs/reset])
-  (rf/dispatch-sync [:rf.route/handle-url-change (current-url)])
-  (rdc/render react-root [root]))
+  (rf/with-frame host-frame
+    (rf/dispatch-sync [:routes-epochs/reset])
+    (rf/dispatch-sync [:rf.route/handle-url-change (current-url)]))
+  (rdc/render react-root [rf/frame-provider {:frame host-frame} [root]]))
