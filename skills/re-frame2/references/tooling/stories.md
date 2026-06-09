@@ -26,7 +26,7 @@
 
 Sketch in Storybook mentally, then translate.
 
-> **One-liner for the next leaf:** the same "think in Storybook, map onto Story" bridge applies to the recorder (`story-recorder.md`) and the agent loop (`story-mcp-loop.md`).
+> **One-liner for the next leaf:** the same "think in Storybook, map onto Story" bridge applies to the recorder (`story-recorder.md`) and the story-mcp author/refine side (`story-mcp-loop.md`, which also points at the `re-frame2-pair` run-side handoff).
 
 ## When to load
 
@@ -186,7 +186,7 @@ The dev shell's Test pane and recorder ship ergonomic affordances that consume w
 - The seven `:rf.assert/*` events, semantics + source-stamping → `SKILL-REDIRECT.md` → *EP — Stories (007)* §Assertions.
 - Render shell, panel placement, multi-substrate pane → `tools/story/spec/003-Render-Shell.md` §UI shell substrate, §Workspace layouts, §Multi-substrate side-by-side rendering.
 - Test Codegen (record canvas interactions into a `:script` body; the codegen emits the PUBLIC `:script` slot — the recorder no longer emits the transitional `:play-script` spelling) → `story-recorder.md` (sibling leaf).
-- Agent self-healing loop over MCP (variant authoring → run → assert → refine) → `story-mcp-loop.md` (sibling leaf).
+- Story-MCP author/refine side (write/preview/read-back a variant body with the tools this skill owns) + the handoff to `re-frame2-pair` for the run/self-heal loop (`run-variant` → assert → `read-failures` → refine) → `story-mcp-loop.md` (sibling leaf).
 - MCP write surface (programmatic registration via `reg-*` helpers) → `SKILL-REDIRECT.md` → *EP — Stories (007)* §MCP Surface.
 
 ---
