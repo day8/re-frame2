@@ -341,6 +341,16 @@
 (late-bind/set-fn! :machines/resolve-actor-handler-meta
                    registration/resolve-actor-handler-meta)
 (late-bind/set-fn! :machines/actor-resolvable?      resolver/resolvable?)
+;; Per rf2-rlt3sv — the epoch restore version-drift precondition resolves a
+;; SPAWNED actor's CURRENT definition the same way dispatch does: from the
+;; snapshot's `:rf/machine-type` (a registered TYPE keyword resolved through
+;; the registrar, or an inline `:definition` spec map carried verbatim).
+;; `machine-version-mismatch` reads the resolved spec's
+;; `[:meta :rf/snapshot-version]` so a spawned actor whose TYPE was hot-reloaded
+;; forward surfaces `:rf.epoch/restore-version-mismatch` instead of silently
+;; accepting an incompatible older snapshot (the snapshot key is an instance id,
+;; not a registered handler, so the singleton registrar probe never matched it).
+(late-bind/set-fn! :machines/spec-from-snapshot     resolver/spec-from-snapshot)
 ;; Per rf2-jbbp7 — the post-commit walker the router AND-conjoins with
 ;; `validate-app-schema!` to gate the `:db` commit on the
 ;; `:where :machine-data` boundary (Spec 005 §Schema validation, Spec

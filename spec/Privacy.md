@@ -242,6 +242,9 @@ The single most-asked question this doc answers: **what runs when, in what order
 │       at the framework wire boundary.                                       │
 │     - `projected-record` strips raw :db-before / :db-after from epoch       │
 │       records (which the on-box `epoch-history` reader still surfaces).     │
+│     - The structured :effects rows' :args (raw fx-handler payload, not      │
+│       app-db-rooted so the walker cannot prove it safe) FAIL CLOSED to      │
+│       :rf/redacted off-box, lifted only by :include-fx-args? true.          │
 │     - `elide-wire-value` walks tree-typed payloads; consults the per-frame  │
 │       [:rf.runtime/elision :declarations] +                                 │
 │       [:rf.runtime/elision :sensitive-declarations] (which carries BOTH     │
@@ -421,7 +424,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 | MCP `get-app-db` tool response | `:rf/redacted` at the marked slots; `:dropped-sensitive N` envelope counter set to the count of dropped leaves |
 | Off-box log shipper (Datadog/Sentry) | Drops the whole `:rf.event/dispatched` and `:rf.fx/handled` events (top-level `:sensitive? true`); ships the structural skeleton only |
 | Always-on error-emit substrate (production survives) | The error record carries `:sensitive? true` and the listener-side scrub honours it before egress to Sentry |
-| Epoch `projected-record` | All of the above redactions plus the `:redact-fn`'s extra scrub; ring-append + listener fan-out see the same shape |
+| Epoch `projected-record` | All of the above redactions plus the `:redact-fn`'s extra scrub; the structured `:effects` rows' `:args` fail closed to `:rf/redacted` off-box (lifted only by `:include-fx-args? true`); ring-append + listener fan-out see the same shape |
 
 **What's NOT covered by this declaration set:**
 
