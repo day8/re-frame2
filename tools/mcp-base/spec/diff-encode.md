@@ -45,16 +45,29 @@ The flat patch list is grouped into **sections** — each headed by a `:section-
 
 | Form | Meaning | Example |
 |---|---|---|
-| `[<path> :assoc <new-value>]` | Set the value at `path` to `new-value` (creates the slot if it didn't exist). | `[[:user :name] :assoc "alice"]` |
-| `[<path> :dissoc]` | Remove the key at `path` (no-op if it doesn't exist). | `[[:user :temp-flag] :dissoc]` |
+| `[<path> :assoc <new-value>]` | Set the value at `path` to `new-value` (creates the slot if it didn't exist). `path` may end in a numeric **vector index** (`assoc-in` accepts integer indices). | `[[:user :name] :assoc "alice"]` · `[[:items 0 :qty] :assoc 2]` |
+| `[<path> :dissoc]` | Remove the key at `path`. A **no-op** when the key doesn't exist OR when the parent is not a map — vector-element `:dissoc` is unsupported (see vector section below). | `[[:user :temp-flag] :dissoc]` |
 
 Patches are applied **in order** within the flattened list; later patches see the state after earlier patches. The section grouping is deterministic (sorted by `:section-path`), so concatenating every section's `:patches` reproduces a stable, replayable patch list.
 
 The patch tuple grammar is pinned as a Malli schema (`patch-schema` / `patches-schema`) and validated at BOTH the encoder boundary (`diff-encode-db-after`) and the decoder boundary (`apply-patches`); the section grammar is pinned as `section-schema` / `sections-schema`. Validation soft-passes when Malli is not on the runtime classpath (mcp-base stays Malli-free at its own dep boundary; consumers bring Malli), and is `goog-define`-elidable on CLJS production builds via `validate-patches?`.
 
+## Vectors: same-length structural diff, length changes whole-leaf (rf2-cwhod2)
+
+Maps recurse key-by-key; **same-length** vectors recurse element-by-element under numeric **index** paths. A single item update inside a large vector/list app-db value — a table row, a card, a queue/log entry — therefore yields an actionable item-level patch:
+
+```clojure
+;; {:items [{:qty 1}]} → {:items [{:qty 2}]}
+[[:items 0 :qty] :assoc 2]      ; not [[:items] :assoc [{:qty 2}]]
+```
+
+This preserves the token-budget premise for the dominant in-place-update app-db shapes. Integer index keys ride through the existing `assoc-in` replay (which accepts integer vector indices) and the path-generic section-grouping unchanged — **no decoder change is required**.
+
+A vector **length change** (an insert / delete) is emitted as a single whole-vector `[path :assoc <new-vector>]` replacement. Element-level vector insert/delete semantics are deliberately **not designed**: the grammar's numeric `:assoc` reaches an index via `assoc-in`, which only overwrites-in-place or grows by one at the tail (no shift primitive), and `[<index-path> :dissoc]` is a documented **no-op against a vector parent** (`dissoc-in` dissocs only into a MAP parent, rf2-ykv9a0). Same-length diffing is lossless for in-place updates; a length delta falls back to the unambiguous whole-vector replacement rather than ship a half-designed splice encoding. Non-vector sequentials (lists, lazy seqs) are also whole-leaf replaced — only `vector?` collections diff structurally, so the index-path replay always targets a vector.
+
 ## Why patches, not `clojure.data/diff`
 
-`clojure.data/diff`'s parallel-vector sparse form (with `nil` placeholders meaning "common at this position") loses information once you only carry one half plus the original — you can't tell `nil` (the leaf value `nil`) apart from `nil` (the no-change sentinel). Path-keyed patches are unambiguous for any value the runtime can produce.
+`clojure.data/diff`'s parallel-vector sparse form (with `nil` placeholders meaning "common at this position") loses information once you only carry one half plus the original — you can't tell `nil` (the leaf value `nil`) apart from `nil` (the no-change sentinel). Path-keyed patches are unambiguous for any value the runtime can produce: a changed vector element rides under a numeric **index** path (`[[:items 0 :qty] :assoc 2]`), which carries the position explicitly and never relies on a positional `nil` sentinel.
 
 ## Self-contained records
 

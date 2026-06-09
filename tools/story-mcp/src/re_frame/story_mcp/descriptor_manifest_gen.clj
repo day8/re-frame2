@@ -19,8 +19,16 @@
   DRIFT-CHECK. `-main --check` regenerates the manifest in memory and
   compares it to the committed file (LF-normalised). Adding / removing /
   renaming a tool in the registry — or changing a tool's input-key
-  surface / output? / annotations classification — turns this RED in CI
-  until the manifest is regenerated with `-main` (no args).
+  surface, required argument set, output? / annotations classification,
+  or typicalTokens hint — turns this RED in CI until the manifest is
+  regenerated with `-main` (no args).
+
+  story-mcp bakes its universal `max-tokens` knob into each descriptor's
+  `:inputSchema :properties` at def-time (via `schemas/with-max-tokens`),
+  so — unlike re-frame2-pair-mcp, which splices the knob at `tools/list`
+  time — the raw registry descriptor already carries the actual
+  `tools/list` input surface; no generator-side knob splice is needed
+  (rf2-cwhod2).
 
   Run from tools/story-mcp/:
     clojure -M:gen                  ; regenerate tool-descriptors.edn
@@ -59,7 +67,7 @@
   exactly which of the manifest's governed slots drifted so a descriptor-
   only change is actionable without a manual whole-manifest diff."
   [old new]
-  (for [slot [:description :input-keys :output? :annotations]
+  (for [slot [:description :input-keys :required :output? :annotations :typicalTokens]
         :let [o (get old slot)
               n (get new slot)]
         :when (not= o n)]
@@ -93,7 +101,7 @@
               (doseq [n removed] (println "    -" n)))
             (when (seq changed)
               (println "  Existing tools whose descriptor catalogue row changed"
-                       "(input-keys / output? / annotations / description):")
+                       "(input-keys / required / output? / annotations / description / typicalTokens):")
               (doseq [{:keys [name old new]} changed]
                 (println "    ~" name)
                 (doseq [[slot o n] (row-slot-deltas old new)]

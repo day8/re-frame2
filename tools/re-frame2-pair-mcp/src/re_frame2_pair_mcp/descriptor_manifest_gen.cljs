@@ -9,11 +9,24 @@
   SOURCE OF TRUTH. `re-frame2-pair-mcp.tools.registry/tool-descriptors`
   — the ordered vector of raw `:descriptor` payloads projected from the
   single `registry/tools` catalogue. This generator reads that vector
-  (the RAW descriptors, BEFORE the universal `max-tokens` / `cache` knob
-  splices applied at `tools/list` time — the manifest must be
-  deterministic and config-independent) and projects each into the
-  stable catalogue row defined by
+  and projects each into the stable catalogue row defined by
   `re-frame.mcp-base.descriptor-manifest`.
+
+  WIRE-SPLICED INPUTS (rf2-cwhod2). The raw registry descriptors do NOT
+  carry the universal `max-tokens` / `cache` input knobs — those are
+  spliced onto every descriptor's `:inputSchema :properties` at
+  `tools/list` time by `tools/descriptors.cljs` (`with-budget-knob` /
+  `with-cache-knob`). Projecting the RAW descriptors hid that universal
+  input surface from the manifest, so a drift in the knob set (or in a
+  tool's read/action cacheability classification, which decides whether
+  `cache` is spliced) could not trip the drift gate. The splices are
+  DETERMINISTIC — they depend only on the descriptor + the static
+  `registry/cacheable?` predicate, not on any operator flag — so this
+  generator applies them (via `descriptors/with-cache-knob` ∘
+  `with-budget-knob`, the SAME composers `tools/list` uses) BEFORE
+  projecting. The manifest's `:input-keys` therefore reflect the ACTUAL
+  `tools/list` input surface, and the manifest stays deterministic +
+  config-independent.
 
   THE ARTEFACT. `tool-descriptors.edn` at this artefact's root — the
   committed, byte-stable projection of the registry. BYTE-IDENTICAL in
@@ -29,9 +42,10 @@
   DRIFT-CHECK. `-main --check` regenerates the manifest in memory and
   compares it to the committed file (LF-normalised). Adding / removing /
   renaming a tool in the registry — or changing a tool's input-key
-  surface / output? / annotations classification — exits non-zero
-  (turns CI red) until the manifest is regenerated with `-main` (no
-  args).
+  surface (including the spliced `max-tokens` / `cache` knobs), required
+  argument set, output? / annotations classification, or typicalTokens
+  hint — exits non-zero (turns CI red) until the manifest is regenerated
+  with `-main` (no args).
 
   Run (via the npm wrapper, from tools/re-frame2-pair-mcp/):
     node scripts/descriptor-manifest-gen.cjs           ; regenerate
@@ -39,6 +53,7 @@
   (:require ["fs" :as fs]
             ["path" :as path]
             [re-frame.mcp-base.descriptor-manifest :as dm]
+            [re-frame2-pair-mcp.tools.descriptors :as descriptors]
             [re-frame2-pair-mcp.tools.registry :as registry]))
 
 (def ^:private server-id :re-frame2-pair-mcp)
@@ -51,8 +66,21 @@
   []
   (path/resolve js/__dirname ".." "tool-descriptors.edn"))
 
-(defn build []
-  (dm/build-manifest server-id registry/tool-descriptors))
+(defn build
+  "Build the manifest from the registry descriptors, with the universal
+  `max-tokens` / `cache` knobs spliced in FIRST (rf2-cwhod2) so the
+  projected `:input-keys` reflect the actual `tools/list` input surface.
+  Reuses the very composers `tools/descriptors/tool-descriptors-js`
+  applies at `tools/list` time — `with-cache-knob` ∘ `with-budget-knob`,
+  in the same order — so the manifest's input surface and the live wire
+  surface can never silently diverge. The composition is deterministic
+  (config-independent: it consults only the descriptor + the static
+  `registry/cacheable?` predicate), so the manifest stays byte-stable."
+  []
+  (let [spliced (mapv (comp descriptors/with-cache-knob
+                            descriptors/with-budget-knob)
+                      registry/tool-descriptors)]
+    (dm/build-manifest server-id spliced)))
 
 (defn generate! []
   (let [manifest (build)
@@ -68,7 +96,7 @@
   exactly which of the manifest's governed slots drifted so a descriptor-
   only change is actionable without a manual whole-manifest diff."
   [old new]
-  (for [slot [:description :input-keys :output? :annotations]
+  (for [slot [:description :input-keys :required :output? :annotations :typicalTokens]
         :let [o (get old slot)
               n (get new slot)]
         :when (not= o n)]
@@ -97,7 +125,7 @@
               (println "  Tools in the committed file the registry no longer has (removed/renamed tool):")
               (doseq [n removed] (println "    -" n)))
             (when (seq changed)
-              (println "  Existing tools whose descriptor catalogue row changed (input-keys / output? / annotations / description):")
+              (println "  Existing tools whose descriptor catalogue row changed (input-keys / required / output? / annotations / description / typicalTokens):")
               (doseq [{:keys [name old new]} changed]
                 (println "    ~" name)
                 (doseq [[slot o n] (row-slot-deltas old new)]
