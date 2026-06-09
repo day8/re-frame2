@@ -18,7 +18,7 @@ If 1 holds but 2 doesn't — vocabulary with no file, snippet, or named path —
 
 - `SKILL.md` — the skill itself
 - `references/` — the anti-pattern catalogue. Each leaf carries detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, and a cross-link to the matching idiom under `skills/re-frame2/patterns/` or `spec/`.
-- `evals/evals.json` — trigger-eval fixtures (8 should-trigger + 8 should-not-trigger entries, per skill-creator's description-optimisation contract)
+- `evals/evals.json` — eval fixtures: 16 trigger fixtures (8 should-trigger + 8 should-not-trigger, per skill-creator's description-optimisation contract) plus 9 behavioural fixtures that grade the critique itself — right anti-pattern named, evidence cited, canonical idiom cross-linked, no false positives, Edit gate respected. See [`evals/README.md`](evals/README.md) for the coverage table and grading guidance.
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata
 - `package.json` — npm packaging metadata (skill is also distributable as an Agent Skill)
 - `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) that let a future pass re-author the skill from committed inputs. Not loaded during normal operation.

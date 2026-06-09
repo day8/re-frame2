@@ -45,7 +45,7 @@ These shape voice and structure but aren't quoted directly.
 - **Mike's standing memory rules** — "Findings is local-only", "No AI attribution in commits or PRs", "Pre-alpha masterpiece posture" (no back-compat shims; optimise for elegance/correctness/completeness), "Frames are isolated contexts" (informs the deferred foreign-frame-write candidate).
 - **`skills/README.md` §Skill routing — single source** — the disambiguation matrix the trigger semantics defer to.
 - **`skills/README.md` §Leaf size discipline** — the per-leaf size ceiling; leaves stay one level deep.
-- Anthropic skills guidance — `name` ≤ 64 chars; `description` pushy-but-conversational; SKILL.md under 500 lines; references one level deep; `evals.json` carries the 8+8 trigger fixtures.
+- Anthropic skills guidance — `name` ≤ 64 chars; `description` pushy-but-conversational; SKILL.md under 500 lines; references one level deep; `evals.json` carries the 8+8 trigger fixtures **plus** behavioural critique fixtures (`expected_output` + objectively-checkable `expectations`, per the sibling `skills/re-frame2/evals` convention) that grade critique quality and the Edit gate — graded alongside `evals/README.md`.
 
 ## 6. What the skill does NOT consume
 
