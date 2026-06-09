@@ -42,35 +42,60 @@
   ids skip the intersection rather than interning a fresh JVM
   keyword.
 
+  rf2-wu1o2d: a SUPPLIED `:tags` filter is honoured even when every
+  entry is unknown. We track whether the caller supplied `:tags`
+  SEPARATELY from the set of tags that resolved against the registry,
+  so an unknown-only filter (a typo / stale tag such as `[\":docz\"]`)
+  returns an EMPTY result rather than silently widening to the full
+  catalogue. The supplied-but-unresolved names are reported back in an
+  `:ignored-tags` diagnostic slot (string forms, never interned) so the
+  agent sees WHY the result is empty. A mixed known+unknown filter still
+  applies the known tags and reports the dropped names. The
+  no-interning posture is preserved — `:ignored-tags` carries the raw
+  supplied strings, the keyword table is untouched.
+
   rf2-76sf6: pagination via `cursor/page`. The stable-sort key is the
   story id (string projection). Small registries return the bare
   `{:stories [...]}` payload; once entries exceed `:limit` the
   response adds `:total :limit :has-more? :next-cursor`."
   [args]
-  (let [stories  (story/registrations :story)
-        tag-set  (story/list-tags)
-        tags     (when-let [ts (:tags args)]
-                   (into #{} (keep #(args/safe-keyword % tag-set)) ts))
-        filtered (if (seq tags)
-                   (into {}
-                         (filter (fn [[_id body]]
-                                   (seq (set/intersection tags (set (:tags body))))))
-                         stories)
-                   stories)
-        index    (story/variants-by-story)
+  (let [stories      (story/registrations :story)
+        tag-set      (story/list-tags)
+        supplied     (:tags args)
+        supplied?    (some? supplied)
+        ;; Resolve each supplied entry against the registered-tag set
+        ;; WITHOUT interning unknowns (rf2-lqjbk). Partition by whether
+        ;; it resolved so the unknown names can ride the `:ignored-tags`
+        ;; diagnostic as their raw string forms.
+        tags         (into #{} (keep #(args/safe-keyword % tag-set)) (or supplied []))
+        ignored      (when supplied?
+                       (into [] (remove #(args/safe-keyword % tag-set)) supplied))
+        ;; A SUPPLIED filter always filters — even when nothing resolved
+        ;; (unknown-only ⇒ empty intersection ⇒ empty result), so a typo
+        ;; never widens to the whole catalogue (rf2-wu1o2d). Only the
+        ;; no-`:tags` call returns the unfiltered registry.
+        filtered     (if supplied?
+                       (into {}
+                             (filter (fn [[_id body]]
+                                       (seq (set/intersection tags (set (:tags body))))))
+                             stories)
+                       stories)
+        index        (story/variants-by-story)
         ;; Build the full sorted entry vec FIRST; pagination slices it.
         ;; The sort is on string projection of the id for stable cross-
         ;; page ordering — the fingerprint depends on it.
-        sorted   (sort-by (comp str key) filtered)
-        all-ids  (keys filtered)
-        entries  (mapv (fn [[sid body]]
-                         {:id   sid
-                          :doc  (:doc body)
-                          :tags (vec (:tags body))
-                          :variants (sort (get index sid #{}))})
-                       sorted)]
+        sorted       (sort-by (comp str key) filtered)
+        all-ids      (keys filtered)
+        entries      (mapv (fn [[sid body]]
+                             {:id   sid
+                              :doc  (:doc body)
+                              :tags (vec (:tags body))
+                              :variants (sort (get index sid #{}))})
+                           sorted)]
     (cursor/paged-result entries all-ids args "list-stories"
-                         (fn [page] {:stories page}))))
+                         (fn [page]
+                           (cond-> {:stories page}
+                             (seq ignored) (assoc :ignored-tags ignored))))))
 
 (defn tool-get-story
   "Docs: one story's full body.
@@ -460,10 +485,13 @@
   [{:name           "list-stories"
     :category       :docs
     :description    (str "All registered stories, optionally filtered by tags. Each entry carries id, doc, tags, and child variant ids. Paginated per rf2-76sf6 (`:limit` default 25, optional `:cursor` continuation). "
+                         "A supplied `:tags` filter is always honoured: unknown tag names are dropped from the intersection and echoed back in an `:ignored-tags` slot — an unknown-only filter returns an empty `:stories` (never the full catalogue). "
                          "Examples: "
                          "1. All stories: {} -> {:stories [{:id :story.cart :doc \"...\" :tags [:dev :docs] :variants [:story.cart/empty :story.cart/full]} ...]}. "
                          "2. Filter by tag: {:tags [\":docs\"]} -> {:stories [...]} — only stories whose :tags intersect the requested set. "
-                         "3. Filter by multiple tags (OR-intersect): {:tags [\":dev\" \":screenshot\"]} -> {:stories [...]} — any story matching either tag.")
+                         "3. Filter by multiple tags (OR-intersect): {:tags [\":dev\" \":screenshot\"]} -> {:stories [...]} — any story matching either tag. "
+                         "4. Unknown-only tag (typo / stale): {:tags [\":docz\"]} -> {:stories [] :ignored-tags [\":docz\"]} — empty, NOT the whole catalogue. "
+                         "5. Mixed known+unknown: {:tags [\":docs\" \":docz\"]} -> {:stories [...] :ignored-tags [\":docz\"]} — the known tag filters, the unknown name is reported.")
     :typicalTokens  1500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens

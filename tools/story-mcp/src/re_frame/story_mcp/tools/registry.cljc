@@ -109,10 +109,12 @@
   The `:include-sensitive` slot is stripped from every tool's input
   schema when the operator-only gate (`config/sensitive-reads-allowed?`)
   is closed — agents shouldn't see an opt-in they can't exercise. The
-  three affected tools (`preview-variant`, `run-variant`, `read-failures`)
-  silently ignore caller-supplied `:include-sensitive true` at the
-  helper layer regardless, so the descriptor strip is purely a UX
-  improvement and a defence-in-depth signal."
+  affected tools — the six that surface live or plan-resolved frame
+  VALUES (`preview-variant`, `run-variant`, `read-failures`, `run-a11y`,
+  `explain-variant`, `record-as-variant`) — silently ignore
+  caller-supplied `:include-sensitive true` at the helper layer
+  regardless, so the descriptor strip is purely a UX improvement and a
+  defence-in-depth signal."
   []
   (let [strip? (not (config/sensitive-reads-allowed?))]
     (mapv (fn [{:keys [name description inputSchema outputSchema annotations typicalTokens]}]
