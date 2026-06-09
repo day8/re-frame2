@@ -23,16 +23,19 @@ Verified in `implementation/core/src/re_frame/fx.cljc` (the `reg-fx` fn). Metada
 
 ## The fx-map shape
 
-`reg-event-fx` handlers return a **closed-shape** map. Only two top-level keys are legal:
+`reg-event-fx` handlers return a **closed-shape** map. The closed set of legal top-level keys is `#{:db :rf.db/runtime :fx}`:
 
 ```clojure
-{:db <new-db>
+{:db            <new-app-db>      ;; app-db partition — the everyday key
+ :rf.db/runtime <new-runtime-db>  ;; runtime-db partition — framework-authority (see below)
  :fx [[:fx-id args]
       [:fx-id args]
       ...]}
 ```
 
-Each `:fx` entry is a 2-vector: `[fx-id args]`. The runtime walks them in source order, synchronously, after `:db` commits (`fx.cljc:4-9`). Any other top-level key — `:dispatch`, `:dispatch-later`, `:http`, etc — emits `:rf.error/effect-map-shape` and is dropped (`police-effect-map-shape!` in `events.cljc`). v2 deliberately removed v1's auto-routed top-level effect keys.
+Each `:fx` entry is a 2-vector: `[fx-id args]`. The runtime walks them in source order, synchronously, after the state partitions commit (`fx.cljc:4-9`). Any top-level key **outside** the closed set — `:dispatch`, `:dispatch-later`, `:http`, etc — emits `:rf.error/effect-map-shape` and is dropped (`police-effect-map-shape!` + `closed-effect-map-keys` in `events.cljc`). v2 deliberately removed v1's auto-routed top-level effect keys.
+
+**`:rf.db/runtime` is the one new state-bearing key (EP-0001).** Ordinary app handlers write app data via `:db` and almost never touch it — it targets the runtime-db partition (machine snapshots, route slice, SSR metadata) and is reserved **by convention** for framework-authority writers (SSR hydrate, machines, routing, flows). It is **not** a shape error: a non-framework handler that emits it gets the `:rf.warning/app-handler-runtime-effect` dev diagnostic (it is not dropped). Don't flag a framework/SSR/machine handler's legitimate `:rf.db/runtime` write as illegal.
 
 The reserved fx-ids the core runtime handles directly (`fx.cljc:10-16`):
 
@@ -81,7 +84,7 @@ Per `fx.cljc:4-9`:
 
 ## Common gotchas
 
-- **Return shape is closed.** Top-level `:dispatch`, `:dispatch-later`, `:http`, etc. are dropped with a `:rf.error/effect-map-shape` trace. Wrap them inside `:fx`.
+- **Return shape is closed (`#{:db :rf.db/runtime :fx}`).** Top-level `:dispatch`, `:dispatch-later`, `:http`, etc. are outside the set and dropped with a `:rf.error/effect-map-shape` trace — wrap them inside `:fx`. `:rf.db/runtime` is inside the set (framework-authority runtime-db write), so it is never a shape error.
 - **Fx handlers receive `(ctx, args)`, not just `args`.** The first arg is `{:frame ... :event ...}`. Ignore it with `_ctx` if you don't need it.
 - **Returning a value from an fx handler does nothing.** Side effects are the point. `:rf.fx/handled` is emitted on success so the epoch projection records the run.
 - **`:platforms #{:client}` makes the fx skip silently on server.** A `:rf.fx/skipped-on-platform` warning fires — fine for browser-only side effects, but check this if a fx mysteriously doesn't run under SSR.

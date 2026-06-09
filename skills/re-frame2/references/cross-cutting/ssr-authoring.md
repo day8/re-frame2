@@ -4,7 +4,7 @@ SSR has two halves: a **per-request server frame** that renders body + head to a
 
 ## When to load
 
-Authoring `<title>` / `<meta>` / JSON-LD for an SSR app; writing a custom `:rf/hydrate` handler; debugging `:rf.ssr/version-mismatch` / `:rf.ssr/schema-digest-mismatch` / `:rf.ssr/compatibility-check-skipped` trace events. Load alongside `patterns/boot.md` if the task is whole-app bootstrap.
+Authoring `<title>` / `<meta>` / JSON-LD for an SSR app; **extending** the framework's shipped `:rf/hydrate` handler (it ships by default — you rarely write your own; re-register only as documented framework-extension code to change the merge policy); debugging `:rf.ssr/version-mismatch` / `:rf.ssr/schema-digest-mismatch` / `:rf.ssr/compatibility-check-skipped` trace events. Load alongside `patterns/boot.md` if the task is whole-app bootstrap.
 
 ## `reg-head` — head model as data-from-app-db
 
@@ -95,7 +95,15 @@ Same no-hook → `:rf.ssr/compatibility-check-skipped` posture.
 
 ## The canonical `:rf/hydrate` handler
 
-The runtime ships this handler by default. **Re-register only if you need a non-replace merge policy** — the default is `:replace-frame-state` (server-authoritative), and that's spec-locked. Hydration installs a whole **frame-state**, not just an app-db slice: the payload carries `:rf/app-db` (the app-db partition) and an optional `:rf/runtime-db` (the *serializable* runtime-db projection — machine snapshots, route slice, elision declarations, SSR metadata), and the handler installs both partitions in one atomic transition. The framework `:rf/hydrate` handler is framework-authority, so it may emit the reserved `:rf.db/runtime` effect. The two check fxs ride inside `:fx`:
+The runtime ships this handler by default in `re-frame.ssr` — **most apps inherit it and never write their own.** `:rf/hydrate` is a reserved `:rf/*` event (Cardinal rule 7; `spec/Conventions.md`), so an ordinary app-level `(rf/reg-event-fx :rf/hydrate …)` is **overriding a framework event** — do it only as a deliberate, documented **framework-extension** when you need a non-replace merge policy (the default is `:replace-frame-state`, server-authoritative, spec-locked).
+
+If you do override, you take over the shipped handler's safety contract and **MUST preserve all of it** — the snippet below is the recipe shape, not a drop-in replacement (it omits guards for brevity). The shipped `re-frame.ssr` handler (`implementation/ssr/src/re_frame/ssr/hydrate.cljc`):
+
+- **fails closed on a malformed payload** — a non-map payload, or a present-but-non-map `:rf/app-db` / `:rf/runtime-db` slice, is rejected, the existing client db is left untouched, and `:rf.error/malformed-hydration-payload` is emitted (never silently installs garbage as the whole app-db);
+- **merges the runtime metadata** under `[:rf.runtime/ssr :hydration]` (server-hash + version) onto the payload's runtime-db slice;
+- **platform-gates the check fxs at the handler level** so server-side `:rf/hydrate` runs (test harness / isomorphic loopback) don't emit `:rf.fx/skipped-on-platform` per check.
+
+Drop any of these and you reintroduce a fail-open hydration path. Hydration installs a whole **frame-state**, not just an app-db slice: the payload carries `:rf/app-db` (the app-db partition) and an optional `:rf/runtime-db` (the *serializable* runtime-db projection — machine snapshots, route slice, elision declarations, SSR metadata), and the handler installs both partitions in one atomic transition. The framework `:rf/hydrate` handler is framework-authority, so it may emit the reserved `:rf.db/runtime` effect. The two check fxs ride inside `:fx`:
 
 ```clojure
 (rf/reg-event-fx :rf/hydrate
@@ -139,7 +147,7 @@ Worked example: `examples/reagent/ssr_streaming/core.cljc` (a three-slow-card da
 
 - **`reg-head` fns subscribe like sub fns.** Inside the fn, `(subscribe ...)` derefs against the static `app-db` value (same path as views via `compute-sub`). No reactive deref.
 - **One `:head` per route.** No composition in v1. Routes that want to share head logic reference the same id, or call a shared helper from each head fn.
-- **The default `:rf/hydrate` already dispatches the checks.** Re-register only when changing merge policy; the default handler is the recipe.
+- **The default `:rf/hydrate` already dispatches the checks.** It ships in `re-frame.ssr`; most apps never write their own. Re-registering replaces a reserved framework event — do it only as documented framework-extension code to change the merge policy, and preserve the malformed-payload fail-closed guard, the runtime-metadata merge, and the handler-level platform gate.
 - **`:platforms #{:client}` gates both fxs.** Server-side dispatches no-op silently; don't sprinkle `:platforms` guards inside your own code.
 - **The fxs never throw.** A misregistered hook → `:rf.ssr/compatibility-check-skipped` (warning), not a crash. Read the trace surface to confirm wiring.
 - **Head emits as part of the unified render-tree hash in v1.** Head-mismatch surfaces as `:rf.ssr/hydration-mismatch` with `:tags {:failing-id :rf.ssr/head-mismatch}` — not a separate category. Body-mismatch carries `:failing-id :rf/hydrate`.
