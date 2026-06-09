@@ -1999,14 +1999,14 @@ A frame owns two durable partitions held as one physical frame-state container (
 
 (def Routing
   ;; The routing runtime's per-frame state. :current is the live route slice;
-  ;; :pending-navigation is the can-leave pending-nav slot; the remaining four
-  ;; flat slots are the routing-internal counters and the scroll-restoration LRU.
-  ;; All sub-keys are allocated lazily.
+  ;; :pending-navigation is the can-leave pending-nav slot; the two flat counter
+  ;; slots are the routing-internal monotonic counters. All sub-keys are
+  ;; allocated lazily. Saved scroll positions are NOT runtime-db state — they
+  ;; live in a host-side transient cache (rf2-1hncp2, 012 §Scroll restoration),
+  ;; so they do not appear here.
   [:map
    [:current                {:optional true} :rf/route-slice]
    [:pending-navigation     {:optional true} :rf/pending-navigation]
-   [:scroll-positions       {:optional true} [:map-of :string [:tuple :int :int]]]
-   [:scroll-positions-order {:optional true} [:vector :string]]
    [:nav-token-counter      {:optional true} :int]
    [:pending-nav-counter    {:optional true} :int]])
 
@@ -2066,7 +2066,7 @@ A frame owns two durable partitions held as one physical frame-state container (
 **Four subsystems, four sub-containers** (paths are relative to runtime-db; in a frame-state projection they sit under `:rf.db/runtime`):
 
 - **`:rf.runtime/machines`** — owned by [005-StateMachines.md](005-StateMachines.md). Each machine's snapshot lives at `[:rf.runtime/machines :snapshots <machine-id>]`; the system-id reverse index lives at `[:rf.runtime/machines :system-ids]`; the declarative-spawn / spawn-all registry lives at `[:rf.runtime/machines :spawned]`; the hand-emitted-spawn fallback counter lives at `[:rf.runtime/machines :spawn-counter]` (rf2-owvvr — declarative `:spawn`'s counter is snapshot-internal, not here). The runtime composes the `:snapshots` schema additively from registered machines' declared `:data` shapes.
-- **`:rf.runtime/routing`** — owned by [012-Routing.md](012-Routing.md). The live route slice (`{:id :params :query :transition :error :fragment :nav-token}`) lives at `[:rf.runtime/routing :current]`; the pending-navigation slot at `[:rf.runtime/routing :pending-navigation]`; the per-frame routing internals (scroll-positions LRU, monotonic counters) sit flat alongside under `:rf.runtime/routing`.
+- **`:rf.runtime/routing`** — owned by [012-Routing.md](012-Routing.md). The live route slice (`{:id :params :query :transition :error :fragment :nav-token}`) lives at `[:rf.runtime/routing :current]`; the pending-navigation slot at `[:rf.runtime/routing :pending-navigation]`; the per-frame routing internals (the monotonic nav-token / pending-nav counters) sit flat alongside under `:rf.runtime/routing`. The saved scroll-position LRU is **not** here — it is a host-side transient cache (rf2-1hncp2, [012 §Scroll restoration](012-Routing.md#scroll-restoration)).
 - **`:rf.runtime/elision`** — owned by [009-Instrumentation.md](009-Instrumentation.md). The size-elision declaration registry lives at `[:rf.runtime/elision :declarations]`; the privacy sibling at `[:rf.runtime/elision :sensitive-declarations]`. The declarations are sourced from the **app-db** schema (`:large?` / `:sensitive?` slots) but the declaration *records* are runtime bookkeeping and live in runtime-db.
 - **`:rf.runtime/ssr`** — owned by [011-SSR.md](011-SSR.md). Server-supplied hydration metadata lives at `[:rf.runtime/ssr :hydration]` (`:server-hash` consumed by `verify-hydration!`, `:version` consumed by `:rf.ssr/check-version`).
 

@@ -215,7 +215,12 @@
   with-window-stub-fixture
   (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter
-     :init-fn routing/reset-counters!}))
+     ;; rf2-1hncp2: the scroll-position cache is a module-level host atom
+     ;; (not runtime-db), so the runtime reset does not touch it — drop it
+     ;; explicitly so a captured position never leaks across tests.
+     :init-fn (fn []
+                (routing/reset-counters!)
+                (routing/reset-scroll-cache!))}))
 
 ;; ---- trace-capture helper ------------------------------------------------
 
@@ -369,13 +374,16 @@
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (.scrollTo js/globalThis.window 12 345)
     (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
-    ;; EP-0001 (rf2-vzld77): scroll-position caches are durable routing
-    ;; runtime-db state.
+    ;; rf2-1hncp2: scroll-position caches are a HOST-SIDE TRANSIENT cache
+    ;; (not runtime-db) — read the frame's host cache, not the runtime-db.
     (is (= [12 345]
            (routing/lookup-scroll-position
-             (rf/runtime-db-value :rf/default)
+             (routing/frame-scroll-cache :rf/default)
              "/cart"))
-        "scroll position for the route being left is saved before the scroll strategy runs")))
+        "scroll position for the route being left is saved before the scroll strategy runs")
+    (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                      [:rf.runtime/routing :scroll-positions]))
+        "the position is NOT written to runtime-db — it stays off the egress wire")))
 
 (deftest duplicate-url-bound-frame-does-not-push-cljs
   (testing "a second :url-bound? true frame is reported but not allowed to mutate browser history"

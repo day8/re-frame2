@@ -419,6 +419,10 @@
    {:key         :routing/remove-history-listener!
     :producer-ns 're-frame.routing
     :description "Tear down the popstate listener installed by install-history-listener!. CLJS-only."}
+   {:key         :routing/on-frame-destroyed!
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-1hncp2"
+    :description "Release the destroyed frame's host-side transient scroll-position cache entry (re-frame.routing.scroll/scroll-positions-cache). Scroll positions are NOT runtime-db state — they live in a module-level atom (host-derived, ephemeral, off the epoch/SSR egress wire), so they need explicit per-frame teardown like the other transient caches. Invoked by frame/destroy-frame! symmetric with the ssr / machines / flows / schemas teardown hooks; no-op when re-frame.routing is absent (the artefact is optional)."}
 
    ;; ---- re-frame.http-managed (rf2-5kpd / rf2-6y3q / rf2-wvkn / rf2-ijm7) ----
    ;; The three stub-family hooks publish from `re-frame.http-test-support`

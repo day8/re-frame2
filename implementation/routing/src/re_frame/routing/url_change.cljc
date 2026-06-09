@@ -149,6 +149,12 @@
         ;; no opts; default strategy is the caller-supplied `default-scroll`).
         {:keys [capture-fx scroll-fx]}
         (plan/scroll-plan {:rdb              rdb
+                           ;; rf2-1hncp2: saved scroll positions are a
+                           ;; host-side transient cache (not runtime-db) —
+                           ;; read the active frame's cache and thread it in
+                           ;; explicitly so the planner stays pure. `:restore`
+                           ;; (the popstate / Back-button default) reads it.
+                           :scroll-cache     (scroll/frame-scroll-cache frame)
                            :route-meta       route-meta
                            :opts             nil
                            :default-strategy default-scroll

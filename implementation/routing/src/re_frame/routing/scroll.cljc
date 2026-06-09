@@ -2,14 +2,32 @@
   "Scroll-restoration helpers + `:rf.nav/scroll` / `:rf.nav/capture-scroll`
   fxs for re-frame2 routing.
 
-  Per Spec 012 §Scroll restoration §Multi-frame routing. Per-frame
-  saved-position map at `[:rf.runtime/routing :scroll-positions]`,
-  LRU-capped by `scroll-positions-cap`. Recency anchor lives at
-  `[:rf.runtime/routing :scroll-positions-order]` as an internal
-  vector. Both sit under the framework-owned `:rf.runtime/routing`
-  child of the runtime-db partition (spec/Conventions §Reserved
-  runtime-db keys) so all routing runtime state lives in runtime-db,
-  not in app-db.
+  Per Spec 012 §Scroll restoration §Multi-frame routing.
+
+  ## Storage: host-side per-frame TRANSIENT cache (rf2-1hncp2)
+
+  Saved scroll positions are a **host-side transient cache** keyed by
+  frame-id — NOT runtime-db state. They are host-derived (read from
+  `window.scrollX/Y`), bounded LRU caches, meaningless server-side, and
+  not needed to reconstitute a coherent frame-state on restore /
+  SSR-hydration / time-travel (Mike ruling, EP-0001 decision #13:
+  runtime-db = serializable facts NEEDED for restore; host handles +
+  dirty caches stay TRANSIENT). Holding them in a module-level `defonce`
+  atom keeps them OFF the trace / epoch / snapshot egress wire entirely
+  — the storage location, not an egress filter, is what keeps them local.
+
+  The cache lives in `scroll-positions-cache` below: a
+  `{frame-id {:positions {url [x y]} :order [url ...]}}` atom, mirroring
+  the HTTP in-flight registry pattern (`re-frame.http-registry`, EP-0001
+  ~line 901). It is LRU-capped per-frame by `scroll-positions-cap` with
+  recency tracked by the per-frame `:order` vector. A frame's entry is
+  released by `release-frame!` on frame destroy (analogous to the other
+  transient teardown hooks).
+
+  The pure LRU helpers (`lookup-scroll-position` / `save-scroll-position`)
+  operate on a plain per-frame cache map (`{:positions :order}`), so the
+  nav-planning seam can thread the saved-position map as an EXPLICIT arg
+  and stay pure / JVM-testable — it never reaches the host atom directly.
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
@@ -19,39 +37,90 @@
             [re-frame.trace :as trace]))
 
 (def scroll-positions-cap
-  "Soft upper bound on tracked URLs in the per-frame scroll-positions map.
+  "Soft upper bound on tracked URLs in the per-frame scroll-positions cache.
   Sized for typical SPA navigation depth — large enough that real
   Back-button restoration hits saved positions, small enough that the
-  per-frame runtime-db slice stays bounded over long sessions."
+  per-frame host cache stays bounded over long sessions."
   50)
 
+;; ---- host-side per-frame transient cache (rf2-1hncp2) ---------------------
+
+(defonce scroll-positions-cache
+  ;; frame-id → {:positions {url [x y]} :order [url ...]}.
+  ;;
+  ;; Host-side TRANSIENT cache: scroll positions are host-derived
+  ;; (window.scrollX/Y), bounded LRU, and meaningless on the server /
+  ;; after a restore to a different route — NOT runtime-db state and NOT
+  ;; serialized into epochs / SSR payloads (per EP-0001 decision #13 +
+  ;; the rf2-1hncp2 ruling). Keyed by frame-id so multi-frame apps keep
+  ;; isolated per-frame caches; the entry is dropped on frame destroy via
+  ;; `release-frame!`. Mirrors `re-frame.http-registry`'s `in-flight`
+  ;; defonce atom — host-owned ephemeral state, not in the reactive db.
+  (atom {}))
+
+;; ---- pure LRU helpers (operate on a per-frame cache map) ------------------
+
 (defn lookup-scroll-position
-  "Return the saved [x y] for url in this frame's runtime-db, or nil if none.
-  `db` is the runtime-db value."
-  [db url]
-  (get-in db [:rf.runtime/routing :scroll-positions url]))
+  "Return the saved [x y] for `url` in `cache`, or nil if none. `cache` is
+  a per-frame cache map `{:positions {url [x y]} :order [...]}` (the value
+  stored under a frame-id in `scroll-positions-cache`), or nil. Pure."
+  [cache url]
+  (get-in cache [:positions url]))
 
 (defn save-scroll-position
-  "Pure: return runtime-db with the scroll position for url recorded at
-  [:rf.runtime/routing :scroll-positions url]. Applied to the frame's
-  runtime-db partition (via `swap-runtime-db!`) so scroll positions live
-  under the frame boundary (Spec 012 §Multi-frame routing). `db` is the
-  runtime-db value. The map is LRU-capped at `scroll-positions-cap`
-  entries — re-saving an existing url promotes it to most-recent; new
-  saves past the cap evict the least-recently-used entry."
-  [db url xy]
-  (let [order   (or (get-in db [:rf.runtime/routing :scroll-positions-order]) [])
+  "Pure: return `cache` with the scroll position for `url` recorded under
+  `:positions`. `cache` is a per-frame cache map
+  `{:positions {url [x y]} :order [...]}` (or nil for an empty cache). The
+  cache is LRU-capped at `scroll-positions-cap` entries — re-saving an
+  existing url promotes it to most-recent; new saves past the cap evict
+  the least-recently-used entry. The `:order` vector is the recency anchor."
+  [cache url xy]
+  (let [order   (or (:order cache) [])
         order'  (-> (filterv #(not= url %) order)
                     (conj url))
         over    (- (count order') scroll-positions-cap)
         dropped (when (pos? over) (subvec order' 0 over))
         order'' (if (pos? over) (subvec order' over) order')
-        positions  (as-> (or (get-in db [:rf.runtime/routing :scroll-positions]) {}) m
+        positions  (as-> (or (:positions cache) {}) m
                      (if dropped (apply dissoc m dropped) m)
                      (assoc m url xy))]
-    (update-in db [:rf.runtime/routing] assoc
-               :scroll-positions       positions
-               :scroll-positions-order order'')))
+    (assoc cache
+           :positions positions
+           :order     order'')))
+
+;; ---- host-cache wrappers (frame-keyed) ------------------------------------
+
+(defn frame-scroll-cache
+  "Read the per-frame cache map (`{:positions :order}`) for `frame-id` from
+  the host `scroll-positions-cache`, or nil when none. The value threaded
+  into the pure nav-planning seam (`plan/scroll-plan`)."
+  [frame-id]
+  (get @scroll-positions-cache frame-id))
+
+(defn save-scroll-position!
+  "Record `xy` for `url` under `frame-id` in the host
+  `scroll-positions-cache`, applying the LRU cap via the pure
+  `save-scroll-position`. Returns nil."
+  [frame-id url xy]
+  (swap! scroll-positions-cache update frame-id save-scroll-position url xy)
+  nil)
+
+(defn release-frame!
+  "Drop `frame-id`'s entry from the host `scroll-positions-cache`. Invoked
+  on frame destroy (the `:routing/on-frame-destroyed!` teardown hook),
+  analogous to the other per-frame transient teardown. Idempotent —
+  no-op on an absent frame. Returns nil."
+  [frame-id]
+  (swap! scroll-positions-cache dissoc frame-id)
+  nil)
+
+(defn reset-cache!
+  "Test-time helper: drop the whole host `scroll-positions-cache`. Test
+  fixtures call this between runs so a saved position does not leak across
+  tests. Returns nil."
+  []
+  (reset! scroll-positions-cache {})
+  nil)
 
 (defn route-descriptor*
   "Build the canonical `{:id :params :query}` descriptor — the shape
@@ -136,13 +205,19 @@
 (def capture-scroll-meta
   "Metadata for the `:rf.nav/capture-scroll` fx registration."
   {:platforms #{:client}
-   :doc       "Capture the current browser scroll position under the
-per-frame [:rf.runtime/routing :scroll-positions <url>] map before
-leaving a route."})
+   :doc       "Capture the current browser scroll position into the
+host-side per-frame transient scroll-position cache (keyed by url)
+before leaving a route. The cache is NOT runtime-db state and does not
+egress to trace / epochs / SSR (rf2-1hncp2)."})
 
 (defn capture-scroll-handler
   "`:rf.nav/capture-scroll` fx handler. Registered by the façade so a
-  `:reload` re-wires it on a fresh registrar."
+  `:reload` re-wires it on a fresh registrar.
+
+  rf2-1hncp2: scroll positions are a host-side TRANSIENT cache — write
+  the module-level `scroll-positions-cache` atom (keyed by frame-id), NOT
+  the runtime-db partition. This keeps them off the trace / epoch / SSR
+  egress wire and out of local time-travel frame-state."
   [{:keys [frame]} {:keys [url position]}]
   #?(:cljs
      (when url
@@ -156,12 +231,7 @@ leaving a route."})
              pos (or position
                      [(or (.-scrollX js/window) (.-pageXOffset js/window) 0)
                       (or (.-scrollY js/window) (.-pageYOffset js/window) 0)])]
-         ;; EP-0001 (rf2-vzld77): scroll-position caches are durable routing
-         ;; runtime-db state — write the runtime-db partition.
-         (frame/swap-runtime-db! frame-id
-                                 save-scroll-position
-                                 url
-                                 pos)))
+         (save-scroll-position! frame-id url pos)))
      :clj
      (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                   {:fx-id :rf.nav/capture-scroll :url url})))

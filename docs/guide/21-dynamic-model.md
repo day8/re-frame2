@@ -30,7 +30,7 @@ A frame holds two partitions (chapter 02): **app-db**, which is yours, and **run
 | `[:rf.runtime/machines :spawned]` | machine runtime | Spawn-and-join bookkeeping for declarative `:spawn` / `:spawn-all`. |
 | `[:rf.runtime/routing :current]` | routing runtime | The current route slice: `:id`, `:params`, `:query`, `:transition`, `:error`, `:fragment`, `:nav-token`. |
 | `[:rf.runtime/routing :pending-navigation]` | routing runtime | The blocked-navigation slot a `:can-leave` guard populates. Allocated lazily. |
-| `[:rf.runtime/routing :scroll-positions]` (plus order/counters) | routing runtime | Scroll-restoration bookkeeping. |
+| `[:rf.runtime/routing :nav-token-counter]` / `:pending-nav-counter` | routing runtime | Per-frame monotonic counters for nav-token / pending-nav allocation. (Saved scroll positions are **not** here — they are a host-side *transient* cache, off the reactive db.) |
 | `[:rf.runtime/elision]` | elision runtime | The wire-elision declaration registry, populated from schemas at boot. |
 
 The set is **fixed-and-additive**: a key already in the table can never be repurposed, and new reserved keys arrive only by a spec change — never silently. That stability is a contract you can build on. And the partition boundary is the enforcement: because runtime-db is not app-db, an ordinary `:db` effect cannot reach these keys at all. There is nothing to collide with — your app-db schema describes app data only, and a fresh `:db` return can never wipe a machine snapshot, because the snapshot was never in `:db`.

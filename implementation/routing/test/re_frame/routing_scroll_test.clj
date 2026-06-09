@@ -5,6 +5,7 @@
   routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -119,17 +120,20 @@
       (is (= "section-2" (-> @calls first :fragment))
           "fragment from URL flows into :rf.nav/scroll args"))))
 
-;; ---- Spec 012 §Scroll restoration — pure helpers (rf2-1aqz) --------------
+;; ---- Spec 012 §Scroll restoration — pure helpers (rf2-1aqz / rf2-1hncp2) --
 ;;
-;; Per Spec 012 §Scroll restoration and routing.cljc:506/511, the scroll-
-;; restoration helpers are pure: `lookup-scroll-position` reads from a
-;; db value, `save-scroll-position` returns a db value with the saved
-;; position assoc'd in. Per Spec 012 §Multi-frame routing the saved-
-;; position map lives at `[:rf.runtime/routing :scroll-positions]` INSIDE each
-;; frame's app-db (rf2-3ib8h + rf2-eguy4: a sibling key under
-;; `[:rf.runtime/routing ...]`, not nested under the route slice) — so
-;; per-frame isolation is achieved by routing the helpers through the
-;; appropriate frame's db value.
+;; Per Spec 012 §Scroll restoration, the scroll-restoration helpers are
+;; pure: `lookup-scroll-position` reads a [x y] from a per-frame cache map
+;; (`{:positions {url [x y]} :order [...]}`), `save-scroll-position`
+;; returns the cache map with the position recorded + the LRU cap applied.
+;;
+;; rf2-1hncp2: scroll positions are a HOST-SIDE TRANSIENT cache, NOT
+;; runtime-db state — they live in the module-level
+;; `re-frame.routing.scroll/scroll-positions-cache` atom keyed by
+;; frame-id (host-derived, ephemeral, off the epoch/SSR egress wire). The
+;; pure helpers operate on the per-frame cache map so the nav-planning
+;; seam can thread it in explicitly and stay pure; per-frame isolation is
+;; the frame-keyed host atom, not a runtime-db slice.
 ;;
 ;; These tests pin the helper round-trip directly so a regression in
 ;; either fn surfaces without going through the navigate flow's scroll fx.
@@ -137,53 +141,57 @@
 (deftest scroll-position-lookup-after-save
   (testing "save-scroll-position then lookup-scroll-position round-trips
             the saved [x y] for the same url"
-    (let [db0 {}
-          db1 (routing/save-scroll-position db0 "/articles"  [0 250])
-          db2 (routing/save-scroll-position db1 "/dashboard" [10 800])]
-      (is (= [0 250]  (routing/lookup-scroll-position db2 "/articles"))
+    (let [c0 nil
+          c1 (routing/save-scroll-position c0 "/articles"  [0 250])
+          c2 (routing/save-scroll-position c1 "/dashboard" [10 800])]
+      (is (= [0 250]  (routing/lookup-scroll-position c2 "/articles"))
           "saved position for /articles is retrievable")
-      (is (= [10 800] (routing/lookup-scroll-position db2 "/dashboard"))
+      (is (= [10 800] (routing/lookup-scroll-position c2 "/dashboard"))
           "saved position for /dashboard is retrievable; URLs are isolated")
-      (is (nil? (routing/lookup-scroll-position db2 "/unsaved"))
+      (is (nil? (routing/lookup-scroll-position c2 "/unsaved"))
           "an unseen url returns nil — no false positives"))))
 
 (deftest scroll-position-overwrites-on-resave
   (testing "save-scroll-position over an existing url replaces the saved value"
-    (let [db1 (routing/save-scroll-position {}  "/page" [0 100])
-          db2 (routing/save-scroll-position db1 "/page" [0 999])]
-      (is (= [0 999] (routing/lookup-scroll-position db2 "/page"))
+    (let [c1 (routing/save-scroll-position nil "/page" [0 100])
+          c2 (routing/save-scroll-position c1  "/page" [0 999])]
+      (is (= [0 999] (routing/lookup-scroll-position c2 "/page"))
           "second save overwrites the first under the same url"))))
 
 (deftest scroll-position-per-frame-isolation
   (testing "save-scroll-position is per-frame — the helpers thread through
-            each frame's own db, so a position saved under :rf/default
-            is invisible from another frame's db value"
-    ;; Simulate two frames' independent app-dbs: each is its own map.
-    ;; The helpers operate on db values, so isolation is achieved by
-    ;; passing the right frame's db.
-    (let [frame-A-db (routing/save-scroll-position {} "/shared-url" [0 250])
-          frame-B-db (routing/save-scroll-position {} "/shared-url" [0 999])]
-      (is (= [0 250] (routing/lookup-scroll-position frame-A-db "/shared-url"))
-          "frame A's db carries A's saved position")
-      (is (= [0 999] (routing/lookup-scroll-position frame-B-db "/shared-url"))
-          "frame B's db carries B's saved position — values are not shared")
-      (is (nil? (routing/lookup-scroll-position {} "/shared-url"))
-          "a fresh db (third frame, never-saved) returns nil for the same url"))))
+            each frame's own cache map, so a position saved in one frame's
+            cache is invisible from another frame's cache value"
+    ;; Two frames' independent caches: each is its own cache map. The
+    ;; helpers operate on cache values, so isolation is achieved by
+    ;; passing the right frame's cache.
+    (let [frame-A (routing/save-scroll-position nil "/shared-url" [0 250])
+          frame-B (routing/save-scroll-position nil "/shared-url" [0 999])]
+      (is (= [0 250] (routing/lookup-scroll-position frame-A "/shared-url"))
+          "frame A's cache carries A's saved position")
+      (is (= [0 999] (routing/lookup-scroll-position frame-B "/shared-url"))
+          "frame B's cache carries B's saved position — values are not shared")
+      (is (nil? (routing/lookup-scroll-position nil "/shared-url"))
+          "a fresh cache (third frame, never-saved) returns nil for the same url"))))
 
 (deftest scroll-position-storage-shape
-  (testing "save-scroll-position assoc's into [:rf.runtime/routing :scroll-positions <url>]"
-    ;; Pin the storage shape. Tools and migrations inspect this path
-    ;; directly; pinning here keeps the contract stable.
-    (let [db1 (routing/save-scroll-position {} "/x" [5 50])]
-      (is (= [5 50] (get-in db1 [:rf.runtime/routing :scroll-positions "/x"]))
-          "the saved [x y] lives at [:rf.runtime/routing :scroll-positions <url>] in the db"))))
+  (testing "save-scroll-position records [x y] under :positions and tracks
+            recency under :order (the per-frame transient cache shape, rf2-1hncp2)"
+    ;; Pin the cache-map shape. The cache is host-side transient state
+    ;; (NOT runtime-db) — nothing reads a [:rf.runtime/routing :scroll-positions]
+    ;; path anymore, so the contract is the {:positions :order} cache map.
+    (let [c1 (routing/save-scroll-position nil "/x" [5 50])]
+      (is (= [5 50] (get-in c1 [:positions "/x"]))
+          "the saved [x y] lives under :positions in the cache map")
+      (is (= ["/x"] (:order c1))
+          ":order tracks the url as the most-recent entry"))))
 
-;; ---- rf2-z2k4k: LRU cap on scroll-positions -------------------------------
+;; ---- rf2-z2k4k: LRU cap on the scroll-position cache ----------------------
 ;;
 ;; Per audit A12: long sessions deep-linking through `/articles/:id`-style
-;; routes can grow [:rf.runtime/routing :scroll-positions] unboundedly. The map is
-;; LRU-bounded at `routing/scroll-positions-cap` (50). Re-saving a known
-;; url promotes it to most-recent; saves past the cap evict the LRU entry.
+;; routes can grow the per-frame scroll cache unboundedly. It is LRU-bounded
+;; at `routing/scroll-positions-cap` (50). Re-saving a known url promotes it
+;; to most-recent; saves past the cap evict the LRU entry.
 
 (deftest scroll-position-lru-eviction-past-cap
   (testing "save-scroll-position evicts the least-recently-used url
@@ -191,16 +199,16 @@
             a strict per-call limit"
     ;; Hammer 60 distinct urls. Cap is 50, so the first 10 should be gone
     ;; and the last 50 should remain — in insertion order.
-    (let [db (reduce (fn [db i] (routing/save-scroll-position db (str "/u" i) [i i]))
-                     {}
-                     (range 60))
-          positions (get-in db [:rf.runtime/routing :scroll-positions])]
+    (let [cache (reduce (fn [c i] (routing/save-scroll-position c (str "/u" i) [i i]))
+                        nil
+                        (range 60))
+          positions (:positions cache)]
       (is (= 50 (count positions))
           "exactly 50 entries remain — the cap holds")
-      (is (every? nil? (map #(routing/lookup-scroll-position db (str "/u" %))
+      (is (every? nil? (map #(routing/lookup-scroll-position cache (str "/u" %))
                             (range 10)))
           "the first 10 (LRU) urls are evicted")
-      (is (every? some? (map #(routing/lookup-scroll-position db (str "/u" %))
+      (is (every? some? (map #(routing/lookup-scroll-position cache (str "/u" %))
                              (range 10 60)))
           "the most-recently-saved 50 urls all survive")))
 
@@ -208,17 +216,107 @@
             an eviction wave that would otherwise drop it"
     ;; Insert 50 urls (fills cap). Promote /u0 by re-saving. Insert one more.
     ;; /u1 (now the LRU) should evict; /u0 should survive.
-    (let [db0 (reduce (fn [db i] (routing/save-scroll-position db (str "/u" i) [i i]))
-                      {}
-                      (range 50))
-          db1 (routing/save-scroll-position db0 "/u0" [999 999])  ;; promote
-          db2 (routing/save-scroll-position db1 "/u50" [50 50])]  ;; force evict
-      (is (= [999 999] (routing/lookup-scroll-position db2 "/u0"))
+    (let [c0 (reduce (fn [c i] (routing/save-scroll-position c (str "/u" i) [i i]))
+                     nil
+                     (range 50))
+          c1 (routing/save-scroll-position c0 "/u0" [999 999])  ;; promote
+          c2 (routing/save-scroll-position c1 "/u50" [50 50])]  ;; force evict
+      (is (= [999 999] (routing/lookup-scroll-position c2 "/u0"))
           "the re-saved url survives and carries its new value")
-      (is (nil? (routing/lookup-scroll-position db2 "/u1"))
+      (is (nil? (routing/lookup-scroll-position c2 "/u1"))
           "/u1 — the new LRU after the promotion — was evicted instead")
-      (is (= 50 (count (get-in db2 [:rf.runtime/routing :scroll-positions])))
+      (is (= 50 (count (:positions c2)))
           "cap is still 50"))))
+
+;; ---- rf2-1hncp2: host-side transient cache (frame-keyed) ------------------
+;;
+;; The cache is held off runtime-db in the module-level
+;; `scroll-positions-cache` atom, keyed by frame-id. These tests pin the
+;; host-cache wrappers: save! writes the frame slot, frame-scroll-cache
+;; reads it back, the value lives OUTSIDE runtime-db (so it never egresses
+;; to trace/epoch/SSR), and release-frame! (the frame-destroy teardown
+;; hook) drops the frame's entry.
+
+(deftest scroll-cache-host-side-roundtrip
+  (testing "save-scroll-position! writes the frame's host cache and
+            frame-scroll-cache reads it back; lookups are per-frame isolated"
+    (routing/reset-scroll-cache!)
+    (routing/save-scroll-position! :frame/a "/articles" [0 250])
+    (routing/save-scroll-position! :frame/b "/articles" [0 999])
+    (is (= [0 250] (routing/lookup-scroll-position
+                     (routing/frame-scroll-cache :frame/a) "/articles"))
+        "frame :frame/a's host cache carries A's saved position")
+    (is (= [0 999] (routing/lookup-scroll-position
+                     (routing/frame-scroll-cache :frame/b) "/articles"))
+        "frame :frame/b's host cache is isolated from A")
+    (is (nil? (routing/lookup-scroll-position
+                (routing/frame-scroll-cache :frame/never) "/articles"))
+        "a never-saved frame returns nil — no cross-frame leakage")))
+
+(deftest scroll-cache-not-in-runtime-db
+  (testing "the host cache lives outside runtime-db — a frame's runtime-db
+            carries NO scroll-position keys after a capture (rf2-1hncp2)"
+    ;; The acceptance point: scroll positions no longer sit under
+    ;; [:rf.runtime/routing ...], so they cannot egress to trace/epoch/SSR.
+    (routing/reset-scroll-cache!)
+    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-fx :rf.nav/scroll        {:platforms #{:server :client}} (fn [_ _] nil))
+    (rf/reg-fx :rf.nav/push-url      {:platforms #{:server :client}} (fn [_ _] nil))
+    ;; Capture a position for the :rf/default frame via the production fx.
+    (rf/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
+               (fn [ctx args]
+                 ;; mirror the handler but supply an explicit position (no
+                 ;; window on the JVM) so the save path is exercised here.
+                 (routing/save-scroll-position! (:frame ctx) (:url args) [0 321])))
+    (rf/dispatch-sync [:rf.route/navigate :route/home])
+    (routing/save-scroll-position! :rf/default "/" [0 321])
+    (let [rdb (frame/frame-runtime-db-value :rf/default)]
+      (is (nil? (get-in rdb [:rf.runtime/routing :scroll-positions]))
+          "runtime-db carries no :scroll-positions key")
+      (is (nil? (get-in rdb [:rf.runtime/routing :scroll-positions-order]))
+          "runtime-db carries no :scroll-positions-order key"))
+    (is (= [0 321] (routing/lookup-scroll-position
+                     (routing/frame-scroll-cache :rf/default) "/"))
+        "the position is held in the host cache instead")))
+
+(deftest scroll-cache-released-on-frame-destroy
+  (testing "destroy-frame! releases the destroyed frame's host scroll cache
+            entry via the :routing/on-frame-destroyed! teardown hook"
+    (routing/reset-scroll-cache!)
+    (rf/reg-frame :frame/scrollee {})
+    (routing/save-scroll-position! :frame/scrollee "/x" [0 100])
+    (is (some? (routing/frame-scroll-cache :frame/scrollee))
+        "precondition: the frame has a host cache entry")
+    (frame/destroy-frame! :frame/scrollee)
+    (is (nil? (routing/frame-scroll-cache :frame/scrollee))
+        "the frame's scroll cache entry is dropped on destroy — no leak")))
+
+(deftest scroll-restore-end-to-end-across-navigation
+  (testing "a captured position is restored on a later :restore navigation
+            back to the same url — save/restore survives the storage move"
+    ;; Acceptance point 1: no behavioral regression in scroll save/restore.
+    (routing/reset-scroll-cache!)
+    (rf/reg-route :route/home    {:path "/"})
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]
+                                  :scroll :restore})
+    (let [calls (atom [])]
+      (rf/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
+                 (fn [_ args] (swap! calls conj args)))
+      (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      ;; Seed a saved position for "/articles/intro" in the host cache,
+      ;; as a prior visit's capture would have.
+      (routing/save-scroll-position! :rf/default "/articles/intro" [0 640])
+      ;; Land on home first, then navigate to the :restore article route.
+      (rf/dispatch-sync [:rf.route/navigate :route/home])
+      (reset! calls [])
+      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
+      (let [a (first @calls)]
+        (is (= :restore (:strategy a))
+            "the article route resolves to :restore")
+        (is (= [0 640] (:saved-pos a))
+            ":saved-pos is read from the host cache and threaded into the fx")))))
 
 ;; ---- scroll-strategy resolution precedence (resolve-scroll-strategy) -----
 ;;

@@ -8,12 +8,13 @@
   The route slice lives at `[:rf.runtime/routing :current]` per
   Spec-Schemas §`:rf/runtime` — `{:id :params :query :transition :error
   :fragment :nav-token}`. The per-frame routing-runtime sub-keys
-  (`:scroll-positions` / `:scroll-positions-order` / `:nav-token-counter`
-  / `:pending-nav-counter`) sit flat as siblings under
-  `[:rf.runtime/routing ...]`, so the slice carries ONLY the published
-  fields and the layer-1 `:rf/route` sub reads it directly — no
-  projection needed (views that deref `[:rf/route]` are isolated from
-  internal counter ticks by structure, not by `select-keys`).
+  (`:nav-token-counter` / `:pending-nav-counter` / `:pending-navigation`)
+  sit flat as siblings under `[:rf.runtime/routing ...]`, so the slice
+  carries ONLY the published fields and the layer-1 `:rf/route` sub reads
+  it directly — no projection needed (views that deref `[:rf/route]` are
+  isolated from internal counter ticks by structure, not by
+  `select-keys`). Scroll positions are NOT a runtime-db sibling — they
+  live in a host-side transient cache (rf2-1hncp2), off the reactive db.
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `subs/reg-sub` calls so a `:reload` re-wires them on a

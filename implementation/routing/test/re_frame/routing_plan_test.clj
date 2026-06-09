@@ -15,7 +15,9 @@
   integration test.
 
   All functions under test are PURE — no registrar / runtime-db fixture
-  needed except for `scroll-plan` (which reads a plain runtime-db map)."
+  needed except for `scroll-plan` (which reads a plain runtime-db map for
+  the `:current` slice + an explicit host-side scroll-cache map for the
+  `:saved-pos` lookup, rf2-1hncp2)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.routing.plan :as plan]))
 
@@ -159,7 +161,12 @@
       (is (= [[:warning :rf.warning/malformed-url {:url "/x"}]] @emits))
       (is (= [[:rf.error/no-such-handler {:url "/x" :kind :route}]] @emit-errors)))))
 
-;; ---- scroll-plan (pure over a runtime-db map) ----------------------------
+;; ---- scroll-plan (pure over a runtime-db map + an explicit scroll cache) -
+;;
+;; rf2-1hncp2: `:saved-pos` is read from `:scroll-cache` — the frame's
+;; host-side transient scroll-position cache map (`{:positions :order}`),
+;; threaded in EXPLICITLY by the caller — NOT from runtime-db. `:capture-fx`
+;; / `:from` still read the durable `:current` slice from `rdb`.
 
 (deftest scroll-plan-builds-capture-and-scroll-fx
   (testing "a forward nav from an active route builds a capture-fx + a :top scroll-fx"
@@ -190,14 +197,32 @@
       (is (nil? scroll-fx) ":scroll false → no fx emitted"))))
 
 (deftest scroll-plan-restore-strategy-reads-saved-position
-  (testing ":restore strategy pulls the saved [x y] for the url from the per-frame map"
-    (let [rdb {:rf.runtime/routing {:current          {:id :route/home}
-                                    :scroll-positions {"/cart" [0 320]}}}
+  (testing ":restore strategy pulls the saved [x y] for the url from the
+            explicit host-side scroll cache (rf2-1hncp2), NOT from runtime-db"
+    (let [rdb          {:rf.runtime/routing {:current {:id :route/home}}}
+          scroll-cache {:positions {"/cart" [0 320]} :order ["/cart"]}
           {:keys [scroll-fx]}
-          (plan/scroll-plan {:rdb rdb :route-meta nil :opts {:scroll :restore}
+          (plan/scroll-plan {:rdb rdb :scroll-cache scroll-cache
+                             :route-meta nil :opts {:scroll :restore}
                              :default-strategy :top
                              :route-id :route/cart :params {} :query {}
                              :fragment nil :url "/cart"})]
       (is (= :restore (:strategy (second scroll-fx))))
       (is (= [0 320] (:saved-pos (second scroll-fx)))
-          "the saved scroll position for /cart is threaded into :saved-pos"))))
+          "the saved scroll position for /cart is threaded into :saved-pos")))
+
+  (testing ":restore with NO host cache (nil :scroll-cache) yields a nil
+            :saved-pos — the planner does not reach a runtime-db slot"
+    (let [rdb {:rf.runtime/routing {:current          {:id :route/home}
+                                    ;; a stale runtime-db scroll slot must
+                                    ;; NOT be consulted — storage moved out.
+                                    :scroll-positions {"/cart" [9 9]}}}
+          {:keys [scroll-fx]}
+          (plan/scroll-plan {:rdb rdb :scroll-cache nil
+                             :route-meta nil :opts {:scroll :restore}
+                             :default-strategy :top
+                             :route-id :route/cart :params {} :query {}
+                             :fragment nil :url "/cart"})]
+      (is (= :restore (:strategy (second scroll-fx))))
+      (is (nil? (:saved-pos (second scroll-fx)))
+          "no host cache → nil saved-pos; the runtime-db scroll slot is ignored"))))

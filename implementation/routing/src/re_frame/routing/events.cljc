@@ -39,10 +39,11 @@
 ;; §Navigation tokens, step 1. A token need only be unique within the
 ;; lifetime of any in-flight async continuation (equality against the
 ;; current slice token is the only operation on it), which a monotone
-;; counter satisfies without ever wrapping. Unlike the bounded siblings
-;; under `[:rf.runtime/routing …]` (the scroll-position LRU cap, the
-;; decoded-key cap, which bound RETAINED collections), each counter is a
-;; single scalar that retains nothing and is GC'd whole on frame-destroy.
+;; counter satisfies without ever wrapping. Unlike a bounded RETAINED
+;; collection (e.g. the route-registry decoded-key cap, or the host-side
+;; scroll-position LRU cache — the latter NOT runtime-db state per
+;; rf2-1hncp2), each counter is a single scalar that retains nothing and
+;; is GC'd whole on frame-destroy.
 ;; Overflow is a non-concern: CLJS f64 (exact to 2^53), JVM `long`
 ;; (2^63). DO NOT wrap/recycle — a recycled value could collide with a
 ;; token still carried by a slow in-flight continuation, silently
@@ -126,8 +127,9 @@
 ;;
 ;; The merge is targeted at `:current` (not at `:routing`), so the
 ;; sibling routing-runtime keys under `[:rf.runtime/routing ...]`
-;; (`:scroll-positions` / `:scroll-positions-order` /
-;; `:nav-token-counter` / `:pending-nav-counter`) are untouched.
+;; (`:nav-token-counter` / `:pending-nav-counter` / `:pending-navigation`)
+;; are untouched. (Scroll positions are NOT runtime-db siblings — they
+;; live in a host-side transient cache per rf2-1hncp2.)
 (defn merge-route-slice
   "Pure slice-publish: merges the new slice fields over the existing
   `:current` map at `[:rf.runtime/routing :current]`. Returns the

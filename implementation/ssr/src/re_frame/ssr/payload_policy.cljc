@@ -314,9 +314,11 @@
 (def ^:private durable-routing-keys
   "The durable routing-runtime keys that ride the hydration payload. Only
   `:current` (the active route slice) is durable + needed client-side; the
-  `:scroll-positions` / `:scroll-positions-order` / `:nav-token-counter` /
-  `:pending-nav-counter` / `:pending-navigation` siblings are transient
-  client-local caches (per [002 §Durable vs transient]) and stay off the wire."
+  `:nav-token-counter` / `:pending-nav-counter` / `:pending-navigation`
+  siblings are transient client-local caches (per [002 §Durable vs
+  transient]) and stay off the wire. (Saved scroll positions are not a
+  runtime-db key at all — they live in a host-side transient cache per
+  rf2-1hncp2 — but the fail-closed allowlist would strip them regardless.)"
   [:current])
 
 (defn project-runtime-db
