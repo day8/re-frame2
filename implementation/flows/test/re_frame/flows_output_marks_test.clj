@@ -1,6 +1,6 @@
 (ns re-frame.flows-output-marks-test
   "JVM coverage for Spec 015 §7 (Flows) data-classification on `reg-flow`
-  (rf2-ouemt — senior-review finding).
+  (rf2-ouemt — senior-review finding; rf2-ihfz9o — input→output PROPAGATION).
 
   A `reg-flow` registration may carry output data-classification keys
   (`:sensitive?` / `:large?` whole-output, `:sensitive` / `:large`
@@ -12,20 +12,37 @@
   value to its app-db destination slot (visible to App-DB-Diff / pending-db
   egress / view render-arg egress).
 
-  The fix makes flow output marks FIRST-CLASS through the SAME per-frame
-  app-db elision registry the schema-first wire walker
+  The fix (rf2-ouemt) makes flow output marks FIRST-CLASS through the SAME
+  per-frame app-db elision registry the schema-first wire walker
   (`elision/elide-wire-value`) already reads: `reg-flow` translates the
   output-rooted marks into absolute declarations rooted at `(:path flow)`
   and installs them frame-aware. ONE walker then redacts BOTH the flow
   trace `:result` / `:before` slots AND the app-db destination slot.
 
-  These tests pin the five acceptance cases the bead enumerates:
+  rf2-ihfz9o (Mike RULED (a) PROPAGATE, 2026-06-09) closes the privacy gap
+  the prior impl carried: a flow OUTPUT now INHERITS the data-classification
+  of its INPUT paths (Spec 015:313 + the 015:568 conformance fixture). A flow
+  reading a SENSITIVE app-db (or runtime-db-qualified, rf2-4eisfr) input
+  emits a sensitive output BY DEFAULT (fail-closed — taint by default,
+  declassify explicitly) unless the author opts out with `:sensitive? false`.
+  `:large` is asymmetric and is NOT auto-propagated (a flow usually shrinks a
+  large input). `:sensitive? false` is now a REAL declassify — it suppresses
+  the propagated mark (previously a no-op).
+
+  These tests pin the acceptance cases the bead enumerates:
     1. per-path flow output redaction (`:sensitive` / `:large` sub-paths);
     2. whole-output `:sensitive? true`;
     3. `:large` whole-output markers;
-    4. `:sensitive? false` opt-out (no whole-output mark installed);
+    4. `:sensitive? false` opt-out (the explicit-false override);
     5. same-flow-id multi-frame registrations with DIFFERENT marks (frame
-       isolation — the frame-blind table would conflate them)."
+       isolation — the frame-blind table would conflate them);
+    6. lifecycle (clear-flow / path-change drop & move declarations);
+    7. PROPAGATION (rf2-ihfz9o) — default sensitive inheritance, explicit
+       `:sensitive? true` over a sensitive input, explicit `:sensitive? false`
+       declassify of a sensitive input, per-output-path coexisting with
+       propagation, BOTH `:sensitive` AND `:large` axes, runtime-db-qualified
+       input propagation, flow→flow DAG propagation, and the t2
+       `:rf.event/db-pending-post-flow` redaction the 015:568 fixture pins."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
@@ -187,10 +204,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reg-flow-sensitive-false-installs-no-whole-output-mark
-  (testing "a flow declaring `:sensitive? false` installs NO whole-output
-            declaration — its result rides raw (flows carry no upstream
-            propagation, so the explicit-false override is the absence of a
-            mark); per-path declarations on the same flow still apply"
+  (testing "a flow declaring `:sensitive? false` over an UNMARKED input
+            installs NO whole-output declaration — its result rides raw. With
+            an unmarked input there is nothing to propagate, so the result is
+            the same under both the old no-propagation model and the new
+            propagate-by-default model; the explicit-false override is still
+            the absence of a whole-output mark. Per-path `:sensitive`
+            declarations on the same flow still apply. (The sensitive-INPUT
+            declassify — where `:sensitive? false` actively SUPPRESSES a
+            propagated mark — is pinned in `propagation-explicit-false-...`
+            below; rf2-ihfz9o.)"
     (rf/reg-event-db :init (fn [db _] (merge db {:n 1})))
     (rf/reg-flow {:id         :mixed
                   :inputs     [[:n]]
@@ -356,3 +379,281 @@
         ":a's declaration survives the re-registration")
     (is (not (contains? (sensitive-decls :rf/default) [:out :b]))
         ":b's stale declaration is cleared — re-registration replaces in full")))
+
+;; ===========================================================================
+;; 8. PROPAGATION (rf2-ihfz9o — Mike RULED (a) PROPAGATE)
+;;
+;; A flow OUTPUT inherits the data-classification of its INPUT paths
+;; (Spec 015:313 + the 015:568 conformance fixture). The cases below pin the
+;; bead's enumerated propagation coverage:
+;;   - default inheritance (no explicit key on the flow);
+;;   - explicit `:sensitive? true` over a sensitive input (force-mark holds);
+;;   - explicit `:sensitive? false` declassify of a sensitive input (the
+;;     opt-out actively SUPPRESSES the propagated mark — previously a no-op);
+;;   - per-output-path marks coexisting with whole-output propagation;
+;;   - both `:sensitive` AND `:large` axes (the asymmetry: :sensitive
+;;     propagates, :large does NOT);
+;;   - runtime-db-qualified `[:rf.db/runtime …]` inputs (compose with
+;;     rf2-4eisfr — partition-aware);
+;;   - flow→flow DAG propagation (a flow reading an upstream flow's :path);
+;;   - the t2 `:rf.event/db-pending-post-flow` redaction (Spec 015:568).
+;; ===========================================================================
+
+(defn- reg-fw-runtime-handler!
+  "A framework-authority handler (the `:rf/machine?` marker the partition
+  diagnostic keys on) may emit a `:rf.db/runtime` effect without the dev
+  diagnostic — the same shape `partitioned_commit_test` uses to seed the
+  runtime-db partition."
+  [id f]
+  (rf/reg-event-fx id {:doc "framework-authority" :rf/machine? true} f))
+
+(defn- computed-result
+  "The `:result` slot of the LAST `:rf.flow/computed` trace for `flow-id`."
+  [flow-id]
+  (->> (by-op :rf.flow/computed)
+       (filterv #(= flow-id (-> % :tags :flow-id)))
+       last
+       :tags
+       :result))
+
+(deftest propagation-default-sensitive-input-inherits-to-output
+  (testing "a flow reading a SENSITIVE input path emits a SENSITIVE output by
+            default (no explicit classification key) — Spec 015:313's
+            :computed/full-name shape. The propagated whole-output sensitive
+            declaration is installed at the flow's :path, and the
+            :rf.flow/computed :result is wholesale-redacted."
+    (rf/reg-event-db :init (fn [db _] (merge db {:user {:first "Ada" :last "Lovelace"}})))
+    ;; Mark the input slot sensitive BEFORE reg-flow (the realistic ordering).
+    (rf/add-marks :rf/default {[:user :first] :sensitive})
+    (rf/reg-flow {:id     :computed/full-name
+                  :inputs [[:user :first] [:user :last]]
+                  :output (fn [first last] (str first " " last))
+                  :path   [:computed :full-name]})
+    ;; The propagated whole-output declaration is installed at reg-flow time
+    ;; because the input already overlaps a sensitive declaration.
+    (is (contains? (sensitive-decls :rf/default) [:computed :full-name])
+        "the flow output :path inherits a propagated whole-output sensitive mark")
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (is (= privacy/redacted-sentinel (computed-result :computed/full-name))
+        "the format-preserving derived output is redacted (taint propagated)")))
+
+(deftest propagation-fires-when-mark-added-AFTER-reg-flow
+  (testing "a sensitive mark added AFTER the flow registered still reaches the
+            output — the drain-time topo refresh is the mark-mutation trigger a
+            flow needs (it does not recompute on a mark-only change)"
+    (rf/reg-event-db :init (fn [db _] (merge db {:secret-in "S"})))
+    (rf/reg-flow {:id     :derive
+                  :inputs [[:secret-in]]
+                  :output (fn [s] (str s "-derived"))
+                  :path   [:derived]})
+    ;; No mark yet — nothing inherited at reg-flow time.
+    (is (not (contains? (sensitive-decls :rf/default) [:derived]))
+        "no propagated mark before the input is marked")
+    ;; Mark the input AFTER registration.
+    (rf/add-marks :rf/default {[:secret-in] :sensitive})
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (is (contains? (sensitive-decls :rf/default) [:derived])
+        "the drain refresh installed the propagated mark after add-marks")
+    (is (= privacy/redacted-sentinel (computed-result :derive))
+        "the output is redacted on the first drain after the input was marked")))
+
+(deftest propagation-explicit-true-over-sensitive-input-holds
+  (testing "explicit `:sensitive? true` over a sensitive input keeps the
+            whole-output redaction (force-mark and propagation agree)"
+    (rf/reg-event-db :init (fn [db _] (merge db {:tok "T"})))
+    (rf/add-marks :rf/default {[:tok] :sensitive})
+    (rf/reg-flow {:id         :wrap
+                  :inputs     [[:tok]]
+                  :output     (fn [t] {:wrapped t})
+                  :path       [:wrapped-tok]
+                  :sensitive? true})
+    (is (contains? (sensitive-decls :rf/default) [:wrapped-tok]))
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (is (= privacy/redacted-sentinel (computed-result :wrap))
+        "whole output redacted")))
+
+(deftest propagation-explicit-false-declassifies-sensitive-input
+  (testing "explicit `:sensitive? false` over a SENSITIVE input is a REAL
+            declassify — it SUPPRESSES the propagated whole-output mark (the
+            hash/mask/aggregate opt-out, Spec 015's :computed/hashed-token).
+            Previously a no-op; rf2-ihfz9o makes it load-bearing."
+    (rf/reg-event-db :init (fn [db _] (merge db {:tok "secret-token"})))
+    (rf/add-marks :rf/default {[:tok] :sensitive})
+    (rf/reg-flow {:id         :computed/hashed-token
+                  :inputs     [[:tok]]
+                  :output     (fn [t] (hash t))      ; safe — author de-sensitised
+                  :path       [:computed :token-hash]
+                  :sensitive? false})
+    (is (not (contains? (sensitive-decls :rf/default) [:computed :token-hash]))
+        ":sensitive? false suppresses the propagated whole-output mark")
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (is (integer? (computed-result :computed/hashed-token))
+        "the declassified hash output rides RAW (not redacted)")))
+
+(deftest propagation-false-cannot-unmark-schema-or-add-marks-source
+  (testing "a flow's `:sensitive? false` declassify suppresses only the FLOW's
+            own propagated/whole mark — it CANNOT unmark an add-marks-sourced
+            declaration on the SAME output path (union semantics, Spec 015:295)"
+    (rf/reg-event-db :init (fn [db _] (merge db {:in "x"})))
+    (rf/add-marks :rf/default {[:in] :sensitive})
+    ;; An independent add-marks declaration directly on the flow's OUTPUT path.
+    (rf/add-marks :rf/default {[:out] :sensitive})
+    (rf/reg-flow {:id         :passthrough
+                  :inputs     [[:in]]
+                  :output     (fn [v] (str v "!"))
+                  :path       [:out]
+                  :sensitive? false})
+    ;; The add-marks-sourced declaration on [:out] survives — the flow's
+    ;; opt-out only governs its OWN :source :flow contribution.
+    (is (contains? (sensitive-decls :rf/default) [:out])
+        "the add-marks-sourced [:out] declaration survives the flow opt-out")
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (is (= privacy/redacted-sentinel (computed-result :passthrough))
+        "the output is STILL redacted — the union mark from add-marks holds")))
+
+(deftest propagation-per-path-coexists-with-whole-output
+  (testing "an explicit per-output-path `:sensitive [[:extra]]` declaration
+            coexists with the propagated whole-output mark — both install"
+    (rf/reg-event-db :init (fn [db _] (merge db {:in "x"})))
+    (rf/add-marks :rf/default {[:in] :sensitive})
+    (rf/reg-flow {:id        :combine
+                  :inputs    [[:in]]
+                  :output    (fn [v] {:body v :extra :E})
+                  :path      [:combined]
+                  :sensitive [[:extra]]})
+    (is (contains? (sensitive-decls :rf/default) [:combined])
+        "propagated whole-output mark present")
+    (is (contains? (sensitive-decls :rf/default) [:combined :extra])
+        "explicit per-path mark present too")))
+
+(deftest propagation-large-input-does-not-auto-propagate
+  (testing "the :sensitive / :large asymmetry: a flow reading a LARGE input
+            does NOT auto-propagate :large to its output — a flow typically
+            shrinks a large input (count / summary / first-N), so :large
+            comes ONLY from explicit flow declarations."
+    (rf/reg-event-db :init (fn [db _] (merge db {:blob "BIG"})))
+    (rf/add-marks :rf/default {[:blob] :large})
+    (rf/reg-flow {:id     :summarise
+                  :inputs [[:blob]]
+                  :output (fn [b] (count b))      ; shrinks — derived-from-large is small
+                  :path   [:blob-size]})
+    (is (not (contains? (large-decls :rf/default) [:blob-size]))
+        ":large is NOT auto-propagated to the (shrunk) flow output")
+    (is (not (contains? (sensitive-decls :rf/default) [:blob-size]))
+        "no sensitive mark either (the input was marked :large only)")))
+
+(deftest propagation-large-input-sensitive-sibling-marks-only-sensitive
+  (testing "reading a SENSITIVE input and a LARGE input: only :sensitive
+            propagates to the output (the asymmetry, cleanly separated)"
+    (rf/reg-event-db :init (fn [db _] (merge db {:s "secret" :big "BIG"})))
+    (rf/add-marks :rf/default {[:s] :sensitive [:big] :large})
+    (rf/reg-flow {:id     :mix
+                  :inputs [[:s] [:big]]
+                  :output (fn [s big] {:s s :n (count big)})
+                  :path   [:mixed]})
+    (is (contains? (sensitive-decls :rf/default) [:mixed])
+        ":sensitive propagated from the sensitive input")
+    (is (not (contains? (large-decls :rf/default) [:mixed]))
+        ":large did NOT propagate from the large input")))
+
+(deftest propagation-runtime-db-qualified-input
+  (testing "a flow reading a SENSITIVE runtime-db-qualified input
+            `[:rf.db/runtime …]` (rf2-4eisfr) propagates the mark to its
+            app-db output — partition-aware, the same machinery, one pass
+            (rf2-ihfz9o COMPOSE-WITH-rf2-4eisfr). This closes the leak the
+            ruling sharpened: a sensitive runtime-db slot must not write an
+            unclassified app-db output."
+    ;; Seed the runtime-db slot (framework-authority write) and mark it.
+    (reg-fw-runtime-handler! :seed-rt
+      (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:token "RT-SECRET"}}}}))
+    ;; Mark the STRIPPED runtime-db path (the registry is partition-blind —
+    ;; declarations are plain path vectors).
+    (rf/add-marks :rf/default {[:rf.runtime/routing :current :token] :sensitive})
+    (rf/reg-flow {:id     :route-token-echo
+                  :inputs [[:rf.db/runtime :rf.runtime/routing :current :token]]
+                  :output (fn [t] {:echo t})
+                  :path   [:derived :route-token]})
+    (is (contains? (sensitive-decls :rf/default) [:derived :route-token])
+        "the runtime-db-qualified sensitive input propagates to the app-db output")
+    (reset! *captured* [])
+    (rf/dispatch-sync [:seed-rt])
+    (is (= privacy/redacted-sentinel (computed-result :route-token-echo))
+        "the output derived from a sensitive runtime-db slot is redacted")))
+
+(deftest propagation-flow-dag-upstream-to-downstream
+  (testing "flow→flow DAG propagation: flow B reading flow A's sensitive
+            output :path inherits A's propagated mark. The topo-ordered drain
+            refresh resolves A before B so B sees A's freshly-installed mark."
+    (rf/reg-event-db :init (fn [db _] (merge db {:raw "secret"})))
+    (rf/add-marks :rf/default {[:raw] :sensitive})
+    ;; A: reads sensitive [:raw], writes [:step-a] (inherits sensitive).
+    (rf/reg-flow {:id     :flow-a
+                  :inputs [[:raw]]
+                  :output (fn [r] (str r "-a"))
+                  :path   [:step-a]})
+    ;; B: reads A's output [:step-a], writes [:step-b] (must inherit too).
+    (rf/reg-flow {:id     :flow-b
+                  :inputs [[:step-a]]
+                  :output (fn [a] (str a "-b"))
+                  :path   [:step-b]})
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (is (contains? (sensitive-decls :rf/default) [:step-a])
+        "upstream flow A's output inherits the sensitive mark")
+    (is (contains? (sensitive-decls :rf/default) [:step-b])
+        "downstream flow B inherits transitively through A's output")
+    (is (= privacy/redacted-sentinel (computed-result :flow-b))
+        "B's output is redacted — taint flows through the flow DAG")))
+
+(deftest propagation-t2-pending-post-flow-redacts-output
+  (testing "Spec 015:568 conformance shape — a flow whose :inputs include a
+            sensitive app-db path produces a flow :path write that is marked
+            sensitive in the SAME event's t2 `:rf.event/db-pending-post-flow`
+            snapshot. Flows transform the pending :db before the single
+            deferred install, so the output rides the t2 snapshot of that one
+            event (the trace-facing assertion the bead requires)."
+    (rf/reg-event-db :init (fn [db _] (merge db {:user {:ssn "123-45-6789" :name "Ada"}})))
+    (rf/add-marks :rf/default {[:user :ssn] :sensitive})
+    (rf/reg-flow {:id     :ssn-echo
+                  :inputs [[:user :ssn]]
+                  :output (fn [ssn] {:copy ssn})
+                  :path   [:derived :ssn-copy]})
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    (let [t2 (last (filterv #(= :rf.event/db-pending-post-flow (:operation %))
+                            @*captured*))
+          stamped (-> t2 :tags :rf.event/db)]
+      (is (some? t2) "a post-flow pending-db (t2) trace fired")
+      (is (= privacy/redacted-sentinel (get-in stamped [:derived :ssn-copy]))
+          "the flow output written from a sensitive input is redacted on the t2 snapshot")
+      ;; The unmarked sibling rides raw (the redaction is path-precise).
+      (is (= "Ada" (get-in stamped [:user :name]))
+          "an unmarked sibling app-db slot rides raw on the same t2 snapshot"))))
+
+(deftest propagation-clears-when-input-mark-removed
+  (testing "removing the input's sensitive mark (set-marks replacing it away)
+            DROPS the propagated output mark on the next drain — propagation is
+            re-resolved each drain, not latched"
+    (rf/reg-event-db :init (fn [db _] (merge db {:in "x"})))
+    (rf/reg-event-db :bump (fn [db _] (update db :in str "!")))
+    (rf/add-marks :rf/default {[:in] :sensitive})
+    (rf/reg-flow {:id     :echo
+                  :inputs [[:in]]
+                  :output (fn [v] (str v "-out"))
+                  :path   [:echoed]})
+    (rf/dispatch-sync [:init])
+    (is (contains? (sensitive-decls :rf/default) [:echoed])
+        "propagated while the input is marked")
+    ;; Replace the mark-set with an empty one — clears the input mark.
+    (rf/set-marks :rf/default {})
+    (reset! *captured* [])
+    (rf/dispatch-sync [:bump])        ; input value changes → flow recomputes + refresh runs
+    (is (not (contains? (sensitive-decls :rf/default) [:echoed]))
+        "the propagated output mark is dropped once the input is no longer marked")
+    (is (= "x!-out" (computed-result :echo))
+        "the output rides raw after declassification of the input")))

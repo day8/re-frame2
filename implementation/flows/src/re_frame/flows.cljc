@@ -474,7 +474,31 @@
   (let [flow-map (get (registry/flows-snapshot) frame-id)]
     (if-not (seq flow-map)
       db
-      (let [ordered (topo/topo-sort flow-map)
+      (let [_ (do
+                ;; rf2-ihfz9o: refresh each flow's output data-classification
+                ;; declarations BEFORE the flow walk so a propagated (input-
+                ;; inherited) sensitive mark is in the frame's elision registry
+                ;; when the t2 `:rf.event/db-pending-post-flow` trace and the
+                ;; `:rf.flow/computed` `:result` slot project (Spec 015:568).
+                ;; This is the MARK-MUTATION-aware refresh flows need — a flow
+                ;; does not recompute on a mark-only `add-marks` / `set-marks` /
+                ;; schema change, so without a drain-time refresh a sensitive
+                ;; mark added AFTER reg-flow would never reach the flow output.
+                ;; Topo-ordered inside the helper so a flow reading an upstream
+                ;; flow's `:path` inherits the upstream's refreshed mark.
+                ;;
+                ;; NOT gated on `interop/debug-enabled?`: the elision
+                ;; declaration registry feeds production-survivor OFF-BOX egress
+                ;; (the epoch projection `:epoch/projected-record` ships records
+                ;; off-box even under `:advanced`), so the privacy mark must
+                ;; exist regardless of dev/prod. The cost is bounded — a pure-
+                ;; data topo-fold plus two map reads, with NO runtime-db write
+                ;; on the steady state (the helper compares first and writes
+                ;; only when the resolved declarations actually changed). It
+                ;; touches ONLY the runtime-db elision registry, never app-db,
+                ;; so it cannot perturb the cascade value or app-db subs.
+                (registry/refresh-flow-output-declarations! frame-id))
+            ordered (topo/topo-sort flow-map)
             ;; Snapshot ONLY the draining frame's dirty-check container so a
             ;; flow throw can roll back the frame's own advances — the event
             ;; aborts, so prior flows' `last-inputs` advances must NOT

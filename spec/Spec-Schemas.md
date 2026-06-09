@@ -293,7 +293,7 @@ The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow
     ]])
 ```
 
-`:id`, `:inputs`, `:output`, `:path` are **required** at registration time; the base `:rf/registration-metadata` keys (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`) compose additively. `reg-flow` rejects malformed maps with one of four distinct error keys — `:rf.error/flow-missing-id`, `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path` — surfaced via [009 §Error contract](009-Instrumentation.md#error-contract); see also [013 §The registration shape](013-Flows.md).
+`:id`, `:inputs`, `:output`, `:path` are **required** at registration time; the base `:rf/registration-metadata` keys (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`) compose additively. The `[:id :keyword]` constraint is enforced at the API boundary — `reg-flow` rejects a present-but-non-keyword `:id` rather than normalising it later, so the `:flow-id` trace/error slot never carries an arbitrary id shape (rf2-ihfz9o). `reg-flow` rejects malformed maps with one of five distinct error keys — `:rf.error/flow-missing-id` (`:id` absent), `:rf.error/flow-bad-id` (`:id` present but not a keyword), `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path` — surfaced via [009 §Error contract](009-Instrumentation.md#error-contract); see also [013 §The registration shape](013-Flows.md).
 
 #### `:rf/app-schema-meta`
 
