@@ -175,6 +175,44 @@
               (if (= 1 region-count) "region" "regions")))
        "."))
 
+(defn- xml-escape
+  "Escape the five XML-significant characters in `s` so the value is safe
+  inside element TEXT content (and, conservatively, attribute values) of
+  the manually-constructed `<title>` / `<desc>` markup. `&` MUST be
+  escaped first so the entity-introducing ampersands the others emit are
+  not double-escaped.
+
+  rf2-85a9do — the `<foreignObject>` viewport clone is serialised by
+  `XMLSerializer` (which escapes for us), but `chart-as-svg` builds the
+  `<title>`/`<desc>` by hand from raw machine ids + the alt-text summary,
+  bypassing that escaping. A programmatic machine id or state label
+  carrying `&`, `<`, or `>` would otherwise emit malformed XML — breaking
+  the SVG, the PNG rasterisation that loads the SVG into an `<img>`, and
+  any copied/exported artifact. Returns `\"\"` for nil."
+  [s]
+  (if (nil? s)
+    ""
+    (-> (str s)
+        (str/replace "&" "&amp;")
+        (str/replace "<" "&lt;")
+        (str/replace ">" "&gt;")
+        (str/replace "\"" "&quot;")
+        (str/replace "'" "&apos;"))))
+
+(defn svg-title+desc
+  "Build the escaped `<title>` / `<desc>` markup pair for `chart-as-svg`
+  from the chart-state seam `cs`. Pure (no DOM) so the escaping contract
+  is node-testable (the image exporters themselves are browser-DOM-only).
+  The `<title>` is the machine id (defaulting to `:machine`); the
+  `<desc>` is the `alt-text` summary. Both are run through `xml-escape`
+  (rf2-85a9do) so XML-significant characters in a programmatic machine id
+  or current-state label cannot inject markup into — or malform — the
+  exported SVG. Returns the concatenated `<title>…</title><desc>…</desc>`
+  string."
+  [cs]
+  (str "<title>" (xml-escape (name (or (:machine-id cs) :machine))) "</title>"
+       "<desc>" (xml-escape (alt-text cs)) "</desc>"))
+
 ;; ---------------------------------------------------------------------------
 ;; SVG
 ;;
@@ -373,12 +411,12 @@
                        :recovery    :no-recovery
                        :reason      "chart has no rendered viewport to serialise"})))
     (let [{:keys [width height] :as bounds} (viewport-content-bounds viewport)
-          inner   (clone-viewport-html viewport bounds)
-          summary (alt-text cs)
-          title   (str "<title>" (name (or (:machine-id cs) :machine)) "</title>")
-          desc    (str "<desc>" summary "</desc>")
-          w       (max 1 (js/Math.ceil width))
-          h       (max 1 (js/Math.ceil height))]
+          inner      (clone-viewport-html viewport bounds)
+          ;; rf2-85a9do — <title>/<desc> are built by hand (not via
+          ;; XMLSerializer), so XML-escape the machine id + summary.
+          title+desc (svg-title+desc cs)
+          w          (max 1 (js/Math.ceil width))
+          h          (max 1 (js/Math.ceil height))]
       ;; A standalone SVG framing the whole topology. The viewport HTML
       ;; lives in a `<foreignObject>` (xhtml namespace required so the
       ;; embedded markup renders as HTML, not opaque XML); inline styles
@@ -387,7 +425,7 @@
            "xmlns:xhtml=\"http://www.w3.org/1999/xhtml\" "
            "width=\"" w "\" height=\"" h "\" "
            "viewBox=\"0 0 " w " " h "\">"
-           title desc viewport-css
+           title+desc viewport-css
            "<foreignObject x=\"0\" y=\"0\" width=\"" w "\" height=\"" h "\">"
            "<div xmlns=\"http://www.w3.org/1999/xhtml\" "
            "style=\"width:" w "px;height:" h "px;position:relative;overflow:hidden;\">"

@@ -1726,6 +1726,15 @@ plus `<title>` and `<desc>` elements summarising the machine (same
 content as the PNG sidecar). Fonts are embedded so the SVG renders with
 the same typography when pasted into a doc or a Figma frame.
 
+The `<title>` / `<desc>` text is **XML-escaped** (rf2-85a9do): the
+viewport clone is serialised with `XMLSerializer` (which escapes for us),
+but the `<title>` / `<desc>` are constructed by hand from the raw machine
+id + summary, so the five XML-significant characters (`& < > " '`) are
+escaped to entities before injection. A programmatic machine id or
+current-state label carrying `&`, `<`, or `>` therefore cannot malform
+the SVG, break the PNG rasterisation that loads the SVG into an `<img>`,
+or inject markup into a copied / exported artifact.
+
 Both image exporters throw `:rf.machines-viz.export/no-svg` when the
 chart has not rendered a viewport yet (an empty / nil-definition
 placeholder renders no chart), and `:rf.machines-viz.export/no-chart-state`

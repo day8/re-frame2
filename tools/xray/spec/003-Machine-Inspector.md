@@ -733,6 +733,24 @@ construction). Single-active (flat / compound) transitions are
 unaffected — they take the existing `(from, to, event)` match + the
 machine-level fallback.
 
+**Per-region CHANGED fallback ordering (rf2-85a9do).** A changed region's
+edge is resolved through an ordered, mutually-exclusive fallback:
+(1) the **region-local** edge (region-scoped in-region `:source`, above);
+else (2) the region's **OWN top-level `:on`** fallback — a region def is a
+compound state and may carry a region-level `:on`, which machines-viz
+projects (dropping the synthetic machine-root) as a `:machine-level?`
+edge sourced from the **region container** (`chart.layout/region-node-id`)
+with an in-region `:to-path` and **no** `:parallel-root-on?` (rf2-85a9do);
+else (3) the parallel **ROOT `:on`** ancestor fallback — the MACHINE-ROOT-
+sourced `:parallel-root-on?` chip whose region-qualified `:to-path` names
+the region (rf2-3v3gv1). Separately, a region **HANDLED but UNCHANGED**
+(`before == after` with a non-empty `:cascade` for the region) lights its
+self / internal edge, distinguished from a RESTING region by the
+`:cascade` `:region` stamps (rf2-l8ls6w). Without arm (2) a parallel
+region moved by its own region-level `:on` rendered the state change with
+no fired-edge highlight — the topology drew the edge but the focused
+Dynamic chart left it dark.
+
 **Render (render plane).** The host threads the multi-id set verbatim as
 `:fired-edge-ids` into `machine-canvas/Chart` → `MachineChart`; the
 projector marks **each** matching edge `:fired`, so all N region edges

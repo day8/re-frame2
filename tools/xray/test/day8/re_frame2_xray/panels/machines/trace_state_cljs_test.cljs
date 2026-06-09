@@ -930,6 +930,141 @@
       (is (every? projected-ids fired)
           "each root-:on fired id is one the live chart actually rendered"))))
 
+;; ---- extract-fired-edge-ids: region-level top-level `:on` (rf2-85a9do) ---
+;;
+;; A parallel REGION def is a compound state and MAY carry its OWN top-level
+;; `:on` (a legal Spec 005 region-level fallback — XState v5: a region is an
+;; orthogonal compound state). `project-parallel` (layout.cljc §rf2-7i7t3)
+;; drops the synthetic machine-root and re-points the region's machine-level
+;; fallback edge's source to the REGION CONTAINER (`region-node-id`). So the
+;; projected edge carries `:machine-level? true`, `:from-path []`, a region-
+;; container `:source`, an in-region `:to-path`, and NO `:parallel-root-on?`.
+;; Neither the region-local match (region-scoped in-region source) nor the
+;; root-:on match (`:parallel-root-on?` + region-qualified `:to-path`) reach
+;; it, so this traversed arm was previously missed — a parallel region state
+;; change with no fired-edge highlight. `region-machine-on-fired-ids` lights
+;; it, reserved between the region-local and root-:on fallbacks.
+
+(defn- region-machine-on-edge-id
+  "Look up the canonical machines-viz edge id for a REGION's top-level `:on`
+  fallback edge (the `:machine-level?` edge sourced from the region container)
+  whose in-region `:to-path` + `:event` match — projected through the SAME
+  public chart.layout/project-definition the live chart uses."
+  [definition region to-path event]
+  (->> (:edges (chart-layout/project-definition definition))
+       (some (fn [e]
+               (when (and (:machine-level? e)
+                          (not (:parallel-root-on? e))
+                          (= (chart-layout/region-node-id region) (:source e))
+                          (= to-path (:to-path e))
+                          (= event   (:event e)))
+                 (:id e))))))
+
+(deftest fired-ids-parallel-region-level-on-lights-canonical-edge
+  (testing "rf2-85a9do — a region moved by its OWN top-level :on fallback
+            (no child state handled the event) lights the region's machine-
+            level fallback edge — the canonical projected id — not a blank"
+    ;; :fetch carries a region-level :on {:abort :loading}. From :done, :abort
+    ;; is not handled by the :done leaf, so the region-level :on fires,
+    ;; moving :fetch :done -> :loading. :validate rests.
+    (let [def           {:type    :parallel
+                         :regions {:fetch    {:initial :loading
+                                              :on      {:abort :loading}
+                                              :states  {:loading {:on {:loaded :done}}
+                                                        :done    {:final? true}}}
+                                   :validate {:initial :checking
+                                              :states  {:checking {:on {:ok :done}}
+                                                        :done     {:final? true}}}}}
+          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
+          fetch-id      (region-machine-on-edge-id def :fetch [:loading] :abort)
+          events        [{:operation :rf.machine/transition
+                          :tags {:machine-id :par
+                                 :before {:state {:fetch :done :validate :checking}}
+                                 :after  {:state {:fetch :loading :validate :checking}}
+                                 :event  [:abort]
+                                 ;; only :fetch handled :abort (via its region
+                                 ;; :on); :validate rested.
+                                 :cascade [{:kind :exit  :region :fetch :state [:done]}
+                                           {:kind :entry :region :fetch :state [:loading]}]}}]
+          fired         (trace-state/extract-fired-edge-ids def events :par)]
+      (is (string? fetch-id) "the region :fetch top-level :on fallback edge exists")
+      (is (= #{fetch-id} fired)
+          "only :fetch's region-level :on fallback edge lights; :validate stays dark")
+      (is (every? projected-ids fired)
+          "the fired id is a real live-chart edge id (G3 agreement)"))))
+
+(deftest fired-ids-parallel-region-local-wins-over-region-level-on
+  (testing "rf2-85a9do — PRECEDENCE: a region-LOCAL transition wins over the
+            region's own top-level :on fallback when both could match the move"
+    ;; :a has BOTH a region-level :on {:go :two} AND a child :one {:on {:go :two}}.
+    ;; From :one, :go is handled LOCALLY by the :one leaf, so the region-local
+    ;; edge fires — the region-level :on fallback is NOT consulted.
+    (let [def        {:type    :parallel
+                      :regions {:a {:initial :one
+                                    :on      {:go :two}
+                                    :states  {:one {:on {:go :two}} :two {}}}
+                                :b {:initial :one :states {:one {} :two {}}}}}
+          projected  (:edges (chart-layout/project-definition def))
+          local-a    (->> projected
+                          (some (fn [e]
+                                  (when (and (not (:machine-level? e))
+                                             (not (:parallel-root-on? e))
+                                             (= [:one] (:from-path e))
+                                             (= [:two] (:to-path e))
+                                             (= :go (:event e))
+                                             (= (chart-layout/region-scoped-id :a [:one])
+                                                (:source e)))
+                                    (:id e)))))
+          region-on-a (region-machine-on-edge-id def :a [:two] :go)
+          events     [{:operation :rf.machine/transition
+                       :tags {:machine-id :par
+                              :before {:state {:a :one :b :one}}
+                              :after  {:state {:a :two :b :one}}
+                              :event  [:go]
+                              :cascade [{:kind :exit  :region :a :state [:one]}
+                                        {:kind :entry :region :a :state [:two]}]}}]
+          fired      (trace-state/extract-fired-edge-ids def events :par)]
+      (is (string? local-a) "the region-local :a :one→:two edge exists")
+      (is (string? region-on-a) "the region-level :on fallback edge also exists")
+      (is (= #{local-a} fired)
+          "the region-local edge wins; the region-level :on fallback does NOT light")
+      (is (not (contains? fired region-on-a))
+          "the region-level :on fallback edge is suppressed by the local match"))))
+
+(deftest fired-ids-parallel-region-level-on-distinct-from-root-on
+  (testing "rf2-85a9do — a region-level :on fallback and a parallel ROOT :on
+            are distinct arms: a machine with BOTH lights the right one per
+            region (region-level :on for the region that declared it; root :on
+            for the region the root moved) and they never cross-match"
+    ;; :a declares a region-level :on {:reset :one}; the parallel ROOT declares
+    ;; :on {:reset {:target [:b :one]}}. On :reset from {a:two, b:two}:
+    ;;   - :a is moved by its OWN region-level :on (:two -> :one)
+    ;;   - the root :on is SUPPRESSED for :b? No — Spec 005: the root :on fires
+    ;;     only when NO region handles the event. :a handled it locally (region
+    ;;     :on), so the root :on is suppressed and :b rests. Pin that.
+    (let [def           {:type    :parallel
+                         :on      {:reset {:target [:b :one]}}
+                         :regions {:a {:initial :two
+                                       :on      {:reset :one}
+                                       :states  {:one {} :two {}}}
+                                   :b {:initial :two :states {:one {} :two {}}}}}
+          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
+          region-on-a   (region-machine-on-edge-id def :a [:one] :reset)
+          events        [{:operation :rf.machine/transition
+                          :tags {:machine-id :par
+                                 :before {:state {:a :two :b :two}}
+                                 :after  {:state {:a :one :b :two}}
+                                 :event  [:reset]
+                                 ;; :a handled via its region :on; root :on
+                                 ;; suppressed, :b rested.
+                                 :cascade [{:kind :exit  :region :a :state [:two]}
+                                           {:kind :entry :region :a :state [:one]}]}}]
+          fired         (trace-state/extract-fired-edge-ids def events :par)]
+      (is (string? region-on-a) "the region-level :on fallback edge for :a exists")
+      (is (= #{region-on-a} fired)
+          "only :a's region-level :on edge lights; the suppressed root :on + resting :b are dark")
+      (is (every? projected-ids fired)))))
+
 ;; ---- extract-fired-edge-ids: HANDLED-but-UNCHANGED parallel (rf2-l8ls6w) --
 ;;
 ;; A parallel region can fire a real targetless/INTERNAL or external SELF

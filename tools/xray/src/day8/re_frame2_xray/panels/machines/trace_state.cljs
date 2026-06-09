@@ -350,6 +350,41 @@
               (:id e)))
           edges)))
 
+(defn- region-machine-on-fired-ids
+  "rf2-85a9do — fired-edge ids for ONE region that CHANGED via its OWN
+  region-level top-level `:on` fallback (a legal Spec 005 region-level
+  fallback — XState v5: a region is an orthogonal compound state, so its
+  `:on` is an ordinary region-scoped transition that applies when no
+  child state handles the event).
+
+  `project-parallel` (`layout.cljc` §rf2-7i7t3) projects such a region
+  def's top-level `:on` by DROPPING the synthetic machine-root node and
+  re-pointing the machine-level fallback edge's source to the REGION
+  CONTAINER (`region-node-id`). So the projected edge carries
+  `:machine-level? true`, `:from-path []`, `:source (region-node-id
+  region)`, and an in-region `:to-path` (NOT region-qualified, and NOT
+  `:parallel-root-on?`). Neither `region-local-fired-ids` (keys on the
+  region-scoped in-region source) nor `region-root-on-fired-ids` (keys on
+  `:parallel-root-on?` + a region-qualified `:to-path`) can reach it, so
+  the region top-level fallback was the one traversed arm Xray failed to
+  light — leaving a parallel region state change with no fired-edge
+  highlight (the edge-id agreement the live chart relies on, machines-viz
+  `001-Topology-Parity.md`).
+
+  We match the machine-level fallback edge whose `:source` is THIS
+  region's container, whose `:to-path` is the moved region's in-region
+  `to*`, on the event. Returns a seq of ids."
+  [edges region to* event*]
+  (let [region-source (chart-layout/region-node-id region)]
+    (keep (fn [e]
+            (when (and (:machine-level? e)
+                       (not (:parallel-root-on? e))
+                       (= region-source (:source e))
+                       (= to*           (:to-path e))
+                       (= event*        (:event e)))
+              (:id e)))
+          edges)))
+
 (defn- region-self-internal-fired-ids
   "rf2-l8ls6w — fired-edge ids for ONE region that was HANDLED but whose state
   did NOT change (`before == after`): a real targetless/internal or external
@@ -389,19 +424,27 @@
   derived from the before/after region-map PLUS the structured `:cascade`,
   NOT from a single (from, to) pair.
 
-  Per region, three outcomes light an edge:
+  Per region, the CHANGED outcome is resolved through an ordered fallback
+  (the three edge shapes are mutually exclusive per region) and the
+  HANDLED-but-UNCHANGED outcome lights the self/internal edge:
 
     - **rf2-8ncxrf — region CHANGED via a region-local transition.** `from ≠
       after`; the region-scoped (from, to, event) match (`region-local-fired-
-      ids`) lights the moved region's edge.
+      ids`) lights the moved region's edge. WINS over both fallbacks below.
+    - **rf2-85a9do — region CHANGED via its OWN top-level `:on` fallback.**
+      `from ≠ after`, no region-local edge matched, but the region def
+      carried a region-level `:on` whose machine-level fallback edge
+      (`:machine-level?`, sourced from the region CONTAINER, in-region
+      `:to-path`, NOT `:parallel-root-on?`) moved it. `region-machine-on-
+      fired-ids` lights it. Reserved between region-local and the root `:on`.
     - **rf2-3v3gv1 — region CHANGED via the parallel ROOT `:on`.** `from ≠
-      after` but NO region-local edge matched — the move came from the root
-      `:on` ancestor fallback. `region-root-on-fired-ids` lights the root-
-      sourced chip whose region-qualified `:to-path` names this region. (A
-      root `:on` moving a region while a region-local edge ALSO matches the
-      (from,to,event) cannot happen — the root `:on` is suppressed ENTIRELY
-      when any region handles the event, Spec 005; so the two are mutually
-      exclusive per region.)
+      after` but NEITHER a region-local NOR a region-level `:on` edge matched —
+      the move came from the root `:on` ancestor fallback. `region-root-on-
+      fired-ids` lights the root-sourced chip whose region-qualified
+      `:to-path` names this region. (A root `:on` moving a region while a
+      region-local/region-level edge ALSO matches cannot happen — the root
+      `:on` is suppressed ENTIRELY when any region handles the event, Spec
+      005; so the three are mutually exclusive per region.)
     - **rf2-l8ls6w — region HANDLED but UNCHANGED.** `before == after` yet the
       region appears in the `:cascade` (a real self/internal transition fired
       with a non-empty cascade). `region-self-internal-fired-ids` lights the
@@ -420,13 +463,17 @@
               from*        (normalise-path region-before)
               to*          (normalise-path region-after)]
           (cond
-            ;; CHANGED: region-local match, falling back to the root `:on`
-            ;; ancestor fallback when no region-local edge moved it.
+            ;; CHANGED: region-local match wins; else the region's OWN
+            ;; top-level `:on` fallback (rf2-85a9do); else the parallel
+            ;; ROOT `:on` ancestor fallback. The three edge shapes are
+            ;; mutually exclusive per region (a region-scoped in-region
+            ;; source, vs a region-container source, vs a `:parallel-root-
+            ;; on?` region-qualified target), so the first that matches is
+            ;; the traversed arm.
             (and from* to* (not= region-before region-after))
-            (let [local (region-local-fired-ids edges region from* to* event*)]
-              (if (seq local)
-                local
-                (region-root-on-fired-ids edges region to* event*)))
+            (or (seq (region-local-fired-ids edges region from* to* event*))
+                (seq (region-machine-on-fired-ids edges region to* event*))
+                (region-root-on-fired-ids edges region to* event*))
 
             ;; HANDLED-but-UNCHANGED: a real self/internal transition with
             ;; before == after + a non-empty cascade for this region. A
