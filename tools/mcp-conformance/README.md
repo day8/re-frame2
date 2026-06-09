@@ -272,7 +272,17 @@ without any external nREPL.
 6. Runs `test/live-re-frame2-pair-overflow.cjs` with
    `SHADOW_CLJS_NREPL_PORT` set to the spawned port.
 7. Tears down browser + shadow-cljs in `finally` (and on SIGINT /
-   SIGTERM / SIGHUP).
+   SIGTERM / SIGHUP). The teardown is an idempotent **async** operation
+   (rf2-7ckmwx): it `await`s Playwright's promise-returning
+   `browser.close()` (bounded so a wedged close can't hang), then
+   SIGTERMs shadow-cljs and `await`s its `exit` (or a short grace),
+   escalating to SIGKILL and awaiting the final exit. The normal
+   `finally` path awaits it before reporting success / exiting; the
+   signal and watchdog paths race it against a hard cap so an
+   interrupted run still exits promptly but does not fire-and-forget
+   exit before the children have had a real chance to be reaped. The
+   `makeCleanup` factory is exported and unit-tested by
+   `test/runner-cleanup.test.cjs`.
 
 Exit codes: `0` = green; `1` = conformance failure (forwarded from
 the inner test); `2` = orchestration failure (shadow-cljs didn't

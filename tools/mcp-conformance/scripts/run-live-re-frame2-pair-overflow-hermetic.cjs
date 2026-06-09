@@ -151,6 +151,24 @@ const FIXTURE_BUNDLE_PATH = path.join(FIXTURE_DIR, 'public', 'out', 'main.js');
 const SHADOW_BOOT_TIMEOUT_MS = 360_000;
 const RUNTIME_PRELOAD_TIMEOUT_MS = 60_000;
 const HERMETIC_TIMEOUT_MS = 540_000;
+// Bounded waits for the async teardown (rf2-7ckmwx finding 1). `cleanup`
+// awaits Playwright's promise-returning `browser.close()` (capped so a
+// wedged browser-close can't hang the teardown) and SIGTERM→exit of the
+// shadow-cljs child (escalating to SIGKILL after the grace, then observing
+// the final exit). `$HERMETIC_CLEANUP_*_MS` shrink these caps for the
+// finding-1 regression harness only (`runner-cleanup.test.cjs`); production
+// CI never sets them.
+const CLEANUP_BROWSER_CLOSE_TIMEOUT_MS =
+  Number(process.env.HERMETIC_CLEANUP_BROWSER_MS) || 15_000;
+const CLEANUP_SHADOW_SIGTERM_GRACE_MS =
+  Number(process.env.HERMETIC_CLEANUP_SHADOW_GRACE_MS) || 5_000;
+const CLEANUP_SHADOW_SIGKILL_GRACE_MS =
+  Number(process.env.HERMETIC_CLEANUP_SHADOW_KILL_MS) || 5_000;
+// Hard cap the signal/watchdog paths race the async cleanup against, so an
+// interrupted run still exits promptly even if a child refuses to die. The
+// cleanup is awaited up to this bound, then the process exits regardless.
+const CLEANUP_HARD_CAP_MS =
+  Number(process.env.HERMETIC_CLEANUP_HARD_CAP_MS) || 30_000;
 // Poll cadence for the four sequential boot gates (port file, TCP
 // listener, fixture HTTP, bundle compile, runtime sentinel, shadow
 // runtime addressable). Each gate latches as soon as it flips, so the
@@ -250,6 +268,128 @@ function exists(p) {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// Race `promise` against a `ms` cap. Resolves `true` if the promise
+// settled first (success OR rejection — a rejected `browser.close()` still
+// means we waited for it), `false` if the cap elapsed first. Never throws:
+// the caller's contract is "did the awaited thing finish in time", and a
+// teardown step that rejects is treated as "settled" (we tried, we move
+// on), not as a reason to abandon the rest of cleanup. The timeout timer is
+// unref'd so it can't itself keep the loop alive past a clean exit.
+// rf2-7ckmwx finding 1.
+function settledWithin(promise, ms) {
+  return new Promise((resolve) => {
+    let done = false;
+    const t = setTimeout(() => {
+      if (done) return;
+      done = true;
+      resolve(false);
+    }, ms);
+    t.unref();
+    Promise.resolve(promise).then(
+      () => { if (!done) { done = true; clearTimeout(t); resolve(true); } },
+      () => { if (!done) { done = true; clearTimeout(t); resolve(true); } },
+    );
+  });
+}
+
+// Resolve when `child` has emitted `exit` (or already has). Returns a
+// promise that never rejects; pair it with `settledWithin` for a bounded
+// wait. `hasExited` is the caller's already-tracked exit flag so a child
+// that exited before we attach still resolves immediately. rf2-7ckmwx
+// finding 1.
+function waitForChildExit(child, hasExited) {
+  if (hasExited()) return Promise.resolve();
+  return new Promise((resolve) => {
+    child.once('exit', () => resolve());
+  });
+}
+
+// Build the idempotent async teardown (rf2-7ckmwx finding 1). Extracted to
+// module scope so the finding-1 regression harness
+// (`runner-cleanup.test.cjs`) can drive the REAL teardown logic against a
+// fake promise-returning browser and a slow-exiting fake child — proving
+// the awaited-close + SIGTERM→exit→SIGKILL contract holds without booting
+// shadow-cljs + Playwright.
+//
+// `deps`:
+//   getBrowser()      -> the Playwright Browser or null (promise-returning `close()`)
+//   getShadow()       -> the shadow-cljs child or null (`kill(sig)` + `'exit'` event)
+//   hasShadowExited() -> boolean: has the shadow child already emitted `exit`
+//   log / logErr      -> structured loggers (default to the module ones)
+//   timeouts          -> overridable caps (default to the module constants;
+//                        the harness shrinks them so the test runs fast)
+//
+// Returns a `cleanup()` function whose promise:
+//   1. awaits `browser.close()`, bounded by `browserCloseMs`,
+//   2. SIGTERMs shadow then awaits its `exit` (or `shadowTermGraceMs`),
+//   3. SIGKILLs if still alive then awaits the final exit (or `shadowKillGraceMs`).
+// Idempotent: repeat/concurrent calls return the SAME in-flight promise.
+function makeCleanup(deps) {
+  const {
+    getBrowser,
+    getShadow,
+    hasShadowExited,
+    log: logFn = log,
+    logErr: logErrFn = logErr,
+    browserCloseMs = CLEANUP_BROWSER_CLOSE_TIMEOUT_MS,
+    shadowTermGraceMs = CLEANUP_SHADOW_SIGTERM_GRACE_MS,
+    shadowKillGraceMs = CLEANUP_SHADOW_SIGKILL_GRACE_MS,
+  } = deps;
+  let cleanupPromise = null;
+  return function cleanup() {
+    if (cleanupPromise) return cleanupPromise;
+    cleanupPromise = (async () => {
+      logFn('cleanup requested');
+      // (1) Await the promise-returning browser close, bounded.
+      const browser = getBrowser();
+      if (browser) {
+        const closed = await settledWithin(
+          (async () => {
+            try { await browser.close(); }
+            catch (e) { logFn(`browser.close() rejected during cleanup: ${e && e.message}`); }
+          })(),
+          browserCloseMs,
+        );
+        if (!closed) {
+          logErrFn(
+            `browser.close() did not settle within ${browserCloseMs}ms — ` +
+              'continuing teardown',
+          );
+        }
+      }
+      // (2)+(3) SIGTERM shadow, await exit / grace, then SIGKILL + await.
+      const shadow = getShadow();
+      if (shadow && !hasShadowExited()) {
+        try { shadow.kill('SIGTERM'); } catch {}
+        const exitedOnTerm = await settledWithin(
+          waitForChildExit(shadow, hasShadowExited),
+          shadowTermGraceMs,
+        );
+        if (!exitedOnTerm && !hasShadowExited()) {
+          logErrFn(
+            `shadow-cljs did not exit ${shadowTermGraceMs}ms after SIGTERM ` +
+              '— escalating to SIGKILL',
+          );
+          try { shadow.kill('SIGKILL'); } catch {}
+          const exitedOnKill = await settledWithin(
+            waitForChildExit(shadow, hasShadowExited),
+            shadowKillGraceMs,
+          );
+          if (!exitedOnKill && !hasShadowExited()) {
+            logErrFn(
+              'shadow-cljs still has not reported exit after SIGKILL + ' +
+                `${shadowKillGraceMs}ms — abandoning (the OS will reap it; ` +
+                'we have done all we can within the cap)',
+            );
+          }
+        }
+      }
+      logFn('cleanup complete');
+    })();
+    return cleanupPromise;
+  };
 }
 
 // Discriminate a containment-escape refusal (a candidate whose realpath
@@ -729,22 +869,22 @@ async function main() {
 
   let browser = null;
 
-  // Wire signal-driven cleanup so a CI cancel doesn't strand the JVM.
-  const cleanup = () => {
-    log('cleanup requested');
-    if (browser) {
-      try { browser.close(); } catch {}
-    }
-    if (shadow && !shadowExited) {
-      try { shadow.kill('SIGTERM'); } catch {}
-      // Give it a moment to exit; SIGKILL if still up.
-      setTimeout(() => {
-        if (!shadowExited) {
-          try { shadow.kill('SIGKILL'); } catch {}
-        }
-      }, 5000).unref();
-    }
-  };
+  // Idempotent async teardown (rf2-7ckmwx finding 1). The pre-fix `cleanup`
+  // was synchronous: it called Playwright's promise-returning
+  // `browser.close()` WITHOUT awaiting it and scheduled the shadow SIGKILL
+  // on an unref'd timer, so every caller (`finally`, signal handlers, the
+  // hard watchdog) could `process.exit` BEFORE the browser-close promise
+  // settled and BEFORE shadow-cljs had actually exited — abandoning exactly
+  // the children the teardown exists to reap. `makeCleanup` (module scope,
+  // unit-tested by `runner-cleanup.test.cjs`) returns an idempotent promise
+  // that awaits the browser close (bounded) and SIGTERM→exit→SIGKILL of
+  // shadow. `getBrowser`/`getShadow` read the live closure vars so the
+  // teardown sees `browser` even though it's assigned later in `main()`.
+  const cleanup = makeCleanup({
+    getBrowser: () => browser,
+    getShadow: () => shadow,
+    hasShadowExited: () => shadowExited,
+  });
   // Expose the teardown to the module-scope hard watchdog (rf2-e6enf)
   // so a watchdog-elapse kills shadow-cljs + Chromium rather than
   // orphaning them.
@@ -752,9 +892,20 @@ async function main() {
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.on(sig, () => {
       logErr(`caught ${sig} — tearing down`);
-      cleanup();
-      flushDiagnostics();
-      process.exit(130);
+      // Race the async cleanup against a hard cap: an interrupted run still
+      // exits promptly (CLEANUP_HARD_CAP_MS) even if a child refuses to die,
+      // but we no longer fire-and-exit before the teardown has had any
+      // chance to settle (rf2-7ckmwx finding 1).
+      settledWithin(cleanup(), CLEANUP_HARD_CAP_MS).then((settled) => {
+        if (!settled) {
+          logErr(
+            `cleanup did not complete within ${CLEANUP_HARD_CAP_MS}ms of ` +
+              `${sig} — exiting anyway`,
+          );
+        }
+        flushDiagnostics();
+        process.exit(130);
+      });
     });
   }
 
@@ -979,7 +1130,11 @@ async function main() {
     log('RE-FRAME2-PAIR-MCP LIVE HERMETIC CONFORMANCE GREEN (' +
       INNER_TESTS.length + ' inner tests)');
   } finally {
-    cleanup();
+    // Await the async teardown before `main()` resolves/rejects (rf2-7ckmwx
+    // finding 1): the normal-exit path must not report success and
+    // `process.exit(0)` while the browser-close promise is still settling or
+    // shadow-cljs has not yet exited.
+    await cleanup();
   }
 }
 
@@ -992,16 +1147,39 @@ async function main() {
 // spawned JVM (and any launched Chromium); orphans that inherited the
 // step's stdio can keep the CI step's log pipes open past the node
 // exit, which is part of why the gate appeared to hang well past the
-// orchestrator's own cap. `activeCleanup` sends SIGTERM (then SIGKILL
-// via its own unref'd 5s timer); we hold the exit ~1s so the SIGTERM
-// lands before the process tears down, then exit regardless.
+// orchestrator's own cap.
+//
+// Per rf2-7ckmwx finding 1: `activeCleanup` is now async (awaited
+// browser.close + SIGTERM→exit→SIGKILL of shadow). The pre-fix watchdog
+// invoked it fire-and-forget and exited on a fixed 1s timer regardless of
+// whether the teardown had settled. We now RACE the async cleanup against
+// `CLEANUP_HARD_CAP_MS`: the teardown gets a real chance to reap the
+// children, but the process still exits within the cap if a child refuses
+// to die. `activeCleanup` is null only if the watchdog fires before
+// `main()` has spawned the children (nothing to reap), so we exit straight
+// away in that case.
 const watchdog = setTimeout(() => {
   logErr(`watchdog timeout (${HERMETIC_TIMEOUT_MS}ms) — bailing`);
+  const bail = () => {
+    flushDiagnostics();
+    process.exit(2);
+  };
   if (activeCleanup) {
-    try { activeCleanup(); } catch {}
+    settledWithin(
+      (async () => { try { await activeCleanup(); } catch {} })(),
+      CLEANUP_HARD_CAP_MS,
+    ).then((settled) => {
+      if (!settled) {
+        logErr(
+          `cleanup did not complete within ${CLEANUP_HARD_CAP_MS}ms of the ` +
+            'watchdog elapse — exiting anyway',
+        );
+      }
+      bail();
+    });
+  } else {
+    bail();
   }
-  flushDiagnostics();
-  setTimeout(() => process.exit(2), 1000).unref();
 }, HERMETIC_TIMEOUT_MS);
 watchdog.unref();
 
@@ -1045,9 +1223,19 @@ if (require.main === module) {
 // outside, proving the poller REFUSES an external port file (throws)
 // rather than raw-reading it — the read-side guarantee that lets the
 // cleanup loop's escape-refusal be safe.
+//
+// `makeCleanup` + `settledWithin` + `waitForChildExit` are exported for the
+// rf2-7ckmwx finding-1 regression harness (`runner-cleanup.test.cjs`): it
+// drives the REAL teardown against a fake promise-returning browser and a
+// slow-exiting fake child, proving the awaited browser-close + the
+// SIGTERM→exit→SIGKILL escalation are WAITED for (or hard-capped), never
+// fire-and-forgotten.
 module.exports = {
   runTrusted,
   SETUP_COMMAND_TIMEOUT_MS,
   readPortFile,
   isContainmentEscape,
+  makeCleanup,
+  settledWithin,
+  waitForChildExit,
 };

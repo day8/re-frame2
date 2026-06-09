@@ -14,6 +14,7 @@
     "test:flag-gates": "node test/end-to-end-flag-gates.cjs",
     "test:exec-safety": "node --test test/exec-safety.test.cjs",
     "test:runner-watchdog": "node --test test/runner-watchdog.test.cjs",
+    "test:runner-cleanup": "node --test test/runner-cleanup.test.cjs",
     "test:hermetic-setup-timeout": "node --test test/hermetic-setup-timeout.test.cjs",
     "test:port-file-escape": "node --test test/port-file-escape.test.cjs",
     "test": "node scripts/test-all.cjs"

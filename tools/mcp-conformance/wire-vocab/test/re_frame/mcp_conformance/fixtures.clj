@@ -30,13 +30,18 @@
 
   ## What this ns does NOT own
 
-  Per-marker schemas, fixtures, and the `canonical-markers` catalogue
-  stay in `wire_vocab_test.clj` — they ARE the wire-vocab conformance
-  contract, not boilerplate. Same posture for `canonical-slots`
-  (`slot_name_test.clj`) and `envelope-indicator-slots`
-  (`wire_vocab_test.clj`). The split is: data-tables that ARE the
-  contract live next to their assertions; classpath-walk + slurp
-  ceremony lives here."
+  Per-marker schemas + the `canonical-markers` catalogue live in
+  `wire_vocab/schemas.clj`; the shared source-text pin inventories +
+  near-miss helpers live in `wire_vocab/source_pins.clj` (both split out
+  of `wire_vocab_test.clj` by rf2-7ckmwx). Marker-family-LOCAL schemas +
+  fixtures (`ResultEnvelope`, `CascadeBundle`, and the per-family fixture
+  maps) stay co-located with their tests in the focused `*_test.clj`
+  namespaces — they ARE the contract for that family, not boilerplate.
+  Same posture for `canonical-slots` (`slot_name_test.clj`) and
+  `envelope-indicator-slots` (`wire_vocab_test.clj`). The split is:
+  data-tables that ARE a single family's contract live next to their
+  assertions; the cross-family schema/pin data lives in the `wire_vocab/`
+  support nses; classpath-walk + slurp ceremony lives here."
   (:require [clojure.java.io :as io]))
 
 ;; ---------------------------------------------------------------------------

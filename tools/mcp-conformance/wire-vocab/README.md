@@ -42,7 +42,8 @@ value proposition collapses if every server invents its own dialect.
 This test is the conformance gate. It asserts:
 
 1. **One canonical Malli schema per marker.** The schemas live in
-   `wire_vocab_test.clj`, derived from
+   `wire_vocab/schemas.clj` (the cross-family ones) or co-located with
+   their focused test namespace (the marker-family-local ones), derived from
    [`spec/Spec-Schemas.md` §`:rf/elision-marker`](../../../spec/Spec-Schemas.md)
    and [`tools/re-frame2-pair-mcp/src/.../tools.cljs`](../../re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools.cljs)
    (re-frame2-pair-mcp's `overflow-payload`, `tree-summary`, `dedup-value`,
@@ -66,7 +67,63 @@ This test is the conformance gate. It asserts:
 ## Files
 
 - `deps.edn` — pure JVM Clojure, one dep: `metosin/malli`.
-- `test/re_frame/mcp_conformance/wire_vocab_test.clj` — the test.
+- `test/re_frame/mcp_conformance/wire_vocab/schemas.clj` — the canonical
+  cross-MCP marker schemas + the `canonical-markers` catalogue (the
+  contract data shared across test namespaces). Split out by rf2-7ckmwx.
+- `test/re_frame/mcp_conformance/wire_vocab/source_pins.clj` — the shared
+  source-text pin inventories (`emit-source-files` / `doc-source-files` /
+  `all-source-files`) + the `marker-key->literal` / `near-miss-variants`
+  helpers. Split out by rf2-7ckmwx.
+- `test/re_frame/mcp_conformance/fixtures.clj` — classpath-walk + slurp
+  ceremony + the filesystem-derived story-mcp source inventory + the
+  `strip-comments-and-strings` documentation-vs-emission discriminator.
+- `test/re_frame/mcp_conformance/wire_vocab_test.clj` — the CORE
+  wrapper-marker contract: fixture-conformance over `canonical-markers`,
+  the per-marker negative/live-emission gates, the marker-literal source
+  pins, the JS cross-encoding pin, server-coverage, the story-mcp
+  inventory tripwires, and the envelope indicator-field slots.
+- Focused per-family test namespaces (the NON-wrapper markers, split out
+  by rf2-7ckmwx): `cursor_stale_test.clj`, `result_envelope_test.clj`,
+  `redacted_sentinel_test.clj`, `progress_notification_test.clj`,
+  `cascade_bundle_test.clj`. Each requires the shared `schemas` +
+  `source-pins` support nses; a marker-family-LOCAL schema
+  (`ResultEnvelope`, `CascadeBundle`) stays co-located with its tests.
+- `indicator_field_test.clj`, `slot_name_test.clj`, `verb_vocab_test.clj`
+  — independent cross-MCP vocabulary surfaces (pre-existing).
+
+## Adding a new cross-MCP marker — which files to touch
+
+For a **wrapper-shaped** marker (`{<key> <body>}` — the agent walks the
+body):
+
+1. Add the canonical Malli schema to `wire_vocab/schemas.clj`.
+2. Add a `canonical-markers` entry there: `:key` + `:schema` +
+   per-server `:fixtures` + `:servers`.
+3. If the literal's source-of-truth home or doc-source differs from the
+   existing markers, extend the inventories in `wire_vocab/source_pins.clj`.
+
+The generic fixture-conformance + source-pin + near-miss sweeps in
+`wire_vocab_test.clj` then cover it automatically.
+
+For a **non-wrapper** marker (a `:reason` value like `:rf.mcp/cursor-stale`,
+a bare scalar like `:rf/redacted`, a tagged-union like `:rf.mcp/result`,
+or a streaming-notification shape):
+
+1. Create a focused `<marker>_test.clj` namespace (use the existing
+   `cursor_stale_test.clj` / `result_envelope_test.clj` /
+   `redacted_sentinel_test.clj` / `progress_notification_test.clj` /
+   `cascade_bundle_test.clj` as templates), requiring the shared
+   `wire_vocab.schemas` + `wire_vocab.source-pins` support nses.
+2. Keep the schema co-located in that test namespace when it is
+   referenced only by that family; promote it to `schemas.clj` only if a
+   second namespace needs it.
+3. Cover all five conformance layers the family templates show: schema +
+   fixture, live-emission gate (when a JVM-reachable builder exists),
+   source-text emit/doc pin, JS cross-encoding pin (when a live `.cjs`
+   harness re-encodes the shape), and the near-miss anti-pin.
+
+New `*_test.clj` namespaces are auto-discovered by the cognitect
+test-runner — no registration needed.
 
 ## How to run
 
