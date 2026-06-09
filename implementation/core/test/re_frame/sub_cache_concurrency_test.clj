@@ -52,6 +52,13 @@
   (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`;
+  ;; register it explicitly so these single-app-frame cache tests have a
+  ;; conventional frame to read. NB the cross-thread subscribe/unsubscribe
+  ;; calls below pass `:rf/default` EXPLICITLY (2-arity) — a `with-frame`
+  ;; dynamic binding does not convey into the worker threads, so the
+  ;; carried-invariant stamp must be passed as a value across the boundary.
+  (frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
@@ -228,7 +235,7 @@
   (testing "concurrent unsubscribe calls dispose exactly once per slot under contention"
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
+    (rf/dispatch-sync [:seed] {:frame :rf/default})
 
     (let [n-trials      200
           n-threads     6
@@ -244,14 +251,17 @@
                               (swap! trial-counter inc)
                               (orig-dispose! r))]
           (with-redefs [interop/dispose! dispose-proxy]
-            (rf/subscribe [:n])  ;; ref-count 1
+            ;; Explicit `:rf/default` (2-arity) — the dynamic-var scope
+            ;; does not convey into the worker threads, so the frame stamp
+            ;; rides as a value across the boundary (rf2-jue6sp / EP-0002).
+            (rf/subscribe :rf/default [:n])  ;; ref-count 1
             (let [latch (CountDownLatch. 1)
                   threads (mapv (fn [_]
                                   (Thread.
                                     ^Runnable
                                     (fn []
                                       (.await latch 5 TimeUnit/SECONDS)
-                                      (rf/unsubscribe [:n]))))
+                                      (rf/unsubscribe :rf/default [:n]))))
                                 (range n-threads))]
               (doseq [t threads] (.start t))
               (.countDown latch)
