@@ -42,10 +42,22 @@
   The reporter is BUFFERLESS — we don't capture failure-message bytes
   and replay them.  Instead, the first `:fail` / `:error` inside an
   unprinted namespace prints the namespace banner immediately, then
-  delegates to the default method via direct re-entry.  This means the
+  DELEGATES to the captured default `report` method.  This means the
   failure output shape (the precise text clojure.test or cljs.test
   emits for `FAIL in (...)`, the `expected:` / `actual:` lines, the
-  stack) is byte-for-byte unchanged.
+  stack) is owned by the test library, not forked here — any upstream
+  change to failure formatting, formatter handling, or stack-depth
+  behaviour is inherited automatically.
+
+  Delegation mechanism: at namespace-load time — BEFORE we install our
+  own overrides — we capture the library's default `:fail` / `:error`
+  methods via `get-method`.  Our override then prints the withheld
+  banner and invokes that captured method.  The default already wraps
+  its body in `with-test-out` (JVM) / writes through `*out*` (CLJS), so
+  the banner is emitted into the same stream by forcing it under the
+  same `with-test-out` on the JVM and by a plain `println` on CLJS.
+  Capturing the methods rather than re-`defmethod`-ing inline keeps the
+  failure path a thin banner-prefix over the real reporter.
 
   Loading this namespace MULTIPLE TIMES is idempotent — `defmethod`
   silently replaces the existing dispatch entry.
@@ -67,8 +79,7 @@
   failure, regardless of nesting."
   (:require
     #?(:clj  [clojure.test]
-       :cljs [cljs.test])
-    #?(:clj  [clojure.stacktrace])))
+       :cljs [cljs.test])))
 
 ;; ----------------------------------------------------------------------
 ;; Banner state.
@@ -150,6 +161,19 @@
        (when-let [ns (:ns (meta v))]
          (ns-name ns)))))
 
+;; `defonce` (not `def`) so a namespace RELOAD does not re-capture: on a
+;; first load `get-method` returns clojure.test's default (our override is
+;; not installed yet); on a reload our override is already installed, so a
+;; plain `def` would capture OUR method and recurse infinitely.  `defonce`
+;; pins the original default for the lifetime of the runtime.
+#?(:clj
+   (defonce ^:private jvm-default-fail
+     (get-method clojure.test/report :fail)))
+
+#?(:clj
+   (defonce ^:private jvm-default-error
+     (get-method clojure.test/report :error)))
+
 #?(:clj
    (do
      (defmethod clojure.test/report :begin-test-ns [_m]
@@ -173,30 +197,20 @@
        )
 
      (defmethod clojure.test/report :fail [m]
+       ;; Flush the withheld banner, then DELEGATE to clojure.test's
+       ;; default `:fail` reporter so the FAIL block + expected/actual
+       ;; lines stay byte-for-byte the library's own output (failure
+       ;; formatting is not forked here).  The banner `println` runs
+       ;; under the SAME `with-test-out` the default uses, so both land
+       ;; on `*test-out*` in order.
        (clojure.test/with-test-out
-         (print-banner! (failing-ns))
-         (clojure.test/inc-report-counter :fail)
-         (println "\nFAIL in" (clojure.test/testing-vars-str m))
-         (when (seq clojure.test/*testing-contexts*)
-           (println (clojure.test/testing-contexts-str)))
-         (when-let [message (:message m)] (println message))
-         (println "expected:" (pr-str (:expected m)))
-         (println "  actual:" (pr-str (:actual m)))))
+         (print-banner! (failing-ns)))
+       (jvm-default-fail m))
 
      (defmethod clojure.test/report :error [m]
        (clojure.test/with-test-out
-         (print-banner! (failing-ns))
-         (clojure.test/inc-report-counter :error)
-         (println "\nERROR in" (clojure.test/testing-vars-str m))
-         (when (seq clojure.test/*testing-contexts*)
-           (println (clojure.test/testing-contexts-str)))
-         (when-let [message (:message m)] (println message))
-         (println "expected:" (pr-str (:expected m)))
-         (print "  actual: ")
-         (let [actual (:actual m)]
-           (if (instance? Throwable actual)
-             (clojure.stacktrace/print-cause-trace actual clojure.test/*stack-trace-depth*)
-             (prn actual)))))))
+         (print-banner! (failing-ns)))
+       (jvm-default-error m))))
 
 ;; ----------------------------------------------------------------------
 ;; CLJS overrides — cljs.test/report dispatches on
@@ -213,6 +227,17 @@
      (when-let [v (first (:testing-vars (cljs.test/get-current-env)))]
        (let [ns (:ns (meta v))]
          (when ns (symbol (name ns)))))))
+
+;; `defonce` for the same reload-safety reason as the JVM capture above:
+;; pin cljs.test's ORIGINAL default reporters so a reload (e.g. shadow
+;; hot-reload) never re-captures our own installed override and recurses.
+#?(:cljs
+   (defonce ^:private cljs-default-fail
+     (get-method cljs.test/report [:cljs.test/default :fail])))
+
+#?(:cljs
+   (defonce ^:private cljs-default-error
+     (get-method cljs.test/report [:cljs.test/default :error])))
 
 #?(:cljs
    (do
@@ -235,23 +260,14 @@
        )
 
      (defmethod cljs.test/report [:cljs.test/default :fail] [m]
+       ;; Flush the withheld banner, then DELEGATE to cljs.test's default
+       ;; `:fail` reporter so the FAIL block + expected/actual lines stay
+       ;; the library's own output (formatter handling, counters, etc. are
+       ;; not forked here).  Both write through `*out*`, so the banner and
+       ;; the delegated block stay in order.
        (print-banner! (failing-ns))
-       (cljs.test/inc-report-counter! :fail)
-       (println "\nFAIL in" (cljs.test/testing-vars-str m))
-       (when (seq (:testing-contexts (cljs.test/get-current-env)))
-         (println (cljs.test/testing-contexts-str)))
-       (when-let [message (:message m)] (println message))
-       (let [formatter-fn (or (:formatter (cljs.test/get-current-env)) pr-str)]
-         (println "expected:" (formatter-fn (:expected m)))
-         (println "  actual:" (formatter-fn (:actual m)))))
+       (cljs-default-fail m))
 
      (defmethod cljs.test/report [:cljs.test/default :error] [m]
        (print-banner! (failing-ns))
-       (cljs.test/inc-report-counter! :error)
-       (println "\nERROR in" (cljs.test/testing-vars-str m))
-       (when (seq (:testing-contexts (cljs.test/get-current-env)))
-         (println (cljs.test/testing-contexts-str)))
-       (when-let [message (:message m)] (println message))
-       (let [formatter-fn (or (:formatter (cljs.test/get-current-env)) pr-str)]
-         (println "expected:" (formatter-fn (:expected m)))
-         (println "  actual:" (formatter-fn (:actual m)))))))
+       (cljs-default-error m))))

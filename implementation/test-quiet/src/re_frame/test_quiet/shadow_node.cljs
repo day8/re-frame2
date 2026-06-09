@@ -10,15 +10,23 @@
   CLJS `defmethod`s install at load time.  By the time shadow's
   `run-all-tests` walks namespaces, the overrides are in place.
 
-  Also stubs `js/console.warn` so first-time runtime warnings
-  (`reg-view non-DOM root`, `reagent-slim keyword-on-non-HTML-prop`,
-  etc.) don't leak to test stdout on the success path.  Tests that
-  assert warning content all use the local `with-captured-console-warn`
-  pattern — they save `(.-warn js/console)`, install a recording shim,
-  run the body, then restore.  When our stub is in place, the saved
-  value IS the stub; the recording shim still receives the calls; the
-  restored value reverts to the stub.  Net effect: in-test capture
-  works unchanged; out-of-test side-effect warnings are silenced."
+  Also installs a BUFFERING `js/console.warn` stub so first-time
+  runtime warnings (`reg-view non-DOM root`, `reagent-slim
+  keyword-on-non-HTML-prop`, etc.) don't leak to test stdout on the
+  SUCCESS path — but are NOT lost on a RED run.  The stub holds back
+  warning text in a bounded ring (`warn-buffer`) instead of discarding
+  it; the `:end-run-tests` reporter replays that buffer to stderr when
+  the run fails or errors, so a failing CLJS run keeps the diagnostic
+  context that may explain the failure.  Green runs stay quiet (the
+  buffer is simply dropped at the green exit).
+
+  Tests that assert warning content all use the local
+  `with-captured-console-warn` pattern — they save `(.-warn js/console)`,
+  install a recording shim, run the body, then restore.  When our stub
+  is in place, the saved value IS the stub; the recording shim still
+  receives the calls; the restored value reverts to the stub.  Net
+  effect: in-test capture works unchanged; out-of-test side-effect
+  warnings are buffered (replayed on red, dropped on green)."
   {:dev/always true}
   (:require
     [clojure.string :as str]
@@ -28,10 +36,51 @@
     [shadow.test :as st]
     [cljs.test :as ct]))
 
-;; Silence stray runtime warnings on green. See ns docstring for the
-;; capture-compatibility rationale.  Installed at ns-load time so it's
-;; in place before shadow's `run-all-tests` walks the test ns set.
-;;
+;; Buffer stray runtime warnings instead of discarding them: quiet on
+;; green, but replayed on red so a failing run keeps the diagnostic
+;; context. See ns docstring for the capture-compatibility rationale.
+;; Installed at ns-load time so it's in place before shadow's
+;; `run-all-tests` walks the test ns set.
+
+(def ^:private warn-buffer-cap
+  "Bounded warning ring size.  Caps memory + replay volume on a red run
+  while keeping enough recent context to explain a failure (the newest
+  `warn-buffer-cap` warnings are retained; older ones are dropped)."
+  256)
+
+(defonce ^:private warn-buffer
+  ;; A bounded ring of buffered warning arg-vectors. `defonce` so a
+  ;; hot-reload of this `:dev/always` ns does not clobber warnings
+  ;; already captured this run.
+  (atom []))
+
+(defn- buffer-warning!
+  "Append `args` (one `console.warn` call's arguments) to the bounded
+  ring, dropping the oldest entries past `warn-buffer-cap`."
+  [args]
+  (swap! warn-buffer
+         (fn [buf]
+           (let [buf' (conj buf args)
+                 n    (count buf')]
+             (if (> n warn-buffer-cap)
+               (subvec buf' (- n warn-buffer-cap))
+               buf')))))
+
+(defn- replay-buffered-warnings!
+  "Replay the buffered warnings to stderr, prefixed so they are
+  distinguishable from the test reporter's own stdout output.  Called
+  from the `:end-run-tests` reporter ONLY on a red run, restoring the
+  diagnostic context the green-path quieting withheld."
+  []
+  (let [buffered @warn-buffer]
+    (when (seq buffered)
+      (binding [*print-fn* (fn [s] (js/process.stderr.write s))]
+        (println (str "[test-quiet] " (count buffered)
+                      " console.warn message(s) buffered during this run"
+                      " (replayed because the run was RED):"))
+        (doseq [args buffered]
+          (apply println "[test-quiet] console.warn:" args))))))
+
 ;; The stub carries a `re-frame.test-quiet/silenced` marker property so it
 ;; is IDENTIFIABLE: a contract test can assert the live `console.warn` is
 ;; this stub (and so fail if a regression leaves native `console.warn` —
@@ -39,19 +88,24 @@
 ;; `:dev/always` ns (which would form a compile cycle).
 (when (and (exists? js/console)
            (fn? (.-warn js/console)))
-  (let [stub (fn [& _])]
+  ;; Return `nil` (like native `console.warn`) so callers that observe the
+  ;; return value see no behavioural change from the buffering.
+  (let [stub (fn [& args] (buffer-warning! (vec args)) nil)]
     (set! (.-rf-test-quiet-silenced stub) true)
     (set! (.-warn js/console) stub)))
 
 ;; ----------------------------------------------------------------------
 ;; The single override shadow.test.node ships — exit the node process
 ;; with the appropriate code.  Stays here because removing it would
-;; break CI's pass/fail signal.
+;; break CI's pass/fail signal.  On a RED run we first replay any
+;; buffered `console.warn` diagnostics (the green-path stub withheld
+;; them) so a failing run keeps the context that may explain it.
 
 (defmethod ct/report [:cljs.test/default :end-run-tests] [m]
   (if (ct/successful? m)
     (js/process.exit 0)
-    (js/process.exit 1)))
+    (do (replay-buffered-warnings!)
+        (js/process.exit 1))))
 
 ;; ----------------------------------------------------------------------
 ;; Test-data reset (mirrors shadow.test.node/reset-test-data!).
