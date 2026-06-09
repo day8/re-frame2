@@ -130,6 +130,18 @@ run "implementor order-guard self-test" "python scripts/check_skill_implementor_
 run "implementor foundation-order" "python scripts/check_skill_implementor_order.py --verbose --ci" \
   python "$repo_root/scripts/check_skill_implementor_order.py" --verbose --ci
 
+# Eval-docs drift guard (rf2-r2xswa): the re-frame2 eval harness README carries
+# a hand-maintained coverage table, total count, and per-dimension breakdown
+# that silently fell behind evals.json once (a 7th eval landed while the README
+# still said "Six evals … two per dimension").  Self-test first (proves it fires
+# on count/name/tally drift), then the live scan asserts the README agrees with
+# the JSON.
+run "eval-docs guard self-test" "python scripts/check_skill_eval_docs.py --self-test" \
+  python "$repo_root/scripts/check_skill_eval_docs.py" --self-test
+
+run "re-frame2 eval-docs match evals.json" "python scripts/check_skill_eval_docs.py --verbose --ci" \
+  python "$repo_root/scripts/check_skill_eval_docs.py" --verbose --ci
+
 # README inventory ratchet (rf2-198k3): layout-map<->disk bijection +
 # 'N <noun>' count-numeral claims.  Runs unconditionally (not gated on a
 # markdown diff) because the drift it catches can be triggered by a *dir*
