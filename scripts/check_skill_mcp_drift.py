@@ -575,10 +575,21 @@ class TitleSafetyRule:
     `allowance_bead`   — if set, the consumer is a known follow-up: drift
                          is silenced and reported as an info line naming
                          the bead. `None` = enforced.
+    `require_search`   — if True, a DELIBERATELY-LOCAL consumer (one that
+                         carries the recipe instead of linking the shared
+                         leaf) must ALSO carry the search-before-filing
+                         clause locally (`gh issue list --search` + the
+                         author-the-keywords-never-paste shell-safety note).
+                         The shared leaf's §"Search before filing" hardening
+                         is inherited for free by link-branch consumers; a
+                         local copy can silently omit it, so this flag pins
+                         the dedupe clause for the local-recipe consumer
+                         (rf2-ij6ulc). Ignored on the link branch.
     """
     consumer: str
     docs: tuple[Path, ...]
     allowance_bead: str | None = None
+    require_search: bool = False
 
 
 # Body-safety clause markers: the `--body-file` recipe and the
@@ -596,6 +607,18 @@ _TITLE_SAFE_MARKERS: tuple[tuple[str, ...], ...] = (
      "has no --title-file"),
     ("safe alphabet", "safe-alphabet"),
     ("into `--title`", "into --title"),
+)
+
+# Search-before-filing clause markers (rf2-ij6ulc). A deliberately-local
+# consumer (`require_search=True`) must carry BOTH: the dedupe command
+# (`gh issue list` with `--search`) and the author-the-keywords-never-paste
+# shell-safety note (`--search` is an inline argument, no `--search-file`).
+# Each tuple is an OR over acceptable phrasings; ALL tuples must hit.
+_SEARCH_SAFE_MARKERS: tuple[tuple[str, ...], ...] = (
+    ("gh issue list",),
+    ("--search",),
+    ("no `--search-file`", "no --search-file", "there is no `--search-file`",
+     "there is no --search-file"),
 )
 
 
@@ -628,12 +651,19 @@ TITLE_SAFETY_RULES: list[TitleSafetyRule] = [
     # follow-up allowance that kept the gate green while rf2-708nm held
     # cardinal-rules.md has been removed, so this consumer is now enforced
     # via the local-clauses branch (no allowance).
+    # The local recipe also carries the search-before-filing (dedupe) clause
+    # — `gh issue list --search` + the author-the-keywords-never-paste
+    # shell-safety note — added under rf2-ij6ulc so the local copy can't drift
+    # from the shared leaf's §"Search before filing" hardening. `require_search`
+    # pins it: a future edit that drops the dedupe clause from the local recipe
+    # fires `missing-search-clause` drift.
     TitleSafetyRule(
         consumer="re-frame2-implementor",
         docs=(
             REPO_ROOT / "skills" / "re-frame2-implementor" / "SKILL.md",
             REPO_ROOT / "skills" / "re-frame2-implementor" / "references" / "cardinal-rules.md",
         ),
+        require_search=True,
     ),
 ]
 
@@ -660,10 +690,38 @@ def check_title_safety_rules(
             )
         text = "\n".join(p.read_text(encoding="utf-8") for p in rule.docs)
 
+        # rf2-ij6ulc: the search-before-filing (dedupe) check runs FIRST and
+        # INDEPENDENTLY of the link/local-clause branch dispatch below. The
+        # link branch's `SHARED_ISSUE_FILING_LINK in text` test is a loose
+        # substring match — a deliberately-local consumer (like
+        # re-frame2-implementor, which carries the recipe and only *mentions*
+        # the shared leaf's path in prose) would otherwise short-circuit on the
+        # link branch and skip its local-clause enforcement entirely. So a
+        # require_search consumer must carry the dedupe clause regardless of
+        # which branch it lands on; a genuine link-branch consumer inherits the
+        # shared leaf's §"Search before filing" for free and never sets
+        # require_search.
+        if rule.require_search and not _all_markers_present(
+            text, _SEARCH_SAFE_MARKERS
+        ):
+            drift.append(Drift(
+                mapping_name=f"title-safety:{rule.consumer}",
+                direction="missing-search-clause",
+                tool=rule.consumer,
+            ))
+            info.append(
+                f"title-safety: {rule.consumer} is MISSING the search-before-"
+                f"filing (dedupe) clause (`gh issue list --search` + the "
+                f"author-the-keywords-never-paste note) -- DRIFT."
+            )
+            continue
+
         if SHARED_ISSUE_FILING_LINK in text:
             info.append(
                 f"title-safety: {rule.consumer} links the shared "
-                f"issue-filing leaf (single-source) -- OK."
+                f"issue-filing leaf (single-source)"
+                + ("; local search clause present" if rule.require_search else "")
+                + " -- OK."
             )
             continue
 
@@ -671,8 +729,9 @@ def check_title_safety_rules(
         has_title = _all_markers_present(text, _TITLE_SAFE_MARKERS)
         if has_body and has_title:
             info.append(
-                f"title-safety: {rule.consumer} carries local body+title "
-                f"shell-safety clauses -- OK."
+                f"title-safety: {rule.consumer} carries local body+title"
+                + ("+search" if rule.require_search else "")
+                + " shell-safety clauses -- OK."
             )
             continue
 
@@ -737,6 +796,20 @@ class Drift:
                 f"never paste evidence into `--title`) is enforced. Link the "
                 f"shared leaf, or add the clauses to the consumer's local "
                 f"recipe. (rf2-4kyg6)"
+            )
+        if self.direction == "missing-search-clause":
+            return (
+                f"{self.mapping_name}: gh-issue-writing consumer '{self.tool}' "
+                f"carries a deliberately-local filing recipe but is missing "
+                f"the search-before-filing (dedupe) clause. Per "
+                f"skills/shared/issue-filing.md §\"Search before filing\", a "
+                f"consumer that does not link the shared leaf must carry the "
+                f"dedupe step locally: `gh issue list --repo <owner/repo> "
+                f"--search \"<keywords>\"` AND the shell-safety note that "
+                f"`--search` is an inline argument (no `--search-file`) whose "
+                f"keywords are agent-authored, never pasted from evidence. Add "
+                f"the clause to the local recipe, or link the shared leaf. "
+                f"(rf2-ij6ulc)"
             )
         assert mapping is not None
         if self.direction == "missing-in-skill":
@@ -970,6 +1043,54 @@ def _run_self_test(ci: bool) -> int:
                 "the local-clauses branch is broken."
             )
 
+        # (3b) Synthetic SEARCH-NEGATIVE (rf2-ij6ulc): body+title clauses but
+        #      NO search-before-filing clause, require_search=True -> MUST fire
+        #      missing-search-clause (and NOT missing-title-safety).
+        search_neg_drift, _ = check_title_safety_rules(
+            [TitleSafetyRule(
+                consumer="synthetic-search-negative",
+                docs=(pos,),
+                require_search=True,
+            )]
+        )
+        if not [
+            d for d in search_neg_drift
+            if d.direction == "missing-search-clause"
+            and d.tool == "synthetic-search-negative"
+        ]:
+            failures.append(
+                "a require_search consumer carrying body+title clauses but NO "
+                "search-before-filing clause did NOT fire missing-search-clause "
+                "drift -- the search-clause check is a no-op (rf2-ij6ulc)."
+            )
+
+        # (3c) Synthetic SEARCH-POSITIVE (rf2-ij6ulc): body+title+search clauses,
+        #      require_search=True -> MUST stay green.
+        search_pos = td_path / "local-clauses-with-search.md"
+        search_pos.write_text(
+            pos.read_text(encoding="utf-8")
+            + "\nSearch first: gh issue list --repo day8/re-frame2 --search "
+            "\"<keywords>\"; there is no `--search-file`, so author the "
+            "keywords from the safe alphabet and never paste evidence.\n",
+            encoding="utf-8",
+        )
+        search_pos_drift, _ = check_title_safety_rules(
+            [TitleSafetyRule(
+                consumer="synthetic-search-positive",
+                docs=(search_pos,),
+                require_search=True,
+            )]
+        )
+        if [
+            d for d in search_pos_drift
+            if d.tool == "synthetic-search-positive"
+        ]:
+            failures.append(
+                "a require_search consumer carrying body+title+search clauses "
+                "(no shared-leaf link) was flagged -- the search-clause branch "
+                "is broken (rf2-ij6ulc)."
+            )
+
     # (4) Shipped implementor specifically: GREEN via local clauses, no
     #     allowance. This is the exact state rf2-57b5t0 lands.
     impl_rule = next(
@@ -987,6 +1108,14 @@ def _run_self_test(ci: bool) -> int:
                 "re-frame2-implementor still carries an allowance_bead -- "
                 "rf2-57b5t0 removes it so the local clauses enforce the rule."
             )
+        # rf2-ij6ulc: the implementor must carry the search-before-filing
+        # clause locally — require_search pins it.
+        if not impl_rule.require_search:
+            failures.append(
+                "re-frame2-implementor no longer carries require_search=True -- "
+                "its local recipe must keep enforcing the search-before-filing "
+                "(dedupe) clause (rf2-ij6ulc)."
+            )
         impl_drift, _ = check_title_safety_rules([impl_rule])
         if [
             d for d in impl_drift
@@ -997,6 +1126,16 @@ def _run_self_test(ci: bool) -> int:
                 "no allowance -- its local recipe is missing the body or title "
                 "clauses (rf2-57b5t0 must add them)."
             )
+        if [
+            d for d in impl_drift
+            if d.direction == "missing-search-clause"
+        ]:
+            failures.append(
+                "re-frame2-implementor fired missing-search-clause drift -- its "
+                "local recipe must carry the search-before-filing (dedupe) "
+                "clause: `gh issue list --search` + the author-the-keywords-"
+                "never-paste shell-safety note (rf2-ij6ulc)."
+            )
 
     if failures:
         for f in failures:
@@ -1005,8 +1144,9 @@ def _run_self_test(ci: bool) -> int:
 
     print("title-safety self-test: PASS "
           "(shipped consumers green with no allowance; synthetic negative "
-          "fires; synthetic local-clauses positive stays green; implementor "
-          "enforced via its local clauses).")
+          "fires; synthetic local-clauses positive stays green; search-clause "
+          "negative fires + positive stays green; implementor enforced via its "
+          "local body+title+search clauses).")
     return 0
 
 
