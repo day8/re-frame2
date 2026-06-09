@@ -29,7 +29,15 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  (test-fn))
+  ;; EP-0002 (rf2-9wa0lf): establish a `:rf/default` frame SCOPE so the
+  ;; single-drainer stress test's ambient top-level `dispatch` /
+  ;; `dispatch-sync` calls resolve a target (the carried-invariant
+  ;; contract — no synthesised default floor). `concurrent-dispatch-
+  ;; stress` carries an explicit `{:frame :stress.race/main}` and is
+  ;; unaffected by the binding.
+  (frame/ensure-default-frame!)
+  (binding [frame/*current-frame* :rf/default]
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 

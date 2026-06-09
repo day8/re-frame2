@@ -12,7 +12,15 @@
   (`:recovery :no-recovery`). It is dev-only — gated on
   `interop/debug-enabled?`, so production (`:advanced` +
   `goog.DEBUG=false`) DCEs the whole surface (the elision probe verifies
-  that separately)."
+  that separately).
+
+  EP-0002 (rf2-9wa0lf): the unknown-opt warning is emitted in
+  `build-envelope` BEFORE frame resolution, so a `:fram`-for-`:frame`
+  typo still surfaces its specific diagnostic even though the dispatch
+  then fails for want of a frame. The fixture establishes a `:rf/default`
+  frame SCOPE (the carried-invariant contract — no synthesised floor) so
+  the ambient `dispatch-sync` calls below complete after the warning
+  fires; the typo key carries no frame, but the scope does."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -28,7 +36,9 @@
   (reset! frame/frames {})
   (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
-  (test-fn))
+  (frame/ensure-default-frame!)
+  (binding [frame/*current-frame* :rf/default]
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 

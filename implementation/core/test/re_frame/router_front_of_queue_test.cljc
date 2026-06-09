@@ -23,7 +23,14 @@
   drain. The seed handler issues its child dispatches in its body; they
   enqueue onto the in-progress sync drain (no async drain is scheduled
   while `:in-sync-drain?` holds), then the sync drain pops them in queue
-  order. Run-order is recorded into an atom by each handler."
+  order. Run-order is recorded into an atom by each handler.
+
+  EP-0002 (rf2-9wa0lf): the top-level seed dispatch carries an explicit
+  `{:frame :rf/default}` (the shared fixture registers `:rf/default` as
+  an ordinary frame). The CHILD `dispatch*` calls inside the seed handler
+  inherit the handler's frame binding, so they need no explicit frame —
+  only the rootless top-level seed does (the carried-invariant contract:
+  no synthesised default floor)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -58,7 +65,7 @@
         (rf/dispatch* [:ext] {})
         (rf/dispatch* [:cont] {:rf.machine/internal? true})
         {}))
-    (rf/dispatch-sync [:seed])
+    (rf/dispatch-sync [:seed] {:frame :rf/default})
     (is (= [:seed :cont :ext] @run-log)
         ":cont (machine-internal) leap-frogged the earlier-queued :ext")))
 
@@ -76,7 +83,7 @@
         (rf/dispatch* [:ext] {})
         (rf/dispatch* [:plain] {}) ;; NOT machine-internal
         {}))
-    (rf/dispatch-sync [:seed])
+    (rf/dispatch-sync [:seed] {:frame :rf/default})
     (is (= [:seed :ext :plain] @run-log)
         "both unflagged dispatches ran in arrival order (no leap-frog)")))
 
@@ -100,7 +107,7 @@
         (rf/dispatch* [:a] {:rf.machine/internal? true})
         (rf/dispatch* [:b] {:rf.machine/internal? true})
         {}))
-    (rf/dispatch-sync [:seed])
+    (rf/dispatch-sync [:seed] {:frame :rf/default})
     (is (= [:seed :a :b :ext] @run-log)
         ":a before :b (source order) at the front, both ahead of :ext")))
 
@@ -134,7 +141,7 @@
     (let [seen (atom [])]
       (rf/register-listener! ::epoch-rec (fn [ev] (swap! seen conj ev)))
       (try
-        (rf/dispatch-sync [:seed])
+        (rf/dispatch-sync [:seed] {:frame :rf/default})
         (finally (rf/unregister-listener! ::epoch-rec)))
       ;; Run order reflects the leap-frog.
       (is (= [:seed :c1 :c2 :ext] @run-log))

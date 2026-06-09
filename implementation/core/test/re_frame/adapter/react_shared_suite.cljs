@@ -2269,6 +2269,12 @@
   (let [tenant-a (mint-kw substrate-kw "dfc-tenant-a")
         tenant-b (mint-kw substrate-kw "dfc-tenant-b")
         seed     (mint-kw substrate-kw "dfc-seed")]
+    ;; EP-0002 (rf2-9wa0lf): `:rf/default` is an ordinary frame — `init!`
+    ;; no longer creates it. Register it explicitly so the `:rf/default`
+    ;; seed below lands and the "neither frame leaked" assertions across
+    ;; the dfc family compare against a real (empty) frame rather than a
+    ;; never-registered one.
+    (frame/ensure-default-frame!)
     (rf/reg-frame tenant-a {:doc "tenant-a frame"})
     (rf/reg-frame tenant-b {:doc "tenant-b frame"})
     (rf/reg-event-db seed (fn [_ [_ marker]] {:marker marker :received []}))
@@ -2327,24 +2333,44 @@
 
 (defn assert-dfc-raw-dispatch-from-set-timeout-falls-through
   "Raw rf/dispatch from a setTimeout callback escapes *current-frame* —
-  documented gotcha (rf2-l5q3). ASYNC: caller supplies `done`."
+  the documented gotcha (rf2-l5q3). EP-0002 (rf2-9wa0lf) REFRAMES the
+  outcome: the binding is dead in the async callback, so the raw dispatch
+  no longer SILENTLY falls through to `:rf/default` — there is no
+  `:rf/default` floor. It now FAILS LOUDLY with
+  `:rf.error/no-frame-context`, replacing the retired
+  `:rf.warning/dispatch-from-async-callback-fell-through-to-default`. The
+  fix is to capture a `frame-handle` / `frame-bound-fn` at render time
+  (covered by `assert-dfc-dispatch-later-survives-the-timer` et al.).
+  ASYNC: caller supplies `done`."
   [{:keys [substrate-kw name]} done]
-  (testing (str name " — raw rf/dispatch from setTimeout falls through to :rf/default")
+  (testing (str name " — raw rf/dispatch from setTimeout raises :rf.error/no-frame-context")
     (let [{:keys [tenant-a]} (dfc-seed-frames! substrate-kw)
           defer  (mint-kw substrate-kw "dfc-defer-raw")
-          landed (mint-kw substrate-kw "dfc-landed-raw")]
+          landed (mint-kw substrate-kw "dfc-landed-raw")
+          raised (atom nil)]
       (rf/reg-event-fx defer
-        (fn [_ _] (js/setTimeout (fn [] (rf/dispatch [landed])) 0) {}))
+        (fn [_ _]
+          (js/setTimeout
+            (fn []
+              ;; The dynamic binding is dead here — a raw dispatch has no
+              ;; carried frame stamp, so it raises. Catch it so the timer
+              ;; callback does not crash the host; record the id.
+              (try (rf/dispatch [landed])
+                   (catch :default e (reset! raised (:rf.error/id (ex-data e))))))
+            0)
+          {}))
       (rf/reg-event-db landed (fn [db _] (update db :received (fnil conj []) :landed-raw)))
       (rf/dispatch-sync [defer] {:frame tenant-a})
       (js/setTimeout
         (fn []
           (js/setTimeout
             (fn []
-              (is (= [:landed-raw] (dfc-received :rf/default))
-                  ":landed-raw lands on :rf/default (dynamic binding is dead in the setTimeout callback)")
+              (is (= :rf.error/no-frame-context @raised)
+                  "the raw async dispatch raised :rf.error/no-frame-context (no :rf/default floor)")
               (is (empty? (dfc-received tenant-a))
-                  "tenant-a sees nothing — raw rf/dispatch can't recover the in-flight frame from a setTimeout")
+                  "tenant-a sees nothing — the dispatch never enqueued")
+              (is (empty? (dfc-received :rf/default))
+                  ":rf/default sees nothing — there is no fall-through target")
               (done))
             10))
         10))))
