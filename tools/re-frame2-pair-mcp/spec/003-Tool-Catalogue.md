@@ -566,6 +566,38 @@ CLI flags:
 | `--allow-sensitive-reads` | OFF           | Honours caller-supplied `:include-sensitive true` and `:elision false` on the off-box read surfaces — the direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`) AND `dispatch-dry-run` (rf2-z7roa), whose `:db-state-after-simulation` + `:would-fire-effects[*].args` slots are app-db/fx-derived egress. Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
 | `--allow-writes`          | OFF           | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes), so for a true read-only posture compose with `--no-eval`. |
 
+### Launch-config validation (rf2-a0kxsb)
+
+The launch flags above — plus the resource-control flags / env vars in
+[§Universal: server resource controls](#universal-server-resource-controls-streaming-surfaces)
+— are parsed against a **declared schema** (boolean flags, valued flags,
+resource-control flags, resource env vars). The parsers themselves stay
+permissive (a `--*` token the server doesn't understand is plucked
+past, not fatal — node / shadow-cljs pass their own argv prelude), but a
+separate validation pass scans the same argv at boot and emits an
+**explicit structured stderr diagnostic** for any misconfigured input,
+**before the transport announces readiness**. Each diagnostic names the
+rejected input and the effective fallback:
+
+| Issue              | Trigger | Diagnostic |
+|--------------------|---------|------------|
+| `:removed-flag`    | A renamed / removed legacy name (`--allow-raw-state` → `--allow-sensitive-reads`; `--allow-eval`, now eval defaults ON) | Names the replacement — pre-alpha, no silent no-op for a stale `~/.claude.json`. |
+| `:unknown-flag`    | A `--*` token matching no known flag (a typo like `--no-eavl`) | "ignored — not a recognised launch flag". |
+| `:missing-value`   | A valued flag (`--port-file` / `--http-port`) present with no value | Names the fall-through to default discovery / behaviour. |
+| `:malformed-value` | `--http-port` non-numeric, or a resource-control flag whose value isn't a positive integer | Names the fall-back to the documented default. |
+| `:malformed-env`   | A resource env var set to a blank / non-numeric / non-positive value | Names the fall-back to the documented default. |
+
+The validator **warns, it does not hard-fail**: a hard boot-fail would
+make the server vanish from the agent host (the operator never sees
+*why*), whereas an explicit stderr line names the problem AND lets a
+working (default-posture) server still come up. The rationale: a
+one-character typo in a safety flag silently changes session posture
+(`--no-eavl` leaves `eval-cljs` enabled because eval defaults on; a
+misspelled `--port-file` falls through to discovery; an invalid resource
+cap reverts to default). The diagnostic makes that mismatch visible in
+the boot log instead of leaving the operator to discover it the hard
+way.
+
 When `--allow-sensitive-reads` is OFF (the published-build default), the
 off-box read surfaces above — and `dispatch-dry-run`'s egress slots
 (rf2-z7roa) — :
@@ -635,8 +667,11 @@ to a runaway or hostile client of the streaming `subscribe` surface
 (rf2-3ijbl, follow-on to the rf2-7adwg MEDIUM finding). Each cap has
 a documented default, an override CLI flag (`--<name>=N`), and an
 override env var (`<ENV_NAME>=N`). CLI flags win over env vars on
-conflict. Values must be positive integers; non-positive or
-unparseable values fall back to the default silently.
+conflict. Values must be positive integers; a non-positive or
+unparseable value falls back to the default — and, since rf2-a0kxsb,
+that fall-back is **named at boot** by the launch-config validator
+(`:malformed-value` / `:malformed-env`) rather than discarded silently.
+See [§Launch-config validation](#launch-config-validation-rf2-a0kxsb).
 
 | Cap                          | Default | CLI flag                          | Env var                                          |
 |------------------------------|---------|-----------------------------------|--------------------------------------------------|
@@ -705,6 +740,23 @@ that opens one abusive stream, hits the threshold, then opens
 another starts with a non-empty window. Resetting requires either
 ending the session (closing the MCP-server process) or letting the
 window expire naturally.
+
+### Observability (rf2-a0kxsb)
+
+All three gates enforce server-side, but the controller's live state —
+effective caps, active slot count, token-bucket pressure, abuse-window
+count — was historically reachable only through the rejection envelopes
+themselves, the passive boot banner, and code-level test seams. The
+[`get-stream-controls`](#get-stream-controls) tool surfaces that state
+as a first-class read-only MCP diagnostic: it answers "why was my stream
+denied / why is it quiet / why did it terminate?" by reporting the
+controller's current beliefs. It reads the resource-control atoms
+**in-process** (no nREPL round-trip), so it answers even when the
+runtime is down — exactly when an operator is diagnosing a stalled
+stream. Cross-check its `:concurrent-streams :active` against the
+[`list-streams`](#list-streams) row count: a server `:active` with no
+matching runtime row signals a leaked server slot; the reverse signals
+a stale runtime subscription.
 
 ### Symmetric with sibling DoS bounds
 
@@ -2722,6 +2774,72 @@ bodies; only registration metadata crosses the wire.
 `:reason :runtime-not-preloaded` if the preload hasn't run;
 `:reason :list-streams-failed` (with `:message`) on any other
 failure.
+
+## get-stream-controls
+
+Report the **server-side** streaming resource-control state (rf2-a0kxsb)
+— the "why was my stream denied / why is it quiet / why did it
+terminate?" diagnostic. Where [`list-streams`](#list-streams) reads the
+**runtime** streaming-tap registry (what trace/epoch/fx streams are open
+in the browser), `get-stream-controls` reports what the **server's
+resource controller** currently believes: the effective caps, the active
+slot count versus the limit, the token-bucket pressure, and the
+abuse-window count versus the threshold (see
+[§Universal: server resource controls](#universal-server-resource-controls-streaming-surfaces)).
+
+Reads the resource-control atoms **in-process** — **no nREPL
+round-trip** — so it answers even when the runtime is down (exactly when
+an operator is most likely diagnosing a denied or stalled stream). It is
+the only read tool whose `:openWorldHint` is `false`: the state is
+server-local, the read never leaves the process.
+
+**Privacy**: the payload is control state only — caps, counts, bucket
+pressure. No event payloads, no app-db data, so it is unconditionally
+safe (no `--allow-sensitive-reads` gate).
+
+**Args** (all optional):
+
+- `build` (string, optional) — accepted for shape uniformity; ignored
+  (the state is server-local, not per-build).
+
+**Returns**:
+
+```clojure
+{:ok?    true
+ :config {:max-concurrent-streams   10
+          :max-events-per-sec       100
+          :abuse-overflow-threshold 50
+          :abuse-window-ms          10000}
+ :concurrent-streams {:active       <integer>
+                      :limit        <integer>
+                      :at-capacity? <bool>}     ; true ⇒ next subscribe is denied
+ :rate-limit {:capacity     <integer>           ; = :max-events-per-sec
+              :tokens       <float>             ; tokens remaining in the bucket
+              :initialized? <bool>              ; false until the first poll cycle
+              :throttling?  <bool>}             ; true ⇒ < 1 token, next cycle defers
+ :abuse-window {:count     <integer>            ; overflows in the rolling window
+                :threshold <integer>            ; = :abuse-overflow-threshold
+                :window-ms <integer>            ; = :abuse-window-ms
+                :tripped?  <bool>}              ; true ⇒ count exceeded threshold
+ :cross-check <hint-string>}
+```
+
+**Cross-check with `list-streams`**: compare `:concurrent-streams
+:active` here against the `list-streams` row count. They SHOULD agree.
+A server `:active` with NO matching `list-streams` row signals a
+**leaked server slot** (a stream that died without releasing its slot);
+the reverse signals a **stale runtime subscription**. `get-stream-controls`
+reports the server count and the cross-check hint but does NOT call the
+runtime itself (that would re-introduce the nREPL dependency it exists
+to avoid) — run `list-streams` to complete the cross-check.
+
+The token bucket is **lazily initialised** on the first poll cycle, so
+on a fresh session `:rate-limit :initialized?` is `false` and `:tokens`
+reports the full capacity (the lazy-init state) rather than a confusing
+`nil`.
+
+Always `:ok? true` — there is no failure mode for an in-process atom
+read.
 
 ## handler-meta
 
