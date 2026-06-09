@@ -1539,32 +1539,21 @@
   `:epoch/unregister-epoch-listener!`."}
   unregister-epoch-listener!   rf-epoch/unregister-epoch-listener!)
 
-(def ^{:doc "Replace `frame-id`'s `app-db` with `new-db`, bypassing the
-  dispatch loop. The canonical Tool-Pair write surface for state
-  injection — pair tools, story fixtures, conformance harnesses, and
-  time-travel from JSON repros. Records a synthetic `:rf/epoch-record`
-  so `restore-epoch` can rewind. Dev-only (gated on
-  `interop/debug-enabled?`). Raises `:rf.error/epoch-artefact-missing`
-  when the artefact is absent. Per Tool-Pair §Pair-tool writes
-  (rf2-zq55). Late-bound via `:epoch/reset-frame-db!`."}
-  reset-frame-db!    rf-epoch/reset-frame-db!)
-
-;; ---- EP-0001 two-partition mutators (rf2-q4i9ko) --------------------------
+;; ---- EP-0001 two-partition mutators (rf2-q4i9ko / rf2-tfepxu) -------------
 ;;
 ;; Per Spec 002 §Frame-state value accessors and mutators + API.md, the
-;; partition write surface is `replace-app-db!` / `replace-runtime-db!` /
-;; `replace-frame-state!`. This bead (rf2-q4i9ko) introduces the SURFACE
-;; (Mike ruling #1 / #10), NOT the physical partition split.
+;; partition write surface is `replace-app-db!` / `reset-app-db!` /
+;; `replace-runtime-db!` / `replace-frame-state!` (Mike ruling #1 / #10).
 ;;
-;; - `replace-app-db!` is a true thin alias of the existing app-db
-;;   replacement mechanism — same delegate (`rf-epoch/reset-frame-db!`),
-;;   same synthetic-epoch recording, same gating and failure modes. No
-;;   behavior change: it is the new name for the same write. The rename of
-;;   the legacy `reset-frame-db!` Tool-Pair surface (and the new app-db-only
-;;   `reset-app-db!`) is rf2-tfepxu (bead 9); both names coexist until then.
+;; - `replace-app-db!` is the app-db-only state-injection write — the
+;;   direct rename of the former `reset-frame-db!` Tool-Pair surface
+;;   (rf2-tfepxu, bead 9). Same synthetic-epoch recording, gating, and
+;;   failure modes; a db-shaped name never silently replaces runtime-db.
+;; - `reset-app-db!` resets the app-db partition to `{}` while preserving
+;;   live runtime-db — the app-db sibling of the whole-frame `reset-frame!`.
 ;; - `replace-runtime-db!` / `replace-frame-state!` write the physical
 ;;   frame-state container's partitions through the atomic
-;;   `frame/commit-frame-transition!` path (rf2-adwcv6, bead 5 — now real).
+;;   `frame/commit-frame-transition!` path (rf2-adwcv6, bead 5).
 
 (def ^{:doc "Replace `frame-id`'s `app-db` partition with `app-db`,
   bypassing the dispatch loop. The canonical Tool-Pair write surface for
@@ -1576,13 +1565,25 @@
   Raises `:rf.error/epoch-artefact-missing` when the epoch artefact is
   absent.
 
-  EP-0001 (rf2-q4i9ko): thin wrapper — the new partition-aware name for
-  the existing app-db replacement; same delegate and behavior as
-  `reset-frame-db!`. Replaces ONLY the app-db partition; runtime-db is a
-  partition this surface never touches (Mike ruling #10 — a db-shaped
-  name never silently replaces runtime-db). Per Spec 002 §Frame-state
-  value accessors and mutators and API.md `replace-app-db!`."}
-  replace-app-db!    rf-epoch/reset-frame-db!)
+  EP-0001 (rf2-tfepxu): the direct rename of the former `reset-frame-db!`
+  Tool-Pair surface (Mike ruling #10). Replaces ONLY the app-db partition;
+  runtime-db is a partition this surface never touches (a db-shaped name
+  never silently replaces runtime-db). Per Spec 002 §Frame-state value
+  accessors and mutators and API.md `replace-app-db!`. Late-bound via
+  `:epoch/replace-app-db!`."}
+  replace-app-db!    rf-epoch/replace-app-db!)
+
+(def ^{:doc "Reset `frame-id`'s `app-db` partition to `{}`, bypassing the
+  dispatch loop, while preserving live runtime-db (machines / routes /
+  elision / SSR survive). The app-db-only sibling of the whole-frame
+  `reset-frame!` (EP-0001 rf2-tfepxu, Mike ruling #10). Equivalent to
+  `(replace-app-db! frame-id {})` — same synthetic-epoch recording, gating,
+  and failure modes. Returns `true` on success, `false` on a documented
+  failure. Dev-only (gated on `interop/debug-enabled?`). Raises
+  `:rf.error/epoch-artefact-missing` when the epoch artefact is absent. Per
+  Spec 002 §reset-frame! and API.md `reset-app-db!`. Late-bound via
+  `:epoch/reset-app-db!`."}
+  reset-app-db!    rf-epoch/reset-app-db!)
 
 (defn replace-runtime-db!
   "Replace ONLY `frame-id`'s `runtime-db` partition with `runtime-db` — the

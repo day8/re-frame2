@@ -393,7 +393,7 @@
   runtime-db). Atomic install through the one physical container. Returns
   the set of changed partition keys, or `nil` for an unknown / destroyed
   frame. Internal write boundary used by the Tool-Pair `replace-app-db!` /
-  epoch `reset-frame-db!` path."
+  epoch `replace-app-db!` path."
   [id app-db]
   (commit-frame-transition! id {app-partition-key app-db}))
 

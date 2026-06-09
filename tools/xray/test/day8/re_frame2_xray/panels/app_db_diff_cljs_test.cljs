@@ -94,17 +94,17 @@
   (rf/reg-event-db :rf.xray-test/seed-target-frame-db
     (fn [db _]
       ;; This is a no-op marker — the host frame's db is the source
-      ;; of truth, and we set it via reset-frame-db! below. Kept so
+      ;; of truth, and we set it via replace-app-db! below. Kept so
       ;; tests can locate the seed step by name.
       db)))
 
 (defn- seed-host-frame!
   "Reset the host (:rf/default) frame's app-db to the supplied
-  value via the framework's reset-frame-db!. The Phase 5 panel
+  value via the framework's replace-app-db!. The Phase 5 panel
   derefs the host frame via :rf.xray/target-frame-db."
   [db-value]
   (frame/reg-frame :rf/default {})
-  (rf/reset-frame-db! :rf/default db-value))
+  (rf/replace-app-db! :rf/default db-value))
 
 (defn- seed-xray!
   "Wire the Phase 5 sub graph + seed history + host-frame db. The
@@ -594,8 +594,8 @@
     (frame/reg-frame :rf/default {})
     (frame/reg-frame :checkout-frame {})
     ;; Give the two frames distinguishable values.
-    (rf/reset-frame-db! :rf/default {:counter 0})
-    (rf/reset-frame-db! :checkout-frame {:checkout {:step :payment}})
+    (rf/replace-app-db! :rf/default {:counter 0})
+    (rf/replace-app-db! :checkout-frame {:checkout {:step :payment}})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-frame :checkout-frame])
       (let [tree (app-db-diff/Panel)

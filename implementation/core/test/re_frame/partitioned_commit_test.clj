@@ -303,6 +303,28 @@
            (rf/frame-state-value :pc/m-fs))
         "both partitions installed coherently")))
 
+(deftest replace-frame-state-replaces-the-whole-frame-state
+  (testing "replace-frame-state! wholesale-replaces BOTH partitions of an
+            existing frame-state (the full-frame install surface, Mike
+            ruling #10 — NOT an app-db-only reset)"
+    (rf/reg-frame :pc/m-full {:doc "m-full"})
+    ;; seed a coherent pre-existing frame-state in both partitions
+    (rf/replace-frame-state! :pc/m-full {:rf.db/app {:a :old}
+                                         :rf.db/runtime {:rf.runtime/machines {:m :old}}})
+    (is (= {:rf.db/app {:a :old} :rf.db/runtime {:rf.runtime/machines {:m :old}}}
+           (rf/frame-state-value :pc/m-full)))
+    ;; a full-frame replace swaps the WHOLE frame-state — both app-db AND
+    ;; runtime-db are replaced wholesale, unlike replace-app-db! (app-db only).
+    (rf/replace-frame-state! :pc/m-full {:rf.db/app {:a :new}
+                                         :rf.db/runtime {:rf.runtime/routing {:r :new}}})
+    (is (= {:a :new} (rf/app-db-value :pc/m-full))
+        "app-db partition fully replaced")
+    (is (= {:rf.runtime/routing {:r :new}} (rf/runtime-db-value :pc/m-full))
+        "runtime-db partition fully replaced — the old machines slice is gone")
+    (is (= {:rf.db/app {:a :new} :rf.db/runtime {:rf.runtime/routing {:r :new}}}
+           (rf/frame-state-value :pc/m-full))
+        "the whole frame-state is the newly-installed value")))
+
 (deftest mutators-return-changed-partition-set
   (testing "the frame-level commit helpers report which partition(s) changed"
     (rf/reg-frame :pc/m-ret {:doc "m-ret"})

@@ -442,13 +442,21 @@
         :fail (do (tool-pair/emit-precondition-failure! op tags)
                   false)))))
 
-;; ---- reset-frame-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
+;; ---- replace-app-db! / reset-app-db! (Tool-Pair §Pair-tool writes) -------
 ;;
 ;; Per Tool-Pair §Pair-tool writes: a public Tool-Pair write surface that
-;; replaces a frame's `app-db` with an arbitrary new value, bypassing the
-;; dispatch loop. Used by pair-shaped tools for state injection (evolved-
-;; state-shape probes after a handler hot-swap), story tools, conformance
-;; harnesses, and time-travel from JSON-loaded bug repros.
+;; replaces a frame's `app-db` PARTITION with an arbitrary new value,
+;; bypassing the dispatch loop. Used by pair-shaped tools for state
+;; injection (evolved-state-shape probes after a handler hot-swap), story
+;; tools, conformance harnesses, and time-travel from JSON-loaded bug
+;; repros. The runtime-db partition is never touched (Mike ruling #10 — a
+;; db-shaped name never silently replaces runtime-db).
+;;
+;; EP-0001 (rf2-tfepxu, bead 9): the surface formerly named `reset-frame-db!`
+;; is renamed to `replace-app-db!` (Mike ruling #10 + spec/API.md), with a
+;; new app-db-only sibling `reset-app-db!` that resets the app-db partition
+;; to `{}` while preserving live runtime-db — the app-db sibling of the
+;; whole-frame `reset-frame!`.
 ;;
 ;; The surface is dev-only — gated on `interop/debug-enabled?`, the same
 ;; gate as `restore-epoch` / `register-epoch-listener!` / the rest of the
@@ -457,9 +465,9 @@
 ;; available in shipped binaries.
 ;;
 ;; Failure modes (each is a no-op on `app-db` and returns `false`):
-;;   :rf.error/no-such-handler            (kind :frame) — frame not registered
-;;   :rf.epoch/reset-frame-db-during-drain — called while drain is in flight
-;;   :rf.epoch/reset-frame-db-schema-mismatch — `new-db` fails the frame's
+;;   :rf.error/no-such-handler              (kind :frame) — frame not registered
+;;   :rf.epoch/replace-app-db-during-drain  — called while drain is in flight
+;;   :rf.epoch/replace-app-db-schema-mismatch — `new-db` fails the frame's
 ;;                                              registered app-schema set
 ;;
 ;; On success: records a synthetic `:rf/epoch-record` (so undo via
@@ -467,7 +475,7 @@
 ;; `:rf.epoch/db-replaced`, replaces the container, and fires registered
 ;; epoch listeners with the assembled record.
 
-(defn- perform-reset-frame-db!
+(defn- perform-replace-app-db!
   "Carry out the `app-db` replacement once preconditions have passed.
   Records a synthetic `:rf/epoch-record` (so `restore-epoch` can rewind
   the prior state), emits `:rf.epoch/db-replaced`, replaces the
@@ -489,7 +497,7 @@
       (do (tool-pair/emit-precondition-failure! op tags)
           false)
       (let [;; EP-0001 (rf2-3aizt1): the canonical snapshot unit is the whole
-            ;; frame-state. `reset-frame-db!` replaces ONLY the app-db
+            ;; frame-state. `replace-app-db!` replaces ONLY the app-db
             ;; partition (Mike ruling #10 — a db-shaped name never silently
             ;; touches runtime-db), so the after-frame-state carries the new
             ;; app-db with the live runtime-db preserved unchanged. Restore of
@@ -499,9 +507,9 @@
         ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION of the one
         ;; physical frame-state container — `frame/app-db-container` is now a
         ;; READ-ONLY projection, so a direct `replace-container!` on it
-        ;; throws. `reset-frame-db!` / `replace-app-db!` replace the app-db
-        ;; partition only; runtime-db is untouched (Mike ruling #10 — a
-        ;; db-shaped name never silently replaces runtime-db).
+        ;; throws. `replace-app-db!` replaces the app-db partition only;
+        ;; runtime-db is untouched (Mike ruling #10 — a db-shaped name never
+        ;; silently replaces runtime-db).
         (frame/replace-app-db! frame-id new-db)
         ;; Record a synthetic epoch so `restore-epoch` can rewind the
         ;; previous state. The record's :trigger-event is the
@@ -514,7 +522,7 @@
                               :event-id      :rf.epoch/db-replaced
                               :trigger-event [:rf.epoch/db-replaced]))]
           (state/record! record)
-          ;; Per rf2-qs6dl: a `reset-frame-db!` re-renders the views that read
+          ;; Per rf2-qs6dl: a `replace-app-db!` re-renders the views that read
           ;; the replaced state; attribute those post-settle renders back to
           ;; this synthetic epoch rather than the next real cascade.
           (state/set-last-settled-epoch! frame-id (:epoch-id record))
@@ -524,19 +532,22 @@
           (listeners/notify-listeners! record))
         true))))
 
-(defn reset-frame-db!
-  "Replace `frame-id`'s `app-db` with `new-db`, bypassing the dispatch
-  loop. Per Tool-Pair §Pair-tool writes (rf2-zq55).
+(defn replace-app-db!
+  "Replace `frame-id`'s `app-db` partition with `new-db`, bypassing the
+  dispatch loop. Per Tool-Pair §Pair-tool writes. Renamed from
+  `reset-frame-db!` (EP-0001 rf2-tfepxu, Mike ruling #10 — a db-shaped name
+  never silently replaces runtime-db).
 
   Records a synthetic `:rf/epoch-record` so `restore-epoch` can rewind
-  the previous state; emits `:rf.epoch/db-replaced` on success.
+  the previous state; emits `:rf.epoch/db-replaced` on success. The
+  runtime-db partition is preserved unchanged.
 
   Failure modes (each is a no-op on `app-db` and returns `false`,
   emitting a structured error trace):
 
-    :rf.error/no-such-handler                 — frame not registered
-    :rf.epoch/reset-frame-db-during-drain     — drain in flight
-    :rf.epoch/reset-frame-db-schema-mismatch  — new-db fails app-schema
+    :rf.error/no-such-handler                   — frame not registered
+    :rf.epoch/replace-app-db-during-drain       — drain in flight
+    :rf.epoch/replace-app-db-schema-mismatch    — new-db fails app-schema
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
 
@@ -544,11 +555,25 @@
   [frame-id new-db]
   (if-not interop/debug-enabled?
     false
-    (let [{:keys [outcome op tags]} (tool-pair/check-reset-frame-db-preconditions! frame-id new-db)]
+    (let [{:keys [outcome op tags]} (tool-pair/check-replace-app-db-preconditions! frame-id new-db)]
       (case outcome
-        :ok   (perform-reset-frame-db! frame-id new-db)
+        :ok   (perform-replace-app-db! frame-id new-db)
         :fail (do (tool-pair/emit-precondition-failure! op tags)
                   false)))))
+
+(defn reset-app-db!
+  "Reset `frame-id`'s `app-db` partition to `{}`, bypassing the dispatch
+  loop, while preserving live runtime-db (machines / routes / elision /
+  SSR survive). The app-db-only sibling of the whole-frame `reset-frame!`
+  (EP-0001 rf2-tfepxu, Mike ruling #10). Thin wrapper over `replace-app-db!`
+  with the empty-map value — same synthetic-epoch recording, same gating
+  and failure modes.
+
+  Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
+
+  Returns `true` on success, `false` on any failure."
+  [frame-id]
+  (replace-app-db! frame-id {}))
 
 ;; ---- projected egress -----------------------------------------------------
 ;;
@@ -656,7 +681,8 @@
    ;; ---- introspection + Tool-Pair write surface --------------------
    :epoch/epoch-history       epoch-history
    :epoch/restore-epoch       restore-epoch
-   :epoch/reset-frame-db!     reset-frame-db!
+   :epoch/replace-app-db!     replace-app-db!
+   :epoch/reset-app-db!       reset-app-db!
 
    ;; ---- listener + config surface ----------------------------------
    :epoch/register-epoch-listener!   register-epoch-listener!

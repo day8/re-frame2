@@ -423,14 +423,15 @@
   ;; Epoch history re-exports (canonical home: re-frame.epoch) — §Tool-Pair.
   ["re-frame.core" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "restore-epoch"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.core" "reset-frame-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ;; EP-0001 two-partition mutators (rf2-q4i9ko / bead 3). Per spec/API.md
-  ;; §Epoch / Tool-Pair rows. replace-app-db! is a thin alias of the existing
-  ;; app-db replacement (coexists with reset-frame-db! until the rename in
-  ;; rf2-tfepxu / bead 9). The runtime-db / frame-state mutators are real
+  ;; EP-0001 two-partition mutators (rf2-q4i9ko / bead 3 + rf2-tfepxu /
+  ;; bead 9). Per spec/API.md §Epoch / Tool-Pair rows. replace-app-db! is the
+  ;; direct rename of the former reset-frame-db! Tool-Pair surface (bead 9);
+  ;; reset-app-db! is its app-db-only zero-db-arg sibling (resets app-db to
+  ;; {} preserving runtime-db). The runtime-db / frame-state mutators are real
   ;; partition writes as of rf2-adwcv6 (bead 5): they install into the one
   ;; physical frame-state container via frame/commit-frame-transition!.
   ["re-frame.core" "replace-app-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.core" "reset-app-db!"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "replace-runtime-db!"]        {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
@@ -652,7 +653,8 @@
   ;; =========================================================================
   ["re-frame.epoch" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "restore-epoch"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "reset-frame-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "replace-app-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "reset-app-db!"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "clear-epoch-listeners!"]     {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}

@@ -440,7 +440,8 @@
    `tap>` so the human sees what the agent changed.
 
    Delegates to the canonical Tool-Pair write surface
-   `(rf/reset-frame-db! frame-id v)` (Tool-Pair §Pair-tool writes).
+   `(rf/replace-app-db! frame-id v)` (Tool-Pair §Pair-tool writes;
+   renamed from `rf/reset-frame-db!`, EP-0001 rf2-tfepxu).
    That surface bypasses the dispatch loop (no event, no
    cascade) but DOES record a synthetic `:rf/epoch-record` with
    `:event-id :rf.epoch/db-replaced` so that `restore-epoch` can
@@ -463,10 +464,10 @@
 
    Failure modes (each is a no-op on app-db; corresponding
    `:rf.epoch/*` or `:rf.error/*` trace fires per Spec 009):
-     :no-such-frame                — frame not registered
-     :reset-frame-db-during-drain  — drain in flight
-     :schema-mismatch              — v fails the frame's app-schema
-     :epoch-artefact-missing       — re-frame2-epoch artefact not loaded"
+     :no-such-frame                  — frame not registered
+     :replace-app-db-during-drain    — drain in flight
+     :schema-mismatch                — v fails the frame's app-schema
+     :epoch-artefact-missing         — re-frame2-epoch artefact not loaded"
   ([v] (app-db-reset! v (current-frame)))
   ([v frame-id]
    (tap> {:re-frame2-pair/op :app-db/reset
@@ -475,7 +476,7 @@
           :next               (maybe-elide-for-tap v frame-id)
           :t                  (js/Date.now)})
    (try
-     (if (rf/reset-frame-db! frame-id v)
+     (if (rf/replace-app-db! frame-id v)
        ;; Per rf2-6yqdl: surface the synthetic `:rf.epoch/db-replaced`
        ;; epoch the framework just appended (Tool-Pair §Pair-tool writes).
        ;; The new head IS this epoch by construction; reading the
@@ -483,17 +484,17 @@
        (let [head-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
          (attach-cascade {:ok? true :frame frame-id :epoch-id head-id}
                          frame-id head-id))
-       ;; reset-frame-db! returns false on the soft-failure modes
+       ;; replace-app-db! returns false on the soft-failure modes
        ;; (unknown frame, in-drain, schema-mismatch). The structured
        ;; reason is in the trace stream (`:rf.error/no-such-handler`,
-       ;; `:rf.epoch/reset-frame-db-during-drain`,
-       ;; `:rf.epoch/reset-frame-db-schema-mismatch`); we surface a
+       ;; `:rf.epoch/replace-app-db-during-drain`,
+       ;; `:rf.epoch/replace-app-db-schema-mismatch`); we surface a
        ;; `:reset-rejected` umbrella so callers know the call did
        ;; not land without having to interpret the trace.
        {:ok?    false
         :frame  frame-id
         :reason :reset-rejected
-        :hint   "rf/reset-frame-db! returned false. Inspect (re-frame.trace.tooling/trace-buffer {:op-type :error}) and {:op-type :rf.epoch} for the structured reason — :rf.error/no-such-handler, :rf.epoch/reset-frame-db-during-drain, or :rf.epoch/reset-frame-db-schema-mismatch. (rf/trace-buffer is JVM-only; CLJS callers use the re-frame.trace.tooling ns.)"})
+        :hint   "rf/replace-app-db! returned false. Inspect (re-frame.trace.tooling/trace-buffer {:op-type :error}) and {:op-type :rf.epoch} for the structured reason — :rf.error/no-such-handler, :rf.epoch/replace-app-db-during-drain, or :rf.epoch/replace-app-db-schema-mismatch. (rf/trace-buffer is JVM-only; CLJS callers use the re-frame.trace.tooling ns.)"})
      (catch :default e
        (let [{:keys [reason] :as data} (ex-data e)]
          {:ok?     false
@@ -917,7 +918,7 @@
 ;; of app-db size or structure.
 ;;
 ;; The cache is updated whenever an epoch settles — every mutation path
-;; (dispatch via the router, `rf/reset-frame-db!` synthetic `:rf.epoch/
+;; (dispatch via the router, `rf/replace-app-db!` synthetic `:rf.epoch/
 ;; db-replaced`, `rf/restore-epoch`) produces an assembled-epoch record
 ;; that arrives at `on-epoch-streaming`. We update the cache there from
 ;; `(:db-after record)`. On the first read for a frame, if the slot is
@@ -2588,7 +2589,7 @@
        ;; Preserve the legacy `false` return on failure — the MCP
        ;; restore-epoch tool turns that into a structured envelope at
        ;; the wire boundary (the pre-rf2-6yqdl behaviour). Mirrors how
-       ;; reset-frame-db! returns a soft-failure envelope on the runtime
+       ;; replace-app-db! returns a soft-failure envelope on the runtime
        ;; side but the tool can elide the framework's `false`.
        false))))
 

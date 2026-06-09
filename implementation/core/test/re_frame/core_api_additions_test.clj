@@ -20,7 +20,7 @@
             [re-frame.machines]
             [re-frame.routing]
             ;; rf2-q4i9ko — replace-app-db! delegates to the epoch artefact's
-            ;; reset-frame-db! (synthetic-epoch recording); load it so the
+            ;; replace-app-db! (synthetic-epoch recording); load it so the
             ;; mutator round-trip below resolves a live hook.
             [re-frame.epoch]
             [re-frame.substrate.plain-atom :as plain-atom]))
@@ -314,9 +314,27 @@
     (is (= {:k 1} (rf/app-db-value :pp/round-trip))
         "app-db-value reads the seeded app-db")
     (is (true? (rf/replace-app-db! :pp/round-trip {:k 2 :j 9}))
-        "replace-app-db! returns true on success (thin alias of reset-frame-db!)")
+        "replace-app-db! returns true on success (the renamed app-db state-injection surface)")
     (is (= {:k 2 :j 9} (rf/app-db-value :pp/round-trip))
         "app-db-value reads back exactly what replace-app-db! wrote")))
+
+(deftest reset-app-db-resets-app-db-only-via-core-facade
+  (testing "rf/reset-app-db! resets the app-db partition to {} while live
+            runtime-db survives (EP-0001 rf2-tfepxu, Mike ruling #10 — the
+            app-db sibling of whole-frame reset-frame!)"
+    (rf/reg-frame :pp/reset-app {:doc "reset-app"})
+    (rf/reg-event-db :pp/seed (fn [_ [_ db]] db))
+    (rf/dispatch-sync [:pp/seed {:k 1 :cart {:items [9]}}] {:frame :pp/reset-app})
+    (rf/replace-runtime-db! :pp/reset-app {:rf.runtime/machines {:m 1}})
+    (is (= {:k 1 :cart {:items [9]}} (rf/app-db-value :pp/reset-app)))
+    (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :pp/reset-app)))
+
+    (is (true? (rf/reset-app-db! :pp/reset-app))
+        "reset-app-db! returns true on success")
+    (is (= {} (rf/app-db-value :pp/reset-app))
+        "app-db partition reset to {}")
+    (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :pp/reset-app))
+        "runtime-db partition PRESERVED — reset-app-db! never touches it")))
 
 (deftest app-db-value-unknown-frame-is-nil
   (testing "app-db-value returns nil for an unknown frame"

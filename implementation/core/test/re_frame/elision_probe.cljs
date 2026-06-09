@@ -165,9 +165,9 @@
   ;;   :rf.epoch/restore-missing-handler           (failure mode 5)
   ;;   :rf.epoch/restore-version-mismatch          (failure mode 6)
   ;;   :rf.epoch/restore-non-ok-record             (rf2-v0jwt — failure mode 7)
-  ;;   :rf.epoch/db-replaced                       (rf2-zq55 — reset-frame-db! happy path)
-  ;;   :rf.epoch/reset-frame-db-during-drain       (rf2-zq55 — failure mode A)
-  ;;   :rf.epoch/reset-frame-db-schema-mismatch    (rf2-zq55 — failure mode B)
+  ;;   :rf.epoch/db-replaced                       (rf2-zq55 — replace-app-db! happy path)
+  ;;   :rf.epoch/replace-app-db-during-drain       (rf2-zq55 — failure mode A)
+  ;;   :rf.epoch/replace-app-db-schema-mismatch    (rf2-zq55 — failure mode B)
   ;;   :rf.warning/epoch-redact-fn-exception       (rf2-wp70d — redact-fn throw)
   ;;
   ;; Every emit site sits inside `(when interop/debug-enabled? ...)`
@@ -214,7 +214,7 @@
   ;; on require-closure alone.
   (rf/reg-event-db :probe/redact-fire (fn [_db _ev] {:redact :fired}))
   (rf/dispatch-sync [:probe/redact-fire])
-  ;; Clear so subsequent probe sites (reset-frame-db! below,
+  ;; Clear so subsequent probe sites (replace-app-db! below,
   ;; on-frame-destroyed!) are not perturbed by the throwing fn.
   (rf/configure! :epoch-history {:redact-fn nil})
   (rf/register-epoch-listener! ::probe-epoch (fn [_record] nil))
@@ -226,16 +226,16 @@
   ;; remaining failure ops survive via their literal occurrence in
   ;; the gated emit-restore-failure! call sites in re-frame.epoch.
   (rf/restore-epoch :rf/default 999999)
-  ;; rf2-zq55 — reset-frame-db! is the Tool-Pair §Pair-tool-writes
+  ;; rf2-zq55 — replace-app-db! is the Tool-Pair §Pair-tool-writes
   ;; surface. The body is gated by an `(if-not interop/debug-enabled?
   ;; false ...)` early-return — the success branch fires
   ;; :rf.epoch/db-replaced, the in-drain rejection fires
-  ;; :rf.epoch/reset-frame-db-during-drain, the schema-mismatch
-  ;; rejection fires :rf.epoch/reset-frame-db-schema-mismatch. All
+  ;; :rf.epoch/replace-app-db-during-drain, the schema-mismatch
+  ;; rejection fires :rf.epoch/replace-app-db-schema-mismatch. All
   ;; three string fragments must elide under :advanced + goog.DEBUG=
   ;; false. Calling against a frame ID without forcing an actual
   ;; replace is enough — the literal sentinels live in the gated body.
-  (rf/reset-frame-db! :rf/default {})
+  (rf/replace-app-db! :rf/default {})
   ;; Reference epoch's lower-level entry points directly so the ns is
   ;; not pruned even before DCE looks at the gated bodies.
   (epoch/clear-history!)
