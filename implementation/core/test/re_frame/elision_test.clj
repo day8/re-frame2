@@ -23,7 +23,17 @@
   ;; `config` is a `defonce` (survives `:reload`); restore the documented
   ;; default so a configure tweak in one test does not leak into the next.
   (elision/configure! {:rf.size/threshold-bytes 16384})
-  (test-fn))
+  ;; EP-0002 (rf2-5q7um6): reg-app-schema + the zero-arity
+  ;; populate-*-from-schemas! / declarations / sensitive-declarations
+  ;; readers are context-required frame-local — an ambient call under no
+  ;; scope raises :rf.error/no-frame-context. Pin :rf/default as the
+  ;; established scope so those ambient registration/populate calls carry a
+  ;; frame stamp (the elide-wire-value wire-egress path still floors to
+  ;; :rf/default until rf2-gjq3ow makes it fail-closed, so both read the
+  ;; same :rf/default registry — consistent end-to-end).
+  (frame/ensure-default-frame!)
+  (binding [frame/*current-frame* :rf/default]
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 

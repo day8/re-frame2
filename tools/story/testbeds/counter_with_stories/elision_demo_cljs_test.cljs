@@ -61,9 +61,13 @@
   ;; ns-load `reg-app-schema` call ran once at module load; the
   ;; preceding `(clear!)` step wiped it. Re-stamping it here keeps
   ;; the schema-driven elision branch (test 3) working.
+  ;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local;
+  ;; pass the target frame explicitly (the *override*) rather than relying on
+  ;; an ambient default.
   (rf/reg-app-schema [:user/avatar-pdf]
                      [:maybe [:string {:large? true
-                                       :hint   "Avatar PDF blob"}]])
+                                       :hint   "Avatar PDF blob"}]]
+                     {:frame :rf/default})
   ;; Re-run the schema-driven elision-registry boot population
   ;; against the post-init frame. The demo ns's `reg-app-schema`
   ;; call lives in registry-meta land; the per-frame `[:rf.runtime/elision

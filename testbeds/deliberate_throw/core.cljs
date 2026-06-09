@@ -21,7 +21,7 @@
             [re-frame.machines]                          ;; load-time hook for make-machine-handler
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ----------------------------------------------------------------------------
 ;; App-db
@@ -84,14 +84,18 @@
 ;; `:db` is preserved (prior writes survive); the failing flow's
 ;; `last-inputs` is NOT advanced.
 
-(rf/reg-flow
-  {:id     ::throws
-   :inputs [[:flow-input]]
-   :output (fn [_input]
-             ;; HOT PATH — the throw site for :rf.error/flow-eval-exception.
-             (throw (ex-info "deliberate-throw / flow" {:where :flow})))
-   :path   [:flow-output]
-   :doc    "Flow :output that throws every recompute."})
+;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local; a bare
+;; ns-load call raises :rf.error/no-frame-context. This testbed hosts on
+;; :rf/default, so name it explicitly.
+(with-frame :rf/default
+  (rf/reg-flow
+    {:id     ::throws
+     :inputs [[:flow-input]]
+     :output (fn [_input]
+               ;; HOT PATH — the throw site for :rf.error/flow-eval-exception.
+               (throw (ex-info "deliberate-throw / flow" {:where :flow})))
+     :path   [:flow-output]
+     :doc    "Flow :output that throws every recompute."}))
 
 (rf/reg-event-db ::throw-in-flow
   (fn [db _ev]

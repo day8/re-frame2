@@ -39,7 +39,14 @@
   (require 're-frame.http-managed :reload)
   (http-managed/clear-all-in-flight!)
   (http-managed/clear-all-http-interceptors!)
-  (t))
+  ;; EP-0002 (rf2-5q7um6): reg-http-interceptor is context-required
+  ;; frame-local — an ambient call under no scope raises
+  ;; :rf.error/no-frame-context. Pin :rf/default as the established scope so
+  ;; the frameless registrations land there; the :rf/api case passes
+  ;; {:frame :rf/api} explicitly.
+  (frame/ensure-default-frame!)
+  (binding [frame/*current-frame* :rf/default]
+    (t)))
 
 (use-fixtures :each reset-runtime)
 

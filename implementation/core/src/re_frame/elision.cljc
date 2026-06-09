@@ -135,14 +135,26 @@
   nil)
 
 (defn declarations
-  "Return schema-derived `:large?` declarations for `frame-id`."
-  ([] (declarations :rf/default))
+  "Return schema-derived `:large?` declarations for `frame-id`. EP-0002 —
+  the zero-arity ambient form resolves the frame through the
+  carried-invariant scope chain (`frame/require-current-frame!`); under no
+  established scope it raises `:rf.error/no-frame-context` rather than
+  reading a synthesised `:rf/default` registry."
+  ([] (declarations (frame/require-current-frame!
+                      :elision-declarations
+                      {:where 're-frame.elision/declarations})))
   ([frame-id]
    (or (get (registry-of frame-id) :declarations) {})))
 
 (defn sensitive-declarations
-  "Return schema-derived `:sensitive?` declarations for `frame-id`."
-  ([] (sensitive-declarations :rf/default))
+  "Return schema-derived `:sensitive?` declarations for `frame-id`. EP-0002
+  — the zero-arity ambient form resolves the frame through the
+  carried-invariant scope chain (`frame/require-current-frame!`); under no
+  established scope it raises `:rf.error/no-frame-context` rather than
+  reading a synthesised `:rf/default` registry."
+  ([] (sensitive-declarations (frame/require-current-frame!
+                                :elision-sensitive-declarations
+                                {:where 're-frame.elision/sensitive-declarations})))
   ([frame-id]
    (or (get (registry-of frame-id) :sensitive-declarations) {})))
 
@@ -178,8 +190,16 @@
 
 (defn populate-elision-from-schemas!
   "Populate `[:rf.runtime/elision :declarations]` from `{:large? true}`
-  schema slot metadata. Returns the populated paths."
-  ([] (populate-elision-from-schemas! (frame/current-frame)))
+  schema slot metadata. Returns the populated paths. EP-0002 — the
+  zero-arity ambient form resolves the frame through the carried-invariant
+  scope chain (`frame/require-current-frame!`); under no established scope
+  it raises `:rf.error/no-frame-context` rather than populating a
+  synthesised `:rf/default` registry. The per-dispatch / registration-time
+  callers (router, schema storage) always pass an explicit `frame-id`."
+  ([] (populate-elision-from-schemas!
+        (frame/require-current-frame!
+          :populate-elision-from-schemas
+          {:where 're-frame.elision/populate-elision-from-schemas!})))
   ([frame-id]
    (install-schema-declarations!
      frame-id
@@ -189,8 +209,14 @@
 (defn populate-sensitive-from-schemas!
   "Populate `[:rf.runtime/elision :sensitive-declarations]` from
   `{:sensitive? true}` schema slot metadata. Returns the populated
-  paths."
-  ([] (populate-sensitive-from-schemas! (frame/current-frame)))
+  paths. EP-0002 — the zero-arity ambient form resolves the frame through
+  the carried-invariant scope chain (`frame/require-current-frame!`); under
+  no scope it raises `:rf.error/no-frame-context` rather than populating a
+  synthesised `:rf/default` registry."
+  ([] (populate-sensitive-from-schemas!
+        (frame/require-current-frame!
+          :populate-sensitive-from-schemas
+          {:where 're-frame.elision/populate-sensitive-from-schemas!})))
   ([frame-id]
    (install-schema-declarations!
      frame-id
@@ -198,8 +224,14 @@
      (schema-declarations frame-id :schemas/extract-sensitive-paths-from-schema))))
 
 (defn populate-from-schemas!
-  "Refresh both schema-owned declaration registries for `frame-id`."
-  ([] (populate-from-schemas! (frame/current-frame)))
+  "Refresh both schema-owned declaration registries for `frame-id`. EP-0002
+  — the zero-arity ambient form resolves the frame through the
+  carried-invariant scope chain; under no scope it raises
+  `:rf.error/no-frame-context`."
+  ([] (populate-from-schemas!
+        (frame/require-current-frame!
+          :populate-from-schemas
+          {:where 're-frame.elision/populate-from-schemas!})))
   ([frame-id]
    {:large     (populate-elision-from-schemas! frame-id)
     :sensitive (populate-sensitive-from-schemas! frame-id)}))
@@ -531,7 +563,14 @@
 
 (defn elide-wire-value
   "Walk `v` and substitute schema-declared sensitive or large paths for
-  wire egress. Sensitive wins over large when both declarations match."
+  wire egress. Sensitive wins over large when both declarations match.
+
+  EP-0002 scope boundary: the `(or … :rf/default)` floor below is the
+  OPERATION-TIME wire-egress projection path, owned by the trace/elision
+  projection bead (rf2-gjq3ow), which makes frameless egress FAIL CLOSED
+  (redact conservatively / refuse) rather than borrow `:rf/default` marks.
+  It is intentionally NOT migrated here — this bead (rf2-5q7um6) covers the
+  REGISTRATION-time surfaces only."
   ([v] (elide-wire-value v nil))
   ([v opts]
    (let [frame-id  (or (:frame opts) (frame/current-frame) :rf/default)

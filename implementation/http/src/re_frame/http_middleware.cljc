@@ -69,7 +69,8 @@
   `re-frame.flows.registry`'s private `flows` atom + the
   `flows-snapshot` accessor). Frame-scoped: an interceptor registered
   against frame A does not fire for a request dispatched from frame B."
-  (:require [re-frame.http-encoding :as encoding]
+  (:require [re-frame.frame        :as frame]
+            [re-frame.http-encoding :as encoding]
             [re-frame.http-privacy :as privacy]
             [re-frame.interop      :as interop]
             [re-frame.source-coords :as source-coords]
@@ -115,7 +116,10 @@
     - `:before` (optional) — `(fn [ctx] ctx')`, request-side transform
     - `:after`  (optional) — `(fn [ctx response] response')`,
                               response-side transform
-    - `:frame`  (optional) — frame id, default `:rf/default`
+    - `:frame`  (optional) — frame id (the EP-0002 *override*). Absent,
+                              the carried-invariant scope chain resolves it;
+                              registering under no scope raises
+                              `:rf.error/no-frame-context`.
     - `:doc` / `:tags` / `:schema` / `:sensitive?` — standard
       `:rf/registration-metadata` (per `:rf/http-interceptor-meta`)
 
@@ -165,7 +169,19 @@
                      :recovery :no-recovery
                      :received {:id id :interceptor-map interceptor-map}
                      :reason   "expected (reg-http-interceptor id interceptor-map): id keyword; interceptor-map a map carrying at least one of :before / :after (each a fn), optional :frame keyword, optional :rf/registration-metadata"})))
-  (let [frame-id  (or (:frame interceptor-map) :rf/default)
+  (let [frame-id  (or (:frame interceptor-map)
+                      ;; EP-0002 — HTTP interceptor registration is
+                      ;; CONTEXT-REQUIRED FRAME-LOCAL: the explicit `:frame`
+                      ;; (the *override*) wins, else the carried-invariant
+                      ;; scope chain (a `with-frame` / frame-provider scope,
+                      ;; or a frame `:on-create` hook). Registering under no
+                      ;; scope and no explicit `:frame` raises the always-on
+                      ;; `:rf.error/no-frame-context` rather than installing
+                      ;; the interceptor against a synthesised `:rf/default`
+                      ;; chain (per Spec 002 §Frame target resolution).
+                      (frame/require-current-frame!
+                        :reg-http-interceptor
+                        {:where 'rf/reg-http-interceptor :event-id id}))
         before    (:before interceptor-map)
         after     (:after  interceptor-map)
         user-meta (dissoc interceptor-map :frame :before :after)
@@ -192,12 +208,24 @@
 (defn clear-http-interceptor
   "Unregister an HTTP interceptor by id from a frame's chain.
 
-  Single-arity: clear by id on `:rf/default`.
-  Two-arity: clear by id on the named frame.
-  No-arg form not supported — explicit ids only."
-  ([id] (clear-http-interceptor :rf/default id))
+  EP-0002 — context-required frame-local. The single-arity
+  `(clear-http-interceptor id)` resolves the frame through the
+  carried-invariant scope chain (a `with-frame` / frame-provider scope);
+  the two-arity `(clear-http-interceptor frame id)` names the frame
+  explicitly (the *override*). Either form, when the resolved frame is
+  absent (single-arity under no scope, or two-arity passed `nil`), raises
+  the always-on `:rf.error/no-frame-context` rather than clearing against a
+  synthesised `:rf/default`. No-arg form not supported — explicit ids only."
+  ([id] (clear-http-interceptor
+          (frame/require-current-frame!
+            :clear-http-interceptor
+            {:where 'rf/clear-http-interceptor :event-id id})
+          id))
   ([frame id]
-   (let [frame-id (or frame :rf/default)
+   (let [frame-id (or frame
+                      (frame/require-current-frame!
+                        :clear-http-interceptor
+                        {:where 'rf/clear-http-interceptor :event-id id}))
          existed? (some? (some (fn [v] (when (= (:id v) id) v))
                                (get @interceptors frame-id)))]
      (swap! interceptors update frame-id

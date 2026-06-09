@@ -46,7 +46,21 @@
     per-(kind, id) warn-once caches (missing-doc, registration-collision)
     so each test sees a clean suppression slate.
   - `(rf/init! plain-atom/adapter)` — installs the schemas-artefact
-    JVM tests' standard substrate."
+    JVM tests' standard substrate.
+
+  ## EP-0002 frame scope (rf2-5q7um6)
+
+  `reg-app-schema` is context-required frame-local: an ambient call under
+  no established scope now raises `:rf.error/no-frame-context` (there is no
+  `:rf/default` floor). `init!` no longer creates `:rf/default`, so the
+  fixture registers it as an ordinary frame and pins `*current-frame*` so
+  the schemas-artefact tests' ambient `reg-app-schema` calls carry a scope
+  stamp — the fixture-level equivalent of wrapping each body in
+  `(rf/with-frame :rf/default …)`. A test that registers against an
+  explicit frame passes `{:frame …}`, which overrides this ambient pin.
+  (The schemas conformance runner unbinds this scope around its own
+  `reg-frame` so its `:on-create` cascade still fires synchronously — see
+  `schemas_conformance_test`.)"
   (:require [re-frame.core :as rf]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
@@ -68,4 +82,8 @@
   (schemas/clear-sensitive-paths-cache!)
   (registrar/clear-warning-caches!)
   (rf/init! plain-atom/adapter)
-  (test-fn))
+  ;; EP-0002 (rf2-5q7um6): establish an explicit :rf/default scope for the
+  ;; body so ambient reg-app-schema calls carry a frame stamp.
+  (frame/ensure-default-frame!)
+  (binding [frame/*current-frame* :rf/default]
+    (test-fn)))

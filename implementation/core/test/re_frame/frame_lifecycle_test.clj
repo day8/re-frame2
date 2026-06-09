@@ -931,19 +931,35 @@
 ;; surface; this test pins their round-trip contract.
 
 (deftest frame-ids-round-trip
-  (testing "(rf/frame-ids) returns every registered, non-destroyed frame id
-            plus :rf/default"
+  (testing "(rf/frame-ids) returns every registered, non-destroyed frame id"
+    ;; EP-0002 (rf2-5q7um6): `:rf/default` is an ORDINARY id — `init!` no
+    ;; longer creates it, and `frame-ids` is a frame-neutral enumeration
+    ;; surface (it reports exactly the registered frames, never synthesises
+    ;; a default). It appears here only because this test registers it
+    ;; explicitly, alongside the user frames — proving the round-trip
+    ;; without leaning on a runtime-synthesised floor.
+    (rf/reg-frame :rf/default     {:doc "explicitly-registered ordinary default frame"})
     (rf/reg-frame :tenants/acme    {:doc "acme tenant"  :preset :default})
     (rf/reg-frame :tenants/widgets {:doc "widgets co"   :preset :default})
     (let [ids (rf/frame-ids)]
       (is (set? ids) "frame-ids returns a set")
       (is (contains? ids :rf/default)
-          ":rf/default appears alongside user-registered frames")
+          ":rf/default appears because it was EXPLICITLY registered (no runtime floor)")
       (is (contains? ids :tenants/acme))
       (is (contains? ids :tenants/widgets))
       ;; Sanity: a never-registered id is absent.
       (is (not (contains? ids :tenants/nonexistent))
-          "frame-ids excludes ids that were never registered"))))
+          "frame-ids excludes ids that were never registered")))
+  (testing "frame-ids does NOT synthesise :rf/default when it was never registered"
+    ;; Fresh slate (the :each fixture already reset frames + init!'d without
+    ;; creating :rf/default). Register only user frames.
+    (reset! frame/frames {})
+    (rf/init! plain-atom/adapter)
+    (rf/reg-frame :tenants/solo {:doc "sole user frame"})
+    (let [ids (rf/frame-ids)]
+      (is (not (contains? ids :rf/default))
+          "EP-0002: :rf/default is not present unless explicitly registered")
+      (is (contains? ids :tenants/solo)))))
 
 (deftest frame-meta-round-trip
   (testing "(rf/frame-meta id) returns the canonical flat :rf/frame-meta shape

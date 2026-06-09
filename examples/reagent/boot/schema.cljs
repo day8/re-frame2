@@ -34,7 +34,8 @@
             ;; Malli validation — without it, the default validator
             ;; soft-passes per Spec 010 §Recommended soft-pass and
             ;; no failure trace fires for malformed app-db slices.
-            [re-frame.schemas.malli]))
+            [re-frame.schemas.malli])
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ============================================================================
 ;; WIRE SHAPES — what the mocked endpoints return
@@ -161,17 +162,25 @@
 ;; machine's own `:data-schema` is the snapshot-validation surface, so the
 ;; vestigial app-schema reg is removed.
 
-;; The :spawn-all children stage their payloads into [:boot/staging]
-;; before signalling completion to the parent. The :enter-hydrating
-;; action reads the staging slot and promotes each payload into the
-;; canonical top-level slot below. Registered here so the staging
-;; writes are schema-validated like every other slice.
-(rf/reg-app-schema [:boot/staging] [:maybe BootStagingSlice])
+;; EP-0002 (rf2-5q7um6): `reg-app-schema` is context-required frame-local —
+;; a bare ns-load call under no scope raises `:rf.error/no-frame-context`
+;; (boot-time namespace loading is NOT a reason to synthesise `:rf/default`,
+;; per Spec 002 §Frame target resolution). This example's app runs in the
+;; `:rf/default` frame (see `core/run`, which `reg-frame`s it explicitly),
+;; so name the frame explicitly here via `with-frame` — the registrations
+;; carry a frame stamp even though they land at module-load before `init!`.
+(with-frame :rf/default
+  ;; The :spawn-all children stage their payloads into [:boot/staging]
+  ;; before signalling completion to the parent. The :enter-hydrating
+  ;; action reads the staging slot and promotes each payload into the
+  ;; canonical top-level slot below. Registered here so the staging
+  ;; writes are schema-validated like every other slice.
+  (rf/reg-app-schema [:boot/staging] [:maybe BootStagingSlice])
 
-;; The boot machine writes its final payloads into top-level app-db
-;; slices on entering `:hydrating`. These are the slices the main app
-;; reads via subs once the boot reaches `:ready`.
-(rf/reg-app-schema [:config] [:maybe Config])
-(rf/reg-app-schema [:flags]  [:maybe Flags])
-(rf/reg-app-schema [:user]   [:maybe User])
-(rf/reg-app-schema [:routes] [:maybe Routes])
+  ;; The boot machine writes its final payloads into top-level app-db
+  ;; slices on entering `:hydrating`. These are the slices the main app
+  ;; reads via subs once the boot reaches `:ready`.
+  (rf/reg-app-schema [:config] [:maybe Config])
+  (rf/reg-app-schema [:flags]  [:maybe Flags])
+  (rf/reg-app-schema [:user]   [:maybe User])
+  (rf/reg-app-schema [:routes] [:maybe Routes]))

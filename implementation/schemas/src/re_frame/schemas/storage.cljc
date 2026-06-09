@@ -40,9 +40,20 @@
   (atom {}))
 
 (defn resolve-frame
-  "Pluck :frame from the opts map; default to (frame/current-frame)."
-  [opts]
-  (or (:frame opts) (frame/current-frame)))
+  "Resolve the frame a schema registration / read targets. EP-0002 —
+  app-db schemas are CONTEXT-REQUIRED FRAME-LOCAL: the explicit `:frame`
+  opt (the *override*) wins, else the carried-invariant scope chain via
+  `frame/require-current-frame!` (a `with-frame` / frame-provider scope, or
+  a frame `:on-create` hook). Called under no established scope and no
+  explicit `:frame`, it raises the always-on `:rf.error/no-frame-context`
+  (per Spec 002 §Frame target resolution) rather than resolving to a
+  synthesised `:rf/default` floor — namespace-load time is not a reason to
+  pick a default frame. `operation` (optional) names the surface for the
+  error payload's `:operation` slot."
+  ([opts] (resolve-frame opts :reg-app-schema))
+  ([opts operation]
+   (or (:frame opts)
+       (frame/require-current-frame! operation {:where 'rf/reg-app-schema}))))
 
 (defn coerce-opts
   "Permit the keyword-only sugar `(app-schemas frame-id)` and the
@@ -121,8 +132,9 @@
 (defn coerce->frame-id
   "Resolve a frame-id from the `opts-or-frame-id` argument the read
   surface accepts: coerce through `coerce-opts` (keyword sugar / opts
-  map / throw on bad shape), then `resolve-frame` (`:frame` or the
-  active frame). The query entry points (`app-schema-at` /
+  map / throw on bad shape), then `resolve-frame` (`:frame` override or
+  the carried-invariant scope frame; raises `:rf.error/no-frame-context`
+  outside any scope per EP-0002). The query entry points (`app-schema-at` /
   `app-schema-meta-at` / `app-schemas` / `app-schemas-digest`) use the
   opts ONLY to name a frame, so they collapse the coerce+resolve pair
   through this helper. The `reg-*` entry points keep the two-step form —
@@ -428,9 +440,12 @@
   :rf.error/schema-validation-failure.
 
   Per Spec 010 §Per-frame schemas this registration is frame-scoped.
-  The frame to register against comes from the optional :frame opt;
-  default is (frame/current-frame) — usually :rf/default unless the
-  caller is inside a (with-frame ...) wrapper or a frame-provider.
+  EP-0002 — context-required frame-local: the frame comes from the
+  explicit :frame opt (the *override*), else the carried-invariant scope
+  chain (a (with-frame ...) wrapper, a frame-provider, or a frame
+  :on-create hook). Registering under no established scope and no
+  explicit :frame raises :rf.error/no-frame-context — namespace-load time
+  is not a reason to register against a synthesised :rf/default.
 
   Per rf2-0frdi / rf2-cq1ak the schemas artefact owns its own per-frame
   side-table (`schemas-by-frame`) — app-db schemas are NOT a registrar
@@ -543,9 +558,13 @@
 
     (rf/reg-app-schemas {[:foo] FooSchema} {:frame :tenant/a})
 
-  Per Spec 010 §Per-frame schemas registration is frame-scoped; the
-  `:frame` opt overrides the default `(frame/current-frame)` resolution
-  for every entry in the map (you cannot mix frames in a single call).
+  Per Spec 010 §Per-frame schemas registration is frame-scoped; EP-0002 —
+  context-required frame-local: the `:frame` opt (the *override*) names
+  the frame for every entry in the map (you cannot mix frames in a single
+  call), else the carried-invariant scope chain resolves it. Registering
+  under no scope and no explicit `:frame` raises
+  `:rf.error/no-frame-context` (the up-front path-shape sweep still runs
+  first).
   The singular form `reg-app-schema` remains available and is used
   internally for each entry — every entry stamps its own per-frame side-
   table entry with source-coords captured from this call site.
@@ -609,7 +628,7 @@
   "Look up the registered schema for a path in a frame, or nil.
 
   Arities:
-    (app-schema-at path)         ;; current frame (or :rf/default)
+    (app-schema-at path)         ;; carried-invariant scope frame (EP-0002)
     (app-schema-at path opts)    ;; opts map; :frame names the frame
                                  ;; (keyword sugar also accepted)
 
@@ -634,7 +653,7 @@
   the per-frame side-table is the single source of truth.
 
   Arities:
-    (app-schema-meta-at path)         ;; current frame (or :rf/default)
+    (app-schema-meta-at path)         ;; carried-invariant scope frame (EP-0002)
     (app-schema-meta-at path opts)    ;; opts map; :frame names the frame
                                       ;; (keyword sugar also accepted)"
   ([path] (app-schema-meta-at path {}))

@@ -47,7 +47,14 @@
   (require 're-frame.http-managed :reload)
   (http-managed/clear-all-in-flight!)
   (http-managed/clear-all-http-interceptors!)
-  (t))
+  ;; EP-0002 (rf2-5q7um6): reg-http-interceptor / clear-http-interceptor are
+  ;; context-required frame-local, and these tests dispatch managed HTTP to
+  ;; exercise the chain — both raise :rf.error/no-frame-context under no
+  ;; scope. Pin :rf/default (an ordinary frame) as the established scope for
+  ;; the body; tests that target an explicit frame pass {:frame …}.
+  (frame/ensure-default-frame!)
+  (binding [frame/*current-frame* :rf/default]
+    (t)))
 
 (use-fixtures :each reset-runtime)
 

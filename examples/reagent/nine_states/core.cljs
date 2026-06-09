@@ -93,7 +93,7 @@
             [re-frame.http-test-support]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; CONSTANTS
@@ -133,7 +133,11 @@
    [:errors  {:default {}} [:map-of :keyword [:vector :string]]]
    [:touched {:default #{}} [:set :keyword]]])
 
-(rf/reg-app-schema [:new-todo] NewTodoSlice)
+;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
+;; :rf/default (see `run`/`reg-frame :rf/default`), so name it explicitly.
+(with-frame :rf/default
+  (rf/reg-app-schema [:new-todo] NewTodoSlice))
 
 ;; ============================================================================
 ;; FX  (test-friendly stubs)

@@ -20,7 +20,8 @@
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Loading the ns here registers its late-bind hooks so
             ;; rf/reg-app-schemas resolves at the call site below.
-            [re-frame.schemas]))
+            [re-frame.schemas])
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ============================================================================
 ;; WIRE SHAPES — what the RealWorld API returns
@@ -235,7 +236,12 @@
 ;; All paths here are app-db paths. Machine snapshots are NOT app-db — they
 ;; live in runtime-db and are validated through each machine's `:data-schema`
 ;; (the *Data schemas above), so they do not appear in this app-schema map.
-(rf/reg-app-schemas
+;;
+;; EP-0002 (rf2-5q7um6): reg-app-schemas is context-required frame-local; a
+;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
+;; :rf/default (see `core/run`'s `reg-frame :rf/default`), so name it here.
+(with-frame :rf/default
+ (rf/reg-app-schemas
   {[:auth]                          AuthSlice
    [:articles]                      RequestSlice
    [:articles :data]                [:vector Article]
@@ -254,4 +260,4 @@
    [:comment-form]                  FormSlice
    [:auth :login-form]              FormSlice
    [:auth :register-form]           FormSlice
-   [:editor]                        EditorSlice})
+   [:editor]                        EditorSlice}))

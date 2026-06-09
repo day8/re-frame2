@@ -121,7 +121,7 @@
             ;; testbed reuses `root` + `steps` with its own per-frame
             ;; host-frame + run-step events.
             [runner.core :as runner])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; APP-DB SEED
@@ -174,7 +174,11 @@
 ;; schema-violation issue survives in Xray's Issues lens.
 
 (def AuthSlice [:map [:token :string]])
-(rf/reg-app-schema [:auth] AuthSlice)
+;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; bare ns-load call raises :rf.error/no-frame-context. This testbed's deck
+;; hosts on :rf/default (see `host-frame` below), so name it explicitly.
+(with-frame :rf/default
+  (rf/reg-app-schema [:auth] AuthSlice))
 
 ;; ============================================================================
 ;; COEFFECT — :standard-epochs/now  (button #2)
@@ -271,12 +275,15 @@
 ;; changed. Button #5 bumps `:base`; App-db shows `:derived` recompute
 ;; and Trace shows the flow run.
 
-(rf/reg-flow
-  {:id     :standard-epochs/derived
-   :inputs [[:base]]
-   :output (fn [base] (* 2 (or base 0)))
-   :path   [:derived]
-   :doc    "Derived = 2 × :base. Recomputes on the post-handler flows pass."})
+;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local; name the
+;; :rf/default host frame explicitly for this ns-load registration.
+(with-frame :rf/default
+  (rf/reg-flow
+    {:id     :standard-epochs/derived
+     :inputs [[:base]]
+     :output (fn [base] (* 2 (or base 0)))
+     :path   [:derived]
+     :doc    "Derived = 2 × :base. Recomputes on the post-handler flows pass."}))
 
 ;; ============================================================================
 ;; EVENTS — the button ladder
