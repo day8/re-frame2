@@ -37,6 +37,8 @@ const {
   enumerateExampleBuilds,
   parseBuildSummaries,
   buildsWithWarnings,
+  normaliseBuildId,
+  reconcileRequestedBuilds,
 } = require('./check-examples-compile.cjs');
 
 let failed = 0;
@@ -235,6 +237,122 @@ it('a warning (typo\'d var) IS detected so the gate fails RED', () => {
 it('a hard "Build failed" is surfaced via parseBuildSummaries.failed', () => {
   const { failed } = parseBuildSummaries(FAILED_OUTPUT);
   assert.deepStrictEqual(failed, [':examples/login-uix']);
+});
+
+// --- Coverage reconciliation teeth (rf2-nlnd9y.1) -------------------------
+// A clean child exit + zero PARSED warning rows is NOT proof every build was
+// analysed. If a requested build's summary is missing or unparsable, the
+// warning analysis was BLIND for that build — the gate must FAIL, not pass
+// vacuously. These pin reconcileRequestedBuilds (the new teeth) so a
+// missing/unparseable summary, a duplicate/unexpected summary, and a
+// parser-missed WARNING marker all turn the gate RED.
+
+it('normaliseBuildId canonicalises both colon shapes to the :-prefixed form', () => {
+  assert.strictEqual(normaliseBuildId('examples/login-uix'), ':examples/login-uix');
+  assert.strictEqual(normaliseBuildId(':examples/login-uix'), ':examples/login-uix');
+});
+
+it('reconcile is clean when every requested build has exactly one summary', () => {
+  // CLEAN_OUTPUT carries login-uix + login-helix summaries; request exactly
+  // those (enumeration uses the colon-stripped coords).
+  const problems = reconcileRequestedBuilds(
+    ['examples/login-uix', 'examples/login-helix'],
+    CLEAN_OUTPUT,
+  );
+  assert.deepStrictEqual(problems, [], `expected no problems, got: ${problems}`);
+});
+
+it('a requested build with NO parsable summary is a coverage FAILURE (false-green closed)', () => {
+  // Request a third build (dashboard-uix) whose summary never appears — the
+  // exact false-green: child exits 0, no warning row, gate previously passed.
+  const problems = reconcileRequestedBuilds(
+    ['examples/login-uix', 'examples/login-helix', 'examples/dashboard-uix'],
+    CLEAN_OUTPUT,
+  );
+  assert.strictEqual(problems.length, 1, `expected one problem, got: ${problems}`);
+  assert.ok(
+    problems[0].includes(':examples/dashboard-uix') &&
+      /NO parsable/.test(problems[0]),
+    `expected a missing-summary problem for dashboard-uix, got: ${problems[0]}`,
+  );
+});
+
+it('an UNPARSEABLE warning summary (singular "1 warning") FAILS the gate', () => {
+  // shadow prints `... 1 warnings` (plural) today; a format drift to the
+  // singular `1 warning` no longer matches COMPLETED_RE, so the summary is
+  // unparseable AND a WARNING marker is present. Both the missing-summary
+  // and orphan-warning teeth must fire — the warning would otherwise vanish.
+  const drifted = [
+    '[:examples/login-helix] Compiling ...',
+    '------ WARNING #1 - :undeclared-var --------------',
+    ' Use of undeclared Var login-helix.core/typo',
+    '[:examples/login-helix] Build completed. (196 files, 1 compiled, 1 warning, 5.47s)',
+  ].join('\n');
+  // The unparseable summary yields zero completed rows...
+  assert.deepStrictEqual(parseBuildSummaries(drifted).completed, []);
+  assert.deepStrictEqual(buildsWithWarnings(drifted), []);
+  // ...so the OLD gate would pass green. The reconciler must FAIL: the
+  // requested build has no parsable summary, and a WARNING marker is orphaned.
+  const problems = reconcileRequestedBuilds(['examples/login-helix'], drifted);
+  assert.ok(
+    problems.some((p) => /NO parsable/.test(p)),
+    `expected a missing-summary problem, got: ${problems}`,
+  );
+  assert.ok(
+    problems.some((p) => /WARNING marker/.test(p)),
+    `expected an orphan-WARNING-marker problem, got: ${problems}`,
+  );
+});
+
+it('zero parsed summaries with builds requested is a coverage FAILURE', () => {
+  // The whole-output-unparseable case (parser drift erased everything): no
+  // completed rows at all, but builds were requested → every one is missing.
+  const garbage = 'Build done. nothing the parser recognises here.\n';
+  assert.deepStrictEqual(parseBuildSummaries(garbage).completed, []);
+  const problems = reconcileRequestedBuilds(
+    ['examples/login-uix', 'examples/login-helix'],
+    garbage,
+  );
+  assert.strictEqual(problems.length, 2, `expected two missing, got: ${problems}`);
+  assert.ok(problems.every((p) => /NO parsable/.test(p)));
+});
+
+it('a DUPLICATE completed summary for one build is a coverage FAILURE', () => {
+  const dup = [
+    '[:examples/login-uix] Build completed. (188 files, 187 compiled, 0 warnings, 5.10s)',
+    '[:examples/login-uix] Build completed. (188 files, 0 compiled, 0 warnings, 0.10s)',
+  ].join('\n');
+  const problems = reconcileRequestedBuilds(['examples/login-uix'], dup);
+  assert.strictEqual(problems.length, 1, `expected one problem, got: ${problems}`);
+  assert.ok(/2 "Build completed." summaries/.test(problems[0]));
+});
+
+it('an UNEXPECTED completed summary (not requested) is a coverage FAILURE', () => {
+  // login-helix completed but was never requested — enumeration/output drift.
+  const problems = reconcileRequestedBuilds(['examples/login-uix'], CLEAN_OUTPUT);
+  assert.ok(
+    problems.some(
+      (p) => p.includes(':examples/login-helix') && /NOT in the requested set/.test(p),
+    ),
+    `expected an unexpected-summary problem for login-helix, got: ${problems}`,
+  );
+});
+
+it('a fully-clean WARNED_OUTPUT still has its warning caught (regression: orphan check does not mask real warnings)', () => {
+  // WARNED_OUTPUT carries a parsable `1 warnings` row, so buildsWithWarnings
+  // is non-empty and the orphan-warning branch must NOT fire (the real
+  // warning is caught by the primary buildsWithWarnings path in the CLI).
+  assert.deepStrictEqual(buildsWithWarnings(WARNED_OUTPUT), [
+    { build: ':examples/login-helix', warnings: 1 },
+  ]);
+  const problems = reconcileRequestedBuilds(
+    ['examples/login-helix', 'examples/login-uix'],
+    WARNED_OUTPUT,
+  );
+  // Both requested builds have exactly one summary, and the WARNING marker is
+  // accounted for by a parsable warning row — so reconcile is clean here (the
+  // warning is failed by the buildsWithWarnings path, not the orphan check).
+  assert.deepStrictEqual(problems, [], `expected no coverage problems, got: ${problems}`);
 });
 
 if (failed > 0) {

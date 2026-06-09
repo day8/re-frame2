@@ -180,6 +180,42 @@ test('Xray CLJS src change runs cljs (node-test compiles tools/xray) (rf2-f79t8)
   assert.equal(result.cljs_node_test, 'true');
 });
 
+// rf2-4ka7c2.1 — API-manifest probe routing false-green fix. The CLJS-only
+// adapter / Xray / pair-MCP public surfaces live in the sidecar
+// (spec/api-manifest-metadata.edn) under :cljs-only and are carried into
+// spec/api-manifest.edn verbatim. Their ONLY live runtime verifier is the
+// CLJS enumeration probe in the consolidated :node-test build, gated on
+// cljs_node_test. A sidecar / generated-manifest / API.md change must
+// therefore light cljs_node_test so the probe reconciles those rows — else a
+// stale/missing CLJS-only row ships with green CI (lint.yml runs only the JVM
+// generator + projection checks, never the CLJS probe).
+
+test('API-manifest sidecar change lights cljs_node_test (CLJS probe routing) (rf2-4ka7c2)', () => {
+  const result = classify('spec/api-manifest-metadata.edn');
+  assert.equal(
+    result.cljs_node_test,
+    'true',
+    'a sidecar edit must run the CLJS manifest probe (its only runtime verifier)',
+  );
+});
+
+test('Generated api-manifest.edn change lights cljs_node_test (rf2-4ka7c2)', () => {
+  const result = classify('spec/api-manifest.edn');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('spec/API.md change lights cljs_node_test (rf2-4ka7c2)', () => {
+  const result = classify('spec/API.md');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('Other spec/*.md change does NOT light cljs_node_test (scope discipline) (rf2-4ka7c2)', () => {
+  // The routing is scoped to the THREE manifest surfaces — an unrelated spec
+  // doc must not drag the consolidated :node-test build into a docs PR.
+  const result = classify('spec/006-ReactiveSubstrate.md');
+  assert.equal(result.cljs_node_test, 'false');
+});
+
 // rf2-jdj17.1 — template_expensive false-green fix. The template's
 // generated `:app` build transitively compiles against tools/xray
 // (:devtools/preloads [day8.re-frame2-xray.preload]),

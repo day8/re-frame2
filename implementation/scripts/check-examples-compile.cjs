@@ -173,12 +173,123 @@ function buildsWithWarnings(output) {
   return parseBuildSummaries(output).completed.filter((b) => b.warnings > 0);
 }
 
+/**
+ * A warning-shaped marker that shadow-cljs prints when a build emits a
+ * compile warning — `------ WARNING #1 - :undeclared-var --------------`.
+ * Used as a corroborating signal: if such a marker appears in the captured
+ * output but NO parsable per-build summary carries `warnings > 0`, the
+ * summary parser has drifted (or shadow's summary format changed) and the
+ * warning evidence would otherwise be silently erased — a false green.
+ */
+const WARNING_MARKER_RE = /-{2,}\s*WARNING\b/;
+
+/**
+ * Normalise a build coord to the colon-prefixed form shadow-cljs prints in
+ * its summary lines (`:examples/login-uix`). The enumeration returns the
+ * colon-STRIPPED form the CLI expects (`examples/login-uix`); the summary
+ * parser captures the colon-PREFIXED form. Reconciling the two requires one
+ * canonical shape — we pick the `:`-prefixed form (the summary form).
+ */
+function normaliseBuildId(id) {
+  return id.startsWith(':') ? id : `:${id}`;
+}
+
+/**
+ * Reconcile the parsed compile summaries against the list of builds that
+ * were REQUESTED of `shadow-cljs compile` (the enumeration), on the
+ * assumption the child exited 0 (no hard `Build failed`). Returns a list of
+ * problem strings; an empty list means every requested build produced
+ * exactly one parsable completed summary AND no orphan warning marker was
+ * left unaccounted for.
+ *
+ * THE FALSE-GREEN THIS CLOSES (rf2-nlnd9y.1). The gate's teeth are the
+ * per-build `warnings` count parsed out of each summary line. But the gate
+ * previously failed ONLY on a parsed `warnings > 0` row (or a non-zero child
+ * exit). If a requested build's summary line never appeared in the captured
+ * output — or appeared in a shape the summary regex no longer matches (a
+ * shadow-cljs format change, a `1 warning` singular, a truncated line) —
+ * then `buildsWithWarnings` returns `[]`, the child still exited 0, and the
+ * gate reported SUCCESS having verified nothing about that build. A missing
+ * or unparseable summary is now a FAILURE, not a silent pass:
+ *
+ *   - every requested build must have EXACTLY ONE completed summary;
+ *   - a build with zero summaries is `missing` (drift / disappeared);
+ *   - a build with more than one summary is `duplicate` (ambiguous output);
+ *   - a completed summary for a build that was NOT requested is `unexpected`;
+ *   - a WARNING marker in the output with no parsable warning row anywhere
+ *     is `orphan-warning` (the parser drifted past warning evidence).
+ *
+ * @param {string[]} requested  enumerated build ids (colon-stripped form).
+ * @param {string}   output     combined compile output.
+ * @returns {string[]} human-readable problem descriptions (empty = OK).
+ */
+function reconcileRequestedBuilds(requested, output) {
+  const { completed } = parseBuildSummaries(output);
+  const problems = [];
+
+  // Count completed summaries per (normalised) build coord.
+  const counts = new Map();
+  for (const { build } of completed) {
+    const k = normaliseBuildId(build);
+    counts.set(k, (counts.get(k) || 0) + 1);
+  }
+
+  const requestedSet = new Set(requested.map(normaliseBuildId));
+
+  // 1) Every requested build must have exactly one completed summary.
+  for (const id of requestedSet) {
+    const n = counts.get(id) || 0;
+    if (n === 0) {
+      problems.push(
+        `${id}: requested but NO parsable "Build completed." summary was ` +
+          `found in shadow-cljs output (the build's summary disappeared or ` +
+          `no longer matches the parser — warning evidence for it would be ` +
+          `silently erased; refusing to pass it green).`,
+      );
+    } else if (n > 1) {
+      problems.push(
+        `${id}: ${n} "Build completed." summaries parsed (expected exactly ` +
+          `one) — ambiguous output; cannot trust the warning count.`,
+      );
+    }
+  }
+
+  // 2) A completed summary for a build that was never requested is drift in
+  //    the OTHER direction (the enumeration and the compiled set disagree).
+  for (const id of counts.keys()) {
+    if (!requestedSet.has(id)) {
+      problems.push(
+        `${id}: a "Build completed." summary was parsed for a build that ` +
+          `was NOT in the requested set — enumeration/output mismatch.`,
+      );
+    }
+  }
+
+  // 3) A WARNING marker with no parsable warning row anywhere means the
+  //    summary parser drifted past real warning evidence (the exact
+  //    false-green class: warnings present, exit 0, parser blind).
+  if (
+    WARNING_MARKER_RE.test(output) &&
+    buildsWithWarnings(output).length === 0
+  ) {
+    problems.push(
+      `a WARNING marker appears in the compile output but NO per-build ` +
+        `summary carries warnings>0 — the summary parser has drifted past ` +
+        `real warning evidence (warnings would ship green).`,
+    );
+  }
+
+  return problems;
+}
+
 module.exports = {
   readShadowEdn,
   stripEdnComments,
   enumerateExampleBuilds,
   parseBuildSummaries,
   buildsWithWarnings,
+  normaliseBuildId,
+  reconcileRequestedBuilds,
 };
 
 // ---------------------------------------------------------------------------
@@ -293,9 +404,30 @@ if (require.main === module) {
       process.exit(1);
     }
 
+    // 3) Coverage reconciliation (rf2-nlnd9y.1): a clean exit + zero parsed
+    //    warning rows is NOT sufficient. A requested build whose summary is
+    //    missing/unparsable, a duplicate/unexpected summary, or a WARNING
+    //    marker the parser missed all mean the warning analysis above was
+    //    BLIND for at least one build — a false green. Verify every requested
+    //    build produced exactly one parsable completed summary before
+    //    declaring success.
+    const coverageProblems = reconcileRequestedBuilds(builds, captured);
+    if (coverageProblems.length > 0) {
+      console.error(
+        `\ncheck-examples-compile: ${coverageProblems.length} build-summary ` +
+          `coverage problem(s) — shadow-cljs exited 0 but the gate could not ` +
+          `confirm a clean warning analysis for every requested build. A ` +
+          `missing/unparsable summary FAILS the gate (it would otherwise ship ` +
+          `a warning silently green):`,
+      );
+      for (const p of coverageProblems) console.error(`  ${p}`);
+      process.exit(1);
+    }
+
     console.log(
       `\ncheck-examples-compile: all ${builds.length} example builds compiled ` +
-        `with zero warnings.`,
+        `with zero warnings (every requested build produced exactly one ` +
+        `parsable completed summary).`,
     );
   });
 }

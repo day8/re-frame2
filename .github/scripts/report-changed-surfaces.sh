@@ -120,6 +120,24 @@ else
       .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/report-changed-surfaces.sh|TESTING.md)
         mark_all
         ;;
+      spec/api-manifest-metadata.edn|spec/api-manifest.edn|spec/API.md)
+        # rf2-4ka7c2.1 — false-green fix. The CLJS-only adapter / Xray /
+        # pair-MCP public surfaces cannot be `require`d on the JVM, so their
+        # rows live in the sidecar (spec/api-manifest-metadata.edn) under
+        # :cljs-only and the JVM generator carries them through VERBATIM into
+        # spec/api-manifest.edn. The ONLY live runtime verifier for those rows
+        # is the CLJS enumeration probe
+        # (implementation/scripts/api-manifest/probe/, wired into the
+        # consolidated :node-test build), which runs only when
+        # cljs_node_test=true. A PR editing the sidecar / generated manifest /
+        # API.md without touching implementation/, tools/, or shadow-cljs.edn
+        # previously left cljs_node_test=false — so a stale/missing CLJS-only
+        # row could ship with green CI (lint.yml runs only the JVM generator +
+        # projection checks, not the CLJS probe). Fire cljs_node_test so the
+        # probe reconciles the :cljs-only rows against the live CLJS public
+        # vars on any sidecar/generated-manifest/API.md change.
+        cljs_node_test=true
+        ;;
       implementation/core/*)
         # rf2-8jz9t + rf2-k9ekz + rf2-t5slp — adapter_testbed_smokes
         # and story_xray_browser are NOT fired here. The Playwright
