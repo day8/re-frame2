@@ -316,9 +316,14 @@ which now defers here as the canonical statement):
 > `:counter/value`), the `:auth.login/flow` machine event, the
 > `:auth.login.demo/managed-stub` fx, the `:auth.login/state` /
 > `:auth.login/error` subs, and the `:auth.login/flow` machine's
-> `:data-schema` (the snapshot lives in runtime-db at
-> `[:rf.runtime/machines :snapshots :auth.login/flow]`, validated via
-> `:data-schema`, not `reg-app-schema` — EP-0001). It
+> `:data-schema` (a top-level key on the machine spec validating the
+> machine's **`:data` slot only** — `{:attempts ... :error ...}` — at the
+> `:where :machine-data` boundary, NOT the whole `{:state ... :data ...}`
+> snapshot and not `reg-app-schema`; the snapshot lives in runtime-db at
+> `[:rf.runtime/machines :snapshots :auth.login/flow]`, which is runtime-db
+> state, not app-db — EP-0001). The live `:data-schema` currently ships in
+> `login_uix` (rf2-384975); the Reagent and Helix siblings are being
+> brought into byte-for-byte parity under follow-up beads. It
 > proves **substrate parity**: byte-for-byte identical events, subs,
 > schemas, machine, and managed-HTTP stub driving three different reactive
 > view layers (Reagent `reg-view`, UIx `defui` + `use-subscribe`, Helix
