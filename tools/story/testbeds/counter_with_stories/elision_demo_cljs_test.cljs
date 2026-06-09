@@ -30,7 +30,8 @@
             ;; Loading the demo ns fires its registrations against the
             ;; registrar — the tests then exercise the registered
             ;; handlers + the listener install/uninstall surface.
-            [counter-with-stories.elision-demo]))
+            [counter-with-stories.elision-demo])
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
@@ -85,7 +86,21 @@
   (reset! frame/frames {})
   (event-emit/clear-event-listeners!))
 
-(use-fixtures :each {:before before! :after after!})
+;; EP-0002 (rf2-bd4div): these tests exercise the ambient dispatch /
+;; app-db-read paths, which now require a carried frame stamp. A function
+;; fixture pins `:rf/default` (registered in `before!` via
+;; `ensure-default-frame!`) as the established scope for the whole test
+;; body via `with-frame` — the demo app runs in the ordinary `:rf/default`
+;; frame (see the demo ns's `core/run`), so the testbed's reads/dispatches
+;; carry that explicit stamp rather than relying on a synthesised default.
+;; (The map-shape :before/:after hooks cannot wrap the body in `with-frame`.)
+(use-fixtures :each
+  (fn [test-fn]
+    (before!)
+    (try
+      (with-frame :rf/default
+        (test-fn))
+      (finally (after!)))))
 
 ;; ---- 1. :sensitive? registration metadata is queryable -------------------
 

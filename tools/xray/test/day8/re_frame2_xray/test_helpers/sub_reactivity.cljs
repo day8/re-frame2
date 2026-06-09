@@ -112,11 +112,22 @@
 
   Also registers the host `:rf/default` frame so panels that resolve
   `:rf.xray/target-frame-db` (App-db diff) find a real frame rather
-  than nil."
+  than nil.
+
+  EP-0002 (rf2-bd4div) — the inspected target no longer defaults to
+  `:rf/default`; these reactivity fixtures use the ordinary `:rf/default`
+  frame as the host under inspection, so the helper SELECTS it explicitly
+  as the observed target. This pins `:target-frame :rf/default` up front,
+  so a later `focus-cascade!` on `:rf/default` re-keys onto the SAME frame
+  (a no-op that preserves the directly-seeded `:epoch-history` rather than
+  clobbering it with the empty framework ring — the
+  `reseed-epoch-history-for-frame` same-target no-op contract)."
   []
   (registry/register-xray-handlers!)
   (frame/reg-frame :rf/xray {})
-  (frame/reg-frame :rf/default {}))
+  (frame/reg-frame :rf/default {})
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])))
 
 ;; ---- cascade + epoch fixtures -------------------------------------------
 

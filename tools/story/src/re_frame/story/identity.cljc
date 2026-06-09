@@ -205,10 +205,20 @@
   across runs). When schemas IS present, registering a new app-schema
   or mutating an existing one perturbs the digest and therefore the
   variant snapshot identity — exactly the invalidation visual-regression
-  baselines need on schema changes."
-  []
+  baselines need on schema changes.
+
+  EP-0002 (rf2-bd4div) — app-db schemas are CONTEXT-REQUIRED FRAME-LOCAL,
+  so the digest hook resolves a TARGET frame; absence is
+  `:rf.error/no-frame-context`, NEVER a synthesised `:rf/default`. Story
+  computes snapshot identity for a specific variant, so the variant frame
+  IS the explicit target: pass `target-frame-id` (the variant id) through
+  the hook's keyword-frame-id arity. The digest is computed against THAT
+  frame's registered app-db schema set (the stable empty-set digest when
+  the variant frame holds none / is not yet allocated — the digest still
+  participates in the hash and stays stable across runs)."
+  [target-frame-id]
   (when-let [f (late-bind/get-fn :schemas/app-schemas-digest)]
-    (f)))
+    (f target-frame-id)))
 
 (defn snapshot-tuple
   "Build the canonical tuple that feeds `content-hash` for a variant.
@@ -234,7 +244,10 @@
          effective    (args/resolve-args variant-id
                                          {:active-modes   active-modes
                                           :cell-overrides cell-overrides})
-         schema-digest (view-schema-digest)]
+         ;; EP-0002 (rf2-bd4div) — the variant frame is the explicit
+         ;; target for the frame-local app-db schema digest (no ambient
+         ;; resolution / no `:rf/default` synthesis).
+         schema-digest (view-schema-digest variant-id)]
      {:rf/snapshot-canonical fingerprint/canonical-version
       :variant-id            variant-id
       :variant               variant

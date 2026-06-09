@@ -1185,12 +1185,15 @@
       (is (= 0 @(rf/subscribe [:rf.xray/suppressed-sensitive-count]))
           "reset event drops every bucket"))))
 
-(deftest sub-target-frame-defaults-to-rf-default
-  (testing ":rf.xray/target-frame defaults to :rf/default"
+(deftest sub-target-frame-defaults-to-unselected
+  (testing "EP-0002 (rf2-bd4div) — :rf.xray/target-frame defaults to
+            `default-target-frame` = nil = UNSELECTED (not :rf/default)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (is (= registry/default-target-frame
-             @(rf/subscribe [:rf.xray/target-frame]))))))
+             @(rf/subscribe [:rf.xray/target-frame])))
+      (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
+          "the unselected default is nil"))))
 
 (deftest sub-epoch-history-defaults-empty
   (testing ":rf.xray/epoch-history defaults to []"

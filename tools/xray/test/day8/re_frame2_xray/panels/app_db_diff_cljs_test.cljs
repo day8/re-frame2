@@ -132,6 +132,13 @@
   (frame/reg-frame :rf/xray {})
   (register-seed-events!)
   (seed-host-frame! host-db-value)
+  ;; EP-0002 (rf2-bd4div) — the inspected target no longer defaults to
+  ;; `:rf/default`; select it EXPLICITLY here. These panel tests use the
+  ;; ordinary `:rf/default` frame as the host under inspection, so the
+  ;; test pins it as the observed target (the gesture the frame picker /
+  ;; mount discovery policy performs in production).
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
   (when (seq history)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray-test/seed-history history]))))
@@ -537,6 +544,10 @@
                                                               :title/flow {:state :playing}}}})
     (registry/register-xray-handlers!)
     (frame/reg-frame :rf/xray {})
+    ;; EP-0002 (rf2-bd4div) — select the host `:rf/default` frame as the
+    ;; observed target explicitly (it no longer defaults).
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
     (rf/with-frame :rf/xray
       (let [tree (app-db-diff/Panel)]
         ;; machines fan out one section per id (title = machine id).
@@ -558,6 +569,11 @@
     (seed-host-frame! {:counter 1})
     (registry/register-xray-handlers!)
     (frame/reg-frame :rf/xray {})
+    ;; EP-0002 (rf2-bd4div) — select the host frame as observed target so
+    ;; the panel actually projects against it (the no-placeholder check is
+    ;; meaningful only when a target is selected).
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
     (rf/with-frame :rf/xray
       (let [tree (app-db-diff/Panel)]
         (doseq [area [:rf/machines :rf/spawned :rf/route :rf/system-ids
@@ -588,15 +604,16 @@
             `:rf.xray/observed-frame` sub picks the focused frame up.
             Pre-fix the panel read the legacy `:rf.xray/target-frame`
             slot (which `:rf.xray/set-frame` does NOT touch) and stayed
-            stuck on `:rf/default` regardless of picker selection."
+            stuck on the default regardless of picker selection."
     (registry/register-xray-handlers!)
     (frame/reg-frame :rf/xray {})
     (frame/reg-frame :rf/default {})
     (frame/reg-frame :checkout-frame {})
     (rf/with-frame :rf/xray
-      ;; Cold-start sanity — observed frame is the default before any
-      ;; picker selection lands.
-      (is (= :rf/default @(rf/subscribe [:rf.xray/observed-frame])))
+      ;; EP-0002 (rf2-bd4div) — cold-start: observed frame is UNSELECTED
+      ;; (nil) before any picker selection lands, NOT a synthesised
+      ;; `:rf/default`.
+      (is (nil? @(rf/subscribe [:rf.xray/observed-frame])))
       ;; User picks :checkout-frame in the ribbon dropdown.
       (rf/dispatch-sync [:rf.xray/set-frame :checkout-frame])
       (is (= :checkout-frame @(rf/subscribe [:rf.xray/observed-frame]))

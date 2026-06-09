@@ -153,12 +153,18 @@ implementation reality — ~40 symbols across 6 namespaces).
 ;; Mount Xray manually (alternative to :preloads). Idempotent.
 
 (xray/init! opts)
-;; opts: {:default-frame :app/main         ;; scrubber's target frame
+;; opts: {:target-frame  :app/main         ;; inspected HOST frame (EP-0002 rf2-bd4div)
 ;;        :theme         :dark / :light    ;; persisted Settings :theme
 ;;        :density       :compact / :cosy  ;; persisted Settings :general/:density
 ;;        :buffer-depths {:epoch 50}}      ;; per-frame ring depth (drives both
 ;;                                         ;; :depth + :trace-events-keep per
 ;;                                         ;; the rf2-3g9nw D1=a ruling)
+;; EP-0002 (rf2-bd4div): the inspected-host opt is :target-frame, distinct from
+;; Xray's OWN frame (:rf/xray). The legacy :default-frame opt is RETIRED — it
+;; conflated own-frame and target-frame and read like the ambient :rf/default
+;; fallback EP-0002 removes. Omit :target-frame to leave the inspected target
+;; UNSELECTED (the picker / mount discovery policy selects one); Xray does NOT
+;; default the target to :rf/default.
 ;; rf2-2thl2: each opt is wired end-to-end (no accept-but-ignore stubs).
 ;; Unknown keys are silently ignored for forward-compatibility.
 ;; `:ai-provider` is documented in the persisted Settings shape (see
@@ -857,7 +863,9 @@ wires per-instance panel state). Shape (validated by Malli):
                  :custom-url   "https://..."     ;; only when :provider = :custom
                  :custom-headers {"X-..." "..."}}
  :buffer-depths {:trace 200 :epoch 50}
- :default-frame :app/main
+ :target-frame  :app/main                ;; EP-0002 (rf2-bd4div): inspected HOST
+                                         ;; frame; renamed from :default-frame
+                                         ;; (own-frame vs target-frame split)
  :sidebar-mode  :grouped / :show-all
  :launcher-pill {:hidden? false}
  :keybindings   {:toggle ["Ctrl+Shift+C"]   ;; vector for multiple binds

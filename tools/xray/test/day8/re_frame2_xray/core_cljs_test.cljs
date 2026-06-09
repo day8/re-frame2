@@ -86,11 +86,15 @@
 ;; the registry / shell tests use for the rest of the `:rf.xray/*`
 ;; surface.
 
-(deftest target-frame-default-is-rf-default
-  (testing "target-frame defaults to :rf/default (per defaults/default-target-frame)"
+(deftest target-frame-default-is-unselected
+  (testing "EP-0002 (rf2-bd4div) — target-frame defaults to nil = UNSELECTED
+            (per defaults/default-target-frame), NOT :rf/default. The
+            inspected target is never absence-repaired to the ordinary
+            :rf/default id; it starts unselected and the picker / discovery
+            policy selects one."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (is (= :rf/default (core/target-frame))))))
+      (is (nil? (core/target-frame))))))
 
 (deftest set-target-frame-wires-target-frame
   (testing ":rf.xray/set-target-frame updates the slot target-frame reads"
@@ -103,8 +107,8 @@
       (is (= :worker/db (core/target-frame))
           "subsequent flips also land")
       (rf/dispatch-sync [:rf.xray/set-target-frame nil])
-      (is (= :rf/default (core/target-frame))
-          "nil resets to the default target frame"))))
+      (is (nil? (core/target-frame))
+          "EP-0002 (rf2-bd4div) — nil resets to UNSELECTED (not through :rf/default)"))))
 
 (deftest set-target-frame!-dispatches-set-target-frame
   (testing "set-target-frame! dispatches :rf.xray/set-target-frame into :rf/xray"
@@ -157,8 +161,10 @@
     (core/init!)
     (is true "second init! did not throw")))
 
-(deftest init!-with-default-frame-dispatches-set-target-frame
-  (testing "init! threads :default-frame through to :rf.xray/set-target-frame"
+(deftest init!-with-target-frame-dispatches-set-target-frame
+  (testing "EP-0002 (rf2-bd4div) — init! threads :target-frame through to
+            :rf.xray/set-target-frame (the legacy :default-frame opt is
+            retired in favour of the distinct :target-frame vocabulary)"
     ;; The dispatch is async (queues into :rf/xray's router); we capture
     ;; the call to verify the facade routes through the registered event.
     ;; The dispatch-sync-driven landing is covered by
@@ -166,16 +172,16 @@
     (setup-xray-frame!)
     (let [seen (atom [])]
       (with-redefs [rf/dispatch* (fn [ev & _opts] (swap! seen conj ev))]
-        (core/init! {:default-frame :app/main}))
+        (core/init! {:target-frame :app/main}))
       (is (some #(= [:rf.xray/set-target-frame :app/main] %) @seen)
-          "init! dispatched :rf.xray/set-target-frame with :default-frame"))))
+          "init! dispatched :rf.xray/set-target-frame with :target-frame"))))
 
 (deftest init!-wires-theme-density-and-buffer-depths
   (testing "rf2-2thl2 — init! threads :theme / :density / :buffer-depths
             through to the persisted Settings shape so a host's boot-time
             opts land in the same slots the Settings popup writes."
     (setup-xray-frame!)
-    (core/init! {:default-frame :app/main
+    (core/init! {:target-frame :app/main
                  :theme         :dark
                  :density       :compact
                  :buffer-depths {:epoch 75}})
@@ -191,7 +197,7 @@
             (forward-compat: a host passing a key a future Xray release
             adds MUST NOT break the current Xray boot)."
     (setup-xray-frame!)
-    (core/init! {:default-frame   :app/main
+    (core/init! {:target-frame    :app/main
                  :unknown/future  :something
                  :rf.xray/another 42})
     (is true "init! did not throw on unknown keys")))
