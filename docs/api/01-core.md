@@ -58,19 +58,38 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-sub id ?metadata signal-fn? computation-fn)
+  (reg-sub id ?metadata input-fn? computation-fn)
   ```
-- **Description**: "Computed view over `app-db` and other subs." The `:<-` sugar form for declaring upstream subs is preserved from v1. This is the only sub-registration form in v2 — `reg-sub-raw` is gone (see [15 — Removed](15-removed.md) for the replacement guidance).
-- **Example**:
+- **Description**: "Computed view over `app-db` and other subs." `reg-sub` supports **three input-production modes** — every subscription has an *input query-vector producer*: a layer-1 app-db reader has no producer, `:<-` is the literal producer, and a parametric `input-fn` is the query-parametric producer. The optional first fn is a v2 **`input-fn`** — a *pure* function from the outer `query-v` to a **vector of query vectors**; it is **not** a v1 reaction-returning signal fn (it must not call `subscribe`, deref `app-db`, dispatch, or perform IO, and it must not return live reactions). The runtime resolves each returned query vector in the *same frame* as the outer subscription. This is the only sub-registration form in v2 — `reg-sub-raw` is gone (see [15 — Removed](15-removed.md) for the replacement guidance). Full contract, input grammar, and error ids: [spec API §`reg-sub` input-production modes](../../spec/API.md#reg-sub-input-production-modes) and [spec 006 — Reactive Substrate](../../spec/006-ReactiveSubstrate.md). The teaching walkthrough is [Guide ch.05 §Three ways a sub names its inputs](../guide/05-subscriptions.md#three-ways-a-sub-names-its-inputs).
+
+| Mode | Form | Where the inputs come from |
+|---|---|---|
+| App-db reader | `(reg-sub id computation-fn)` | No upstream subs; the computation fn receives `app-db` and the outer `query-v` (layer 1). |
+| Static inputs | `(reg-sub id :<- q1 :<- q2 computation-fn)` | A literal, fixed list of query vectors known at registration (`:<-` sugar). |
+| Parametric inputs | `(reg-sub id input-fn computation-fn)` | Computed from the outer `query-v` by an `input-fn` when a concrete cache entry is first materialized. |
+
+- **Examples**:
   ```clojure
-  ;; Layer-2 — read straight off app-db
+  ;; Layer-1 — read straight off app-db (no producer)
   (rf/reg-sub :counter/value
     (fn [db _query] (:counter/value db)))
 
-  ;; Layer-3 — compose upstream subs via the :<- sugar
+  ;; Layer-2 — compose an upstream sub via the :<- sugar (static inputs)
   (rf/reg-sub :counter/doubled
     :<- [:counter/value]
     (fn [value _query] (* 2 value)))
+
+  ;; Parametric — the input-fn returns a vector of query vectors,
+  ;; computed from the outer query-v; the runtime resolves each in the
+  ;; outer sub's frame and hands the resolved values to the computation-fn.
+  (rf/reg-sub :article/page
+    (fn input-fn [[_ article-id]]
+      [[:article/by-id article-id]
+       [:comments/for-article article-id]
+       [:viewer/current]])
+    (fn computation-fn [[article comments viewer] [_ article-id]]
+      {:id article-id :article article :comments comments
+       :can-edit? (:edit? viewer)}))
   ```
 - **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter)
 
