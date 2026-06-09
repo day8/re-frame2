@@ -347,13 +347,20 @@
     (testing "the catalogue actually parsed some tool names (regex didn't silently miss)"
       (is (seq named)
           "skill-named-tools returned empty — the leaf's table shape changed; fix the parser")
-      ;; The seven loop tools the leaf's table enumerates by step. Pinned
-      ;; explicitly so a table row silently dropping a tool is caught even
-      ;; if the registry still carries it.
-      (doseq [t ["register-variant" "unregister-variant" "run-variant"
-                 "preview-variant" "read-failures" "get-variant"]]
+      ;; The authoring tools the leaf's per-step catalogue table enumerates
+      ;; (one tool per row's second cell) plus the two prose-only tools
+      ;; `skill-named-tools` folds in. Pinned explicitly so a table row
+      ;; silently dropping a tool is caught even if the registry still
+      ;; carries it. NOT pinned: `run-variant` / `read-failures` (and the
+      ;; other Testing-category run tools) — rf2-r2xswa reframed this leaf
+      ;; into an author/refine recipe and moved the run/self-heal loop to a
+      ;; `re-frame2-pair` handoff, so those live in pair's allow-list, not
+      ;; this skill's catalogue. The Testing-tools split is asserted below.
+      (doseq [t ["register-variant" "unregister-variant" "preview-variant"
+                 "get-variant" "explain-variant" "get-story-instructions"
+                 "snapshot-identity"]]
         (is (contains? named t)
-            (str "skill leaf catalogue no longer names loop tool '" t
+            (str "skill leaf catalogue no longer names authoring tool '" t
                  "' — table row removed or renamed in the prose"))))
     (testing "every tool the skill leaf names exists in the registry (rename/removal ratchet)"
       (doseq [t (sort named)]
@@ -361,7 +368,21 @@
             (str "skill leaf names tool '" t "' but the registry has no such tool — "
                  "a rename/removal left "
                  "skills/re-frame2/references/tooling/story-mcp-loop.md stale. "
-                 "Update the leaf (and re-verify the count claim).")))) )
+                 "Update the leaf (and re-verify the count claim)."))))
+    (testing "the author/run split is intact: run-side tools are named in handoff prose but kept OUT of the authoring catalogue (rf2-r2xswa)"
+      ;; The reframed leaf hands the run/self-heal loop to `re-frame2-pair`.
+      ;; `run-variant`/`read-failures` must still appear in the leaf's prose
+      ;; (the handoff names them) but must NOT be pulled into this skill's
+      ;; authoring catalogue — that would re-imply this skill can drive the
+      ;; run loop. Ratchets both directions of the split.
+      (doseq [t ["run-variant" "read-failures"]]
+        (is (re-find (re-pattern (str "`" t "`")) leaf)
+            (str "leaf no longer names run-side tool '" t "' in its prose — "
+                 "the re-frame2-pair handoff section was dropped or renamed"))
+        (is (not (contains? named t))
+            (str "run-side tool '" t "' leaked into this skill's authoring "
+                 "catalogue table — it belongs to the re-frame2-pair handoff, "
+                 "not this skill's allow-list (rf2-r2xswa split)")))))
   ;; Count-claim ratchet: the leaf's "<count> tools" prose must equal the
   ;; live registry size. Catches an add/remove that updates the table but
   ;; leaves the headline count word stale (or vice-versa).
