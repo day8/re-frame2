@@ -83,7 +83,23 @@ If the walker sees a large string at a path with no `{:large? true}` schema meta
 
 ## Off-box runtime-db redaction
 
-The **runtime-db** partition (framework state: machine snapshots, route slice, …) is **redacted / omitted by default** for AI and log egress. The app-db partition is what schema-driven `:sensitive?` / `:large?` elision governs; runtime-db is not part of the default off-box projection at all. Trusted *local* tools (Xray, re-frame2-pair) may request the richer runtime-db diagnostics explicitly — Xray via an `:include-runtime-db?` axis, pair-mcp via `:include-sensitive` — but the default-off posture means a stray off-box ship never leaks framework runtime state. Transient diagnostics (host handles, in-flight HTTP, trace rings) are never in the default projection regardless.
+The **runtime-db** partition (framework state: machine snapshots, route slice, …) is **redacted / omitted by default** for AI and log egress. The app-db partition is what schema-driven `:sensitive?` / `:large?` elision governs; runtime-db is not part of the default off-box projection at all. Trusted *local* tools (Xray, re-frame2-pair) may request the richer runtime-db diagnostics explicitly — both **fail closed by default** and both satisfy Spec 011 §Off-box redaction ruling #14 ("trusted-local tools may request richer diagnostics explicitly; default fails closed"). Transient diagnostics (host handles, in-flight HTTP, trace rings) are never in the default projection regardless.
+
+### The two tools opt in differently — same posture, different axis
+
+The opt-in *mechanism* differs between the two trusted-local tools, and the asymmetry can surprise a user reasoning about "how do I see runtime-db state off-box." Both are defensible; both fail closed. The difference is just *which knob* lifts the runtime-db redaction:
+
+- **Xray — a dedicated, orthogonal `:include-runtime-db?` axis.** Xray's `get-machine-state` accessor (and the `egress-runtime-db-value` egress fn it routes through) carries a **separate** `:include-runtime-db?` opt, distinct from `:include-sensitive?` / `:include-large?`. Lifting the runtime-db partition redaction is **orthogonal** to per-slot sensitive/large elision: opting in with `:include-runtime-db? true` surfaces the live runtime-db snapshot, but the value still routes through the per-slot walker, so a `:sensitive?` slot *inside* the runtime-db value (e.g. a `:sensitive?` `:data-schema` slot on a machine snapshot, or `[:auth :password]`) **still redacts**. The partition opt-in and the per-slot privacy posture compose; neither overrides the other.
+
+  ```clojure
+  (egress-runtime-db-value v)                          ; default → :rf/redacted
+  (egress-runtime-db-value v {:include-runtime-db? true}) ; trusted-local opt-in to the snapshot;
+                                                         ; per-slot :sensitive? / :large? still apply
+  ```
+
+- **pair-mcp — folded onto the existing `--allow-sensitive-reads` + `:include-sensitive` axis.** The `snapshot` tool's `:machines` slice is runtime-db state, but pair-mcp has **no separate `:include-runtime-db?`**. Its runtime-db redaction is folded onto the *existing* sensitive axis: `redact-runtime-db? = (not incl?)`, where `incl?` is true only when the `--allow-sensitive-reads` boot gate was passed at launch **AND** the per-call `:include-sensitive` arg is true. So opting into sensitive reads *also* lifts the `:machines` runtime-db redaction in one step — gate OFF (the published-build default) ⇒ `:machines` egresses as `:rf/redacted`; gate ON + `:include-sensitive true` ⇒ the live runtime-db snapshots ship. The fold is defensible because the `--allow-sensitive-reads` boot gate **is** the pair-tool's coarse trust boundary; there's no need for a finer-grained partition knob behind a gate that's already the explicit trusted-local opt-in.
+
+**The upshot for a user:** do not look for an `:include-runtime-db?` arg on pair-mcp — it doesn't exist. On the pair side, "see runtime-db state off-box" = launch with `--allow-sensitive-reads` and pass `:include-sensitive true`. On the Xray side, it's the dedicated `:include-runtime-db?` axis, which lifts *only* the partition redaction (per-slot sensitive/large still apply on top). Both default-off, both ruling-#14-compliant.
 
 ## Cross-references
 
