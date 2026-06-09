@@ -306,19 +306,6 @@
         {:keys [hash-str body-html head-html html-attrs body-attrs]}
         (rf/with-frame frame-id
           (let [hiccup    (lifecycle/resolve-root-view root-view)
-                ;; rf2-i15nh / rf2-atmvj: compute the structural hash
-                ;; ONCE per request. The same hex feeds the root-element
-                ;; `data-rf-render-hash` (via render-to-string's
-                ;; `:render-hash` opt) AND the payload's
-                ;; `:rf/render-hash`, so the canonical-EDN walk runs
-                ;; once per request. When `:emit-hash?` is false the
-                ;; hash is still needed for the payload slot.
-                hash-str  (ssr/render-tree-hash hiccup)
-                body-html (ssr/render-to-string
-                            hiccup
-                            {:doctype?    false
-                             :emit-hash?  emit-hash?
-                             :render-hash (when emit-hash? hash-str)})
                 ;; rf2-4dra9 / rf2-h2ujj: resolve the active route's
                 ;; :head (or default-head fallback). The head fragment
                 ;; goes through the shell as the :head opt; the
@@ -328,11 +315,33 @@
                 ;; explicit :head string take precedence — they chose to
                 ;; bypass route-driven head resolution, and an explicit
                 ;; string carries no attr-bag sidechannel.
+                ;;
+                ;; rf2-9fw2de: head is resolved BEFORE the hash so the
+                ;; structural hash can fold the head fragment in — Spec
+                ;; 011 §624-626/§648-650 lock head + body onto the unified
+                ;; `:rf/render-hash` channel.
                 head-bag  (if explicit-head
                             {:head-html explicit-head
                              :html-attrs nil
                              :body-attrs nil}
-                            (lifecycle/resolve-head frame-id))]
+                            (lifecycle/resolve-head frame-id))
+                ;; rf2-i15nh / rf2-atmvj: compute the structural hash
+                ;; ONCE per request. rf2-9fw2de: the canonical hash input
+                ;; is the FULL document state (body tree + resolved head
+                ;; fragment + html/body attr bags), not body alone, so a
+                ;; head-only server/client divergence changes the hash and
+                ;; the bundled v1 mismatch detector catches it. The same
+                ;; hex feeds the root-element `data-rf-render-hash` (via
+                ;; render-to-string's `:render-hash` opt) AND the payload's
+                ;; `:rf/render-hash`, so the canonical-EDN walk runs once
+                ;; per request. When `:emit-hash?` is false the hash is
+                ;; still needed for the payload slot.
+                hash-str  (lifecycle/render-document-hash hiccup head-bag)
+                body-html (ssr/render-to-string
+                            hiccup
+                            {:doctype?    false
+                             :emit-hash?  emit-hash?
+                             :render-hash (when emit-hash? hash-str)})]
             (assoc head-bag
                    :hash-str  hash-str
                    :body-html body-html)))

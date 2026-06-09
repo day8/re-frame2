@@ -80,8 +80,17 @@
   "The shell prefix flushed as the first chunk. Mirrors the non-streaming
   `default-html-shell`'s open + head + body-open + app-div-open. Shares
   the `:html-attrs`/`:lang` fallback with the non-streaming shell via
-  `shell/html-attr-bag` so the two envelopes can't diverge."
-  [head-html {:keys [html-attrs body-attrs lang app-element-id]
+  `shell/html-attr-bag` so the two envelopes can't diverge.
+
+  rf2-9fw2de: when `:render-hash` is supplied (the handler passes it iff
+  `:emit-hash?` is true), `data-rf-render-hash` is stamped on the streaming
+  root element — the `#app` div, the first DOM root of the streamed
+  document — mirroring the non-streaming handler's root-element marker
+  (Spec 011 §362-363). The hash value is the full-document structural hash
+  shared with the final payload's `:rf/render-hash`, so toggling
+  `:emit-hash?` has an observable effect on the wire and a host/tool can
+  verify the streamed root against the payload."
+  [head-html {:keys [html-attrs body-attrs lang app-element-id render-hash]
               :or   {lang "en" app-element-id "app"}}]
   (let [attr-bag (shell/html-attr-bag html-attrs lang)]
     (str "<!DOCTYPE html>"
@@ -94,8 +103,13 @@
          ;; rf2-7x0qk — `:app-element-id` is an attribute-value position;
          ;; escape through `html/escape-attr` (same split as the non-
          ;; streaming `default-html-shell`). `:head` stays raw (content
-         ;; position).
-         "<div id=\"" (html/escape-attr app-element-id) "\">")))
+         ;; position). rf2-9fw2de — the `data-rf-render-hash` value is an
+         ;; 8-char hex (canonical-EDN FNV) so it needs no escaping, but it
+         ;; only emits when supplied (`:emit-hash?` true).
+         "<div id=\"" (html/escape-attr app-element-id) "\""
+         (when render-hash
+           (str " data-rf-render-hash=\"" render-hash "\""))
+         ">")))
 
 (defn default-streaming-suffix
   "The shell suffix flushed after the final-payload chunk. Closes the
@@ -158,8 +172,17 @@
      :head-html     \"…\"                        ;; resolved <head> fragment
      :html-attrs    {…} or nil                  ;; stamped on <html>
      :body-attrs    {…} or nil                  ;; stamped on <body>
+     :doc-hash      \"…\"                         ;; full-document structural hash
      :shell-html    \"…\"                        ;; chunk 1 body
      :continuations [{:id … :subtree …} …]}     ;; drain queue (FIFO)
+
+  rf2-9fw2de: `:doc-hash` is the canonical FULL-document structural hash
+  (body tree + resolved head fragment + html/body attr bags) computed via
+  `lifecycle/render-document-hash`. It drives BOTH the final-payload
+  `:rf/render-hash` AND the streaming root-element `data-rf-render-hash`
+  marker (when `:emit-hash?` is true) — preserving wire/payload parity with
+  the non-streaming handler and folding the head into the unified hash
+  channel per Spec 011 §624-626/§648-650.
 
   Throws propagate to the caller (the handler's outer try/catch routes
   them through the projector → fail-closed non-200, rf2-r06pc). The
@@ -186,15 +209,23 @@
   (shell/check-body-end-csp-hosts! body-end csp-script-src-allowlist)
   (rf/with-frame frame-id
     (let [hiccup     (lifecycle/resolve-root-view root-view)
-          {:keys [head-html html-attrs body-attrs]}
-          (if (:head opts)
-            {:head-html (:head opts) :html-attrs nil :body-attrs nil}
-            (lifecycle/resolve-head frame-id))
+          head-bag   (if (:head opts)
+                       {:head-html (:head opts) :html-attrs nil :body-attrs nil}
+                       (lifecycle/resolve-head frame-id))
+          {:keys [head-html html-attrs body-attrs]} head-bag
+          ;; rf2-9fw2de: the streaming structural hash folds the head
+          ;; fragment in, identically to the non-streaming handler — Spec
+          ;; 011 §624-626/§648-650 lock head + body onto the unified
+          ;; `:rf/render-hash` channel. Computed once here on the request
+          ;; thread; drives the final-payload `:rf/render-hash` AND (when
+          ;; `:emit-hash?`) the streaming root-element marker.
+          doc-hash   (lifecycle/render-document-hash hiccup head-bag)
           {:keys [shell-html continuations]} (streaming/render-shell hiccup)]
       {:hiccup        hiccup
        :head-html     head-html
        :html-attrs    html-attrs
        :body-attrs    body-attrs
+       :doc-hash      doc-hash
        :shell-html    shell-html
        :continuations continuations})))
 
@@ -233,11 +264,21 @@
   [^OutputStream out frame-id rendered opts]
   (try
     (let [{:keys [emit-hash? version schema-digest payload]} opts
-          {:keys [hiccup head-html html-attrs body-attrs
-                  shell-html continuations]} rendered
+          ;; rf2-9fw2de — the writer no longer recomputes the hash from
+          ;; `hiccup`; `doc-hash` (full-document) was computed once on the
+          ;; request thread by `render-streaming-shell!`. `:hiccup` stays in
+          ;; the `rendered` map for diagnostics but is not destructured here.
+          {:keys [head-html html-attrs body-attrs
+                  doc-hash shell-html continuations]} rendered
           shell-opts (merge opts
-                            {:html-attrs html-attrs
-                             :body-attrs body-attrs})]
+                            {:html-attrs  html-attrs
+                             :body-attrs  body-attrs
+                             ;; rf2-9fw2de — honour `:emit-hash?` on the
+                             ;; streaming path: stamp the full-document
+                             ;; hash onto the root `#app` div when true, no
+                             ;; marker when false (a true no-op was the
+                             ;; bug). Same hash the final payload carries.
+                             :render-hash (when emit-hash? doc-hash)})]
       ;; Chunk 1 — shell prefix + shell HTML (with template fallbacks).
       (write-chunk! out (default-streaming-prefix head-html shell-opts))
       (write-chunk! out shell-html)
@@ -279,12 +320,17 @@
             (recur (into (pop queue) continuations)))))
       ;; Chunk N+2 — final canonical __rf_payload.
       ;;
-      ;; rf2-5knxf.2 — the streaming final-payload `:rf/render-hash` is
-      ;; computed over `hiccup` (the resolved root view returned by
-      ;; `render-streaming-shell!`) via `render-tree-hash`, the IDENTICAL
-      ;; mechanism the non-streaming `build-full-response*` uses (it hashes
-      ;; `(resolve-root-view root-view)` the same way). This is the correct
-      ;; structural hash, NOT a streaming-specific divergence:
+      ;; rf2-5knxf.2 — the streaming final-payload `:rf/render-hash` is the
+      ;; full-document structural hash (`doc-hash`) computed ONCE on the
+      ;; request thread in `render-streaming-shell!` via
+      ;; `lifecycle/render-document-hash` — the IDENTICAL mechanism the
+      ;; non-streaming `build-full-response*` uses. rf2-9fw2de: it folds the
+      ;; resolved head fragment (+ html/body attr bags) into the canonical
+      ;; input alongside the body `hiccup`, so a head-only divergence
+      ;; changes the hash (Spec 011 §624-626/§648-650). It is reused (not
+      ;; recomputed) so the final-payload `:rf/render-hash` and the streamed
+      ;; root-element `data-rf-render-hash` marker are byte-identical. This
+      ;; is the correct structural hash, NOT a streaming-specific divergence:
       ;;
       ;;   - `render-tree-hash` is a PURE structural FNV-1a over the
       ;;     canonical-EDN of the hiccup (hash.cljc). It does NOT expand
@@ -316,10 +362,9 @@
       ;;     :app/root))`). It is NOT a marker bug and NOT streaming-specific.
       ;;     Spec 011 §Hydration equivalence rule (structural, not textual)
       ;;     + §Hydration-mismatch detection.
-      (let [final-hash    (rf/with-frame frame-id (ssr/render-tree-hash hiccup))
-            final-payload (rf/with-frame frame-id
+      (let [final-payload (rf/with-frame frame-id
                             (streaming/build-final-payload
-                              frame-id final-hash
+                              frame-id doc-hash
                               {:version       version
                                :schema-digest schema-digest
                                :payload       payload}))]

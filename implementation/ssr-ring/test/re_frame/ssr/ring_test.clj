@@ -629,6 +629,139 @@
             "side-effect counter confirms the fn was invoked exactly once")))))
 
 ;; ===========================================================================
+;; ssr-handler — the unified render hash folds in the HEAD fragment
+;; (rf2-9fw2de)
+;;
+;; Spec 011 §Head/meta contract (§624-626) and §Mismatch detection — head
+;; (§648-650) lock head + body onto the UNIFIED `:rf/render-hash` channel:
+;; the server-rendered HTML carries a single structural hash that covers
+;; BOTH head and body, so the bundled v1 hydration-mismatch detector cannot
+;; tell a head-only divergence from a body-only one but DOES catch either.
+;;
+;; The bug (rf2-9fw2de): the hash was computed over the BODY tree alone, so
+;; a server/client divergence that changed only reg-head output / route head
+;; attrs / explicit head content left `:rf/render-hash` (and the wire
+;; `data-rf-render-hash`) unchanged — the detector silently accepted a head
+;; mismatch. These tests pin the fix: two renders with an IDENTICAL body but
+;; a DIFFERENT head produce DIFFERENT `:rf/render-hash` (and wire) values.
+;; ===========================================================================
+
+(defn- extract-wire+payload-hash
+  "Pull the wire `data-rf-render-hash` AND the payload `:rf/render-hash`
+  out of a rendered SSR document body string. Returns
+  `{:wire <hex-or-nil> :payload <hex-or-nil>}`."
+  [body]
+  (let [wire        (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\"" body))
+        payload-edn (second (re-find
+                              #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                              body))
+        payload     (when payload-edn
+                      ;; Payload EDN may use the `#:rf{…}` namespace-map
+                      ;; shorthand (pr-str collapses `:rf/render-hash` to
+                      ;; `:render-hash`); match either rendering.
+                      (second (re-find #":(?:rf/)?render-hash \"([0-9a-f]{8})\""
+                                       payload-edn)))]
+    {:wire wire :payload payload}))
+
+(deftest ssr-handler-explicit-head-folds-into-render-hash
+  (testing "rf2-9fw2de: identical body + DIFFERENT explicit :head → DIFFERENT
+            :rf/render-hash. The head rides the unified hash channel (Spec
+            011 §624-626/§648-650); a head-only change MUST move the hash."
+    (rf/reg-event-db :init/noop-head (fn [db _] db))
+    (rf/reg-view* :pages/fixed-body (fn [] [:div.body "identical body"]))
+
+    (let [mk      (fn [head]
+                    (ssr-ring/ssr-handler
+                      {:on-create [:init/noop-head]
+                       :root-view [:pages/fixed-body]
+                       :head      head
+                       :payload   :rf.ssr.payload/whole-app-db}))
+          body-a  (:body ((mk "<title>Alpha</title>") {:uri "/" :request-method :get}))
+          body-b  (:body ((mk "<title>Beta</title>")  {:uri "/" :request-method :get}))
+          ha      (extract-wire+payload-hash body-a)
+          hb      (extract-wire+payload-hash body-b)]
+      ;; Sanity: both bodies carry the SAME body content.
+      (is (str/includes? body-a "identical body"))
+      (is (str/includes? body-b "identical body"))
+      ;; Wire == payload within each render (single canonical document hash).
+      (is (some? (:wire ha)) "render A carries a wire hash")
+      (is (some? (:payload ha)) "render A carries a payload hash")
+      (is (= (:wire ha) (:payload ha))
+          "render A: wire data-rf-render-hash == payload :rf/render-hash
+           (both derive from the same canonical full-document hash)")
+      (is (= (:wire hb) (:payload hb))
+          "render B: wire == payload")
+      ;; The load-bearing assertion: a head-only divergence MOVES the hash.
+      (is (not= (:payload ha) (:payload hb))
+          "rf2-9fw2de: identical body but different head → DIFFERENT
+           :rf/render-hash (head folded into the unified hash channel —
+           a head mismatch is no longer silently accepted)"))))
+
+(deftest ssr-handler-route-head-folds-into-render-hash
+  (testing "rf2-9fw2de: identical body + DIFFERENT route-driven reg-head
+            output → DIFFERENT :rf/render-hash. Covers the route-head path
+            (not just explicit :head)."
+    (rf/reg-head :head/variant-a (fn [_db _route] {:title "Route head A"}))
+    (rf/reg-head :head/variant-b (fn [_db _route] {:title "Route head B"}))
+    (rf/reg-route :route/head-a {:doc "A" :path "/" :head :head/variant-a})
+    (rf/reg-route :route/head-b {:doc "B" :path "/" :head :head/variant-b})
+    (rf/reg-event-fx :init/seed-head-a
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/head-a})}))
+    (rf/reg-event-fx :init/seed-head-b
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/head-b})}))
+    (rf/reg-view* :pages/shared-body (fn [] [:div.body "same body, different head"]))
+
+    (let [mk      (fn [init]
+                    (ssr-ring/ssr-handler
+                      {:on-create [init]
+                       :root-view [:pages/shared-body]
+                       :payload   :rf.ssr.payload/whole-app-db}))
+          body-a  (:body ((mk :init/seed-head-a) {:uri "/" :request-method :get}))
+          body-b  (:body ((mk :init/seed-head-b) {:uri "/" :request-method :get}))
+          ha      (extract-wire+payload-hash body-a)
+          hb      (extract-wire+payload-hash body-b)]
+      (is (str/includes? body-a "<title>Route head A</title>"))
+      (is (str/includes? body-b "<title>Route head B</title>"))
+      (is (= (:wire ha) (:payload ha)) "render A: wire == payload")
+      (is (= (:wire hb) (:payload hb)) "render B: wire == payload")
+      (is (not= (:payload ha) (:payload hb))
+          "rf2-9fw2de: different reg-head title (identical body) → DIFFERENT
+           :rf/render-hash"))))
+
+(deftest ssr-handler-html-body-attrs-fold-into-render-hash
+  (testing "rf2-9fw2de: the head model's :html-attrs / :body-attrs are part
+            of the canonical document hash — a change to them (identical body
+            + identical title) moves :rf/render-hash."
+    (rf/reg-head :head/attrs-a
+                 (fn [_db _route] {:title "T" :html-attrs {:lang "en"}}))
+    (rf/reg-head :head/attrs-b
+                 (fn [_db _route] {:title "T" :html-attrs {:lang "fr"}}))
+    (rf/reg-route :route/attrs-a {:doc "A" :path "/" :head :head/attrs-a})
+    (rf/reg-route :route/attrs-b {:doc "B" :path "/" :head :head/attrs-b})
+    (rf/reg-event-fx :init/seed-attrs-a
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/attrs-a})}))
+    (rf/reg-event-fx :init/seed-attrs-b
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/attrs-b})}))
+    (rf/reg-view* :pages/attrs-body (fn [] [:div.body "body"]))
+
+    (let [mk      (fn [init]
+                    (ssr-ring/ssr-handler
+                      {:on-create [init]
+                       :root-view [:pages/attrs-body]
+                       :payload   :rf.ssr.payload/whole-app-db}))
+          ha      (extract-wire+payload-hash
+                    (:body ((mk :init/seed-attrs-a) {:uri "/" :request-method :get})))
+          hb      (extract-wire+payload-hash
+                    (:body ((mk :init/seed-attrs-b) {:uri "/" :request-method :get})))]
+      (is (not= (:payload ha) (:payload hb))
+          "rf2-9fw2de: differing :html-attrs (identical body + title) →
+           DIFFERENT :rf/render-hash"))))
+
+;; ===========================================================================
 ;; ssr-handler — Ring → :rf.server/request cofx (rf2-afxhv)
 ;;
 ;; The canonical Ring-adapter ↔ cofx boundary. Per Spec 011 §Request
