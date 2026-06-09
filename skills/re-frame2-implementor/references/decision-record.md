@@ -91,14 +91,18 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 ### State storage (S1–S3)
 
-#### S1 App-db container
+#### S1 Frame-state container (two partitions)
 
-- **Container:** <e.g. "Reagent ratom" / "useSyncExternalStore-backed atom store" / "MutableStateFlow-shaped cell">
-- **Revertibility check:** <confirm no non-derivable adapter state lives outside the container>
+> EP-0001 shipped a **two-partition** frame. The physical durable state is **one** `frame-state` container value `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`; **app-db and runtime-db are read-only derived projections** over that one container (one physical container, two projection reactions — pattern contract per [`spec/002-Frames.md` §One physical container, two projection reactions](https://day8.github.io/re-frame2/spec/002-Frames/) and [`spec/006-ReactiveSubstrate.md` §Frame-state container and partition projections](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/)). app-db holds user data and nothing else; runtime-db holds framework subsystem state (machine snapshots, route slice, elision declarations, SSR metadata) under the `:rf.runtime/*` children. The former app-db root `:rf/runtime` is RETIRED — a stray `:rf/runtime` root in a `:db` effect hard-errors (`:rf.error/legacy-runtime-root`); never store framework runtime state under an app-db root.
+
+- **Frame-state container:** <e.g. "Reagent ratom holding `{:rf.db/app … :rf.db/runtime …}`" / "useSyncExternalStore-backed atom store" / "MutableStateFlow-shaped cell"> — ONE physical container for the whole frame-state value.
+- **Partition projections:** <how `app-db` / `runtime-db` are derived as read-only projections over the one container — e.g. "two Reagent `r/reaction`s projecting `:rf.db/app` / `:rf.db/runtime`"; confirm equality-based partition invalidation: a runtime-only commit must NOT invalidate app subs, an app-only commit must NOT touch framework subs>
+- **Write authority:** <confirm an ordinary `:db` effect replaces only app-db; `:rf.db/runtime` effects (framework/runtime-extension only, by convention) replace only runtime-db; a cascade emitting both installs them as one atomic frame-state transition>
+- **Revertibility check:** <confirm no non-derivable adapter state lives outside the frame-state container — both partitions are revertible by one value swap; restore / hydration / time-travel reinstall a coherent frame-state, never one partition alone>
 
 #### S2 Snapshot/restore mechanism
 
-- **Mechanism:** <e.g. "pointer swap (persistent collections)" / "value capture + replace-container!"> — depends on F2.
+- **Mechanism:** <e.g. "pointer swap (persistent collections)" / "value capture + replace-container!"> — depends on F2. Snapshots the whole `frame-state` value (both partitions together), not app-db alone.
 
 #### S3 Path-access primitive
 
