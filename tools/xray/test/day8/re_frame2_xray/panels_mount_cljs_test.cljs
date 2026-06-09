@@ -339,14 +339,13 @@
                `(rf/epoch-history :cart-frame)` per the
                `:rf.xray/set-target-frame` reducer."))))))
 
-(deftest mount-panel-without-pre-mount-traffic-falls-back-to-default-frame
-  (testing "Mounting a panel with an empty trace-bus + no pre-mount
-            cascades on any frame seeds `:target-frame` from
-            `defaults/default-target-frame` (the fallback branch in
-            `::seed-trace-and-target-frame`). Pins the cold-start
-            behaviour; without the hook the slot would be nil and the
-            App-DB sub's frame-resolution would chain to `:rf/default`
-            silently."
+(deftest mount-panel-without-pre-mount-traffic-leaves-target-unselected
+  (testing "EP-0002 (rf2-bd4div) — mounting a panel with an empty trace-bus
+            + no pre-mount cascades on any frame seeds `:target-frame` from
+            `defaults/default-target-frame` = nil = UNSELECTED (the fallback
+            branch in `::seed-trace-and-target-frame`). Pins the cold-start
+            behaviour: the target stays unselected (the picker prompts a
+            choice) rather than chaining to a synthesised `:rf/default`."
     (let [[_capture _ render-stub] (make-render-stub)]
       (with-redefs [substrate-adapter/render render-stub
                     rf/epoch-history (fn [_] [])]
@@ -354,8 +353,10 @@
         (rf/with-frame :rf/xray
           (is (= defaults/default-target-frame
                  @(rf/subscribe [:rf.xray/target-frame]))
-              "`:target-frame` falls back to default when no focusable
-               cascade exists."))))))
+              "`:target-frame` is the unselected default (nil) when no
+               focusable cascade exists.")
+          (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
+              "explicitly: UNSELECTED is nil, not :rf/default"))))))
 
 ;; ---- contract — every public mount fn exists --------------------------
 

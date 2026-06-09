@@ -118,18 +118,28 @@
 
   Per `spec/API.md` §Public CLJS API, `opts` accepts:
 
-      {:default-frame :app/main         ;; target-frame for the scrubber
-       :theme         :dark             ;; / :light  (settings persist)
-       :density       :compact          ;; / :cosy   (settings persist)
+      {:target-frame :app/main          ;; observed host frame for the scrubber
+       :theme        :dark              ;; / :light  (settings persist)
+       :density      :compact           ;; / :cosy   (settings persist)
        :buffer-depths {:epoch 50}}      ;; per-frame ring depth
+
+  EP-0002 (rf2-bd4div) — the inspected-host opt is `:target-frame`,
+  distinct from Xray's OWN frame (`:own-frame`, the `:rf/xray` shell
+  frame where the chrome's app-db lives — a fixed singleton, not a
+  per-call opt). The legacy `:default-frame` key is RETIRED (pre-alpha,
+  no shim): it conflated the two roles and read like the ambient
+  `:rf/default` fallback this EP removes. Omitting `:target-frame` leaves
+  the inspected target UNSELECTED — the frame picker (or the mount-time
+  discovery policy) selects one; Xray does NOT default the target to
+  `:rf/default` (Spec 002 §Frame target resolution — the carried invariant).
 
   Wires the four foundation side-effects (registry, trace-cb, epoch-cb,
   keybinding listener), then threads each supplied opt through to its
   backing surface:
 
-  - `:default-frame` — dispatches `:rf.xray/set-target-frame` so the
+  - `:target-frame` — dispatches `:rf.xray/set-target-frame` so the
     scrubber + every dependent panel re-fire on the standard reactive
-    path.
+    path against the selected host frame.
   - `:theme` — writes to the persisted Settings shape (slot `:theme`)
     and applies the matching `rf-xray-theme-*` class so the next paint
     honours the new palette without a reload.
@@ -152,14 +162,17 @@
   Returns nothing."
   ([]
    (init! nil))
-  ([{:keys [default-frame theme density buffer-depths] :as _opts}]
+  ([{:keys [target-frame theme density buffer-depths] :as _opts}]
    (registry/register-xray-handlers!)
    (preload/register-trace-collector!)
    (preload/register-epoch-collector!)
    (keybinding/attach!)
-   (when default-frame
+   ;; EP-0002 (rf2-bd4div) — select the explicit inspected TARGET frame in
+   ;; Xray's OWN (`:rf/xray`) frame. Absent → leave unselected (the picker
+   ;; / mount discovery policy chooses); never a `:rf/default` fallback.
+   (when target-frame
      (rf/with-frame :rf/xray
-       (rf/dispatch [:rf.xray/set-target-frame default-frame])))
+       (rf/dispatch [:rf.xray/set-target-frame target-frame])))
    (when theme
      (config/update-setting! :theme nil theme)
      (settings-effects/apply-theme! theme))
@@ -176,9 +189,15 @@
 
 (defn target-frame
   "Return the host frame Xray is currently targeting — the frame the
-  scrubber / app-db / machine-inspector panels are observing. Defaults
-  to `:rf/default` (per `day8.re-frame2-xray.defaults/default-target-
-  frame`) until `set-target-frame!` flips it.
+  scrubber / app-db / machine-inspector panels are observing — or
+  **`nil` when UNSELECTED**.
+
+  EP-0002 (rf2-bd4div) — the inspected target starts UNSELECTED and is
+  selected by host config (`init! {:target-frame …}` / `set-target-
+  frame!`), the frame picker, or the mount-time discovery policy. It is
+  NOT defaulted to `:rf/default`: `:rf/default` is an ordinary id, never
+  an absence-repair fallback (Spec 002 §Frame target resolution). A `nil`
+  return means 'no host frame selected yet' — the picker prompts a choice.
 
   One-shot read; does NOT register the caller for reactive re-render.
   Reactive consumers subscribe to `:rf.xray/target-frame` directly.
@@ -194,9 +213,15 @@
 
 (defn set-target-frame!
   "Set the host frame Xray targets. Dispatches `:rf.xray/set-target-
-  frame` into the `:rf/xray` frame so the `:rf.xray/target-frame`
-  sub and every dependent panel re-fire on the standard reactive
-  path. `nil` resets to the default (`:rf/default`).
+  frame` into the `:rf/xray` (Xray's OWN) frame so the
+  `:rf.xray/target-frame` sub and every dependent panel re-fire on the
+  standard reactive path.
+
+  EP-0002 (rf2-bd4div) — `nil` resets the target to UNSELECTED (the
+  panels render their no-frame-selected state and the picker prompts a
+  choice). It no longer resets THROUGH a synthesised `:rf/default`:
+  the inspected target is never absence-repaired to the ordinary
+  `:rf/default` id (Spec 002 §Frame target resolution).
 
   Returns nothing."
   [frame-id]

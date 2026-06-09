@@ -140,19 +140,20 @@
   (testing "rf2-boyc2 — :ungrouped bucket is filtered out so the seed
             frame is always a real, L2-visible cascade's frame. Without
             the filter the bucket (no `:frame` slot) could be chosen as
-            the head, and `:target-frame nil` would resolve via
-            `set-target-frame`'s `(or frame-id default-target-frame)`
-            to `:rf/default` — wiping out a real pre-mount frame's
-            history."
+            the head. EP-0002 (rf2-bd4div): a nil seed leaves the target
+            UNSELECTED (`set-target-frame`'s `(or frame-id
+            default-target-frame)` = nil) — it no longer resolves to a
+            synthesised `:rf/default`."
     (let [cascades [(cascade :c1 :cart-frame)
                     (cascade :ungrouped nil)]]
       (is (= :cart-frame (spine/focusable-head-frame-id cascades))
           ":ungrouped is filtered; head focusable cascade is :c1"))))
 
 (deftest focusable-head-frame-id-empty-cascades-returns-nil
-  (testing "rf2-boyc2 — no focusable cascades → nil. Callers fall back
-            to `defaults/default-target-frame` so the cold-start path
-            behaves identically to pre-fix."
+  (testing "rf2-boyc2 — no focusable cascades → nil. EP-0002 (rf2-bd4div):
+            callers seed `defaults/default-target-frame` = nil, so the
+            cold-start path leaves the target UNSELECTED (no `:rf/default`
+            synthesis)."
     (is (nil? (spine/focusable-head-frame-id [])))
     (is (nil? (spine/focusable-head-frame-id
                 [(cascade :ungrouped nil)]))
