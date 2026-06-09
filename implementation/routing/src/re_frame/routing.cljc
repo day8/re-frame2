@@ -174,7 +174,29 @@
 
 ;; :url-bound? exclusivity check — Spec 012 §Multi-frame routing
 ;; ("Only one frame can own the URL at a time").
-(registrar/add-registration-hook! url-bound/check-url-bound-exclusivity!)
+;;
+;; rf2-25i7r7 (finding 1 — reload idempotence): the registrar's
+;; `add-registration-hook!` appends to a process-`defonce` vector with
+;; no dedupe (re-frame.registrar §registration-hooks), and `clear-all!`
+;; does NOT clear that vector. So the unconditional top-level call this
+;; replaced stacked one identical hook per `(require 're-frame.routing
+;; :reload)` — the long-established `clear-all!` test-fixture recovery
+;; pattern and any REPL hot-reload. N stacked copies meant a single
+;; duplicate URL binding emitted N `:rf.error/duplicate-url-binding`
+;; diagnostics, and every `:frame` registration paid N× the hook work.
+;;
+;; The `defonce` guard makes installation idempotent across reloads:
+;; `:reload` re-runs every top-level form, but a `defonce` whose var
+;; already carries a root binding is a no-op, so the hook is installed
+;; exactly once per process. The registrar's hooks vector is itself
+;; `defonce` and survives `clear-all!`, so the single installed hook
+;; stays live across the fixture's `clear-all!` + `:reload` recovery —
+;; no re-install is needed. Mirrors the flows registry's
+;; `_hot-reload-hook` defonce wrapper over `add-replacement-hook!`
+;; (re-frame.flows.registry, rf2-94ol5) — the same "install a
+;; registrar hook once, survive hot-reload" pattern.
+(defonce ^:private _url-bound-exclusivity-hook
+  (registrar/add-registration-hook! url-bound/check-url-bound-exclusivity!))
 
 ;; Framework-shipped subs over the route slice — Spec 012.
 ;; EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db

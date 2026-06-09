@@ -48,6 +48,9 @@
             ;; routing-nav-token-staleness dispatches it below.
             [re-frame.routing.test-support]
             [re-frame.routing.match :as routing.match]
+            ;; rf2-25i7r7 finding 1: the reload-idempotence test identifies
+            ;; copies of the url-bound registration hook by fn identity.
+            [re-frame.routing.url-bound :as url-bound]
             [re-frame.routing.registry :as registry]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
@@ -4118,6 +4121,219 @@
       (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :rf/default})
       (is (empty? @pushed)
           ":rf/default opted out of URL ownership, so its push is suppressed"))))
+
+;; ============================================================================
+;; rf2-25i7r7 — finding 1: reload idempotence of the url-bound registration hook
+;; ============================================================================
+;;
+;; The registrar's `add-registration-hook!` appends to a process-`defonce`
+;; vector with no dedupe, and `clear-all!` does NOT clear it. Before the
+;; fix the facade called `add-registration-hook!` unconditionally at the
+;; top level, so every `(require 're-frame.routing :reload)` — the
+;; long-established `clear-all!` test-fixture recovery pattern, run on
+;; EVERY test by `reset-runtime` above, and any REPL hot-reload — stacked
+;; one more identical copy of `check-url-bound-exclusivity!`. N copies
+;; meant a single duplicate URL binding emitted N
+;; `:rf.error/duplicate-url-binding` diagnostics. The fix wraps the
+;; install in a `defonce` guard so it fires exactly once per process and
+;; survives reload (the registrar hooks vector is itself `defonce` and
+;; survives `clear-all!`).
+
+(deftest url-bound-hook-installed-exactly-once-across-reloads
+  (testing "rf2-25i7r7 finding 1: re-requiring re-frame.routing with
+            :reload does NOT stack additional copies of
+            check-url-bound-exclusivity! in the registrar's
+            registration-hooks vector — the defonce guard keeps it at one"
+    ;; reset-runtime already did clear-all! + one :reload before this test.
+    ;; Reload twice more to simulate repeated REPL/test recovery cycles.
+    (require 're-frame.routing :reload)
+    (require 're-frame.routing :reload)
+    (let [hooks @(deref #'registrar/registration-hooks)
+          ;; The url-bound hook is `check-url-bound-exclusivity!`; identify
+          ;; copies by fn identity (defonce keeps a single var binding, so
+          ;; idempotent installs share identity).
+          target url-bound/check-url-bound-exclusivity!
+          copies (count (filter #(identical? target %) hooks))]
+      (is (= 1 copies)
+          "exactly one copy of the url-bound exclusivity hook after repeated reloads"))))
+
+(deftest one-conflict-emits-one-duplicate-binding-after-repeated-reloads
+  (testing "rf2-25i7r7 finding 1: after reinstalling the routing facade
+            more than once, a single conflicting URL-bound frame
+            registration emits EXACTLY ONE :rf.error/duplicate-url-binding
+            diagnostic (not N, one per stacked hook)"
+    ;; Re-install the facade several extra times — the regression was that
+    ;; each reload stacked another hook, so one conflict fanned out N
+    ;; diagnostics.
+    (require 're-frame.routing :reload)
+    (require 're-frame.routing :reload)
+    (require 're-frame.routing :reload)
+    (let [traces (atom [])]
+      (rf/register-listener! ::dup-once (fn [ev] (swap! traces conj ev)))
+      ;; :rf/default is implicitly :url-bound? true; one second binding is
+      ;; one conflict.
+      (rf/reg-frame :my-conflicting-frame {:url-bound? true})
+      (rf/unregister-listener! ::dup-once)
+      (let [dups (filter #(= :rf.error/duplicate-url-binding (:operation %)) @traces)]
+        (is (= 1 (count dups))
+            "one conflict → exactly one duplicate-url-binding diagnostic, regardless of reload count")
+        (is (= :my-conflicting-frame (-> dups first :tags :offending-frame))
+            "the single diagnostic names the offending frame")))))
+
+;; ============================================================================
+;; rf2-25i7r7 — finding 2: duplicate URL binding is STORED, not rejected;
+;;              only the deterministic owner drives navigation
+;; ============================================================================
+;;
+;; Spec 009's recovery text formerly said "the second binding is rejected;
+;; the existing URL-owning frame is unchanged." The registrar hook runs
+;; AFTER the slot is written, so the implementation cannot reject — it
+;; stores both bindings and `url-owner-frame-id` resolves a single owner.
+;; These tests pin the corrected (option-b) semantics: both bindings are
+;; visible in frame metadata, the existing owner is unchanged, and only
+;; the owner's history-mutation fx fires.
+
+(deftest duplicate-url-binding-stores-both-frame-metas
+  (testing "rf2-25i7r7 finding 2: after a duplicate :url-bound? true
+            registration, BOTH frames carry :url-bound? true in the
+            registry (the losing binding is stored, not rejected) and
+            the existing owner (:rf/default) is unchanged"
+    (rf/reg-frame :second-owner {:url-bound? true})
+    (is (true? (:url-bound? (frame/frame-meta :second-owner)))
+        "the offending frame's :url-bound? true is visible in frame metadata")
+    ;; :rf/default keeps implicit ownership (its metadata is unchanged by
+    ;; the error).
+    (is (= :rf/default (routing/url-owner-frame-id))
+        "the existing URL owner (:rf/default) still drives navigation")))
+
+(deftest duplicate-url-binding-only-owner-drives-navigation
+  (testing "rf2-25i7r7 finding 2: when two frames carry :url-bound? true,
+            only the single deterministic owner's :rf.nav/push-url fires;
+            the losing binding's navigation no-ops the history mutation"
+    (rf/reg-frame :loser {:url-bound? true})   ;; conflicts with :rf/default
+    (rf/reg-route :route/home {:path "/home"})
+    (let [pushed (atom [])]
+      ;; Re-register the production-gated fx that consults the REAL
+      ;; url-owner-frame-id resolver (a reimplemented gate can't catch a
+      ;; resolution regression).
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}
+                  :doc       "test fx consulting the production url-owner resolver"}
+                 (fn [{:keys [frame]} url]
+                   (when (= (or frame :rf/default) (routing/url-owner-frame-id))
+                     (swap! pushed conj {:frame frame :url url}))))
+      ;; Owner (:rf/default) pushes; the losing binding does not.
+      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :rf/default})
+      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :loser})
+      (is (= [{:frame :rf/default :url "/home"}] @pushed)
+          "only the deterministic owner's navigate pushes the URL; the loser no-ops"))))
+
+;; ============================================================================
+;; rf2-25i7r7 — finding 3: route failure semantics across multiple :on-match
+;;              events (continuation + first-error-wins + final :error)
+;; ============================================================================
+;;
+;; The navigation cascade runs inside the locked FIFO run-to-completion
+;; drain (Spec 002), which does not cancel already-queued events.
+;; `commit-navigation` queues every :on-match dispatch (and the FIFO
+;; settle) up front; the on-match-error trap dispatches its :error flip to
+;; the BACK of the queue. So a later loader runs after an earlier one
+;; fails (documented continuation), and the slice lands :error regardless
+;; of interleaving. When MULTIPLE loaders throw, first-error-wins.
+
+(deftest on-match-later-loader-runs-after-earlier-failure
+  (testing "rf2-25i7r7 finding 3: an :on-match [[:load/fail] [:load/next]]
+            where the first event throws still RUNS the later loader
+            (continuation under the locked FIFO drain), and the slice
+            settles to :transition :error attributed to the FIRST failure"
+    (let [order (atom [])]
+      (rf/reg-event-db :load/fail
+                       (fn [_db _]
+                         (swap! order conj :fail)
+                         (throw (ex-info "first-boom" {:why :test}))))
+      (rf/reg-event-db :load/next
+                       (fn [db _]
+                         (swap! order conj :next)
+                         (assoc db :load/next-ran? true)))
+      (rf/reg-route :route/two-loaders
+                    {:path     "/two-loaders"
+                     :on-match [[:load/fail] [:load/next]]})
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      (rf/dispatch-sync [:rf.route/transitioned "/two-loaders"])
+      (is (= [:fail :next] @order)
+          "the later loader RAN after the earlier one threw (FIFO continuation)")
+      (is (true? (:load/next-ran? (rf/app-db-value :rf/default)))
+          "the later loader's :db write committed")
+      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+        (is (= :error (:transition slice))
+            "final :transition is :error regardless of queue interleaving")
+        (is (= :load/fail (:event-id (:error slice)))
+            ":rf.route/error is attributed to the FIRST failing loader")
+        (is (= :load/fail (:rf.route/on-match-id (:error slice)))
+            ":rf.route/on-match-id names the first failure, not the later loader")))))
+
+(deftest on-match-first-error-wins-when-multiple-loaders-throw
+  (testing "rf2-25i7r7 finding 3: when BOTH :on-match loaders throw in the
+            same transition, the FIRST attributed failure is the recorded
+            :rf.route/error (the second does NOT clobber it) and a declared
+            :on-error dispatches EXACTLY ONCE — xstate-v5 errored-transition
+            semantics"
+    (let [on-error-count (atom 0)]
+      (rf/reg-event-db :load/fail-1
+                       (fn [_db _] (throw (ex-info "boom-1" {:n 1}))))
+      (rf/reg-event-db :load/fail-2
+                       (fn [_db _] (throw (ex-info "boom-2" {:n 2}))))
+      (rf/reg-event-db :route/double-fail-on-error
+                       (fn [db _]
+                         (swap! on-error-count inc)
+                         db))
+      (rf/reg-route :route/double-fail
+                    {:path     "/double-fail"
+                     :on-match [[:load/fail-1] [:load/fail-2]]
+                     :on-error [:route/double-fail-on-error]})
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      (rf/dispatch-sync [:rf.route/transitioned "/double-fail"])
+      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+        (is (= :error (:transition slice))
+            "final :transition is :error after both loaders throw")
+        (is (= :load/fail-1 (:event-id (:error slice)))
+            "first-error-wins: :rf.route/error is the FIRST failure, not clobbered by the second")
+        (is (= :load/fail-1 (:rf.route/on-match-id (:error slice)))
+            "first-error-wins: attribution names the first failing loader")
+        (is (= 1 @on-error-count)
+            ":on-error dispatched exactly once despite two throws in one transition")))))
+
+(deftest on-match-error-then-newer-navigation-records-new-failure
+  (testing "rf2-25i7r7 finding 3: the first-error-wins guard is scoped to
+            the CURRENT nav-token — a NEWER navigation resets the slice off
+            :error through its own commit, so a failure on the later
+            navigation still records (failure-after-recovery is not
+            suppressed)"
+    (rf/reg-event-db :load/ok
+                     (fn [db _] (assoc db :ok? true)))
+    (rf/reg-event-db :load/late-fail
+                     (fn [_db _] (throw (ex-info "late-boom" {}))))
+    (rf/reg-route :route/clean {:path "/clean" :on-match [[:load/ok]]})
+    (rf/reg-route :route/dirty {:path "/dirty" :on-match [[:load/late-fail]]})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; First navigation succeeds (slice :idle), then a second navigation to
+    ;; a failing route must still record :error.
+    (rf/dispatch-sync [:rf.route/transitioned "/clean"])
+    (is (= :idle (get-in (rf/runtime-db-value :rf/default)
+                         [:rf.runtime/routing :current :transition]))
+        "clean navigation settles to :idle")
+    (rf/dispatch-sync [:rf.route/transitioned "/dirty"])
+    (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+      (is (= :error (:transition slice))
+          "the newer failing navigation records :error (not suppressed by a prior token's state)")
+      (is (= :load/late-fail (:event-id (:error slice)))
+          "the new failure is attributed to the new navigation's loader"))))
 
 ;; ===========================================================================
 ;; rf2-aleg9 — match-against direct function-boundary tests
