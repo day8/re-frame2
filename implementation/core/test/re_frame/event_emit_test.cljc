@@ -134,11 +134,13 @@
       ;; Stub the flow-transform hook to throw, driving the router's
       ;; flows-after-interceptor down its catch branch (which DISCARDS the
       ;; pending :db effect + stashes :rf/flow-error → event aborts before
-      ;; install + :fx). The hook is the (frame db) -> db transform; on
-      ;; throw it carries only :rf.flow/failed-id for attribution — there
-      ;; is no partial-db (no partial commit per the atomicity contract).
+      ;; install + :fx). The hook is the (frame db runtime-db) -> db transform
+      ;; (EP-0001 §535-551, rf2-4eisfr — the router now hands both pending
+      ;; partitions); on throw it carries only :rf.flow/failed-id for
+      ;; attribution — there is no partial-db (no partial commit per the
+      ;; atomicity contract).
       (late-bind/set-fn! :flows/run-flows-on-db
-                         (fn [_frame _db]
+                         (fn [_frame _db _runtime-db]
                            (throw (ex-info "flow output blew up"
                                            {:rf.flow/failed-id :flow/derived}))))
       (rf/register-event-listener!
@@ -166,7 +168,7 @@
       (late-bind/set-fn! :schemas/validate-app-schema!
                          (fn [_db-after _event-id _frame] true))
       (late-bind/set-fn! :flows/run-flows-on-db
-                         (fn [_frame db] db))
+                         (fn [_frame db _runtime-db] db))
       (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
