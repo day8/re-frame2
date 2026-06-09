@@ -232,6 +232,61 @@
                             :recovery          :logged-and-skipped})
         false))))
 
+;; ---- final-effects boundary policing (rf2-u1kdvg) -------------------------
+;;
+;; `commit-fx-effects` (below) polices the effect-map shape + the whole-`:fx`
+;; value for a `reg-event-fx` HANDLER RETURN — at the moment of the fx-kind
+;; `:commit`, i.e. inside the handler-wrapping interceptor's `:before`. That
+;; is BEFORE the `:after` interceptor pass runs (`execute-chain` runs every
+;; `:before` then every `:after` — see `re-frame.interceptor/execute-chain`).
+;;
+;; So the per-handler-return checks DO NOT cover effects that arrive at the
+;; commit boundary by any OTHER route:
+;;   - a `reg-event-ctx` handler returns a context directly (the `:ctx`
+;;     `:commit` is `(or new-ctx ctx)` — no effect-map validation);
+;;   - a framework / user `:after` interceptor mutates `[:effects …]` after
+;;     the handler-return checks have already run (docs/guide §09 documents
+;;     `:after` interceptors adding/modifying `:effects`/`:fx`).
+;;
+;; The router consumes the FINAL `(:effects final-ctx)` after the whole chain
+;; (every `:before` AND every `:after`) has run. `police-final-effects!` is
+;; the single authoritative shape gate applied THERE, so the closed
+;; effect-map + whole-`:fx` contract holds uniformly regardless of how an
+;; effect reached the final context (reg-event-fx, reg-event-ctx, framework
+;; interceptors, or user `:after`). It returns the CLEANED effects map —
+;; foreign top-level keys dropped, a non-sequential `:fx` dropped — so a
+;; malformed final effect never reaches `commit-frame-effects!` (silent
+;; ignore of a foreign key) nor `fx/do-fx` (a raw host throw after the db
+;; commit). Both drops emit `:rf.error/effect-map-shape`
+;; (`:logged-and-skipped`) exactly like the per-handler-return path.
+
+(defn police-final-effects!
+  "Police the FINAL effects map the router is about to consume against the
+  closed effect-map contract (per Spec-Schemas §:rf/effect-map + EP-0001):
+  top-level keys are `#{:db :rf.db/runtime :fx}` and the `:fx` value is a
+  sequential of `[fx-id args]` pairs. Returns the CLEANED effects map with
+  any offending top-level key and a non-sequential `:fx` value dropped;
+  each drop emits `:rf.error/effect-map-shape` (`:logged-and-skipped`).
+
+  This is the boundary gate covering effects that bypass the
+  `commit-fx-effects` per-handler-return checks — a `reg-event-ctx` return
+  or an `:after`-interceptor mutation (rf2-u1kdvg). `nil` / a non-map
+  effects value (no effects produced) passes through untouched.
+
+  Hot-path short-circuit: when the effects map is already well-shaped (the
+  overwhelming majority — `{}`, `{:db …}`, `{:fx [...]}`, `{:db … :fx …}`),
+  `police-effect-map-shape!` allocates nothing and `fx-value-ok?` is a
+  single `sequential?` check, so the map is returned unchanged with no
+  reconstruction."
+  [effects event]
+  (if-not (map? effects)
+    effects
+    (let [offending (police-effect-map-shape! effects event)
+          cleaned   (if (seq offending) (apply dissoc effects offending) effects)]
+      (if (fx-value-ok? cleaned event)
+        cleaned
+        (dissoc cleaned :fx)))))
+
 ;; ---- handler-as-interceptor wrappers --------------------------------------
 ;;
 ;; The three reg-event-* forms share a single :before shape:
@@ -304,6 +359,39 @@
   legacy-shaped write this guard rejects."
   :rf/runtime)
 
+(defn legacy-runtime-root?
+  "True iff `app-db` carries the retired `:rf/runtime` root key at its top
+  level (per Conventions §The legacy `:rf/runtime` root + decision #8). The
+  pure detector both `reject-legacy-runtime-root!` (the in-chain throw) and
+  the router's final-effects boundary (rf2-u1kdvg, the in-band abort) share
+  so the rejection rule has a single definition. Cheap on the hot path — a
+  single `contains?` over the top-level keys."
+  [app-db]
+  (and (map? app-db) (contains? app-db legacy-runtime-root-key)))
+
+(defn legacy-runtime-root-ex-data
+  "The shared `:rf.error/legacy-runtime-root` ex-data / error-trace tag map
+  for the offending `event`. Used both by `reject-legacy-runtime-root!`
+  (carried on the thrown ex-info) and by the router's final-effects
+  boundary emit (rf2-u1kdvg) so the two rejection sites surface an identical
+  payload."
+  [event]
+  (let [event-id (when (vector? event) (first event))]
+    {:rf.error/id   :rf.error/legacy-runtime-root
+     :where         'rf/reg-event-db
+     :event-id      event-id
+     :event         event
+     :recovery      :no-recovery
+     :reason
+     (str "Event `" event-id "` returned a `:db` value carrying the "
+          "retired `:rf/runtime` app-db root. Framework runtime state "
+          "now lives in the runtime-db partition (the reserved "
+          "`:rf.db/runtime` effect, addressed by `:rf.runtime/*` "
+          "children) — NOT under an app-db `:rf/runtime` root, which "
+          "is retired. Move framework/runtime writes to the "
+          "`:rf.db/runtime` effect; keep application data under `:db`.")
+     :offending-key legacy-runtime-root-key}))
+
 (defn reject-legacy-runtime-root!
   "Throw `:rf.error/legacy-runtime-root` (ex-info) when `app-db` carries the
   retired `:rf/runtime` root key at its top level. Per Conventions §The
@@ -313,26 +401,18 @@
   does not carry the legacy key, so it is cheap on the hot path.
 
   Always-on (NOT dev-gated): a legacy-shaped write is a structural contract
-  violation that must surface in every build, not a dev-only advisory."
+  violation that must surface in every build, not a dev-only advisory.
+
+  This is the IN-CHAIN guard (runs in the handler-wrapping interceptor's
+  `:before`, so a handler-RETURN legacy root is captured by the interceptor
+  machinery and surfaced as `:rf.error/handler-exception`). The symmetric
+  FINAL-effects boundary check — covering a legacy root inserted by an
+  `:after` interceptor AFTER this ran — lives in the router (rf2-u1kdvg) and
+  emits in-band rather than throwing, so the drain is not aborted."
   [app-db event]
-  (when (and (map? app-db) (contains? app-db legacy-runtime-root-key))
-    (let [event-id (when (vector? event) (first event))]
-      (throw (ex-info
-               ":rf.error/legacy-runtime-root"
-               {:rf.error/id :rf.error/legacy-runtime-root
-                :where       'rf/reg-event-db
-                :event-id    event-id
-                :event       event
-                :recovery    :no-recovery
-                :reason
-                (str "Event `" event-id "` returned a `:db` value carrying the "
-                     "retired `:rf/runtime` app-db root. Framework runtime state "
-                     "now lives in the runtime-db partition (the reserved "
-                     "`:rf.db/runtime` effect, addressed by `:rf.runtime/*` "
-                     "children) — NOT under an app-db `:rf/runtime` root, which "
-                     "is retired. Move framework/runtime writes to the "
-                     "`:rf.db/runtime` effect; keep application data under `:db`.")
-                :offending-key legacy-runtime-root-key}))))
+  (when (legacy-runtime-root? app-db)
+    (throw (ex-info ":rf.error/legacy-runtime-root"
+                    (legacy-runtime-root-ex-data event))))
   app-db)
 
 (defn- commit-fx-effects

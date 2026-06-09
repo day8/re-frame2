@@ -21,6 +21,7 @@
             [re-frame.core :as rf]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
+            [re-frame.interceptor :as interceptor]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -260,3 +261,154 @@
           "writing the :rf.db/runtime partition is legitimate — no legacy-root throw")
       (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :ctx/new-runtime))
           "the runtime-db partition committed normally"))))
+
+;; ===========================================================================
+;; rf2-u1kdvg — FINAL-effects boundary shape policing
+;; ===========================================================================
+;;
+;; `commit-fx-effects` polices a `reg-event-fx` HANDLER RETURN during the
+;; chain's `:before` pass — BEFORE the `:after` interceptors run. The router
+;; consumes the FINAL `(:effects final-ctx)` AFTER the whole chain ran, so an
+;; effect can arrive malformed by a route the per-handler-return checks never
+;; saw: a `reg-event-ctx` return (no effect-map validation) or an `:after`-
+;; interceptor mutation. `events/police-final-effects!` + the router's final
+;; legacy-root check close that gap:
+;;   - a foreign top-level effect key is DROPPED (not silently ignored at the
+;;     partition commit) with `:rf.error/effect-map-shape`;
+;;   - a non-sequential whole `:fx` is DROPPED before `fx/do-fx` can throw a
+;;     raw host exception AFTER the :db commit;
+;;   - a legacy `:rf/runtime` root inserted into the final `[:effects :db]`
+;;     is REJECTED (`:rf.error/legacy-runtime-root`) before commit.
+;; All run BEFORE any commit (no partial commit) and in-band (the drain is
+;; not aborted — downstream queued events keep draining).
+
+(defn- after-icpt
+  "A user `:after` interceptor (id `::mutate`) applying `f` to the context."
+  [f]
+  (interceptor/->interceptor*
+    :id     ::mutate
+    :after  (fn [ctx] (f ctx))))
+
+;; ---- :after interceptor mutating the final effects ------------------------
+
+(deftest after-interceptor-malformed-fx-is-policed-not-thrown
+  (testing "an :after interceptor replacing [:effects :fx] with a non-sequential value is policed (dropped), not a raw host throw after the :db commit"
+    (rf/reg-frame :ctx/after-bad-fx {:doc "ctx"})
+    (let [recorded (record-traces! ::after-bad-fx)
+          ;; The :after runs AFTER the handler-wrapper's :before checks, so
+          ;; `commit-fx-effects`/`fx-value-ok?` never saw this value.
+          bad-fx   (after-icpt (fn [ctx]
+                                 (interceptor/assoc-effect ctx :fx :oops)))]
+      (rf/reg-event-fx :ctx/writes-db [bad-fx]
+        (fn [{:keys [db]} _] {:db (assoc db :committed? true)
+                              :fx []}))
+      ;; A downstream event proves the drain was not abandoned by a raw throw.
+      (rf/reg-event-db :ctx/downstream (fn [db _] (assoc db :downstream? true)))
+      (rf/dispatch-sync [:ctx/writes-db] {:frame :ctx/after-bad-fx})
+      (rf/dispatch-sync [:ctx/downstream] {:frame :ctx/after-bad-fx})
+      (let [errs (error-events recorded :rf.error/effect-map-shape)]
+        (is (= 1 (count errs))
+            "exactly one shape error for the non-sequential :fx value")
+        (is (= :fx (:offending-key (:tags (first errs)))))
+        (is (= :logged-and-skipped (:recovery (first errs)))))
+      (let [db (rf/app-db-value :ctx/after-bad-fx)]
+        (is (true? (:committed? db))
+            "the :db effect still committed — the bad :fx was dropped, no host throw aborted the event")
+        (is (true? (:downstream? db))
+            "the downstream event still drained — the malformed :fx did not abandon the queue")))))
+
+(deftest after-interceptor-foreign-effect-key-is-policed
+  (testing "an :after interceptor inserting a foreign top-level effect key is policed (dropped) — not silently ignored at the partition commit"
+    (rf/reg-frame :ctx/after-foreign {:doc "ctx"})
+    (let [recorded (record-traces! ::after-foreign)
+          foreign  (after-icpt (fn [ctx]
+                                 (interceptor/assoc-effect ctx :http {:url "/api"})))]
+      (rf/reg-event-fx :ctx/writes-db2 [foreign]
+        (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
+      (rf/dispatch-sync [:ctx/writes-db2] {:frame :ctx/after-foreign})
+      (let [errs (error-events recorded :rf.error/effect-map-shape)]
+        (is (= 1 (count errs))
+            "exactly one shape error for the foreign :http key")
+        (is (= :http (:offending-key (:tags (first errs)))))
+        (is (= :logged-and-skipped (:recovery (first errs)))))
+      (is (true? (:ok? (rf/app-db-value :ctx/after-foreign)))
+          "the legal :db still committed; only the foreign :http key was dropped"))))
+
+(deftest after-interceptor-legacy-runtime-root-is-rejected
+  (testing "an :after interceptor inserting :rf/runtime into [:effects :db] is rejected at the final boundary — never lands in app-db, drain survives"
+    (rf/reg-frame :ctx/after-legacy {:doc "ctx"})
+    (let [recorded (record-traces! ::after-legacy)
+          ;; Insert the retired :rf/runtime root into the FINAL :db effect,
+          ;; AFTER the in-chain `reject-legacy-runtime-root!` :before guard ran.
+          legacy   (after-icpt (fn [ctx]
+                                 (let [db (interceptor/get-effect ctx :db)]
+                                   (interceptor/assoc-effect
+                                     ctx :db (assoc db :rf/runtime {:rf.runtime/machines {}})))))]
+      (rf/reg-event-db :ctx/clean-db [legacy]
+        (fn [db _] (assoc db :user/id 7)))
+      (rf/reg-event-db :ctx/after-legacy-downstream (fn [db _] (assoc db :downstream? true)))
+      (rf/dispatch-sync [:ctx/clean-db] {:frame :ctx/after-legacy})
+      (rf/dispatch-sync [:ctx/after-legacy-downstream] {:frame :ctx/after-legacy})
+      (let [errs (error-events recorded :rf.error/legacy-runtime-root)]
+        (is (= 1 (count errs))
+            "exactly one legacy-runtime-root error at the final boundary")
+        (is (= :rf/runtime (:offending-key (:tags (first errs))))))
+      (let [db (rf/app-db-value :ctx/after-legacy)]
+        (is (not (contains? db :rf/runtime))
+            "the legacy :rf/runtime root never lands in app-db — the whole :db effect is rejected (no commit)")
+        (is (not (contains? db :user/id))
+            "no partial commit — the rejected :db effect is dropped entirely")
+        (is (true? (:downstream? db))
+            "the drain survived the in-band rejection — downstream event still ran")))))
+
+;; ---- reg-event-ctx final-effects policing ---------------------------------
+
+(deftest reg-event-ctx-malformed-fx-is-policed
+  (testing "a reg-event-ctx handler whose returned context carries a non-sequential :fx is policed at the boundary"
+    (rf/reg-frame :ctx/ctx-bad-fx {:doc "ctx"})
+    (let [recorded (record-traces! ::ctx-bad-fx)]
+      (rf/reg-event-ctx :ctx/ctx-writes
+        (fn [ctx]
+          (-> ctx
+              (interceptor/assoc-effect :db (assoc (interceptor/get-coeffect ctx :db) :committed? true))
+              (interceptor/assoc-effect :fx {:dispatch [:nope]}))))
+      (rf/dispatch-sync [:ctx/ctx-writes] {:frame :ctx/ctx-bad-fx})
+      (let [errs (error-events recorded :rf.error/effect-map-shape)]
+        (is (= 1 (count errs))
+            "the reg-event-ctx malformed :fx is policed — reg-event-fx is not the only path that gets shape policing")
+        (is (= :fx (:offending-key (:tags (first errs))))))
+      (is (true? (:committed? (rf/app-db-value :ctx/ctx-bad-fx)))
+          "the :db effect still committed; only the bad :fx was dropped"))))
+
+(deftest reg-event-ctx-foreign-key-is-policed
+  (testing "a reg-event-ctx handler whose returned context carries a foreign top-level effect key is policed at the boundary"
+    (rf/reg-frame :ctx/ctx-foreign {:doc "ctx"})
+    (let [recorded (record-traces! ::ctx-foreign)]
+      (rf/reg-event-ctx :ctx/ctx-foreign-writes
+        (fn [ctx]
+          (-> ctx
+              (interceptor/assoc-effect :db (assoc (interceptor/get-coeffect ctx :db) :ok? true))
+              (interceptor/assoc-effect :dispatch [:legacy/event]))))
+      (rf/dispatch-sync [:ctx/ctx-foreign-writes] {:frame :ctx/ctx-foreign})
+      (let [errs (error-events recorded :rf.error/effect-map-shape)]
+        (is (= 1 (count errs))
+            "the reg-event-ctx foreign :dispatch key is policed")
+        (is (= :dispatch (:offending-key (:tags (first errs))))))
+      (is (true? (:ok? (rf/app-db-value :ctx/ctx-foreign)))
+          "the legal :db still committed; the foreign top-level key was dropped"))))
+
+;; ---- the well-shaped hot path stays clean ---------------------------------
+
+(deftest well-shaped-final-effects-emit-no-shape-error
+  (testing "a clean reg-event-fx return ({:db .. :fx [..]}) emits NO :rf.error/effect-map-shape from the final boundary (no double-policing)"
+    (rf/reg-frame :ctx/clean-final {:doc "ctx"})
+    (let [recorded (record-traces! ::clean-final)]
+      (rf/reg-fx :ctx/noop-fx (fn [_ _]))
+      (rf/reg-event-fx :ctx/clean
+        (fn [{:keys [db]} _] {:db (assoc db :n 1)
+                              :fx [[:ctx/noop-fx {}]]}))
+      (rf/dispatch-sync [:ctx/clean] {:frame :ctx/clean-final})
+      (is (empty? (error-events recorded :rf.error/effect-map-shape))
+          "well-shaped effects pass the final boundary untouched — no spurious / double shape error")
+      (is (= 1 (:n (rf/app-db-value :ctx/clean-final)))
+          "the :db effect committed normally"))))
