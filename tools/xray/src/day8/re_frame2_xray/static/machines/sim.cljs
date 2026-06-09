@@ -612,9 +612,7 @@
 (defn SimRail
   "The Sim sub-mode's content rail — banner + current state + event
   picker + Step / Reset / Exit + available transitions + audit trail.
-  Pure hiccup (per Xray's rf2-tijr convention) — every subscribe /
-  dispatch resolves against `:rf/xray` via the enclosing
-  frame-provider in `shell.cljs`.
+  Pure hiccup (per Xray's rf2-tijr convention).
 
   Returns nil when sim is not active for the currently-selected
   machine (the caller is expected to dispatch `:sim-start` BEFORE
@@ -622,16 +620,20 @@
   during the auto-start microtask gap).
 
   `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded from
-  `body` — fanned out to every control helper (a plain fn invoked as a
-  Reagent component renders in its own cycle, so render-time frame
-  recovery is unavailable)."
-  [dispatch]
-  (let [sim          @(rf/subscribe [:rf.xray.static.machines/sim-state])
-        transitions  @(rf/subscribe
-                        [:rf.xray.static.machines/sim-available-transitions])
-        suggestions  @(rf/subscribe
-                        [:rf.xray.static.machines/sim-event-suggestions])
-        machine-id   (:machine-id sim)]
+  `body` — fanned out to every control helper.
+
+  `sim` / `transitions` / `suggestions` (rf2-jholrb) are the derefed sub
+  values threaded down from the `detail` reg-view (`definition_detail`),
+  via `body`. SimRail is a plain fn invoked as a Reagent component, so it
+  renders in its OWN cycle and CANNOT recover the surrounding `:rf/xray`
+  frame to `rf/subscribe` itself (Spec 004 §Plain Reagent fns do not pick
+  up the surrounding frame; a bare `subscribe` here throws
+  `:rf.error/no-frame-context` and crashes the whole Static surface).
+  The reg-view body derefs `:sim-state` / `:sim-available-transitions` /
+  `:sim-event-suggestions` where the frame IS in context and passes the
+  values down."
+  [dispatch {:keys [sim transitions suggestions]}]
+  (let [machine-id (:machine-id sim)]
     (when sim
       [:section
        {:data-testid "rf-xray-static-machines-sim-rail"
@@ -692,49 +694,53 @@
   Returns nil when sim is inactive (the auto-start gap) so the host's
   `when sim` guard keeps the render safe.
 
-  Pure hiccup (Xray rf2-tijr convention) — subscribes/dispatches
-  resolve against `:rf/xray` via the shell's frame-provider. `dispatch`
-  (rf2-nesy9) is the frame-aware dispatcher threaded from `body`."
-  [dispatch {:keys [machine-id definition]}]
-  (let [current     @(rf/subscribe
-                       [:rf.xray.static.machines/sim-current-state])
-        last-trans  @(rf/subscribe
-                       [:rf.xray.static.machines/sim-last-transition])]
-    [:div {:data-testid "rf-xray-static-machines-sim-chart"
-           :data-machine-id (str machine-id)
-           :data-current-state (sim-h/format-state-display current)
-           :style {:position   "relative"
-                   :flex       "1 1 auto"
-                   :min-height "260px"
-                   :background (:bg-1 tokens)
-                   :border-top (str "1px solid " (:yellow tokens))
-                   :overflow   "hidden"}}
-     [machine-canvas/Chart
-      {:definition             definition
-       :machine-id             machine-id
-       :current-state          current
-       ;; rf2-eao0s0 — surface the STATIC context shape so the root
-       ;; Context band renders on the Static Sim chart too (the Dynamic
-       ;; topology + focused-event + Static Topology charts already do).
-       ;; Shape + provenance come from the shared machines-viz-backed
-       ;; helpers; nil shape → the chart hides the panel.
-       :machine-data           (topology-view/static-context-shape definition)
-       :machine-data-inferred? (topology-view/static-context-inferred? definition)
-       :from-highlight         (:from last-trans)
-       :to-highlight           (:to last-trans)
-       :sim?                   true
-       :show-after-rings?      false
-       :inner-testid           "rf-xray-static-machines-sim-chart-svg"
-       :on-edge-click
-       (fn [payload]
-         ;; The chart hands a JS payload `#js {:eventId :fromPath
-         ;; :toPath}`; read the fireable event-id off it and dispatch
-         ;; the on-chart step. nil/inert edges produce a no-op event.
-         (let [event-id (some-> payload (aget "eventId"))]
-           (dispatch
-             [:rf.xray.static.machines/sim-chart-edge-clicked
-              {:machine-id machine-id
-               :event-id   event-id}])))}]]))
+  Pure hiccup (Xray rf2-tijr convention). `dispatch` (rf2-nesy9) is the
+  frame-aware dispatcher threaded from `body`.
+
+  `current` / `last-trans` (rf2-jholrb) are the derefed sub values
+  threaded down from the `detail` reg-view (`definition_detail`), via
+  `body`. SimChart is a plain fn invoked as a Reagent component, so it
+  renders in its OWN cycle and CANNOT recover the surrounding `:rf/xray`
+  frame to `rf/subscribe` itself (Spec 004; a bare `subscribe` here
+  throws `:rf.error/no-frame-context` and crashes the Static surface).
+  The reg-view body derefs `:sim-current-state` / `:sim-last-transition`
+  where the frame IS in context and passes the values down."
+  [dispatch {:keys [machine-id definition current last-trans]}]
+  [:div {:data-testid "rf-xray-static-machines-sim-chart"
+         :data-machine-id (str machine-id)
+         :data-current-state (sim-h/format-state-display current)
+         :style {:position   "relative"
+                 :flex       "1 1 auto"
+                 :min-height "260px"
+                 :background (:bg-1 tokens)
+                 :border-top (str "1px solid " (:yellow tokens))
+                 :overflow   "hidden"}}
+   [machine-canvas/Chart
+    {:definition             definition
+     :machine-id             machine-id
+     :current-state          current
+     ;; rf2-eao0s0 — surface the STATIC context shape so the root
+     ;; Context band renders on the Static Sim chart too (the Dynamic
+     ;; topology + focused-event + Static Topology charts already do).
+     ;; Shape + provenance come from the shared machines-viz-backed
+     ;; helpers; nil shape → the chart hides the panel.
+     :machine-data           (topology-view/static-context-shape definition)
+     :machine-data-inferred? (topology-view/static-context-inferred? definition)
+     :from-highlight         (:from last-trans)
+     :to-highlight           (:to last-trans)
+     :sim?                   true
+     :show-after-rings?      false
+     :inner-testid           "rf-xray-static-machines-sim-chart-svg"
+     :on-edge-click
+     (fn [payload]
+       ;; The chart hands a JS payload `#js {:eventId :fromPath
+       ;; :toPath}`; read the fireable event-id off it and dispatch
+       ;; the on-chart step. nil/inert edges produce a no-op event.
+       (let [event-id (some-> payload (aget "eventId"))]
+         (dispatch
+           [:rf.xray.static.machines/sim-chart-edge-clicked
+            {:machine-id machine-id
+             :event-id   event-id}])))}]])
 
 ;; ---- body (mounted from definition_detail.cljs) ------------------------
 
@@ -760,69 +766,90 @@
   the controls + diagnostics that don't belong on the canvas: the
   payload input, Reset / Exit, guard pass/fail error toast, and the
   audit trail. The chart and rail read the SAME sim-state, so clicking
-  an edge and clicking a Step button are interchangeable."
-  [dispatch {:keys [machine-id definition]}]
-  (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
-    (when (and (some? machine-id)
-               (some? definition)
-               (nil? sim))
-      ;; rf2-nesy9 — auto-start dispatches through the threaded
-      ;; frame-aware `dispatch` (sim/body is invoked as a Reagent
-      ;; component, so render-time frame recovery is unavailable).
-      (dispatch [:rf.xray.static.machines/sim-start
-                 {:machine-id machine-id
-                  :definition definition}]))
-    (cond
-      ;; No machine to drive sim against.
-      (nil? machine-id)
-      [:section {:data-testid "rf-xray-static-machines-sim-no-machine"
-                 :style {:padding "16px"
-                         :color (:text-tertiary tokens)
-                         :font-family sans-stack
-                         :font-size (:body type-scale)}}
-       "No machine selected."]
+  an edge and clicking a Step button are interchangeable.
 
-      ;; Machine selected but no introspectable definition — Sim can't
-      ;; clone what isn't there.
-      (nil? definition)
-      [:section {:data-testid "rf-xray-static-machines-sim-no-definition"
-                 :data-machine-id (str machine-id)
-                 :style {:padding "16px"
-                         :color (:text-tertiary tokens)
-                         :font-family sans-stack
-                         :font-size (:body type-scale)}}
-       "No introspectable definition for "
-       [:code {:style {:font-family mono-stack
-                       :color (:accent tokens)}}
-        (str machine-id)]
-       " — Sim cannot clone what isn't there."]
+  ## Frame recovery (rf2-jholrb)
 
-      ;; Sim-state has landed (or the auto-start dispatch just queued).
-      ;; rf2-u422r — two-pane split: the on-chart sim surface is primary,
-      ;; the rail is the side detail/controls column. Both guard the
-      ;; auto-start gap (`SimChart` returns its wrapper unconditionally
-      ;; but the chart degrades on a nil definition; `SimRail`'s `when
-      ;; sim` keeps the gap render safe).
-      :else
-      [:section {:data-testid "rf-xray-static-machines-sim-body"
-                 :data-machine-id (str machine-id)
-                 :style {:display "flex"
-                         :flex-direction "row"
-                         :height "100%"
-                         :min-height "0"}}
-       [:div {:data-testid "rf-xray-static-machines-sim-chart-pane"
-              :style {:display "flex"
-                      :flex-direction "column"
-                      :flex "1 1 auto"
-                      :min-width "0"
-                      :min-height "0"}}
-        [SimChart dispatch {:machine-id machine-id :definition definition}]]
-       [:div {:data-testid "rf-xray-static-machines-sim-rail-pane"
-              :style {:flex "0 0 320px"
-                      :max-width "360px"
-                      :overflow "auto"
-                      :border-left (str "1px solid " (:border-subtle tokens))}}
-        [SimRail dispatch]]])))
+  `body` is mounted by `definition_detail/body` as a plain-fn Reagent
+  component, so it renders in its OWN cycle and CANNOT recover the
+  surrounding `:rf/xray` frame to `rf/subscribe` itself (Spec 004; a bare
+  `subscribe` here throws `:rf.error/no-frame-context` and crashes the
+  Static surface). All sim sub values — `sim` (`:sim-state`),
+  `transitions`, `suggestions`, `current`, `last-trans` — are derefed in
+  the `detail` reg-view (where the frame IS in context) and threaded down
+  through `definition_detail/body` to here, then fanned out to `SimChart`
+  / `SimRail` (themselves plain-fn components). This mirrors the
+  rf2-wxu4l3 browse-list fix exactly."
+  [dispatch {:keys [machine-id definition sim transitions suggestions
+                    current last-trans]}]
+  ;; Side-effecting auto-start, then the render. The `defn` body is an
+  ;; implicit `do`, so the discarded `when` runs for its dispatch effect
+  ;; and the `cond` is the returned hiccup.
+  (when (and (some? machine-id)
+             (some? definition)
+             (nil? sim))
+    ;; rf2-nesy9 — auto-start dispatches through the threaded
+    ;; frame-aware `dispatch` (sim/body is invoked as a Reagent
+    ;; component, so render-time frame recovery is unavailable).
+    (dispatch [:rf.xray.static.machines/sim-start
+               {:machine-id machine-id
+                :definition definition}]))
+  (cond
+    ;; No machine to drive sim against.
+    (nil? machine-id)
+    [:section {:data-testid "rf-xray-static-machines-sim-no-machine"
+               :style {:padding "16px"
+                       :color (:text-tertiary tokens)
+                       :font-family sans-stack
+                       :font-size (:body type-scale)}}
+     "No machine selected."]
+
+    ;; Machine selected but no introspectable definition — Sim can't
+    ;; clone what isn't there.
+    (nil? definition)
+    [:section {:data-testid "rf-xray-static-machines-sim-no-definition"
+               :data-machine-id (str machine-id)
+               :style {:padding "16px"
+                       :color (:text-tertiary tokens)
+                       :font-family sans-stack
+                       :font-size (:body type-scale)}}
+     "No introspectable definition for "
+     [:code {:style {:font-family mono-stack
+                     :color (:accent tokens)}}
+      (str machine-id)]
+     " — Sim cannot clone what isn't there."]
+
+    ;; Sim-state has landed (or the auto-start dispatch just queued).
+    ;; rf2-u422r — two-pane split: the on-chart sim surface is primary,
+    ;; the rail is the side detail/controls column. Both guard the
+    ;; auto-start gap (`SimChart` returns its wrapper unconditionally
+    ;; but the chart degrades on a nil definition; `SimRail`'s `when
+    ;; sim` keeps the gap render safe).
+    :else
+    [:section {:data-testid "rf-xray-static-machines-sim-body"
+               :data-machine-id (str machine-id)
+               :style {:display "flex"
+                       :flex-direction "row"
+                       :height "100%"
+                       :min-height "0"}}
+     [:div {:data-testid "rf-xray-static-machines-sim-chart-pane"
+            :style {:display "flex"
+                    :flex-direction "column"
+                    :flex "1 1 auto"
+                    :min-width "0"
+                    :min-height "0"}}
+      [SimChart dispatch {:machine-id  machine-id
+                          :definition  definition
+                          :current     current
+                          :last-trans  last-trans}]]
+     [:div {:data-testid "rf-xray-static-machines-sim-rail-pane"
+            :style {:flex "0 0 320px"
+                    :max-width "360px"
+                    :overflow "auto"
+                    :border-left (str "1px solid " (:border-subtle tokens))}}
+      [SimRail dispatch {:sim         sim
+                         :transitions transitions
+                         :suggestions suggestions}]]]))
 
 ;; ---- public install entry -----------------------------------------------
 

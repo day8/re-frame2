@@ -128,6 +128,34 @@
 (defn- select-static-machine! [machine-id]
   (rf/dispatch-sync [:rf.xray.static.machines/select machine-id]))
 
+;; rf2-jholrb — the sim plain-fn subtree (`body` / `SimRail` / `SimChart`)
+;; no longer self-subscribes; it receives the derefed sub values from the
+;; enclosing `detail` reg-view. These helpers deref the sim sub family
+;; (under `:rf/xray`, where the frame is in context) so the tests can
+;; thread the same values the reg-view would. This mirrors the production
+;; threading exactly — the tests no longer rely on the plain fns
+;; recovering a frame they cannot reach.
+
+(defn- sim-rail-values
+  "The values `SimRail` reads, derefed where the frame is in context."
+  []
+  {:sim         @(rf/subscribe [:rf.xray.static.machines/sim-state])
+   :transitions @(rf/subscribe
+                   [:rf.xray.static.machines/sim-available-transitions])
+   :suggestions @(rf/subscribe
+                   [:rf.xray.static.machines/sim-event-suggestions])})
+
+(defn- sim-chart-values
+  "The values `SimChart` reads, derefed where the frame is in context."
+  []
+  {:current    @(rf/subscribe [:rf.xray.static.machines/sim-current-state])
+   :last-trans @(rf/subscribe [:rf.xray.static.machines/sim-last-transition])})
+
+(defn- sim-body-values
+  "All sim sub values threaded into `body` (chart + rail)."
+  []
+  (merge (sim-rail-values) (sim-chart-values)))
+
 (def ^:private ok-result
   {:re-frame.machines.result/tag :ok
    :re-frame.machines.result/snap {:state :authing :data {:counter 1}}
@@ -400,7 +428,7 @@
 (deftest rail-renders-nothing-when-sim-inactive
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
-    (is (nil? (sim/SimRail rf/dispatch*))
+    (is (nil? (sim/SimRail rf/dispatch* (sim-rail-values)))
         "rail returns nil when sim is inactive")))
 
 (deftest rail-mounts-when-sim-active
@@ -412,7 +440,7 @@
     (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                        {:machine-id :auth/login
                         :definition fixture-definition}])
-    (let [tree (sim/SimRail rf/dispatch*)]
+    (let [tree (sim/SimRail rf/dispatch* (sim-rail-values))]
       (is (some? (find-by-testid tree "rf-xray-static-machines-sim-rail"))
           "rail present when sim is on")
       (is (some? (find-by-testid tree "rf-xray-static-machines-sim-banner")))
@@ -432,7 +460,7 @@
     (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                        {:machine-id :auth/login
                         :definition fixture-definition}])
-    (let [tree (sim/SimRail rf/dispatch*)
+    (let [tree (sim/SimRail rf/dispatch* (sim-rail-values))
           available (find-all-by-testid-prefix
                       tree "rf-xray-static-machines-sim-available-")]
       (is (some? (find-by-testid
@@ -451,7 +479,7 @@
     (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                        {:machine-id :auth/login
                         :definition fixture-definition}])
-    (let [tree (sim/SimRail rf/dispatch*)]
+    (let [tree (sim/SimRail rf/dispatch* (sim-rail-values))]
       (is (some? (find-by-testid
                    tree "rf-xray-static-machines-sim-audit-empty"))
           "empty audit message before any steps"))
@@ -459,7 +487,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                          {:machine-id :auth/login
                           :event [:start]}]))
-    (let [tree (sim/SimRail rf/dispatch*)]
+    (let [tree (sim/SimRail rf/dispatch* (sim-rail-values))]
       (is (some? (find-by-testid
                    tree "rf-xray-static-machines-sim-audit-list")))
       (is (some? (find-by-testid
@@ -479,7 +507,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                          {:machine-id :auth/login
                           :event [:bad]}]))
-    (let [tree (sim/SimRail rf/dispatch*)]
+    (let [tree (sim/SimRail rf/dispatch* (sim-rail-values))]
       (is (some? (find-by-testid
                    tree "rf-xray-static-machines-sim-error"))
           "error toast surfaces inline"))))
@@ -498,8 +526,9 @@
       ;; Pre-condition: no sim-state for the machine.
       (is (nil? @(rf/subscribe [:rf.xray.static.machines/sim-state])))
       ;; Render the body — auto-start fires via rf/dispatch (async).
-      (let [_tree (sim/body rf/dispatch* {:machine-id :auth/login
-                             :definition fixture-definition})]
+      (let [_tree (sim/body rf/dispatch* (merge {:machine-id :auth/login
+                                                 :definition fixture-definition}
+                                                (sim-body-values)))]
         ;; Drain the event queue so the dispatched :sim-start lands.
         (rf/dispatch-sync [:rf.xray.static.machines/sim-set-pending-data
                            {:machine-id :auth/login :text ""}]))
@@ -521,8 +550,10 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (let [tree (sim/SimChart rf/dispatch* {:machine-id :auth/login
-                                :definition fixture-definition})]
+      (let [tree (sim/SimChart rf/dispatch*
+                               (merge {:machine-id :auth/login
+                                       :definition fixture-definition}
+                                      (sim-chart-values)))]
         (is (= "rf-xray-static-machines-sim-chart"
                (:data-testid (second tree)))
             "the on-chart sim wrapper mounts")
@@ -548,8 +579,10 @@
       (with-redefs [rf/machine-transition (fn [_d _s _e] ok-result)]
         (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
                            {:machine-id :auth/login :event-id :start}]))
-      (let [tree        (sim/SimChart rf/dispatch* {:machine-id :auth/login
-                                       :definition fixture-definition})
+      (let [tree        (sim/SimChart rf/dispatch*
+                                      (merge {:machine-id :auth/login
+                                              :definition fixture-definition}
+                                             (sim-chart-values)))
             chart-node  (some (fn [node]
                                 (when (and (vector? node)
                                            (= machine-canvas/Chart (first node)))
@@ -592,8 +625,10 @@
   machine-canvas/Chart props (via the RAW walker so the chart survives
   as data)."
   [definition]
-  (let [tree       (sim/SimChart rf/dispatch* {:machine-id :auth/login
-                                  :definition definition})
+  (let [tree       (sim/SimChart rf/dispatch*
+                                 (merge {:machine-id :auth/login
+                                         :definition definition}
+                                        (sim-chart-values)))
         chart-node (some (fn [node]
                            (when (and (vector? node)
                                       (= machine-canvas/Chart (first node)))
@@ -648,8 +683,9 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (let [tree (sim/body rf/dispatch* {:machine-id :auth/login
-                            :definition fixture-definition})]
+      (let [tree (sim/body rf/dispatch* (merge {:machine-id :auth/login
+                                                :definition fixture-definition}
+                                               (sim-body-values)))]
         (is (some? (find-by-testid tree "rf-xray-static-machines-sim-body")))
         (is (some? (find-by-testid tree "rf-xray-static-machines-sim-chart-pane"))
             "chart pane present")
@@ -664,16 +700,64 @@
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (select-static-machine! :auth/login)
-    (let [tree (sim/body rf/dispatch* {:machine-id :auth/login :definition nil})]
+    (let [tree (sim/body rf/dispatch* (merge {:machine-id :auth/login
+                                              :definition nil}
+                                             (sim-body-values)))]
       (is (some? (find-by-testid tree
                                  "rf-xray-static-machines-sim-no-definition"))))))
 
 (deftest body-renders-no-machine-hint-when-missing
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
-    (let [tree (sim/body rf/dispatch* {:machine-id nil :definition fixture-definition})]
+    (let [tree (sim/body rf/dispatch* (merge {:machine-id nil
+                                              :definition fixture-definition}
+                                             (sim-body-values)))]
       (is (some? (find-by-testid tree
                                  "rf-xray-static-machines-sim-no-machine"))))))
+
+;; ---- (8c) no-ambient-frame regression (rf2-jholrb) ----------------------
+;;
+;; The sim sub-mode's `body` / `SimRail` / `SimChart` are plain fns
+;; mounted as Reagent components from `definition_detail/body`. A plain
+;; fn renders in its OWN React cycle and so CANNOT recover the
+;; surrounding `:rf/xray` frame (Spec 004). The pre-fix code self-
+;; subscribed inside these fns; with NO frame in dynamic context a bare
+;; `rf/subscribe` throws `:rf.error/no-frame-context` and crashes the
+;; whole Static surface. The fix threads the derefed sub values DOWN from
+;; the `detail` reg-view, so the plain fns never subscribe.
+;;
+;; These tests render the three fns WITHOUT any `with-frame` wrapper —
+;; matching the React render cycle the components actually run in — and
+;; assert they no longer throw. (Pre-fix, every one of these threw.)
+
+(deftest sim-plain-fns-do-not-self-subscribe-without-a-frame
+  (testing "rf2-jholrb — body / SimRail / SimChart render without an
+            ambient :rf/xray frame (no :rf.error/no-frame-context). The
+            sub values are threaded in as args, not self-subscribed."
+    (setup-xray-frame!)
+    ;; Seed a live sim slot under :rf/xray so the threaded values carry
+    ;; real data — but render the plain fns OUTSIDE any `with-frame`.
+    (let [vals (rf/with-frame :rf/xray
+                 (override-machines!    [:auth/login])
+                 (override-definitions! {:auth/login fixture-definition})
+                 (select-static-machine! :auth/login)
+                 (rf/dispatch-sync [:rf.xray.static.machines/sim-start
+                                    {:machine-id :auth/login
+                                     :definition fixture-definition}])
+                 {:body  (merge {:machine-id :auth/login
+                                 :definition fixture-definition}
+                                (sim-body-values))
+                  :rail  (sim-rail-values)
+                  :chart (merge {:machine-id :auth/login
+                                 :definition fixture-definition}
+                                (sim-chart-values))})]
+      ;; NO `with-frame` here — these run in their own render cycle.
+      (is (some? (sim/body rf/dispatch* (:body vals)))
+          "body renders without a frame in context")
+      (is (some? (sim/SimRail rf/dispatch* (:rail vals)))
+          "SimRail renders without a frame in context")
+      (is (some? (sim/SimChart rf/dispatch* (:chart vals)))
+          "SimChart renders without a frame in context"))))
 
 ;; ---- (9) frame isolation -----------------------------------------------
 
@@ -737,7 +821,7 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
-      (let [tree      (sim/SimRail rf/dispatch*)
+      (let [tree      (sim/SimRail rf/dispatch* (sim-rail-values))
             available (raw-find-all-by-testid-prefix
                         tree "rf-xray-static-machines-sim-available-")
             ;; Drop the container <ul> (testid `…-available-list`); we
@@ -770,7 +854,7 @@
                            {:machine-id :auth/login :event [:start]}])
         (rf/dispatch-sync [:rf.xray.static.machines/sim-step
                            {:machine-id :auth/login :event [:ok]}]))
-      (let [tree (sim/SimRail rf/dispatch*)
+      (let [tree (sim/SimRail rf/dispatch* (sim-rail-values))
             rows (raw-find-all-by-testid-prefix
                    tree "rf-xray-static-machines-sim-audit-")
             ;; Drop the container <ol> (testid `…-audit-list`).

@@ -161,8 +161,15 @@
 (defn- body
   "Dispatch to the per-mode body renderer. Topology + Sim render a
   body; Instances + Cascade do not (Instances is a JUMP affordance,
-  Cascade is dimmed). `dispatch` (rf2-nesy9) is threaded from `detail`."
-  [dispatch {:keys [sub-mode machine-id definition source-coord fit-signal]}]
+  Cascade is dimmed). `dispatch` (rf2-nesy9) is threaded from `detail`.
+
+  rf2-jholrb — the Sim sub-mode's plain-fn subtree (`sim/body` →
+  `SimChart` / `SimRail`) cannot recover the `:rf/xray` frame to
+  subscribe (Spec 004), so its sub values (`sim-values`) are derefed in
+  the `detail` reg-view and threaded down through here (mirrors the
+  rf2-wxu4l3 browse-list fix)."
+  [dispatch {:keys [sub-mode machine-id definition source-coord fit-signal
+                    sim-values]}]
   (case sub-mode
     :topology
     [topology/body dispatch {:machine-id   machine-id
@@ -171,8 +178,9 @@
                              :fit-signal   fit-signal}]
 
     :sim
-    [sim/body dispatch {:machine-id machine-id
-                        :definition definition}]
+    [sim/body dispatch (merge {:machine-id machine-id
+                               :definition definition}
+                              sim-values)]
 
     ;; :instances + :cascade — no body. Render an explanatory placeholder
     ;; so the user understands the strip click landed.
@@ -227,7 +235,27 @@
         ;; select-tab :machines`). Threaded down to the Topology body's
         ;; `machine-canvas/Chart` `:fit-signal` so entering the Static
         ;; Machines tab re-frames the topology to view.
-        fit-signal @(rf/subscribe [:rf.xray/machine-tab-fit-signal])]
+        fit-signal @(rf/subscribe [:rf.xray/machine-tab-fit-signal])
+        ;; rf2-jholrb — the Sim sub-mode's plain-fn subtree (`sim/body` →
+        ;; `SimChart` / `SimRail`) renders in its OWN React cycle and so
+        ;; cannot recover the `:rf/xray` frame to `rf/subscribe` itself
+        ;; (Spec 004). Deref the sim sub family HERE (in this reg-view,
+        ;; where the frame IS in context) and thread the values down —
+        ;; mirroring the rf2-wxu4l3 browse-list fix. Only derefed on the
+        ;; `:sim` sub-mode so the Topology/Instances/Cascade modes don't
+        ;; subscribe to sim state. The subs short-circuit to nil when sim
+        ;; isn't active for the selected machine, so this is cheap.
+        sim-values (when (= sub-mode :sim)
+                     {:sim         @(rf/subscribe
+                                      [:rf.xray.static.machines/sim-state])
+                      :transitions @(rf/subscribe
+                                      [:rf.xray.static.machines/sim-available-transitions])
+                      :suggestions @(rf/subscribe
+                                      [:rf.xray.static.machines/sim-event-suggestions])
+                      :current     @(rf/subscribe
+                                      [:rf.xray.static.machines/sim-current-state])
+                      :last-trans  @(rf/subscribe
+                                      [:rf.xray.static.machines/sim-last-transition])})]
     (if (nil? row)
       (empty-detail)
       (let [{:keys [machine-id state-count live-count source-coord]} row
@@ -255,4 +283,5 @@
                           :machine-id   machine-id
                           :definition   definition
                           :source-coord source-coord
-                          :fit-signal   fit-signal}]]]))))
+                          :fit-signal   fit-signal
+                          :sim-values   sim-values}]]]))))
