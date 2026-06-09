@@ -921,25 +921,38 @@
            (let [flat-open? (contains? @expanded flat-expanded-sentinel)
                  {:keys [shown hidden]} (bound-arg-rows (sort-by key eff-args)
                                                         flat-open?)]
-             [:div
-              (for [[k v] shown]
-                ^{:key k}
-                (args-row variant-id k v (get argtypes k {:widget :text})
-                          {:violation   (get viols-by-key k)
-                           :changed?    (arg-changed? eff-args saved-args k)
-                           :overridden? (contains? overrides k)
-                           :opts        opts}))
-              (when (pos? hidden)
-                [:button {:style       (:more styles)
-                          :type        "button"
-                          :data-controls-more "true"
-                          :data-controls-hidden (str hidden)
-                          :aria-label  (str "Show " hidden
-                                            " more control rows")
-                          :on-click    (fn [_]
-                                         (swap! expanded conj
-                                                flat-expanded-sentinel))}
-                 (str "+" hidden " more…")])]))
+             ;; Materialise the rows into the parent `[:div]` vector with
+             ;; `into` rather than nesting a bare `(for …)` lazy seq:
+             ;; the row widgets deref the shell-state ratom, and a lazy
+             ;; seq that derefs during render trips Reagent's "Reactive
+             ;; deref not supported in lazy seq" warning AND leaves nested
+             ;; group rows unrealised. `args-row` is a plain hiccup-
+             ;; returning fn (not a component), so reader `^{:key …}`
+             ;; metadata would land on the call form and be discarded —
+             ;; stamp the key onto the RETURNED vector via `with-meta`.
+             (cond-> (into [:div]
+                           (map (fn [[k v]]
+                                  (with-meta
+                                    (args-row variant-id k v
+                                              (get argtypes k {:widget :text})
+                                              {:violation   (get viols-by-key k)
+                                               :changed?    (arg-changed? eff-args saved-args k)
+                                               :overridden? (contains? overrides k)
+                                               :opts        opts})
+                                    {:key k})))
+                           shown)
+               (pos? hidden)
+               (conj
+                 [:button {:style       (:more styles)
+                           :type        "button"
+                           :data-controls-more "true"
+                           :data-controls-hidden (str hidden)
+                           :aria-label  (str "Show " hidden
+                                             " more control rows")
+                           :on-click    (fn [_]
+                                          (swap! expanded conj
+                                                 flat-expanded-sentinel))}
+                  (str "+" hidden " more…")]))))
          (when (seq overrides)
            [:button {:style    (:button styles)
                      :data-controls-action "reset-all"

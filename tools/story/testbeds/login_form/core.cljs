@@ -113,6 +113,12 @@
   ;; :initial state and :data seed the snapshot on first dispatch.
   ;; Without this, the live page's state-pill renders "state: "
   ;; (nil) until the user submits.
-  (rf/dispatch-sync [:login/flow [:login/dismiss]])
+  ;;
+  ;; EP-0002 (rf2-9o48ih): `init!` installs the adapter only and a
+  ;; frameless `dispatch-sync` raises `:rf.error/no-frame-context`.
+  ;; Run the seed dispatch inside the testbed's `:rf/default` frame
+  ;; scope — symmetric to counter-with-stories' migrated boot.
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [:login/flow [:login/dismiss]]))
   ;; Wire the live-app↔Story-shell hash router (shared helper).
   (story-host/mount-with-hash-routing! login-app))

@@ -248,6 +248,18 @@ async function assertTestPaneStatus(page, pattern, description) {
   );
 }
 
+// A run whose tape-floor verdict is an exception lands as the distinct
+// :error run-status (rf2-ba86n.11, spec/021 §1), not a plain assertion
+// :fail. Anchor on the pill's data-status attribute (text would read the
+// CSS-uppercased "ERROR") and accept either :error or :fail.
+async function assertTestPaneErrorOrFail(page, description) {
+  await waitForValue(
+    () => page.locator('[data-test="story-test-status-pill"]').getAttribute('data-status').catch(() => ''),
+    (value) => value === 'error' || value === 'fail',
+    { timeoutMs: 10000, description },
+  );
+}
+
 async function setMode(page, mode) {
   const chip = page.locator(`[data-test="story-mode-tabs"] [data-mode-tab="${mode}"]`);
   await chip.waitFor({ state: 'visible', timeout: 5000 });
@@ -542,9 +554,14 @@ async function assertDiagnostics(page, phase) {
       ':story.counter-diagnostics/failing-event-throws',
       5000,
     );
+    // An event-handler exception is a tape-floor :error — the unified
+    // run-result UX (rf2-ba86n.11, spec/021 §1) surfaces it as the
+    // distinct :error run-status, not a plain assertion :fail. The pill
+    // stamps data-status="error" (text "error"); anchor on data-status
+    // rather than the CSS-uppercased innerText.
     await waitForValue(
-      () => page.locator('[data-test="story-test-status-pill"]').innerText().catch(() => ''),
-      (text) => /failed/i.test(text),
+      () => page.locator('[data-test="story-test-status-pill"]').getAttribute('data-status').catch(() => ''),
+      (value) => value === 'error' || value === 'fail',
       { timeoutMs: 10000, description: 'event exception failure status' },
     );
     const detail = await expandFirstFailDetail(page, 'event exception detail expands');
@@ -562,7 +579,7 @@ async function assertDiagnostics(page, phase) {
     await waitForValue(
       () =>
         page
-          .locator('[data-test="story-test-row"][data-status="fail"]')
+          .locator('[data-test="story-test-row"][data-status="error"]')
           .first()
           .getAttribute('data-assertion'),
       (value) => value === ':rf.error/exception',
@@ -578,9 +595,11 @@ async function assertDiagnostics(page, phase) {
       ':story.counter-diagnostics/loader-throws',
       5000,
     );
+    // A loader-phase exception is a tape-floor :error (rf2-ba86n.11,
+    // spec/021 §1), surfaced via data-status="error" on the pill.
     await waitForValue(
-      () => page.locator('[data-test="story-test-status-pill"]').innerText().catch(() => ''),
-      (text) => /failed/i.test(text),
+      () => page.locator('[data-test="story-test-status-pill"]').getAttribute('data-status').catch(() => ''),
+      (value) => value === 'error' || value === 'fail',
       { timeoutMs: 10000, description: 'loader exception failure status' },
     );
     const detail = await expandFirstFailDetail(page, 'loader exception detail expands');
@@ -598,7 +617,7 @@ async function assertDiagnostics(page, phase) {
     await waitForValue(
       () =>
         page
-          .locator('[data-test="story-test-row"][data-status="fail"]')
+          .locator('[data-test="story-test-row"][data-status="error"]')
           .first()
           .getAttribute('data-assertion'),
       (value) => value === ':rf.error/exception',
@@ -694,9 +713,18 @@ async function assertCommandPalette(page) {
 
   await page.keyboard.press('Control+K');
   await expectVisible(page.locator('[data-test="story-command-palette"]'), 5000);
-  await page.locator('[data-test="story-command-palette-input"]').fill('clicked three');
-  await page.keyboard.press('Enter');
-  await waitForCanvasVariant(page, ':story.counter/clicked-three-times');
+  // Navigate to a deterministic, play-script-free variant. The prior
+  // `/clicked-three-times` target runs three `:dispatch-sync` increments
+  // from its `:play-script` on every (re)mount, and the variant frame
+  // re-mounts under React StrictMode — so `[data-test-variant]` churns
+  // and `waitFor({state:'visible'})` flakes. `:story.counter/events-only
+  // -loaded` settles from `:setup [[:counter/initialise 5]]` alone (no
+  // play-script, no loaders → fast-path to `:ready`), so the canvas is
+  // stable the moment it mounts. Same precedent as the sidebar-nav step,
+  // which deliberately skips `/clicked-three-times` for this reason.
+  await page.locator('[data-test="story-command-palette-input"]').fill('events only loaded');
+  await page.locator('[data-test="story-command-palette-result"][data-id=":story.counter/events-only-loaded"]').click();
+  await waitForCanvasVariant(page, ':story.counter/events-only-loaded');
 
   await page.keyboard.press('Control+K');
   await page.locator('[data-test="story-command-palette-input"]').fill('auto grid');
@@ -858,7 +886,17 @@ async function assertLoaderSuccess(page) {
 }
 
 async function expandFirstFailDetail(page, description) {
-  const row = page.locator('[data-test="story-test-row"][data-status="fail"]').first();
+  // The actionable, disclosure-bearing rows are :fail / :error /
+  // :cannot-run (rf2-ba86n.11 — the view discloses detail for all three).
+  // An event-handler / loader exception lands as an :error row, not a
+  // plain assertion :fail, so match any of the three.
+  const row = page
+    .locator(
+      '[data-test="story-test-row"][data-status="fail"], ' +
+        '[data-test="story-test-row"][data-status="error"], ' +
+        '[data-test="story-test-row"][data-status="cannot-run"]',
+    )
+    .first();
   await row.waitFor({ state: 'visible', timeout: 10000 });
   await row.getByRole('button', { name: /show detail/i }).click();
   return waitForValue(
@@ -944,7 +982,9 @@ async function assertLoaderCompletion(page) {
   // :loader-rejection marker + the throw-loader-rejection source event.
   await assertMatrixVariant(page, '/loader-rejects', ':story.counter-matrix/loader-rejects');
   await setMode(page, 'test');
-  await assertTestPaneStatus(page, /failed/i, 'loader rejection completion status');
+  // A loader rejection is recorded via the exception path (record-error!)
+  // so its tape-floor verdict is :error, not :fail.
+  await assertTestPaneErrorOrFail(page, 'loader rejection completion status');
   detail = await expandFirstFailDetail(page, 'loader rejection completion detail expands');
   await assertFailureDetailIncludes(
     detail,
