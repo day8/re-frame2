@@ -45,10 +45,12 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.ssr.ring :as ssr-ring]
+            [re-frame.ssr.ring.lifecycle :as lifecycle]
+            [re-frame.ssr.ring.pipeline :as pipeline]
             [re-frame.ssr.ring.streaming :as streaming]
             [re-frame.ssr.test-fixture :as tf]
             [re-frame.trace :as trace])
-  (:import [java.io InputStream PipedInputStream PipedOutputStream]))
+  (:import [java.io InputStream OutputStream PipedInputStream PipedOutputStream]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -162,3 +164,147 @@
             (str "the per-request frame MUST be destroyed even though
                  the shell render threw — found leaked frame-ids: "
                  (vec leaked)))))))
+
+;; ===========================================================================
+;; Writer-failure PHASE context (rf2-l1qgjw issue 2)
+;; ===========================================================================
+;;
+;; The writer-failed trace now names WHICH chunk phase was in flight when
+;; the post-commit write threw (`:phase`), the continuation `:boundary-id`
+;; when the failure is inside a continuation drain, and a coarse
+;; `:committed?`. These tests force DIFFERENT writer phases to throw and
+;; assert the traces carry DISTINCT phase tags — so ops can tell a broken
+;; client pipe from a bad final payload from a specific boundary drain.
+;;
+;; Mechanism: a counting `OutputStream` that throws on its Nth
+;; `write(byte[])` call. The writer calls `.write` once per chunk via
+;; `write-chunk!`, so the chunk ordering (shell-prefix, shell-html,
+;; [continuation-template, continuation-delta]*, final-payload, suffix)
+;; maps writes → phases deterministically. We build a GENUINE `rendered`
+;; map by setting up a real per-request frame and calling
+;; `render-streaming-shell!`, so `build-final-payload` succeeds and the
+;; throw comes from the WRITE (the phase under test), not from shell
+;; resolution.
+
+(defn- throw-on-nth-write-stream
+  "An OutputStream that throws `IOException` on its Nth `write(byte[])`
+  call (1-indexed). Earlier writes are swallowed. Used to target a
+  specific writer phase deterministically."
+  ^OutputStream [n]
+  (let [calls (atom 0)]
+    (proxy [OutputStream] []
+      (write
+        ([b]
+         (when (= n (swap! calls inc))
+           (throw (java.io.IOException. (str "forced-write-failure-at-" n))))
+         nil)
+        ([b off len]
+         (when (= n (swap! calls inc))
+           (throw (java.io.IOException. (str "forced-write-failure-at-" n))))
+         nil))
+      (flush [] nil)
+      (close [] nil))))
+
+(defn- setup-streaming-frame!
+  "Register a real per-request server frame for `opts` and return its
+  frame-id. The `:on-create` event seeds the app-db the views read."
+  [opts]
+  (let [{:keys [frame-id]} (pipeline/setup-request-frame! opts {:uri "/" :request-method :get})]
+    frame-id))
+
+(defn- capture-writer-failure
+  "Drive `run-streaming-writer!` against a stream that throws on the Nth
+  write, capture the writer-failed trace, and return its first event (or
+  nil). `rendered` is a genuine `render-streaming-shell!` result."
+  [frame-id rendered opts throw-at-write]
+  (let [captured (atom [])]
+    (with-trace-capture captured
+      #(@#'streaming/run-streaming-writer!
+         (throw-on-nth-write-stream throw-at-write) frame-id rendered opts))
+    (->> @captured
+         (filterv #(= :rf.error/ssr-streaming-writer-failed (:operation %)))
+         first)))
+
+(deftest writer-failed-trace-carries-distinct-phase-per-chunk
+  (testing "rf2-l1qgjw: forcing different writer chunks to throw produces
+            writer-failed traces with DISTINCT :phase tags (shell-prefix
+            vs final-payload vs suffix), all marked :committed? true"
+    (rf/reg-event-fx :rf.test.phase/init
+      {:platforms #{:server}}
+      (fn [_ _] {:db {:n 1}}))
+    (rf/reg-sub :rf.test.phase/n (fn [db _] (:n db)))
+    (rf/reg-view ^{:rf/id :rf.test.phase/root} phase-root []
+      [:main [:span @(subscribe [:rf.test.phase/n])]])
+    (let [opts     {:on-create [:rf.test.phase/init]
+                    :root-view [:rf.test.phase/root]
+                    :emit-hash? true
+                    :payload :rf.ssr.payload/whole-app-db}
+          ;; A no-suspense root → the write order is exactly:
+          ;;   1 shell-prefix, 2 shell-html, 3 final-payload, 4 suffix.
+          mk       (fn [throw-at]
+                     (let [fid      (setup-streaming-frame! opts)
+                           rendered (#'streaming/render-streaming-shell! fid opts)
+                           ev       (capture-writer-failure fid rendered opts throw-at)]
+                       (lifecycle/destroy-frame-quietly! fid)
+                       ev))
+          prefix-ev (mk 1)
+          final-ev  (mk 3)
+          suffix-ev (mk 4)]
+      (is (= :shell-prefix (-> prefix-ev :tags :phase))
+          "throw on write 1 → :phase :shell-prefix")
+      (is (= :final-payload (-> final-ev :tags :phase))
+          "throw on write 3 → :phase :final-payload")
+      (is (= :suffix (-> suffix-ev :tags :phase))
+          "throw on write 4 → :phase :suffix")
+      ;; The discriminating contract: the three phases are pairwise
+      ;; distinct (a single undifferentiated trace would fail this).
+      (is (= 3 (count (distinct [(-> prefix-ev :tags :phase)
+                                 (-> final-ev :tags :phase)
+                                 (-> suffix-ev :tags :phase)])))
+          "three forced phases yield three DISTINCT :phase tags")
+      ;; Every writer phase runs post-head-commit.
+      (doseq [ev [prefix-ev final-ev suffix-ev]]
+        (is (true? (-> ev :tags :committed?))
+            ":committed? true on every writer phase (post-head-commit)")
+        (is (= :truncate-and-close (:recovery ev))
+            ":recovery hoisted to top-level, unchanged"))
+      ;; No :boundary-id outside a continuation drain.
+      (doseq [ev [prefix-ev final-ev suffix-ev]]
+        (is (not (contains? (:tags ev) :boundary-id))
+            "no :boundary-id tag outside a continuation phase")))))
+
+(deftest writer-failed-trace-carries-boundary-id-on-continuation-phase
+  (testing "rf2-l1qgjw: a write throw during a continuation drain tags the
+            trace :phase :continuation-template AND :boundary-id <id>, so
+            ops correlate the failure to a specific deferred subtree"
+    (rf/reg-event-fx :rf.test.phase/init-sb
+      {:platforms #{:server}}
+      (fn [_ _] {:db {:items [:a :b]}}))
+    (rf/reg-sub :rf.test.phase/items (fn [db _] (:items db)))
+    (rf/reg-view ^{:rf/id :rf.test.phase/section} phase-section []
+      (into [:ul] (for [i @(subscribe [:rf.test.phase/items])] [:li (name i)])))
+    (rf/reg-view ^{:rf/id :rf.test.phase/sb-root} sb-root []
+      [:main
+       [:h1 "hdr"]
+       [:rf/suspense-boundary
+        {:id :rf.test.phase/the-boundary :fallback [:p "loading"]}
+        [:rf.test.phase/section]]])
+    (let [opts     {:on-create [:rf.test.phase/init-sb]
+                    :root-view [:rf.test.phase/sb-root]
+                    :emit-hash? true
+                    :payload :rf.ssr.payload/whole-app-db}
+          fid      (setup-streaming-frame! opts)
+          rendered (#'streaming/render-streaming-shell! fid opts)]
+      ;; With one boundary the write order is:
+      ;;   1 shell-prefix, 2 shell-html, 3 continuation-template, ...
+      ;; Throw on write 3 to hit the continuation-template phase.
+      (is (seq (:continuations rendered))
+          "the rendered shell registered the suspense continuation")
+      (let [ev (capture-writer-failure fid rendered opts 3)]
+        (lifecycle/destroy-frame-quietly! fid)
+        (is (= :continuation-template (-> ev :tags :phase))
+            "throw on the boundary's template write → :phase :continuation-template")
+        (is (= :rf.test.phase/the-boundary (-> ev :tags :boundary-id))
+            ":boundary-id names the specific continuation that was draining")
+        (is (true? (-> ev :tags :committed?))
+            ":committed? true — the continuation phase is post-head-commit")))))
