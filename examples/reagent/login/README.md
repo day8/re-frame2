@@ -1,16 +1,18 @@
 # login — full feature scaffold
 
 The canonical end-to-end single-feature example: a login flow with a
-state machine, schemas, managed HTTP, registered views, and headless
-tests. Demonstrates [Construction Prompt
+state machine, schemas, managed HTTP, and registered views.
+Demonstrates [Construction Prompt
 CP-6](../../../spec/Construction-Prompts.md) (full feature scaffold)
-in one file, kept compact for AI-readability.
+in one file, kept compact for AI-readability. The example tree is
+test-free (rf2-8cevm) — its flow coverage lives in the framework test
+tree (see [How to run](#how-to-run)).
 
 ## What this demonstrates
 
 - **CP-6 feature scaffold** — the `:auth.login/*` registry slice as
-  one coherent feature: schema + events + subs + views + machine +
-  tests, kept in one file for compactness.
+  one coherent feature: schema + events + subs + views + machine,
+  kept in one file for compactness.
 - **CP-5 state machine** — the login flow as a transition table; its
   snapshot lives in runtime-db at `[:rf.runtime/machines :snapshots
   :auth.login/flow]`, read via `sub-machine`. States: `:idle →
@@ -37,8 +39,6 @@ in one file, kept compact for AI-readability.
   form — same tag + locked-panel pattern as the state-machines
   walkthrough.
 - **Open-map idiom** — every shape on the wire is an open map.
-- **Headless test** — browserless smoke test demonstrating the full
-  test seam.
 
 ## Why this shape
 
@@ -53,17 +53,38 @@ The substrate here is **stock Reagent** (not reagent-slim) — this is
 the reference example; `counter` / `counter_slim_and_fast` is the
 dedicated stock-vs-slim contrast pair.
 
-In a real codebase this single file would split per CP-6 conventions:
+**Production layout advice (not this repo's example layout).** In a
+real codebase this single file would split per CP-6 conventions —
 `login/schema.cljc | events.cljs | subs.cljs | views.cljs |
-machines.cljs | events_test.cljs`. Kept as one file here for brevity.
+machines.cljs | events_test.cljs` — and that `events_test.cljs` is
+where a real app's login tests would live. The example tree here is
+deliberately different: it is **test-free** (rf2-8cevm), so this folder
+ships no inline test fn and no sibling `test/` tree; the flow's coverage
+lives in the framework test tree (see [How to run](#how-to-run)). Kept
+as one file here for brevity.
 
 ## Files
 
 ```
 login/
-  core.cljs    — schema + events + subs + views + machine + tests + mount.
-  index.html   — minimal host page.
+  core.cljs            — schema + events + subs + views + machine + mount.
+  index.html           — minimal host page (the live app).
+  stories.cljs         — Story showcase: one variant per reachable
+                         :auth.login/flow state (auxiliary; see below).
+  stories_host.cljs    — Story-showcase entry point (live-app ↔ shell hash router).
+  stories.index.html   — host page for the Story-showcase build.
 ```
+
+The three `stories*` files are an **intentionally auxiliary Story
+showcase** layered over this example (build `:examples/login-with-stories`,
+rf2-p8v0q) — not a second example and not tool-owned. They source
+`login.core`'s real machine/schemas/views and enumerate every reachable
+login state as a Story variant, with the Xray preload wired so the
+auth-submit cascade is inspectable. They live here (rather than under
+`tools/story/testbeds/`) because they showcase *this* worked example
+end-to-end; the tool-owned Story testbeds at
+[`tools/story/testbeds/`](../../../tools/story/testbeds/) stay catalogued
+with the tool. See [How to run](#how-to-run) for the showcase command.
 
 ## How to run
 
@@ -78,7 +99,33 @@ assets it references under [`../../_shared/`](../../_shared/))
 alongside it, then serve `out/examples/login/` over HTTP.
 (`npm run test:examples` does not build this example — it compiles and
 serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).) Examples are test-free per
+[`examples/reagent/README.md`](../README.md).)
+
+To run the Story showcase instead, watch its build and open the Story
+shell:
+
+```bash
+# From implementation/:
+shadow-cljs watch :examples/login-with-stories   # then open http://localhost:8041/#/stories
+```
+
+`#/` renders the live login app; `#/stories` mounts the Story shell with
+every reachable state as a variant. Press <kbd>Ctrl+Shift+C</kbd> on
+either surface to open Xray over the auth-submit cascade.
+
+## Coverage (examples are test-free)
+
+This folder ships no tests. The login flow this example wires is a
+near-twin of the `:auth.login/flow` machine the sibling
+[`state_machine_walkthrough`](../state_machine_walkthrough/) example
+exercises headlessly: the `state-machine-walkthrough-runs-headless`
+deftest in
+[`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)
+drives the happy-path / retry-then-lockout / machine-transition
+scenarios. Login-specific machine-data schema coverage lives in
+[`implementation/adapters/reagent/test/re_frame/login_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/login_cljs_test.cljs).
+Broader contract coverage runs in the substrate contract suite
+(`npm run test:cljs`) and the framework gates; the full split is in
 [`examples/README.md`](../../README.md).
 
 ## Cross-references
