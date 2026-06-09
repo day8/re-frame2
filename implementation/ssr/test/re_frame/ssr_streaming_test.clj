@@ -206,19 +206,21 @@
       (is (= {:articles [{:id "a"}]} (:rf/app-db payload))))))
 
 (deftest build-final-payload-version-honours-runtime-version-hook
-  (testing "rf2-via0g — streaming payload :rf/version reads the
+  (testing "rf2-via0g / rf2-g00l2t — streaming payload :rf/version reads the
             :rf2/runtime-version late-bind hook (mirroring the non-
-            streaming rf2-asmj1 S8 fix), not a hard-coded 1. The prior
+            streaming rf2-asmj1 S8 fix), not a hard-coded 1, and the hook
+            value is coerced to the canonical INTEGER pattern-protocol
+            version (per Spec-Schemas §:rf/hydration-payload). The prior
             `(or version 1)` silently disagreed with the client-side
             hook and defeated the :rf.ssr/version-mismatch check."
     (let [fid (make-frame {:db {:k 1}})]
       (testing "hook present + no explicit :version → hook value wins (not 1)"
-        (late-bind/set-fn! :rf2/runtime-version (constantly "9.9.9"))
+        (late-bind/set-fn! :rf2/runtime-version (constantly 99))
         (try
           (let [payload (streaming/build-final-payload
                           fid "hash"
                           {:payload :rf.ssr.payload/whole-app-db})]
-            (is (= "9.9.9" (:rf/version payload))
+            (is (= 99 (:rf/version payload))
                 "runtime-version hook value lands in :rf/version")
             (is (not= 1 (:rf/version payload))
                 "the hard-coded 1 must NOT win when the hook is registered"))
@@ -226,7 +228,7 @@
             (swap! late-bind/hooks dissoc :rf2/runtime-version))))
 
       (testing "explicit :version opt wins over the hook"
-        (late-bind/set-fn! :rf2/runtime-version (constantly "9.9.9"))
+        (late-bind/set-fn! :rf2/runtime-version (constantly 99))
         (try
           (let [payload (streaming/build-final-payload
                           fid "hash"

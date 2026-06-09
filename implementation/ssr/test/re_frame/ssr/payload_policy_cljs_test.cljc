@@ -27,6 +27,8 @@
   These tests run on both JVM and Node — the policy logic is
   platform-neutral .cljc."
   (:require [clojure.test :refer [deftest is testing]]
+            [malli.core :as m]
+            [re-frame.late-bind :as late-bind]
             [re-frame.ssr.payload-policy :as payload-policy]))
 
 (def sample-app-db
@@ -337,12 +339,102 @@
     (let [rt-slice (payload-policy/project-runtime-db sample-runtime-db)
           with-rt  (payload-policy/build-payload
                      :rf/default {:public/page :dashboard} "h1"
-                     {:version "1.0" :runtime-db rt-slice})
+                     {:version 1 :runtime-db rt-slice})
           without  (payload-policy/build-payload
                      :rf/default {:public/page :dashboard} "h1"
-                     {:version "1.0" :runtime-db nil})]
+                     {:version 1 :runtime-db nil})]
       (is (= rt-slice (:rf/runtime-db with-rt))
           "the projected runtime-db slice rides as :rf/runtime-db")
       (is (= {:public/page :dashboard} (:rf/app-db with-rt)))
       (is (not (contains? without :rf/runtime-db))
           "a nil runtime-db omits the optional key"))))
+
+;; ---- :rf/version is canonically an INTEGER (rf2-g00l2t) -------------------
+;;
+;; Per Spec-Schemas §:rf/hydration-payload `:rf/version` is `:int` (a
+;; pattern-protocol version; v1 = 1), EXPLICITLY not a semver-style string.
+;; `resolve-version` coerces/validates each version source to an integer:
+;; an int is taken verbatim, a whole-number string is parsed, anything else
+;; (a semver string, a float, a keyword) is rejected so resolution falls
+;; through to the next source — the payload always carries an integer.
+
+(deftest resolve-version-coerces-and-rejects-to-integer
+  (testing "explicit integer :version is taken verbatim"
+    (is (= 7 (:rf/version
+               (payload-policy/build-payload :rf/default {} "h" {:version 7})))))
+
+  (testing "a whole-number STRING :version is tolerantly coerced to an int"
+    (is (= 7 (:rf/version
+               (payload-policy/build-payload :rf/default {} "h" {:version "7"})))))
+
+  (testing "a SEMVER-string :version is rejected → falls back to the v1 = 1 default"
+    (let [v (:rf/version
+              (payload-policy/build-payload :rf/default {} "h" {:version "1.0.0"}))]
+      (is (= 1 v) "non-integer semver string is rejected, not shipped")
+      (is (int? v))))
+
+  (testing "no :version + a SEMVER-string :rf2/runtime-version hook → rejected → v1 = 1 default"
+    (late-bind/set-fn! :rf2/runtime-version (constantly "9.9.9"))
+    (try
+      (let [v (:rf/version (payload-policy/build-payload :rf/default {} "h" {}))]
+        (is (= 1 v) "a non-integer hook value is rejected; the integer default wins")
+        (is (int? v)))
+      (finally (swap! late-bind/hooks dissoc :rf2/runtime-version))))
+
+  (testing "no :version + an INTEGER :rf2/runtime-version hook → hook value wins"
+    (late-bind/set-fn! :rf2/runtime-version (constantly 42))
+    (try
+      (is (= 42 (:rf/version (payload-policy/build-payload :rf/default {} "h" {}))))
+      (finally (swap! late-bind/hooks dissoc :rf2/runtime-version))))
+
+  (testing "no source at all → terminal integer v1 = 1 fallback"
+    (is (= 1 (:rf/version (payload-policy/build-payload :rf/default {} "h" {}))))))
+
+;; ---- build-payload output conforms to the HydrationPayload schema --------
+;;
+;; The canonical v1 HydrationPayload schema (Spec-Schemas
+;; §:rf/hydration-payload). Pinned inline here so a build-payload output
+;; that drifts from the published schema (e.g. a non-integer :rf/version,
+;; a missing required key) turns this test red. The schema is an OPEN map
+;; (additive optional keys are tolerated per the v1 contract).
+
+(def HydrationPayload
+  [:map
+   [:rf/version         :int]
+   [:rf/frame-id        :keyword]
+   [:rf/app-db          :any]
+   [:rf/runtime-db      {:optional true} [:maybe :map]]
+   [:rf/ssr-rendered-at {:optional true} :int]
+   [:rf/render-hash     {:optional true} [:maybe :string]]
+   [:rf/schema-digest   {:optional true} [:maybe :string]]])
+
+(deftest build-payload-conforms-to-hydration-payload-schema
+  (testing "rf2-g00l2t — build-payload output validates against the canonical
+            HydrationPayload schema, with :rf/version as a true integer"
+    (let [rt-slice (payload-policy/project-runtime-db sample-runtime-db)]
+      (testing "full two-partition payload (integer version)"
+        (let [payload (payload-policy/build-payload
+                        :rf/default {:public/page :dashboard} "deadbeef"
+                        {:version 7 :schema-digest "digest-abc" :runtime-db rt-slice})]
+          (is (m/validate HydrationPayload payload)
+              (str "payload must conform to HydrationPayload; explain: "
+                   (pr-str (m/explain HydrationPayload payload))))
+          (is (int? (:rf/version payload)) ":rf/version is a true integer")))
+
+      (testing "a SEMVER-string :version still yields a schema-conforming payload
+                (rejected + coerced to the integer default)"
+        (let [payload (payload-policy/build-payload
+                        :rf/default {:public/page :dashboard} "deadbeef"
+                        {:version "1.0.0" :runtime-db rt-slice})]
+          (is (m/validate HydrationPayload payload)
+              (str "even with a bad :version source, the assembled payload "
+                   "conforms (integer fallback); explain: "
+                   (pr-str (m/explain HydrationPayload payload))))
+          (is (int? (:rf/version payload)))))
+
+      (testing "minimal client-only payload (no runtime-db / schema-digest)"
+        (let [payload (payload-policy/build-payload
+                        :rf/default {} "h" {})]
+          (is (m/validate HydrationPayload payload)
+              (str "minimal payload must conform; explain: "
+                   (pr-str (m/explain HydrationPayload payload)))))))))
