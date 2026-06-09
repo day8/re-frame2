@@ -487,6 +487,185 @@
         (is (some? (:exception r)) ":exception present on the record")))))
 
 ;; ============================================================================
+;; rf2-goum9x — the fx / cofx production error categories fan out through the
+;; ----------------------------------------------------------------------------
+;; always-on error-emit listener, not the dev trace alone. Before this fix
+;; these three categories went ONLY through `trace/emit-error!` (DCE'd under
+;; CLJS `:advanced` + `goog.DEBUG=false`), so a thrown registered fx, an
+;; unknown fx-id, an override misconfiguration, or an unknown cofx-id vanished
+;; from production observability — even though Spec 009 §Error event catalogue
+;; lists them as production-reachable runtime errors and Spec 011 maps
+;; `:rf.error/fx-handler-exception` to a 500 off the always-on substrate.
+;;
+;;   - :rf.error/fx-handler-exception — RECOVERY-SCOPED (axis 1 + axis 2):
+;;       the per-frame `:on-error` policy fires (a handler-like exception),
+;;       `:recovery :no-recovery` — the fx is skipped, siblings still fire,
+;;       app-db is NOT rolled back.
+;;   - :rf.error/no-such-fx / :rf.error/override-fallthrough /
+;;     :rf.error/no-such-cofx — INVALID-OPERATION (axis 1 only): listener
+;;       fires, the per-frame `:on-error` policy does NOT (no recovery
+;;       decision), mirroring the :rf.error/frame-destroyed model.
+;; ============================================================================
+
+(deftest listener-fires-on-fx-handler-exception
+  (testing "Per rf2-goum9x: a registered fx that throws fans
+            `:rf.error/fx-handler-exception` through the always-on
+            listener (previously dev-trace-only). The throw is recovered
+            (the fx is skipped) and the cascade continues."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (rf/reg-fx :goum9x/throwing-fx
+                 (fn [_ _] (throw (ex-info "fx-boom" {:cause :test}))))
+      (rf/reg-event-fx :goum9x/run-throwing-fx
+                       (fn [_ _] {:fx [[:goum9x/throwing-fx {:to "alice"}]]}))
+      (rf/dispatch-sync [:goum9x/run-throwing-fx])
+      (let [r (some (fn [x] (when (= :rf.error/fx-handler-exception (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/fx-handler-exception")
+        (is (= [:goum9x/run-throwing-fx] (:event r))
+            "the originating event vector rides :event")
+        (is (= :goum9x/run-throwing-fx (:event-id r))
+            "the originating event-id rides :event-id")
+        (is (= :rf/default (:frame r)))
+        (is (some? (:exception r)) ":exception present on the record")))))
+
+(deftest fx-handler-exception-recovery-is-isolated-siblings-fire
+  (testing "Per rf2-goum9x acceptance: the fx-handler-exception fan-out
+            preserves fx-walk semantics — the throwing fx is skipped, the
+            SIBLING fx in the same :fx vector still fire, and app-db is
+            NOT rolled back."
+    (let [fired (atom [])]
+      (rf/register-error-listener! :test/recorder (fn [_] nil))
+      (rf/reg-fx :goum9x/ok-a   (fn [_ _] (swap! fired conj :a)))
+      (rf/reg-fx :goum9x/boom   (fn [_ _] (throw (ex-info "boom" {}))))
+      (rf/reg-fx :goum9x/ok-b   (fn [_ _] (swap! fired conj :b)))
+      (rf/reg-event-fx :goum9x/mixed
+                       (fn [{:keys [db]} _]
+                         {:db (assoc db :committed? true)
+                          :fx [[:goum9x/ok-a]
+                               [:goum9x/boom]
+                               [:goum9x/ok-b]]}))
+      (rf/dispatch-sync [:goum9x/mixed])
+      (is (= [:a :b] @fired)
+          "siblings on either side of the throwing fx still fired")
+      (is (= true (:committed? (rf/app-db-value :rf/default)))
+          ":db committed before the :fx walk — the fx throw does NOT roll it back"))))
+
+(deftest fx-handler-exception-invokes-on-error-policy
+  (testing "Per rf2-goum9x: :rf.error/fx-handler-exception is
+            RECOVERY-SCOPED — the per-frame `:on-error` policy fn (axis 2)
+            DOES fire with the structured error event (a handler-like
+            exception), unlike the invalid-operation fx categories."
+    (let [policy-saw (atom [])]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [ev] (swap! policy-saw conj ev) nil)})
+      (rf/reg-fx :goum9x/policy-throwing-fx
+                 (fn [_ _] (throw (ex-info "fx-boom" {}))))
+      (rf/reg-event-fx :goum9x/run-policy-fx
+                       (fn [_ _] {:fx [[:goum9x/policy-throwing-fx]]}))
+      (rf/dispatch-sync [:goum9x/run-policy-fx])
+      (let [ev (some (fn [x] (when (= :rf.error/fx-handler-exception (:operation x)) x))
+                     @policy-saw)]
+        (is (some? ev) ":on-error policy fired for the fx-handler-exception")
+        (is (= :error (:op-type ev)))
+        (is (= :goum9x/run-policy-fx (get-in ev [:tags :event-id])))
+        (is (= :rf/default (get-in ev [:tags :frame])))
+        (is (= :no-recovery (get-in ev [:tags :recovery])))))))
+
+(deftest listener-fires-on-no-such-fx
+  (testing "Per rf2-goum9x: an unknown fx-id fans `:rf.error/no-such-fx`
+            through the always-on listener (previously dev-trace-only).
+            The fx is dropped; the cascade continues."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (rf/reg-event-fx :goum9x/run-unknown-fx
+                       (fn [_ _] {:fx [[:goum9x/never-registered {:x 1}]]}))
+      (rf/dispatch-sync [:goum9x/run-unknown-fx])
+      (let [r (some (fn [x] (when (= :rf.error/no-such-fx (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/no-such-fx")
+        (is (= [:goum9x/run-unknown-fx] (:event r)))
+        (is (= :goum9x/run-unknown-fx (:event-id r)))
+        (is (= :rf/default (:frame r)))))))
+
+(deftest listener-fires-on-override-fallthrough
+  (testing "Per rf2-goum9x: an `:fx-overrides` entry redirecting to an
+            unregistered fx-id fans `:rf.error/override-fallthrough`
+            through the always-on listener (previously dev-trace-only).
+            The runtime falls back to the registered fx."
+    (let [seen  (atom [])
+          fired (atom false)]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (rf/reg-fx :goum9x/real-fx (fn [_ _] (reset! fired true)))
+      (rf/reg-event-fx :goum9x/run-bad-override
+                       (fn [_ _] {:fx [[:goum9x/real-fx]]}))
+      ;; Per-call override redirects :goum9x/real-fx to an id that is NOT
+      ;; registered → override-fallthrough; runtime uses :goum9x/real-fx.
+      (let [f (rf/make-frame {})]
+        (rf/dispatch-sync [:goum9x/run-bad-override]
+                          {:frame f
+                           :fx-overrides {:goum9x/real-fx :goum9x/not-registered}})
+        (let [r (some (fn [x] (when (= :rf.error/override-fallthrough (:error x)) x)) @seen)]
+          (is (some? r) "listener received :rf.error/override-fallthrough")
+          (is (= f (:frame r)) "frame-attributed to the dispatching frame"))
+        (is (true? @fired)
+            "fell back to the registered fx (:replaced-with-default recovery)")))))
+
+(deftest listener-fires-on-no-such-cofx
+  (testing "Per rf2-goum9x: an `inject-cofx` referencing an unregistered
+            cofx-id fans `:rf.error/no-such-cofx` through the always-on
+            listener (previously dev-trace-only). The injection is a
+            no-op; the interceptor chain continues."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :goum9x/run-unknown-cofx
+                       [(rf/inject-cofx :goum9x/never-registered-cofx)]
+                       (fn [db _] db))
+      (rf/dispatch-sync [:goum9x/run-unknown-cofx])
+      (let [r (some (fn [x] (when (= :rf.error/no-such-cofx (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/no-such-cofx")
+        (is (= :goum9x/run-unknown-cofx (:event-id r))
+            "the event that ran the offending interceptor chain rides :event-id")
+        (is (= :rf/default (:frame r)))))))
+
+(deftest fx-cofx-invalid-operation-categories-skip-on-error-policy
+  (testing "Per rf2-goum9x axis-2 (NARROW): the per-frame `:on-error`
+            policy fn is NOT invoked for the invalid-operation fx/cofx
+            categories (no-such-fx, override-fallthrough, no-such-cofx) —
+            they carry no `{:swallow | :replacement | :default}` recovery
+            decision. Only the always-on listener fans out. (The
+            recovery-scoped fx-handler-exception is covered separately.)"
+    (let [policy-fires (atom 0)
+          listener-saw (atom #{})]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [_ev] (swap! policy-fires inc) nil)})
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! listener-saw conj (:error record))))
+      ;; no-such-fx
+      (rf/reg-event-fx :goum9x/np-unknown-fx
+                       (fn [_ _] {:fx [[:goum9x/np-never {}]]}))
+      (rf/dispatch-sync [:goum9x/np-unknown-fx])
+      ;; override-fallthrough
+      (rf/reg-fx :goum9x/np-real (fn [_ _] nil))
+      (rf/reg-event-fx :goum9x/np-bad-override
+                       (fn [_ _] {:fx [[:goum9x/np-real]]}))
+      (rf/dispatch-sync [:goum9x/np-bad-override]
+                        {:fx-overrides {:goum9x/np-real :goum9x/np-missing}})
+      ;; no-such-cofx
+      (rf/reg-event-db :goum9x/np-unknown-cofx
+                       [(rf/inject-cofx :goum9x/np-no-cofx)]
+                       (fn [db _] db))
+      (rf/dispatch-sync [:goum9x/np-unknown-cofx])
+      (is (zero? @policy-fires)
+          "the :on-error policy fn did NOT fire for any invalid-operation fx/cofx category")
+      (is (contains? @listener-saw :rf.error/no-such-fx))
+      (is (contains? @listener-saw :rf.error/override-fallthrough))
+      (is (contains? @listener-saw :rf.error/no-such-cofx)
+          "but the always-on listener DID receive every category"))))
+
+;; ============================================================================
 ;; rf2-bxud9v — sub error records carry the failing SUB's source-coord.
 ;; ----------------------------------------------------------------------------
 ;; The always-on `error-coords-by-id` registry is keyed by `[registry-kind

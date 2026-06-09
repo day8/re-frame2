@@ -384,6 +384,116 @@
             "listener received :rf.error/sub-exception from compute-sub under prod")
         (is (some? (:exception r)))))))
 
+;; ==========================================================================
+;; rf2-goum9x — the fx / cofx production error categories survive prod
+;; elision. THE CRUX: a thrown registered fx
+;; (`:rf.error/fx-handler-exception`), an unknown fx-id
+;; (`:rf.error/no-such-fx`), an override misconfiguration
+;; (`:rf.error/override-fallthrough`), and an unknown cofx-id
+;; (`:rf.error/no-such-cofx`) were previously dev-trace-ONLY, so they lost
+;; their diagnostic entirely under `:advanced` + `goog.DEBUG=false` — even
+;; though Spec 009 catalogues them as production-reachable and Spec 011 maps
+;; fx-handler-exception to a 500 off the always-on substrate. Now they fan
+;; out through the always-on listener (axis 1), which survives elision.
+;; ==========================================================================
+
+(deftest fx-handler-exception-listener-survives-prod
+  (testing "Per rf2-goum9x: under `:advanced` + `goog.DEBUG=false`, a
+            registered fx that throws fans `:rf.error/fx-handler-exception`
+            through the always-on listener — so the SSR error projector
+            (which rides this substrate) can fail-closed to 500 and off-box
+            shippers see the failure. The dev trace is gone; the listener
+            record survives."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (rf/reg-fx :goum9x/prod-throwing-fx
+                 (fn [_ _] (throw (ex-info "fx-boom" {}))))
+      (rf/reg-event-fx :goum9x/prod-run-throwing-fx
+                       (fn [_ _] {:fx [[:goum9x/prod-throwing-fx]]}))
+      (rf/dispatch-sync [:goum9x/prod-run-throwing-fx])
+      (let [r (some (fn [x] (when (= :rf.error/fx-handler-exception (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/fx-handler-exception under prod")
+        (is (= :goum9x/prod-run-throwing-fx (:event-id r)))
+        (is (= :rf/default (:frame r)))
+        (is (some? (:exception r)))))))
+
+(deftest no-such-fx-listener-survives-prod
+  (testing "Per rf2-goum9x: an unknown fx-id fans `:rf.error/no-such-fx`
+            through the always-on listener under `goog.DEBUG=false`."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (rf/reg-event-fx :goum9x/prod-unknown-fx
+                       (fn [_ _] {:fx [[:goum9x/prod-never {}]]}))
+      (rf/dispatch-sync [:goum9x/prod-unknown-fx])
+      (let [r (some (fn [x] (when (= :rf.error/no-such-fx (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/no-such-fx under prod")
+        (is (= :goum9x/prod-unknown-fx (:event-id r)))
+        (is (= :rf/default (:frame r)))))))
+
+(deftest override-fallthrough-listener-survives-prod
+  (testing "Per rf2-goum9x: an `:fx-overrides` redirect to an unregistered
+            fx-id fans `:rf.error/override-fallthrough` through the
+            always-on listener under `goog.DEBUG=false`."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (rf/reg-fx :goum9x/prod-real-fx (fn [_ _] nil))
+      (rf/reg-event-fx :goum9x/prod-bad-override
+                       (fn [_ _] {:fx [[:goum9x/prod-real-fx]]}))
+      (rf/dispatch-sync [:goum9x/prod-bad-override]
+                        {:fx-overrides {:goum9x/prod-real-fx :goum9x/prod-missing}})
+      (let [r (some (fn [x] (when (= :rf.error/override-fallthrough (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/override-fallthrough under prod")
+        (is (= :rf/default (:frame r)))))))
+
+(deftest no-such-cofx-listener-survives-prod
+  (testing "Per rf2-goum9x: an `inject-cofx` to an unregistered cofx-id
+            fans `:rf.error/no-such-cofx` through the always-on listener
+            under `goog.DEBUG=false`."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :goum9x/prod-unknown-cofx
+                       [(rf/inject-cofx :goum9x/prod-no-cofx)]
+                       (fn [db _] db))
+      (rf/dispatch-sync [:goum9x/prod-unknown-cofx])
+      (let [r (some (fn [x] (when (= :rf.error/no-such-cofx (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/no-such-cofx under prod")
+        (is (= :goum9x/prod-unknown-cofx (:event-id r)))
+        (is (= :rf/default (:frame r)))))))
+
+(deftest fx-cofx-invalid-operation-categories-skip-policy-under-prod
+  (testing "Per rf2-goum9x axis-2 (NARROW) under prod: the per-frame
+            `:on-error` policy fn is NOT invoked for the invalid-operation
+            fx/cofx categories (no-such-fx, override-fallthrough,
+            no-such-cofx) even under `goog.DEBUG=false`. Only the always-on
+            listener fans out."
+    (let [policy-fires (atom 0)
+          listener-saw (atom #{})]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [_ev] (swap! policy-fires inc) nil)})
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! listener-saw conj (:error record))))
+      (rf/reg-event-fx :goum9x/prodnp-unknown-fx
+                       (fn [_ _] {:fx [[:goum9x/prodnp-never {}]]}))
+      (rf/dispatch-sync [:goum9x/prodnp-unknown-fx])
+      (rf/reg-fx :goum9x/prodnp-real (fn [_ _] nil))
+      (rf/reg-event-fx :goum9x/prodnp-bad-override
+                       (fn [_ _] {:fx [[:goum9x/prodnp-real]]}))
+      (rf/dispatch-sync [:goum9x/prodnp-bad-override]
+                        {:fx-overrides {:goum9x/prodnp-real :goum9x/prodnp-missing}})
+      (rf/reg-event-db :goum9x/prodnp-unknown-cofx
+                       [(rf/inject-cofx :goum9x/prodnp-no-cofx)]
+                       (fn [db _] db))
+      (rf/dispatch-sync [:goum9x/prodnp-unknown-cofx])
+      (is (zero? @policy-fires)
+          "the :on-error policy fn did NOT fire for any invalid-operation fx/cofx category under prod")
+      (is (contains? @listener-saw :rf.error/no-such-fx))
+      (is (contains? @listener-saw :rf.error/override-fallthrough))
+      (is (contains? @listener-saw :rf.error/no-such-cofx)))))
+
 (deftest non-recovery-categories-skip-policy-under-prod
   (testing "Per rf2-2hvga axis-2 (NARROW) under prod: the per-frame
             `:on-error` policy fn (#5) is NOT invoked for the widened
