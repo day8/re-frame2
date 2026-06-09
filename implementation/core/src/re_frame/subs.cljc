@@ -416,15 +416,13 @@
 ;; `input-fn` threw while materializing a node) and
 ;; `:rf.error/sub-input-fn-bad-return` (the `input-fn` returned a value
 ;; other than a vector of query vectors) are PRODUCTION-SURVIVABLE runtime
-;; categories — they ride the always-on error-emit listener (axis 1 /
-;; surface #4) so a bad parametric input under `:advanced` +
-;; `goog.DEBUG=false` reaches off-box shippers, AND the dev trace surface.
-;; LISTENER-ONLY (axis 2 not invoked): the recovery is the built-in
-;; nil-yielding reaction, not a `{:swallow|:replacement|:default}` policy
-;; choice, so `error-event` is nil. A bad input return is NEVER silently
-;; treated as no inputs — the structured error always carries the outer
-;; `query-v` + sub id. `:where` (`:reactive` / `:compute-sub`)
-;; discriminates the resolution path.
+;; categories — they ride the always-on error-emit listener (surface #4)
+;; so a bad parametric input under `:advanced` + `goog.DEBUG=false`
+;; reaches off-box shippers, AND the dev trace surface. The recovery is
+;; the framework's built-in nil-yielding reaction. A bad input return is
+;; NEVER silently treated as no inputs — the structured error always
+;; carries the outer `query-v` + sub id. `:where` (`:reactive` /
+;; `:compute-sub`) discriminates the resolution path.
 
 (defn- emit-sub-input-fn-error!
   "Emit a parametric `input-fn` failure loudly along BOTH the always-on
@@ -437,10 +435,10 @@
   (let [data        (ex-data e)
         bad-return? (= :rf.error/sub-input-fn-bad-return error-kw)
         msg         #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))]
-    ;; Axis 1 — always-on listener (survives prod elision). For the
-    ;; bad-return case there is no genuine exception to ship (the throw is
-    ;; just our tagged carrier), so pass nil; the exception is meaningful
-    ;; only for the input-fn-threw case.
+    ;; Always-on listener (survives prod elision). For the bad-return
+    ;; case there is no genuine exception to ship (the throw is just our
+    ;; tagged carrier), so pass nil; the exception is meaningful only for
+    ;; the input-fn-threw case.
     (when-let [dispatch-on-error!
                (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
       (dispatch-on-error!
@@ -450,8 +448,7 @@
         frame-id
         (when-not bad-return? e)      ;; exception (only the input-fn-threw case)
         0                             ;; elapsed-ms
-        (interop/now-ms)              ;; time
-        nil))                         ;; LISTENER-ONLY — axis 2 not invoked
+        (interop/now-ms)))            ;; time
     ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
     (trace/emit-error! error-kw
                        (if bad-return?
@@ -519,20 +516,19 @@
                         ;; not cached.)
                         ;;
                         ;; Per rf2-2hvga (= B / widen): fan out through the
-                        ;; always-on error-emit listener (axis 1 / surface #4)
-                        ;; so a subscribe to a never-registered sub survives
+                        ;; always-on error-emit listener (surface #4) so a
+                        ;; subscribe to a never-registered sub survives
                         ;; `:advanced` + `goog.DEBUG=false` and reaches off-box
                         ;; shippers — a production-meaningful runtime error.
-                        ;; LISTENER-ONLY (axis 2 not invoked): an invalid op
-                        ;; whose built-in `:replaced-with-default` recovery is
-                        ;; NOT a policy choice, so `error-event` is nil. Reached
-                        ;; via the `:error-emit/dispatch-on-error` late-bind hook
-                        ;; (subs cannot static-require `re-frame.error-emit` —
-                        ;; load cycle). The `:frame`-stampable record carries
+                        ;; An invalid op whose recovery is the built-in
+                        ;; `:replaced-with-default`. Reached via the
+                        ;; `:error-emit/dispatch-on-error` late-bind hook (subs
+                        ;; cannot static-require `re-frame.error-emit` — load
+                        ;; cycle). The `:frame`-stampable record carries
                         ;; `frame-id` + the attempted `query-v` for 7d30s +
                         ;; shipper attribution.
                         (do
-                          ;; Axis 1 — always-on listener (survives prod elision).
+                          ;; Always-on listener (survives prod elision).
                           (when-let [dispatch-on-error!
                                      (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
                             (dispatch-on-error!
@@ -542,8 +538,7 @@
                               frame-id
                               nil                   ;; no exception — invalid op
                               0                     ;; elapsed-ms
-                              (interop/now-ms)      ;; time
-                              nil))                 ;; LISTENER-ONLY — axis 2 not invoked
+                              (interop/now-ms)))    ;; time
                           ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
                           (trace/emit-error! :rf.error/no-such-sub
                                              {:rf.sub/id        query-id
@@ -943,19 +938,17 @@
          ;; deref-ing nil and exploding. Per rf2-2hvga (= B + recover-but-
          ;; emit): subscribe RECOVERS (returns nil) AND emits a
          ;; production-survivable `:rf.error/frame-destroyed` through the
-         ;; always-on error-emit listener (axis 1 / surface #4) so a
-         ;; subscribe during a teardown / hot-reload race recovers safely
-         ;; while a real use-after-destroy bug stays observable on the
-         ;; production-watched stream. LISTENER-ONLY (axis 2 not invoked):
-         ;; an invalid op has no `{:swallow | :replacement | :default}`
-         ;; recovery point, so `error-event` is nil. Reached via the
+         ;; always-on error-emit listener (surface #4) so a subscribe
+         ;; during a teardown / hot-reload race recovers safely while a
+         ;; real use-after-destroy bug stays observable on the
+         ;; production-watched stream. Reached via the
          ;; `:error-emit/dispatch-on-error` late-bind hook (subs cannot
          ;; static-require `re-frame.error-emit` — load cycle). The
          ;; `:frame`-stampable record carries `frame-id` + the attempted
          ;; `query-v` (as `:event`) for 7d30s + shipper attribution.
          (nil? frame-record)
          (do
-           ;; Axis 1 — always-on listener (survives prod elision).
+           ;; Always-on listener (survives prod elision).
            (when-let [dispatch-on-error!
                       (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
              (dispatch-on-error!
@@ -965,8 +958,7 @@
                frame-id
                nil                           ;; no exception — invalid op
                0                             ;; elapsed-ms
-               (interop/now-ms)              ;; time
-               nil))                         ;; LISTENER-ONLY — axis 2 not invoked
+               (interop/now-ms)))            ;; time
            ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
            (trace/emit-error! :rf.error/frame-destroyed
                               {:frame    frame-id
@@ -1260,11 +1252,9 @@
                               ;; corpus-wide stream fires regardless — closing the
                               ;; silent-recovery fail-open for off-box monitors.
                               ;;
-                              ;; LISTENER-ONLY (axis 2 NOT invoked — `error-event`
-                              ;; nil): a sub-exception's recovery is the built-in
-                              ;; 'return nil', NOT a `{:swallow | :replacement |
-                              ;; :default}` policy choice (Mike-ruled rf2-2hvga
-                              ;; axis-2 catalogue). Reached via the
+                              ;; A sub-exception's recovery is the framework's
+                              ;; built-in 'return nil'; there is no app-steering
+                              ;; recovery policy (rf2-hiqtk8). Reached via the
                               ;; `:error-emit/dispatch-on-error` late-bind hook
                               ;; (subs cannot static-require `re-frame.error-emit`
                               ;; — load cycle). A pure `compute-sub` has no
@@ -1283,8 +1273,7 @@
                                   nil                       ;; frame (pure compute — no reactive frame)
                                   e
                                   0                         ;; elapsed-ms
-                                  (interop/now-ms)          ;; time
-                                  nil))                     ;; LISTENER-ONLY — axis 2 not invoked
+                                  (interop/now-ms)))        ;; time
                               ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
                               (trace/emit-error! :rf.error/sub-exception tags))
                             nil)))]

@@ -100,7 +100,7 @@ This is a deliberate, explicit step — not a hidden one — and most apps never
 
 ## Failure semantics
 
-**Production-survivable.** A throw inside a flow's `:output` fn surfaces as `:rf.error/flow-eval-exception` on the **always-on error-emit substrate** — registered `:on-error` policy fns and `register-error-listener!` callbacks fire under CLJS `:advanced` + `goog.DEBUG=false`. The error is *not* trace-only; production deployments catch it.
+**Production-survivable.** A throw inside a flow's `:output` fn surfaces as `:rf.error/flow-eval-exception` on the **always-on error-emit substrate** — registered `register-error-listener!` callbacks fire under CLJS `:advanced` + `goog.DEBUG=false`. The error is *not* trace-only; production deployments catch it.
 
 See [Spec 013 §Failure semantics](../../spec/013-Flows.md#failure-semantics) rule 4 and [Spec 009 §Production builds](../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code).
 

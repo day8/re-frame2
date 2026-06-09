@@ -27,7 +27,7 @@
   reached by the router through `re-frame.late-bind` hooks. Apps
   consume this surface; substrate-internals stay private.
 
-  Per Spec 009 §Event-emit listener / §Error-handler policy."
+  Per Spec 009 §Event-emit listener / §Error observability."
   (:require [re-frame.event-emit :as event-emit]
             [re-frame.error-emit :as error-emit]))
 

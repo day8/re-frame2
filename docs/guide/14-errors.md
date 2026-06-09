@@ -45,7 +45,7 @@ The optional **`:rf.trace/trigger-handler`** slot is the one that turns a debugg
 
 Everything else rides under `:tags`, keyed by category. Each category names exactly the slots its listener should expect — a `:rf.error/handler-exception` carries `:handler-id`, `:event-id`, and `:exception`; a `:rf.error/schema-validation-failure` carries `:schema-id`, `:value`, and `:errors` — one fixed shape per category, so a consumer always knows what's in the envelope.
 
-One thing to bank before we go further, because it governs everything: **production builds eliminate the trace surface entirely.** Not "disable" — *eliminate*. Your release bundles contain zero trace code. The whole rich error path described in this chapter is dev-only. Errors that genuinely need to reach a monitoring service in production get there through your own `:on-error` policy (below) or, server-side, through SSR's error projector. The dossier is a development luxury; the production path is yours to wire deliberately.
+One thing to bank before we go further, because it governs everything: **production builds eliminate the trace surface entirely.** Not "disable" — *eliminate*. Your release bundles contain zero trace code. The whole rich error path described in this chapter is dev-only. Errors that genuinely need to reach a monitoring service in production get there through the always-on `register-error-listener!` surface (below) or, server-side, through SSR's error projector. The dossier is a development luxury; the production path is yours to wire deliberately.
 
 ## The taxonomy, at a glance
 
@@ -130,35 +130,13 @@ Or accumulate them for a dev panel:
 
 And here's the thing worth sitting with: that second snippet is *exactly* how Xray and the pair tool build their "errors" panel. Same listener, same filter, just richer rendering on top. The tools have no privileged back-channel; the trace event **is** the contract, and anything the fancy panel can see, your eight-line listener can see too. That's not an accident of implementation — it's the whole design. One wire, no privileged readers.
 
-## Changing what happens after: `:on-error`
+## Recovery is the framework's job, not yours
 
-A listener *observes*. It doesn't change what the runtime does next. When you want to actually alter behaviour — handle one category differently, log and substitute a default value, decide halt-versus-continue — you register an `:on-error` policy on the frame:
+A listener *observes*. It does not change what the runtime does next — and neither do you. There is **no app-steering error-recovery policy**. When an error fires, the runtime applies a **typed per-category default** (catalogued below); you do not register a hook that swallows or substitutes a result.
 
-```clojure
-(rf/reg-frame :rf/default
-  {:on-create [:app/init]
-   :on-error
-   (fn handle-error [error-event]
-     (case (:operation error-event)
-       :rf.error/handler-exception
-       (do (log-to-monitoring error-event)
-           {:recovery :no-recovery})
+This is deliberate. Errors are not generically recoverable by an app policy: swallowing an exception masks a bug, and fabricating a replacement result invents something the thrown handler could not have produced. Genuine recovery for *expected* failures belongs at the source — managed HTTP's `:retry`, an optional-read fallback in a handler — where "recovery" actually has meaning. To re-run a failed event, dispatch a fresh one; the runtime never re-runs a failing handler behind your back.
 
-       :rf.error/schema-validation-failure
-       (do (log-to-monitoring error-event)
-           {:recovery    :replaced-with-default
-            :replacement (:default-value (:tags error-event))})
-
-       :rf.error/no-such-handler
-       nil                                ;; default recovery is fine
-
-       ;; everything else: trust the per-category default
-       nil))})
-```
-
-The policy is a function of the error event. Return `nil` to defer to the runtime's default per-category recovery, or return a map with at least `:recovery` set to override it (optionally `:replacement` for the substitute value, and `:notes` for a string that rides the resulting trace). One `:on-error` per frame; re-registering the frame replaces it; no registration means "trust the per-category defaults."
-
-Why *per-frame* and not one global handler? Because different frames legitimately want different policies, and a process-wide handler can't tell them apart. Your production app frame logs to monitoring and keeps going. A Story-tool frame asserts in-test and wants the error to fail loudly. An SSR frame substitutes a sanitised public-error shape on the server side. v1 had a single process-wide `reg-event-error-handler`; re-frame2 dropped it precisely because one knob can't serve those three masters, and the migration agent ([chapter 25](25-from-re-frame-v1.md)) flags the old call and points at per-frame `:on-error`.
+(v1 had a single process-wide `reg-event-error-handler`, and early re-frame2 drafts floated a per-frame `:on-error` recovery policy as the replacement. Both are gone — recovery is framework-owned. The migration agent ([chapter 25](25-from-re-frame-v1.md)) flags the old `reg-event-error-handler` call and routes its observability half to a `register-error-listener!` and its recovery-steering half to "drop it; rely on the typed default.")
 
 ## What "recovery" actually means
 
@@ -182,7 +160,7 @@ A few of the per-category defaults are worth knowing by heart, because they shap
 - **`:rf.error/no-such-cofx` → `:no-recovery` for the injection.** The cofx injection is a no-op, the ctx flows through unchanged, and the handler still runs — it just reads `nil` where it expected the injected value. A typo'd cofx-id shows up as "the thing isn't in my cofx map," plus the trace.
 - **`:rf.error/schema-validation-failure` → `:no-recovery`.** Hard-fail, to surface the bug early in dev. (Production elides validation entirely, so this is dev-only by design — schemas are a correctness tool, not a runtime guard. More in [chapter 08](08-schemas.md).)
 
-The shape to internalise: **the runtime makes a default decision per category, and you override per frame.** You do not write try/catch in handler code. You write *policy* in `:on-error`, or you accept the well-chosen default — and either way the behaviour is declared in one place instead of scattered across three hundred handlers.
+The shape to internalise: **the runtime makes a well-chosen default decision per category, and that's the whole story.** You do not write try/catch in handler code, and you do not register a recovery policy. You accept the typed default and handle *expected* failures at their source — instead of scattering error-steering across three hundred handlers.
 
 ## Sanitising errors for the wire: projectors
 

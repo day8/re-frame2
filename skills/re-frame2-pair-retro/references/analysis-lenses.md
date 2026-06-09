@@ -41,31 +41,24 @@ These signals are unique to or amplified by re-frame2's Tool-Pair surfaces. Watc
 - machine-snapshot version skew (`:rf/snapshot-version`) silently breaking restore after a hot reload
 - effect overrides (`:fx-overrides`) that lingered or leaked across experiments
 
-## `:on-error` policy lens
+## Error-observability lens
 
-Use when the session touched a frame's `:on-error` slot — inspecting it, hot-swapping it, or chasing why an error wasn't recovered the way the user expected. The re-frame2-pair skill's [`references/on-error.md`](../../re-frame2-pair/references/on-error.md) is the operational contract; this lens is the retrospective view that feeds policy-contract friction back into re-frame2-pair improvements.
+Use when the session chased an error — why it fired, where it surfaced, or why the app didn't "recover" the way the user expected. There is **no app-steering recovery policy** (the per-frame `:on-error` policy was removed per rf2-hiqtk8): recovery is framework-owned (the typed per-category default), and observability is the always-on `register-error-listener!` surface. This lens feeds error-observability friction back into re-frame2-pair improvements.
 
-The slot's return shape is closed (`{:recovery :replacement :notes}` with a six-value `:recovery` enum). Most policy friction shows up as one of these patterns.
+Friction signals specific to errors:
 
-Friction signals specific to `:on-error`:
-
-- a `:rf.error/bad-on-error-return` trace fired but the user (or the agent) did not notice — the runtime fell back to the category default silently and the user kept debugging the wrong symptom
-- a `:rf.error/on-error-policy-exception` trace fired (the policy fn threw) and the cascade halted without a clear next-best-action surfaced in the session
-- the policy returned the legacy `{:recovery :retried :retry-count N}` shape — `:retry-count` is not part of the contract and `:retried` is reserved for `:rf.http/retry-attempt`; the runtime rejects it
-- `:replacement` was set under a `:recovery` value other than `:replaced-with-default` (ignored by the runtime; may emit `:rf.warning/replacement-ignored-on-recovery`)
-- `:replacement` shape did not match the failing operation's normal return (effect-map for `:rf.error/handler-exception`, position-matched value for `:rf.error/schema-validation-failure`, etc.) — runtime rejected it as `:rf.error/bad-on-error-return`
-- `:replacement` was set on a non-substitutable category (registration-time failures, drain-depth-exceeded, `:rf.epoch/restore-*` rejections, `:rf.machine/*` registration-time rejections) — runtime cannot honour it
-- the agent assumed `:on-error` elides in a CLJS production build and so dismissed a production handler-exception report. Surface the real dev/prod split (recovery fires, validation diagnostics don't) rather than telling the user the slot is gone in production:
-    - **The slot is always-on.** It rides the always-on error-emit substrate, is NOT gated by `re-frame.interop/debug-enabled?`, and survives `:advanced` + `goog.DEBUG=false` for the `:rf.error/handler-exception` path (per `spec/009-Instrumentation.md` §Production elision and the posture matrix). Registered policy fns DO fire in prod for handler exceptions.
-    - **Only dev-side enrichments elide.** The `:dispatch-id` / source-coord correlation and the `:rf.error/bad-on-error-return` validation trace ride the dev trace surface. A policy-fn THROW is NOT swallowed silently in CLJS prod, though: per rf2-avnzbp it surfaces `:rf.error/on-error-policy-exception` through the always-on error-emit listener (surface #4, survives `goog.DEBUG=false`) — listener-only, so it never re-invokes the policy — before the runtime applies the original error's category-default recovery.
-- the session reached into `re-frame.events` / `re-frame.registrar` to read the registered policy fn instead of using `(:on-error (rf/frame-meta <frame-id>))` — off-contract private-namespace reach-through per Tool-Pair §REPL-eval
+- the agent (or the user) expected an app-level error policy to swallow or substitute a result and was confused that the framework applied its typed default instead. Surface the model: recovery is not app-steerable; genuine recovery for *expected* failures is local-at-source (managed-HTTP `:retry`, optional-read fallback), and observability is `register-error-listener!`.
+- the session looked for a per-frame `:on-error` slot (an old idiom from drafts) — it no longer exists; point the user at the always-on error listener for observability.
+- the agent assumed the error-emit listener elides in a CLJS production build and so dismissed a production error report. Surface the real dev/prod split:
+    - **The error-emit listener is always-on.** It rides the always-on error-emit substrate, is NOT gated by `re-frame.interop/debug-enabled?`, and survives `:advanced` + `goog.DEBUG=false` for every catalogued production-reachable `:rf.error/*` (per `spec/009-Instrumentation.md` §Production elision and the posture matrix). Registered listeners DO fire in prod.
+    - **Only dev-side enrichments elide.** The `:dispatch-id` / `:rf.trace/trigger-handler` source-coord correlation and the retain-N ring buffer ride the dev trace surface.
 
 Routing the fix:
 
-- **re-frame2-pair skill** — the friction is that the agent didn't recognise the bad-return / policy-throw trace categories, or the inspection recipe was unclear → tighten `references/on-error.md`, add a recipe, or surface the trace categories more loudly in the pair tool's error-recovery catalogue (`re-frame2-pair/references/errors.md`)
-- **upstream re-frame2** — the friction is the runtime's behaviour itself (silent fallback, no warning trace, a category the always-on error-emit substrate does not yet cover beyond `:rf.error/handler-exception`, missing structured `:tags` on the bad-return trace) → file against `re-frame2`, cross-link to `spec/009-Instrumentation.md §Error-handler policy`
+- **re-frame2-pair skill** — the friction is that the agent didn't recognise an error category, or the inspection recipe was unclear → surface the trace categories more loudly in the pair tool's error catalogue (`re-frame2-pair/references/errors.md`)
+- **upstream re-frame2** — the friction is the runtime's behaviour itself (a category the always-on error-emit substrate does not yet cover, missing structured `:tags` on a trace) → file against `re-frame2`, cross-link to `spec/009-Instrumentation.md §Error observability`
 
-When proposing improvements, prefer turning a silent runtime fallback into a louder warning the agent can route to the user, and prefer a recipe over a doc paragraph when the friction is "I didn't know how to inspect the registered policy at the REPL".
+When proposing improvements, prefer turning a silent runtime fallback into a louder warning the agent can route to the user, and prefer a recipe over a doc paragraph when the friction is "I didn't know how to pull recent errors at the REPL".
 
 ## Root-cause categories
 

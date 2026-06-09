@@ -728,14 +728,12 @@
           ":story tightens :drain-depth to 16 so a runaway cascade fails fast under a story"))))
 
 (deftest preset-expansion-ssr-server
-  (testing ":ssr-server expansion: :platform :server + :on-error projection"
+  (testing ":ssr-server expansion: :platform :server"
     (rf/reg-frame :p/ssr {:preset :ssr-server})
     (let [cfg (:config (frame/frame :p/ssr))]
       (is (= :ssr-server (:preset cfg)))
       (is (= :server (:platform cfg))
-          ":ssr-server stamps :platform :server (singular keyword — one platform per frame)")
-      (is (= :rf.error/server-projection (:on-error cfg))
-          ":ssr-server wires :on-error to the server-side projection target"))))
+          ":ssr-server stamps :platform :server (singular keyword — one platform per frame)"))))
 
 (deftest preset-user-keys-win-on-conflict
   (testing "user-supplied keys override individual expansion entries"

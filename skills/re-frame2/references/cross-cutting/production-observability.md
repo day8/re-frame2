@@ -38,7 +38,7 @@ No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-
 
 ## `register-error-listener!` — one record per runtime error
 
-Fires once per `:rf.error/*` event the runtime emits through the error-emit substrate (handler exceptions today; the substrate is the normative seam for future `:rf.error/*` records). Independent of the per-frame `:on-error` policy fn — both fan out from the same emission site; one bad listener cannot affect the policy fn, and vice versa.
+Fires once per catalogued production-reachable `:rf.error/*` event the runtime emits through the error-emit substrate. This is the single error-observability surface; per-listener exceptions are isolated (one bad listener cannot affect siblings or the cascade).
 
 ```clojure
 (rf/register-error-listener!
@@ -64,55 +64,11 @@ Fires once per `:rf.error/*` event the runtime emits through the error-emit subs
  :elapsed-ms 8}                                    ;; queue → throw, integer
 ```
 
-Verified: `re-frame.error-emit/dispatch-on-error!` (`error_emit.cljc:171-230`); record shape per the ns docstring §Record shape.
+Verified: `re-frame.error-emit/dispatch-on-error!`; record shape per the ns docstring §Record shape.
 
-**Composition with per-frame `:on-error` policy:** the error-emit substrate runs the per-frame `:on-error` policy AND the corpus-wide listener registry from one emission site. Use `:on-error` for **in-app recovery** (retry, mark, navigate); use `register-error-listener!` for **off-box observability**. They are independent — register both when you need both.
+### Recovery is framework-owned — there is no app-steering policy
 
-### `:on-error` shape and wiring (the in-app recovery slot)
-
-`:on-error` is a `reg-frame` metadata slot. The framework calls it with the structured error event AFTER emitting the trace and BEFORE applying the category's default recovery. It returns a closed-shape map telling the runtime how to proceed; `nil` defers to the category default.
-
-```clojure
-(rf/reg-frame :rf/default
-  {:doc "App-shell frame with monitoring + recovery."
-   :on-error
-   (fn handle-error [error-event]
-     ;; error-event is an :rf/trace-event with :op-type :error.
-     (case (:operation error-event)
-       :rf.error/handler-exception
-       {:recovery    :replaced-with-default
-        :replacement {:db (get-in error-event [:tags :db-before])}
-        :notes       "handler threw — rolled back to db-before"}
-
-       :rf.error/schema-validation-failure
-       {:recovery    :replaced-with-default
-        :replacement (get-in error-event [:tags :default-value])}
-
-       ;; default: defer to the category's documented recovery
-       nil))})
-```
-
-**Return-map contract** (closed shape, per [Spec 009 §Error-handler policy](../../../../spec/009-Instrumentation.md#error-handler-policy-on-error-per-frame)):
-
-```clojure
-{:recovery    <keyword>   ;; REQUIRED — one of :no-recovery, :replaced-with-default,
-                          ;; :skipped, :warned-and-replaced, :logged-and-skipped, :ignored
- :replacement <value>     ;; OPTIONAL — only honoured when :recovery is :replaced-with-default;
-                          ;; shape is category-specific (effect-map for :handler-exception, etc.)
- :notes       <string>}   ;; OPTIONAL — free-form; surfaced under :tags :notes on the augmented trace
-```
-
-**Production survival.** Unlike the rest of the trace surface, `:on-error` is NOT gated by `re-frame.interop/debug-enabled?` — it rides the same always-on error-emit substrate as `register-error-listener!`. Registered policy fns fire on production handler exceptions; the substrate covers `:rf.error/handler-exception` today (the primary production-monitoring case). Each frame has at most one `:on-error` handler; re-registering the frame replaces the policy.
-
-**Composition rubric** — pick one, both, or neither:
-
-| Need | Surface | Why |
-|---|---|---|
-| In-app recovery (rollback, substitute, halt) | `:on-error` | Runs synchronously in the dispatch cascade; its return drives the runtime's next step. |
-| Off-box shipping (Sentry / Datadog) | `register-error-listener!` | Cascade-independent; one bad listener cannot affect the policy fn (or vice versa). |
-| Both | Register both | The substrate fans out from one emission site; independent failure domains. The `:on-error` fn MAY return `nil` to forward-and-defer (per the [Spec 009 §Composition with libraries](../../../../spec/009-Instrumentation.md#error-handler-policy-on-error-per-frame) idiom) — letting the listener ship to the monitor while the runtime applies its default recovery. |
-
-A policy fn that throws does NOT recursively invoke itself — the runtime emits `:rf.error/on-error-policy-exception` and falls back to the category default. Listener exceptions are caught the same way (sibling listeners still run).
+Error **recovery** is not an app-config concern. The runtime applies a **typed per-category default**: frame-destroyed recovers + emits, sub-exception returns `nil`, handler-exception fails loud without crashing the app, no-such-handler / no-such-sub no-op. There is no per-frame `:on-error` recovery policy — it was removed per rf2-hiqtk8 (errors are not generically recoverable by an app policy; the policy's return value was never read or applied). Genuine recovery for **expected** failures is handled at the source — managed-HTTP `:retry`, optional-read fallback — where "recovery" actually has meaning. Off-box **observability** is `register-error-listener!` (above). To re-run a failed event, dispatch a fresh one; the runtime never re-runs the failing handler.
 
 ## Triple-gate registration pattern
 
@@ -177,7 +133,6 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 - Guide chapter: [`docs/guide/16-observability.md`](../../../../docs/guide/16-observability.md) — narrative walkthrough with vendor-specific recipes.
 - Spec normative: [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md) (line 489) — substrate contracts.
 - Privacy composition: [`privacy-and-elision.md`](privacy-and-elision.md) — schema-declared sensitive paths are redacted to `:rf/redacted` by `elide-wire-value`; payload already walked at listener entry. No whole-record drop.
-- Per-frame `:on-error` policy: [`references/fundamentals/frames.md`](../fundamentals/frames.md) §`:on-error` — in-app recovery, sibling to the corpus-wide error listener.
 
 ---
 
