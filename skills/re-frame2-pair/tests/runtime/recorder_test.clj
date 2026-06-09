@@ -196,7 +196,7 @@
              (map defn-form)
              (map pr-str)
              (str/join "\n"))]
-    (doseq [mutator ["pair-dispatch" "reset-frame-db!" "app-db-reset!"
+    (doseq [mutator ["pair-dispatch" "replace-app-db!" "app-db-reset!"
                      ".dispatchEvent" ".setAttribute" "restore-epoch"
                      ".innerHTML"]]
       (is (not (str/includes? recorder-src mutator))

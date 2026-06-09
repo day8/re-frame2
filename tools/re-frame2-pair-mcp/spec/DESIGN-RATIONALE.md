@@ -763,6 +763,74 @@ take?
 
 ---
 
+## Lock #10 — State-injection verb shape (`replace-<thing>` prefix)
+
+**Locked 2026-06-09 (rf2-0acvdb, EP-0001 rf2-tfepxu).** **`replace-`
+is a catalogued verb prefix for whole-value state injection.** The
+gated write tool is `replace-app-db` (wrapping the framework's
+`replace-app-db!` Tool-Pair primitive), renamed from the former
+`reset-frame-db`.
+
+### Question
+
+EP-0001 split the former `reset-frame-db!` primitive — a db-shaped
+name that silently replaced the *whole* frame, runtime-db included —
+into an app-db-only injection (`replace-app-db!`) and a distinct
+full-frame surface (`replace-frame-state!`). The pair-MCP write tool
+that wraps it needs a name, and that name needs a catalogued verb.
+None of the existing prefixes fits: `reset-` means *reset to
+empty/default* (`reset-app-db` → `{}`, `reset-operating-frame`),
+`restore-` means *rewind to a recorded epoch*, and neither describes
+*overwrite with an arbitrary caller-supplied value*. What verb does it
+take?
+
+### Options considered
+
+- **`replace-<thing>` as a new catalogued prefix** (the pick).
+  `replace-app-db` reads as "overwrite app-db wholesale with the value
+  I'm handing you" — the exact semantic, and it generalises (a future
+  `replace-frame-state` tool would ride the same prefix).
+- **Keep `reset-frame-db` (the pre-EP-0001 name).** Rejected by
+  EP-0001 itself: a `*-db` name that silently overwrites runtime-db is
+  the footgun the partition split exists to remove, and `reset-`
+  already means reset-to-default elsewhere in the catalogue —
+  overloading it for arbitrary-value injection blurs two distinct
+  gestures.
+- **Reuse `set-`.** The `set-` prefix is a single spec-mandated
+  carve-out (`set-operating-frame`, Lock-adjacent to rf2-zomfq);
+  NAMING.md §"What's NOT a locked verb" rejects generic
+  `set-<arbitrary-slot>`, and a wholesale-value injection is exactly
+  the arbitrary-slot write that carve-out refuses.
+
+### Pick
+
+`replace-app-db` under a catalogued `replace-<thing>` prefix.
+
+### Why
+
+- **`replace-` names the gesture precisely.** Whole-value overwrite,
+  bypassing the cascade — distinct from `reset-` (to empty/default),
+  `restore-` (epoch rewind), and `dispatch` (drive a handler).
+- **It keeps db-shaped names honest.** Per EP-0001, a `*-app-db` name
+  touches *only* app-db; full-frame replacement gets its own
+  `*-frame-state` name so a tool can never silently clobber runtime-db.
+- **The tool stays `--allow-writes`-gated** (rf2-ee38b.18, Lock #4's
+  *Subsequent evolution* write pair) — the verb rename is naming-only
+  and does not change its gate posture.
+
+### Date locked
+
+2026-06-09 (rf2-0acvdb; the rename originates in EP-0001 rf2-tfepxu).
+
+### Trail-of-thought citations
+
+- `tools/mcp-conformance/NAMING.md` §The verb table (the
+  `replace-<thing>` row).
+- `tools/mcp-conformance/wire-vocab/test/.../verb_vocab_test.clj`
+  (`verb-prefixes` gains `replace`).
+
+---
+
 ## Summary table
 
 | # | Question | Pick | Date |
@@ -776,8 +844,9 @@ take?
 | 7 | Wire-boundary token cap | **Egress-centralised wrapper + pluggable `:strategy` + truncate-with-`{:rf.mcp/overflow …}`-marker** | 2026-05-13 |
 | 8 | Recorder verb shapes | **`record` bare mega-op; `read-recording` (`read-`); `watch-until` (new `watch-` prefix)** | 2026-05-31 |
 | 9 | Orientation verb shape | **`orient` bare mega-op; `read-sub` (`read-`)** | 2026-06-02 |
+| 10 | State-injection verb shape | **`replace-app-db` under a catalogued `replace-<thing>` prefix; renamed from `reset-frame-db` (EP-0001)** | 2026-06-09 |
 
-These nine locks together define re-frame2-pair-mcp's shipped surface.
+These ten locks together define re-frame2-pair-mcp's shipped surface.
 Anything outside these decisions is up for design discussion;
 anything inside is direction-set and shipped. Lock #4's
 cardinality has since grown additively from seven to twenty-eight

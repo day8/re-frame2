@@ -175,12 +175,12 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```
 - **Description**: Restore the frame's `app-db` to the named epoch. Returns `true` on success; `false` for an unknown / destroyed frame (and emits `:rf.error/no-such-handler` of kind `:frame`).
 
-### `reset-frame-db!`
+### `replace-app-db!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (reset-frame-db! frame-id new-db) → boolean
+  (replace-app-db! frame-id new-db) → boolean
   ```
 - **Description**: Pair-tool write surface (state injection). Direct write to `app-db` — bypasses the cascade. Returns `true` on success.
 
@@ -224,8 +224,8 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
 | `:rf.epoch/restore-version-mismatch` | `:frame`, `:epoch-id`, `:machine-id`, `:version-recorded`, `:version-current` |
 | `:rf.epoch/restore-during-drain` | `:frame`, `:epoch-id` |
 | `:rf.epoch/restore-non-ok-record` | `:frame`, `:epoch-id`, `:outcome`, `:halt-reason` |
-| `:rf.epoch/reset-frame-db-during-drain` | `:frame` |
-| `:rf.epoch/reset-frame-db-schema-mismatch` | `:frame`, `:failing-paths` |
+| `:rf.epoch/replace-app-db-during-drain` | `:frame` |
+| `:rf.epoch/replace-app-db-schema-mismatch` | `:frame`, `:failing-paths` |
 | `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id` |
 
 ## The wire-boundary walker

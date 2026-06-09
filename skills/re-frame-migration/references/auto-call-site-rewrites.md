@@ -165,7 +165,7 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 
 1. **`run-test-async` → `cljs.test/async`.** v1's macro bound an `async`-style completion callback; the v2-canonical form is the stock `cljs.test/async` macro, which binds a `done` fn you call once the awaited assertions have run. No re-frame surface is involved — this is the standard ClojureScript async-test shape.
 2. **`wait-for-event` → a trace listener matching `:rf.event/run-end`.** v1 `wait-for` / `wait-for-event` registered a one-shot `add-post-event-callback` that fired when the awaited event's handler had run to completion. Per **M-26**, `add-post-event-callback` → `register-listener!` / `unregister-listener!` (the dev-only trace listener API — live under `cljs.test` / JVM test runs). Match the `:rf.event/run-end` trace marker — it is emitted **after** the handler's interceptor chain, db commit, and fx walk, i.e. the exact handler-complete timing v1's post-event callback gave (NOT `:rf.event/run-start`, which fires before the handler body). The awaited event id rides the trace event under `[:tags :rf.trace/event-id]`.
-3. **The fixture `make-restore-fn` → an epoch-free snapshot/restore.** MIGRATION.md **M-26** maps v1's `make-restore-fn` to the epoch surface (`(let [snap (rf/app-db-value frame-id)] (fn [] (rf/reset-frame-db! frame-id snap)))`). `reset-frame-db!` is late-bound on the **`day8/re-frame2-epoch`** artefact (M-33) and raises `:rf.error/epoch-artefact-missing` when it is absent — a plain (non-Xray, no-epoch) test suite does not carry epoch on its classpath. For those suites, snapshot `(rf/app-db-value :rf/default)` and restore via a one-shot `reg-event-db` dispatched synchronously — no epoch dependency:
+3. **The fixture `make-restore-fn` → an epoch-free snapshot/restore.** MIGRATION.md **M-26** maps v1's `make-restore-fn` to the epoch surface (`(let [snap (rf/app-db-value frame-id)] (fn [] (rf/replace-app-db! frame-id snap)))`). `replace-app-db!` is late-bound on the **`day8/re-frame2-epoch`** artefact (M-33) and raises `:rf.error/epoch-artefact-missing` when it is absent — a plain (non-Xray, no-epoch) test suite does not carry epoch on its classpath. For those suites, snapshot `(rf/app-db-value :rf/default)` and restore via a one-shot `reg-event-db` dispatched synchronously — no epoch dependency:
 
 ```clojure
 ;; SEARCH (v1)
@@ -187,7 +187,7 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 
 ;; Epoch-free :each fixture — snapshot on entry, restore via a one-shot
 ;; reg-event-db on exit. (If the suite DOES pull day8/re-frame2-epoch, the
-;; M-26 reset-frame-db! restore is the simpler path — use that instead.)
+;; M-26 replace-app-db! restore is the simpler path — use that instead.)
 ;; make-reset-runtime-fixture (M-64) handles registrar/runtime isolation;
 ;; this fixture stacks the app-db snapshot on top.
 (defn restore-app-db-fixture [t]

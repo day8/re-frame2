@@ -19,7 +19,7 @@
   (is (= [] (sg/group-patches-into-sections nil))))
 
 (deftest root-replacement-projects-to-one-root-section
-  (testing "single :assoc at root path is the reset-frame-db! signature"
+  (testing "single :assoc at root path is the replace-app-db! signature"
     (let [patches  [[[] :assoc {:new :db}]]
           sections (sg/group-patches-into-sections patches)]
       (is (= 1 (count sections)))

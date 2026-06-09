@@ -168,7 +168,7 @@ with a separate gate:
 - The same carve-out applies to the dedicated state-injection /
   time-travel eval forms (`app-db-reset!`, `rf/restore-epoch`): they are
   the default-reachable write path because eval is default-ON (the
-  `--allow-writes`-gated `reset-frame-db` / `restore-epoch` tools are the
+  `--allow-writes`-gated `replace-app-db` / `restore-epoch` tools are the
   audited alternative).
 
 ### Asking for the unmasked view
@@ -246,7 +246,7 @@ opt-in under the same flag name.
 - re-frame2-pair-mcp `--allow-sensitive-reads` — this gate.
 - re-frame2-pair-mcp `--allow-writes` — opt-in for the two
   state-mutating tools `restore-epoch` (time-travel undo) and
-  `reset-frame-db` (state injection). Default **OFF**; without it both
+  `replace-app-db` (state injection). Default **OFF**; without it both
   return `{:ok? false :reason :rf.error/writes-disabled}` without
   touching the runtime. This is why the dedicated write tools sit
   outside the skill's 26-of-28 `allowed-tools:` set and the eval forms

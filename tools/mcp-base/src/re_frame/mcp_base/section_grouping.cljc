@@ -129,7 +129,7 @@
 
   A single `[[] :assoc <full-db>]` patch projects as one section
   headed at `[]` with `:section-kind :modified`. This is the
-  signature of a `reset-frame-db!` or any wholesale root
+  signature of a `replace-app-db!` or any wholesale root
   replacement; collapsing to one root section matches Xray's
   whole-DB rule (§3.1.1 step 4).
 
@@ -306,7 +306,7 @@
 
 (defn- root-replacement?
   "True when the patch list is a single root-headed `:assoc` — the
-  signature of a `reset-frame-db!` or wholesale root replacement.
+  signature of a `replace-app-db!` or wholesale root replacement.
   Projects to ONE `[]`-headed section."
   [patches]
   (and (= 1 (count patches))

@@ -95,7 +95,7 @@ The shipped decoder (`decode-db-after`) Malli-validates `:sections` at the decod
 
 The decoder validates the **raw** `:sections` slot — it does NOT default a missing / `nil` / `false` slot to `[]` (rf2-y3qpv). A diff marker always carries an explicit `:sections` vector; a malformed `{:rf.mcp/diff-from :db-before}` marker (no / falsey `:sections`) therefore trips `:rf.error/bad-diff-sections` when Malli is present rather than decoding to a silent no-op that erases the epoch's real `:db-after` change. An explicit `:sections []` — a genuine no-change diff — stays valid and replays to `:db-before` unchanged.
 
-> **Note** root-path patches: an `[[] :assoc <full>]` patch replaces `base` outright (whole-DB replacement, e.g. `reset-frame-db!`); an `[[] :dissoc]` is a no-op by convention.
+> **Note** root-path patches: an `[[] :assoc <full>]` patch replaces `base` outright (whole-DB replacement, e.g. `replace-app-db!`); an `[[] :dissoc]` is a no-op by convention.
 
 ## Cross-platform
 
