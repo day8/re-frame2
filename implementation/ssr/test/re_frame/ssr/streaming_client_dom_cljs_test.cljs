@@ -46,6 +46,8 @@
             [re-frame.frame :as frame]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [re-frame.ssr :as ssr]
+            [re-frame.ssr.constants :as constants]
+            [re-frame.ssr.streaming.constants :as wire]
             [re-frame.ssr.streaming.client :as streaming-client]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]
@@ -118,7 +120,8 @@
   (ssr/streaming-failed-template id fallback-html))
 
 (defn- final-payload-html []
-  "<script id=\"__rf_payload\" type=\"application/edn\">{:rf/version 1 :rf/app-db {} :rf/render-hash \"00000000\"}</script>")
+  (str "<script id=\"" constants/payload-script-id
+       "\" type=\"application/edn\">{:rf/version 1 :rf/app-db {} :rf/render-hash \"00000000\"}</script>"))
 
 ;; ---- DOM scaffolding -------------------------------------------------------
 
@@ -150,7 +153,7 @@
   (count (array-seq (.querySelectorAll host (str "." cls)))))
 
 (defn- mount-for [host id]
-  (.querySelector host (str "[data-rf2-suspense-mount=\"" (pr-str id) "\"]")))
+  (.querySelector host (str "[" wire/attr-suspense-mount "=\"" (pr-str id) "\"]")))
 
 (defn- showing-fallback?
   "True when boundary `id` is in its (live, visible) fallback state —
@@ -214,7 +217,7 @@
                                  "<div class=\"card resolved-revenue\">Revenue 42375</div>"
                                  {:cards {:revenue {:title "Revenue" :value 42375}}}))
           ;; signups has NOT resolved yet — its fallback is still inert.
-          (is (nil? (.querySelector host "#__rf_payload"))
+          (is (nil? (.querySelector host (str "#" constants/payload-script-id)))
               "no final payload present — any hydration is purely from chunk deltas")
           (is (= {} (frame/frame-app-db-value fid)) "app-db empty before install")
 
@@ -351,7 +354,7 @@
                 (is (nil? @(rf/subscribe fid [:sct/card :revenue]))
                     (str (pr-str bad-delta) ": subscription reads no speculative state"))
                 ;; The script is consumed regardless of delta validity.
-                (is (zero? (count (array-seq (.querySelectorAll host "[data-rf2-suspense-hydrate]"))))
+                (is (zero? (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
                     (str (pr-str bad-delta) ": the delta script is dropped (DOM left script-free)"))
                 ;; The fail-closed diagnostic fires.
                 (let [skipped (filter #(and (= :rf.ssr/suspense-boundary-failed (:operation %))
@@ -492,7 +495,7 @@
             (resolved-chunk-html :card.outer
                                  outer-resolved-html
                                  {:cards {:outer {:value 7} :inner {:value 99}}}))
-          (is (nil? (.querySelector host "#__rf_payload"))
+          (is (nil? (.querySelector host (str "#" constants/payload-script-id)))
               "no final payload — recovery is purely the sweep's doing")
           (let [stop! (streaming-client/install! {:frame fid :root host})]
             (try
