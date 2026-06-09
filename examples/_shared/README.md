@@ -64,8 +64,44 @@ screenshots stay reproducible. (rf2-byf7y)
   link-preview scrapers (Facebook / X / LinkedIn / Slack / Discord) do **not**
   render an SVG `og:image`, so the social card must be a raster (PNG/JPG).
 - `img/og.svg` — editable SOURCE ART for the card above; not referenced by any
-  page. Re-export `og.png` from it when the design changes (see that file's
-  header for the 1200×630 render recipe).
+  page. Re-export `og.png` from it when the design changes (render the SVG at
+  exactly 1200×630 — e.g. open it in a headless browser sized 1200×630 and
+  screenshot, or any SVG→PNG rasteriser at that size). Its colour literals
+  intentionally mirror the `--ex-*` tokens in `style.css`; the asset gate
+  rejects re-introducing a retired/sub-AA palette value here (e.g. the old
+  `#8A8270` muted ink, darkened to `#6E6654` for AA — rf2-y82dk9), so the
+  social card keeps the shared palette's accessibility decisions.
+
+## Responsive Xray-host shell
+
+The inline-Xray examples (`counter`, `flows`) wrap their app + Xray panel in a
+`.rf2-testbed-shell`:
+
+```html
+<div class="rf2-testbed-shell">
+  <main id="app"></main>
+  <aside data-rf-xray-host></aside>
+</div>
+```
+
+On the desktop this is a two-column flex — the app on the left, the inline Xray
+host on the right at `--rf-xray-inline-width` (default 560px). Because the host
+is `flex-shrink: 0` with a 320px `min-width`, the side-by-side layout needs
+~624px before any app content shows, so on a phone it would overflow
+horizontally even though the pages declare a responsive viewport.
+
+`structure.css` therefore **stacks** the shell below the
+`--rf-testbed-shell-stack` breakpoint (900px): the columns become rows (app on
+top, Xray host below), the host drops its fixed width / min-width and goes
+full-bleed, and its height is capped (`max-height: 60vh` + internal scroll) so
+the panel never crowds the app off-screen. The host/app DOM contract
+(`.rf2-testbed-shell > #app` + `[data-rf-xray-host]`) is **unchanged**, so Xray
+auto-mounting and both examples keep working at every width.
+
+The asset gate (`check-examples-assets.cjs`) enforces this: a `structure.css`
+with no `@media (max-width: …)` rule that stacks `.rf2-testbed-shell` to a
+column turns the gate RED, so the shell cannot silently regress to an unbounded
+horizontal layout (rf2-y82dk9).
 
 ## Adding a new example
 

@@ -362,6 +362,25 @@ function validatePng(data, expectedWidth = OG_PNG_WIDTH, expectedHeight = OG_PNG
 const WCAG_AA_NORMAL_TEXT = 4.5; // 1.4.3 — normal-size text
 const WCAG_NON_TEXT = 3.0; // 1.4.11 — UI component / focus indicator
 
+// Retired shared-palette colour literals that must not reappear in source art
+// (rf2-y82dk9). og.svg is the editable master the shipped og.png is exported
+// from; its palette literals intentionally mirror the --ex-* CSS tokens. When a
+// token is darkened for AA (e.g. --ex-ink-faint #8A8270 → #6E6654, 3.45:1 →
+// 5.14:1 on paper, rf2-febmqu) the og.png raster can silently lag behind because
+// the existing gate treats it as opaque bytes beyond dimensions/signature. Each
+// row names a retired value, its AA-safe replacement, and the reason — a static
+// scan over og.svg so re-introducing the stale literal turns the gate RED.
+const RETIRED_OG_SOURCE_COLORS = [
+  {
+    retired: '#8A8270',
+    replacement: '#6E6654',
+    token: '--ex-ink-faint',
+    reason:
+      'sub-AA on the shared paper background (3.45:1 < 4.5:1); darkened to ' +
+      '#6E6654 (5.14:1) in style.css, rf2-febmqu',
+  },
+];
+
 function srgbToLinear(channel) {
   const c = channel / 255;
   return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
@@ -613,6 +632,40 @@ function checkSharedTree(io, opts = {}) {
       }
     }
   }
+  // OG SOURCE-ART palette conformance (rf2-y82dk9). The shipped og.png is
+  // re-exported from og.svg, whose colour literals intentionally mirror the
+  // --ex-* CSS tokens. The og.png byte-check above is opaque to colour, so a
+  // shared-palette darkening (e.g. the AA fix --ex-ink-faint #8A8270 → #6E6654,
+  // rf2-febmqu) can leave og.svg/og.png stale and still pass. Reject any retired
+  // /sub-AA literal re-appearing in the source art so it can't silently drift
+  // back below the palette's own accessibility decisions.
+  const ogSvgPath = path.join(sharedRoot, 'img', 'og.svg');
+  const ogSvg = readFileSafe(io, ogSvgPath);
+  if (ogSvg != null) {
+    // Strip XML/SVG comments first: the source-art header documents the
+    // retired→AA-safe migration BY NAMING the retired value, which is prose,
+    // not a live colour. We only flag the literal where it is an actual paint
+    // attribute (fill / stroke / stop-color), so the doc note can cite it.
+    const ogSvgNoComments = ogSvg.replace(/<!--[\s\S]*?-->/g, '');
+    for (const c of RETIRED_OG_SOURCE_COLORS) {
+      // A LIVE colour is the retired hex used as a paint value:
+      //   fill="#8A8270"  stroke='#8A8270'  stop-color="#8A8270"
+      // (quoted attribute or bare presentation-attribute value).
+      const re = new RegExp(
+        `\\b(?:fill|stroke|stop-color|color)\\s*[:=]\\s*["']?\\s*${c.retired}\\b`,
+        'i',
+      );
+      if (re.test(ogSvgNoComments)) {
+        errors.push(
+          `examples/_shared/img/og.svg: source art uses the retired ` +
+            `${c.retired} colour (${c.reason}). Replace it with the AA-safe ` +
+            `${c.replacement} (${c.token}) and re-export og.png, so the social ` +
+            `card keeps the shared palette's accessibility decisions (rf2-y82dk9).`,
+        );
+      }
+    }
+  }
+
   const externalImportAllowlist =
     opts.externalImportAllowlist || EXTERNAL_IMPORT_ALLOWLIST;
 
@@ -691,6 +744,31 @@ function checkSharedTree(io, opts = {}) {
       errors.push(
         `examples/_shared/css/structure.css: the '.cells-grid input' rule ` +
           `must pin the compact 'width: 56px' cell-editor size (rf2-gv5xd).`,
+      );
+    }
+
+    // RESPONSIVE Xray-host shell contract (rf2-y82dk9). The .rf2-testbed-shell
+    // is a side-by-side flex with the inline Xray host fixed at
+    // --rf-xray-inline-width (flex-shrink:0) + a 320px min-width, so it needs
+    // ~624px before any app content shows and overflows on narrow viewports.
+    // Examples are teaching surfaces, so the shared shell must encode a
+    // deliberate narrow-viewport behaviour (stack/collapse) rather than
+    // silently regress to an unbounded horizontal layout. Require a max-width
+    // media query that flips the shell to a stacked (column) flow.
+    const stacksUnderBreakpoint =
+      /@media[^{]*max-width[\s\S]*?\.rf2-testbed-shell\s*\{[^}]*flex-direction:\s*column/m.test(
+        structure,
+      );
+    if (!stacksUnderBreakpoint) {
+      errors.push(
+        `examples/_shared/css/structure.css: the inline-Xray ` +
+          `'.rf2-testbed-shell' is a fixed two-column flex with no responsive ` +
+          `fallback. It overflows horizontally on narrow viewports (the host ` +
+          `is flex-shrink:0 at ~560px + 320px min-width, ~624px before any app ` +
+          `content). Add a '@media (max-width: …)' rule that stacks the shell ` +
+          `('.rf2-testbed-shell { flex-direction: column }') so the Xray host ` +
+          `drops below the app instead of overflowing (rf2-y82dk9). See ` +
+          `examples/_shared/README.md §Responsive Xray-host shell.`,
       );
     }
   }
@@ -800,6 +878,8 @@ module.exports = {
   relativeLuminance,
   parseExTokens,
   sharedContrastContract,
+  // OG source-art palette + responsive Xray-host shell contracts (rf2-y82dk9)
+  RETIRED_OG_SOURCE_COLORS,
 };
 
 // ---------------------------------------------------------------------------
