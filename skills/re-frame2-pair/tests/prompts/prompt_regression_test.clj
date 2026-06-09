@@ -509,6 +509,58 @@
                "at a time (rf2-hf7m9j finding 2).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Named state-rewrite writes route through the dedicated gated tools
+;; (rf2-230ekq)
+;; ---------------------------------------------------------------------------
+;;
+;; The two write-authority tools `restore-epoch` + `replace-app-db` are the
+;; CANONICAL path for time-travel undo + state injection — both are
+;; allow-listed (the server's `--allow-writes` gate, not the allow-list, is
+;; the write boundary). The raw eval forms (`(rf/restore-epoch …)` /
+;; `app-db-reset!`) are the BACKSTOP only. These guards fail if the skill
+;; regresses to teaching the eval form as the default-reachable write path,
+;; or drops the two tools from the allow-list.
+
+(deftest write-tools-are-allow-listed
+  (testing "SKILL.md allow-lists both dedicated write tools (rf2-230ekq)"
+    (is (str/includes? @skill-md "mcp__re-frame2-pair__restore-epoch")
+        (str "SKILL.md allowed-tools no longer lists "
+             "mcp__re-frame2-pair__restore-epoch — the dedicated time-travel "
+             "tool is the canonical named-write path (rf2-230ekq)."))
+    (is (str/includes? @skill-md "mcp__re-frame2-pair__replace-app-db")
+        (str "SKILL.md allowed-tools no longer lists "
+             "mcp__re-frame2-pair__replace-app-db — the dedicated "
+             "state-injection tool is the canonical named-write path "
+             "(rf2-230ekq)."))))
+
+(deftest named-writes-prefer-dedicated-tool-not-default-eval
+  (testing "the skill no longer frames the raw eval write forms as the DEFAULT-reachable path (rf2-230ekq)"
+    (doseq [[label md] [["SKILL.md" @skill-md]
+                        ["ops.md" @ops-md]
+                        ["recipes.md" @recipes-md]
+                        ["mcp-transport.md (via recipes/ops links)" @ops-md]]]
+      (is (not (re-find #"(?i)default-reachable\s+write\s+path" md))
+          (str label " still calls the raw eval form the 'default-reachable "
+               "write path' — the dedicated `restore-epoch` / `replace-app-db` "
+               "tools are now the canonical path; eval is the backstop "
+               "(rf2-230ekq).")))
+    ;; The Experiment-loop recipe's restore step must call the dedicated tool,
+    ;; not the eval form, as its primary invocation.
+    (let [section (recipe-section @recipes-md "Experiment loop")]
+      (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
+      (is (str/includes? section "mcp__re-frame2-pair__restore-epoch {epoch-id:")
+          (str "the Experiment-loop restore step no longer leads with the "
+               "dedicated `restore-epoch {epoch-id: …}` tool — the eval form "
+               "is the backstop, not the default (rf2-230ekq)."))))
+  (testing "the eval write forms are kept as an explicitly-labelled backstop (rf2-230ekq)"
+    ;; The backstop must still be documented (gate-OFF server fallback), but
+    ;; framed as such — not removed entirely.
+    (is (includes-ci? @ops-md "backstop")
+        (str "ops.md no longer labels the raw eval restore/reset forms as a "
+             "BACKSTOP — they must remain documented for a gate-OFF server but "
+             "framed as the fallback, not the default (rf2-230ekq)."))))
+
+;; ---------------------------------------------------------------------------
 ;; Run
 ;; ---------------------------------------------------------------------------
 

@@ -146,16 +146,17 @@ MAPPINGS: list[Mapping] = [
         server_src=(REPO_ROOT / "tools" / "re-frame2-pair-mcp" / "src" / "re_frame2_pair_mcp" / "tools" / "descriptors_data.cljs",),
         host_prefix="re-frame2-pair",
         skill_md=REPO_ROOT / "skills" / "re-frame2-pair" / "SKILL.md",
-        intentional_server_only=frozenset({
-            # Write-authority tools (rf2-ee38b.18) — gated behind the
-            # server's default-OFF `--allow-writes` launch flag. A stock
-            # skill session runs against a gate-OFF server and cannot
-            # reach them, so they are deliberately not allow-listed; the
-            # operator who opts in at launch can add them to the skill's
-            # allowed-tools for that deployment.
-            "restore-epoch",
-            "replace-app-db",
-        }),
+        # rf2-230ekq: the two write-authority tools (rf2-ee38b.18),
+        # `restore-epoch` + `replace-app-db`, ARE now allow-listed — they
+        # are the canonical, audited path for named state rewrites. The
+        # server's default-OFF `--allow-writes` launch gate (not the skill
+        # allow-list) is the write-authority boundary: against a gate-OFF
+        # server both refuse with `:rf.error/writes-disabled` without
+        # touching the runtime, so allow-listing them is safe. The set is
+        # therefore empty — every server tool must be allow-listed (a new
+        # write tool should be allow-listed + gated at the server, not
+        # excluded here).
+        intentional_server_only=frozenset(),
     ),
     # story-mcp consumers (rf2-1v7tu HYBRID): both skills consume the
     # 17-tool surface, split along the authoring vs live-runtime axis.
