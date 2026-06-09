@@ -1576,8 +1576,12 @@
   Late-bound via `:epoch/epoch-history`."}
   epoch-history      rf-epoch/epoch-history)
 
-(def ^{:doc "Rewind the named frame's `app-db` to the named epoch's
-  `:db-after`. Returns `true` on success, `false` on any of the six
+(def ^{:doc "Rewind the named frame's WHOLE frame-state — BOTH the app-db
+  AND runtime-db partitions — to the named epoch's `:frame-state-after`,
+  reinstalled atomically via `replace-frame-state!` (EP-0001, Mike ruling #2),
+  so machine snapshots, the route slice, elision declarations, and SSR
+  metadata are revived alongside app-db, not just the app-db projection
+  (`:db-after`). Returns `true` on success, `false` on any of the seven
   documented failure modes (each emits a structured `:rf.epoch/*` error
   trace) or when the epoch artefact is absent. Per Tool-Pair
   §Time-travel. Late-bound via `:epoch/restore-epoch`."}

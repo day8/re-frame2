@@ -1,29 +1,32 @@
 (ns re-frame.actor-liveness-test
   "Per rf2-a2sn1 — a dynamically-spawned machine actor's LIVENESS is
-  derived from its (revertible) app-db snapshot, NOT from a per-instance
+  derived from its (revertible) runtime-db snapshot, NOT from a per-instance
   registrar entry.
 
-  The design defect this pins the fix for: machine STATE lived in app-db
-  (revertible) but a spawned actor's LIVENESS — its per-instance
+  The design defect this pins the fix for: machine STATE lived in the frame
+  value (revertible) but a spawned actor's LIVENESS — its per-instance
   event-handler registration — lived OUTSIDE the frame value, in the
-  registrar. `restore-epoch` reverts app-db only, so it could never
-  revert the registration: rewinding past a spawn orphaned the handler;
-  rewinding past a destroy left the snapshot inspectable but the handler
-  gone → `:rf.error/no-such-handler`. The fix (Mike-ruled LAZY-RESOLVER):
-  spawn/destroy become PURE app-db writes (install/remove the snapshot +
-  the spawn-registry slot, stamping the revertible `:rf/machine-type`),
-  and a dispatch to an unregistered actor-id lazily resolves the actor's
-  TYPE handler from its snapshot. Liveness == snapshot presence.
+  registrar. `restore-epoch` reverts the frame value, not the registrar, so
+  it could never revert the registration: rewinding past a spawn orphaned
+  the handler; rewinding past a destroy left the snapshot inspectable but the
+  handler gone → `:rf.error/no-such-handler`. The fix (Mike-ruled
+  LAZY-RESOLVER): spawn/destroy become PURE frame-value writes (install/remove
+  the snapshot + the spawn-registry slot in runtime-db, stamping the
+  revertible `:rf/machine-type`), and a dispatch to an unregistered actor-id
+  lazily resolves the actor's TYPE handler from its snapshot. Liveness ==
+  snapshot presence. Post-EP-0001 (rf2-vzld77) the snapshot is durable
+  runtime-db state, so liveness lives in the runtime-db partition.
 
   These JVM+CLJS unit tests pin the machines-side invariants WITHOUT the
   epoch artefact: spawn/destroy mutate ZERO registrar state, dispatch
-  lazy-resolves through the snapshot, and an app-db revert (the exact
-  thing `restore-epoch` does — reset the frame's app-db value) reverts an
-  actor's liveness perfectly. The genuine end-to-end `restore-epoch`
-  repros live in `implementation/epoch/test/.../actor_revertibility_restore_test.clj`
+  lazy-resolves through the snapshot, and a runtime-db revert (the partition
+  `restore-epoch` walks machine snapshots back through, as part of its
+  whole-frame-state rewind) reverts an actor's liveness perfectly. The
+  genuine end-to-end `restore-epoch` repros live in
+  `implementation/epoch/test/.../actor_revertibility_restore_test.clj`
   (the epoch artefact already test-deps machines).
 
-  Spec contract: [Spec 005 §Spawning §Liveness is derived from app-db]."
+  Spec contract: [Spec 005 §Spawning §Liveness is derived from runtime-db]."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
