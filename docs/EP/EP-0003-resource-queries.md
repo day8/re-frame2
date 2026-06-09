@@ -38,7 +38,8 @@ the re-frame2 API name.
 
 The core rule is:
 
-> Resources are remote server-state as runtime-managed read models.
+> Resources are remote server-state as runtime-managed read models over a
+> frame work ledger.
 
 That keeps the proposal inside the re-frame2 ethos:
 
@@ -53,7 +54,10 @@ The initial implementation should be a read-resource MVP over HTTP:
 registration, explicit ensure/refetch/invalidate events, passive subscriptions,
 active owners, cache scopes, stale/fresh policy, dedupe, GC, route integration,
 SSR preload/hydration, a built-in managed-HTTP read transport, and Xray/tool
-visibility. It should also define timer policy for stale/GC behavior and
+visibility. It should do this over a frame-scoped work ledger so in-flight
+resource attempts, cancellation, stale suppression, SSR waiting, and tool
+inspection share one async substrate instead of each feature inventing its own
+bookkeeping. It should also define timer policy for stale/GC behavior and
 resolve background-refresh error semantics up front. GraphQL read transport is
 explicitly out of the initial scope and is sketched in
 [Deferred: GraphQL (later phase)](#deferred-graphql-later-phase) as a follow-on
@@ -147,6 +151,9 @@ The resource artifact should:
   set the bar for the deferred GraphQL phase, not the initial scope);
 - preserve re-frame2's event-causal model by keeping views passive and making
   route/event/machine causes explicit;
+- use a frame work ledger as the shared substrate for in-flight work, ownership
+  release, cancellation attempts, stale suppression, SSR waits, and Xray
+  "what is still running?" answers;
 - integrate resource ownership with frames, routes, SSR, managed HTTP,
   schemas, Xray, traces, privacy elision, and AI tooling (with a transport-neutral
   core that leaves room for the deferred GraphQL transport);
@@ -169,7 +176,11 @@ The initial artifact should not:
 - start with a general transport plugin protocol;
 - promise offline persistence, cross-tab broadcast, infinite resources, polling,
   or optimistic rollback in the first slice;
-- hide server-state behavior inside React/Reagent component lifecycle.
+- hide server-state behavior inside React/Reagent component lifecycle;
+- generalize the work ledger to every async primitive in the first slice; the
+  HTTP resource artifact is the first concrete consumer, and later slices can
+  extend the same shape to timers, streams, route loaders, spawned actors, and
+  machine async work.
 
 ## Relationships
 
@@ -433,6 +444,93 @@ The specification should still be written toward `:rf.runtime/resources` inside
 `:rf.db/runtime`, so ordinary `:db` event handlers cannot accidentally wipe
 resource state.
 
+### Frame Work Ledger Is The Async Substrate
+
+Resource entries are cached read-model facts. In-flight attempts are work facts.
+They should be linked, but not collapsed into one map.
+
+EP-0003 should introduce the first concrete slice of a frame work ledger for
+resource work. The ledger is a frame-local runtime substrate for async work that
+may outlive the event that started it. In the initial artifact only resource
+work and its managed-HTTP lowering need to participate. The shape must still be
+neutral enough that later slices can extend it to route loaders, timers,
+streams, spawned actors, and machine async work without rewriting resource
+semantics.
+
+A resource entry may point at its current work id:
+
+```clojure
+{:resource/id   :article/by-slug
+ :resource/key  [[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+                 :article/by-slug
+                 {:slug "welcome"}]
+ :status        :fetching
+ :data          {:title "Welcome"}
+ :generation    4
+ :current-work  [:rf.work/resource
+                 [[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+                  :article/by-slug
+                  {:slug "welcome"}]
+                 4]}
+```
+
+The ledger records the serializable attempt:
+
+```clojure
+{:work/id        [:rf.work/resource
+                  [[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+                   :article/by-slug
+                   {:slug "welcome"}]
+                  4]
+ :work/kind      :resource
+ :work/frame     frame-id
+ :resource/key   [[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+                  :article/by-slug
+                  {:slug "welcome"}]
+ :generation     4
+ :transport      :rf.http/managed
+ :status         :running
+ :owners         #{[:route :route/article nav-token]}
+ :causes         [[:route-entry :route/article nav-token]]
+ :stale-key      [:resource
+                  [[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+                   :article/by-slug
+                   {:slug "welcome"}]
+                  4]
+ :cancellable?   true
+ :started-at     1780752000100
+ :deadline-at    1780752005100}
+```
+
+Host handles remain outside durable frame-state, keyed by frame id and work id:
+
+```clojure
+[frame-id work-id] -> {:abort-controller ...
+                       :timeout-handle   ...
+                       :promise          ...}
+```
+
+The durable/resource split is:
+
+- `:rf.runtime/resources` stores cache entries, tags, resource ownership
+  indexes, timestamps, data, errors, and the current work id for each entry;
+- `:rf.runtime/work-ledger` stores serializable work records, status, owners,
+  causes, stale keys, attempts, deadlines, and outcomes;
+- host side tables store non-serializable cancellation and timer handles keyed
+  by frame id and work id.
+
+The correctness rule is that cancellation is opportunistic, while stale
+suppression is mandatory. When an owner exits, scope is cleared, route is
+superseded, or a newer generation starts, the runtime may abort the host handle
+if it exists and can be cancelled. If the host cannot cancel it, the ledger and
+resource generation checks must still suppress the late reply. A stale reply
+must never be able to mutate a newer resource entry.
+
+SSR and tools should observe the ledger projection, not host handles. SSR waits
+on blocking ledger records, hydration serializes only the allowed cache and
+work-summary projection, and Xray answers "what is still running?" from ledger
+records joined to resource entries and trace causes.
+
 ### Resource Identity Is Data
 
 A resource instance is identified by a cache scope, a resource id, and canonical
@@ -634,6 +732,11 @@ The default implementation should be a compact transition function, not a
 spawned machine per resource entry. Semantic retry, multi-step negotiation,
 streaming, and workflow-coupled reads can graduate to explicit machines.
 
+The resource FSM describes cache-entry status. The work ledger describes the
+attempt lifecycle that may currently be moving that cache entry: queued,
+running, abort-requested, completed, failed, timed out, suppressed, or cancelled.
+Do not overload resource `:status` with host-handle state.
+
 Transport retry belongs to the transport adapter — managed HTTP in the initial
 scope (and any later transport such as the deferred GraphQL one). Semantic retry
 belongs to machines.
@@ -663,6 +766,8 @@ V1 should include:
 - explicit cache scopes and scope clearing;
 - canonical params;
 - stale/fresh policy;
+- a resource-owned slice of the frame work ledger for in-flight attempts,
+  cancellation attempts, stale keys, blocking waits, and tool summaries;
 - in-flight dedupe;
 - stale reply suppression;
 - inactive-entry GC;
@@ -1221,19 +1326,22 @@ transport (and any later transport) can plug in without weakening the core
 semantics. It also should not assume a normalized entity graph, fragment store,
 or GraphQL client cache.
 
-For HTTP, the resource runtime lowers an ensure/refetch into managed HTTP:
+For HTTP, the resource runtime first creates or joins a work-ledger record, then
+lowers an ensure/refetch into managed HTTP:
 
 ```clojure
 [:rf.http/managed
  (assoc http-args
         :request-id request-id
         :on-success [:rf.resource.internal/succeeded
-                     {:resource-key resource-key
+                     {:work-id      work-id
+                      :resource-key resource-key
                       :scope        scope
                       :frame        frame-id
                       :generation   generation}]
         :on-failure [:rf.resource.internal/failed
-                     {:resource-key resource-key
+                     {:work-id      work-id
+                      :resource-key resource-key
                       :scope        scope
                       :frame        frame-id
                       :generation   generation}])]
@@ -1242,8 +1350,8 @@ For HTTP, the resource runtime lowers an ensure/refetch into managed HTTP:
 The managed HTTP reply dispatch is already frame-targeted by Spec 014. The
 resource metadata should still carry the intended frame id for assertion,
 stale-suppression diagnostics, and trace rows. Success and failure events must
-verify frame and generation before writing. Cancellation is an optimization;
-stale suppression is the correctness boundary.
+verify frame, work id, and generation before writing. Cancellation is an
+optimization; stale suppression is the correctness boundary.
 
 The deferred GraphQL phase adds a `:rf.graphql/query` transport that lowers
 ensure/refetch into a GraphQL query operation while preserving these same
@@ -1260,16 +1368,17 @@ semantics.
 These cases should be specified before implementation:
 
 - `ensure` while the same scoped resource key is already in flight joins the
-  existing request, attaches any supplied owner, records the new cause, and emits
-  a dedupe trace;
+  existing current work record, attaches any supplied owner to both the resource
+  entry and ledger row, records the new cause, and emits a dedupe trace;
 - `refetch` may force a new generation. If a prior request is still in flight,
-  abort it when possible; otherwise suppress its late reply by generation;
+  mark the old work record superseded, abort it when possible, and otherwise
+  suppress its late reply by work id and generation;
 - invalidation while a request is in flight marks the entry stale and records
   the invalidation. If the in-flight request is for the current generation, its
   success may satisfy the invalidation only when policy says the request covered
   the invalidated identity; otherwise schedule a follow-up refetch;
 - owner release while a request is in flight aborts only when no remaining owner
-  needs that request. Shared requests must not be cancelled just because one
+  needs that work record. Shared requests must not be cancelled just because one
   route, machine, or lease went away;
 - route supersession uses both nav-token owner release and generation checks.
   The old nav-token may not write into the new route's resource state;
@@ -1471,8 +1580,11 @@ Xray should expose:
   loaded-at, stale-at, gc-at, generation, request id, attempt, active owners,
   tags,
   errors, data summary, and GC eligibility;
+- a live work-ledger table per frame: work id, kind, linked resource key,
+  generation, status, owners, causes, stale key, cancellable?, deadline, retry
+  attempt, and outcome;
 - a route/resource graph: current route/nav-token, blocking vs non-blocking
-  resources, SSR wait points, hydrated/fresh/stale state;
+  resources, SSR wait points, active work, hydrated/fresh/stale state;
 - a lifecycle timeline: ensure, owner attach, cache hit, dedupe, request
   issued, success/failure, refresh failure, invalidation, refetch decision,
   owner release, GC schedule/fire/skip, stale suppression, hydration;
@@ -1498,6 +1610,10 @@ trace family with operations such as:
 :rf.resource/cache-hit
 :rf.resource/deduped
 :rf.resource/fetch-started
+:rf.resource/work-started
+:rf.resource/work-abort-requested
+:rf.resource/work-completed
+:rf.resource/work-suppressed
 :rf.resource/succeeded
 :rf.resource/failed
 :rf.resource/refresh-failed
@@ -1513,10 +1629,10 @@ trace family with operations such as:
 :rf.resource/hydrate-refetch
 ```
 
-Every resource trace should carry, where applicable, frame, scope, resource key,
-resource id, params summary, generation, request id, owner, cause, status
-before/after, resource tags, invalidated tags, freshness timestamps, and
-redaction/size markers.
+Every resource trace should carry, where applicable, frame, work id, scope,
+resource key, resource id, params summary, generation, request id, owner, cause,
+status before/after, work status, resource tags, invalidated tags, freshness
+timestamps, and redaction/size markers.
 
 Trace and history retention are part of the tool contract. Resource history must
 be bounded, and params/scopes need the same privacy and size elision treatment
@@ -1936,6 +2052,7 @@ Likely namespaces:
 re_frame.resources
 re_frame.resources.registry
 re_frame.resources.state
+re_frame.resources.work_ledger
 re_frame.resources.events
 re_frame.resources.transport
 re_frame.resources.transport.http
@@ -2009,7 +2126,30 @@ Store serializable state in frame-state:
 - tags;
 - indexes.
 
-Store host handles in side tables keyed by frame, resource key, and generation:
+Store serializable resource work records in a frame work ledger. The first
+implementation may keep the namespace private to the resources artifact, but the
+runtime child should be named neutrally:
+
+```clojure
+[:rf.runtime/work-ledger]
+```
+
+Work records include:
+
+- work id;
+- work kind;
+- linked resource key;
+- generation;
+- frame id;
+- status;
+- owners;
+- causes;
+- stale key;
+- cancellable?;
+- timestamps and deadlines;
+- outcome summary.
+
+Store host handles in side tables keyed by frame and work id:
 
 - AbortControllers;
 - timeout handles;
@@ -2051,11 +2191,13 @@ Implement internal events:
 5. attach owner if supplied;
 6. record cause if supplied;
 7. if entry is fresh, no-op after owner update and emit cache-hit trace;
-8. if request is in flight, join/dedupe after owner update and emit dedupe
-   trace;
-9. transition to `:loading` or `:fetching`;
-10. issue the selected built-in transport effect;
-11. record generation, request id, and trace data.
+8. if current work is in flight, join its ledger row after owner update and emit
+   dedupe trace;
+9. allocate a new generation and work id when new work is needed;
+10. record a work-ledger row with status `:running`;
+11. transition the resource entry to `:loading` or `:fetching`;
+12. issue the selected built-in transport effect;
+13. record generation, work id, request id, and trace data.
 
 ### 5. Managed HTTP Integration
 
@@ -2066,14 +2208,15 @@ The reply event must carry enough data to verify generation and frame:
 
 ```clojure
 [:rf.resource.internal/succeeded
- {:resource-key resource-key
+ {:work-id      work-id
+  :resource-key resource-key
   :scope        scope
   :generation   generation
   :frame        frame-id}]
 ```
 
-If generation does not match, suppress the reply and emit trace metadata. A
-stale reply must never overwrite newer data.
+If work id or generation does not match, suppress the reply and emit trace
+metadata. A stale reply must never overwrite newer data.
 
 The deferred GraphQL phase adds `:transport :rf.graphql/query` integration that
 lowers the resource into a GraphQL operation while preserving these same
@@ -2165,12 +2308,16 @@ Initial conformance fixtures should cover:
 - success and failure transitions;
 - stale/fresh behavior;
 - derived status flags do not drift from durable facts;
+- work-ledger rows are serializable and do not contain host handles;
+- host handles are keyed by frame and work id, and frame destroy cleans them;
 - structural sharing preserves unchanged data values;
 - inactive GC;
 - duplicate ensure dedupe;
 - dedupe traces joined owners and request id;
+- duplicate ensure joins the current work-ledger row instead of allocating
+  parallel work;
 - forced refetch supersedes or suppresses older in-flight generations;
-- stale reply suppression;
+- stale reply suppression checks both work id and generation;
 - active owner release;
 - cause does not create liveness;
 - Xray/tool inspection does not create an owner;
@@ -2239,6 +2386,18 @@ conventions.
 This is useful as an Xray bead and can reveal app patterns, but it does not
 replace the runtime primitive.
 
+### F. Resource-Local In-Flight Registry
+
+Keep all in-flight bookkeeping under `:rf.runtime/resources` and let resources
+own their own private request registry.
+
+This is simpler for the first HTTP slice, but it repeats the same async
+ownership problem that route loaders, timers, streams, spawned actors, and
+machine async work will face. EP-0003 should provide the first work-ledger
+consumer without making the ledger resource-specific. Resource cache entries can
+point at current work, but work attempts need their own neutral records and
+side-table handles.
+
 ## Acceptance Criteria And Rollout
 
 Build Option C in slices, starting with a read-resource MVP. The artifact should
@@ -2254,6 +2413,8 @@ The v1 artifact should be considered acceptable when it includes:
 - active owners;
 - non-liveness causes;
 - explicit cache scopes and scope clearing;
+- frame work-ledger records for in-flight resource attempts, with host handles
+  kept in side tables;
 - route `:resources`;
 - managed HTTP as the single built-in transport;
 - canonical params;
@@ -2318,6 +2479,8 @@ Structural advantages inside re-frame2:
 - route-declared data dependencies;
 - event-causal traces;
 - explicit owner/cause separation, so liveness and causality do not blur;
+- a frame work ledger that makes in-flight work, cancellation attempts, stale
+  suppression, and SSR wait points inspectable;
 - cache scopes for auth, tenant, locale, impersonation, and SSR correctness;
 - runtime-owned state that ordinary app-db writes cannot clobber;
 - a built-in managed-HTTP transport over a transport-neutral resource lifecycle
@@ -2384,6 +2547,12 @@ re-frame2 runtime process.
 12. How much previous-data support belongs in v1?
     Recommendation: support `:keep-previous?` for ordinary route/list churn;
     keep arbitrary placeholder data deferred.
+13. Should the frame work ledger be a separate EP before resources?
+    Recommendation: no. EP-0003 should define the resource-owned ledger slice
+    first, with a neutral `:rf.runtime/work-ledger` shape. Split it into a
+    separate EP only when later work actually extends it beyond resources and
+    managed HTTP to timers, streams, spawned actors, route loaders, or machine
+    async work.
 
 ## Recommendation
 
@@ -2394,13 +2563,13 @@ gating mutations to the first public-beta slice.
 This is the re-frame2 answer to TanStack Query / RTK Query / SWR /
 `shipclojure/re-frame-query`: resource identity, caching, staleness, dedupe, tag
 invalidation, active-owner lifecycle/GC, and route + SSR preload, built on managed
-HTTP (Spec 014) and the framework-owned runtime partition. Pattern-only
-cookbooks, adopting `shipclojure/re-frame-query` wholesale, normalized-cache-first,
-and projection-first were each rejected because none owns re-frame2 frames,
-runtime partitions, route metadata, SSR, Xray visibility, privacy, and
-event-causal traces the way a first-class artifact does. The pre-alpha posture
-favors building the right primitive when the problem is real and recurring; this
-one is.
+HTTP (Spec 014), a frame work ledger, and the framework-owned runtime partition.
+Pattern-only cookbooks, adopting `shipclojure/re-frame-query` wholesale,
+normalized-cache-first, and projection-first were each rejected because none owns
+re-frame2 frames, runtime partitions, route metadata, SSR, Xray visibility,
+privacy, and event-causal traces the way a first-class artifact does. The
+pre-alpha posture favors building the right primitive when the problem is real
+and recurring; this one is.
 
 ## Bead Structure
 
@@ -2411,28 +2580,33 @@ deferred follow-on phase (see
 1. EP/spec bead: turn this proposal into a normative spec.
 2. Artifact skeleton bead: create `day8/re-frame2-resources`, facade wrappers,
    feature probes, and `:resource` registrar metadata.
-3. Resource runtime bead: entries, cache scopes, canonical params, status
+3. Work-ledger substrate bead: add the resource-owned frame work ledger slice,
+   serializable work records, host side tables keyed by work id, owner release
+   rules, cancellation attempts, stale-key suppression, frame-destroy cleanup,
+   and tool/SSR summaries.
+4. Resource runtime bead: entries, cache scopes, canonical params, status
    transitions, structural sharing, passive subscriptions, and frame-local
-   state.
-4. Managed HTTP bead: ensure/refetch/success/failure over `:rf.http/managed`,
-   dedupe, generation checks, and stale reply suppression.
-5. Invalidation/GC bead: tags, active owners, owner indexes, stale marking,
-   active refetch, causes, stale/GC timer policy, scope clearing, and inactive
-   GC.
-6. Route integration bead: `:resources`, nav-token owners, blocking resources,
+   state linked to current work ids.
+5. Managed HTTP bead: ensure/refetch/success/failure over `:rf.http/managed`,
+   dedupe, ledger joins, generation/work-id checks, and stale reply suppression.
+6. Invalidation/GC bead: tags, active owners, owner indexes, stale marking,
+   active refetch, causes, stale/GC timer policy, scope clearing, ledger owner
+   release, cancellation attempts, and inactive GC.
+7. Route integration bead: `:resources`, nav-token owners, blocking resources,
    `:when`, dependent route resources, `:keep-previous?`, release on leave, and
    preserved `:on-match` behavior.
-7. SSR/hydration bead: blocking resource drain, resource projection, redaction,
-   scope isolation, projection metadata, and hydration no-double-fetch.
-8. Xray/tool/privacy bead: resource registry panel, route/resource graph,
-   lifecycle timeline, invalidation graph, cache growth view, summaries, trace
-   operations, egress policy, and redacted accessors.
-9. Focus/reconnect bead: active-stale scan on browser focus and network
+8. SSR/hydration bead: blocking resource drain through ledger records, resource
+   projection, redaction, scope isolation, projection metadata, work summaries,
+   and hydration no-double-fetch.
+9. Xray/tool/privacy bead: resource registry panel, route/resource graph,
+   work-ledger table, lifecycle timeline, invalidation graph, cache growth view,
+   summaries, trace operations, egress policy, and redacted accessors.
+10. Focus/reconnect bead: active-stale scan on browser focus and network
    reconnect, expressed as resource events with trace records.
-10. Mutation bead (HTTP): `reg-mutation`, HTTP mutation execution over
+11. Mutation bead (HTTP): `reg-mutation`, HTTP mutation execution over
     `:rf.http/managed`, mutation instance state, patch/populate APIs,
     invalidation, and trace hooks for later optimistic rollback.
-11. Docs/examples bead: guide chapter, API docs, migration notes from
+12. Docs/examples bead: guide chapter, API docs, migration notes from
     `shipclojure/re-frame-query`, route-driven example, SSR example, and HTTP and
     machine-owned resource examples.
 
