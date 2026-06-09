@@ -11,18 +11,24 @@
 (def ^:private sample-descriptors
   "Two descriptors in the on-the-registry shape both servers emit —
   story-mcp lifts :outputSchema/:annotations via cond->, pair-mcp
-  declares them per-tool, but the slot SHAPE is identical."
+  declares them per-tool, but the slot SHAPE is identical. Both carry
+  `:required` (inside :inputSchema) + `:typicalTokens` (rf2-cwhod2) so
+  the corpus exercises every governed slot."
   [{:name        "beta"
     :description "Second tool."
     :inputSchema {:type "object"
                   :properties {:limit {:type "integer"}
                                :cursor {:type "string"}}}
     :outputSchema {:type "object"}
-    :annotations  {:readOnlyHint true}}
+    :annotations  {:readOnlyHint true}
+    :typicalTokens 600}
    {:name        "alpha"
     :description "First tool."
-    :inputSchema {:type "object" :properties {:event {:type "string"}}}
-    :annotations  {:destructiveHint true :openWorldHint true}}])
+    :inputSchema {:type "object"
+                  :properties {:event {:type "string"}}
+                  :required ["event"]}
+    :annotations  {:destructiveHint true :openWorldHint true}
+    :typicalTokens 300}])
 
 ;; ---------------------------------------------------------------------------
 ;; Row projection
@@ -33,15 +39,35 @@
     (is (= "beta" (:name row)))
     (is (= "Second tool." (:description row)))
     (is (= ["cursor" "limit"] (:input-keys row)) "input-keys sorted, stringified")
+    (is (= [] (:required row)) "no :required → empty")
     (is (true? (:output? row)))
-    (is (= ["readOnlyHint"] (:annotations row)))))
+    (is (= ["readOnlyHint"] (:annotations row)))
+    (is (= 600 (:typicalTokens row)) "typicalTokens passed through verbatim")))
+
+(deftest descriptor->row-projects-required-and-typical-tokens
+  ;; rf2-cwhod2: the two live facets the original narrow projection missed.
+  (let [row (dm/descriptor->row (second sample-descriptors))] ; alpha
+    (is (= ["event"] (:input-keys row)))
+    (is (= ["event"] (:required row)) ":required projects the mandatory input subset")
+    (is (= 300 (:typicalTokens row)))))
+
+(deftest descriptor->row-required-is-sorted-stringified
+  ;; :required is sorted + stringified the same way :input-keys is, so a
+  ;; keyword-shaped or out-of-order entry still renders byte-stably.
+  (let [row (dm/descriptor->row {:name "x" :description "d"
+                                 :inputSchema {:type "object"
+                                               :properties {:b {} :a {}}
+                                               :required [:b "a"]}})]
+    (is (= ["a" "b"] (:required row)) "sorted + stringified")))
 
 (deftest descriptor->row-handles-missing-optional-slots
   (let [row (dm/descriptor->row {:name "x" :description "d"
                                  :inputSchema {:type "object"}})]
     (is (= [] (:input-keys row)) "no :properties → empty input-keys")
+    (is (= [] (:required row)) "no :required → empty")
     (is (false? (:output? row)) "no :outputSchema → output? false")
-    (is (= [] (:annotations row)) "no :annotations → empty")))
+    (is (= [] (:annotations row)) "no :annotations → empty")
+    (is (nil? (:typicalTokens row)) "no :typicalTokens → nil (forward-compatible)")))
 
 (deftest build-rows-sorts-by-name
   (let [rows (dm/build-rows sample-descriptors)]
@@ -62,10 +88,26 @@
 
 (deftest render-edn-round-trips-as-data
   (let [m      (dm/build-manifest :test sample-descriptors)
-        parsed (edn/read-string (dm/render-edn m))]
+        parsed (edn/read-string (dm/render-edn m))
+        by-name (into {} (map (juxt :name identity)) (:tools parsed))]
     (is (= :test (-> parsed :meta :server)))
     (is (= 2 (-> parsed :meta :tool-count)))
-    (is (= ["alpha" "beta"] (mapv :name (:tools parsed))))))
+    (is (= ["alpha" "beta"] (mapv :name (:tools parsed))))
+    ;; rf2-cwhod2: the new facets survive the EDN round-trip.
+    (is (= ["event"] (:required (by-name "alpha"))))
+    (is (= [] (:required (by-name "beta"))))
+    (is (= 300 (:typicalTokens (by-name "alpha"))))
+    (is (= 600 (:typicalTokens (by-name "beta"))))))
+
+(deftest render-edn-round-trips-nil-typical-tokens
+  ;; A tool that declares no :typicalTokens renders `nil` and reads back
+  ;; as nil (not the symbol nil) — the forward-compatible slot is uniform.
+  (let [m      (dm/build-manifest :test [{:name "x" :description "d"
+                                          :inputSchema {:type "object"}}])
+        parsed (edn/read-string (dm/render-edn m))
+        row    (first (:tools parsed))]
+    (is (contains? row :typicalTokens) "the slot always renders")
+    (is (nil? (:typicalTokens row)) "nil round-trips as nil")))
 
 (deftest render-edn-one-row-per-line
   (let [m     (dm/build-manifest :test sample-descriptors)
@@ -143,13 +185,18 @@
             "new row carries the regenerated input-keys — the maintainer sees the delta")))))
 
 (deftest check-changed-detects-each-drifting-row-shape
-  ;; The four catalogue-surface slots the manifest governs each trip
-  ;; :changed in isolation (description / output? / annotations, plus the
-  ;; input-keys case above). One row mutated per case; beta untouched.
+  ;; Every catalogue-surface slot the manifest governs trips :changed in
+  ;; isolation (description / output? / annotations / required /
+  ;; typicalTokens, plus the input-keys case above). One row mutated per
+  ;; case; beta untouched. rf2-cwhod2 added the :required + :typicalTokens
+  ;; cases — the live API-semantics facets the original gate missed.
   (let [base (second sample-descriptors)] ; alpha
-    (doseq [[label mutate] [["description" #(assoc % :description "Changed prose.")]
-                            ["output?"     #(assoc % :outputSchema {:type "object"})]
-                            ["annotations" #(assoc-in % [:annotations :readOnlyHint] true)]]]
+    (doseq [[label mutate] [["description"   #(assoc % :description "Changed prose.")]
+                            ["output?"       #(assoc % :outputSchema {:type "object"})]
+                            ["annotations"   #(assoc-in % [:annotations :readOnlyHint] true)]
+                            ;; flip :event from required to optional (drop :required)
+                            ["required"      #(update % :inputSchema dissoc :required)]
+                            ["typicalTokens" #(assoc % :typicalTokens 999)]]]
       (testing (str "a changed :" label " trips :changed")
         (let [committed-m   (dm/build-manifest :test sample-descriptors)
               committed-edn (dm/render-edn committed-m)

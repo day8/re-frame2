@@ -59,11 +59,18 @@
   (is (= [[[] :assoc :replaced]]
          (diff/collect-patches {:a 1} :replaced []))))
 
-(deftest collect-patches-vector-leaf-replaces-wholesale
-  ;; Vectors are treated as leaves — element-wise diff doesn't help
-  ;; for typical app-db vector values which are short.
-  (is (= [[[:items] :assoc [3 2 1]]]
-         (diff/collect-patches {:items [1 2 3]} {:items [3 2 1]} []))))
+(deftest collect-patches-same-length-vector-diffs-element-wise
+  ;; rf2-cwhod2: same-length vectors now diff element-by-element under
+  ;; numeric index paths — a reorder of [1 2 3] → [3 2 1] differs at
+  ;; indices 0 and 2 and emits index-level patches, not a whole-vector
+  ;; replacement. This is the actionable item-level shape the token-budget
+  ;; premise needs for tables / cards / queues / logs.
+  (is (= [[[:items 0] :assoc 3]
+          [[:items 2] :assoc 1]]
+         (diff/collect-patches {:items [1 2 3]} {:items [3 2 1]} [])))
+  ;; A LENGTH change still falls back to a whole-vector :assoc.
+  (is (= [[[:items] :assoc [1 2 3 4]]]
+         (diff/collect-patches {:items [1 2 3]} {:items [1 2 3 4]} []))))
 
 ;; ---------------------------------------------------------------------------
 ;; apply-patches — the decoder.
@@ -221,8 +228,9 @@
           ":b was removed → surfaces as a :dissoc patch inside the section"))))
 
 (deftest round-trip-vector-reordering
-  ;; Vectors are leaves — a reorder triggers a wholesale :assoc.
-  ;; Round-trip MUST reconstruct.
+  ;; Same-length vectors diff element-wise (rf2-cwhod2) under index paths;
+  ;; the round-trip MUST still reconstruct exactly regardless of patch
+  ;; granularity.
   (let [epoch {:db-before {:items [1 2 3]}
                :db-after  {:items [3 2 1]}}
         enc   (diff/diff-encode-db-after epoch)

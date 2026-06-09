@@ -61,7 +61,33 @@
   once you only carry one half plus the original — you can't tell
   `nil` (the leaf value `nil`) apart from `nil` (the no-change
   sentinel). Path-keyed patches are unambiguous for any value the
-  runtime can produce.
+  runtime can produce: a changed vector element rides under a numeric
+  INDEX path (`[[:items 0 :qty] :assoc 2]`), which carries the position
+  explicitly and never relies on a positional `nil` sentinel.
+
+  ## Vectors: same-length structural diff, length changes whole-leaf (rf2-cwhod2)
+
+  Maps recurse key-by-key; SAME-LENGTH vectors recurse element-by-element
+  under numeric-INDEX paths. A single item update inside a large
+  vector/list app-db value (a table row, a card, a queue/log entry) then
+  yields an actionable item-level patch (`[[:items 0 :qty] :assoc 2]`)
+  rather than a whole-vector replacement — preserving the token-budget
+  premise for the dominant in-place-update app-db shapes. Integer index
+  keys ride through the existing `assoc-in` replay and the path-generic
+  section-grouping unchanged; no decoder change is required.
+
+  A vector LENGTH change (an insert / delete) is emitted as a single
+  whole-vector `[path :assoc <new-vector>]` replacement. Element-level
+  vector insert/delete semantics are deliberately NOT designed: the
+  grammar's numeric `:assoc` reaches an index via `assoc-in` (which only
+  overwrites-in-place or grows by one at the tail — it has no shift
+  primitive) and `[<index-path> :dissoc]` is a documented no-op against a
+  vector parent (`dissoc-in` dissocs only into a MAP parent, rf2-ykv9a0).
+  Same-length diffing is lossless for in-place updates; a length delta
+  falls back to the unambiguous whole-vector replacement rather than ship
+  a half-designed splice encoding. Non-vector sequentials (lists, lazy
+  seqs) are also whole-leaf replaced — only `vector?` collections diff
+  structurally, so the index-path replay always targets a vector.
 
   ## Cross-MCP vocabulary
 
@@ -277,15 +303,14 @@
                 ;; Key added.
                 (= av ::absent)
                 (conj acc [p :assoc bv])
-                ;; Unchanged — skip.
-                (= av bv)
-                acc
-                ;; Both maps: recurse, threading acc.
-                (and (map? av) (map? bv))
-                (collect-patches-into acc av bv p)
-                ;; Otherwise: leaf replacement.
+                ;; A changed EXISTING key: delegate to `collect-patches-into`
+                ;; so the dispatch is decided in ONE place — two maps recurse
+                ;; key-by-key, two same-length vectors recurse element-wise
+                ;; (rf2-cwhod2), anything else (incl. an unchanged value,
+                ;; which short-circuits to a no-op) is a single leaf
+                ;; `[p :assoc bv]` replacement.
                 :else
-                (conj acc [p :assoc bv]))))
+                (collect-patches-into acc av bv p))))
           acc
           b)]
     (reduce-kv
@@ -296,23 +321,80 @@
       after-assocs
       a)))
 
+(defn- collect-vector-patches-into
+  "Structurally diff two SAME-LENGTH vectors element-by-element, threading
+  the accumulator (rf2-cwhod2). Each element pair recurses through
+  `collect-patches-into` under the numeric-INDEX path `(conj path i)`, so
+  a single changed element inside a long vector yields an index-headed
+  `[[:items 0 :qty] :assoc 2]` patch instead of replacing the whole
+  vector — the actionable item-level patch the token-budget premise needs
+  for the common table / card / queue / log app-db shapes.
+
+  ## Same-length only (root + length changes stay whole-leaf)
+
+  Only EQUAL-LENGTH vectors are structurally diffed here. A length change
+  (insert / delete) is emitted by the caller as a single whole-vector
+  `[path :assoc b]` replacement. Element-level vector insert/delete
+  semantics are deliberately NOT designed yet: the patch grammar's
+  numeric `:assoc` reaches an index via `assoc-in` (which both grows a
+  vector by one at the tail and overwrites in place) but has no shift
+  primitive, and `[<index-path> :dissoc]` is a documented no-op against a
+  vector parent (`dissoc-in` dissocs only into a MAP parent, rf2-ykv9a0).
+  Same-length diffing covers the dominant in-place-update case losslessly;
+  a length delta falls back to the unambiguous whole-vector replacement
+  rather than risk a half-designed shift/splice encoding.
+
+  Integer index keys ride through the existing replay
+  (`assoc-in` accepts integer vector indices) and section-grouping
+  (path-generic) unchanged — no decoder change is needed."
+  [acc a b path]
+  (let [n (count a)]
+    (loop [i   0
+           acc acc]
+      (if (< i n)
+        (let [av (nth a i)
+              bv (nth b i)]
+          (recur (inc i)
+                 ;; Skip the conj of `path`+i and the recursion call for an
+                 ;; unchanged element — the common case for tables/queues
+                 ;; where most rows hold steady across an epoch.
+                 ;; `collect-patches-into` would also no-op via its own
+                 ;; `(= a b)` arm; the inline guard avoids the index-conj
+                 ;; + call on the hot slice.
+                 (if (= av bv)
+                   acc
+                   (collect-patches-into acc av bv (conj path i)))))
+        acc))))
+
 (defn- collect-patches-into
   "Internal accumulator-threading entry point for the recursion. The
   public `collect-patches` calls this with an empty seed vector; the
-  internal `collect-map-patches-into` calls this for each
-  map-into-map descent, sharing the parent's accumulator rather than
-  allocating a fresh sub-vector."
+  internal `collect-map-patches-into` / `collect-vector-patches-into`
+  call this for each map-into-map / same-length-vector descent, sharing
+  the parent's accumulator rather than allocating a fresh sub-vector.
+
+  Recursion arms (rf2-cwhod2 added the same-length-vector arm):
+    - two maps                       → `collect-map-patches-into`
+    - two SAME-LENGTH vectors        → `collect-vector-patches-into`
+      (element-wise, numeric-index paths)
+    - any other change (incl. a length-changed or non-vector sequential)
+      → a single whole-leaf `[path :assoc b]` replacement."
   [acc a b path]
   (cond
     (= a b) acc
     (and (map? a) (map? b)) (collect-map-patches-into acc a b path)
+    (and (vector? a) (vector? b) (= (count a) (count b)))
+    (collect-vector-patches-into acc a b path)
     :else (conj acc [path :assoc b])))
 
 (defn collect-patches
   "Patch-list factory. Two maps recurse via `collect-map-patches-into`;
-  any other shape change is a single root-level `:assoc` replacement.
-  Exposed for tests and for advanced consumers that want to diff
-  arbitrary structures (not just `:db-after` vs `:db-before`)."
+  two same-length vectors recurse element-wise via
+  `collect-vector-patches-into` (numeric-index paths, rf2-cwhod2); any
+  other shape change (a length-changed vector, a non-vector sequential,
+  a scalar↔collection flip, the root) is a single whole-leaf `:assoc`
+  replacement. Exposed for tests and for advanced consumers that want to
+  diff arbitrary structures (not just `:db-after` vs `:db-before`)."
   [a b path]
   (collect-patches-into [] a b path))
 
