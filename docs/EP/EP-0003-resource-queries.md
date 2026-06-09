@@ -184,23 +184,31 @@ The initial artifact should not:
 
 ## Relationships
 
-This EP depends on three other EPs and should land after them.
+This EP builds on three other EPs whose contracts have already landed. It is
+written against those final/implemented contracts, not against pending
+dependencies.
 
-- **Depends on the app/runtime partition.** Resource Queries stores its cache in
-  the framework-owned runtime partition (`:rf.runtime/resources`) introduced by
-  the [App/Runtime Partition EP](EP-0001-frame-partitions.md), so that partition
-  should land — or at least its key vocabulary be fixed — before resources rely
-  on it.
-- **Depends on explicit frame target resolution.** Resource queries are a large
-  frame-aware feature; their public API should harden against the explicit
+- **Builds on the app/runtime partition (landed).** Resource Queries stores its
+  cache in the framework-owned runtime partition (`:rf.runtime/resources`) of the
+  [App/Runtime Partition EP](EP-0001-frame-partitions.md). That partition has
+  landed: framework durable state lives in runtime-db (`:rf.db/runtime`,
+  addressed by `:rf.runtime/*` children), and a stray `:rf/runtime` root at the
+  top of app-db is now a hard error (`:rf.error/legacy-runtime-root`) rather than
+  an interim fallback. Resources rely on the final partition vocabulary.
+- **Builds on explicit frame target resolution (final).** Resource queries are a
+  large frame-aware feature; their public API hardens against the explicit
   frame-target contract of the [Explicit Frame Target Resolution
-  EP](EP-0002-frame-target-resolution.md), not the ambient `:rf/default` fallback it
-  removes.
-- **Depends on parametric subscription inputs.** Whether resource subscription
-  view-models use static `:<-`, vector-of-query-vectors input functions, or
-  broader app-db reads is determined by the [Parametric Subscription Inputs
-  EP](EP-0004-subscription-inputs.md); that EP should resolve before these helpers lean
-  on parameterized subscription view models.
+  EP](EP-0002-frame-target-resolution.md). The ambient `:rf/default` fallback is
+  gone: every resource carries its explicit frame (the carried-frame invariant),
+  and a frameless operation with no resolvable context fails closed. See
+  [`spec/002-Frames.md` §Frame target resolution](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant)
+  and §Write authority is by convention therein.
+- **Builds on parametric subscription inputs (final).** Resource subscription
+  view-models use the resolved input shape of the [Parametric Subscription Inputs
+  EP](EP-0004-subscription-inputs.md): static `:<-` sugar plus input functions
+  that return a vector of query vectors. These resource helpers compose over that
+  final grammar rather than waiting on it. See
+  [`spec/006-ReactiveSubstrate.md` §Subscription input producers](../../spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn).
 
 ## Developer and AI Use Cases
 
@@ -434,15 +442,12 @@ In a full frame-state projection, the resource path is
 `[:rf.db/runtime :rf.runtime/resources]`. Inside runtime-db itself, framework
 code reads and writes `[:rf.runtime/resources]`.
 
-Until the frame-state partition lands, the interim implementation can use:
-
-```clojure
-[:rf/runtime :resources]
-```
-
-The specification should still be written toward `:rf.runtime/resources` inside
-`:rf.db/runtime`, so ordinary `:db` event handlers cannot accidentally wipe
-resource state.
+There is no interim app-db location. Post-[EP-0001](EP-0001-frame-partitions.md)
+a stray `:rf/runtime` root at the top of app-db is a hard error
+(`:rf.error/legacy-runtime-root`, rejected by `re-frame.events`), not a fallback.
+Resource cache lives only at `:rf.runtime/resources` inside the `:rf.db/runtime`
+partition, so ordinary `:db` event handlers cannot accidentally wipe resource
+state.
 
 ### Frame Work Ledger Is The Async Substrate
 
@@ -921,9 +926,15 @@ Introspection:
  {:resource :article/by-slug
   :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}
-  :frame    :rf/default})
-(rf/resources {:frame :rf/default})
+  :frame    :app/main})
+(rf/resources {:frame :app/main})
 ```
+
+`:frame` is an explicit, app-registered frame id (`:app/main` is illustrative).
+Per [EP-0002](EP-0002-frame-target-resolution.md) there is no ambient
+`:rf/default` fallback the runtime creates on your behalf: the frame target is
+carried explicitly, and a frameless introspection call with no resolvable
+context fails closed rather than silently inspecting the wrong frame.
 
 ### Resource Registration
 
@@ -1283,8 +1294,8 @@ or an application-specific fallback. It must not hang the request indefinitely.
 
 Client hydration should:
 
-1. install the allowed resource projection into the target frame-state, or into
-   the interim app-db resource slice until the App/Runtime Partition lands;
+1. install the allowed resource projection into the target frame-state's
+   `:rf.runtime/resources` slice in runtime-db (`:rf.db/runtime`);
 2. preserve hydrated resource entries;
 3. avoid duplicate immediate fetches for fresh entries;
 4. background-refetch stale entries according to policy;
@@ -1293,10 +1304,9 @@ Client hydration should:
 Do not serialize all of `:rf.db/runtime` by default. Resource hydration needs an
 explicit projection hook that can redact or omit sensitive and large data.
 Hydration should never cross scopes: request-local SSR frames and serialized
-resource scopes must agree before a client treats hydrated data as usable.
-Until the App/Runtime Partition EP lands, the same projection rule applies to
-the interim `[:rf/runtime :resources]` app-db slice: serialize only the resource
-projection, not unrelated runtime state.
+resource scopes must agree before a client treats hydrated data as usable. The
+projection rule is scoped to the `:rf.runtime/resources` slice inside runtime-db:
+serialize only the resource projection, not unrelated runtime state.
 
 Hydration rules:
 
@@ -1337,15 +1347,22 @@ lowers an ensure/refetch into managed HTTP:
                      {:work-id      work-id
                       :resource-key resource-key
                       :scope        scope
-                      :frame        frame-id
+                      :rf.frame/id  frame-id
                       :generation   generation}]
         :on-failure [:rf.resource.internal/failed
                      {:work-id      work-id
                       :resource-key resource-key
                       :scope        scope
-                      :frame        frame-id
+                      :rf.frame/id  frame-id
                       :generation   generation}])]
 ```
+
+These internal reply payloads stamp the intended frame with the qualified
+`:rf.frame/id` key, the canonical carried frame stamp for new framework causal
+tokens ([EP-0002](EP-0002-frame-target-resolution.md) R3, "one canonical frame
+stamp"). This matches the qualified `:work/frame` stamp on the work-ledger record
+above; the EP does not use the bare `:frame` opt for these framework-internal
+tokens (`:frame` remains the public dispatch/subscribe target opt, unchanged).
 
 The managed HTTP reply dispatch is already frame-targeted by Spec 014. The
 resource metadata should still carry the intended frame id for assertion,
@@ -1860,12 +1877,12 @@ The resource runtime would lower an ensure/refetch into a GraphQL operation:
   :on-success     [:rf.resource.internal/succeeded
                    {:resource-key resource-key
                     :scope        scope
-                    :frame        frame-id
+                    :rf.frame/id  frame-id
                     :generation   generation}]
   :on-failure     [:rf.resource.internal/failed
                    {:resource-key resource-key
                     :scope        scope
-                    :frame        frame-id
+                    :rf.frame/id  frame-id
                     :generation   generation}]}]
 ```
 
@@ -1881,12 +1898,12 @@ Equivalently, lowered through the configured GraphQL client/endpoint:
                   {:resource-key resource-key
                    :scope        scope
                    :generation   generation
-                   :frame        frame-id}]
+                   :rf.frame/id  frame-id}]
  :on-failure     [:rf.resource.internal/failed
                   {:resource-key resource-key
                    :scope        scope
                    :generation   generation
-                   :frame        frame-id}]}
+                   :rf.frame/id  frame-id}]}
 ```
 
 The GraphQL adapter must preserve the same resource invariants as HTTP:
@@ -2106,11 +2123,9 @@ In a full frame-state projection, that appears at:
 [:rf.db/runtime :rf.runtime/resources]
 ```
 
-Use interim path until the frame-state partition exists:
-
-```clojure
-[:rf/runtime :resources]
-```
+There is no interim app-db path: post-[EP-0001](EP-0001-frame-partitions.md) a
+`:rf/runtime` app-db root is a hard error (`:rf.error/legacy-runtime-root`).
+Runtime-db is the only location.
 
 Store serializable state in frame-state:
 
@@ -2212,7 +2227,7 @@ The reply event must carry enough data to verify generation and frame:
   :resource-key resource-key
   :scope        scope
   :generation   generation
-  :frame        frame-id}]
+  :rf.frame/id  frame-id}]
 ```
 
 If work id or generation does not match, suppress the reply and emit trace
