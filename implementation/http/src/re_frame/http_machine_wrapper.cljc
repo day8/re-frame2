@@ -50,6 +50,7 @@
   home for HTTP test surfaces)."
   (:require [re-frame.http-encoding   :as encoding]
             [re-frame.http-middleware :as middleware]
+            [re-frame.http-privacy    :as privacy]
             [re-frame.late-bind       :as late-bind]))
 
 ;; rf2-2utlm / rf2-k67u3 — the canned stubs delegate to
@@ -90,14 +91,29 @@
   `handlers/validate-url!` on it — the final-url validation belongs to the
   `:rf.http/managed` OVERRIDE-TARGET role (the stub), not to this shared
   chain walk, which the lower-level canned handlers also call with a bare
-  `:value` and no `:request`."
+  `:value` and no `:request`.
+
+  rf2-xmp74u — seeds the SAME effective top-level `:sensitive?` into `ctx0`
+  that `http-handlers/managed-handler` seeds on the real-transport path
+  (via `privacy/request-sensitive?`, OR-reducing per-call `:sensitive?` and
+  `[:request :sensitive?]`). Without it, a request that opted in via the
+  TOP-LEVEL `:sensitive? true` form ran the canned/stub `:before` chain with
+  no top-level flag, so a throwing `:before` emitted
+  `:rf.error/http-interceptor-failed` WITHOUT redacting non-denylisted query
+  values — a stub-path leak + test false-green relative to production. The
+  chain's own `:sensitive-of` reducer still recomputes the EFFECTIVE
+  sensitivity from the threaded ctx (so a `:before` that MARKS the request
+  sensitive is honoured); seeding the floor here matches production's
+  pre-chain reading."
   [frame-ctx args-map]
   (let [frame-id     (or (:frame frame-ctx) :rf/default)
         origin-event (encoding/resolve-origin-event frame-ctx args-map)
-        ctx0         {:request (:request args-map)
-                      :args    args-map
-                      :frame   frame-id
-                      :event   origin-event}]
+        sensitive?   (privacy/request-sensitive? args-map origin-event)
+        ctx0         {:request    (:request args-map)
+                      :args       args-map
+                      :frame      frame-id
+                      :event      origin-event
+                      :sensitive? sensitive?}]
     (middleware/run-interceptor-chain! frame-id ctx0)))
 
 (defn- dispatch-canned-reply!

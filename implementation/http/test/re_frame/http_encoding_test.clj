@@ -472,6 +472,30 @@
            (encoding/run-accept nil nil))
         "a nil decoded body still wraps as {:ok nil}")))
 
+(deftest run-accept-default-never-produces-http-status-rf2-xmp74u
+  (testing "rf2-xmp74u — conformance guard: the default `:accept` (nil
+            accept-fn) NEVER returns a `:failure` and NEVER the off-taxonomy
+            `:kind :http-status`. Spec 014 §`:accept` previously advertised a
+            non-2xx `{:failure {:kind :http-status ...}}` default branch that
+            contradicted the closed `:rf.http/*` failure set + the status-
+            before-decode classification order (a non-2xx never reaches
+            accept). This pins the default as `{:ok ...}` across every decoded
+            shape so a future port can't reintroduce the dead branch."
+    (doseq [decoded [nil
+                     {}
+                     {:title "hello"}
+                     {:error "server blew up" :status 500}
+                     [1 2 3]
+                     "raw text"
+                     42]]
+      (let [result (encoding/run-accept nil decoded)]
+        (is (contains? result :ok)
+            (str "default accept yields {:ok ...} for " (pr-str decoded)))
+        (is (not (contains? result :failure))
+            "default accept NEVER yields a :failure")
+        (is (not= :http-status (get-in result [:failure :kind]))
+            "the off-taxonomy :kind :http-status default branch is gone")))))
+
 (deftest run-accept-user-fn-overrides-default
   (testing "rf2-ohwgm — a supplied :accept fn is invoked with the decoded
             value and its return ({:ok ..} or {:failure ..}) is used
