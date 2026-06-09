@@ -33,6 +33,13 @@ allowed-tools:
   - mcp__re-frame2-pair__unsubscribe
   - mcp__re-frame2-pair__list-subscriptions
   - mcp__re-frame2-pair__list-streams
+  # Server-side streaming resource-control diagnostic (rf2-a0kxsb) — read-only
+  # report of the server's effective caps, active stream slots vs limit,
+  # token-bucket pressure, and abuse-window count. Reads the server's
+  # resource-controls atoms IN-PROCESS (no nREPL round-trip), so it answers
+  # even when the runtime is down. Complements `list-streams` (runtime tap
+  # registry) for "why was my stream denied / why is it quiet?".
+  - mcp__re-frame2-pair__get-stream-controls
   - mcp__re-frame2-pair__handler-meta
   - mcp__re-frame2-pair__list-handlers
   # Read-only orientation ops (rf2-3bu3d.7 + rf2-3bu3d.8) — one-call

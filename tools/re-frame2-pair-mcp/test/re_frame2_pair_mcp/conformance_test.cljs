@@ -1408,6 +1408,24 @@
     {:isError? true
      :reason :invalid-kind}}
 
+   ;; ---------- get-stream-controls (rf2-a0kxsb) --------------------------
+   ;; Server-side resource-control diagnostic. No nREPL round-trip — the
+   ;; tool reads in-process atoms — so the eval-script is a bare default
+   ;; (the tool never asks the stub anything). Pins the outer envelope
+   ;; shape: :ok? true + the four control sections.
+   {:fixture/id    :get-stream-controls/happy
+    :fixture/doc   "get-stream-controls reports server-side caps + active/limit + rate-limit + abuse-window, no nREPL round-trip."
+    :fixture/tool  "get-stream-controls"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError?          false
+     :edn-submap        {:ok? true
+                         :concurrent-streams {:active 0 :limit 10 :at-capacity? false}
+                         :abuse-window {:count 0 :threshold 50 :tripped? false}}
+     :edn-contains-keys #{:config :rate-limit :cross-check}}}
+
    ;; ---------- pipeline: unknown tool ------------------------------------
    {:fixture/id    :pipeline/unknown-tool
     :fixture/doc   "invoke against a name not in the registry returns :unknown-tool error carrying a recovery :hint + the :available-tools catalogue (rf2-tkmik)."
