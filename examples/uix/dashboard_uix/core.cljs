@@ -144,11 +144,17 @@
 ;; ============================================================================
 
 (defui sparkline [{:keys [series id]}]
+  ;; The card's <header> eyebrow, value, and label already carry the
+  ;; metric's name + current value as text, so the sparkline is a
+  ;; decorative restatement of that information for assistive tech.
+  ;; `aria-hidden="true"` (rather than a generic `role="img"`
+  ;; `aria-label="sparkline"`) keeps a screen reader from announcing a
+  ;; nameless graphic on every card — the accessible name lives on the
+  ;; surrounding text, which is where the information actually is.
   ($ :svg.dash-sparkline
      {:viewBox "0 0 100 30"
       :preserveAspectRatio "none"
-      :role "img"
-      :aria-label "sparkline"
+      :aria-hidden "true"
       :data-testid (str "dashboard-sparkline-" (name id))}
      ($ :path {:d (sparkline-path series)
                :fill "none"
@@ -200,27 +206,45 @@
        ($ sparkline {:series series :id id}))))
 
 (defui filter-chips []
+  ;; MULTI-select toggles: any subset of tags can be on at once. Each chip
+  ;; is a real <button> carrying `aria-pressed` — the value assistive tech
+  ;; reads as the on/off state (the `is-on` CSS class is presentation only).
+  ;; The chips share a `role="group"` with an `aria-label` so a screen
+  ;; reader announces them as one labelled set of toggles, not three loose
+  ;; buttons.
   (let [active-tags (uix-adapter/use-subscribe [:dashboard/active-tags])
         dispatch    (:dispatch (rf/frame-handle))]
-    ($ :div.dash-chips
+    ($ :div.dash-chips {:role "group" :aria-label "Filter metrics by category"}
        (for [{:keys [id label]} all-tags]
-         ($ :button {:key id
-                     :class (str "dash-chip " (when (contains? active-tags id) "is-on"))
-                     :data-testid (str "dashboard-chip-" (name id))
-                     :on-click #(dispatch [:dashboard/toggle-tag id])}
-            ($ :span.dash-chip-dot {:class (str "tag-" (name id))})
-            label)))))
+         (let [on? (contains? active-tags id)]
+           ($ :button {:key id
+                       :type "button"
+                       :class (str "dash-chip " (when on? "is-on"))
+                       :aria-pressed (if on? "true" "false")
+                       :data-testid (str "dashboard-chip-" (name id))
+                       :on-click #(dispatch [:dashboard/toggle-tag id])}
+              ($ :span.dash-chip-dot {:class (str "tag-" (name id))})
+              label))))))
 
 (defui range-picker []
+  ;; SINGLE-select mode control: exactly one range is active. This is the
+  ;; radio idiom, not a set of independent toggles, so it gets
+  ;; `role="radiogroup"` on the container and `role="radio"` +
+  ;; `aria-checked` on each chip — assistive tech announces it as a
+  ;; one-of-N choice. The `is-on` class stays presentation-only.
   (let [active-range-id (uix-adapter/use-subscribe [:dashboard/range])
         dispatch        (:dispatch (rf/frame-handle))]
-    ($ :div.dash-chips
+    ($ :div.dash-chips {:role "radiogroup" :aria-label "Time range"}
        (for [{:keys [id label]} ranges]
-         ($ :button {:key id
-                     :class (str "dash-chip " (when (= active-range-id id) "is-on"))
-                     :data-testid (str "dashboard-range-" (name id))
-                     :on-click #(dispatch [:dashboard/set-range id])}
-            label)))))
+         (let [on? (= active-range-id id)]
+           ($ :button {:key id
+                       :type "button"
+                       :role "radio"
+                       :class (str "dash-chip " (when on? "is-on"))
+                       :aria-checked (if on? "true" "false")
+                       :data-testid (str "dashboard-range-" (name id))
+                       :on-click #(dispatch [:dashboard/set-range id])}
+              label))))))
 
 (defui dashboard []
   (let [visible-metrics (uix-adapter/use-subscribe [:dashboard/visible-metrics])

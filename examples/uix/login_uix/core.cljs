@@ -225,19 +225,35 @@
     {:tags #{:auth/locked}
      :meta {:terminal? true}}}})
 
-;; Registration uses the lower-level `reg-event-fx` form (not the canonical
-;; `reg-machine` / `reg-machine*` surface) deliberately: this login flow needs
-;; BOTH a live machine `:data-schema` AND an event-vector `:schema`
-;; (`AuthLoginEvent`, the `:where :event` boundary on the dispatched vector),
-;; and the public `reg-machine` surface takes only `[machine-id machine]` — no
-;; slot for an event-vector `:schema`. So we stamp the machine metadata
-;; (`:rf/machine? true` + the `:rf/machine` spec) ourselves alongside `:schema`.
-;; `rf/machine-meta` reads `:data-schema` back off the `:rf/machine` spec
-;; (Spec 005 §Querying machines), so the `:where :machine-data` validator goes
-;; live — a bad machine `:data` update emits/rolls back at that boundary, while
-;; the `:schema` boundary still validates the event vector before the handler
-;; runs. This flat machine has no parallel regions, so the region-machine cache
-;; `reg-machine*` installs is not needed here.
+;; A machine that ALSO validates its outer event vector. The canonical
+;; surface for registering a machine is `reg-machine` / `reg-machine*`
+;; (Spec 005 §reg-machine — the form tools, examples, and scaffolds default
+;; to). Reach for it first. This login flow is the one shape it cannot
+;; express today: it needs BOTH a live machine `:data-schema` AND an
+;; event-vector `:schema` (`AuthLoginEvent`, the `:where :event` boundary on
+;; the dispatched vector), and `reg-machine` takes only `[machine-id machine]`
+;; — no slot for an event-vector `:schema`.
+;;
+;; So this example composes the two surfaces explicitly: it registers via the
+;; documented lower-level `reg-event-fx` + `make-machine-handler` form (the
+;; SAME registry slot `reg-machine` reaches — Spec 005 §Registration), and on
+;; the handler's metadata map it carries the public, documented machine keys
+;; alongside `:schema`:
+;;   :rf/machine? true   — the machine discriminator (Spec 005 §Querying
+;;                         machines / §Registration-metadata stamp). `(machines)`
+;;                         filters on it; `machine-meta` reads the spec back.
+;;   :rf/machine <spec>   — the spec map. `machine-meta` reads `:data-schema`
+;;                         off it, so the `:where :machine-data` validator goes
+;;                         live: a bad `:data` update emits/rolls back at that
+;;                         boundary, while the `:schema` boundary validates the
+;;                         event vector before the handler runs.
+;; These are the same two keys `reg-machine*` stamps — not private internals.
+;; The only thing the macro adds that this hand-form does not is source-coord
+;; co-location (jump-to-source in tooling); a flat singleton like this needs
+;; none of `reg-machine*`'s region-machine cache.
+;;
+;; A first-class arity for "machine + event-vector schema" is the documented
+;; public-surface gap (rf2-wgmipl); when it lands this example moves onto it.
 (rf/reg-event-fx :auth.login/flow
   {:doc         "Login flow: idle → submitting → authed / error-shown / locked-out."
    :schema      AuthLoginEvent

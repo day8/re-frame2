@@ -53,13 +53,25 @@ npm run test:examples
 
 That compiles the three adapter testbeds (`adapters/reagent-testbed`, `adapters/uix-testbed`, `adapters/helix-testbed`), stages each `index.html`, serves them, and drives the three `spec.cjs` smokes; the example builds in this directory carry no `spec.cjs` (the `examples/` tree is test-free). They do, however, get **compile coverage**: `npm run test:examples-compile` (from `implementation/`) `shadow-cljs compile`s every declared standalone `:examples/*` build — including `examples/login-uix` and `examples/dashboard-uix` — and fails on any compile error or warning, so a namespace / `:init-fn` / `:require` / UIx-form regression in these builds can no longer ship green. See [`examples/TESTING.md`](../TESTING.md#compile-coverage-gate-testexamples-compile). Bundle isolation is verified separately (each per-substrate shadow-cljs build lets CI confirm a Reagent bundle's `main.js` carries no UIx code and vice versa, and likewise for UIx ↔ Helix).
 
-To iterate on one UIx example interactively, from `implementation/`:
+To run one UIx example interactively in a browser, from `implementation/`:
+
+```bash
+npm run dev:example -- examples/counter-uix
+```
+
+That one command stages the example's hand-written `index.html` + the shared `_shared/` assets next to the compiled `main.js`, starts `shadow-cljs watch` (edits recompile live), serves the output dir on a free local port, and prints the URL to open. Swap in `examples/login-uix` or `examples/dashboard-uix` for the others; `npm run dev:example -- --list` lists every runnable standalone example. Add `--no-watch` for a one-shot compile-and-serve.
+
+<details><summary>Advanced / troubleshooting: raw <code>shadow-cljs watch</code></summary>
+
+The one-command runner wraps the raw watch + manual staging recipe:
 
 ```bash
 shadow-cljs watch examples/counter-uix
 ```
 
-The build emits `main.js` into `out/examples/counter-uix/`; copy the example's hand-written [`counter_uix/index.html`](counter_uix/index.html) (and the shared assets it references under [`../_shared/`](../_shared/)) alongside it to load the watched build in a browser.
+The build emits `main.js` into `out/examples/counter-uix/`; you then copy the example's hand-written [`counter_uix/index.html`](counter_uix/index.html) (and the shared assets it references under [`../_shared/`](../_shared/)) alongside it and serve the output dir yourself. `npm run dev:example` does this staging + serving for you, so reach for the raw command only when you need to drive shadow-cljs directly.
+
+</details>
 
 ## Cross-references
 
