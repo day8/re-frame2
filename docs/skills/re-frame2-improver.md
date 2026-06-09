@@ -10,7 +10,7 @@ It is **explicit-pull-only**: the user asks for a review, the skill activates, a
 
 ## When to reach for it
 
-Load this skill on an explicit review request — "review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "is there a better re-frame2 pattern here", "spot any anti-patterns" — **and** a body of re-frame2 source is in scope (read, edited, or supplied as a snippet).
+Load this skill on an explicit review request — "review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "is there a better re-frame2 pattern here", "spot any anti-patterns in `cart/handlers.cljs`" — **and** a body of re-frame2 source is in scope: read or edited in the conversation, supplied as a snippet, or named as a concrete, resolvable `.cljs` / `.cljc` file or directory path the skill can read (it reads the named path before critiquing). A path that does not resolve does not establish scope.
 
 Do **not** use this skill for:
 
@@ -27,7 +27,7 @@ The skill activates on explicit pull. To force-load:
 /skill re-frame2-improver
 ```
 
-If no source files have been read, edited, or supplied as snippets, the skill declines and asks for a snippet rather than fabricate evidence.
+If no source files have been read, edited, supplied as snippets, or named as a resolvable `.cljs` / `.cljc` path, the skill declines and asks for a snippet rather than fabricate evidence.
 
 ## Where the skill lives
 

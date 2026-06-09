@@ -127,7 +127,7 @@ one that matches the user's situation.
 |---|---|---|
 | Inspect the runtime while developing locally | **Default true-inline panel** | Add the preload + a `[data-rf-xray-host]` column in the app layout. Xray auto-opens on page load. |
 | Mount where the host can't give Xray a layout column (full-screen canvas, story-only / prototype host, no `[data-rf-xray-host]`) | **Overlay (fallback)** | `(xray/open-overlay!)` from CLJS, or `window.day8.re_frame2_xray.open_overlay_BANG_()` from devtools. Floats the shell above the host under `document.body` — no layout column needed. The supported fallback for hosts that can't accommodate a right column; **not** the default path (per `spec/011-Launch-Modes.md` + `spec/API.md` §rf2-sa4fr). |
-| Put Xray on a second monitor with the app full-screen | **Pop-out window** | `(xray/popout!)` from CLJS, or `window.day8.re_frame2_xray.popout_BANG_()` (call it — note the parens) from devtools. |
+| Put Xray on a second monitor with the app full-screen | **Pop-out window** | Click the visible **`⛶` pop-out button** in the panel top-bar's right-icons cluster (the canonical chrome path — it dispatches `:rf.xray/popout-shell`). Or, as the secondary programmatic/devtools path, `(xray/popout!)` from CLJS / `window.day8.re_frame2_xray.popout_BANG_()` (call it — note the parens) from a console. |
 | Install Xray from code (no preload, or alternative wiring) | **Programmatic `init!`** + a mount verb | Call `(xray/init! opts)` after `rf/init!` to install the foundation + apply config (it does **not** open a panel), then `(xray/open!)` / `(xray/open-overlay!)` / `(xray/popout!)` to make it visible. Idempotent. |
 | Browse what's *registered* instead of one dispatch | **Static mode** | Flip the L1 mode pill or press `Cmd/Ctrl+Shift+M`. Static drops the event spine and shows the 5 registry-browse tabs. |
 | Have an AI agent inspect the runtime | **re-frame2-pair-mcp** | Configure `tools/re-frame2-pair-mcp/` in the agent host — the raw nREPL pair-programming companion is the AI access path. Out of scope for this skill — see [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp/). |
@@ -153,8 +153,10 @@ catalogues a richer map; these are what is actually wired:
 | `Space` `L` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts. These bare keys fire **only** when the Xray shell is visible AND the keydown target is inside the shell AND not an editable field (and not inside a modal). Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step the focused event back/forward · `G` (Shift+G) = fast-forward to head · `,` or `s` = Settings popup. (`Esc` is **not** a wired spine key — it is a modal-local close handler owned by the palette / Settings popup, per `keybinding.cljs`.) |
 
 `Cmd/Ctrl+K` **is** wired — do not say it was struck. The pop-out has no
-hotkey; use `(xray/popout!)` or the future right-click affordance on the
-launcher pill. Embed hosts (Story RHS, third-party tool surfaces) can
+hotkey; the canonical chrome path is the visible **`⛶` pop-out button** in
+the panel top-bar's right-icons cluster (dispatches `:rf.xray/popout-shell`),
+with `(xray/popout!)` / `window.day8.re_frame2_xray.popout_BANG_()` as the
+secondary programmatic/devtools path. Embed hosts (Story RHS, third-party tool surfaces) can
 suppress Xray's global listeners via `:rf.xray/keybinding-enabled?`.
 
 Source of truth:

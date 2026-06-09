@@ -32,11 +32,11 @@ Is the host app's dev build running with the Xray preload? ── no ──► �
  yes ┌─────────┴─────────┐
  │ yes no
  ▼ │ │
- (xray/popout!) — same-origin ▼ ▼
- second window, reads the §Layout host §Overlay fallback
- opener's runtime atoms directly. contract (open-overlay!) —
- (add the column) floats above the host,
- no column needed.
+ Click the ⛶ top-bar pop-out ▼ ▼
+ button (canonical) — same-origin §Layout host §Overlay fallback
+ second window reading the opener's contract (open-overlay!) —
+ atoms directly; (xray/popout!) (add the column) floats above the host,
+ is the secondary code path. no column needed.
 ```
 
 ## Install the preload
@@ -217,7 +217,9 @@ Unlike the preload it does **not** schedule the page-load auto-open, so after
 - `(xray/open!)` — inline panel into the `[data-rf-xray-host]` column.
 - `(xray/open-overlay!)` — overlay above `document.body` for hosts with no
  layout column (§Overlay fallback above).
-- `(xray/popout!)` — same-origin second window (§Pop-out below).
+- `(xray/popout!)` — same-origin second window (§Pop-out below). In-app, the
+ visible `⛶` top-bar button is the canonical chrome equivalent; this verb is
+ the secondary programmatic path.
 
 `(xray/init!)` alone leaves Xray installed-but-hidden — no panel opens until a
 mount verb runs (or `Ctrl+Shift+C` toggles the shell, which mounts on first
@@ -258,6 +260,15 @@ authoritative per-opt contract.
 Solves "I want Xray on a second monitor while the app runs
 full-screen." Same-origin required.
 
+**Launch affordances.** The canonical chrome-side path is the visible
+**`⛶` pop-out button** (`data-testid="rf-xray-icon-popout"`) in the panel
+top-bar / chrome-ribbon's right-icons cluster. Clicking it dispatches
+`:rf.xray/popout-shell`, which lowers — via the `:rf.xray.fx/popout-shell`
+effect — to `mount/popout!` (the event/fx bridge keeps the shell view free
+of a direct mount dependency, mirroring the `✕` close button's
+`:rf.xray/close-shell` → `:rf.xray.fx/hide-shell` bridge; spec/011 §Pop-out +
+spec/018 §3). The programmatic entry is the **secondary** path:
+
 ```clojure
 (xray/popout!)
 ;; or, from a devtools console (note the call parens — the API installs
@@ -281,9 +292,8 @@ Caveats inherited from the `window.opener` posture:
 - The pop-out can't survive a hard reload of the opener — atoms get
  garbage-collected; the pop-out re-bootstraps via
  `window.opener.xrayRuntime` on opener reload.
-- No keybinding pre-alpha. The programmatic call is the contract.
-- A right-click → `Pop out` affordance on the launcher pill is the
- canonical chrome-side path once that surface lands.
+- No keybinding is wired pre-alpha. The visible `⛶` top-bar button is the
+ canonical chrome launch; the programmatic call is the secondary path.
 
 ## Wired hotkeys
 
