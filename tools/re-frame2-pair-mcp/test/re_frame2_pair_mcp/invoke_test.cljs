@@ -159,24 +159,31 @@
 
 (deftest precheck-hit-short-circuits-dispatch
   (async done
-    (let [args        (args-js {:cache "true" :path "[:k]"})
+    ;; rf2-ww877w — the precheck-eligible vehicle is a single-frame
+    ;; APP-DB-ONLY snapshot (get-path is no longer precheck-eligible). The
+    ;; pipeline mechanics under test (precheck hit ⇒ dispatch skipped) are
+    ;; tool-agnostic; we just need a tool whose `precheck-target` is
+    ;; non-nil so `precheck-step` issues the stubbed fetch.
+    (let [args        (args-js {:cache "true"
+                                :frames #js ["rf/default"]
+                                :include #js ["app-db"]})
           dispatched? (atom false)
           ;; rf2-olvr5 finding 3 — the cache key now includes the resolved
           ;; build, so the priming MUST use the same build the `invoke`
           ;; pipeline will derive (`arg-build nil args` = the env / `:app`
           ;; default here) or the lookup key won't match.
-          _ (cache/apply-cache (mcp-result "{:k :v}")
-                               {:tool "get-path"
+          _ (cache/apply-cache (mcp-result "{:app-db {:k :v}}")
+                               {:tool "snapshot"
                                 :args args
                                 :enabled? true
                                 :build (wire/arg-build nil args)
                                 :precheck-hash 42})]
       (set-stubs!
         {:fetch-precheck-hash (fn [_conn _args _frame] (js/Promise.resolve 42))
-         :get-path-tool       (fn [_conn _args]
+         :snapshot-tool       (fn [_conn _args]
                                 (reset! dispatched? true)
                                 (js/Promise.resolve (mcp-result "{:should-not-ship :true}")))})
-      (-> (tools/invoke nil "get-path" args nil)
+      (-> (tools/invoke nil "snapshot" args nil)
           (.then (fn [result]
                    (is (false? @dispatched?)
                        "precheck hit MUST skip the tool body entirely")
@@ -199,20 +206,25 @@
 
 (deftest precheck-miss-stores-hash-for-next-call
   (async done
-    (let [args       (args-js {:cache "true" :path "[:k]"})
+    ;; rf2-ww877w — vehicle is the single-frame app-db-only snapshot (the
+    ;; sole precheck-eligible surface now). The mechanics are unchanged:
+    ;; cold miss stores the precheck-hash; the next call short-circuits.
+    (let [args       (args-js {:cache "true"
+                               :frames #js ["rf/default"]
+                               :include #js ["app-db"]})
           call-count (atom 0)]
       (set-stubs!
         {:fetch-precheck-hash (fn [_conn _args _frame] (js/Promise.resolve 999))
-         :get-path-tool       (fn [_conn _args]
+         :snapshot-tool       (fn [_conn _args]
                                 (swap! call-count inc)
-                                (js/Promise.resolve (mcp-result "{:db {:k :v}}")))})
-      (-> (tools/invoke nil "get-path" args nil)
+                                (js/Promise.resolve (mcp-result "{:app-db {:k :v}}")))})
+      (-> (tools/invoke nil "snapshot" args nil)
           (.then (fn [first-result]
                    (is (= 1 @call-count)
                        "first call: precheck cold miss → dispatch runs")
                    (is (not (cache-hit? first-result))
                        "first call returns the fresh result, not a marker")
-                   (tools/invoke nil "get-path" args nil)))
+                   (tools/invoke nil "snapshot" args nil)))
           (.then (fn [second-result]
                    (is (= 1 @call-count)
                        "second call: precheck matched → dispatch SKIPPED")
@@ -478,11 +490,14 @@
            (precheck/precheck-target
              "snapshot" (args-js {:frames #js ["rf/default"] :include #js ["app-db"]})))
         ":include [:app-db] is app-db-derived — precheck-eligible")
-    (is (= [:explicit :rf/default]
-           (precheck/precheck-target
-             "snapshot" (args-js {:frames #js ["rf/default"]
-                                  :include #js ["app-db" "machines"]})))
-        ":machines reads app-db only — still eligible"))
+    (is (nil? (precheck/precheck-target
+                "snapshot" (args-js {:frames #js ["rf/default"]
+                                     :include #js ["app-db" "machines"]})))
+        ;; rf2-ww877w — :machines is RUNTIME-DB state (EP-0001 rf2-vzld77
+        ;; moved machine snapshots to the runtime-db partition). A machine
+        ;; transition rewrites the slice WITHOUT an app-db write, so the
+        ;; `(hash app-db)` precheck hash can't see it move ⇒ ineligible.
+        ":machines reads runtime-db — NOT app-db-derived ⇒ ineligible"))
   (testing "single-frame snapshot, default (all-five) include → ineligible"
     (is (nil? (precheck/precheck-target
                 "snapshot" (args-js {:frames #js ["rf/default"]})))
@@ -490,13 +505,40 @@
   (testing "single-frame snapshot retaining a non-app-db slice → ineligible"
     (doseq [slice [#js ["app-db" "epochs"]
                    #js ["app-db" "traces"]
-                   #js ["app-db" "sub-cache"]]]
+                   #js ["app-db" "sub-cache"]
+                   ;; rf2-ww877w — :machines is now runtime-db-backed, so
+                   ;; an :include retaining it is precheck-ineligible too.
+                   #js ["app-db" "machines"]
+                   #js ["machines"]]]
       (is (nil? (precheck/precheck-target
                   "snapshot" (args-js {:frames #js ["rf/default"] :include slice})))
           (str "include " (vec slice) " retains an unsound slice — ineligible"))))
   (testing "multi-frame snapshot stays ineligible regardless of include"
     (is (nil? (precheck/precheck-target
                 "snapshot" (args-js {:frames #js ["a" "b"] :include #js ["app-db"]}))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ww877w — get-path is NOT precheck-eligible. Its app-db subtree read
+;; is post-processed by `elide-wire-value`, whose elision registry lives in
+;; runtime-db; a later elision declaration / classification flip can re-shape
+;; the egress of an UNCHANGED app-db subtree, which the `(hash app-db)`
+;; precheck hash can't observe. So get-path falls through to the post-eval
+;; result-hash cache (which hashes the actual post-elision text).
+;; ---------------------------------------------------------------------------
+
+(deftest precheck-target-get-path-is-ineligible
+  (testing "get-path with an explicit frame → ineligible (rf2-ww877w)"
+    (is (nil? (precheck/precheck-target
+                "get-path" (args-js {:frame "rf/default" :path "[:k]"})))
+        "explicit-frame get-path no longer registers a precheck target"))
+  (testing "get-path with no frame (operating-frame-resolved) → ineligible"
+    (is (nil? (precheck/precheck-target
+                "get-path" (args-js {:path "[:k]"})))
+        "operating-frame get-path no longer registers a precheck target"))
+  (testing "get-path batch read → ineligible"
+    (is (nil? (precheck/precheck-target
+                "get-path" (args-js {:paths "[[:a] [:b]]"})))
+        "batch get-path is ineligible too — same elision-registry hazard")))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-3ljsa — END-TO-END staleness guard. A single-frame DEFAULT-include

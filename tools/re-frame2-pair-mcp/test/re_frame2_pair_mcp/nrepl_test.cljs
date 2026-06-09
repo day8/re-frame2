@@ -529,6 +529,11 @@
             (.then (fn [r]
                      (is (= 9001 (:port r))
                          "explicit --port-file wins the cascade")
+                     ;; rf2-ww877w — the explicit branch returns the EXACT
+                     ;; path the caller named, so the server caches it
+                     ;; verbatim (no derived `.shadow-cljs/nrepl.port`).
+                     (is (= "explicit/nrepl.port" (:port-file r))
+                         "explicit --port-file returns the exact path it read")
                      (is (false? @probed?)
                          "the HTTP probe must not be hit when step 1 resolves")
                      (is (false? @rooted?)
@@ -634,6 +639,13 @@
                          "step 4 caught the port after step 3 was unsupported")
                      (is (= "/abs/proj/root" (:project-home r))
                          "project-home flows through from shadow probe step")
+                     ;; rf2-ww877w — the HTTP-probe result surfaces the
+                     ;; WINNING candidate file (here target/shadow-cljs/
+                     ;; nrepl.port resolved against the shadow root) so the
+                     ;; server caches the exact path that read.
+                     (is (re-find #"target[\\/]shadow-cljs[\\/]nrepl\.port$"
+                                  (str (:port-file r)))
+                         "winning candidate file (target/shadow-cljs/nrepl.port) is surfaced")
                      (restore!)
                      (done))))))))
 
@@ -654,6 +666,91 @@
             (.then (fn [r]
                      (is (= 5550 (:port r))
                          "first candidate (target/shadow-cljs/nrepl.port) wins")
+                     ;; rf2-ww877w — the winning candidate's path is surfaced
+                     ;; (target/shadow-cljs/nrepl.port, the first candidate).
+                     (is (re-find #"target[\\/]shadow-cljs[\\/]nrepl\.port$"
+                                  (str (:port-file r)))
+                         "winning candidate file surfaced as :port-file")
+                     (restore!)
+                     (done))))))))
+
+;; rf2-ww877w — exhaustive port-file surfacing for the HTTP-probe path. For
+;; EACH candidate order (only the .shadow-cljs file present, only the
+;; .nrepl-port present), the SURFACED :port-file must be the candidate that
+;; actually read — NOT a fixed derivation. This is the drift the bead kills:
+;; the server caches whatever discovery resolved, so the per-tool-call
+;; re-read checks the right file and doesn't false-positive "file vanished".
+(deftest discover-port-shadow-probe-surfaces-each-candidate-file
+  (testing ".shadow-cljs/nrepl.port wins → that exact file is surfaced"
+    (async done
+      (let [stub-fn (fn [^js path]
+                      (let [p (str path)]
+                        (cond
+                          ;; target candidate absent — falls to .shadow-cljs.
+                          (re-find #"target[\\\\/]shadow-cljs[\\\\/]nrepl\.port" p)
+                          (throw (js/Error. "ENOENT"))
+                          (re-find #"\.shadow-cljs[\\\\/]nrepl\.port" p) "5561"
+                          :else (throw (js/Error. "ENOENT")))))
+            restore! (install-fs-stub! nil stub-fn)]
+        (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root") roots-unsupported)
+            (.then (fn [r]
+                     (is (= 5561 (:port r)) ".shadow-cljs candidate read the port")
+                     (is (re-find #"\.shadow-cljs[\\/]nrepl\.port$" (str (:port-file r)))
+                         "the .shadow-cljs/nrepl.port file is surfaced — not target/...")
+                     (is (not (re-find #"target[\\/]shadow-cljs" (str (:port-file r))))
+                         "the absent target candidate is NOT what's cached")
+                     (restore!)
+                     (done)))))))
+  (testing ".nrepl-port wins (last candidate) → that exact file is surfaced"
+    (async done
+      (let [stub-fn (fn [^js path]
+                      (let [p (str path)]
+                        (cond
+                          (re-find #"target[\\\\/]shadow-cljs[\\\\/]nrepl\.port" p)
+                          (throw (js/Error. "ENOENT"))
+                          (re-find #"\.shadow-cljs[\\\\/]nrepl\.port" p)
+                          (throw (js/Error. "ENOENT"))
+                          (re-find #"\.nrepl-port" p) "5562"
+                          :else (throw (js/Error. "ENOENT")))))
+            restore! (install-fs-stub! nil stub-fn)]
+        (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root") roots-unsupported)
+            (.then (fn [r]
+                     (is (= 5562 (:port r)) ".nrepl-port candidate read the port")
+                     (is (re-find #"\.nrepl-port$" (str (:port-file r)))
+                         "the .nrepl-port file is surfaced as the winning candidate")
+                     (restore!)
+                     (done))))))))
+
+;; rf2-ww877w — the roots/list single-candidate path threads the candidate's
+;; own :port-file through (the `.shadow-cljs/nrepl.port` adjacent to the
+;; discovered shadow-cljs.edn), so the server caches the discovered file.
+(deftest discover-port-roots-single-candidate-surfaces-port-file
+  (testing "step 3 single candidate → its :port-file flows through"
+    (async done
+      (let [restore! (install-fs-stub! nil throwing-read)]
+        (-> (nrepl/discover-port* nil nil shadow-fails (roots-one "/abs/proj" 8765))
+            (.then (fn [r]
+                     (is (= 8765 (:port r)))
+                     (is (= "/abs/proj/.shadow-cljs/nrepl.port" (:port-file r))
+                         "roots candidate :port-file surfaces verbatim")
+                     (restore!)
+                     (done))))))))
+
+;; rf2-ww877w — the cwd-scan last resort (step 5) supplies NO :port-file:
+;; there is no project-home anchor for a stable absolute path, so the server
+;; must fall back to its derivation (or skip the per-call re-read).
+(deftest discover-port-cwd-scan-surfaces-no-port-file
+  (testing "step 5 (cwd scan) → :port-file is nil (no project-home anchor)"
+    (async done
+      ;; roots unsupported + shadow probe returns nil ⇒ fall to cwd scan.
+      ;; The cwd candidate reads, but no project-home is known.
+      (let [stub-fn (read-returning "\\.nrepl-port" "5599")
+            restore! (install-fs-stub! nil stub-fn)]
+        (-> (nrepl/discover-port* nil nil shadow-fails roots-unsupported)
+            (.then (fn [r]
+                     (is (= 5599 (:port r)) "cwd scan caught the port")
+                     (is (nil? (:port-file r))
+                         "cwd scan surfaces no port-file — server derivation is the backstop here")
                      (restore!)
                      (done))))))))
 
