@@ -23,7 +23,8 @@
   `walk-state-nodes` yields `[state-key state-node]` pairs for every
   node under `:states`, recursing through `:states` maps; used by the
   top-level dispatch."
-  (:require [re-frame.machines.parallel :as parallel]))
+  (:require [re-frame.machines.grammar :as grammar]
+            [re-frame.machines.parallel :as parallel]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -444,26 +445,24 @@
   else is `:rf.error/machine-history-extra-keys`."
   #{:type :deep? :default-target})
 
-(defn- history-node?
-  "True iff `node` is a history pseudo-state (`:type :history`)."
-  [node]
-  (= :history (:type node)))
+(def ^:private history-node?
+  "True iff `node` is a history pseudo-state (`:type :history`). The
+  shared `grammar/history-node?` — registration and the runtime read the
+  one predicate."
+  grammar/history-node?)
 
 (defn- node-at-states
   "Walk a `:states` map down absolute `path`, returning the leaf
   state-node (or nil if `path` doesn't resolve). Scope-local resolver —
   `states` is the flat machine's `:states` or a single region body's
   `:states`, so `path` is scope-relative (region names are never part of
-  a within-region path)."
+  a within-region path). Delegates to the shared `grammar/node-at` (the
+  same root→leaf descent the runtime `transition/node-at` uses) so
+  registration resolves targets against EXACTLY the tree the runtime
+  drives. `path` is coerced to a vector for the shared fn's count/seq
+  semantics."
   [states path]
-  (loop [m states, p (vec path)]
-    (cond
-      (empty? p) nil
-      :else      (let [n (get m (first p))]
-                   (cond
-                     (nil? n)        nil
-                     (= 1 (count p)) n
-                     :else           (recur (:states n) (rest p)))))))
+  (grammar/node-at states (vec path)))
 
 (defn- resolves-to-state?
   "True iff `target` resolves to a real state under `owning-path` within
@@ -865,25 +864,17 @@
 ;; targets have DIFFERENT (region-qualified) semantics and are validated by
 ;; `validate-parallel!`; this block walks only per-region / flat state nodes.
 
-(defn- candidate-targets
+(def ^:private candidate-targets
   "Normalise a transition slot's value (an `:on` entry, an `:after` entry,
   an `:on-done`, a `:spawn :on-error`) to the seq of `:target`s it declares,
-  mirroring `transition/normalise-candidates`: a keyword IS the target; a
-  vector of maps yields each map's `:target`; any other vector IS the target
-  (an absolute path); a single map yields its `:target`. A targetless /
-  action-only candidate contributes no target. The `:present?` marker on each
-  yielded entry distinguishes \"`:target` key absent\" (internal transition —
-  always fine) from \"`:target` present but malformed\" (e.g. `{:target
-  nil}`, which is still internal but worth nothing here)."
-  [v]
-  (cond
-    (nil? v)        []
-    (keyword? v)    [{:present? true :target v}]
-    (and (vector? v) (seq v) (every? map? v))
-    (map (fn [m] {:present? (contains? m :target) :target (:target m)}) v)
-    (vector? v)     [{:present? true :target v}]
-    (map? v)        [{:present? (contains? v :target) :target (:target v)}]
-    :else           []))
+  each tagged with `:present?`. The shared `grammar/candidate-targets`,
+  built on the SAME `grammar/transition-value-form` recogniser the runtime
+  normaliser (`transition/normalise-candidates`) uses — so this is no
+  longer a hand-kept mirror but the one grammar layer by construction. The
+  `:present?` marker distinguishes \"`:target` key absent\" (internal
+  transition — always fine) from \"`:target` present but malformed\" (e.g.
+  `{:target nil}`)."
+  grammar/candidate-targets)
 
 (defn- validate-target!
   "Validate one `:target` against the declaring state's `scope` (its region /

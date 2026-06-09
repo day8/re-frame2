@@ -1,8 +1,27 @@
 (ns re-frame.machine-transition-purity-test
-  "Per rf2-gr8q. Locks in the contract that `machine-transition` is an
-  honest pure function — identical (machine, snapshot, event) triples
-  produce identical Result values (snapshot + effects vector) INCLUDING
-  the spawn-id sequencing inside emitted `:rf.machine/spawn` fx maps.
+  "Per rf2-gr8q. Locks in the contract that `machine-transition`'s
+  RETURNED VALUE is a deterministic function of its arguments —
+  identical (machine, snapshot, event) triples produce identical Result
+  values (snapshot + effects vector) INCLUDING the spawn-id sequencing
+  inside emitted `:rf.machine/spawn` fx maps.
+
+  ## What \"pure\" means here (rf2-3l8lqe finding #1)
+
+  \"Pure\" is scoped to the REDUCTION: the Result depends only on the
+  arguments, with no module-level mutable state and no `app-db` read. It
+  is NOT a claim that the engine emits zero observability — the reducer
+  emits `trace/emit!` diagnostic events on the process-wide Spec 009
+  trace stream, inline, exactly as the rest of the framework does (and
+  this very namespace's `capture-error-depth!` helper OBSERVES those
+  emits through a global listener to read the depth-limit boundary). Per
+  Spec 005 (005:545 / 005:637) that trace is production-elided
+  observability (Closure DCE on `interop/debug-enabled?`), never part of
+  the snapshot/fx value and never read back into the reduction. The
+  determinism property below is therefore independent of whether any
+  listener is registered — the test asserts the RETURNED Result, not the
+  absence of a trace side channel. (Decoupling trace into an
+  interpreter-owned sink is an open architectural ruling, not assumed
+  here.)
 
   Pre-rf2-gr8q the spawn-id allocator was a module-level
   `(defonce spawn-counter (atom {}))` keyed on `[frame-id machine-id]`
@@ -120,6 +139,46 @@
           "spawn allocates :http/post#4 — bump of the pre-existing 3")
       (is (= {:http/post 4} (:rf/spawn-counter snap'))
           "the returned snapshot's counter is at 4"))))
+
+;; ---- trace is an observability side channel, not part of the reduction ----
+;;
+;; Per rf2-3l8lqe finding #1 (honest-purity contract): the reducer emits
+;; `trace/emit!` diagnostic events inline, but those emits are pure
+;; OBSERVABILITY — they never feed back into the returned Result. This
+;; test pins both halves of the contract the bead asks for: (a) the
+;; RETURNED transition value is identical whether or not a listener is
+;; registered (the reduction is independent of the trace side channel),
+;; and (b) the engine DID emit the expected trace data when a listener
+;; observes it (the side channel carries the action-ran / transition
+;; diagnostics consumers depend on).
+
+(deftest trace-is-observability-not-reduction
+  (testing "the returned Result is identical with and without a trace listener"
+    (let [m {:initial :idle
+             :data    {:n 0}
+             :actions {:bump (fn [{d :data}] {:data {:n (inc (:n d))}})}
+             :states  {:idle {:on {:go {:target :done :action :bump}}}
+                       :done {}}}
+          input {:state :idle :data {:n 0}}
+          ;; No listener registered: the trace emits are no-op-delivered.
+          r-no-listener (machines/machine-transition m input [:go])
+          ;; A listener registered: same call, listener observes the
+          ;; emitted diagnostics; assert the RETURNED Result is unchanged.
+          seen          (atom [])
+          r-with-listener
+          (do (trace/register-listener! ::purity-probe (fn [ev] (swap! seen conj ev)))
+              (try (machines/machine-transition m input [:go])
+                   (finally (trace/unregister-listener! ::purity-probe))))]
+      (is (= r-no-listener r-with-listener)
+          "the reduction (snapshot + fx) does not depend on listener presence")
+      (is (= :done (-> r-with-listener ::result/snap :state))
+          "the transition resolved to :done either way")
+      (is (= {:n 1} (-> r-with-listener ::result/snap :data))
+          "the :bump action's :data update landed in the returned snapshot")
+      (is (some #(= :rf.machine/action-ran (:operation %)) @seen)
+          "the side channel DID carry the :rf.machine/action-ran diagnostic")
+      (is (some #(= :bump (-> % :tags :action-id)) @seen)
+          "the action-ran trace named the :bump action that ran"))))
 
 (deftest invoke-all-counter-bumps-per-child
   (testing ":spawn-all spawns N children — each child of the same machine-id bumps the same counter slot"

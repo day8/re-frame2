@@ -114,11 +114,20 @@
       -1)))
 
 (defn- emit-lifecycle-destroyed!
-  "Emit the legacy `:rf.machine.lifecycle/destroyed` notification per
-  actor, carrying the frame id, the machine id, the snapshot's
-  `:state` (when present), and the unified discriminator
-  `:reason :parent-frame-destroyed`. Preserves the trace contract
-  observable in
+  "Emit the `:rf.machine.lifecycle/destroyed` notification per actor,
+  carrying the frame id, the machine id, the snapshot's `:state` (when
+  present), and the unified discriminator `:reason
+  :parent-frame-destroyed`.
+
+  Per Spec 009 §Actor lifecycle observation (009:240-269) this is NOT a
+  legacy event: `:rf.machine.lifecycle/destroyed` is the canonical
+  REGISTRAR-substrate observation axis (\"the actor's handler / snapshot
+  was reaped\", including frame-exit reaping), the deliberate sibling of
+  the FX-substrate `:rf.machine/destroyed` (\"a destroy fx ran\"). The
+  two are parallel observation axes carrying which substrate observed
+  the teardown — never a new-vs-old pair. Frame-exit reaping fires the
+  registrar axis only (no destroy fx runs), which is exactly why this
+  cascade emits this event. Preserves the trace contract observable in
   `frame_lifecycle_test/destroy-frame-cascade-emits-per-active-machine`."
   [frame-id actor-id snapshot]
   (trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed

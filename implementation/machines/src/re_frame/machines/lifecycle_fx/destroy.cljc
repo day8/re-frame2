@@ -10,12 +10,20 @@
   `[:rf.runtime/machines :system-ids]` reverse index entry.
 
   Per rf2-t07u (Option A revised), `args` can be either:
-    - a keyword `actor-id` — the legacy / imperative form (action emits
-      `[:rf.machine/destroy actor-id]` directly with the recorded id), OR
+    - a keyword `actor-id` — the IMPERATIVE form: an action emits
+      `[:rf.machine/destroy actor-id]` directly with the actor id it
+      holds. This is first-class current API — re-frame2's spelling of
+      XState v5 `stopChild(actorId)` (the gold-standard imperative
+      teardown that sits alongside automatic exit-cascade teardown), OR
     - a map `{:rf/parent-id ... :rf/spawn-id ...}` — the declarative-
       `:spawn` exit-cascade form, where the runtime resolves the actor
       id from `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` in the frame's
       runtime-db.
+
+  Both forms are canonical and current (pre-alpha, no compatibility
+  shims): the keyword form is the imperative entry-point, the map form
+  is what the `:spawn` desugaring emits on state exit. They are not a
+  new-vs-old pair.
 
   Per rf2-6vmw, the map form may also carry `:rf/spawn-all true` —
   the declarative-`:spawn-all` exit-cascade form. The slot at
@@ -79,7 +87,7 @@
   `:system-id-released` trace, unregister the live event handler, and
   forget the actor from the per-frame spawn-order channel (rf2-vsigt).
 
-  Used by `destroy-machine-fx` for the keyword-form legacy/imperative
+  Used by `destroy-machine-fx` for the keyword-form imperative
   destroy AND iterated for each child in a `:spawn-all` teardown, AND
   by the frame-destroy cascade walker (`frame-destroy.cljc`).
 
@@ -185,7 +193,7 @@
     nil))
 
 (defn- destroy-single!
-  "Per rf2-t07u — the keyword (legacy/imperative) form and the single-
+  "Per rf2-t07u — the keyword (imperative) form and the single-
   `:spawn` (tracked map) form of `:rf.machine/destroy`. Resolves the
   actor-id (keyword direct OR via the `[:rf.runtime/machines :spawned ...]` slot), emits
   the `:rf.machine/destroyed` trace, then applies the unified teardown
