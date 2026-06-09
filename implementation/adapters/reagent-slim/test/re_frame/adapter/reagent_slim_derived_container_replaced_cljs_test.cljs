@@ -160,3 +160,43 @@
           (adapter/replace-container! src {:n 6})
           (is (= 6 (adapter/read-container derived))
               "writing to the source recomputes the derived value normally"))))))
+
+;; ---- copied / wrapped adapter map routes to the live hook (rf2-dkl5z1) -----
+;;
+;; `route-hook!` routes by stable token (the canonical :rf.adapter/* :kind),
+;; not object identity — so a copied / wrapped reagent-slim adapter map still
+;; drives its live `:adapter/derived-container?` hook. Pre-fix, installing an
+;; `assoc`'d copy made the routed closure's identity guard fail, the hook fell
+;; through to the `(constantly false)` chain bottom, and a Reaction was no
+;; longer flagged as derived (so the choke point's atom-marker fall-back —
+;; which a Reaction's IAtom defeats — would WRONGLY allow a write to it).
+
+(deftest copied-adapter-map-routes-to-live-derived-container-hook
+  (testing "a copied reagent-slim adapter map still drives the live :adapter/derived-container? hook (rf2-dkl5z1)"
+    (let [original (adapter/current-adapter-spec)
+          copied   (assoc reagent-slim/adapter :rf.test/instrumentation-wrapper true)]
+      (try
+        (adapter/dispose-adapter!)
+        (adapter/install-adapter! copied)
+        (is (false? (identical? reagent-slim/adapter (adapter/current-adapter-spec)))
+            "precondition: the installed copy is NOT identical to the routed canonical map")
+        (is (= :rf.adapter/reagent-slim (adapter/current-adapter))
+            "precondition: the copy preserves the canonical :kind token")
+        (let [hook (late-bind/get-fn :adapter/derived-container?)
+              src  (adapter/make-state-container {:n 1})]
+          (is (some? hook) "the :adapter/derived-container? hook is published")
+          (with-derived src
+            (fn [derived]
+              (is (= 1 (adapter/read-container derived)) "precondition: derived reads its computed value")
+              (is (false? (boolean (hook src)))
+                  "under the copied map, a base r/atom is STILL not a derived container")
+              (is (true? (boolean (hook derived)))
+                  (str "under the COPIED reagent-slim map, a Reaction is STILL flagged"
+                       " as a derived container — the routed hook fired its live impl"
+                       " despite the copy's distinct identity (rf2-dkl5z1)"))
+              ;; End-to-end: the choke point STILL rejects a write to the Reaction.
+              (is (thrown? js/Error (adapter/replace-container! derived 42))
+                  "replace-container! on the Reaction STILL throws under the copied map"))))
+        (finally
+          (adapter/dispose-adapter!)
+          (adapter/install-adapter! original))))))

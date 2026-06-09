@@ -1053,6 +1053,62 @@
                  " as a producer; producers: " (pr-str producers)))))))
 
 ;; ===========================================================================
+;; copied / wrapped adapter map routes to LIVE hooks (rf2-dkl5z1)
+;;
+;; `route-hook!` must dispatch each adapter's late-bind hook by STABLE TOKEN
+;; (the canonical `:rf.adapter/*` `:kind`), NOT raw object identity — so a
+;; user (or the already-tested adapter-swap pattern) that copies / wraps a
+;; canonical adapter map for instrumentation or local overrides STILL drives
+;; the live routed hooks. The original identity guard served stale (inert)
+;; hooks for a copied map: `(rf/view id)` under a copied UIx/Helix map would
+;; lose its `:adapter/wrap-view` source-coord/view-id stamping (the hook fell
+;; through to the `(constantly nil)` chain bottom, and the inline hiccup walk
+;; cannot annotate a React element). This pins the substrate-observable fix.
+;; ===========================================================================
+
+(defn assert-copied-adapter-map-routes-to-live-hooks
+  "rf2-dkl5z1: dispose the installed canonical adapter, install a COPY of it
+  (an `assoc`'d instrumentation wrapper — distinct identity, same canonical
+  `:kind`), and prove the routed `:adapter/wrap-view` hook STILL fires its
+  live impl: `((rf/view id))` on a DOM-tag root stamps both
+  `data-rf2-source-coord` and `data-rf-view`. Pre-fix the routed closure's
+  object-identity guard rejected the copy, the hook returned nil, and the
+  React-element root carried NEITHER attribute. Restores the original
+  adapter so the fixture teardown lands clean."
+  [{:keys [adapter substrate-kw name]}]
+  (testing (str name " — copied adapter map still routes to live :adapter/wrap-view")
+    (let [original (substrate-adapter/current-adapter-spec)
+          ;; The copy carries an instrumentation marker — exactly the
+          ;; "wrap a canonical adapter map" shape — with a DIFFERENT object
+          ;; identity but the SAME canonical :kind token.
+          copied   (assoc adapter :rf.test/instrumentation-wrapper true)]
+      (try
+        (substrate-adapter/dispose-adapter!)
+        (substrate-adapter/install-adapter! copied)
+        (is (false? (identical? adapter (substrate-adapter/current-adapter-spec)))
+            "precondition: the installed copy is NOT identical to the routed canonical map")
+        (is (= (:kind adapter) (substrate-adapter/current-adapter))
+            "precondition: the copy preserves the canonical :kind token")
+        ;; The routed late-bind hook itself reports the copy as the active
+        ;; adapter (the closure consults same-adapter?, not identity).
+        (let [id      (mint-kw substrate-kw "copied-map-wrap-view")
+              user-fn (fn [] (React/createElement "span" #js {} "hi"))]
+          (rf/reg-view* id user-fn)
+          (let [out ((rf/view id))]
+            (is (= "span" (.-type out)) "root element type preserved")
+            (is (string? (source-coord out))
+                (str "data-rf2-source-coord STILL stamped under the copied " name
+                     " adapter map — the routed :adapter/wrap-view hook fired its"
+                     " live impl despite the copy's distinct identity (rf2-dkl5z1)"))
+            (is (= (str id) (view-attr out))
+                "data-rf-view STILL stamped under the copied adapter map")))
+        (finally
+          ;; Restore the original installed adapter so the :after fixture
+          ;; teardown (dispose) lands on the same object the :before installed.
+          (substrate-adapter/dispose-adapter!)
+          (substrate-adapter/install-adapter! original))))))
+
+;; ===========================================================================
 ;; chained clear-warn-once-caches! end-to-end (rf2-e54wc / rf2-ovbxk) —
 ;; port of `*_clear_warn_once_chain`
 ;; ===========================================================================

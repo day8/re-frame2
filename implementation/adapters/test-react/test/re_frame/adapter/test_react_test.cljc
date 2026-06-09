@@ -581,6 +581,37 @@
           (substrate-adapter/dispose-adapter!)
           (substrate-adapter/install-adapter! test-react/adapter))))))
 
+;; ---- mount! under a COPIED test-react adapter map succeeds (rf2-dkl5z1) ----
+
+(deftest mount-under-copied-test-react-map-succeeds
+  (testing "mount! ACCEPTS a copied / wrapped Test-React adapter map — the
+            installed-adapter guard is stable-token (same-adapter?), not raw
+            object identity, so an `assoc`'d instrumentation copy (distinct
+            object, same canonical :rf.adapter/test-react :kind) mounts
+            normally. Mirrors the wrong-adapter test's swap-and-restore, but
+            asserts the POSITIVE case the identity guard wrongly rejected
+            pre-fix (rf2-dkl5z1)."
+    (let [copied (assoc test-react/adapter :rf.test/instrumentation-wrapper true)]
+      ;; Tear down the fixture-installed canonical map and seat the copy.
+      (substrate-adapter/dispose-adapter!)
+      (substrate-adapter/install-adapter! copied)
+      (try
+        (is (false? (identical? test-react/adapter (substrate-adapter/current-adapter-spec)))
+            "precondition: the installed copy is NOT identical to the canonical map")
+        (is (= :rf.adapter/test-react (substrate-adapter/current-adapter))
+            "precondition: the copy preserves the canonical :kind token")
+        (let [mount (test-react/mount! [:div "via-copied-map"])]
+          (is (some? mount)
+              "mount! returned a MountedComponent record under the copied map")
+          (is (= [:constructor :render :did-mount]
+                 (mapv :phase (test-react/lifecycle-log mount)))
+              "the copied map drove a normal mount lifecycle (no test-react-not-installed throw)")
+          (test-react/unmount! mount))
+        (finally
+          ;; Restore the canonical map the :each fixture expects to dispose.
+          (substrate-adapter/dispose-adapter!)
+          (substrate-adapter/install-adapter! test-react/adapter))))))
+
 ;; ---- render-to-string with no emitter bound throws ------------------------
 
 (deftest render-to-string-without-emitter-throws

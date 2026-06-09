@@ -419,9 +419,15 @@
   "Mount `render-tree` (a hiccup vector or any data the test treats as the
   rendered output) under the installed Test-React adapter. Returns the
   `MountedComponent` record carrying the lifecycle log and the unmount
-  thunk. Throws if a non-test-react adapter is installed."
+  thunk. Throws if a non-test-react adapter is installed.
+
+  The installed-adapter check is `substrate-adapter/same-adapter?`
+  (stable-token routing, rf2-dkl5z1), NOT raw object identity — so a copied
+  or wrapped Test-React adapter map (same canonical `:rf.adapter/test-react`
+  `:kind`, e.g. one `assoc`'d with an instrumentation wrapper) is still
+  accepted, matching the routed hooks' acceptance of the same copy."
   [render-tree]
-  (when-not (identical? adapter (substrate-adapter/current-adapter-spec))
+  (when-not (substrate-adapter/same-adapter? adapter (substrate-adapter/current-adapter-spec))
     (throw (ex-info ":rf.error/test-react-not-installed"
                     {:where    'rf/test-react-mount!
                      :recovery :no-recovery

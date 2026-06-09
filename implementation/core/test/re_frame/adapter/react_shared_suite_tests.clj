@@ -155,6 +155,10 @@
    {:test 'late-bind-cross-checked-directory
     :fn   'assert-adapter-hooks-cross-checked-against-directory}
 
+   {:section "copied / wrapped adapter map routes to live hooks (rf2-dkl5z1)"}
+   {:test 'copied-adapter-map-routes-to-live-hooks
+    :fn   'assert-copied-adapter-map-routes-to-live-hooks}
+
    {:section "chained clear-warn-once-caches! (*_clear_warn_once_chain)"}
    {:test 'clear-warn-chain-empties-cache
     :fn   'assert-chained-clear-warn-once-empties-cache}
