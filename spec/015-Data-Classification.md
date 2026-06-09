@@ -92,7 +92,7 @@ Paths that resolve to a missing slot are silently ignored — declaring `[:user 
 
 ## The seven first-class marking sites
 
-Every registration kind that participates in the dataflow accepts the same declaration shape:
+Most registration kinds that participate in the dataflow accept the same declaration shape on their registration metadata map:
 
 ```clojure
 {:sensitive [<path> <path> ...]      ;; vector of get-in-shaped paths
@@ -100,6 +100,8 @@ Every registration kind that participates in the dataflow accepts the same decla
 ```
 
 Both keys are optional and independent. A registration that declares neither defaults to "no path-marks at this site" (which does NOT mean "no marks reach this site" — propagation from upstream sites can still inject marks at evaluation time; see [§Propagation rules](#propagation-rules)).
+
+**State machines are the schema-first exception** ([§6](#6-state-machines--reg-machine)): `reg-machine` accepts no `:sensitive` / `:large` metadata keys (it is two-arity `(machine-id machine-map)`). A machine's `:data` slots are marked via `:sensitive?` / `:large?` props on its `:data-schema`, and — for the schema-less / coarse case — via the runtime `add-marks` / `set-marks` path-list; the two sources union.
 
 ### 1. Event handlers — `reg-event-{db,fx,ctx}`
 
@@ -264,20 +266,22 @@ The handler that consumes the cofx sees the real values; the mark propagates thr
 
 ### 6. State machines — `reg-machine`
 
-Each machine instance has a `:data` slot (analogous to XState's `context`) — guards and actions read from `:data`, and the instance's lifetime means `:data` is a long-lived sensitive surface. Paths in `:sensitive` / `:large` on `reg-machine` index into the machine snapshot, rooted at `:data`.
+Each machine instance has a `:data` slot (analogous to XState's `context`) — guards and actions read from `:data`, and the instance's lifetime means `:data` is a long-lived sensitive surface. Machine `:data` classification is **schema-first**: there is no metadata-bearing `reg-machine` arity and no top-level `:sensitive` / `:large` key on the machine spec map. `reg-machine` / `reg-machine*` accept exactly `(machine-id machine-map)` (per [005 §Privacy — redacting machine `:data` at trace egress](005-StateMachines.md#privacy--redacting-machine-data-at-trace-egress)). A machine declares which `:data` slots are sensitive or large by attaching `:sensitive?` / `:large?` Malli properties to the slots of its **`:data-schema`** (the validator for the `:data` slot, per [005 §Schema validation](005-StateMachines.md)).
 
 ```clojure
 (rf/reg-machine :auth/session
-  {:doc       "User session state machine."
-   :sensitive [[:data :jwt]
-               [:data :refresh-token]
-               [:data :user :ssn]]
-   :large     [[:data :audit-trail]]}
-  {:initial :idle
+  {:doc         "User session state machine."
+   :data-schema [:map
+                 [:jwt           {:sensitive? true} :string]
+                 [:refresh-token {:sensitive? true} :string]
+                 [:user          [:map [:ssn {:sensitive? true} :string]
+                                       [:name :string]]]
+                 [:audit-trail   {:large? true} [:vector :any]]]
+   :initial :idle
    :states  {:idle           {:on {:log-in :authenticating}}
-            :authenticating {:spawn {:src :auth/fetch-jwt
-                                       :on-done :authenticated}}
-            :authenticated  {:on {:log-out :idle}}}})
+             :authenticating {:spawn {:src :auth/fetch-jwt
+                                      :on-done :authenticated}}
+             :authenticated  {:on {:log-out :idle}}}})
 
 ;; Xray's Machine Inspector renders the :data slot with marks resolved:
 ;;   :data {:jwt :rf/redacted
@@ -286,13 +290,23 @@ Each machine instance has a `:data` slot (analogous to XState's `context`) — g
 ;;          :audit-trail :rf/large {:bytes 12382 :head "..."}}
 ```
 
-The machine's transition table, guards, and actions all see real `:data` values when they fire. Trace events under `:rf.machine/*` (per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)) consult the declaration when they emit `:rf.machine/transition`, `:rf.machine/snapshot-updated`, and any other emit site that lifts `:data` onto a trace event.
+Each `:sensitive?` / `:large?` slot prop is extracted at registration and rooted under `[:data …]` to match the machine snapshot shape — the snapshot also carries `:state` and other reserved keys (per [005 §Reserved snapshot-internal keys](005-StateMachines.md#reserved-snapshot-internal-keys)), so `[:jwt …]` in the schema marks `[:data :jwt]` in the snapshot. The machine's transition table, guards, and actions all see real `:data` values when they fire; trace events under `:rf.machine/*` (per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)) consult the resolved marks when they emit `:rf.machine/transition`, `:rf.machine/snapshot-updated`, and any other emit site that lifts `:data` onto a trace event.
 
-**Path convention.** Marking paths in `reg-machine` are rooted at the machine snapshot (NOT at `:data` directly), because the snapshot also carries `:state` and other reserved keys (per [005 §Reserved snapshot-internal keys](005-StateMachines.md#reserved-snapshot-internal-keys)). Authors who want to mark every `:data` slot wholesale write `[[:data]]`.
+**Schema-less / coarse marking — use the runtime path-list.** A machine with no `:data-schema` (or one whose schema does not cover a slot you need to mark) declares the snapshot paths directly with the runtime [`rf/add-marks` / `rf/set-marks`](#2-app-db-marks-per-frame--add-marks--set-marks) path-list against the frame. Paths are rooted at the machine snapshot, so mark `[:data :jwt]`, not `[:jwt]`; to mark every `:data` slot wholesale, declare `[:data]`. These runtime path-list marks **union** with the schema-attached marks (per [§Relationship with schema-attached marks](#relationship-with-schema-attached-marks)) — a path marked by either source is marked, and there is no way for one source to unmark what the other marked.
+
+```clojure
+;; No :data-schema (or schema doesn't cover these slots): declare snapshot
+;; paths against the frame. Unions with any schema-attached marks.
+(rf/add-marks :rf/default
+  {[:data :jwt]           :sensitive
+   [:data :refresh-token] :sensitive
+   [:data :user :ssn]     :sensitive
+   [:data :audit-trail]   :large})
+```
 
 **Full slot coverage.** Machine `:data` surfaces in several differently-shaped `:rf.machine/*` trace slots, and a marked path is redacted in EVERY one (the marks index re-roots to each slot's shape): the full snapshot maps `:before` / `:after` / `:snapshot` on `:rf.machine/transition` / `:rf.machine/snapshot-updated`; the bare booted `:data` map on `:rf.machine/started`; the `:input {:data …}` sub-map on `:rf.machine/guard-evaluated` / `:rf.machine/action-ran`; and the per-step `:data-delta` maps in a `:rf.machine/transition`'s `:cascade`. The dispatched `:event` carried alongside machine `:data` (e.g. in a guard/action `:input`) is redacted against the event handler's own marks, not the machine's `:data` marks.
 
-**`:data-schema` is the second mark source (EP-0005).** A machine's `:data-schema` (the Malli validator for its `:data` slot, per [005 §Schema validation](005-StateMachines.md)) doubles as a mark source: any slot carrying a `:sensitive?` / `:large?` Malli property is extracted at registration, rooted under `[:data …]` to match the snapshot shape, and honoured in snapshot egress exactly like an explicit `:sensitive` / `:large` path — the same way [`reg-app-schema`'s per-slot props feed app-db elision](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces). The two machine mark sources — the explicit `:sensitive` / `:large` keys above and the `:data-schema`'s per-slot props — **union** (per [§Conflict between the two sources is resolved by union](#propagation-rules)); a path marked by either source is marked. A machine declaring `:data-schema [:map [:token {:sensitive? true} :string]]` therefore redacts `[:data :token]` in every `:rf.machine/transition` / `:rf.machine/snapshot-updated` trace with no explicit `:sensitive` key required.
+**The two mark sources union (EP-0005).** The schema-attached `:sensitive?` / `:large?` slot props and the runtime `add-marks` / `set-marks` path-list **union** (per [§Relationship with schema-attached marks](#relationship-with-schema-attached-marks)) — the same way [`reg-app-schema`'s per-slot props feed app-db elision](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) and union with `add-marks`. A path marked by either source is marked. A machine declaring `:data-schema [:map [:token {:sensitive? true} :string]]` therefore redacts `[:data :token]` in every `:rf.machine/transition` / `:rf.machine/snapshot-updated` trace with no runtime declaration required; adding `(rf/add-marks :rf/default {[:data :audit-trail] :large})` extends coverage to a slot the schema does not mention.
 
 ### 7. Flows — `reg-flow`
 
@@ -451,7 +465,7 @@ The two declaration sources **merge** at lookup time. The mark-lookup table the 
 
 Conflict between the two sources is resolved by union — if a path is declared sensitive by *either* source, the path is sensitive. There is no way for one source to *unmark* a path the other source marked; the only way to opt out of a propagated mark on a derived value is the `{:sensitive? false}` whole-output override on the deriving registration (sub or flow).
 
-**The recommendation.** Apps already running rich schemas may continue to use the per-slot `:sensitive?` / `:large?` metadata for `app-db` paths; the schema-attached form colocates the mark with the shape declaration. Apps without schemas, or apps whose schemas don't cover the marked surface, use `add-marks` / `set-marks`. Per-registration declarations (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-machine`, `reg-flow`) live at their respective registration sites regardless of schema coverage — schemas don't cover event-arg, fx-input, cofx-injection, or machine-data shapes anyway.
+**The recommendation.** Apps already running rich schemas may continue to use the per-slot `:sensitive?` / `:large?` metadata for `app-db` paths; the schema-attached form colocates the mark with the shape declaration. Apps without schemas, or apps whose schemas don't cover the marked surface, use `add-marks` / `set-marks`. Per-registration metadata declarations (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`) live at their respective registration sites regardless of schema coverage — schemas don't cover event-arg, fx-input, or cofx-injection shapes anyway. Machine `:data` is the schema-first case: it carries its marks on the `:data-schema`'s per-slot `:sensitive?` / `:large?` props (and, schema-less, on the runtime `add-marks` / `set-marks` snapshot path-list), never on a `reg-machine` metadata key.
 
 ## Reserved keys and namespaces
 
@@ -461,10 +475,10 @@ Per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-frame
 |---|---|---|
 | `:rf/redacted` | Sentinel keyword for sensitive content. Substituted at observation surfaces. | [§Display contract](#the-display-contract--sentinels) |
 | `:rf/large` | Sentinel keyword for large content; appears as the head of a `[:rf/large {:bytes N :head "..."}]` clause. | [§Display contract](#the-display-contract--sentinels) |
-| `:sensitive` | Optional key on every `reg-*` registration metadata map (per [001-Registration §Registration grammar](001-Registration.md#registration-grammar)). Value: vector of paths. | [§Seven first-class marking sites](#the-seven-first-class-marking-sites) |
-| `:large` | Symmetric to `:sensitive`. Optional key on every `reg-*` registration metadata map. Value: vector of paths. | [§Seven first-class marking sites](#the-seven-first-class-marking-sites) |
-| `:sensitive?` | Optional boolean key on `reg-sub` and `reg-flow` for whole-output override (per `{:sensitive? true/false}`). | [§3. Subscriptions](#3-subscriptions--reg-sub), [§7. Flows](#7-flows--reg-flow) |
-| `:large?` | Symmetric to `:sensitive?`. Optional boolean key on `reg-sub` and `reg-flow`. | [§3. Subscriptions](#3-subscriptions--reg-sub), [§7. Flows](#7-flows--reg-flow) |
+| `:sensitive` | Optional key on the `reg-event-{db,fx,ctx}` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow` registration metadata maps (per [001-Registration §Registration grammar](001-Registration.md#registration-grammar)). Value: vector of paths. NOT accepted by `reg-machine` (schema-first; see [§6](#6-state-machines--reg-machine)). | [§Seven first-class marking sites](#the-seven-first-class-marking-sites) |
+| `:large` | Symmetric to `:sensitive`. Optional key on the same registration metadata maps; NOT accepted by `reg-machine`. Value: vector of paths. | [§Seven first-class marking sites](#the-seven-first-class-marking-sites) |
+| `:sensitive?` | Whole-output override boolean (`{:sensitive? true/false}`) on `reg-sub` / `reg-flow`; also a per-slot Malli property on schema values passed to `reg-app-schema` and a machine's `:data-schema` (marks the carrying slot sensitive). | [§3. Subscriptions](#3-subscriptions--reg-sub), [§6. State machines](#6-state-machines--reg-machine), [§7. Flows](#7-flows--reg-flow) |
+| `:large?` | Symmetric to `:sensitive?`: whole-output override on `reg-sub` / `reg-flow`; per-slot Malli property on `reg-app-schema` / `:data-schema` values. | [§3. Subscriptions](#3-subscriptions--reg-sub), [§6. State machines](#6-state-machines--reg-machine), [§7. Flows](#7-flows--reg-flow) |
 | `add-marks` / `set-marks` | Two new registration kinds. Declare path-marks against an `app-db`, scoped to one frame. `add-marks` merges additively; `set-marks` replaces the frame mark-set wholesale. | [§2. App-db marks (per frame) — `add-marks` / `set-marks`](#2-app-db-marks-per-frame--add-marks--set-marks) |
 
 Apps MUST NOT use the sentinel keywords as legitimate payload values; doing so collides with the framework's substitution semantics and the observation surfaces will render the legitimate value as if it were a substituted sentinel.
@@ -550,7 +564,7 @@ Conformance fixtures under [conformance/](conformance/README.md) assert the obse
 | `data-classification/sub-explicit-opt-out-honoured.edn` | A `reg-sub` reading sensitive app-db data with `{:sensitive? false}` produces a `:rf.sub/run` trace event whose output is NOT marked (the value renders unredacted). |
 | `data-classification/combined-sensitive-and-large.edn` | A path declared in both `:sensitive` and `:large` (or marked by one source and inheriting from another) renders as `:rf/redacted {:bytes N}` — the combined sentinel form. |
 | `data-classification/cofx-empty-path-redacts-whole.edn` | A `reg-cofx` with `{:sensitive [[]]}` produces a trace event whose corresponding cofx-map slot renders `:rf/redacted` for the whole injected value. |
-| `data-classification/machine-data-sensitive-path-redacts-in-snapshot.edn` | A `reg-machine` with `:sensitive [[:data :jwt]]`, after a transition that writes a JWT into `:data`, produces an `:rf.machine/snapshot-updated` trace event whose `:tags :snapshot :data :jwt` slot renders `:rf/redacted`. |
+| `data-classification/machine-data-sensitive-path-redacts-in-snapshot.edn` | A `reg-machine` whose `:data-schema` marks the `:jwt` slot `{:sensitive? true}` (or a frame with `add-marks {[:data :jwt] :sensitive}`), after a transition that writes a JWT into `:data`, produces an `:rf.machine/snapshot-updated` trace event whose `:tags :snapshot :data :jwt` slot renders `:rf/redacted`. |
 | `data-classification/flow-output-inherits-from-input.edn` | A `reg-flow` whose `:inputs` include a sensitive app-db path produces a flow `:path` write whose value is marked sensitive in the **same** event's post-flow pending snapshot — the `:rf.event/db` slot on that event's `:rf.event/db-pending-post-flow` (t2) trace event. Flows transform the pending `:db` effect *before* the single deferred install, so the flow output rides the t2 snapshot of that one event (not a separate downstream event). |
 | `data-classification/set-marks-replaces-not-merges.edn` | A second `set-marks` call against the same frame *replaces* the previous declaration set (the previous set's paths no longer redact). |
 | `data-classification/add-marks-merges-not-replaces.edn` | A second `add-marks` call against the same frame MERGES into the previous declaration set (the previous set's paths still redact). |
@@ -562,7 +576,8 @@ Per-artefact unit tests cover the implementation-specific propagation mechanism 
 
 - [001-Registration §Registration grammar](001-Registration.md#registration-grammar) — the metadata-map shape this Spec extends with `:sensitive` / `:large` keys.
 - [002-Frames §Routing — the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope) — canonical home for the event-registration surface and the `[:event-id {arg-map}]` shape the event-handler path-marks index into.
-- [005-StateMachines §Snapshot shape](005-StateMachines.md#snapshot-shape) — the snapshot the `reg-machine` path-marks root at; the `:data` slot is the long-lived sensitive surface.
+- [005-StateMachines §Snapshot shape](005-StateMachines.md#snapshot-shape) — the snapshot machine `:data` marks (schema-attached `:sensitive?` / `:large?` props plus the runtime `add-marks` / `set-marks` path-list) root at; the `:data` slot is the long-lived sensitive surface.
+- [005-StateMachines §Privacy — redacting machine `:data` at trace egress](005-StateMachines.md#privacy--redacting-machine-data-at-trace-egress) — the canonical statement that `reg-machine` is two-arity and machine `:data` classification is schema-first.
 - [006-ReactiveSubstrate](006-ReactiveSubstrate.md) — the sub-cache dependency graph the propagation rule traverses to derive sub-output marks from app-db marks.
 - [009-Instrumentation §The trace event model](009-Instrumentation.md#the-trace-event-model) — the emit site every observation surface lifts from.
 - [009-Instrumentation §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces) — the existing trace-bus privacy posture this Spec generalises from whole-handler scope to per-path scope.
