@@ -591,7 +591,10 @@
   :print ...})`. The honest bundle setter (rf2-13meg): each key is
   optional, an absent key leaves the existing registration in place,
   and a nil `:print` coerces to the default EDN canonicaliser. The
-  one-call substitute-Malli boot pattern. Per Spec 010 §Non-Malli
+  one-call substitute-Malli boot pattern. Returns the installed bundle
+  as a map `{:validate ... :explain ... :print ...}` reflecting the live
+  state of all three fns after the call (rf2-qdtcx2) — or nil when the
+  schemas artefact is not on the classpath. Per Spec 010 §Non-Malli
   validators. Implementation ships in `day8/re-frame2-schemas`."}
   set-schema-fns!        rf-schemas/set-schema-fns!)
 
