@@ -304,6 +304,106 @@
             (trace-tooling/unregister-listener! k)
             (remove-root! host)))))))
 
+(deftest parseable-non-map-delta-fails-closed
+  (testing "rf2-l3paoi — a resolved chunk whose hydrate-delta `<script>` body
+            is PARSEABLE EDN but NOT a map (a vector / number / string —
+            a server/client wire-shape regression) must fail CLOSED: the
+            resolved HTML still swaps in (DOM progress), the delta is NOT
+            merged (app-db stays unchanged), the script is consumed (DOM left
+            script-free), AND a `:rf.ssr/suspense-boundary-failed`
+            `:skipped-delta` trace fires. Before the fix `read-string`
+            accepted the non-map, `merge-delta!`'s `(map? delta)` guard
+            silently no-op'd the merge, and the script was removed with NO
+            diagnostic — progressive hydration LOOKED successful in the DOM
+            while subscriptions read stale state."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      ;; Each bad delta is parseable EDN but the wrong shape. Empty-string
+      ;; / `nil` bodies are the legitimate no-delta shape (covered below),
+      ;; so they are NOT in this malformed set.
+      (doseq [bad-delta [[:not :a :map]
+                         42
+                         "a bare string"
+                         :a-keyword]]
+        (let [fid      (make-client-frame!)
+              host     (make-root! [:card.revenue])
+              captured (atom [])
+              k        (str (gensym "stream-nonmap-cb"))]
+          (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+          (try
+            (append-chunk!
+              host
+              (resolved-chunk-html :card.revenue
+                                   "<div class=\"card resolved-revenue\">Revenue</div>"
+                                   bad-delta))
+            (let [stop! (streaming-client/install! {:frame fid :root host})]
+              (try
+                ;; DOM still progresses — the resolved content swapped in.
+                (is (= 1 (card-count host "resolved-revenue"))
+                    (str (pr-str bad-delta)
+                         ": resolved HTML still swaps in (DOM progress)"))
+                (is (false? (boolean (showing-fallback? host :card.revenue)))
+                    (str (pr-str bad-delta) ": mount shows resolved content, not a skeleton"))
+                ;; app-db is UNCHANGED — the malformed delta was not merged.
+                (is (= {} (frame/frame-app-db-value fid))
+                    (str (pr-str bad-delta)
+                         ": app-db must stay unchanged (malformed delta NOT merged)"))
+                (is (nil? @(rf/subscribe fid [:sct/card :revenue]))
+                    (str (pr-str bad-delta) ": subscription reads no speculative state"))
+                ;; The script is consumed regardless of delta validity.
+                (is (zero? (count (array-seq (.querySelectorAll host "[data-rf2-suspense-hydrate]"))))
+                    (str (pr-str bad-delta) ": the delta script is dropped (DOM left script-free)"))
+                ;; The fail-closed diagnostic fires.
+                (let [skipped (filter #(and (= :rf.ssr/suspense-boundary-failed (:operation %))
+                                            (= :skipped-delta (:recovery %)))
+                                      @captured)]
+                  (is (seq skipped)
+                      (str (pr-str bad-delta)
+                           ": must emit :rf.ssr/suspense-boundary-failed :skipped-delta; saw: "
+                           (pr-str (mapv (juxt :operation :recovery) @captured)))))
+                (finally (stop!))))
+            (finally
+              (trace-tooling/unregister-listener! k)
+              (remove-root! host))))))))
+
+(deftest empty-delta-body-is-not-malformed
+  (testing "rf2-l3paoi — the fail-closed guard is PRECISE: an empty-map delta
+            body (`{}`) is a legitimate no-op delta (no app-db change), and a
+            VALID map delta still merges — neither emits the malformed
+            diagnostic. This pins that the non-map fail-closed branch does not
+            over-fire on the documented valid shapes."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (let [fid      (make-client-frame!)
+            host     (make-root! [:card.empty :card.full])
+            captured (atom [])
+            k        (str (gensym "stream-empty-cb"))]
+        (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+        (try
+          ;; (a) empty-map delta — valid no-op, no app-db change, no trace.
+          (append-chunk!
+            host
+            (resolved-chunk-html :card.empty
+                                 "<div class=\"card resolved-empty\">empty</div>"
+                                 {}))
+          ;; (b) valid map delta — merges normally.
+          (append-chunk!
+            host
+            (resolved-chunk-html :card.full
+                                 "<div class=\"card resolved-full\">full</div>"
+                                 {:cards {:full {:value 5}}}))
+          (let [stop! (streaming-client/install! {:frame fid :root host})]
+            (try
+              (is (= 1 (card-count host "resolved-empty")) "empty-delta chunk still swaps")
+              (is (= 5 (:value @(rf/subscribe fid [:sct/card :full]))) "valid delta merged")
+              (is (not-any? #(= :rf.ssr/suspense-boundary-failed (:operation %)) @captured)
+                  (str "valid + empty deltas must NOT emit the malformed diagnostic; saw: "
+                       (pr-str (mapv :operation @captured))))
+              (finally (stop!))))
+          (finally
+            (trace-tooling/unregister-listener! k)
+            (remove-root! host)))))))
+
 (deftest css-special-payload-id-does-not-throw
   (testing "rf2-58zvy1 finding 3 — a documented :payload-id override that is
             a VALID HTML id but carries CSS-selector-significant chars

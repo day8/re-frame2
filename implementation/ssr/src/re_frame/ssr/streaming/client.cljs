@@ -229,35 +229,83 @@
 
 ;; ---- chunk processing ------------------------------------------------------
 
+(defn- malformed-delta!
+  "Emit the `:rf.ssr/suspense-boundary-failed` / `:skipped-delta` trace for
+  a delta `<script>` whose body did not yield a usable delta-map — EITHER a
+  reader exception (unparseable EDN) OR a parseable-but-non-map value (a
+  vector, number, string, …). Factored out so both fail-CLOSED branches emit
+  the SAME catalogued event (Spec 009 §Error event catalogue —
+  `:rf.ssr/suspense-boundary-failed`, `:recovery :skipped-delta`). `extra` is
+  merged in to carry the branch-specific field (`:exception` for the reader
+  throw, `:malformed-value-type` for a non-map parse)."
+  [frame-id id-str reason extra]
+  (trace/emit-error! :rf.ssr/suspense-boundary-failed
+                     (merge {:id       (read-boundary-id id-str)
+                             :frame    frame-id
+                             :where    'rf.ssr/streaming-client
+                             :reason   reason
+                             :recovery :skipped-delta}
+                            extra)))
+
+(defn- read-delta
+  "Parse a delta `<script>`'s bare delta-map EDN body, failing CLOSED on any
+  shape that is NOT a usable delta-map. Returns the parsed map when the body
+  is a (possibly empty) map, else nil — and emits the malformed-delta trace
+  for the two fail-OPEN classes a silent drop would otherwise hide:
+
+    - a reader EXCEPTION (the body is not parseable EDN), and
+    - a PARSEABLE-but-non-map value (`[…]`, `42`, `\"x\"`, `:k`) — a
+      server/client wire-shape regression that `read-string` accepts but
+      which `merge-delta!`'s `(map? delta)` guard would silently no-op,
+      swapping the resolved HTML + removing the script while leaving app-db
+      stale and emitting NO diagnostic (rf2-l3paoi).
+
+  A nil parse (an empty / whitespace-only body) is the documented no-delta
+  shape — NOT malformed — and returns nil without a trace, matching the
+  prior `(when delta …)` no-op. The bare delta-map EDN body is the shipped
+  wire contract (Spec 011 §Hydration interleaving — \"the per-subtree delta
+  is shipped as the bare delta-map EDN\"); anything else is the bug."
+  [frame-id id-str body]
+  (let [parsed (try
+                 (reader/read-string body)
+                 (catch :default e
+                   (malformed-delta! frame-id id-str
+                                     (str "Malformed hydration-delta EDN for boundary " id-str)
+                                     {:exception (ex-message e)})
+                   ::skip))]
+    (cond
+      (= ::skip parsed) nil
+      (nil? parsed)     nil                              ;; no-delta body — not malformed
+      (map? parsed)     parsed
+      :else
+      (do
+        (malformed-delta! frame-id id-str
+                          (str "Hydration-delta EDN for boundary " id-str
+                               " parsed to a non-map (got " (pr-str (type parsed))
+                               "); skipped — the delta-map wire contract was violated")
+                          {:malformed-value-type (pr-str (type parsed))})
+        nil))))
+
 (defn- apply-delta-script!
   "Find the `data-rf2-suspense-hydrate` delta `<script>` for `id-str`,
   read its bare delta-map EDN, merge it into `frame-id`'s app-db, and
   drop the script node. The server emits the delta `<script>`
   immediately after the resolved `<template>`, but DOM order after our
   swap is not guaranteed, so we match by id attribute rather than
-  sibling position. A malformed delta is skipped with a trace — a bad
-  speculative chunk must not break hydration (the final payload is the
-  correctness lock)."
+  sibling position. A malformed delta (unparseable EDN, or parseable but
+  non-map) is skipped with a trace — a bad speculative chunk must not
+  break hydration (the final payload is the correctness lock), but it must
+  also not silently pass for a successful hydration (rf2-l3paoi)."
   [root frame-id id-str]
   (when-let [script (->> (query-by-attr root attr-suspense-hydrate)
                          (filter #(= id-str (.getAttribute % attr-suspense-hydrate)))
                          first)]
-    (let [delta (try
-                  (reader/read-string (.-textContent script))
-                  (catch :default e
-                    (trace/emit-error! :rf.ssr/suspense-boundary-failed
-                                       {:id        (read-boundary-id id-str)
-                                        :frame     frame-id
-                                        :where     'rf.ssr/streaming-client
-                                        :reason    (str "Malformed hydration-delta EDN for boundary " id-str)
-                                        :exception (ex-message e)
-                                        :recovery  :skipped-delta})
-                    nil))]
-      (when delta (merge-delta! frame-id delta))
-      ;; The delta is consumed; drop the script node so the DOM is left
-      ;; in its final, script-free shape.
-      (when-let [sp (.-parentNode script)]
-        (.removeChild sp script)))))
+    (when-let [delta (read-delta frame-id id-str (.-textContent script))]
+      (merge-delta! frame-id delta))
+    ;; The delta is consumed (or skipped); drop the script node so the DOM
+    ;; is left in its final, script-free shape regardless of delta validity.
+    (when-let [sp (.-parentNode script)]
+      (.removeChild sp script))))
 
 (defn- process-resolved-template!
   "Process one resolved-subtree `<template>` (carrying
