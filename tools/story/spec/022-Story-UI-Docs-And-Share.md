@@ -215,11 +215,17 @@ Share semantics:
   slot, not just overrides (rf2-fkmnh): once URL hydration is in play
   (`apply-parsed-to-state` runs on a populated mount or any popstate), an
   omitted `modes=` clears `:active-modes` to `[]`, an omitted `tag-filter=`
-  clears `:tag-filter` to `#{}`, and an omitted (or present-but-invalid)
+  clears `:tag-filter` to `#{}`, an omitted (or present-but-invalid)
   `viewport=`/`background=` clears the slot to its neutral default (`:full`
-  / no background). A no-query popstate (back/forward to a bare URL) likewise
-  clears the URL-owned selection / modes / framing / filter rather than
-  no-op'ing. So a share link like `?variant=story.counter/loaded` restores
+  / no background), and an omitted (or present-but-unregistered) `substrate=`
+  clears `:substrate` to the `:reagent` default (rf2-dxz4sg). The substrate is
+  the one slot whose default is itself the omission token — `build-params`
+  emits `substrate=` only for a non-default substrate — so an omitted param
+  carries the SAME default-restore meaning as the other URL-owned slots and is
+  validated against the live substrate registry. A no-query popstate
+  (back/forward to a bare URL) likewise clears the URL-owned selection / modes
+  / framing / filter / substrate rather than no-op'ing. So a share link like
+  `?variant=story.counter/loaded` restores
   the DEFAULT view for the recipient instead of keeping their prior
   localStorage-seeded chrome — the address bar is the source of truth for the
   full share surface. The intentional localStorage fallback survives ONLY for
