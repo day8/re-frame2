@@ -561,43 +561,77 @@
                   (warn-large-unschema'd! (:frame-id ctx) path bytes))))))
         v))))
 
+(defn- elide-against-frame
+  "Inner walk for `elide-wire-value` against a KNOWN carried frame.
+  `frame-id` is the resolved frame whose elision registry supplies the
+  sensitive / large declaration tables. Pure walk — no frame resolution
+  happens here (the caller has already resolved + validated the stamp)."
+  [v opts frame-id]
+  (let [reg       (registry-of frame-id)
+        ;; Precedence (API.md L507): explicit opt > configured > default.
+        threshold (let [opt (:rf.size/threshold-bytes opts)]
+                    (if (some? opt) opt (configured-threshold-bytes)))
+        large     (or (:declarations reg) {})
+        sensitive (or (:sensitive-declarations reg) {})
+        ctx       {:frame-id           frame-id
+                   :large              large
+                   :sensitive          sensitive
+                   ;; Prefix set of every declared path — bounds the forked
+                   ;; candidate decl-path set as the walker descends maps
+                   ;; (rf2-wm9kp). Empty when nothing is declared ⇒ the fork
+                   ;; prunes to {} immediately and the walker is identity.
+                   :decl-prefixes      (decl-prefix-set {:large large :sensitive sensitive})
+                   :include-large?     (true? (:rf.size/include-large? opts))
+                   :include-sensitive? (true? (:rf.size/include-sensitive? opts))
+                   :include-digests?   (true? (:rf.size/include-digests? opts))
+                   :threshold-bytes    threshold
+                   :as-of-epoch        (:as-of-epoch opts)}
+        seed-path (vec (:path opts))]
+    ;; Seed the candidate declaration-coordinate set with the offset path
+    ;; (`#{[]}` for the common no-offset call). The walk forks/prunes it
+    ;; against `:decl-prefixes` on every map-key descent.
+    (walk v seed-path #{seed-path} ctx)))
+
 (defn elide-wire-value
   "Walk `v` and substitute schema-declared sensitive or large paths for
   wire egress. Sensitive wins over large when both declarations match.
 
-  EP-0002 scope boundary: the `(or … :rf/default)` floor below is the
-  OPERATION-TIME wire-egress projection path, owned by the trace/elision
-  projection bead (rf2-gjq3ow), which makes frameless egress FAIL CLOSED
-  (redact conservatively / refuse) rather than borrow `:rf/default` marks.
-  It is intentionally NOT migrated here — this bead (rf2-5q7um6) covers the
-  REGISTRATION-time surfaces only."
+  EP-0002 (rf2-gjq3ow) — the wire-egress frame resolves from the CARRIED
+  stamp: the explicit `:frame` opt (*override*) wins, else the in-effect
+  carried-invariant scope (`frame/resolve-current-frame` — a `with-frame`
+  binding or an enclosing frame-provider). There is NO `:rf/default` floor:
+  a frame's elision policy may be applied only when that frame is KNOWN
+  (Spec 002 §Frame target resolution; EP-0002 §Trace, Projection, And
+  Elision / §Privacy And Egress).
+
+  Frameless egress FAILS CLOSED. When no frame is carried, the per-frame
+  elision registry is unreachable, so a permissive identity walk would ship
+  every value verbatim under NO policy — the silent leak this contract
+  exists to abolish. Rather than borrow another frame's marks, the whole
+  value is conservatively redacted to the `:rf/redacted` sentinel.
+  `:rf.size/include-sensitive? true` is the deliberate opt-out: a caller
+  that has explicitly waived sensitive redaction gets the value walked with
+  an empty policy (the identity transform), so an inspector that genuinely
+  wants the raw, policy-free value asks for it on purpose."
   ([v] (elide-wire-value v nil))
   ([v opts]
-   (let [frame-id  (or (:frame opts) (frame/current-frame) :rf/default)
-         reg       (registry-of frame-id)
-         ;; Precedence (API.md L507): explicit opt > configured > default.
-         threshold (let [opt (:rf.size/threshold-bytes opts)]
-                     (if (some? opt) opt (configured-threshold-bytes)))
-         large     (or (:declarations reg) {})
-         sensitive (or (:sensitive-declarations reg) {})
-         ctx       {:frame-id           frame-id
-                    :large              large
-                    :sensitive          sensitive
-                    ;; Prefix set of every declared path — bounds the forked
-                    ;; candidate decl-path set as the walker descends maps
-                    ;; (rf2-wm9kp). Empty when nothing is declared ⇒ the fork
-                    ;; prunes to {} immediately and the walker is identity.
-                    :decl-prefixes      (decl-prefix-set {:large large :sensitive sensitive})
-                    :include-large?     (true? (:rf.size/include-large? opts))
-                    :include-sensitive? (true? (:rf.size/include-sensitive? opts))
-                    :include-digests?   (true? (:rf.size/include-digests? opts))
-                    :threshold-bytes    threshold
-                    :as-of-epoch        (:as-of-epoch opts)}
-         seed-path (vec (:path opts))]
-     ;; Seed the candidate declaration-coordinate set with the offset path
-     ;; (`#{[]}` for the common no-offset call). The walk forks/prunes it
-     ;; against `:decl-prefixes` on every map-key descent.
-     (walk v seed-path #{seed-path} ctx))))
+   (let [frame-id (or (:frame opts) (frame/resolve-current-frame))]
+     (cond
+       ;; Known carried frame ⇒ apply that frame's elision policy.
+       (some? frame-id)
+       (elide-against-frame v opts frame-id)
+
+       ;; Frameless + the caller waived sensitive redaction ⇒ identity
+       ;; walk against an empty (no-frame) policy. The walker is the
+       ;; identity transform when no declarations are reachable.
+       (true? (:rf.size/include-sensitive? opts))
+       (elide-against-frame v opts ::no-frame)
+
+       ;; Frameless egress, no opt-out ⇒ fail closed: no policy is
+       ;; available, so conservatively redact the whole value rather than
+       ;; borrow another frame's marks.
+       :else
+       privacy/redacted-sentinel))))
 
 (defn marker?
   [v]

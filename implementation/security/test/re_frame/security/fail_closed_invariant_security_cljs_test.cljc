@@ -64,6 +64,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             ;; Publishes the Malli late-bind validate/explain hooks; without
             ;; it the default validator soft-passes and a malformed schema
             ;; never throws (so there is nothing to fail-closed against).
@@ -77,9 +78,25 @@
 
 ;; Reset per-test so app-schema registrations / validator overrides don't
 ;; bleed across cases.
+;;
+;; EP-0002 (rf2-gjq3ow): `reg-app-schema` is context-required frame-local
+;; (no `:rf/default` floor). The adapter-less reset fixture establishes no
+;; ambient scope, so the outer fixture below pins `:rf/default` as the
+;; carried scope for the test body — the carried-invariant equivalent of
+;; `(with-frame :rf/default …)`. Without it the BOUNDARY 1
+;; `app-db-validation-never-passes-a-malformed-schema` case raises
+;; `:rf.error/no-frame-context` at `reg-app-schema`. (The BOUNDARY 3
+;; hydration cases already pass an explicit `{:frame :rf/default}` to the
+;; pure handler, so they carry their own stamp.) Binding the dynamic var is
+;; sufficient: the scope reader reads the var and `reg-app-schema` keys only
+;; the schemas side-table — no registered frame / container needed (so no
+;; adapter, and not `ensure-default-frame!`, which would require one).
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:clear-app-schemas? true}))
+    {:clear-app-schemas? true})
+  (fn [test-fn]
+    (binding [frame/*current-frame* :rf/default]
+      (test-fn))))
 
 ;; ---------------------------------------------------------------------------
 ;; Trace capture — register a listener, run `f`, return the captured events.

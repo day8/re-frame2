@@ -815,23 +815,12 @@
             redacted (redact-with-paths (:rf.cofx/value tags) sens large)]
         (assoc tags :rf.cofx/value redacted)))))
 
-(defn- project-sub-tags
-  "Walk `:sub/run` tag shape: `:sub-id` carries the sub query keyword
-  and `:value` carries the output. Per rf2-l1jz8 the reactive recompute
-  also stamps a `:prev-value` (the prior computed value) for value-change
-  attribution — it is the SAME sub's output as `:value`, one recompute
-  earlier, so it gets the IDENTICAL redaction treatment. Marks come from
-  the sub's registration's per-output-path declarations, and the
-  propagation table sets a whole-output `:sensitive? true` stamp.
-
-  Both value slots are redacted from process-scoped marks only — this
-  fn reads NO reactive container (it runs inside the sub's reaction
-  compute via `trace/build-event`; a container deref here would register
-  a spurious app-db dependency and break glitch-free layering)."
-  [tags frame-id]
-  (let [sub-id (:rf.sub/id tags)
-        marks  (sub-marks sub-id)
-        prop-s? (sub-output-sensitive? frame-id sub-id)
+(defn- project-sub-tags*
+  "Inner projection for `project-sub-tags` against a KNOWN carried frame.
+  Reads the per-frame whole-output sensitive/large propagation table plus
+  the sub's process-scoped per-registration marks."
+  [tags frame-id sub-id marks]
+  (let [prop-s? (sub-output-sensitive? frame-id sub-id)
         prop-l? (sub-output-large? frame-id sub-id)
         ;; Redact `:rf.sub/prev-value` with the same rule as
         ;; `:rf.sub/value`, but ONLY when the slot is present (the pure
@@ -856,6 +845,37 @@
         (cond-> (assoc tags :rf.sub/value redacted)
           has-prev? (assoc :rf.sub/prev-value (redact-with-paths (:rf.sub/prev-value tags) sens large))
           prop-l?   (assoc :large? true))))))
+
+(defn- project-sub-tags
+  "Walk `:sub/run` tag shape: `:sub-id` carries the sub query keyword
+  and `:value` carries the output. Per rf2-l1jz8 the reactive recompute
+  also stamps a `:prev-value` (the prior computed value) for value-change
+  attribution — it is the SAME sub's output as `:value`, one recompute
+  earlier, so it gets the IDENTICAL redaction treatment. Marks come from
+  the sub's registration's per-output-path declarations, and the
+  propagation table sets a whole-output `:sensitive? true` stamp.
+
+  Both value slots are redacted from process-scoped marks only — this
+  fn reads NO reactive container (it runs inside the sub's reaction
+  compute via `trace/build-event`; a container deref here would register
+  a spurious app-db dependency and break glitch-free layering).
+
+  EP-0002 (rf2-gjq3ow) — FAIL CLOSED on a nil `frame-id`: subs are
+  frame-scoped, so a sub trace with no carried frame is malformed. The
+  whole-output sensitive/large propagation table is keyed by frame and
+  cannot be consulted without one, so we cannot prove the output is safe to
+  ship — `:rf.sub/value` (and `:rf.sub/prev-value` when present) are
+  conservatively redacted to `:rf/redacted` and the event stamped
+  `:sensitive? true`, rather than borrow a default frame's propagation
+  state."
+  [tags frame-id]
+  (let [sub-id     (:rf.sub/id tags)
+        marks      (sub-marks sub-id)
+        has-prev?  (contains? tags :rf.sub/prev-value)]
+    (if (nil? frame-id)
+      (cond-> (assoc tags :rf.sub/value privacy/redacted-sentinel :sensitive? true)
+        has-prev? (assoc :rf.sub/prev-value privacy/redacted-sentinel))
+      (project-sub-tags* tags frame-id sub-id marks))))
 
 (defn- frame-has-declarations?
   "True when `frame-id` carries any schema- or marks-sourced elision
@@ -884,12 +904,29 @@
   Gated on `frame-has-declarations?` so a frame with no marks keeps the
   reference-identity the `:rf.event/db` stamp promises (rf2-ta0y7's
   pointer-sized, copy-free posture) — the walker rebuilds maps, so we
-  must not invoke it when there is nothing to elide."
+  must not invoke it when there is nothing to elide.
+
+  EP-0002 (rf2-gjq3ow) — FAIL CLOSED on a nil `frame-id`: a `:rf.event/db`
+  full-db stamp with no carried frame cannot be elided against any frame's
+  policy, so the whole slot is conservatively redacted to the `:rf/redacted`
+  sentinel rather than shipped verbatim. A frameless db-stamp is either
+  malformed or a boundary the per-frame registry cannot reach — either way
+  the value must not leak. The redaction is direct (not via
+  `elide-wire-value`) so it cannot re-resolve to an ambient scope and
+  borrow that frame's marks — frameless means frameless."
   [tags frame-id]
-  (if (and (contains? tags :rf.event/db)
-           (frame-has-declarations? frame-id))
+  (cond
+    (not (contains? tags :rf.event/db))
+    tags
+
+    (nil? frame-id)
+    (assoc tags :rf.event/db privacy/redacted-sentinel)
+
+    (frame-has-declarations? frame-id)
     (assoc tags :rf.event/db
            (elision/elide-wire-value (:rf.event/db tags) {:frame frame-id}))
+
+    :else
     tags))
 
 (defn- project-view-rendered-tags
@@ -913,13 +950,29 @@
 
   Gated on `frame-has-declarations?` so a frame with no marks keeps the
   args reference-identity untouched (the walker rebuilds collections, so
-  we must not invoke it when there is nothing to elide)."
+  we must not invoke it when there is nothing to elide).
+
+  EP-0002 (rf2-gjq3ow) — FAIL CLOSED on a nil `frame-id`: render args with
+  no carried frame cannot be elided against any frame's policy, so EACH
+  positional arg is conservatively redacted to the `:rf/redacted` sentinel
+  rather than shipped verbatim — frameless means frameless, never a
+  borrowed default frame's marks."
   [tags frame-id]
-  (if (and (contains? tags :rf.view/render-args)
-           (frame-has-declarations? frame-id))
+  (cond
+    (not (contains? tags :rf.view/render-args))
+    tags
+
+    (nil? frame-id)
+    (assoc tags :rf.view/render-args
+           (mapv (constantly privacy/redacted-sentinel)
+                 (:rf.view/render-args tags)))
+
+    (frame-has-declarations? frame-id)
     (assoc tags :rf.view/render-args
            (mapv #(elision/elide-wire-value % {:frame frame-id})
                  (:rf.view/render-args tags)))
+
+    :else
     tags))
 
 (defn- strip-data-prefix
@@ -1065,14 +1118,26 @@
   production builds elide before this fn is reached.
 
   Frame resolution comes off `:tags :frame` — every trace shape that
-  carries handler-scope-derived data also carries `:frame` because
-  the in-scope handler binds it through the router."
+  carries handler-scope-derived data also carries `:frame` because the
+  in-scope handler binds it through the router.
+
+  EP-0002 (rf2-gjq3ow) — the carried frame is read straight off `:tags
+  :frame`; there is NO `:rf/default` floor. A trace event attributes to the
+  frame it CARRIES, never to a synthesised default. The process-scoped
+  per-registration projections (event / fx / cofx / machine marks, keyed by
+  `(kind id)`) apply regardless — they need no frame. The frame-QUALIFIED
+  projections (`project-db-tags` / `project-view-rendered-tags` /
+  `project-sub-tags`, which consult the per-frame elision registry and
+  sub-output propagation table) receive that carried `frame-id`; when it is
+  nil — a genuinely frameless boot/registration emit, or a malformed event
+  that should have carried a stamp — those projections FAIL CLOSED rather
+  than borrow another frame's marks (see each fn)."
   [event]
   (if-not (map? event)
     event
     (let [operation (:operation event)
           tags      (:tags event)
-          frame-id  (or (:frame tags) :rf/default)
+          frame-id  (:frame tags)
           tags'     (cond-> tags
                       (and (map? tags) (contains? tags :rf.event/v))
                       (project-event-tags :rf.event/v)
