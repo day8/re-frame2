@@ -188,6 +188,19 @@
            reverse))))
 
 ;; ============================================================================
+;; ──────────────────────────  SUBSTRATE BOUNDARY  ──────────────────────────
+;; ============================================================================
+;;
+;; Everything above is the substrate-agnostic artefact layer: seed data,
+;; events (the tick loop), and the signal-graph subs. None of it mentions
+;; Helix. Below this divider is the only substrate-specific code: the `defnc`
+;; views + the mount. Unlike the counter/login pair, this design-led example
+;; is NOT a cross-substrate parity twin — its dataflow is its own (the Reagent
+;; notebook + UIx dashboard are different apps, not the same dataflow through a
+;; different substrate). The boundary it teaches is still the same: app-db +
+;; events + subs sit above, the substrate's view idiom sits below.
+
+;; ============================================================================
 ;; VIEWS (Helix — defnc)
 ;; ============================================================================
 
