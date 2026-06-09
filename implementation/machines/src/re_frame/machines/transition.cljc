@@ -1863,7 +1863,7 @@
   (Option A revised): nodes being EXITED with `:spawn` emit
   `:rf.machine/destroy` carrying `{:rf/parent-id ... :rf/spawn-id ...}`
   so the destroy-machine fx handler resolves the live actor id from the
-  runtime-owned `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot in app-db.
+  runtime-owned `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot in runtime-db.
 
   Per Spec 005 §Spawn-and-join via `:spawn-all` (rf2-6vmw): on exit, tear
   down EVERY child the parent spawned plus the join-state slot. The
@@ -2006,7 +2006,7 @@
    1. Allocate one spawned-id per child up-front (thread the snapshot's
       counter through children in declaration order).
    2. Build the join-state seed map and the `:rf.machine/spawn-all-init`
-      fx that seeds `[:rf.runtime/machines :spawned <parent> <invoke-id>]` in app-db.
+      fx that seeds `[:rf.runtime/machines :spawned <parent> <invoke-id>]` in runtime-db.
    3. For each child, delegate to `spawn-one` to materialise `:data` and
       build its `:rf.machine/spawn` fx (short-circuits on the first
       child's `:data` failure).

@@ -240,7 +240,7 @@
   (let [;; Per rf2-gr8q: prefer the pre-allocated id (declarative :spawn
         ;; routes through the transition reducer which bumps the parent
         ;; snapshot's `:rf/spawn-counter`). Hand-emitted spawn fxs carry
-        ;; no pre-allocated id; the frame's app-db spawn-counter slot
+        ;; no pre-allocated id; the frame's runtime-db spawn-counter slot
         ;; at `[:rf.runtime/machines :spawn-counter]` (rf2-owvvr) serves
         ;; as the fallback allocator, bumped inside the same db-swap as
         ;; the snapshot install / registry bind below.
