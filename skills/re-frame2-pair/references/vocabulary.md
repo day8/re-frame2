@@ -165,11 +165,13 @@ with a separate gate:
   wire-boundary elision. Reserve raw eval for forensics / cross-
   referencing / recovery, and only pour raw state into an eval when the
   user / operator explicitly asks for the unmasked value.
-- The same carve-out applies to the dedicated state-injection /
-  time-travel eval forms (`app-db-reset!`, `rf/restore-epoch`): they are
-  the default-reachable write path because eval is default-ON (the
-  `--allow-writes`-gated `replace-app-db` / `restore-epoch` tools are the
-  audited alternative).
+- The same carve-out applies to the state-injection / time-travel **eval
+  forms** (`app-db-reset!`, `rf/restore-epoch`): they are un-elided and
+  un-gated because eval is default-ON. For a *named* write, prefer the
+  dedicated `--allow-writes`-gated tools (`replace-app-db` /
+  `restore-epoch`) — they are the canonical, audited path; the eval forms
+  are the backstop for a gate-OFF server (see §Time-travel writes in
+  SKILL.md).
 
 ### Asking for the unmasked view
 
@@ -248,9 +250,12 @@ opt-in under the same flag name.
   state-mutating tools `restore-epoch` (time-travel undo) and
   `replace-app-db` (state injection). Default **OFF**; without it both
   return `{:ok? false :reason :rf.error/writes-disabled}` without
-  touching the runtime. This is why the dedicated write tools sit
-  outside the skill's 26-of-28 `allowed-tools:` set and the eval forms
-  are the default-reachable write path (eval-cljs is default-ON). See
-  [mcp-transport.md](mcp-transport.md) §MCP tool reference.
+  touching the runtime. Both tools ARE allow-listed by the skill (all 28
+  server tools are reachable) and are the canonical named-write path —
+  the **server's gate, not the allow-list**, is the write-authority
+  boundary, so allow-listing them is safe. The eval forms
+  (`(rf/restore-epoch …)` / `app-db-reset!`) are the backstop for a
+  gate-OFF server, since eval-cljs is default-ON and sits outside this
+  gate. See [mcp-transport.md](mcp-transport.md) §MCP tool reference.
 - story-mcp `--allow-sensitive-reads` — the parallel story-side gate
   under the same CLI flag name.
