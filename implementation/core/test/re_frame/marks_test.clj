@@ -30,7 +30,18 @@
   (marks/clear-sub-output-marks!)
   (elision/clear-warning-cache!)
   (rf/init! plain-atom/adapter)
-  (test-fn))
+  ;; EP-0002 (rf2-gjq3ow): `init!` no longer synthesises `:rf/default`, and
+  ;; the marks / elision surfaces are frame-scoped — `add-marks` /
+  ;; `set-marks` write into a frame's runtime-db elision slot (a no-op on an
+  ;; unregistered frame), and the zero-arity `elide-wire-value` /
+  ;; `project-trace-event` projections resolve the carried scope (failing
+  ;; closed under none). Register `:rf/default` (so the explicit-frame calls
+  ;; have a container) and pin it as the ambient scope (so the zero-arity
+  ;; projection calls carry a stamp) — the carried-invariant equivalent of
+  ;; wrapping the body in `(with-frame :rf/default …)`.
+  (frame/ensure-default-frame!)
+  (binding [frame/*current-frame* :rf/default]
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
