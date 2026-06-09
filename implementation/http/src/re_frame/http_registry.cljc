@@ -143,9 +143,47 @@
       (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn clear-all-in-flight!
-  "Test-time helper: drop the in-flight registry. Test fixtures use this
-  between runs."
+  "Test-time helper: cancel every in-flight managed request, then drop the
+  registry. Test fixtures use this between runs.
+
+  rf2-adcmk8 — symmetric with `:machines/reset-timers!` (0-arity): a
+  request sleeping in a `schedule-backoff-handle!` retry window holds an
+  armed `js/setTimeout` / `ScheduledFuture` backoff timer that would
+  otherwise outlive the synchronous test, fire `run-attempt!`, and
+  dispatch into a runtime the next test owns. Firing each handle's
+  `:abort-fn` runs the once-only cancel cascade (`interop/clear-timeout!`
+  / `AbortController.abort` → `clear-in-flight!`), releasing the host-
+  clock handle so no timer is left armed. Each abort-fn also clears its
+  own slot from both indexes; the trailing `reset!`s mop up any handle
+  that was unindexed or that an abort-fn left behind, and guarantee a
+  clean registry regardless.
+
+  Walk BOTH indexes: an anonymous-from-actor request (request-id nil) is
+  indexed only in `actor-in-flight`, so iterating `in-flight` alone would
+  miss its armed timer. Dedupe by identity (the same stamped handle sits
+  in both indexes when it carries request-id + actor-id) so each abort-fn
+  fires once — the once-only CAS inside the abort-fn already makes a
+  double-fire a harmless no-op, but the dedupe keeps the work minimal.
+
+  Snapshot the handles before firing so an abort-fn's own
+  `swap!`/`clear-in-flight!` cannot trip a concurrent-modification on the
+  iteration. Each abort-fn is fired defensively — a throwing one must not
+  strand the remaining handles or leave the registry undropped. The abort
+  reason `:test-reset` marks these as fixture-teardown cancellations
+  rather than real runtime aborts."
   []
+  (let [handles (->> (concat (vals @in-flight)
+                             (mapcat val @actor-in-flight))
+                     (reduce (fn [acc h]
+                               (if (some #(identical? % h) acc)
+                                 acc
+                                 (conj acc h)))
+                             []))]
+    (doseq [handle handles]
+      (when-let [abort-fn (:abort-fn handle)]
+        (try
+          (abort-fn :test-reset)
+          (catch #?(:clj Throwable :cljs :default) _ nil)))))
   (reset! in-flight {})
   (reset! actor-in-flight {})
   nil)
