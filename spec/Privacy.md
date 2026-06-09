@@ -57,8 +57,8 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 | `sensitive?` | predicate | `(rf/sensitive? trace-event)` → bool. True iff the event carries `:sensitive? true` at the top level. The framework-published predicate every forwarder composes against. | [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) |
 | `elide-wire-value` | walker | `(rf/elide-wire-value v opts)` → walked `v`. The **single normative emission site** for `:rf/redacted` + `:rf.size/large-elided`. Consumed by every off-box egress. | [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
 | `elision-declarations` | reader | `(rf/elision-declarations frame-id)` → schema-derived `:large?` declarations for the frame. Pair-tool / introspection. | [API.md](API.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
-| `populate-elision-from-schemas!` | boot hydrator | Walks the frame's app-schemas and writes `{:large? true :source :schema}` declarations into `[:rf/runtime :elision :declarations]`. Idempotent. No-op when schemas artefact absent. | [API.md](API.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
-| `populate-sensitive-from-schemas!` | boot hydrator | Symmetric — writes `:sensitive?` slot meta into `[:rf/runtime :elision :sensitive-declarations]`. | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) |
+| `populate-elision-from-schemas!` | boot hydrator | Walks the frame's app-schemas and writes `{:large? true :source :schema}` declarations into the runtime-db `[:rf.runtime/elision :declarations]` registry. Idempotent. No-op when schemas artefact absent. | [API.md](API.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
+| `populate-sensitive-from-schemas!` | boot hydrator | Symmetric — writes `:sensitive?` slot meta into the runtime-db `[:rf.runtime/elision :sensitive-declarations]` registry. | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) |
 | `(configure! :elision ...)` | runtime config | `{:rf.size/threshold-bytes N}` — wire-elision size cap. Default `16384`. | [API.md §Configure keys](API.md) |
 
 ### `re-frame.http`
@@ -81,8 +81,8 @@ Schema-attached marks. Apps that already register rich app-schemas via `rf/reg-a
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `:sensitive? true` | schema slot prop | Per-slot Malli property `{:sensitive? true}` on an app-schema slot. Boot-time `populate-sensitive-from-schemas!` walks every registered schema and writes the slot's path into `[:rf/runtime :elision :sensitive-declarations]`. Schema-validation error traces also consult the prop (`:value` / `:received` / `:explain` / `:rf.fx/args` / `:rf.sub/query-v` redaction). | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) |
-| `:large? true` | schema slot prop | Symmetric — boot-time `populate-elision-from-schemas!` writes the slot's path into `[:rf/runtime :elision :declarations]`. The wire-elision walker substitutes `:rf.size/large-elided` for matching slots at off-box egress. | [010 §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) |
+| `:sensitive? true` | schema slot prop | Per-slot Malli property `{:sensitive? true}` on an app-schema slot. Boot-time `populate-sensitive-from-schemas!` walks every registered schema and writes the slot's path into the runtime-db `[:rf.runtime/elision :sensitive-declarations]` registry. Schema-validation error traces also consult the prop (`:value` / `:received` / `:explain` / `:rf.fx/args` / `:rf.sub/query-v` redaction). | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) |
+| `:large? true` | schema slot prop | Symmetric — boot-time `populate-elision-from-schemas!` writes the slot's path into the runtime-db `[:rf.runtime/elision :declarations]` registry. The wire-elision walker substitutes `:rf.size/large-elided` for matching slots at off-box egress. | [010 §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) |
 
 ### `re-frame.epoch`
 
@@ -115,8 +115,8 @@ Same surfaces, regrouped by **where the author declares the mark**. This is the 
 
 ### Schema-attached (boot-time hydration)
 
-- `{:sensitive? true}` on an app-schema slot → `populate-sensitive-from-schemas!` → `[:rf/runtime :elision :sensitive-declarations]` at boot
-- `{:large? true}` on an app-schema slot → `populate-elision-from-schemas!` → `[:rf/runtime :elision :declarations]` at boot
+- `{:sensitive? true}` on an app-schema slot → `populate-sensitive-from-schemas!` → runtime-db `[:rf.runtime/elision :sensitive-declarations]` at boot
+- `{:large? true}` on an app-schema slot → `populate-elision-from-schemas!` → runtime-db `[:rf.runtime/elision :declarations]` at boot
 
 The two hydrators are idempotent and no-op when the schemas artefact is absent. Schema-derived entries carry `:source :schema` so they survive an `add-marks` / `set-marks` re-call (per [015 §Relationship with schema-attached marks](015-Data-Classification.md#relationship-with-schema-attached-marks)).
 
@@ -138,7 +138,7 @@ Every `reg-*` accepts `:sensitive` / `:large` (vectors of paths) plus, for subs 
 - `(rf/add-marks frame-id {path mark, ...})` — frame-scoped, additively merges into the frame's existing mark-set.
 - `(rf/set-marks frame-id {path mark, ...})` — frame-scoped, wholesale replaces the frame's mark-set.
 
-Both write through `[:rf/runtime :elision :sensitive-declarations]` + `[:rf/runtime :elision :declarations]` keyed by absolute path with `:source :marks` (so they survive schema re-hydration; schema-sourced entries survive an `add-marks` / `set-marks` re-call). Per [015 §2](015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks).
+Both write through the runtime-db `[:rf.runtime/elision :sensitive-declarations]` + `[:rf.runtime/elision :declarations]` registry keyed by absolute path with `:source :marks` (so they survive schema re-hydration; schema-sourced entries survive an `add-marks` / `set-marks` re-call). Per [015 §2](015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks).
 
 ### Imperative — HTTP denylists
 
@@ -242,9 +242,12 @@ The single most-asked question this doc answers: **what runs when, in what order
 │       at the framework wire boundary.                                       │
 │     - `projected-record` strips raw :db-before / :db-after from epoch       │
 │       records (which the on-box `epoch-history` reader still surfaces).     │
+│     - The structured :effects rows' :args (raw fx-handler payload, not      │
+│       app-db-rooted so the walker cannot prove it safe) FAIL CLOSED to      │
+│       :rf/redacted off-box, lifted only by :include-fx-args? true.          │
 │     - `elide-wire-value` walks tree-typed payloads; consults the per-frame  │
-│       [:rf/runtime :elision :declarations] +                                │
-│       [:rf/runtime :elision :sensitive-declarations] (which carries BOTH    │
+│       [:rf.runtime/elision :declarations] +                                 │
+│       [:rf.runtime/elision :sensitive-declarations] (which carries BOTH     │
 │       schema-sourced and app-db-marks-sourced entries — union at lookup     │
 │       time).                                                                │
 │     - Composition rule: sensitive drop WINS over large elision when both    │
@@ -421,7 +424,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 | MCP `get-app-db` tool response | `:rf/redacted` at the marked slots; `:dropped-sensitive N` envelope counter set to the count of dropped leaves |
 | Off-box log shipper (Datadog/Sentry) | Drops the whole `:rf.event/dispatched` and `:rf.fx/handled` events (top-level `:sensitive? true`); ships the structural skeleton only |
 | Always-on error-emit substrate (production survives) | The error record carries `:sensitive? true` and the listener-side scrub honours it before egress to Sentry |
-| Epoch `projected-record` | All of the above redactions plus the `:redact-fn`'s extra scrub; ring-append + listener fan-out see the same shape |
+| Epoch `projected-record` | All of the above redactions plus the `:redact-fn`'s extra scrub; the structured `:effects` rows' `:args` fail closed to `:rf/redacted` off-box (lifted only by `:include-fx-args? true`); ring-append + listener fan-out see the same shape |
 
 **What's NOT covered by this declaration set:**
 

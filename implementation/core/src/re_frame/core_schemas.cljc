@@ -92,8 +92,13 @@
   (the digest is never undefined for a present schema set). This is the
   one-call substitute-Malli boot pattern — a Zod / clojure.spec port
   installs its validator, explainer, and digest-printer together so the
-  three never drift mid-boot. Returns nil when the schemas artefact is
-  not on the classpath. See `re-frame.schemas/set-schema-fns!`."
+  three never drift mid-boot.
+
+  Returns the installed bundle as a map `{:validate ... :explain ...
+  :print ...}` reflecting the live state of all three fns after the call
+  (rf2-qdtcx2 — a bundle setter returns its bundle), or nil when the
+  schemas artefact is not on the classpath. See
+  `re-frame.schemas/set-schema-fns!`."
   {:hook :schemas/set-schema-fns! :artefact schemas-artefact :on-absent :nil}
   ([fns-map] :delegate))
 

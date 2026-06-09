@@ -17,7 +17,7 @@ A scorecard against the real-world surface of re-frame2 + SPA development, mappe
 Most failure modes carry over from v1 (path mismatches, destructive merge, shape drift, init order, wrong handler args, sub identity instability, etc.). re-frame2 introduces a few new ones:
 
 - **Frame routing errors** — wrong dispatch landed in `:rf/default` because the call forgot `:frame :stories`.
-- **Machine snapshot version drift** — hot-reload bumped a machine's version; old snapshots in app-db now reject restore.
+- **Machine snapshot version drift** — hot-reload bumped a machine's version; old snapshots in the runtime-db partition (`[:rf.runtime/machines :snapshots …]`) now reject restore.
 - **Schema validation tightening** — a new app-schema added since the last snapshot, so `restore-epoch` fails with `:rf.epoch/restore-schema-mismatch`.
 - **`:origin` mis-attribution** — UI handler dispatches without setting `:origin` to the right tag, the trace shows everything from `:app`.
 
@@ -75,7 +75,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Inject an arbitrary app-db state | *done* | `replace-app-db` (dedicated tool, `--allow-writes`-gated) over `rf/replace-app-db!` — the JSON-loaded-bug-repro case |
 | Restore failure surfaces | *done* | Seven modes, all documented (Tool-Pair §Time-travel); `(re-frame.trace.tooling/trace-buffer {:op-type :error})` carries the structured tags |
 | Configure ring depth | *done* | `(rf/configure! :epoch-history {:depth N})` |
-| Reverse side effects | *guardrail* | Restore rewinds `app-db` only; `restore-epoch`'s `:unreplayable-effects` enumerates the non-pure fx the original cascade fired that the restore cannot undo |
+| Reverse side effects | *guardrail* | Restore rewinds durable **frame-state** (both partitions); it does NOT reverse side effects or transient host state. `restore-epoch`'s `:unreplayable-effects` enumerates the non-pure fx the original cascade fired that the restore cannot undo |
 
 ---
 
@@ -89,7 +89,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Ops refuse on `:ambiguous-frame` | *done* | Both writes and reads refuse rather than guess: the structured `snapshot` / `get-path` / `dispatch` tools refuse, and the lower-level read helpers (`subs-sample` / `read-sub!` / `sub-cache-info`) return `:reason :ambiguous-frame` rather than silently reading `:rf/default` |
 | Watches and background processes always stop cleanly | *done* | Auto-terminate on disconnect, idle (default 30s), hard-cap (default 5min), or count cap (default 5) |
 | Restore-failure traces are structured | *done* | Seven `:rf.epoch/*` operations with `:tags` — Tool-Pair contract |
-| Time-travel rewinds app-db only — surface limit | *guardrail* | SKILL.md style guidance + recipe text |
+| Time-travel does NOT reverse side effects — surface limit | *guardrail* | SKILL.md style guidance + recipe text. (Restore *does* rewind durable frame-state — both partitions — but not the fx the cascade already fired or transient host state.) |
 
 ---
 

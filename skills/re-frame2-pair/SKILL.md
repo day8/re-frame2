@@ -33,6 +33,13 @@ allowed-tools:
   - mcp__re-frame2-pair__unsubscribe
   - mcp__re-frame2-pair__list-subscriptions
   - mcp__re-frame2-pair__list-streams
+  # Server-side streaming resource-control diagnostic (rf2-a0kxsb) — read-only
+  # report of the server's effective caps, active stream slots vs limit,
+  # token-bucket pressure, and abuse-window count. Reads the server's
+  # resource-controls atoms IN-PROCESS (no nREPL round-trip), so it answers
+  # even when the runtime is down. Complements `list-streams` (runtime tap
+  # registry) for "why was my stream denied / why is it quiet?".
+  - mcp__re-frame2-pair__get-stream-controls
   - mcp__re-frame2-pair__handler-meta
   - mcp__re-frame2-pair__list-handlers
   # Read-only orientation ops (rf2-3bu3d.7 + rf2-3bu3d.8) — one-call
@@ -46,6 +53,17 @@ allowed-tools:
   - mcp__re-frame2-pair__get-operating-frame
   - mcp__re-frame2-pair__set-operating-frame
   - mcp__re-frame2-pair__reset-operating-frame
+  # Named state-rewrite tools (rf2-ee38b.18) — the CANONICAL path for
+  # time-travel undo + state injection. Both are gated behind the
+  # server's default-OFF `--allow-writes` flag: against a gate-OFF
+  # server (the published default) they refuse with
+  # `:reason :rf.error/writes-disabled` without touching the runtime, so
+  # allow-listing them is safe — the SERVER, not this list, is the write
+  # authority boundary. Prefer these structured/audited tools over a raw
+  # `eval-cljs` `(rf/restore-epoch …)` / `app-db-reset!` whenever the
+  # gesture is a named write. See §Time-travel writes below.
+  - mcp__re-frame2-pair__restore-epoch
+  - mcp__re-frame2-pair__replace-app-db
   - mcp__re-frame2-pair__get-re-frame2-pair-instructions
   # story-mcp — live-session tools only (HYBRID split). The
   # authoring-side surface (register-variant, get-variant,
@@ -277,7 +295,7 @@ Load at most two references for a single task. If you find yourself wanting thre
 
   Operators who need raw structured-read state for offline debug pass `--allow-sensitive-reads` at server launch — then the per-call MCP args win again on the structured tools (`:include-sensitive true` — the wire arg, no `?` — and `:elision false` ride through). That gate does not change the `eval-cljs` posture. The retain-N ring buffer reached via `(re-frame.trace.tooling/trace-buffer)` is a separate, explicit raw read surface — direct CLJS callers see everything regardless of the gate. The canonically-named `--allow-sensitive-reads` gate is mirrored on story-mcp. See [references/vocabulary.md §Privacy posture](references/vocabulary.md#privacy-posture--sensitive-and-the-streaming-surface) and §The raw-eval carve-out.
 
-- **Time-travel writes are gated off by default.** The server ships a **third** boot gate — `--allow-writes` (default **OFF**) — that controls the two state-mutating MCP tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Without the flag both tools return `{:ok? false :reason :rf.error/writes-disabled}` without touching the runtime; the gate protects the audit trail of named writes (it does NOT restrict `dispatch`, which drives the app's own handlers, nor `eval-cljs`, which can express the same writes when enabled). Of the server's 28 tools, 26 are reachable from this skill's `allowed-tools:`; `restore-epoch` + `replace-app-db` are the two `--allow-writes`-gated tools, so by default the eval forms in [references/ops.md §Time-travel](references/ops.md#time-travel-epoch-restore) / [§Write](references/ops.md#write) are the default-reachable write path (eval-cljs is default-ON). An operator who launches with `--allow-writes` can add the two dedicated tools to a deployment's allow-list. See [references/mcp-transport.md](references/mcp-transport.md) §MCP tool reference.
+- **Route named writes through the dedicated, gated tools — not raw `eval-cljs`.** Time-travel undo and state injection are *named, auditable* state rewrites, so they have dedicated MCP tools: `restore-epoch` (rewind to a recorded epoch) and `replace-app-db` (inject an arbitrary app-db). **Both are now allow-listed by this skill** (all 28 server tools are reachable), and they are the **canonical path** for these gestures — they validate inputs, append a synthetic epoch so the rewrite itself is undoable, log via `tap>`, and return a structured `:cascade-summary`. The server ships a **third** boot gate — `--allow-writes` (default **OFF**) — that controls exactly these two tools: against a gate-OFF server (the published default) they refuse with `{:ok? false :reason :rf.error/writes-disabled}` without touching the runtime. **The server's gate, not the skill allow-list, is the write-authority boundary** — so allow-listing the tools is safe (a gate-OFF deployment still can't write through them), and an operator who wants pair-driven writes flips `--allow-writes` once at launch rather than editing any allow-list. **Caveat — the gate does NOT cover `eval-cljs`:** `eval-cljs` is default-ON and can express the same rewrites (`(rf/restore-epoch …)` / `app-db-reset!`), so it is *not* fenced by `--allow-writes`. That is why raw eval of a write form is the **backstop, not the default**: reach for the dedicated tool first (it routes through the structured envelope + the `--allow-writes` audit gate); fall back to the eval form only when the dedicated tool is unavailable (`:rf.error/writes-disabled` on a deliberately gate-OFF server *and* the operator has told you to proceed anyway via eval), and say so when you do. See [references/ops.md §Time-travel](references/ops.md#time-travel-epoch-restore) / [§Write](references/ops.md#write) and [references/mcp-transport.md](references/mcp-transport.md) §MCP tool reference.
 
 ---
 

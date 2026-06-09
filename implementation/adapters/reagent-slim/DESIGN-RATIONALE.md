@@ -1,6 +1,8 @@
 # reagent-slim — design rationale
 
-> Bead **rf2-kez3**. Audience: adopters evaluating `day8/reagent-slim` against `day8/reagent-classic`.
+> Bead **rf2-kez3**. Audience: adopters evaluating `day8/reagent-slim` against the classic thin-bridge adapter.
+>
+> **Bridge naming (rf2-xcyaei).** Today the classic thin-bridge adapter ships as **`day8/re-frame2-reagent`** — that is the coordinate an adopter pins right now, and the one this document names throughout as the present-day fallback. `day8/reagent-classic` is a *possible post-1.0 rename* of that bridge (see `IMPL-SPEC.md` §11.4); it has **not** shipped, so it is deliberately not used as adoption guidance here.
 >
 > Sister docs:
 > - `IMPL-SPEC.md` (this directory) — Stage 3 engineering spec, written for implementers.
@@ -10,7 +12,7 @@
 > - `findings/dash8-rf8-react19-readiness-audit.md` (rf2-kfpf) — Dash8 + rf8 lifecycle and SSR inventory.
 > - `FORM-3.md` (rf2-pe4u, future) — Form-3 cap specifics with worked examples.
 
-This document explains, decision by decision, **why** reagent-slim is shaped the way it is. If you want to know **how** it was built, read `IMPL-SPEC.md`. If you want to know what changed in your code, read `MIGRATION.md`. If you want to know whether to adopt it, read this.
+This document explains, decision by decision, **why** reagent-slim is shaped the way it is. If you want to know **how** it was built, read `IMPL-SPEC.md`. If you want to know what changed in your code, read the migration corpus ([`migration/from-re-frame-v1/README.md`](../../../migration/from-re-frame-v1/README.md)) together with `IMPL-SPEC.md` §13 (bridge → rewrite migration path). If you want to know whether to adopt it, read this.
 
 ---
 
@@ -50,7 +52,7 @@ Two empirical audits (rf2-cgcv: re-com + re-frame-10x; rf2-kfpf: Dash8 + rf8) in
 
 None of those appear in any of the four audited codebases. They also do not appear in re-frame2's own source or in any of the seventeen re-frame2 example apps.
 
-The traditional argument for shipping zero-usage surfaces is "back-compat goodwill" — keep the symbol, emit a deprecation warning, give users a window to migrate. That argument carries weight when there is no alternative. It does not carry weight when `reagent-classic` exists. Stock-Reagent users who genuinely need `with-let` or `cursor` keep their full surface by depending on `day8/reagent-classic` instead. The two artefacts coexist on the classpath because they live in separate namespace trees.
+The traditional argument for shipping zero-usage surfaces is "back-compat goodwill" — keep the symbol, emit a deprecation warning, give users a window to migrate. That argument carries weight when there is no alternative. It does not carry weight when `re-frame2-reagent` exists. Stock-Reagent users who genuinely need `with-let` or `cursor` keep their full surface by depending on `day8/re-frame2-reagent` instead. The two artefacts coexist on the classpath because they live in separate namespace trees.
 
 ### Slim impact
 
@@ -62,7 +64,7 @@ Several of the dropped surfaces have direct re-frame2 idiomatic replacements tha
 
 ### Migration note
 
-Apps using any dropped surface have two paths. (a) Migrate the call site to re-frame2 idiom. (b) Stay on `day8/reagent-classic`. Both are first-class. Path (a) is the long-term direction; path (b) is a pragmatic option for stock-Reagent codebases not ready to refactor.
+Apps using any dropped surface have two paths. (a) Migrate the call site to re-frame2 idiom. (b) Stay on `day8/re-frame2-reagent`. Both are first-class. Path (a) is the long-term direction; path (b) is a pragmatic option for stock-Reagent codebases not ready to refactor.
 
 ---
 
@@ -90,7 +92,7 @@ re-frame2 was already React-18-or-better in practice — every example mounts vi
 
 ### Migration note
 
-Adopting reagent-slim means bumping `react` and `react-dom` to 19.x in your `package.json`. Replace `reagent.dom/render` calls with `reagent2.dom.client/{create-root, render}`. Replace `reagent.dom/unmount-component-at-node` with `reagent2.dom.client/unmount`. If you have a `r/dom-node` call, it must move to a `:ref` callback — `findDOMNode` is gone. Stock-Reagent users on React 17 or 18 stay on `reagent-classic`.
+Adopting reagent-slim means bumping `react` and `react-dom` to 19.x in your `package.json`. Replace `reagent.dom/render` calls with `reagent2.dom.client/{create-root, render}`. Replace `reagent.dom/unmount-component-at-node` with `reagent2.dom.client/unmount`. If you have a `r/dom-node` call, it must move to a `:ref` callback — `findDOMNode` is gone. Stock-Reagent users on React 17 or 18 stay on `re-frame2-reagent`.
 
 ---
 
@@ -124,7 +126,7 @@ Across all four codebases combined: zero UNSAFE_ keys, zero `:component-will-rec
 
 The cap is what those audits actually found, plus zero — not an aspirational limit, not a stylistic preference, just what the ecosystem uses.
 
-The throw is loud on purpose. A user who registers `:should-component-update` is not getting a silent shrug; they get an `ex-info` at first call with the unsupported key and the supported set. Migration is mechanical: rewrite into the supported keys, or use `reagent-classic` for that component.
+The throw is loud on purpose. A user who registers `:should-component-update` is not getting a silent shrug; they get an `ex-info` at first call with the unsupported key and the supported set. Migration is mechanical: rewrite into the supported keys, or use `re-frame2-reagent` for that component.
 
 ### Slim impact
 
@@ -138,7 +140,7 @@ The cap also lets `create-class`'s validation be simple. The supported set is sm
 
 ### Migration note
 
-For the four audited codebases: zero changes. Their existing `create-class` calls work as-is. For codebases outside the audit using a banned key: rewrite the lifecycle into the supported set, or stay on `reagent-classic`. The throw fires at first invocation with a clear message — no silent breakage.
+For the four audited codebases: zero changes. Their existing `create-class` calls work as-is. For codebases outside the audit using a banned key: rewrite the lifecycle into the supported set, or stay on `re-frame2-reagent`. The throw fires at first invocation with a clear message — no silent breakage.
 
 The companion document `FORM-3.md` (rf2-pe4u, future) covers Form-3 worked examples in detail.
 
@@ -210,7 +212,7 @@ The split aligns with re-frame2's separation of concerns. SSR-with-hydration is 
 
 If your app imports `reagent.dom.server/render-to-string` for hydrate-able SSR: migrate to the `day8/re-frame2-ssr` seam. The seam's API is documented in the SSR adapter's spec.
 
-If your app imports `reagent.dom.server/render-to-static-markup` for HTML export: change the require to `reagent2.dom.server` and the rest works. Behavioural parity with React's `renderToStaticMarkup` is covered by a parity test suite (R-004 in Stage 2's risk register) — any intentional differences (attribute ordering, void-tag handling) are documented in `MIGRATION.md`.
+If your app imports `reagent.dom.server/render-to-static-markup` for HTML export: change the require to `reagent2.dom.server` and the rest works. Behavioural parity with React's `renderToStaticMarkup` is covered by a parity test suite (R-004 in Stage 2's risk register) — any intentional differences (attribute ordering, void-tag handling) are documented in the parity test's known-difference allow-list (`reagent2.dom.server` parity suite).
 
 ---
 
@@ -233,13 +235,13 @@ The Maven coord `day8/reagent-slim` is decoupled from import paths. Adopters req
 
 The decoupling is intentional. Three reasons:
 
-1. **No collision with stock Reagent.** `reagent2.*` and `reagent.*` are separate namespace trees. They coexist on the classpath without interfering. An app can depend on both `reagent-slim` and `reagent-classic` simultaneously if migration is incremental.
+1. **No collision with stock Reagent.** `reagent2.*` and `reagent.*` are separate namespace trees. They coexist on the classpath without interfering. An app can depend on both `reagent-slim` and `re-frame2-reagent` simultaneously if migration is incremental.
 
 2. **No marketing claim baked into the import path.** The `day8/reagent-slim` Maven coord carries the brand. The `reagent2.*` import path is neutral — it does not promise anything in the source code. If a future rewrite supersedes reagent-slim, the import path stays valid.
 
 3. **Type-friendly.** `reagent2.core` is shorter than `reagent-slim.core` in `(:require ...)` lines. The `2` is a version marker, not a brand statement.
 
-The adapter Var stays at `re-frame.adapter.reagent`. That is the public surface `(rf/init! ...)` consumes. Apps that already wired their init call against the bridge keep working without source changes when they swap from `reagent-classic` to `reagent-slim`. The adapter Var path is the ABI; the namespace tree underneath is the implementation.
+The adapter Var stays at `re-frame.adapter.reagent`. That is the public surface `(rf/init! ...)` consumes. Apps that already wired their init call against the bridge keep working without source changes when they swap from `re-frame2-reagent` to `reagent-slim`. The adapter Var path is the ABI; the namespace tree underneath is the implementation.
 
 ### Slim impact
 
@@ -281,7 +283,7 @@ This decision splits the dropped surfaces into two classes by why they were drop
 
 **Class B — React-internal removes.** `reagent.core/render`, `reagent.dom/render`, `reagent.dom/unmount-component-at-node`, `reagent.dom/force-update-all`, `r/dom-node`. These cannot warn-and-continue because the React APIs they depended on are gone in React 19. They ship as throw-on-call shims (per §3).
 
-For Class A, the question was whether to ship warning stubs or nothing. The "back-compat goodwill" argument for warning stubs assumes there are users to be courteous to. The audits established there are no such users. And `reagent-classic` exists for any genuine stock-Reagent user.
+For Class A, the question was whether to ship warning stubs or nothing. The "back-compat goodwill" argument for warning stubs assumes there are users to be courteous to. The audits established there are no such users. And `re-frame2-reagent` exists for any genuine stock-Reagent user.
 
 So Class A surfaces ship as nothing. A user calling `reagent2.core/cursor` fails at compile time with an unresolved-symbol error, not at runtime with a deprecation warning. This is the right pedagogy: the surface does not exist, the compiler says so, the user updates the call site.
 
@@ -295,7 +297,7 @@ The discipline is the load-bearing thing. "Warning stub" is a soft posture that 
 
 ### Migration note
 
-If your code calls a Class A surface, the compiler tells you. Migration to re-frame2 idiom: `cursor` → layer-2 sub. `next-tick` → re-frame2's scheduling primitives or `goog.async.nextTick` directly. `class-names` → a one-line userland helper or one of several CLJS string-join libraries. `is-client` → re-frame2's platform marker in `re-frame.interop`. If migration is not feasible, stay on `reagent-classic`.
+If your code calls a Class A surface, the compiler tells you. Migration to re-frame2 idiom: `cursor` → layer-2 sub. `next-tick` → re-frame2's scheduling primitives or `goog.async.nextTick` directly. `class-names` → a one-line userland helper or one of several CLJS string-join libraries. `is-client` → re-frame2's platform marker in `re-frame.interop`. If migration is not feasible, stay on `re-frame2-reagent`.
 
 Class B surfaces, per §3, throw on call with a migration message rather than failing at compile time — the React-API-gone framing means the throw is the right pedagogy for callers who try them at runtime.
 
@@ -333,7 +335,7 @@ The win is test reliability. Production-runtime impact is zero — `flush-views!
 
 ### What this adds up to for adopters
 
-Stock Reagent cannot offer these integrations because stock Reagent does not know about re-frame2's trace bus, frame-context primitive, source-coord injector, or test-flush primitive. reagent-classic carries the same blindness — it is stock Reagent under a thin bridge.
+Stock Reagent cannot offer these integrations because stock Reagent does not know about re-frame2's trace bus, frame-context primitive, source-coord injector, or test-flush primitive. re-frame2-reagent carries the same blindness — it is stock Reagent under a thin bridge.
 
 reagent-slim is the Reagent that actually knows about re-frame2. Adopters get the integration without the monkey-patches, without the wrapper-layer overhead, without the tests-race-each-other surprise.
 
@@ -380,9 +382,9 @@ This honesty matters because the doc you are reading is for adopters making a re
 
 ## §11 Side-by-side comparison
 
-| Dimension | reagent-classic | reagent-slim |
+| Dimension | re-frame2-reagent | reagent-slim |
 |---|---|---|
-| Maven coord | `day8/reagent-classic` | `day8/reagent-slim` |
+| Maven coord | `day8/re-frame2-reagent` | `day8/reagent-slim` |
 | React floor | React 17/18 (stock-Reagent constrained) | React 19 |
 | Surface | full Reagent surface (~30+ symbols) | ~20 symbols, re-com/re-frame2 scoped |
 | Bundle (gzip) vs stock Reagent 1.3 | baseline | -25% to -33% (typical), -70% (SSR-using) |
@@ -400,10 +402,10 @@ This honesty matters because the doc you are reading is for adopters making a re
 
 Adoption shape:
 
-- **Stock Reagent codebase, full surface usage, on React 17/18:** stay on `reagent-classic`. No reason to migrate.
+- **Stock Reagent codebase, full surface usage, on React 17/18:** stay on `re-frame2-reagent`. No reason to migrate.
 - **Stock Reagent codebase, re-com surface only, on React 19:** migrate to `reagent-slim`. The migration is a require-rewrite plus mount-API swap; everything else is unchanged.
 - **re-frame2-native codebase, on React 19:** migrate to `reagent-slim`. You get the full integration (trace bus, source-coord, frame-context, deterministic flush) plus the bundle savings.
-- **Codebase using a banned surface (`with-let`, `cursor`, banned Form-3 key, etc.):** either rewrite into the supported surface, or stay on `reagent-classic`. Both are first-class.
+- **Codebase using a banned surface (`with-let`, `cursor`, banned Form-3 key, etc.):** either rewrite into the supported surface, or stay on `re-frame2-reagent`. Both are first-class.
 
 ---
 

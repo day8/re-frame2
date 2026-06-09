@@ -41,6 +41,41 @@
           (not (.-shiftKey e))
           (not (.-altKey e)))))
 
+(defn- native-anchor?
+  "Return true when `props` carry HTML anchor attributes whose semantics
+  the framework MUST NOT override with same-document SPA navigation, even
+  on a plain left-click. Per rf2-fwz29i — a `route-link` rendered with
+  `{:target \"_blank\"}` or `{:download …}` looks like a normal anchor in
+  the DOM and the user expects native new-tab / new-window / download
+  behaviour; intercepting it into a `:rf/url-requested` dispatch silently
+  breaks that contract.
+
+  Native-handling attributes recognised:
+  - `:target` (or the string key `\"target\"`) set to anything other than
+    `_self` — `_blank` / `_parent` / `_top` / a named frame all open the
+    href outside the current document, which SPA interception would defeat.
+    `_self` (and a blank/absent target) is the default same-document target
+    and remains SPA-interceptable.
+  - `:download` (or `\"download\"`) present and not `false`/`nil` — the
+    browser must save the resource; SPA interception would suppress the
+    download.
+
+  Modifier-key and middle-button clicks already defer via
+  `plain-left-click?`; this predicate adds the *attribute-driven* native
+  cases the click-position checks cannot see."
+  [props]
+  (let [target            (or (:target props) (get props "target"))
+        has-download-key? (or (contains? props :download)
+                              (contains? props "download"))
+        download          (if (contains? props :download)
+                            (:download props)
+                            (get props "download"))]
+    (boolean
+      (or (and (string? target) (not= "_self" target) (not= "" target))
+          (and has-download-key?
+               (not (false? download))
+               (not (nil? download)))))))
+
 #?(:cljs
    (defn route-link-render
      "Render fn for the `:route/link` registered view. Exposed (without
@@ -69,6 +104,12 @@
      apply: plain left-click → `preventDefault` + dispatch
      `:rf/url-requested`; modifier-key or middle-click → no interception.
 
+     rf2-fwz29i: anchors carrying native-handling attributes
+     (`:target` other than `_self`, or `:download`) are NOT intercepted on
+     a plain left-click either — they look like a normal anchor in the DOM
+     and the user expects native new-tab / download behaviour
+     (see `native-anchor?`).
+
      Performance (rf2-r1in4): this is render-path code — every
      `[rf/route-link ...]` re-render walks `route-url` for the href.
      Large nav menus re-rendering frequently amortise the cost over many
@@ -76,11 +117,18 @@
      should it become a bottleneck."
      [{:keys [to params query fragment on-click] :as props} & children]
      (let [[url base-attrs] (href-attrs props)
+           ;; rf2-fwz29i: anchors carrying native-handling attributes
+           ;; (`target="_blank"`, `download`) must let the browser handle
+           ;; the click — SPA interception would defeat new-tab / download.
+           ;; Computed once at render against the resolved attrs (post
+           ;; control-key strip) so the string/keyword attr forms are seen.
+           native? (native-anchor? base-attrs)
            attrs (assoc base-attrs
                         :on-click
                         (fn [e]
                           (when on-click (on-click e))
-                          (when (and (not (.-defaultPrevented e))
+                          (when (and (not native?)
+                                     (not (.-defaultPrevented e))
                                      (plain-left-click? e))
                             (.preventDefault e)
                             ;; Per rf2-t1lxr: route-link click → :router

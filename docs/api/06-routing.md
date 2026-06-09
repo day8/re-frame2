@@ -96,6 +96,8 @@ A plain primary-button click (no modifier keys, no `defaultPrevented`) calls `.p
 
 Modifier-key clicks (cmd / ctrl / shift / alt) and middle-button clicks defer to the browser so the native `href` opens in a new tab. A caller-supplied `:on-click` runs first; if it calls `.preventDefault` (or otherwise leaves `defaultPrevented` true) the framework's interception is skipped. Keys other than `:to` / `:params` / `:query` / `:fragment` / `:on-click` pass through to the underlying `<a>` element.
 
+Anchors carrying **native-handling attributes** are never intercepted — even on a plain left-click — because their DOM semantics must win: a `:target` other than `_self` (`_blank` / `_parent` / `_top` / a named frame) opens the href outside the current document, and `:download` instructs the browser to save the resource. A `route-link` rendered as `{:target "_blank"}` or `{:download "report.pdf"}` therefore behaves as the equivalent plain `<a>` would. To get SPA interception, omit those attributes (or use `:target "_self"`).
+
 Detailed semantics in [012-Routing.md §Linking from views](../../spec/012-Routing.md#linking-from-views--plain-anchor-semantics).
 
 ## Events

@@ -48,6 +48,11 @@ on:
       - 'examples/**'
       - 'testbeds/**'
       - '.clj-kondo/**'
+      # Splint reads its per-project config from `.splint.edn` at repo root
+      # (rf2-nlnd9y.3). A push that changes ONLY `.splint.edn` — including
+      # broken syntax, disabled rules, or a missing exclude — must run the
+      # lint workflow so the Splint gate validates the new config.
+      - '.splint.edn'
       - '.github/workflows/lint.yml'
       # Public-API manifest drift-check surface (rf2-3nbl5.2).
       - 'spec/API.md'
@@ -112,6 +117,14 @@ jobs:
             [ -z "$file" ] && continue
             case "$file" in
               implementation/*|tools/*|examples/*|testbeds/*|.clj-kondo/*|.github/workflows/lint.yml)
+                lint_surface=true ;;
+              # `.splint.edn` is the Splint gate's per-project config
+              # (rf2-nlnd9y.3): a PR that changes ONLY it — broken syntax,
+              # disabled rules, a removed exclude — must run the Splint job so
+              # the config is validated. Without this the detect classifier
+              # left lint_surface=false and Splint skipped, letting a config
+              # change ship unverified behind a green `Lint required`.
+              .splint.edn)
                 lint_surface=true ;;
               # spec/ feeds the public-API manifest drift-check (the
               # api-manifest job below): API.md, the curated sidecar, and

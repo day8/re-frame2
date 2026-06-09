@@ -38,7 +38,7 @@ The namespace carries helper functions the structured ops compose against (`epoc
 
 ## 4. Transport inputs
 
-- **MCP server** — the `mcp__re-frame2-pair__*` tool surface, the **only** transport the skill exposes. Lives in `tools/re-frame2-pair-mcp/` in the re-frame2 repo; the generated catalogue manifest is `tools/re-frame2-pair-mcp/tool-descriptors.edn` (**28** tools). The skill's frontmatter `allowed-tools` block lists the **26** default-reachable tools; the two write-authority tools (`restore-epoch`, `replace-app-db`) are gated behind the server's default-OFF `--allow-writes` flag and are NOT default allow-listed. `references/mcp-transport.md` explains installation.
+- **MCP server** — the `mcp__re-frame2-pair__*` tool surface, the **only** transport the skill exposes. Lives in `tools/re-frame2-pair-mcp/` in the re-frame2 repo; the generated catalogue manifest is `tools/re-frame2-pair-mcp/tool-descriptors.edn` (**28** tools). The skill's frontmatter `allowed-tools` block lists **all 28**; the two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical named-write path and are gated behind the server's default-OFF `--allow-writes` flag (refusing with `:rf.error/writes-disabled` until an operator flips it at launch) — the server's gate, not the allow-list, is the write boundary. `references/mcp-transport.md` explains installation.
 - **Bash shims** — `skills/re-frame2-pair/scripts/*.sh`. **Retired from the skill's tool surface** (no shell tool in `allowed-tools:`); on disk only for the project's own e2e harness and ad-hoc shell use. They consume the same transport-agnostic `re-frame2-pair.runtime` namespace but are not a skill-facing fallback transport.
 
 ## 5. Authoring-discipline inputs
@@ -48,7 +48,7 @@ These shape the skill's voice and structure but aren't quoted directly.
 - **`skills/re-frame2/spec/design.md`** — the parent skill's locked design. This skill inherits the four pillars (recipe-shape, idiomaticness, context economy, training-knowledge assumption), the cardinal-rules format, the routing-table convention.
 - **`skills/re-frame-migration/spec/`** + **`skills/re-frame2-implementor/spec/`** — the existing `spec/` triad pattern. Voice / shape mirror these.
 - **`skills/re-frame2-pair-retro/SKILL.md`** — the sibling retro skill that consumes this skill's output. The two are coupled: the retro skill routes friction back into beads against the pair tool.
-- Anthropic skills guidance — `name` ≤ 64 chars, lowercase + hyphens; `description` "pushy"; SKILL.md under 500 lines; reference files one level deep; `allowed-tools` listing required when the skill uses MCP tools beyond the defaults (this skill lists the 26 default-reachable `mcp__re-frame2-pair__*` tools plus the editor tools — no `Bash(...)` entries, since the MCP server is the only transport).
+- Anthropic skills guidance — `name` ≤ 64 chars, lowercase + hyphens; `description` "pushy"; SKILL.md under 500 lines; reference files one level deep; `allowed-tools` listing required when the skill uses MCP tools beyond the defaults (this skill lists all 28 `mcp__re-frame2-pair__*` tools plus the editor tools — no `Bash(...)` entries, since the MCP server is the only transport).
 
 ## 6. What the skill does NOT consume
 

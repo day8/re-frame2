@@ -32,7 +32,7 @@
             [re-frame.core :as rf]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.result :as result]
-            [re-frame.trace]))
+            [re-frame.machines.test-support :as mtest]))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -40,11 +40,11 @@
   "Register a trace listener for the duration of `body-fn`; return the
   captured trace vec. (`trace/emit!` delivers to listeners synchronously,
   so a PURE `machine-transition` call surfaces its traces here without a
-  dispatch cycle.)"
+  dispatch cycle.) Routed through the shared `mtest/with-trace-capture`
+  (rf2-3l8lqe finding #4) — guaranteed unregister in a `finally`."
   [body-fn]
-  (let [seen (atom [])]
-    (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
-    (try (body-fn) (finally (rf/unregister-listener! ::rec)))
+  (mtest/with-trace-capture seen
+    (body-fn)
     @seen))
 
 (defn- of-op [evs op] (filterv #(= op (:operation %)) evs))

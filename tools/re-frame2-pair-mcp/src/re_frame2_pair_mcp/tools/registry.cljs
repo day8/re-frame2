@@ -83,6 +83,7 @@
             [re-frame2-pair-mcp.tools.unsubscribe :as unsubscribe]
             [re-frame2-pair-mcp.tools.list-subscriptions :as list-subscriptions]
             [re-frame2-pair-mcp.tools.list-streams :as list-streams]
+            [re-frame2-pair-mcp.tools.get-stream-controls :as get-stream-controls]
             [re-frame2-pair-mcp.tools.handler-meta :as handler-meta]
             [re-frame2-pair-mcp.tools.operating-frame :as operating-frame]
             [re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions :as get-re-frame2-pair-instructions]
@@ -258,6 +259,16 @@
     :handler    (ignoring-extra #(list-streams/list-streams-tool %1 %2))
     :cacheable? false
     :descriptor data/list-streams}
+   {:name       "get-stream-controls"
+    :handler    (ignoring-extra #(get-stream-controls/get-stream-controls-tool %1 %2))
+    ;; Pure read over the server's IN-PROCESS resource-control atoms
+    ;; (rf2-a0kxsb). NOT cacheable: the active-stream / token-bucket /
+    ;; abuse-window state is volatile session-local state, not a function
+    ;; of app-db — a precheck-hash cache keyed on app-db would serve stale
+    ;; control readings. Same posture as `list-streams` (volatile
+    ;; streaming-registry read).
+    :cacheable? false
+    :descriptor data/get-stream-controls}
    {:name       "handler-meta"
     :handler    (ignoring-extra #(handler-meta/handler-meta-tool %1 %2))
     :cacheable? true

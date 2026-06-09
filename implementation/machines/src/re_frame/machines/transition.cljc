@@ -1,25 +1,55 @@
 (ns re-frame.machines.transition
-  "Pure machine-transition engine. Per Spec 005 §State machines.
+  "The machine-transition reducer. Per Spec 005 §State machines.
 
   This namespace is the JVM- and CLJS-runnable core of the machine
   grammar — transition resolution along hierarchical paths, the
   exit/action/entry cascade, the macrostep drain semantics for `:raise`
-  and `:always`, and the parallel-region broadcast layer. Everything
-  here is a pure function over the [machine snapshot event] triple —
-  no module-level mutable state. Per rf2-gr8q the declarative-`:spawn`
-  spawn-id allocator lives inside the snapshot under `:rf/spawn-counter`
-  (a per-machine-id integer map); the reducer threads the bumped
-  counter through the returned snapshot.
+  and `:always`, and the parallel-region broadcast layer.
+
+  ## What \"pure\" means here
+
+  The transition engine's REDUCTION is a pure, deterministic function of
+  the `[machine snapshot event]` triple: the returned `Result` (the
+  post-transition snapshot + the emitted fx vector, including the
+  `:rf.machine/spawn` allocator's id sequencing) depends ONLY on the
+  arguments. There is no module-level mutable state and no `app-db` read
+  — per rf2-gr8q the declarative-`:spawn` spawn-id allocator lives
+  INSIDE the snapshot under `:rf/spawn-counter` (a per-machine-id integer
+  map), so identical triples produce identical Results and the reducer
+  threads the bumped counter through the returned snapshot. That is the
+  determinism the conformance corpus, the SSR pure-fn surface, and
+  `machine_transition_purity_test` rely on.
+
+  It is NOT effect-free of observability: the reducer emits `trace/emit!`
+  diagnostic events (guard outcomes, action runs, history record/restore,
+  timer scheduling, microsteps, depth-limit aborts, unhandled-event
+  no-ops) on the process-wide Spec 009 trace stream, exactly as the rest
+  of the framework (router, fx, subs, events) does inline. Per Spec 005
+  §`:before` / `:after` (005:545) and §Strict encapsulation (005:637)
+  this is deliberate: trace is production-elided observability (Closure
+  DCE on `interop/debug-enabled?` — see `re-frame.trace/emit!`), never
+  part of the snapshot/fx value, and never read back into the
+  reduction. So a `machine-transition` call's RETURNED VALUE is
+  side-effect-free and deterministic; its emitted trace is an additive
+  observability side channel that a production build removes entirely.
+  Whether that channel should instead be returned as data or routed
+  through an interpreter-owned injectable sink (decoupling it from the
+  reducer the way XState separates reducer semantics from interpreter
+  effects) is an open architectural question tracked separately — it
+  would diverge from the project-wide inline-emit contract, so it is a
+  ruling, not a refactor this engine makes unilaterally.
 
   The fx vectors built here name `:rf.machine/spawn`,
   `:rf.machine/destroy`, `:rf.machine/spawn-all-init`,
   `:rf.machine/after-schedule`, and `:rf.machine/after-cancel`; the
   actual fx handlers live in `re-frame.machines.lifecycle-fx.{spawn,
-  destroy,registration}` and `re-frame.machines.timer`. This namespace
-  stays effect-free so it can be loaded and exercised on the JVM by
-  the conformance fixtures (Spec 005 §Conformance fixtures)."
+  destroy,registration}` and `re-frame.machines.timer`. No fx is
+  PERFORMED here — the reducer only NAMES them in the returned vector,
+  so it can be loaded and exercised on the JVM by the conformance
+  fixtures (Spec 005 §Conformance fixtures)."
   (:require [clojure.set :as set]
             [clojure.string :as str]
+            [re-frame.machines.grammar :as grammar]
             [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.result :as result
              #?@(:cljs [:include-macros true])]
@@ -394,18 +424,14 @@
 
 (defn node-at
   "Walk machine.:states down `path` returning the leaf state-node (or nil
-  if path doesn't resolve)."
+  if path doesn't resolve). Thin wrapper over `grammar/node-at` (the
+  shared root→leaf descent the registration validators also consume) —
+  passes the machine's `:states` scope. Kept as a public name here so
+  the engine's many call sites (and `parallel` / `finalize` /
+  `registration` / `spawn-error`) need not reach into `grammar`
+  directly."
   [machine path]
-  (loop [m  (:states machine)
-         p  path]
-    (cond
-      (empty? p) nil
-      :else
-      (let [n (get m (first p))]
-        (cond
-          (nil? n) nil
-          (= 1 (count p)) n
-          :else (recur (:states n) (rest p)))))))
+  (grammar/node-at (:states machine) path))
 
 (defn- nodes-along-path
   "Return [[prefix-path node] ...] from root down to leaf. Skips nodes
@@ -519,17 +545,23 @@
 
   `bad-value-id` names the error category to throw for an unrecognised
   value form so each caller surfaces its own slot-specific taxonomy
-  (`:on` → `machine-bad-on-clause`, `:after` → `machine-bad-after-spec`)."
+  (`:on` → `machine-bad-on-clause`, `:after` → `machine-bad-after-spec`).
+
+  Discriminates on `grammar/transition-value-form` — the SHARED form
+  recogniser the registration target validator (`validation/candidate-
+  targets`) also builds on — so the runtime normaliser and the
+  registration walker can never drift on what shapes the grammar admits."
   [v bad-value-id]
-  (cond
-    (nil? v)                        [{}]
-    (keyword? v)                    [{:target v}]
-    (and (vector? v)
-         (every? map? v)
-         (seq v))                   v
-    (vector? v)                     [{:target v}]
-    (map? v)                        [v]
-    :else (throw (ex-info (str bad-value-id) {:value v}))))
+  (case (grammar/transition-value-form v)
+    ;; A nil VALUE (the key is present with value nil) is the
+    ;; forbidden-transition / internal no-op form (rf2-16gxd) — unify
+    ;; with the empty-map single-candidate `[{}]`.
+    :nil              [{}]
+    :keyword          [{:target v}]
+    :candidate-vector v
+    :vec-target       [{:target v}]
+    :map              [v]
+    :other            (throw (ex-info (str bad-value-id) {:value v}))))
 
 (defn- candidate-vector-form?
   "True iff `v` is the multi-candidate VECTOR form (`[{…} {…}]`) — the
@@ -538,10 +570,11 @@
   decide whether the selected candidate's index is meaningful for the
   spec-path discriminator (rf2-lai1qv): for the index-free forms the
   carried `:candidate-idx` is nil so `cascade-row-source-key` emits the
-  bare-slot shape that matches the macro's keying. Mirrors the
-  vector-of-maps arm of `normalise-candidates`."
+  bare-slot shape that matches the macro's keying. Delegates to the
+  shared `grammar/candidate-vector-form?` so the per-index decision and
+  the `normalise-candidates` arm read the same recogniser."
   [v]
-  (boolean (and (vector? v) (seq v) (every? map? v))))
+  (grammar/candidate-vector-form? v))
 
 (defn- transition-slot
   "Build the structured spec-path DISCRIMINATOR (rf2-lai1qv) carried on a
@@ -1289,10 +1322,11 @@
 ;; recording rides `pr-str` round-trip, SSR hydration, and Tool-Pair epoch
 ;; replay for free — no side-table.
 
-(defn history-node?
-  "True iff `node` is a history pseudo-state (`:type :history`)."
-  [node]
-  (= :history (:type node)))
+(def history-node?
+  "True iff `node` is a history pseudo-state (`:type :history`). The
+  shared `grammar/history-node?` — re-exported here so the engine's
+  internal call sites need not require `grammar` directly."
+  grammar/history-node?)
 
 (defn state-occupiable?
   "True iff `state` (a flat keyword or compound vector path) resolves
@@ -1863,7 +1897,7 @@
   (Option A revised): nodes being EXITED with `:spawn` emit
   `:rf.machine/destroy` carrying `{:rf/parent-id ... :rf/spawn-id ...}`
   so the destroy-machine fx handler resolves the live actor id from the
-  runtime-owned `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot in app-db.
+  runtime-owned `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot in runtime-db.
 
   Per Spec 005 §Spawn-and-join via `:spawn-all` (rf2-6vmw): on exit, tear
   down EVERY child the parent spawned plus the join-state slot. The
@@ -1924,22 +1958,46 @@
   id-recording alternatives. `trace/emit!` is gated on
   `interop/debug-enabled?` (Closure DCE / JVM flag) so this is production-
   free and adds no module-level mutable state — the engine stays a pure
-  function of `[machine snapshot event]`."
+  function of `[machine snapshot event]`.
+
+  Error contract (rf2-km4bn4): the `:on-spawn` callback is a machine
+  action like any other, so a THROW must route through the documented
+  machine action exception contract — NOT escape as a generic
+  `:rf.error/handler-exception`. Mirroring `run-action` / `materialise-data`,
+  the call is wrapped in try/catch: on throw, return a `result/fail`
+  Result stamped with the stable action id `:rf.spawn/on-spawn` plus
+  enough context to locate the spawn (`:spawned-id`; the caller adds
+  `:spawn-id` / `:child-id`, and `apply-transition-once` stamps
+  `:decl-path` / `:transition` / `:state-path`). The lifecycle boundary
+  (`registration/trace-action-failure!`) then emits exactly one
+  `:rf.error/machine-action-exception` and drops the accumulated effects —
+  so a throwing observer never commits the parent/child snapshot or the
+  spawned registry slot. On SUCCESS the snapshot is returned UNCHANGED, as
+  before. (No `:rf.machine/action-ran` activity trace fires here on either
+  path: `:on-spawn` is an advisory observer, not a cascade action — adding
+  it would introduce a novel `:phase` outside the documented closed set,
+  Spec-Schemas.md §`action-ran`.)"
   [machine snap spawn-spec spawned-id]
-  (when-let [f (let [aref (:on-spawn spawn-spec)]
-                 (when aref
-                   (or (chase-ref (:on-spawn-actions machine) aref)
-                       (chase-ref (:actions machine) aref))))]
-    (let [ret (f {:data (:data snap) :id spawned-id})]
-      (when (some? ret)
-        (trace/emit! :warning :rf.warning/on-spawn-return-ignored
-                     {:machine-id (or (:rf/parent-id machine) (:id machine))
+  (if-let [f (let [aref (:on-spawn spawn-spec)]
+               (when aref
+                 (or (chase-ref (:on-spawn-actions machine) aref)
+                     (chase-ref (:actions machine) aref))))]
+    (try
+      (let [ret (f {:data (:data snap) :id spawned-id})]
+        (when (some? ret)
+          (trace/emit! :warning :rf.warning/on-spawn-return-ignored
+                       {:machine-id (or (:rf/parent-id machine) (:id machine))
+                        :spawned-id spawned-id
+                        :returned   ret
+                        :remedy     [:system-id
+                                     [:rf.runtime/machines :spawned :<parent> :<invoke-id>]
+                                     :rf.machine/update-snapshot]}))
+        snap)
+      (catch #?(:clj Throwable :cljs :default) e
+        (result/fail {:action-ref :rf.spawn/on-spawn
                       :spawned-id spawned-id
-                      :returned   ret
-                      :remedy     [:system-id
-                                   [:rf.runtime/machines :spawned :<parent> :<invoke-id>]
-                                   :rf.machine/update-snapshot]}))))
-  snap)
+                      :exception  e})))
+    snap))
 
 (defn- spawn-one
   "Single-spawn primitive shared by `:spawn` and `:spawn-all` per-child.
@@ -1975,8 +2033,13 @@
   runs the `:on-spawn` advisory callback.
 
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
-  around a `result/fail` Result (stamped with
-  `:action-ref :rf.spawn/data-fn` and `:spawn-id`) on `:data` failure."
+  around a `result/fail` Result on failure. The failure is stamped
+  `:action-ref :rf.spawn/data-fn` + `:spawn-id` for a `:data`-fn throw,
+  or — per rf2-km4bn4 — `:action-ref :rf.spawn/on-spawn` + `:spawn-id`
+  (carried up from `apply-on-spawn`) for a throwing `:on-spawn` callback,
+  so the lifecycle boundary routes BOTH through the machine action
+  exception contract rather than letting an `:on-spawn` throw escape as a
+  generic handler exception."
   [machine parent-id s acc-fx prefix n event]
   (let [spawn-spec   (:spawn n)
         invoke-id    (vec prefix)
@@ -1993,8 +2056,14 @@
     (if (result/fail? spawn-r)
       (reduced spawn-r)
       (let [spawn-fx (result/fx spawn-r)
+            ;; Per rf2-km4bn4: a throwing `:on-spawn` callback returns a
+            ;; `result/fail` (not a snapshot) — short-circuit the spawn
+            ;; reducer so no parent/child snapshot or registry slot commits
+            ;; and the accumulated fx is dropped at the lifecycle boundary.
             s'       (apply-on-spawn machine s-alloc spawn-spec id)]
-        [s' (into acc-fx spawn-fx)]))))
+        (if (result/fail? s')
+          (reduced (result/fail-with s' {:spawn-id invoke-id}))
+          [s' (into acc-fx spawn-fx)])))))
 
 (defn- handle-spawn-all-decl
   "Handle the `:spawn-all` branch of the spawn reducer in
@@ -2006,7 +2075,7 @@
    1. Allocate one spawned-id per child up-front (thread the snapshot's
       counter through children in declaration order).
    2. Build the join-state seed map and the `:rf.machine/spawn-all-init`
-      fx that seeds `[:rf.runtime/machines :spawned <parent> <invoke-id>]` in app-db.
+      fx that seeds `[:rf.runtime/machines :spawned <parent> <invoke-id>]` in runtime-db.
    3. For each child, delegate to `spawn-one` to materialise `:data` and
       build its `:rf.machine/spawn` fx (short-circuits on the first
       child's `:data` failure).
@@ -2067,13 +2136,25 @@
           children-with-ids)]
     (if (result/fail? spawn-fxs-r)
       (reduced spawn-fxs-r)
-      ;; (4) Thread :on-spawn advisory callbacks across siblings.
+      ;; (4) Thread :on-spawn advisory callbacks across siblings. Per
+      ;; rf2-km4bn4 a throwing child `:on-spawn` returns a `result/fail`
+      ;; (not the threaded snapshot); short-circuit the sibling reduce on
+      ;; the FIRST throw — stamping the failing `:child-id` + `:spawn-id`
+      ;; onto the failure — so the reducer never terminates mid-spawn
+      ;; without a machine-scoped trace, and no parent/child snapshot or
+      ;; registry slot commits.
       (let [s' (reduce
                  (fn [snap child]
-                   (apply-on-spawn machine snap child (:rf/spawned-id child)))
+                   (let [r (apply-on-spawn machine snap child (:rf/spawned-id child))]
+                     (if (result/fail? r)
+                       (reduced (result/fail-with r {:spawn-id invoke-id
+                                                     :child-id (:id child)}))
+                       r)))
                  s-alloc
                  children-with-ids)]
-        [s' (-> acc-fx (conj init-fx) (into spawn-fxs-r))]))))
+        (if (result/fail? s')
+          (reduced s')
+          [s' (-> acc-fx (conj init-fx) (into spawn-fxs-r))])))))
 
 (defn final-state-node?
   "Per Spec 005 §Final states (rf2-gn80): true iff the state-node declares

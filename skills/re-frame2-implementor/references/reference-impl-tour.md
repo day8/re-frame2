@@ -18,7 +18,7 @@ implementation/
 │   └── src/re_frame/
 │       ├── core.cljc        public API surface (re-exports + macros)
 │       ├── registrar.cljc   EP 001 — the (kind, id) → metadata registry
-│       ├── frame.cljc       EP 002 — frame: {state, queue, sub-cache, id}
+│       ├── frame.cljc       EP 002 — frame: {frame-state, queue, sub-cache, id}; frame-state = {:rf.db/app :rf.db/runtime}
 │       ├── events.cljc      EP 002 — event handlers; interceptor chain
 │       ├── fx.cljc          EP 002 — fx registration + invocation
 │       ├── cofx.cljc        EP 002 — coeffect registration + injection
@@ -66,7 +66,7 @@ The per-feature directories ship as **separate artefacts** in the published libr
 
 ### EP 002 — Frames + events + effects + subs (`core/src/re_frame/{frame,events,fx,cofx,subs,router}.cljc`)
 
-**What you'll find.** A frame is a deftype wrapping `r/atom` (Reagent ratom) for the app-db plus mutable fields for the queue and sub-cache. The event handler chain is implemented as **interceptors** — chained transforms over a context map, executed in `:before` and reversed in `:after` order. The dispatch loop runs the interceptor chain to completion before dequeuing the next event.
+**What you'll find.** A frame is a deftype wrapping **one** `r/atom` (Reagent ratom) for the `frame-state` container value — the two-partition map `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}` (EP-0001) — plus mutable fields for the queue and sub-cache. `app-db` and `runtime-db` are projection reactions (`r/reaction`) layered over that one container, not separate cells; the projection equality gives partition-aware sub-cache invalidation for free (a runtime-only commit leaves the app-db projection `identical?`, so app subs don't recompute). The event handler chain is implemented as **interceptors** — chained transforms over a context map, executed in `:before` and reversed in `:after` order. The dispatch loop runs the interceptor chain to completion before dequeuing the next event.
 
 **What's CLJS-specific.**
 
@@ -74,18 +74,18 @@ The per-feature directories ship as **separate artefacts** in the published libr
 - Reagent ratom + auto-tracked subscriptions. Your reactive substrate (D2 / F3) decides how this works.
 - `defmulti` for fx resolution. A simple lookup table works too.
 
-**What's pattern-required.** Frame as `{state, queue, sub-cache, id}`; event handler is pure `(state, event) → effects-map`; closed effect-map; run-to-completion drain per frame; subscription cache invalidates by value-equality.
+**What's pattern-required.** Frame as `{frame-state, queue, sub-cache, id}`, where `frame-state` is the two-partition container value `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}` with app-db and runtime-db as read-only derived projections (one physical container, two projection reactions — pattern contract per [`spec/002-Frames.md` §One physical container, two projection reactions](https://day8.github.io/re-frame2/spec/002-Frames/), not just the reference's choice); event handler is pure `(app-db, event) → effects-map` returning `#{:db :rf.db/runtime :fx}` (ordinary app handlers emit only `:db` + `:fx`); closed effect-map; an ordinary `:db` effect replaces only app-db; run-to-completion drain per frame; subscription cache invalidates by value-equality, partition-aware.
 
 ### EP 006 — Reactive substrate (`core/src/re_frame/substrate/` + `adapters/`)
 
-**What you'll find.** The substrate contract is defined in-core at `core/src/re_frame/substrate/adapter.cljc`, with a dependency-free reference substrate alongside it at `core/src/re_frame/substrate/plain_atom.cljc` — `clojure.core/atom`, hand-rolled signal graph, no render trigger (JVM / SSR / headless). The React-binding adapters then ship as sibling artefacts under `adapters/` — `reagent`, `reagent-slim`, `uix`, `helix` (plus `test-react` for the test harness). The Reagent-family adapters are browser-facing — `r/atom` as the container, Reagent `r/reaction` for subs, React for the render trigger. The in-core plain-atom substrate and every adapter implement the same ten-entry contract (boot wiring is the core's `install-adapter!` / `dispose-adapter!`).
+**What you'll find.** The substrate contract is defined in-core at `core/src/re_frame/substrate/adapter.cljc`, with a dependency-free reference substrate alongside it at `core/src/re_frame/substrate/plain_atom.cljc` — `clojure.core/atom`, hand-rolled signal graph, no render trigger (JVM / SSR / headless). The React-binding adapters then ship as sibling artefacts under `adapters/` — `reagent`, `reagent-slim`, `uix`, `helix` (plus `test-react` for the test harness). The Reagent-family adapters are browser-facing — `r/atom` as the container, Reagent `r/reaction` for subs, React for the render trigger. The in-core plain-atom substrate and every adapter implement the same ten-entry contract. **Lifecycle wiring is the core's public `install-adapter!` / `destroy-adapter!` pair** — `install-adapter!` binds the adapter at boot; `destroy-adapter!` tears it down and calls the adapter spec's internal `:dispose-adapter!` slot (if present). Keep the two distinct: `install-adapter!` / `destroy-adapter!` are the public core lifecycle verbs (per [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/)); `:dispose-adapter!` is the **adapter-spec map key** the adapter implements (the lifecycle slot `destroy-adapter!` invokes), not a public function.
 
 **What's CLJS-specific.**
 
 - Reagent's auto-tracked deref-during-render dependency capture. Your host's React binding supplies the equivalent over its `useSyncExternalStore` (UIx / Helix: a `use-subscribe` hook; TS-React / Fable.React / Feliz / ReasonReact / Halogen-React / Kotlin-React: the same pattern).
 - The component-lifecycle integration uses Reagent's lifecycle methods. Other substrates plug into their own.
 
-**What's pattern-required.** The six required functions (`make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string` — note `render-to-string` is required, JVM-runnable, even for no-SSR ports) + three optional (`subscribe-container`, `register-context-provider`, `flush-render!`) + one lifecycle (`dispose-adapter!`); install via the core's `install-adapter!`. Single-adapter-per-process. Adapter-internal state derivable from the frame value (revertibility constraint).
+**What's pattern-required.** The six required functions (`make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string` — note `render-to-string` is required, JVM-runnable, even for no-SSR ports) + three optional (`subscribe-container`, `register-context-provider`, `flush-render!`) + one lifecycle slot (the adapter-spec map's internal `:dispose-adapter!`); install/teardown via the core's public `install-adapter!` / `destroy-adapter!` lifecycle pair (the public verb is `destroy-adapter!` — `:dispose-adapter!` is the adapter map's internal slot it calls, not a public function). Single-adapter-per-process. Adapter-internal state derivable from the frame value (revertibility constraint).
 
 ### EP 004 — Views (`core/src/re_frame/views.cljs`)
 
@@ -120,7 +120,7 @@ The per-feature directories ship as **separate artefacts** in the published libr
 - Per-frame side-table storage + emit-time path-graph union for propagation. Your host may store marks differently and may use write-time taint-tracking instead of an emit-time union — both conform.
 - `get-in` / `assoc-in` path grain for the path vocabulary. Your port uses its own path-access primitive (D4 S3).
 
-**What's pattern-required.** v1-required (not optional). Path-marked, opt-in, two parallel axes (`:sensitive` / `:large`). The seven first-class marking sites accept `{:sensitive [paths] :large [paths]}`; `add-marks` merges, `set-marks` replaces-and-clears (both preserve schema-attached marks). Marks propagate (footgun prevention, not security-grade taint) across the seven boundaries. Emission-time sentinel substitution at all five observation surfaces (trace bus, Xray, MCP wire, AI/LLM handoff, log sinks) via one wire-elision walker — no marked value crosses the trust boundary in dev OR production. Handlers / sub-fns / fx-handlers ALWAYS see real values.
+**What's pattern-required.** v1-required (not optional). Path-marked, opt-in, two parallel axes (`:sensitive` / `:large`). The marking surfaces split three ways — do NOT conflate them as "seven sites that all accept `{:sensitive [paths] :large [paths]}`": (1) **six metadata-bearing registration sites** — `reg-event-{db,fx,ctx}`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow` — accept `{:sensitive [paths] :large [paths]}` on their registration map (subs/flows also take the whole-output `:sensitive? true/false` / `:large? true/false` override); (2) **app-db marks per frame** via `add-marks` (merges) / `set-marks` (replaces-and-clears) — both preserve schema-attached marks and return `frame-id`; (3) **machine `:data` is the schema-first exception** — `reg-machine` is two-arity `(machine-id machine-map)` with NO `:sensitive` / `:large` metadata keys; mark `:data` slots via `:sensitive?` / `:large?` props on the `:data-schema` (rooted under `[:data …]`) and/or the runtime `add-marks` / `set-marks` snapshot path-list (the two union — Spec 015 §6 / Spec 005 §Privacy). Marks propagate (footgun prevention, not security-grade taint) across the seven boundaries. Emission-time sentinel substitution at all five observation surfaces (trace bus, Xray, MCP wire, AI/LLM handoff, log sinks) via one wire-elision walker — no marked value crosses the trust boundary in dev OR production. Handlers / sub-fns / fx-handlers ALWAYS see real values.
 
 ## Walk by optional artefact
 
@@ -134,7 +134,7 @@ EP 013 implementation. Substrate-independent; the contract lives in 013.
 
 ### `http/`
 
-EP 014 implementation + the managed-HTTP pattern. The `:http` fx wraps a request lifecycle through a registered state machine. Substantial — read `014-HTTPRequests.md` (and `Managed-Effects.md` for the managed-fx lifecycle it rides on) first.
+EP 014 implementation + the managed-HTTP pattern. The Spec 014 framework surface is the **`:rf.http/managed`** fx (plus `:rf.http/managed-abort`) — it wraps a request lifecycle through a registered state machine; that is the canonical optional framework effect id conformance / tooling / `:fx-overrides` key off. Lower-level bare `:http` is NOT a reserved framework fx — it is app/user/implementation-specific (registered via the app's own `reg-fx`), so don't describe the managed lifecycle as "the `:http` fx". Substantial — read `014-HTTPRequests.md` (and `Managed-Effects.md` for the managed-fx lifecycle it rides on) first.
 
 ### `machines/`
 

@@ -6,10 +6,12 @@
 
 > **Transport superseded.** This is the original design record. The
 > live, skill-facing transport is now the **MCP server**
-> (`tools/re-frame2-pair-mcp/`) — **28** tools, **26** default
-> allow-listed, the two write-authority tools (`restore-epoch`,
-> `replace-app-db`) gated behind the server's default-OFF
-> `--allow-writes` flag (see `STATUS.md` + `references/mcp-transport.md`).
+> (`tools/re-frame2-pair-mcp/`) — **28** tools, **all 28**
+> allow-listed; the two write-authority tools (`restore-epoch`,
+> `replace-app-db`) are the canonical named-write path and are gated
+> behind the server's default-OFF `--allow-writes` flag — the server's
+> gate, not the allow-list, is the write boundary (see `STATUS.md` +
+> `references/mcp-transport.md`).
 > The `scripts/*.sh` + babashka `ops.clj` shims and the `cljs-eval`
 > injection step described below are **retired** from the skill
 > surface — shims on disk for the e2e harness only, and there is no

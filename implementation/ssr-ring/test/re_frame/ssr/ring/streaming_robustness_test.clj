@@ -83,14 +83,11 @@
             [re-frame.interop :as interop]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.ring.streaming :as streaming]
-            [re-frame.ssr.test-fixture :as tf]
-            [ring.adapter.jetty :as jetty])
+            [re-frame.ssr.ring.test-support :as ts]
+            [re-frame.ssr.test-fixture :as tf])
   (:import [java.io InputStream IOException OutputStream
                     PipedInputStream PipedOutputStream]
-           [java.net URI]
-           [java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers]
-           [java.time Duration]
-           [org.eclipse.jetty.server Server]))
+           [java.net.http HttpResponse$BodyHandlers]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -132,90 +129,26 @@
       [:test/comments-section]]
      [:footer "End"]]))
 
-;; ---- Jetty + JDK HTTP client (mirrors ring_e2e_validator_test) -----------
+;; ---- Jetty + JDK HTTP client + leak detector -----------------------------
+;;
+;; rf2-l1qgjw — the ephemeral Jetty host, the `java.net.http` client /
+;; request builder, and the `rf2-ssr-streaming-*` daemon-thread leak
+;; detector now live in `re-frame.ssr.ring.test-support` (aliased `ts`),
+;; shared with the other live-host / streaming-thread test namespaces.
+;; The per-test knobs stay explicit at the call sites below: a 10s read
+;; timeout (`http-get-request`/`http-get` 3rd arg) and a 10ms leak-poll
+;; cadence (`await-no-streaming-threads!` 2nd arg — the single-request
+;; tests poll faster than the concurrency burst's 50ms).
 
-(defn- start-jetty!
-  "Run `handler` on an ephemeral port. Same shape as the
-  ring_e2e_validator_test harness — `:port 0`, `:host \"127.0.0.1\"`,
-  `:join? false`, response noise trimmed."
-  [handler]
-  (let [^Server server (jetty/run-jetty handler
-                                        {:port                 0
-                                         :host                 "127.0.0.1"
-                                         :join?                false
-                                         :send-server-version? false
-                                         :send-date-header?    false})
-        port (.. server (getURI) (getPort))]
-    {:server server :port port}))
-
-(defn- stop-jetty!
-  [^Server server]
-  (.stop server))
-
-(defmacro with-jetty
-  "Bind `bindings` to `(start-jetty! handler)` and tear the server down
-  in `finally`. `bindings` is `[port-sym handler-expr]`."
-  [[port-sym handler-expr] & body]
-  `(let [{server# :server port# :port} (start-jetty! ~handler-expr)
-         ~port-sym port#]
-     (try
-       ~@body
-       (finally
-         (stop-jetty! server#)))))
-
-(defn- new-http-client
-  "Shared `HttpClient` factory — 5s connect timeout. The `send` arity is
-  per-call so we can use `BodyHandlers/ofInputStream` (for the
-  disconnect test, where we partially read then close) and
-  `BodyHandlers/ofString` (for the happy-path smoke at the top of each
-  test) without rebuilding a client."
-  []
-  (-> (HttpClient/newBuilder)
-      (.connectTimeout (Duration/ofSeconds 5))
-      (.build)))
-
-(defn- http-get-request
-  [port path]
-  (-> (HttpRequest/newBuilder)
-      (.uri (URI/create (str "http://127.0.0.1:" port path)))
-      (.timeout (Duration/ofSeconds 10))
-      (.GET)
-      (.build)))
-
-;; ---- daemon-thread leak detector -----------------------------------------
-
-(def ^:private daemon-thread-name-prefix "rf2-ssr-streaming-")
-
-(defn- live-streaming-threads
-  "Return the seq of currently-live Threads whose name begins with the
-  streaming writer's prefix (`rf2-ssr-streaming-`). Used to assert no
-  orphan thread remains after a failed request."
-  []
-  (->> (Thread/getAllStackTraces)
-       (.keySet)
-       (filter (fn [^Thread t]
-                 (and (.isAlive t)
-                      (some-> (.getName t)
-                              (.startsWith daemon-thread-name-prefix)))))
-       vec))
+(def ^:private read-timeout-secs 10)
+(def ^:private leak-poll-ms 10)
 
 (defn- await-no-streaming-threads!
-  "Poll until no `rf2-ssr-streaming-*` thread is alive, or `timeout-ms`
-  elapses. Returns the final seq of live threads (empty on success,
-  non-empty on timeout). 10ms poll cadence.
-
-  rf2-fun38: NOT a thin wrapper over `test-support/poll-until` — that
-  helper *throws* on timeout, but this site WANTS the leaked-thread vec
-  on timeout so the test assertion can name the offending threads in
-  its failure message. Different return contract; keep this loop."
+  "Single-request poll cadence (10ms) over the shared leak detector.
+  rf2-fun38: returns the leaked-thread vec on timeout (does not throw) so
+  the assertion can name the offenders."
   [timeout-ms]
-  (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-    (loop []
-      (let [alive (live-streaming-threads)]
-        (cond
-          (empty? alive)                       []
-          (>= (System/currentTimeMillis) deadline) alive
-          :else (do (Thread/sleep 10) (recur)))))))
+  (ts/await-no-streaming-threads! timeout-ms leak-poll-ms))
 
 ;; ===========================================================================
 ;; Test 1 — broken pipe on .write absorbed by the writer's catch arm
@@ -334,9 +267,9 @@
                     {:on-create [:rf.test.server/init]
                      :root-view [:test/root]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (with-jetty [port handler]
-        (let [client   (new-http-client)
-              req      (http-get-request port "/")
+      (ts/with-jetty [port handler]
+        (let [client   (ts/new-http-client)
+              req      (ts/http-get-request port "/" read-timeout-secs)
               response (.send client req (HttpResponse$BodyHandlers/ofInputStream))
               ;; Read a small prefix so we know the writer thread has
               ;; flushed the shell chunk. We don't care WHAT we read,
@@ -413,9 +346,9 @@
                            {:on-create [:rf.test.server/init-min]
                             :root-view throwing-root
                             :payload :rf.ssr.payload/whole-app-db})]
-      (with-jetty [port handler]
-        (let [client   (new-http-client)
-              req      (http-get-request port "/")
+      (ts/with-jetty [port handler]
+        (let [client   (ts/new-http-client)
+              req      (ts/http-get-request port "/" read-timeout-secs)
               response (.send client req (HttpResponse$BodyHandlers/ofString))
               status   (.statusCode response)
               body     (.body response)]
@@ -487,7 +420,7 @@
         (try
           (is (.await latch 5 java.util.concurrent.TimeUnit/SECONDS)
               "the writer thread reached the parking-section continuation")
-          (reset! observed (live-streaming-threads))
+          (reset! observed (ts/live-streaming-threads))
           (finally
             (.countDown release)
             @drain))
@@ -495,7 +428,7 @@
             "at least one rf2-ssr-streaming-* daemon thread was alive
              while the writer was mid-render")
         (let [names (map (fn [^Thread t] (.getName t)) @observed)]
-          (is (every? #(.startsWith ^String % daemon-thread-name-prefix) names)
+          (is (every? #(.startsWith ^String % ts/daemon-thread-name-prefix) names)
               (str "every captured thread name starts with the
                    `rf2-ssr-streaming-` prefix — captured names: "
                    (vec names))))
@@ -639,14 +572,8 @@
 ;; handler order and asserts the WIRE status is 500, bytes-on-wire through
 ;; Jetty.
 
-(defn- http-get-string
-  "Issue a real HTTP GET and return `{:status :body}` observed on the
-  wire (full body read as a String)."
-  [^HttpClient client port path]
-  (let [resp (.send client (http-get-request port path)
-                    (HttpResponse$BodyHandlers/ofString))]
-    {:status (.statusCode resp)
-     :body   (.body resp)}))
+;; rf2-l1qgjw — the full-body `{:status :body}` GET now uses the shared
+;; `ts/http-get` (the local `http-get-string` was its duplicate).
 
 (deftest rendertime-sub-throw-fails-closed-non-200-bytes-on-wire
   (testing "rf2-r06pc / rf2-vvwmi: a production-mode reactive sub that
@@ -676,9 +603,9 @@
       ;; render + the post-shell re-read — so the buffered 500 is observed
       ;; and committed before the response is returned to Jetty.
       (with-redefs [interop/debug-enabled? false]
-        (with-jetty [port handler]
-          (let [client (new-http-client)
-                {:keys [status]} (http-get-string client port "/")]
+        (ts/with-jetty [port handler]
+          (let [client (ts/new-http-client)
+                {:keys [status]} (ts/http-get client port "/" read-timeout-secs)]
             (is (= 500 status)
                 "render-time sub-throw fail-closed 500 rides the full
                  Jetty round-trip — never a silent 200 (rf2-r06pc)")))))))
@@ -733,9 +660,9 @@
                     {:on-create [:rf.test.server/init-nested]
                      :root-view [:test/wire-nested-root]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (with-jetty [port handler]
-        (let [client (new-http-client)
-              {:keys [status body]} (http-get-string client port "/")
+      (ts/with-jetty [port handler]
+        (let [client (ts/new-http-client)
+              {:keys [status body]} (ts/http-get client port "/" read-timeout-secs)
               idx-outer-resolved (str/index-of body "data-rf2-suspense-id=\":wire/outer\" data-rf2-suspense-resolved=\"1\"")
               idx-inner-resolved (str/index-of body "data-rf2-suspense-id=\":wire/inner\" data-rf2-suspense-resolved=\"1\"")
               idx-inner-body     (str/index-of body "WIRE_INNER_BODY")

@@ -46,6 +46,8 @@
             [re-frame.frame :as frame]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [re-frame.ssr :as ssr]
+            [re-frame.ssr.constants :as constants]
+            [re-frame.ssr.streaming.constants :as wire]
             [re-frame.ssr.streaming.client :as streaming-client]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]
@@ -118,7 +120,8 @@
   (ssr/streaming-failed-template id fallback-html))
 
 (defn- final-payload-html []
-  "<script id=\"__rf_payload\" type=\"application/edn\">{:rf/version 1 :rf/app-db {} :rf/render-hash \"00000000\"}</script>")
+  (str "<script id=\"" constants/payload-script-id
+       "\" type=\"application/edn\">{:rf/version 1 :rf/app-db {} :rf/render-hash \"00000000\"}</script>"))
 
 ;; ---- DOM scaffolding -------------------------------------------------------
 
@@ -150,7 +153,7 @@
   (count (array-seq (.querySelectorAll host (str "." cls)))))
 
 (defn- mount-for [host id]
-  (.querySelector host (str "[data-rf2-suspense-mount=\"" (pr-str id) "\"]")))
+  (.querySelector host (str "[" wire/attr-suspense-mount "=\"" (pr-str id) "\"]")))
 
 (defn- showing-fallback?
   "True when boundary `id` is in its (live, visible) fallback state —
@@ -214,7 +217,7 @@
                                  "<div class=\"card resolved-revenue\">Revenue 42375</div>"
                                  {:cards {:revenue {:title "Revenue" :value 42375}}}))
           ;; signups has NOT resolved yet — its fallback is still inert.
-          (is (nil? (.querySelector host "#__rf_payload"))
+          (is (nil? (.querySelector host (str "#" constants/payload-script-id)))
               "no final payload present — any hydration is purely from chunk deltas")
           (is (= {} (frame/frame-app-db-value fid)) "app-db empty before install")
 
@@ -299,6 +302,106 @@
               (is (= {} (frame/frame-app-db-value fid)) "no delta applied for a failed boundary")
               (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %)) @captured)
                   ":rf.ssr/suspense-boundary-failed trace emitted client-side")
+              (finally (stop!))))
+          (finally
+            (trace-tooling/unregister-listener! k)
+            (remove-root! host)))))))
+
+(deftest parseable-non-map-delta-fails-closed
+  (testing "rf2-l3paoi — a resolved chunk whose hydrate-delta `<script>` body
+            is PARSEABLE EDN but NOT a map (a vector / number / string —
+            a server/client wire-shape regression) must fail CLOSED: the
+            resolved HTML still swaps in (DOM progress), the delta is NOT
+            merged (app-db stays unchanged), the script is consumed (DOM left
+            script-free), AND a `:rf.ssr/suspense-boundary-failed`
+            `:skipped-delta` trace fires. Before the fix `read-string`
+            accepted the non-map, `merge-delta!`'s `(map? delta)` guard
+            silently no-op'd the merge, and the script was removed with NO
+            diagnostic — progressive hydration LOOKED successful in the DOM
+            while subscriptions read stale state."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      ;; Each bad delta is parseable EDN but the wrong shape. Empty-string
+      ;; / `nil` bodies are the legitimate no-delta shape (covered below),
+      ;; so they are NOT in this malformed set.
+      (doseq [bad-delta [[:not :a :map]
+                         42
+                         "a bare string"
+                         :a-keyword]]
+        (let [fid      (make-client-frame!)
+              host     (make-root! [:card.revenue])
+              captured (atom [])
+              k        (str (gensym "stream-nonmap-cb"))]
+          (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+          (try
+            (append-chunk!
+              host
+              (resolved-chunk-html :card.revenue
+                                   "<div class=\"card resolved-revenue\">Revenue</div>"
+                                   bad-delta))
+            (let [stop! (streaming-client/install! {:frame fid :root host})]
+              (try
+                ;; DOM still progresses — the resolved content swapped in.
+                (is (= 1 (card-count host "resolved-revenue"))
+                    (str (pr-str bad-delta)
+                         ": resolved HTML still swaps in (DOM progress)"))
+                (is (false? (boolean (showing-fallback? host :card.revenue)))
+                    (str (pr-str bad-delta) ": mount shows resolved content, not a skeleton"))
+                ;; app-db is UNCHANGED — the malformed delta was not merged.
+                (is (= {} (frame/frame-app-db-value fid))
+                    (str (pr-str bad-delta)
+                         ": app-db must stay unchanged (malformed delta NOT merged)"))
+                (is (nil? @(rf/subscribe fid [:sct/card :revenue]))
+                    (str (pr-str bad-delta) ": subscription reads no speculative state"))
+                ;; The script is consumed regardless of delta validity.
+                (is (zero? (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+                    (str (pr-str bad-delta) ": the delta script is dropped (DOM left script-free)"))
+                ;; The fail-closed diagnostic fires.
+                (let [skipped (filter #(and (= :rf.ssr/suspense-boundary-failed (:operation %))
+                                            (= :skipped-delta (:recovery %)))
+                                      @captured)]
+                  (is (seq skipped)
+                      (str (pr-str bad-delta)
+                           ": must emit :rf.ssr/suspense-boundary-failed :skipped-delta; saw: "
+                           (pr-str (mapv (juxt :operation :recovery) @captured)))))
+                (finally (stop!))))
+            (finally
+              (trace-tooling/unregister-listener! k)
+              (remove-root! host))))))))
+
+(deftest empty-delta-body-is-not-malformed
+  (testing "rf2-l3paoi — the fail-closed guard is PRECISE: an empty-map delta
+            body (`{}`) is a legitimate no-op delta (no app-db change), and a
+            VALID map delta still merges — neither emits the malformed
+            diagnostic. This pins that the non-map fail-closed branch does not
+            over-fire on the documented valid shapes."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (let [fid      (make-client-frame!)
+            host     (make-root! [:card.empty :card.full])
+            captured (atom [])
+            k        (str (gensym "stream-empty-cb"))]
+        (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+        (try
+          ;; (a) empty-map delta — valid no-op, no app-db change, no trace.
+          (append-chunk!
+            host
+            (resolved-chunk-html :card.empty
+                                 "<div class=\"card resolved-empty\">empty</div>"
+                                 {}))
+          ;; (b) valid map delta — merges normally.
+          (append-chunk!
+            host
+            (resolved-chunk-html :card.full
+                                 "<div class=\"card resolved-full\">full</div>"
+                                 {:cards {:full {:value 5}}}))
+          (let [stop! (streaming-client/install! {:frame fid :root host})]
+            (try
+              (is (= 1 (card-count host "resolved-empty")) "empty-delta chunk still swaps")
+              (is (= 5 (:value @(rf/subscribe fid [:sct/card :full]))) "valid delta merged")
+              (is (not-any? #(= :rf.ssr/suspense-boundary-failed (:operation %)) @captured)
+                  (str "valid + empty deltas must NOT emit the malformed diagnostic; saw: "
+                       (pr-str (mapv :operation @captured))))
               (finally (stop!))))
           (finally
             (trace-tooling/unregister-listener! k)
@@ -392,7 +495,7 @@
             (resolved-chunk-html :card.outer
                                  outer-resolved-html
                                  {:cards {:outer {:value 7} :inner {:value 99}}}))
-          (is (nil? (.querySelector host "#__rf_payload"))
+          (is (nil? (.querySelector host (str "#" constants/payload-script-id)))
               "no final payload — recovery is purely the sweep's doing")
           (let [stop! (streaming-client/install! {:frame fid :root host})]
             (try

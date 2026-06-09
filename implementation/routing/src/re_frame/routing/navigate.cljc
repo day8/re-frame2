@@ -18,8 +18,8 @@
             [re-frame.registrar :as registrar]
             [re-frame.routing.can-leave :as can-leave]
             [re-frame.routing.events :as routing-events]
+            [re-frame.routing.plan :as plan]
             [re-frame.routing.registry :as registry]
-            [re-frame.routing.scroll :as scroll]
             [re-frame.routing.url :as url]
             [re-frame.trace :as trace]))
 
@@ -199,9 +199,14 @@
               ;; discriminator (`:too-many-keys` / `:match-error`),
               ;; uniform with the URL-driven not-found slice.
               {:route-id         (or (:route-id match) :rf.route/not-found)
+               ;; rf2-u8qe7y: the not-found fallback `:params` shape +
+               ;; `:reason` vocabulary is shared with the URL-driven path
+               ;; (`plan/not-found-params`). On a throw it carries the cause
+               ;; reason; on a bare miss it carries `{:url ...}` (no reason);
+               ;; a match supplies its own `:params`.
                :path-params      (if throw-reason
-                                   {:url (:url target) :reason throw-reason}
-                                   (:params match {:url (:url target)}))
+                                   (plan/not-found-params (:url target) throw-reason)
+                                   (:params match (plan/not-found-params (:url target) nil)))
                :query-params     (:query match {})
                :matched-fragment (:fragment match)
                :unmatched-url    (when-not (:route-id match) (:url target))
@@ -214,8 +219,9 @@
                ;; dashboards / SSR projections the DoS cap feeds.
                :throw-reason     throw-reason
                :requested-url    (:url target)}))
-          ;; rf2-zmcq6: normalize an explicit empty-string fragment to nil
-          ;; at the navigate boundary. `route-url` (the URL builder) treats
+          ;; rf2-zmcq6 / rf2-u8qe7y: normalize an explicit empty-string
+          ;; fragment to nil at the navigate boundary via the shared
+          ;; `plan/normalize-fragment`. `route-url` (the URL builder) treats
           ;; `:fragment ""` as NO fragment (emits no trailing `#`), but
           ;; `""` is truthy, so without this normalization
           ;; `[:rf.route/navigate :route/docs {} {:fragment ""}]` would
@@ -225,10 +231,10 @@
           ;; here keeps the programmatic and URL-driven paths in agreement:
           ;; the pushed URL and the slice's `:fragment` match regardless of
           ;; how the route was reached.
-          fragment    (let [f (or (:fragment opts)
-                                  (and (map? target) (:fragment target))
-                                  matched-fragment)]
-                        (when-not (= "" f) f))
+          fragment    (plan/normalize-fragment
+                        (or (:fragment opts)
+                            (and (map? target) (:fragment target))
+                            matched-fragment))
           route-meta  (registrar/lookup :route route-id)
           ;; rf2-1os1c: catch the params/opts positional swap at the
           ;; event boundary. Route-id form only — the `{:url ...}` form
@@ -346,7 +352,7 @@
           ;; URL-driven path's `identical-nav?` short-circuit so a
           ;; duplicate `[:rf.route/navigate :route/cart]` doesn't re-fetch
           ;; unchanged data.
-          identical-nav? (routing-events/identical-route-target?
+          identical-nav? (plan/identical-route-target?
                            (get-in rdb [:rf.runtime/routing :current])
                            route-id path-params query-params fragment)]
       (cond
@@ -415,54 +421,47 @@
             (let [push-fx    (if (:replace? opts)
                                [:rf.nav/replace-url url]
                                [:rf.nav/push-url    url])
-                  ;; Per Spec 012 §Scroll restoration: forward navigation
-                  ;; defaults to :top. Resolve from opts → route-meta →
-                  ;; default.
-                  to-route   (scroll/route-descriptor* route-id path-params query-params)
-                  strategy   (scroll/resolve-scroll-strategy route-meta opts :top)
-                  ;; Per Spec 012 §Multi-frame routing: scroll-position
-                  ;; lookup reads the per-frame map under
-                  ;; [:rf.runtime/routing :scroll-positions].
-                  scroll-fx  (scroll/scroll-fx-entry
-                               {:strategy  strategy
-                                :from      (scroll/route-descriptor
-                                             (get-in rdb [:rf.runtime/routing :current]))
-                                :to        to-route
-                                :saved-pos (when (= :restore strategy)
-                                             (scroll/lookup-scroll-position rdb url))
-                                :fragment  fragment})
-                  capture-fx (scroll/capture-scroll-fx-entry rdb)]
-              ;; rf2-2zyvj: structured telemetry for a `match-url` THROW
-              ;; that failed closed on the `{:url ...}` target form (the
-              ;; DoS-cap `:too-many-keys`, rf2-3k3o7, or an unexpected
-              ;; `:match-error`). Symmetric with the URL-driven entry point
-              ;; (url_change.cljc:190-193): the SAME hostile-URL stream must
-              ;; surface a `:rf.warning/malformed-url` carrying the `:reason`
-              ;; so security dashboards / SSR error-projections see it
-              ;; regardless of WHICH of the three nav events the over-cap
-              ;; URL arrived on (spec/012-Routing.md §Keyword-interning cap).
-              ;; Before this fix the programmatic navigate fail-closed path
-              ;; failed closed SILENTLY — the over-cap attack was visible via
-              ;; popstate/link but invisible via `[:rf.route/navigate {:url}]`.
-              (when throw-reason
-                (trace/emit! :warning :rf.warning/malformed-url
-                             (cond-> {:url requested-url :reason throw-reason}
-                               frame (assoc :frame frame))))
-              ;; Spec 012 §Route-not-found rule 3 (rf2-0zr2o): when an
-              ;; unmatched URL-string target resolved to
-              ;; `:rf.route/not-found` and no such route is registered,
-              ;; emit `:rf.warning/no-not-found-route` — mirroring the
-              ;; URL-driven path (`url-change-fx`), which warns and still
-              ;; commits the not-found slice. The two not-found entry
-              ;; points now agree: warn (don't reject), keep the requested
-              ;; URL, render the not-found view.
-              (when (and unmatched-url (nil? route-meta))
-                ;; rf2-7d30s — frame-attribute the warning (mirrors the
-                ;; URL-driven sibling in url_change.cljc) so it's visible
-                ;; in the emitting frame's epoch / Xray.
-                (trace/emit! :warning :rf.warning/no-not-found-route
-                             (cond-> {:url unmatched-url}
-                               frame (assoc :frame frame))))
+                  ;; rf2-u8qe7y: the capture-fx + scroll-fx assembly is
+                  ;; shared pre-commit policy — `plan/scroll-plan`. Forward
+                  ;; navigation defaults to `:top` (Spec 012 §Scroll
+                  ;; restoration); the per-call `:scroll` override rides in
+                  ;; `opts`. `:url` keys the (forward → never-hit) `:restore`
+                  ;; saved-position lookup, kept for parity with the
+                  ;; URL-driven path.
+                  {:keys [capture-fx scroll-fx]}
+                  (plan/scroll-plan {:rdb              rdb
+                                     :route-meta       route-meta
+                                     :opts             opts
+                                     :default-strategy :top
+                                     :route-id         route-id
+                                     :params           path-params
+                                     :query            query-params
+                                     :fragment         fragment
+                                     :url              url})]
+              ;; rf2-2zyvj / rf2-u8qe7y: the fail-closed warning telemetry is
+              ;; shared pre-commit policy with the URL-driven path
+              ;; (`plan/fallback-telemetry-intents`). A `match-url` THROW on
+              ;; the `{:url ...}` target form (the DoS-cap `:too-many-keys`,
+              ;; rf2-3k3o7, or a `:match-error`) surfaces
+              ;; `:rf.warning/malformed-url`; an unmatched URL-string target
+              ;; that resolved to `:rf.route/not-found` with no such route
+              ;; registered surfaces `:rf.warning/no-not-found-route`
+              ;; (rf2-0zr2o). Both entry points build the SAME intent list,
+              ;; so the over-cap attack is visible regardless of WHICH of the
+              ;; three nav events the hostile URL arrived on — before the seam
+              ;; the programmatic path once failed closed SILENTLY. The
+              ;; navigate path has no `:malformed?` branch (`match-url-fail-
+              ;; closed` only THROWS for the `{:url}` form — no %-decode scan),
+              ;; so it passes `:malformed? false`. `requested-url` equals
+              ;; `unmatched-url` when both are present (both derive from
+              ;; `(:url target)`).
+              (plan/emit-intents!
+                (plan/fallback-telemetry-intents
+                  {:throw-reason  throw-reason
+                   :malformed?    false
+                   :no-not-found? (boolean (and unmatched-url (nil? route-meta)))
+                   :url           requested-url
+                   :frame         frame}))
               ;; rf2-g8tzb / commit-navigation: nav-token alloc, the
               ;; allocated/activation traces, the slice publish, and the
               ;; fx assembly are the shared commit shape. The programmatic

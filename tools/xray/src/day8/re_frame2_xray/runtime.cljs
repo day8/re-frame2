@@ -257,37 +257,56 @@
                           (seq path) (assoc :path (vec path))))))
 
 (defn egress-record
-  "The single named off-box safe-egress fn for one epoch record. On the
-  safe default path it routes the `:rf/epoch-record` through the
-  framework's normative epoch projection
-  (`re-frame.core/projected-record`) so payload slots are wire-elided
-  with off-box defaults while bookkeeping slots (`:epoch-id`,
+  "The single named off-box safe-egress fn for one epoch record. Routes
+  the `:rf/epoch-record` through the framework's normative epoch
+  projection (`re-frame.core/projected-record`) so payload slots are
+  wire-elided with off-box defaults while bookkeeping slots (`:epoch-id`,
   `:dispatch-id`, `:outcome`, …) pass through unchanged.
 
-  `projected-record` already bakes the off-box defaults — naming the
-  off-box egress of an epoch record `egress-record` (parallel to
-  `egress-value` for arbitrary values) gives a forwarder author ONE
-  obvious safe entry point for either shape instead of a choice
-  between `elide-wire-value` (and the right opts) and
-  `projected-record` (with no opts) they must first learn the
+  `projected-record` bakes the off-box defaults — naming the off-box
+  egress of an epoch record `egress-record` (parallel to `egress-value`
+  for arbitrary values) gives a forwarder author ONE obvious safe entry
+  point for either shape instead of a choice between `elide-wire-value`
+  (and the right opts) and `projected-record` they must first learn the
   difference between.
 
-  Opt-back-in: when a caller that is itself the trust boundary opts in
-  to seeing sensitive or large slots (`{:include-sensitive? true}` /
-  `{:include-large? true}`), the record is routed through
-  `egress-value` with the opt instead — the normative epoch projection
-  has no opt-in arg, so the value walker carries the per-call override.
-  No opts (or both `false`) ⇒ the normative `projected-record` path.
-  rf2-rcogp — the safe path is the short path."
+  ## Opt-back-in preserves every partition boundary (rf2-5w06uu)
+
+  When a caller that is itself the trust boundary opts in to seeing
+  sensitive or large APP-DB slots (`{:include-sensitive? true}` /
+  `{:include-large? true}`), the opts are THREADED INTO `projected-record`
+  rather than the record being walked raw through `egress-value`. This is
+  load-bearing: those opts govern the APP-DB partition's privacy / size
+  posture ONLY — they are ORTHOGONAL to the runtime-db partition
+  boundary. `projected-record` keeps the `:rf.db/runtime` side of each
+  frame-state slot (machine snapshots, route slice, spawn registry,
+  elision registry, SSR/hydration metadata) `:rf/redacted` even under
+  those opt-ins. The earlier bypass — walking the raw record through
+  `egress-value` on opt-in — lifted that orthogonal runtime-db partition
+  off-box just because the caller asked for sensitive / large APP-DB
+  values (and mis-rooted the app-db path tracker so frame-state app-db
+  sensitive declarations never matched). Routing through the normative
+  projection both closes the leak and honours Security.md §Off-box
+  egress's prohibition on per-tool reimplementation of the projection.
+
+  A TRUSTED-LOCAL caller that genuinely needs runtime-db diagnostics
+  opts into the partition explicitly with `{:include-runtime-db? true}`,
+  which `projected-record` honours (the runtime-db value then rides the
+  same value walk, where its own per-slot `:sensitive?` / `:large?`
+  declarations still apply). Mirrors `egress-runtime-db-value`'s
+  partition opt-in for the live-read accessors.
+
+  rf2-rcogp — the safe path is the short path: the bare
+  `(egress-record record)` is the fully-redacted off-box default."
   ([record]
-   (egress-record record nil))
-  ([record {:keys [include-sensitive? include-large?]
-            :or   {include-sensitive? false
-                   include-large?     false}}]
-   (if (or include-sensitive? include-large?)
-     (egress-value record {:include-sensitive? include-sensitive?
-                           :include-large?     include-large?})
-     (rf/projected-record record))))
+   (rf/projected-record record))
+  ([record {:keys [include-sensitive? include-large? include-runtime-db?]
+            :or   {include-sensitive?  false
+                   include-large?      false
+                   include-runtime-db? false}}]
+   (rf/projected-record record {:include-sensitive?  include-sensitive?
+                                :include-large?      include-large?
+                                :include-runtime-db? include-runtime-db?})))
 
 ;; ---------------------------------------------------------------------------
 ;; Partition-aware runtime-db egress (EP-0001 rf2-jj1xer · Mike ruling #14)
@@ -437,17 +456,25 @@
   `:rf/epoch-record`) per Tool-Pair §Time-travel. Returns
   `{:ok? true :frame <id> :epochs <vec>}` or `{:ok? false :reason
   :no-frame-resolved}` when the frame can't be picked. Each record
-  routes through `elide-wire-value` for privacy + size egress."
+  routes through `egress-record` for privacy + size egress.
+
+  `:include-sensitive?` / `:include-large?` opt the APP-DB partition's
+  sensitive / large values back in. The framework runtime-db partition
+  (`:rf.db/runtime` in each record's frame-state slots) stays redacted
+  under those opts — a trusted-local caller that genuinely needs
+  runtime-db diagnostics passes `:include-runtime-db? true` explicitly
+  (rf2-5w06uu)."
   ([] (get-epoch-history nil))
   ([opts]
-   (let [{:keys [frame include-sensitive? include-large?]} opts
+   (let [{:keys [frame include-sensitive? include-large? include-runtime-db?]} opts
          fid (resolve-frame frame)]
      (if (nil? fid)
        {:ok? false :reason :no-frame-resolved
         :hint "Pass :frame :foo or register at least one frame."}
        (let [records  (rf/epoch-history fid)
-             scrubbed (mapv #(egress-record % {:include-sensitive? include-sensitive?
-                                               :include-large?     include-large?})
+             scrubbed (mapv #(egress-record % {:include-sensitive?  include-sensitive?
+                                               :include-large?      include-large?
+                                               :include-runtime-db? include-runtime-db?})
                             records)]
          {:ok?    true
           :frame  fid

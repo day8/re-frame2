@@ -61,60 +61,26 @@
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
             [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.test-fixture :as tf]
-            [ring.adapter.jetty :as jetty])
-  (:import [java.net URI]
-           [java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers]
-           [java.time Duration]
-           [org.eclipse.jetty.server Server]))
+            [re-frame.ssr.ring.test-support :as ts]
+            [re-frame.ssr.test-fixture :as tf]))
 
 (use-fixtures :each tf/reset-runtime)
 
 ;; ===========================================================================
-;; Jetty + java.net.http harness (mirrors ring_draintime_error_test.clj)
+;; Jetty + java.net.http harness
 ;; ===========================================================================
+;;
+;; rf2-l1qgjw — the ephemeral Jetty host (`ts/with-jetty`) + `java.net.http`
+;; client / GET now live in `re-frame.ssr.ring.test-support` (aliased `ts`).
+;; The 30s read timeout stays explicit at the call site via `ts/http-get`.
 
-(defn- start-jetty!
-  [handler]
-  (let [^Server server (jetty/run-jetty handler
-                                        {:port                 0
-                                         :host                 "127.0.0.1"
-                                         :join?                false
-                                         :send-server-version? false
-                                         :send-date-header?    false})
-        port (.. server (getURI) (getPort))]
-    {:server server :port port}))
-
-(defn- stop-jetty!
-  [^Server server]
-  (.stop server))
-
-(defmacro with-jetty
-  [[port-sym handler-expr] & body]
-  `(let [{server# :server port# :port} (start-jetty! ~handler-expr)
-         ~port-sym port#]
-     (try
-       ~@body
-       (finally
-         (stop-jetty! server#)))))
-
-(defn- new-http-client []
-  (-> (HttpClient/newBuilder)
-      (.connectTimeout (Duration/ofSeconds 5))
-      (.build)))
+(def ^:private read-timeout-secs 30)
 
 (defn- http-get
-  "Issue a real HTTP GET against `http://127.0.0.1:<port><path>` and
-  return `{:status :body}` observed on the wire."
-  [^HttpClient client port path]
-  (let [req  (-> (HttpRequest/newBuilder)
-                 (.uri (URI/create (str "http://127.0.0.1:" port path)))
-                 (.timeout (Duration/ofSeconds 30))
-                 (.GET)
-                 (.build))
-        resp (.send client req (HttpResponse$BodyHandlers/ofString))]
-    {:status (.statusCode resp)
-     :body   (.body resp)}))
+  "Issue a real HTTP GET and return `{:status :body}` observed on the
+  wire (30s read-timeout pinned via the shared helper)."
+  [client port path]
+  (ts/http-get client port path read-timeout-secs))
 
 ;; ===========================================================================
 ;; A root-view whose reactive sub THROWS during the render walk.
@@ -181,8 +147,8 @@
 
         (testing "bytes-on-the-wire through Jetty — the 500 survives the
                   full round-trip"
-          (with-jetty [port handler]
-            (let [client (new-http-client)
+          (ts/with-jetty [port handler]
+            (let [client (ts/new-http-client)
                   {:keys [status]} (http-get client port "/uses-throwing-sub")]
               (is (= 500 status)
                   "the render-time sub-throw fail-closed 500 rides the

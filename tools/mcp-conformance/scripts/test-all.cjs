@@ -56,6 +56,10 @@ const TESTS = [
     argv: ['--test', 'test/hermetic-setup-timeout.test.cjs'],
   },
   {
+    name: 'hermetic port-file escape refusal (rf2-khav7l)',
+    argv: ['--test', 'test/port-file-escape.test.cjs'],
+  },
+  {
     name: 're-frame2-pair-mcp end-to-end',
     argv: ['test/end-to-end-re-frame2-pair.cjs'],
   },

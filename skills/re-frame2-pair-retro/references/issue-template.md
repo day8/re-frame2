@@ -120,15 +120,15 @@ This is the canonical shape from [`../../README.md` §Published-skill `allowed-t
 
 `--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` / `gh label list` — exactly what the skill's `allowed-tools` grants. The `--title` value is safe only because it is agent-authored from the safe alphabet (§Title patterns), not because it is read from a file. Never paste an evidence-derived string into `--label` either (§Filing rules).
 
-Always run `gh issue list --repo <owner/repo> --search "<keywords>"` first to check for an existing issue on the same friction; reference it instead of duplicating.
+Always run `gh issue list --repo <owner/repo> --search "<keywords>"` first to check for an existing issue on the same friction; reference it instead of duplicating. **Author the `<keywords>` yourself from the safe alphabet (§Title patterns) — `--search` is inline argv with no `--search-file`, so a query pasted from the transcript / a quoted failure string / a suggested title can carry `$(…)`, backticks, `"`, `\`, or a newline the shell expands before `gh` sees it (and leaks the raw evidence to GitHub as the query). Never interpolate evidence text into `--search`.** See [`../../shared/issue-filing.md`](../../shared/issue-filing.md) §Search before filing.
 
 ## Filing rules
 
 - File only after explicit user approval.
 - **Labels are optional; never let a missing label block filing.** `gh issue create` fails the whole command on an unknown `--label`, and the target repo may not define `retro` / `pair-mcp` / `upstream-from-re-frame2-pair`. File the no-label baseline command by default; add a `--label` only after confirming it exists (`gh label list`), passing only the present tokens. If a labelled create fails, re-run the no-label command — the issue must land.
-- **Never interpolate transcript-derived text directly into a shell command.** Use the `Write` tool + `--body-file` pattern for the body — writing to a **fresh, per-filing temp file in the host OS's temp directory** (a nonce-carrying `$env:TEMP\…` on Windows or `${TMPDIR:-/tmp}/…` on POSIX), never a fixed `/tmp/issue-body.md` — and **author the `--title` from the safe alphabet** (§Title patterns) — never paste evidence text into `--title`, `--label`, or `--repo`.
+- **Never interpolate transcript-derived text directly into a shell command.** Use the `Write` tool + `--body-file` pattern for the body — writing to a **fresh, per-filing temp file in the host OS's temp directory** (a nonce-carrying `$env:TEMP\…` on Windows or `${TMPDIR:-/tmp}/…` on POSIX), never a fixed `/tmp/issue-body.md` — and **author the `--title` from the safe alphabet** (§Title patterns) — never paste evidence text into `--title`, `--search`, `--label`, or `--repo`.
 - Redact secrets, tokens, and internal-only details.
 - Prefer one issue per distinct improvement.
-- Search for an existing issue first: `gh issue list --repo <owner/repo> --search "<keywords>"`.
+- Search for an existing issue first: `gh issue list --repo <owner/repo> --search "<keywords>"` — author the `<keywords>` from the safe alphabet (§Title patterns); never paste transcript-/evidence-derived text into `--search` (same inline-argv injection boundary as `--title`).
 - Cross-link tool-side and upstream issues when both are filed for the same friction.
 - **Tracker boundary** — file GitHub issues against the target repo. Never invoke `bd` from this skill; `bd` is the re-frame2 monorepo's internal tracker.

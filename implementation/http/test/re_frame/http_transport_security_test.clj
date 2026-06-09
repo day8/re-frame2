@@ -11,16 +11,20 @@
             [re-frame.http-handlers]
             [re-frame.http-privacy :as privacy]
             [re-frame.http-transport]
+            [re-frame.http-transport-jvm]
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace])
   (:import [java.net.http HttpClient HttpClient$Redirect HttpRequest]
            [java.time Duration]
            [java.util Optional]))
 
-;; Reach the private fn `jvm-build-request` via #' so we don't widen
-;; the public surface.
+;; rf2-hp772l — the JVM platform transport (request building, client
+;; memoisation, classification, CLJS-only-key degradation tracing) lives
+;; in the per-platform adapter ns `re-frame.http-transport-jvm`. The
+;; public seams are reached directly; the genuinely-internal helpers
+;; (`redirect->policy`) via `#'` against that named adapter.
 (def ^:private jvm-build-request
-  @#'re-frame.http-transport/jvm-build-request)
+  re-frame.http-transport-jvm/jvm-build-request)
 
 (defn- with-trace-capture [body-fn]
   (let [captured (atom [])
@@ -248,7 +252,7 @@
 
 ;; ---- rf2-1jcpm — CLJS-only-key warning redaction (JVM) -------------------
 
-(def ^:private check-cljs-only-keys! @#'re-frame.http-transport/check-cljs-only-keys!)
+(def ^:private check-cljs-only-keys! re-frame.http-transport-jvm/check-cljs-only-keys!)
 
 (deftest cljs-only-key-warning-redacts-denylisted-query-params
   (testing "rf2-1jcpm — the JVM warning for an ignored CLJS-only key
@@ -291,10 +295,10 @@
 ;; ---- rf2-ee38b.7 — JVM honours the spec's `:redirect` envelope key -------
 
 (def ^:private redirect->policy
-  @#'re-frame.http-transport/redirect->policy)
+  @#'re-frame.http-transport-jvm/redirect->policy)
 
 (def ^:private jvm-http-client-for
-  @#'re-frame.http-transport/jvm-http-client-for)
+  re-frame.http-transport-jvm/jvm-http-client-for)
 
 (deftest jvm-redirect-policy-maps-spec-values
   (testing "rf2-ee38b.7 — `:redirect` maps onto the JDK redirect policy.
@@ -338,7 +342,7 @@
   `:rf.http/timeout` with `:elapsed-ms` / `:limit-ms`). The CLJS path
   always populated both; the JVM path emitted nil for both. `:elapsed-ms`
   legitimately stays nil on JVM (the JDK exposes no elapsed value)."
-    (let [classify @#'re-frame.http-transport/classify-jvm-error
+    (let [classify re-frame.http-transport-jvm/classify-jvm-error
           t   (java.net.http.HttpTimeoutException. "request timed out")
           out (classify t 5000)]
       (is (= :rf.http/timeout (:kind out)))
@@ -349,7 +353,7 @@
 
 ;; Reach the private fn via #' so the public surface stays unchanged.
 (def ^:private classify-jvm-error
-  @#'re-frame.http-transport/classify-jvm-error)
+  re-frame.http-transport-jvm/classify-jvm-error)
 
 (deftest classify-jvm-error-uses-instance-checks-only
   (testing "rf2-q3ts4 — HttpTimeoutException → :rf.http/timeout (instance match)"

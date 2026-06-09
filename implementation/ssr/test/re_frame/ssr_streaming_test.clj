@@ -8,6 +8,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.streaming :as streaming]
+            [re-frame.ssr.streaming.constants :as wire]
             [re-frame.ssr.test-fixture :as tf]
             [re-frame.trace :as trace]))
 
@@ -206,19 +207,21 @@
       (is (= {:articles [{:id "a"}]} (:rf/app-db payload))))))
 
 (deftest build-final-payload-version-honours-runtime-version-hook
-  (testing "rf2-via0g — streaming payload :rf/version reads the
+  (testing "rf2-via0g / rf2-g00l2t — streaming payload :rf/version reads the
             :rf2/runtime-version late-bind hook (mirroring the non-
-            streaming rf2-asmj1 S8 fix), not a hard-coded 1. The prior
+            streaming rf2-asmj1 S8 fix), not a hard-coded 1, and the hook
+            value is coerced to the canonical INTEGER pattern-protocol
+            version (per Spec-Schemas §:rf/hydration-payload). The prior
             `(or version 1)` silently disagreed with the client-side
             hook and defeated the :rf.ssr/version-mismatch check."
     (let [fid (make-frame {:db {:k 1}})]
       (testing "hook present + no explicit :version → hook value wins (not 1)"
-        (late-bind/set-fn! :rf2/runtime-version (constantly "9.9.9"))
+        (late-bind/set-fn! :rf2/runtime-version (constantly 99))
         (try
           (let [payload (streaming/build-final-payload
                           fid "hash"
                           {:payload :rf.ssr.payload/whole-app-db})]
-            (is (= "9.9.9" (:rf/version payload))
+            (is (= 99 (:rf/version payload))
                 "runtime-version hook value lands in :rf/version")
             (is (not= 1 (:rf/version payload))
                 "the hard-coded 1 must NOT win when the hook is registered"))
@@ -226,7 +229,7 @@
             (swap! late-bind/hooks dissoc :rf2/runtime-version))))
 
       (testing "explicit :version opt wins over the hook"
-        (late-bind/set-fn! :rf2/runtime-version (constantly "9.9.9"))
+        (late-bind/set-fn! :rf2/runtime-version (constantly 99))
         (try
           (let [payload (streaming/build-final-payload
                           fid "hash"
@@ -256,6 +259,60 @@
     (is (= streaming/render-shell        ssr/streaming-render-shell))
     (is (= streaming/render-continuation ssr/streaming-render-continuation))
     (is (= streaming/build-final-payload ssr/streaming-build-final-payload))))
+
+;; ===========================================================================
+;; rf2-3w6dmy finding 2 — streaming wire-attribute single-source parity
+;;
+;; The server emitter (`re-frame.ssr.streaming`) and the client runtime
+;; (`re-frame.ssr.streaming.client`) both stamp/read the `data-rf2-suspense-*`
+;; attribute names. Those names now live in ONE place
+;; (`re-frame.ssr.streaming.constants`), so a rename is a one-edit change
+;; rather than a grep-driven sweep that could silently drift the two sides.
+;;
+;; This test locks the parity at the SERVER boundary: each server-emitted
+;; chunk must carry the corresponding `wire` constant attribute. The client
+;; reads the SAME `wire` ns (its `attr-*` aliases are `def`s OVER the `wire`
+;; vars), so server↔client agreement is enforced by the shared source — a
+;; future edit that hard-codes a divergent literal in either builder fails
+;; this test (server side) or breaks every client query (client side).
+;; ===========================================================================
+
+(deftest streaming-wire-attributes-single-sourced
+  (testing "rf2-3w6dmy: every server-emitted suspense chunk carries the
+            attribute name pinned in re-frame.ssr.streaming.constants — the
+            emitter reads the wire constants, so a divergent literal cannot
+            slip in unnoticed"
+    (let [id        :card/revenue
+          fallback  (streaming/fallback-template id "<div>fb</div>")
+          resolved  (streaming/resolved-template id "<div>ok</div>")
+          failed    (streaming/failed-template   id "<div>fb</div>")
+          delta     (streaming/hydrate-delta-script id (pr-str {:k 1}))]
+      ;; The boundary-id attribute anchors every template chunk + the delta
+      ;; script — the client matches on it, so server + client MUST agree.
+      (is (str/includes? fallback (str wire/attr-suspense-id "="))
+          "fallback template stamps the wire id attribute")
+      (is (str/includes? resolved (str wire/attr-suspense-id "="))
+          "resolved template stamps the wire id attribute")
+      (is (str/includes? failed   (str wire/attr-suspense-id "="))
+          "failed template stamps the wire id attribute")
+      (is (str/includes? delta    (str wire/attr-suspense-hydrate "="))
+          "delta script stamps the wire hydrate attribute")
+      ;; The per-kind markers the client branches on.
+      (is (str/includes? fallback (str wire/attr-suspense-fallback "=\"1\""))
+          "fallback template stamps the wire fallback marker")
+      (is (str/includes? resolved (str wire/attr-suspense-resolved "=\"1\""))
+          "resolved template stamps the wire resolved marker")
+      (is (str/includes? failed   (str wire/attr-suspense-resolved "=\"1\""))
+          "failed template is a resolved chunk (carries the resolved marker)")
+      (is (str/includes? failed   (str wire/attr-suspense-failed "=\"1\""))
+          "failed template adds the wire failed marker")
+      ;; Belt-and-braces: NO server-emitted chunk may carry a stale literal
+      ;; that diverges from the wire constants (catches a hard-coded rename
+      ;; on one side only).
+      (is (not (str/includes? failed wire/attr-suspense-fallback))
+          "failed chunk is NOT a fallback (markers don't bleed across kinds)")
+      (is (not (str/includes? resolved wire/attr-suspense-failed))
+          "a non-failed resolved chunk carries no failed marker"))))
 
 ;; ===========================================================================
 ;; rf2-rdxxa — per-subtree hydration-delta <script> body escaping

@@ -272,8 +272,16 @@
                `set-schema-printer!`'s nil fallback, so `printer-fn` is
                never nil after any write (rf2-ee38b.6).
 
-  Last-write-wins per key. Returns the validator that was installed
-  (may be nil)."
+  Last-write-wins per key. Returns the installed bundle as a map —
+  `{:validate @validator-fn :explain @explainer-fn :print @printer-fn}`
+  — reflecting the live state of ALL THREE fns after this call (rf2-qdtcx2).
+  A bundle setter returns its bundle: the return mirrors `set-schema-fns!`'s
+  own input shape, so a caller can atomically observe everything that is now
+  installed — including keys it did NOT touch and the nil-printer coercion of
+  `:print`. The single-purpose setters keep their own single-value returns
+  (the fn each one installs); only this bundle setter returns the bundle map.
+  `:validate` / `:explain` may be nil (each disables that fn); `:print` is
+  never nil (always at least `default-edn-print`)."
   [{:keys [validate explain print] :as m}]
   (when (contains? m :validate) (reset! validator-fn validate))
   (when (contains? m :explain)  (reset! explainer-fn explain))
@@ -283,7 +291,15 @@
   ;; write site — not re-asserted defensively in `run-printer`.
   (when (contains? m :print)
     (reset! printer-fn (or print default-edn-print)))
-  @validator-fn)
+  ;; rf2-qdtcx2 — return the installed BUNDLE, not just the validator.
+  ;; A bundle setter named for setting all three fns should let the
+  ;; caller observe all three atomically; the old `@validator-fn`-only
+  ;; return left a `{:print …}`-only call handing back a value unrelated
+  ;; to what it set. Read each atom under no lock — these are framework-
+  ;; wide defonce atoms and this is the boot-time install path.
+  {:validate @validator-fn
+   :explain  @explainer-fn
+   :print    @printer-fn})
 
 (defn set-schema-explainer!
   "Register the explainer fn — `(fn [schema value] explanation)` — that

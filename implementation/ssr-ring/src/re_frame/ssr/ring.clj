@@ -103,17 +103,50 @@
 
 ;; ---- public-surface re-exports --------------------------------------------
 ;;
-;; `def`s expose the sub-namespace fns at `re-frame.ssr.ring/<name>` so
-;; consumers see the same surface they did pre-split.
+;; The façade re-exposes sub-namespace fns at `re-frame.ssr.ring/<name>`
+;; so consumers see the same surface they did pre-split (rf2-pjsrc /
+;; rf2-zkca8.1). A plain `(def alias other-ns/fn)` copies the VALUE but
+;; NOT the var metadata, so REPL `doc`, editor hover, completion, and the
+;; JVM-introspected api-manifest all saw EMPTY docs + nil arglists at the
+;; very namespace users are told to require (rf2-l1qgjw issue 1). The
+;; `import-fn` macro below re-points the alias AND copies the source var's
+;; authored `:doc` / `:arglists` onto the façade var, so the canonical
+;; function contract surfaces at the façade boundary. `:added` /
+;; `:deprecated` ride along when present (forward-compatible); `:line` /
+;; `:file` are deliberately NOT copied (they point at the implementation
+;; ns, which is the correct source-navigation target — the façade docs
+;; name the sub-namespace for deeper detail).
 
-(def cookie->set-cookie-header cookie/cookie->set-cookie-header)
-(def default-html-shell        shell/default-html-shell)
+(defmacro ^:private import-fn
+  "Re-export `src-sym` (a fully-qualified var symbol) at this namespace
+  under the same name, preserving its `:doc` + `:arglists` (and `:added`
+  / `:deprecated` when present). Unlike a bare `(def alias src)` — which
+  drops all metadata — the façade var carries the source var's authored
+  contract so REPL/editor/api-manifest tooling sees real docs + arglists
+  at `re-frame.ssr.ring/<name>` (rf2-l1qgjw).
+
+  The metadata is copied via `alter-meta!` AFTER the `def` (rather than
+  attached to the def symbol literal) so the `:arglists` value — a list
+  of param vectors — is treated as DATA, not evaluated as a form."
+  [src-sym]
+  (when-not (resolve src-sym)
+    (throw (ex-info (str "import-fn: cannot resolve " src-sym) {:sym src-sym})))
+  (let [nm (symbol (name src-sym))]
+    `(do
+       (def ~nm ~src-sym)
+       (alter-meta! (var ~nm) merge
+                    (select-keys (meta (var ~src-sym))
+                                 [:doc :arglists :added :deprecated]))
+       (var ~nm))))
+
+(import-fn cookie/cookie->set-cookie-header)
+(import-fn shell/default-html-shell)
 
 ;; Streaming SSR surface (rf2-ojakd / rf2-olb64 (a)) — chunked-HTTP
 ;; counterpart of `ssr-handler`. Per Spec 011 §Streaming SSR.
-(def stream-handler            streaming/stream-handler)
-(def default-streaming-prefix  streaming/default-streaming-prefix)
-(def default-streaming-suffix  streaming/default-streaming-suffix)
+(import-fn streaming/stream-handler)
+(import-fn streaming/default-streaming-prefix)
+(import-fn streaming/default-streaming-suffix)
 
 ;; ---- handler defaults + re-exported construction helpers ------------------
 ;;
@@ -126,10 +159,24 @@
 ;; `stream-handler` so the fail-closed-at-boot + rf2-c1tac on-error
 ;; contracts are single-sourced.
 
+(import-fn lifecycle/make-default-on-error)
+
+;; `default-on-error` is a DATA var (a 2-arity fn VALUE held in a `def`,
+;; not a `defn`), so it carries no `:arglists`. Re-export it copying the
+;; authored `:doc` so REPL `doc` works at the façade, but it is correctly
+;; excluded from the fn-arglists api-manifest check (data var, like
+;; `handler-defaults`).
 (def default-on-error lifecycle/default-on-error)
-(def make-default-on-error lifecycle/make-default-on-error)
+(alter-meta! #'default-on-error assoc
+             :doc (-> #'lifecycle/default-on-error meta :doc))
 
 (def handler-defaults
+  "Default `ssr-handler` opts merged under caller-supplied opts at
+  construction time (`:emit-hash?`, `:html-shell`, `:content-type`).
+  A DATA var, not a fn — exposed so callers can read or extend the
+  baseline. `:on-error` is deliberately NOT here (it is resolved
+  separately via `lifecycle/resolve-on-error` so the defaults stay
+  orthogonal to on-error precedence)."
   {:emit-hash?   true
    :html-shell   shell/default-html-shell
    :content-type "text/html; charset=utf-8"})

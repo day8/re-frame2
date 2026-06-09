@@ -39,8 +39,8 @@
   by `reagent2.dom.client/flush-views!`), `class-names`, `is-client`,
   `set-default-compiler!`, `create-compiler`, `with-let`.
 
-  Apps that genuinely need a dropped surface stay on
-  day8/reagent-classic (the bridge); the rewrite's commitment is
+  Apps that genuinely need a dropped surface stay on the bridge
+  adapter day8/re-frame2-reagent; the rewrite's commitment is
   to ship only the surfaces the audited codebases actually exercise."
   (:refer-clojure :exclude [atom])
   (:require [reagent2.ratom :as ratom]

@@ -101,9 +101,14 @@ variants follow once those adapters' Story coverage matches Reagent's.
 `:css` (e.g. `:tailwind`) and `:include-ssr?` are reserved in the v1
 flag set but **not yet implemented** — they are gated on rf2-gthro
 (Tailwind v4 verification) and rf2-0m5ea (SSR validation)
-respectively. They are not accepted as live command flags today;
-passing them has no effect. See [`spec/API.md`](./spec/API.md#args-reference)
-for the flag-set status.
+respectively. Passing one today **fails closed** with
+`:rf.error/template-unsupported-flag` (naming the flag and its gating
+bead) rather than silently scaffolding a vanilla app that lacks the
+feature. Any other unrecognised template flag — including a typo such
+as `:include-story` (missing the `?`) — fails closed with
+`:rf.error/template-unknown-flag`. See
+[`spec/API.md`](./spec/API.md#args-reference) for the flag-set status
+and the error table.
 
 ### Post-split (future)
 

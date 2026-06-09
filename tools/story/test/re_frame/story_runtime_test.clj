@@ -568,10 +568,10 @@
 (deftest snapshot-identity-canonical-key-stable
   (testing "the canonical-version tag canonicalises and map key order is
             hash-stable"
-    (let [canon (ident/canonical-form [fp/canonical-version :x])]
+    (let [canon (fp/canonical-form [fp/canonical-version :x])]
       (is (some? canon)))
-    (is (= (ident/content-hash {:a 1 :b 2})
-           (ident/content-hash {:b 2 :a 1}))
+    (is (= (fp/content-hash {:a 1 :b 2})
+           (fp/content-hash {:b 2 :a 1}))
         "map key order doesn't affect the hash")))
 
 (deftest snapshot-tuple-canonical-slot-tracks-fingerprint-version

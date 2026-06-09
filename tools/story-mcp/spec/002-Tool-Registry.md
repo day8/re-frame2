@@ -143,8 +143,19 @@ resource read at boot) so the jar is self-contained.
 ### `preview-variant`
 
 Given `:variant-id` (plus optional `:substrate`, `:active-modes`,
-`:cell-overrides`, `:base-url`), runs the canvas pipeline and
-returns the post-pipeline state plus a sharable URL.
+`:cell-overrides`, `:base-url`, `:timeout-ms`), runs the canvas pipeline
+and returns the post-pipeline state plus a sharable URL.
+
+`preview-variant` blocks on the SAME `story/run-variant` lifecycle as
+`run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking
+ceiling (rf2-ovmc5e): default 10 s, hard ceiling 30 s (matches
+`:rf.http/timeout-ms` per rf2-it1cd), caller values above the ceiling
+clamp DOWN rather than reject. The MCP request loop is single-threaded
+so an unbounded blocking deref would park unrelated calls; both
+lifecycle tools resolve the slot through the shared
+`tools.args/resolve-timeout-ms` helper (advertised via
+`schemas/with-timeout-ms`) so their blocking policy cannot drift by
+copy-paste.
 
 Wire-egress posture: `:app-db` is routed through
 `re-frame.core/elide-wire-value` against the variant frame's
@@ -270,8 +281,14 @@ headless runner — never a silent pass).
 
 ### `variant->edn`
 
-Canonical EDN form, text-only result for byte-stable round-tripping
-(content is text, not JSON, to avoid lossy JSON encoding of EDN).
+Canonical EDN form in the wire-canonical `:content` text slot (the
+byte-stable `pr-str` form, to avoid lossy JSON encoding of EDN) PLUS a
+matching `structuredContent` carrying the same body map (rf2-vyacl).
+The descriptor declares an `:outputSchema`; the official MCP SDK's
+high-level `callTool` rejects an outputSchema-declaring tool that
+returns no `structuredContent` (JSON-RPC -32600), so the structured
+slot rides alongside. The text slot stays the byte-stable source of
+truth for round-tripping.
 
 ### Deferred Docs tools (not part of the shipped 20)
 
@@ -530,8 +547,11 @@ data key.
 Closed by default. When closed:
 
 - `tools/list` omits the `:include-sensitive` slot from the input
-  schemas of the three affected tools — agents never see an opt-in
-  they couldn't exercise.
+  schemas of every affected tool — the six that surface live or
+  plan-resolved frame VALUES (`preview-variant`, `run-variant`,
+  `read-failures`, `run-a11y`, `explain-variant`, `record-as-variant`),
+  i.e. every descriptor that carries the slot. Agents never see an
+  opt-in they couldn't exercise.
 - The wire-egress scrubbers silently ignore any caller-supplied
   `:include-sensitive true` — declared-sensitive `:app-db` paths
   remain `:rf/redacted`; assertion records stamped `:sensitive?
@@ -599,10 +619,14 @@ captured recording translated to a live play body via
 `reg-variant*` (preserving the existing `:component`, `:args`,
 `:decorators`, etc.). The translation routes through
 `re-frame.story/recording->play-script` — each captured event becomes
-a `[:dispatch ...]` step under `:play-script {:script [...]}`. The
-emitted `:play-script` is the transitional spelling the registrar
-lowers; `:script` is the public phase-4 name (spec/017 §Public
-vocabulary). The legacy `:play` slot was removed (rf2-0wrud) and no
+a `[:dispatch ...]` step — and the write-back assocs the result under
+the PUBLIC `:script` authoring slot (rf2-7mj4z; spec/017 §Public
+vocabulary), NOT the transitional `:play-script` spelling. The two
+store identically: `reg-variant*` lowers the public `:script` to the
+shipping `:play-script` slot via `schemas/lower-public-vocabulary`, so
+`variant->edn` of the stored body reads `:play-script` either way — the
+public `:script` is an author-facing intent, the lowered shipping slot
+is unchanged. The legacy `:play` slot was removed (rf2-0wrud) and no
 runner executes it. This branch is gated behind the same
 `allow-writes?` flag as `register-variant`; the read-only path
 (snippet only) needs no gate.

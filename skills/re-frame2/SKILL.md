@@ -23,10 +23,29 @@ allowed-tools:
   - Write
   - Grep
   - Glob
+  # Verification surface (see SKILL.md §Verify what you changed): run the
+  # nearest relevant test / compiler / lint gate after changing code or
+  # tests. Narrow command shapes, generic to any consumer re-frame2 project
+  # (clojure CLI test aliases, shadow-cljs compile/test, the npm test:*
+  # script family, clj-kondo lint). Discover the project's actual gate
+  # names from deps.edn / shadow-cljs.edn / package.json before invoking.
+  - Bash(clojure -M:test)
+  - Bash(clojure -M:test:*)
+  - Bash(clojure -M:*:test)
+  - Bash(npm test)
+  - Bash(npm run test:*)
+  - Bash(npx shadow-cljs compile *)
+  - Bash(shadow-cljs compile *)
+  - Bash(clj-kondo --lint *)
   # story-mcp authoring-side tools (HYBRID split): re-frame2 owns the
-  # authoring loop (write/refine variant); re-frame2-pair owns the run side
-  # (run-variant / read-failures / record-as-variant). Per
-  # tools/story-mcp/spec/002-Tool-Registry.md.
+  # AUTHOR/REFINE side — write/refine a variant body (register/unregister),
+  # preview one render (preview-variant), and read it back (get-variant /
+  # explain-variant). re-frame2-pair owns the RUN side — execute against a
+  # live runtime and self-heal off the failures (run-variant / read-failures
+  # / record-as-variant / run-a11y / snapshot-identity). The run loop is a
+  # HANDOFF to re-frame2-pair, not a loop this skill executes. Per
+  # tools/story-mcp/spec/002-Tool-Registry.md; pinned by
+  # scripts/check_skill_mcp_drift.py.
   - mcp__re-frame2-story-mcp__get-story-instructions
   - mcp__re-frame2-story-mcp__list-stories
   - mcp__re-frame2-story-mcp__get-story
@@ -98,7 +117,7 @@ Patterns compose; a screen can use Forms on submit, RemoteData for the request, 
 |---|---|
 | Declaring a handler or schema slot as containing secrets / PII / large blobs | `references/cross-cutting/privacy-and-elision.md` |
 | Wiring Datadog / Sentry / Honeycomb production listeners that survive `goog.DEBUG=false` | `references/cross-cutting/production-observability.md` |
-| Authoring head/meta (`reg-head` / `render-head` / `active-head`) or a custom `:rf/hydrate` handler dispatching the version + schema-digest check fxs | `references/cross-cutting/ssr-authoring.md` |
+| Authoring head/meta (`reg-head` / `render-head` / `active-head`), or extending the framework's shipped `:rf/hydrate` handler (the runtime ships it by default — re-register only to change the merge policy, as documented framework-extension code) | `references/cross-cutting/ssr-authoring.md` |
 
 ## Testing your views
 
@@ -112,7 +131,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 
 **State machines — `references/state-machines/`**: `reg-machine.md` (declaration + the xstate→re-frame2 translation key), `regions.md` (parallel), `tags.md`, `spawn.md` (child machines), `history.md` (`:type :history` re-entry), `cancellation.md`. Standing mental model across all of these: think in xstate, then map onto re-frame2 — see `reg-machine.md` for the full mapping table and deliberate-divergence flags.
 
-**Tooling — `references/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as a `:script` body), `story-mcp-loop.md` (agent self-healing loop over MCP), `xray.md` (the devtools panel — mount strategy, launch modes, host-CSS-variable resize contract, popout, suppress-auto-open). For anything Story, the standing bridge is **think in Storybook JS, then map onto Story** — `stories.md` carries the verified concept map.
+**Tooling — `references/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as a `:script` body), `story-mcp-loop.md` (the story-mcp **author/refine** side this skill owns — write/preview/read-back a variant — and the **handoff** to `re-frame2-pair` for the run/self-heal loop), `xray.md` (the devtools panel — mount strategy, launch modes, host-CSS-variable resize contract, popout, suppress-auto-open). For anything Story, the standing bridge is **think in Storybook JS, then map onto Story** — `stories.md` carries the verified concept map.
 
 **Cross-cutting — `references/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub), `api-cheatsheet.md`, `privacy-and-elision.md` (schema `:sensitive?` / `:large?` / `elide-wire-value`), `production-observability.md` (`register-event-listener!` / `register-error-listener!`), `ssr-authoring.md` (`reg-head` / `render-head` / `active-head` / `head-model->html` and the `:rf.ssr/check-version` + `:rf.ssr/check-schema-digest` fxs).
 
@@ -139,8 +158,19 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 - [ ] Cut-test passed on comments.
 - [ ] Shape matches the canonical declaration in the leaf.
 - [ ] If a worked example exists, the new code's shape matches it.
+- [ ] **Verified** — when you have shell/tool access and changed code or tests, you ran the nearest relevant gate (test / compiler / lint) and recorded what passed; note anything you deliberately skipped and why.
 
-The user runs tests / compiler / app; this skill does not.
+## Verify what you changed
+
+If you have shell/tool access and you changed code or tests, **run the nearest relevant gate** before declaring done — do not hand off unverified changes. "Nearest relevant" means the narrowest gate that exercises the path you touched, not the whole suite:
+
+- Touched a single artefact's source/tests → run that artefact's test alias (e.g. `clojure -M:test` from the artefact dir, or the project's `npm run test:<thing>`), not the full matrix.
+- Want a fast compile/type signal without the full suite → the project's shadow-cljs / `clj-kondo` lint or a focused `cljs.test` namespace run.
+- Prefer a narrow slice gate over full-suite churn; a green slice on the changed path beats a slow full run.
+
+**Discover the project's gates first** — don't guess command names. Check, in order: nearby `deps.edn` `:aliases` (the `:test` alias), `shadow-cljs.edn` build/test ids, `package.json` `scripts` (the `test:*` family), and any gate notes in the nearest `README.md`. The testing leaf's [§Discovering a project's gates](references/cross-cutting/testing.md) carries the recipe.
+
+**No-tool / chat-only fallback.** When you have no shell access (a chat-only session), you cannot run anything — say so, and ask the user to run the specific gate you'd have run (name it concretely, e.g. "run `clojure -M:test` in `src/app/`"). That fallback is for tool-less sessions only; it is **not** the default for a tool-capable agent.
 
 ## How re-frame2 differs from re-frame v1
 

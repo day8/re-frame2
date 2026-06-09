@@ -114,3 +114,53 @@
     (let [d (try (export/share-url #js {})
                  (catch :default e (ex-data e)))]
       (is (= "chart-element carries no MachineChart state seam" (:reason d))))))
+
+;; ---- rf2-85a9do — SVG <title>/<desc> XML escaping -----------------------
+;;
+;; `chart-as-svg` is browser-DOM-only, but it builds <title>/<desc> by hand
+;; (bypassing the XMLSerializer that escapes the foreignObject viewport
+;; clone). `svg-title+desc` is the PURE seam that does that construction, so
+;; the escaping contract is node-testable here.
+
+(deftest svg-title+desc-escapes-xml-significant-chars
+  (testing "a machine id carrying & < > emits ESCAPED entities, never raw markup"
+    (let [s (export/svg-title+desc
+              {:machine-id (keyword "evil/a&b<c>d")
+               :node-count 1 :edge-count 0 :region-count 0})]
+      ;; The raw XML-significant chars from the id never appear unescaped
+      ;; INSIDE the title text (the surrounding <title>…</title> tag chars
+      ;; are the only legitimate `<`/`>` — assert on the entities instead).
+      (is (str/includes? s "&amp;") "& is escaped to &amp;")
+      (is (str/includes? s "&lt;")  "< is escaped to &lt;")
+      (is (str/includes? s "&gt;")  "> is escaped to &gt;")
+      ;; No double-escaping: a single & became &amp;, not &amp;amp;.
+      (is (not (str/includes? s "&amp;amp;")) "& not double-escaped")
+      ;; The raw `a&b` substring must NOT survive as injected markup.
+      (is (not (str/includes? s "a&b")) "raw ampersand not injected")
+      (is (not (str/includes? s "b<c")) "raw < not injected")
+      (is (not (str/includes? s "c>d")) "raw > not injected"))))
+
+(deftest svg-title+desc-escapes-current-state-label
+  (testing "an XML-significant current-state label is escaped inside <desc>"
+    (let [s (export/svg-title+desc
+              {:machine-id    :ok/plain
+               :current-state (keyword "weird" "x&<y>")
+               :node-count    2 :edge-count 1 :region-count 0})]
+      (is (str/includes? s "<desc>") "still emits a <desc>")
+      ;; The label's significant chars land in the summary, escaped.
+      (is (str/includes? s "&amp;"))
+      (is (str/includes? s "&lt;"))
+      (is (str/includes? s "&gt;"))
+      ;; The literal label fragment must not appear raw.
+      (is (not (str/includes? s "x&<y>")) "raw label markup not injected"))))
+
+(deftest svg-title+desc-default-and-quotes
+  (testing "missing machine-id defaults to :machine; quotes/apostrophes escaped"
+    (let [missing (export/svg-title+desc {:node-count 0 :edge-count 0})
+          quoted  (export/svg-title+desc
+                    {:machine-id (keyword "q\"a'b")
+                     :node-count 0 :edge-count 0})]
+      (is (str/includes? missing "<title>machine</title>")
+          "nil :machine-id defaults to :machine")
+      (is (str/includes? quoted "&quot;") "\" escaped to &quot;")
+      (is (str/includes? quoted "&apos;") "' escaped to &apos;"))))

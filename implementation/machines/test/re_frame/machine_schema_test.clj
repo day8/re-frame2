@@ -39,22 +39,22 @@
             ;; path the new `:where :machine-data` boundary routes
             ;; through; the `.malli` adapter ns publishes Malli's
             ;; validate/explain into the late-bind table.
+            [re-frame.machines.test-support :as mtest]
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- collect-traces!
   "Run `f` while collecting every `:rf.error/schema-validation-failure`
-  trace event. Returns the captured trace events as a vector."
+  trace event. Returns the captured trace events as a vector. Routed through
+  the shared `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
+  unregister in a `finally`."
   [f]
-  (let [traces (atom [])]
-    (rf/register-listener! ::collect (fn [ev] (swap! traces conj ev)))
-    (try (f)
-         (finally (rf/unregister-listener! ::collect)))
+  (mtest/with-trace-capture traces
+    (f)
     (filterv #(= :rf.error/schema-validation-failure (:operation %))
              @traces)))
 

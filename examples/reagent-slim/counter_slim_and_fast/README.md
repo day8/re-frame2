@@ -9,37 +9,34 @@ canonical counter; the difference is the substrate beneath.
 Every user-facing Reagent import points at `reagent2.*` instead of
 stock `reagent.*`, and `(rf/init!)` is called with
 `re-frame.adapter.reagent-slim/adapter`. The same six-domino
-dataflow flows through a different reactive substrate.
+dataflow flows through a different reactive substrate. The slim adapter
+is a drop-in for the bridge at the behavioural level: same clicks,
+same counts.
 
-## What this fixture verifies
+The teaching surface — events, subs, views, and the lazy client mount —
+lives in [`core.cljs`](core.cljs) and reads as idiomatic re-frame2.
+Read that file as the example.
 
-The S3-008 + S3-005 contract from
-[`implementation/adapters/reagent-slim/IMPL-SPEC.md`](../../../implementation/adapters/reagent-slim/IMPL-SPEC.md)
-§1.4 + §1.8 + §8 — a binding adapter-owned bundle-isolation claim
-about the slim substrate:
+## Bundle-isolation fixture (not example practice)
 
-1. **Stock-Reagent impl isolation.** The advanced-compiled bundle for
-   this example contains NO `reagent.impl.*` symbols. The slim
-   rewrite has its own `reagent2.impl.*` substrate; the bridge's
-   `reagent.impl.*` internals must be entirely absent.
-2. **Pure-CLJS SSR.** The bundle contains NO `react-dom/server`
-   symbols, even though `run` exercises
-   `reagent2.dom.server/render-to-static-markup` at boot. The slim's
-   SSR seam is pure-CLJS (per IMPL-SPEC §8.7), so the bundle has no
-   compiled-in path to `react-dom/server`.
-3. **Methodology control.** The stock-Reagent counter bundle
-   (`examples/counter`) MUST still contain both groups of symbols —
-   that proves the grep has signal. If a future stock-Reagent upgrade
-   DCEs them out of the stock bundle too, the test fails loudly and
-   the sentinel set gets re-derived.
+This build doubles as the example side of the slim adapter's
+bundle-isolation gate. That plumbing is **deliberately isolated** in
+[`bundle_isolation_fixture.cljs`](bundle_isolation_fixture.cljs) so it
+does not bleed into the teaching source: it exercises the slim's
+pure-CLJS `render-to-static-markup` at boot (the DCE-anchored
+`counterSlimPrerender` host-global write plus the sub-cache teardown)
+so the gate's non-vacuity contract has signal. A reader studying the
+example can ignore it.
 
-The grep that enforces all three invariants lives at
-[`implementation/scripts/check-reagent-slim-bundle-isolation.cjs`](../../../implementation/scripts/check-reagent-slim-bundle-isolation.cjs);
-the changed-surface CI job is `cljs-reagent-slim-bundle-isolation` in
-`.github/workflows/test.yml`.
+The contract narrative — the four S3-008 / S3-005 contracts and the
+sentinel methodology — is owned by the gate, not duplicated here. See:
 
-The slim adapter is also a drop-in for the bridge at the
-behavioural level: same clicks, same counts.
+- [`implementation/scripts/check-reagent-slim-bundle-isolation.cjs`](../../../implementation/scripts/check-reagent-slim-bundle-isolation.cjs)
+  — the grep that enforces all four contracts (source of truth for the
+  sentinels); the changed-surface CI job is
+  `cljs-reagent-slim-bundle-isolation` in `.github/workflows/test.yml`.
+- [`implementation/adapters/reagent-slim/IMPL-SPEC.md`](../../../implementation/adapters/reagent-slim/IMPL-SPEC.md)
+  §1.4 + §1.8 + §8 — the spec the contract binds to.
 
 ## Shared `:counter/*` ids — a deliberate, documented exception
 
@@ -67,7 +64,8 @@ prefixed first.
 
 ```
 counter_slim_and_fast/
-  core.cljs                          mount + events/subs/view + SSR exercise
+  core.cljs                          the teaching example: events/subs/views + mount
+  bundle_isolation_fixture.cljs      SSR/sentinel proof for the gate (not app practice)
   index.html                         minimal host page
   README.md                          this file
 ```
@@ -88,6 +86,17 @@ To iterate against the source, watch the build directly from
 ```bash
 shadow-cljs watch examples/counter-slim-and-fast
 ```
+
+The watch build emits `main.js` into
+`out/examples/counter-slim-and-fast/` (the build's `:output-dir` in
+`implementation/shadow-cljs.edn`). To load it in a browser, copy this
+folder's hand-written [`index.html`](index.html) alongside that
+`main.js`, stage the [`examples/_shared/`](../../_shared/) tree next to
+it so the page's `_shared/...` references resolve, then serve
+`out/examples/counter-slim-and-fast/` over HTTP.
+(`npm run test:examples` does not build this standalone example — it
+compiles and serves only the three adapter testbeds; see
+[`examples/README.md`](../../README.md).)
 
 The Reagent Slim bundle-isolation contract is exercised separately
 when slim-related paths change, and in the nightly/manual expensive

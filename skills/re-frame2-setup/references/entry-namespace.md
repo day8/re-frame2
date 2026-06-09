@@ -35,12 +35,12 @@ The canonical shape of `your-app/core.cljs` — the entry namespace shadow-cljs'
   (rf/reg-frame :app/main {:on-create [:your-app/initialise]})
   (rdc/render react-root
     [rf/frame-provider {:frame :app/main}
-     [root-view]]))
+     [counter-app]]))
 ```
 
 That's the whole entry namespace. Events / subs / views go above the mount point, in this same file for a tiny app or in their own namespaces (`your-app.events`, `your-app.subs`, `your-app.views`) and `:require`d here for any non-trivial app.
 
-`root-view` is the top-level registered view. See `first-counter.md` for what it looks like. **Note the `frame-provider` wrap:** under EP-0002 (the carried-frame invariant), the runtime never infers a frame — you register one explicitly with `reg-frame` and establish it at the root with `frame-provider`. Inside that subtree every bare `dispatch` / `subscribe` resolves against `:app/main`; a render *without* a provider would make every subscription raise `:rf.error/no-frame-context`. (A migration may pick `:rf/default` as the id for familiarity, but it is still registered and provided — never inferred.)
+`counter-app` is the top-level registered view (the name the generator template and `first-counter.md` use). See `first-counter.md` for what it looks like. **Note the `frame-provider` wrap:** under EP-0002 (the carried-frame invariant), the runtime never infers a frame — you register one explicitly with `reg-frame` and establish it at the root with `frame-provider`. Inside that subtree every bare `dispatch` / `subscribe` resolves against `:app/main`; a render *without* a provider would make every subscription raise `:rf.error/no-frame-context`. (A migration may pick `:rf/default` as the id for familiarity, but it is still registered and provided — never inferred.)
 
 The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's worked example in `examples/reagent/counter/core.cljs` happens to call its entry fn `run` — same shape, different name. Pick one and keep `shadow-cljs.edn`'s `:init-fn` pointing at whatever you choose; this skill uses `init` so the manual route matches the template.)
 
@@ -50,7 +50,7 @@ The entry symbol is `init`, matching the generator template's `:init-fn {{namesp
 
 1. **`(rf/init! reagent-adapter/adapter)`** — install the substrate adapter. (`init!` installs the adapter and runtime capabilities only; it creates **no** frame.)
 2. **`(rf/reg-frame :app/main {:on-create [:your-app/initialise]})`** — register the app frame and seed its app-db via `:on-create` (which runs synchronously, inside the frame's own scope). Some apps instead seed lazily on first interaction; either way the frame must be registered before render.
-3. **`(rdc/render react-root [rf/frame-provider {:frame :app/main} [root-view]])`** — mount the React tree **wrapped in the frame-provider** so every bare `dispatch` / `subscribe` under it resolves against `:app/main`.
+3. **`(rdc/render react-root [rf/frame-provider {:frame :app/main} [counter-app]])`** — mount the React tree **wrapped in the frame-provider** so every bare `dispatch` / `subscribe` under it resolves against `:app/main`.
 
 If you render *without* the `frame-provider` (or before `reg-frame`), every `subscribe` / `dispatch` in the tree raises `:rf.error/no-frame-context` — the runtime refuses to guess a frame. If you render before `rf/init!`, the views call `subscribe` against an uninstalled adapter and you get `:rf.error/no-adapter-installed`.
 
@@ -61,10 +61,10 @@ re-frame2 splits **the registry** (a process-global handler / sub / fx map) from
 Three consequences:
 
 - **Adapters are values, not magic.** `re-frame.adapter.reagent/adapter` is a regular CLJS var holding a map. `rf/init!` takes that value directly — no global registration, no name-based lookup. Swap it for `re-frame.adapter.uix/adapter` or `re-frame.adapter.helix/adapter` and you have a UIx / Helix app.
-- **`rf/init!` is idempotent in dev but not redundant.** Hot-reload of `core.cljs` will re-invoke `init`; calling `rf/init!` again is safe and re-installs the substrate config. Don't try to "guard" it with `defonce` — let it run. (`reg-frame` on the same id is likewise a surgical, hot-reload-safe update.)
+- **`rf/init!` is idempotent — safe to call more than once.** A bare code reload does **not** re-invoke `init` (the `:init-fn` is a one-time startup hook — see [`shadow-cljs.md` §`:devtools` block](shadow-cljs.md)); `init` re-runs only on a full page reload or if you wire it into an `^:dev/after-load` hook. Whenever it *does* run again, calling `rf/init!` a second time is safe — it re-installs the substrate config (it creates no frame). So leave `rf/init!` unguarded in `init` (don't wrap it in a `defonce`); the idempotence is what makes the one-time-startup vs explicit-after-load distinction harmless either way. (`reg-frame` on the same id is likewise a surgical, hot-reload-safe update.)
 - **No implicit boot.** Unlike re-frame v1 (where `re-frame.core` had no boot step), re-frame2 requires the explicit `init!`. The reason: multi-substrate support and the per-frame substrate-config model (Spec 006) need to know *which* adapter you want before any subscription resolves. There is no default.
 
-The adapter map carries the substrate's `state-container`, `read-container`, `replace-container!`, `subscribe`, `render`, and hot-reload hooks. You don't construct it; you require the namespace and pass its `adapter` var.
+**You don't construct the adapter map — you require the namespace and pass its exported `adapter` var.** App authors never assemble it by hand. (For the record, the contract it implements is the reactive-substrate adapter of [Spec 006](../../../spec/006-ReactiveSubstrate.md): required fns `:make-state-container`, `:read-container`, `:replace-container!`, `:make-derived-value`, `:render`, `:render-to-string`; optional `:subscribe-container`, `:register-context-provider`, `:flush-render!`; lifecycle `:dispose-adapter!`; plus a `:kind` discriminator. The physical container `:make-state-container` holds is **frame-state** — the two-partition value `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, not a bare app-db map — so app subs read the `:rf.db/app` projection and framework subs read `:rf.db/runtime`.) Constructing or extending that contract is the **`re-frame2-implementor`** skill's territory, not greenfield's.
 
 ## The Reagent root pattern (`defonce` + `rdc/create-root`)
 
@@ -100,7 +100,7 @@ src/your_app/
 └── views.cljs       ; reg-view-defined views
 ```
 
-then `(:require [your-app.events] [your-app.subs] [your-app.views :as views])` in `core.cljs` so the registrations happen at load time. Use `[views/root-view]` in `rdc/render`. The folder shape is a convention; re-frame2 has no opinion about it.
+then `(:require [your-app.events] [your-app.subs] [your-app.views :as views])` in `core.cljs` so the registrations happen at load time. Use `[views/counter-app]` in `rdc/render` (`counter-app` being the top-level view defined in `views.cljs`). The folder shape is a convention; re-frame2 has no opinion about it.
 
 When you split this way, the `[re-frame.views]` require **and** the `(:require-macros [re-frame.core :refer [reg-view]])` move into `views.cljs` (they belong wherever the `reg-view` forms live, not in `core.cljs`). This matches the template, whose `core.cljs` requires neither — only the side-effecting `[your-app.views :as views]` — while `views.cljs` carries `[re-frame.views]` + the `reg-view` macro-require. The single-file counter in `first-counter.md` keeps all three in `core.cljs` because the views live there.
 
@@ -110,13 +110,15 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
 
 - **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix` (or `-helix`), drop the `reagent/reagent` pin, and add the substrate's Maven deps **at the exact versions the generator template pins** (the template is the source of truth — do not chase latest or invent a version, same discipline as the Reagent/React/shadow pins in [`deps-versions.md`](deps-versions.md)). Verified against the template's `_uix/deps.edn` / `_helix/deps.edn`:
 
+  > **Pre-publish coordinate shape.** The `day8/re-frame2-uix` / `day8/re-frame2-helix` **framework** coords shown below use `:mvn/version "<VERSION>"` — the **post-publish** shape. re-frame2 is not on Clojars yet, so today the framework adapter coord takes the **`:git/sha` / `:local/root`** form (one shared `<SHA>`, the same way as the Reagent day-one set) — see [`deps-versions.md` §Choosing the coordinate](deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape). The `com.pitch/uix.*` / `lilactown/helix` substrate deps below are published on Clojars and keep `:mvn/version`.
+
   ```clojure
-  ;; UIx — replace the reagent line with:
+  ;; UIx — replace the reagent line with (framework coord post-publish shape; pre-publish use :git/sha):
   day8/re-frame2-uix {:mvn/version "<VERSION>"}
   com.pitch/uix.core {:mvn/version "1.4.4"}
   com.pitch/uix.dom  {:mvn/version "1.4.4"}
 
-  ;; Helix — replace the reagent line with:
+  ;; Helix — replace the reagent line with (framework coord post-publish shape; pre-publish use :git/sha):
   day8/re-frame2-helix {:mvn/version "<VERSION>"}
   lilactown/helix      {:mvn/version "0.2.2"}
   ```
@@ -186,7 +188,7 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
   ```
 - everything else (events, subs, schemas, Xray wiring, `dispatch-sync` seed, `:init-fn ...core/init`) is identical across substrates. **Views are not** — do not reach for the Reagent `reg-view` first-counter leaf on a UIx/Helix app; use the substrate views above (or take the complete generator route below).
 
-The fastest path for a non-Reagent greenfield is the **generator template**, which ships complete `_uix/` and `_helix/` variants — invoke `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app :substrate :uix` (or `:helix`) and you get a working UIx/Helix counter without hand-wiring the substitutions above. **Pre-split:** the standalone `day8/re-frame2-template` repo isn't published yet (rf2-7jgkv), so that `io.github.day8/…` invocation can't auto-resolve today; pre-release, use the `:local/root` dev route against a checkout of this repo (`clojure -Sdeps '{:deps {day8/re-frame2-template {:local/root "tools/template"}}}' -Tnew create :template day8/re-frame2-template :name acme/my-app :substrate :uix`) or hand-wire the two substitutions above. See [the generator-template section](../README.md#relationship-to-the-generator-template).
+The fastest path for a non-Reagent greenfield is the **generator template**, which ships complete `_uix/` and `_helix/` variants. This is a **user-run** route — the **author** invokes `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app :substrate :uix` (or `:helix`) in their own shell and gets a working UIx/Helix counter without hand-wiring the substitutions above; **this skill does not run `clojure -Tnew` itself** (its `allowed-tools` cover the manual scaffold — `clojure -Stree`, npm, `shadow-cljs` — not the generator). **Pre-split:** the standalone `day8/re-frame2-template` repo isn't published yet (the template still lives in-monorepo under `tools/template/`; see [`005-Repo-Split.md`](../../../tools/template/spec/005-Repo-Split.md) §4), so that `io.github.day8/…` invocation can't auto-resolve today; pre-release, the author runs the `:local/root` dev route against a checkout of this repo (`clojure -Sdeps '{:deps {day8/re-frame2-template {:local/root "tools/template"}}}' -Tnew create :template day8/re-frame2-template :name acme/my-app :substrate :uix`), or this skill hand-wires the two substitutions above. See [the generator-template section](../README.md#relationship-to-the-generator-template).
 
 ## Differences from re-frame v1
 

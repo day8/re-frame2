@@ -29,10 +29,17 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.flows :as flows]
+            ;; Side-effect require: flows publishes the `:flows/reg-flow`
+            ;; late-bind hook at ns-load. Several restore-* tests register
+            ;; flows via `rf/reg-flow` in their bodies; without this load
+            ;; they throw `:rf.error/flows-artefact-missing`. Loading it
+            ;; HERE means the capture/restore fixture's ns-load registrar
+            ;; snapshot includes the flows surface. Alias unused — the
+            ;; fixture no longer touches the private flows atoms (the
+            ;; reset-hook table owns flows reset).
+            [re-frame.flows]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             ;; rf2-szbzei — the runtime-db schema-validation precondition on
             ;; replace-runtime-db! / replace-frame-state! routes through the
             ;; machine-data boundary's `:schemas/validate-with-registered-fn`
@@ -40,16 +47,33 @@
             ;; by this .malli adapter ns). Without it the registered-validator
             ;; soft-passes and the runtime-db-validation-fires test can't drive
             ;; a real schema failure. Side-effect require — alias unused.
+            ;; (Also transitively loads `re-frame.schemas` so the fixture's
+            ;; ns-load registrar snapshot includes the schemas surface.)
             [re-frame.schemas.malli]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
             [re-frame.elision]
             [re-frame.epoch :as epoch]
             [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.listeners :as epoch.listeners]
+            ;; `state` is used in test BODIES for the deep private-impl
+            ;; unit tests (the `@#'state/value-changed-epoch-for` scan
+            ;; against a hand-built `@#'state/histories` ring, and the
+            ;; shipped-default accessor probe) — NOT for fixture config
+            ;; reset, which now flows through the public `configure!`
+            ;; boundary + the `:epoch/reset-config!` reset hook.
             [re-frame.epoch.state :as state]
             [re-frame.epoch.tool-pair :as tool-pair]
+            ;; Side-effect require: routing publishes its `:routing/*`
+            ;; late-bind hooks (incl. the `rf/reg-route` registrar kind)
+            ;; at ns-load. Several tests call `rf/reg-route` in their
+            ;; bodies; loading routing HERE (rather than reloading it in
+            ;; the fixture) means the capture/restore fixture's ns-load
+            ;; registrar snapshot includes routing's registrations and
+            ;; restores them around each test (rf2-yw1w1u).
+            [re-frame.routing]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
             ;; hook publishes `rf/reg-machine` only when the namespace is
             ;; loaded. Several restore-* tests register machines via
@@ -59,33 +83,27 @@
             [re-frame.machines]))
 
 ;; ---- fixtures --------------------------------------------------------------
-
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
-  ;; Per smoke_test.clj fixture (rf2-xsfj): flows.cljc keeps a private
-  ;; last-inputs atom for dirty-checking. Clear it so a prior test's
-  ;; flow registration can't leak its last-inputs into a same-keyed
-  ;; flow in a subsequent test.
-  (flows/reset-last-inputs!)
-  (trace/clear-listeners!)
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  ;; Reset the config atom directly so :trace-events-keep (rf2-iegsz)
-  ;; doesn't leak between tests — `configure!` merges, so a per-test
-  ;; opt-in to elision would otherwise persist. The fixture forces
-  ;; :trace-events-keep 5 (NOT the shipped default of 50 = :depth, see
-  ;; `re-frame.epoch.state/default-trace-events-keep`; Mike pair-debug
-  ;; 2026-05-27) so the keep<depth elision path is reachable with a
-  ;; handful of dispatches.
-  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;;
+;; rf2-yw1w1u — the canonical capture/restore fixture. It snapshots the
+;; registrar at ns-load and restores around each test (so the routing /
+;; schemas / machines registrations this ns's `:require` chain brought
+;; live survive cross-ns runs without a `clear-all!` + reload dance), and
+;; fires the epoch reset-hook table (`:epoch/clear-history!`,
+;; `:epoch/clear-epoch-listeners!`, `:epoch/reset-config!`) so each test
+;; starts from a clean epoch slate with config reset to the shipped
+;; default. The `:init-fn` re-applies the suite's non-default
+;; `:trace-events-keep 5` (rf2-iegsz — a keep<depth OVERRIDE so the
+;; elision path is reachable with a handful of dispatches; NOT the
+;; shipped default of 50 = :depth, see
+;; `re-frame.epoch.state/default-trace-events-keep`; Mike pair-debug
+;; 2026-05-27) through the public `configure!` boundary — no test ns
+;; reaches into the private `state/config` var for fixture reset. The
+;; `:init-fn` runs AFTER the post-dispose reset hooks, so the override
+;; lands on top of the freshly-reset default.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -1762,6 +1780,17 @@
 ;; records and miss a genuine value-change, mis-attributing the render. The fix
 ;; bounds the scan on the directly-observable elision state (break at the first
 ;; record MISSING `:trace-events`) so it tracks reality under any reconfigure.
+;;
+;; rf2-yw1w1u — the two tests below KEEP direct private-var access
+;; (`@#'state/histories`, `@#'state/config`, `@#'state/value-changed-epoch-for`)
+;; rather than the shared fixture / `configure!` boundary. They are
+;; narrow unit tests of the PRIVATE `value-changed-epoch-for` scan: they
+;; hand-stuff a bespoke `histories` ring (a post-reduction transient gap
+;; / a manually-elided boundary) that no public API can construct, then
+;; pin the private config to the exact keep the scenario needs. Routing
+;; the config line through `configure!` while the rest of the setup is
+;; raw private-atom manipulation would be inconsistent and add no
+;; isolation — these cases live entirely below the public surface.
 
 (defn- vc-record
   "A minimal epoch record carrying a value-changed `:rf.sub/run` for
@@ -3851,7 +3880,7 @@
             `shipped-trace-events-keep-default-is-50` for the real
             default)."
     (is (= 5 (:trace-events-keep (epoch/current-config)))
-        "fixture OVERRIDE — see reset-runtime; NOT the shipped default")))
+        "fixture OVERRIDE — see the :init-fn configure! call; NOT the shipped default")))
 
 (deftest shipped-trace-events-keep-default-is-50
   (testing "rf2-wmki8 — the SHIPPED runtime default :trace-events-keep is
@@ -3867,6 +3896,13 @@
     ;; partial `configure!` leaves). Drive a config WITHOUT the slot and
     ;; confirm the accessor reports the shipped 50 — proving the var is the
     ;; live default, not just a declared constant.
+    ;;
+    ;; rf2-yw1w1u — KEEPS direct private-var access: `configure!` /
+    ;; `merge-config!` MERGES, so it cannot produce a config map MISSING
+    ;; the `:trace-events-keep` slot (the exact shape this test needs to
+    ;; exercise the accessor's fallback). Only a raw `reset!` of the
+    ;; private `config` can build that shape — the shared fixture's
+    ;; reset-to-default always carries the slot.
     (reset! @#'state/config {:depth 50 :redact-fn nil})
     (is (= 50 (state/trace-events-keep))
         "trace-events-keep accessor falls back to the shipped 50 default")
@@ -4030,6 +4066,215 @@
               ":rf.error/no-such-handler fired")
           (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
               "no :rf.epoch/db-replaced success trace"))))))
+
+;; ============================================================================
+;;  rf2-s93722 — POST-LIVENESS teardown race (the second half of the window)
+;; ============================================================================
+;;
+;; rf2-7i872 closed the validate→write window by re-resolving the container
+;; via `live-container-or-fail` at the write boundary. But that liveness check
+;; closes only HALF the window: a frame destroyed AFTER `live-container-or-
+;; fail` passes (it resolved a LIVE container) but BEFORE the actual
+;; `frame/replace-*` write returns STILL slips through — the liveness check
+;; said "live", yet the physical write lands against a now-destroyed frame and
+;; the choke-point `commit-frame-transition!` returns `nil` (the nil-container
+;; guard). Pre-rf2-s93722 the four perform helpers IGNORED that return, so they
+;; emitted success telemetry, recorded + fanned out a synthetic epoch, and
+;; returned `true` for a write that never happened.
+;;
+;; The fix: capture the `frame/replace-*` return; `nil` is the destroyed-frame
+;; signal (a non-nil — possibly EMPTY — changed-key-set means the write
+;; landed, even a no-op), so surface the canonical `:rf.error/no-such-handler`
+;; (kind :frame) / `false` BEFORE any success telemetry, synthetic epoch, or
+;; listener fanout. Empty-set / no-op writes stay successful.
+;;
+;; The race is reproduced by redefining the boundary `frame/replace-*` write
+;; to DESTROY the frame and then delegate to the real fn — so liveness has
+;; already passed (it ran before the redef'd write) and the real write returns
+;; nil against the now-destroyed frame, exactly the post-liveness window.
+
+(deftest restore-epoch-post-liveness-teardown-returns-false
+  (testing "rf2-s93722 — perform-restore! returns false (NOT a synthetic
+            success), emits :rf.error/no-such-handler (kind :frame), and does
+            NOT emit :rf.epoch/restored when the frame is destroyed AFTER the
+            write-boundary liveness check passes but BEFORE replace-frame-state!
+            returns (the nil-return post-liveness teardown window)."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+    (rf/dispatch-sync [:inc]  {:frame :test/short-lived})
+
+    (let [target-id (-> (rf/epoch-history :test/short-lived) first :epoch-id)
+          {:keys [outcome epoch]} (tool-pair/check-restore-preconditions!
+                                    :test/short-lived target-id)]
+      (is (= :ok outcome) "precondition validation passed against the live frame")
+
+      (let [real-write frame/replace-frame-state!
+            recorded   (record-trace!)
+            ;; The post-liveness window: live-container-or-fail (inside
+            ;; perform-restore!) resolves a LIVE container, THEN this redef'd
+            ;; write destroys the frame and delegates to the real write, which
+            ;; now returns nil against the destroyed frame.
+            result     (with-redefs [frame/replace-frame-state!
+                                     (fn [frame-id fs]
+                                       (rf/destroy-frame! frame-id)
+                                       (real-write frame-id fs))]
+                         (tool-pair/perform-restore! :test/short-lived epoch))]
+        (is (false? result)
+            "perform-restore! reports HONEST failure (false) — the nil write
+             return is checked, not ignored")
+        (is (has-error-op? @recorded :rf.error/no-such-handler)
+            ":rf.error/no-such-handler fired for the post-liveness teardown")
+        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                       @recorded)]
+          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
+          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
+        (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
+            "no :rf.epoch/restored success trace for the post-liveness drop")))))
+
+(deftest replace-app-db-post-liveness-teardown-returns-false
+  (testing "rf2-s93722 — perform-replace-app-db! returns false, emits
+            :rf.error/no-such-handler (kind :frame), and does NOT record a
+            synthetic epoch, emit :rf.epoch/db-replaced, or fan out a record
+            when replace-app-db! returns nil AFTER the liveness check passed."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+
+    (let [fanned   (atom [])]
+      (rf/register-epoch-listener! ::fan-watcher (fn [r] (swap! fanned conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+      (reset! fanned [])
+
+      (let [real-write frame/replace-app-db!
+            recorded   (record-trace!)
+            result     (with-redefs [frame/replace-app-db!
+                                     (fn [frame-id db]
+                                       (rf/destroy-frame! frame-id)
+                                       (real-write frame-id db))]
+                         (#'epoch/perform-replace-app-db! :test/short-lived {:n 999}))]
+        (is (false? result)
+            "perform-replace-app-db! reports HONEST failure (false) for the
+             nil-return post-liveness teardown")
+        (is (has-error-op? @recorded :rf.error/no-such-handler)
+            ":rf.error/no-such-handler fired")
+        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                       @recorded)]
+          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
+          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
+        (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+            "no :rf.epoch/db-replaced success trace")
+        (is (empty? @fanned)
+            "no synthetic epoch fanned out to listeners for the dropped write")
+        (is (= [] (rf/epoch-history :test/short-lived))
+            "no synthetic epoch recorded into the dropped ring")))))
+
+(deftest replace-runtime-db-post-liveness-teardown-returns-false
+  (testing "rf2-s93722 — perform-replace-runtime-db! returns false, emits
+            :rf.error/no-such-handler (kind :frame), and records / fans out NO
+            synthetic epoch when replace-runtime-db! returns nil AFTER the
+            liveness check passed."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+
+    (let [fanned   (atom [])]
+      (rf/register-epoch-listener! ::fan-watcher (fn [r] (swap! fanned conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+      (reset! fanned [])
+
+      (let [real-write frame/replace-runtime-db!
+            recorded   (record-trace!)
+            result     (with-redefs [frame/replace-runtime-db!
+                                     (fn [frame-id rt]
+                                       (rf/destroy-frame! frame-id)
+                                       (real-write frame-id rt))]
+                         (#'epoch/perform-replace-runtime-db!
+                           :test/short-lived {:rf.runtime/routing {:current {:id :home}}}))]
+        (is (false? result)
+            "perform-replace-runtime-db! reports HONEST failure (false) for the
+             nil-return post-liveness teardown")
+        (is (has-error-op? @recorded :rf.error/no-such-handler)
+            ":rf.error/no-such-handler fired")
+        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                       @recorded)]
+          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
+          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
+        (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+            "no :rf.epoch/db-replaced success trace")
+        (is (empty? @fanned)
+            "no synthetic epoch fanned out to listeners for the dropped write")
+        (is (= [] (rf/epoch-history :test/short-lived))
+            "no synthetic epoch recorded into the dropped ring")))))
+
+(deftest replace-frame-state-post-liveness-teardown-returns-false
+  (testing "rf2-s93722 — perform-replace-frame-state! returns false, emits
+            :rf.error/no-such-handler (kind :frame), and records / fans out NO
+            synthetic epoch when replace-frame-state! returns nil AFTER the
+            liveness check passed."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+
+    (let [fanned   (atom [])]
+      (rf/register-epoch-listener! ::fan-watcher (fn [r] (swap! fanned conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+      (reset! fanned [])
+
+      (let [real-write frame/replace-frame-state!
+            recorded   (record-trace!)
+            new-fs     {:rf.db/app {:n 999} :rf.db/runtime {:rf.runtime/routing {:current {:id :home}}}}
+            result     (with-redefs [frame/replace-frame-state!
+                                     (fn [frame-id fs]
+                                       (rf/destroy-frame! frame-id)
+                                       (real-write frame-id fs))]
+                         (#'epoch/perform-replace-frame-state! :test/short-lived new-fs))]
+        (is (false? result)
+            "perform-replace-frame-state! reports HONEST failure (false) for the
+             nil-return post-liveness teardown")
+        (is (has-error-op? @recorded :rf.error/no-such-handler)
+            ":rf.error/no-such-handler fired")
+        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                       @recorded)]
+          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
+          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
+        (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+            "no :rf.epoch/db-replaced success trace")
+        (is (empty? @fanned)
+            "no synthetic epoch fanned out to listeners for the dropped write")
+        (is (= [] (rf/epoch-history :test/short-lived))
+            "no synthetic epoch recorded into the dropped ring")))))
+
+;; rf2-s93722 — guard the OTHER side of the nil/empty-set distinction: a
+;; live-frame NO-OP write (the value `=` the current slice) returns an EMPTY
+;; changed-key-set (non-nil), so it MUST stay a success — NOT be misread as a
+;; destroyed-frame drop.
+(deftest replace-app-db-noop-write-stays-successful
+  (testing "rf2-s93722 — a no-op replace-app-db! (the new value equals the
+            current app-db) returns an EMPTY (non-nil) changed-key-set from the
+            frame write, so the perform helper treats it as success — true
+            return, :rf.epoch/db-replaced emitted, synthetic epoch recorded —
+            NOT a destroyed-frame drop."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [recorded (record-trace!)
+          ;; Inject the IDENTICAL value — a genuine no-op write against a live
+          ;; frame. commit-frame-transition! returns #{} (empty, non-nil).
+          result   (#'epoch/perform-replace-app-db! :test/main {:n 7})]
+      (is (true? result)
+          "a live-frame no-op write stays successful (empty-set ≠ nil)")
+      (is (= {:n 7} (rf/app-db-value :test/main))
+          "app-db is unchanged by the no-op (the equal value)")
+      (is (some #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+          ":rf.epoch/db-replaced success trace IS emitted for the no-op write")
+      (is (not (has-error-op? @recorded :rf.error/no-such-handler))
+          "no destroyed-frame error for a live no-op write")
+      (is (some #(= :rf.epoch/db-replaced (:event-id %))
+                (rf/epoch-history :test/main))
+          "the synthetic epoch IS recorded for the no-op write"))))
 
 ;; ============================================================================
 ;;  rf2-7i872 — listener observation bookkeeping race (unregister mid-fan-out)

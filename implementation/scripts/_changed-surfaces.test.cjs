@@ -180,6 +180,42 @@ test('Xray CLJS src change runs cljs (node-test compiles tools/xray) (rf2-f79t8)
   assert.equal(result.cljs_node_test, 'true');
 });
 
+// rf2-4ka7c2.1 — API-manifest probe routing false-green fix. The CLJS-only
+// adapter / Xray / pair-MCP public surfaces live in the sidecar
+// (spec/api-manifest-metadata.edn) under :cljs-only and are carried into
+// spec/api-manifest.edn verbatim. Their ONLY live runtime verifier is the
+// CLJS enumeration probe in the consolidated :node-test build, gated on
+// cljs_node_test. A sidecar / generated-manifest / API.md change must
+// therefore light cljs_node_test so the probe reconciles those rows — else a
+// stale/missing CLJS-only row ships with green CI (lint.yml runs only the JVM
+// generator + projection checks, never the CLJS probe).
+
+test('API-manifest sidecar change lights cljs_node_test (CLJS probe routing) (rf2-4ka7c2)', () => {
+  const result = classify('spec/api-manifest-metadata.edn');
+  assert.equal(
+    result.cljs_node_test,
+    'true',
+    'a sidecar edit must run the CLJS manifest probe (its only runtime verifier)',
+  );
+});
+
+test('Generated api-manifest.edn change lights cljs_node_test (rf2-4ka7c2)', () => {
+  const result = classify('spec/api-manifest.edn');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('spec/API.md change lights cljs_node_test (rf2-4ka7c2)', () => {
+  const result = classify('spec/API.md');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('Other spec/*.md change does NOT light cljs_node_test (scope discipline) (rf2-4ka7c2)', () => {
+  // The routing is scoped to the THREE manifest surfaces — an unrelated spec
+  // doc must not drag the consolidated :node-test build into a docs PR.
+  const result = classify('spec/006-ReactiveSubstrate.md');
+  assert.equal(result.cljs_node_test, 'false');
+});
+
 // rf2-jdj17.1 — template_expensive false-green fix. The template's
 // generated `:app` build transitively compiles against tools/xray
 // (:devtools/preloads [day8.re-frame2-xray.preload]),
@@ -235,6 +271,45 @@ test('Core change still arms template_expensive (regression) (rf2-jdj17.1)', () 
 test('Adapter change still arms template_expensive (regression) (rf2-jdj17.1)', () => {
   const result = classify('implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs');
   assert.equal(result.template_expensive, 'true');
+});
+
+// rf2-6yuzo4 — template npm-pin lockstep false-green. hooks.clj pins
+// :shadow-version + :react-version; version_lockstep_test asserts those
+// emitted pins match implementation/package.json's react / react-dom /
+// shadow-cljs entries (the source of truth), and the emitted-app smoke
+// symlinks implementation/node_modules (populated from
+// implementation/package-lock.json). Before the fix, a PR bumping those
+// package.json pins or the lockfile classified template_expensive=false
+// — so jvm-tools-template (the ONLY PR gate running version_lockstep_test
+// + the emitted-app smoke) was skipped and the template could keep
+// emitting a stale npm pin GREEN. These assertions lock the classifier
+// arming template_expensive on the npm source-of-truth + its lockfile,
+// while keeping shadow-cljs.edn / implementation/scripts/* off it (they
+// carry no emitted npm pin).
+
+test('implementation/package.json arms template_expensive (npm-pin lockstep) (rf2-6yuzo4)', () => {
+  const result = classify('implementation/package.json');
+  assert.equal(result.template_expensive, 'true');
+});
+
+test('implementation/package-lock.json arms template_expensive (emitted smoke links node_modules) (rf2-6yuzo4)', () => {
+  const result = classify('implementation/package-lock.json');
+  assert.equal(result.template_expensive, 'true');
+});
+
+test('implementation/shadow-cljs.edn does NOT arm template_expensive (no emitted npm pin) (rf2-6yuzo4)', () => {
+  const result = classify('implementation/shadow-cljs.edn');
+  assert.equal(result.template_expensive, 'false');
+});
+
+test('implementation/scripts/* does NOT arm template_expensive (no emitted npm pin) (rf2-6yuzo4)', () => {
+  const result = classify('implementation/scripts/build-foo.cjs');
+  assert.equal(result.template_expensive, 'false');
+});
+
+test('implementation/package.json still arms cljs_node_test (regression — it defines node deps) (rf2-6yuzo4)', () => {
+  const result = classify('implementation/package.json');
+  assert.equal(result.cljs_node_test, 'true');
 });
 
 // rf2-f79t8 (a) — workflow-level shape: jvm-core + cljs must be

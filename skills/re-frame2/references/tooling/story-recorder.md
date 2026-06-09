@@ -14,7 +14,7 @@ Do **not** load this leaf to learn what a story is, or to author a variant body 
 
 ## Canvas-as-fixture — why the recorder is trivial here
 
-A variant's frame is already a self-contained fixture: phase-1 loaders seed remote-data, phase-2 `:setup` reaches the pre-render state, the canvas renders against that frame's app-db. Every interaction (click, type, route) lands as a `dispatch` on the variant's router; the trace bus already projects those dispatches with `:event/dispatched` emissions per Spec 009 §Listener contract.
+A variant's frame is already a self-contained fixture: phase-1 loaders seed remote-data, phase-2 `:setup` reaches the pre-render state, the canvas renders against that frame's app-db. Every interaction (click, type, route) lands as a `dispatch` on the variant's router; the trace bus already projects those dispatches as `:op-type :rf.event` + `:operation :rf.event/dispatched` emissions per Spec 009 §Listener contract.
 
 So the recorder is one filter on the existing emit stream, scoped to the recording's target frame, and the output shape is the exact tagged-step sequence the runtime will replay as the variant's phase-4 `:script` (spec/017 §Public vocabulary). The codegen emits the PUBLIC `:script` authoring slot directly — the recorder no longer emits the transitional `:play-script` spelling (the registrar still accepts and lowers `:play-script` if you hand-write it, but the authored/public target is `:script`). No DOM-event capture, no Testing-Library translation, no page-object layer.
 
@@ -36,7 +36,7 @@ So the recorder is one filter on the existing emit stream, scoped to the recordi
 
 The trace-bus callback short-circuits unless a recording is in flight, so it's free to leave installed. When recording, four filters apply (in order):
 
-1. **Op-type** — only `:event/dispatched` emissions qualify (`:fx`, `:sub`, `:view`, `:cofx` traffic is dropped).
+1. **Op-type** — only `:op-type :rf.event` + `:operation :rf.event/dispatched` emissions qualify (`:rf.fx`, `:rf.sub`, `:rf.view`, cofx traffic is dropped).
 2. **Frame scope** — emission `:frame` must match the recording's target variant. Typing in another canvas while a recording is active is dropped.
 3. **Event vocabulary** — `:rf.assert/*` events and Story-internal helpers (`:rf.story/*`, `:re-frame.story.*`) are filtered. Recorded `:script` bodies capture user intent; assertions get added by hand afterwards.
 4. **Sensitivity** — events the runtime has stamped `:sensitive?` on the *emitted trace event* (auth, 2FA, password change, API-key rotation) replace the event vector with the placeholder `[:rf/redacted]` instead of riding the raw payload into the snippet. The temporal position survives; the secret never lands in `:script` source. The recorder keys off the trace event's top-level `:sensitive?` field (`re-frame.privacy/sensitive?`, re-exported as `rf/sensitive?`) — **NOT** handler metadata. Handler-meta `{:sensitive? true}` was removed from the runtime and does nothing. See the next section for what actually stamps that flag, plus the authoring rule.
@@ -114,7 +114,7 @@ Paste into the stories namespace. Done. (The bare-vector shorthand `:script [[:d
 
 ## MCP — `record-as-variant`
 
-The story-mcp `record-as-variant` tool calls the same public surface through the Tool-Pair bridge: `start-recording!` → drive interactions (programmatic dispatches or human-in-canvas) → `stop-recording!` → `gen-play-snippet` → snippet returned as the tool's structured output. See `story-mcp-loop.md` for the agent self-healing loop that uses this.
+The story-mcp `record-as-variant` tool calls the same public surface through the Tool-Pair bridge: `start-recording!` → drive interactions (programmatic dispatches or human-in-canvas) → `stop-recording!` → `gen-play-snippet` → snippet returned as the tool's structured output. `record-as-variant` is a **run-side tool owned by the `re-frame2-pair` skill** (it captures a cascade against a live runtime) — this authoring skill is not allow-listed for it. Author the recorded `:script` body here; drive the capture from a `re-frame2-pair` session. See `story-mcp-loop.md` for the author/refine vs run-side split and the handoff recipe.
 
 **The MCP path inherits the same four-filter pipeline, including layer 4 (sensitivity).** `record-as-variant` does not — and must not — bypass `:sensitive?` redaction: the tool's structured output is shipped over an MCP transport to an agent process, which is a wire boundary, so sensitive payloads must never appear in the returned `:script` body. The tool also never accepts a `:rf.privacy/show-sensitive? true` override at call time. If a recording session captured any sensitive events, the response carries the same `[:rf/redacted]` placeholders the in-canvas overlay shows, plus a metadata count of redactions for the agent to surface to the human.
 
@@ -125,7 +125,7 @@ Authoring rule for tools that consume `gen-play-snippet` output (or call `record
 - Capture boundary, public API, MCP wiring rationale → `tools/story/spec/005-SOTA-Features.md` §Test Codegen.
 - Trace-bus listener primitive → `tools/story/spec/003-Render-Shell.md` §Trace bus, and Spec 009 §Listener contract.
 - Variant body shape (where the recorded `:script` lands) → `stories.md` (sibling leaf).
-- MCP self-healing loop → `story-mcp-loop.md` (sibling leaf).
+- Story-MCP author/refine side + the run-side handoff to `re-frame2-pair` (which owns `record-as-variant` / `run-variant` / `read-failures`) → `story-mcp-loop.md` (sibling leaf).
 
 ---
 

@@ -233,6 +233,16 @@
     :epoch/clear-history!            — drop the per-frame epoch ring buffer.
     :epoch/clear-epoch-listeners!          — drop the epoch-settled callback
                                        registry.
+    :epoch/reset-config!             — restore epoch-history config to the
+                                       shipped default baseline (rf2-yw1w1u).
+                                       `(rf/configure! :epoch-history ...)`
+                                       MERGES, so without this a prior test's
+                                       `:depth` / `:trace-events-keep` /
+                                       `:redact-fn` would leak into the next.
+                                       Suites that want a non-default value
+                                       re-apply it through `configure!` in
+                                       their `:init-fn` (which runs after the
+                                       post-dispose reset hooks).
     :adapter/clear-warn-once-caches! — clear per-adapter
                                        `warned-non-dom-roots` warn-once
                                        caches. Chained — re-frame.views,
@@ -249,6 +259,7 @@
    {:hook :http/clear-all-in-flight!       :phase :post-dispose}
    {:hook :epoch/clear-history!            :phase :post-dispose}
    {:hook :epoch/clear-epoch-listeners!          :phase :post-dispose}
+   {:hook :epoch/reset-config!             :phase :post-dispose}
    {:hook :adapter/clear-warn-once-caches! :phase :post-dispose}
    ;; Per Spec 015 — clear the per-(kind, id) marks table and the
    ;; per-frame sub-output propagation table so each test starts

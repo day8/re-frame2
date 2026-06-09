@@ -83,6 +83,7 @@
             [re-frame.http-handlers        :as handlers]
             [re-frame.http-machine-wrapper :as machine-wrapper]
             [re-frame.late-bind            :as late-bind]
+            [re-frame.registrar            :as registrar]
             [re-frame.router               :as router]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -267,6 +268,28 @@
 
 (def ^:private stub-fx-id :rf.http/managed-test-stub)
 
+;; rf2-vn8qjv (issue 2) — stack/token discipline for the lower-level
+;; install/uninstall surface. The single stub fx-id `:rf.http/managed-test-stub`
+;; is the DOCUMENTED routing target — users hardcode it in
+;; `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`, so the id
+;; must stay stable. But a naive "register then unconditionally clear" makes
+;; nested installs clobber: an inner `install!` replaces the outer handler and
+;; the inner `uninstall!` clears it, leaving the outer scope routing to a
+;; now-absent fx. We snapshot the prior handler onto a stack at install and
+;; restore the top-of-stack at uninstall, so an outer install survives a fully
+;; nested inner install/uninstall pair. Empty stack → clear the fx (no prior
+;; handler to restore), so a balanced top-level install/uninstall leaks nothing.
+(defonce ^:private stub-fx-handler-stack (atom []))
+
+(defn- peek-and-pop!
+  "Pop the top element off the `stack-atom`'s vector, returning a
+  `[popped]` 1-tuple (nil-safe — an empty stack yields `[nil]`). Test-time
+  single-threaded use; the read-then-swap is not atomic and need not be."
+  [stack-atom]
+  (let [top (peek @stack-atom)]
+    (swap! stack-atom (fn [s] (if (seq s) (pop s) s)))
+    [top]))
+
 (defn install-managed-request-stubs!
   "Test-time helper. `stubs` is `{[method url] {:reply <:ok|:failure>}}`.
   Registers the `:rf.http/managed-test-stub` fx — a route-map-consulting
@@ -276,13 +299,19 @@
   `:rf.http/managed` through it. To route, either dispatch with
   `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`, or — far
   more usually — wrap the test body via `with-managed-request-stubs` /
-  `with-managed-request-stubs*`, which install BOTH the stub fx AND the
-  `:rf.http/managed → :rf.http/managed-test-stub` override for the body's
+  `with-managed-request-stubs*`, which install a per-scope stub fx AND the
+  matching `:rf.http/managed → <scope-stub>` override for the body's
   dynamic extent, so plain `dispatch-sync` calls auto-route with no manual
   `:fx-overrides`.
 
+  rf2-vn8qjv — stack/token discipline: install snapshots any prior
+  `:rf.http/managed-test-stub` handler before overwriting it, so a nested
+  install/uninstall pair restores the outer install on exit. Always paired
+  with `uninstall-managed-request-stubs!` (LIFO).
+
   Per Spec 014 §Testing — the framework ships canonical stub fxs."
   [stubs]
+  (swap! stub-fx-handler-stack conj (registrar/handler :fx stub-fx-id))
   (fx/reg-fx stub-fx-id
              {:doc "with-managed-request-stubs synthesised stub"}
              (fn [frame-ctx args-map]
@@ -290,41 +319,78 @@
   stub-fx-id)
 
 (defn uninstall-managed-request-stubs!
-  "Tear down the per-call stub fx-override `install-managed-request-stubs!`
-  registered. Idempotent — clearing an already-absent fx id is a no-op,
-  so a teardown that runs without a matching install (or twice) is safe.
-  Test-time helper."
+  "Tear down the stub fx `install-managed-request-stubs!` registered. Pops
+  the install stack: if an outer install's handler was snapshotted it is
+  restored (so a nested install/uninstall pair leaves the outer install
+  intact); otherwise the fx id is cleared.
+
+  Idempotent — calling without a matching install (empty stack) clears the
+  fx id, a no-op when it is already absent, so a teardown that runs without
+  a matching install (or twice) is safe and leaks no test fx. Test-time
+  helper."
   []
-  (fx/clear-fx stub-fx-id)
+  (let [[prior] (peek-and-pop! stub-fx-handler-stack)]
+    (if prior
+      (fx/reg-fx stub-fx-id
+                 {:doc "with-managed-request-stubs synthesised stub"}
+                 prior)
+      (fx/clear-fx stub-fx-id)))
   nil)
+
+;; rf2-vn8qjv (issue 2) — `with-managed-request-stubs*` allocates a UNIQUE
+;; override fx-id per scope so nested scopes compose. The lower-level
+;; install/uninstall surface above keys off the single stable id (the
+;; documented `:fx-overrides` target); the scoped wrapper instead mints a
+;; fresh fx-id per invocation and binds the override to THAT id. An outer
+;; scope's fx and override therefore stay live and correctly-routed while a
+;; fully-nested inner scope installs, runs, and tears down its own distinct
+;; fx — no clobber, no order-dependence.
+(defonce ^:private scope-stub-counter (atom 0))
+
+(defn- next-scope-stub-id
+  "Mint a process-unique `:rf.http/managed-test-stub-<n>` fx-id for one
+  `with-managed-request-stubs*` scope."
+  []
+  (keyword "rf.http" (str "managed-test-stub-" (swap! scope-stub-counter inc))))
 
 (defn with-managed-request-stubs*
   "Function form: install stubs, route `:rf.http/managed` through them for
   the dynamic extent of `thunk`, run `thunk`, then uninstall. Test-time
   helper.
 
-  `stubs` is `{[method url] {:reply <:ok|:failure>}}`. Beyond registering
-  the `:rf.http/managed-test-stub` fx, this also binds the lexical-scope
-  fx-override `{:rf.http/managed :rf.http/managed-test-stub}`
+  `stubs` is `{[method url] {:reply <:ok|:failure>}}`. The wrapper mints a
+  process-unique stub fx-id for THIS scope (rf2-vn8qjv), registers the
+  route-map-consulting stub under it, and binds the lexical-scope
+  fx-override `{:rf.http/managed <scope-stub-id>}`
   (`re-frame.router/*fx-overrides*`, the public `rf/with-fx-overrides`
   seam) for the thunk's dynamic extent. So every `dispatch-sync` inside
   the body auto-routes by `:request :method` + `:request :url` with NO
   per-call `:fx-overrides` — matching the documented contract (Spec 014
   §Testing). A dispatch that deliberately supplies its OWN `:fx-overrides`
   still wins: the router merges the lexical default UNDER the per-call opt
-  (per-call > lexical > per-frame)."
+  (per-call > lexical > per-frame).
+
+  Nesting composes: because each scope owns a distinct fx-id, an inner
+  `with-managed-request-stubs*` registers and tears down ITS id without
+  touching the outer scope's still-live fx + override. After the inner
+  scope exits, an outer-scope dispatch still routes to the outer stub."
   [stubs thunk]
-  (try
-    (install-managed-request-stubs! stubs)
-    ;; Bind the lexical-scope override so plain dispatches in the body
-    ;; route `:rf.http/managed` → the route-map stub automatically. The
-    ;; thunk's dispatches run synchronously within this dynamic extent;
-    ;; per-call `:fx-overrides` still take precedence (router merge).
-    (binding [router/*fx-overrides* (merge router/*fx-overrides*
-                                           {:rf.http/managed stub-fx-id})]
-      (thunk))
-    (finally
-      (uninstall-managed-request-stubs!))))
+  (let [scope-stub-id (next-scope-stub-id)]
+    (try
+      (fx/reg-fx scope-stub-id
+                 {:doc "with-managed-request-stubs (scoped) synthesised stub"}
+                 (fn [frame-ctx args-map]
+                   (stub-handler stubs frame-ctx args-map)))
+      ;; Bind the lexical-scope override so plain dispatches in the body
+      ;; route `:rf.http/managed` → this scope's route-map stub
+      ;; automatically. The thunk's dispatches run synchronously within
+      ;; this dynamic extent; per-call `:fx-overrides` still take
+      ;; precedence (router merge).
+      (binding [router/*fx-overrides* (merge router/*fx-overrides*
+                                             {:rf.http/managed scope-stub-id})]
+        (thunk))
+      (finally
+        (fx/clear-fx scope-stub-id)))))
 
 #?(:clj
    (defmacro with-managed-request-stubs

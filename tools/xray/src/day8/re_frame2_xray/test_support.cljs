@@ -7,9 +7,14 @@
   `reset-all!` so panel additions don't ripple through the test
   corpus.
 
+  Targets the inert `day8.re-frame2-xray.install` ns for the collector
+  sentinels (rf2-5w06uu) rather than `preload`, so a fixture that only
+  needs `reset-all!` does not drag in `preload`'s side-effecting boot
+  block.
+
   **Test-only — never call from production code.** Per rf2-kmhvg
   cluster item 3e (audit rf2-i0veg §3e)."
-  (:require [day8.re-frame2-xray.preload :as preload]
+  (:require [day8.re-frame2-xray.install :as install]
             [day8.re-frame2-xray.registry :as registry]))
 
 (defn reset-all!
@@ -17,11 +22,11 @@
   single fixture-call leaves the namespaces in a re-installable state.
   Calls (in order):
 
-      preload/reset-for-test!  ; trace-cb + epoch-cb registration flags
+      install/reset-for-test!  ; trace-cb + epoch-cb registration flags
       registry/reset-for-test! ; per-panel reg-event/reg-sub flags
 
   Test-only. Returns nil."
   []
-  (preload/reset-for-test!)
+  (install/reset-for-test!)
   (registry/reset-for-test!)
   nil)

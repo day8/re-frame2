@@ -139,13 +139,6 @@
   {:destructiveHint true
    :openWorldHint   true})
 
-(def ^:private streaming-annotations
-  "Annotations for streaming tools — `subscribe` opens a sub on the
-  runtime's trace/epoch bus, `unsubscribe` closes one. Neither
-  mutates app state, but both reach external state and have side-
-  effects on the streaming registry."
-  {:openWorldHint true})
-
 (def ^:private streaming-unsubscribe-annotations
   "Annotations for `unsubscribe` — closes a subscription. Idempotent
   (a second close is a no-op `:existed? false`). Touches the
@@ -159,17 +152,22 @@
   idempotent (repeated calls create new subscriptions)."
   {:openWorldHint true})
 
-(def ^:private streaming-summary-annotations
-  "Annotations for the subscribe tool's final summary. Same as
-  `streaming-subscribe-annotations` since the tool is the same."
-  streaming-subscribe-annotations)
-
 (def ^:private streaming-info-annotations
   "Annotations for `list-streams` — pure read over the streaming-tap
   subscription registry, idempotent across same-state calls."
   {:readOnlyHint   true
    :idempotentHint true
    :openWorldHint  true})
+
+(def ^:private stream-controls-annotations
+  "Annotations for `get-stream-controls` (rf2-a0kxsb) — pure read over
+  the server's IN-PROCESS resource-control atoms. Read-only and
+  idempotent across same-state calls. `:openWorldHint false`: unlike
+  `list-streams` it does NOT reach the browser runtime over nREPL — the
+  state is server-local, so the read never leaves the process."
+  {:readOnlyHint   true
+   :idempotentHint true
+   :openWorldHint  false})
 
 (def ^:private record-annotations
   "Annotations for `record` (rf2-zo4b9) — installs a read-only observer
@@ -231,13 +229,13 @@
 
 (def discover-app
   {:name "discover-app"
-   :description (str "Verify the shadow-cljs nREPL is reachable, confirm the re-frame2-pair runtime preload landed, and report a health summary. Run this first every session. Returns :reason :runtime-not-preloaded when the preload entry is missing. "
+   :description (str "Verify the shadow-cljs nREPL is reachable, confirm the re-frame2-pair runtime preload landed, and report a health summary. Run this first every session. A failed probe is classified by a diagnostic ladder (rf2-7tgfk): :reason :nrepl-unreachable (nREPL down), :build-not-running (start the build), :no-runtime-connected (build runs but no tab attached — reload/open the page or pick the right build), or :runtime-loaded-but-preload-missing (runtime live but the pair preload entry is absent — add the preload). :runtime-not-preloaded is reserved as the degradation fallback when the ladder cannot otherwise classify. "
                      "Every :ok? true result carries a :freshness token (rf2-ertqw): {:runtime-instance-id <uuid> :runtime-loaded-at <ms> :compile-cycle <monotonic int> :build-flushed-at <ms> :runtime-count <n> :heartbeat-age-ms <ms> :liveness :fresh|:stale-build|:no-runtime|:unknown}. Check :liveness BEFORE trusting reads — :stale-build means the build recompiled after the running browser code loaded (RELOAD the page), :no-runtime means no tab is connected. "
                      "Examples: "
                      "1. No arg, exactly one build running: {} -> auto-selects it: {:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :examples/step-deck :auto-selected-build :examples/step-deck :freshness {:liveness :fresh ...} :note \"...auto-selected it.\"}. "
                      "2. Named build: {:build \"app\"} -> {:ok? true ... :build-id :app}, no auto-selection (explicit build honoured verbatim). "
                      "3. From a browser URL's port: {:port 8031} -> resolves the build serving that port via the shadow-cljs :dev-http map: {:ok? true ... :build-id :examples/step-deck}. {:port <unmapped>} -> {:ok? false :reason :port-unresolved}. "
-                     "4. Preload missing: {} -> {:ok? false :reason :runtime-not-preloaded :hint \"...\"}. "
+                     "4. Preload missing (runtime live, pair preload absent): {} -> {:ok? false :reason :runtime-loaded-but-preload-missing :hint \"...\"}. "
                      "5. Stale build: {} -> {:ok? true ... :warning :stale-build :freshness {:liveness :stale-build :hint \"STALE BUILD...\"}}.")
    :typicalTokens 200
    :annotations idempotent-read-only-annotations
@@ -1374,6 +1372,36 @@
                               :sub-id {:type "string"
                                        :description "Optional filter — only return the sub with this uuid."}
                               :build  {:type "string"}}
+                 :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
+;; get-stream-controls
+;; ---------------------------------------------------------------------------
+
+(def get-stream-controls
+  {:name "get-stream-controls"
+   :description (str "Report the SERVER-SIDE streaming resource-control state (rf2-a0kxsb): effective caps, "
+                     "active stream slots vs limit, token-bucket pressure, and abuse-window count vs threshold. "
+                     "The diagnostic for 'why was my stream denied / why is it quiet / why did it terminate?'. "
+                     "Reads the server's resource-controls atoms IN-PROCESS — NO nREPL round-trip — so it answers "
+                     "even when the runtime is down (exactly when you're diagnosing a stalled stream). "
+                     "Complements `list-streams`: that tool reads the RUNTIME streaming-tap registry (what trace/epoch/fx "
+                     "streams are open in the browser); this tool reads what the SERVER's resource controller believes. "
+                     "Cross-check `:concurrent-streams :active` against the `list-streams` row count — a server :active "
+                     "with no matching list-streams row signals a LEAKED server slot; the reverse signals a stale runtime "
+                     "subscription. Carries NO event payloads or app-db data (control state only), so it is unconditionally "
+                     "safe — no --allow-sensitive-reads gate. Returns `{:ok? true :config {<four caps>} "
+                     ":concurrent-streams {:active :limit :at-capacity?} :rate-limit {:capacity :tokens :initialized? :throttling?} "
+                     ":abuse-window {:count :threshold :window-ms :tripped?} :cross-check <hint>}`. "
+                     "Examples: "
+                     "1. Healthy idle session: {} -> {:ok? true :config {:max-concurrent-streams 10 :max-events-per-sec 100 :abuse-overflow-threshold 50 :abuse-window-ms 10000} :concurrent-streams {:active 0 :limit 10 :at-capacity? false} :rate-limit {:capacity 100 :tokens 100 :initialized? false :throttling? false} :abuse-window {:count 0 :threshold 50 :window-ms 10000 :tripped? false}}. "
+                     "2. At the concurrent cap (next subscribe will be denied): {} -> {... :concurrent-streams {:active 10 :limit 10 :at-capacity? true} ...}. "
+                     "3. Rate-throttled: {} -> {... :rate-limit {:capacity 100 :tokens 0.3 :initialized? true :throttling? true} ...} — the next poll cycle defers (rate-dropped).")
+   :typicalTokens 250
+   :annotations stream-controls-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:build {:type "string"}}
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------

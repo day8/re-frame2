@@ -74,6 +74,52 @@ itself runs in the `cljs-browser` CI job (the `cljs_browser` changed
 surface, which fires on both `examples/**` source edits and
 `shadow-cljs.edn` build-decl changes).
 
+## Design-led examples: checklist-guarded, not compile-proven
+
+Three examples are **design-led** — the Reagent
+[`notebook`](reagent/notebook/), the UIx
+[`dashboard_uix`](uix/dashboard_uix/), and the Helix
+[`process_monitor_helix`](helix/process_monitor_helix/). Their job is to
+prove *polished visuals + interaction* on each substrate, not to replay a
+platform feature other examples already cover. That makes their coverage
+story different from the rest of the tree.
+
+`test:examples-compile` (above) sweeps these builds like any other, so a
+namespace / `:init-fn` / `:require` / substrate-form regression turns the
+gate red. But the compile gate **never serves the page**, so it cannot see
+the things a design-led example exists to prove: a nonblank render, the
+`_shared` "Editorial Warm" stylesheet actually applying, a live tick/update
+loop, filter/selection interaction, and a narrow viewport with no
+document-level horizontal overflow. A regression in any of those can ship
+green under compile-only coverage.
+
+Because the `examples/` tree is **test-free** (no `*.spec.cjs` under
+`examples/`, [rf2-8cevm](../examples/README.md)), this design-led class of
+regression is **not** guarded by a per-example Playwright suite. It is
+guarded by two things that stay inside the test-free policy:
+
+1. **A documented manual checklist** in each design-led example's README
+   (render / interaction / responsive items, plus a screenshot-evidence
+   note for layout-CSS changes). See
+   [`process_monitor_helix/README.md` §Design-led runtime](helix/process_monitor_helix/README.md#design-led-runtime--what-to-copy-and-a-manual-checklist)
+   and [`dashboard_uix/README.md` §Accessibility + responsive](uix/dashboard_uix/README.md#accessibility--responsive--what-to-copy-and-a-manual-checklist).
+   Run it when you touch the example's markup, CSS, or dataflow.
+2. **The static `check-examples-assets` gate** (wired into
+   `npm run test:script-policy`), which enforces the shared stylesheet's
+   asset presence + WCAG palette-contrast / focus-ring contracts for every
+   example `index.html` — so the *design-system* half of "polished" has
+   real automated teeth even though the per-page render is a manual check.
+
+This is the same trade-off the rest of the tree makes — real-regression
+coverage lives in the framework gates (`test:cljs`,
+`test:xray-feature-gate`, `test:bundle-isolation`, `test:perf-bundle`,
+mcp-conformance) — applied to the one surface those gates structurally
+cannot reach: a hand-written page's live render. Converting the design-led
+examples into Playwright suites was considered and rejected: it would
+reintroduce `*.spec.cjs` under `examples/` (the policy [rf2-8cevm](../examples/README.md)
+exists to prevent) and duplicate adapter-smoke machinery for a surface whose
+regressions are caught at review with a checklist + screenshot.
+
 ## Stock / slim Reagent boundary gate (`test:script-policy`)
 
 re-frame2 ships two Reagent substrates with two separate example trees: the
@@ -316,9 +362,14 @@ which now defers here as the canonical statement):
 > `:counter/value`), the `:auth.login/flow` machine event, the
 > `:auth.login.demo/managed-stub` fx, the `:auth.login/state` /
 > `:auth.login/error` subs, and the `:auth.login/flow` machine's
-> `:data-schema` (the snapshot lives in runtime-db at
-> `[:rf.runtime/machines :snapshots :auth.login/flow]`, validated via
-> `:data-schema`, not `reg-app-schema` — EP-0001). It
+> `:data-schema` (a top-level key on the machine spec validating the
+> machine's **`:data` slot only** — `{:attempts ... :error ...}` — at the
+> `:where :machine-data` boundary, NOT the whole `{:state ... :data ...}`
+> snapshot and not `reg-app-schema`; the snapshot lives in runtime-db at
+> `[:rf.runtime/machines :snapshots :auth.login/flow]`, which is runtime-db
+> state, not app-db — EP-0001). The live `:data-schema` currently ships in
+> `login_uix` (rf2-384975); the Reagent and Helix siblings are being
+> brought into byte-for-byte parity under follow-up beads. It
 > proves **substrate parity**: byte-for-byte identical events, subs,
 > schemas, machine, and managed-HTTP stub driving three different reactive
 > view layers (Reagent `reg-view`, UIx `defui` + `use-subscribe`, Helix

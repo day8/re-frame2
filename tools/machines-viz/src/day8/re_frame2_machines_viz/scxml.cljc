@@ -42,6 +42,8 @@
   | `:on {:event :target}`                | `<transition event=\"event\" target=\"target\"/>` |
   | `:on {:event {:target ... :guard G}}` | `<transition cond=\"G\" .../>` |
   | `:on {:event {:action A}}` — INTERNAL (no `:target`) | `<transition event=\"event\"><!-- action: A --></transition>` — round-trips to `{:action A}`, NOT the `{}` forbidden block (rf2-mnp93.5) |
+  | Self-target (`:target :same-state`, or a keyword naming the state's OWN key) (rf2-0pp6as) | `<transition … target=\"<source-id>\" type=\"internal\"/>` — references the SOURCE state's REAL declared id (NEVER the dangling `same_2dstate` phantom); `type=\"internal\"` is the explicit XState-v5 internal default. Round-trips to the canonical `:same-state`. |
+  | `:reenter? true` (any target) (rf2-9dj21r) | `type=\"external\"` — the EXTERNAL restart axis (re-run `:exit`+`:entry`). A target-bearing transition WITHOUT `:reenter?` carries `type=\"internal\"`. |
   | `:after {ms :target}`                 | `<transition event=\"after.ms\" target=\"target\"/>` |
   | `:always [...]`                       | `<transition target=\"...\"/>` (eventless) |
   | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
@@ -75,6 +77,22 @@
 
   - `:spawn-all` rows — omitted; the parent state renders without
     spawn affordances.
+  - INTERNAL-default self / proper-ancestor SELF-TRANSITION semantics
+    (rf2-0pp6as) — re-frame2 / XState v5 make a targeted transition
+    INTERNAL by default (the targeted state's OWN `:exit` / `:entry` do
+    NOT re-run); W3C SCXML's `type=\"internal\"` only changes the
+    transition domain for a COMPOUND source whose target is a PROPER
+    DESCENDANT (the one case where the export IS the exact equivalent).
+    For a self-target (source == target) or a proper-ancestor target,
+    SCXML ALWAYS re-enters the source regardless of `type`, so the
+    re-frame2 internal default has no exact SCXML equivalent. The export
+    emits `type=\"internal\"` to record the intended axis and references
+    the source state's REAL declared id (never the pre-fix dangling
+    `same_2dstate` phantom), and the local `scxml->spec` round-trips the
+    `:same-state` sentinel exactly — but a STRICT external SCXML engine
+    executing the imported chart will re-run the source's exit/entry on
+    the self-target where re-frame2 would not. This is the irreducible
+    loss; it is documented here rather than papered over.
   - Machine-level (top-level) `:on` fallback transitions — W3C SCXML
     has no clean root-fallback slot (`<scxml>` does not host
     `<transition>` children per the schema, and the import side drops
@@ -317,14 +335,32 @@
 
 (defn- resolve-target-path
   "Resolve a transition target to its ABSOLUTE path from the machine
-  root. A keyword target is a SIBLING of the source state (Spec 005); a
-  vector-path target is absolute. `source-path` is the source state's
-  absolute path."
+  root. `source-path` is the source state's absolute path.
+
+  - `:same-state` (Spec 005 §Self-transitions self-target sentinel) →
+    the SOURCE state's OWN path. This MUST match the runtime resolver
+    (`re-frame.machines.transition/target-path`) and the chart / Mermaid
+    projectors (`chart.layout/resolve-target-path`,
+    `mermaid/resolve-target-path`), which ALL special-case `:same-state`
+    to the declaring state's own path. rf2-0pp6as — pre-fix the SCXML
+    resolver had NO `:same-state` arm, so the sentinel fell through to the
+    keyword branch and produced the ABSOLUTE path `[:same-state]` — a
+    DANGLING `target=\"same_2dstate\"` referencing a state the document
+    never declares. The local `scxml->spec` decoded that phantom id back
+    to `:same-state`, so the round-trip oracle false-greened over invalid
+    W3C SCXML. Resolving to `source-path` emits the SOURCE state's real
+    unique id, exactly as a sibling-keyword self-target (`:target :a` on
+    state `:a`) already did — the two are the SAME self-transition per
+    Spec 005, and SCXML has no self-sentinel, only a target referencing
+    the state's own id.
+  - a keyword target is a SIBLING of the source state (Spec 005).
+  - a vector-path target is absolute."
   [source-path target]
   (cond
-    (keyword? target)     (conj (parent-path source-path) target)
-    (target-path? target) (vec target)
-    :else                 nil))
+    (= :same-state target) (vec source-path)
+    (keyword? target)      (conj (parent-path source-path) target)
+    (target-path? target)  (vec target)
+    :else                  nil))
 
 (defn- qualified-id
   "The unique xsd:ID for a state at absolute `path` (rf2-mnp93.7)."
@@ -337,17 +373,39 @@
   it so the emitted `target` is the unique xsd:ID of the destination
   (rf2-mnp93.7).
 
-  rf2-9dj21r — the re-frame2 `:reenter? true` axis (Spec 005
-  §Self-transitions / XState v5: a targeted transition is INTERNAL by
+  rf2-9dj21r / rf2-0pp6as — the re-frame2 `:reenter? true` axis (Spec 005
+  §Self-transitions / XState v5: a TARGETED transition is INTERNAL by
   default; `:reenter?` opts into the EXTERNAL restart) maps onto W3C
-  SCXML's `<transition type=\"external\">`. SCXML's `type` is the SAME
-  external-vs-internal axis — `type=\"external\"` re-runs the exit/entry
-  of states common to the source and target. We emit `type=\"external\"`
-  only for a `:reenter? true` candidate; the default (no attr) is SCXML's
-  `internal` for a targetless action-only transition and is the natural
-  encoding for the re-frame2 internal-default targeted transition. Without
-  this a `{:target :same-state}` and a `{:target :same-state :reenter?
-  true}` exported + round-tripped IDENTICALLY."
+  SCXML's `<transition type=\"internal|external\">`, which is the SAME
+  external-vs-internal axis. Spec 005 §Self-transitions L332 records the
+  inversion: SCXML's targeted-transition DEFAULT is `external`
+  (`type=\"internal\"` opts out); XState v5 / re-frame2 FLIPPED it
+  (internal default, `:reenter?` opts IN). So a target-bearing re-frame2
+  transition must be EXPLICIT about the type — leaving it absent would let
+  the export silently inherit SCXML's EXTERNAL default and mis-state the
+  re-frame2 internal-default intent (the rf2-0pp6as drift). We therefore:
+
+  - emit `type=\"external\"` for a target-bearing `:reenter? true`
+    candidate (the external restart — re-run exit/entry); and
+  - emit `type=\"internal\"` for a target-bearing transition WITHOUT
+    `:reenter?` (the re-frame2 / XState-v5 internal default).
+
+  A TARGETLESS (action-only) transition carries NO `type` — SCXML's own
+  default for a targetless transition is already `internal` and `external`
+  is meaningless with no state to re-enter; this also keeps the round-trip
+  for the existing action-only shapes unchanged.
+
+  SCXML's `type=\"internal\"` is strictly equivalent to `external` for a
+  COMPOUND source whose target is a PROPER DESCENDANT (the only case where
+  W3C `getTransitionDomain` differs); for a self / proper-ancestor target
+  it is an irreducible LOSS — SCXML re-enters the source on a self-target
+  regardless of `type`, whereas re-frame2's internal default does NOT
+  re-run the source's own exit/entry. `type=\"internal\"` records the
+  intended axis (and is the exact equivalent for the descendant case); the
+  irreducible self/ancestor loss is documented in API.md §Not supported
+  rather than papered over by the local round-trip oracle. The decoder
+  inverts this axis: `type=\"external\"` ⇒ `:reenter? true`, any other
+  value (incl. `internal` / absent) ⇒ the internal default."
   [event-name {:keys [target guard action reenter?]} source-path depth]
   (let [target-id (when target
                     (qualified-id (resolve-target-path source-path target)))
@@ -360,6 +418,13 @@
                 ;; meaningless without a target).
                 (and target reenter?)
                 (conj "type=\"external\"")
+                ;; rf2-0pp6as — the internal default is EXPLICIT. A
+                ;; target-bearing transition WITHOUT `:reenter?` emits
+                ;; `type=\"internal\"` so the export does NOT inherit SCXML's
+                ;; EXTERNAL targeted-transition default (which would mis-state
+                ;; the re-frame2 / XState-v5 internal default — see docstring).
+                (and target (not reenter?))
+                (conj "type=\"internal\"")
                 ;; rf2-m285a — `ref->label` tolerates an inline-fn guard
                 ;; (lossy name/`fn` label) instead of crashing in
                 ;; `keyword->id-string` on a non-keyword.
@@ -742,15 +807,29 @@
 (defn- decode-target
   "Reconstruct a transition target's RELATIVE grammar form from the
   qualified `target` id and the source state's absolute `source-path`
-  (rf2-mnp93.7). A target whose parent equals the source's parent is a
-  SIBLING — re-frame2 writes it as the bare keyword (the last segment);
-  any other target is written as the absolute vector path. This inverts
-  `resolve-target-path` so the round-trip is exact."
+  (rf2-mnp93.7). This inverts `resolve-target-path` so the round-trip is
+  exact:
+
+  - rf2-0pp6as — a SELF-TARGET (the resolved target path EQUALS the source
+    state's own path) decodes to the canonical `:same-state` sentinel
+    (Spec 005 §Self-transitions). The emitter resolves BOTH `:target
+    :same-state` AND a keyword naming the state's own key to the source
+    state's own id, and SCXML has no self-sentinel — it just references the
+    state's own id. Those two re-frame2 spellings are the SAME
+    self-transition per Spec 005 (L327, transition.cljc L1248-1250), so the
+    canonical decode is `:same-state` for both. This keeps the round-trip
+    exact for `{:target :same-state}` even though the export no longer
+    emits the dangling `same_2dstate` phantom id.
+  - a target whose parent equals the source's parent is a SIBLING —
+    re-frame2 writes it as the bare keyword (the last segment).
+  - any other target is written as the absolute vector path."
   [target-str source-path]
-  (let [abs-path (id-string->abs-path target-str)]
-    (if (= (parent-path (vec abs-path)) (parent-path (vec source-path)))
-      (last abs-path)
-      (vec abs-path))))
+  (let [abs-path (vec (id-string->abs-path target-str))
+        src      (vec source-path)]
+    (cond
+      (= abs-path src)                          :same-state
+      (= (parent-path abs-path) (parent-path src)) (last abs-path)
+      :else                                     abs-path)))
 
 (defn- tokenize
   "Walk an XML string and return a flat seq of token maps:

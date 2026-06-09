@@ -33,12 +33,12 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 **6. User handler.** The wrapped handler-fn fires:
 
 - `reg-event-db` receives `(db, event)` → returns `new-db`; runtime stashes under `(:effects ctx :db)`.
-- `reg-event-fx` receives `(cofx, event)` → returns `{:db ... :fx [...]}`; runtime stashes both under `(:effects ctx ...)`.
+- `reg-event-fx` receives `(cofx, event)` → returns `{:db ... :rf.db/runtime ... :fx [...]}`; runtime stashes them under `(:effects ctx ...)`.
 - `reg-event-ctx` receives `ctx` → returns `ctx` (advanced).
 
-**7. Effect-shape policing.** Non-`:db`/non-`:fx` top-level keys emit `:rf.error/effect-map-shape` and are dropped (`police-effect-map-shape!` in `events.cljc`). v2's effect map is closed.
+**7. Effect-shape policing.** Top-level keys outside the closed set `#{:db :rf.db/runtime :fx}` emit `:rf.error/effect-map-shape` and are dropped (`police-effect-map-shape!` in `events.cljc`). v2's effect map is closed. `:rf.db/runtime` is inside the set — the framework-authority runtime-db partition (EP-0001); a non-framework handler emitting it gets a `:rf.warning/app-handler-runtime-effect` dev diagnostic, not a drop.
 
-**8. `:db` commits.** `re-frame.substrate.adapter/replace-container!` writes the new value into the frame's app-db container. **Atomic.**
+**8. State partitions commit.** `re-frame.substrate.adapter/replace-container!` writes the new app-db (and runtime-db, when present) into the frame's container. **Atomic.**
 
 **9. `:fx` walks.** `do-fx` (in `fx.cljc`) iterates the `[fx-id args]` pairs in source order, synchronously. Each fx-handler runs to completion before the next begins. Errors and unknown ids trace independently — the walk continues.
 

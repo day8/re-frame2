@@ -29,21 +29,20 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.frame :as frame]
+   [re-frame.machines.test-support :as mtest]
    [re-frame.registrar :as registrar]
    [re-frame.substrate.adapter :as adapter]
-   [re-frame.test-support :as test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (mtest/make-reset-runtime-fixture
     #?(:clj  {:adapter plain-atom/adapter}
        :cljs {:adapter reagent-adapter/adapter})))
 
-(defn- snapshot
-  ([machine-id] (snapshot :rf/default machine-id))
-  ([frame-id machine-id]
-   (get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots machine-id])))
+;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+(def ^:private snapshot mtest/snapshot)
 
 (defn- registrar-event-snapshot
   "A value-snapshot of every registered :event id — the bit we assert is

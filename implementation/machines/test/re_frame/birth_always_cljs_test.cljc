@@ -42,9 +42,9 @@
    [re-frame.core :as rf]
    [re-frame.machines.parallel :as parallel]
    [re-frame.machines.result :as result]
+   [re-frame.machines.test-support :as mtest]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate-adapter]
-      :cljs [re-frame.adapter.reagent :as substrate-adapter])
-   [re-frame.test-support :as test-support]))
+      :cljs [re-frame.adapter.reagent :as substrate-adapter])))
 
 ;; ===========================================================================
 ;; PURE — birth eventless settle via `apply-initial-entry-cascade`
@@ -286,12 +286,11 @@
 ;; ===========================================================================
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter substrate-adapter/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter substrate-adapter/adapter}))
 
-(defn- snapshot
-  "Read the snapshot for `machine-id` from the default frame's app-db."
-  [machine-id]
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
+;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+(def ^:private snapshot mtest/snapshot)
 
 (deftest live-eager-start-settles-birth-always
   (testing "(a) eager `[:rf.machine/start]` — a transient initial leaf whose

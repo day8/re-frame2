@@ -148,6 +148,19 @@
   [conn]
   (swap! session-state assoc :conn conn :discovered? true :discovery-error nil))
 
+(defn set-discovered-for-tests!
+  "Record a FULLY-discovered session (conn + port + the exact cached
+  port-file) and flip `:discovered?`. Exposed so the port-file-stability
+  contract (rf2-ww877w) can be exercised: a second `ensure-connection!`
+  call must stay on the cached conn when the cached port-file still reads
+  the same port — without re-deriving a `.shadow-cljs/nrepl.port` that
+  may not be the file discovery actually resolved."
+  [{:keys [conn port port-file project-home]}]
+  (swap! session-state assoc
+         :conn conn :port port :port-file port-file
+         :project-home project-home
+         :discovered? true :discovery-error nil))
+
 ;; The Server instance is captured here when `build-server` returns it,
 ;; so the discovery flow can reach `listRoots()` and `elicitInput()`
 ;; without threading the server through every handler signature.
@@ -252,6 +265,19 @@
                     conn (new-conn-for-port port)]
                 (swap! session-state assoc
                        :project-home ph
+                       ;; rf2-ww877w — PREFER the exact port-file discovery
+                       ;; resolved (explicit `--port-file`, roots candidate,
+                       ;; or the winning HTTP-probe candidate). Every
+                       ;; discovery mode that yields a `:project-home` now
+                       ;; also yields the `:port-file` that actually read, so
+                       ;; the derived `.shadow-cljs/nrepl.port` below is a
+                       ;; pure defensive backstop — never reached for those
+                       ;; modes. The pre-fix shape DERIVED unconditionally
+                       ;; from `ph`, producing e.g.
+                       ;; `target/shadow-cljs/.shadow-cljs/nrepl.port` for an
+                       ;; explicit `target/shadow-cljs/nrepl.port`; the next
+                       ;; `ensure-connection!` saw that path missing and
+                       ;; forced a needless reconnect + per-conn cache reset.
                        :port-file    (or (:port-file result)
                                          (when ph
                                            (node-path/join ph ".shadow-cljs/nrepl.port")))
@@ -614,6 +640,198 @@
    :port-file        (parse-port-file-flag argv)
    :http-port        (parse-http-port-flag argv)})
 
+;; ---------------------------------------------------------------------------
+;; Launch-config diagnostics (rf2-a0kxsb).
+;;
+;; The parsers above are deliberately PERMISSIVE — they pluck the flags
+;; they understand and silently ignore everything else (a typo, a stale
+;; legacy name, a malformed value). Permissive parsing is the right
+;; default for the wrapper-argv prelude (node passes the script path,
+;; shadow passes its own args), but for an MCP server configured through
+;; agent-host JSON it is a footgun: a one-character typo in a safety
+;; flag (`--no-eavl`) silently leaves the gate at its default, a
+;; misspelled `--port-file` falls through to discovery, and an invalid
+;; resource cap quietly reverts to the default. The operator believes
+;; they requested one posture; the server starts in another.
+;;
+;; `launch-diagnostics` closes that gap. It runs over the SAME argv the
+;; parsers consume and returns a vector of structured diagnostic maps —
+;; one per rejected / suspicious token — naming the offending input and
+;; the effective fallback. `main` logs each to stderr at boot, BEFORE
+;; the transport announces readiness, so the mismatch is visible. We
+;; warn rather than hard-fail: a hard boot-fail makes the server vanish
+;; from the agent host (no diagnostic reaches the operator at all),
+;; whereas an explicit stderr line names the problem AND lets a working
+;; (default-posture) server still come up.
+;; ---------------------------------------------------------------------------
+
+(def ^:private known-boolean-flags
+  "The recognised value-less boolean launch flags. Membership here is
+  what distinguishes a real flag from an unknown `--*` token."
+  #{"--no-eval" "--allow-sensitive-reads" "--allow-writes"})
+
+(def ^:private known-valued-flags
+  "The recognised valued launch flags (`--name <v>` or `--name=<v>`).
+  These plus `known-boolean-flags` and `resource/flag->key` form the
+  full set of `--*` tokens the server understands."
+  #{"--port-file" "--http-port"})
+
+(def ^:private removed-launch-flags
+  "Legacy flag names that were renamed / removed (pre-alpha, no
+  back-compat shim). An operator carrying a stale `~/.claude.json`
+  gets an INTENTIONAL diagnostic naming the replacement rather than a
+  silent no-op that leaves the server in an unexpected posture.
+  `--allow-raw-state` → `--allow-sensitive-reads` (rf2-2x3ql);
+  `--allow-eval` → removed, eval now defaults ON (rf2-a0z0h)."
+  {"--allow-raw-state" "renamed to --allow-sensitive-reads (rf2-2x3ql)"
+   "--allow-eval"      "removed — eval-cljs now defaults ENABLED; pass --no-eval to opt OUT (rf2-a0z0h)"})
+
+(defn- flag-prefix
+  "The bare flag name of an argv token: the part before `=` for the
+  equals form, the whole token otherwise. `--http-port=9700` → `--http-port`."
+  [token]
+  (first (str/split token #"=" 2)))
+
+(defn- known-flag?
+  "Is `prefix` a flag this server recognises (boolean, valued, or a
+  resource-control flag)? Used to separate genuine unknown flags from
+  the recognised set when scanning for typos."
+  [prefix]
+  (or (contains? known-boolean-flags prefix)
+      (contains? known-valued-flags prefix)
+      (contains? resource/flag->key prefix)))
+
+(defn launch-diagnostics
+  "Scan `argv` for misconfigured launch input and return a vector of
+  structured diagnostic maps (empty when the config is clean). Each
+  entry is `{:rf.config/severity :warn :rf.config/input <token>
+  :rf.config/issue <kw> :rf.config/effect <string>}` — the rejected
+  input, what's wrong, and the effective fallback the operator gets.
+
+  Detects, against the declared flag schema (rf2-a0kxsb):
+
+    - `:removed-flag`        — a renamed / removed legacy flag (names the
+                               replacement; pre-alpha, no silent no-op).
+    - `:unknown-flag`        — a `--*` token matching no known flag.
+    - `:missing-value`       — a valued flag (`--port-file` / `--http-port`)
+                               present with no value (trailing, or
+                               immediately followed by another flag).
+    - `:malformed-value`     — `--http-port` with a non-numeric value,
+                               or a resource-control flag whose value
+                               isn't a positive integer.
+
+  Resource ENV vars are validated separately by
+  `resource-env-diagnostics` (they share the same diagnostic shape).
+
+  `argv` here is the launch argv AFTER node/shadow strip their own
+  prelude — i.e. the same vector `parse-launch-flags` sees. Tokens that
+  don't start with `--` (positional prelude residue) are ignored: the
+  schema governs flag tokens only."
+  [argv]
+  (let [argv (vec argv)]
+    (->> (map-indexed vector argv)
+         (keep
+           (fn [[i token]]
+             (when (str/starts-with? token "--")
+               (let [prefix       (flag-prefix token)
+                     has-inline?  (str/includes? token "=")
+                     inline-val   (when has-inline? (second (str/split token #"=" 2)))
+                     next-token   (get argv (inc i))
+                     space-val    (when (and (not has-inline?)
+                                             next-token
+                                             (not (str/starts-with? next-token "--")))
+                                    next-token)]
+                 (cond
+                   ;; Removed / renamed legacy name — intentional diagnostic.
+                   (contains? removed-launch-flags prefix)
+                   {:rf.config/severity :warn
+                    :rf.config/input    token
+                    :rf.config/issue    :removed-flag
+                    :rf.config/effect   (str "ignored — " (get removed-launch-flags prefix))}
+
+                   ;; Unknown --flag: a typo or a flag from another tool.
+                   (not (known-flag? prefix))
+                   {:rf.config/severity :warn
+                    :rf.config/input    token
+                    :rf.config/issue    :unknown-flag
+                    :rf.config/effect   "ignored — not a recognised re-frame2-pair-mcp launch flag"}
+
+                   ;; Valued flag present with no value.
+                   (and (contains? known-valued-flags prefix)
+                        (nil? inline-val)
+                        (nil? space-val))
+                   {:rf.config/severity :warn
+                    :rf.config/input    token
+                    :rf.config/issue    :missing-value
+                    :rf.config/effect   (str prefix " supplied with no value — falling back to the default discovery / behaviour")}
+
+                   ;; --http-port with a non-numeric value.
+                   (and (= prefix "--http-port")
+                        (let [raw (or inline-val space-val)]
+                          (and (some? raw)
+                               (js/isNaN (js/parseInt raw 10)))))
+                   {:rf.config/severity :warn
+                    :rf.config/input    token
+                    :rf.config/issue    :malformed-value
+                    :rf.config/effect   "non-numeric --http-port — falling back to the default shadow HTTP port (9630)"}
+
+                   ;; Resource-control flag in the SPACE form. The resource
+                   ;; parser only accepts `--name=N` (rf2-3ijbl), so a
+                   ;; space-form `--max-concurrent-streams 20` is silently
+                   ;; dropped — name it as a malformed usage.
+                   (and (contains? resource/flag->key prefix)
+                        (not has-inline?))
+                   {:rf.config/severity :warn
+                    :rf.config/input    token
+                    :rf.config/issue    :malformed-value
+                    :rf.config/effect   (str prefix " requires the equals form (" prefix "=N) — falling back to the documented default")}
+
+                   ;; Resource-control flag whose value isn't a positive int.
+                   (and (contains? resource/flag->key prefix)
+                        has-inline?
+                        (let [n (parse-long (or inline-val ""))]
+                          (not (and n (pos? n)))))
+                   {:rf.config/severity :warn
+                    :rf.config/input    token
+                    :rf.config/issue    :malformed-value
+                    :rf.config/effect   (str prefix " value must be a positive integer — falling back to the documented default")}
+
+                   :else nil)))))
+         (vec))))
+
+(defn resource-env-diagnostics
+  "Scan the resource-control ENV vars for set-but-invalid values and
+  return a vector of diagnostic maps (same shape as `launch-diagnostics`).
+  A blank, non-numeric, or non-positive env var is currently a SILENT
+  skip (`resource/read-resource-env`); this names it so an operator who
+  exported `RE_FRAME2_PAIR_MCP_MAX_STREAMS=0` learns their cap reverted
+  to the default rather than discovering it the hard way.
+
+  Takes the env object (`process.env`-shaped) so tests can stub it;
+  the 0-arity reads `process.env`."
+  ([] (resource-env-diagnostics (j/get js/process :env)))
+  ([env-obj]
+   (->> resource/env->key
+        (keep
+          (fn [[var-name _k]]
+            (let [raw (some-> env-obj (j/get var-name))]
+              (when (and (string? raw) (seq raw))
+                (let [n (parse-long raw)]
+                  (when-not (and n (pos? n))
+                    {:rf.config/severity :warn
+                     :rf.config/input    (str var-name "=" raw)
+                     :rf.config/issue    :malformed-env
+                     :rf.config/effect   (str var-name " must be a positive integer — falling back to the documented default")}))))))
+        (vec))))
+
+(defn- log-launch-diagnostics!
+  "Emit each launch-config diagnostic to stderr at boot, BEFORE the
+  transport announces readiness. No-op when the config is clean."
+  [argv]
+  (doseq [{:rf.config/keys [input issue effect]}
+          (into (launch-diagnostics argv) (resource-env-diagnostics))]
+    (log! (str "launch-config WARNING [" (name issue) "]: " input " — " effect))))
+
 (defn- apply-launch-flags!
   "Wire launch-flag state into the relevant tool gates. Called once
   before the dispatcher accepts requests."
@@ -651,6 +869,11 @@
 (defn main [& args]
   (let [argv         (vec args)
         launch-flags (parse-launch-flags argv)]
+    ;; rf2-a0kxsb — name any misconfigured launch input (typo'd flags,
+    ;; removed legacy names, malformed values, invalid env vars) BEFORE
+    ;; the gates are applied and the transport announces readiness, so a
+    ;; silent posture-mismatch surfaces in the boot log.
+    (log-launch-diagnostics! argv)
     (apply-launch-flags! launch-flags)
     (apply-resource-controls! argv)
     (when-let [pf (:port-file launch-flags)]

@@ -55,9 +55,10 @@
         ;; get the `:rf.size/large-elided` / `:rf/redacted` marker
         ;; server-side, before the EDN crosses the wire.
         ;;
-        ;; The walker reads the `[:rf/runtime :elision]` registry from the live
-        ;; app-db — it has to run app-side, where the registry is
-        ;; reachable. When elision is disabled the eval form skips the
+        ;; The walker reads the `[:rf.runtime/elision]` registry from the
+        ;; frame's durable runtime-db partition (EP-0001 — NOT the retired
+        ;; app-db `:rf/runtime` root) — it has to run app-side, where the
+        ;; registry is reachable. When elision is disabled the eval form skips the
         ;; walk entirely (a value pass-through is cheaper than walking
         ;; with `:rf.size/include-large? true`).
         ;;

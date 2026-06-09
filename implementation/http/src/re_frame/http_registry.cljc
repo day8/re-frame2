@@ -164,6 +164,26 @@
   []
   @actor-in-flight)
 
+(defn seed-in-flight-for-test!
+  "Test-time helper (rf2-hp772l): register a fabricated in-flight handle
+  through the SAME `record-in-flight!` path production uses, so both the
+  request-id and actor-id indexes stay consistent (the actor-index slot,
+  the `:request-id` / `:actor-id` stamps) rather than a raw `swap!` of the
+  `in-flight` atom that bypasses those invariants.
+
+  For fixtures that need an in-flight slot present WITHOUT issuing a real
+  request (e.g. asserting that a navigation-cancel does not abort an
+  active-route request). `handle` is the abort-handle map — it MUST carry
+  an `:abort-fn` (the no-arg/one-arg fn the abort path fires) and typically
+  `:url`. `request-id` / `actor-id` are optional (pass nil for an
+  unindexed / anonymous handle). Returns the stamped handle.
+
+  Not part of the user-facing API — production code routes through
+  `:rf.http/managed`."
+  ([handle] (seed-in-flight-for-test! (:request-id handle) (:actor-id handle) handle))
+  ([request-id actor-id handle]
+   (record-in-flight! request-id actor-id handle)))
+
 ;; ---- abort-on-actor-destroy (rf2-wvkn) ------------------------------------
 ;;
 ;; Per Spec 014 §Abort on actor destroy: when a spawned state-machine

@@ -25,21 +25,27 @@
  * spec.cjs path it pairs with, and expose ONE `selectEntries(patterns)`
  * that both scripts call. Selection normalizes `_`, `\`, and `/` all to a
  * single `-` separator on both the filter pattern and every candidate
- * identity for an entry (its build id, its repo-relative spec path, and
- * its absolute spec path). A pattern selects an entry when, so
- * normalized, it is a substring of ANY of those identities. This makes
- * build-id-shaped filters (`adapters/reagent-testbed`, `reagent-testbed`)
- * and path-shaped filters (`adapters/reagent/testbed`, `reagent/testbed`)
- * deliberately equivalent, and guarantees the orchestrator's
- * compile/stage set and the runner's spec set are identical for any
- * filter shape.
+ * identity for an entry (its build id and its repo-relative spec path). A
+ * pattern selects an entry when, so normalized, it is a substring of
+ * EITHER of those identities. This makes build-id-shaped filters
+ * (`adapters/reagent-testbed`, `reagent-testbed`) and path-shaped filters
+ * (`adapters/reagent/testbed`, `reagent/testbed`) deliberately equivalent,
+ * and guarantees the orchestrator's compile/stage set and the runner's
+ * spec set are identical for any filter shape.
  *
- * The substring-trap protection that motivated the original
- * `\`->`/` normalization (a bare `shop` mustn't be shadowed by a
- * worktree-name substring — see the saved-memory note) is preserved:
- * matching is still substring-based and the user can still scope with a
+ * The candidate identities are deliberately limited to REPO-STABLE forms
+ * (build id, repo-relative spec path). The absolute spec path is NOT a
+ * match candidate (rf2-n4nc2o): an absolute path embeds the
+ * workspace/worktree directory name, so a filter term that happened to be
+ * a substring of that prefix (a bare `shop` under a `…/shop-testbed/…`
+ * checkout) would over-select EVERY entry — silently running the wrong
+ * smoke set. Matching only repo-stable identities makes selection
+ * independent of where the repo is checked out, and preserves the
+ * substring-trap protection that motivated the original `\`->`/`
+ * normalization (see the saved-memory note): matching is still
+ * substring-based and the user can still scope with a
  * path-separator-bearing form; that form just now works identically in
- * both phases.
+ * both phases and can never be shadowed by a filesystem prefix.
  */
 
 'use strict';
@@ -98,11 +104,20 @@ function parseFilterPatterns(raw) {
 }
 
 // The candidate identity strings a pattern may match against, per entry:
-// the build id, the repo-relative spec path, and the absolute spec path.
-// All are normalized into the canonical separator space.
+// the build id and the repo-relative spec path. Both are stable repo
+// identities, normalized into the canonical separator space.
+//
+// The absolute spec path is DELIBERATELY excluded (rf2-n4nc2o). It used to
+// be a match candidate, but an absolute path embeds the workspace/worktree
+// directory name, so any filter term that happened to be a substring of
+// that prefix (e.g. a bare `shop` under a `…/shop-testbed/…` worktree)
+// over-selected EVERY entry — silently running the wrong smoke set with no
+// signal that the match came from the filesystem prefix rather than an
+// example identity. Matching only repo-stable identities makes selection
+// independent of where the repo is checked out.
 function entryIdentities(entry) {
   const relSpec = path.relative(REPO_ROOT, entry.specPath);
-  return [entry.build, relSpec, entry.specPath].map(normalizeForFilter);
+  return [entry.build, relSpec].map(normalizeForFilter);
 }
 
 function entryMatches(entry, patterns) {

@@ -23,7 +23,8 @@
   `walk-state-nodes` yields `[state-key state-node]` pairs for every
   node under `:states`, recursing through `:states` maps; used by the
   top-level dispatch."
-  (:require [re-frame.machines.parallel :as parallel]))
+  (:require [re-frame.machines.grammar :as grammar]
+            [re-frame.machines.parallel :as parallel]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -444,26 +445,24 @@
   else is `:rf.error/machine-history-extra-keys`."
   #{:type :deep? :default-target})
 
-(defn- history-node?
-  "True iff `node` is a history pseudo-state (`:type :history`)."
-  [node]
-  (= :history (:type node)))
+(def ^:private history-node?
+  "True iff `node` is a history pseudo-state (`:type :history`). The
+  shared `grammar/history-node?` — registration and the runtime read the
+  one predicate."
+  grammar/history-node?)
 
 (defn- node-at-states
   "Walk a `:states` map down absolute `path`, returning the leaf
   state-node (or nil if `path` doesn't resolve). Scope-local resolver —
   `states` is the flat machine's `:states` or a single region body's
   `:states`, so `path` is scope-relative (region names are never part of
-  a within-region path)."
+  a within-region path). Delegates to the shared `grammar/node-at` (the
+  same root→leaf descent the runtime `transition/node-at` uses) so
+  registration resolves targets against EXACTLY the tree the runtime
+  drives. `path` is coerced to a vector for the shared fn's count/seq
+  semantics."
   [states path]
-  (loop [m states, p (vec path)]
-    (cond
-      (empty? p) nil
-      :else      (let [n (get m (first p))]
-                   (cond
-                     (nil? n)        nil
-                     (= 1 (count p)) n
-                     :else           (recur (:states n) (rest p)))))))
+  (grammar/node-at states (vec path)))
 
 (defn- resolves-to-state?
   "True iff `target` resolves to a real state under `owning-path` within
@@ -865,25 +864,17 @@
 ;; targets have DIFFERENT (region-qualified) semantics and are validated by
 ;; `validate-parallel!`; this block walks only per-region / flat state nodes.
 
-(defn- candidate-targets
+(def ^:private candidate-targets
   "Normalise a transition slot's value (an `:on` entry, an `:after` entry,
   an `:on-done`, a `:spawn :on-error`) to the seq of `:target`s it declares,
-  mirroring `transition/normalise-candidates`: a keyword IS the target; a
-  vector of maps yields each map's `:target`; any other vector IS the target
-  (an absolute path); a single map yields its `:target`. A targetless /
-  action-only candidate contributes no target. The `:present?` marker on each
-  yielded entry distinguishes \"`:target` key absent\" (internal transition —
-  always fine) from \"`:target` present but malformed\" (e.g. `{:target
-  nil}`, which is still internal but worth nothing here)."
-  [v]
-  (cond
-    (nil? v)        []
-    (keyword? v)    [{:present? true :target v}]
-    (and (vector? v) (seq v) (every? map? v))
-    (map (fn [m] {:present? (contains? m :target) :target (:target m)}) v)
-    (vector? v)     [{:present? true :target v}]
-    (map? v)        [{:present? (contains? v :target) :target (:target v)}]
-    :else           []))
+  each tagged with `:present?`. The shared `grammar/candidate-targets`,
+  built on the SAME `grammar/transition-value-form` recogniser the runtime
+  normaliser (`transition/normalise-candidates`) uses — so this is no
+  longer a hand-kept mirror but the one grammar layer by construction. The
+  `:present?` marker distinguishes \"`:target` key absent\" (internal
+  transition — always fine) from \"`:target` present but malformed\" (e.g.
+  `{:target nil}`)."
+  grammar/candidate-targets)
 
 (defn- validate-target!
   "Validate one `:target` against the declaring state's `scope` (its region /
@@ -929,6 +920,73 @@
              {:state  state-key
               :slot   slot
               :target target}))))
+
+(defn- valid-after-delay-key?
+  "Per rf2-apfait + Spec-Schemas §`:rf/state-node` `:after` (1699-1705):
+  an `:after` map KEY (the delay) is well-formed iff it is one of the
+  three closed forms:
+
+    - a POSITIVE integer — literal milliseconds (the schema's `pos-int?`),
+    - a NON-EMPTY vector — a subscription vector `[sub-id & args]`
+      re-resolved at runtime (the schema's `[:vector :any]`),
+    - a FUNCTION — `(fn [{:keys [snapshot]}] ms)` computed once at entry
+      (the schema's `fn?`).
+
+  Mirrors `transition/classify-delay-source`'s `{:literal :sub :fn}`
+  triad, but applied as a REGISTRATION gate so an invalid static key
+  (`-1`, `0`, `\"soon\"`, `nil`, `[]`) is rejected at `reg-machine` time
+  rather than degrading to an `:rf.warning/no-clock-configured` no-op at
+  fx time. Dynamic resolutions (a sub vector / fn that RETURNS an invalid
+  ms at runtime) keep their fx-time warning — only the STATIC key shape is
+  gated here."
+  [delay-key]
+  (boolean
+    (or (and (integer? delay-key) (pos? delay-key))
+        (and (vector? delay-key) (seq delay-key))
+        (fn? delay-key))))
+
+(defn- validate-after-delays!
+  "Per rf2-apfait — reject any `:after` map KEY that is not a positive
+  integer, a non-empty subscription vector, or a function, at
+  registration. Walks every transition-bearing node: each state node
+  (`walk-state-nodes`), every region root + the parallel root, and the
+  flat-machine root — the same coverage the guard/action `:after` ref
+  check applies, so an invalid delay key cannot hide on a root fallback
+  `:after`.
+
+  Throws `:rf.error/machine-bad-after-delay` (a dedicated taxonomy member,
+  distinct from the value-side `:rf.error/machine-bad-after-spec` the
+  transition reducer raises for a malformed transition VALUE) so the error
+  widget / conformance can discriminate \"the delay key is wrong\" from
+  \"the transition spec is wrong\".
+
+  Keeps the runtime fx-time `:rf.warning/no-clock-configured` warning for
+  DYNAMIC delays (sub-vector / fn) that resolve to an invalid ms at
+  runtime — only the STATIC key shape is gated here."
+  [machine]
+  (let [check-key!
+        (fn [state-key delay-key]
+          (when-not (valid-after-delay-key? delay-key)
+            (throw (validation-error
+                     :rf.error/machine-bad-after-delay
+                     (str "the :after delay key " (pr-str delay-key)
+                          " on state " state-key " is invalid — an :after "
+                          "delay must be a POSITIVE integer (literal ms), a "
+                          "NON-EMPTY subscription vector ([sub-id & args]), or "
+                          "a function ((fn [{:keys [snapshot]}] ms)). Per "
+                          "Spec-Schemas §:rf/state-node :after.")
+                     {:state     state-key
+                      :slot      :after
+                      :delay-key delay-key}))))
+        roots (if (parallel/parallel? machine)
+                (cons machine (vals (:regions machine)))
+                [machine])]
+    (doseq [[state-key state-node] (walk-state-nodes machine)
+            [delay-key _t]         (:after state-node)]
+      (check-key! state-key delay-key))
+    (doseq [root           roots
+            [delay-key _t] (:after root)]
+      (check-key! :rf/root delay-key))))
 
 (defn- validate-transition-targets!
   "Per Spec 005 (005:441) + Spec-Schemas §TransitionTarget (rf2-w84jv):
@@ -1003,7 +1061,14 @@
   compound `:on-done` / `:spawn :on-error`) must be a well-formed,
   resolvable target. Throws `:rf.error/machine-bad-target` (malformed
   shape) / `:rf.error/machine-unresolved-target` (keyword / vector that
-  names no declared state)."
+  names no declared state).
+
+  Per rf2-apfait + Spec-Schemas §`:rf/state-node` `:after`: every `:after`
+  map KEY (the delay) must be a positive integer, a non-empty subscription
+  vector, or a function. Throws `:rf.error/machine-bad-after-delay` for a
+  static key that is none of those (`-1`, `0`, `\"soon\"`, `nil`, `[]`) —
+  gated at registration rather than degrading to an fx-time
+  `:rf.warning/no-clock-configured` no-op."
   [machine]
   (validate-history! machine)
   (validate-parallel! machine)
@@ -1019,6 +1084,10 @@
     (validate-always-self-loop! path (peek path) n))
   ;; rf2-w84jv: every transition slot's `:target` shape + resolution.
   (validate-transition-targets! machine)
+  ;; rf2-apfait: every `:after` delay KEY must be a positive integer, a
+  ;; non-empty subscription vector, or a function — gated at registration
+  ;; rather than degrading to an fx-time :rf.warning/no-clock-configured.
+  (validate-after-delays! machine)
   ;; Validate guard/action references at construction time. machine-id
   ;; isn't known yet (it's the registration-site id), so error tags use
   ;; a placeholder; real misuse traces at handler-call time fill it in.

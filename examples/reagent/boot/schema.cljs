@@ -8,20 +8,25 @@
    schemas describe the wire shape returned by each mocked endpoint,
    the boot-machine snapshot itself, and the child loader's `:data`.
 
-   Two attachment mechanisms appear here, picked by how the runtime
-   addresses each snapshot:
+   Two schema surfaces appear here, picked by what each schema validates
+   (Spec 010 §Machine data schema + Spec 005 §Schema validation):
 
-   - The singleton `:app/boot` machine, the `[:boot/staging]` slot, and
-     the four top-level slices live at fixed app-db paths, so they are
-     attached with `rf/reg-app-schema` on those paths.
-   - The `:boot/loader` child is spawned (once per asset) and gets a
-     gensym'd id (e.g. `:boot/loader#0`), so its snapshot lives at an
-     unknown per-instance path no fixed `reg-app-schema` can reach.
-     `LoaderData` is therefore attached via the child machine's
-     `:data-schema` slot on `reg-machine` (see `boot.cljs`), which validates
-     each spawned instance's initial `:data` at spawn time, before the
-     snapshot installs (Spec 005 §Schema validation §Spawn-time
-     validation)."
+   - **App-db slices** — the `[:boot/staging]` slot and the four
+     top-level slices (`[:config]`, `[:flags]`, `[:user]`, `[:routes]`)
+     live at fixed app-db paths, so they are attached with
+     `rf/reg-app-schema` on those paths; app schemas validate the app-db
+     partition ONLY.
+   - **Machine `:data`** — both the singleton `:app/boot` machine and the
+     spawned `:boot/loader` child declare a top-level `:data-schema` on
+     `reg-machine` (see `boot.cljs`) that validates the snapshot's `:data`
+     slot at the `:where :machine-data` boundary. `BootData` describes the
+     `:app/boot` machine's `:data`; `LoaderData` describes each spawned
+     loader's `:data` (validated at spawn time, before the snapshot
+     installs — Spec 005 §Schema validation §Spawn-time validation —
+     since a spawned loader's gensym'd id, e.g. `:boot/loader#0`, lives at
+     a per-instance path no fixed `reg-app-schema` could reach). Machine
+     snapshots are runtime-db, not app-db, so `reg-app-schema` is NOT the
+     surface for them."
   (:require [re-frame.core :as rf]
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Loading the ns here registers its late-bind hooks so
@@ -78,24 +83,31 @@
     [:path :string]]])
 
 ;; ============================================================================
-;; BOOT-MACHINE SNAPSHOT
+;; BOOT-MACHINE :data SHAPE — :app/boot
 ;; ============================================================================
 ;;
-;; The boot machine lives in runtime-db at [:rf.runtime/machines :snapshots :app/boot]. Its `:state`
-;; cycles `:configuring → :loading-deps → :hydrating → :ready`
-;; (terminal), with `:failed` (terminal) reached if any child errors.
-;; `:data` carries the per-phase progress slot and the loaded payloads.
+;; The boot machine lives in runtime-db at
+;; [:rf.runtime/machines :snapshots :app/boot]. Its `:state` cycles
+;; `:configuring → :loading-deps → :hydrating → :ready` (terminal), with
+;; `:failed` (terminal) reached if any child errors. `:data` carries the
+;; per-phase progress slot and the loaded payloads.
+;;
+;; `BootData` describes the `:data` SLOT only (Spec 010 §Machine data
+;; schema — the machine `:data-schema` validates `:data`, not the whole
+;; `{:state … :data …}` snapshot and not an app-db path). It is attached
+;; via the `:app/boot` machine's top-level `:data-schema` on `reg-machine`
+;; (see `boot.cljs`) and validates at the `:where :machine-data` boundary.
+;; Every payload slot is `:maybe` because they are nil through the
+;; staging/loading phases and only fill on entering `:hydrating`.
 
-(def BootSnapshot
+(def BootData
   [:map
-   [:state [:enum :configuring :loading-deps :hydrating :ready :failed]]
-   [:data  [:map
-            [:phase  [:maybe :keyword]]
-            [:config [:maybe Config]]
-            [:flags  [:maybe Flags]]
-            [:user   [:maybe User]]
-            [:routes [:maybe Routes]]
-            [:error  [:maybe :any]]]]])
+   [:phase  [:maybe :keyword]]
+   [:config [:maybe Config]]
+   [:flags  [:maybe Flags]]
+   [:user   [:maybe User]]
+   [:routes [:maybe Routes]]
+   [:error  [:maybe :any]]])
 
 ;; ============================================================================
 ;; CHILD LOADER :data SHAPE — :boot/loader (one instance per asset)
@@ -159,8 +171,10 @@
 ;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db state, not app-db —
 ;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
 ;; schemas validate the app-db partition only, Mike ruling #11). The
-;; machine's own `:data-schema` is the snapshot-validation surface, so the
-;; vestigial app-schema reg is removed.
+;; `:app/boot` machine's own `:data-schema schema/BootData` (attached on
+;; `reg-machine` in boot.cljs) is the snapshot-`:data` validation surface,
+;; so no app-schema reg applies to the boot machine snapshot. The
+;; `reg-app-schema` calls below validate only the app-db slices.
 
 ;; EP-0002 (rf2-5q7um6): `reg-app-schema` is context-required frame-local —
 ;; a bare ns-load call under no scope raises `:rf.error/no-frame-context`

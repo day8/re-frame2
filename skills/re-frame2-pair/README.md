@@ -2,7 +2,7 @@
 
 > ↑ [`skills/`](../) — index of all six re-frame2 skills.
 
-> **Delivery path.** This skill ships an MCP server at [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp/) (npm: `@day8/re-frame2-pair-mcp`) — **28 tools** catalogued over the Model Context Protocol with a persistent nREPL socket (~5–50 ms per op). 26 are reachable from the skill's `allowed-tools:`; the two write tools (`restore-epoch` + `replace-app-db`) are gated behind the default-OFF `--allow-writes` flag. The MCP server is the **only** skill-facing transport. The bash-shim transport that originally fronted these ops has been retired from `allowed-tools:`; the shim scripts under `scripts/` remain on disk only for the project's own e2e test harness and ad-hoc shell use (see [`references/ops.md` §Bash-shim appendix](references/ops.md#bash-shim-appendix-not-reachable-from-this-skill)).
+> **Delivery path.** This skill ships an MCP server at [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp/) (npm: `@day8/re-frame2-pair-mcp`) — **28 tools** catalogued over the Model Context Protocol with a persistent nREPL socket (~5–50 ms per op). All 28 are reachable from the skill's `allowed-tools:`; the two write tools (`restore-epoch` + `replace-app-db`) are the canonical path for named state rewrites and refuse with `:rf.error/writes-disabled` unless the server is launched with the default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write-authority boundary. The MCP server is the **only** skill-facing transport. The bash-shim transport that originally fronted these ops has been retired from `allowed-tools:`; the shim scripts under `scripts/` remain on disk only for the project's own e2e test harness and ad-hoc shell use (see [`references/ops.md` §Bash-shim appendix](references/ops.md#bash-shim-appendix-not-reachable-from-this-skill)).
 
 A `Skill` which makes `Claude Code` a better pair programmer by allowing it to **interact with your running [re-frame2](https://github.com/day8/re-frame2) application**.
 
@@ -134,7 +134,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: When I first enter the Dashboard panel, the global reset button doesn't work. Fix it, then return to the previous state and fire the same event again, iterating until it works.
 >
-> **Claude**: I called `(rf/restore-epoch :rf/default <pre-click-epoch-id>)` — the restore returned `true`, so `app-db` is back. (Caveat: any HTTP requests or navigation that already fired during the original cascade are *not* reversed — restore rewinds `app-db` only.) The panel-level subscription was wrong; I patched it. Re-ran the event, `app-db` now updates as expected. Want me to put the patch into the source code?
+> **Claude**: I called `(rf/restore-epoch :rf/default <pre-click-epoch-id>)` — the restore returned `true`, so the whole frame-state is back (both partitions: app-db *and* runtime-db, so any machine snapshots / route slice / elision declarations are rewound too). (Caveat: any HTTP requests or navigation that already fired during the original cascade are *not* reversed — restore rewinds durable frame-state, not side effects or transient host state.) The panel-level subscription was wrong; I patched it. Re-ran the event, `app-db` now updates as expected. Want me to put the patch into the source code?
 
 ### Stub an effect for a what-if
 

@@ -34,13 +34,16 @@
   raw-trace listener API in `re-frame.trace`. Listeners receive the
   fully-assembled record after it lands in the ring buffer.
 
-  Restore (`restore-epoch`) rewinds a frame's app-db to the named
-  epoch's `:db-after`. Seven documented failure modes (Tool-Pair
-  §Time-travel restore-failure-modes table) each emit a structured
-  trace and leave the frame's app-db unchanged — six under the
-  reserved `:rf.epoch/*` namespace, plus the registry-lookup
-  `:rf.error/no-such-handler` (kind `:frame`) for an unknown
-  frame-id."
+  Restore (`restore-epoch`) rewinds a frame to the named epoch's
+  canonical `:frame-state-after` — the WHOLE frame-state, with app-db
+  and runtime-db as two separate partitions reinstalled in ONE atomic
+  write (EP-0001 rf2-3aizt1; Tool-Pair §Time-travel). The retained
+  `:db-before` / `:db-after` are OPTIONAL app-db projections of that
+  frame-state, not the restore target itself. Seven documented failure
+  modes (Tool-Pair §Time-travel restore-failure-modes table) each emit
+  a structured trace and leave the frame's frame-state unchanged — six
+  under the reserved `:rf.epoch/*` namespace, plus the registry-lookup
+  `:rf.error/no-such-handler` (kind `:frame`) for an unknown frame-id."
   (:require [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.listeners :as listeners]
@@ -117,6 +120,17 @@
   and tools that want to display the current depth."
   []
   (state/current-config))
+
+(defn- reset-config!
+  "Restore the epoch-history config to the shipped default baseline.
+  Test-support seam only — published through the `:epoch/reset-config!`
+  late-bind hook so `re-frame.test-support`'s reset-hook table can
+  isolate epoch config between tests without test namespaces
+  dereferencing the private `re-frame.epoch.state/config` var
+  (rf2-yw1w1u). Delegates to `state/reset-config!`, whose docstring is
+  the canonical pin."
+  []
+  (state/reset-config!))
 
 ;; The record-assembly helpers — `maybe-redact`, `current-schema-digest`,
 ;; the sensitive-rollup family, and `build-record` itself — live in
@@ -415,11 +429,17 @@
 ;; a four-line case-match.
 
 (defn restore-epoch
-  "Rewind the frame's `app-db` to the named epoch's `:db-after`. Emits
-  `:rf.epoch/restored` on success.
+  "Rewind the frame to the named epoch's canonical `:frame-state-after`
+  — the WHOLE frame-state, reinstalling app-db AND runtime-db as two
+  separate partitions in ONE atomic write (EP-0001 rf2-3aizt1: reviving
+  machine snapshots, the route slice, elision declarations, and SSR
+  metadata, not just the app-db partition). The retained `:db-after` is
+  an OPTIONAL app-db projection used only as a legacy fallback for
+  records that carry no `:frame-state-after`. Emits `:rf.epoch/restored`
+  on success.
 
-  Failure modes (each is a no-op on `app-db` and emits a structured
-  error trace):
+  Failure modes (each is a no-op on the frame-state and emits a
+  structured error trace):
 
     :rf.error/no-such-handler          (kind :frame) — frame not registered
     :rf.epoch/restore-during-drain     — called while drain is in flight
@@ -490,7 +510,17 @@
   listeners, emitting `:rf.epoch/db-replaced`, and returning `true` (a
   FALSE success against a frame that no longer exists), this emits the
   canonical `:rf.error/no-such-handler` (kind `:frame`) failure trace and
-  returns `false`, matching the destroyed-frame contract."
+  returns `false`, matching the destroyed-frame contract.
+
+  Per rf2-s93722 (post-liveness teardown race): the liveness check closes
+  only HALF the window — a frame destroyed AFTER `live-container-or-fail`
+  passes but BEFORE `replace-app-db!` actually writes still slips through.
+  `frame/replace-app-db!` returns `nil` for a destroyed frame (a non-nil —
+  possibly EMPTY — changed-key-set for a live frame, even a no-op write),
+  so we check that return: a `nil` return is the destroyed-frame signal,
+  surfaced as the same `:rf.error/no-such-handler` (kind `:frame`) failure /
+  `false` return BEFORE any synthetic epoch, listener fanout, or success
+  telemetry."
   [frame-id new-db]
   (let [{:keys [outcome op tags]} (tool-pair/live-container-or-fail frame-id)]
     (if (= :fail outcome)
@@ -503,34 +533,42 @@
             ;; app-db with the live runtime-db preserved unchanged. Restore of
             ;; this synthetic epoch reinstalls that coherent frame-state.
             fs-before (frame/frame-state-value frame-id)
-            fs-after  (assoc fs-before frame/app-partition-key new-db)]
-        ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION of the one
-        ;; physical frame-state container — `frame/app-db-container` is now a
-        ;; READ-ONLY projection, so a direct `replace-container!` on it
-        ;; throws. `replace-app-db!` replaces the app-db partition only;
-        ;; runtime-db is untouched (Mike ruling #10 — a db-shaped name never
-        ;; silently replaces runtime-db).
-        (frame/replace-app-db! frame-id new-db)
-        ;; Record a synthetic epoch so `restore-epoch` can rewind the
-        ;; previous state. The record's :trigger-event is the
-        ;; pair-tool injection sentinel (no application event ran).
-        ;; Per rf2-wp70d: `maybe-redact` runs once between assembly and
-        ;; the record!/notify-listeners! split so ring + listeners see
-        ;; the SAME redacted shape on this synthetic record too.
-        (let [record (assembly/maybe-redact
-                       (assoc (assembly/build-record frame-id fs-before fs-after [])
-                              :event-id      :rf.epoch/db-replaced
-                              :trigger-event [:rf.epoch/db-replaced]))]
-          (state/record! record)
-          ;; Per rf2-qs6dl: a `replace-app-db!` re-renders the views that read
-          ;; the replaced state; attribute those post-settle renders back to
-          ;; this synthetic epoch rather than the next real cascade.
-          (state/set-last-settled-epoch! frame-id (:epoch-id record))
-          (trace/emit! :rf.epoch :rf.epoch/db-replaced
-                       {:frame       frame-id
-                        :rf.epoch/id (:epoch-id record)})
-          (listeners/notify-listeners! record))
-        true))))
+            fs-after  (assoc fs-before frame/app-partition-key new-db)
+            ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION of the one
+            ;; physical frame-state container — `frame/app-db-container` is now
+            ;; a READ-ONLY projection, so a direct `replace-container!` on it
+            ;; throws. `replace-app-db!` replaces the app-db partition only;
+            ;; runtime-db is untouched (Mike ruling #10 — a db-shaped name
+            ;; never silently replaces runtime-db).
+            ;; rf2-s93722: capture the return — `nil` means the frame was
+            ;; destroyed in the post-liveness window (no write happened); a
+            ;; non-nil changed-key-set (even empty) means the write landed.
+            changed   (frame/replace-app-db! frame-id new-db)]
+        (if (nil? changed)
+          (do (tool-pair/emit-precondition-failure! :rf.error/no-such-handler
+                                                    {:kind :frame :frame frame-id})
+              false)
+          (do
+            ;; Record a synthetic epoch so `restore-epoch` can rewind the
+            ;; previous state. The record's :trigger-event is the
+            ;; pair-tool injection sentinel (no application event ran).
+            ;; Per rf2-wp70d: `maybe-redact` runs once between assembly and
+            ;; the record!/notify-listeners! split so ring + listeners see
+            ;; the SAME redacted shape on this synthetic record too.
+            (let [record (assembly/maybe-redact
+                           (assoc (assembly/build-record frame-id fs-before fs-after [])
+                                  :event-id      :rf.epoch/db-replaced
+                                  :trigger-event [:rf.epoch/db-replaced]))]
+              (state/record! record)
+              ;; Per rf2-qs6dl: a `replace-app-db!` re-renders the views that
+              ;; read the replaced state; attribute those post-settle renders
+              ;; back to this synthetic epoch rather than the next real cascade.
+              (state/set-last-settled-epoch! frame-id (:epoch-id record))
+              (trace/emit! :rf.epoch :rf.epoch/db-replaced
+                           {:frame       frame-id
+                            :rf.epoch/id (:epoch-id record)})
+              (listeners/notify-listeners! record))
+            true))))))
 
 (defn- record-synthetic-replace-epoch!
   "Record a synthetic `:rf.epoch/db-replaced` epoch for a pair-tool
@@ -572,7 +610,16 @@
   frame was destroyed between the precondition pass and now, this reports
   the canonical `:rf.error/no-such-handler` (kind `:frame`) failure and
   returns `false` rather than recording a synthetic epoch for a destroyed
-  frame, matching the destroyed-frame contract."
+  frame, matching the destroyed-frame contract.
+
+  Per rf2-s93722 (post-liveness teardown race): the liveness check closes
+  only HALF the window — a frame destroyed AFTER `live-container-or-fail`
+  passes but BEFORE `replace-runtime-db!` actually writes still slips
+  through. `frame/replace-runtime-db!` returns `nil` for a destroyed frame
+  (a non-nil — possibly EMPTY — changed-key-set for a live frame, even a
+  no-op write), so a `nil` return is the destroyed-frame signal, surfaced
+  as the same `:rf.error/no-such-handler` (kind `:frame`) failure / `false`
+  return BEFORE any synthetic epoch, listener fanout, or success telemetry."
   [frame-id new-runtime-db]
   (let [{:keys [outcome op tags]} (tool-pair/live-container-or-fail frame-id)]
     (if (= :fail outcome)
@@ -584,13 +631,20 @@
             ;; app-db with the new runtime-db. Restore of this synthetic
             ;; epoch reinstalls that coherent frame-state.
             fs-before (frame/frame-state-value frame-id)
-            fs-after  (assoc fs-before frame/runtime-partition-key new-runtime-db)]
-        ;; Write the runtime-db PARTITION of the one physical frame-state
-        ;; container; `frame/runtime-db-container` is a READ-ONLY projection,
-        ;; so the write goes through `frame/replace-runtime-db!`.
-        (frame/replace-runtime-db! frame-id new-runtime-db)
-        (record-synthetic-replace-epoch! frame-id fs-before fs-after)
-        true))))
+            fs-after  (assoc fs-before frame/runtime-partition-key new-runtime-db)
+            ;; Write the runtime-db PARTITION of the one physical frame-state
+            ;; container; `frame/runtime-db-container` is a READ-ONLY
+            ;; projection, so the write goes through `frame/replace-runtime-db!`.
+            ;; rf2-s93722: capture the return — `nil` means the frame was
+            ;; destroyed in the post-liveness window (no write happened); a
+            ;; non-nil changed-key-set (even empty) means the write landed.
+            changed   (frame/replace-runtime-db! frame-id new-runtime-db)]
+        (if (nil? changed)
+          (do (tool-pair/emit-precondition-failure! :rf.error/no-such-handler
+                                                    {:kind :frame :frame frame-id})
+              false)
+          (do (record-synthetic-replace-epoch! frame-id fs-before fs-after)
+              true))))))
 
 (defn- perform-replace-frame-state!
   "Carry out the full-frame (both-partition) replacement once preconditions
@@ -604,7 +658,16 @@
   container at the write boundary via `live-container-or-fail`. If the
   frame was destroyed between the precondition pass and now, this reports
   the canonical `:rf.error/no-such-handler` (kind `:frame`) failure and
-  returns `false`, matching the destroyed-frame contract."
+  returns `false`, matching the destroyed-frame contract.
+
+  Per rf2-s93722 (post-liveness teardown race): the liveness check closes
+  only HALF the window — a frame destroyed AFTER `live-container-or-fail`
+  passes but BEFORE `replace-frame-state!` actually writes still slips
+  through. `frame/replace-frame-state!` returns `nil` for a destroyed frame
+  (a non-nil — possibly EMPTY — changed-key-set for a live frame, even a
+  no-op write), so a `nil` return is the destroyed-frame signal, surfaced
+  as the same `:rf.error/no-such-handler` (kind `:frame`) failure / `false`
+  return BEFORE any synthetic epoch, listener fanout, or success telemetry."
   [frame-id new-frame-state]
   (let [{:keys [outcome op tags]} (tool-pair/live-container-or-fail frame-id)]
     (if (= :fail outcome)
@@ -617,12 +680,19 @@
             ;; by contract — see `frame/replace-frame-state!`); normalise the
             ;; recorded after-state to the same coherent shape.
             fs-after  {frame/app-partition-key     (get new-frame-state frame/app-partition-key)
-                       frame/runtime-partition-key (get new-frame-state frame/runtime-partition-key)}]
-        ;; Write BOTH partitions in ONE atomic install through the one
-        ;; physical frame-state container via `frame/replace-frame-state!`.
-        (frame/replace-frame-state! frame-id new-frame-state)
-        (record-synthetic-replace-epoch! frame-id fs-before fs-after)
-        true))))
+                       frame/runtime-partition-key (get new-frame-state frame/runtime-partition-key)}
+            ;; Write BOTH partitions in ONE atomic install through the one
+            ;; physical frame-state container via `frame/replace-frame-state!`.
+            ;; rf2-s93722: capture the return — `nil` means the frame was
+            ;; destroyed in the post-liveness window (no write happened); a
+            ;; non-nil changed-key-set (even empty) means the write landed.
+            changed   (frame/replace-frame-state! frame-id new-frame-state)]
+        (if (nil? changed)
+          (do (tool-pair/emit-precondition-failure! :rf.error/no-such-handler
+                                                    {:kind :frame :frame frame-id})
+              false)
+          (do (record-synthetic-replace-epoch! frame-id fs-before fs-after)
+              true))))))
 
 (defn replace-app-db!
   "Replace `frame-id`'s `app-db` partition with `new-db`, bypassing the
@@ -743,18 +813,42 @@
 ;; remains the canonical API reference.
 
 (defn projected-record
-  "Project an `:rf/epoch-record` for off-box egress. Routes the four
-  payload-bearing slots (`:db-before`, `:db-after`, `:trigger-event`,
-  `:trace-events`) through `re-frame.elision/elide-wire-value` against
-  the record's frame, with the off-box defaults
-  `:include-sensitive? false` / `:include-large? false`. Sensitive
-  paths land as `:rf/redacted`; large paths land as
-  `:rf.size/large-elided` markers per the §Composition rule. The
-  record-level bookkeeping (`:epoch-id`, `:frame`, `:committed-at`,
-  `:event-id`, `:outcome`, `:halt-reason`, `:schema-digest`,
-  `:rf.epoch/sensitive?`, `:rf.epoch/redacted-modified-paths-count`)
-  and the cheap structured projections (`:sub-runs`, `:renders`,
-  `:effects`) pass through unchanged — they carry no app-db material.
+  "Project an `:rf/epoch-record` for off-box egress. Routes the
+  full-value payload slots (`:frame-state-before`, `:frame-state-after`,
+  `:db-before`, `:db-after`, `:trigger-event`, `:trace-events`) through
+  `re-frame.elision/elide-wire-value` against the record's frame, with
+  the off-box defaults `:include-sensitive? false` /
+  `:include-large? false`. Sensitive paths land as `:rf/redacted`; large
+  paths land as `:rf.size/large-elided` markers per the §Composition rule.
+
+  EP-0001 (rf2-3aizt1, decision #2 + Mike ruling #14): the CANONICAL
+  `:frame-state-before` / `:frame-state-after` slots egress with their
+  `:rf.db/app` partition elided (the same projection the `:db-*` app-db
+  projections get) and their `:rf.db/runtime` partition DEFAULT-REDACTED
+  to `:rf/redacted` off-box — machine snapshots / route slice / SSR
+  metadata do not egress to AI / log channels by default.
+
+  The structured `:sub-runs` rows are ALSO value-bearing (rf2-at60h):
+  each carries the sub's computed `:prev-value` / `:value`, which respect
+  the projection contract (whole-output `:large?` rows have their value
+  slots substituted with the `:rf.size/large-elided` marker under the
+  `:include-large? false` default). The non-value row metadata (`:sub-id`,
+  `:query-v`, `:value-changed?`, `:cascade?`, `:cause-sub`,
+  `:cause-event-id`) passes through unchanged.
+
+  The structured `:effects` rows are payload-bearing too (rf2-rlt3sv):
+  each carries `:args` — the RAW fx-handler argument captured verbatim from
+  the `:rf.fx/args` trace tag, NOT routed through the marks-projection
+  chokepoint and NOT app-db-rooted, so the schema-path walker cannot prove
+  it safe. Off-box egress FAILS CLOSED: `:args` lands as `:rf/redacted` for
+  every outcome row under the `:include-fx-args? false` default. The
+  value-free `:fx-id` / `:outcome` / `:error-trace` row metadata and the
+  whole `:renders` projection pass through unchanged. The trusted-local
+  `:include-fx-args? true` opt keeps the raw `:args`. The record-level
+  bookkeeping (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`,
+  `:outcome`, `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`,
+  `:rf.epoch/redacted-modified-paths-count`) also passes through
+  unchanged — it carries no app-db material.
 
   Per Security.md §Epoch privacy posture and rf2-mrsck: this is the
   single normative projection emission site for off-box egress. Tools
@@ -769,18 +863,33 @@
   returns `nil` in that case, no elision called. Production builds
   elide the entire epoch surface; consumers gate any
   `register-epoch-listener!` registration under `interop/debug-enabled?`
-  per Spec 009 §User-side listener registration."
-  [record]
-  (tool-pair/projected-record record))
+  per Spec 009 §User-side listener registration.
+
+  ## Egress opts (rf2-5w06uu)
+
+  The 2-arity accepts a trusted-local `opts` map —
+  `{:include-sensitive? :include-large? :include-runtime-db?
+  :include-fx-args?}`, all defaulting `false`. `:include-sensitive?` /
+  `:include-large?` opt the APP-DB partition's privacy / size posture back
+  in across every payload slot; they do NOT lift the frame-state
+  `:rf.db/runtime` partition boundary, which stays `:rf/redacted` unless
+  `:include-runtime-db? true` is also passed, NOR the structured `:effects`
+  `:args` (a different keyspace), which stay `:rf/redacted` unless
+  `:include-fx-args? true` is passed (rf2-rlt3sv). The 1-arity is the safe,
+  fully-redacted off-box path."
+  ([record] (tool-pair/projected-record record))
+  ([record opts] (tool-pair/projected-record record opts)))
 
 (defn projected-history
   "Convenience: return the projected vector of records for a frame.
-  Equivalent to `(mapv projected-record (epoch-history frame-id))`.
+  Equivalent to `(mapv #(projected-record % opts) (epoch-history frame-id))`.
   Tools that egress the whole ring (an MCP `watch-epochs` initial
   snapshot, a recorder dumping the full session) can call this once
-  rather than walking the raw ring and re-wrapping each record."
-  [frame-id]
-  (tool-pair/projected-history frame-id))
+  rather than walking the raw ring and re-wrapping each record. The
+  2-arity threads the trusted-local egress `opts` (rf2-5w06uu) to every
+  record; the 1-arity is the safe, fully-redacted off-box path."
+  ([frame-id] (tool-pair/projected-history frame-id))
+  ([frame-id opts] (tool-pair/projected-history frame-id opts)))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
@@ -851,6 +960,11 @@
    :epoch/register-epoch-listener!   register-epoch-listener!
    :epoch/unregister-epoch-listener! unregister-epoch-listener!
    :epoch/configure!                 configure!
+   ;; rf2-yw1w1u: test-support config-isolation hook. `re-frame.test-
+   ;; support`'s reset-hook table fires this to restore epoch config to
+   ;; the shipped default between tests, so test namespaces no longer
+   ;; reset the private `state/config` var directly.
+   :epoch/reset-config!              reset-config!
    :epoch/clear-history!             clear-history!
    :epoch/clear-epoch-listeners!     clear-epoch-listeners!
 

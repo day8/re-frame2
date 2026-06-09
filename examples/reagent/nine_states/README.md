@@ -83,11 +83,30 @@ The pre-parallel-regions variant — nine boolean discriminator subs
 
 ```
 examples/reagent/nine_states/
-  core.cljs   single-file example: schemas, the :ui/nine-states
-              parallel machine, demo events, the render-priority
-              table + :ui/render sub, per-state views, mount.
-  README.md   this file.
+  core.cljs            single-file example: schemas, the :ui/nine-states
+                       parallel machine, demo events, the render-priority
+                       table + :ui/render sub, per-state views, mount.
+  index.html           minimal host page (the live app).
+  stories.cljs         Story showcase: one variant per canonical render
+                       keyword, plus the fetch-lifecycle story (auxiliary;
+                       see below).
+  stories_host.cljs    Story-showcase entry point (live-app ↔ shell hash router).
+  stories.index.html   host page for the Story-showcase build.
+  README.md            this file.
 ```
+
+The three `stories*` files are an **intentionally auxiliary Story
+showcase** layered over this example (build
+`:examples/nine-states-with-stories`, rf2-rgyia) — not a second example
+and not tool-owned. They source `nine-states.core`'s real parallel
+machine and `:ui/render` selector and enumerate the nine canonical
+render keywords (plus the async fetch-lifecycle) as Story variants, with
+the Xray preload wired so the `load → loading → loaded/error` cascade is
+inspectable. They live here (rather than under
+`tools/story/testbeds/`) because they showcase *this* worked example;
+the tool-owned Story testbeds at
+[`tools/story/testbeds/`](../../../tools/story/testbeds/) stay catalogued
+with the tool. See [How to run](#how-to-run) for the showcase command.
 
 For brevity the example is one file; in a real codebase it would
 split per CP-6 conventions (`schema.cljc / machine.cljc / events.cljs
@@ -109,6 +128,17 @@ alongside it, then serve `out/examples/nine-states/` over HTTP.
 (`npm run test:examples` does not build this example — it compiles and
 serves only the three adapter testbeds; see
 [`examples/reagent/README.md`](../README.md).)
+
+To run the Story showcase instead, watch its build and open the Story
+shell:
+
+```bash
+shadow-cljs watch :examples/nine-states-with-stories   # then open http://localhost:8040/#/stories
+```
+
+`#/` renders the live demo; `#/stories` mounts the Story shell with each
+canonical render state as a variant. Press <kbd>Ctrl+Shift+C</kbd> on
+either surface to open Xray over the load cascade.
 
 The per-state headless fixtures live in the integration test at
 [`implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs)

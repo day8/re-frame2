@@ -33,6 +33,18 @@
                         :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
           :main-opts  ["-m" "noahtheduke.clein"]}
 
+  ;; :main is the in-tree adapter ns (rf2-xcyaei). NOTE the published jar
+  ;; ships the adapter at the CANONICAL `re-frame.adapter.reagent` ns, not
+  ;; this `-slim` ns: at publication the release workflow's "Rename adapter
+  ;; ns at publication (reagent-slim only)" step (.github/workflows/
+  ;; release.yml) mv's reagent_slim.cljs → reagent.cljs and rewrites the
+  ;; (ns ...) form BEFORE clein packages. The pre-rewrite :main value here
+  ;; is harmless: clein's :main only stamps a pom/jar metadata hint (no
+  ;; gen-class, no -main entry point — the adapter exposes a Var, not a
+  ;; runnable main), and it is never resolved at downstream require time.
+  ;; The in-tree value must stay `re-frame.adapter.reagent-slim` so the
+  ;; UNRENAMED monorepo build (where both adapters share a classpath) can
+  ;; package without an ns clash. See README.md "Published Maven artefact".
   :clein/build
   {:lib      day8/reagent-slim
    :main     re-frame.adapter.reagent-slim

@@ -45,11 +45,50 @@
   Reverting the `scrub-snapshot` `:traces`/`:epochs` scrub makes the
   snapshot property go RED. Confirmed by temporary local revert + restore
   (see PR Quality gates)."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is testing]
+                      :refer [use-fixtures]])
             [clojure.walk :as walk]
             [re-frame.mcp-base.sensitive :as sens]
             [re-frame.security.gen :as gen]))
+
+;; ---------------------------------------------------------------------------
+;; Expected-warning capture (rf2-80jyfk)
+;; ---------------------------------------------------------------------------
+;;
+;; These property tests INTENTIONALLY drive thousands of malformed
+;; `:sensitive?` stamps through `sens/strip-sensitive` / `scrub-snapshot` /
+;; `sensitive-event?` (the rf2-ih7g4 fail-closed corpus). Each malformed
+;; stamp fires `re-frame.mcp-base.sensitive`'s contract-drift warning. On the
+;; CLJS path the silent-on-success node runner stubs `js/console.warn` (see
+;; `re-frame.test-quiet.shadow-node`), so that warning never reaches test
+;; output. The JVM path emits the warning via `(binding [*out* *err*]
+;; (println …))`, which the quiet runner does NOT capture (it filters only
+;; cognitect's stdout banner) — so a green JVM run floods stderr with
+;; thousands of expected WARN lines, defeating the silent-on-success posture
+;; (rf2-80jyfk issue 1).
+;;
+;; This `:once` fixture mirrors the CLJS console.warn stub on the JVM: it
+;; binds `*err*` to a throwaway sink for the duration of the namespace's test
+;; run, so the EXPECTED malformed-stamp warnings are captured rather than
+;; leaked. The warning's having FIRED is still asserted, just not via stderr
+;; bytes — the `malformed-count` counter is the framework's observability
+;; hook and is pinned by `gate-off-malformed-stamp-counts-as-dropped`, so the
+;; fail-closed log path stays exercised + verified.
+;;
+;; Scope discipline (acceptance criteria): only `*err*` is rebound, and ONLY
+;; on the JVM. clojure.test routes assertion / FAIL / ERROR / summary output
+;; through `clojure.test/*test-out*` (bound to the real `*out*`), so failure
+;; diagnostics are untouched — a red run still reports normally. CLJS is a
+;; no-op fixture: the node runner's console.warn stub already covers it.
+#?(:clj
+   (use-fixtures :once
+     (fn [t]
+       (binding [*err* (java.io.PrintWriter. (java.io.StringWriter.))]
+         (t))))
+   :cljs
+   (use-fixtures :once
+     (fn [t] (t))))
 
 (def ^:private sentinel "S3CR3T-rf2-3cfvt-EGRESS-DO-NOT-SHIP")
 

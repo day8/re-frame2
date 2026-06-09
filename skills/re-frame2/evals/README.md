@@ -5,6 +5,20 @@ This directory holds the evaluation harness for the `re-frame2` authoring skill
 skill: before we publish, every eval here should pass against a fresh Claude
 session loaded with the skill.
 
+## Repo-maintenance artifact, not shipped
+
+`evals/` is a **repo-maintenance artifact** — it is deliberately **not** part of
+the distributable skill package. `skills/re-frame2/package.json`'s `files`
+allow-list omits `evals/` on purpose: a packaged-skill consumer runs the skill,
+they do not re-run its gate suite, so shipping the harness would only bloat the
+tarball with material that points back at the monorepo's test infrastructure.
+The harness lives and runs from a full re-frame2 clone (where
+`scripts/check_skill_eval_docs.py` and any future runner can reach it). The
+top-level `skills/re-frame2/README.md` §Status notes the harness has landed
+"under `evals/`" as a repo fact — that link resolves in a clone, which is the
+only supported way to run the evals. It is intentionally absent from the
+published package.
+
 ## Convention
 
 The harness follows Anthropic's `skill-creator` convention, documented in
@@ -39,7 +53,7 @@ Two harness extensions on top of the base schema:
 
 ## Coverage
 
-Six evals, covering the three dimensions the bead called for:
+Eight evals, covering the three dimensions the bead called for:
 
 | ID | Name | Dimension | What it probes |
 |---:|---|---|---|
@@ -49,9 +63,22 @@ Six evals, covering the three dimensions the bead called for:
 | 4 | `recipe-correctness-state-machine-http-region` | recipe-correctness | "Register a state machine for an HTTP request lifecycle." Does the output use `reg-machine` with the five canonical states (`:idle :loading :fetching :loaded :error`), `:tags` for an `:in-flight` query, keyword-referenced actions in the top-level table (inspectability bias), action effect-maps `{:data ...}`, and the `re-frame.machines` artefact require? |
 | 5 | `routing-correctness-v1-migration` | routing-correctness | Prompt is a v1→v2 migration question. Does the agent hand off to the dedicated `re-frame-migration` skill (per the single-source routing table in `skills/README.md` and this skill's SKILL.md disqualifier) rather than improvising migration deltas from training memory? |
 | 6 | `routing-correctness-greenfield-scaffold` | routing-correctness | Prompt is "start a new re-frame2 project from scratch". Does the agent defer to the sibling `re-frame2-setup` skill rather than improvising `deps.edn` / `shadow-cljs.edn` from the authoring skill? |
+| 7 | `recipe-correctness-story-recorder-sensitive-login` | recipe-correctness | Story-recorder privacy prompt (login + 2FA into a `:script`). Does the agent teach the CURRENT contract — recorder filters off the emitted trace event's `:sensitive?` (path/schema-based, NOT handler metadata), schema `{:sensitive? true}` on the app-db slot for the password, `rf/redact-interceptor` for the transient 2FA payload — and EXPLICITLY REJECT handler-meta `{:sensitive? true}` as the redaction mechanism? |
+| 8 | `recipe-correctness-story-variant-authoring-handoff` | recipe-correctness | Story variant authoring through the hybrid split. The prompt asks to author a variant AND "run it and keep iterating against the running library". Does the agent author with only the tools `re-frame2` is allow-listed for (`register-variant` / `preview-variant` / `get-variant` / `explain-variant`), and **hand off** the run/self-heal loop (`run-variant` / `read-failures`) to `re-frame2-pair` rather than claiming to call tools it cannot reach? Fails if the documented loop requires run-side tools unavailable to this skill. |
 
-Three is Anthropic's minimum. Six gives two evals per dimension, so any single
-eval can flake without the dimension going dark.
+Three is Anthropic's minimum. Eight gives **four** recipe-correctness evals
+and **two** each for discovery and routing-correctness, so every dimension keeps
+multi-eval coverage and any single eval can flake without the dimension going
+dark. The skew toward recipe-correctness is deliberate: that dimension carries
+the highest defect risk (idiom drift in produced code, including the
+Story-recorder privacy contract eval 7 guards and the Story authoring/run
+boundary eval 8 guards).
+
+> **Staying in sync.** The table above, the eval count in this paragraph, and
+> the per-dimension breakdown are checked against `evals.json` by
+> `scripts/check_skill_eval_docs.py` (run it after adding or renaming an eval).
+> The gate fails if the README count, the dimension tallies, or the set of eval
+> names drifts from the JSON — so a new eval cannot silently stale these docs.
 
 ## How to run
 

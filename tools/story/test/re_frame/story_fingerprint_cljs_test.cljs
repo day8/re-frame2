@@ -11,8 +11,7 @@
   - the rf2-5x1wt.8 per-run stamp strip (epoch-record `:frame`, trace-event
     `:id` / `:time` / volatile tags) is host-portable too."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.story.fingerprint :as fp]
-            [re-frame.story.identity    :as ident]))
+            [re-frame.story.fingerprint :as fp]))
 
 (def ^:private base
   {:status :pass
@@ -110,8 +109,6 @@
     (is (not= fp/opaque-fn (fp/canonical-form #{:a})))))
 
 (deftest snapshot-fold-strip-free-on-cljs
-  (testing "identity content-hash IS the fingerprint content-hash (folded)"
-    (is (identical? ident/content-hash fp/content-hash)))
   (testing "content-hash keeps :variant-id sensitivity; canonical-hash strips it"
     (let [tuple {:variant-id :story.x/v :variant {:a 1}}]
       (is (not= (fp/content-hash tuple)

@@ -30,30 +30,23 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.machines :as machines]
             [re-frame.machines.result :as result]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.test-support :as mtest]))
 
 ;; ---- trace capture (spec/009 shape proof) --------------------------------
+;;
+;; Trace capture via the shared machines test-support (rf2-3l8lqe finding #4):
+;; the `:each` `trace-capture-fixture` feeds `mtest/*captured*` with guaranteed
+;; unregister in a `finally`; `events-of` / `reset-captured!` read + clear it.
 
-(def ^:dynamic *captured* nil)
-
-(defn- capture-fixture
-  "Register a trace listener that appends every emitted event to `*captured*`
-  for the duration of one test, then unregisters."
-  [f]
-  (binding [*captured* (atom [])]
-    (trace/register-listener! ::history-smoke #(swap! *captured* conj %))
-    (try (f)
-      (finally (trace/unregister-listener! ::history-smoke)))))
-
-(use-fixtures :each capture-fixture)
+(use-fixtures :each mtest/trace-capture-fixture)
 
 (defn- history-events
   "The captured events for the given history `operation`
   (`:rf.machine.history/restored` | `:rf.machine.history/recorded`)."
   [operation]
-  (filterv #(= operation (:operation %)) @*captured*))
+  (mtest/events-of operation))
 
-(defn- reset-capture! [] (reset! *captured* []))
+(defn- reset-capture! [] (mtest/reset-captured!))
 
 (defn- step
   "Apply one macrostep and return the post-transition snapshot. Asserts the

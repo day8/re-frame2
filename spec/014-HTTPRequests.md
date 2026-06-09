@@ -134,7 +134,7 @@ The `:rf.http/managed` fx accepts a single args map. The reference card below li
 |---|---|---|---|
 | `:request` | required | The wire envelope — `:method` / `:url` / `:headers` / `:params` / `:body` / `:request-content-type` / `:credentials` / `:mode` / `:redirect` / `:cache` / `:referrer` / `:integrity` / `:sensitive?`. See [§Request envelope](#request-envelope). | A bad envelope surfaces as `:rf.http/transport`, `:rf.http/cors`, `:rf.http/http-4xx`, or `:rf.http/http-5xx` depending on how the host rejects it. |
 | `:decode` | `:auto` | Response-body decoder: a Malli schema, a fn `(response-text headers → decoded)`, or one of `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto`. Runs only on 2xx. See [§Decoding](#decoding). | `:rf.http/decode-failure` (schema reject, JSON parse, custom-fn throw). |
-| `:accept` | 2xx → `{:ok body}`, else structural failure | Post-decode normaliser `(decoded → {:ok v} | {:failure m})` — lets a structurally-valid 200 surface as a domain failure. See [§`:accept` — domain-failure normalisation](#accept--domain-failure-normalisation). | `:rf.http/accept-failure` (the user map rides at `:detail`). |
+| `:accept` | `{:ok decoded}` | Post-decode normaliser `(decoded → {:ok v} | {:failure m})` — lets a structurally-valid 200 surface as a domain failure. Runs only after a successful 2xx decode (non-2xx classifies by status before decode, so `:accept` never sees it). See [§`:accept` — domain-failure normalisation](#accept--domain-failure-normalisation). | `:rf.http/accept-failure` (the user map rides at `:detail`). |
 | `:retry` | no retry | Retry policy `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` is a closed subset of `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. See [§Retry and backoff](#retry-and-backoff). | Invalid `:retry :on` member → `:rf.error/http-bad-retry-on` at registration / dispatch time. Retries exhaust → the final failure category. |
 | `:timeout-ms` | `30000` | Per-attempt wall-clock timeout in ms. `nil` or `0` opts out (no timeout). See [§`:timeout-ms` security defaults](#timeout-ms-security-defaults). | `:rf.http/timeout` when the budget elapses. |
 | `:on-success` | originating event id with `:rf/reply` merged | Where to dispatch the success reply. See [§Reply addressing](#reply-addressing). | — (`:on-success` does not itself fail.) |
@@ -354,7 +354,7 @@ Returns either:
 - `{:ok value}` — success; `value` is the payload of the success reply.
 - `{:failure failure-map}` — domain failure; `failure-map` is the payload of the failure reply.
 
-The default `:accept` returns `{:ok decoded}` for 2xx responses, `{:failure {:kind :http-status :status N :body decoded}}` otherwise.
+The default `:accept` returns `{:ok decoded}`. It runs only after a successful 2xx decode (step 4 of [§Classification order](#classification-order)): a non-2xx response classifies by status **before** the body is decoded, so the default `:accept` never sees a non-2xx status and never produces a status-derived failure. The non-2xx outcome is `:rf.http/http-4xx` / `:rf.http/http-5xx` (the raw body at `:body`) — there is no `:kind :http-status`; that kind is not a member of the closed `:rf.http/*` [failure set](#failure-categories-closed-set).
 
 **The accept phase is isolated from decode, and its return is shape-validated.** A recognised return is a map carrying *exactly one* of `:ok` / `:failure`. Two misuse paths classify as `:rf.http/accept-failure` (never `:rf.http/decode-failure` — the accept phase is step 4, distinct from the step-3 decode phase per [§Classification order](#classification-order)) and **always dispatch a reply**:
 
@@ -666,7 +666,7 @@ The reply dispatch lands in the **same frame** the request was issued from. The 
 
 ## Middleware
 
-Per — apps repeatedly want to apply a transform to every outgoing `:rf.http/managed` request: attach a Bearer token, stamp a correlation-id, rewrite a base URL in dev. v1 ships a **per-frame request-side interceptor chain** that sits between the user's args and the transport.
+Apps repeatedly want to apply a transform to every `:rf.http/managed` request or response: attach a Bearer token, stamp a correlation-id, rewrite a base URL in dev (request side); parse rate-limit headers, compute response-time deltas, flag a 401 for auth refresh (response side). v1 ships a **per-frame interceptor chain** with both phases — a `:before` request-side transform that sits between the user's args and the transport, and an `:after` response-side transform that sits between the transport's reply and the `:on-success` / `:on-failure` dispatch. The shape mirrors the event-interceptor `{:id :before :after}` onion (Spec 002): symmetric on both sides, `:before` in registration order, `:after` in reverse.
 
 ### Shape
 
@@ -1049,8 +1049,9 @@ For test suites that need to inspect or reset the in-flight request registry dir
 | `clear-all-in-flight!` | `(clear-all-in-flight!)` → nil | Drops both the request-id-keyed and actor-id-keyed in-flight maps. Consumed by `re-frame.test-support/make-reset-runtime-fixture` to restore a clean registry between tests; the `:http/clear-all-in-flight!` hook is published via the late-bind table so `test-support` can call it without statically requiring the http artefact. |
 | `in-flight-snapshot` | `(in-flight-snapshot)` → map | Reads the current value of the request-id-keyed in-flight map. For tests that need to assert "this request-id is in flight" without poking the atom directly. |
 | `actor-in-flight-snapshot` | `(actor-in-flight-snapshot)` → map | Reads the current value of the actor-id-keyed in-flight map (per [§Abort on actor destroy](#abort-on-actor-destroy) and). For tests that need to assert the actor → request-id reverse index. |
+| `seed-in-flight-for-test!` | `(seed-in-flight-for-test! handle)` / `(seed-in-flight-for-test! request-id actor-id handle)` → handle | Registers a fabricated in-flight handle through the SAME `record-in-flight!` path production uses, so BOTH indexes stay consistent. For fixtures that need an in-flight slot present without issuing a real request. The 1-arity reads `:request-id` / `:actor-id` off the handle. The raw in-flight atoms are NOT exported — a fixture must seed through this helper rather than `swap!`-ing an atom directly. |
 
-These are **test-only** surfaces — not part of the user-facing API for production code paths. Application code SHOULD route through `:rf.http/managed` and the dispatch-shape replies; the helpers exist so test fixtures can observe and reset registry state without reaching into the namespace's atoms.
+These are **test-only** surfaces — not part of the user-facing API for production code paths. Application code SHOULD route through `:rf.http/managed` and the dispatch-shape replies; the helpers exist so test fixtures can observe, seed, and reset registry state without reaching into the namespace's atoms. The underlying `in-flight` / `actor-in-flight` storage atoms are **not** re-exported from `re-frame.http-managed` (rf2-hp772l) — exposing mutable internal storage as API let callers bypass `record-in-flight!` / `clear-in-flight!` and the actor-index cleanup invariants. The per-frame HTTP-interceptor chain has the symmetric pair: `interceptors-snapshot` (`(interceptors-snapshot)` → `frame-id → [slot …]`, or `(interceptors-snapshot frame-id)` → `[slot …]`) reads the chain for assertions; registration / clearing route through `reg-http-interceptor` / `clear-http-interceptor`, never a raw atom `swap!`.
 
 ## Machine-shape wrapper
 
@@ -1312,15 +1313,10 @@ Adjacent surfaces that are first-class re-frame2 commitments but live in their o
 - **WebSocket** — bidirectional. Lives in [Pattern-WebSocket](Pattern-WebSocket.md); state-machine-shaped.
 - **GraphQL-specific batching / persisted queries.** Layer on top — `:rf.http/managed` hands you the decoded response, your application wraps for batching.
 - **HTTP/2 server push.** Not a re-frame2 concern; the platform handles it transparently.
-- **Response-side interceptors (`:after`).** v1's middleware contract is request-side only ([§Middleware](#middleware)). Apps that want to project / log / retry on response paths use `:accept` (domain-failure normalisation) and the trace stream; a future `:after` slot composes additively when it lands.
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items are **post-v1, untracked notes** — additive surfaces that do not block v1 and have no tracking bead filed yet (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). A tracking bead is filed for each only when its "deferred until …" condition is met.
-
-### Response-side middleware composition (post-v1)
-
-Per [§Middleware](#middleware) v1 ships request-side middleware only. A response-side `:after` slot — composing additively with `:accept` and `:before` — would let apps project / log / retry on response paths without per-event boilerplate. Deferred until the request-side surface settles in practice and the composition order with `:accept` is decided.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): both items are **post-v1, untracked notes** — additive surfaces that do not block v1 and have no tracking bead filed yet (so neither qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). A tracking bead is filed for each only when its "deferred until …" condition is met.
 
 ### Streaming responses (`:rf.http/streaming`) (post-v1)
 
@@ -1344,9 +1340,9 @@ Per [§Failure categories (closed set)](#failure-categories-closed-set) the fail
 
 Per [§Failure categories (closed set)](#failure-categories-closed-set) the `:rf.http/cors` row is CLJS-only — JVM transports never emit it. CORS is a browser-policy concern; the JVM has no cross-origin policy to enforce. The asymmetry is documented so tools that consume the trace stream don't assume the row exists on every host.
 
-### Request-side middleware only in v1
+### Per-frame interceptor chain with both request- and response-side phases
 
-Per [§Middleware](#middleware) the v1 middleware contract is per-frame request-side only — the interceptor chain sits between the user's args and the transport, not between the transport and the reply. The request-side cases (Bearer token, correlation-id, base-URL rewrite) all surfaced as the high-frequency pattern; response-side composition is deferred to [§Open questions](#open-questions). The request-side surface ships first because its shape is settled.
+Per [§Middleware](#middleware) the v1 middleware contract is a per-frame interceptor chain carrying both phases: a `:before` request-side transform between the user's args and the transport, and an `:after` response-side transform between the transport's reply and the `:on-success` / `:on-failure` dispatch. The request-side cases (Bearer token, correlation-id, base-URL rewrite) and the response-side cases (rate-limit header parsing, response-time telemetry, 401 auth-refresh tagging) were chosen as the high-frequency patterns. The two phases compose via one `{:id :before :after}` registration that mirrors the event-interceptor onion (Spec 002): `:before` runs in registration order, `:after` in reverse, and the `:after` sees the same ctx the `:before` chain produced for that request — so request-correlated response handling (e.g. a start-mark stamped by `:before`, read by `:after`) is a single-interceptor concern. Response-side composition with `:accept` is settled: `:accept` runs first inside the transport (domain-failure normalisation produces the `{:kind :success|:failure}` response), then the `:after` chain transforms that response before the reply dispatch.
 
 ### Frame-aware reply dispatch
 

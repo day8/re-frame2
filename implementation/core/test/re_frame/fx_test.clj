@@ -344,11 +344,13 @@
 ;; ---- 6. Effect-map shape policing (M-8) -----------------------------------
 ;;
 ;; Per migration/from-re-frame-v1/README.md §M-8 and Spec-Schemas.md §:rf/effect-map,
-;; the effect map is CLOSED: only :db and :fx live at the top level. A handler
-;; returning a legacy v1 key (e.g. :dispatch / :dispatch-later / :dispatch-n /
+;; the effect map is CLOSED: #{:db :rf.db/runtime :fx} at the top level. App
+;; handlers return only :db and :fx; :rf.db/runtime is the reserved
+;; framework-authority runtime-db effect. A handler returning a key OUTSIDE
+;; that closed set (e.g. a legacy v1 :dispatch / :dispatch-later / :dispatch-n /
 ;; :http at the top level) MUST raise a structured trace per Spec 009 §Error
 ;; contract; the runtime does NOT silently drop and does NOT silently route
-;; the legacy key through the fx machinery.
+;; the offending key through the fx machinery.
 ;;
 ;; Enforcement landed in rf2-ooc5: re-frame.events/fx-handler->interceptor
 ;; calls re-frame.events/police-effect-map-shape! on every effect-map

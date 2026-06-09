@@ -76,6 +76,7 @@
   on dedup-eligible tools' input schema via `schemas/with-dedup`."
   (:require [re-frame.mcp-base.args :as args]
             [re-frame.mcp-base.cap :as base-cap]
+            [re-frame.story-mcp.protocol :as proto]
             [re-frame.story-mcp.tools.dedup :as dedup]
             [re-frame.story-mcp.tools.registry :as registry]
             [re-frame.story-mcp.tools.result :as result]))
@@ -161,6 +162,42 @@
               (assoc :structuredContent deduped)
               (assoc-in [:content 0 :text] text)))))))
 
+(defn- tool-allowed-arg-keys
+  "The string-keyed argument names a tool advertises — the keys of its
+  descriptor's `:inputSchema :properties`, stringified. The precise
+  per-tool answer for an unknown-arg diagnostic (more actionable than the
+  global `arg-keys` union), and the same shape `tools/list` advertises so
+  an agent can cross-reference. Returns a sorted vector for stable
+  diagnostic output."
+  [t]
+  (->> (-> t :inputSchema :properties keys)
+       (map name)
+       sort
+       vec))
+
+(defn- unknown-arg-error
+  "Build the tool-level `isError: true` diagnostic for unknown top-level
+  argument keys (rf2-ovmc5e). `unknown` is the vec of RAW key STRINGS the
+  caller sent outside the allowlist (recorded as metadata by
+  `protocol/normalize-frame`); `t` is the tool descriptor. The result
+  names the unknown keys, the tool, and that tool's allowed key set — so a
+  non-schema-validating host or hand-rolled agent gets agent-recoverable
+  feedback that its intended control knob was ignored rather than a
+  successful-looking call that silently defaulted. The server is the
+  authoritative backstop for the advertised `additionalProperties false`
+  contract; it no longer depends on the client validating."
+  [tool-name t unknown]
+  (let [allowed (tool-allowed-arg-keys t)]
+    (result/error-result
+     (str "Unknown argument" (when (> (count unknown) 1) "s")
+          " for tool `" tool-name "`: " (pr-str unknown)
+          ". Allowed: " (pr-str allowed)
+          ". (Unknown keys are not applied; fix the name or drop the key.)")
+     {:rf.error    :rf.story-mcp/unknown-arguments
+      :tool        tool-name
+      :unknown     unknown
+      :allowed     allowed})))
+
 (defn invoke-tool
   "Invoke `tool-name` with `arguments` (a map of keyword-keyed args).
   Returns the tool's result map, or nil if no such tool. The caller
@@ -199,9 +236,16 @@
   zero compression win."
   [tool-name arguments]
   (when-let [t (registry/tool-by-name tool-name)]
-    (let [args (or arguments {})
-          cap  (base-cap/max-tokens (get args :max-tokens))]
-      (if (base-cap/invalid-arg? cap)
+    (let [args    (or arguments {})
+          cap     (base-cap/max-tokens (get args :max-tokens))
+          ;; rf2-ovmc5e — RAW string keys the caller sent outside the
+          ;; top-level allowlist, recorded as metadata by
+          ;; `protocol/normalize-frame` (never interned, never a map
+          ;; entry). A non-empty set means the agent typo'd a control
+          ;; knob; we diagnose before dispatch rather than silently drop.
+          unknown (get (meta args) proto/unknown-arg-keys-meta)]
+      (cond
+        (base-cap/invalid-arg? cap)
         ;; rf2-5rdit — a negative `:max-tokens` resolves to a
         ;; `{:rf.mcp/invalid-arg {...}}` rejection rather than a negative
         ;; cap. Surface it as an `isError: true` tool-result so the agent
@@ -210,6 +254,18 @@
         ;; every response is replaced by the overflow marker. The handler
         ;; is never dispatched; the malformed cap never reaches the gate.
         (result/error-result (result/pr-edn cap) cap)
+
+        ;; rf2-ovmc5e — an unknown top-level argument key is an
+        ;; agent-recoverable diagnostic, not a silent drop. The handler is
+        ;; never dispatched; the response names the unknown keys, the
+        ;; tool, and that tool's allowed key set so the model can retry
+        ;; with the corrected arg name. (The no-intern invariant holds —
+        ;; the unknown keys arrive as strings via metadata and are never
+        ;; keywordised.)
+        (seq unknown)
+        (unknown-arg-error tool-name t unknown)
+
+        :else
         (let [;; Dedup runs only on tools that opt in via `:dedup-eligible?`
               ;; on the descriptor — and only when the caller leaves the
               ;; `:dedup` arg at its default `true`. Ineligible tools never

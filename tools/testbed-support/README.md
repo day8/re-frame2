@@ -36,9 +36,15 @@ other clone and every Mac/Linux maintainer (rf2-5dphw).
   source coords resolve (rf2-w4yw9q). Paste the checkout root unencoded,
   including a literal `+` (e.g. `?project-root=/home/dev/re-frame2+wip`);
   the parser decodes percent-escapes but preserves `+` rather than
-  mapping it to a space (rf2-xdsat.1). When neither tier is present it
-  returns `nil`, and the testbed configures no root — "open in editor"
-  degrades to a graceful no-op rather than a broken link.
+  mapping it to a space (rf2-xdsat.1). Both tiers and the subdir are
+  normalised to a canonical forward-slash form (`\` → `/`, trailing /
+  leading slash stripped), so a Windows override
+  (`?project-root=C:\Users\me\code\re-frame2\`, raw or `%5C`-encoded)
+  resolves to a clean single-separator path rather than a `\/` boundary —
+  matching the launcher's build-env normalisation and the
+  separator-agnostic editor-URI composer (rf2-d01s6s). When neither tier
+  is present it returns `nil`, and the testbed configures no root —
+  "open in editor" degrades to a graceful no-op rather than a broken link.
 
 ## The Story host harness (`story-host`)
 
@@ -53,14 +59,34 @@ six hosts (`counter_with_stories`, `login_form`, the `login` and
 scaffolding), already drifting in the per-testbed boot specifics they each add.
 
 `re-frame.testbed.story-host/mount-with-hash-routing!` owns that harness:
-the testbed does its own boot (Xray config, `rf/init!`, `story/configure!`,
-`:fx-overrides`, seed dispatches, CI hooks) and calls the helper LAST with
-its live-app root view. Five of the six hosts now call it (the four Story
-showcases above plus `panel_gallery`, which previously installed a bare
-per-`run` `hashchange` listener — rf2-x31vn); the **template copy stays
-standalone by design** — it is `resources/` scaffolding emitted into a fresh
-consumer project whose classpath has no access to this dev-repo-internal
-helper.
+the testbed does its own boot (Xray config, `rf/init!`, `:fx-overrides`,
+seed dispatches, CI hooks) and calls the helper LAST with its live-app root
+view. Five of the six hosts now call it (the four Story showcases above plus
+`panel_gallery`, which previously installed a bare per-`run` `hashchange`
+listener — rf2-x31vn); the **template copy stays standalone by design** — it
+is `resources/` scaffolding emitted into a fresh consumer project whose
+classpath has no access to this dev-repo-internal helper.
+
+### The open-in-editor project-root is a host responsibility (rf2-77wqzi)
+
+Story stamps each registered source-coord with a **classpath-relative**
+`:file` slot (e.g. `login/stories.cljs`); the 'open in editor' chip prepends
+an on-disk project-root to build a real editor URI. That config used to be
+left inline in every consuming `run` (`story/configure! {:rf.story/project-root …}`),
+and the two `examples/reagent` showcases silently forgot it — they mounted
+the shell fine but their Story source links resolved against a nil root, so
+OS editor handlers could not open the file (a false green).
+
+The optional second arg to `mount-with-hash-routing!` closes that gap: a
+consumer declares its tool-relative source subdir via `:story-subdir` (e.g.
+`{:story-subdir "examples/reagent"}`) and the host resolves the on-disk root
+through `resolve-project-root` (build-env define or `?project-root=` override,
+cross-platform) and calls `story/configure!` itself — which also bridges the
+root into Xray's slot. Omit the opt (or use the 1-arity call) when the
+consumer drives `story/configure!` itself. A blank subdir, or a checkout with
+no resolvable root, configures nothing (graceful no-op). Declaring the subdir
+means a Story-host consumer can no longer mount the shell while silently
+forgetting the project-root config.
 
 ## Layout
 
@@ -70,7 +96,8 @@ tools/testbed-support/
 └── src/re_frame/testbed/
     ├── config.cljs                           ; resolve-project-root + the repo-root goog-define
     ├── config_cljs_test.cljs                 ; CLJS unit tests for the resolver
-    └── story_host.cljs                       ; mount-with-hash-routing! (live-app↔shell host)
+    ├── story_host.cljs                       ; mount-with-hash-routing! (live-app↔shell host)
+    └── story_host_cljs_test.cljs             ; CLJS unit tests for the host harness
 ```
 
 ## How it's wired
@@ -85,9 +112,14 @@ and seed `re-frame.testbed.config/repo-root` via that file's
 
 ## How to test
 
-The `config_cljs_test.cljs` corpus runs as part of the testbed CLJS test
-surface; there is no standalone test alias for this directory (no
-`deps.edn`).
+Both `config_cljs_test.cljs` (the resolver) and `story_host_cljs_test.cljs`
+(the host harness's listener lifecycle / hot-reload behaviour) run as part
+of the always-on CLJS gate: `npm run test:cljs` from `implementation/`
+compiles the `:node-test` build, whose `:ns-regexp "cljs-test$"` discovers
+both namespaces through this slice's wired `../tools/testbed-support/src`
+source path. There is no standalone test alias for this directory (no
+`deps.edn`); the suites live under `src/` precisely so that wired source
+path picks them up.
 
 ## See also
 

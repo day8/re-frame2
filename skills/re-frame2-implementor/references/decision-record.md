@@ -91,14 +91,18 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 ### State storage (S1–S3)
 
-#### S1 App-db container
+#### S1 Frame-state container (two partitions)
 
-- **Container:** <e.g. "Reagent ratom" / "useSyncExternalStore-backed atom store" / "MutableStateFlow-shaped cell">
-- **Revertibility check:** <confirm no non-derivable adapter state lives outside the container>
+> EP-0001 shipped a **two-partition** frame. The physical durable state is **one** `frame-state` container value `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`; **app-db and runtime-db are read-only derived projections** over that one container (one physical container, two projection reactions — pattern contract per [`spec/002-Frames.md` §One physical container, two projection reactions](https://day8.github.io/re-frame2/spec/002-Frames/) and [`spec/006-ReactiveSubstrate.md` §Frame-state container and partition projections](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/)). app-db holds user data and nothing else; runtime-db holds framework subsystem state (machine snapshots, route slice, elision declarations, SSR metadata) under the `:rf.runtime/*` children. The former app-db root `:rf/runtime` is RETIRED — a stray `:rf/runtime` root in a `:db` effect hard-errors (`:rf.error/legacy-runtime-root`); never store framework runtime state under an app-db root.
+
+- **Frame-state container:** <e.g. "Reagent ratom holding `{:rf.db/app … :rf.db/runtime …}`" / "useSyncExternalStore-backed atom store" / "MutableStateFlow-shaped cell"> — ONE physical container for the whole frame-state value.
+- **Partition projections:** <how `app-db` / `runtime-db` are derived as read-only projections over the one container — e.g. "two Reagent `r/reaction`s projecting `:rf.db/app` / `:rf.db/runtime`"; confirm equality-based partition invalidation: a runtime-only commit must NOT invalidate app subs, an app-only commit must NOT touch framework subs>
+- **Write authority:** <confirm an ordinary `:db` effect replaces only app-db; `:rf.db/runtime` effects (framework/runtime-extension only, by convention) replace only runtime-db; a cascade emitting both installs them as one atomic frame-state transition>
+- **Revertibility check:** <confirm no non-derivable adapter state lives outside the frame-state container — both partitions are revertible by one value swap; restore / hydration / time-travel reinstall a coherent frame-state, never one partition alone>
 
 #### S2 Snapshot/restore mechanism
 
-- **Mechanism:** <e.g. "pointer swap (persistent collections)" / "value capture + replace-container!"> — depends on F2.
+- **Mechanism:** <e.g. "pointer swap (persistent collections)" / "value capture + replace-container!"> — depends on F2. Snapshots the whole `frame-state` value (both partitions together), not app-db alone.
 
 #### S3 Path-access primitive
 
@@ -168,7 +172,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 ## D5b. Data classification (Sensitive + Large) — v1-required (not D3-gated)
 
 - **Mark storage:** <where per-frame app-db marks live — e.g. "per-frame side-table unioned with schema-attached marks at lookup time"; `add-marks` merges, `set-marks` replaces-and-clears, both preserve schema-attached marks, both return `frame-id`>
-- **Per-registration declarations:** <confirm the seven marking sites accept `{:sensitive [paths] :large [paths]}` — `reg-event-{db,fx,ctx}` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-machine` / `reg-flow` + app-db marks; subs/flows also take whole-output `:sensitive? true/false` / `:large? true/false`>
+- **Per-registration declarations:** <confirm the six metadata-bearing marking sites accept `{:sensitive [paths] :large [paths]}` — `reg-event-{db,fx,ctx}` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow` + app-db marks; subs/flows also take whole-output `:sensitive? true/false` / `:large? true/false`. State machines are schema-first: `reg-machine` is two-arity with NO `:sensitive` / `:large` keys — mark `:data` slots via `:data-schema` `:sensitive?` / `:large?` props (rooted under `[:data …]`) and/or the runtime `add-marks` / `set-marks` snapshot path-list (the two union); see Spec 015 §6 / Spec 005 §Privacy>
 - **Propagation mechanism:** <write-time taint-tracking OR emit-time path-graph union — both conform; covers the seven dataflow boundaries>
 - **Emission-time substitution:** <the one wire-elision walker (e.g. `elide-wire-value`) all five observation surfaces route through — trace bus, Xray, MCP wire, AI/LLM handoff, log sinks; the wire markers it writes are `:rf/redacted` (sensitive) and `:rf.size/large-elided {:bytes N …}` (large) per Spec 009 — the `:rf/large {:bytes N :head}` / `:rf/redacted {:bytes N}` forms are the Spec 015 *display* renderings layered on top, not the wire shape; real values flow through the runtime unchanged; the 009 always-on emit records run the walker too so no marked value crosses the trust boundary in dev OR production>
 

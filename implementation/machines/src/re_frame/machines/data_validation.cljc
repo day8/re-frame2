@@ -22,7 +22,7 @@
 
   The spawn-time validator (`validate-spawn-data!`) is the sibling
   call site for `spawn-fx`'s pre-install check — a spawned actor's
-  initial `:data` is validated before the snapshot lands in app-db so
+  initial `:data` is validated before the snapshot lands in runtime-db so
   a failing spawn never installs.
 
   Both validators route through the schemas artefact's late-bind
@@ -109,7 +109,7 @@
 
   Per the bead's recovery posture:
     - `:phase :macrostep` and `:phase :bootstrap` → rollback? true
-      (the snapshot is already in app-db at validation time; the
+      (the snapshot is already in runtime-db at validation time; the
       router will restore the pre-handler db on a false return).
     - `:phase :spawn` → rollback? false (the snapshot has not yet
       installed; the spawn-fx caller skips the install on false)."
@@ -168,7 +168,7 @@
 (defn validate-spawn-data!
   "Sibling of `validate-machine-data!` for the `:rf.machine/spawn` install
   path. Validates a freshly-built initial snapshot's `:data` against the
-  spawned actor's machine `:data-schema` BEFORE the snapshot lands in app-db.
+  spawned actor's machine `:data-schema` BEFORE the snapshot lands in runtime-db.
   Returns true on conform / no schema / no validator; false on failure
   (caller skips the install).
 

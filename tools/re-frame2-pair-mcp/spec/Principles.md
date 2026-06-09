@@ -872,20 +872,34 @@ Saving the round-trip too needs a server-side hash precheck
 first, only ship the body on miss) — out of scope for
 rf2-3rt1f, filed as a follow-on bead.
 
-**Precheck eligibility (rf2-36xod follow-on; rf2-3ljsa)**. The
-precheck landed: `(re-frame2-pair.runtime/app-db-hash frame)` is
-shipped first, and a match short-circuits the tool eval. Because
-that hash is `(hash app-db@frame)` ONLY, a tool is precheck-eligible
-solely when its result is a pure function of `app-db@frame`. For
-`snapshot` this constrains the resolved `:include` to the app-db-
-derived slices `{:app-db :machines}` — `:sub-cache`/`:epochs`/
-`:traces` accrue without an app-db write (every event cascade
-appends an epoch + trace record, even a no-`:db` handler), so a
-snapshot retaining any of those three (including the default all-
-five `:include`) is NOT precheck-eligible and falls back to the
-post-eval result-hash cache above, which hashes the full text and
-so never serves a stale non-app-db slice. `get-path` reads an
-app-db subtree and so is always eligible.
+**Precheck eligibility (rf2-36xod follow-on; rf2-3ljsa; rf2-ww877w)**.
+The precheck landed: `(re-frame2-pair.runtime/app-db-hash frame)` is
+shipped first, and a match short-circuits the tool eval. Because that
+hash is `(hash app-db@frame)` ONLY, a tool is precheck-eligible solely
+when its result is a pure function of `app-db@frame`. For `snapshot`
+this constrains the resolved `:include` to the single app-db-derived
+slice `{:app-db}`. The other four slices change WITHOUT an app-db
+write, so a snapshot retaining any of them (including the default
+all-five `:include`) is NOT precheck-eligible and falls back to the
+post-eval result-hash cache above, which hashes the full text and so
+never serves a stale slice:
+
+- `:machines` is RUNTIME-DB state (rf2-ww877w) — EP-0001 (rf2-vzld77)
+  moved machine snapshots out of app-db into the durable runtime-db
+  partition (`[:rf.runtime/machines :snapshots]`), so a machine
+  transition rewrites the slice while `(hash app-db)` stays constant.
+- `:sub-cache` is a reactive cache over external inputs.
+- `:epochs`/`:traces` accrue a record on every event cascade, even a
+  no-`:db` handler.
+
+`get-path` is also NOT precheck-eligible (rf2-ww877w): although it
+reads an app-db subtree, its wire result is post-processed by
+`re-frame.core/elide-wire-value`, whose elision registry lives in the
+runtime-db partition (`[:rf.runtime/elision]`). A later elision
+declaration (or a sensitive/large classification flip) can re-shape
+the egress of an UNCHANGED subtree, which the `(hash app-db)` precheck
+hash cannot observe — so `get-path` falls back to the post-eval
+result-hash cache, which hashes the actual post-elision text.
 
 **Why opt-in by default**. Agent hosts that haven't been
 taught the `:rf.mcp/cache-hit` marker shape would receive a

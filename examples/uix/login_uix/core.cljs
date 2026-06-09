@@ -58,18 +58,28 @@
     [:vector :any]]
    [:? :any]])
 
-(def AuthLoginSnapshot
+;; The machine's `:data-schema` validates the machine's `:data` slot ONLY —
+;; the user-domain extended state `{:attempts ... :error ...}` — NOT the whole
+;; `{:state ... :data ...}` snapshot. Per Spec 005 §Schema validation
+;; (005-StateMachines.md:182, :200, :429-435) and Spec 010
+;; (010-Schemas.md:52, :162, :178): `:data-schema` sits as a top-level key on
+;; the machine spec map beside `:data`, and the framework validates it at every
+;; macrostep-commit boundary + at bootstrap, emitting
+;; `:rf.error/schema-validation-failure :where :machine-data` and rolling back
+;; the cascade on a violation. The snapshot's `:state` slot is validated
+;; structurally at registration time (an unknown target fails registration),
+;; so it is NOT this schema's job — describing the whole snapshot here would
+;; be the wrong shape for the slot the framework actually validates.
+(def AuthLoginData
   [:map
-   [:state [:enum :idle :submitting :error-shown :authed :locked-out]]
-   [:data  [:map
-            [:attempts {:default 0} :int]
-            [:error    [:maybe :string]]]]])
+   [:attempts {:default 0} :int]
+   [:error    [:maybe :string]]])
 
 ;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db state, not app-db —
 ;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
-;; schemas validate the app-db partition only, Mike ruling #11). The
-;; machine's own `:data-schema` is the snapshot-validation surface, so the
-;; vestigial app-schema reg is removed.
+;; schemas validate the app-db partition only, Mike ruling #11). The machine's
+;; own `:data-schema` (attached to the spec map below) is the live validation
+;; surface for `:data`, so no app-schema reg is needed.
 
 ;; ============================================================================
 ;; FX
@@ -123,87 +133,133 @@
 ;; STATE MACHINE
 ;; ============================================================================
 
+;; The login flow's machine spec. `:data-schema` is a TOP-LEVEL key on the
+;; spec map (Spec 005 §Schema validation) — it validates the `:data` slot
+;; (`{:attempts ... :error ...}`), NOT the whole snapshot.
+(def auth-login-machine
+  {:initial     :idle
+   :data        {:attempts 0 :error nil}
+   :data-schema AuthLoginData
+
+   :guards
+   {:under-retry-limit
+    (fn [{data :data}] (< (:attempts data) 3))}
+
+   :actions
+   {:clear-error
+    (fn [_] {:data {:error nil}})
+
+    :issue-request
+    (fn [{[_ creds] :event}]
+      {:fx [[:rf.http/managed
+             {:request    {:method :post
+                           :url    "/api/login"
+                           :body   creds
+                           :request-content-type :json}
+              :decode     :json
+              :on-success [:auth.login/flow [:auth.login/success]]
+              :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
+
+    :record-error
+    (fn [{data :data [_ {:keys [failure]}] :event}]
+      {:data (-> data
+                 (update :attempts inc)
+                 (assoc :error (or (:message failure) "Login failed.")))})
+
+    :lock-account
+    ;; Fire-and-forget telemetry beacon (Spec 014 §Reply addressing
+    ;; "Silenced"): the lockout POST wants no reply folded back into the
+    ;; machine. `:on-success nil` / `:on-failure nil` silence both reply
+    ;; branches explicitly — without them the omitted-target default
+    ;; (co-located addressing) would dispatch
+    ;; `[:auth.login/flow {:rf/reply ...}]`, a map in the sub-event slot
+    ;; that `AuthLoginEvent` rejects, stranding noise after lockout.
+    (fn [_]
+      {:fx [[:rf.http/managed
+             {:request    {:method :post :url "/api/auth/lock"}
+              :on-success nil
+              :on-failure nil}]]})
+
+    :store-session
+    (fn [{[_ {:keys [value]}] :event}]
+      {:fx [[:auth.session/store {:token (:token value)}]]})}
+
+   :states
+   {:idle
+    {:on {:auth.login/submit {:target :submitting
+                              :action :clear-error}}}
+
+    :submitting
+    ;; :auth/busy tag — views query
+    ;; [:rf/machine-has-tag? :auth.login/flow :auth/busy] to disable
+    ;; inputs and re-label the submit button while the request is in
+    ;; flight.
+    {:tags  #{:auth/busy}
+     :entry :issue-request
+     :on    {:auth.login/success {:target :authed
+                                  :action :store-session}
+             :auth.login/failure [{:target :error-shown
+                                   :guard  :under-retry-limit
+                                   :action :record-error}
+                                  {:target :locked-out
+                                   :action :lock-account}]}}
+
+    :error-shown
+    {:on {:auth.login/dismiss {:target :idle}
+          :auth.login/submit  {:target :submitting}}}
+
+    :authed
+    ;; :auth/authenticated tag — the banner swaps to "Welcome!" once
+    ;; the flow reaches this terminal state.
+    {:tags #{:auth/authenticated}
+     :meta {:terminal? true}}
+
+    :locked-out
+    ;; :auth/locked tag — after the fourth failed submit the flow lands
+    ;; in this terminal state. Views query
+    ;; [:rf/machine-has-tag? :auth.login/flow :auth/locked] to swap the
+    ;; form for a locked-account panel and refuse further submits — same
+    ;; tag + locked-panel pattern as the state-machines walkthrough. A
+    ;; terminal lockout must be visible and non-interactive, not a live
+    ;; form (rf2-ijqlmi).
+    {:tags #{:auth/locked}
+     :meta {:terminal? true}}}})
+
+;; A machine that ALSO validates its outer event vector. The canonical
+;; surface for registering a machine is `reg-machine` / `reg-machine*`
+;; (Spec 005 §reg-machine — the form tools, examples, and scaffolds default
+;; to). Reach for it first. This login flow is the one shape it cannot
+;; express today: it needs BOTH a live machine `:data-schema` AND an
+;; event-vector `:schema` (`AuthLoginEvent`, the `:where :event` boundary on
+;; the dispatched vector), and `reg-machine` takes only `[machine-id machine]`
+;; — no slot for an event-vector `:schema`.
+;;
+;; So this example composes the two surfaces explicitly: it registers via the
+;; documented lower-level `reg-event-fx` + `make-machine-handler` form (the
+;; SAME registry slot `reg-machine` reaches — Spec 005 §Registration), and on
+;; the handler's metadata map it carries the public, documented machine keys
+;; alongside `:schema`:
+;;   :rf/machine? true   — the machine discriminator (Spec 005 §Querying
+;;                         machines / §Registration-metadata stamp). `(machines)`
+;;                         filters on it; `machine-meta` reads the spec back.
+;;   :rf/machine <spec>   — the spec map. `machine-meta` reads `:data-schema`
+;;                         off it, so the `:where :machine-data` validator goes
+;;                         live: a bad `:data` update emits/rolls back at that
+;;                         boundary, while the `:schema` boundary validates the
+;;                         event vector before the handler runs.
+;; These are the same two keys `reg-machine*` stamps — not private internals.
+;; The only thing the macro adds that this hand-form does not is source-coord
+;; co-location (jump-to-source in tooling); a flat singleton like this needs
+;; none of `reg-machine*`'s region-machine cache.
+;;
+;; A first-class arity for "machine + event-vector schema" is the documented
+;; public-surface gap (rf2-wgmipl); when it lands this example moves onto it.
 (rf/reg-event-fx :auth.login/flow
-  {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
-   :schema AuthLoginEvent}
-  (rf/make-machine-handler
-    {:initial :idle
-     :data    {:attempts 0 :error nil}
-
-     :guards
-     {:under-retry-limit
-      (fn [{data :data}] (< (:attempts data) 3))}
-
-     :actions
-     {:clear-error
-      (fn [_] {:data {:error nil}})
-
-      :issue-request
-      (fn [{[_ creds] :event}]
-        {:fx [[:rf.http/managed
-               {:request    {:method :post
-                             :url    "/api/login"
-                             :body   creds
-                             :request-content-type :json}
-                :decode     :json
-                :on-success [:auth.login/flow [:auth.login/success]]
-                :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
-
-      :record-error
-      (fn [{data :data [_ {:keys [failure]}] :event}]
-        {:data (-> data
-                   (update :attempts inc)
-                   (assoc :error (or (:message failure) "Login failed.")))})
-
-      :lock-account
-      (fn [_]
-        {:fx [[:rf.http/managed
-               {:request {:method :post :url "/api/auth/lock"}}]]})
-
-      :store-session
-      (fn [{[_ {:keys [value]}] :event}]
-        {:fx [[:auth.session/store {:token (:token value)}]]})}
-
-     :states
-     {:idle
-      {:on {:auth.login/submit {:target :submitting
-                                :action :clear-error}}}
-
-      :submitting
-      ;; :auth/busy tag — views query
-      ;; [:rf/machine-has-tag? :auth.login/flow :auth/busy] to disable
-      ;; inputs and re-label the submit button while the request is in
-      ;; flight.
-      {:tags  #{:auth/busy}
-       :entry :issue-request
-       :on    {:auth.login/success {:target :authed
-                                    :action :store-session}
-               :auth.login/failure [{:target :error-shown
-                                     :guard  :under-retry-limit
-                                     :action :record-error}
-                                    {:target :locked-out
-                                     :action :lock-account}]}}
-
-      :error-shown
-      {:on {:auth.login/dismiss {:target :idle}
-            :auth.login/submit  {:target :submitting}}}
-
-      :authed
-      ;; :auth/authenticated tag — the banner swaps to "Welcome!" once
-      ;; the flow reaches this terminal state.
-      {:tags #{:auth/authenticated}
-       :meta {:terminal? true}}
-
-      :locked-out
-      ;; :auth/locked tag — after the fourth failed submit the flow lands
-      ;; in this terminal state. Views query
-      ;; [:rf/machine-has-tag? :auth.login/flow :auth/locked] to swap the
-      ;; form for a locked-account panel and refuse further submits — same
-      ;; tag + locked-panel pattern as the state-machines walkthrough. A
-      ;; terminal lockout must be visible and non-interactive, not a live
-      ;; form (rf2-ijqlmi).
-      {:tags #{:auth/locked}
-       :meta {:terminal? true}}}}))
+  {:doc         "Login flow: idle → submitting → authed / error-shown / locked-out."
+   :schema      AuthLoginEvent
+   :rf/machine? true
+   :rf/machine  auth-login-machine}
+  (rf/make-machine-handler auth-login-machine))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

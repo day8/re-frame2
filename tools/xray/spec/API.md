@@ -205,6 +205,31 @@ so the common boot-time wiring lands in one require. The full setter
 inventory lives in `day8.re-frame2-xray.config` — see §Wider public
 surface below.
 
+**Requiring the facade is side-effect-free (rf2-5w06uu).** The two
+install paths are strictly separated:
+
+- The **zero-config preload path** — wiring
+  `day8.re-frame2-xray.preload` into shadow-cljs's `:devtools/preloads`
+  — auto-installs on namespace load (the six side-effects above): it is
+  the canonical convenience path and SHOULD self-install.
+- The **manual facade path** — `(require '[day8.re-frame2-xray.core])`
+  then `configure!` → `init!`/`open!` — is INERT until the host calls
+  `init!` (or `open!`). Requiring `core`, and calling its boot-time
+  config setters (`configure!`, `set-auto-open!`, …), registers NO trace
+  / epoch collectors, attaches NO keybinding, installs NO browser globals,
+  and schedules NO auto-open. The side-effecting work fires only inside
+  `init!`. This is what lets a host's `configure!` win deterministically
+  *before* any auto-open — boot flags like `:rf.xray/auto-open? false` /
+  `:rf.xray/keybinding-enabled? false` set via `configure!` before `init!`
+  are honoured because `init!`'s `keybinding/attach!` reads the
+  already-set config slot.
+
+  The facade reaches its install primitives through the inert-on-load
+  `day8.re-frame2-xray.install` namespace, NOT `day8.re-frame2-xray.preload`
+  (whose top-level boot block is what makes the preload path self-install).
+  `init!` itself performs the manual install (registry + trace collector +
+  epoch collector + keybinding attach) explicitly.
+
 ### Wider public surface
 
 Beyond the canonical facade, Xray exposes additional public surfaces
@@ -722,12 +747,25 @@ default `false` — sensitive slots become `:rf/redacted`, large slots
 become the `:rf.size/large-elided` marker. A caller that is itself the
 trust boundary opts back in per call
 (`{:include-sensitive? true}` / `{:include-large? true}`). `egress-record`
-routes through `projected-record` on the safe default path (bookkeeping
-slots pass through unchanged) and through `egress-value` when the
-caller opts in (the projection has no opt-in arg). This is the runtime's
-half of MUST-inventory rows #2 / #15 / #17 / #19; callers pass plain
-`:include-sensitive?` / `:include-large?` opts, the fns translate to the
-framework's `:rf.size/*` namespaced opt keys.
+routes through `projected-record` on **every** path — both the safe
+default and the opt-in — threading the opts into the normative projection
+(rf2-5w06uu). It NEVER walks the raw record through `egress-value`: doing
+so on opt-in (the former shape) both lifted the orthogonal `:rf.db/runtime`
+partition of the frame-state slots off-box just because the caller asked
+for sensitive / large APP-DB values, AND mis-rooted the app-db path
+tracker so frame-state app-db sensitive declarations never matched.
+Per [Security.md §Off-box egress](../../../spec/Security.md) the projection
+is the single normative emission site and per-tool reimplementation is
+prohibited — so the framework's `projected-record` was extended to accept
+the egress opts rather than Xray re-deriving the partition logic. The
+`:rf.db/runtime` frame-state partition stays `:rf/redacted` under
+`:include-sensitive?` / `:include-large?`; a trusted-local caller reveals
+it only with `{:include-runtime-db? true}` (the runtime-db value then
+rides the same value walk, where its own per-slot declarations apply) —
+the same partition-opt-in `egress-runtime-db-value` exposes for live reads.
+This is the runtime's half of MUST-inventory rows #2 / #15 / #17 / #19;
+callers pass plain `:include-sensitive?` / `:include-large?` /
+`:include-runtime-db?` opts.
 
 **Event-level default-suppress (the envelope, not just the value).**
 `egress-value` scrubs the VALUES carried inside a trace event, but it does
@@ -789,7 +827,7 @@ gate is reachable only through the runtime accessors.
 | Accessor (fn) | Tool name | Returns | Reads |
 |---|---|---|---|
 | `get-trace-buffer` | `get-trace-buffer` | `{:ok? true :events <vec> :count <n>}` | `trace-tooling/trace-buffer` — filtered slice of the trace stream. Filter keys are the canonical Spec 009 vocabulary (`:operation` / `:op-type` / `:since` / `:frame` / `:severity` / `:event-id` / `:handler-id` / `:source` / `:origin` / `:dispatch-id` / `:since-ms` / `:between` / `:pred`). Whole `:sensitive? true` events are default-SUPPRESSED before value-scrubbing — the envelope is dropped unless `{:include-sensitive? true}` (rf2-to36uj). |
-| `get-epoch-history` | `get-epoch-history` | `{:ok? true :frame <id> :epochs <vec> :count <n>}` | `rf/epoch-history` per-frame vector of `:rf/epoch-record`. |
+| `get-epoch-history` | `get-epoch-history` | `{:ok? true :frame <id> :epochs <vec> :count <n>}` | `rf/epoch-history` per-frame vector of `:rf/epoch-record`, each routed through `egress-record` → `projected-record`. `:include-sensitive?` / `:include-large?` opt the **app-db** partition's privacy / size posture back in; the frame-state `:rf.db/runtime` partition stays `:rf/redacted` unless a trusted-local caller also passes `:include-runtime-db? true` (rf2-5w06uu). |
 | `get-app-db` | `get-app-db` | `{:ok? true :frame <id> :path <vec> :value <edn>}` | `rf/app-db-value` (optionally scoped by `:path`). The `:value` routes through `egress-value`; when `:path` is supplied the absolute path is threaded into the walker so a scoped slice elides against schema-declared sensitive / large paths — fail-closed, symmetric with the whole-db read and the `get-app-db-diff` slices (rf2-a96xq). |
 | `get-app-db-diff` | `get-app-db-diff` | `{:ok? true :frame <id> :epoch-id <uuid> :diff {:added [{:path :value}] :removed [{:path :value}] :changed [{:path :before :after}]}}` | Projects the changed-paths slice diff between a named epoch's `:db-before` + `:db-after` via the canonical Editscript-A* engine (`diff.engine/project`). Only the changed paths' slices egress — each `:value` / `:before` / `:after` routed through `egress-value`, never two whole app-db snapshots (rf2-uv2q2). Heavier nested-diff projection lives MCP-side. |
 | `get-machine-state` | `get-machine-state` | `{:ok? true :frame <id> :machine-id <kw> :state <live-state-path> :snapshot {:state :data :tags …} :spec <registered-definition>}` | The LIVE FSM position — reads the machine's snapshot from the frame's **runtime-db partition** at `[:rf.runtime/machines :snapshots <machine-id>]` (EP-0001 rf2-vzld77 — machine snapshots are durable runtime-db state; the same slot the Machine Inspector's `:rf.xray/machine-snapshots` sub + the framework resolver read). `:state` is the running state-path (a region→state map for a `:parallel` machine — Spec 005), NOT derived from the static spec; the registered definition is returned separately under `:spec`. A registered-but-not-yet-started machine has no live snapshot — `:state` / `:snapshot` are `nil` and `:reason` is `:not-yet-started` (still `:ok? true`). **Partition-aware off-box redaction (rf2-jj1xer · Mike ruling #14):** `:state` / `:snapshot` are RUNTIME-DB state, so they egress through `egress-runtime-db-value` and are REDACTED to `:rf/redacted` off-box by default; a trusted-local caller opts in with `:include-runtime-db? true` (the inner walk then honours per-slot sensitive / large declarations). `:spec` is a static registry value (not runtime-db), so it egresses through `egress-value` regardless of the runtime-db opt-in. |

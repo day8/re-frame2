@@ -1182,25 +1182,83 @@
         #js [])
       nil)))
 
-(defn- append-unmount-sentinel
-  "Append an unmount-sentinel child element to `annotated` (the source-
-  coord / view-id-annotated user output) so the view instance fires
-  `:rf.view/unmounted` on teardown (rf2-te71r). `cloneElement` with a
-  trailing extra child preserves the root's `type`, `key`, and existing
-  props/children — the source-coord + view-id contract is untouched (the
-  inspected output is still the user's annotated root element, NOT a
-  Fragment wrapper), and the sentinel renders no DOM, so the committed
-  tree gains nothing visible. On a headless direct invocation of the
-  wrapped fn (the suite's render-trace tests call `((rf/view id))`) this
-  merely builds an element object whose sentinel child's hooks never run;
-  only a real React mount renders the sentinel and arms its useEffect
-  cleanup.
+(def ^:private void-dom-tags
+  "HTML5 void elements — self-closing, MUST NOT receive children. React
+  raises a void-element error (and SSR/hydration breaks) if `input`,
+  `img`, `br`, … are given a child. The set is fixed in HTML5 (no
+  maintenance burden).
 
-  Non-element / nil output (a view returning a string or nil) cannot
-  carry a child — pass it through unchanged (no unmount arm; consistent
-  with such a view having no mountable instance to tear down)."
+  Lockstep with `reagent2.impl.template/void-tags` and
+  `re-frame.ssr.emit/void-elements` (same membership, keyword vs string
+  shapes). Bundle isolation forbids `:require` across artefacts (core
+  must not reach into the adapters or the SSR artefact), so the set is
+  duplicated by intent. If HTML5 ever extends the void-element list
+  (extraordinarily unlikely), update every copy."
+  #{"area" "base" "br" "col" "embed" "hr" "img" "input" "link"
+    "meta" "param" "source" "track" "wbr"})
+
+(defn- void-dom-root?
+  "True when `react-element` is a void HTML DOM element (string `type`
+  in `void-dom-tags`) — React rejects children on such roots, so the
+  unmount sentinel must ride as a SIBLING (in a Fragment) rather than a
+  child. Function/class components and Fragments have non-string types
+  and are never void."
+  [react-element]
+  (let [t (some-> ^js react-element .-type)]
+    (and (string? t) (contains? void-dom-tags t))))
+
+(defn- append-unmount-sentinel
+  "Attach an unmount-sentinel to `annotated` (the source-coord /
+  view-id-annotated user output) so the view instance fires
+  `:rf.view/unmounted` on teardown (rf2-te71r). Two shapes, keyed on
+  whether the user's root is a VOID DOM element:
+
+  - Non-void root (the dominant case): `cloneElement` with a trailing
+    extra CHILD. This preserves the root's `type`, `key`, and existing
+    props/children — the inspected output is still the user's annotated
+    root element, NOT a Fragment wrapper, so the source-coord + view-id
+    contract and the layout-critical no-wrapper guarantee both hold.
+
+  - Void root (`input` / `img` / `br` / …, rf2-ghfkkk): React rejects
+    children on void elements (it raises a void-element error and breaks
+    hydration), so the sentinel CANNOT be a child. Instead, return a
+    `React.Fragment` holding the user's annotated root element UNCHANGED
+    (its `data-rf2-source-coord` / `data-rf-view` attrs intact) plus the
+    sentinel as a SIBLING. A Fragment renders no wrapper DOM node, so the
+    committed tree's DOM semantics are stable — the void element stays a
+    direct child of its real parent, with no synthetic host element. The
+    inspected root is still the user's annotated void element; only the
+    sentinel's sibling position changes. This keeps a valid registered
+    view returning a void root valid under dev-mode instrumentation
+    (pre-fix it became invalid, producing React void-element errors that
+    vanished in production).
+
+  The sentinel renders no DOM in BOTH shapes. On a headless direct
+  invocation of the wrapped fn (the suite's render-trace tests call
+  `((rf/view id))`) this merely builds an element object whose sentinel
+  hooks never run; only a real React mount renders the sentinel and arms
+  its useEffect cleanup.
+
+  Non-element / nil output (a view returning a string or nil) has no
+  mountable root instance — pass it through unchanged (no unmount arm,
+  consistent with such a view having nothing to tear down)."
   [unmount-sentinel id frame-id annotated]
-  (if (and (some? annotated) (some? (.-type ^js annotated)))
+  (cond
+    (or (nil? annotated) (nil? (.-type ^js annotated)))
+    annotated
+
+    (void-dom-root? annotated)
+    ;; Void root — sentinel rides as a SIBLING inside a Fragment so the
+    ;; user's void element receives NO children. The annotated root is
+    ;; forwarded unchanged (source-coord / data-rf-view attrs intact).
+    (let [sentinel-el (React/createElement unmount-sentinel
+                                           #js {:viewId id :frame frame-id})]
+      (React/createElement (.-Fragment React) nil annotated sentinel-el))
+
+    :else
+    ;; Non-void root — append the sentinel as a CHILD (no Fragment wrap,
+    ;; so layout-critical positioning / flexbox / grid / :nth-child stay
+    ;; intact).
     (let [sentinel-el (React/createElement unmount-sentinel
                                            #js {:viewId id :frame frame-id})
           existing    (some-> ^js annotated .-props .-children)
@@ -1214,8 +1272,7 @@
                         (array? existing) (.concat existing #js [sentinel-el])
                         :else             #js [existing sentinel-el])]
       (.apply React/cloneElement nil
-              (.concat #js [annotated nil] children)))
-    annotated))
+              (.concat #js [annotated nil] children)))))
 
 (defn make-wrap-view
   "Return a `wrap-view` fn parameterised on the substrate's per-adapter

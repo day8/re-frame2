@@ -137,7 +137,7 @@ Flow on `:rf/url-requested`:
 - **`:rf.route/not-found` is canonical.** Register it explicitly; unmatched URLs resolve to this id. The runtime falls back to a placeholder and emits `:rf.warning/no-not-found-route` if you don't register one.
 - **Nav-tokens suppress stale results.** Each navigation allocates a fresh `:nav-token` (`"nav-N"`). Async handlers (typically HTTP `:on-success`) capture the token at request time; the runtime suppresses the continuation when the carried token does not match the current slice's. Tests can simulate via `[:rf.test/simulate-http-resolution {:on-success-event [...] :carried-nav-token "nav-3"}]` — this fixture event is test-only, so `(:require [re-frame.routing.test-support])` to register it (it is NOT wired into the production `re-frame.routing` façade).
 - **Scroll is declarative.** `:scroll` on the route metadata is one of `:top` (default for forward nav), `:restore` (default for popstate / initial), `:preserve`, or a host-extensible map. Per-call override on `:rf.route/navigate` opts wins. Setting `:scroll false` suppresses the `:rf.nav/scroll` fx entirely.
-- **Multi-frame routing.** The slice, nav-token counter, and saved-scroll map all live in the frame's app-db — each frame has its own routing state. No global router.
+- **Multi-frame routing.** The route slice, nav-token counter, and saved-scroll map all live in the frame's **runtime-db** partition (under the reserved `[:rf.runtime/routing …]` keys) — each frame has its own routing state, read back via the framework `:rf/route` / `:rf.route/*` subs. No global router.
 
 ## Deeper material
 

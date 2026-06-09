@@ -38,16 +38,23 @@
       the installed flow-augmented db).
     - An event whose `:fx` `:dispatch`es child events gives EACH child its
       OWN independent flow eval, not the parent's.
-    - A flow whose `:inputs` overlap the `[:rf.runtime/routing :current]`
-      slice reads the POST-transition route (the slice rewrite is the
-      handler's pending `:db`; the flow at the outermost `:after`
-      transforms that pending value before install — there is no
-      pre-transition window the flow could observe). The dual atomicity
-      assertion: a flow throw on a `:rf.route/transitioned` dispatch
-      aborts the WHOLE event — slice stays on the previous route,
-      `:on-match` `:dispatch` fxs are NOT walked. Pin (rf2-qm8m3):
-      regression coverage for the routing × flows composition the
-      rf2-hm4gi delta audit flagged."
+    - A flow whose `:inputs` opt into runtime-db via the partition-
+      qualified form `[:rf.db/runtime :rf.runtime/routing :current …]`
+      reads the POST-transition route (EP-0001 §535-551, rf2-4eisfr —
+      Mike RULED (b) 2026-06-09: flows read runtime-db via EXPLICIT
+      partition-qualified inputs; the route slice rewrite is the handler's
+      pending `:rf.db/runtime` effect; the flow at the outermost `:after`
+      transforms against that pending runtime-db before install — there is
+      no pre-transition window the flow could observe). The dual-partition
+      TRIGGER (§542-544): a runtime-only `:rf.route/transitioned` event
+      (no `:db` effect) still recomputes the route-reading flow, because
+      the dirty-check keys on BOTH partitions — a runtime-db change cannot
+      be hidden merely because app-db was value-identical. The dual
+      atomicity assertion: a flow throw on a `:rf.route/transitioned`
+      dispatch aborts the WHOLE event (BOTH partitions) — slice stays on
+      the previous route, `:on-match` `:dispatch` fxs are NOT walked. Pin
+      (rf2-qm8m3): regression coverage for the routing × flows composition
+      the rf2-hm4gi delta audit flagged."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -153,14 +160,14 @@
 ;; exactly once for the dispatch (no eval-per-microstep, no missed eval).
 ;; ===========================================================================
 
-;; EP-0001 (rf2-vzld77) — DISABLED pending rf2-4eisfr. This test registers a
-;; flow whose `:inputs` read `[:rf.runtime/machines :snapshots …]`. The
-;; migration moved machine snapshots to the runtime-db partition, but the flow
-;; transform reads the app-db value (the pending `:db` effect), so a flow can
-;; no longer observe a runtime-db path. Whether flows MAY observe runtime-db
-;; inputs is undecided (decision #12 keeps flows app-db); rf2-4eisfr captures
-;; the ruling. `#_` reader-discards the whole deftest until then.
-#_(deftest machine-multi-microstep-macrostep-then-single-flow-eval
+;; EP-0001 §535-551 (rf2-4eisfr) — RE-ENABLED. Mike RULED (b) 2026-06-09:
+;; flows read runtime-db via EXPLICIT partition-qualified inputs. Machine
+;; snapshots live in the runtime-db partition (EP-0001 rf2-vzld77), so this
+;; flow's `:inputs` opt into runtime-db via the qualified form
+;; `[:rf.db/runtime :rf.runtime/machines :snapshots …]` (bare paths still
+;; read app-db; binary syntax — no `[:rf.db/app …]` form). The flow transform
+;; resolves the qualified input against the pending runtime-db partition.
+(deftest machine-multi-microstep-macrostep-then-single-flow-eval
   (testing "a multi-microstep (:always + :raise) machine macrostep settles
             within one dispatched event, THEN exactly ONE flow eval runs on
             the settled db — the flow reads the final machine-driven value"
@@ -193,7 +200,7 @@
       ;; label into a plain app-db path. Logging the input it observed lets
       ;; us prove it saw the FINAL (settled) value, not an intermediate one.
       (rf/reg-flow {:id     :gauge/label
-                    :inputs [[:rf.runtime/machines :snapshots :gauge/flow :data :ticks]]
+                    :inputs [[:rf.db/runtime :rf.runtime/machines :snapshots :gauge/flow :data :ticks]]
                     :output (fn [ticks]
                               (swap! flow-evals conj ticks)
                               (str "ticks=" ticks))
@@ -479,10 +486,15 @@
 ;; stage that the flow-throw path skips wholesale).
 ;; ===========================================================================
 
-;; EP-0001 (rf2-vzld77) — DISABLED pending rf2-4eisfr (flow `:inputs` reads
-;; `[:rf.runtime/routing :current :id]`, now a runtime-db path the flow
-;; transform cannot observe — see the note on machine-multi-microstep above).
-#_(deftest flow-over-route-slice-reads-settled-post-transition-route
+;; EP-0001 §535-551 (rf2-4eisfr) — RE-ENABLED. The route slice lives in the
+;; runtime-db partition (EP-0001 rf2-vzld77), so this flow's `:inputs` opt
+;; into runtime-db via the qualified form
+;; `[:rf.db/runtime :rf.runtime/routing :current :id]`. The flow transform
+;; resolves the qualified input against the pending runtime-db (the
+;; post-transition slice rewrite), and the dual-partition TRIGGER fires this
+;; flow on the runtime-only `:rf.route/transitioned` event even though app-db
+;; did not change (EP-0001 §542-544).
+(deftest flow-over-route-slice-reads-settled-post-transition-route
   (testing "a flow whose :inputs overlap [:rf.runtime/routing :current]
             reads the POST-transition route — the slice rewrite is the
             handler's pending :db; the flow at the outermost :after
@@ -496,7 +508,7 @@
     ;; post-transition slice, not the pre-transition one.
     (let [flow-inputs (atom [])]
       (rf/reg-flow {:id     :route/label
-                    :inputs [[:rf.runtime/routing :current :id]]
+                    :inputs [[:rf.db/runtime :rf.runtime/routing :current :id]]
                     :output (fn [route-id]
                               (swap! flow-inputs conj route-id)
                               (str "you are at " route-id))
@@ -545,9 +557,14 @@
             "the :rf.flow/computed trace's :input-values carries the
              post-transition route id")))))
 
-;; EP-0001 (rf2-vzld77) — DISABLED pending rf2-4eisfr (flow `:inputs` reads
-;; `[:rf.runtime/routing :current :id]`, now a runtime-db path — see above).
-#_(deftest flow-throw-on-route-transition-aborts-event-slice-unchanged-no-on-match-fx
+;; EP-0001 §535-551 (rf2-4eisfr) — RE-ENABLED. The throwing flow reads the
+;; route slice via the qualified runtime-db input
+;; `[:rf.db/runtime :rf.runtime/routing :current :id]`. Step 3 of the ruling:
+;; a flow throw aborts BOTH partitions — `:db` AND `:rf.db/runtime` (the slice
+;; rewrite) AND `:fx` are all skipped, consistent with the atomic
+;; cross-partition commit (`commit-and-flow!` short-circuits on `:rf/flow-error`
+;; before `commit-frame-effects!`, so neither partition installs).
+(deftest flow-throw-on-route-transition-aborts-event-slice-unchanged-no-on-match-fx
   (testing "a flow throw on a :rf.route/transitioned dispatch aborts the
             WHOLE event — the slice rewrite does NOT land, the route stays
             on the pre-transition value, AND the :on-match :dispatch fxs
@@ -578,7 +595,7 @@
         ;; Register a flow that throws on every eval, then transition to a
         ;; route whose :on-match would dispatch :route/load-article.
         (rf/reg-flow {:id     :route/boom
-                      :inputs [[:rf.runtime/routing :current :id]]
+                      :inputs [[:rf.db/runtime :rf.runtime/routing :current :id]]
                       :output (fn [_]
                                 (throw (ex-info "flow boom on route"
                                                 {:why :test})))
@@ -612,3 +629,140 @@
             "NO :rf.event/db-changed in the throw stream — the event
              aborted before install (contrast: a clean transition would
              emit one :rf.event/db-changed for the slice rewrite)")))))
+
+;; ===========================================================================
+;; 6. dual-partition TRIGGER (EP-0001 §542-544, rf2-4eisfr) — a RUNTIME-ONLY
+;;    event recomputes a runtime-db-reading flow even though app-db is
+;;    value-identical.
+;;
+;; This is the SILENT-regression guard the ruling calls out: the flow
+;; dirty-check must key on BOTH partitions, NOT on app-db publication. A pure
+;; `:rf.route/transitioned` returns `{:rf.db/runtime …}` and NO `:db` effect —
+;; app-db never changes across the transition. A flow whose ONLY changing
+;; input is the qualified runtime-db route slice must STILL recompute (a
+;; route-reading breadcrumb that just stopped updating would be the
+;; regression). The test pins: (a) the flow recomputes on the runtime-only
+;; event; (b) it observes the NEW runtime value; (c) it does NOT recompute a
+;; second time when nothing in either partition changes (the dirty-check still
+;; suppresses an unchanged re-eval — the trigger widens to runtime-db without
+;; losing the skip).
+;; ===========================================================================
+
+(deftest runtime-only-event-triggers-runtime-db-reading-flow-recompute
+  (testing "a runtime-only :rf.route/transitioned event (no :db effect)
+            recomputes a flow whose only changing input is a qualified
+            [:rf.db/runtime …] route-slice path — the dirty-check keys on
+            BOTH partitions (EP-0001 §542-544), so the flow does NOT silently
+            stop updating when app-db is value-identical"
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/home    {:path "/"})
+    (let [flow-evals (atom [])]
+      ;; The flow's ONLY input is the qualified runtime-db route id. Its
+      ;; output writes to a plain app-db path (writes are app-db only).
+      (rf/reg-flow {:id     :nav/breadcrumb
+                    :inputs [[:rf.db/runtime :rf.runtime/routing :current :id]]
+                    :output (fn [route-id]
+                              (swap! flow-evals conj route-id)
+                              (str "at:" route-id))
+                    :path   [:nav :breadcrumb]})
+
+      ;; Land on /home — the flow recomputes for the first runtime-only event.
+      (rf/dispatch-sync [:rf.route/transitioned "/"])
+      (is (= [:route/home] @flow-evals)
+          "the flow recomputed on the FIRST runtime-only transition (no :db
+           effect was returned by the handler, yet the runtime-db read fired
+           the trigger)")
+      (is (= "at::route/home" (get-in (rf/app-db-value :rf/default)
+                                      [:nav :breadcrumb]))
+          "the flow output (derived from the runtime-db route slice) landed
+           in app-db")
+
+      ;; Transition to /articles/42 — again a runtime-only event. app-db does
+      ;; NOT change across this transition; ONLY the runtime-db route slice
+      ;; does. The flow MUST recompute and observe the NEW route id — this is
+      ;; the silent-regression guard: if the dirty-check keyed on app-db
+      ;; publication alone, the flow would never re-fire.
+      (let [app-db-before (rf/app-db-value :rf/default)]
+        (reset! flow-evals [])
+        (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
+        (is (= [:route/article] @flow-evals)
+            "the flow recomputed on the runtime-only transition even though
+             the only change was in the runtime-db partition — the trigger
+             keys on BOTH partitions (§542-544)")
+        (is (= "at::route/article" (get-in (rf/app-db-value :rf/default)
+                                           [:nav :breadcrumb]))
+            "the recompute observed the NEW runtime-db route id")
+        (is (not= app-db-before (rf/app-db-value :rf/default))
+            "app-db changed only via the FLOW's output write — the handler
+             returned no :db effect; the change is the breadcrumb the flow
+             derived from the runtime-only route change"))
+
+      ;; A re-dispatch to the SAME route changes neither partition's route
+      ;; slice value — the dirty-check still SKIPS (the trigger widened to
+      ;; runtime-db without losing the value-equal skip).
+      (reset! flow-evals [])
+      (reset! *captured* [])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
+      (is (= [] @flow-evals)
+          "a transition to the SAME route does NOT recompute the flow — the
+           runtime-db route id is value-equal, so the dirty-check skips
+           (widening the trigger to runtime-db preserves the skip)")
+      (is (seq (by-op :rf.flow/skip))
+          ":rf.flow/skip fired for the value-equal re-transition"))))
+
+;; ===========================================================================
+;; 7. binary-syntax mixed inputs (EP-0001 §535-538, rf2-4eisfr) — ONE flow
+;;    reading BOTH a bare app-db input AND a qualified [:rf.db/runtime …]
+;;    input resolves each against the correct partition.
+;;
+;; Pins the binary input syntax end-to-end: bare = app-db, [:rf.db/runtime …]
+;; = runtime-db, on a single flow. Proves the resolver routes per-input, not
+;; per-flow, and that a flow composing both partitions fires when EITHER
+;; partition's input changes.
+;; ===========================================================================
+
+(deftest flow-composing-app-db-and-runtime-db-inputs-resolves-each-partition
+  (testing "a single flow with one bare app-db input and one qualified
+            [:rf.db/runtime …] runtime-db input resolves each against its own
+            partition, and recomputes when EITHER changes"
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/home    {:path "/"})
+    (rf/reg-event-db :set-greeting (fn [db [_ g]] (assoc db :greeting g)))
+    (let [flow-evals (atom [])]
+      ;; Bare [:greeting] reads app-db; qualified route id reads runtime-db.
+      (rf/reg-flow {:id     :nav/banner
+                    :inputs [[:greeting]
+                             [:rf.db/runtime :rf.runtime/routing :current :id]]
+                    :output (fn [greeting route-id]
+                              (swap! flow-evals conj [greeting route-id])
+                              (str greeting " @ " route-id))
+                    :path   [:nav :banner]})
+
+      ;; Seed app-db greeting (app-only event) — flow fires reading both
+      ;; partitions; route id is nil until the first transition.
+      (rf/dispatch-sync [:set-greeting "Hi"])
+      (is (= [["Hi" nil]] @flow-evals)
+          "the flow resolved the bare input against app-db (\"Hi\") and the
+           qualified input against runtime-db (nil — no route yet)")
+
+      ;; A runtime-only transition — the qualified input changes; the bare
+      ;; input is unchanged. The flow recomputes (BOTH-partition trigger).
+      (reset! flow-evals [])
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
+      (is (= [["Hi" :route/article]] @flow-evals)
+          "the runtime-only transition recomputed the flow; the bare app-db
+           input kept its value, the qualified runtime-db input took the new
+           route id")
+      (is (= "Hi @ :route/article" (get-in (rf/app-db-value :rf/default)
+                                           [:nav :banner]))
+          "the composed output landed in app-db (writes are app-db only)")
+
+      ;; An app-only event — the bare input changes; the qualified input is
+      ;; unchanged. The flow recomputes too.
+      (reset! flow-evals [])
+      (rf/dispatch-sync [:set-greeting "Yo"])
+      (is (= [["Yo" :route/article]] @flow-evals)
+          "the app-only event recomputed the flow; the bare input took the
+           new greeting, the qualified runtime-db input kept the route id"))))

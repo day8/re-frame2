@@ -88,7 +88,11 @@
 
     .dash-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      /* `min(100%, 280px)` is the responsive-grid floor: on a viewport
+         narrower than 280px the track shrinks to the content width instead
+         of forcing a 280px column that overflows the page. On wide
+         viewports it behaves exactly like the plain 280px minimum. */
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
       gap: 1.25em;
     }
 
@@ -154,6 +158,38 @@
       letter-spacing: 0.1em;
       font-size: 0.74rem;
       color: var(--ex-ink-faint);
+    }
+
+    /* Responsive overrides. The desktop layout above is wide-first
+       (a fixed-end flex head row, a 3rem H1, right-aligned controls,
+       a 280px grid floor). These two breakpoints keep the page within
+       its element box at tablet/phone widths so nothing produces
+       document-level horizontal overflow (matches the process-monitor
+       sibling's responsive shape). */
+
+    /* Tablet and below: stop the head row from forcing a fixed two-column
+       split — stack the title above the controls so neither half gets
+       squeezed, and let the controls left-align under the title rather
+       than cling to the right edge. */
+    @media (max-width: 720px) {
+      .dash-shell { padding: 2em min(6vw, 32px); }
+      .dash-shell-head {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 1.25em;
+      }
+      .dash-controls { align-items: flex-start; }
+    }
+
+    /* Narrow phones: shrink the oversized H1 so it can't overrun the
+       viewport, and tighten card padding. The grid already collapses to a
+       single full-width column via the `min(100%, 280px)` floor above, so
+       no grid override is needed here — the chip rows wrap on their own
+       `flex-wrap`. */
+    @media (max-width: 480px) {
+      .dash-shell-head h1 { font-size: 2.2rem; }
+      .dash-card { padding: 1.2em 1.2em; }
+      .dash-value { font-size: 2rem; }
     }
   </style>
 </head>

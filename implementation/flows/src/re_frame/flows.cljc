@@ -55,8 +55,66 @@
 ;; the pending `:db` effect before install and before :fx (per Spec 013
 ;; §Drain integration).
 
-(defn- read-inputs [db flow]
-  (mapv (fn [path] (get-in db path)) (:inputs flow)))
+;; ---- partition-qualified input resolution (EP-0001 §535-551, rf2-4eisfr) --
+;;
+;; Mike RULED (b) 2026-06-09: flows read runtime-db via EXPLICIT partition-
+;; qualified inputs — this IS EP-0001 normative text (§535-551), not a fresh
+;; design call. The binary syntax (mayor refinement (i) — NO redundant
+;; `[:rf.db/app …]` explicit-app form):
+;;
+;;   bare path            → app-db    e.g. [:user :first]
+;;   [:rf.db/runtime …]   → runtime-db e.g. [:rf.db/runtime :rf.runtime/routing :current :id]
+;;
+;; ANY flow may read runtime-db this way (mayor refinement (ii) — user flows
+;; AND framework flows); only the WRITE side is reserved (flow outputs land
+;; in app-db only — see `evaluate-flow!`'s `assoc-in db (:path flow)`). The
+;; resolver reads the SETTLED post-transition / post-macrostep PENDING frame-
+;; state the flow transform was handed (app-db = the pending `:db` effect /
+;; current app-db; runtime-db = the pending `:rf.db/runtime` effect / current
+;; runtime-db) — so a runtime-only event (e.g. a pure `:rf.route/transitioned`
+;; with no app-db change) still presents the changed route value here.
+;;
+;; A qualified runtime input never creates a spurious topo dependency edge:
+;; `topo/depends-on?` compares a flow's `:inputs` against another flow's
+;; OUTPUT `:path`, and outputs are always app-db paths (writes are reserved),
+;; so a `[:rf.db/runtime …]`-rooted input can never prefix-match an output
+;; `:path`. The dirty-check `:input-values` vector includes the resolved
+;; runtime value, so the trigger keys on BOTH partitions by construction
+;; (EP-0001 §542-544): a runtime-db change makes `new-inputs` differ from
+;; the cached row, forcing recompute — it cannot be hidden merely because the
+;; app-db partition was value-identical.
+
+(def ^:private runtime-partition-key
+  "The reserved partition key that, as a leading `:inputs`-path element,
+  opts a flow input into the runtime-db partition (`:rf.db/runtime`). Bare
+  paths (any other leading element) resolve against app-db. Held as a const
+  so the resolver and the doc stay in lockstep."
+  :rf.db/runtime)
+
+(defn- runtime-input?
+  "True iff `path` is a partition-qualified runtime-db input — a vector whose
+  FIRST element is `:rf.db/runtime`. Everything else is a bare app-db path
+  (binary syntax — rf2-4eisfr refinement (i): there is no third
+  `[:rf.db/app …]` explicit-app form)."
+  [path]
+  (= runtime-partition-key (first path)))
+
+(defn- resolve-input
+  "Resolve one flow `:inputs` path against the pending frame-state's two
+  partitions. A `[:rf.db/runtime …rest]` path reads `runtime-db` at `…rest`
+  (the partition key stripped); a bare path reads `db` (app-db) verbatim."
+  [db runtime-db path]
+  (if (runtime-input? path)
+    (get-in runtime-db (subvec path 1))
+    (get-in db path)))
+
+(defn- read-inputs
+  "Read a flow's `:inputs` against the pending frame-state — `db` is the
+  pending app-db partition, `runtime-db` the pending runtime-db partition.
+  Bare paths read app-db; `[:rf.db/runtime …]` paths read runtime-db
+  (EP-0001 §535-551, rf2-4eisfr)."
+  [db runtime-db flow]
+  (mapv (fn [path] (resolve-input db runtime-db path)) (:inputs flow)))
 
 (defn- elide-inputs
   "Walk a flow's just-read input values through `elision/elide-wire-value`,
@@ -150,7 +208,10 @@
                                redact (->> (redact schema)))))))))
 
 (defn- evaluate-flow!
-  "Evaluate one flow against the given db. Returns `[new-db dirty?]` on
+  "Evaluate one flow against the pending frame-state. `db` is the pending
+  app-db partition (the cascade accumulator threaded through prior flows'
+  writes); `runtime-db` is the pending runtime-db partition (read-only — flow
+  WRITES are app-db only, EP-0001 §535-540). Returns `[new-db dirty?]` on
   successful evaluation (skip or recompute); on the failure path the
   exception re-throws after the `:rf.flow/failed` trace fires.
 
@@ -177,9 +238,9 @@
   perf slice). Future editors: keep the gate OUTERMOST on each emit
   site and keep wire-value walks INSIDE it — Closure DCE folds the
   whole branch under `:advanced` + `goog.DEBUG=false`."
-  [frame-id db flow]
+  [frame-id db runtime-db flow]
   (let [flow-id    (:id flow)
-        new-inputs (read-inputs db flow)
+        new-inputs (read-inputs db runtime-db flow)
         ;; Per rf2-94ol5 dirty-check storage is PER-FRAME: read this
         ;; flow's last-seen inputs from THIS frame's own `last-inputs`
         ;; container. Per-frame dirty-check windows stay independent by
@@ -341,10 +402,30 @@
                           e)))))))
 
 (defn run-flows-on-db
-  "Per Spec 013 §Drain integration (rf2-u0zz5): walk THIS FRAME'S
-  registered flows in topological order over the given `db` VALUE,
-  dirty-check each one, recompute and assoc-in the result into a
-  transformed db. Returns the flow-augmented db value.
+  "Per Spec 013 §Drain integration (rf2-u0zz5) + EP-0001 §535-551
+  (rf2-4eisfr): walk THIS FRAME'S registered flows in topological order over
+  the pending frame-state, dirty-check each one, recompute and assoc-in the
+  result into a transformed APP-DB. Returns the flow-augmented APP-DB value.
+
+  Two arities:
+    `[frame-id db]`            — app-db-only pending state (runtime-db is
+                                 nil; only bare app-db inputs resolve).
+    `[frame-id db runtime-db]` — the full pending frame-state. `db` is the
+                                 pending app-db partition; `runtime-db` the
+                                 pending runtime-db partition.
+
+  EP-0001 §535-551 (Mike RULED (b) 2026-06-09): a flow reads app-db by
+  default (bare `:inputs` paths) and runtime-db only through EXPLICIT
+  partition-qualified inputs `[:rf.db/runtime …]` (binary syntax — there is
+  NO redundant `[:rf.db/app …]` form). ANY flow — user or framework — may
+  read runtime-db this way; only the WRITE side is reserved. Flow outputs
+  write ONLY app-db (the cascade threads and returns the APP-DB partition;
+  runtime-db is read-only for the whole pass). The trigger / dirty-check
+  keys on BOTH partitions: a runtime-db change shows up in the resolved
+  `:input-values`, so a runtime-only event (e.g. a pure
+  `:rf.route/transitioned`) recomputes a route-reading flow even when app-db
+  is value-identical (EP-0001 §542-544 — a runtime write cannot be hidden
+  from a flow merely because the app-db partition did not change).
 
   This is the **outermost-`:after` flow transform**. The router installs
   it as the OUTERMOST `:after` interceptor (re-frame.router/flows-after-
@@ -388,11 +469,36 @@
   so this rollback cannot clobber its just-advanced dirty-check rows. The
   per-frame-independence invariant (Spec 002 rule 1 / Spec 013
   §Frame-scoping) holds by construction, not by careful keying."
-  [frame-id db]
+  ([frame-id db] (run-flows-on-db frame-id db nil))
+  ([frame-id db runtime-db]
   (let [flow-map (get (registry/flows-snapshot) frame-id)]
     (if-not (seq flow-map)
       db
-      (let [ordered (topo/topo-sort flow-map)
+      (let [_ (do
+                ;; rf2-ihfz9o: refresh each flow's output data-classification
+                ;; declarations BEFORE the flow walk so a propagated (input-
+                ;; inherited) sensitive mark is in the frame's elision registry
+                ;; when the t2 `:rf.event/db-pending-post-flow` trace and the
+                ;; `:rf.flow/computed` `:result` slot project (Spec 015:568).
+                ;; This is the MARK-MUTATION-aware refresh flows need — a flow
+                ;; does not recompute on a mark-only `add-marks` / `set-marks` /
+                ;; schema change, so without a drain-time refresh a sensitive
+                ;; mark added AFTER reg-flow would never reach the flow output.
+                ;; Topo-ordered inside the helper so a flow reading an upstream
+                ;; flow's `:path` inherits the upstream's refreshed mark.
+                ;;
+                ;; NOT gated on `interop/debug-enabled?`: the elision
+                ;; declaration registry feeds production-survivor OFF-BOX egress
+                ;; (the epoch projection `:epoch/projected-record` ships records
+                ;; off-box even under `:advanced`), so the privacy mark must
+                ;; exist regardless of dev/prod. The cost is bounded — a pure-
+                ;; data topo-fold plus two map reads, with NO runtime-db write
+                ;; on the steady state (the helper compares first and writes
+                ;; only when the resolved declarations actually changed). It
+                ;; touches ONLY the runtime-db elision registry, never app-db,
+                ;; so it cannot perturb the cascade value or app-db subs.
+                (registry/refresh-flow-output-declarations! frame-id))
+            ordered (topo/topo-sort flow-map)
             ;; Snapshot ONLY the draining frame's dirty-check container so a
             ;; flow throw can roll back the frame's own advances — the event
             ;; aborts, so prior flows' `last-inputs` advances must NOT
@@ -401,8 +507,13 @@
             ;; frame is structurally untouched. Restored in the catch below.
             last-inputs-before (registry/frame-last-inputs-snapshot frame-id)]
         (try
-          ;; The drain threads ONLY the transformed `db` — the loop is a pure
-          ;; left-fold over the topo-ordered flows. `evaluate-flow!` returns a
+          ;; The drain threads ONLY the transformed APP-DB `db` — the loop is
+          ;; a pure left-fold over the topo-ordered flows. `runtime-db` is the
+          ;; pending runtime-db partition, read-only for the WHOLE pass: flow
+          ;; outputs write app-db only (EP-0001 §539 — runtime writes
+          ;; reserved), and a flow's qualified `[:rf.db/runtime …]` inputs all
+          ;; resolve against the SAME pending runtime-db snapshot (no cascade-
+          ;; local runtime mutation to thread). `evaluate-flow!` returns a
           ;; `[new-db dirty?]` tuple but the cascade has no consumer for the
           ;; dirty flag: the router writes the returned db value straight into
           ;; the `:db` effect slot regardless. So discard the second slot here
@@ -413,7 +524,7 @@
             (if (empty? remaining)
               db
               (let [flow         (flow-map (first remaining))
-                    [new-db _]   (evaluate-flow! frame-id db flow)]
+                    [new-db _]   (evaluate-flow! frame-id db runtime-db flow)]
                 (recur (rest remaining) new-db))))
           (catch #?(:clj Throwable :cljs :default) e
             ;; Atomicity contract: discard ALL flow side-effects of this
@@ -424,7 +535,7 @@
             ;; untouched. The throw (carrying `:rf.flow/failed-id` from
             ;; `evaluate-flow!`) propagates unchanged for router attribution.
             (registry/reset-frame-last-inputs-to! frame-id last-inputs-before)
-            (throw e)))))))
+            (throw e))))))))
 
 ;; ---- late-bind hook registration ----------------------------------------
 ;;

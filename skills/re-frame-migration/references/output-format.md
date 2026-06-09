@@ -11,6 +11,7 @@ The migration summary format. The shape from [`MIGRATION.md`](../../../migration
 - Pinned MIGRATION.md corpus: `day8/re-frame2@<sha-or-tag>` (path: `<path-to-re-frame2>`)
 - Files modified: <count>
 - Required rules applied: <list of M-N rule IDs, or "none">
+- Dependencies changed (non-re-frame): <each non-re-frame dep bumped/added/removed, with the gate that justified it — Phase-0b floor gate (React/Reagent/component-lib), Check-4 toolchain (shadow-cljs/CLJS), or the Xray peer-deps; "none" if the coord swap was the whole diff>
 - Opt-in changes applied: <list of O-N rule IDs, or "none, not requested">
 - Verification: <compile/test/run results the AUTHOR ran (the skill does not invoke compile/test/smoke)>
 
@@ -41,12 +42,13 @@ A medium-shape migration: a Reagent app with 30 events, 12 subs, no machines, no
 
 - re-frame version: `re-frame/re-frame 1.4.5` → `day8/re-frame2 <VERSION>` + `day8/re-frame2-reagent <VERSION>`
 - Files modified: 14
+- Dependencies changed (non-re-frame): `react`/`react-dom` 18 → ^19 and `shadow-cljs` 2.20 → 3.4.10 (Phase-0b floor gate + Check-4 toolchain skew); Reagent rode in via the `-reagent` adapter (not pinned directly). No other deps touched.
 - Required rules applied:
   - M-0 (1 site): deps.edn coord swap.
   - M-1 (3 sites): private `re-frame.db` requires removed; `@re-frame.db/app-db` → `(rf/app-db-value :rf/default)` in 3 sites.
   - M-8 (3 sites): top-level `:dispatch` → `:fx [[:dispatch ...]]`.
   - M-9 (2 sites): `dispatch-sync` inside handlers → `:fx [[:dispatch ...]]`.
-  - M-16 (1 site): `^:flush-dom` metadata → `:dispatch-later {:ms 0}`.
+  - M-16a (1 site, inside an effect map — Type A): `^:flush-dom` metadata → `:fx [[:dispatch-later {:ms 0 :event …}]]`. (No M-16b top-level `(rf/dispatch ^:flush-dom …)` sites in this codebase; had there been any, they'd appear under "Items flagged for human review.")
   - M-17 (1 site, Type A — single-frame app): `reg-global-interceptor` → default-frame `:interceptors`.
   - M-20 (4 sites): `:re-frame/default` → `:rf/default`.
   - M-25 (1 site): `re-frame.test` → `re-frame.test-support`; `day8/re-frame-test` coord dropped.
@@ -75,6 +77,7 @@ Same shape but the codebase also had two `reg-sub-raw` calls, a multi-frame stru
 
 - re-frame version: `re-frame/re-frame 1.4.5` → `day8/re-frame2 <VERSION>` + `day8/re-frame2-reagent <VERSION>`
 - Files modified: 18 (+ 2 awaiting author decision)
+- Dependencies changed (non-re-frame): already on React 19 + a current toolchain (floor gate was a fast pass); `@xyflow/react` + `elkjs` added for the Xray Machine-inspector chart (10x→Xray swap). No other deps touched.
 - Required rules applied: M-0, M-1 (5 sites), M-8 (7 sites), M-9 (3 sites), M-20 (9 sites), M-25 (1 site), M-40 (1 site).
 - Type B rules applied (with explicit author approval):
   - M-3 (2 sites): `:dispatch` effects with intermediate-render dependency were both real animation pacing — converted to `:dispatch-later`.

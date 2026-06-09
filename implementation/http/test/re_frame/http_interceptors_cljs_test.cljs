@@ -43,11 +43,11 @@
 (deftest register-and-clear-round-trip
   (testing "reg-http-interceptor adds a slot; clear removes it"
     (rf/reg-http-interceptor :a {:before (fn [ctx] ctx)})
-    (let [chain (get @http-managed/interceptors :rf/default)]
+    (let [chain (http-managed/interceptors-snapshot :rf/default)]
       (is (= 1 (count chain)))
       (is (= :a (:id (first chain)))))
     (rf/clear-http-interceptor :a)
-    (let [chain (get @http-managed/interceptors :rf/default)]
+    (let [chain (http-managed/interceptors-snapshot :rf/default)]
       (is (zero? (count chain))))))
 
 ;; ---- 2. registration order is preserved -----------------------------------
@@ -57,7 +57,7 @@
     (rf/reg-http-interceptor :first  {:before (fn [c] c)})
     (rf/reg-http-interceptor :second {:before (fn [c] c)})
     (rf/reg-http-interceptor :third  {:before (fn [c] c)})
-    (let [chain (get @http-managed/interceptors :rf/default)]
+    (let [chain (http-managed/interceptors-snapshot :rf/default)]
       (is (= [:first :second :third] (mapv :id chain))))))
 
 ;; ---- 3. re-register replaces in place -------------------------------------
@@ -67,7 +67,7 @@
     (rf/reg-http-interceptor :a {:before (fn [c] (assoc c ::v 1))})
     (rf/reg-http-interceptor :b {:before (fn [c] c)})
     (rf/reg-http-interceptor :a {:before (fn [c] (assoc c ::v 2))})
-    (let [chain (get @http-managed/interceptors :rf/default)]
+    (let [chain (http-managed/interceptors-snapshot :rf/default)]
       (is (= [:a :b] (mapv :id chain)))
       (is (= {::v 2} ((:before (first chain)) {}))
           ":a's :before fn is the v2 fn (replacement)"))))
@@ -78,12 +78,12 @@
   (testing "interceptors registered on different frames do not collide"
     (rf/reg-http-interceptor :on-default {:frame :rf/default :before (fn [c] c)})
     (rf/reg-http-interceptor :on-other   {:frame :other      :before (fn [c] c)})
-    (is (= [:on-default] (mapv :id (get @http-managed/interceptors :rf/default))))
-    (is (= [:on-other]   (mapv :id (get @http-managed/interceptors :other))))
+    (is (= [:on-default] (mapv :id (http-managed/interceptors-snapshot :rf/default))))
+    (is (= [:on-other]   (mapv :id (http-managed/interceptors-snapshot :other))))
     ;; clear-http-interceptor on :rf/default doesn't touch :other
     (rf/clear-http-interceptor :on-default)
-    (is (zero? (count (get @http-managed/interceptors :rf/default))))
-    (is (= [:on-other] (mapv :id (get @http-managed/interceptors :other))))))
+    (is (zero? (count (http-managed/interceptors-snapshot :rf/default))))
+    (is (= [:on-other] (mapv :id (http-managed/interceptors-snapshot :other))))))
 
 ;; ---- 5. invalid shape raises ----------------------------------------------
 
@@ -126,7 +126,7 @@
     (let [after-fn (fn [_ctx resp] resp)]
       (rf/reg-http-interceptor :uheqq/with-after {:after after-fn})
       (let [slot (first (filter #(= :uheqq/with-after (:id %))
-                                (get @http-managed/interceptors :rf/default)))]
+                                (http-managed/interceptors-snapshot :rf/default)))]
         (is (some? slot) "slot is in the chain")
         (is (= after-fn (:after slot))
             ":after fn stored verbatim on the slot")

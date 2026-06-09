@@ -66,11 +66,11 @@ From `examples/reagent/counter/core.cljs` — the simplest shape, `reg-event-db`
        :fx [[:todo.storage/save (:todos next-db)]]})))
 ```
 
-The `:db` and `:fx` keys are the **only** legal top-level keys in an `fx`-handler return map (see [fx.md](fx.md) for the closed-shape rationale). The coeffect first argument is the cofx map — `{:db <current-db-value> :event <event-vec>}` by default, plus anything `inject-cofx` injected (see [cofx.md](cofx.md)).
+The effect map is a **closed shape**: the only legal top-level keys are `:db` (app-db partition), `:rf.db/runtime` (runtime-db partition), and `:fx` (see [fx.md](fx.md) for the rationale). Ordinary app handlers use `:db` and `:fx`; `:rf.db/runtime` is the framework-authority partition (EP-0001) — a non-framework handler that emits it gets a `:rf.warning/app-handler-runtime-effect` dev diagnostic but the write is **not** dropped (it is legal, just framework-reserved by convention). The coeffect first argument is the cofx map — `{:db <current-db-value> :event <event-vec>}` by default, plus anything `inject-cofx` injected (see [cofx.md](cofx.md)).
 
 ## Common gotchas
 
-- **`:dispatch` and `:dispatch-n` are NOT top-level effect keys in v2.** They moved into `:fx` as `[[:dispatch event]]` entries. The runtime emits `:rf.error/effect-map-shape` and drops any non-`:db`/non-`:fx` top-level key (`police-effect-map-shape!` in `events.cljc`).
+- **`:dispatch` and `:dispatch-n` are NOT top-level effect keys in v2.** They moved into `:fx` as `[[:dispatch event]]` entries. The runtime emits `:rf.error/effect-map-shape` and drops any top-level key outside the closed set `#{:db :rf.db/runtime :fx}` (`police-effect-map-shape!` + `closed-effect-map-keys` in `events.cljc`). Note `:rf.db/runtime` is **inside** the closed set — it is the framework-authority runtime-db partition, not a shape error.
 - **`:interceptors` is not a metadata key.** Pass the chain as the positional third argument, not as `{:interceptors [...]}`.
 - **The event vector's first element is the event id.** Always destructure it as `[_ arg1 arg2]` — the id is in `args` because the whole vector is passed.
 - **`reg-event-ctx` is rarely the right tool.** It hands you the raw interceptor context. Use it only when you need to manipulate the chain itself; otherwise `reg-event-db` or `reg-event-fx`.

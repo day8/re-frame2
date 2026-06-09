@@ -122,6 +122,22 @@
         "For a transient payload-only secret (the one-time 2FA code that need not land at an app-db slot), the output reaches for rf/redact-interceptor with the named payload path(s), and notes it scrubs payload keys on the trace surface but does NOT by itself stamp :sensitive? / suppress the whole row.",
         "The output does NOT claim that registering a handler :sensitive? true causes Story / MCP record-as-variant to redact the event."
       ]
+    },
+    {
+      "id": 8,
+      "name": "recipe-correctness-story-variant-authoring-handoff",
+      "dimension": "recipe-correctness",
+      "prompt": "Using the re-frame2 Story MCP tools, write a new variant `:story.todos/delete-confirmed` that extends `:story.todos/list-with-items`, dispatches a delete-then-confirm, and asserts the item list is empty. Then run it and keep iterating against the running library until the assertions pass.",
+      "expected_output": "The agent recognises two halves. AUTHORING (this skill owns it): it authors the variant body and uses ONLY the story-mcp tools re-frame2 is allow-listed for — register-variant to write the body, preview-variant to eyeball the render, get-variant/explain-variant to read it back. RUNNING (re-frame2-pair owns it): the 'run it and keep iterating against the running library' half is the self-healing loop — run-variant / read-failures — which requires a live runtime and is NOT in this skill's allow-list. The agent hands that off to a re-frame2-pair session rather than claiming to call run-variant / read-failures itself. It loads references/tooling/story-mcp-loop.md, which documents exactly this author/refine vs run-side split. The eval FAILS if the agent claims to drive the run loop from the re-frame2 skill using tools it cannot reach.",
+      "files": [],
+      "expectations": [
+        "Skill skills/re-frame2/ is invoked and references/tooling/story-mcp-loop.md is read.",
+        "For the authoring half, the agent uses only tools the re-frame2 skill allow-lists: register-variant (write the body), preview-variant (render one variant), get-variant / explain-variant (read it back) — and it authors a body with :extends :story.todos/list-with-items plus a :script that dispatches the delete/confirm and a :rf.assert/* check.",
+        "The agent does NOT claim to call mcp__re-frame2-story-mcp__run-variant or mcp__re-frame2-story-mcp__read-failures from inside the re-frame2 skill — those are NOT in this skill's allowed-tools (they are owned by re-frame2-pair).",
+        "For the 'run it and keep iterating against the running library' half, the agent HANDS OFF to the re-frame2-pair skill (it names re-frame2-pair as the owner of the run/self-heal loop against a live runtime behind shadow-cljs watch) rather than fabricating a run-variant call.",
+        "The agent's explanation of the boundary matches the shipped hybrid split: authoring (register/preview/read-back) is static and owned here; running (run-variant / read-failures / record-as-variant) is runtime-bound and owned by re-frame2-pair — consistent with scripts/check_skill_mcp_drift.py's intentional_server_only partition.",
+        "The agent does NOT propose adding run-variant / read-failures to the re-frame2 skill's allowed-tools as a workaround, nor does it hallucinate a successful run result it never executed."
+      ]
     }
   ]
 }

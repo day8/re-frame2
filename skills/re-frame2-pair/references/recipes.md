@@ -2,7 +2,7 @@
 
 Named procedures the user may ask for. When the user asks a matching question, run the procedure below rather than improvising.
 
-Each recipe is expressed in **MCP-tool form** — the only transport this skill exposes — using the **default-reachable tool vocabulary** (the flat `mcp__re-frame2-pair__*` names: `orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`, …). Where a gesture has no dedicated tool, the recipe drops to `eval-cljs` over a `re-frame2-pair.runtime` helper — that is **first-class for the long tail**, not a last resort (see [§eval-cljs is the workhorse](#eval-cljs-is-the-workhorse)). The two write-authority tools `restore-epoch` and `replace-app-db` are **NOT** in this default vocabulary — they are gated behind the server's default-OFF `--allow-writes` flag and are not skill-allow-listed, so the default-reachable write/undo path is the eval form (`(rf/restore-epoch …)` / `app-db-reset!`, since `eval-cljs` is default-ON); a deployment that launches with `--allow-writes` can allow-list the dedicated tools. The bash shims under `scripts/` are retired from the skill's tool surface; see [`mcp-transport.md`](mcp-transport.md).
+Each recipe is expressed in **MCP-tool form** — the only transport this skill exposes — using the flat `mcp__re-frame2-pair__*` tool vocabulary (`orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`, …). Where a gesture has no dedicated tool, the recipe drops to `eval-cljs` over a `re-frame2-pair.runtime` helper — that is **first-class for the long tail**, not a last resort (see [§eval-cljs is the workhorse](#eval-cljs-is-the-workhorse)). **Named state-rewrite gestures route through the dedicated, gated tools** — `restore-epoch` (time-travel undo) and `replace-app-db` (state injection) are skill-allow-listed and are the **canonical** path; both refuse with `:rf.error/writes-disabled` against a server launched without `--allow-writes` (default OFF), so the server's gate — not the recipe — is the write-authority boundary. The raw eval forms (`(rf/restore-epoch …)` / `app-db-reset!`) are the **backstop** for a deliberately gate-OFF server when the operator says to proceed via eval; they ride outside the structured envelope + the `--allow-writes` audit gate. The bash shims under `scripts/` are retired from the skill's tool surface; see [`mcp-transport.md`](mcp-transport.md).
 
 ## Contents
 
@@ -33,9 +33,9 @@ Each recipe is expressed in **MCP-tool form** — the only transport this skill 
 
 ## eval-cljs is the workhorse
 
-The recipes lead with **structured tools** (`orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`) because each returns a validated, elided, single-round-trip answer for the gesture it owns. But re-frame2-pair also exposes `eval-cljs` — arbitrary ClojureScript against the live runtime — and in a real session it carries the **long tail**: anything the dedicated tools don't have a shape for, **plus the default write/undo path** — `restore-epoch` / `replace-app-db` are `--allow-writes`-gated and not default allow-listed, so the eval forms `(rf/restore-epoch …)` / `app-db-reset!` are the default-reachable way to time-travel or inject state (`eval-cljs` is default-ON).
+The recipes lead with **structured tools** (`orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`) because each returns a validated, elided, single-round-trip answer for the gesture it owns. **Named state rewrites have structured tools too** — `restore-epoch` and `replace-app-db` are the canonical, audited path for time-travel undo and state injection (see the [Experiment loop](#experiment-loop) below and SKILL.md §Time-travel writes). But re-frame2-pair also exposes `eval-cljs` — arbitrary ClojureScript against the live runtime — and in a real session it carries the **long tail**: anything the dedicated tools don't have a shape for.
 
-**The rule:** *prefer a structured op WHEN ONE FITS the gesture; for the long tail and for recovery, `eval-cljs` is first-class, not a last resort.*
+**The rule:** *prefer a structured op WHEN ONE FITS the gesture — including the dedicated write tools for named rewrites; for the long tail and for recovery, `eval-cljs` is first-class, not a last resort.*
 
 `eval-cljs` is the right call — not a fallback — for:
 
@@ -216,11 +216,11 @@ Canonical procedure (commit-and-compare):
 
 1. `dispatch {event: "[:foo …]", trace: true}` → observe baseline. Capture the `:epoch-id` from the resulting record. (The eval equivalent is `(re-frame2-pair.runtime/dispatch-and-collect [:foo …])`.)
 2. **Tell the user** which side effects in the cascade can't be rewound. Walk `:trace-events` for `:event/do-fx` involving non-pure fx (`:http`, navigation, localStorage, `:dispatch-later` that already landed) and warn before restoring.
-3. Rewind `app-db` to the captured epoch. The **default-reachable** form is the eval (the dedicated `restore-epoch` tool is `--allow-writes`-gated and not allow-listed by default):
+3. Rewind to the captured epoch with the **dedicated `restore-epoch` tool** — the canonical, audited undo. It reinstalls the whole **frame-state** (both partitions: app-db *and* runtime-db, so machine snapshots / routes / elision rewind too; side effects and transient host state do not):
    ```
-   mcp__re-frame2-pair__eval-cljs {form: "(rf/restore-epoch :rf/default <epoch-id>)"}
+   mcp__re-frame2-pair__restore-epoch {epoch-id: "<epoch-id>"}
    ```
-   Returns `true` on success, `false` on any documented failure mode. On a deployment launched with `--allow-writes` (the dedicated tool allow-listed), the equivalent is `restore-epoch {epoch-id: "<id>"}`. Either way, watch for a `false` / `:restore-rejected` return + check `(re-frame.trace.tooling/trace-buffer {:op-type :error})` for the failure reason (one of the seven documented modes — Tool-Pair §Time-travel).
+   Returns `{:ok? true :restored? true :cascade-summary {…} :unreplayable-effects [...]}` on success. On any documented failure mode it returns `{:ok? false :reason :restore-rejected}` (one of the seven modes — Tool-Pair §Time-travel; check `(re-frame.trace.tooling/trace-buffer {:op-type :error})` for the specific tag). Against a server launched **without** `--allow-writes` (the published default) the tool refuses with `:reason :rf.error/writes-disabled` — the operator flips the gate at launch to enable pair-driven writes. **Backstop only** (gate-OFF server + operator says proceed via eval): `eval-cljs {form: "(rf/restore-epoch :rf/default <epoch-id>)"}` returns bare `true`/`false` and rides outside the structured envelope + the audit gate — say so when you fall back to it.
 4. **Modify the part of the system you're iterating on.**
    - *Handlers / subs / fx:* `eval-cljs {form: "(rf/reg-event-fx :foo …)"}` / `(rf/reg-sub :bar …)` / `(rf/reg-fx :baz …)`. The registrar replaces; `:rf.registry/handler-replaced` fires.
    - *Machines:* `eval-cljs {form: "(rf/reg-machine :auth …)"}` — bumps the machine's `:version` if one is supplied. Old snapshots may now `:rf.epoch/restore-version-mismatch` against this machine.
@@ -233,7 +233,7 @@ Canonical procedure (commit-and-compare):
 
 ## "What would this event do?" (dry-run)
 
-**When the user wants to know the consequence of an event WITHOUT paying for it** — before firing a checkout, a destructive delete, anything that hits the network or navigates. `dispatch-dry-run` (rf2-17hvp) runs the full cascade — reducer, interceptors, schema validation, machine transitions, sub-runs, renders — then rolls the app-db back via `restore-epoch`. No fx execute; every fx that *would* have fired is enumerated with its args.
+**When the user wants to know the consequence of an event WITHOUT paying for it** — before firing a checkout, a destructive delete, anything that hits the network or navigates. `dispatch-dry-run` (rf2-17hvp) runs the full cascade — reducer, interceptors, schema validation, machine transitions, sub-runs, renders — then rolls the frame back via `restore-epoch` (which reinstalls the whole frame-state — both partitions — so any machine/route mutation the simulated cascade made is rewound too, not just app-db). No fx execute; every fx that *would* have fired is enumerated with its args.
 
 ```
 mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]"}
@@ -241,7 +241,7 @@ mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]"}
 
 Returns the same `:cascade-summary` shape as `dispatch` (so you read one vocabulary for both) plus:
 
-- `:rolled-back? true` — the app-db is unchanged after the simulation.
+- `:rolled-back? true` — the frame is unchanged after the simulation (the `restore-epoch` rewind reinstated the whole frame-state, both partitions).
 - `:would-fire-effects [{:fx-id :http :args {...}} {:fx-id :navigate :args [...]}]` — the real-world impact, enumerated. Narrate this: *"checkout would POST to `/orders` and navigate to `:order-confirmation` — nothing has actually happened yet."*
 - `:db-state-after-simulation {...}` — the would-be app-db (what state the cascade *would* have committed).
 - `:cascade-summary {:db-diff {...} :outcome :ok\|:error ...}` — a schema violation surfaces as `:outcome :error`; the rollback still fires.
@@ -363,12 +363,12 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 **Procedure:**
 
-1. Snapshot each variant's `app-db`:
+1. Snapshot each variant's `app-db`. `snapshot` selects frames via the **plural `frames`** arg (an array of frame-id strings or `"all"`) — it has no singular `frame` arg, unlike `dispatch` / `get-path` / `read-sub`:
    ```
-   mcp__re-frame2-pair__snapshot {frame: ":story.counter/empty"}
-   mcp__re-frame2-pair__snapshot {frame: ":story.counter/loaded"}
+   mcp__re-frame2-pair__snapshot {frames: [":story.counter/empty"]}
+   mcp__re-frame2-pair__snapshot {frames: [":story.counter/loaded"]}
    ```
-   With the MCP `:summary` default, each result returns top-level keys + counts — drill into divergent keys with `get-path`.
+   (Or snapshot both in one round-trip — `snapshot {frames: [":story.counter/empty", ":story.counter/loaded"]}` — and diff the two entries.) With the MCP `:summary` default, each result returns top-level keys + counts — drill into divergent keys with `get-path`.
 2. Compute the diff. If both are small, return them inline and let the model narrate. If they're large, drive `clojure.data/diff` directly:
    ```
    mcp__re-frame2-pair__eval-cljs {

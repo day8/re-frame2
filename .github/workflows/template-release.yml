@@ -110,6 +110,23 @@ jobs:
   #    release — the tagged commit must emit a shape that compiles,
   #    runs, and survives an `:advanced` release build.
   #
+  #    rf2-8n4s71 #1 — SCOPE of this gate, stated honestly. The emitted-
+  #    app tier (`emitted_test_run_test.clj`) rewrites the generated
+  #    `day8/re-frame2*` `:mvn/version "0.0.1.alpha"` coords to monorepo
+  #    `:local/root` paths BEFORE compiling. So this gate proves
+  #    "generated code compiles + runs + survives :advanced against the
+  #    in-repo framework source" — it does NOT prove "the emitted deps.edn
+  #    coords RESOLVE". They cannot pre-split: the 0.0.1.alpha coords are
+  #    unpublished (re-frame2 ships via git-coord, not Maven) and the
+  #    `io.github.day8/re-frame2-template` git-coord does not resolve until
+  #    the split repo exists (rf2-7jgkv). The GitHub Release body therefore
+  #    carries a loud pre-split caveat (job 3 below) so a local-root-only
+  #    release cannot be mistaken for a usable public scaffold. The
+  #    published-coord resolve smoke (scaffold via
+  #    `io.github.day8/re-frame2-template#<tag>` + `clojure -P` / `npm test`
+  #    WITHOUT the :local/root rewrite) is a post-split gate —
+  #    tools/template/spec/005-Repo-Split.md §3.2 / §3.4.
+  #
   #    rf2-ek857f F1 — the emitted-app compile/run/release tier in
   #    `emitted_test_run_test.clj` defaults OFF (opt-in via
   #    RF2_TEMPLATE_RUN_EMITTED_TESTS=1) and needs a populated
@@ -209,7 +226,26 @@ jobs:
           body: |
             `day8/re-frame2-template` ${{ needs.verify-version.outputs.version }} — git-coord release.
 
-            Consumers resolve the template via deps-new at this tag:
+            > [!WARNING]
+            > **Pre-split release — not yet a usable public scaffold (rf2-8n4s71).**
+            > This tag was cut from the `day8/re-frame2` monorepo before the
+            > template repo split-out (rf2-7jgkv). The pre-release gate
+            > compiles + runs the generated project only after rewriting the
+            > emitted `day8/re-frame2*` dependency coords to monorepo
+            > `:local/root` paths — it proves "generated code compiles", **not**
+            > "the released template emits a project whose `deps.edn` coords
+            > resolve". The emitted `:mvn/version "0.0.1.alpha"` framework
+            > coords are **not published** (re-frame2 distributes via git-coord,
+            > not Maven), and the `io.github.day8/re-frame2-template` git-coord
+            > below does **not resolve** until the split repo exists. A real
+            > consumer following the invocation below will fail during
+            > dependency resolution before any scaffolded code runs. Do **not**
+            > treat this release as a usable public scaffold. The published-coord
+            > smoke that proves the shipped dependency surface is a post-split
+            > gate (`tools/template/spec/005-Repo-Split.md` §3.2 / §3.4).
+
+            Once the split repo exists, consumers resolve the template via
+            deps-new at this tag:
 
             ```bash
             clojure -Tnew create \

@@ -126,6 +126,14 @@
 (defn- contains-any? [text alts]
  (some #(str/includes? text %) alts))
 
+(defn- section-from
+ "Return the chunk of `md` starting at the heading containing `anchor`
+ and ending at the next `## ` heading (or EOF). Empty if no match.
+ Generalises `recipe-section` to any markdown leaf."
+ [md anchor]
+ (let [pat (re-pattern (str "(?ms)## .*" (java.util.regex.Pattern/quote anchor) ".*?(?=^## |\\z)"))]
+ (or (some-> (re-find pat md)) "")))
+
 (defn- assert-row [{:keys [id prompt recipe-anchor must-mention]}]
  (testing (str id " — " prompt)
  (let [section (recipe-section @recipes-md recipe-anchor)]
@@ -403,6 +411,154 @@
     (is (str/includes? @capabilities-md "first render-key")
         (str "capabilities.md must point at `(first render-key)` for source-"
              "coord resolution, matching recipes.md (rf2-a85bb2)."))))
+
+;; ---------------------------------------------------------------------------
+;; Restore / hot-reload teaching drift (rf2-7a1mkv)
+;; ---------------------------------------------------------------------------
+;;
+;; Finding 1 — restore-epoch reinstalls the whole frame-state (both app-db
+;; AND runtime-db partitions via replace-frame-state!), NOT app-db only. The
+;; pair skill used to teach "restore rewinds app-db only" / "app-db is back".
+;; These assertions fail if that stale framing returns and assert the
+;; positive frame-state framing.
+;; Finding 2 — tail-build returns probe diagnostics (:probe-values / :reason
+;; / :note); a timeout is NOT always a compile error. The "read the tail
+;; output / treat a timeout as a compile error" framing must not return.
+;; Finding 3 — the subscribe topic catalogue in ops.md must list :frameless.
+
+(deftest restore-not-taught-as-app-db-only
+  (testing "pair skill no longer teaches restore as app-db-only (rf2-7a1mkv finding 1)"
+    (doseq [[label md] [["ops.md" @ops-md]
+                        ["recipes.md" @recipes-md]
+                        ["README.md" @readme-md]
+                        ["capabilities.md" @capabilities-md]]]
+      (is (not (includes-ci? md "restore rewinds app-db only"))
+          (str label " carries the stale 'restore rewinds app-db only' "
+               "framing — restore reinstalls the whole frame-state, both "
+               "partitions, via replace-frame-state! (rf2-7a1mkv)."))
+      (is (not (includes-ci? md "old snapshots in app-db"))
+          (str label " carries the stale 'old snapshots in app-db' wording — "
+               "machine snapshots live in the runtime-db partition "
+               "([:rf.runtime/machines …]) (rf2-7a1mkv).")))
+    (is (str/includes? @ops-md "frame-state")
+        (str "ops.md no longer positively teaches restore as a frame-state "
+             "rewind (both partitions) (rf2-7a1mkv).")))
+  (testing "ops.md restore caveat names runtime-db revival + the side-effect limit"
+    (is (and (str/includes? @ops-md "frame-state")
+             (includes-ci? @ops-md "runtime-db"))
+        (str "ops.md restore caveat must say restore rewinds frame-state "
+             "(both partitions incl. runtime-db) while NOT reversing side "
+             "effects / transient host state (rf2-7a1mkv)."))))
+
+(deftest hot-reload-branches-on-probe-values-not-blanket-compile-error
+  (testing "ops.md hot-reload branches on :probe-values / :reason, not 'all timeouts are compile errors' (rf2-7a1mkv finding 2)"
+    (let [hr (section-from @ops-md "Hot-reload coordination")]
+      (is (str/includes? hr ":probe-values")
+          (str "ops.md hot-reload guidance no longer mentions `:probe-values` "
+               "— the diagnostic tail-build returns on timeout so the agent "
+               "can tell a stuck probe from a compile error (rf2-7a1mkv)."))
+      (is (str/includes? hr ":probe-errored")
+          (str "ops.md hot-reload guidance no longer covers `:probe-errored` "
+               "as a malformed-probe path distinct from a compile error "
+               "(rf2-7a1mkv)."))
+      (is (not (str/includes? hr "treat that as a compile error in the user's code — read the tail output"))
+          (str "ops.md still tells the agent to treat any tail-build timeout "
+               "as a compile error and read the tail output — tail-build does "
+               "not tail logs; branch on :reason / :probe-values (rf2-7a1mkv)."))
+      (is (or (includes-ci? hr "does not tail")
+              (includes-ci? hr "historical"))
+          (str "ops.md hot-reload guidance must note tail-build does NOT "
+               "actually tail the shadow-cljs server log (rf2-7a1mkv).")))))
+
+(deftest subscribe-topic-catalogue-includes-frameless
+  (testing "ops.md subscribe/trace topic list includes :frameless (rf2-7a1mkv finding 3)"
+    (is (str/includes? @ops-md ":frameless")
+        (str "ops.md no longer lists `:frameless` in the subscribe topic "
+             "catalogue — the only live channel for registration / reload / "
+             "REPL / other unjoined lifecycle events without a "
+             ":rf.trace/dispatch-id (subscribe.cljs recognises it; "
+             "rf2-7a1mkv finding 3)."))))
+
+;; ---------------------------------------------------------------------------
+;; snapshot uses plural `frames`, not singular `frame` (rf2-hf7m9j finding 2)
+;; ---------------------------------------------------------------------------
+;;
+;; The `snapshot` MCP tool reads only the plural `:frames` arg
+;; (snapshot.cljs parses `(args/parse-frames-arg (wire/arg ... :frames))`)
+;; — it has NO singular `frame` arg, unlike dispatch / get-path / read-sub.
+;; The variant-diff recipe used to call `snapshot {frame: ...}` (singular),
+;; which the tool ignores: it would snapshot the operating frame twice and
+;; produce a false comparison. These guards fail if a snapshot recipe
+;; regresses to the singular form.
+
+(deftest snapshot-recipe-uses-plural-frames-not-singular-frame
+  (testing "the variant-diff recipe selects frames via plural `frames`, not singular `frame` (rf2-hf7m9j)"
+    (let [section (recipe-section @recipes-md "Diff two variants")]
+      (is (seq section)
+          "recipes.md missing the 'Diff two variants' heading.")
+      (is (str/includes? section "snapshot {frames:")
+          (str "the variant-diff recipe no longer calls `snapshot "
+               "{frames: [...]}` (plural). snapshot has no singular "
+               "`frame` arg — it parses only :frames (snapshot.cljs) — so "
+               "a singular call snapshots the operating frame twice and "
+               "yields a false comparison (rf2-hf7m9j finding 2)."))
+      (is (not (re-find #"snapshot \{frame:" section))
+          (str "the variant-diff recipe calls `snapshot {frame: ...}` "
+               "(singular) — the tool ignores that arg. Use `snapshot "
+               "{frames: [\":...\"]}` (plural), or pin one operating frame "
+               "at a time (rf2-hf7m9j finding 2).")))))
+
+;; ---------------------------------------------------------------------------
+;; Named state-rewrite writes route through the dedicated gated tools
+;; (rf2-230ekq)
+;; ---------------------------------------------------------------------------
+;;
+;; The two write-authority tools `restore-epoch` + `replace-app-db` are the
+;; CANONICAL path for time-travel undo + state injection — both are
+;; allow-listed (the server's `--allow-writes` gate, not the allow-list, is
+;; the write boundary). The raw eval forms (`(rf/restore-epoch …)` /
+;; `app-db-reset!`) are the BACKSTOP only. These guards fail if the skill
+;; regresses to teaching the eval form as the default-reachable write path,
+;; or drops the two tools from the allow-list.
+
+(deftest write-tools-are-allow-listed
+  (testing "SKILL.md allow-lists both dedicated write tools (rf2-230ekq)"
+    (is (str/includes? @skill-md "mcp__re-frame2-pair__restore-epoch")
+        (str "SKILL.md allowed-tools no longer lists "
+             "mcp__re-frame2-pair__restore-epoch — the dedicated time-travel "
+             "tool is the canonical named-write path (rf2-230ekq)."))
+    (is (str/includes? @skill-md "mcp__re-frame2-pair__replace-app-db")
+        (str "SKILL.md allowed-tools no longer lists "
+             "mcp__re-frame2-pair__replace-app-db — the dedicated "
+             "state-injection tool is the canonical named-write path "
+             "(rf2-230ekq)."))))
+
+(deftest named-writes-prefer-dedicated-tool-not-default-eval
+  (testing "the skill no longer frames the raw eval write forms as the DEFAULT-reachable path (rf2-230ekq)"
+    (doseq [[label md] [["SKILL.md" @skill-md]
+                        ["ops.md" @ops-md]
+                        ["recipes.md" @recipes-md]
+                        ["mcp-transport.md (via recipes/ops links)" @ops-md]]]
+      (is (not (re-find #"(?i)default-reachable\s+write\s+path" md))
+          (str label " still calls the raw eval form the 'default-reachable "
+               "write path' — the dedicated `restore-epoch` / `replace-app-db` "
+               "tools are now the canonical path; eval is the backstop "
+               "(rf2-230ekq).")))
+    ;; The Experiment-loop recipe's restore step must call the dedicated tool,
+    ;; not the eval form, as its primary invocation.
+    (let [section (recipe-section @recipes-md "Experiment loop")]
+      (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
+      (is (str/includes? section "mcp__re-frame2-pair__restore-epoch {epoch-id:")
+          (str "the Experiment-loop restore step no longer leads with the "
+               "dedicated `restore-epoch {epoch-id: …}` tool — the eval form "
+               "is the backstop, not the default (rf2-230ekq)."))))
+  (testing "the eval write forms are kept as an explicitly-labelled backstop (rf2-230ekq)"
+    ;; The backstop must still be documented (gate-OFF server fallback), but
+    ;; framed as such — not removed entirely.
+    (is (includes-ci? @ops-md "backstop")
+        (str "ops.md no longer labels the raw eval restore/reset forms as a "
+             "BACKSTOP — they must remain documented for a gate-OFF server but "
+             "framed as the fallback, not the default (rf2-230ekq)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

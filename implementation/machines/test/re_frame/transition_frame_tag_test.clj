@@ -22,11 +22,11 @@
   drops the tag fails at this site test first (clear cause)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.machines.test-support :as mtest]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- shared spec ----------------------------------------------------------
 
@@ -36,6 +36,10 @@
              :green  {:on {:tick {:target :yellow}}}
              :yellow {:on {:tick {:target :red}}}}})
 
+;; Intentional RAW manual-stop listener (not mtest/with-trace-capture): this
+;; helper hands the caller a [capture-atom unregister-thunk] pair so the test
+;; controls exactly WHEN it stops listening — a behaviour the scope-macro form
+;; (which unregisters at body exit) cannot express.
 (defn- record-traces!
   []
   (let [seen (atom [])]

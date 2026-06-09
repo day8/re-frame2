@@ -23,7 +23,26 @@
             [re-frame.core      :as rf]
             [re-frame.adapter.helix :as helix-adapter]))
 
-;; -- Events / subs (handler registry is app-global) --------------------------
+;; ============================================================================
+;; SUBSTRATE-AGNOSTIC ARTEFACT LAYER  (events + sub)
+;; ============================================================================
+;;
+;; Everything above the SUBSTRATE BOUNDARY divider below is the artefact
+;; layer: events and the `:counter/value` sub. It is written exactly once
+;; per *meaning* and is byte-for-byte IDENTICAL across the Reagent, UIx, and
+;; Helix counters — same `:counter/*` ids, same handler bodies. That sameness
+;; is deliberate and load-bearing: the id-identity *is* the cross-substrate
+;; parity demonstration (examples/TESTING.md §Exception 2). The artefact layer
+;; does not know — and must not know — which reactive substrate renders it.
+;;
+;; It is NOT extracted into a shared namespace on purpose. Each substrate
+;; example is a self-contained `:browser` build, and `npm run
+;; test:bundle-isolation` greps each released bundle to prove a Helix
+;; `main.js` carries no Reagent/UIx code (and vice versa). A shared model
+;; namespace required into all three builds would defeat that isolation and
+;; the parity claim it underwrites. The boundary you should learn from this
+;; example is the SUBSTRATE BOUNDARY below — same dataflow, three view layers
+;; — not a file-extraction boundary.
 
 (rf/reg-event-db :counter/initialise
   (fn [_db _event] {:counter/value 5}))
@@ -37,7 +56,14 @@
 (rf/reg-sub :counter/value
   (fn [db _query] (:counter/value db)))
 
-;; -- Views -------------------------------------------------------------------
+;; ============================================================================
+;; ──────────────────────────  SUBSTRATE BOUNDARY  ──────────────────────────
+;; ============================================================================
+;;
+;; Below this line is the only substrate-specific code in this example: the
+;; Helix views + the mount. The Reagent and UIx counters share every line
+;; ABOVE this divider and differ only in what sits BELOW it (Reagent
+;; `reg-view`, UIx `defui` + `use-subscribe`, Helix `defnc` + `use-subscribe`).
 ;;
 ;; `reg-view` (the macro) stays Reagent-only;
 ;; Helix users write `defnc` directly. There is no auto

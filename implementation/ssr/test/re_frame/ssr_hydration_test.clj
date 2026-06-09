@@ -427,6 +427,119 @@
             "a no-slice map payload is the legitimate client-only fallback, not malformed")))))
 
 ;; ===========================================================================
+;; rf2-g00l2t — fail CLOSED on a present-but-non-map :rf/runtime-db slice
+;; ===========================================================================
+;;
+;; EP-0001 (rf2-vzld77): hydration installs a coherent FRAME-STATE —
+;; `:rf/app-db` becomes the app-db partition AND `:rf/runtime-db` becomes
+;; the runtime-db partition (machine snapshots, route slice, SSR metadata).
+;; Before rf2-g00l2t the guard validated ONLY the app-db slice; a present-
+;; but-non-map `:rf/runtime-db` (a corrupt / hostile / version-skewed
+;; payload) was silently coerced to nil and dropped, then the handler still
+;; installed a new app-db + hydration metadata — a partial hydration that
+;; violates the spec's coherent-frame-state, fail-closed boundary (Spec 011
+;; §The :rf/hydrate event — "Both partitions validate fail-closed before
+;; installation"). The guard now rejects it the SAME way as a non-map
+;; app-db slice: both partitions left unchanged, no compatibility-check
+;; fxs fire, and `:rf.error/malformed-hydration-payload` is emitted.
+
+(deftest non-map-runtime-db-slice-fails-closed-through-router
+  (testing "rf2-g00l2t — a payload carrying a present-but-non-map
+            :rf/runtime-db slice (even with a perfectly valid :rf/app-db)
+            is REJECTED through the router: neither the app-db partition
+            NOR the runtime-db partition changes, no hydration metadata is
+            stashed, and :rf.error/malformed-hydration-payload fires. This
+            is the runtime-db counterpart to the app-db fail-closed guard."
+    (register-baseline-handlers!)
+    ;; Framework-authority test event that seeds a recognisable runtime-db
+    ;; slice via the reserved `:rf.db/runtime` effect — so we can prove the
+    ;; runtime partition SURVIVES a malformed-payload rejection. Registered
+    ;; inside the test (the `tf/reset-runtime` fixture clears registrations
+    ;; before each test, so a load-time registration would be wiped).
+    (rf/reg-event-fx ::seed-runtime
+      (fn [{:keys [db] rt :rf.db/runtime} _]
+        {:db db
+         :rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
+                                  {:m {:value :idle}})}))
+    (subs/reg-runtime-sub :machine-snapshots
+      (fn [rt _] (get-in rt [:rf.runtime/machines :snapshots])))
+    (doseq [bad-rt ["runtime-is-a-string"
+                    [:runtime :is :a :vector]
+                    42
+                    false]]
+      (let [client-frame (rf/make-frame {:doc "non-map-runtime-db client frame"
+                                         :platform :client})]
+        ;; Seed recognisable pre-hydration state in BOTH partitions.
+        (rf/dispatch-sync [::set-title "pre-hydration"] {:frame client-frame})
+        (rf/dispatch-sync [::inc] {:frame client-frame})       ;; count 0 → 1
+        (rf/dispatch-sync [::seed-runtime] {:frame client-frame})
+        (let [bad-payload {:rf/app-db   {:count 99 :title "would-replace"}
+                           :rf/runtime-db bad-rt}
+              traces (capture-traces!
+                       (fn []
+                         (rf/dispatch-sync [:rf/hydrate bad-payload]
+                                           {:frame client-frame})))]
+          ;; app-db partition unchanged — the valid :rf/app-db slice must
+          ;; NOT land because the runtime-db slice made the payload malformed.
+          (is (= "pre-hydration" (rf/subscribe-once client-frame [:title]))
+              (str (pr-str bad-rt)
+                   " runtime-db slice must NOT let the app-db slice replace :title"))
+          (is (= 1 (rf/subscribe-once client-frame [:count]))
+              (str (pr-str bad-rt)
+                   " runtime-db slice must NOT let the app-db slice replace :count"))
+          ;; runtime-db partition unchanged — seeded machine snapshot survives.
+          (is (= {:m {:value :idle}}
+                 (rf/subscribe-once client-frame [:machine-snapshots]))
+              (str (pr-str bad-rt)
+                   " must leave the runtime-db partition (machine snapshot) unchanged"))
+          ;; no hydration metadata stashed (rejected, not applied).
+          (is (false? (rf/subscribe-once client-frame [:hydrated?]))
+              (str (pr-str bad-rt)
+                   " must NOT stash hydration metadata (rejected, not applied)"))
+          ;; the malformed diagnostic fires.
+          (is (some #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
+              (str (pr-str bad-rt)
+                   " must emit :rf.error/malformed-hydration-payload; saw: "
+                   (pr-str (mapv :operation traces))))
+          ;; no compatibility-check fxs fire on the rejected path.
+          (is (not-any? #(#{:rf.ssr/version-mismatch
+                            :rf.ssr/schema-digest-mismatch
+                            :rf.ssr/compatibility-check-skipped}
+                          (:operation %)) traces)
+              (str (pr-str bad-rt)
+                   " must NOT fire compatibility-check fxs on the rejected path")))))))
+
+(deftest wellformed-runtime-db-slice-still-installs-through-router
+  (testing "rf2-g00l2t — the runtime-db guard is precise: a well-formed map
+            :rf/runtime-db slice still installs the runtime-db partition
+            through the router, and a wholly-absent :rf/runtime-db key is
+            the legitimate no-server-runtime fallback (neither is malformed)."
+    (register-baseline-handlers!)
+    (subs/reg-runtime-sub :route-current
+      (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
+    ;; (a) map runtime-db slice → installs the runtime-db partition.
+    (let [client-frame (rf/make-frame {:doc "rt-ok client frame" :platform :client})
+          payload {:rf/app-db     {:count 7 :title "seeded"}
+                   :rf/runtime-db {:rf.runtime/routing {:current {:id :home}}}}
+          traces  (capture-traces!
+                    (fn []
+                      (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})))]
+      (is (= 7 (rf/subscribe-once client-frame [:count])) "app-db slice installed")
+      (is (= {:id :home} (rf/subscribe-once client-frame [:route-current]))
+          "the runtime-db route slice rode the payload and installed")
+      (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
+          "no malformed diagnostic on a well-formed two-partition payload"))
+    ;; (b) wholly-absent :rf/runtime-db key → no-server-runtime fallback.
+    (let [client-frame (rf/make-frame {:doc "rt-absent client frame" :platform :client})
+          traces (capture-traces!
+                   (fn []
+                     (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 3}}]
+                                       {:frame client-frame})))]
+      (is (= 3 (rf/subscribe-once client-frame [:count])) "app-db slice installed")
+      (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
+          "an absent :rf/runtime-db key is the no-server-runtime fallback, not malformed"))))
+
+;; ===========================================================================
 ;; rf2-1qem4q — the retired plain :app-db hydration alias stays DEAD
 ;; ===========================================================================
 ;;
@@ -552,10 +665,12 @@
 
 (deftest boot-hydrate-verify-step-fires-mismatch-on-divergent-render
   (testing "rf2-lq2ou: hydrate!'s VERIFY step runs verify-hydration!
-            against the :render-tree-fn AFTER dispatching :rf/hydrate.
-            When the client render-tree hash != the server hash carried on
-            the payload, :rf.ssr/hydration-mismatch fires — the boot helper
-            wires the post-render mismatch detection symmetric with the
+            against the :render-tree-fn SYNCHRONOUSLY, immediately after
+            dispatching :rf/hydrate and before any host render (the
+            seed-and-synchronously-compute-tree contract — rf2-3w6dmy
+            finding 1). When the client render-tree hash != the server hash
+            carried on the payload, :rf.ssr/hydration-mismatch fires — the
+            boot helper wires mismatch detection symmetric with the
             server's :emit-hash? marker."
     (register-baseline-handlers!)
     (rf/reg-view* ::boot-root (fn [] [:div.app [:span "client-render"]]))
@@ -674,3 +789,52 @@
       (is (= payload returned) "hydration proceeded (no frame-id to conflict)")
       (is (= 7 (rf/subscribe-once client-frame [:count]))
           "the seeded slice landed — an absent payload :rf/frame-id is no conflict"))))
+
+(deftest boot-hydrate-render-tree-fn-is-synchronous-and-post-seed
+  (testing "rf2-3w6dmy finding 1: hydrate!'s VERIFY contract is
+            seed-and-synchronously-compute-tree — :render-tree-fn is called
+            SYNCHRONOUSLY, BEFORE hydrate! returns, and AFTER :rf/hydrate
+            seeded app-db (so the pure client tree it computes reflects the
+            hydrated slice). It is NOT a post-mount/post-render callback: no
+            host render happens between :rf/hydrate and the call. This locks
+            the chosen contract in maintainer-visible terms."
+    (register-baseline-handlers!)
+    (let [client-frame (rf/make-frame {:doc "boot-helper sync-contract frame"
+                                       :platform :client
+                                       :ssr {:detect-mismatch? true}})
+          ;; Records WHEN render-tree-fn ran + WHAT app-db it saw.
+          called?       (atom false)
+          seen-count    (atom ::not-called)
+          ;; EP-0002 (rf2-acjknb): stamp the payload's :rf/frame-id with the
+          ;; SAME frame the client hydrates into, so the carried-frame
+          ;; validation agrees (a :rf/default stamp would now raise
+          ;; :rf.error/hydration-frame-id-mismatch against client-frame).
+          payload       (build-server-payload
+                          client-frame {:count 11 :title "seeded"}
+                          "server00"
+                          {:version 1 :payload [:count :title]})
+          returned      (ssr/hydrate!
+                          {:frame          client-frame
+                           :payload        payload
+                           :render-tree-fn (fn []
+                                             (reset! called? true)
+                                             ;; The fn reads the frame's
+                                             ;; app-db — which :rf/hydrate has
+                                             ;; ALREADY seeded by the time the
+                                             ;; verify step calls it.
+                                             (reset! seen-count
+                                                     (:count (rf/app-db-value client-frame)))
+                                             [:div.app [:span "client-render"]])})]
+      ;; SYNCHRONOUS: render-tree-fn ran during the hydrate! call, so the
+      ;; flag is already true once hydrate! has returned — no deferred
+      ;; tick, no host render boundary in between.
+      (is (true? @called?)
+          ":render-tree-fn was called synchronously within hydrate! (not deferred)")
+      ;; POST-SEED: it observed the HYDRATED app-db, proving the call lands
+      ;; after :rf/hydrate (step 2) — the pure client tree it computes is
+      ;; the projection of the server's slice the host is about to mount.
+      (is (= 11 @seen-count)
+          ":render-tree-fn ran AFTER :rf/hydrate seeded app-db (saw :count 11)")
+      ;; The helper returned the applied payload as documented.
+      (is (= payload returned)
+          "hydrate! returned the applied payload"))))

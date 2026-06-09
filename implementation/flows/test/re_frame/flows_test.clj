@@ -339,6 +339,48 @@
       (is (= 'rf/reg-flow (:where data))     ":where names the user-facing surface")
       (is (= :fix-registration (:recovery data)) ":recovery names the disposition"))))
 
+(deftest reg-flow-id-must-be-a-keyword
+  ;; rf2-ihfz9o issue 2: the public FlowMeta schema requires `[:id :keyword]`
+  ;; (Spec-Schemas §FlowMeta) and the `:flow-id` slot is emitted unchanged into
+  ;; `:rf.flow/*` trace + error payloads, so a non-keyword id leaks an
+  ;; arbitrary shape downstream. `reg-flow` rejects a present-but-non-keyword
+  ;; id at the API boundary with the dedicated `:rf.error/flow-bad-id`
+  ;; discriminator (a fifth member of the `:rf.error/flow-bad-*` family).
+  ;; nil/absent stays `:rf.error/flow-missing-id` (the absent-id case fires
+  ;; first); a keyword id passes.
+  (testing "a nil :id throws :rf.error/flow-missing-id (absent), NOT flow-bad-id"
+    (let [ex (try (rf/reg-flow {:id nil :inputs [[:n]] :output identity :path [:x]})
+                  (catch Throwable t t))]
+      (is (= :rf.error/flow-missing-id (:rf.error/id (ex-data ex)))
+          "a nil id is the missing-id case (some? nil is false)")))
+  (testing "a string :id throws :rf.error/flow-bad-id"
+    (let [ex   (try (rf/reg-flow {:id "creds" :inputs [[:n]] :output identity :path [:x]})
+                    (catch Throwable t t))
+          data (ex-data ex)]
+      (is (some? ex) "registration threw")
+      (is (= :rf.error/flow-bad-id (:rf.error/id data))
+          ":rf.error/id carries the bad-id discriminator")
+      (is (= ":rf.error/flow-bad-id" (ex-message ex))
+          "message string is the stringified discriminator kw")
+      (is (= 'rf/reg-flow (:where data))         ":where names the user-facing surface")
+      (is (= :fix-registration (:recovery data))  ":recovery names the disposition")
+      (is (string? (:reason data))               ":reason is a human-readable sentence")))
+  (testing "a number :id throws :rf.error/flow-bad-id"
+    (let [ex (try (rf/reg-flow {:id 42 :inputs [[:n]] :output identity :path [:x]})
+                  (catch Throwable t t))]
+      (is (= :rf.error/flow-bad-id (:rf.error/id (ex-data ex)))
+          "a numeric id is rejected as bad-id")))
+  (testing "a map :id throws :rf.error/flow-bad-id"
+    (let [ex (try (rf/reg-flow {:id {:k 1} :inputs [[:n]] :output identity :path [:x]})
+                  (catch Throwable t t))]
+      (is (= :rf.error/flow-bad-id (:rf.error/id (ex-data ex)))
+          "a map id is rejected as bad-id")))
+  (testing "a keyword :id is accepted (no throw)"
+    (rf/reg-event-db :ok/init (fn [db _] db))
+    (is (= :ok/flow
+           (rf/reg-flow {:id :ok/flow :inputs [[:n]] :output identity :path [:x]}))
+        "a keyword id registers cleanly and reg-flow returns the id")))
+
 ;; ---------------------------------------------------------------------------
 ;; 1b. validate-flow well-formedness (rf2-gnl7q)
 ;;

@@ -50,7 +50,10 @@
     (rf/reg-event-fx ::probe-check-version-match
       {:platforms #{:client}}
       (fn [_ _]
-        {:fx [[:rf.ssr/check-version {:expected "1.0.0" :actual "1.0.0"}]]}))
+        ;; rf2-g00l2t: :rf/version is canonically an INTEGER pattern-
+        ;; protocol version (Spec-Schemas §:rf/hydration-payload), so the
+        ;; check-version probes compare integers, not semver strings.
+        {:fx [[:rf.ssr/check-version {:expected 1 :actual 1}]]}))
 
     (let [f      (rf/make-frame {:platform :client})
           traces (capture-traces!
@@ -67,7 +70,7 @@
     (rf/reg-event-fx ::probe-check-version-mismatch
       {:platforms #{:client}}
       (fn [_ _]
-        {:fx [[:rf.ssr/check-version {:expected "1.0.0" :actual "2.0.0"}]]}))
+        {:fx [[:rf.ssr/check-version {:expected 1 :actual 2}]]}))
 
     (let [f      (rf/make-frame {:platform :client})
           traces (capture-traces!
@@ -81,8 +84,8 @@
       (when (seq hits)
         (let [ev (first hits)]
           (is (= :warning              (:op-type ev)))
-          (is (= "1.0.0"               (-> ev :tags :expected)))
-          (is (= "2.0.0"               (-> ev :tags :actual)))
+          (is (= 1                     (-> ev :tags :expected)))
+          (is (= 2                     (-> ev :tags :actual)))
           (is (= :warned-and-applied   (:recovery ev))
               ":recovery rides at top-level per Spec 009"))))))
 
@@ -161,7 +164,7 @@
     (rf/reg-event-fx ::probe-check-version-scalar-no-hook
       {:platforms #{:client}}
       (fn [_ _]
-        {:fx [[:rf.ssr/check-version "1.0.0"]]}))
+        {:fx [[:rf.ssr/check-version 1]]}))
 
     (let [f      (rf/make-frame {:platform :client})
           traces (capture-traces!
@@ -177,7 +180,7 @@
           (is (= :warning              (:op-type ev)))
           (is (= :rf.ssr/check-version (-> ev :tags :check))
               ":check tag identifies which compatibility fx skipped")
-          (is (= "1.0.0"               (-> ev :tags :expected))
+          (is (= 1                     (-> ev :tags :expected))
               "scalar value is the :expected (server-side) value")
           (is (= :skipped              (:recovery ev))))))))
 
@@ -185,12 +188,12 @@
   (testing "scalar form + registered :rf2/runtime-version hook → compare; mismatch fires"
     ;; Install the hook to return the client-side runtime version;
     ;; remove after to keep the hook table clean for the next test.
-    (late-bind/set-fn! :rf2/runtime-version (constantly "2.0.0"))
+    (late-bind/set-fn! :rf2/runtime-version (constantly 2))
     (try
       (rf/reg-event-fx ::probe-check-version-scalar-with-hook
         {:platforms #{:client}}
         (fn [_ _]
-          {:fx [[:rf.ssr/check-version "1.0.0"]]}))
+          {:fx [[:rf.ssr/check-version 1]]}))
 
       (let [f      (rf/make-frame {:platform :client})
             traces (capture-traces!
@@ -205,9 +208,9 @@
                  (pr-str (mapv :operation traces))))
         (when (seq hits)
           (let [ev (first hits)]
-            (is (= "1.0.0" (-> ev :tags :expected))
+            (is (= 1 (-> ev :tags :expected))
                 "scalar arg is :expected (server side)")
-            (is (= "2.0.0" (-> ev :tags :actual))
+            (is (= 2 (-> ev :tags :actual))
                 ":actual sourced via the late-bind hook"))))
       (finally
         (swap! late-bind/hooks dissoc :rf2/runtime-version)))))

@@ -99,7 +99,8 @@
     `re-frame.ssr.ring.payload/build-payload`     - non-streaming SSR
     `re-frame.ssr.streaming/build-final-payload`  - streaming SSR"
   (:refer-clojure :exclude [resolve])
-  (:require [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.late-bind :as late-bind]
+            [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -365,24 +366,73 @@
   (Malli `:int` slot, not `:optional`)."
   1)
 
+(defn- coerce-version
+  "Coerce a candidate `:rf/version` source value to the canonical INTEGER
+  pattern-protocol version (per Spec-Schemas §`:rf/hydration-payload` —
+  `:rf/version` is `:int`, explicitly NOT a semver-style string; rf2-g00l2t).
+
+  Returns:
+    - the integer itself when `v` is already an int;
+    - the parsed integer when `v` is a whole-number-valued string
+      (`\"7\"` → 7) — a tolerant coercion for hosts that stamp the
+      version as a string of digits;
+    - `nil` when `v` is nil (the source is simply absent), OR when `v`
+      is a non-integer / non-numeric-string value (a semver `\"1.0.0\"`,
+      a float, a keyword) — REJECTED so the caller falls through to the
+      next source rather than shipping a schema-violating `:rf/version`.
+
+  A rejection (non-nil, non-coercible) emits a `:rf.ssr/invalid-version`
+  warning trace so the drift surfaces in dev/CI rather than silently
+  defaulting."
+  [v]
+  (cond
+    (nil? v) nil
+
+    (int? v) v
+
+    (and (string? v) (re-matches #"\d+" v))
+    #?(:clj  (Long/parseLong v)
+       :cljs (js/parseInt v 10))
+
+    :else
+    (do
+      ;; `trace/emit!` self-gates on `interop/debug-enabled?` (production
+      ;; CLJS bundles DCE the body), so no outer guard is needed here.
+      (trace/emit! :warning :rf.ssr/invalid-version
+                   {:value    v
+                    :reason   (str "Hydration :rf/version must be an integer "
+                                   "pattern-protocol version (per Spec-Schemas "
+                                   "§:rf/hydration-payload), not "
+                                   (pr-str (type v)) " " (pr-str v)
+                                   "; rejected — falling back to the next "
+                                   "version source.")
+                    :recovery :rejected-and-fell-back})
+      nil)))
+
 (defn resolve-version
-  "Pick the `:rf/version` value to ship in the hydration payload. The
-  resolution order is:
+  "Pick the canonical INTEGER `:rf/version` value to ship in the hydration
+  payload (per Spec-Schemas §`:rf/hydration-payload` — `:rf/version` is
+  `:int`, NOT a semver string). Each candidate source is coerced/validated
+  via `coerce-version`: an int is taken verbatim, a whole-number string is
+  parsed, and any other value (semver string, float, keyword) is REJECTED
+  (with a `:rf.ssr/invalid-version` warning) so resolution falls through to
+  the next source rather than shipping a schema-violating value (rf2-g00l2t).
+
+  The resolution order is:
 
     1. An explicit `:version` opt from the caller (host-supplied stamp;
        wins so test fixtures and apps that ship their own version source
-       stay in control).
+       stay in control) — when it coerces to an integer.
     2. The framework-global `:rf2/runtime-version` late-bind hook — the
-       same source the client-side `:rf.ssr/check-version` fx reads. When
-       the host registers this hook at boot, both sides of the wire pin
-       the same value with no further wiring (per Spec 011 §The hydration
-       payload + §fx-input shape + Conventions §Late-bind hook key
-       grammar).
+       same source the client-side `:rf.ssr/check-version` fx reads — when
+       it coerces to an integer. When the host registers this hook at boot,
+       both sides of the wire pin the same value with no further wiring
+       (per Spec 011 §The hydration payload + §fx-input shape + Conventions
+       §Late-bind hook key grammar).
     3. `default-pattern-protocol-version` (v1 = 1) — the canonical schema
        slot is required (per Spec-Schemas §`:rf/hydration-payload`), so a
-       terminal numeric fallback is structurally necessary. The
-       check-version fx still no-ops cleanly on the client when neither
-       side has the hook registered (matched value → no mismatch).
+       terminal integer fallback is structurally necessary. Used when no
+       source supplied a coercible integer (absent, or all rejected).
 
   Both sides of the wire read `:version` through the same hook so a host
   that doesn't pass `:version` explicitly still pins a value the client
@@ -390,9 +440,9 @@
   the version-mismatch check; rf2-asmj1 S8 / rf2-l8fi6 non-streaming,
   rf2-via0g streaming)."
   [explicit-version]
-  (or explicit-version
-      (when-let [f (late-bind/get-fn :rf2/runtime-version)]
-        (f))
+  (or (coerce-version explicit-version)
+      (coerce-version (when-let [f (late-bind/get-fn :rf2/runtime-version)]
+                        (f)))
       default-pattern-protocol-version))
 
 (defn build-payload

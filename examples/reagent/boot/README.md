@@ -108,7 +108,7 @@ which drives this example's production source and runs under
 core.cljs               — mount + boot trigger + demo HTTP stubs
 boot.cljs               — :app/boot machine + :boot/loader child machine
 views.cljs              — boot-progress + main-app + failure views
-schema.cljs             — Malli schemas (BootSnapshot, Config, Flags, ...)
+schema.cljs             — Malli schemas (BootData, LoaderData, Config, Flags, ...)
 index.html
 ```
 

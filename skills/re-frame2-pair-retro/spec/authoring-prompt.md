@@ -28,10 +28,13 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 > ├── agents/
 > │ └── openai.yaml (alt-host config for non-Claude operation)
+> ├── evals/                          # repo-maintenance artifact; excluded from the npm `files` array
+> │ └── evals.json (trigger-accuracy fixtures — which prompts should / should not activate)
 > ├── references/
 > │ ├── analysis-lenses.md (~140 lines; nine root-cause lenses)
 > │ ├── known-frictions.md (~120 lines; recurring pain patterns)
-> │ └── issue-template.md (~90 lines; GitHub-issue-body template + redaction)
+> │ ├── issue-template.md (~90 lines; GitHub-issue-body template + redaction)
+> │ └── working-style.md (diagnostic-posture rules; the SHIPPED operational home of design.md §8)
 > └── spec/
 > ├── design.md
 > ├── inputs.md
@@ -39,6 +42,8 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > ```
 >
 > *Every reference is ≤250 lines (target ~120). SKILL.md is ~170 lines (well under Anthropic's 500-line ceiling).*
+>
+> ***Preserve the shipped load paths.** `SKILL.md` MUST cross-link `references/working-style.md` (the diagnostic-posture rules) and `references/issue-template.md` — both are packaged `references/` leaves that load during normal operation. Do NOT relegate the diagnostic-posture rules back into `spec/`: `spec/` is excluded from the npm package / plugin bundle and is not loaded during normal operation, so a `SKILL.md → spec/design.md §8` link breaks in every packaged / plugin / vendored install (this was the rf2-ia7qf finding-2 regression). `.claude-plugin/plugin.json` and `agents/openai.yaml` are shipped slice files — keep them in the package `files` array. `evals/evals.json` (the trigger fixtures) is a re-authoring slice too — keep it on disk so the description-optimisation loop can score the activation boundary — but, like `spec/`, it is a **repo-maintenance artifact deliberately excluded from the npm `files` array** (it runs from a full clone, not from a packaged consumer's install); do NOT add `evals/` to `files`. This matches the sibling `re-frame2` / `re-frame2-setup` / `re-frame2-pair` skills (rf2-myge8z).*
 >
 > *SKILL.md walks the six-step analysis workflow:*
 >
@@ -56,7 +61,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > *3. **Default to diagnosis, not contribution.** Do not assume the user wants to file a GitHub issue.*
 > *4. **Never file a GitHub issue or edit another repo without explicit user approval.***
 > *5. **No re-frame-10x routing.** Time-travel + trace consumption ride on re-frame2's native Tool-Pair surfaces.*
-> *6. **If the best fix is upstream in the framework, say so.** All issues file against `day8/re-frame2`; carry the `pair-mcp` label for tool-side friction, no label for upstream framework friction.*
+> *6. **If the best fix is upstream in the framework, say so.** All issues file against `day8/re-frame2`. **Labels are optional taxonomy, never a filing precondition** — `gh issue create` fails the whole command on an unknown `--label`, and the target repo may not define them. Route the tool-vs-framework distinction primarily in the title + body; run `gh label list` before using any label, pass only labels that exist (`pair-mcp` reinforces tool-side friction when present), and fall back to a no-label `gh issue create` so filing always lands.*
 >
 > *Output format the skill produces (compact retrospective):*
 >
@@ -72,7 +77,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 >
 > *- **L1 — No re-frame-10x routing.** Cardinal anti-pattern.*
 > *- **L2 — Never file a GitHub issue without explicit user approval.** Cardinal guard-rail.*
-> *- **L3 — Route the fix to the right layer.** Both kinds of friction file against `day8/re-frame2` (the monorepo that ships the pair tool), distinguished by label: tool changes carry `--label pair-mcp`; upstream contract changes carry no `pair-mcp` label. There is no separate `re-frame2-pair` repo. Skills file GitHub issues against that repo — `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill.*
+> *- **L3 — Route the fix to the right layer.** Both kinds of friction file against `day8/re-frame2` (the monorepo that ships the pair tool). The tool-vs-framework distinction is carried primarily in the title + body; a `pair-mcp` label optionally reinforces tool-side friction **only when the repo defines it**. **Labels are optional, never a filing precondition** — `gh issue create` fails the whole command on an unknown `--label`, so detect with `gh label list`, pass only present labels, and fall back to a no-label `gh issue create`. There is no separate `re-frame2-pair` repo. Skills file GitHub issues against that repo — `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill.*
 > *- **L10 — No internal `bd`/`rf2-XXXX` ids in user-facing skill content.***
 > *- **L11 — Findings stay local.** Don't commit `ai/` or `findings/`.*
 > *- **L12 — Redact secrets before filing.** GitHub-issue drafts strip secrets, tokens, internal URLs, unnecessary local paths. The body is composed to a **fresh, per-filing temp file in the host OS's temp directory** with the `Write` tool (a nonce-carrying `$env:TEMP\…` on Windows or `${TMPDIR:-/tmp}/…` on POSIX — never a fixed `/tmp/issue-body.md`) and passed via `--body-file`, never inline interpolation of transcript-derived text.*

@@ -21,7 +21,7 @@ The dataflow — events, subs, schemas, machine, managed-HTTP stub — is **iden
 
 ### Shared registry ids — deliberate, build-isolated
 
-The "identical" above is literal: `counter_uix` and `login_uix` register the **same app-global registry ids** as their Reagent (and Helix) siblings — the `:counter/*` event + sub ids, the `:auth.login/flow` machine event, the `:auth.login.demo/managed-stub` fx, the `:auth.login/state` / `:auth.login/error` subs, and the `:auth.login/flow` machine's `:data-schema` (the machine snapshot lives in runtime-db at `[:rf.runtime/machines :snapshots :auth.login/flow]`, validated via `:data-schema`, not `reg-app-schema` — EP-0001). This is **byte-for-byte id reuse on purpose** — the id-identity *is* the cross-substrate parity demonstration. The **canonical statement** of this carve-out (with the same four bounding conditions) lives in [`examples/TESTING.md` §Exception 2 — the cross-substrate Reagent/UIx/Helix id share](../TESTING.md#exception-2--the-cross-substrate-reagentuixhelix-id-share), alongside its sibling [§Exception 1 — the stock/slim counter `:counter/*` share](../TESTING.md#exception-1--the-stockslim-counter-counter-id-share). It is a bounded exception to the example-id-prefix convention, not an oversight, and the same four conditions apply:
+The "identical" above is literal: `counter_uix` and `login_uix` register the **same app-global registry ids** as their Reagent (and Helix) siblings — the `:counter/*` event + sub ids, the `:auth.login/flow` machine event, the `:auth.login.demo/managed-stub` fx, the `:auth.login/state` / `:auth.login/error` subs, and the `:auth.login/flow` machine's `:data-schema`. The machine snapshot lives in runtime-db at `[:rf.runtime/machines :snapshots :auth.login/flow]`; its `:data-schema` is a top-level key on the machine spec that validates the machine's **`:data` slot only** (`{:attempts ... :error ...}`) at the `:where :machine-data` boundary — per [Spec 005 §Schema validation](../../spec/005-StateMachines.md) — not the whole `{:state ... :data ...}` snapshot, and not `reg-app-schema` (machine snapshots are runtime-db state, not app-db — EP-0001). This is **byte-for-byte id reuse on purpose** — the id-identity *is* the cross-substrate parity demonstration. The **canonical statement** of this carve-out (with the same four bounding conditions) lives in [`examples/TESTING.md` §Exception 2 — the cross-substrate Reagent/UIx/Helix id share](../TESTING.md#exception-2--the-cross-substrate-reagentuixhelix-id-share), alongside its sibling [§Exception 1 — the stock/slim counter `:counter/*` share](../TESTING.md#exception-1--the-stockslim-counter-counter-id-share). It is a bounded exception to the example-id-prefix convention, not an oversight, and the same four conditions apply:
 
 1. **Allowed only because each example is a separate standalone shadow-cljs build** (`examples/counter-uix`, `examples/login-uix`) that MUST NOT be co-required with its Reagent/Helix twin into one runtime. They never share a JS runtime, so the identical ids never collide.
 2. **If any of these examples is ever folded into a shared wrapper / showcase / `test:browser` bundle alongside a sibling substrate, the ids MUST be prefixed first.** Because the twins start byte-identical, a co-load collision would overwrite handlers/subs/schema *silently* until one side diverges.
@@ -53,17 +53,29 @@ npm run test:examples
 
 That compiles the three adapter testbeds (`adapters/reagent-testbed`, `adapters/uix-testbed`, `adapters/helix-testbed`), stages each `index.html`, serves them, and drives the three `spec.cjs` smokes; the example builds in this directory carry no `spec.cjs` (the `examples/` tree is test-free). They do, however, get **compile coverage**: `npm run test:examples-compile` (from `implementation/`) `shadow-cljs compile`s every declared standalone `:examples/*` build — including `examples/login-uix` and `examples/dashboard-uix` — and fails on any compile error or warning, so a namespace / `:init-fn` / `:require` / UIx-form regression in these builds can no longer ship green. See [`examples/TESTING.md`](../TESTING.md#compile-coverage-gate-testexamples-compile). Bundle isolation is verified separately (each per-substrate shadow-cljs build lets CI confirm a Reagent bundle's `main.js` carries no UIx code and vice versa, and likewise for UIx ↔ Helix).
 
-To iterate on one UIx example interactively, from `implementation/`:
+To run one UIx example interactively in a browser, from `implementation/`:
+
+```bash
+npm run dev:example -- examples/counter-uix
+```
+
+That one command stages the example's hand-written `index.html` + the shared `_shared/` assets next to the compiled `main.js`, starts `shadow-cljs watch` (edits recompile live), serves the output dir on a free local port, and prints the URL to open. Swap in `examples/login-uix` or `examples/dashboard-uix` for the others; `npm run dev:example -- --list` lists every runnable standalone example. Add `--no-watch` for a one-shot compile-and-serve.
+
+<details><summary>Advanced / troubleshooting: raw <code>shadow-cljs watch</code></summary>
+
+The one-command runner wraps the raw watch + manual staging recipe:
 
 ```bash
 shadow-cljs watch examples/counter-uix
 ```
 
-The build emits `main.js` into `out/examples/counter-uix/`; copy the example's hand-written [`counter_uix/index.html`](counter_uix/index.html) (and the shared assets it references under [`../_shared/`](../_shared/)) alongside it to load the watched build in a browser.
+The build emits `main.js` into `out/examples/counter-uix/`; you then copy the example's hand-written [`counter_uix/index.html`](counter_uix/index.html) (and the shared assets it references under [`../_shared/`](../_shared/)) alongside it and serve the output dir yourself. `npm run dev:example` does this staging + serving for you, so reach for the raw command only when you need to drive shadow-cljs directly.
+
+</details>
 
 ## Cross-references
 
-- [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md) — the substrate contract that adapters implement; the seven decisions (frame Context, hooks-first, `use-subscribe`, no auto-injection, source-coord injection at the substrate boundary, `flush-views!` for tests, and the smoke-test subset).
+- [`spec/006-ReactiveSubstrate.md` §CLJS reference: UIx as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate) — the substrate contract that the UIx adapter implements; the eight decisions (hooks-first `use-subscribe`, frame Context, no auto-injection, `reg-view` Reagent-only, source-coord injection at the substrate boundary, `flush-views!` for tests, the smoke-test subset, and target version UIx 2.x).
 - [`spec/Conventions.md`](../../spec/Conventions.md#adapter-test-matrix-policy) — adapter test matrix policy: Reagent canonical, UIx and Helix smoke-tested.
 - [`examples/reagent/counter/`](../reagent/counter/) and [`examples/reagent/login/`](../reagent/login/) — the canonical Reagent counterparts (same dataflow; different view layer; namespace prefix without the `_uix` suffix).
 - [`examples/reagent/notebook/`](../reagent/notebook/) — the Reagent design-led sibling of `dashboard_uix`; same "Editorial Warm" identity, different substrate.

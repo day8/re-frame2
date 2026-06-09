@@ -1043,3 +1043,106 @@
           "explicit-nil :html-shell still opens the default document")
       (is (str/includes? body "<h1>News</h1>")
           "explicit-nil :html-shell still streams the default envelope"))))
+
+;; ===========================================================================
+;; rf2-9fw2de — streaming: the HEAD folds into the unified render hash, AND
+;; the streamed root element honours :emit-hash? with a data-rf-render-hash
+;; marker equal to the final payload's :rf/render-hash.
+;;
+;; Issue 1 (High): the streaming final-payload `:rf/render-hash` was computed
+;; over the body `hiccup` alone, excluding the head — so a head-only
+;; divergence left the hash unchanged (Spec 011 §624-626/§648-650 lock head +
+;; body onto the unified channel). Fix: the streaming hash is the canonical
+;; FULL-document hash (`lifecycle/render-document-hash`), folding the head.
+;;
+;; Issue 2 (Medium): `stream-handler` advertised `:emit-hash?` (default true)
+;; but `run-streaming-writer!` destructured it without use — the streamed
+;; shell never carried a `data-rf-render-hash` root marker, making
+;; `:emit-hash?` a public no-op for the HTML path (Spec 011 §362-363 requires
+;; the server marker on the root element). Fix: the streaming prefix stamps
+;; the full-document hash onto the `#app` root div when `:emit-hash?` is true.
+;; ===========================================================================
+
+(defn- stream-payload-hash
+  "Pull the `:rf/render-hash` out of a streamed document's final
+  `__rf_payload` script. Matches the `#:rf{…}` namespace-map shorthand too."
+  [body]
+  (let [payload-edn (second (re-find
+                              #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                              body))]
+    (when payload-edn
+      (second (re-find #":(?:rf/)?render-hash \"([0-9a-f]{8})\"" payload-edn)))))
+
+(defn- stream-root-wire-hash
+  "Pull the `data-rf-render-hash` stamped on the streamed `#app` root div."
+  [body]
+  (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\"" body)))
+
+(deftest stream-handler-head-folds-into-render-hash
+  (testing "rf2-9fw2de: identical body + DIFFERENT explicit :head → DIFFERENT
+            streamed final-payload :rf/render-hash. The head rides the unified
+            hash channel for the streaming path too."
+    (let [mk      (fn [head]
+                    (ssr-ring/stream-handler
+                      {:on-create [:rf.test.server/init]
+                       :root-view [:test/root]
+                       :head      head
+                       :payload   :rf.ssr.payload/whole-app-db}))
+          body-a  (drain-stream (:body ((mk "<title>Alpha</title>")
+                                        {:uri "/" :request-method :get})))
+          body-b  (drain-stream (:body ((mk "<title>Beta</title>")
+                                        {:uri "/" :request-method :get})))
+          ha      (stream-payload-hash body-a)
+          hb      (stream-payload-hash body-b)]
+      (is (str/includes? body-a "<h1>News</h1>") "body A identical")
+      (is (str/includes? body-b "<h1>News</h1>") "body B identical")
+      (is (some? ha) "streamed payload A carries :rf/render-hash")
+      (is (some? hb) "streamed payload B carries :rf/render-hash")
+      (is (not= ha hb)
+          "rf2-9fw2de: identical streamed body but different head → DIFFERENT
+           final-payload :rf/render-hash (head folded into the unified
+           streaming hash channel)"))))
+
+(deftest stream-handler-emit-hash-true-stamps-root-marker-equal-to-payload
+  (testing "rf2-9fw2de (Issue 2): :emit-hash? true → the streamed #app root
+            div carries data-rf-render-hash, and it EQUALS the final payload's
+            :rf/render-hash (the same canonical full-document hash)."
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create  [:rf.test.server/init]
+                      :root-view  [:test/root]
+                      :emit-hash? true
+                      :payload    :rf.ssr.payload/whole-app-db})
+          body     (drain-stream (:body (handler {:uri "/" :request-method :get})))
+          wire     (stream-root-wire-hash body)
+          payload  (stream-payload-hash body)]
+      (is (some? wire)
+          "rf2-9fw2de: :emit-hash? true stamps data-rf-render-hash on the
+           streamed root element (was a no-op before — Issue 2)")
+      (is (some? payload) "final payload carries :rf/render-hash")
+      (is (= wire payload)
+          "streamed root data-rf-render-hash == final payload :rf/render-hash
+           (both the canonical full-document hash)")
+      ;; The marker lands on the #app root div, not buried in a child.
+      (is (re-find #"<div id=\"app\" data-rf-render-hash=\"[0-9a-f]{8}\">" body)
+          "the marker is stamped on the opening #app root div"))))
+
+(deftest stream-handler-emit-hash-false-omits-root-marker
+  (testing "rf2-9fw2de (Issue 2): :emit-hash? false → NO data-rf-render-hash on
+            the streamed shell. Toggling the opt now has an observable effect
+            on the wire (it was a no-op for the HTML path before)."
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create  [:rf.test.server/init]
+                      :root-view  [:test/root]
+                      :emit-hash? false
+                      :payload    :rf.ssr.payload/whole-app-db})
+          body     (drain-stream (:body (handler {:uri "/" :request-method :get})))]
+      (is (str/includes? body "<div id=\"app\">")
+          "the #app root div is present without a hash marker")
+      (is (not (str/includes? body "data-rf-render-hash"))
+          "rf2-9fw2de: :emit-hash? false → no data-rf-render-hash anywhere in
+           the streamed shell")
+      ;; The payload still carries the hash (the payload slot is hash-driven
+      ;; regardless of :emit-hash?, mirroring the non-streaming handler).
+      (is (some? (stream-payload-hash body))
+          "the final payload still carries :rf/render-hash when :emit-hash?
+           is false (only the wire MARKER is gated by the opt)"))))

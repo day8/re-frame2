@@ -37,6 +37,49 @@
          (de/collect-patches {:a {:b 1}} {:a [1 2 3]} []))))
 
 ;; ---------------------------------------------------------------------------
+;; collect-patches — same-length vectors diff structurally (rf2-cwhod2).
+;; ---------------------------------------------------------------------------
+
+(deftest collect-patches-diffs-vector-element-map-update
+  ;; The headline case: a single item update inside a vector yields an
+  ;; index-headed item-level patch, NOT a whole-vector replacement.
+  (is (= [[[:items 0 :qty] :assoc 2]]
+         (de/collect-patches {:items [{:qty 1}]} {:items [{:qty 2}]} []))))
+
+(deftest collect-patches-diffs-same-length-scalar-vector
+  (is (= [[[:xs 1] :assoc 9]]
+         (de/collect-patches {:xs [1 2 3]} {:xs [1 9 3]} []))))
+
+(deftest collect-patches-diffs-multiple-vector-elements
+  (is (= [[[:xs 0] :assoc 10]
+          [[:xs 2] :assoc 30]]
+         (de/collect-patches {:xs [1 2 3]} {:xs [10 2 30]} []))))
+
+(deftest collect-patches-recurses-nested-vectors
+  (is (= [[[:grid 1 0] :assoc 9]]
+         (de/collect-patches {:grid [[1 2] [3 4]]}
+                             {:grid [[1 2] [9 4]]} []))))
+
+(deftest collect-patches-vector-nil-element-changes
+  (testing "nil → value at an index"
+    (is (= [[[:xs 1] :assoc 5]]
+           (de/collect-patches {:xs [1 nil 3]} {:xs [1 5 3]} []))))
+  (testing "value → nil at an index"
+    (is (= [[[:xs 1] :assoc nil]]
+           (de/collect-patches {:xs [1 2 3]} {:xs [1 nil 3]} [])))))
+
+(deftest collect-patches-vector-length-change-is-whole-leaf
+  (testing "growth → whole-vector :assoc (length delta, no element diff)"
+    (is (= [[[:xs] :assoc [1 2 3 4]]]
+           (de/collect-patches {:xs [1 2 3]} {:xs [1 2 3 4]} []))))
+  (testing "shrink → whole-vector :assoc"
+    (is (= [[[:xs] :assoc [1 2]]]
+           (de/collect-patches {:xs [1 2 3]} {:xs [1 2]} [])))))
+
+(deftest collect-patches-equal-vector-emits-nothing
+  (is (= [] (de/collect-patches {:xs [1 2 3]} {:xs [1 2 3]} []))))
+
+;; ---------------------------------------------------------------------------
 ;; apply-patches — round-trips collect-patches.
 ;; ---------------------------------------------------------------------------
 
@@ -56,6 +99,26 @@
           b [1 2 3]
           p (de/collect-patches a b [])]
       (is (= b (de/apply-patches a p))))))
+
+(deftest apply-patches-round-trips-vector-diffs
+  ;; rf2-cwhod2: every same-length-vector diff shape round-trips through
+  ;; the existing assoc-in replay (integer index paths), and every
+  ;; length-change whole-leaf replacement does too.
+  (doseq [[label a b]
+          [["vector element map update"   {:items [{:qty 1} {:qty 5}]} {:items [{:qty 2} {:qty 5}]}]
+           ["nested vector update"        {:grid [[1 2] [3 4]]}        {:grid [[1 2] [9 4]]}]
+           ["nil vector element → value"  {:xs [1 nil 3]}              {:xs [1 5 3]}]
+           ["value → nil vector element"  {:xs [1 2 3]}               {:xs [1 nil 3]}]
+           ["same-length scalar update"   {:xs [1 2 3]}               {:xs [1 9 3]}]
+           ["multiple element updates"    {:xs [1 2 3]}               {:xs [10 2 30]}]
+           ["vector growth (whole-leaf)"  {:xs [1 2 3]}               {:xs [1 2 3 4]}]
+           ["vector shrink (whole-leaf)"  {:xs [1 2 3]}               {:xs [1 2]}]
+           ["vector of maps, length grew" {:items [{:id 1}]}          {:items [{:id 1} {:id 2}]}]
+           ["root vector element update"  [1 2 3]                     [1 9 3]]]]
+    (testing label
+      (let [p (de/collect-patches a b [])]
+        (is (= b (de/apply-patches a p))
+            (str label " must round-trip"))))))
 
 (deftest apply-patches-dissoc-at-root-via-direct-path
   (is (= {:a 1} (de/apply-patches {:a 1 :b 2} [[[:b] :dissoc]]))))

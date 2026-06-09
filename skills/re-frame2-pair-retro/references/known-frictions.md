@@ -123,12 +123,12 @@ Typical improvements:
 
 Signals:
 - the trace stream, epoch history, or schema reflection returned empty and the user thought the tool was broken
-- the build is `:advanced` and `goog.DEBUG=false`, so every Tool-Pair surface elides
+- the build is `:advanced` and `goog.DEBUG=false`, so the **dev-gated** Tool-Pair surfaces elide — specifically the trace stream, schema validation, the epoch machinery (epoch-history / `restore-epoch` / the epoch streaming topic), and source-coordinate annotation. Crucially this is NOT a total wall across the whole tool surface: `orient` still returns registry/frame shape (it is built from `health` + frame ids + app-db top keys + registry counts, none of which are dev-gated), the direct-read primitives (`snapshot` / `get-path` / `read-sub`) carry their own egress/privacy posture rather than the debug gate, and the always-on error-emit substrate (`:on-error` / error projection, per Spec 009 §What IS available in production) keeps answering. Misclassifying a mixed production result as everything-is-gone teaches an agent to abandon usable probes.
 - the user cannot tell whether they hit an elision wall or a tool bug
 
 Typical improvements:
 - preflight check that reads `re-frame.interop/debug-enabled?` and reports the answer
-- make "I am attached to a production-elided build" a first-class result state
+- make "I am attached to a production-elided build" a first-class result state, distinguishing the dev-only surfaces that go dark (trace / epoch / schema / source-coord) from the surfaces that still answer (orientation, registry/frame shape, the direct-read primitives, and the always-on error-policy diagnostics)
 - recipe for switching to a dev build before continuing
 
 ### Tool-catalogue / build-capability uncertainty
@@ -141,7 +141,7 @@ Signals:
 Typical improvements:
 - when the retro is explicitly tied to an in-conversation live re-frame2-pair session whose runtime is already attached AND the user has confirmed a runtime probe is wanted, `mcp__re-frame2-pair__discover-app` MAY be invoked to capture the live build's id, health, and session sentinel — confirms the runtime the user was operating against and (combined with the server's `tools/list`, an MCP protocol method available whenever any MCP tool is granted) sanity-checks "tool X was actually available". This is **opt-in only** — recap-only or offline retros never probe (the skill's primary contract is transcript-only). `mcp__re-frame2-pair__discover-app` is the **single** re-frame2-pair MCP tool the skill's allow-list grants, and it is use-gated to this opt-in path; it is the only named opt-in tool, so the allow-list and the prose stay in lockstep. If the probe would need any other live tool (dispatch, app-db read, epoch walk), that is live pair-programming — route to the `re-frame2-pair` skill rather than widening this skill's grant. If the user has not confirmed a probe, reason from the transcript alone — the skill's domain is the session shape, not the live runtime.
 - when proposing a fix that adds or renames a tool, cross-reference the live catalogue rather than the skill's docs alone (same opt-in gate applies — only when runtime access is already part of the conversation)
-- if `discover-app` was invoked and itself fails or returns `:reason :runtime-not-preloaded`, that becomes evidence the user's environment never had the re-frame2-pair surface — a finding in its own right, not a retro blocker
+- if `discover-app` was invoked and itself fails, branch on the **diagnostic ladder** rather than collapsing every failure to "no surface here". The current ladder reasons (per `probe.cljs` / pinned by the conformance corpus) are `:nrepl-unreachable` (the shadow-cljs nREPL is down — fix connectivity), `:build-not-running` (start the build), `:no-runtime-connected` (the build runs but no browser tab attached — open/reload the tab, or pick the correct build), and `:runtime-loaded-but-preload-missing` (the runtime is live but the re-frame2-pair preload is absent — add the preload). `:runtime-not-preloaded` is now only the **degradation fallback** the ladder emits if it cannot otherwise classify, and the legacy umbrella for "the environment never had the surface" — treat it as the last-resort reason, not the normal-case verdict. Each reason points at a different next step; collapsing them yields generic "add the preload" advice where the real fix may be start the build, reload the tab, or fix nREPL.
 
 ### Source-coordinate availability
 

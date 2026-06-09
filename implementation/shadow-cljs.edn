@@ -171,14 +171,20 @@
                 ;; `:examples/counter-with-stories` and
                 ;; `:story-static/counter-with-stories` builds below.
                 "../tools/story/testbeds"
-                ;; tools/testbed-support (rf2-5dphw — shared testbed-config
-                ;; helper). Single ns `re-frame.testbed.config` that derives
-                ;; the open-in-editor project-root from the build-env
+                ;; tools/testbed-support (rf2-5dphw — shared testbed
+                ;; helpers). Two public namespaces:
+                ;; `re-frame.testbed.config`, which derives the
+                ;; open-in-editor project-root from the build-env
                 ;; `re-frame.testbed.config/repo-root` goog-define (seeded
                 ;; per build below via `#shadow/env`), replacing the six
                 ;; hardcoded personal-path defaults the Xray / Story
-                ;; testbeds previously copied. Bundle-isolation contract
-                ;; holds (nothing under implementation/ :requires it).
+                ;; testbeds previously copied; and
+                ;; `re-frame.testbed.story-host`, the live-app ↔ Story-shell
+                ;; hash-toggle host harness the showcase testbeds share. Both
+                ;; carry `*-cljs-test` suites under src/ that the :node-test
+                ;; build's `cljs-test$` ns-regexp discovers via this source
+                ;; path. Bundle-isolation contract holds (nothing under
+                ;; implementation/ :requires it).
                 "../tools/testbed-support/src"
                 ;; Per rf2-kx74 examples/ is grouped per substrate. Each
                 ;; substrate root is its own shadow-cljs source path so
@@ -1234,20 +1240,28 @@
   ;; Side Effects panels.
   ;;
   ;; The `nine-states.*` namespaces resolve via the `../examples/reagent`
-  ;; source-path (already on :source-paths near the top of this file); the
-  ;; example does NOT use `re-frame.testbed.config`, so this build omits
-  ;; the open-in-editor repo-root closure-define the counter-with-stories
-  ;; / login-form testbed builds carry (those live under
-  ;; tools/story/testbeds and need it).
+  ;; source-path (already on :source-paths near the top of this file). The
+  ;; showcase host declares `:story-subdir "examples/reagent"` to the shared
+  ;; `re-frame.testbed.story-host` helper, which resolves the open-in-editor
+  ;; project-root through `re-frame.testbed.config` (rf2-77wqzi) — so this
+  ;; build seeds the `repo-root` closure-define from the build env, exactly
+  ;; like the counter-with-stories / login-form testbed builds. Without the
+  ;; define the Story 'open in editor' chips resolve `nine_states/stories.cljs`
+  ;; against a nil root (the false-green rf2-77wqzi fixed).
   :examples/nine-states-with-stories
-  {:target     :browser
-   :output-dir "out/examples/nine-states-with-stories"
-   :asset-path "."
-   :modules    {:main {:init-fn nine-states.stories-host/run}}
+  {:target           :browser
+   :output-dir       "out/examples/nine-states-with-stories"
+   :asset-path       "."
+   ;; rf2-77wqzi — build-env project-root for open-in-editor (see
+   ;; :examples/login-form above for the mechanism).
+   :compiler-options {:closure-defines
+                      {re-frame.testbed.config/repo-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+   :modules          {:main {:init-fn nine-states.stories-host/run}}
    ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
    ;; probe this Story showcase's live runtime alongside Xray.
-   :devtools   {:preloads [re-frame2-pair.runtime
-                           day8.re-frame2-xray.preload]}}
+   :devtools         {:preloads [re-frame2-pair.runtime
+                                 day8.re-frame2-xray.preload]}}
 
   ;; Login Story + Xray showcase (rf2-p8v0q). The examples/reagent/login
   ;; example wired up as a Story showcase: `login.stories` registers one
@@ -1262,21 +1276,29 @@
   ;; schema-rejection / 401 paths light the Issues ribbon).
   ;;
   ;; The `login.*` namespaces resolve via the `../examples/reagent`
-  ;; source-path (already on :source-paths near the top of this file); the
-  ;; example does NOT use `re-frame.testbed.config`, so this build omits
-  ;; the open-in-editor repo-root closure-define the counter-with-stories
-  ;; / login-form testbed builds carry (those live under
-  ;; tools/story/testbeds and need it). Mirrors
+  ;; source-path (already on :source-paths near the top of this file). The
+  ;; showcase host declares `:story-subdir "examples/reagent"` to the shared
+  ;; `re-frame.testbed.story-host` helper, which resolves the open-in-editor
+  ;; project-root through `re-frame.testbed.config` (rf2-77wqzi) — so this
+  ;; build seeds the `repo-root` closure-define from the build env, exactly
+  ;; like the counter-with-stories / login-form testbed builds. Without the
+  ;; define the Story 'open in editor' chips resolve `login/stories.cljs`
+  ;; against a nil root (the false-green rf2-77wqzi fixed). Mirrors
   ;; :examples/nine-states-with-stories above.
   :examples/login-with-stories
-  {:target     :browser
-   :output-dir "out/examples/login-with-stories"
-   :asset-path "."
-   :modules    {:main {:init-fn login.stories-host/run}}
+  {:target           :browser
+   :output-dir       "out/examples/login-with-stories"
+   :asset-path       "."
+   ;; rf2-77wqzi — build-env project-root for open-in-editor (see
+   ;; :examples/login-form above for the mechanism).
+   :compiler-options {:closure-defines
+                      {re-frame.testbed.config/repo-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+   :modules          {:main {:init-fn login.stories-host/run}}
    ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
    ;; probe this Story showcase's live runtime alongside Xray.
-   :devtools   {:preloads [re-frame2-pair.runtime
-                           day8.re-frame2-xray.preload]}}
+   :devtools         {:preloads [re-frame2-pair.runtime
+                                 day8.re-frame2-xray.preload]}}
 
   ;; (removed rf2-9jfo1.2) :examples/xray-rhs-smoke build target —
   ;; the original Playwright `spec.cjs` was deleted by rf2-piucm in

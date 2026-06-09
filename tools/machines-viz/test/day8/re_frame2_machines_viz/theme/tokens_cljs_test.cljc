@@ -117,6 +117,51 @@
     (is (nil? (:pulse-duration-ms tokens/motion))
         "pulse-duration-ms removed (rf2-2sez0)")))
 
+;; ---- fired/focused glow is event-driven + finite (rf2-4o43j8) ----------
+;;
+;; The fired/focused edge + event-node glow MUST NOT loop. Per
+;; `spec/Principles.md` §chart animation it fires ONE iteration on a
+;; changed epoch token, then settles to a stable end-state while the
+;; static fired/focused affordance (stroke/hue/glow) persists. The
+;; duration MUST flow through the `--rf-xray-motion-scale` seam so
+;; `prefers-reduced-motion: reduce` collapses it to a settle frame.
+;; The previous string (`mv-chart-transition-glow 720ms ease-out
+;; infinite`) violated all three; these pins guard the regression.
+
+(deftest glow-animation-is-finite-not-infinite
+  (testing "rf2-4o43j8 — the fired/focused glow shorthand carries NO
+            `infinite` keyword (it must not strobe for as long as the
+            host leaves the arm focused)."
+    (let [css (tokens/glow-animation-css)]
+      (is (not (str/includes? css "infinite"))
+          "no `infinite` — the glow is event-driven, not a loop"))))
+
+(deftest glow-animation-plumbs-motion-scale
+  (testing "rf2-4o43j8 — the glow duration interpolates the
+            `--rf-xray-motion-scale` custom property (the canonical
+            reduced-motion seam), so `prefers-reduced-motion: reduce`
+            collapses the flash to a single settle frame."
+    (let [css (tokens/glow-animation-css)]
+      (is (str/includes? css "var(--rf-xray-motion-scale, 1)")
+          "duration flows through the motion-scale seam")
+      (is (str/includes? css (str (:glow-duration-ms tokens/motion) "ms"))
+          "uses the canonical glow-duration-ms (no forked literal)"))))
+
+(deftest glow-animation-settles-to-stable-end-state
+  (testing "rf2-4o43j8 — the glow plays ONE iteration and holds its
+            final keyframe (`forwards`), settling to a stable
+            end-state rather than reverting / re-pulsing."
+    (let [css (tokens/glow-animation-css)]
+      (is (str/includes? css "forwards")
+          "`forwards` holds the end-state after the single flash")
+      (is (str/includes? css "mv-chart-transition-glow")
+          "names the chart-stylesheet keyframe (no name drift)")
+      ;; one iteration: the shorthand carries no explicit iteration-
+      ;; count token (the CSS default of 1 applies) — neither
+      ;; `infinite` nor a numeric count.
+      (is (not (str/includes? css "infinite"))
+          "no `infinite` — exactly one flash (default iteration-count 1)"))))
+
 ;; ---- chart semantic tokens + theme resolution (rf2-az6e2) --------------
 
 (deftest theme-palette-resolves-dark-and-light

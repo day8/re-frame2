@@ -243,6 +243,21 @@
   (reset! interceptors {})
   nil)
 
+(defn interceptors-snapshot
+  "Test-time helper: read the current value of the per-frame interceptor
+  registry — `frame-id → [interceptor-slot ...]`. Each slot is the stored
+  `:rf/http-interceptor-meta` map (`:id`, optional `:before` / `:after`,
+  `:frame`, captured source-coords + registration-metadata).
+
+  For tests that need to assert chain ORDER, slot CONTENTS (source-coords,
+  user-meta), or per-frame ISOLATION without reaching into the `interceptors`
+  atom directly. Not part of the user-facing API — application code routes
+  through `reg-http-interceptor` / `clear-http-interceptor`. Mirrors the
+  registry's `in-flight-snapshot` / `actor-in-flight-snapshot` test-observability
+  helpers (rf2-hp772l)."
+  ([] @interceptors)
+  ([frame-id] (get @interceptors frame-id)))
+
 ;; rf2-jkake.9 — the `:before` (`run-interceptor-chain!`) and `:after`
 ;; (`run-after-chain!`) chains share one walk shape: reduce over the
 ;; per-frame chain, skip interceptors lacking the relevant slot, run the

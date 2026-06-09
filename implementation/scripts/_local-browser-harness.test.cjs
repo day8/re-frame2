@@ -255,6 +255,71 @@ test('waitForOwnedHttpReady refuses a foreign server (token mismatch)', async ()
   }
 });
 
+// rf2-vtp2er — child-exited abort path. Both migrated callers
+// (serve-and-run-browser-tests.cjs, check-story-static.cjs) and the Xray
+// gate pass `isAborted: () => <server died>` so the owned-readiness wait
+// fails fast when http-server exits before becoming reachable, instead of
+// burning the full timeout. Model the server never coming up + isAborted
+// flipping true: the wait must resolve { ok:false, reason:'child-exited' }.
+test('waitForOwnedHttpReady aborts with child-exited when isAborted goes true', async () => {
+  let aborted = false;
+  const result = await waitForOwnedHttpReady(1, 'our-token', Date.now() + 2000, {
+    pollMs: 10,
+    isAborted: () => aborted,
+  });
+  // Flip after construction is irrelevant here — :1 is unreachable, so the
+  // first isAborted() check inside the loop decides. Assert the immediate
+  // pre-flighted abort path.
+  aborted = true;
+  const result2 = await waitForOwnedHttpReady(1, 'our-token', Date.now() + 2000, {
+    pollMs: 10,
+    isAborted: () => aborted,
+  });
+  // result1 used aborted=false the whole time against an unreachable port →
+  // it must time out (never reachable), not falsely report child-exited.
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'timeout');
+  // result2 had isAborted()===true from the first check → child-exited.
+  assert.equal(result2.ok, false);
+  assert.equal(result2.reason, 'child-exited');
+});
+
+// rf2-vtp2er — the exact owned-readiness happy path the migrated browser-
+// test / story-static launchers now drive: a server that starts tokenless
+// (http-server is up but hasn't published /.rf-harness-token yet) and then
+// begins serving the matching token. The wait must keep polling through the
+// tokenless window and resolve ok once the token appears — proving the
+// shared primitive covers the "server racing to publish the sentinel" shape
+// the bespoke per-caller waitForReady copies handled.
+test('waitForOwnedHttpReady polls through a tokenless window then succeeds when the token appears', async () => {
+  const token = crypto.randomBytes(8).toString('hex');
+  let tokenLive = false;
+  const server = http.createServer((req, res) => {
+    if (req.url === `/${TOKEN_FILE_BASENAME}`) {
+      if (!tokenLive) {
+        res.writeHead(404);
+        res.end('not yet');
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end(token);
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end('ok');
+  });
+  const port = await listenOnLoopback(server);
+  // Publish the token shortly after the wait begins.
+  const flip = setTimeout(() => { tokenLive = true; }, 80);
+  try {
+    const result = await waitForOwnedHttpReady(port, token, Date.now() + 3000, { pollMs: 10 });
+    assert.deepEqual(result, { ok: true });
+  } finally {
+    clearTimeout(flip);
+    server.close();
+  }
+});
+
 test('waitForOwnedHttpReady reports token-never-served for a tokenless responder', async () => {
   // Reachable, but never serves /.rf-harness-token (404). Must not be
   // mistaken for "ours".

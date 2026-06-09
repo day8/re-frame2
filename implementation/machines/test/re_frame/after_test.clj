@@ -22,15 +22,17 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.machines.test-support :as mtest]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace]))
+            [re-frame.subs]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-(defn- frame-db [] (rf/runtime-db-value :rf/default))
-(defn- snapshot [machine-id] (get-in (frame-db) [:rf.runtime/machines :snapshots machine-id]))
+;; runtime-db / snapshot lookup via the shared machines test-support
+;; (rf2-3l8lqe finding #4).
+(def ^:private frame-db mtest/runtime-db)
+(def ^:private snapshot mtest/snapshot)
 
 ;; ---- registration-time rejection of :timeout-ms ---------------------------
 
@@ -538,12 +540,11 @@
     ;; Pre-rf2-c1tnr the throw was silently caught and the resolution
     ;; returned [nil nil], surfacing only as :rf.warning/no-clock-
     ;; configured downstream with no signal that the fn itself blew up.
-    (let [captured (atom [])
-          listener (fn [ev] (swap! captured conj ev))
-          delay-fn (fn [_ctx]
+    (let [delay-fn (fn [_ctx]
                      (throw (ex-info "fn-form delay blew up" {:where :test})))]
-      (re-frame.trace/register-listener! ::after-fn-trace listener)
-      (try
+      ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
+      ;; unregister in a `finally`, no hand-rolled register/try/finally.
+      (mtest/with-trace-capture captured
         (rf/reg-machine :a/throws
                         {:initial :idle
                          :data    {}
@@ -564,9 +565,7 @@
             ;; Per Spec 009 §Error event shape, `:recovery` is hoisted
             ;; off `:tags` to the envelope top-level.
             (is (= :no-clock-configured (:recovery first-err))
-                ":recovery hoisted to the envelope top-level")))
-        (finally
-          (re-frame.trace/unregister-listener! ::after-fn-trace))))))
+                ":recovery hoisted to the envelope top-level")))))))
 
 ;; ---- sub-cache ref-count balance on bad-delay early-return (rf2-fva6c.1) ---
 
@@ -678,15 +677,13 @@
     ;; To force the arm to fire we shadow `subs/subscribe` over the
     ;; schedule path to return a reify whose deref throws — the timer
     ;; code's `try @reaction (catch ...)` sees the throw directly.
-    (let [captured  (atom [])
-          listener  (fn [ev] (swap! captured conj ev))
-          throw-msg "reaction deref blew up"
+    (let [throw-msg "reaction deref blew up"
           ;; Reify that satisfies the IDeref shape but throws on deref.
           throwing-reaction (reify clojure.lang.IDeref
                               (deref [_]
                                 (throw (ex-info throw-msg {:where :test}))))]
-      (re-frame.trace/register-listener! ::after-sub-trace listener)
-      (try
+      ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4).
+      (mtest/with-trace-capture captured
         (rf/reg-sub :s/well-formed (fn [_db _] 1000))
         (rf/reg-machine
           :s/throws-machine
@@ -716,9 +713,7 @@
             ;; Per Spec 009 §Error event shape, `:recovery` is hoisted
             ;; off `:tags` to the envelope top-level.
             (is (= :no-clock-configured (:recovery first-err))
-                ":recovery :no-clock-configured hoisted to top-level")))
-        (finally
-          (re-frame.trace/unregister-listener! ::after-sub-trace))))))
+                ":recovery :no-clock-configured hoisted to top-level")))))))
 
 (deftest after-sub-vec-watch-failure-surfaces-trace
   (testing "rf2-t4uo0 — sub-vec :after where add-watch on the reaction
@@ -734,9 +729,7 @@
     ;; :after-watch key (machines/timer.cljc:298 install site) and
     ;; falls through otherwise — so the runtime's other add-watch call
     ;; sites (substrate, late-bind, etc.) are not disturbed.
-    (let [captured     (atom [])
-          listener     (fn [ev] (swap! captured conj ev))
-          real-add     add-watch
+    (let [real-add     add-watch
           ;; A real watchable sub so subscribe + deref succeed; only
           ;; the add-watch on the resulting reaction throws.
           throw-add    (fn [target key f]
@@ -746,8 +739,8 @@
                            (throw (ex-info "add-watch blew up on after-watch"
                                            {:where :test :key key}))
                            (real-add target key f)))]
-      (re-frame.trace/register-listener! ::after-watch-trace listener)
-      (try
+      ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4).
+      (mtest/with-trace-capture captured
         ;; A well-behaved sub returning a positive delay — subscribe
         ;; succeeds, deref returns 1000 (so the bad-delay branch
         ;; doesn't short-circuit before reaching add-watch).
@@ -782,6 +775,4 @@
             (is (= :static-delay (:recovery first-err))
                 ":recovery :static-delay hoisted to top-level — the
                  timer still scheduled, just without dynamic-delay
-                 re-resolution")))
-        (finally
-          (re-frame.trace/unregister-listener! ::after-watch-trace))))))
+                 re-resolution")))))))

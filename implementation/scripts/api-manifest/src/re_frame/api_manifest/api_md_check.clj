@@ -57,7 +57,19 @@
   only) is treated as a non-var row and skipped."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [re-frame.api-manifest.gen :as gen]))
+            [re-frame.api-manifest.gen :as gen]
+            [re-frame.api-manifest.projection :as projection]))
+
+(def ^:private min-var-rows
+  "Non-vacuous extracted-row floor for the spec/API.md projection
+   (rf2-4ka7c2.2). The live extracted-var-row count is ~196; a parser /
+   table-shape / tier-header / marker-cell drift that collapses extraction
+   toward zero would otherwise let `check!` report a VACUOUS OK while most of
+   API.md's public-var references go unchecked against the manifest. This
+   floor is set well below the live count so it trips ONLY on a near-total
+   collapse (the vacuous-green class), never on ordinary API.md churn — the
+   same calibration the secondary projection floors use (rf2-utvst)."
+  150)
 
 (def ^:private api-md-file (delay (io/file gen/repo-root "spec" "API.md")))
 
@@ -238,6 +250,17 @@
                    :api-tier tier :manifest-tiers tiers}))))
           api-rows)))
 
+(defn floor-violation
+  "Pure non-vacuous-floor predicate (rf2-4ka7c2.2 — extracted so the
+   zero-row / near-collapse contract is unit-testable without the live
+   spec/API.md file). Returns the projection floor-problem map when
+   `extracted` (the number of API.md var-rows the parser actually recovered)
+   is below `min-var-rows`, else nil. A non-nil result MUST fail `check!`:
+   an empty problem list with a collapsed extraction would otherwise report
+   a vacuous OK."
+  [extracted]
+  (projection/vacuity-floor-problem "spec/API.md" extracted min-var-rows))
+
 (defn check!
   "Validate spec/API.md var-rows against the manifest. Returns true when
    every API.md var-row resolves to a manifest row with a MATCHING tier;
@@ -249,14 +272,33 @@
         ;; (post-v1-lib surfaces the reference impl does not yet ship).
         known-unmanifested (set (:api-md-known-unmanifested (gen/read-sidecar)))
         api-rows   (parse-api-md-var-rows)
+        extracted  (count api-rows)
+        ;; Non-vacuous floor (rf2-4ka7c2.2): if extraction has collapsed
+        ;; (table-shape / tier-header / marker drift), an empty `problems`
+        ;; seq below would report a VACUOUS OK with most of API.md unchecked.
+        ;; Detect that BEFORE the tier reconcile so a near-collapse fails
+        ;; loudly rather than passing green.
+        floor      (floor-violation extracted)
         problems   (reconcile {:rows               rows
                                :api-rows           api-rows
                                :known-unmanifested known-unmanifested
                                :aliases            adapter-aliases})]
-    (if (empty? problems)
+    (cond
+      ;; Vacuity-floor violation: extraction collapsed — refuse a green.
+      floor
+      (do (binding [*out* *err*]
+            (println (format (str "DRIFT: spec/API.md var-row extraction collapsed — only %d "
+                                  "var-row(s) extracted, below the non-vacuous floor of %d.")
+                             extracted min-var-rows))
+            (println (str "  " (:detail floor))))
+          false)
+
+      (empty? problems)
       (do (println (format "OK: spec/API.md projection in sync (%d var-rows checked against the manifest)."
-                           (count api-rows)))
+                           extracted))
           true)
+
+      :else
       (do (binding [*out* *err*]
             (println "DRIFT: spec/API.md var-rows disagree with spec/api-manifest.edn.")
             (println "Each API.md var-row's Tier must match the manifest (regenerate the")

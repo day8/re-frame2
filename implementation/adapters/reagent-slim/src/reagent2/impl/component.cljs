@@ -142,7 +142,7 @@
                                 "Unsupported: " (pr-str unsupported) ". "
                                 "Migrate to the supported keys, restructure "
                                 "via :on-create / :on-destroy events, or "
-                                "switch to day8/reagent-classic.")
+                                "switch to the bridge adapter day8/re-frame2-reagent.")
            :keys           unsupported
            :supported-keys cap-keys}))))
   spec)

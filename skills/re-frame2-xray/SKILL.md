@@ -53,9 +53,12 @@ Anchor on that, then note the deliberate divergences.
 | React DevTools Profiler "why did this render?" | The **Views** tab — render-cause chips (`← :sub-id` vs `← props`) on every re-render leaf | Built into the same panel and tied to the epoch, not a separate profiler tab |
 | *(no Redux equivalent)* | **Static mode** — event-INDEPENDENT browse of what's *registered* (machines / routes / schemas / flows / interceptors) | Redux has no "what's registered?" surface; this is the registry-catalogue half Xray adds |
 
-(Xray is also the structural successor to re-frame-10x — re-frame2's own
-v1-internal predecessor — but it does not depend on or reference it; that
-lineage note matters mainly to v1-migrating users.)
+Xray is also the structural successor to **re-frame-10x** — re-frame2's
+v1-internal predecessor — and depends on or references neither. The single
+home for that fact (and the surface-by-surface "what replaces what") is
+[`../shared/tool-pair-surfaces.md` §Supersedes re-frame-10x](../shared/tool-pair-surfaces.md#supersedes-re-frame-10x);
+cite it rather than restating the lineage here. It matters mainly to
+v1-migrating users.
 
 This skill answers three questions, and only three:
 
@@ -75,6 +78,21 @@ Deep workflow recipes (find-wrong-sub, redaction-marker grammar,
 click-to-source / open-in-editor internals) are **out of scope** in this
 iteration — see the *Out of scope* section below for what to do when one
 comes up.
+
+### Which reference leaf to load
+
+This body is a **compact tour/router**: it carries the launch
+quick-reference, the mode/tab chooser, and the chrome one-liners. The
+maintained detail lives in the reference leaves — load the matching one
+when the question needs more than the router gives:
+
+| The question is about… | Load |
+|---|---|
+| Launch in depth — preload vs `init!`, the `[data-rf-xray-host]` contract, suppress-auto-open, CSS-variable / drag-handle resize, the `open-overlay!` fallback, pop-out lifecycle, the full wired-hotkey contract | [`references/launch-modes.md`](references/launch-modes.md) |
+| A tab in depth — per-tab layout, iconography, stripe tokens, the Epoch cascade steps, "open it when…" guidance | [`references/panels.md`](references/panels.md) |
+| First-screen chrome in depth — Settings-popup tabs, command-palette sources, the rewind detail, the Snapshot redaction contract | [`references/chrome.md`](references/chrome.md) |
+| The components every L4 panel reuses + the glyph/icon reference | [`references/shared-components.md`](references/shared-components.md) |
+| The re-frame-10x lineage / surface-by-surface "what replaces what" | [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md#supersedes-re-frame-10x) |
 
 ---
 
@@ -127,7 +145,7 @@ one that matches the user's situation.
 |---|---|---|
 | Inspect the runtime while developing locally | **Default true-inline panel** | Add the preload + a `[data-rf-xray-host]` column in the app layout. Xray auto-opens on page load. |
 | Mount where the host can't give Xray a layout column (full-screen canvas, story-only / prototype host, no `[data-rf-xray-host]`) | **Overlay (fallback)** | `(xray/open-overlay!)` from CLJS, or `window.day8.re_frame2_xray.open_overlay_BANG_()` from devtools. Floats the shell above the host under `document.body` — no layout column needed. The supported fallback for hosts that can't accommodate a right column; **not** the default path (per `spec/011-Launch-Modes.md` + `spec/API.md` §rf2-sa4fr). |
-| Put Xray on a second monitor with the app full-screen | **Pop-out window** | `(xray/popout!)` from CLJS, or `window.day8.re_frame2_xray.popout_BANG_()` (call it — note the parens) from devtools. |
+| Put Xray on a second monitor with the app full-screen | **Pop-out window** | Click the visible **`⛶` pop-out button** in the panel top-bar's right-icons cluster (the canonical chrome path — it dispatches `:rf.xray/popout-shell`). Or, as the secondary programmatic/devtools path, `(xray/popout!)` from CLJS / `window.day8.re_frame2_xray.popout_BANG_()` (call it — note the parens) from a console. |
 | Install Xray from code (no preload, or alternative wiring) | **Programmatic `init!`** + a mount verb | Call `(xray/init! opts)` after `rf/init!` to install the foundation + apply config (it does **not** open a panel), then `(xray/open!)` / `(xray/open-overlay!)` / `(xray/popout!)` to make it visible. Idempotent. |
 | Browse what's *registered* instead of one dispatch | **Static mode** | Flip the L1 mode pill or press `Cmd/Ctrl+Shift+M`. Static drops the event spine and shows the 5 registry-browse tabs. |
 | Have an AI agent inspect the runtime | **re-frame2-pair-mcp** | Configure `tools/re-frame2-pair-mcp/` in the agent host — the raw nREPL pair-programming companion is the AI access path. Out of scope for this skill — see [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp/). |
@@ -140,125 +158,65 @@ see [`references/launch-modes.md`](references/launch-modes.md).
 
 ### Wired hotkeys
 
-Four hotkey families have global keydown listeners installed in
-`keybinding.cljs` today. Spec
-[`007-UX-IA.md` §Keyboard](../../tools/xray/spec/007-UX-IA.md#keyboard)
+Four hotkey families have keydown listeners installed in `keybinding.cljs`
+today (three global, one focus-gated) — this is the quick-reference; the
+full per-key contract + suppression knob lives in
+[`references/launch-modes.md` §Wired hotkeys](references/launch-modes.md#wired-hotkeys).
+Spec [`007-UX-IA.md` §Keyboard](../../tools/xray/spec/007-UX-IA.md#keyboard)
 catalogues a richer map; these are what is actually wired:
 
 | Key | Scope | Action |
 |---|---|---|
-| `Ctrl+Shift+C` | global | Toggle the Xray shell (mount on first press; CSS show/hide after). `Ctrl+Shift` deliberately avoids Safari's `Cmd+Shift+C` Inspect collision. |
-| `Cmd/Ctrl+Shift+M` | global | Toggle mode — Dynamic ↔ Static (`:rf.xray/toggle-mode`). Cmd on macOS, Ctrl elsewhere. |
-| `Cmd/Ctrl+K` | global | Open the command palette (`:rf.xray/palette-toggle`); opens the shell first if hidden. Cmd on macOS, Ctrl elsewhere. |
-| `Space` `L` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts. These bare keys fire **only** when the Xray shell is visible AND the keydown target is inside the shell AND not an editable field (and not inside a modal). Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step the focused event back/forward · `G` (Shift+G) = fast-forward to head · `,` or `s` = Settings popup. (`Esc` is **not** a wired spine key — it is a modal-local close handler owned by the palette / Settings popup, per `keybinding.cljs`.) |
+| `Ctrl+Shift+C` | global | Toggle the Xray shell (`Ctrl+Shift` avoids Safari's `Cmd+Shift+C` Inspect collision). |
+| `Cmd/Ctrl+Shift+M` | global | Toggle mode — Dynamic ↔ Static (`:rf.xray/toggle-mode`). |
+| `Cmd/Ctrl+K` | global | Open the command palette (`:rf.xray/palette-toggle`); opens the shell first if hidden. |
+| `Space` `L` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts — fire only when the shell is visible and focused (non-editable, non-modal). Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step focused event · `G` = fast-forward to head · `,`/`s` = Settings popup. |
 
-`Cmd/Ctrl+K` **is** wired — do not say it was struck. The pop-out has no
-hotkey; use `(xray/popout!)` or the future right-click affordance on the
-launcher pill. Embed hosts (Story RHS, third-party tool surfaces) can
-suppress Xray's global listeners via `:rf.xray/keybinding-enabled?`.
-
-Source of truth:
+`Cmd/Ctrl+K` **is** wired — do not say it was struck. `Esc` is modal-local,
+not a wired spine key. The **pop-out has no hotkey** — its canonical path is
+the visible **`⛶` pop-out button** (above), with `(xray/popout!)` as the
+secondary programmatic path. Source of truth:
 [`keybinding.cljs`](../../tools/xray/src/day8/re_frame2_xray/keybinding.cljs).
 
 ---
 
 ## The chrome around the tabs
 
-Beyond the tabs, the first screen carries navigation primitives the user
-meets immediately. One line each — cite the spec/source, don't reproduce
-it.
+<a id="the-chrome-around-the-tabs"></a>
 
-- **LIVE vs RETRO spine.** The L2 spine live-tails new events at the head
- (**LIVE**) until you pick a historical event or pause, which drops to
- **RETRO** (inspecting a past epoch). `Space` pauses/resumes LIVE; `L`
- snaps back to LIVE; the head row pulses while live. Spec
- [`007-UX-IA.md` §L1](../../tools/xray/spec/007-UX-IA.md).
-- **Time-travel: passive inspect vs explicit rewind.** The ribbon
- `[◀ ▶ ⏭]` nav cluster + the L2 list walk history **without disturbing
- the live app** — picking an epoch is *passive INSPECTION* (panels
- rebase; `app-db` does NOT move). Rewind is the *separate, explicit*
- **`Reset` button** on the far-right of the L3 tab-bar ribbon (rf2-hga49):
- it dispatches `:rf.xray/reset-to-epoch` against the *observed* app frame
- + the focused epoch, rewinding that frame's live `app-db` to the epoch's
- `:db-after` via `(rf/restore-epoch …)` — disabled when no epoch is
- focused; on the rare framework failure (epoch aged out) it shows a brief
- inline flash, never a modal. This passive-inspect-by-default /
- rewind-opt-in posture is the load-bearing inversion from re-frame-10x
- v1. (Spec [`002-Time-Travel.md`](../../tools/xray/spec/002-Time-Travel.md)
- catalogues a richer keymap — `r` rewind, `R` re-dispatch, `*` pin — that
- is **normative for the future, not yet wired**; the `Reset` button is
- what works today.)
+Beyond the tabs, the first screen carries navigation primitives the user
+meets immediately. One line each below — **load
+[`references/chrome.md`](references/chrome.md) for the control-by-control
+inventory** (Settings-popup tabs, command-palette sources, the Snapshot
+redaction contract, the rewind detail) whenever the question needs more
+than the one-liner.
+
+- **LIVE vs RETRO spine.** The L2 spine live-tails at the head (**LIVE**)
+ until you pick a historical event or pause (**RETRO**); `Space`
+ pauses/resumes, `L` snaps back. (chrome.md §LIVE vs RETRO spine.)
+- **Time-travel: passive inspect vs explicit rewind.** Picking an epoch is
+ *passive INSPECTION* — panels rebase, `app-db` does NOT move; live rewind
+ is the *separate, explicit* **`Reset` button** on the L3 ribbon (rf2-hga49,
+ `restore-epoch` to the focused epoch's `:db-after`). No wired `r`/`R`/`*`
+ keys — those are spec-future only. (chrome.md §Time-travel.)
 - **Filter pills.** The L1.5 events ribbon carries IN / OUT pills, a mute
- set, an `N events hidden by filters` count, and `Clear Filters`. Pills
- are transient and reset on load. Each pill is a typed predicate
- (`:event-id-pattern` / `:machine` / `:http-correlation` / `:fx`). Spec
- [`020-Filter-Predicates.md`](../../tools/xray/spec/020-Filter-Predicates.md);
- source `src/filters/`. *(These are L1-ribbon filters — distinct from the
- Trace panel, which has no filtering.)*
+ set, an `N hidden by filters` count, and `Clear Filters`; transient,
+ reset on load. (chrome.md §Filter pills.)
 - **Command palette (`Cmd/Ctrl+K`).** A fuzzy-ranked surface over six
- source kinds — **panel jumps · recent events · frame switch · registered
- handlers · settings · command verbs**. Mode-aware (Dynamic vs Static),
- recency-boosted; `Ctrl+Enter` pops out a poppable item. Command verbs
- include Clear trace buffer, Clear epoch history, Reset redacted-events
- counter, Snapshot app-db, Toggle theme, Cycle reduced-motion, Jump to
- Settings, Toggle mode, Open pop-out (Cycle display density rides the
- separate `settings` source). Source
- [`palette/sources.cljc`](../../tools/xray/src/day8/re_frame2_xray/palette/sources.cljc).
-- **Settings popup (`,` / `s`).** A 4-tab modal — **General ·
- Keybindings · Buffer · Diff**. The current popup controls are:
- **General** — panel position (right-rail inline / fullscreen overlay),
- auto-open-on-error, epoch-history depth (slider), the per-operator
- editor-override picker, and the show-`:ungrouped` toggle; **Buffer** —
- cascades-retained + app-db inspector-collapse-threshold + a destructive
- Clear-buffer button; **Diff** — the hiccup-diff fn-ref-changes toggle;
- **Keybindings** — a read-only chord catalogue + the master "Handle keys?"
- switch. **Density is NOT a popup control** — the density radio was removed
- (2026-05-27); density stays a config / `init!` / `configure!` concern (the
- `:general :density` slot + `:rf.xray/density` sub read the boot default).
- **Panel width is NOT a popup control** — the width numeric input + reset
- were removed; width is driven by the **drag handle** on the panel's outer
- edge (double-click to reset), persisted via `:general :panel-width-px`.
- (The Theme tab was removed, rf2-ou3pn — the ribbon theme icon is
- canonical; the Filters tab was removed, rf2-wknb3 — filter UI lives on
- the L1.5 events ribbon.) For the layered config story: `init!` /
- `configure!` set the **boot-time defaults** for `:theme` / `:density` /
- `:buffer-depths` (each supplied opt is written to the persisted Settings
- shape and applied immediately at boot, no reload); for the slots the popup
- *does* expose (theme via the ribbon icon, epoch-history, buffer knobs) the
- popup is the **runtime user-mutable override** layer. Merge order is
- `defaults < configure! < Settings` (rf2-g2a5v). Source
- [`settings/view.cljs`](../../tools/xray/src/day8/re_frame2_xray/settings/view.cljs).
-- **Sharing state with a teammate.** The Share-URL affordance (button +
- modal + `share.cljs` infra) and the per-cascade EDN export were
- **removed** (rf2-nugvv, 2026-06-04 — `share.cljs` and `export/cascade.cljc`
- are deleted). The surviving on-box helper is the **Snapshot app-db**
- command palette verb (`Cmd/Ctrl+K` → "Snapshot app-db"): it puts the
- focused frame's `app-db` on the JS console + clipboard so a developer can
- capture the state they're looking at. **The console and the clipboard are
- off-box egress sinks** — the same trust boundary the rest of the Xray /
- tool egress story treats as sensitive — so the payload goes through the
- runtime's safe-egress projection (`runtime/egress-value`), the same
- fail-closed, default-redaction path `get-app-db` uses: `include-sensitive?`
- and `include-large?` both default **`false`**, so sensitive slots ship as
- `:rf/redacted` and large slots as `:rf.size/large-elided` (per
- [`runtime.cljs`](../../tools/xray/src/day8/re_frame2_xray/runtime.cljs)
- `egress-value` / `get-app-db`, hardened in rf2-a96xq). Do **not** tell a
- user this command drops the *raw* `app-db`, and do not present it as a way
- to copy a secret-bearing value off-box: a focused frame holding
- `{:auth {:token "secret"}}` (or any schema-/path-declared sensitive value)
- is redacted in the snapshot by default. Raw capture is only available
- through an explicit opt-in consistent with the privacy vocabulary — the
- same `--allow-sensitive-reads` (default **OFF**) plus per-call
- `:include-sensitive true` posture the AI/MCP read surfaces use (the
- re-frame2-pair-mcp boundary; see `tools/re-frame2-pair-mcp/`), never the
- command's default. Source
- [`palette/sources.cljc`](../../tools/xray/src/day8/re_frame2_xray/palette/sources.cljc)
- (`:snapshot-app-db` command).
- *(Status: shipped. The palette command routes the snapshot through
- `runtime/egress-value` by default — sensitive ⇒ `:rf/redacted`, large ⇒
- `:rf.size/large-elided`, pinned to the focused frame, fail-closed, no
- command-level raw opt-in (rf2-mxzgg, PR #3155). The contract prose above
- is what the share path honours today, not an in-flight target.)*
+ source kinds (panel jumps · recent events · frame switch · registered
+ handlers · settings · command verbs), mode-aware. (chrome.md §Command
+ palette — for the full command-verb list.)
+- **Settings popup (`,` / `s`).** A 4-tab modal (General · Keybindings ·
+ Buffer · Diff). **Density and panel-width are NOT popup controls** —
+ density is a boot/`configure!` concern; width is the drag handle. Merge
+ order is `defaults < configure! < Settings`. (chrome.md §Settings popup —
+ for the per-tab control inventory + the layered-config story.)
+- **Snapshot app-db (the on-box share helper).** Share-URL + EDN export were
+ removed (rf2-nugvv); the surviving helper is the **Snapshot app-db**
+ palette verb — and it is **redacted by default** (sensitive ⇒
+ `:rf/redacted`, large ⇒ `:rf.size/large-elided`, via
+ `runtime/egress-value`). Do **not** present it as a raw-`app-db` /
+ secret-egress path. (chrome.md §Snapshot app-db — for the egress contract.)
 
 ---
 
@@ -344,27 +302,23 @@ tabs only ever show the focused event.
 
 ### Retired pre-rebuild panels — where their content lives now
 
-Several panels from the pre-rebuild inventory (Subscriptions, Effects,
-Flows, Performance, Schemas, Hydration, and the old standalone Issues
-tab) are **not** separate Dynamic tabs. Their content is surfaced through
-the Dynamic 6 (per
+Several pre-rebuild panels (Subscriptions, Effects, Flows, Performance,
+Schemas, Hydration, and the old standalone Issues tab) are **not** separate
+Dynamic tabs. The four high-drift routes worth keeping in the body:
+
+- **Schemas** (violations) → **Epoch** inline + the L2 pink-wash; the
+  *registry* catalogue → **Static → Schemas**.
+- **Hydration** (SSR mismatches) → **Epoch** inline + the issues-ribbon
+  signal — there is **no** standalone Hydration tab.
+- **Flows** → **Epoch** FLOW step; the registry → **Static → Flows**.
+- **Effects** (`fx`) → **Epoch** EFFECT HANDLERS step + **Trace** raw ops.
+
+For the full retired-panel → content-home mapping (Subscriptions,
+Performance, the rest), see
 [`references/panels.md` §What's deliberately NOT here](references/panels.md#whats-deliberately-not-here)
-+ spec/021 §15) — and the registry catalogues live in Static mode:
-
-| Retired panel | Where its content lives now |
-|---|---|
-| **Subscriptions** | **Views** (cascade tree, SUBSCRIPTIONS step) + **app-db** (downstream-subs hover popover on changed paths) |
-| **Effects** (`fx`) | **Epoch** EFFECT HANDLERS step (flat per-effect ledger) + **Trace** (raw `:rf.fx/*` ops) |
-| **Flows** | **Epoch** FLOW step (one numbered step per flow that fired) · **Static → Flows** for the registry catalogue |
-| **Performance** | L2 row stripe colours (cross-epoch budget signal) + per-step duration chips in **Epoch** + per-row `:time` inside **Trace** |
-| **Schemas** | **Epoch** (schema violations attach inline to the owning step) + the L2 pink-wash · **Static → Schemas** for the registry catalogue |
-| **Hydration** *(SSR)* | **Epoch** inline + the issues-ribbon signal (hydration mismatches are `:rf.error/*` / `:rf.ssr/*` issues) |
-| **Issues** *(standalone tab)* | **Epoch** (per-step ✓/✗ + Exception card) + L2 pink-wash + the `:rf.xray/issues-ribbon` signal — no separate tab (rf2-gbz39) |
-
-The hero on first open is **Epoch** (Dynamic mode, `:order -1` claims the
-leftmost / default-landing slot the retired Event tab held). AI
-integration lives in the separate `tools/re-frame2-pair-mcp/` jar — Xray
-itself is the human surface only.
+(the single maintained home; + spec/021 §15). The hero on first open is
+**Epoch** (`:order -1`). AI integration lives in the separate
+`tools/re-frame2-pair-mcp/` jar — Xray itself is the human surface only.
 
 ---
 
@@ -381,8 +335,10 @@ short of improvising.
  and the per-panel specs (`tools/xray/spec/00N-*.md`). A future
  iteration may codify these as recipes; today the spec is the answer.
  (First-screen chrome — time-travel inspect / `Reset`-rewind, filter
- pills, the command palette, Settings — is **in scope**: see §The chrome
- around the tabs above.)
+ pills, the command palette, Settings — is **in scope**: §The chrome
+ around the tabs above is the router; load
+ [`references/chrome.md`](references/chrome.md) for the control-by-control
+ detail.)
 - **Driving Xray programmatically** (hot-swap a sub via REPL, time-
  travel from CLJS, dispatch into the runtime from a tool). Route to
  the [`re-frame2-pair`](../re-frame2-pair/SKILL.md) skill — Xray

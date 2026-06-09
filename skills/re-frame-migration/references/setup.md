@@ -192,7 +192,16 @@ All three become `day8/re-frame2` + the matching adapter artefact.
 | `:require [helix.core ...]` and Reagent has been removed | `day8/re-frame2-helix` |
 | No view layer (a backend-only re-frame app, server-side only) | `day8/re-frame2-reagent` is still the safe default; the adapter is lightweight |
 
-If the codebase has **both** Reagent and UIx requires (a phased substrate migration), pick whichever one drives the React root and add only that adapter — the other substrate's views become broken at runtime but that's a separate migration the author has to drive.
+### Mixed-substrate projects — the compile-closure rule (not "add only one")
+
+If the codebase has **both** Reagent and UIx (or Helix) requires — a phased substrate migration mid-flight — the rule is **NOT "add only the root-driving adapter."** Each adapter's `re-frame.adapter.<substrate>` namespace lives in its **own artefact** (`day8/re-frame2-reagent` / `-uix` / `-helix` are separate coords — per [`spec/Conventions.md` §adapter packaging](../../../spec/Conventions.md)), and a wrong-substrate adapter ns is **structurally absent** from the classpath unless its artefact is present. So adding only one adapter leaves any namespace that `:require`s the *other* substrate's `re-frame.adapter.*` ns **failing to resolve at compile/load** — that is not a smallest-correct migration, it is an untracked compile break.
+
+Two things are different and must be tracked **separately** in the report:
+
+1. **Artefacts needed for compilation** — add **every** adapter artefact whose `re-frame.adapter.<substrate>` namespace is `:require`d by source that **stays on the build classpath**. Compute the closure: grep the surviving source for `re-frame.adapter.reagent` / `.uix` / `.helix` requires and add the matching artefact for each. (UIx/Helix adapter-specific surfaces live in `re-frame.adapter.uix` / `re-frame.adapter.helix` and are NOT re-exported from `re-frame.core` — per [`spec/API.md`](../../../spec/API.md) — so a require of them is real and must resolve.)
+2. **Adapter chosen for boot** — install **exactly one** active adapter at each `rf/init!` site (the boot contract allows mixed-substrate *imports* while installing one active adapter; per [`spec/006-ReactiveSubstrate.md` §boot](../../../spec/006-ReactiveSubstrate.md)). Pick whichever substrate drives the React root; pass that adapter's var to `init!`.
+
+If the author wants the non-root substrate **out of scope** (a real, common choice), don't silently leave its views broken — either **isolate/exclude** the non-root substrate namespaces from the migrated build (so they're not on the classpath and need no adapter artefact), or **stop with a documented follow-up** naming the namespaces still on the other substrate. Knowingly shipping broken views while claiming the v1→v2 migration "succeeded" is the failure this rule prevents.
 
 ## Pin the migration corpus before reading it
 
@@ -203,7 +212,7 @@ git -C <path-to-re-frame2> rev-parse HEAD          # the pinned commit
 git -C <path-to-re-frame2> remote get-url origin   # confirm it's day8/re-frame2
 ```
 
-Do **not** fetch `MIGRATION.md` from GitHub at runtime. **Record the pinned hash in the migration report** ([`output-format.md`](output-format.md)) alongside the chosen `<v2-version>` (next section) — both pin the migration to a reproducible point.
+These two are **read-only provenance checks the skill runs itself** — they inspect the corpus checkout without executing project code, so they are allow-listed (the scoped `Bash(git -C * rev-parse *)` / `Bash(git -C * remote get-url *)` entries in `SKILL.md`'s `allowed-tools`), and they sit on the *same* read-only side of the trust boundary as `rg`. They are NOT in the author-runs-it class (compile / test / install / smoke — see [`SKILL.md` cardinal rule 5](../SKILL.md)); that class is gated because it is arbitrary-code execution, which a `rev-parse` / `remote get-url` is not. Do **not** fetch `MIGRATION.md` from GitHub at runtime. **Record the pinned hash in the migration report** ([`output-format.md`](output-format.md)) alongside the chosen `<v2-version>` (next section) — both pin the migration to a reproducible point.
 
 ## Discovering the current VERSION
 

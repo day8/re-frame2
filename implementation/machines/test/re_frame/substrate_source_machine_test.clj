@@ -28,12 +28,17 @@
             ;; `rf/reg-machine`, the `:rf.machine/spawn` / `:rf.machine/destroy`
             ;; reserved fxs, and the `:after`-timer surface register at ns load.
             [re-frame.machines]
+            [re-frame.machines.test-support :as mtest]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            ;; Source-axis tests register listeners through `trace.tooling`
+            ;; directly (not mtest/with-trace-capture): each listener FILTERS
+            ;; on a specific :operation at capture time and the test reads
+            ;; `@seen` in the surrounding `let` — kept as inline try/finally
+            ;; blocks (which already guarantee unregister).
             [re-frame.trace.tooling :as trace-tooling]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- :after-timer --------------------------------------------------------
 

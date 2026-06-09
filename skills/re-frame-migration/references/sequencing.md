@@ -76,7 +76,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 11 | **M-4** | Master's `dispatch-with` / `dispatch-sync-with` removed. Most codebases unaffected. |
 | 12 | **M-8** | Fold top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` / user-fx-id keys into `:fx`. High-impact mechanical rewrite. |
 | 13 | **M-9** | `dispatch-sync` inside handlers → `:fx [[:dispatch ...]]`. |
-| 14 | **M-16** | `^:flush-dom` metadata → `:dispatch-later {:ms 0}`. |
+| 14 | **M-16** | `^:flush-dom` metadata. **M-16a** (inside an effect map): mechanical `:fx [[:dispatch-later {:ms 0 :event …}]]` rewrite, Type A. **M-16b** (top-level `(rf/dispatch ^:flush-dom …)`): NO `:fx` rewrite — `(rf/dispatch-later …)` is not a fn and throws; classify by location and flag for human review (drop the latency, or route through a one-shot trampoline). |
 | 14a | **M-51** | Unary `reg-fx` handler `(fn [args] …)` → binary `(fn [_ args] …)`. Mechanical (Type A) but **SILENT-fail** — on CLJS the unary form parses + compiles clean, binds the runtime's context-map to `args`, and drops the real fx args with no error. **Exhaustive up-front grep, never march-the-wall** (the compile never surfaces it); confirm via the boot smoke-test. Async handlers should additionally hold `(rf/frame-handle)` and dispatch via `(:dispatch h)`. |
 
 ### Group 4 — Reserved-namespace renames (mechanical)

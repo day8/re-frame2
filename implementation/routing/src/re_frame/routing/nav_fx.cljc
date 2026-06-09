@@ -69,19 +69,44 @@
 ;; `:fx-id` tag, so the body lives once in `history-mutation-handler`
 ;; and each handler closes over its method + fx-id.
 
+#?(:cljs
+   (defn- run-history-mutation!
+     "Drive a `window.history` mutation thunk under a shared
+     defence-in-depth try/catch (CLJS only). A browser throws
+     `SecurityError` when asked to push/replace an absolute cross-origin
+     URL (or on other history-API misuse) — left uncaught that crashes
+     the fx drain (a DoS, worse than the redirect it would otherwise be).
+     The `url/external-url?` gate at the nav-event sinks (rf2-cylse.4)
+     already fails such URLs closed before they reach these fxs, so this
+     catch is a second line of defence: any residual throw is downgraded
+     to a structured `:rf.fx/<fx-id>-failed` trace, keeping the drain
+     alive. Factoring it here means BOTH `:rf.nav/push-url` and
+     `:rf.nav/replace-url` share one mutation-safety boundary, rather than
+     push having a catch and replace running bare (rf2-u8qe7y finding 2)."
+     [failed-trace-id fx-id frame url mutate!]
+     (try
+       (mutate!)
+       (catch :default e
+         (trace/emit! :rf.fx failed-trace-id
+                      (cond-> {:fx-id fx-id :url url :error (.-message e)}
+                        frame (assoc :frame frame)))))))
+
 (defn- history-mutation-handler
   "Shared body for the `:rf.nav/push-url` / `:rf.nav/replace-url` fx
-  handlers. `fx-id` tags the platform-skip / non-owner traces;
-  `mutate!` is the 0-arg thunk that drives `window.history` on CLJS (a
-  no-op on JVM — the caller passes a CLJS-only thunk under a reader
-  conditional). Non-URL-bound frames skip the history mutation: the
-  frame's route slice at `[:rf.runtime/routing :current]` still
-  updates — only the browser-URL sync is suppressed. Per Spec 012
-  §Multi-frame routing this is the right default for story-variant /
-  devcard / per-test fixtures."
-  [fx-id frame url mutate!]
+  handlers. `fx-id` tags the platform-skip / non-owner traces and (with
+  the `-failed` suffix) the CLJS mutation-failure trace; `failed-trace-id`
+  is that pre-built `:rf.fx/<fx-id>-failed` keyword. `mutate!` is the
+  0-arg thunk that drives `window.history` on CLJS (a no-op on JVM — the
+  caller passes a CLJS-only thunk under a reader conditional); on CLJS it
+  is run through `run-history-mutation!` so a browser throw fails closed
+  to the structured failure trace rather than crashing the fx drain.
+  Non-URL-bound frames skip the history mutation: the frame's route slice
+  at `[:rf.runtime/routing :current]` still updates — only the browser-URL
+  sync is suppressed. Per Spec 012 §Multi-frame routing this is the right
+  default for story-variant / devcard / per-test fixtures."
+  [fx-id failed-trace-id frame url mutate!]
   (if (url-bound-frame? frame)
-    #?(:cljs (mutate!)
+    #?(:cljs (run-history-mutation! failed-trace-id fx-id frame url mutate!)
        :clj  (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                           {:fx-id fx-id :url url}))
     (trace/emit! :rf.fx :rf.fx/skipped-on-platform
@@ -103,23 +128,20 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
   "`:rf.nav/push-url` fx handler. Registered by the façade so a `:reload`
   re-wires it on a fresh registrar.
 
-  rf2-cylse.4 (defence-in-depth): the `.pushState` call is wrapped in
-  try/catch. A browser throws `SecurityError` when asked to push an
-  absolute cross-origin URL — left uncaught that crashes the fx drain (a
-  DoS, worse than the redirect it would otherwise be). The
-  `url/external-url?` gate at the nav-event sinks (rf2-cylse.4) already
-  fails such URLs closed before they reach this fx, so this catch is a
-  second line of defence: any residual throw is downgraded to a
-  `:rf.fx/push-url-failed` trace, keeping the drain alive."
+  rf2-cylse.4 (defence-in-depth): the `.pushState` call runs through the
+  shared `run-history-mutation!` try/catch (factored in
+  `history-mutation-handler`, rf2-u8qe7y finding 2). A browser throws
+  `SecurityError` when asked to push an absolute cross-origin URL — left
+  uncaught that crashes the fx drain (a DoS, worse than the redirect it
+  would otherwise be). The `url/external-url?` gate at the nav-event sinks
+  (rf2-cylse.4) already fails such URLs closed before they reach this fx,
+  so this catch is a second line of defence: any residual throw is
+  downgraded to a `:rf.fx/push-url-failed` trace, keeping the drain
+  alive."
   [{:keys [frame]} url]
   (history-mutation-handler
-    :rf.nav/push-url frame url
-    #?(:cljs #(try
-                (.pushState js/window.history nil "" url)
-                (catch :default e
-                  (trace/emit! :rf.fx :rf.fx/push-url-failed
-                               {:fx-id :rf.nav/push-url :url url
-                                :error (.-message e)})))
+    :rf.nav/push-url :rf.fx/push-url-failed frame url
+    #?(:cljs #(.pushState js/window.history nil "" url)
        :clj nil)))
 
 (def replace-url-meta
@@ -133,8 +155,17 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
 
 (defn replace-url-handler
   "`:rf.nav/replace-url` fx handler. Registered by the façade so a
-  `:reload` re-wires it on a fresh registrar."
+  `:reload` re-wires it on a fresh registrar.
+
+  rf2-u8qe7y finding 2 (defence-in-depth): the `.replaceState` call runs
+  through the SAME shared `run-history-mutation!` try/catch as
+  `:rf.nav/push-url`, so a browser throw (`SecurityError` on a residual
+  cross-origin URL, jsdom/stub mismatch, invalid-URL restriction) fails
+  closed to a `:rf.fx/replace-url-failed` trace instead of escaping the fx
+  drain. Previously replace ran the history method bare while push had the
+  catch — the two sibling history fxs had asymmetric drain-survival
+  behaviour under the same failure class."
   [{:keys [frame]} url]
   (history-mutation-handler
-    :rf.nav/replace-url frame url
+    :rf.nav/replace-url :rf.fx/replace-url-failed frame url
     #?(:cljs #(.replaceState js/window.history nil "" url) :clj nil)))

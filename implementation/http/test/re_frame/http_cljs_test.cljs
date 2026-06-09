@@ -8,7 +8,7 @@
   in shadow-cljs builds).
 
   Also covers rf2-r40km — the CLJS-only `:rf.http/cors` classification
-  branch of `re-frame.http-transport/classify-cljs-error`."
+  branch of `re-frame.http-transport-cljs/classify-cljs-error`."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.core :as rf]
@@ -19,13 +19,14 @@
             ;; cancellation test below.
             [re-frame.http-managed :as http-managed]
             [re-frame.http-registry :as registry]
-            [re-frame.http-transport :as transport]
+            [re-frame.http-transport-cljs :as transport-cljs]
             [re-frame.test-support :as test-support]))
 
-;; Reach the private classifier via #' so the test doesn't widen the
-;; transport's public surface for one CLJS-only branch.
+;; rf2-hp772l — the CLJS Fetch transport + classifier now live in the
+;; per-platform adapter ns `re-frame.http-transport-cljs` and are public
+;; (named seams), so no `@#'` reach-through is needed.
 (def ^:private classify-cljs-error
-  @#'transport/classify-cljs-error)
+  transport-cljs/classify-cljs-error)
 
 ;; rf2-xu0sl — tolerance band for the MEASURED `:elapsed-ms` wall-clock
 ;; assertions below. `js/setTimeout(…, limit)` is NOT a hard floor: under
@@ -36,11 +37,12 @@
 ;; constant `== :limit-ms`, and not absent) without being jitter-fragile.
 (def ^:private elapsed-jitter-ms 10)
 
-;; rf2-5zj6t — reach the private CLJS Fetch transport so we can assert it
-;; reads the correct response body type per `:decode` (a Fetch Response
-;; body may be consumed only once, so the reader is chosen up front).
+;; rf2-5zj6t — the CLJS Fetch transport (`transport-cljs/cljs-fetch`,
+;; now a public named seam) so we can assert it reads the correct
+;; response body type per `:decode` (a Fetch Response body may be
+;; consumed only once, so the reader is chosen up front).
 (def ^:private cljs-fetch
-  @#'transport/cljs-fetch)
+  transport-cljs/cljs-fetch)
 
 ;; rf2-u5xwa — `cross-origin?` (the load-bearing half of the CORS
 ;; classification) reads `js/globalThis.location.origin`, which is ABSENT

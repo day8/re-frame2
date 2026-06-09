@@ -19,7 +19,7 @@
     - Declarative :spawn that desugars into [:rf.machine/spawn args]
       on entry and [:rf.machine/destroy actor-id] on exit; deterministic
       actor ids via the in-snapshot :rf/spawn-counter (declarative) / the
-      frame's app-db [:rf.runtime/machines :spawn-counter <machine-id>]
+      frame's runtime-db [:rf.runtime/machines :spawn-counter <machine-id>]
       slot (hand-emitted) — no process-global state (rf2-gr8q / rf2-owvvr;
       the body comment below + spawn.cljc both note the global atom is gone).
     - Declarative :spawn-all — spawn-and-join sugar over N parallel
@@ -28,7 +28,7 @@
     - The :rf.machine/dispatch-to-system reserved fx-id — a machine
       action sends a message to its spawned child actor by :system-id
       (the fx counterpart to the dispatch-to-system FN).
-    - Snapshot at [:rf.runtime/machines :snapshots <id>] in app-db.
+    - Snapshot at [:rf.runtime/machines :snapshots <id>] in runtime-db.
     - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
 
   Public surface re-exported from the sub-namespaces:
@@ -213,7 +213,7 @@
 
   Spawn-id allocation lives inside the parent snapshot's
   `:rf/spawn-counter` slot (declarative `:spawn`) or the frame's
-  app-db at `[:rf.runtime/machines :spawn-counter <machine-id>]`
+  runtime-db at `[:rf.runtime/machines :spawn-counter <machine-id>]`
   (hand-emitted spawn); both reset automatically with the registrar
   snapshot/restore + frame reset, so this hook only handles the
   frame-scoped wall-clock timer table. The 0-arity / 1-arity split
@@ -358,6 +358,16 @@
 (late-bind/set-fn! :machines/resolve-actor-handler-meta
                    registration/resolve-actor-handler-meta)
 (late-bind/set-fn! :machines/actor-resolvable?      resolver/resolvable?)
+;; Per rf2-rlt3sv — the epoch restore version-drift precondition resolves a
+;; SPAWNED actor's CURRENT definition the same way dispatch does: from the
+;; snapshot's `:rf/machine-type` (a registered TYPE keyword resolved through
+;; the registrar, or an inline `:definition` spec map carried verbatim).
+;; `machine-version-mismatch` reads the resolved spec's
+;; `[:meta :rf/snapshot-version]` so a spawned actor whose TYPE was hot-reloaded
+;; forward surfaces `:rf.epoch/restore-version-mismatch` instead of silently
+;; accepting an incompatible older snapshot (the snapshot key is an instance id,
+;; not a registered handler, so the singleton registrar probe never matched it).
+(late-bind/set-fn! :machines/spec-from-snapshot     resolver/spec-from-snapshot)
 ;; Per rf2-jbbp7 — the post-commit walker the router AND-conjoins with
 ;; `validate-app-schema!` to gate the `:db` commit on the
 ;; `:where :machine-data` boundary (Spec 005 §Schema validation, Spec

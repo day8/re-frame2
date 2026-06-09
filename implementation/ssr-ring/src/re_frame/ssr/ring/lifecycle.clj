@@ -246,6 +246,41 @@
                           :recovery  :no-recovery})
       {:head-html "" :html-attrs nil :body-attrs nil})))
 
+(defn render-document-hash
+  "The canonical structural hash for the FULL SSR document state — body
+  render tree PLUS the resolved head fragment (`:head-html`) and the
+  `<html>`/`<body>` attribute bags (`:html-attrs` / `:body-attrs`).
+
+  Per Spec 011 §Head/meta contract and §Mismatch detection — head: in v1
+  the head rides the UNIFIED `:rf/render-hash` channel; the server-rendered
+  HTML carries a single structural hash covering both head and body, so the
+  bundled v1 hydration-mismatch detector cannot tell a head-only divergence
+  from a body-only one but DOES detect either. Hashing only the body (the
+  prior shape) silently accepted a head-only mismatch — a contract drift
+  against §624-626/§648-650 (rf2-9fw2de).
+
+  `head-bag` is the map returned by `resolve-head` (or the explicit-`:head`
+  shape `{:head-html <string> :html-attrs nil :body-attrs nil}`). We wrap
+  the body tree and the head fragment in a self-describing canonical vector
+  and hand it to `render-tree-hash`:
+
+    [:rf/ssr-document <body-hiccup> {:head-html  <string-or-nil>
+                                     :html-attrs <map-or-nil>
+                                     :body-attrs <map-or-nil>}]
+
+  `render-tree-hash`'s canonical-EDN walk sorts map keys and prunes nil
+  values (`hash.cljc`), so the wrapper is deterministic and byte-identical
+  across JVM/CLJS — the same cross-runtime contract the body-only hash
+  honoured. The `:rf/ssr-document` tag keeps the head channel structurally
+  distinct from any body subtree that might happen to be a 3-element vector,
+  so a body-only change and a head-only change can never collide."
+  [body-hiccup {:keys [head-html html-attrs body-attrs]}]
+  (rf/render-tree-hash
+    [:rf/ssr-document body-hiccup
+     {:head-html  head-html
+      :html-attrs html-attrs
+      :body-attrs body-attrs}]))
+
 (defn validate-on-create!
   "Validate the caller's :on-create event vector and return it verbatim.
   `:on-create` is required (per `validate-required-opts!`), so a

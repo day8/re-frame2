@@ -54,7 +54,7 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 >
 > *- **L1 — `spec/` is the contract.** Never treat `implementation/` as normative. The tour leaf is the only place CLJS framings live, and even there they're tagged as descriptive.*
 > *- **L2 — Two-phase workflow.** Sequential; not collapsible.*
-> *- **L3 — Q14: NO verification module.** No `references/verify.md`; no "verify before claiming done" hard rule. The engineer runs their builds; the skill walks the workflow.*
+> *- **L3 — Q14: NO verification module, but a narrow per-EP slice gate.** No `references/verify.md`, no generic-build tutorial — but the skill is an implementation driver, so when the agent writes EP code and has local tool access it runs the smallest relevant slice from the port's own scripts before calling the EP landed (or reports a not-run reason). The full/expensive conformance pass stays engineer-owned. Distinguish generic build mechanics (not taught) from the skill-specific per-EP acceptance slice (taught).*
 > *- **L4 — Substrate-agnostic phrasing throughout.** Identity primitive, render-tree, reactive container — generic.*
 > *- **L5 — Conformance corpus is the acceptance test.** The objective measure of "is this re-frame2?"*
 > *- **L6 — Spec gaps file GitHub issues against `day8/re-frame2`.** No silent extrapolation; no patching the spec inline. `bd` is monorepo-internal and never invoked from a published skill.*

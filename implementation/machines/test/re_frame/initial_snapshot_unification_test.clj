@@ -24,9 +24,14 @@
             [re-frame.frame :as frame]
             [re-frame.machines :as machines]
             [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.test-support :as mtest]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
+;; This ns keeps a bespoke reset-runtime fixture (clear-all! + frame reset +
+;; machines :reload + reset-timers!) — it exercises registration-time
+;; snapshot unification, so it deliberately reloads the machines ns rather
+;; than reusing the shared make-reset-runtime-fixture.
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
@@ -42,10 +47,9 @@
 
 (use-fixtures :each reset-runtime)
 
-(defn- snapshot
-  "Read the snapshot for `machine-id` from the default frame's app-db."
-  [machine-id]
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
+;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+(def ^:private snapshot mtest/snapshot)
 
 ;; ---- (1) `parallel/build-initial-snapshot` unit contract -------------------
 ;;

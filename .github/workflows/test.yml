@@ -160,6 +160,24 @@ jobs:
       - name: Verify the implementor skill keeps Spec 015 in the core gate
         run: python scripts/check_skill_implementor_order.py --verbose --ci
 
+      # Partition / HTTP-fx / API-name drift guard (rf2-whsb0c + rf2-6c59ob):
+      # the re-frame2-implementor skill is a control surface — API names and
+      # contract shapes copied from it become a port author's tests + public
+      # surface. This guard fails the build if the skill re-introduces:
+      # `deregister-listener!` (verb is `unregister-listener!`); bare `:http`
+      # described as the Spec 014 managed HTTP fx (it is `:rf.http/managed`);
+      # public `dispose-adapter!` (the public verb is `destroy-adapter!`,
+      # `:dispose-adapter!` is the adapter-spec map's internal slot); or a
+      # `reg-machine` line implying top-level `:sensitive` / `:large` keys
+      # (machine `:data` is the schema-first `:data-schema` exception). The
+      # self-test proves the guard fires on the drift shapes before the live
+      # scan asserts the skill is clean.
+      - name: Self-test the implementor partition/HTTP/API-name guard
+        run: python scripts/check_skill_implementor_partition_drift.py --self-test
+
+      - name: Verify the implementor skill partition/HTTP/API-name teaching
+        run: python scripts/check_skill_implementor_partition_drift.py --verbose --ci
+
       # Distribution-completeness guard (rf2-f14su): a published skill that
       # loads a sibling `../shared/<leaf>` reference in normal operation can
       # NEVER ship that leaf in its own npm tarball / plugin bundle (a `files`
@@ -187,6 +205,24 @@ jobs:
 
       - name: Verify re-frame2-pair re-authoring docs match the MCP-only contract
         run: python scripts/check_skill_pair_authoring_drift.py --verbose --ci
+
+      # Setup-skill counter/lifecycle drift guard (rf2-fd1mf3). The
+      # re-frame2-setup skill's first-counter success criterion breaks if the
+      # event/sub ids its substrate view snippets DISPATCH/SUBSCRIBE drift from
+      # the ids it tells the author to INSTALL (an agent combined the Reagent
+      # leaf's `:counter/inc`/`:count` with the UIx/Helix snippets'
+      # `:counter/increment`/`:counter/value` and got a nil-rendering, no-op
+      # counter). The guard also pins the hot-reload lifecycle (`:init-fn` is the
+      # one-time startup hook, `^:dev/after-load` is the reload re-render hook —
+      # not "`:init-fn` re-runs each hot reload") and the current Spec 006
+      # adapter-key vocabulary (`:make-state-container`, not bare
+      # `state-container`). Self-test proves it fires on the drift shapes before
+      # the live scan asserts the skill is clean.
+      - name: Self-test the setup-skill counter/lifecycle drift guard
+        run: python scripts/check_skill_setup_counter_drift.py --self-test
+
+      - name: Verify re-frame2-setup counter vocabulary + lifecycle wording
+        run: python scripts/check_skill_setup_counter_drift.py --verbose --ci
 
   # PR-time gate for README link drift (rf2-br5u7). Source: the
   # rf2-oavap README sweep used a local `ai/link-sweep-v2.py` audit
@@ -1885,8 +1921,18 @@ jobs:
       # `-P` against the published coords cannot resolve and would always
       # red. The behavioural tier transitively resolves + compiles the
       # full deps tree under the :local/root rewrite, which is the
-      # strongest resolve signal achievable pre-publish. A published-coord
-      # resolve probe is a forward concern for the §3 release pipeline.
+      # strongest resolve signal achievable pre-publish.
+      #
+      # rf2-8n4s71 #1 — be precise about scope: this proves "generated
+      # code compiles + runs against the in-repo framework source", NOT
+      # "the emitted deps.edn coords RESOLVE for a real consumer". The
+      # local-root rewrite swaps out exactly the coords a published
+      # consumer would have to resolve. The published-coord resolve smoke
+      # (scaffold via `io.github.day8/re-frame2-template#<tag>` +
+      # `clojure -P` / `npm test` WITHOUT the rewrite) is a post-split
+      # forward concern — see tools/template/spec/005-Repo-Split.md
+      # §3.2 / §3.4 and the pre-split caveat in the release-template.yml
+      # GitHub Release body.
       - name: Run JVM tests (tools/template artefact)
         env:
           RF2_TEMPLATE_RUN_EMITTED_TESTS: "1"
@@ -2124,8 +2170,13 @@ jobs:
         working-directory: tools/re-frame2-pair-mcp
         run: npx shadow-cljs compile server
 
+      # rf2-vtp2er — lockfile-exact install. tools/mcp-conformance ships a
+      # committed package-lock.json, so `npm ci` gives a reproducible,
+      # drift-detecting install (fails if package.json + lock diverge)
+      # rather than `npm install` resolving semver ranges against the live
+      # registry. Matches the posture test:mcp-conformance now uses locally.
       - name: Install mcp-conformance deps
-        run: npm install
+        run: npm ci
 
       # exec-safety helpers (rf2-33vvc): unit-test the
       # trusted-PATH-resolution + symlink-safe-unlink helpers that the
@@ -2245,8 +2296,10 @@ jobs:
             ${{ runner.os }}-clj-tools-story-mcp-
             ${{ runner.os }}-clj-
 
+      # rf2-vtp2er — lockfile-exact install (committed package-lock.json).
+      # See the mcp-conformance-re-frame2-pair job for rationale.
       - name: Install mcp-conformance deps
-        run: npm install
+        run: npm ci
 
       - name: Run story-mcp end-to-end MCP-client conformance
         run: npm run test:story
@@ -2350,6 +2403,25 @@ jobs:
           # tool_pair_surfaces_test.clj, rf2-c9xgp) is gated automatically
           # rather than silently rotting (rf2-c9xgp finding 2).
           for test_file in skills/shared/tests/*_test.clj; do
+            echo "== $test_file =="
+            bb "$test_file"
+          done
+
+      # re-frame2-setup structural drift guard (rf2-agi57x). Previously a
+      # local-only check (`bb tests/setup_drift_test.clj` from
+      # skills/re-frame2-setup/), so fixes it guards — the build-discipline
+      # lockstep framing, the UIx/Helix template-pin parity, the right-side
+      # Xray host shape, the CSP dev/prod split, the npx-qualified commands,
+      # the substrate-views path, the publication-state coordinate branch, the
+      # loud schema-missing contract, the day-one Xray preload in the canonical
+      # shadow-cljs.edn block, and the user-run-generator framing — could
+      # regress without CI noticing. Loop every *_test.clj so a future
+      # setup-skill test is gated automatically (mirrors the shared loop above).
+      - name: Run re-frame2-setup structural tests
+        working-directory: skills/re-frame2-setup
+        run: |
+          set -euo pipefail
+          for test_file in tests/*_test.clj; do
             echo "== $test_file =="
             bb "$test_file"
           done

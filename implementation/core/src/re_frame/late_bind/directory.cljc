@@ -198,7 +198,7 @@
    {:key         :flows/run-flows-on-db
     :producer-ns 're-frame.flows
     :design-bead "rf2-u0zz5"
-    :description "Run the frame's flows over a given db value, returning the flow-augmented db. Invoked by the router's outermost flows-after-interceptor to transform the handler's pending `:db` effect (after the rest of the `:after` chain, before the `:db` install)."}
+    :description "Run the frame's flows over the pending frame-state, returning the flow-augmented APP-DB. Called `[frame db]` (app-db only) or `[frame db runtime-db]` (both pending partitions — EP-0001 §535-551, rf2-4eisfr). Bare `:inputs` resolve against app-db; `[:rf.db/runtime …]` inputs resolve against runtime-db (any flow may read runtime-db; only writes are reserved). Invoked by the router's outermost flows-after-interceptor to transform the handler's pending `:db` effect (after the rest of the `:after` chain, before the `:db` install)."}
    {:key         :flows/reset-last-inputs!
     :producer-ns 're-frame.flows
     :description "Reset memoised last-input snapshots (test isolation)."}
@@ -285,7 +285,7 @@
    {:key         :schemas/set-schema-fns!
     :producer-ns 're-frame.schemas
     :design-bead "rf2-13meg"
-    :description "Install the validator/explainer/printer bundle atomically from a single map (the honest bundle setter — replaces the old set-schema-validator! map-arity)."}
+    :description "Install the validator/explainer/printer bundle atomically from a single map (the honest bundle setter — replaces the old set-schema-validator! map-arity). Returns the installed bundle map {:validate … :explain … :print …} (rf2-qdtcx2)."}
    {:key         :schemas/validate-with-registered-fn
     :producer-ns 're-frame.schemas
     :design-bead "rf2-r2uh"
@@ -367,6 +367,10 @@
     :producer-ns 're-frame.machines
     :design-bead "rf2-a2sn1"
     :description "Epoch-restore precondition companion to :machines/resolve-actor-handler-meta. Returns true iff a recorded actor-id's snapshot in a candidate restore RUNTIME-DB partition (EP-0001 rf2-3aizt1 — snapshots are runtime-db state at [:rf.runtime/machines :snapshots <id>]) resolves to a live machine spec via its `:rf/machine-type` (registered TYPE or inline `:definition`). Lets `re-frame.epoch.tool-pair/missing-references` treat a spawned-actor snapshot as a VALID restore target — its per-instance handler is, by design, never registered — rather than a `:rf.epoch/restore-missing-handler`."}
+   {:key         :machines/spec-from-snapshot
+    :producer-ns 're-frame.machines
+    :design-bead "rf2-rlt3sv"
+    :description "Epoch-restore version-drift precondition companion to :machines/actor-resolvable?. Resolves a SPAWNED actor's CURRENT definition the same way dispatch does — from the snapshot's `:rf/machine-type` (a registered TYPE keyword resolved through the registrar, or an inline `:definition` spec map carried verbatim). `re-frame.epoch.tool-pair/machine-version-mismatch` reads the resolved spec's `[:meta :rf/snapshot-version]` so a spawned actor whose TYPE was hot-reloaded forward surfaces `:rf.epoch/restore-version-mismatch` instead of silently accepting an incompatible older snapshot (the snapshot key is an instance id, not a registered handler, so the singleton registrar probe never matched it)."}
    {:key         :machines/spawn-all-init-fx
     :producer-ns 're-frame.machines
     :description "Effect handler seeding the :spawn-all join state during spawn."}
@@ -572,6 +576,10 @@
    {:key         :epoch/configure!
     :producer-ns 're-frame.epoch
     :description "Configure epoch buffer size / capture policy."}
+   {:key         :epoch/reset-config!
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-yw1w1u"
+    :description "Restore epoch-history config to the shipped default baseline (test isolation) so a prior test's (rf/configure! :epoch-history ...) merge can't leak :depth / :trace-events-keep / :redact-fn. Fired by re-frame.test-support's reset-hook table so test namespaces don't reset the private re-frame.epoch.state/config var directly."}
    {:key         :epoch/clear-history!
     :producer-ns 're-frame.epoch
     :description "Clear the committed-epoch ring buffer (test isolation)."}

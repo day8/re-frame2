@@ -2,7 +2,7 @@
 
 Load when the task is **authoring a `deftest` / `cljs.test` test** against re-frame2 application code: an event-fx handler, a sub graph, a machine snapshot, a tag query, a view that reads from a frame. This leaf teaches only the **re-frame2-specific binding** — `clojure.test` / `cljs.test` themselves are assumed.
 
-This skill does **not** teach the AI to *run* tests; that is the user's job. It teaches how to **write** them so they pass when the user runs the suite.
+This leaf teaches how to **write** re-frame2 tests so they pass when the suite runs. It is not a `cljs.test` tutorial. **Verifying** what you wrote is in scope: when you have shell/tool access and changed code or tests, run the nearest relevant gate before declaring done (see [§Discovering a project's gates](#discovering-a-projects-gates) below and SKILL.md §Verify what you changed). Only a chat-only / no-tool session hands the run off to the user — and then it names the exact gate to run.
 
 ## The single import
 
@@ -32,7 +32,7 @@ JVM tests pass the plain-atom adapter:
 (use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 ```
 
-Optional opts: `:init-fn` (zero-arg fn run after adapter install, before the test), `:clear-kinds` (a collection of registrar kinds to clear after the snapshot capture), `:clear-app-schemas?` (boolean — when true, clears the schemas artefact's per-frame side-table to start each test with an empty schema slate while preserving the snapshot on exit; per rf2-cq1ak app-db schemas are NOT a registrar kind so they have their own opt).
+Optional opts: `:init-fn` (zero-arg fn run after adapter install, before the test), `:clear-kinds` (a collection of registrar kinds to clear after the snapshot capture), `:clear-app-schemas?` (boolean — when true, clears the schemas artefact's per-frame side-table to start each test with an empty schema slate while preserving the snapshot on exit; app-db schemas are NOT a registrar kind so they have their own opt).
 
 Do **not** call `(registrar/clear-all!)` from a fixture — under CLJS, framework registrations cannot be reloaded and will be gone for the rest of the run.
 
@@ -277,6 +277,17 @@ For HTTP stubs, the fn form lets the test return a canned response shape without
 
 Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a test frame can install a stub once for every dispatch routed to it. The id-keyword form (`{:rf.http/managed :rf.http/managed-canned-success}`) is the portable pattern-level form — use it when the stub is shared across many tests or when SSR / serialisation is in play; reach for the fn form when one test wants a bespoke response.
 
+## Discovering a project's gates
+
+Before running anything, find the project's *actual* gate commands — don't guess names. Run the narrowest gate that exercises the path you touched, not the full matrix. Check, in order:
+
+- **`deps.edn` `:aliases`** — the `:test` alias is the per-artefact runner (`clojure -M:test` from that artefact's dir). A consumer monorepo often has one `deps.edn` per artefact; run the alias from the dir whose source you changed.
+- **`shadow-cljs.edn`** — `:builds` keys and any `:test` build id reveal the CLJS compile/test targets (`npx shadow-cljs compile <id>`, or the project's test build).
+- **`package.json` `scripts`** — the `test:*` family (e.g. `test:cljs`, `test:browser`) is the canonical entry-point set for shadow-cljs projects; prefer the one scoped to your change.
+- **The nearest `README.md`** — examples and feature dirs often note their gate commands inline ("run `npm run test:foo`"). An example app's README is the authority for that example's gate.
+
+Pick the tightest match and run it. A green slice on the changed path is the signal; reach for a wider gate only when the change genuinely spans artefacts. If no runnable gate exists for the surface you touched (or you lack shell access), say which gate you *would* have run and ask the user to run it.
+
 ## Checklist before declaring a test done
 
 - The ns uses `re-frame.test-support` and `re-frame.core` only — no reach into internal namespaces.
@@ -285,6 +296,7 @@ Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a te
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
 - Machine assertions use `sub-machine` / `machine-has-tag?` or `(get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots id])` — runtime-db partition, not internal machine namespaces, and not `db`/app-db.
 - Schema-validation, fx-stubs, and frame-scoping each use the public surface above. No fixture lifts `registrar/clear-all!`.
+- **Verified, or said why not** — with shell/tool access, the nearest relevant gate (the new test's artefact `:test` alias / `npm run test:*` / a focused namespace run) was run and recorded; record any gate deliberately skipped and why. No-tool sessions name the gate for the user to run.
 
 ---
 

@@ -195,9 +195,18 @@
   record so on-box devtools (Xray diff, REPL, `restore-epoch`) can
   reason about exact state. Returns `nil` for non-map input. No-op
   (returns `nil`) when the `day8/re-frame2-epoch` artefact is not on
-  the classpath. Late-bound via `:epoch/projected-record`."
+  the classpath. Late-bound via `:epoch/projected-record`.
+
+  The 2-arity accepts a trusted-local egress `opts` map (rf2-5w06uu —
+  `{:include-sensitive? :include-large? :include-runtime-db?}`, all
+  defaulting `false`): `:include-sensitive?` / `:include-large?` opt the
+  APP-DB partition's privacy / size posture back in across every payload
+  slot; they do NOT lift the frame-state `:rf.db/runtime` partition
+  boundary, which stays `:rf/redacted` unless `:include-runtime-db? true`
+  is also passed. The 1-arity is the safe, fully-redacted off-box path."
   {:hook :epoch/projected-record :artefact epoch-artefact :on-absent :nil}
-  ([record] :delegate))
+  ([record] :delegate)
+  ([record opts] :delegate))
 
 (defwrapper projected-history
   "Convenience: return the projected vector of records for a frame.
@@ -207,6 +216,10 @@
   rather than walking the raw ring and re-wrapping each record. Empty
   vector when the frame has no recorded epochs, when recording is
   disabled, or when the `day8/re-frame2-epoch` artefact is not on the
-  classpath. Late-bound via `:epoch/projected-history`."
+  classpath. Late-bound via `:epoch/projected-history`.
+
+  The 2-arity threads a trusted-local egress `opts` map (rf2-5w06uu) to
+  every record; the 1-arity is the safe, fully-redacted off-box path."
   {:hook :epoch/projected-history :artefact epoch-artefact :on-absent :empty-vec}
-  ([frame-id] :delegate))
+  ([frame-id] :delegate)
+  ([frame-id opts] :delegate))

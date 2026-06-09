@@ -29,12 +29,12 @@
             ;; when the test ns doesn't reach `machines/...` directly.
             [re-frame.machines]
             [re-frame.machines.spawn-order :as spawn-order]
+            [re-frame.machines.test-support :as mtest]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- spawn-order channel — record / forget / clear ----------------------
 
@@ -166,8 +166,7 @@
 (deftest frame-destroy-emits-lifecycle-trace-per-active-machine
   (testing "destroy-frame! emits :rf.machine.lifecycle/destroyed per active actor with :reason :parent-frame-destroyed"
     (rf/reg-frame :lt/auth {:doc "lifecycle-trace frame"})
-    (let [traces (atom [])
-          child  {:initial :running :data {} :states {:running {}}}
+    (let [child  {:initial :running :data {} :states {:running {}}}
           boot   {:initial :idle
                   :data    {}
                   :states
@@ -181,22 +180,23 @@
       (rf/reg-machine :lt/child child)
       (rf/reg-machine :lt/boot boot)
       (rf/dispatch-sync [:lt/boot [:start]] {:frame :lt/auth})
-      (rf/register-listener! ::lt (fn [ev] (swap! traces conj ev)))
-      (rf/destroy-frame! :lt/auth)
-      (rf/unregister-listener! ::lt)
-      (let [destroyed (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
-                              @traces)]
-        ;; Two spawned actors PLUS the singleton :lt/boot snapshot
-        ;; that lives in [:rf.runtime/machines :snapshots] of this frame — three traces.
-        (is (= 3 (count destroyed))
-            "one trace per actor with a [:rf.runtime/machines :snapshots <id>] snapshot")
-        (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) destroyed)
-            "every trace carries :reason :parent-frame-destroyed")
-        (is (every? #(= :lt/auth (:frame (:tags %))) destroyed)
-            "every trace carries the destroyed frame id")
-        (is (= #{:lt/child#1 :lt/child#2 :lt/boot}
-               (set (map #(:machine-id (:tags %)) destroyed)))
-            "trace covers every active machine — spawned actors + the singleton boot machine")))))
+      ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
+      ;; unregister in a `finally`.
+      (mtest/with-trace-capture traces
+        (rf/destroy-frame! :lt/auth)
+        (let [destroyed (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
+                                @traces)]
+          ;; Two spawned actors PLUS the singleton :lt/boot snapshot
+          ;; that lives in [:rf.runtime/machines :snapshots] of this frame — three traces.
+          (is (= 3 (count destroyed))
+              "one trace per actor with a [:rf.runtime/machines :snapshots <id>] snapshot")
+          (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) destroyed)
+              "every trace carries :reason :parent-frame-destroyed")
+          (is (every? #(= :lt/auth (:frame (:tags %))) destroyed)
+              "every trace carries the destroyed frame id")
+          (is (= #{:lt/child#1 :lt/child#2 :lt/boot}
+                 (set (map #(:machine-id (:tags %)) destroyed)))
+              "trace covers every active machine — spawned actors + the singleton boot machine"))))))
 
 ;; ---- HTTP abort preserved for every active actor -------------------------
 
@@ -295,3 +295,142 @@
           "frame A's spawn-order slot is cleared")
       (is (= [:iso/child-b#1] (spawn-order/frame-order :iso/frame-b))
           "frame B's spawn-order slot is untouched"))))
+
+;; ---- restore / hydration: spawned snapshots absent from spawn-order ------
+;;
+;; Per rf2-apfait — restore / SSR hydration / `replace-runtime-db!` /
+;; `restore-epoch` repopulate the DURABLE runtime-db snapshots WITHOUT
+;; repopulating the PROCESS-SIDE (transient) `spawn-order` atom (Spec 002
+;; §Durable vs transient: the atom is runtime bookkeeping, not durable
+;; state). Before the fix, `destroy-frame!` saw such snapshots only via the
+;; straggler pass and routed them through `run-singleton-exit-cascade!`,
+;; which runs the `:exit` cascade + HTTP abort ONLY — it does NOT dissoc
+;; the snapshot, release the system-id reverse index, clear schema marks,
+;; cancel `:after` timers, or unregister a handler. A restored SPAWNED
+;; actor (snapshot carries `:rf/machine-type`) must instead flow through
+;; the FULL `destroy-single-actor!` teardown, in reverse-creation order
+;; derived from the durable `<type>#<n>` actor-id.
+;;
+;; These tests model restore by spawning normally, then wiping ONLY the
+;; transient spawn-order atom (`spawn-order/reset-all!`) while leaving the
+;; durable runtime-db snapshots in place — exactly the post-restore /
+;; post-hydration state. Asserting on the durable runtime-db cleanup then
+;; pins that the spawned-straggler path runs full teardown.
+
+(defn- runtime-snapshots
+  "The `[:rf.runtime/machines :snapshots]` map on `frame-id`'s runtime-db."
+  [frame-id]
+  (get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots]))
+
+(deftest restored-spawned-snapshots-get-full-teardown-newest-first
+  (testing "destroy-frame! treats restored spawned snapshots (absent from spawn-order) as spawned actors: full teardown, newest-first by durable actor-id"
+    (rf/reg-frame :rs/auth {:doc "restore-teardown frame"})
+    (let [exit-log (atom [])
+          child    {:initial :running
+                    :data    {}
+                    :states  {:running {:exit (fn [{data :data}]
+                                                 (swap! exit-log
+                                                        conj (:rf/self-id data))
+                                                 {})}}}
+          boot     {:initial :idle
+                    :data    {}
+                    :states
+                    {:idle {:on {:spawn-three
+                                 {:action (fn [_]
+                                    {:fx [[:rf.machine/spawn
+                                           {:machine-id :rs/child :id-prefix :rs/child}]
+                                          [:rf.machine/spawn
+                                           {:machine-id :rs/child :id-prefix :rs/child}]
+                                          [:rf.machine/spawn
+                                           {:machine-id :rs/child :id-prefix :rs/child}]]})}}}}}]
+      (rf/reg-machine :rs/child child)
+      (rf/reg-machine :rs/boot boot)
+      (rf/dispatch-sync [:rs/boot [:spawn-three]] {:frame :rs/auth})
+      ;; Sanity: three spawned actors live, with durable :rf/machine-type.
+      ;; (The :rs/boot singleton's own snapshot also lives here — it has no
+      ;; :rf/machine-type and stays a singleton straggler.)
+      (is (= #{:rs/child#1 :rs/child#2 :rs/child#3}
+             ;; the children are exactly the snapshots carrying :rf/machine-type
+             (set (keep (fn [[id snap]]
+                          (when (some? (:rf/machine-type snap)) id))
+                        (runtime-snapshots :rs/auth))))
+          "three spawned snapshots are live (each carrying :rf/machine-type) before restore")
+      ;; Simulate restore / hydration: the durable snapshots survive, but
+      ;; the transient spawn-order atom is wiped (it is NOT serialized).
+      (spawn-order/reset-all!)
+      (is (= [] (spawn-order/frame-order :rs/auth))
+          "spawn-order atom is empty post-restore (the bug's precondition)")
+      ;; Destroy the frame.
+      (rf/destroy-frame! :rs/auth)
+      ;; :exit fired for all three children, NEWEST-FIRST by the durable
+      ;; #<n> rank. (Filter to children — the boot singleton's :exit, if
+      ;; any, is irrelevant to the spawned-ordering contract.)
+      (is (= [:rs/child#3 :rs/child#2 :rs/child#1]
+             (filterv #{:rs/child#1 :rs/child#2 :rs/child#3} @exit-log))
+          ":exit ran newest-first, order derived from the durable actor-id (not the lost spawn-order atom)")
+      ;; FULL teardown: every restored SPAWNED snapshot is dissoc'd. The
+      ;; singleton straggler path would have LEFT these in runtime-db.
+      (is (empty? (keep (fn [[id snap]]
+                          (when (some? (:rf/machine-type snap)) id))
+                        (runtime-snapshots :rs/auth)))
+          "every restored spawned snapshot was dissoc'd (full teardown, not exit-only)"))))
+
+(deftest restored-spawned-snapshot-releases-system-id-index
+  (testing "destroy-frame! releases the system-id reverse index for a restored, spawn-order-less spawned actor"
+    (rf/reg-frame :rsi/auth {:doc "restore system-id frame"})
+    (let [child  {:initial :running :data {} :states {:running {}}}
+          boot   {:initial :idle
+                  :data    {}
+                  :states
+                  {:idle {:on {:bind {:action (fn [_]
+                                        {:fx [[:rf.machine/spawn
+                                               {:machine-id :rsi/child
+                                                :id-prefix  :rsi/child
+                                                :system-id  :session/primary}]]})}}}}}]
+      (rf/reg-machine :rsi/child child)
+      (rf/reg-machine :rsi/boot boot)
+      (rf/dispatch-sync [:rsi/boot [:bind]] {:frame :rsi/auth})
+      (is (= :rsi/child#1
+             (get-in (rf/runtime-db-value :rsi/auth)
+                     [:rf.runtime/machines :system-ids :session/primary]))
+          "system-id bound before restore")
+      ;; Restore: wipe the transient spawn-order; the durable snapshot +
+      ;; system-id reverse index survive.
+      (spawn-order/reset-all!)
+      (rf/destroy-frame! :rsi/auth)
+      (is (nil? (get-in (rf/runtime-db-value :rsi/auth)
+                        [:rf.runtime/machines :system-ids :session/primary]))
+          "system-id reverse index released — only the full spawned teardown does this; the singleton straggler path leaves it bound")
+      (is (nil? (get-in (rf/runtime-db-value :rsi/auth)
+                        [:rf.runtime/machines :snapshots :rsi/child#1]))
+          "restored spawned snapshot dissoc'd"))))
+
+(deftest restored-singleton-snapshot-keeps-singleton-straggler-path
+  (testing "a restored SINGLETON snapshot (no :rf/machine-type) keeps the exit-only straggler path — handler survives, snapshot left for app-db release"
+    (rf/reg-frame :rsg/auth {:doc "restore singleton frame"})
+    (let [exit-log (atom [])
+          ;; A singleton machine — registered, then driven into a state so
+          ;; its snapshot lands in runtime-db. Its snapshot carries NO
+          ;; :rf/machine-type (build-initial-snapshot does not stamp it).
+          single {:initial :live
+                  :data    {}
+                  :states  {:live {:on   {:noop {:action (fn [{d :data}] {:data d})}}
+                                   :exit (fn [_] (swap! exit-log conj :rsg/single) {})}}}]
+      (rf/reg-machine :rsg/single single)
+      ;; Touch the singleton so its snapshot materialises in this frame.
+      (rf/dispatch-sync [:rsg/single [:noop]] {:frame :rsg/auth})
+      (is (some? (get-in (rf/runtime-db-value :rsg/auth)
+                         [:rf.runtime/machines :snapshots :rsg/single]))
+          "singleton snapshot present before restore")
+      (is (nil? (:rf/machine-type
+                  (get-in (rf/runtime-db-value :rsg/auth)
+                          [:rf.runtime/machines :snapshots :rsg/single])))
+          "singleton snapshot carries NO :rf/machine-type (the discriminator)")
+      (spawn-order/reset-all!)
+      (rf/destroy-frame! :rsg/auth)
+      ;; The singleton's :exit ran (straggler path runs the exit cascade)...
+      (is (= [:rsg/single] @exit-log)
+          "singleton :exit cascade ran via the straggler path")
+      ;; ...but its TYPE handler stays globally registered (outlives the frame).
+      (is (some? (registrar/lookup :event :rsg/single))
+          "singleton handler stays registered — NOT unregistered by the straggler path"))))

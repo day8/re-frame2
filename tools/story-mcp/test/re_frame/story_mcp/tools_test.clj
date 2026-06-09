@@ -29,7 +29,6 @@
             [re-frame.story-mcp.tools.egress :as egress]
             [re-frame.story-mcp.tools.recorder :as recorder-tool]
             [re-frame.story-mcp.tools.registry :as registry]
-            [re-frame.story-mcp.tools.testing :as testing-tool]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 ;; ResultIO mirror over story-mcp's CLJ-map result shape — used by the
@@ -347,13 +346,20 @@
     (testing "the catalogue actually parsed some tool names (regex didn't silently miss)"
       (is (seq named)
           "skill-named-tools returned empty — the leaf's table shape changed; fix the parser")
-      ;; The seven loop tools the leaf's table enumerates by step. Pinned
-      ;; explicitly so a table row silently dropping a tool is caught even
-      ;; if the registry still carries it.
-      (doseq [t ["register-variant" "unregister-variant" "run-variant"
-                 "preview-variant" "read-failures" "get-variant"]]
+      ;; The authoring tools the leaf's per-step catalogue table enumerates
+      ;; (one tool per row's second cell) plus the two prose-only tools
+      ;; `skill-named-tools` folds in. Pinned explicitly so a table row
+      ;; silently dropping a tool is caught even if the registry still
+      ;; carries it. NOT pinned: `run-variant` / `read-failures` (and the
+      ;; other Testing-category run tools) — rf2-r2xswa reframed this leaf
+      ;; into an author/refine recipe and moved the run/self-heal loop to a
+      ;; `re-frame2-pair` handoff, so those live in pair's allow-list, not
+      ;; this skill's catalogue. The Testing-tools split is asserted below.
+      (doseq [t ["register-variant" "unregister-variant" "preview-variant"
+                 "get-variant" "explain-variant" "get-story-instructions"
+                 "snapshot-identity"]]
         (is (contains? named t)
-            (str "skill leaf catalogue no longer names loop tool '" t
+            (str "skill leaf catalogue no longer names authoring tool '" t
                  "' — table row removed or renamed in the prose"))))
     (testing "every tool the skill leaf names exists in the registry (rename/removal ratchet)"
       (doseq [t (sort named)]
@@ -361,7 +367,21 @@
             (str "skill leaf names tool '" t "' but the registry has no such tool — "
                  "a rename/removal left "
                  "skills/re-frame2/references/tooling/story-mcp-loop.md stale. "
-                 "Update the leaf (and re-verify the count claim).")))) )
+                 "Update the leaf (and re-verify the count claim)."))))
+    (testing "the author/run split is intact: run-side tools are named in handoff prose but kept OUT of the authoring catalogue (rf2-r2xswa)"
+      ;; The reframed leaf hands the run/self-heal loop to `re-frame2-pair`.
+      ;; `run-variant`/`read-failures` must still appear in the leaf's prose
+      ;; (the handoff names them) but must NOT be pulled into this skill's
+      ;; authoring catalogue — that would re-imply this skill can drive the
+      ;; run loop. Ratchets both directions of the split.
+      (doseq [t ["run-variant" "read-failures"]]
+        (is (re-find (re-pattern (str "`" t "`")) leaf)
+            (str "leaf no longer names run-side tool '" t "' in its prose — "
+                 "the re-frame2-pair handoff section was dropped or renamed"))
+        (is (not (contains? named t))
+            (str "run-side tool '" t "' leaked into this skill's authoring "
+                 "catalogue table — it belongs to the re-frame2-pair handoff, "
+                 "not this skill's allow-list (rf2-r2xswa split)")))))
   ;; Count-claim ratchet: the leaf's "<count> tools" prose must equal the
   ;; live registry size. Catches an add/remove that updates the table but
   ;; leaves the headline count word stale (or vice-versa).
@@ -490,10 +510,46 @@
       (is (success? r))
       (is (= [:story.button]
              (mapv :id (-> r :structuredContent :stories))))))
-  (testing "filtering by :test (no matches) returns empty"
-    (let [r (invoke "list-stories" {:tags ["test"]})]
+  (testing "filtering by :test (registered canonical tag, no story matches) returns empty"
+    (let [r (invoke "list-stories" {:tags ["test"]})
+          s (:structuredContent r)]
       (is (success? r))
-      (is (empty? (-> r :structuredContent :stories))))))
+      (is (empty? (:stories s)))
+      (is (not (contains? s :ignored-tags))
+          "a REGISTERED tag that simply matches no story is not 'ignored'")))
+  ;; rf2-wu1o2d — an unknown-only tag filter (a typo / stale tag) MUST
+  ;; return an empty result, NOT silently widen to the full catalogue.
+  ;; The supplied-but-unresolved name rides the `:ignored-tags` diagnostic.
+  (testing "filtering by an UNKNOWN-only tag returns empty, never the full catalogue"
+    (let [r (invoke "list-stories" {:tags [":docz"]})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (empty? (:stories s))
+          "unknown-only filter must NOT widen to all stories")
+      (is (= [":docz"] (:ignored-tags s))
+          "the unresolved supplied name is echoed back as a diagnostic")
+      (is (nil? (find-keyword "docz"))
+          "rf2-lqjbk: the unknown tag id MUST NOT have been interned")))
+  ;; A mixed known+unknown filter still applies the KNOWN tag and reports
+  ;; the dropped name.
+  (testing "mixed known+unknown filter applies the known tag and reports the ignored name"
+    (let [r (invoke "list-stories" {:tags [":docs" ":docz"]})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= [:story.button] (mapv :id (:stories s)))
+          "the known :docs tag still narrows")
+      (is (= [":docz"] (:ignored-tags s))
+          "the unknown name is reported, the known tag is honoured")
+      (is (nil? (find-keyword "docz"))
+          "rf2-lqjbk: the unknown tag id MUST NOT have been interned")))
+  ;; The no-`:tags` call is the ONLY path that returns the unfiltered
+  ;; registry — a supplied filter (even an all-unknown one) always filters.
+  (testing "no :tags arg returns the unfiltered catalogue (no :ignored-tags slot)"
+    (let [r (invoke "list-stories" {})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= [:story.button] (mapv :id (:stories s))))
+      (is (not (contains? s :ignored-tags))))))
 
 (deftest get-story-happy
   (let [r (invoke "get-story" {:story-id "story.button"})]
@@ -3034,7 +3090,68 @@
         (is (contains? props :include-sensitive)
             (str tname " missing :include-sensitive slot"))
         (is (= "boolean" (-> props :include-sensitive :type))
-            (str tname " :include-sensitive slot is not boolean-typed"))))))
+            (str tname " :include-sensitive slot is not boolean-typed")))))
+  ;; rf2-wu1o2d — pin the EXACT include-sensitive tool set against the
+  ;; registry so the spec's "three affected tools" prose (now corrected to
+  ;; six) and the descriptor strip can't silently drift apart. The set is
+  ;; precisely the descriptors that carry the slot — no more, no less.
+  (testing "the include-sensitive set is EXACTLY the descriptors carrying the slot (no drift)"
+    (let [carriers (->> registry/tool-registry
+                        (filter #(contains? (-> % :inputSchema :properties) :include-sensitive))
+                        (map :name)
+                        set)]
+      (is (= (set include-sensitive-tools) carriers)
+          "every descriptor carrying :include-sensitive must be in the pinned set, and vice versa")
+      (is (= 6 (count carriers))
+          "the affected set is six tools (spec/002 §sensitive-read gate) — not three"))))
+
+(def ^:private api-md
+  "The consolidated public-API page, read relative to the test JVM cwd
+  (`tools/story-mcp/`; see CI `working-directory`). Read once at ns-load
+  — if the path drifts `slurp` throws and the drift test errors loudly
+  rather than silently passing on an empty string."
+  (delay (slurp (io/file "spec" "API.md"))))
+
+(defn- api-section
+  "Return the `### \\`<tool-name>\\`` section body from API.md — the text
+  from that heading up to the next `### ` (or `## `) heading. Used by the
+  docs-drift guard so a per-tool assertion bites on the right slice."
+  [tool-name]
+  (let [doc     @api-md
+        heading (str "### `" tool-name "`")
+        start   (clojure.string/index-of doc heading)]
+    (when start
+      (let [after (subs doc (+ start (count heading)))
+            ;; The next `### ` or `## ` heading on its own line bounds the
+            ;; section; nil end ⇒ the section runs to EOF.
+            end   (->> [(clojure.string/index-of after "\n### ")
+                        (clojure.string/index-of after "\n## ")]
+                       (remove nil?)
+                       (apply min Long/MAX_VALUE))]
+        (if (= end Long/MAX_VALUE)
+          after
+          (subs after 0 end))))))
+
+(deftest api-md-tracks-include-sensitive-descriptor-set
+  ;; rf2-ovmc5e Finding #3 — the consolidated API page must list
+  ;; `:include-sensitive` for EVERY tool whose descriptor carries the
+  ;; slot, so the summary can't silently under-document the gated
+  ;; privacy escape hatch (the original drift: run-a11y's API.md input
+  ;; omitted it). Derives the expected set from the live registry, so a
+  ;; new value-surfacing tool that gains the slot must also gain the
+  ;; API.md mention or this trips.
+  (testing "API.md documents :include-sensitive for every descriptor that carries it"
+    (let [carriers (->> registry/tool-registry
+                        (filter #(contains? (-> % :inputSchema :properties) :include-sensitive))
+                        (map :name)
+                        sort)]
+      (doseq [tname carriers]
+        (let [section (api-section tname)]
+          (is (some? section)
+              (str "API.md is missing a `### `" tname "`` section"))
+          (is (and section (clojure.string/includes? section ":include-sensitive"))
+              (str "API.md §" tname " must document the gated :include-sensitive slot "
+                   "(descriptor carries it; the consolidated page must not under-document it)")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Sensitive-read boot gate (rf2-g9fje)
@@ -3044,8 +3161,10 @@
 ;; (`--allow-sensitive-reads`). When the gate is closed:
 ;;
 ;;   1. `tools/list` omits `:include-sensitive` from the input schemas of
-;;      preview-variant / run-variant / read-failures (caller UX — no
-;;      ghost knob).
+;;      every affected tool — the six that surface live/plan-resolved
+;;      VALUES (preview-variant / run-variant / read-failures / run-a11y /
+;;      explain-variant / record-as-variant), i.e. every descriptor that
+;;      carries the slot (caller UX — no ghost knob).
 ;;   2. `:include-sensitive true` on a tool call is silently ignored at
 ;;      the egress helpers (defence-in-depth — even a caller who learned
 ;;      about the slot some other way can't exfiltrate raw values).
@@ -3427,45 +3546,47 @@
           ":minimum stays at 0 — the no-block default is canonical"))))
 
 ;; ---------------------------------------------------------------------------
-;; run-variant :timeout-ms cap (rf2-g9fje fix 3/3)
+;; Lifecycle :timeout-ms cap (rf2-g9fje fix 3/3 / rf2-ovmc5e)
 ;;
 ;; The single-threaded stdio loop parks for the full `:timeout-ms` window
-;; — caller-supplied values clamp DOWN to `testing-tool/max-timeout-ms`
+;; — caller-supplied values clamp DOWN to `targs/max-timeout-ms`
 ;; (30 s, matches rf2-it1cd's `:rf.http/timeout-ms` baseline). A
 ;; legitimately-slow variant runs against the cap; a hostile caller can't
 ;; park the loop indefinitely.
+;;
+;; rf2-ovmc5e: `run-variant` AND `preview-variant` now share the same
+;; bounded ceiling + tunable knob (`targs/resolve-timeout-ms` +
+;; `s/with-timeout-ms`); both descriptors advertise `:timeout-ms` so the
+;; two lifecycle tools cannot drift in their blocking policy.
 ;; ---------------------------------------------------------------------------
 
-(deftest run-variant-timeout-ms-schema-advertises-ceiling
-  (testing "run-variant's :timeout-ms schema carries :maximum mirroring the runtime cap"
-    (let [t          (some #(when (= "run-variant" (:name %)) %) registry/tool-registry)
-          ts-schema  (-> t :inputSchema :properties :timeout-ms)]
-      (is (= testing-tool/max-timeout-ms (:maximum ts-schema))
-          "schema :maximum tracks the runtime cap so clients can pre-validate")
-      (is (= 1 (:minimum ts-schema))
-          ":minimum stays at 1 — a zero-timeout doesn't make sense on a blocking call"))))
+(deftest lifecycle-tools-timeout-ms-schema-advertises-ceiling
+  (testing "run-variant + preview-variant :timeout-ms schema carries :maximum mirroring the runtime cap"
+    (doseq [tool-name ["run-variant" "preview-variant"]]
+      (let [t          (some #(when (= tool-name (:name %)) %) registry/tool-registry)
+            ts-schema  (-> t :inputSchema :properties :timeout-ms)]
+        (is (some? ts-schema)
+            (str tool-name " advertises a :timeout-ms slot so an agent can tune the blocking ceiling"))
+        (is (= targs/max-timeout-ms (:maximum ts-schema))
+            (str tool-name " schema :maximum tracks the runtime cap so clients can pre-validate"))
+        (is (= 1 (:minimum ts-schema))
+            (str tool-name " :minimum stays at 1 — a zero-timeout doesn't make sense on a blocking call"))))))
 
-(deftest run-variant-timeout-ms-clamps-down-to-cap
-  ;; Pin the behavioural contract: the helper that computes the effective
-  ;; timeout MUST clamp values above the ceiling rather than reject. A
-  ;; legitimate slow variant still runs (against the cap), the loop never
-  ;; parks past 30 s.
-  (testing "values above the ceiling clamp down to max-timeout-ms"
-    (is (= testing-tool/max-timeout-ms
-           (min testing-tool/max-timeout-ms
-                ((requiring-resolve 're-frame.mcp-base.args/parse-positive-int)
-                 60000 testing-tool/default-timeout-ms)))
-        "60s caller-supplied → clamped to 30s")
-    (is (= 5000
-           (min testing-tool/max-timeout-ms
-                ((requiring-resolve 're-frame.mcp-base.args/parse-positive-int)
-                 5000 testing-tool/default-timeout-ms)))
+(deftest lifecycle-timeout-ms-resolves-and-clamps
+  ;; Pin the behavioural contract on the SHARED resolver both lifecycle
+  ;; tools call: it MUST clamp values above the ceiling rather than reject.
+  ;; A legitimate slow variant still runs (against the cap), the loop never
+  ;; parks past 30 s. Exercising `targs/resolve-timeout-ms` directly proves
+  ;; the advertised schema policy matches the runtime timeout policy.
+  (testing "the shared resolver clamps, rides-through, and defaults"
+    (is (= targs/max-timeout-ms (targs/resolve-timeout-ms {:timeout-ms 60000}))
+        "60s caller-supplied → clamped to 30s ceiling")
+    (is (= 5000 (targs/resolve-timeout-ms {:timeout-ms 5000}))
         "below-cap values ride through unchanged")
-    (is (= testing-tool/default-timeout-ms
-           (min testing-tool/max-timeout-ms
-                ((requiring-resolve 're-frame.mcp-base.args/parse-positive-int)
-                 nil testing-tool/default-timeout-ms)))
-        "absent :timeout-ms uses the default")))
+    (is (= targs/default-timeout-ms (targs/resolve-timeout-ms {}))
+        "absent :timeout-ms uses the default")
+    (is (= targs/default-timeout-ms (targs/resolve-timeout-ms {:timeout-ms "not-a-number"}))
+        "unparseable :timeout-ms falls back to the default")))
 
 ;; ---------------------------------------------------------------------------
 ;; Protocol-side frame-length cap (rf2-g9fje fix 3/3)
@@ -3801,7 +3922,7 @@
           "rf2-3luf3: a rejected over-deep body MUST NOT have interned its keys"))))
 
 (deftest normalize-frame-drops-unknown-arg-keys-but-keeps-known
-  (testing "normalize-frame keeps allowlisted arg keys (keyword) and drops the rest (rf2-3luf3)"
+  (testing "normalize-frame keeps allowlisted arg keys (keyword), drops + DIAGNOSES the rest (rf2-3luf3 / rf2-ovmc5e)"
     (let [probe   (str "rf2-3luf3-drop-" (System/nanoTime))
           parsed  (proto/parse-json
                    (str "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\","
@@ -3813,10 +3934,62 @@
       (is (= "story.button/primary" (:variant-id arg-map)) "known key keywordised + kept")
       (is (= "reagent" (:substrate arg-map)) "known key keywordised + kept")
       (is (= #{:variant-id :substrate} (set (keys arg-map)))
-          "ONLY the two allowlisted keys survive; the unknown key is dropped at both string + keyword form")
+          "ONLY the two allowlisted keys survive as ENTRIES; the unknown key is dropped at both string + keyword form")
       ;; NB: do not call `(keyword probe)` here — that would itself intern
-      ;; the probe and defeat the assertion below.
-      (is (nil? (find-keyword probe)) "and the unknown key never interned"))))
+      ;; the probe and defeat the no-intern assertion below.
+      (is (nil? (find-keyword probe)) "and the unknown key never interned")
+      ;; rf2-ovmc5e — the unknown key is no longer SILENTLY dropped: its
+      ;; RAW STRING form is recorded as metadata (not a map entry, so it
+      ;; never reaches a handler or interns) for the dispatcher to diagnose.
+      (is (= [probe] (get (meta arg-map) proto/unknown-arg-keys-meta))
+          "the dropped key's raw string is recorded as metadata for the diagnostic")
+      (is (nil? (find-keyword probe))
+          "recording the metadata STRING still interns nothing"))))
+
+(deftest invoke-tool-diagnoses-unknown-top-level-argument
+  ;; rf2-ovmc5e Finding #1 — a top-level argument typo (a non-schema-
+  ;; validating host or hand-rolled agent sending `:timeuot-ms` etc.) must
+  ;; surface an agent-recoverable `isError: true` result naming the unknown
+  ;; key, the tool, and the allowed key set — NOT a successful-looking call
+  ;; that silently defaulted. The server is the authoritative backstop for
+  ;; the advertised `additionalProperties false` contract.
+  (testing "an unknown top-level arg key surfaces an isError diagnostic before dispatch"
+    (let [probe   (str "rf2-ovmc5e-typo-" (System/nanoTime))
+          parsed  (proto/parse-json
+                   (str "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\","
+                        "\"params\":{\"name\":\"run-variant\","
+                        "\"arguments\":{\"variant-id\":\"story.button/primary\","
+                        "\"" probe "\":1}}}"))
+          norm    (proto/normalize-frame parsed)
+          arg-map (-> norm :params :arguments)
+          r       (wire-pipeline/invoke-tool "run-variant" arg-map)
+          s       (:structuredContent r)]
+      (is (error? r) "unknown top-level arg ⇒ isError result")
+      (is (= :rf.story-mcp/unknown-arguments (:rf.error s))
+          "the structured error carries the unknown-arguments id")
+      (is (= "run-variant" (:tool s)) "names the tool")
+      (is (= [probe] (:unknown s)) "echoes the RAW unknown key string")
+      (is (contains? (set (:allowed s)) "variant-id")
+          "lists the tool's allowed arg-key set so the agent can correct")
+      (is (contains? (set (:allowed s)) "timeout-ms")
+          "the allowed set is the tool's full advertised property set, not the global union")
+      (is (nil? (find-keyword probe))
+          "diagnosing the typo never interned the unknown key"))))
+
+(deftest invoke-tool-no-diagnostic-when-all-args-recognised
+  ;; The common path: every top-level key is allowlisted ⇒ no metadata,
+  ;; no diagnostic, the handler runs normally.
+  (testing "all-recognised args carry no unknown-arg metadata + dispatch normally"
+    (let [parsed  (proto/parse-json
+                   (str "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\","
+                        "\"params\":{\"name\":\"run-variant\","
+                        "\"arguments\":{\"variant-id\":\"story.button/primary\","
+                        "\"substrate\":\"reagent\"}}}"))
+          arg-map (-> (proto/normalize-frame parsed) :params :arguments)]
+      (is (nil? (get (meta arg-map) proto/unknown-arg-keys-meta))
+          "no dropped keys ⇒ no unknown-arg metadata")
+      (let [r (wire-pipeline/invoke-tool "run-variant" arg-map)]
+        (is (success? r) "an all-recognised call dispatches the handler normally")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cap accounting includes :structuredContent size (rf2-mzndx)

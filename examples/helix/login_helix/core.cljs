@@ -32,6 +32,24 @@
             [re-frame.adapter.helix :as helix-adapter]))
 
 ;; ============================================================================
+;; SUBSTRATE-AGNOSTIC ARTEFACT LAYER  (schemas + fx + machine + subs)
+;; ============================================================================
+;;
+;; Everything from here down to the SUBSTRATE BOUNDARY divider — schemas, the
+;; managed-HTTP stub fx, the `:auth.login/flow` state machine, and the named
+;; subs — is the artefact layer. It is byte-for-byte IDENTICAL across the
+;; Reagent, UIx, and Helix login examples: same `:auth.login/*` ids, same
+;; machine spec, same `:auth.login.demo/managed-stub`. That sameness is
+;; deliberate and load-bearing — the id-identity *is* the cross-substrate
+;; parity demonstration (examples/TESTING.md §Exception 2). It is NOT
+;; extracted into a shared namespace on purpose: each substrate example is a
+;; self-contained `:browser` build, and `npm run test:bundle-isolation` proves
+;; a Helix bundle carries no Reagent/UIx code (and vice versa). A shared model
+;; required into all three builds would defeat that isolation and the parity
+;; claim it underwrites. The boundary to learn here is the SUBSTRATE BOUNDARY
+;; below — one dataflow, three view layers — not a file-extraction boundary.
+
+;; ============================================================================
 ;; SCHEMAS
 ;; ============================================================================
 
@@ -159,9 +177,18 @@
                    (assoc :error (or (:message failure) "Login failed.")))})
 
       :lock-account
+      ;; Fire-and-forget telemetry beacon (Spec 014 §Reply addressing
+      ;; "Silenced"): the lockout POST wants no reply folded back into the
+      ;; machine. `:on-success nil` / `:on-failure nil` silence both reply
+      ;; branches explicitly — without them the omitted-target default
+      ;; (co-located addressing) would dispatch
+      ;; `[:auth.login/flow {:rf/reply ...}]`, a map in the sub-event slot
+      ;; that `AuthLoginEvent` rejects, stranding noise after lockout.
       (fn [_]
         {:fx [[:rf.http/managed
-               {:request {:method :post :url "/api/auth/lock"}}]]})
+               {:request    {:method :post :url "/api/auth/lock"}
+                :on-success nil
+                :on-failure nil}]]})
 
       :store-session
       (fn [{[_ {:keys [value]}] :event}]
@@ -227,6 +254,15 @@
 (rf/reg-sub :auth.login/error
   :<- [:rf/machine :auth.login/flow]
   (fn [snapshot _] (get-in snapshot [:data :error])))
+
+;; ============================================================================
+;; ──────────────────────────  SUBSTRATE BOUNDARY  ──────────────────────────
+;; ============================================================================
+;;
+;; Below this line is the only substrate-specific code in this example: the
+;; Helix views + the mount. The Reagent and UIx login examples share every
+;; line ABOVE this divider and differ only in what sits BELOW it (Reagent
+;; `reg-view`, UIx `defui` + `use-subscribe`, Helix `defnc` + `use-subscribe`).
 
 ;; ============================================================================
 ;; VIEWS  (Helix — defnc + use-subscribe)

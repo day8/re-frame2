@@ -376,17 +376,21 @@
 ;; operator who passes the flag at the command line is making the
 ;; more deliberate choice).
 
-(def ^:private flag->key
+(def flag->key
   "Map of CLI-flag prefix → config key. Single source of truth; both
-  the parser and the documentation reflect from this map."
+  the parser and the documentation reflect from this map. Public so
+  `server/launch-diagnostics` (rf2-a0kxsb) can recognise resource-control
+  flags as known when scanning argv for typos."
   {"--max-concurrent-streams"   :max-concurrent-streams
    "--max-events-per-sec"       :max-events-per-sec
    "--abuse-overflow-threshold" :abuse-overflow-threshold
    "--abuse-window-ms"          :abuse-window-ms})
 
-(def ^:private env->key
+(def env->key
   "Map of env-var name → config key. Symmetric with `flag->key` — same
-  four gates, different config surface."
+  four gates, different config surface. Public so
+  `server/resource-env-diagnostics` (rf2-a0kxsb) can name a set-but-invalid
+  env var at boot."
   {"RE_FRAME2_PAIR_MCP_MAX_STREAMS"              :max-concurrent-streams
    "RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC"       :max-events-per-sec
    "RE_FRAME2_PAIR_MCP_ABUSE_OVERFLOW_THRESHOLD" :abuse-overflow-threshold

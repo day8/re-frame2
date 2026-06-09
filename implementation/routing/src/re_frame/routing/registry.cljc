@@ -297,6 +297,87 @@
   the global `default-max-decoded-keys`."
   10000)
 
+(def ^:private coercible-scalar-type-forms
+  "The bare Malli scalar type keywords `coerce-by-type-form` knows how
+  to coerce a URL string into. `:keyword` is handled separately (it
+  rewrites to `:rf.route/keyword-unbounded`); `:string` is a deliberate
+  passthrough. Used to recognise the *optioned* form `[:int {…}]` as the
+  same coercion as the bare `:int` (rf2-fwz29i)."
+  #{:int :double :uuid :boolean})
+
+(defn- normalize-type-form
+  "Reduce a per-slot Malli type-form to the canonical coercion token
+  `coerce-by-type-form` understands. Pure; no interning. rf2-fwz29i.
+
+  Handled shapes:
+  - bare scalar `:int` / `:double` / `:uuid` / `:boolean` → itself.
+  - bare `:keyword` → `:rf.route/keyword-unbounded` (no enum allowlist;
+    stays a string at coerce time — the rf2-3k3o7 unbounded-intern guard).
+  - `[:enum :a :b …]` / `[:enum {…opts} :a :b …]` with all-keyword
+    choices → `[:rf.route/enum-keyword #{choice-names…}]` (rf2-3k3o7
+    bounded allowlist).
+  - **optioned scalar** `[:int {…}]` / `[:double {…}]` / `[:uuid {…}]` /
+    `[:boolean {…}]` → the bare scalar token; **optioned** `[:keyword {…}]`
+    → `:rf.route/keyword-unbounded`. Ordinary Malli properties on an
+    otherwise-supported scalar no longer silently disable URL-string
+    coercion (the rf2-fwz29i bug: `[:int {:min 1}]` validated `\"2\"`
+    against `[:int …]` and 404'd every valid deep link).
+  - **wrapper** `[:maybe inner]` → recurse on `inner` (optional-with-nil:
+    the present URL string still coerces to the inner type; an absent key
+    is simply absent). `[:maybe :int]`, `[:maybe [:int {…}]]` supported.
+
+  Any other form (a composite/unsupported schema, or a scalar this
+  vocabulary does not coerce — `:string`, a `[:and …]`, a ref) returns
+  the `raw` form **unchanged**: it stays in the coercion table (so a
+  declared query key is still promoted to a keyword key — the
+  `coerce-query` `declared-names` contract, rf2-5ifai) but
+  `coerce-by-type-form` passes its value through verbatim, and the route's
+  Malli `:params`/`:query` validation has the final say on the type."
+  [raw]
+  (cond
+    (= :keyword raw)
+    :rf.route/keyword-unbounded
+
+    (contains? coercible-scalar-type-forms raw)
+    raw
+
+    (vector? raw)
+    (let [head (first raw)]
+      (cond
+        ;; rf2-3k3o7: `[:enum kw kw …]` bounded keyword allowlist. Skip
+        ;; the optional opts-map at position 1 (Malli `[:enum {…} :a :b]`).
+        (= :enum head)
+        (let [tail  (rest raw)
+              items (if (and (seq tail) (map? (first tail)))
+                      (rest tail)
+                      tail)]
+          (if (and (seq items) (every? keyword? items))
+            [:rf.route/enum-keyword (into #{} (map name) items)]
+            ;; A non-keyword `[:enum …]` (string/number choices) is not a
+            ;; keyword allowlist — leave it as a value passthrough.
+            raw))
+
+        ;; rf2-fwz29i: optioned scalar `[:int {…}]` etc. The Malli
+        ;; properties map (or its absence) does not change the coercion —
+        ;; the head type drives it. `[:keyword {…}]` stays unbounded.
+        (= :keyword head)
+        :rf.route/keyword-unbounded
+
+        (contains? coercible-scalar-type-forms head)
+        head
+
+        ;; rf2-fwz29i: `[:maybe inner]` — coerce the present value against
+        ;; the inner type; nil/absent needs no coercion. Unwrap, then keep
+        ;; the slot in the table either way (an unsupported inner falls to
+        ;; the raw-passthrough below).
+        (= :maybe head)
+        (let [inner (normalize-type-form (second raw))]
+          (if (some? inner) inner raw))
+
+        :else raw))
+
+    :else raw))
+
 (defn- compile-schema-coercions
   "Flatten a `[:map [k type-or-opts] ...]` Malli vector schema into a
   `{k type-form}` map for O(1) per-key lookup during URL coercion.
@@ -308,12 +389,13 @@
   key. Schema-agnostic: the same `[:map ...]` shape drives both the query
   side and the path side.
 
-  Per rf2-3k3o7: when the slot's type-form is a bare `[:enum ...]` with
-  all-keyword choices, the type-form is rewritten as `[:rf.route/enum-keyword #{choice-names...}]`
-  — an allowlist of permitted string-→keyword conversions. A bare
-  `:keyword` type-form (no enum allowlist) is rewritten as
-  `:rf.route/keyword-unbounded` so the coercer can flag it as a
-  string-passthrough rather than an unbounded intern site."
+  Each slot's type-form is reduced to a canonical coercion token by
+  `normalize-type-form` (rf2-fwz29i): bare scalars, **optioned** scalars
+  (`[:int {…}]`), `[:enum …]` keyword allowlists (rf2-3k3o7), bare/optioned
+  `:keyword` (→ `:rf.route/keyword-unbounded`), and `[:maybe inner]`
+  wrappers all map to the right coercion; an unsupported form stays in the
+  table verbatim so its slot remains a declared key (string-passthrough at
+  coerce time, with the Malli validator having the final say)."
   [schema]
   (when (and schema (vector? schema))
     (persistent!
@@ -325,22 +407,7 @@
                               (= 2 (count slot-entry)) (second slot-entry)
                               (= 3 (count slot-entry)) (last slot-entry)
                               :else                    nil)
-                  ;; rf2-3k3o7: detect `[:enum kw kw ...]` as a bounded
-                  ;; keyword allowlist. Skip the optional opts-map at
-                  ;; position 1 when present (Malli convention:
-                  ;; `[:enum {...opts} :a :b]`).
-                  enum-set  (when (and (vector? raw) (= :enum (first raw)))
-                              (let [tail (rest raw)
-                                    ;; Strip leading opts-map if present.
-                                    items (if (and (seq tail) (map? (first tail)))
-                                            (rest tail)
-                                            tail)]
-                                (when (and (seq items) (every? keyword? items))
-                                  (into #{} (map name) items))))
-                  type-form (cond
-                              enum-set        [:rf.route/enum-keyword enum-set]
-                              (= :keyword raw) :rf.route/keyword-unbounded
-                              :else           raw)]
+                  type-form (normalize-type-form raw)]
               (assoc! acc k type-form))
             acc))
         (transient {})

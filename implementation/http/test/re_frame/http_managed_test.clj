@@ -62,7 +62,8 @@
   ((requiring-resolve 're-frame.machines/reset-timers!))
   (http-managed/clear-all-in-flight!)
   ;; rf2-r5m22 — the per-frame HTTP interceptor chain lives in a separate
-  ;; atom (`@http-managed/interceptors`), NOT the registrar `clear-all!`
+  ;; registry (internal to `re-frame.http-middleware`; observe via
+  ;; `http-managed/interceptors-snapshot`), NOT the registrar `clear-all!`
   ;; wipes above. Tests that register `:before` / `:after` interceptors
   ;; (the canned-path `:after` coverage) must clear it between tests, or
   ;; a leaked `:after` mutates every subsequent test's reply payload.
@@ -1237,6 +1238,86 @@
           (re-frame.http-test-support/uninstall-managed-request-stubs!)
           (late-bind/set-fn! :router/dispatch! original))))))
 
+;; ---- 11a-vn8qjv. scoped stubs compose under nesting -----------------------
+;;
+;; rf2-vn8qjv (issue 2) — `with-managed-request-stubs*` must be stack-safe
+;; for nested lexical scopes. Pre-fix every scope keyed off ONE global stub
+;; fx id (`:rf.http/managed-test-stub`): the inner scope's install replaced
+;; the outer handler and the inner's `finally` CLEARED it, so an outer-scope
+;; dispatch after the inner exit routed to a now-absent fx. The fix mints a
+;; UNIQUE fx id per scope and binds the override to that id, so the outer
+;; scope's fx + override survive a fully-nested inner scope.
+
+(deftest scoped-stubs-compose-under-nesting-rf2-vn8qjv
+  (testing "rf2-vn8qjv — an outer A stub wraps an inner B stub; after the
+            inner B scope exits, a later outer-scope request still routes to
+            the A stub (pre-fix the inner's teardown cleared the shared fx and
+            the outer dispatch hit a missing fx / wrong handler)"
+    ;; Distinct event + route per call site so each scope keys off its own url.
+    (rf/reg-event-fx :vn8qjv/load-a
+      (fn [{:keys [db]} [_ msg]]
+        (if-let [reply (:rf/reply msg)]
+          {:db (assoc db :result-a reply)}
+          {:fx [[:rf.http/managed {:request {:method :get :url "/a"} :decode :json}]]})))
+    (rf/reg-event-fx :vn8qjv/load-b
+      (fn [{:keys [db]} [_ msg]]
+        (if-let [reply (:rf/reply msg)]
+          {:db (assoc db :result-b reply)}
+          {:fx [[:rf.http/managed {:request {:method :get :url "/b"} :decode :json}]]})))
+    (rf/with-managed-request-stubs
+      {[:get "/a"] {:reply {:ok {:from :outer-a}}}}
+      ;; Inner scope B — distinct route + reply. Its install + teardown must
+      ;; not disturb the outer A scope.
+      (rf/with-managed-request-stubs
+        {[:get "/b"] {:reply {:ok {:from :inner-b}}}}
+        (rf/dispatch-sync [:vn8qjv/load-b])
+        (let [db (await-reply! #(some? (:result-b %)) 2000)]
+          (is (= {:from :inner-b} (get-in db [:result-b :value]))
+              "inner B scope routed to the B stub")))
+      ;; Inner scope has exited. The outer A scope's stub MUST still be live.
+      (rf/dispatch-sync [:vn8qjv/load-a])
+      (let [db (await-reply! #(some? (:result-a %)) 2000)]
+        (is (= :success (get-in db [:result-a :kind]))
+            "outer A scope still synthesised a reply after the inner B exit")
+        (is (= {:from :outer-a} (get-in db [:result-a :value]))
+            "outer A scope still routed to the A stub — not cleared by inner B teardown")))))
+
+;; ---- 11a-vn8qjv (lower-level). install/uninstall stack + no fx leak --------
+;;
+;; rf2-vn8qjv (issue 2) — the lower-level install/uninstall surface keeps the
+;; STABLE documented id (`:rf.http/managed-test-stub`, the `:fx-overrides`
+;; target users hardcode), but install snapshots the prior handler and
+;; uninstall restores it, so a nested install/uninstall pair leaves the outer
+;; install intact; a balanced top-level pair leaks no fx.
+
+(deftest lower-level-install-uninstall-stack-discipline-rf2-vn8qjv
+  (testing "rf2-vn8qjv — nested install/uninstall on the stable id restores the
+            outer handler; balanced top-level pair leaks no test fx"
+    (let [stub-id :rf.http/managed-test-stub]
+      (is (nil? (registrar/handler :fx stub-id))
+          "no stub fx registered before install")
+      (re-frame.http-test-support/install-managed-request-stubs!
+        {[:get "/outer"] {:reply {:ok {:from :outer}}}})
+      (let [outer-handler (registrar/handler :fx stub-id)]
+        (is (some? outer-handler) "outer install registered the stub fx")
+        ;; Nested install replaces the handler in place.
+        (re-frame.http-test-support/install-managed-request-stubs!
+          {[:get "/inner"] {:reply {:ok {:from :inner}}}})
+        (is (not (identical? outer-handler (registrar/handler :fx stub-id)))
+            "inner install replaced the handler")
+        ;; Inner uninstall RESTORES the outer handler (stack discipline).
+        (re-frame.http-test-support/uninstall-managed-request-stubs!)
+        (is (identical? outer-handler (registrar/handler :fx stub-id))
+            "inner uninstall restored the outer install's handler")
+        ;; Outer uninstall clears (no prior on the stack).
+        (re-frame.http-test-support/uninstall-managed-request-stubs!)
+        (is (nil? (registrar/handler :fx stub-id))
+            "balanced top-level install/uninstall leaves no leaked test fx")
+        ;; Idempotent: an extra uninstall is a safe no-op.
+        (re-frame.http-test-support/uninstall-managed-request-stubs!)
+        (is (nil? (registrar/handler :fx stub-id))
+            "extra uninstall is an idempotent no-op")))))
+
 ;; ---- 11b. canned-stub fxs gated on explicit test-support require (rf2-cdmle)
 ;;
 ;; Per rf2-cdmle (follow-up to rf2-zk08x): the gate that decides whether
@@ -2082,3 +2163,116 @@
           (is (= 42 (get-in db [:reply :value]))
               "a well-formed {:ok v} still projects the success value"))
         (finally (stop-server! srv))))))
+
+;; ---- rf2-xmp74u — stub/canned request-chain failure honours TOP-LEVEL
+;;      :sensitive? -------------------------------------------------------------
+;;
+;; Production `managed-handler` seeds the effective top-level `:sensitive?`
+;; into the request middleware ctx (via `privacy/request-sensitive?`), so when
+;; a `:before` throws, the `:rf.error/http-interceptor-failed` trace redacts
+;; ALL query values + stamps `:sensitive?`. The canned/stub wrapper's
+;; `run-request-chain` built `ctx0` WITHOUT that top-level flag, so a request
+;; that opted in via the TOP-LEVEL `:sensitive? true` form (not the nested
+;; `[:request :sensitive?]`) ran the stub `:before` chain non-sensitive and
+;; leaked non-denylisted query values through the failure trace — a stub-path
+;; secret leak + a test false-green relative to production.
+;;
+;; We key the proof on a NON-denylisted query param (`customer_email`): only
+;; effective top-level sensitivity can scrub it. The chain's own `:sensitive-of`
+;; reducer (rf2-rznrz) still recomputes from a `:before`-MARKED request, so this
+;; seed is the pre-chain floor — exactly what production seeds.
+;;
+;; A `:before` throw inside `dispatch-sync`'s fx phase is swallowed into the
+;; error sink, so (mirroring `stub-url-erasing-before-throws-rf2-azrcs`) we
+;; drive the stub fx directly, with the trace listener capturing the emitted
+;; failure event.
+
+(deftest stub-request-chain-failure-honours-top-level-sensitive-rf2-xmp74u
+  (testing "rf2-xmp74u — a route-map stub with TOP-LEVEL :sensitive? true and a
+            throwing :before emits :rf.error/http-interceptor-failed redacting
+            the NON-denylisted query value AND stamping :sensitive? — matching
+            production, not the prior stub-path leak"
+    (let [traces      (atom [])
+          listener-id (gensym "xmp74u-stub-sensitive-")
+          recorded    (atom [])
+          original    (late-bind/get-fn :router/dispatch!)]
+      (late-bind/set-fn! :router/dispatch!
+                         (fn [ev opts] (swap! recorded conj [ev opts])))
+      (try
+        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        ;; A :before that throws AFTER the chain starts.
+        (rf/reg-http-interceptor :xmp74u/boom
+          {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
+        (re-frame.http-test-support/install-managed-request-stubs!
+          {[:get "https://api.example.invalid/v1"] {:reply {:ok {:stubbed true}}}})
+        (let [stub-fx (registrar/handler :fx :rf.http/managed-test-stub)
+              ;; TOP-LEVEL :sensitive? true (NOT [:request :sensitive?]).
+              ;; customer_email is NOT in the query-param denylist, so it
+              ;; only redacts when the request is effectively sensitive.
+              ex      (try
+                        (stub-fx {:frame :rf/default :event [:xmp74u/load]}
+                                 {:request    {:method :get
+                                               :url    "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"}
+                                  :sensitive? true})
+                        nil
+                        (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? ex) "the throwing :before propagated out of the stub chain")
+          (is (= ":rf.error/http-interceptor-failed" (.getMessage ex))
+              "the throw is the canonical interceptor-failed classification")
+          (is (empty? @recorded)
+              "NO synthetic reply was dispatched — the failed chain rejects the request"))
+        (let [w    (first (filter #(= :rf.error/http-interceptor-failed (:operation %)) @traces))
+              tags (:tags w)]
+          (is (some? w) "the interceptor-failed trace event was emitted")
+          ;; A sensitive request scrubs ALL query values (broader than the
+          ;; denylist). The load-bearing signal is customer_email — which the
+          ;; denylist alone leaves verbatim — being redacted: that can only
+          ;; happen if the stub chain seeded the TOP-LEVEL :sensitive? flag.
+          (is (= "https://api.example.invalid/v1?customer_email=:rf/redacted&page=:rf/redacted"
+                 (:url tags))
+              "the NON-denylisted query value is redacted — proving the stub
+               run-request-chain seeded top-level :sensitive? like production")
+          (is (true? (:sensitive? w))
+              ":sensitive? stamped on the stub-path failure trace, matching production"))
+        (finally
+          (re-frame.http-test-support/uninstall-managed-request-stubs!)
+          (trace/unregister-listener! listener-id)
+          (late-bind/set-fn! :router/dispatch! original))))))
+
+(deftest stub-request-chain-failure-non-sensitive-leaves-query-value-rf2-xmp74u
+  (testing "rf2-xmp74u (complement) — WITHOUT :sensitive?, the same throwing
+            :before leaves the NON-denylisted query value verbatim and does NOT
+            stamp :sensitive? (the seed is gated on actual sensitivity, not a
+            blanket scrub)"
+    (let [traces      (atom [])
+          listener-id (gensym "xmp74u-stub-nonsensitive-")
+          recorded    (atom [])
+          original    (late-bind/get-fn :router/dispatch!)]
+      (late-bind/set-fn! :router/dispatch!
+                         (fn [ev opts] (swap! recorded conj [ev opts])))
+      (try
+        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf/reg-http-interceptor :xmp74u/boom2
+          {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
+        (re-frame.http-test-support/install-managed-request-stubs!
+          {[:get "https://api.example.invalid/v1"] {:reply {:ok {:stubbed true}}}})
+        (let [stub-fx (registrar/handler :fx :rf.http/managed-test-stub)
+              _ex     (try
+                        (stub-fx {:frame :rf/default :event [:xmp74u/load2]}
+                                 {:request {:method :get
+                                            :url    "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"}})
+                        nil
+                        (catch clojure.lang.ExceptionInfo e e))]
+          (is (empty? @recorded) "NO synthetic reply was dispatched"))
+        (let [w    (first (filter #(= :rf.error/http-interceptor-failed (:operation %)) @traces))
+              tags (:tags w)]
+          (is (some? w) "the interceptor-failed trace event was emitted")
+          (is (= "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"
+                 (:url tags))
+              "non-sensitive: the non-denylisted query value rides through verbatim")
+          (is (not (true? (:sensitive? w)))
+              ":sensitive? not stamped for a non-sensitive request"))
+        (finally
+          (re-frame.http-test-support/uninstall-managed-request-stubs!)
+          (trace/unregister-listener! listener-id)
+          (late-bind/set-fn! :router/dispatch! original))))))

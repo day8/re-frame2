@@ -120,6 +120,24 @@ else
       .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/report-changed-surfaces.sh|TESTING.md)
         mark_all
         ;;
+      spec/api-manifest-metadata.edn|spec/api-manifest.edn|spec/API.md)
+        # rf2-4ka7c2.1 — false-green fix. The CLJS-only adapter / Xray /
+        # pair-MCP public surfaces cannot be `require`d on the JVM, so their
+        # rows live in the sidecar (spec/api-manifest-metadata.edn) under
+        # :cljs-only and the JVM generator carries them through VERBATIM into
+        # spec/api-manifest.edn. The ONLY live runtime verifier for those rows
+        # is the CLJS enumeration probe
+        # (implementation/scripts/api-manifest/probe/, wired into the
+        # consolidated :node-test build), which runs only when
+        # cljs_node_test=true. A PR editing the sidecar / generated manifest /
+        # API.md without touching implementation/, tools/, or shadow-cljs.edn
+        # previously left cljs_node_test=false — so a stale/missing CLJS-only
+        # row could ship with green CI (lint.yml runs only the JVM generator +
+        # projection checks, not the CLJS probe). Fire cljs_node_test so the
+        # probe reconciles the :cljs-only rows against the live CLJS public
+        # vars on any sidecar/generated-manifest/API.md change.
+        cljs_node_test=true
+        ;;
       implementation/core/*)
         # rf2-8jz9t + rf2-k9ekz + rf2-t5slp — adapter_testbed_smokes
         # and story_xray_browser are NOT fired here. The Playwright
@@ -297,6 +315,27 @@ else
         cljs_prod=true
         bundle_isolation=true
         reagent_slim_bundle=true
+        # rf2-6yuzo4 — template npm-pin lockstep. The template's hooks.clj
+        # pins :shadow-version + :react-version, and version_lockstep_test
+        # asserts those emitted pins match implementation/package.json's
+        # react / react-dom / shadow-cljs entries (the source of truth).
+        # The emitted-app smoke (emitted_test_run_test, the ONLY PR-time
+        # gate that compiles + runs the generated project) symlinks
+        # implementation/node_modules — populated from
+        # implementation/package-lock.json — into the scaffold so React
+        # resolves. So a PR that bumps those package.json pins, or the
+        # lockfile the smoke links against, must run jvm-tools-template:
+        # otherwise the template keeps emitting a stale pin (or links a
+        # drifted node_modules) and merges GREEN while breaking the
+        # lockstep contract + the advertised smoke-tested combination.
+        # Scoped to package.json + the lockfile; shadow-cljs.edn and
+        # implementation/scripts/* don't carry the emitted npm pins, so
+        # they stay off template_expensive (the nightly full matrix
+        # covers any build-config drift they can introduce).
+        case "$file" in
+          implementation/package.json|implementation/package-lock.json)
+            template_expensive=true ;;
+        esac
         ;;
       examples/*)
         # rf2-bxdk8 + rf2-cjp0i + rf2-8cevm — examples/** is test-free.
@@ -421,6 +460,11 @@ else
         mcp_live=true
         ;;
       skills/re-frame2-pair/*|skills/shared/*)
+        skills_structural=true
+        ;;
+      skills/re-frame2-setup/*)
+        # rf2-agi57x — the re-frame2-setup skill carries a structural drift
+        # guard (tests/setup_drift_test.clj) gated under skills-structural.
         skills_structural=true
         ;;
       docs/tools/playground/*|docs/cljs/playground.js|docs/cljs/playground.css|docs/cljs/playground-rf2.js)

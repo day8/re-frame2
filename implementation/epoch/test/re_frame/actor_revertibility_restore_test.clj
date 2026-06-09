@@ -196,3 +196,158 @@
           (is (some? ev) ":rf.epoch/restore-missing-handler fired")
           (is (some #(= :rev/child#1 (:id %)) (:missing (:tags ev)))
               "the unresolvable spawned actor surfaces in :missing"))))))
+
+;; ---- rf2-rlt3sv — SPAWNED-actor snapshot VERSION drift --------------------
+;;
+;; The epoch restore version-drift probe (`machine-version-mismatch`) compared
+;; the snapshot KEY against the machine registrar for every snapshot. For a
+;; SPAWNED actor the key is an instance id (`:rev/child#1`) with NO per-instance
+;; registration — the actor's TYPE rides the snapshot under `:rf/machine-type`.
+;; So a hot-reloaded spawned-actor TYPE's `:rf/snapshot-version` bump was NEVER
+;; observed: an older, incompatible snapshot was accepted by `restore-epoch`
+;; reporting success. The fix resolves the current definition the same way
+;; dispatch does — singleton by key, spawned actor by `:rf/machine-type` —
+;; so the drift fires `:rf.epoch/restore-version-mismatch` (false, frame-state
+;; unchanged, documented trace with both the instance id and the TYPE).
+
+(defn- versioned-child [v]
+  {:initial :live
+   :meta    {:rf/snapshot-version v}
+   :data    {:n 0}
+   :actions {:bump (fn [{data :data}] {:data (update data :n inc)})}
+   :states  {:live {:on {:bump {:action :bump}}}}})
+
+(defn- spawning-parent
+  "A parent that spawns a child of `child-type` (a registered :machine-id
+  keyword OR an inline :definition spec map) under id-prefix :rev/child."
+  [child-type]
+  {:initial :idle
+   :data    {}
+   :states  {:idle {:on {:go {:action (fn [_]
+                                        {:fx [[:rf.machine/spawn
+                                               (cond-> {:id-prefix :rev/child}
+                                                 (keyword? child-type) (assoc :machine-id child-type)
+                                                 (map? child-type)     (assoc :definition child-type))]]})}}}}})
+
+(deftest restore-spawned-actor-version-match-succeeds
+  (testing "rf2-rlt3sv — a registered-TYPE spawned actor whose TYPE version is
+            UNCHANGED restores cleanly (no false version-mismatch)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-machine :rev/child  (versioned-child 1))
+    (rf/reg-machine :rev/parent (spawning-parent :rev/child))
+    (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
+    (let [alive-epoch (last-epoch-id)]
+      (is (= :rev/child (:rf/machine-type (snapshot :rev/child#1)))
+          "spawned actor's snapshot carries its registered TYPE keyword")
+      (is (= 1 (get-in (snapshot :rev/child#1) [:meta :rf/snapshot-version])))
+      (let [ok? (rf/restore-epoch :test/main alive-epoch)]
+        (is (true? ok?) "version matches → restore succeeds")
+        (is (some? (snapshot :rev/child#1)) "actor snapshot restored")))))
+
+(deftest restore-spawned-actor-version-mismatch-registered-type-fails
+  (testing "rf2-rlt3sv — a registered-TYPE spawned actor whose TYPE was
+            hot-reloaded forward fires :rf.epoch/restore-version-mismatch,
+            returns false, leaves frame-state unchanged, and surfaces BOTH the
+            instance id and the TYPE in the trace"
+    (rf/reg-frame :test/main {})
+    (rf/reg-machine :rev/child  (versioned-child 1))
+    (rf/reg-machine :rev/parent (spawning-parent :rev/child))
+    (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
+    (let [alive-epoch (last-epoch-id)]
+      (is (some? (snapshot :rev/child#1)))
+      ;; Hot-reload bumps the TYPE's version — the recorded snapshot stays v1.
+      (rf/reg-machine :rev/child (versioned-child 2))
+      (let [errs (record-trace!)
+            pre  (rf/app-db-value :test/main)
+            ok?  (rf/restore-epoch :test/main alive-epoch)]
+        (rf/unregister-listener! ::rec)
+        (is (false? ok?) "restore refused — spawned-actor TYPE version drifted")
+        (is (= pre (rf/app-db-value :test/main)) "frame-state unchanged on refusal")
+        (let [ev (some #(when (= :rf.epoch/restore-version-mismatch (:operation %)) %) @errs)]
+          (is (some? ev) ":rf.epoch/restore-version-mismatch fired")
+          (is (= :rev/child#1 (:machine-id (:tags ev)))
+              "the trace identifies the spawned actor's INSTANCE id")
+          (is (= :rev/child (:machine-type (:tags ev)))
+              "the trace identifies the spawned actor's registered TYPE")
+          (is (= 1 (:version-recorded (:tags ev))))
+          (is (= 2 (:version-current  (:tags ev)))))))))
+
+(deftest restore-spawned-actor-inline-definition-version-match-succeeds
+  (testing "rf2-rlt3sv — an inline-:definition spawned actor whose snapshot
+            carries the spec map verbatim restores cleanly when its recorded
+            version equals the carried definition's version (the snapshot IS
+            the source of truth — no drift possible against itself)"
+    (rf/reg-frame :test/main {})
+    ;; No reg-machine for the child — the parent spawns an INLINE definition.
+    (rf/reg-machine :rev/parent (spawning-parent (versioned-child 1)))
+    (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
+    (let [alive-epoch (last-epoch-id)
+          snap        (snapshot :rev/child#1)]
+      (is (map? (:rf/machine-type snap))
+          "inline-definition spawn carries the spec MAP on the snapshot")
+      (is (= 1 (get-in snap [:meta :rf/snapshot-version])))
+      (let [ok? (rf/restore-epoch :test/main alive-epoch)]
+        (is (true? ok?)
+            "inline definition's version == recorded → restore succeeds")
+        (is (some? (snapshot :rev/child#1)))))))
+
+(deftest restore-spawned-actor-inline-definition-version-mismatch-fails
+  (testing "rf2-rlt3sv — an inline-:definition spawned actor whose CARRIED
+            definition declares a higher version than the recorded snapshot's
+            fires :rf.epoch/restore-version-mismatch (the inline map IS the
+            current definition resolved via :rf/machine-type)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-machine :rev/parent (spawning-parent (versioned-child 1)))
+    (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
+    (let [alive-epoch (last-epoch-id)]
+      ;; Forge version drift WITHIN the snapshot: the recorded snapshot's :meta
+      ;; version (the restore target) is older than the carried inline
+      ;; definition's :rf/machine-type :meta version (the "current" def). This
+      ;; mirrors a hot-reload where an inline-spawned actor's definition moved
+      ;; forward while an older recorded snapshot is being restored.
+      (rf/reg-event-fx :forge-drift
+        (fn [{rt :rf.db/runtime} _]
+          (let [snap (get-in rt [:rf.runtime/machines :snapshots :rev/child#1])
+                bumped (-> snap
+                           ;; carried current definition moves to v2 ...
+                           (assoc-in [:rf/machine-type :meta :rf/snapshot-version] 2)
+                           ;; ... while the recorded snapshot version stays v1
+                           (assoc-in [:meta :rf/snapshot-version] 1))]
+            {:rf.db/runtime
+             (assoc-in rt [:rf.runtime/machines :snapshots :rev/child#1] bumped)})))
+      (rf/dispatch-sync [:forge-drift] {:frame :test/main})
+      (let [drift-epoch (last-epoch-id)
+            errs        (record-trace!)
+            pre         (rf/app-db-value :test/main)
+            ok?         (rf/restore-epoch :test/main drift-epoch)]
+        (rf/unregister-listener! ::rec)
+        (is (false? ok?) "inline-definition version drift refuses restore")
+        (is (= pre (rf/app-db-value :test/main)) "frame-state unchanged on refusal")
+        (let [ev (some #(when (= :rf.epoch/restore-version-mismatch (:operation %)) %) @errs)]
+          (is (some? ev) ":rf.epoch/restore-version-mismatch fired")
+          (is (= :rev/child#1 (:machine-id (:tags ev))))
+          (is (map? (:machine-type (:tags ev)))
+              "the trace carries the inline-definition map as the TYPE")
+          (is (= 1 (:version-recorded (:tags ev))))
+          (is (= 2 (:version-current  (:tags ev)))))))))
+
+(deftest restore-spawned-actor-missing-type-not-version-mismatch
+  (testing "rf2-rlt3sv — a spawned actor whose registered TYPE was CLEARED is a
+            MISSING reference (caught upstream by missing-references), NOT a
+            version mismatch — the version probe never resolves a definition,
+            so it does not fire :rf.epoch/restore-version-mismatch"
+    (rf/reg-frame :test/main {})
+    (rf/reg-machine :rev/child  (versioned-child 1))
+    (rf/reg-machine :rev/parent (spawning-parent :rev/child))
+    (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
+    (let [alive-epoch (last-epoch-id)]
+      (is (some? (snapshot :rev/child#1)))
+      (registrar/unregister! :event :rev/child)   ;; clear the TYPE
+      (let [errs (record-trace!)
+            ok?  (rf/restore-epoch :test/main alive-epoch)]
+        (rf/unregister-listener! ::rec)
+        (is (false? ok?) "restore refused")
+        (is (some #(= :rf.epoch/restore-missing-handler (:operation %)) @errs)
+            "a cleared TYPE is a MISSING handler, not a version mismatch")
+        (is (not-any? #(= :rf.epoch/restore-version-mismatch (:operation %)) @errs)
+            "no version-mismatch trace fires when no definition resolves")))))

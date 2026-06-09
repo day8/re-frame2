@@ -94,19 +94,26 @@
   `MutationObserver`."
   (:require [cljs.reader :as reader]
             [re-frame.frame :as frame]
+            [re-frame.ssr.constants :as constants]
+            [re-frame.ssr.streaming.constants :as wire]
             [re-frame.trace :as trace]))
 
 ;; ---- wire-shape constants (the attribute names the server stamps) ---------
 ;;
-;; Pinned here once so a rename of the server emitter's attribute names
-;; is a one-edit-each-side change. These MUST match
-;; `re-frame.ssr.streaming/{suspense-template,hydrate-delta-script}`.
+;; The server↔client streaming wire attribute names live in
+;; `re-frame.ssr.streaming.constants` so a rename is a one-edit change
+;; there, not a grep-driven sweep across server, client, and tests
+;; (rf2-3w6dmy finding 2). These MUST match the attributes
+;; `re-frame.ssr.streaming/{suspense-template,hydrate-delta-script}` stamp —
+;; they read from the SAME `wire` ns, so the agreement is enforced by the
+;; shared source rather than a comment. Aliased here so the call sites read
+;; the same as before.
 
-(def ^:private attr-suspense-id        "data-rf2-suspense-id")
-(def ^:private attr-suspense-fallback  "data-rf2-suspense-fallback")
-(def ^:private attr-suspense-resolved  "data-rf2-suspense-resolved")
-(def ^:private attr-suspense-failed    "data-rf2-suspense-failed")
-(def ^:private attr-suspense-hydrate   "data-rf2-suspense-hydrate")
+(def ^:private attr-suspense-id        wire/attr-suspense-id)
+(def ^:private attr-suspense-fallback  wire/attr-suspense-fallback)
+(def ^:private attr-suspense-resolved  wire/attr-suspense-resolved)
+(def ^:private attr-suspense-failed    wire/attr-suspense-failed)
+(def ^:private attr-suspense-hydrate   wire/attr-suspense-hydrate)
 
 ;; The client-owned LIVE mount element. The server emits the fallback
 ;; wrapped in a `<template>`, whose content is INERT by the HTML spec
@@ -117,9 +124,11 @@
 ;; target the resolved chunk replaces in-place. This is the canonical
 ;; streaming-hydration shape (visible fallback + a stable mount the
 ;; resolved subtree swaps into) — the same model React 18 / Solid use,
-;; expressed over the server's `<template>`-marker protocol.
-(def ^:private attr-suspense-mount     "data-rf2-suspense-mount")
-(def ^:private mount-tag               "rf-suspense")
+;; expressed over the server's `<template>`-marker protocol. Client-owned
+;; but pinned in the shared `wire` ns alongside the server-emitted
+;; attributes (rf2-3w6dmy finding 2).
+(def ^:private attr-suspense-mount     wire/attr-suspense-mount)
+(def ^:private mount-tag               wire/mount-tag)
 
 ;; ---- id parsing ------------------------------------------------------------
 
@@ -229,35 +238,83 @@
 
 ;; ---- chunk processing ------------------------------------------------------
 
+(defn- malformed-delta!
+  "Emit the `:rf.ssr/suspense-boundary-failed` / `:skipped-delta` trace for
+  a delta `<script>` whose body did not yield a usable delta-map — EITHER a
+  reader exception (unparseable EDN) OR a parseable-but-non-map value (a
+  vector, number, string, …). Factored out so both fail-CLOSED branches emit
+  the SAME catalogued event (Spec 009 §Error event catalogue —
+  `:rf.ssr/suspense-boundary-failed`, `:recovery :skipped-delta`). `extra` is
+  merged in to carry the branch-specific field (`:exception` for the reader
+  throw, `:malformed-value-type` for a non-map parse)."
+  [frame-id id-str reason extra]
+  (trace/emit-error! :rf.ssr/suspense-boundary-failed
+                     (merge {:id       (read-boundary-id id-str)
+                             :frame    frame-id
+                             :where    'rf.ssr/streaming-client
+                             :reason   reason
+                             :recovery :skipped-delta}
+                            extra)))
+
+(defn- read-delta
+  "Parse a delta `<script>`'s bare delta-map EDN body, failing CLOSED on any
+  shape that is NOT a usable delta-map. Returns the parsed map when the body
+  is a (possibly empty) map, else nil — and emits the malformed-delta trace
+  for the two fail-OPEN classes a silent drop would otherwise hide:
+
+    - a reader EXCEPTION (the body is not parseable EDN), and
+    - a PARSEABLE-but-non-map value (`[…]`, `42`, `\"x\"`, `:k`) — a
+      server/client wire-shape regression that `read-string` accepts but
+      which `merge-delta!`'s `(map? delta)` guard would silently no-op,
+      swapping the resolved HTML + removing the script while leaving app-db
+      stale and emitting NO diagnostic (rf2-l3paoi).
+
+  A nil parse (an empty / whitespace-only body) is the documented no-delta
+  shape — NOT malformed — and returns nil without a trace, matching the
+  prior `(when delta …)` no-op. The bare delta-map EDN body is the shipped
+  wire contract (Spec 011 §Hydration interleaving — \"the per-subtree delta
+  is shipped as the bare delta-map EDN\"); anything else is the bug."
+  [frame-id id-str body]
+  (let [parsed (try
+                 (reader/read-string body)
+                 (catch :default e
+                   (malformed-delta! frame-id id-str
+                                     (str "Malformed hydration-delta EDN for boundary " id-str)
+                                     {:exception (ex-message e)})
+                   ::skip))]
+    (cond
+      (= ::skip parsed) nil
+      (nil? parsed)     nil                              ;; no-delta body — not malformed
+      (map? parsed)     parsed
+      :else
+      (do
+        (malformed-delta! frame-id id-str
+                          (str "Hydration-delta EDN for boundary " id-str
+                               " parsed to a non-map (got " (pr-str (type parsed))
+                               "); skipped — the delta-map wire contract was violated")
+                          {:malformed-value-type (pr-str (type parsed))})
+        nil))))
+
 (defn- apply-delta-script!
   "Find the `data-rf2-suspense-hydrate` delta `<script>` for `id-str`,
   read its bare delta-map EDN, merge it into `frame-id`'s app-db, and
   drop the script node. The server emits the delta `<script>`
   immediately after the resolved `<template>`, but DOM order after our
   swap is not guaranteed, so we match by id attribute rather than
-  sibling position. A malformed delta is skipped with a trace — a bad
-  speculative chunk must not break hydration (the final payload is the
-  correctness lock)."
+  sibling position. A malformed delta (unparseable EDN, or parseable but
+  non-map) is skipped with a trace — a bad speculative chunk must not
+  break hydration (the final payload is the correctness lock), but it must
+  also not silently pass for a successful hydration (rf2-l3paoi)."
   [root frame-id id-str]
   (when-let [script (->> (query-by-attr root attr-suspense-hydrate)
                          (filter #(= id-str (.getAttribute % attr-suspense-hydrate)))
                          first)]
-    (let [delta (try
-                  (reader/read-string (.-textContent script))
-                  (catch :default e
-                    (trace/emit-error! :rf.ssr/suspense-boundary-failed
-                                       {:id        (read-boundary-id id-str)
-                                        :frame     frame-id
-                                        :where     'rf.ssr/streaming-client
-                                        :reason    (str "Malformed hydration-delta EDN for boundary " id-str)
-                                        :exception (ex-message e)
-                                        :recovery  :skipped-delta})
-                    nil))]
-      (when delta (merge-delta! frame-id delta))
-      ;; The delta is consumed; drop the script node so the DOM is left
-      ;; in its final, script-free shape.
-      (when-let [sp (.-parentNode script)]
-        (.removeChild sp script)))))
+    (when-let [delta (read-delta frame-id id-str (.-textContent script))]
+      (merge-delta! frame-id delta))
+    ;; The delta is consumed (or skipped); drop the script node so the DOM
+    ;; is left in its final, script-free shape regardless of delta validity.
+    (when-let [sp (.-parentNode script)]
+      (.removeChild sp script))))
 
 (defn- process-resolved-template!
   "Process one resolved-subtree `<template>` (carrying
@@ -420,11 +477,14 @@
                   `js/document`. A test harness passes a detached
                   container so it can drive chunk-arrival deterministically.
     :payload-id — the id of the final-payload `<script>` whose arrival
-                  signals stream completion. Default `\"__rf_payload\"`
-                  (`re-frame.ssr.constants/payload-script-id`); accepted
-                  as an opt rather than required so the runtime needs no
-                  dependency on the constants ns and a host that
-                  overrode the shell's payload id can match it.
+                  signals stream completion. Default
+                  `re-frame.ssr.constants/payload-script-id`
+                  (`\"__rf_payload\"`) — the SAME constant
+                  `re-frame.ssr.boot/read-server-payload` reads, so the
+                  streaming runtime and the non-streaming bootstrap agree
+                  on the final-payload id by construction. Accepted as an
+                  opt so a host that overrode the shell's payload id can
+                  match it.
 
   Returns a 0-arity `stop!` fn that disconnects the observer early (so a
   host can tear the runtime down on its own schedule — e.g. an SPA
@@ -452,8 +512,12 @@
            ))"
   ([] (install! {}))
   ([{:keys [frame root payload-id]
+     ;; EP-0002 (rf2-acjknb): NO `:or {frame :rf/default}` floor — a nil
+     ;; frame is an absent target that `require-frame-stamp!` (below) fails
+     ;; closed on, never a synthesised `:rf/default`. `payload-id` defaults
+     ;; to the pinned `constants/payload-script-id` (main).
      :or   {root       (when (exists? js/document) js/document)
-            payload-id "__rf_payload"}}]
+            payload-id constants/payload-script-id}}]
    ;; EP-0002 (rf2-acjknb): the streaming delta-merge target is CARRIED —
    ;; supplied explicitly via `:frame`. A nil stamp is an absent target,
    ;; not a request to synthesise `:rf/default`; surface the always-on

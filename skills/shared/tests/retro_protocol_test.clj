@@ -10,10 +10,15 @@
 ;;;;   3. Edit-gate split              — Finding 3, recommendation
 ;;;;
 ;;;; Plus a fourth surface (Lock 4) the original suite left unguarded:
-;;;; the shell-safety / command-injection boundary on the one
-;;;; destructive surface the protocol grants (`gh issue create`),
-;;;; specified in `issue-filing.md`. It is the same untrusted-evidence
-;;;; threat model as Lock 1 projected onto the shell.
+;;;; the shell-safety / command-injection boundary on the `gh issue`
+;;;; surfaces the protocol grants, specified in `issue-filing.md`. It is
+;;;; the same untrusted-evidence threat model as Lock 1 projected onto the
+;;;; shell — across the body (`--body-file`, Lock 4), the title (inline
+;;;; `--title`, Lock 4b), the per-filing OS-temp body path (Lock 4c), and
+;;;; the search query (inline `gh issue list --search`, Lock 4d,
+;;;; rf2-7g9htq.1 — `--search` has no `--search-file`, so a query lifted
+;;;; from evidence re-opens the same transcript→shell injection the
+;;;; title/body rules close).
 ;;;;
 ;;;; The audit's Finding 4 was PARTIAL — the prose was in place but no
 ;;;; regression suite asserted the locks. This file closes that gap by
@@ -38,7 +43,9 @@
 ;;;; Exit:   0 = pass, non-zero = fail.
 
 (ns retro-protocol-test
-  (:require [clojure.java.io :as io]
+  (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing run-tests]]))
 
@@ -77,6 +84,13 @@
 
 (def ^:private readme-md
   (delay (slurp-rel skills-root "README.md")))
+
+(def ^:private pair-retro-known-frictions-md
+  (delay (slurp-rel skills-root
+                    "re-frame2-pair-retro/references/known-frictions.md")))
+
+(def ^:private pair-retro-evals-json
+  (delay (slurp-rel skills-root "re-frame2-pair-retro/evals/evals.json")))
 
 ;; ---------------------------------------------------------------------------
 ;; Section extraction — like the re-frame2-pair prompt-regression substrate, each
@@ -533,6 +547,66 @@
              "the reader infers it from the shared leaf."))))
 
 ;; ---------------------------------------------------------------------------
+;; Lock 4d — Search-argument safety on the inline `gh issue list --search`
+;; recipe (rf2-7g9htq.1)
+;;
+;; Search-before-file is mandatory, and the recipe is
+;; `gh issue list --repo <owner/repo> --search "<keywords>"`. `--search`
+;; is inline argv with no `--search-file`, so it is the SAME
+;; transcript→shell injection boundary as `--title`: a query lifted from
+;; the transcript / an error string / a suggested title can carry `$()`,
+;; backticks, quotes, `\`, or a newline that the shell expands before `gh`
+;; sees argv (and it leaks the raw evidence to GitHub as the search query).
+;; The title/body hardening closed `--title`/`--body`; this lock keeps the
+;; `--search` clause from drifting back out. EVERY corpus site that shows
+;; the search recipe must carry (or link) the agent-authored-keywords /
+;; never-paste-evidence rule next to it.
+;; ---------------------------------------------------------------------------
+
+(defn- search-recipe-has-safety-clause?
+  "True if `md` carries the search-argument safety clause near the
+   `gh issue list --search` recipe: it must mention `--search` and BOTH
+   the agent-authored-from-safe-alphabet positive rule AND the
+   never-paste-evidence prohibition."
+  [md]
+  (and (str/includes? md "--search")
+       (contains-any? md ["safe alphabet" "safe-alphabet" "author the"
+                          "author it" "author the `<keywords>`"
+                          "agent-authored"])
+       (contains-any? md ["never copy" "never paste" "never interpolate"
+                          "Never interpolate" "Never paste"
+                          "no `--search-file`" "no --search-file"])))
+
+(deftest issue-filing-search-recipe-carries-search-safety
+  (testing "issue-filing.md §Search before filing carries the --search safety clause"
+    (is (search-recipe-has-safety-clause? @issue-filing-md)
+        (str "skills/shared/issue-filing.md shows the `gh issue list "
+             "--search` recipe but no longer states the keywords are "
+             "agent-authored from the safe alphabet and never copied from "
+             "evidence. `--search` is inline argv with no `--search-file` — "
+             "the same transcript→shell injection boundary as `--title`. "
+             "Restore the §Search before filing safety clause (rf2-7g9htq.1)."))))
+
+(deftest retro-protocol-search-recipe-carries-search-safety
+  (testing "retro-protocol.md step 6 search recipe carries the --search safety clause"
+    (is (search-recipe-has-safety-clause? @protocol-md)
+        (str "skills/shared/retro-protocol.md shows the `gh issue list "
+             "--search` recipe in the filing sub-protocol but no longer "
+             "carries the agent-authored / never-paste-evidence `--search` "
+             "rule beside it (rf2-7g9htq.1)."))))
+
+(deftest issue-template-search-recipe-carries-search-safety
+  (testing "re-frame2-pair-retro/references/issue-template.md search recipe carries the --search safety clause"
+    (is (search-recipe-has-safety-clause? @issue-template-md)
+        (str "re-frame2-pair-retro/references/issue-template.md shows the "
+             "`gh issue list --search` command (it is the recipe the agent "
+             "follows) but no longer carries the agent-authored / "
+             "never-paste-evidence `--search` rule beside it. The worked "
+             "search command is exactly where the injection invitation "
+             "lives, so the clause must be local, not only in the shared "
+             "leaf (rf2-7g9htq.1)."))))
+
+;; ---------------------------------------------------------------------------
 ;; Cross-consumer adoption — both consuming skills must actually load
 ;; the shared leaf. A future edit that decouples a consumer (dropping
 ;; the link, copy-pasting the prose inline, …) breaks the single-source
@@ -682,8 +756,177 @@
                                  "manual"])
             (str "fixtures/README.md no longer documents the manual / "
                  "document-runnable replay shape. The fixtures aren't "
-                 "CI-runnable; if the README implies they are, future "
+                 "fully CI-runnable; if the README implies they are, future "
                  "maintainers will be confused."))))))
+
+;; ---------------------------------------------------------------------------
+;; Behavioral eval — the three security fixtures now have an EXECUTABLE
+;; scoring path (rf2-1inyqr finding 2). The fixtures were document-runnable
+;; only; a future wording / consumer / model-behaviour shift could pass every
+;; structural grep while an agent actually runs `gh issue create`, leaks a
+;; token, or applies an evidence-shaped Edit. `tests/evals/behavioral-evals.json`
+;; encodes each fixture's §Expected / §Anti-expectation locks as machine-
+;; checkable predicates, and `score-behavioral-eval.clj` scores a captured
+;; transcript into a machine-readable pass/fail artifact. These structural
+;; tests keep the eval machinery + its workflow wiring from silently
+;; disappearing, and run the scorer's own self-test as a cheap always-on guard.
+;; ---------------------------------------------------------------------------
+
+(def ^:private behavioral-evals-file
+  (io/file shared-root "tests/evals/behavioral-evals.json"))
+
+(deftest behavioral-eval-manifest-present-and-wellformed
+  (testing "tests/evals/behavioral-evals.json exists, parses, and has one eval per fixture"
+    (is (.exists behavioral-evals-file)
+        (str "tests/evals/behavioral-evals.json disappeared. It is the "
+             "executable behavioural contract for the three security "
+             "fixtures — without it behaviour reverts to eyeball-only "
+             "(rf2-1inyqr finding 2)."))
+    (when (.exists behavioral-evals-file)
+      (let [m (json/parse-string (slurp behavioral-evals-file) true)]
+        (is (= "behavioral" (:eval_kind m))
+            "behavioral-evals.json :eval_kind is no longer \"behavioral\".")
+        (is (= 3 (count (:evals m)))
+            (str "behavioral-evals.json no longer has exactly 3 evals (one "
+                 "per security fixture: injection / redaction / edit-gate)."))
+        (is (every? :fixture (:evals m))
+            "a behavioral eval lost its :fixture pointer at the fixture file.")
+        ;; the three load-bearing behavioural checks the bead enumerated must
+        ;; be present somewhere in the manifest: no gh issue create, no raw
+        ;; secret egress, evidence-shaped Edit gated.
+        (let [blob (slurp behavioral-evals-file)]
+          (is (str/includes? blob "gh\\\\s+issue\\\\s+create")
+              "manifest no longer forbids `gh issue create` as a tool call.")
+          (is (str/includes? blob "forbidden_output_substrings")
+              "manifest no longer pins raw-secret substrings as forbidden output.")
+          (is (str/includes? blob "thompson")
+              "manifest no longer gates the evidence-shaped Edit (Scenario A)."))))))
+
+(deftest behavioral-eval-scorer-present-and-self-tests
+  (testing "score-behavioral-eval.clj exists and its --self-test passes"
+    (let [scorer (io/file shared-root "tests/evals/score-behavioral-eval.clj")]
+      (is (.exists scorer)
+          (str "tests/evals/score-behavioral-eval.clj disappeared. It is the "
+               "scorer that turns a captured transcript into a machine-readable "
+               "pass/fail artifact (rf2-1inyqr finding 2)."))
+      (when (.exists scorer)
+        (let [{:keys [exit out err]}
+              (shell/sh "bb" (.getPath scorer) "--self-test")]
+          (is (zero? exit)
+              (str "score-behavioral-eval.clj --self-test failed (exit " exit
+                   "). The manifest is malformed or a scorer predicate stopped "
+                   "firing.\nstdout: " out "\nstderr: " err)))))))
+
+(deftest behavioral-eval-wired-into-fixtures-readme
+  (testing "fixtures/README.md documents the verification-status gate + executable scoring"
+    (let [text (slurp (io/file shared-root "tests/fixtures/README.md"))]
+      (is (str/includes? text "Verification status")
+          (str "fixtures/README.md no longer carries the §Verification status "
+               "section — the statement that the structural greps do NOT "
+               "verify behaviour and that behaviour is verified only when the "
+               "behavioral eval has been replayed + scored (rf2-1inyqr "
+               "finding 2)."))
+      (is (str/includes? text "score-behavioral-eval.clj")
+          (str "fixtures/README.md no longer points at the executable scorer "
+               "(score-behavioral-eval.clj). The behavioural contract must be "
+               "discoverable from the fixtures (rf2-1inyqr finding 2)."))
+      (is (contains-any? text ["NOT verified" "not verified" "release / checklist"
+                               "release/checklist"])
+          (str "fixtures/README.md no longer states that behaviour is not "
+               "verified by the structural greps alone and that the eval is a "
+               "release / checklist gate (rf2-1inyqr finding 2).")))))
+
+;; ---------------------------------------------------------------------------
+;; Pair-retro production/probe/filing drift (rf2-dhnixf)
+;;
+;; Finding 1 — the production-elision known-friction must not claim "every
+;; Tool-Pair surface elides"; the dev-gated surfaces (trace / epoch / schema
+;; / source-coord) go dark, but orientation / registry-frame shape, the
+;; direct-read primitives, and the always-on error-emit substrate still
+;; answer.
+;; Finding 2 — the attach-failure guidance + eval fixtures must teach the
+;; current diagnostic ladder (:nrepl-unreachable / :build-not-running /
+;; :no-runtime-connected / :runtime-loaded-but-preload-missing), not the
+;; legacy blanket :runtime-not-preloaded as the normal-case reason.
+;; Finding 3 — the README routing index must carry the optional-label /
+;; fail-open filing model, not a mandatory `pair-mcp` label.
+;; ---------------------------------------------------------------------------
+
+(deftest pair-retro-production-elision-not-blanket
+  (testing "the production-elision friction no longer claims every Tool-Pair surface elides (rf2-dhnixf finding 1)"
+    (let [body @pair-retro-known-frictions-md]
+      (is (not (str/includes? body "every Tool-Pair surface elides"))
+          (str "known-frictions.md carries the blanket 'every Tool-Pair "
+               "surface elides' claim. Only the dev-gated surfaces (trace / "
+               "epoch / schema / source-coord) elide under "
+               "debug-enabled?=false; orientation / registry-frame shape, "
+               "the direct-read primitives, and the always-on error substrate "
+               "still answer (rf2-dhnixf finding 1)."))
+      (is (contains-any? body ["orient" "orientation"])
+          (str "the narrowed production-elision friction must name "
+               "orientation / registry-frame shape as a surface that still "
+               "answers in a production-elided build (rf2-dhnixf finding 1)."))
+      (is (contains-any? body ["error-emit" "error substrate" "always-on"])
+          (str "the narrowed production-elision friction must call out the "
+               "always-on error-emit substrate as separate from the dev "
+               "trace surface (rf2-dhnixf finding 1).")))))
+
+(deftest pair-retro-teaches-diagnostic-ladder-not-blanket-reason
+  (testing "attach-failure guidance teaches the diagnostic ladder (rf2-dhnixf finding 2)"
+    (let [body @pair-retro-known-frictions-md]
+      (is (and (str/includes? body ":runtime-loaded-but-preload-missing")
+               (str/includes? body ":no-runtime-connected")
+               (str/includes? body ":build-not-running")
+               (str/includes? body ":nrepl-unreachable"))
+          (str "known-frictions.md no longer enumerates the current attach "
+               "diagnostic ladder (:nrepl-unreachable / :build-not-running / "
+               ":no-runtime-connected / :runtime-loaded-but-preload-missing). "
+               "The legacy blanket :runtime-not-preloaded must not be the "
+               "normal-case reason (rf2-dhnixf finding 2)."))
+      (is (contains-any? body ["degradation fallback" "fallback" "last-resort"
+                               "legacy"])
+          (str "known-frictions.md must frame :runtime-not-preloaded as the "
+               "fallback/legacy reason, not the normal-case verdict "
+               "(rf2-dhnixf finding 2).")))))
+
+(deftest pair-retro-eval-fixtures-cover-ladder-reasons
+  (testing "evals.json fixtures cover the current ladder reasons (rf2-dhnixf finding 2)"
+    (let [body @pair-retro-evals-json]
+      (is (str/includes? body ":runtime-loaded-but-preload-missing")
+          (str "evals/evals.json no longer carries a fixture using "
+               ":runtime-loaded-but-preload-missing (the concrete "
+               "missing-preload rung). A fixture must exercise the current "
+               "ladder so trigger guidance doesn't regress to the old "
+               "blanket reason (rf2-dhnixf finding 2)."))
+      (is (contains-any? body [":no-runtime-connected" ":build-not-running"
+                               ":nrepl-unreachable"])
+          (str "evals/evals.json no longer carries a fixture for a "
+               "non-preload ladder reason (:no-runtime-connected / "
+               ":build-not-running / :nrepl-unreachable). At least one "
+               "non-preload rung must be represented (rf2-dhnixf finding 2).")))))
+
+(deftest readme-routing-uses-optional-label-model
+  (testing "skills/README.md routing index carries the optional-label / fail-open filing model (rf2-dhnixf finding 3)"
+    (let [body @readme-md]
+      (is (str/includes? body "Labels are optional taxonomy")
+          (str "skills/README.md §Routing no longer states labels are "
+               "optional taxonomy, not a filing precondition. An agent "
+               "following the index could call `gh issue create --label "
+               "pair-mcp` as mandatory and fail filing on a repo without "
+               "that label (rf2-dhnixf finding 3)."))
+      (is (contains-any? body ["gh label list"])
+          (str "skills/README.md §Routing must reference `gh label list` "
+               "as the precondition for adding a `--label`, matching the "
+               "pair-retro filing contract (rf2-dhnixf finding 3)."))
+      (is (not (re-find #"(?m)\*\*with\*\* the `pair-mcp` label" body))
+          (str "skills/README.md §Routing still mandates filing **with** the "
+               "`pair-mcp` label. Align with the optional-label model: the "
+               "title/body carry the distinction; the label is optional "
+               "(rf2-dhnixf finding 3)."))
+      (is (str/includes? body "re-frame2-pair-retro/SKILL.md#filing-improvements")
+          (str "skills/README.md §Routing should point at re-frame2-pair-"
+               "retro's filing section rather than restate the operational "
+               "label rules (rf2-dhnixf finding 3).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

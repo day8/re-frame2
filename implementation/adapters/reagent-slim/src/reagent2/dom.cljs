@@ -31,7 +31,7 @@
 ;;
 ;; Migration-message strings are fixed and visible in source so an
 ;; eyeball-level grep at the call site surfaces the migration target
-;; without consulting MIGRATION.md.
+;; without consulting the migration corpus (migration/from-re-frame-v1/README.md).
 ;; ---------------------------------------------------------------------------
 
 (defn render

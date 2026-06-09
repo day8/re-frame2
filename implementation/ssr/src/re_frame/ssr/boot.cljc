@@ -14,9 +14,10 @@
   The client side now ships its mirror — ONE explicit boot call:
 
       (ssr/hydrate! {:frame :app/main :render-tree-fn #(…hiccup…)})
-      ;; → reads `__rf_payload`, dispatches `:rf/hydrate`, and (after
-      ;;   the first render) verifies the render-tree hash against the
-      ;;   server's.
+      ;; → reads `__rf_payload`, dispatches `:rf/hydrate`, then (still
+      ;;   synchronously, before the host's own render) computes the client
+      ;;   render-tree via `:render-tree-fn` and verifies its hash against
+      ;;   the server's.
 
   The pair reads as one contract: the server emits the payload under the
   `re-frame.ssr.constants/payload-script-id` id; the boot helper reads
@@ -25,12 +26,27 @@
   via the framework's `:rf/hydrate` event (locked `:replace-app-db`
   policy, Spec 011 §The :rf/hydrate event).
 
-  Before this helper every host re-implemented the same five-line read →
-  dispatch → render → verify dance (three testbeds + two worked examples
-  carried byte-identical `read-server-payload` fns). The helper makes the
-  client boot a one-liner and pins the read/dispatch/verify ordering the
-  spec mandates so a host can't get it subtly wrong (e.g. verifying
-  before the first render, or reading a stale id).
+  Before this helper every host re-implemented the same read → dispatch →
+  (render) → verify dance (three testbeds + two worked examples carried
+  byte-identical `read-server-payload` fns). The helper makes the client
+  boot a one-liner and pins the read/dispatch/verify ordering the spec
+  mandates so a host can't get it subtly wrong (e.g. reading a stale id, or
+  seeding after the first render).
+
+  ## The verify contract — seed-and-synchronously-compute-tree
+
+  `hydrate!` is a SYNCHRONOUS convenience: after dispatching `:rf/hydrate`
+  it immediately calls the caller-supplied `:render-tree-fn` to compute the
+  client render-tree and hashes THAT — it does NOT wait for, or observe,
+  the host's DOM mount (it does not own the mount). This is sound because a
+  re-frame2 view is a pure function of app-db: `(rf/view :app/root)`
+  evaluated against the just-hydrated app-db is the SAME render-tree the
+  host is about to mount, so the pre-mount hash equals the mounted-tree
+  hash. `:render-tree-fn` is therefore a PURE client-tree computation, not
+  a \"read back what was mounted\" hook. A host that must verify the actual
+  mounted DOM tree (a substrate that mutates at mount, or an async mount)
+  splits the convenience — see `hydrate!`'s docstring. Per Spec 011
+  §Client-side hydration boot helper.
 
   ## Platform split
 
@@ -166,19 +182,23 @@
                  011 §The :rf/hydrate event). Skipped when there is no
                  payload (client-only first load) — the caller renders
                  against the empty app-db.
-    3. VERIFY  — after the first render, `verify-hydration!` compares the
-                 client render-tree hash against the server hash the
-                 `:rf/hydrate` handler stashed at
-                 `[:rf.runtime/ssr :hydration :server-hash]`. A mismatch
+    3. VERIFY  — `verify-hydration!` compares the client render-tree hash
+                 against the server hash the `:rf/hydrate` handler stashed
+                 at `[:rf.runtime/ssr :hydration :server-hash]`. A mismatch
                  emits `:rf.ssr/hydration-mismatch` (Spec 011
-                 §Hydration-mismatch detection). The render itself is the
-                 HOST's job (Reagent/UIx/Helix `render`) — the helper
-                 cannot mount the DOM for you — so the verify step takes a
-                 `:render-tree-fn` the host supplies: a 0-arity fn the
-                 helper calls AFTER you have rendered, returning the same
-                 render-tree the host just mounted (typically
-                 `#((rf/view :app/root))`). When `:render-tree-fn` is
-                 omitted the verify step is skipped (the host opts out of
+                 §Hydration-mismatch detection). The verify step takes a
+                 `:render-tree-fn` the host supplies: a 0-arity fn
+                 returning the CLIENT render-tree to hash (typically
+                 `#((rf/view :app/root))`). `hydrate!` calls it
+                 SYNCHRONOUSLY, immediately after `:rf/hydrate` and BEFORE
+                 the host's own render — see the ns docstring §The verify
+                 contract for why hashing the pure client tree pre-mount is
+                 equivalent to hashing the mounted tree (a re-frame2 view is
+                 a pure fn of the just-hydrated app-db). The helper does not
+                 — and cannot — observe the host's DOM mount;
+                 `:render-tree-fn` is a PURE client-tree computation, not a
+                 \"read back what was mounted\" hook. When `:render-tree-fn`
+                 is omitted the verify step is skipped (the host opts out of
                  hash-mismatch detection, or runs `verify-hydration!`
                  itself at its own render site).
 
@@ -206,8 +226,9 @@
                       on the JVM it is required (no DOM to read from).
     :render-tree-fn — (optional) a 0-arity fn returning the client
                       render-tree to hash for mismatch detection. Called
-                      ONCE, after `:rf/hydrate`, on the verify step. Omit
-                      to skip verification.
+                      ONCE, SYNCHRONOUSLY, immediately after `:rf/hydrate`
+                      and before the host's own render (a pure client-tree
+                      computation — see step 3). Omit to skip verification.
     :element-id     — (CLJS, optional) override the payload `<script>` id
                       to read when `:payload` is omitted. Default the
                       pinned `__rf_payload`.
@@ -221,6 +242,10 @@
       #?(:cljs
          (defn ^:export run []
            (rf/init! reagent-adapter/adapter)
+           ;; hydrate! seeds app-db AND verifies synchronously (computing
+           ;; the client tree via render-tree-fn) BEFORE the host mounts.
+           ;; EP-0002 (rf2-acjknb): the hydration target is CARRIED —
+           ;; supplied explicitly via `:frame`, not synthesised.
            (let [payload (ssr/hydrate! {:frame          :app/main
                                         :render-tree-fn #((rf/view :app/root))})]
              (rdc/render react-root
@@ -229,10 +254,17 @@
              ;; …verify already ran inside hydrate! against render-tree-fn
              payload)))
 
-  Hosts that need to interleave their own render between hydrate and
-  verify (e.g. async mount) can call `dispatch-sync [:rf/hydrate …]`
-  directly and then `verify-hydration!` at their render site — `hydrate!`
-  is the convenience that fuses the common ordering."
+  Hosts that must verify the actual MOUNTED DOM tree — a substrate that
+  mutates the tree at mount time, or an async mount where the render-tree
+  is not yet computable when `hydrate!` returns — split the convenience:
+  call `dispatch-sync [:rf/hydrate …]` directly to seed, mount, then call
+  `verify-hydration!` at the post-mount site with the observed tree.
+  `hydrate!` is the convenience that fuses the common (pure-projection)
+  ordering for the host whose render-tree is a pure function of app-db
+  (the re-frame2 norm — Reagent / UIx / Helix all qualify)."
+  ;; EP-0002 (rf2-acjknb): NO `:or {frame :rf/default}` floor — a nil frame
+  ;; is an absent target that `require-frame-stamp!` (below) fails closed on
+  ;; with `:rf.error/no-frame-context`, never a synthesised `:rf/default`.
   [{:keys [frame payload render-tree-fn element-id]}]
   ;; `element-id` is consumed only by the CLJS DOM read; discard-bind it so
   ;; a JVM lint of this `.cljc` doesn't flag it as an unused

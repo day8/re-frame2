@@ -2,7 +2,8 @@
   "Recurring JSON-schema fragments + the schema-prop-injection helpers
   used by every tool's `:inputSchema`. Kept in its own ns so each
   category's descriptor list (`dev/descriptors`, `docs/descriptors`,
-  …) can require these without circling through `registry`.")
+  …) can require these without circling through `registry`."
+  (:require [re-frame.story-mcp.tools.args :as targs]))
 
 (def kw-or-string
   "Recurring fragment — accept either string-form keywords
@@ -145,6 +146,45 @@
                      "On registry change between pages the server returns "
                      ":rf.mcp/cursor-stale; drop the cursor and restart.")})
 
+;; ---------------------------------------------------------------------------
+;; Lifecycle timeout schema fragment (rf2-ovmc5e)
+;;
+;; `run-variant` and `preview-variant` both block on the SAME
+;; `story/run-variant` lifecycle. They MUST advertise the same `:timeout-ms`
+;; knob so an agent can discover + tune the blocking ceiling from
+;; `tools/list` on either tool, and so the two cannot drift by copy-paste.
+;; The bounds + default text derive from the single shared source in
+;; `tools.args` (`max-timeout-ms` / `default-timeout-ms`); the runtime
+;; resolver `targs/resolve-timeout-ms` reads the same constants, so the
+;; advertised schema and the runtime policy stay in lockstep.
+;; ---------------------------------------------------------------------------
+
+(def timeout-ms-schema
+  "Recurring fragment — the lifecycle tools (`run-variant`,
+  `preview-variant`) accept a per-call `:timeout-ms` blocking ceiling
+  (rf2-g9fje / rf2-ovmc5e). The MCP server's request loop is
+  single-threaded, so an unbounded blocking deref on one call parks every
+  unrelated call. Caller values above the hard ceiling clamp DOWN rather
+  than reject. Bounds + default mirror `tools.args/max-timeout-ms` /
+  `default-timeout-ms` — the single source both this advertised schema and
+  the runtime resolver (`targs/resolve-timeout-ms`) read."
+  {:type "integer" :minimum 1 :maximum targs/max-timeout-ms
+   :description (str "JVM blocking timeout. Default " targs/default-timeout-ms
+                     "ms. Hard ceiling " targs/max-timeout-ms "ms — values "
+                     "above clamp DOWN rather than reject; the MCP server's "
+                     "request loop is single-threaded so an unbounded timeout "
+                     "would park unrelated calls (rf2-g9fje).")})
+
+(defn with-timeout-ms
+  "Inject the `:timeout-ms` slot into a lifecycle tool's `:properties`
+  map. Applied to the two tools that block on the `story/run-variant`
+  lifecycle (`run-variant`, `preview-variant`) so both advertise the same
+  tunable, capped blocking ceiling (rf2-ovmc5e). The runtime resolver
+  `targs/resolve-timeout-ms` reads the same shared constants, so the
+  advertised schema and the runtime policy stay in lockstep."
+  [props]
+  (assoc props :timeout-ms timeout-ms-schema))
+
 (defn with-pagination
   "Inject `:limit` and `:cursor` slots into a tool's `:properties`
   map. Used by every Docs `list-*` tool per spec/Principles.md
@@ -164,8 +204,10 @@
 
 (defn with-include-sensitive
   "Inject the `:include-sensitive` slot into a tool's `:properties`
-  map. Used by tools that surface a live `:app-db` slice or assertion
-  accumulator (`preview-variant`, `run-variant`, `read-failures`).
+  map. Used by the six tools that surface a live or plan-resolved frame
+  VALUE — `preview-variant`, `run-variant`, `read-failures`, `run-a11y`,
+  `explain-variant`, `record-as-variant` (the affected set is the single
+  source of truth at `registry/tool-descriptors` §Sensitive-read gate).
 
   The slot is baked into the static descriptor at load time and
   stripped at `tools/list` time by `registry/tool-descriptors` when the

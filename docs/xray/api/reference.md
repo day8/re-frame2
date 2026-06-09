@@ -102,7 +102,7 @@ The Xray ↔ tool read-and-mutate seam. Twenty surfaces — discovery, origin ta
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
 | `dispatch!` | `(dispatch! event-vec opts)` → map | Fire an event tagged with the current origin. Modes `:queued` / `:sync`. |
-| `restore-epoch!` | `(restore-epoch! opts)` → map | Rewind a frame's `app-db` to a named epoch's `:db-after`. |
+| `restore-epoch!` | `(restore-epoch! opts)` → map | Rewind a frame to a named epoch's canonical `:frame-state-after` (app-db + runtime-db restored atomically). |
 | `replace-app-db!` | `(replace-app-db! opts)` → map | Inject a value into a frame's `app-db`. Schema-validates. |
 
 ### Streaming band (3 subscription)

@@ -836,7 +836,7 @@
   WITHOUT registering it — the surface the lazy-actor-handler resolver
   (rf2-a2sn1) drives a spawned actor's cascade through. Equivalent in
   shape to what `reg-machine*` installs under the machine-id, but
-  materialised on demand from the actor's (revertible) app-db snapshot
+  materialised on demand from the actor's (revertible) runtime-db snapshot
   rather than held in a per-instance registrar entry.
 
   The region-machine cache is installed (mirroring `reg-machine*`) so
@@ -864,8 +864,8 @@
   map the router can drive the cascade with — or nil to let core surface
   the genuine `:rf.error/no-such-handler`.
 
-  Resolution is purely app-db-derived (rf2-a2sn1): read the actor's live
-  snapshot from the frame's app-db, resolve its TYPE spec via
+  Resolution is purely runtime-db-derived (rf2-a2sn1): read the actor's live
+  snapshot from the frame's runtime-db, resolve its TYPE spec via
   `resolver/spec-from-snapshot`, and materialise the handler-meta from
   the spec. No live snapshot (or no resolvable type) → nil: the actor
   isn't alive in this frame value, which is the correct

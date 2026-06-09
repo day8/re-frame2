@@ -47,8 +47,19 @@
       (.getParentFile)    ;; tests/
       (.getParentFile)))  ;; skills/shared/
 
+(def ^:private repo-root
+  (-> shared-root
+      (.getParentFile)    ;; skills/
+      (.getParentFile)))  ;; repo root
+
 (def ^:private surfaces-md
   (delay (slurp (io/file shared-root "tool-pair-surfaces.md"))))
+
+(def ^:private tool-pair-spec-md
+  (delay (slurp (io/file repo-root "spec/Tool-Pair.md"))))
+
+(def ^:private security-spec-md
+  (delay (slurp (io/file repo-root "spec/Security.md"))))
 
 (defn- contains-any? [text alts]
   (some #(str/includes? text %) alts))
@@ -249,6 +260,277 @@
                "multi-frame `:ambiguous-frame` finding would route to the "
                "wrong layer without it (spec/Tool-Pair.md §Operating frame, "
                "rf2-985x1t).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock — the four partition-aware state-injection mutators (rf2-7g9htq.2)
+;;
+;; The leaf used to name only `replace-app-db!` / `reset-app-db!` (the
+;; app-db-only halves), under-teaching the post-EP-0001 partition-aware
+;; write API. spec/Tool-Pair.md §Pair-tool writes defines FOUR mutators;
+;; a skill that omits the runtime-db / full-frame siblings can describe
+;; arbitrary repro / story state injection as app-db-only and miss the
+;; full-frame install (`replace-frame-state!`) for machine snapshots /
+;; routes / elision / SSR metadata. These pins fail loudly if the leaf
+;; mentions `replace-app-db!` but drops either partition-aware sibling.
+;; ---------------------------------------------------------------------------
+
+(deftest state-injection-names-all-four-mutators
+  (testing "the leaf names the four partition-aware state-injection mutators"
+    (let [body @surfaces-md]
+      (when (str/includes? body "replace-app-db!")
+        (is (and (str/includes? body "replace-runtime-db!")
+                 (str/includes? body "replace-frame-state!"))
+            (str "tool-pair-surfaces.md names `replace-app-db!` but no longer "
+                 "names both `replace-runtime-db!` (runtime-db-only privileged "
+                 "write) and `replace-frame-state!` (full-frame atomic "
+                 "install). The post-EP-0001 injection surface is FOUR "
+                 "partition-aware mutators, not the app-db-only pair "
+                 "(spec/Tool-Pair.md §Pair-tool writes, rf2-7g9htq.2)."))
+        (is (str/includes? body "reset-app-db!")
+            (str "tool-pair-surfaces.md dropped `reset-app-db!` from the "
+                 "four-mutator state-injection family (rf2-7g9htq.2).")))
+      (is (contains-any? body ["never silently touch" "never silently touches"
+                               "never silently"])
+          (str "tool-pair-surfaces.md no longer warns that the db-shaped "
+               "names (`replace-app-db!` / `reset-app-db!`) preserve "
+               "runtime-db — the load-bearing partition guarantee a "
+               "story/repro tool relies on (rf2-7g9htq.2).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock — restore-epoch is whole-frame-state, not app-db-only (rf2-7g9htq /
+;; rf2-7a1mkv). The leaf must teach that restore reinstalls BOTH partitions
+;; via replace-frame-state!, so a consuming skill doesn't describe machine
+;; snapshots / routes / elision as surviving time-travel.
+;; ---------------------------------------------------------------------------
+
+(deftest restore-epoch-named-as-frame-state-both-partitions
+  (testing "restore-epoch is described as whole frame-state (both partitions)"
+    (let [body @surfaces-md]
+      (is (contains-any? body ["frame-state-after" "frame-state"])
+          (str "tool-pair-surfaces.md no longer frames `restore-epoch` as a "
+               "frame-state rewind. Restore reinstalls BOTH partitions "
+               "(app-db AND runtime-db) via `replace-frame-state!`, not the "
+               "app-db projection alone (spec/Tool-Pair.md §Restore)."))
+      (is (str/includes? body "replace-frame-state!")
+          (str "tool-pair-surfaces.md no longer names `replace-frame-state!` "
+               "as the restore install surface (rf2-7a1mkv).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock — the privacy-relevant read catalogue covers the STREAMING reads +
+;; the signal recorder, not just the one-shot direct-read set (rf2-7g9htq.3).
+;;
+;; The earlier leaf scoped the fail-closed egress map to the one-shot set
+;; (snapshot / get-path / read-sub / list-subscriptions / dispatch-dry-run)
+;; and omitted the streaming reads (subscribe / trace-window / watch-epochs)
+;; and the signal recorder — all of which are privacy-bearing off-box reads
+;; under the SAME default-off gate. A consuming skill using this leaf as the
+;; privacy map could treat streaming epoch reads and recordings as outside
+;; the boundary. These pins keep the broader catalogue + its emission sites
+;; (elide-wire-value for direct values / recorded samples; projected-record
+;; for epoch records) visible at the leaf.
+;; ---------------------------------------------------------------------------
+
+(deftest streaming-reads-named-as-gated-egress
+  (testing "the leaf names the streaming reads subscribe / trace-window / watch-epochs as gated egress"
+    (let [body @surfaces-md]
+      (is (and (str/includes? body "subscribe")
+               (str/includes? body "trace-window")
+               (str/includes? body "watch-epochs"))
+          (str "tool-pair-surfaces.md no longer names the streaming reads "
+               "(`subscribe` / `trace-window` / `watch-epochs`) as off-box "
+               "egress under the same default-off gate. They project / elide "
+               "privacy-bearing values and are NOT outside the fail-closed "
+               "boundary (re-frame2-pair-mcp §sensitive-reads gate, "
+               "rf2-7g9htq.3)."))
+      (is (str/includes? body "projected-record")
+          (str "tool-pair-surfaces.md no longer names `projected-record` — "
+               "the normative emission site for egressed EPOCH records "
+               "(distinct from `elide-wire-value` for direct values). "
+               "Without it the leaf overloads one emission site across "
+               "value shapes (rf2-7g9htq.3).")))))
+
+(deftest signal-recorder-egress-not-read-only-free-pass
+  (testing "the leaf states recorded samples are elided before egress, not exempt for being read-only"
+    (let [body @surfaces-md]
+      (is (contains-any? body ["read-only is not the same as egress-safe"
+                               "read-only is not"
+                               "before entering the change log"
+                               "before they enter the change log"])
+          (str "tool-pair-surfaces.md no longer states that the signal "
+               "recorder's read-only-by-construction posture does NOT exempt "
+               "its recorded samples from elision — samples are value egress "
+               "and route through `elide-wire-value` before entering the "
+               "change log (rf2-7g9htq.3).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock — the linked authoritative direct-read privacy specs describe the
+;; runtime-db elision registry, NOT the retired app-db one (rf2-kvpr74)
+;;
+;; `tool-pair-surfaces.md` points agents at spec/Tool-Pair.md §Direct-read
+;; privacy and spec/Security.md §Direct-read privacy as the "Full contract".
+;; Per EP-0001 the elision declaration registry is durable runtime-db state
+;; at `[:rf.runtime/elision …]` (implementation/core/src/re_frame/elision.cljc),
+;; NOT the retired app-db `[:rf/runtime :elision …]` root. A spec that still
+;; teaches the app-db path in CURRENT TENSE produces false-green direct-read
+;; privacy checks (a walker reading a dead registry emits raw values). This
+;; guard fails on a CURRENT-TENSE `[:rf/runtime :elision …]` reference in
+;; either linked spec or the shared leaf, allowing only explicit retired-
+;; history mentions (a line that names the path as retired / no-longer-used).
+;; ---------------------------------------------------------------------------
+
+(defn- retired-framing?
+  "True if the line names the legacy path inside an explicit retired-history
+   framing (so it is documentation OF the retirement, not a live claim)."
+  [line]
+  (let [l (str/lower-case line)]
+    (boolean (or (str/includes? l "retired")
+                 (str/includes? l "no longer")
+                 (str/includes? l "legacy")
+                 (str/includes? l "formerly")
+                 (str/includes? l "used to")
+                 (str/includes? l "briefly sat")))))
+
+(defn- current-tense-app-db-elision-lines
+  "Return the lines of `md` that reference the retired app-db elision
+   registry `[:rf/runtime :elision …]` in a CURRENT-TENSE framing (i.e. not
+   inside a retired-history sentence)."
+  [md]
+  (->> (str/split-lines md)
+       (filter #(re-find #"\[:rf/runtime\s+:elision" %))
+       (remove retired-framing?)))
+
+(deftest tool-pair-spec-elision-registry-is-runtime-db-not-app-db
+  (testing "spec/Tool-Pair.md direct-read privacy no longer teaches the app-db [:rf/runtime :elision] registry in current tense (rf2-kvpr74)"
+    (let [bad (current-tense-app-db-elision-lines @tool-pair-spec-md)]
+      (is (empty? bad)
+          (str "spec/Tool-Pair.md references the RETIRED app-db "
+               "`[:rf/runtime :elision …]` elision registry in current "
+               "tense. Per EP-0001 the registry is runtime-db state at "
+               "`[:rf.runtime/elision …]` (elision.cljc). Update the text "
+               "or frame the mention as retired history. Offending line(s): "
+               (pr-str bad))))))
+
+(deftest security-spec-elision-registry-is-runtime-db-not-app-db
+  (testing "spec/Security.md no longer teaches the app-db [:rf/runtime :elision] registry in current tense (rf2-kvpr74)"
+    (let [bad (current-tense-app-db-elision-lines @security-spec-md)]
+      (is (empty? bad)
+          (str "spec/Security.md references the RETIRED app-db "
+               "`[:rf/runtime :elision …]` elision registry in current "
+               "tense. Per EP-0001 the sensitive-rollup reads the runtime-db "
+               "`[:rf.runtime/elision :sensitive-declarations]` registry. "
+               "Update the text or frame the mention as retired history. "
+               "Offending line(s): " (pr-str bad))))))
+
+(deftest shared-leaf-elision-registry-is-runtime-db-not-app-db
+  (testing "tool-pair-surfaces.md no longer teaches the app-db [:rf/runtime :elision] registry in current tense (rf2-kvpr74)"
+    (let [bad (current-tense-app-db-elision-lines @surfaces-md)]
+      (is (empty? bad)
+          (str "tool-pair-surfaces.md references the RETIRED app-db "
+               "`[:rf/runtime :elision …]` registry in current tense. The "
+               "walker reads the runtime-db `[:rf.runtime/elision …]` "
+               "registry (elision.cljc). Offending line(s): " (pr-str bad))))))
+
+;; ---------------------------------------------------------------------------
+;; Lock — the leaf carries an AVAILABILITY-TIER model, not a flat names-only
+;; catalogue (rf2-1inyqr)
+;;
+;; The skills/shared best-practice review (rf2-1inyqr finding 1) found the
+;; leaf taught a flat `## The surfaces` catalogue with no capability /
+;; availability annotation — so a consuming skill could name the right
+;; Tool-Pair family while teaching the WRONG operational model: treating an
+;; absent epoch artefact like a broken pair tool, assuming `sub-cache` is
+;; portable to JVM/SSR, expecting `data-rf-view` in a production build, or
+;; abandoning usable production probes because the flat list hid which
+;; surfaces still answer. The authoritative tiers live in spec/Tool-Pair.md
+;; (dev-gate via `interop/debug-enabled?`, the `day8/re-frame2-epoch`
+;; artefact home + absent-artefact split, the CLJS-only `sub-cache` note,
+;; the 006 `data-rf-view` production-elision gate). These pins fail loudly
+;; if the leaf regresses to a names-only catalogue that drops the tier
+;; qualifiers.
+;; ---------------------------------------------------------------------------
+
+(deftest availability-tiers-section-present
+  (testing "the leaf carries an availability-tier section, not a flat catalogue"
+    (let [body @surfaces-md]
+      (is (str/includes? body "## Availability tiers")
+          (str "tool-pair-surfaces.md no longer carries the `## Availability "
+               "tiers` section. A flat surface catalogue silently teaches "
+               "that every surface answers everywhere — it does not. Agents "
+               "routing a finding need the dev-gate / artefact / host / "
+               "tool-side axes to avoid mistreating an absent artefact, a "
+               "JVM host, or a production build (rf2-1inyqr)."))
+      (is (str/includes? body "debug-enabled?")
+          (str "tool-pair-surfaces.md no longer names the `debug-enabled?` "
+               "dev-gate — the axis that decides which surfaces elide in a "
+               "production build (rf2-1inyqr).")))))
+
+(deftest availability-epoch-artefact-tier-pinned
+  (testing "the epoch-artefact tier names the artefact home + absent-artefact split"
+    (let [body @surfaces-md]
+      (is (str/includes? body "day8/re-frame2-epoch")
+          (str "tool-pair-surfaces.md no longer names the `day8/re-frame2-epoch` "
+               "artefact home for the time-travel surface. Without it an agent "
+               "treats an absent-artefact sentinel like a broken pair tool "
+               "(spec/Tool-Pair.md §Time-travel, rf2-1inyqr)."))
+      (is (str/includes? body ":rf.error/epoch-artefact-missing")
+          (str "tool-pair-surfaces.md no longer names the "
+               "`:rf.error/epoch-artefact-missing` raise — the absent-artefact "
+               "behaviour of the WRITE surfaces (injection mutators), which "
+               "differs from the read surfaces' silent sentinels. The split is "
+               "load-bearing for routing (rf2-1inyqr).")))))
+
+(deftest availability-sub-cache-is-cljs-only
+  (testing "the leaf marks sub-cache as a CLJS-only host-gated surface"
+    (let [body @surfaces-md]
+      (is (str/includes? body "CLJS-only")
+          (str "tool-pair-surfaces.md no longer carries the `CLJS-only` host "
+               "qualifier. `sub-cache` has no JVM/SSR equivalent and the call "
+               "MUST be host-gated; a portable-by-default reading is wrong "
+               "(spec/Tool-Pair.md §Platform-availability note, rf2-1inyqr).")))))
+
+(deftest availability-data-rf-view-production-elision-pinned
+  (testing "the leaf pins data-rf-view as production-elided so view-plane reads have an empty map"
+    (let [body @surfaces-md]
+      ;; data-rf-view is already pinned by view-plane-reads-enumerated; here
+      ;; we pin the AVAILABILITY claim — that it rides the production-elision
+      ;; gate, so a production-attached session must not expect the view↔DOM
+      ;; map to be populated (rf2-1inyqr).
+      (is (contains-any? body ["data-rf-view` not stamped"
+                               "data-rf-view / data-rf2-source-coord"
+                               "data-rf2-source-coord` / `data-rf-view`"
+                               "DOM annotations"])
+          (str "tool-pair-surfaces.md no longer pins that `data-rf-view` (and "
+               "`data-rf2-source-coord`) elide in production, leaving the "
+               "view-plane reads with an empty view↔DOM map. An agent that "
+               "expects view-plane reads in a production build routes a "
+               "finding wrong (spec/006 §Production elision, rf2-1inyqr).")))))
+
+(deftest availability-production-split-dev-gated-vs-still-answers
+  (testing "the leaf pins the production split: dev-gated surfaces go dark, others still answer"
+    (let [body @surfaces-md]
+      ;; The single most consequential tier fact: a production-elided build is
+      ;; a MIXED result. The dev-gated surfaces (trace / epoch / schema /
+      ;; source-coord) go dark; the registrar query API (orientation), the
+      ;; direct-read primitives (own egress posture), the operating-frame trio,
+      ;; and the always-on error-emit substrate keep answering. A flat
+      ;; catalogue teaches "everything is gone", which abandons usable probes.
+      (is (contains-any? body ["production-elision split"
+                               "production split"
+                               "still answers"
+                               "still answer"])
+          (str "tool-pair-surfaces.md no longer states the production-elision "
+               "split. Under `:advanced` + `goog.DEBUG=false` the build is a "
+               "MIXED result, not a total wall — the registrar query / "
+               "direct-read / error surfaces still answer (rf2-1inyqr)."))
+      (is (and (contains-any? body ["registrar query" "registry" "orientation"])
+               (str/includes? body "always-on error")
+               (str/includes? body "direct-read"))
+          (str "tool-pair-surfaces.md no longer names the surfaces that STILL "
+               "answer under production elision — the registrar query / "
+               "orientation shape, the direct-read primitives, and the "
+               "always-on error-emit substrate. Naming only the dark surfaces "
+               "teaches an agent to abandon usable production probes "
+               "(spec/009 §What IS available in production, rf2-1inyqr).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

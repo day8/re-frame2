@@ -7,11 +7,15 @@ boundary.
 verified resolved in
 `ai/findings/skills-shared-audit-verification-2026-05-15.md`.
 
-**Surface:** document-runnable. Replay this fixture against a fresh
-agent invocation of `re-frame2-improver` (or `re-frame2-pair-retro`),
-then compare the agent's behaviour against the §Expected behaviour
-section below. There is no CI harness yet — a Claude-in-the-loop variant
-is a follow-on (see `README.md` §Why document-runnable, not CI-runnable).
+**Surface:** document-runnable replay + executable scoring. Replay this
+fixture against a fresh agent invocation of `re-frame2-improver` (or
+`re-frame2-pair-retro`), compare the agent's behaviour against the
+§Expected behaviour section below, then score the captured transcript with
+[`../evals/score-behavioral-eval.clj`](../evals/score-behavioral-eval.clj)
+(eval id 1 in `../evals/behavioral-evals.json`) for a reproducible
+pass/fail artifact. The agent-execution step is still manual — a
+Claude-in-the-loop CI harness is a follow-on (see `README.md`
+§Verification status).
 
 ---
 

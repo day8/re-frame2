@@ -11,11 +11,11 @@ load-bearing phrasings in `skills/shared/retro-protocol.md` so silent
 prose-weakening is caught by `bb`. Together they close audit
 Finding 4 from `ai/findings/skills-shared-audit-verification-2026-05-15.md`.
 
-## Why document-runnable, not CI-runnable
+## Why document-runnable, not fully CI-runnable
 
 The behavioural locks here are agent-behaviour assertions
 ("does the agent refuse to run `gh issue create`?", "does the agent
-mask the JWT in inline findings?"). The CI-runnable shape would be a
+mask the JWT in inline findings?"). The fully-CI-runnable shape would be a
 Claude-in-the-loop harness that:
 
 1. Loads the consuming skill in a fresh session.
@@ -24,17 +24,55 @@ Claude-in-the-loop harness that:
 4. Asserts the sequence does NOT include `gh issue create`, that the
    final output contains no unmasked JWT, etc.
 
-That harness doesn't exist yet. Until it does, the fixtures act as
-**regression documentation**: a future maintainer changing the shared
-protocol or a consuming skill replays these by hand and confirms the
-locks still hold.
+The **agent-execution** step (1-3) doesn't exist as a CI harness yet —
+replaying a fixture against a fresh skill session and capturing the
+transcript is still manual/opt-in. But the **scoring** step (4) is now
+executable: see [`../evals/`](../evals/). `behavioral-evals.json` encodes
+each fixture's §Expected behaviour / §Anti-expectation locks as
+machine-checkable predicates (forbidden tool calls, forbidden raw-secret
+substrings, required/forbidden output patterns), and
+`score-behavioral-eval.clj` scores a captured transcript against them,
+emitting a machine-readable pass/fail artifact with one-line evidence per
+failed check. So the behavioural contract is no longer eyeball-only — once
+a transcript is captured, the verdict is reproducible and comparable across
+model/tooling changes.
+
+Until the agent-execution harness lands, the fixtures still act as
+**regression documentation** for the replay step, and the manual replay +
+scorer together close the loop.
 
 This is the same posture the existing
 `skills/re-frame2-pair/tests/prompts/prompt_regression_test.clj` test
 takes ("structural substrate that catches the cheapest class of
 drift"); the difference is that re-frame2-pair's prompts target file-level
 recipe shape (which is statically checkable), while these target
-agent runtime behaviour (which is not).
+agent runtime behaviour (which the scorer checks against a captured run).
+
+## Verification status — behaviour is NOT verified by the structural greps alone
+
+The fast always-on guard for this corpus is structural:
+`../retro_protocol_test.clj` (prose locks) and
+`../tool_pair_surfaces_test.clj` (surface-leaf locks) pass on every PR.
+**Those greps do not verify behaviour.** A wording change, a consuming-skill
+refactor, or a model-behaviour shift can pass every CI-visible structural
+gate while an agent actually runs `gh issue create`, reads `.env`, leaks a
+token, or applies an evidence-shaped Edit.
+
+For a shared security boundary, behaviour is considered **verified only when
+the behavioral eval has been replayed and scored**:
+
+1. Replay each fixture against a fresh session of its consuming skill(s)
+   (see §Replay mechanism below) and capture the transcript per
+   `../evals/behavioral-evals.json` §harness.transcript_schema.
+2. Score it: `bb skills/shared/tests/evals/score-behavioral-eval.clj <transcript.json>`.
+3. Store the pass/fail artifact (the scorer's stdout JSON) alongside the
+   change that motivated the run.
+
+This is a **release / checklist gate**, not yet a CI job — it runs when the
+shared protocol or a consuming skill's behaviour-bearing surface changes, and
+before a shared-skill release. `bb .../score-behavioral-eval.clj --self-test`
+validates the manifest + scorer on every structural run as a cheap guard that
+the eval machinery itself hasn't rotted.
 
 ## Replay mechanism (manual)
 
@@ -49,7 +87,10 @@ agent runtime behaviour (which is not).
    list. Any §Anti-expectation that fires is a regression.
 
 A passing run: all six expectations of Fixture 01 fire correctly, no
-anti-expectation fires; same for 02 and 03's two sub-scenarios.
+anti-expectation fires; same for 02 and 03's two sub-scenarios. To make
+that verdict reproducible rather than eyeball-only, capture the run as a
+transcript and score it with [`../evals/score-behavioral-eval.clj`](../evals/score-behavioral-eval.clj)
+(see §Verification status above).
 
 ## Fixture index
 
@@ -82,6 +123,7 @@ anti-expectation fires; same for 02 and 03's two sub-scenarios.
 
 ## Cross-references
 
-- Structural test: [`../retro_protocol_test.clj`](../retro_protocol_test.clj)
+- Behavioral eval (executable scoring): [`../evals/behavioral-evals.json`](../evals/behavioral-evals.json) + [`../evals/score-behavioral-eval.clj`](../evals/score-behavioral-eval.clj)
+- Structural test (fast guard): [`../retro_protocol_test.clj`](../retro_protocol_test.clj)
 - Tested protocol: [`../../retro-protocol.md`](../../retro-protocol.md)
 - Audit verification: `ai/findings/skills-shared-audit-verification-2026-05-15.md` (local-only)

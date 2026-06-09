@@ -80,8 +80,17 @@
   "The shell prefix flushed as the first chunk. Mirrors the non-streaming
   `default-html-shell`'s open + head + body-open + app-div-open. Shares
   the `:html-attrs`/`:lang` fallback with the non-streaming shell via
-  `shell/html-attr-bag` so the two envelopes can't diverge."
-  [head-html {:keys [html-attrs body-attrs lang app-element-id]
+  `shell/html-attr-bag` so the two envelopes can't diverge.
+
+  rf2-9fw2de: when `:render-hash` is supplied (the handler passes it iff
+  `:emit-hash?` is true), `data-rf-render-hash` is stamped on the streaming
+  root element — the `#app` div, the first DOM root of the streamed
+  document — mirroring the non-streaming handler's root-element marker
+  (Spec 011 §362-363). The hash value is the full-document structural hash
+  shared with the final payload's `:rf/render-hash`, so toggling
+  `:emit-hash?` has an observable effect on the wire and a host/tool can
+  verify the streamed root against the payload."
+  [head-html {:keys [html-attrs body-attrs lang app-element-id render-hash]
               :or   {lang "en" app-element-id "app"}}]
   (let [attr-bag (shell/html-attr-bag html-attrs lang)]
     (str "<!DOCTYPE html>"
@@ -94,8 +103,13 @@
          ;; rf2-7x0qk — `:app-element-id` is an attribute-value position;
          ;; escape through `html/escape-attr` (same split as the non-
          ;; streaming `default-html-shell`). `:head` stays raw (content
-         ;; position).
-         "<div id=\"" (html/escape-attr app-element-id) "\">")))
+         ;; position). rf2-9fw2de — the `data-rf-render-hash` value is an
+         ;; 8-char hex (canonical-EDN FNV) so it needs no escaping, but it
+         ;; only emits when supplied (`:emit-hash?` true).
+         "<div id=\"" (html/escape-attr app-element-id) "\""
+         (when render-hash
+           (str " data-rf-render-hash=\"" render-hash "\""))
+         ">")))
 
 (defn default-streaming-suffix
   "The shell suffix flushed after the final-payload chunk. Closes the
@@ -158,8 +172,17 @@
      :head-html     \"…\"                        ;; resolved <head> fragment
      :html-attrs    {…} or nil                  ;; stamped on <html>
      :body-attrs    {…} or nil                  ;; stamped on <body>
+     :doc-hash      \"…\"                         ;; full-document structural hash
      :shell-html    \"…\"                        ;; chunk 1 body
      :continuations [{:id … :subtree …} …]}     ;; drain queue (FIFO)
+
+  rf2-9fw2de: `:doc-hash` is the canonical FULL-document structural hash
+  (body tree + resolved head fragment + html/body attr bags) computed via
+  `lifecycle/render-document-hash`. It drives BOTH the final-payload
+  `:rf/render-hash` AND the streaming root-element `data-rf-render-hash`
+  marker (when `:emit-hash?` is true) — preserving wire/payload parity with
+  the non-streaming handler and folding the head into the unified hash
+  channel per Spec 011 §624-626/§648-650.
 
   Throws propagate to the caller (the handler's outer try/catch routes
   them through the projector → fail-closed non-200, rf2-r06pc). The
@@ -186,15 +209,23 @@
   (shell/check-body-end-csp-hosts! body-end csp-script-src-allowlist)
   (rf/with-frame frame-id
     (let [hiccup     (lifecycle/resolve-root-view root-view)
-          {:keys [head-html html-attrs body-attrs]}
-          (if (:head opts)
-            {:head-html (:head opts) :html-attrs nil :body-attrs nil}
-            (lifecycle/resolve-head frame-id))
+          head-bag   (if (:head opts)
+                       {:head-html (:head opts) :html-attrs nil :body-attrs nil}
+                       (lifecycle/resolve-head frame-id))
+          {:keys [head-html html-attrs body-attrs]} head-bag
+          ;; rf2-9fw2de: the streaming structural hash folds the head
+          ;; fragment in, identically to the non-streaming handler — Spec
+          ;; 011 §624-626/§648-650 lock head + body onto the unified
+          ;; `:rf/render-hash` channel. Computed once here on the request
+          ;; thread; drives the final-payload `:rf/render-hash` AND (when
+          ;; `:emit-hash?`) the streaming root-element marker.
+          doc-hash   (lifecycle/render-document-hash hiccup head-bag)
           {:keys [shell-html continuations]} (streaming/render-shell hiccup)]
       {:hiccup        hiccup
        :head-html     head-html
        :html-attrs    html-attrs
        :body-attrs    body-attrs
+       :doc-hash      doc-hash
        :shell-html    shell-html
        :continuations continuations})))
 
@@ -219,7 +250,39 @@
 ;; already flushed — the first chunk has already committed the success
 ;; status to the wire, so a truncate-and-close is the only safe outcome
 ;; (the status can no longer change). The server logs the trace via
-;; `:rf.error/ssr-streaming-writer-failed`.
+;; `:rf.error/ssr-streaming-writer-failed`, which carries WRITER-PHASE
+;; context (rf2-l1qgjw): a `:phase` tag (`:shell-prefix` / `:shell-html`
+;; / `:continuation-template` / `:continuation-delta` / `:final-payload`
+;; / `:suffix`), a `:boundary-id` tag when the failure is inside a
+;; continuation drain, and a coarse `:committed? true` — so ops can tell
+;; a broken client pipe from a bad final payload from a specific
+;; boundary drain rather than seeing one undifferentiated event.
+
+;; rf2-l1qgjw issue 2 — writer-failure phase context. The writer drains
+;; several distinct chunk phases AFTER the response head has committed
+;; (Spec 011 §Failure semantics — once the first chunk lands the status
+;; is on the wire and can no longer change). When a write throws, the
+;; bare `:frame`/`:exception`/`:ex-class`/`:recovery` shape gave ops the
+;; SAME trace for a broken client pipe, a bad final payload, a bad suffix
+;; hook, or a specific continuation drain — turning incident triage into
+;; log archaeology. We track the active phase in a `volatile!` as the
+;; writer advances and stamp it (plus the continuation `:boundary-id` and
+;; a coarse `:committed?`) onto the trace so the recovery channel names
+;; WHERE the stream broke. The phases, in wire order:
+;;
+;;   :shell-prefix          — chunk 1a, the <!DOCTYPE>…<div id=app> open
+;;   :shell-html            — chunk 1b, the shell body with <template>s
+;;   :continuation-template — a resolved/failed boundary <template> chunk
+;;   :continuation-delta    — a boundary's hydration-delta <script> chunk
+;;   :final-payload         — the canonical __rf_payload <script>
+;;   :suffix                — the </div>…</body></html> close
+;;
+;; `:committed?` is true from the moment the FIRST byte is attempted
+;; (`:shell-prefix` onward) — i.e. for every phase here, since the writer
+;; only runs after the request thread committed the chunked head. It is
+;; carried explicitly (rather than inferred from `:phase`) so the contract
+;; is self-describing for log/observability consumers and stays correct if
+;; a future pre-commit phase is ever added to this thread.
 
 (defn- run-streaming-writer!
   "Run the streaming writer on the calling (daemon) thread. The caller
@@ -229,17 +292,46 @@
   shell failures fail closed there; this thread only drains the chunk
   stream). On any throw, the catch arm emits a
   `:rf.error/ssr-streaming-writer-failed` trace and closes the stream
-  cleanly so the Ring server can EOF the response."
+  cleanly so the Ring server can EOF the response.
+
+  The trace carries WRITER-PHASE context (rf2-l1qgjw issue 2): a `:phase`
+  tag naming which chunk was in flight when the write threw (one of
+  `:shell-prefix` / `:shell-html` / `:continuation-template` /
+  `:continuation-delta` / `:final-payload` / `:suffix`), a `:boundary-id`
+  tag when the failure happened inside a continuation drain, and a coarse
+  `:committed? true` (every writer phase runs post-head-commit). That
+  shape lets ops distinguish a broken client pipe from a bad final payload
+  from a specific boundary drain in JFR / log streams instead of seeing
+  one undifferentiated writer-failed event."
   [^OutputStream out frame-id rendered opts]
-  (try
+  ;; Phase tracker — a 2-tuple `[phase boundary-id]`. `boundary-id` is nil
+  ;; outside a continuation drain. Updated as the writer advances so the
+  ;; catch arm can name the in-flight phase.
+  (let [phase (volatile! [:shell-prefix nil])]
+   (try
     (let [{:keys [emit-hash? version schema-digest payload]} opts
-          {:keys [hiccup head-html html-attrs body-attrs
-                  shell-html continuations]} rendered
+          ;; rf2-9fw2de — the writer no longer recomputes the hash from
+          ;; `hiccup`; `doc-hash` (full-document) was computed once on the
+          ;; request thread by `render-streaming-shell!`. `:hiccup` stays in
+          ;; the `rendered` map for diagnostics but is not destructured here.
+          {:keys [head-html html-attrs body-attrs
+                  doc-hash shell-html continuations]} rendered
           shell-opts (merge opts
-                            {:html-attrs html-attrs
-                             :body-attrs body-attrs})]
+                            {:html-attrs  html-attrs
+                             :body-attrs  body-attrs
+                             ;; rf2-9fw2de — honour `:emit-hash?` on the
+                             ;; streaming path: stamp the full-document
+                             ;; hash onto the root `#app` div when true, no
+                             ;; marker when false (a true no-op was the
+                             ;; bug). Same hash the final payload carries.
+                             :render-hash (when emit-hash? doc-hash)})]
       ;; Chunk 1 — shell prefix + shell HTML (with template fallbacks).
+      ;; rf2-l1qgjw — stamp the phase before each write so the catch arm
+      ;; names the in-flight chunk. `:shell-prefix` is already the initial
+      ;; volatile value, set explicitly here for symmetry/readability.
+      (vreset! phase [:shell-prefix nil])
       (write-chunk! out (default-streaming-prefix head-html shell-opts))
+      (vreset! phase [:shell-html nil])
       (write-chunk! out shell-html)
       ;; Chunks 2..N+1 — one per continuation, FIFO over registration.
       ;;
@@ -260,6 +352,10 @@
                 tmpl-fn (if failed?
                           streaming/failed-template
                           streaming/resolved-template)]
+            ;; rf2-l1qgjw — a write throw inside a continuation drain names
+            ;; the boundary :id so ops correlate the failure to a specific
+            ;; deferred subtree (not just "some continuation broke").
+            (vreset! phase [:continuation-template id])
             (write-chunk! out (tmpl-fn id html))
             ;; rf2-kjf3m.5 — emit the per-boundary hydration-delta <script>
             ;; ONLY when the delta carries something to hydrate. A
@@ -273,18 +369,24 @@
             ;; carry `:delta nil` (also falsy here), so the `not failed?`
             ;; arm is now redundant but kept for intent clarity.
             (when (and (not failed?) (seq delta))
+              (vreset! phase [:continuation-delta id])
               (write-chunk! out (streaming/hydrate-delta-script id (pr-str delta))))
             ;; Pop the drained entry, append any nested continuations at
             ;; the tail (FIFO), continue until empty.
             (recur (into (pop queue) continuations)))))
       ;; Chunk N+2 — final canonical __rf_payload.
       ;;
-      ;; rf2-5knxf.2 — the streaming final-payload `:rf/render-hash` is
-      ;; computed over `hiccup` (the resolved root view returned by
-      ;; `render-streaming-shell!`) via `render-tree-hash`, the IDENTICAL
-      ;; mechanism the non-streaming `build-full-response*` uses (it hashes
-      ;; `(resolve-root-view root-view)` the same way). This is the correct
-      ;; structural hash, NOT a streaming-specific divergence:
+      ;; rf2-5knxf.2 — the streaming final-payload `:rf/render-hash` is the
+      ;; full-document structural hash (`doc-hash`) computed ONCE on the
+      ;; request thread in `render-streaming-shell!` via
+      ;; `lifecycle/render-document-hash` — the IDENTICAL mechanism the
+      ;; non-streaming `build-full-response*` uses. rf2-9fw2de: it folds the
+      ;; resolved head fragment (+ html/body attr bags) into the canonical
+      ;; input alongside the body `hiccup`, so a head-only divergence
+      ;; changes the hash (Spec 011 §624-626/§648-650). It is reused (not
+      ;; recomputed) so the final-payload `:rf/render-hash` and the streamed
+      ;; root-element `data-rf-render-hash` marker are byte-identical. This
+      ;; is the correct structural hash, NOT a streaming-specific divergence:
       ;;
       ;;   - `render-tree-hash` is a PURE structural FNV-1a over the
       ;;     canonical-EDN of the hiccup (hash.cljc). It does NOT expand
@@ -316,10 +418,15 @@
       ;;     :app/root))`). It is NOT a marker bug and NOT streaming-specific.
       ;;     Spec 011 §Hydration equivalence rule (structural, not textual)
       ;;     + §Hydration-mismatch detection.
-      (let [final-hash    (rf/with-frame frame-id (ssr/render-tree-hash hiccup))
-            final-payload (rf/with-frame frame-id
+      ;; rf2-l1qgjw — the `:final-payload` phase spans BOTH the
+      ;; `build-final-payload` assembly (which can throw on a bad payload
+      ;; policy / serialise) AND its write, so a throw in either surfaces
+      ;; as `:phase :final-payload` rather than leaking out as the prior
+      ;; `:continuation-template`/`:shell-html` phase.
+      (vreset! phase [:final-payload nil])
+      (let [final-payload (rf/with-frame frame-id
                             (streaming/build-final-payload
-                              frame-id final-hash
+                              frame-id doc-hash
                               {:version       version
                                :schema-digest schema-digest
                                :payload       payload}))]
@@ -327,15 +434,28 @@
         ;; (rf2-7ksyr) — same helper the non-streaming shell uses.
         (write-chunk! out (shell/payload-script-tag (pr-str final-payload))))
       ;; Chunk N+3 — shell suffix close.
+      (vreset! phase [:suffix nil])
       (write-chunk! out (default-streaming-suffix opts)))
     (catch Throwable t
-      (trace/emit-error! :rf.error/ssr-streaming-writer-failed
-                         {:frame    frame-id
-                          :exception (.getMessage t)
-                          :ex-class  (.getName (class t))
-                          :recovery  :truncate-and-close}))
+      ;; rf2-l1qgjw — stamp the in-flight phase + (when inside a
+      ;; continuation drain) the boundary id + a coarse `:committed?` so
+      ;; the writer-failed trace names WHERE the post-commit stream broke.
+      ;; `:recovery` is hoisted to top-level by `build-event` (Spec 009
+      ;; §Error event shape); `:phase` / `:boundary-id` / `:committed?`
+      ;; ride in `:tags`. `:boundary-id` is omitted entirely (not nil)
+      ;; outside a continuation phase so the tag's presence is itself the
+      ;; "failed inside a boundary drain" signal.
+      (let [[ph boundary-id] @phase]
+        (trace/emit-error! :rf.error/ssr-streaming-writer-failed
+                           (cond-> {:frame      frame-id
+                                    :exception  (.getMessage t)
+                                    :ex-class   (.getName (class t))
+                                    :phase      ph
+                                    :committed? true
+                                    :recovery   :truncate-and-close}
+                             (some? boundary-id) (assoc :boundary-id boundary-id)))))
     (finally
-      (try (.close out) (catch Throwable _ nil)))))
+      (try (.close out) (catch Throwable _ nil))))))
 
 ;; ---- public surface ------------------------------------------------------
 

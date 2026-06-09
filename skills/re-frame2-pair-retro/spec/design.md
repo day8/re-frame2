@@ -6,7 +6,7 @@ The design rationale and locked decisions for the `re-frame2-pair-retro` skill. 
 
 ## 1. Goal
 
-Help a user **retrospect on a re-frame2-pair session** and turn it into a structured product retrospective. The output is a friction analysis, a classification of root causes, and 2-5 concrete improvement ideas — optionally accompanied by a draft GitHub issue the user can file against `day8/re-frame2` (the monorepo that ships the pair tool alongside the framework), labelled `pair-mcp` for tool-side friction and unlabelled for upstream framework friction.
+Help a user **retrospect on a re-frame2-pair session** and turn it into a structured product retrospective. The output is a friction analysis, a classification of root causes, and 2-5 concrete improvement ideas — optionally accompanied by a draft GitHub issue the user can file against `day8/re-frame2` (the monorepo that ships the pair tool alongside the framework). The tool-vs-framework distinction is carried in the title + body; an optional `pair-mcp` label reinforces tool-side friction **only when the repo defines it** (labels are optional taxonomy, never a filing precondition — see L3).
 
 The skill's success criterion: after a session with `re-frame2-pair`, the user invokes this skill and walks away with a clear list of friction points, a credible classification of each, and prioritised improvement ideas — with no speculative GitHub issues filed without explicit approval.
 
@@ -23,22 +23,22 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 
 ### L1 — No re-frame-10x routing
 
-Per the parent `re-frame2-pair` skill's L2: re-frame2's pair tooling does not depend on re-frame-10x. This skill MUST NOT propose fixes that route through 10x — time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces (`register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation). This is a cardinal "What to avoid" rule.
+Per the parent `re-frame2-pair` skill's L2: re-frame2's pair tooling does not depend on re-frame-10x. This skill MUST NOT propose fixes that route through 10x — time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces. The authoritative, current surface-family enumeration lives in [`../../shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md) (trace stream, registrar query API, epoch-history / restore, the four state-injection mutators, schema reflection, source-coord annotation, direct reads, render-driving / dispatch-settle, view-plane reads, the signal recorder, the operating-frame trio) — name the matching family from there rather than re-spelling an abbreviated subset here. This is a cardinal "What to avoid" rule.
 
 ### L2 — Never file a GitHub issue without explicit user approval
 
 The skill drafts issue text on request; it does not file issues autonomously. After presenting the retrospective, the skill offers to file *only if asked*. Filing is opt-in, not opt-out. This is a cardinal guard-rail.
 
-**Tracker boundary.** Filings target **`day8/re-frame2`'s GitHub issues** — the pair tool ships inside that monorepo (`skills/re-frame2-pair/` + `tools/re-frame2-pair-mcp/`), so both tool-side and framework friction file there, distinguished by the `pair-mcp` label (tool-side carries it; framework friction does not). `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill. The body is composed to a **fresh, per-filing temp file in the host OS's temp directory** with the `Write` tool — a nonce-carrying `$env:TEMP\…` on Windows or `${TMPDIR:-/tmp}/…` on POSIX, never a fixed `/tmp/issue-body.md` (which breaks on hosts without `/tmp` and lets concurrent filings collide) — and passed via `gh`'s native `--body-file` flag, never inline interpolation of transcript-derived text. See `skills/README.md` §Published-skill `allowed-tools` baseline for the canonical shape.
+**Tracker boundary.** Filings target **`day8/re-frame2`'s GitHub issues** — the pair tool ships inside that monorepo (`skills/re-frame2-pair/` + `tools/re-frame2-pair-mcp/`), so both tool-side and framework friction file there, distinguished primarily in the title + body (an optional `pair-mcp` label reinforces tool-side friction only when the repo defines it — labels are never a filing precondition; see L3). `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill. The body is composed to a **fresh, per-filing temp file in the host OS's temp directory** with the `Write` tool — a nonce-carrying `$env:TEMP\…` on Windows or `${TMPDIR:-/tmp}/…` on POSIX, never a fixed `/tmp/issue-body.md` (which breaks on hosts without `/tmp` and lets concurrent filings collide) — and passed via `gh`'s native `--body-file` flag, never inline interpolation of transcript-derived text. See `skills/README.md` §Published-skill `allowed-tools` baseline for the canonical shape.
 
 ### L3 — Route the fix to the right layer
 
-Both kinds of friction file against `day8/re-frame2`, distinguished by label:
+Both kinds of friction file against `day8/re-frame2`. The distinction is carried **primarily in the title + body**; a label optionally reinforces it **only when the repo defines it**:
 
-- **pair-tool friction** (`--label pair-mcp`) — friction inside the pair tool: SKILL.md, scripts/MCP tools, recipes, structured results, attach/discovery brittleness, cross-platform handling.
-- **framework friction** (no `pair-mcp` label) — friction caused by the framework's Tool-Pair contract: missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coordinate annotation gaps, schema-reflection shortcomings.
+- **pair-tool friction** (optional `--label pair-mcp`) — friction inside the pair tool: SKILL.md, scripts/MCP tools, recipes, structured results, attach/discovery brittleness, cross-platform handling.
+- **framework friction** (optional `--label upstream-from-re-frame2-pair`, no `pair-mcp`) — friction caused by the framework's Tool-Pair contract: missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coordinate annotation gaps, schema-reflection shortcomings.
 
-The skill is explicit about which label each draft issue carries (both target `day8/re-frame2`). Mis-labelling wastes the maintainer's time.
+**Labels are optional taxonomy, never a filing precondition.** `gh issue create` fails the whole command on an unknown `--label`, and a consumer's repo (or this one, today) may not define `retro` / `pair-mcp` / `upstream-from-re-frame2-pair`. So the baseline filing command carries **no `--label`** and always succeeds; a label is added only after `gh label list` confirms it exists, passing only the present tokens, and a labelled create that fails an unknown-label check re-runs the no-label baseline so the issue still lands. The skill is explicit about the routing in the title + body regardless. (rf2-ia7qf finding 1 established the optional-label fallback.)
 
 ### L4 — Diagnosis-first workflow
 
@@ -99,7 +99,7 @@ GitHub-issue drafts redact secrets, tokens, internal URLs, and unnecessary local
 - Users finishing a `re-frame2-pair` session who want a structured retrospective.
 - Friction analysis: direct (user complaints) + indirect (repeated commands, fallback to lower-level tools, manual reconstruction).
 - Classification across the nine lenses in `references/analysis-lenses.md`.
-- Drafting GitHub issues against `day8/re-frame2`, distinguished by label: `pair-mcp` for tool changes; no label for upstream contract changes.
+- Drafting GitHub issues against `day8/re-frame2`, distinguished in the title + body (an optional `pair-mcp` label reinforces tool changes only when the repo defines it — labels are never a filing precondition; see L3).
 - Spotting recurring patterns via `references/known-frictions.md`.
 
 ### Out of scope
@@ -122,7 +122,7 @@ skills/re-frame2-pair-retro/
 ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 ├── agents/
 │ └── openai.yaml (alt-host config — kept for cross-LLM operation)
-├── evals/
+├── evals/                          # repo-maintenance artifact; excluded from the npm `files` array
 │ └── evals.json (trigger-accuracy fixtures — which prompts should / should not activate)
 ├── references/
 │ ├── analysis-lenses.md (~140 lines; nine root-cause lenses + improvement shapes)

@@ -68,7 +68,7 @@ A layer-1 sub touches `app-db` and recomputes when the value it reads changes by
 
 ## Cache behaviour
 
-Caching is per-frame, keyed by the query-vector. Disposal is **synchronous ref-counting (dispose on derefer-count → 0)** per rf2-cmfln (`subs/cache.cljc`). When the last subscriber drops, the cache entry is evicted in-tick: the reaction is disposed, the on-dispose cascade releases input ref-counts, and the slot is dissoc'd. A subscribe arriving after the disposal is treated as a fresh cache miss (the recomputed value `=` the disposed one). This is the **only** disposal algorithm — v1's `:safe` / `:no-cache` / `:reactive` / `:forever` lifecycles are gone, and v2 carries no deferred-grace-period timer either.
+Caching is per-frame, keyed by the query-vector. Disposal is **synchronous ref-counting (dispose on derefer-count → 0)** (`subs/cache.cljc`). When the last subscriber drops, the cache entry is evicted in-tick: the reaction is disposed, the on-dispose cascade releases input ref-counts, and the slot is dissoc'd. A subscribe arriving after the disposal is treated as a fresh cache miss (the recomputed value `=` the disposed one). This is the **only** disposal algorithm — v1's `:safe` / `:no-cache` / `:reactive` / `:forever` lifecycles are gone, and v2 carries no deferred-grace-period timer either.
 
 ## Common gotchas
 

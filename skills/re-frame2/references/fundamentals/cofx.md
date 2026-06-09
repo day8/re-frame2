@@ -114,17 +114,19 @@ Default to `reg-cofx` for anything that names a generally-useful input (`:now`, 
 
 Both produce identical runtime behaviour for this event. The trade is per the rubric above — the inline form trades registry-id-addressability (and everything that flows from it) for one fewer indirection.
 
-Design decision: **rf2-bku5r**. The narrative treatment for humans is at [`docs/guide/07-effects-and-coeffects.md`](../../../../docs/guide/07-effects-and-coeffects.md) §When `reg-cofx` is overkill.
+The narrative treatment for humans is at [`docs/guide/07-effects-and-coeffects.md`](../../../../docs/guide/07-effects-and-coeffects.md) §When `reg-cofx` is overkill.
 
 ## Why coeffects instead of `(.-localStorage ...)` in the handler?
 
 Pure handlers are testable, replayable (for re-frame2-pair epoch restore), and serialisable (for SSR snapshots). A handler that reads `Date.now()` directly is non-deterministic; the same handler that destructures `now` from coeffects is a pure function of its inputs.
 
-## Reading a sub from a handler — wrap as cofx
+## Reading a sub from a handler — `subscribe-once`, preferably wrapped as a cofx
 
-A handler that needs a sub's current value **must not** call `(rf/subscribe ...)` (or `rf/subscribe-once`) from inside its body. Subscriptions are a view-layer concern; reading one implicitly from a handler breaks per-handler purity — the same `[coeffects event]` pair would no longer fully determine the handler's output, and `subscribe` would silently establish a reaction in whatever evaluation context the drain loop happened to be in.
+A handler that needs a sub's current value **must not** open a **reactive** subscription — `(rf/subscribe ...)` / `@(rf/subscribe ...)` — from inside its body. Reactive subscriptions are a view-layer concern; opening one implicitly from a handler silently establishes a reaction in whatever evaluation context the drain loop happened to be in, and leaks it until GC.
 
-The canonical shape is to wrap the sub read as a cofx and inject it. The cofx handler is the one place the impure read lives; the event handler stays a function of its coeffects map.
+The shipped one-shot read for non-reactive consumers is **`rf/subscribe-once`** (Spec 006 §`subscribe-once`; Spec API). It subscribes, derefs, and unsubscribes in one call — it leaves no reaction behind — and the contract explicitly names event handlers, machine actions, REPL sessions, and SSR builders as legitimate callers. A bare `(rf/subscribe-once [:some/sub])` in a handler body is a correct, supported read.
+
+The **preferred** shape, when the read should be reusable / parameterised / stubbable in tests / schema-validated / visible as a named input, is to wrap the `subscribe-once` read as a cofx and inject it — the cofx body is where the read lives, and the handler stays a function of its coeffects map. Reach for the cofx wrap when one of those properties matters; a one-shot, single-handler current-value read can stay a direct `subscribe-once`.
 
 ```clojure
 ;; Register a cofx that materialises the sub at injection time.

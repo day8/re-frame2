@@ -549,11 +549,18 @@
                                                     :else           nil)
                                  :strokeLinecap (when fork-connector? "round")
                                  ;; rf2-qeemm (G3) — the fired-this-epoch edge
-                                 ;; animates the same glow as the focused lens
+                                 ;; flashes the same glow as the focused lens
                                  ;; (it traversed), so a fired arm that is NOT
-                                 ;; the focused FROM→TO still pulses.
+                                 ;; the focused FROM→TO still glows.
+                                 ;; rf2-4o43j8 — the glow is event-driven +
+                                 ;; FINITE: ONE motion-scaled iteration that
+                                 ;; settles to a stable end-state (no `infinite`
+                                 ;; strobe) and collapses to a settle frame
+                                 ;; under `prefers-reduced-motion`. The static
+                                 ;; fired/focused affordance (stroke width/hue
+                                 ;; above) persists after it completes.
                                  :animation (when (or focused? fired?)
-                                              "mv-chart-transition-glow 720ms ease-out infinite")}}]
+                                              (tokens/glow-animation-css))}}]
        (when (seq label)
        [:> EdgeLabelRenderer
         [:div {:data-testid (str "rf-mv-chart-edge-" (.-id props))

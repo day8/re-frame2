@@ -13,7 +13,10 @@
 
    - `--test=` SELECTION: comma-split into symbols, simple symbols are
      namespace selectors and qualified symbols are single-var
-     selectors; `--list` / `--help` flags; unknown args are tolerated.
+     selectors; `--list` / `--help` flags; unknown args are COLLECTED by
+     the pure parser (into `:unknown-args`) and rejected as a fatal parse
+     error by `execute-cli` (rf2-14nojy.1) — the process-level pins below
+     prove that boundary.
    - FAILURE EXIT: the `:end-run-tests` defmethod exits 0 iff the
      summary is `cljs.test/successful?`, 1 otherwise — pinned via the
      predicate the defmethod branches on (calling the defmethod itself
@@ -40,6 +43,7 @@
   ;; `-cli` ns; the console.warn stub it installs is live at runtime
   ;; anyway because shadow-node is the :node-test build's :main.
   (:require [cljs.test :refer-macros [deftest is testing] :refer [successful?]]
+            [clojure.string :as str]
             [re-frame.test-quiet.shadow-node-cli :as cli]))
 
 ;; ----------------------------------------------------------------------
@@ -69,10 +73,22 @@
     (is (= {:test-syms [] :help true} (cli/parse-args ["--help"]))))
   (testing "no args yields the run-all default (empty test-syms, no flags)"
     (is (= {:test-syms []} (cli/parse-args []))))
-  (testing "unknown args are tolerated and do not abort parsing"
-    (is (= {:test-syms '[ok.ns]}
+  (testing "unknown args are collected (not printed); the pure parser does not abort"
+    ;; The pure parser must NOT print on an unknown arg — it collects
+    ;; them into `:unknown-args` and the real CLI path (`execute-cli`)
+    ;; reports them and exits NONZERO (rf2-14nojy.1, pinned at the process
+    ;; boundary below). Keeping the PARSER pure-and-silent is what keeps
+    ;; the green-run contract gate truly silent-on-success: a
+    ;; `(println \"Unknown arg: ...\")` here would leak a non-summary line
+    ;; into every consolidated `npm run test:cljs` run (rf2-spzkgo).
+    (is (= {:test-syms '[ok.ns] :unknown-args ["--bogus"]}
            (cli/parse-args ["--bogus" "--test=ok.ns"]))
-        "an unknown flag is skipped; later valid flags still parse")))
+        "an unknown flag is collected; later valid flags still parse")
+    (is (= {:test-syms '[ok.ns] :unknown-args ["--bogus" "--nope"]}
+           (cli/parse-args ["--bogus" "--test=ok.ns" "--nope"]))
+        "multiple unknown flags accumulate in input order")
+    (is (not (contains? (cli/parse-args ["--test=ok.ns"]) :unknown-args))
+        "a clean arg set carries no :unknown-args key at all")))
 
 ;; ----------------------------------------------------------------------
 ;; Var filtering — simple symbols match by ns, qualified by fully-qualified
@@ -235,3 +251,306 @@
     ;; And it must still accept a bare call without throwing.
     (is (nil? (js/console.warn "stub-smoke"))
         "the silencing stub must accept a bare call without throwing")))
+
+;; ----------------------------------------------------------------------
+;; Process-level quiet-shape regression (rf2-spzkgo).
+;;
+;; The pure-parser pins above lock that `parse-args` no longer PRINTS on
+;; an unknown arg — but the slice's core promise is that the REAL
+;; shadow-node entry point is silent-on-success.  That promise lived only
+;; in the JVM contract test (`re-frame.test-quiet-runner-contract-test`);
+;; the CLJS process path could regress without any test catching it (a
+;; stray `println`, a dropped console.warn stub, a banner leak).
+;;
+;; This regression spawns the SAME built `out/node-test.js` shadow-node
+;; runner this very process is executing, focused on a known-GREEN suite
+;; (`re-frame.test-quiet-green-fixture-cljs-test`, a single `is (= 1 1)`),
+;; captures its stdout, and fails if any green line other than the
+;; allowed canonical summary appears — `Unknown arg`, a `Testing <ns>`
+;; banner, leaked warnings, or any other non-summary text.
+
+(def ^:private node-child-process (js/require "child_process"))
+
+(def ^:private allowed-green-line-re
+  "A non-blank green stdout line must be one of the two canonical summary
+  lines.  `Ran N tests containing M assertions.` / `K failures, J errors.`"
+  #"^(Ran \d+ tests containing \d+ assertions\.|\d+ failures, \d+ errors\.)$")
+
+(def ^:private spawn-timeout-ms
+  "Hard ceiling for a spawned focused runner.  A correctly-exiting child
+  returns in well under a second; this generous bound makes a child that
+  stops exiting FAIL with a structured `:timed-out?` diagnostic instead
+  of hanging the whole CLJS suite (rf2-8dfq5j.3)."
+  60000)
+
+(def ^:private spawn-max-buffer-bytes
+  "Output cap for a spawned focused runner — `spawnSync` kills the child
+  and surfaces an ENOBUFS-class error once either stream exceeds this,
+  so a runaway child cannot exhaust this process's memory."
+  (* 8 1024 1024))
+
+(defn- spawn-runner
+  "Re-spawn the SAME built `out/node-test.js` shadow-node runner this
+  process is executing, with `argv` (a CLJS vector of string args), and
+  return `{:status :stdout :stderr :error :signal :timed-out?}`.
+
+  `process.argv[1]` is the runner script path and `process.argv[0]` the
+  node binary, so this exercises the REAL `shadow-node/main` -> `parse-args`
+  -> `execute-cli` CLI path end-to-end across a process boundary — the only
+  way to observe the `js/process.exit` codes the false-green guards branch
+  on (calling `execute-cli` in-process would tear down this runner).
+
+  `opts` is an optional CLJS map:
+   - `:env` — extra environment entries (merged over the parent env) the
+     child runs with;
+  A shared `:timeout`/`:maxBuffer` policy is applied to EVERY spawn so a
+  wedged or runaway child fails fast with a diagnostic rather than
+  stranding the suite (rf2-8dfq5j.3).  On a `spawnSync` timeout the child
+  is sent SIGTERM and `res.signal` is `\"SIGTERM\"`; `:timed-out?`
+  surfaces that for assertions."
+  ([argv] (spawn-runner argv {}))
+  ([argv {:keys [env]}]
+   (let [self     (aget js/process.argv 1)
+         child-env (when env
+                     (let [merged (js/Object.assign #js {} js/process.env)]
+                       (doseq [[k v] env]
+                         (aset merged (name k) v))
+                       merged))
+         res  (.spawnSync node-child-process
+                          (aget js/process.argv 0) ; the node binary
+                          (apply array self argv)
+                          (cond-> #js {:encoding  "utf8"
+                                       :timeout   spawn-timeout-ms
+                                       :maxBuffer spawn-max-buffer-bytes}
+                            child-env (doto (aset "env" child-env))))
+         signal (.-signal res)]
+     {:status     (.-status res)
+      :stdout     (or (.-stdout res) "")
+      :stderr     (or (.-stderr res) "")
+      ;; cljs.test spawn errors (e.g. ENOENT, ETIMEDOUT, ENOBUFS) surface
+      ;; on res.error.
+      :error      (.-error res)
+      :signal     signal
+      ;; spawnSync kills the child with SIGTERM on a :timeout expiry.
+      :timed-out? (= signal "SIGTERM")})))
+
+(deftest real-shadow-node-green-run-is-quiet
+  (testing "the real out/node-test.js entry point emits ONLY the canonical summary on a focused green run (rf2-spzkgo)"
+    ;; Re-running the runner focused on the green fixture exercises the real
+    ;; CLI path end-to-end.
+    (let [green-ns "re-frame.test-quiet-green-fixture-cljs-test"
+          {status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner [(str "--test=" green-ns)])]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (zero? status)
+          (str "the focused green run must exit 0; got " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (let [non-blank (->> (str/split-lines stdout)
+                           (map str/trim)
+                           (remove str/blank?))]
+        ;; The CORE pin: NOT ONE non-summary line. This is what `Unknown
+        ;; arg: --bogus` used to violate before the parser was made pure.
+        (is (every? #(re-matches allowed-green-line-re %) non-blank)
+            (str "a green run must emit ONLY the canonical summary lines —"
+                 " any other stdout line (e.g. `Unknown arg`, a `Testing`"
+                 " banner, a leaked warning) breaks silent-on-success"
+                 " (rf2-spzkgo). Got non-blank lines:\n"
+                 (str/join "\n" non-blank)))
+        (is (not (str/includes? stdout "Unknown arg"))
+            (str "the specific rf2-spzkgo regression: `Unknown arg` must"
+                 " NEVER reach a green run's stdout; got:\n" stdout))
+        (is (not (str/includes? stdout "Testing "))
+            (str "no per-ns banner may leak on green; got:\n" stdout))
+        (is (some #(str/starts-with? % "Ran ") non-blank)
+            (str "the summary `Ran ...` line must still be present; got:\n"
+                 stdout))
+        (is (some #(re-matches #"0 failures, 0 errors\." %) non-blank)
+            (str "the green tally line must be present; got:\n" stdout))))))
+
+;; ----------------------------------------------------------------------
+;; Unknown-arg FALSE-GREEN guard (rf2-14nojy.1) — process-level.
+;;
+;; The pure-parser pins above lock that `parse-args` COLLECTS unknown args
+;; into `:unknown-args` (it no longer prints; rf2-spzkgo).  But the real
+;; FALSE-GREEN lived past the parser, in `execute-cli`: pre-fix it merely
+;; PRINTED the unknowns and then fell through to the `:else`
+;; `run-all-tests` branch whenever no `--test=` selector survived.  A
+;; mistyped focused run — the space-separated `--test missing.ns` (both
+;; tokens unknown, no `--test=` form), or a misspelled flag like
+;; `--tests=foo` — therefore ran the FULL suite and exited GREEN, silently
+;; ignoring the requested selection.  The fix makes unknown args a fatal
+;; parse error: print them and `js/process.exit` NONZERO before running
+;; anything.  These pins drive the REAL runner across a process boundary
+;; (the only place the exit code is observable) and prove the false-green
+;; is closed — with the green-fixture-still-passes negative control that a
+;; correct invocation continues to exit 0.
+
+(deftest unknown-arg-is-fatal-not-false-green
+  (testing "a misspelled selector flag (--tests=...) is fatal, NOT a green full-suite run (rf2-14nojy.1)"
+    ;; `--tests=` (note the typo'd plural) is an unknown arg, not the
+    ;; `--test=` selector. Pre-fix it printed `Unknown arg: --tests=...`
+    ;; then ran the whole suite and exited 0. It must now exit NONZERO.
+    (let [{status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner ["--tests=re-frame.test-quiet-green-fixture-cljs-test"])]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (and (number? status) (not (zero? status)))
+          (str "a misspelled selector flag must exit NONZERO (not fall"
+               " through to a green full-suite run); got status " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (is (str/includes? stdout "Unknown arg: --tests=re-frame.test-quiet-green-fixture-cljs-test")
+          (str "the offending unknown arg must be named; got:\n" stdout))
+      ;; It must NOT have run the suite: no canonical summary line.
+      (is (not (str/includes? stdout "Ran "))
+          (str "the suite must NOT have run on an unknown-arg parse error —"
+               " a `Ran ...` summary means it fell through to run-all-tests"
+               " (the false green); got:\n" stdout))))
+  (testing "space-separated --test <selector> (both tokens unknown) is fatal, NOT a green run (rf2-14nojy.1)"
+    ;; The plausible space-separated form: `--test` and `missing.ns` are
+    ;; BOTH unknown args (the parser only recognises the `--test=` glued
+    ;; form), so no selector survives. Pre-fix this ran the full suite green.
+    (let [{status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner ["--test" "missing.ns"])]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (and (number? status) (not (zero? status)))
+          (str "space-separated --test <selector> must exit NONZERO; got "
+               status "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (is (and (str/includes? stdout "Unknown arg: --test")
+               (str/includes? stdout "Unknown arg: missing.ns"))
+          (str "both unknown tokens must be named; got:\n" stdout))
+      (is (not (str/includes? stdout "Ran "))
+          (str "the suite must NOT have run; a `Ran ...` summary means the"
+               " false-green fall-through to run-all-tests; got:\n" stdout))))
+  (testing "a clean focused invocation still exits 0 (negative control)"
+    ;; The guard must reject ONLY malformed args — a correct `--test=`
+    ;; selector against a real green ns must still run and exit 0.
+    (let [{status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner ["--test=re-frame.test-quiet-green-fixture-cljs-test"])]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (zero? status)
+          (str "a clean focused run must STILL exit 0 — the guard must not"
+               " reject valid args; got status " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (is (not (str/includes? stdout "Unknown arg"))
+          (str "a clean invocation must emit no `Unknown arg`; got:\n" stdout)))))
+
+(deftest unmatched-selector-is-fatal-at-real-runner
+  (testing "--test=<missing> (a parsed-but-unmatched selector) exits NONZERO at the REAL runner, not just the pure helper (rf2-lbo79.1 boundary)"
+    ;; The unmatched-selector guard was previously pinned only via the pure
+    ;; `cli/unmatched-selectors` helper. This drives it across the REAL
+    ;; process boundary: a well-formed `--test=` selector that matches NO
+    ;; test var must print the ERROR + exit NONZERO, never a 0-test green.
+    (let [{status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner ["--test=definitely.absent.namespace"])]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (and (number? status) (not (zero? status)))
+          (str "an unmatched --test= selector must exit NONZERO (not a"
+               " 0-test green); got status " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (is (str/includes? stdout "no tests matched --test= selector")
+          (str "the unmatched-selector ERROR must reach stdout; got:\n" stdout))
+      (is (str/includes? stdout "definitely.absent.namespace")
+          (str "the offending selector must be named; got:\n" stdout))
+      (is (not (str/includes? stdout "Ran "))
+          (str "no suite may have run; a `Ran ...` summary is the false"
+               " green; got:\n" stdout)))))
+
+;; ----------------------------------------------------------------------
+;; console.warn buffer red-replay (rf2-8dfq5j.2).
+;;
+;; The shadow-node `console.warn` stub no longer DISCARDS warnings on the
+;; success path — it buffers them in a bounded ring and the
+;; `:end-run-tests` reporter replays the buffer to stderr ONLY on a RED
+;; run, restoring the diagnostic context a failing CLJS run needs.  This
+;; can only be observed across a process boundary (the replay fires just
+;; before `js/process.exit`).  We drive the REAL runner against
+;; `re-frame.test-quiet-red-warn-fixture-cljs-test`, whose warn-then-fail
+;; behaviour is gated on `RF2_TQ_RED_WARN_FIXTURE=1` (so the whole-suite
+;; run stays green): with the env var set the fixture warns + fails, and
+;; the buffered warning must surface in the red output; with it UNSET the
+;; same fixture is green and emits no warning.
+
+(deftest red-run-replays-buffered-console-warn
+  (testing "a RED run replays the buffered console.warn diagnostic (rf2-8dfq5j.2)"
+    (let [red-ns "re-frame.test-quiet-red-warn-fixture-cljs-test"
+          {status :status stdout :stdout stderr :stderr err :error
+           timed-out? :timed-out?}
+          (spawn-runner [(str "--test=" red-ns)]
+                        {:env {:RF2_TQ_RED_WARN_FIXTURE "1"}})]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (not timed-out?)
+          "the armed fixture run must not time out")
+      (is (and (number? status) (not (zero? status)))
+          (str "the armed fixture is RED; must exit NONZERO; got " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      ;; The CORE pin: the warning the green-path stub withholds is
+      ;; replayed on red, so its marker text must appear in the combined
+      ;; output (the replay targets stderr).
+      (is (str/includes? (str stdout stderr) "RED-WARN-FIXTURE-MARKER")
+          (str "the buffered console.warn must be replayed on a RED run"
+               " (rf2-8dfq5j.2); got\n--- stdout ---\n" stdout
+               "\n--- stderr ---\n" stderr))
+      (is (str/includes? (str stdout stderr) "[test-quiet] console.warn:")
+          (str "the replay must label the buffered warnings; got\n"
+               "--- stderr ---\n" stderr))))
+  (testing "the SAME fixture is GREEN + quiet when unarmed (negative control)"
+    ;; Without the env arming flag the fixture passes and emits no
+    ;; warning, so the green-path quiet contract holds and the marker is
+    ;; ABSENT from stdout — proving the warning is genuinely withheld on
+    ;; green, not merely always printed.
+    (let [red-ns "re-frame.test-quiet-red-warn-fixture-cljs-test"
+          {status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner [(str "--test=" red-ns)])]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (zero? status)
+          (str "the unarmed fixture is GREEN; must exit 0; got " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (is (not (str/includes? stdout "RED-WARN-FIXTURE-MARKER"))
+          (str "an unarmed (green) run must NOT emit the warning marker on"
+               " stdout — green stays quiet; got:\n" stdout))
+      (let [non-blank (->> (str/split-lines stdout)
+                           (map str/trim)
+                           (remove str/blank?))]
+        (is (every? #(re-matches allowed-green-line-re %) non-blank)
+            (str "a green run must emit ONLY the canonical summary lines;"
+                 " got:\n" (str/join "\n" non-blank)))))))
+
+;; ----------------------------------------------------------------------
+;; Shared spawn timeout/output policy (rf2-8dfq5j.3).
+;;
+;; The process-level pins above all route through `spawn-runner`, which
+;; applies a single `:timeout` + `:maxBuffer` policy to every spawn so a
+;; wedged or runaway child fails fast with a diagnostic rather than
+;; hanging the whole CLJS suite.  This pins the fail-fast behaviour itself
+;; via a deliberately-hanging child so a future change cannot silently
+;; drop the timeout: a child that never exits must surface a SIGTERM
+;; timeout, not block forever.  We spawn the node binary directly on a
+;; tiny inline program (no runner needed) with a SHORT explicit timeout so
+;; the test stays fast.
+
+(deftest spawn-timeout-kills-a-hanging-child
+  (testing "spawnSync timeout terminates a child that never exits (rf2-8dfq5j.3)"
+    (let [;; A child that blocks forever: an idle interval keeps the event
+          ;; loop alive with no exit path.
+          res (.spawnSync node-child-process
+                          (aget js/process.argv 0) ; node binary
+                          #js ["-e" "setInterval(function(){}, 1000)"]
+                          #js {:encoding  "utf8"
+                               :timeout   1500
+                               :maxBuffer (* 1024 1024)})]
+      ;; The CORE pin: spawnSync must have KILLED the child on timeout
+      ;; (SIGTERM), proving the shared policy fails fast instead of
+      ;; hanging. A regression that dropped `:timeout` would block here
+      ;; forever (the child never exits on its own).
+      (is (= "SIGTERM" (.-signal res))
+          (str "a hanging child must be SIGTERM-killed on the spawnSync"
+               " timeout (rf2-8dfq5j.3); got signal " (pr-str (.-signal res))
+               " status " (pr-str (.-status res))))
+      (is (some? (.-error res))
+          "spawnSync must surface an ETIMEDOUT-class error on the timeout"))))

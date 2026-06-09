@@ -29,8 +29,17 @@ agent-onboarding text.
  :active-modes      [keyword] (optional)
  :cell-overrides    {keyword any} (optional)
  :base-url          string (optional)
+ :timeout-ms        number  (optional, default 10000, capped at 30000)
  :include-sensitive boolean (optional, gated — see below)}
 ```
+
+`:timeout-ms` is the JVM blocking ceiling for the lifecycle run.
+`preview-variant` blocks on the SAME `story/run-variant` lifecycle as
+`run-variant`, so it exposes the SAME tunable knob (rf2-ovmc5e): default
+10 s, hard ceiling 30 s (matches `:rf.http/timeout-ms` per rf2-it1cd),
+caller values above the ceiling clamp DOWN rather than reject. Both
+tools resolve it through the shared `tools.args/resolve-timeout-ms`
+helper so their blocking policy cannot drift.
 
 `:include-sensitive` is honoured ONLY when the server was started
 with `--allow-sensitive-reads` (rf2-g9fje); when that boot gate is
@@ -219,12 +228,22 @@ that surface it separately.
 
 **Input.** `{:variant-id keyword (required)}`.
 
-**Output.** Text content of canonical EDN form (text-only, no JSON
-projection — byte stability matters for round-tripping).
+**Output.** Canonical EDN form in the wire-canonical `:content` text
+slot (the byte-stable `pr-str` form — keyword keys preserved — for
+agents that want strict EDN diffing) PLUS a matching
+`structuredContent` carrying the same body map (rf2-vyacl). The
+descriptor declares an `:outputSchema`, and the official MCP SDK's
+high-level `callTool` rejects an outputSchema-declaring tool that
+returns no `structuredContent` (JSON-RPC -32600), so the structured
+slot is emitted alongside the text. The text slot remains the
+byte-stable source of truth for round-tripping.
+
+**Errors.** `isError: true` when `:variant-id` is not registered.
 
 ### `explain-variant` (rf2-ba86n.17)
 
-**Input.** `{:variant-id keyword (required)}`.
+**Input.** `{:variant-id keyword (required)
+                :include-sensitive boolean (optional, gated — see `preview-variant`)}`.
 
 **Output.** `{:variant-id keyword :explain map}` — the variant-plan
 `:explain` projection (spec/017 §Explain API), a thin mirror over the
@@ -234,8 +253,22 @@ Explain panel). `:explain` carries `:source-chain` / `:parent-chain`,
 `:substitutions` / `:effective-args`, `:view-args-schema` /
 `:view-args-validation`, `:network`, `:sub-overrides`, `:fidelity`,
 `:setup-order` / `:script-order`, `:checks` / `:assertions`,
-`:required-runner`, `:platforms`, `:tags`. Pure plan-derived data — no
-run, no live frame state, no egress scrub (no `:app-db` slice).
+`:required-runner`, `:platforms`, `:tags`.
+
+Plan-derived data — no run, no live `:app-db` slice — but the plan
+RESOLVES author args into runtime VALUES, so the value-bearing slots
+(`:effective-args` / `:args` / `:substitutions` / `:network` route
+replies / `:db-seed` / `:sub-overrides` override values / `:setup-order`
++ `:script-order` step payloads) are value-redacted against the variant
+frame's declared-sensitive values at egress (rf2-12f2q, rf2-q8ebq.1) via
+the shared `egress/scrub-frame-value` step — the SAME value-based
+redaction the live tools apply. The remaining plan-STRUCTURE slots
+(`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
+`:strict-conflicts` / `:tags` / …) are author-published discovery
+metadata and pass through unredacted. Pass `:include-sensitive true`
+to opt out (gated by `--allow-sensitive-reads`, same posture as
+`preview-variant`). See [`002-Tool-Registry.md`](002-Tool-Registry.md)
+§`explain-variant` for the full value-vs-structure split.
 
 **Errors.** `isError: true` when `:variant-id` is not registered.
 
@@ -320,7 +353,22 @@ produce distinct hashes — the same tuple input `run-variant` /
 
 ### `run-a11y`
 
-**Input.** `{:variant-id keyword (required)}`.
+**Input.**
+
+```clojure
+{:variant-id        keyword (required)
+ :include-sensitive boolean (optional, gated — see `preview-variant`)}
+```
+
+The `:violations` vec is live runtime DOM state — each axe-core node
+carries `:html` (the violating element's outerHTML), so a value
+rendered into the DOM lands verbatim there. `:violations` is
+value-redacted against the variant frame's declared-`:sensitive?`
+values by default; `:include-sensitive true` opts out, following the
+same `--allow-sensitive-reads` boot gate as `preview-variant`
+(rf2-g9fje) — one of the six value-surfacing tools that carry the
+opt-in (the others: `preview-variant`, `run-variant`, `read-failures`,
+`explain-variant`, `record-as-variant`).
 
 **Output.** `{:variant-id keyword :violations [map] :note string|nil}`.
 The shared-process (CLJS co-hosted) deploy returns the accumulated
@@ -438,7 +486,7 @@ Bridges `re-frame.story`'s recorder primitives (per
  :doc            string  (optional)                ; embedded in snippet
  :extends        keyword (optional)                ; defaults to :variant-id
  :alias          string  (optional, default "story")
- :write-back     boolean (optional, default false) ; re-register with :play-script <captured>
+ :write-back     boolean (optional, default false) ; re-register under the public :script authoring slot with <captured>
 }
 ```
 

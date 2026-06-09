@@ -1726,6 +1726,15 @@ plus `<title>` and `<desc>` elements summarising the machine (same
 content as the PNG sidecar). Fonts are embedded so the SVG renders with
 the same typography when pasted into a doc or a Figma frame.
 
+The `<title>` / `<desc>` text is **XML-escaped** (rf2-85a9do): the
+viewport clone is serialised with `XMLSerializer` (which escapes for us),
+but the `<title>` / `<desc>` are constructed by hand from the raw machine
+id + summary, so the five XML-significant characters (`& < > " '`) are
+escaped to entities before injection. A programmatic machine id or
+current-state label carrying `&`, `<`, or `>` therefore cannot malform
+the SVG, break the PNG rasterisation that loads the SVG into an `<img>`,
+or inject markup into a copied / exported artifact.
+
 Both image exporters throw `:rf.machines-viz.export/no-svg` when the
 chart has not rendered a viewport yet (an empty / nil-definition
 placeholder renders no chart), and `:rf.machines-viz.export/no-chart-state`
@@ -1884,8 +1893,10 @@ documenting comment and does **not** survive the parse back.
 | `:states` (flat)                      | `<state id="...">` |
 | `:states` (compound)                  | nested `<state>` with `initial` |
 | `:final? true`                        | `<final id="...">` |
-| `:on {:event :target}`                | `<transition event="event" target="target"/>` |
+| `:on {:event :target}`                | `<transition event="event" target="target" type="internal"/>` |
 | `:on {:event {:target ... :guard G}}` | `<transition cond="G" .../>` |
+| Self-target (`:target :same-state`, or a keyword naming the state's OWN key) (rf2-0pp6as) | `<transition … target="<source-id>" type="internal"/>` — references the SOURCE state's REAL declared id (NEVER the dangling `same_2dstate` phantom); `type="internal"` is the explicit XState-v5 internal default. Round-trips to the canonical `:same-state`. |
+| `:reenter? true` (any target) (rf2-9dj21r) | `type="external"` — the EXTERNAL restart axis (re-run `:exit`+`:entry`); a target-bearing transition WITHOUT `:reenter?` carries `type="internal"`. |
 | `:after {ms :target}`                 | `<transition event="after.ms" target="target"/>` |
 | `:always [...]`                       | `<transition target="..."/>` (eventless) |
 | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
@@ -1933,6 +1944,24 @@ documenting comment and does **not** survive the parse back.
 
 - `:spawn-all` rows — omitted; the parent state renders without
   spawn affordances.
+- **Internal-default self / proper-ancestor self-transition semantics
+  (rf2-0pp6as).** re-frame2 / XState v5 make a targeted transition
+  INTERNAL by default — the targeted state's own `:exit` / `:entry` do
+  **not** re-run (see [Spec 005 §Self-transitions](../../../spec/005-StateMachines.md)).
+  W3C SCXML's `type="internal"` only changes the transition domain for a
+  **compound source whose target is a proper descendant** (the one case
+  where the export is the exact equivalent — it emits
+  `target="<descendant-id>" type="internal"`). For a **self-target**
+  (source == target) or a **proper-ancestor** target, SCXML re-enters the
+  source regardless of `type`, so the re-frame2 internal default has no
+  exact SCXML equivalent. The export still references the source state's
+  **real declared id** (never the pre-fix dangling `same_2dstate`
+  phantom) and emits `type="internal"` to record the intended axis, and
+  the local `scxml->spec` round-trips the `:same-state` sentinel exactly —
+  but a strict external SCXML engine executing the imported self-target
+  will re-run the source's exit/entry where re-frame2 would not. This
+  irreducible loss is documented rather than masked by the round-trip
+  oracle.
 - Machine-level (top-level) `:on` fallback transitions — W3C SCXML
   has no clean root-fallback slot (`<scxml>` does not host
   `<transition>` children per the schema, and the import side drops

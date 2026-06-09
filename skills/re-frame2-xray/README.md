@@ -18,11 +18,13 @@ Xray is the **human-facing** panel; for an AI agent surface against the running 
 
 ## Repo contents
 
-- `SKILL.md` — the skill itself
+- `SKILL.md` — the compact tour/router (launch quick-reference, mode/tab chooser, chrome one-liners, and the leaf-loading guide)
 - `references/launch-modes.md` — full launch-mode decision tree (preload vs `init!`, suppress-auto-open, `:rf.xray/layout-host-selector`, host-CSS-variable resize, the `open-overlay!` no-layout-host fallback, pop-out lifecycle, wired hotkeys)
-- `references/panels.md` — the full tab tour in depth (6 Dynamic event-spine tabs + 5 Static registry-browse tabs, deeper "open it when…" guidance)
+- `references/panels.md` — the full tab tour in depth (6 Dynamic event-spine tabs + 5 Static registry-browse tabs, deeper "open it when…" guidance, the retired-panel content-home mapping)
+- `references/chrome.md` — the first-screen chrome inventory in depth (LIVE/RETRO, time-travel rewind, filter pills, command-palette sources, the Settings-popup tabs, the Snapshot app-db redaction contract)
 - `references/shared-components.md` — the components every L4 panel reuses (`edn-inspector/render-node`, `film_strip/header`, `focus_resolver`) + the tab-icon / L2-badge / cross-panel-arrow glyph reference
-- `evals/evals.json` — trigger-eval fixtures (should-trigger + should-not-trigger entries, per skill-creator's description-optimisation contract)
+- `evals/evals.json` — eval fixtures (trigger accuracy + answer-quality assertions for the high-drift launch / chrome / tab-routing prompts)
+- `evals/README.md` — the eval harness: coverage table, schema, and how to run the answer-quality checks
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata
 - `package.json` — npm packaging metadata (skill is also distributable as an Agent Skill)
 

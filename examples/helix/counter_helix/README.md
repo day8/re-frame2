@@ -37,6 +37,28 @@ alongside it, not part of the Decision-7 smoke subset. Pair with
 [`examples/uix/counter_uix/`](../../uix/counter_uix/) to see the
 substrate boundary cleanly.
 
+### The substrate boundary — same model, three view layers
+
+`core.cljs` carries a `SUBSTRATE BOUNDARY` divider. Above it is the
+**substrate-agnostic artefact layer** — the `:counter/*` events and the
+`:counter/value` sub. Those lines are byte-for-byte identical in the
+Reagent and UIx counters; the artefact layer never names a substrate.
+Below the divider is the **only** substrate-specific code: the Helix
+`defnc` view + the mount.
+
+That duplication across the three counters is **deliberate and the
+intended v2 style**, not copy-paste drift waiting to happen. The
+id-identity *is* the cross-substrate parity demonstration: byte-identical
+events + sub driving Reagent `reg-view`, UIx `defui`, and Helix `defnc`
+proves the adapter contract is the whole story. It is intentionally **not**
+hoisted into a shared model namespace — each substrate counter is a
+self-contained `:browser` build, and `npm run test:bundle-isolation` greps
+each released bundle to prove a Helix `main.js` carries no Reagent/UIx code
+(and vice versa). A shared model required into all three builds would
+defeat that isolation and the parity claim it underwrites. The rationale
+and its four bounding conditions are catalogued in
+[`examples/TESTING.md` §Exception 2](../../TESTING.md#exception-2--the-cross-substrate-reagentuixhelix-id-share).
+
 The folder name carries the `_helix` namespace suffix so the
 top-level namespace doesn't collide with Reagent or UIx siblings on
 the classpath.
@@ -53,19 +75,32 @@ counter_helix/
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/counter-helix
+npm run dev:example -- examples/counter-helix
 ```
 
-The watch build emits `main.js` into `out/examples/counter-helix/`;
-copy this folder's hand-written [`index.html`](index.html) (and the
-shared assets it references under [`../../_shared/`](../../_shared/))
-alongside it, then serve `out/examples/counter-helix/` over HTTP.
+One command: it stages this folder's hand-written
+[`index.html`](index.html) + the shared `_shared/` assets next to the
+compiled `main.js`, starts `shadow-cljs watch` (edits recompile live),
+serves `out/examples/counter-helix/` on a free local port, and prints the
+URL to open. Add `--no-watch` for a one-shot compile-and-serve.
+
 (`npm run test:examples` does not build this example — it compiles and
 serves only the three adapter testbeds; see
 [`examples/helix/README.md`](../README.md).) Examples are
 test-free per [`examples/README.md`](../../README.md); the Helix
 adapter smoke lives at
 [`implementation/adapters/helix/testbed/spec.cjs`](../../../implementation/adapters/helix/testbed/spec.cjs).
+
+<details><summary>Advanced: raw <code>shadow-cljs watch</code></summary>
+
+`npm run dev:example` wraps the raw watch + manual staging recipe. To
+drive shadow-cljs directly: `shadow-cljs watch examples/counter-helix`
+emits `main.js` into `out/examples/counter-helix/`; you then copy this
+folder's [`index.html`](index.html) (and the shared assets under
+[`../../_shared/`](../../_shared/)) alongside it and serve the output dir
+yourself.
+
+</details>
 
 ## Cross-references
 

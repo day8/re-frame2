@@ -15,40 +15,35 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
-            [re-frame.epoch.state :as state]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
+            [re-frame.test-support :as test-support]
             ;; Side-effect require: machines publishes the late-bind hook
             ;; (see epoch_test.clj for the same dance).
             [re-frame.machines]))
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
-  (flows/reset-last-inputs!)
-  (trace/clear-listeners!)
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
-  ;; framework operation surfaces require a carried frame stamp. Register
-  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
-  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win.
-  (rf/reg-frame :rf/default {})
-  (rf/with-frame :rf/default
-    (test-fn)))
-
-(use-fixtures :each reset-runtime)
+;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
+;; registrar at ns-load + restores around each test, fires the epoch
+;; reset-hook table (history / listeners / config-to-default), and the
+;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
+;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
+;; public `configure!` boundary — no test ns reaches into the private
+;; `state/config` var. The `:init-fn` runs OUTSIDE each test's
+;; `(with-redefs [interop/debug-enabled? false] ...)`, so config lands at
+;; the normal gate value.
+;;
+;; EP-0002 (rf2-9o48ih / rf2-nn0jqa): `init!` no longer synthesises
+;; `:rf/default`. The canonical fixture, when handed an `:adapter`, ALSO
+;; ensures the conventional `:rf/default` frame and binds it as the body's
+;; ambient scope — the carried-invariant equivalent of wrapping every test
+;; in `(with-frame :rf/default …)`. So the bare framework-operation surfaces
+;; this suite drives (dispatch / epoch / restore-epoch / replace-app-db!)
+;; resolve a carried frame stamp without a hand-rolled `reg-frame` + `with-
+;; frame` dance here. Explicit `{:frame …}` opts in the bodies still win.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
 
 (deftest epoch-history-inert-when-debug-disabled
   (testing "Per rf2-0la4f: when the JVM debug gate reads false, the

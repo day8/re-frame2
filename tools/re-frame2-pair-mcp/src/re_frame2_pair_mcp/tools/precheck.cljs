@@ -11,12 +11,12 @@
   the full tool eval.
 
   Eligibility (today): single-frame `snapshot` whose resolved
-  `:include` is app-db-derived only, and `get-path`. Their result is a
-  function of `(frame, args, app-db@frame)`; same frame + same args +
-  same db-hash ⇒ same result. Multi-frame `snapshot`
-  (`:frames :all` or a vector) is NOT eligible because we'd need to
-  hash every frame's db separately and combine — out of scope; the
-  legacy post-eval `apply-cache` path still catches those.
+  `:include` is app-db-derived only. Its result is a function of
+  `(frame, args, app-db@frame)`; same frame + same args + same db-hash
+  ⇒ same result. Multi-frame `snapshot` (`:frames :all` or a vector) is
+  NOT eligible because we'd need to hash every frame's db separately and
+  combine — out of scope; the legacy post-eval `apply-cache` path still
+  catches those.
 
   Snapshot's `:include` slices split by what the precheck hash sees
   (rf2-3ljsa). The precheck hash is `(re-frame2-pair.runtime/app-db-hash
@@ -25,9 +25,14 @@
   function of `app-db@frame`:
 
     - `:app-db`   — IS the frame db. Sound.
-    - `:machines` — `:state` lives at `[:rf/runtime :machines :snapshots]`
-                    INSIDE app-db; `:ids` is the install-time registrar
-                    list (stable across event cascades). Sound.
+    - `:machines` — runtime-db state (rf2-ww877w): EP-0001 (rf2-vzld77)
+                    moved machine snapshots OUT of app-db `:rf/runtime`
+                    into the durable runtime-db partition, read via
+                    `rf/runtime-db-value` at `[:rf.runtime/machines
+                    :snapshots]` (see runtime.cljs `snapshot-frame-slice`).
+                    A machine transition rewrites that runtime-db slot
+                    WITHOUT an app-db write, so the slice can change while
+                    `app-db-hash` stays constant. NOT sound.
     - `:sub-cache`— reactive cache over external inputs; can move without
                     an app-db write. NOT sound.
     - `:epochs`   — the per-frame epoch ring; a record is appended on
@@ -37,12 +42,25 @@
     - `:traces`   — the per-frame trace ring; same accrue-without-db-
                     change behaviour as `:epochs`. NOT sound.
 
-  A default snapshot (no `:include`) resolves to ALL FIVE slices, which
-  contains the unsound three — so the default is NOT precheck-eligible
-  and falls through to the post-eval `apply-cache`, which hashes the
-  full result text and so cannot serve a stale `:epochs`/`:traces`/
-  `:sub-cache` payload. Precheck is taken only when the caller narrows
-  `:include` to the app-db-derived subset.
+  Only `:app-db` is precheck-sound. A default snapshot (no `:include`)
+  resolves to ALL FIVE slices, which contains the four unsound ones — so
+  the default is NOT precheck-eligible and falls through to the post-eval
+  `apply-cache`, which hashes the full result text and so cannot serve a
+  stale `:machines`/`:epochs`/`:traces`/`:sub-cache` payload. Precheck is
+  taken only when the caller narrows `:include` to the app-db-derived
+  subset.
+
+  `get-path` is NOT precheck-eligible (rf2-ww877w). Although it reads an
+  app-db subtree, its wire result is post-processed by
+  `re-frame.core/elide-wire-value`, whose elision registry lives in the
+  runtime-db partition (`[:rf.runtime/elision]` — see
+  `implementation/core/src/re_frame/elision.cljc`). A later elision
+  declaration (or sensitive/large classification flip) can change the
+  egress shape of an unchanged app-db subtree, which the
+  `(hash app-db)` precheck hash cannot observe. So get-path falls
+  through to the post-eval `apply-cache`, which hashes the actual
+  serialized (post-elision) result text and therefore recomputes when
+  the egress shape changes.
 
   Trace tools (`trace-window`, `watch-epochs`, `discover-app`) are not
   eligible — their result depends on the epoch ring / health surface,
@@ -57,41 +75,54 @@
 (def app-db-derived-snapshot-slices
   "Snapshot slices whose value is a pure function of `app-db@frame`
   (rf2-3ljsa). Only these are precheck-sound under the
-  `(hash app-db@frame)` precheck hash; `:sub-cache`/`:epochs`/`:traces`
-  can change while that hash stays constant, so a snapshot whose
-  resolved `:include` is NOT a subset of this set is precheck-ineligible
-  and falls back to the post-eval result-hash cache. See the ns
-  docstring for the per-slice rationale."
-  #{:app-db :machines})
+  `(hash app-db@frame)` precheck hash;
+  `:machines`/`:sub-cache`/`:epochs`/`:traces` can change while that
+  hash stays constant, so a snapshot whose resolved `:include` is NOT a
+  subset of this set is precheck-ineligible and falls back to the
+  post-eval result-hash cache. See the ns docstring for the per-slice
+  rationale.
+
+  rf2-ww877w dropped `:machines` from this set: EP-0001 (rf2-vzld77)
+  moved machine snapshots into the runtime-db partition, so a machine
+  transition rewrites the slice without an app-db write — the
+  `(hash app-db)` precheck hash can't see it move."
+  #{:app-db})
 
 (defn precheck-target
   "Resolve the precheck target for a single-frame precheck. Returns a
   tagged 2-tuple — one of:
 
-    [:explicit       <frame-keyword>]   — caller named a specific frame.
-    [:operating-frame nil]              — runtime resolves the frame.
-    nil                                 — tool not precheck-eligible.
+    [:explicit <frame-keyword>]   — caller named a specific frame.
+    nil                           — tool not precheck-eligible.
 
   Tagged-tuple dispatch supersedes the prior sentinel-keyword shape
   (`:rf.mcp.cache/operating-frame`) — `precheck-form` dispatches on
   the tag rather than pattern-matching against a magic keyword, and
-  the eligibility / runtime-resolution distinction is now type-level,
-  not value-level. Future targets (e.g. multi-frame combined-hash)
-  add a new tag without colliding with a reserved keyword.
+  the eligibility distinction is now type-level, not value-level.
+  Future targets (e.g. multi-frame combined-hash, or an
+  operating-frame-resolved hash) add a new tag without colliding with a
+  reserved keyword. The only live tag today is `:explicit`
+  (rf2-ww877w retired the `get-path` `:operating-frame` tag along with
+  its precheck eligibility — see the get-path note below).
 
   `snapshot` is eligible only when BOTH (a) `:frames` resolves to a
   single frame (an explicit one-element vector or a single scalar) AND
   (b) the resolved `:include` is a subset of
-  `app-db-derived-snapshot-slices` (rf2-3ljsa). `:all` or a
-  multi-element vector — or an `:include` that retains
-  `:sub-cache`/`:epochs`/`:traces` (including the default all-five
-  include) — returns nil so the caller falls back to the post-eval
-  cache, which hashes the full result text and so cannot serve stale
-  non-app-db slices.
+  `app-db-derived-snapshot-slices` (rf2-3ljsa) — i.e. `#{:app-db}`.
+  `:all` or a multi-element vector — or an `:include` that retains
+  `:machines`/`:sub-cache`/`:epochs`/`:traces` (including the default
+  all-five include) — returns nil so the caller falls back to the
+  post-eval cache, which hashes the full result text and so cannot serve
+  stale non-app-db slices.
 
-  `get-path` is always eligible (its `:frame` slot is single-valued by
-  contract; absent means \"operating frame\"; it reads an app-db
-  subtree, so any app-db change flips the precheck hash)."
+  `get-path` is NOT precheck-eligible (rf2-ww877w). Its app-db subtree
+  read is post-processed by `re-frame.core/elide-wire-value`, whose
+  elision registry lives in the runtime-db partition; a later elision
+  declaration (or sensitive/large classification flip) can change the
+  egress shape of an unchanged subtree, which the `(hash app-db)`
+  precheck hash cannot observe. It falls through to the post-eval
+  `apply-cache`, which hashes the actual serialized (post-elision)
+  result text."
   [tool raw-args]
   (case tool
     "snapshot"
@@ -101,8 +132,8 @@
           app-db-derived? (every? app-db-derived-snapshot-slices include)]
       (cond
         ;; an :include retaining a non-app-db-derived slice
-        ;; (:sub-cache/:epochs/:traces) — the precheck hash can't see
-        ;; those move, so NOT eligible (rf2-3ljsa).
+        ;; (:machines/:sub-cache/:epochs/:traces) — the precheck hash
+        ;; can't see those move, so NOT eligible (rf2-3ljsa, rf2-ww877w).
         (not app-db-derived?)
         nil
         ;; explicit single-frame vector
@@ -116,36 +147,33 @@
         nil
         :else nil))
 
-    "get-path"
-    ;; nil-frame is allowed — runtime resolves to operating frame, so
-    ;; the eval form computes the hash over whichever frame the runtime
-    ;; picks. The hash still keys on (tool, args), so the cache slot is
-    ;; consistent.
-    (if-let [f (some-> (wire/arg raw-args :frame) args/->frame-keyword)]
-      [:explicit f]
-      [:operating-frame nil])
-
+    ;; get-path — NOT precheck-eligible (rf2-ww877w). The elision
+    ;; registry (runtime-db) can re-shape the egress of an unchanged
+    ;; app-db subtree, which the app-db precheck hash can't observe;
+    ;; the post-eval result-hash cache is the sound backstop.
+    ;;
     ;; Other tools — not precheck-eligible yet.
     nil))
 
 (defn precheck-form
   "The CLJS eval form for the runtime-side cheap hash. Dispatches on
-  the tag in `target` (`[:explicit <kw>]` / `[:operating-frame nil]`)
-  — the keyword sentinel of the prior shape is gone.
+  the tag in `target` (today only `[:explicit <kw>]`) — the keyword
+  sentinel of the prior shape is gone.
 
   Threads through `re-frame2-pair.runtime/app-db-hash` (rf2-9pe31),
   which returns the per-frame cached `(hash app-db)` integer in O(1).
   The cache is maintained by the runtime's epoch listener at every
   settled mutation; lazy-computed on the first read for a frame whose
   hash hasn't been observed yet. The wire payload is a single integer
-  regardless of app-db size."
+  regardless of app-db size.
+
+  A future operating-frame-resolved target would re-add a
+  `:operating-frame` arm emitting the 0-arity `app-db-hash` call; it was
+  removed with the `get-path` precheck retirement (rf2-ww877w)."
   [[tag frame :as _target]]
   (case tag
     :explicit
     (ef/emit (ef/rt-call 'app-db-hash frame))
-
-    :operating-frame
-    (ef/emit (ef/rt-call 'app-db-hash))
 
     nil))
 

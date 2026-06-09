@@ -56,9 +56,15 @@
    ## Xray-richness — the managed-HTTP cascade
 
    Story allocates each variant its own frame under `:preset :story`
-   (spec/002 §Frame presets), which redirects `:rf.http/managed` to
-   the framework-shipped `:rf.http/managed-canned-success` /
-   `-canned-failure` stubs. `:nine-states.story/load` issues a real
+   (spec/002 §Frame presets). The preset's contract is a SUCCESS stub
+   by DEFAULT: it redirects `:rf.http/managed` to the framework-shipped
+   `:rf.http/managed-canned-success` stub only (frame.cljc
+   `preset-expansion` — there is no automatic canned-failure branch).
+   A variant that wants the FAILURE path stamps its own
+   `:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}`,
+   which wins over the preset default (the variant-owned `:fx-overrides`
+   replaces the preset's in the frame-config merge — see the lifecycle
+   `…/error` variant below). `:nine-states.story/load` issues a real
    `:rf.http/managed` request carrying the synthetic todos on the
    request's `:value` slot (the slot the canned-success stub echoes
    back), so the FULL fetch lifecycle runs:
@@ -135,18 +141,31 @@
 
 (rf/reg-event-fx :nine-states.story/load-failing
   {:doc "Story-shell variant of `:nine-states.demo/load-with-failure`.
-         Drives the real fetch cascade into the `:error` branch — the
-         `:rf.http/managed` request carries no `:value` and routes
-         through the `:preset :story` frame's canned-FAILURE stub by
-         declaring `:on-failure` against a request the stub cannot
-         satisfy, so `:fetch-failed` fires and the `:data` region
-         lands at `:error`."}
+         Drives the same real fetch cascade — `:fetch-started` →
+         `:rf.http/managed` → reply → `:fetch-failed` — into the
+         `:error` branch.
+
+         The `:story` preset's default fx-override routes
+         `:rf.http/managed` to the canned-SUCCESS stub (frame.cljc
+         `preset-expansion`), which would take the `:on-success` path.
+         The error VARIANT therefore stamps its own
+         `:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}`
+         (a variant-owned `:fx-overrides` wins over the preset's via the
+         frame-config merge in `expand-preset`), so this same event runs
+         against the canned-FAILURE stub instead — that stub reads the
+         top-level `:kind`/`:tags` slots below, synthesises a failure
+         reply, and dispatches `:on-failure`, landing the `:data` region
+         at `:error`."}
   (fn handler-story-load-failing [_ _]
     {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
           [:rf.http/managed
+           ;; `:kind`/`:tags` are the slots `emit-canned-failure!` reads
+           ;; (NOT a nested `:failure` map — the stub ignores that), so
+           ;; the synthesised failure carries this category through to
+           ;; `:nine-states.demo/load-failed`.
            {:request    {:method :get :url "/api/todos/fail"}
-            :failure    {:kind :rf.http/transport
-                         :message "Network unreachable."}
+            :kind       :rf.http/transport
+            :tags       {:message "Network unreachable."}
             :decode     :json
             :on-success [:nine-states.demo/loaded]
             :on-failure [:nine-states.demo/load-failed]}]]}))
@@ -327,14 +346,24 @@
      :substrates #{:reagent}})
 
   (story/reg-variant :story.nine-states-lifecycle/error
-    {:doc        "Lifecycle — the `:error` branch. The `:rf.http/managed`
-                 request fails; `:fetch-failed` lands the `:data` region
-                 at `:error`. The failure cascade lights up Xray's Side
-                 Effects + Trace panels alongside the success path."
-     :setup      [[:nine-states.app/initialise]
-                  [:nine-states.story/load-failing]]
-     :tags       #{:dev :docs}
-     :substrates #{:reagent}})
+    {:doc           "Lifecycle — the `:error` branch. This variant stamps
+                    `:fx-overrides {:rf.http/managed
+                    :rf.http/managed-canned-failure}` so its
+                    `:rf.http/managed` request runs through the canned-
+                    FAILURE stub (overriding the `:story` preset's
+                    canned-success default); `:fetch-failed` then lands
+                    the `:data` region at `:error`. The failure cascade
+                    lights up Xray's Side Effects + Trace panels
+                    alongside the success path."
+     ;; Variant-owned `:fx-overrides` win over the `:story` preset's
+     ;; canned-success default (frame-config merge in `expand-preset`),
+     ;; so this is the explicit failure-fx-override the failing variant
+     ;; needs — the success variants keep the preset's canned-success.
+     :fx-overrides  {:rf.http/managed :rf.http/managed-canned-failure}
+     :setup         [[:nine-states.app/initialise]
+                     [:nine-states.story/load-failing]]
+     :tags          #{:dev :docs}
+     :substrates    #{:reagent}})
 
   ;; -------------------------------------------------------------------------
   ;; reg-workspace — two layouts over the canonical nine.

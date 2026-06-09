@@ -25,7 +25,7 @@ Greppable signals inside `reg-event-db` / `reg-event-fx` handler bodies, **group
 - Nondeterministic time reads — `(js/Date.now)`, `(.getTime (js/Date.))`, `(js/Date.)` used as a value.
 - Randomness — `(js/Math.random)`, `(.random js/Math)`, `(.randomUUID js/crypto)`, any id-generation call.
 - Environment / storage **reads** — `(.getItem js/localStorage ...)`, `(.getItem js/sessionStorage ...)`, `js/navigator.language`, `(.-cookie js/document)` read.
-- `(rf/subscribe ...)` / `@(rf/subscribe ...)` / `rf/subscribe-once` invoked **from inside** a handler body to read a sub's current value.
+- A **reactive** subscription opened inside a handler body — `(rf/subscribe ...)` or `@(rf/subscribe ...)` — establishes a reaction in whatever evaluation context the drain loop happens to be in and leaks it until GC. That is the leak. **`rf/subscribe-once` is NOT in this bucket** — see the dedicated rule below; flagging it as an anti-pattern is a false finding.
 
 Structural signal (write): the handler returns a `db` value (or fx-map) **and** has visible side-effects on the way there.
 Structural signal (read): the handler's output depends on a value it *fetched mid-body* rather than one it received in `db` / coeffects / the event vector — so the same `[coeffects event]` pair no longer fully determines the result.
@@ -47,7 +47,21 @@ A re-frame2 effect is data: a `[fx-id args]` pair the runtime walks and dispatch
 Route by direction:
 
 - **Writes → data-only fx.** [`skills/re-frame2/references/fundamentals/fx.md`](../../re-frame2/references/fundamentals/fx.md) — wrap the side-effect in `reg-fx` once, then issue `[[:my-fx args]]` from the handler's `:fx`. The fx-handler body is the one place imperative interop is legitimate. (For HTTP and transport-level retry/timers, reach for Managed HTTP — see [`manual-retry-loops.md`](manual-retry-loops.md).)
-- **Reads → coeffect.** [`skills/re-frame2/references/fundamentals/cofx.md`](../../re-frame2/references/fundamentals/cofx.md) — register the impure read as `reg-cofx` and attach it with `inject-cofx` in the event's interceptor vector; the handler then destructures the value (`:now`, `:new-id`, the localStorage value, the sub value) off its coeffect map. For a one-off read used in a single event, the inline-interceptor escape hatch (`{:id ... :before (fn [ctx] (assoc-in ctx [:coeffects k] v))}`) avoids the registry hop — see cofx.md §When `reg-cofx` is overkill. Reading a sub from a handler has its own canonical wrap (`reg-cofx` + `subscribe-once`) — cofx.md §Reading a sub from a handler.
+- **Reads → coeffect.** [`skills/re-frame2/references/fundamentals/cofx.md`](../../re-frame2/references/fundamentals/cofx.md) — register the impure read as `reg-cofx` and attach it with `inject-cofx` in the event's interceptor vector; the handler then destructures the value (`:now`, `:new-id`, the localStorage value) off its coeffect map. For a one-off read used in a single event, the inline-interceptor escape hatch (`{:id ... :before (fn [ctx] (assoc-in ctx [:coeffects k] v))}`) avoids the registry hop — see cofx.md §When `reg-cofx` is overkill.
+
+### `subscribe-once` in a handler is NOT an anti-pattern
+
+`rf/subscribe-once` is the **shipped public one-shot, non-reactive read** ([`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) §`subscribe-once`; [`spec/API.md`](../../../spec/API.md)). It subscribes, derefs, and unsubscribes in one call — it leaves no reaction behind — and the contract explicitly names event handlers, machine actions, REPL sessions, and SSR builders as legitimate callers. **Do not flag `(rf/subscribe-once [:some/sub])` in a handler body as a correctness finding.**
+
+The cofx wrap (`reg-cofx` + `inject-cofx`, materialising the value via `subscribe-once` inside the cofx body) is a **preference**, not the only legal path. Recommend it when the read should be:
+
+- **reusable** across several handlers,
+- **parameterised** by name,
+- **stubbable** in tests,
+- **schema-validated** at the cofx boundary, or
+- **visible** as a named input on the handler's coeffect map.
+
+When none of those hold — a one-shot, cache-aware current-value read inside a single handler — a bare `rf/subscribe-once` is correct as written. Converting it to a cofx purely because it appears in a handler is a policy-inverted rewrite; do not suggest it. (Contrast: a **reactive** `@(rf/subscribe ...)` or a retained reaction in a handler body IS still a finding — flag those.)
 
 Spec source: [`spec/Conventions.md`](../../../spec/Conventions.md) (data-only fx) and Cardinal Rule #1 (implementation is ground truth; the runtime's effect-map shape is closed — `:rf.error/effect-map-shape` fires if you try to sneak `:dispatch` or `:http` as a top-level key). `reg-fx`, `reg-cofx`, and `inject-cofx` are all public `re-frame.core` exports (cofx also ships in the `re-frame.cofx` namespace).
 

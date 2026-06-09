@@ -28,7 +28,22 @@
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]
-            [nine-states.core])
+            ;; `re-frame.http-test-support` registers
+            ;; `:rf.http/managed-canned-failure` — the fx the failing Story
+            ;; variant routes `:rf.http/managed` to. nine-states.core
+            ;; already pulls it transitively, but require it here so this
+            ;; ns is self-sufficient.
+            [re-frame.http-test-support]
+            [nine-states.core]
+            ;; Requiring the example's Story file brings
+            ;; `:nine-states.story/load-failing` (the variant's setup
+            ;; event) into the registry. The story-failure-variant test
+            ;; below exercises the SAME mechanism the
+            ;; `:story.nine-states-lifecycle/error` variant uses — the
+            ;; canned-FAILURE fx-override plus that load event — and
+            ;; asserts the resulting frame computes `[:ui/render]` as
+            ;; `:error`.
+            [nine-states.stories])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
@@ -157,3 +172,67 @@
     (test-state-8-correct))
   (testing "state 9 — done (terminal, read-only)"
     (test-state-9-done)))
+
+;; ----------------------------------------------------------------------------
+;; STORY LIFECYCLE — :error variant
+;;
+;; The `:story.nine-states-lifecycle/error` variant in
+;; examples/reagent/nine_states/stories.cljs stamps
+;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}` so
+;; its `[:nine-states.story/load-failing]` setup runs against the canned-
+;; FAILURE stub (overriding the `:story` preset's canned-success default).
+;; This regression pins that the failing variant actually takes the error
+;; branch: a frame carrying the SAME failure override, running the SAME
+;; load-failing event, must land the `:data` region at `:error` (tag
+;; `:data/error`) and compute `[:ui/render]` as `:error` — NOT settle on a
+;; loaded/empty success state, which is the bug rf2-t5ky67 caught.
+;; ----------------------------------------------------------------------------
+
+(def ^:private story-failure-overrides
+  "The exact `:fx-overrides` the lifecycle `:error` variant stamps — routes
+   `:rf.http/managed` to the framework canned-FAILURE stub."
+  {:rf.http/managed :rf.http/managed-canned-failure})
+
+(deftest story-lifecycle-error-variant-takes-failure-path
+  (testing "the failing Story variant's mechanism lands :data at :error and renders :error"
+    ;; Sanity: requiring nine-states.stories registered the variant's
+    ;; setup event.
+    (is (some? (rf/handler-meta :event :nine-states.story/load-failing))
+        ":nine-states.story/load-failing registered (stories.cljs required)")
+    (with-new-frame [f (rf/make-frame
+                         {:on-create    [:nine-states.app/initialise]
+                          :fx-overrides story-failure-overrides})]
+      ;; Drive the variant's setup load event. The canned-failure stub
+      ;; resolves synchronously (no :after-ms), dispatching :on-failure →
+      ;; :nine-states.demo/load-failed → :fetch-failed → :data/:error.
+      (rf/dispatch-sync [:nine-states.story/load-failing] {:frame f})
+      (is       (machine-has-tag? f :data/error)
+                "the :data region reaches the :error state (tag :data/error)")
+      (is (not  (machine-has-tag? f :data/some))
+                "it did NOT settle on a success/loaded cardinality bucket")
+      (is (=    :error (render-model f))
+          "[:ui/render] resolves to :error under the machine snapshot")
+      ;; The failure category threaded through to the snapshot's :data.
+      (let [err (rf/compute-sub [:todos/error] (rf/frame-state-value f))]
+        (is (some? err)
+            "the failure value is recorded in the machine's :data :error slot")))))
+
+(deftest story-lifecycle-success-variant-stays-on-success-path
+  (testing "the loaded variant's success-stub mechanism still proves the canned-success cascade"
+    ;; Mirror the `:story` preset's DEFAULT: route `:rf.http/managed` to
+    ;; the canned-SUCCESS stub (which echoes the request's `:value` slot),
+    ;; exactly as the `:story.nine-states-lifecycle/loaded` variant does
+    ;; with no per-variant override. Guards that success and failure stay
+    ;; SEPARATELY represented (acceptance: keep the success lifecycle
+    ;; variant proving canned-success).
+    (with-new-frame [f (rf/make-frame
+                         {:on-create    [:nine-states.app/initialise]
+                          :fx-overrides {:rf.http/managed
+                                         :rf.http/managed-canned-success}})]
+      ;; `:nine-states.story/load` carries the synthetic todos on `:value`
+      ;; (the slot canned-success echoes), so 4 items land the :data
+      ;; region at :some via the :always-cascade.
+      (rf/dispatch-sync [:nine-states.story/load {:n 4}] {:frame f})
+      (is       (machine-has-tag? f :data/some))
+      (is (not  (machine-has-tag? f :data/error)))
+      (is (=    :some (render-model f))))))

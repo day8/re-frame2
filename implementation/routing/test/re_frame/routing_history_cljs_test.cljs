@@ -915,6 +915,64 @@
           ":uuid path param coerced to a #uuid object")
       (is (uuid? (get-in m [:params :id])) "the slice carries a UUID object, not a string"))))
 
+;; rf2-fwz29i: OPTIONED Malli scalar schemas (`[:int {:min 1}]`,
+;; `[:uuid {}]`, `[:double {...}]`, `[:boolean {}]`, optioned enums, and
+;; `[:maybe inner]`) must coerce the URL string identically to the bare
+;; form on CLJS, exactly as on the JVM. The pre-fix coercion table held the
+;; raw vector type-form, so the still-string value failed the optioned
+;; schema and every valid deep link 404'd. This is the CLJS half of the
+;; JVM `rf2-fwz29i-*` pins in routing_test.clj.
+(deftest optioned-scalar-coercion-cljs-rf2-fwz29i
+  (testing "optioned :query scalars coerce equivalently to bare forms on CLJS"
+    (register-routes!)
+    (rf/reg-route :hist/items
+                  {:path  "/items"
+                   :query [:map
+                           [:page [:int {:min 1}]]
+                           [:ratio [:double {:min 0.0}]]
+                           [:id [:uuid {}]]
+                           [:archived [:boolean {}]]]})
+    (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
+          m (routing/match-url
+              (str "/items?page=2&ratio=1.5&id=" uuid-str "&archived=true"))]
+      (is (= 2 (get-in m [:query :page]))
+          "[:int {:min 1}] coerces \"2\" to 2 (was string → 404)")
+      (is (= 1.5 (get-in m [:query :ratio])) "[:double {...}] coerces")
+      (is (= (parse-uuid uuid-str) (get-in m [:query :id]))
+          "[:uuid {...}] coerces to a UUID object")
+      (is (true? (get-in m [:query :archived])) "[:boolean {...}] coerces")
+      (is (false? (:validation-failed? m))
+          "coerced typed values conform to their optioned schemas — no 404")))
+
+  (testing "optioned :params (path) scalars coerce equivalently on CLJS"
+    (rf/reg-route :hist/opt-page    {:path "/op/:n"  :params [:map [:n [:int {:min 1}]]]})
+    (rf/reg-route :hist/opt-article {:path "/oa/:id" :params [:map [:id [:uuid {}]]]})
+    (is (= 2 (get-in (routing/match-url "/op/2") [:params :n]))
+        "[:int {:min 1}] path param coerces to 2")
+    (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
+          m        (routing/match-url (str "/oa/" uuid-str))]
+      (is (= (parse-uuid uuid-str) (get-in m [:params :id]))
+          "[:uuid {}] path param coerces to a UUID object")
+      (is (false? (:validation-failed? m)))))
+
+  (testing "optioned `[:enum {...} :a :b]` keeps the keyword allowlist gate"
+    (rf/reg-route :hist/sorted
+                  {:path  "/sorted"
+                   :query [:map [:sort [:enum {:default :asc} :asc :desc]]]})
+    (is (= :asc (get-in (routing/match-url "/sorted?sort=asc") [:query :sort]))
+        "declared enum value interns even with an opts map")
+    (is (= "nope" (get-in (routing/match-url "/sorted?sort=nope") [:query :sort]))
+        "value outside the allowlist stays a string"))
+
+  (testing "[:maybe inner] coerces the present value against the inner type"
+    (rf/reg-route :hist/maybe
+                  {:path  "/maybe"
+                   :query [:map [:page [:maybe [:int {:min 1}]]]]})
+    (let [m (routing/match-url "/maybe?page=7")]
+      (is (= 7 (get-in m [:query :page]))
+          "[:maybe [:int {:min 1}]] coerces through wrapper + option")
+      (is (false? (:validation-failed? m))))))
+
 ;; rf2-zmcq6 (CODE half): {:fragment ""} normalizes to nil at the navigate
 ;; boundary on CLJS so the pushed URL and slice fragment agree with
 ;; URL-driven nav.
@@ -1011,3 +1069,111 @@
       (is (= :hist/home (route-id)) "after third pop → :hist/home")
       (is (= 0 (:index @*history-state*))
           "history.index is at the root entry"))))
+
+;; =========================================================================
+;; 6. History-mutation defence-in-depth: a throwing pushState / replaceState
+;;    fails closed to a structured trace (rf2-u8qe7y finding 2)
+;; =========================================================================
+;;
+;; The `url/external-url?` gate at the nav-event sinks (rf2-cylse.4)
+;; already fails cross-origin URLs closed before they reach the
+;; `:rf.nav/push-url` / `:rf.nav/replace-url` fxs, but the fx still wraps
+;; the actual browser history mutation in a shared try/catch
+;; (`run-history-mutation!`) as a second line of defence. If the browser
+;; throws (residual unsafe URL, invalid-URL restriction, jsdom/stub
+;; mismatch) the fx must NOT escape the exception — it downgrades to a
+;; `:rf.fx/<fx-id>-failed` trace and the drain survives. Both sibling
+;; history fxs share the wrapper, so both behave identically under the
+;; same failure class.
+
+(defn- with-throwing-history-method!
+  "Temporarily swap the stub history `method` (\"pushState\" /
+  \"replaceState\") for one that throws `message`, run `thunk`, then
+  restore. Returns the thunk's result."
+  [method message thunk]
+  (let [history  (.-history js/globalThis.window)
+        original (aget history method)]
+    (aset history method
+          (fn [& _]
+            (throw (js/Error. message))))
+    (try
+      (thunk)
+      (finally
+        (aset history method original)))))
+
+(defn- with-fx-failure-traces
+  "Run `thunk` while collecting `:rf.fx/push-url-failed` /
+  `:rf.fx/replace-url-failed` trace payloads. Returns
+  `[result vector-of-tags]`."
+  [thunk]
+  (let [captured (atom [])
+        cb-key   (keyword (gensym "fx-failure-"))]
+    (trace-tooling/register-listener!
+      cb-key
+      (fn [ev]
+        (when (#{:rf.fx/push-url-failed :rf.fx/replace-url-failed}
+                (:operation ev))
+          (swap! captured conj (assoc (:tags ev) :operation (:operation ev))))))
+    (try
+      [(thunk) @captured]
+      (finally
+        (trace-tooling/unregister-listener! cb-key)))))
+
+(deftest replace-url-throwing-replacestate-fails-closed-cljs
+  (testing ":rf.nav/replace-url downgrades a throwing replaceState to a :rf.fx/replace-url-failed trace; no exception escapes the drain"
+    (register-routes!)
+    ;; Land on /cart via a normal push so a :replace? navigation routes
+    ;; through :rf.nav/replace-url.
+    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (let [[_ failures]
+          (with-fx-failure-traces
+            (fn []
+              (with-throwing-history-method!
+                "replaceState" "boom-replace"
+                (fn []
+                  ;; The drain must NOT throw — fail-closed via the
+                  ;; shared try/catch. `is` with no thrown exception is the
+                  ;; assertion; a leaked throw would fail the deftest.
+                  (rf/dispatch-sync
+                    [:rf.route/navigate :hist/checkout nil {:replace? true}])
+                  (is true
+                      ":rf.route/navigate dispatch returned without an escaping exception")))))]
+      (is (= 1 (count failures))
+          "a single :rf.fx/replace-url-failed trace fired for the throwing replaceState")
+      (let [tags (first failures)]
+        (is (= :rf.fx/replace-url-failed (:operation tags))
+            "the failure trace operation is :rf.fx/replace-url-failed")
+        (is (= :rf.nav/replace-url (:fx-id tags))
+            "the trace carries :fx-id :rf.nav/replace-url")
+        (is (= "/checkout" (:url tags))
+            "the trace carries the attempted :url")
+        (is (= "boom-replace" (:error tags))
+            "the trace carries the browser error message")))
+    ;; The route slice still committed — only the browser-URL sync failed.
+    (is (= :hist/checkout
+           (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+        "the route slice committed even though replaceState threw")))
+
+(deftest push-url-throwing-pushstate-fails-closed-cljs
+  (testing ":rf.nav/push-url downgrades a throwing pushState to a :rf.fx/push-url-failed trace; no exception escapes the drain (push/replace parity)"
+    (register-routes!)
+    (let [[_ failures]
+          (with-fx-failure-traces
+            (fn []
+              (with-throwing-history-method!
+                "pushState" "boom-push"
+                (fn []
+                  (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+                  (is true
+                      ":rf/url-requested dispatch returned without an escaping exception")))))]
+      (is (= 1 (count failures))
+          "a single :rf.fx/push-url-failed trace fired for the throwing pushState")
+      (let [tags (first failures)]
+        (is (= :rf.fx/push-url-failed (:operation tags))
+            "the failure trace operation is :rf.fx/push-url-failed")
+        (is (= :rf.nav/push-url (:fx-id tags))
+            "the trace carries :fx-id :rf.nav/push-url")
+        (is (= "/cart" (:url tags))
+            "the trace carries the attempted :url")
+        (is (= "boom-push" (:error tags))
+            "the trace carries the browser error message")))))

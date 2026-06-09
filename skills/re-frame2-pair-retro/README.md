@@ -28,10 +28,12 @@ It is intentionally diagnosis-first: the default outcome is a better understandi
 - `references/issue-template.md` — GitHub-issue drafting structure (with the shell-safety pattern for transcript-derived bodies)
 - `references/working-style.md` — diagnostic-posture rules applied per finding (evidence over vibes, symptom vs cause, direct/indirect friction, positive gaps, creativity after diagnosis)
 - `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) for re-authoring the skill; not loaded during normal operation
-- `evals/evals.json` — trigger-accuracy fixtures (which prompts should and should not activate the skill)
+- `evals/evals.json` — trigger-accuracy fixtures (which prompts should and should not activate the skill); a repo-maintenance artifact, deliberately **excluded** from the npm package `files` array (see below)
 - `.claude-plugin/plugin.json` — plugin packaging metadata
 - `agents/openai.yaml` — UI metadata for skill lists and invocation
 - `package.json`, `LICENSE` — npm packaging metadata and the MIT licence
+
+`spec/` carries skill-internal design/authoring meta-docs (not loaded during normal operation), and `evals/` holds the trigger-accuracy fixtures. Both are **excluded from the npm `files` array by design** — they are repo-maintenance artifacts that run from a full re-frame2 clone (where the description-optimisation loop can reach `evals/evals.json`), not material a packaged-skill consumer re-runs. This mirrors the sibling `re-frame2`, `re-frame2-setup`, and `re-frame2-pair` skills; `npm pack --dry-run` from this directory lists no `spec/` or `evals/` files.
 
 ## Relationship to other repos
 
@@ -39,7 +41,7 @@ It is intentionally diagnosis-first: the default outcome is a better understandi
 - [`re-frame2`](https://github.com/day8/re-frame2) — the framework. When friction is caused by the framework's Tool-Pair contract (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coordinate annotation gaps, schema-reflection shortcomings), GitHub issues route here, not to `re-frame2-pair`.
 - [`re-frame-pair-improver`](https://github.com/day8/re-frame-pair-improver) — the v1 sibling that targets v1 `re-frame-pair`.
 
-This skill does **not** depend on or reference `re-frame-10x`. re-frame2's Tool-Pair surfaces (`register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation) replace the v1 reliance on the 10x dev tool.
+This skill does **not** depend on or reference `re-frame-10x`. re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool — the current surface-family enumeration (trace stream, registrar query API, epoch-history / restore, the four state-injection mutators, schema reflection, source-coord annotation, direct reads, render-driving / dispatch-settle, view-plane reads, the signal recorder, the operating-frame trio) lives in [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md), the single source an upstream finding names a surface from.
 
 ## Typical output
 

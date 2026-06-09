@@ -200,8 +200,11 @@
 
      (rm/defreg-event-macro reg-event-fx events/reg-event-fx
        "Register a `(fn [cofx event-vec] effect-map)` event handler under
-       `id`. Effect-map is a closed shape: only `:db` and `:fx` at the
-       top level. Captures source-coords (Spec 001) at this call site.
+       `id`. Effect-map is a closed shape — `#{:db :rf.db/runtime :fx}`
+       at the top level; app handlers return only `:db` / `:fx`, while
+       `:rf.db/runtime` (the runtime-db partition) is reserved by
+       convention for framework / runtime-extension authority. Captures
+       source-coords (Spec 001) at this call site.
        Additionally captures the whole `(reg-event-fx :id ...)` form as
        a string under the handler's `:rf.handler/source` meta (Spec 009,
        rf2-xgfuy) — DEBUG-gated, elided in CLJS `:advanced` +
@@ -588,7 +591,10 @@
   :print ...})`. The honest bundle setter (rf2-13meg): each key is
   optional, an absent key leaves the existing registration in place,
   and a nil `:print` coerces to the default EDN canonicaliser. The
-  one-call substitute-Malli boot pattern. Per Spec 010 §Non-Malli
+  one-call substitute-Malli boot pattern. Returns the installed bundle
+  as a map `{:validate ... :explain ... :print ...}` reflecting the live
+  state of all three fns after the call (rf2-qdtcx2) — or nil when the
+  schemas artefact is not on the classpath. Per Spec 010 §Non-Malli
   validators. Implementation ships in `day8/re-frame2-schemas`."}
   set-schema-fns!        rf-schemas/set-schema-fns!)
 

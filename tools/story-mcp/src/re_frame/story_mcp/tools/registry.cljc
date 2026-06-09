@@ -75,17 +75,39 @@
 (assert (every? (fn [t] (map? (:annotations t))) tool-registry)
         "tool-registry: every entry must carry an :annotations map (rf2-94p8q)")
 
+(def gated-input-keys
+  "The input-property keys the DEFAULT `tools/list` profile gates off
+  behind an operator-only gate (rf2-qo3wvp). Today: `:include-sensitive`
+  — baked into six value-surfacing tools' descriptors at load time and
+  stripped from the default wire surface by `strip-include-sensitive`
+  when `--allow-sensitive-reads` is closed. As STRINGS (the
+  descriptor-manifest row shape stringifies input keys), so the
+  descriptor-manifest generator can pass this set straight to
+  `dm/build-manifest` and the committed manifest distinguishes the
+  default surface from the gate-open one. The single source of truth for
+  WHICH inputs are gated — `strip-include-sensitive` and the generator
+  both derive from it, so a new gated knob is added in one place."
+  #{"include-sensitive"})
+
+(def ^:private gated-input-prop-keys
+  "`gated-input-keys` as keyword property keys (the descriptor's
+  `:properties` map is keyword-keyed). The single set above is the
+  string-shaped public source; this is its keyword projection for the
+  `tools/list`-time strip."
+  (into #{} (map keyword) gated-input-keys))
+
 (defn- strip-include-sensitive
-  "Remove the `:include-sensitive` slot from a tool's `:inputSchema`
-  properties. The slot is baked into the descriptor at load time by
+  "Remove the gated input slots (`gated-input-keys`, today
+  `:include-sensitive`) from a tool's `:inputSchema` properties. The
+  slot is baked into the descriptor at load time by
   `schemas/with-include-sensitive`; this fn runs at `tools/list` time
   and removes it when the operator-only gate is closed (rf2-g9fje) so
   the descriptor never advertises an opt-in the server is configured
-  to ignore. Idempotent: tools whose schema never carried the slot are
-  returned unchanged."
+  to ignore. Idempotent: tools whose schema never carried a gated slot
+  are returned unchanged."
   [schema]
-  (if (contains? (:properties schema) :include-sensitive)
-    (update schema :properties dissoc :include-sensitive)
+  (if (some (:properties schema) gated-input-prop-keys)
+    (update schema :properties #(apply dissoc % gated-input-prop-keys))
     schema))
 
 (defn tool-descriptors
@@ -109,10 +131,12 @@
   The `:include-sensitive` slot is stripped from every tool's input
   schema when the operator-only gate (`config/sensitive-reads-allowed?`)
   is closed — agents shouldn't see an opt-in they can't exercise. The
-  three affected tools (`preview-variant`, `run-variant`, `read-failures`)
-  silently ignore caller-supplied `:include-sensitive true` at the
-  helper layer regardless, so the descriptor strip is purely a UX
-  improvement and a defence-in-depth signal."
+  affected tools — the six that surface live or plan-resolved frame
+  VALUES (`preview-variant`, `run-variant`, `read-failures`, `run-a11y`,
+  `explain-variant`, `record-as-variant`) — silently ignore
+  caller-supplied `:include-sensitive true` at the helper layer
+  regardless, so the descriptor strip is purely a UX improvement and a
+  defence-in-depth signal."
   []
   (let [strip? (not (config/sensitive-reads-allowed?))]
     (mapv (fn [{:keys [name description inputSchema outputSchema annotations typicalTokens]}]

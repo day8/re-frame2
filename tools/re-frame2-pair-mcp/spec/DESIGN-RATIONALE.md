@@ -360,8 +360,9 @@ Post-Lock additions accumulated as follows:
   table for the catalogue addition. `set` / `reset` are `:cacheable? false`
   (session-state writes); `get` is `:cacheable? true` (a read of the
   frame registry + pin, caught by the post-eval result-hash cache — the
-  precheck path is `snapshot`/`get-path`-only, so a pin write between two
-  `get`s is never served stale).
+  precheck path is single-frame app-db-only `snapshot`-only (rf2-ww877w
+  retired `get-path` from precheck eligibility), so a pin write between
+  two `get`s is never served stale).
 - **rf2-3bu3d.7 / rf2-3bu3d.8** added the **read-orientation pair** —
   `read-sub` and `orient`. `read-sub {sub-id}` is the validated single-
   subscription read: resolve the named subscription against the reactive
@@ -439,8 +440,7 @@ position-vs-bytes footgun was hit; locked at PR #423 merge.
   which exercises `decode-all-frames` directly (partial-frame
   buffering, multi-frame splitting, and the `decode.position` cursor
   regression). On-wire round-trip coverage rides on the JS harnesses
-  `test/stdio-roundtrip.js`, `test/live-nrepl.js`, and the
-  `test/probe-decode.js` multi-frame walker diagnostic.
+  `test/stdio-roundtrip.js` and `test/live-nrepl.js`.
 
 ---
 
