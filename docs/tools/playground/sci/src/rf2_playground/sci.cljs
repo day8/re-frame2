@@ -68,6 +68,35 @@
 ;; SCI namespace configs
 ;; ---------------------------------------------------------------------------
 
+;; EP-0002 (carried-frame invariant): the playground is a SINGLE-frame app —
+;; every cell operation targets this one frame (`renderLast` registers it once,
+;; see `ensure-init!`). Defined here so the SCI-bound `dispatch` / `dispatch-
+;; sync` / `subscribe` wrappers below can default to it.
+(def ^:private app-frame :rf/default)
+
+;; EP-0002: a cell's `:on-click` (or any deferred) handler calls the SCI-bound
+;; `dispatch` / `dispatch-sync` LATER — outside the render's dynamic extent and
+;; any `with-frame` scope — so a bare call resolves NO frame and raises
+;; `:rf.error/no-frame-context` (the runtime never synthesises a frame from
+;; absence). These wrappers inject `{:frame app-frame}` as the DEFAULT, so every
+;; cell dispatch resolves `:rf/default` regardless of dynamic scope. An explicit
+;; `:frame` in a cell's opts still wins — `dispatch!`/`dispatch-sync!` give the
+;; passed opt precedence over the carried scope. `subscribe` defaults to its
+;; 2-arity `(frame-id query-v)` named-frame form for the deferred / non-render
+;; case (the render-time `subscribe` is already scoped by the `frame-bound-fn*`
+;; binding in `frame-bind-component`).
+(defn- playground-dispatch
+  ([event]      (rf/dispatch* event {:frame app-frame}))
+  ([event opts] (rf/dispatch* event (merge {:frame app-frame} opts))))
+
+(defn- playground-dispatch-sync
+  ([event]      (rf/dispatch-sync* event {:frame app-frame}))
+  ([event opts] (rf/dispatch-sync* event (merge {:frame app-frame} opts))))
+
+(defn- playground-subscribe
+  ([query-v]          (rf/subscribe* app-frame query-v))
+  ([frame-id query-v] (rf/subscribe* frame-id query-v)))
+
 (def rf-ns (sci/create-ns 're-frame.core nil))
 
 ;; copy-ns brings every public runtime var of re-frame.core into SCI —
@@ -88,9 +117,9 @@
 (def re-frame-core-namespace
   (merge
    (sci/copy-ns re-frame.core rf-ns)
-   {'dispatch      (sci/copy-var rf/dispatch* rf-ns)
-    'dispatch-sync (sci/copy-var rf/dispatch-sync* rf-ns)
-    'subscribe     (sci/copy-var rf/subscribe* rf-ns)
+   {'dispatch      (sci/copy-var playground-dispatch rf-ns)
+    'dispatch-sync (sci/copy-var playground-dispatch-sync rf-ns)
+    'subscribe     (sci/copy-var playground-subscribe rf-ns)
     'inject-cofx   (sci/copy-var rf/inject-cofx* rf-ns)
     'reg-machine   (sci/copy-var rf/reg-machine* rf-ns)}))
 
@@ -129,14 +158,14 @@
 
 ;; EP-0002 (carried-frame invariant): `rf/init!` installs the adapter but the
 ;; runtime never synthesises a frame from absence. The playground is a
-;; consumer app, so it establishes its own app frame — `:rf/default` — once,
-;; here. Cells then dispatch/subscribe against it without any per-cell frame
-;; boilerplate: `renderLast` evaluates each cell's source under a
-;; `with-frame :rf/default` scope (so a top-level `dispatch-sync` in the cell
-;; resolves) and mounts the cell's component under a `frame-provider` (so the
-;; render-time `subscribe` resolves). See `renderLast`.
-(def ^:private app-frame :rf/default)
-
+;; consumer app, so it establishes its own app frame — `app-frame`,
+;; `:rf/default` (defined up top) — once, here. Cells then dispatch/subscribe
+;; against it without any per-cell frame boilerplate: `renderLast` evaluates
+;; each cell's source under a `with-frame :rf/default` scope (so a top-level
+;; `dispatch-sync` in the cell resolves), mounts the cell's component under a
+;; `frame-provider` (so the render-time `subscribe` resolves), and the SCI-
+;; bound `dispatch`/`dispatch-sync`/`subscribe` wrappers default to `app-frame`
+;; (so a DEFERRED `:on-click` dispatch resolves too).
 (defn- ensure-init! []
   (when-not @inited?
     (rf/init! reagent-slim-adapter/adapter)
