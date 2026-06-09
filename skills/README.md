@@ -171,11 +171,13 @@ of duplicating.
 against `day8/re-frame2`**, never `bd` beads (`bd` is the monorepo's internal
 tracker and has no place in a skill shipped to consumer projects — see
 [§Published-skill `allowed-tools` baseline](#published-skill-allowed-tools-baseline-security-policy)).
-Both kinds of friction target the same repo, distinguished by the `pair-mcp`
-label:
+Both kinds of friction target the same repo and carry the tool-vs-framework
+distinction in the **title + body**:
 
-- **Pair-tool friction** (SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behavior) → GitHub issue against `day8/re-frame2` **with** the `pair-mcp` label.
-- **Framework / Tool-Pair contract friction** (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings) → GitHub issue against `day8/re-frame2` **without** the `pair-mcp` label (upstream framework friction). Name the specific Tool-Pair surface from [`re-frame2-pair-retro/SKILL.md` §Filing improvements](./re-frame2-pair-retro/SKILL.md#filing-improvements).
+- **Pair-tool friction** — SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behavior.
+- **Framework / Tool-Pair contract friction** — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from [`../shared/tool-pair-surfaces.md`](./shared/tool-pair-surfaces.md).
+
+**Labels are optional taxonomy, not a filing precondition.** A `--label` (e.g. `pair-mcp`) is added only after confirming the target repo defines it (detect with `gh label list`); on a repo/fork without that label, `gh issue create --label` fails the whole command, so filing falls back to a no-label `gh issue create` and lands regardless. The operational label/filing rules live in [`re-frame2-pair-retro/SKILL.md` §Filing improvements](./re-frame2-pair-retro/SKILL.md#filing-improvements) — this index points there rather than restating them.
 
 ## Layout convention
 

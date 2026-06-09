@@ -148,19 +148,45 @@
 
 (deftest threads-fx-overrides-arg
   ;; User-supplied :fx-overrides ride into the runtime opts; the
-  ;; runtime merges them on top of the dry-run override set.
+  ;; runtime merges them on top of the dry-run override set. rf2-hf7m9j —
+  ;; the documented colon-prefixed string target `":stub-http"` MUST
+  ;; coerce to the KEYWORD `:stub-http` in the emitted opts, never the
+  ;; raw string (which core silently falls through to the original fx,
+  ;; defeating the no-fx-execute guarantee).
   (async done
     (let [forms (atom [])]
       (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
             (fn []
               (dry-run/dispatch-dry-run-tool (fresh-conn)
                                              #js {:event "[:cart/checkout]"
-                                                  :fx-overrides #js {:http "stub-http"}})))
+                                                  :fx-overrides #js {":http" ":stub-http"}})))
           (.then (fn [_]
                    (let [form (dispatch-form forms)]
                      (is (str/includes? form ":fx-overrides")
                          ":fx-overrides threaded into runtime opts")
-                     (is (str/includes? form "\"stub-http\"")))
+                     (is (str/includes? form ":stub-http")
+                         "the stub target rides as a keyword")
+                     (is (not (str/includes? form "\"stub-http\""))
+                         "NOT a string target — a string would fall through to the real fx"))
+                   (done)))))))
+
+(deftest rejects-string-fx-overrides-target
+  ;; rf2-hf7m9j — a bare (non-colon) string override target can't redirect
+  ;; over the wire (core would silently fall it through to the real fx).
+  ;; For dry-run that defeats the no-fx-execute guarantee, so reject it as
+  ;; an :isError envelope BEFORE the eval rather than ship a broken stub.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-captured-eval! forms (wrap {:ok? true} 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                             #js {:event "[:cart/checkout]"
+                                                  :fx-overrides #js {":http" "stub-http"}})))
+          (.then (fn [r]
+                   (is (err? r)
+                       "a bare-string override target ⇒ :isError, never a silent fall-through")
+                   (is (nil? (dispatch-form forms))
+                       "the dispatch-dry-run eval never fired — rejected up front")
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------

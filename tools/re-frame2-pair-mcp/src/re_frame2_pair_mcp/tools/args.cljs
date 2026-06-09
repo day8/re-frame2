@@ -107,6 +107,67 @@
   [x]
   (base-args/fresh-keyword x))
 
+(defn parse-fx-overrides
+  "Coerce the `fx-overrides` MCP arg (a JSON object) into the CLJS map
+  core's `:fx-overrides` seam expects (Spec 002 §Per-frame and per-call
+  overrides), returning `[:ok m]` or `[:err msg]`.
+
+  Over the JSON-MCP wire a caller can only send a JSON object, so BOTH
+  the override KEY and the override VALUE arrive as strings (`{\":http\":
+  \":stub-http\"}` ⇒ key `\":http\"`, value `\":stub-http\"`). The naive
+  `(js->clj o :keywordize-keys true)` is doubly wrong here (rf2-hf7m9j):
+  it leaves the value the string `\":stub-http\"`, AND it mints a
+  MALFORMED key by calling `(keyword \":http\")` ⇒ `::http` (namespace
+  literally `\"\"`), which matches no registered fx-id — the same colon-
+  literal footgun `->frame-keyword` exists to avoid. Core's
+  `resolve-fx-with-overrides` honours only KEYWORD redirect targets, fn
+  values, and nil; a string value hits the `:else` branch and SILENTLY
+  falls through to the original fx — the real http/navigate/persist
+  effect fires despite the recipe saying it was stubbed, and for
+  `dispatch-dry-run` a string override can defeat the no-fx-execute
+  guarantee.
+
+  So this is the single AI-facing wire shape: both the fx-id key and the
+  override target are colon-tolerant strings (`\":http\"` / `\":stub-http\"`),
+  coerced here via `fresh-keyword` (the shared colon-stripping path) to
+  the keywords `:http` / `:stub-http`. `null`/absent value ⇒ nil (the
+  documented no-op placeholder). Anything else for the target — a bare
+  non-colon string, a number, a nested object/array — is REJECTED with a
+  structured error rather than passed through to fall silently through to
+  the original fx."
+  [o]
+  (if (or (nil? o) (undefined? o))
+    [:ok nil]
+    ;; Use string-keyed `js->clj` (NOT :keywordize-keys, which mints the
+    ;; malformed `::http` key) and coerce both halves ourselves.
+    (let [m (js->clj o)]
+      (if-not (map? m)
+        [:err {:ok?    false
+               :reason :rf.error/invalid-fx-overrides
+               :hint   (str "fx-overrides must be an object mapping fx-id to a "
+                            "colon-prefixed stub id, e.g. {\":http\": \":stub-http\"}.")}]
+        (reduce-kv
+          (fn [acc k v]
+            (if (= :err (first acc))
+              acc
+              (let [fx-key  (base-args/fresh-keyword k)
+                    coerced (cond
+                              (nil? v)     nil
+                              (and (string? v) (str/starts-with? v ":")) (base-args/fresh-keyword v)
+                              :else        ::reject)]
+                (if (= ::reject coerced)
+                  [:err {:ok?    false
+                         :reason :rf.error/invalid-fx-overrides
+                         :target fx-key
+                         :value  v
+                         :hint   (str "fx-overrides target for `" fx-key "` must be a colon-prefixed "
+                                      "stub id string (e.g. \":stub-http\") or null, got "
+                                      (pr-str v) ". A bare string or non-string value would "
+                                      "silently fall through to the real fx instead of stubbing it.")}]
+                  [:ok (assoc (second acc) fx-key coerced)]))))
+          [:ok {}]
+          m)))))
+
 (defn coerce-path-segment
   "Coerce one segment of a JS-array path argument.
 

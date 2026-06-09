@@ -341,7 +341,17 @@
         ;; so the frame routes the same way `eval-cljs` / `snapshot` /
         ;; `replace-app-db` already route it.
         frame        (some-> (wire/arg args :frame) args/->frame-keyword)
-        fx-overrides (when-let [o (wire/arg args :fx-overrides)] (js->clj o :keywordize-keys true))
+        ;; rf2-hf7m9j — coerce override VALUES too. A plain
+        ;; `(js->clj o :keywordize-keys true)` keywordizes object keys
+        ;; only, leaving a documented `{":http": ":stub-http"}` target as
+        ;; the string `":stub-http"`. Core's `resolve-fx-with-overrides`
+        ;; honours only keyword / fn / nil targets and SILENTLY falls a
+        ;; string through to the original fx — the real http/navigate
+        ;; effect fires despite the recipe saying it was stubbed.
+        ;; `parse-fx-overrides` coerces colon-prefixed strings to keywords
+        ;; and REJECTS any other value with a structured error.
+        fx-r         (args/parse-fx-overrides (wire/arg args :fx-overrides))
+        fx-overrides (when (= :ok (first fx-r)) (second fx-r))
         ;; rf2-olvr5 finding 1 — `:trace` (`dispatch-and-collect`) and
         ;; `:settle` (`dispatch-and-settle!`) return RAW epoch material
         ;; (`:epoch` carrying `:db-before`/`:db-after`/`:trigger-event`/
@@ -368,6 +378,12 @@
       ;; that would spin the `:await-render` mailbox poll loop unbounded.
       (= :err (first timeout-r))
       (js/Promise.resolve (wire/err-text (second timeout-r)))
+
+      ;; rf2-hf7m9j — an invalid fx-overrides target short-circuits to an
+      ;; honest isError rather than silently falling through to the real
+      ;; fx (which the documented stub recipe promised was inert).
+      (= :err (first fx-r))
+      (js/Promise.resolve (wire/err-text (second fx-r)))
 
       :else
       (case tag

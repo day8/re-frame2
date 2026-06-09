@@ -1101,3 +1101,66 @@
                      (is (= :rf.error/dispatch-await-render-timeout (:reason edn)))
                      (is (= 60 (:timeout-ms edn))))
                    (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; fx-overrides wire shape (rf2-hf7m9j) — over JSON-MCP a caller can only
+;; send a JSON object, so an override TARGET arrives as a string
+;; (`{":http": ":stub-http"}` ⇒ value `":stub-http"`). The pre-fix parse
+;; (`js->clj :keywordize-keys true`) keywordized object KEYS only, leaving
+;; the value the string `":stub-http"`; core's `resolve-fx-with-overrides`
+;; then SILENTLY fell that string through to the original fx (the real
+;; http/navigate effect fires despite the recipe saying it was stubbed).
+;; The tool now coerces the documented colon-prefixed string target to a
+;; keyword and rejects any other value.
+;; ---------------------------------------------------------------------------
+
+(deftest fx-overrides-colon-string-target-coerces-to-keyword
+  ;; The documented wire shape `{":http": ":stub-http"}` must resolve to a
+  ;; KEYWORD redirect target in the emitted opts — never a string that
+  ;; would fall through to the real fx in core's resolver.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 1 :db-changed? false
+                                         :changed-paths [] :effects-fired [] :no-op? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:cart/checkout]"
+                                           :fx-overrides #js {":http" ":stub-http"}})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)
+                         overrides (:fx-overrides opts)]
+                     (is (= {:http :stub-http} overrides)
+                         "override target is the KEYWORD :stub-http, not the string \":stub-http\"")
+                     (is (keyword? (:http overrides))
+                         "the redirect target keywordizes so core honours it as an id-redirect"))
+                   (done)))))))
+
+(deftest fx-overrides-bare-string-target-rejected
+  ;; A non-colon-prefixed string (`"stub-http"`) is NOT a valid id-redirect
+  ;; over the wire — core would silently fall it through. Reject with an
+  ;; :isError envelope rather than fire the real effect.
+  (async done
+    (-> (with-captured-eval! (atom nil) {:ok? true}
+          (fn []
+            (dispatch/dispatch-tool (fresh-conn)
+                                    #js {:event "[:cart/checkout]"
+                                         :fx-overrides #js {":http" "stub-http"}})))
+        (.then (fn [r]
+                 (is (err? r)
+                     "a bare (non-colon) string target ⇒ :isError, never a silent fall-through")
+                 (done))))))
+
+(deftest fx-overrides-non-string-target-rejected
+  ;; A number / boolean / nested value is not a valid override target over
+  ;; the wire — reject it rather than fall through to the real fx.
+  (async done
+    (-> (with-captured-eval! (atom nil) {:ok? true}
+          (fn []
+            (dispatch/dispatch-tool (fresh-conn)
+                                    #js {:event "[:cart/checkout]"
+                                         :fx-overrides #js {":http" 42}})))
+        (.then (fn [r]
+                 (is (err? r)
+                     "a non-string override target ⇒ :isError")
+                 (done))))))
