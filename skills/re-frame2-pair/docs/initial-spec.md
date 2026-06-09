@@ -8,7 +8,7 @@
 > live, skill-facing transport is now the **MCP server**
 > (`tools/re-frame2-pair-mcp/`) — **28** tools, **26** default
 > allow-listed, the two write-authority tools (`restore-epoch`,
-> `reset-frame-db`) gated behind the server's default-OFF
+> `replace-app-db`) gated behind the server's default-OFF
 > `--allow-writes` flag (see `STATUS.md` + `references/mcp-transport.md`).
 > The `scripts/*.sh` + babashka `ops.clj` shims and the `cljs-eval`
 > injection step described below are **retired** from the skill

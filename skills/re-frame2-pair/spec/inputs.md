@@ -38,7 +38,7 @@ The namespace carries helper functions the structured ops compose against (`epoc
 
 ## 4. Transport inputs
 
-- **MCP server** — the `mcp__re-frame2-pair__*` tool surface, the **only** transport the skill exposes. Lives in `tools/re-frame2-pair-mcp/` in the re-frame2 repo; the generated catalogue manifest is `tools/re-frame2-pair-mcp/tool-descriptors.edn` (**28** tools). The skill's frontmatter `allowed-tools` block lists the **26** default-reachable tools; the two write-authority tools (`restore-epoch`, `reset-frame-db`) are gated behind the server's default-OFF `--allow-writes` flag and are NOT default allow-listed. `references/mcp-transport.md` explains installation.
+- **MCP server** — the `mcp__re-frame2-pair__*` tool surface, the **only** transport the skill exposes. Lives in `tools/re-frame2-pair-mcp/` in the re-frame2 repo; the generated catalogue manifest is `tools/re-frame2-pair-mcp/tool-descriptors.edn` (**28** tools). The skill's frontmatter `allowed-tools` block lists the **26** default-reachable tools; the two write-authority tools (`restore-epoch`, `replace-app-db`) are gated behind the server's default-OFF `--allow-writes` flag and are NOT default allow-listed. `references/mcp-transport.md` explains installation.
 - **Bash shims** — `skills/re-frame2-pair/scripts/*.sh`. **Retired from the skill's tool surface** (no shell tool in `allowed-tools:`); on disk only for the project's own e2e harness and ad-hoc shell use. They consume the same transport-agnostic `re-frame2-pair.runtime` namespace but are not a skill-facing fallback transport.
 
 ## 5. Authoring-discipline inputs

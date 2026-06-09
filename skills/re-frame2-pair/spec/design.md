@@ -37,7 +37,7 @@ Time-travel, trace-stream consumption, and epoch records ride on `re-frame2`'s n
 
 ### L3 — MCP is the only skill-facing transport
 
-- **MCP transport** — `mcp__re-frame2-pair__*` tools. Single persistent nREPL connection per session. The **only** transport the skill exposes. The server ships **28** tools; **26** are default allow-listed (the frontmatter `allowed-tools:` carries no shell tool). The two write-authority tools (`restore-epoch`, `reset-frame-db`) are gated behind the server's default-OFF `--allow-writes` flag and are NOT default allow-listed — the default-reachable write path is the eval forms (`eval-cljs` is default-ON).
+- **MCP transport** — `mcp__re-frame2-pair__*` tools. Single persistent nREPL connection per session. The **only** transport the skill exposes. The server ships **28** tools; **26** are default allow-listed (the frontmatter `allowed-tools:` carries no shell tool). The two write-authority tools (`restore-epoch`, `replace-app-db`) are gated behind the server's default-OFF `--allow-writes` flag and are NOT default allow-listed — the default-reachable write path is the eval forms (`eval-cljs` is default-ON).
 - **Bash shims** — `scripts/discover-app.sh` and friends predate the MCP server and are **retired from the skill's tool surface**. They remain on disk only for the project's own e2e test harness and ad-hoc shell use; no shell tool is in `allowed-tools:`, so the skill cannot reach them.
 
 The MCP tool reference lives in `references/mcp-transport.md`.

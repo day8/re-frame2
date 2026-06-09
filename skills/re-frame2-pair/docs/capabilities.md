@@ -72,7 +72,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 |---|---|---|
 | List recorded epochs per frame | *done* | `trace-window` / `snapshot` (`:epochs` slice) over `rf/epoch-history` |
 | Restore an epoch | *done* | `restore-epoch` (dedicated tool, `--allow-writes`-gated) over `rf/restore-epoch` |
-| Inject an arbitrary app-db state | *done* | `reset-frame-db` (dedicated tool, `--allow-writes`-gated) over `rf/reset-frame-db!` — the JSON-loaded-bug-repro case |
+| Inject an arbitrary app-db state | *done* | `replace-app-db` (dedicated tool, `--allow-writes`-gated) over `rf/replace-app-db!` — the JSON-loaded-bug-repro case |
 | Restore failure surfaces | *done* | Seven modes, all documented (Tool-Pair §Time-travel); `(re-frame.trace.tooling/trace-buffer {:op-type :error})` carries the structured tags |
 | Configure ring depth | *done* | `(rf/configure! :epoch-history {:depth N})` |
 | Reverse side effects | *guardrail* | Restore rewinds `app-db` only; `restore-epoch`'s `:unreplayable-effects` enumerates the non-pure fx the original cascade fired that the restore cannot undo |
@@ -83,7 +83,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 
 | Guardrail | Status | Notes |
 |---|---|---|
-| `reset-frame-db` is logged via `tap>` and `--allow-writes`-gated | *done* | Previous + next + timestamp are tap'd so the human sees the change. Delegates to `rf/reset-frame-db!` (Tool-Pair §Pair-tool writes) so the synthetic `:rf.epoch/db-replaced` record is appended and `restore-epoch` can rewind past the injection. The tool is OFF unless the server is launched with `--allow-writes`. |
+| `replace-app-db` is logged via `tap>` and `--allow-writes`-gated | *done* | Previous + next + timestamp are tap'd so the human sees the change. Delegates to `rf/replace-app-db!` (Tool-Pair §Pair-tool writes) so the synthetic `:rf.epoch/db-replaced` record is appended and `restore-epoch` can rewind past the injection. The tool is OFF unless the server is launched with `--allow-writes`. |
 | `eval-cljs` treated as full-authority | *guardrail* | Default-ON (opt out with `--no-eval`); SKILL.md instructs Claude to prefer the structured tools, and flags that `eval-cljs` returns its value un-elided and is not governed by `--allow-sensitive-reads` |
 | Ops refuse on `:ambiguous-frame` | *done* | Both writes and reads refuse rather than guess: the structured `snapshot` / `get-path` / `dispatch` tools refuse, and the lower-level read helpers (`subs-sample` / `read-sub!` / `sub-cache-info`) return `:reason :ambiguous-frame` rather than silently reading `:rf/default` |
 | Watches and background processes always stop cleanly | *done* | Auto-terminate on disconnect, idle (default 30s), hard-cap (default 5min), or count cap (default 5) |

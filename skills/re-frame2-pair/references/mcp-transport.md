@@ -68,7 +68,7 @@ edits.
 
 ## MCP tool reference (args)
 
-The server exposes **28 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`, the generated descriptor manifest). 26 are reachable from this skill's `allowed-tools:`; the two write-authority tools (`restore-epoch`, `reset-frame-db`) are gated behind the server's default-OFF `--allow-writes` launch flag and reached via the eval forms in [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) / [§Write](ops.md#write) — an operator who launches with `--allow-writes` can add the two MCP tools to a deployment's allow-list.
+The server exposes **28 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`, the generated descriptor manifest). 26 are reachable from this skill's `allowed-tools:`; the two write-authority tools (`restore-epoch`, `replace-app-db`) are gated behind the server's default-OFF `--allow-writes` launch flag and reached via the eval forms in [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) / [§Write](ops.md#write) — an operator who launches with `--allow-writes` can add the two MCP tools to a deployment's allow-list.
 
 ### Orientation + discovery
 

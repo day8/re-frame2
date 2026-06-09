@@ -48,7 +48,7 @@ The patches already carry path + op + value — every signal needed to head a cl
 
 Mirrors the Xray pass (`section_grouping.cljc` §3.1.1), recast over patches:
 
-1. **Trivial cases first.** Empty patches → `[]`. A single root-path `:assoc` (`[[] :assoc <full-db>]`, the `reset-frame-db!` signature) → one `[]`-headed `:modified` section.
+1. **Trivial cases first.** Empty patches → `[]`. A single root-path `:assoc` (`[[] :assoc <full-db>]`, the `replace-app-db!` signature) → one `[]`-headed `:modified` section.
 
 2. **Sort by path-as-`pr-str`.** Makes the cluster algorithm deterministic and reorder-tolerant. (`collect-patches` already emits in walk order; the sort pins it.)
 
