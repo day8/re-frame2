@@ -51,9 +51,21 @@
   (late-bind/set-fn! :stub-observed-fx-ids fx-stubs/observed-fx-ids)
   ;; rf2-luzky — the assertions side-table is gone; only the play module's
   ;; per-frame `pending-exceptions` slot needs frame-teardown eviction.
+  ;;
+  ;; rf2-294yq5.4 — per-frame destroy must ALSO unregister the play-runner's
+  ;; per-frame trace listener (`play/install-trace-listener!` registered it
+  ;; in `runtime/run-phase-0!`). Dropping only the `pending-exceptions` entry
+  ;; left the listener registered against a destroyed frame: `clear-all-play-
+  ;; state!` could no longer find it (it keys off `pending-exceptions` /
+  ;; `stepper-state`, both now empty for that frame), so long-running
+  ;; sessions / hot-reload cycles / large corpora accumulated stale listener
+  ;; closures inspecting every future trace event. `remove-trace-listener!`
+  ;; is idempotent, so destroying a frame that never installed a listener
+  ;; (or a double-destroy) is harmless.
   (late-bind/set-fn! :drop-assertion-accumulators
     (fn [frame-id]
-      (play/drop-pending-exceptions! frame-id)))
+      (play/drop-pending-exceptions! frame-id)
+      (play/remove-trace-listener! frame-id)))
   ;; rf2-booyu — the play-runner's per-frame run-state (`run-state` /
   ;; `runs-by-play` / `active-play` / `step-boundaries`) must be evicted on
   ;; frame teardown too. `clear-state!` documented itself as "called from

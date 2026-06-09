@@ -116,12 +116,22 @@
 
 (defn- capture-phase-errors
   "Run `body-fn` (a 0-arg thunk) with a registered trace listener that
-  collects `:rf.error/handler-exception` events targeting `variant-id`'s
-  frame. After the body returns, walks the captured errors and records
-  each as a phase-tagged assertion via `record-error!`. Returns `body-fn`'s
+  collects PIPELINE-EXCEPTION events targeting `variant-id`'s frame.
+  After the body returns, walks the captured errors and records each as
+  a phase-tagged assertion via `record-error!`. Returns `body-fn`'s
   return value.
 
-  Per Spec 009 §Privacy + rf2-bclgj: handler-exception trace events
+  rf2-294yq5.2 — the capture set is every operation in
+  `story-error/pipeline-exception-operations` (handler-exception,
+  coeffect-exception, interceptor-exception), not just
+  `:rf.error/handler-exception`. A loader/event phase whose cofx
+  injector or user interceptor throws was previously a silent
+  false-green; the shared `pipeline-exception-event?` predicate closes
+  that gap and the originating `:operation` / `:failing-id` are
+  preserved onto the record so a cofx failure is distinguishable from a
+  handler failure.
+
+  Per Spec 009 §Privacy + rf2-bclgj: pipeline-exception trace events
   whose `:sensitive?` flag is true are dropped from the capture set
   when the global `:rf.privacy/show-sensitive?` flag is false (the
   default). A counter bump is recorded so the UI's redaction hint
@@ -133,8 +143,7 @@
                       (config/suppress-sensitive? ev)
                       (config/note-suppressed! (get-in ev [:tags :frame]))
 
-                      (and (= :rf.error/handler-exception (:operation ev))
-                           (= variant-id (get-in ev [:tags :frame])))
+                      (story-error/pipeline-exception-event? variant-id ev)
                       (swap! collected conj ev)))]
     (with-trace-listener
       listener
@@ -143,7 +152,9 @@
           (doseq [ev @collected]
             (record-error! variant-id phase
                            (get-in ev [:tags :event])
-                           (get-in ev [:tags :exception])))
+                           (get-in ev [:tags :exception])
+                           {:operation  (:operation ev)
+                            :failing-id (get-in ev [:tags :failing-id])}))
           result)))))
 
 ;; ---- phase-2 events execution --------------------------------------------
@@ -344,25 +355,31 @@
 (defn record-error!
   "Append an error record to the variant frame's `[:rf.story/assertions]`
   accumulator. Per IMPL-SPEC §5.5 errors continue the play sequence
-  rather than aborting — the full picture is captured."
-  [variant-id phase event err]
-  (let [record (story-error/exception-record variant-id phase event err)]
-    (try
-      (rf/dispatch-sync [::append-assertion record] {:frame variant-id})
-      (catch #?(:clj Throwable :cljs :default) dispatch-err
-        ;; The frame may already be torn down (run-variant tearing down
-        ;; under error, or a hot-reload race destroying the frame mid-
-        ;; capture). Emit a debug trace breadcrumb so the lossy path is
-        ;; visible in tooling; never re-throw — the caller is already
-        ;; in error-recording flow.
-        (trace/emit!
-          :debug ::append-assertion-failed
-          {:frame      variant-id
-           :phase      phase
-           :event      event
-           :error-msg  #?(:clj  (.getMessage ^Throwable dispatch-err)
-                          :cljs (str dispatch-err))})))
-    record))
+  rather than aborting — the full picture is captured.
+
+  `opts` (optional) is threaded to `story-error/exception-record` —
+  callers draining a pipeline-exception trace event pass `:operation`
+  / `:failing-id` so the originating component attribution survives
+  onto the record (rf2-294yq5.2)."
+  ([variant-id phase event err] (record-error! variant-id phase event err nil))
+  ([variant-id phase event err opts]
+   (let [record (story-error/exception-record variant-id phase event err opts)]
+     (try
+       (rf/dispatch-sync [::append-assertion record] {:frame variant-id})
+       (catch #?(:clj Throwable :cljs :default) dispatch-err
+         ;; The frame may already be torn down (run-variant tearing down
+         ;; under error, or a hot-reload race destroying the frame mid-
+         ;; capture). Emit a debug trace breadcrumb so the lossy path is
+         ;; visible in tooling; never re-throw — the caller is already
+         ;; in error-recording flow.
+         (trace/emit!
+           :debug ::append-assertion-failed
+           {:frame      variant-id
+            :phase      phase
+            :event      event
+            :error-msg  #?(:clj  (.getMessage ^Throwable dispatch-err)
+                           :cljs (str dispatch-err))})))
+     record)))
 
 (defn- record-loader-incomplete!
   [variant-id variant-body]
@@ -747,9 +764,38 @@
      :effective-args   (get-in plan [:world :effective-args] {})
      :snapshot         (ident/snapshot-identity variant-id opts)}))
 
+(defn- ensure-fresh-frame!
+  "Enforce a FRESH-RUN boundary for `variant-id` (rf2-294yq5.3). Per
+  spec/002-Runtime §`run-variant` step 1 — `run-variant` allocates OR
+  `reset-frame!`s the variant frame; it never reuses an existing one.
+
+  `frames/allocate!` against an existing frame goes through
+  `reg-frame`'s surgical-update path, which PRESERVES the prior app-db
+  and sub-cache (frames/allocate! docstring). For a Story run that is
+  the wrong shape: a second `run-variant` on the same id would inherit
+  the first run's app-db, and — worse — `run-loaders!` short-circuits on
+  an already-`:ready` frame, so a loader variant would SKIP its loaders
+  on the second run (a stateful, order-dependent false result).
+
+  When a frame already exists under `variant-id` we `destroy!` it first
+  so the subsequent `allocate!` builds a clean frame (fresh app-db,
+  fresh lifecycle, no leaked trace listener — destroy! also runs the
+  teardown walk). When no frame exists this is a no-op. Determinism by
+  default; an intentionally-persistent mode would be an explicit opt,
+  not the default."
+  [variant-id]
+  (when (contains? (set (rf/frame-ids)) variant-id)
+    (frames/destroy! variant-id)))
+
 (defn- run-phase-0!
-  "Phase 0: allocate the variant frame with its decorator stack, then
-  install the play-runner's privacy egress listener.
+  "Phase 0: enforce a fresh-run boundary, allocate the variant frame
+  with its decorator stack, then install the play-runner's privacy
+  egress listener.
+
+  rf2-294yq5.3 — `ensure-fresh-frame!` destroys any pre-existing frame
+  under `variant-id` BEFORE allocation so two consecutive `run-variant`
+  calls on the same id produce the same fresh app-db and loader variants
+  rerun their loaders on the second call (spec/002 §`run-variant` step 1).
 
   The listener install order matters (rf2-v2g9): it must be in place
   BEFORE phase-1 loaders fire so the privacy gate suppresses sensitive
@@ -761,6 +807,7 @@
   tape (`assertions/dispatched-events`, the SSOT) rather than a side-table
   accumulator, so there is no accumulator to seed here."
   [{:keys [variant-id decorator-stack] :as ctx}]
+  (ensure-fresh-frame! variant-id)
   (frames/allocate! variant-id decorator-stack)
   (swap! play/pending-exceptions assoc variant-id [])
   (play/install-trace-listener! variant-id)

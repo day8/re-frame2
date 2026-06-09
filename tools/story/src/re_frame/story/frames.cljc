@@ -137,7 +137,55 @@
     (ensure-stub-event! stub-id fx-id response))
   overrides)
 
+;; ---- shared phase-exception record builder ------------------------------
+
+(defn- phase-exception-record
+  "Build the `:rf.error/exception` assertion record projected when a
+  lifecycle phase event throws. Per `002-Runtime.md` §Error projection
+  and §Loader teardown contract — the record lands in
+  `:rf.story/assertions` so the variant's last result-map surfaces the
+  failure (the play / variant pane renders it inline).
+
+  `phase` is the originating phase: `:phase-0-setup` (`:frame-setup`
+  decorator `:init` events — rf2-294yq5.1), `:phase-loaders-teardown`
+  (variant body's `:loaders-teardown` events — rf2-lqs0b), or
+  `:phase-teardown` (`:frame-setup` decorator `:teardown` events —
+  rf2-dg2uh).
+
+  Thin wrapper over the shared `re-frame.story.error/exception-record`
+  (rf2-9kpsq) — the Throwable→`{:message :stack :data}` projection + the
+  `:rf.error/exception` shape are the ONE canonical form. `opts`
+  (optional) is threaded through so a drained pipeline-exception trace
+  event preserves its originating `:operation` / `:failing-id`
+  (rf2-294yq5.2)."
+  ([variant-id phase event err] (phase-exception-record variant-id phase event err nil))
+  ([variant-id phase event err opts]
+   (story-error/exception-record variant-id phase event err opts)))
+
+(defn- pipeline-event-opts
+  "Pull the `:operation` / `:failing-id` attribution off a captured
+  pipeline-exception trace event for `phase-exception-record`
+  (rf2-294yq5.2)."
+  [tev]
+  {:operation  (:operation tev)
+   :failing-id (get-in tev [:tags :failing-id])})
+
 ;; ---- :frame-setup decorator application ---------------------------------
+
+(defonce ^:private setup-capture-counter (atom 0))
+
+(defn- with-setup-trace-listener
+  "Register `listener` against a fresh capture id, run `body-fn` (a
+  0-arg thunk), then remove the listener in a `finally`. Returns
+  `body-fn`'s return value. Mirrors `with-teardown-trace-listener`;
+  used to bracket the `:frame-setup` `:init` dispatch walk so a
+  setup-phase pipeline exception is captured (rf2-294yq5.1)."
+  [listener body-fn]
+  (let [cb-id (keyword "re-frame.story.frames"
+                       (str "setup-capture-" (swap! setup-capture-counter inc)))]
+    (trace-tooling/register-listener! cb-id listener)
+    (try (body-fn)
+      (finally (trace-tooling/unregister-listener! cb-id)))))
 
 (defn- apply-frame-setup!
   "Walk the resolved `:frame-setup` decorators and execute their
@@ -147,35 +195,87 @@
 
   Each decorator's `:init` events are dispatched synchronously; the
   `:app-db-patch` (a `path → value` map) is merged into the frame's
-  app-db via a registered helper event."
+  app-db via a registered helper event.
+
+  Exception handling (rf2-294yq5.1). Previously the `:init` dispatch
+  walk ran INSIDE `allocate!` before the runtime's per-frame trace
+  listener existed, so re-frame's interceptor chain captured a
+  throwing `:init` handler into a trace event that nothing observed —
+  `run-variant` reported `:pass` / `:ready` against a frame whose
+  declared preconditions never installed (a false green). We now
+  bracket the walk in its OWN scoped trace listener (symmetric with
+  `apply-frame-teardown!`): a pipeline exception (handler / coeffect /
+  interceptor — rf2-294yq5.2) targeting the frame is captured and
+  projected onto `[:rf.story/assertions]` as a `:rf.error/exception`
+  record with `:phase :phase-0-setup`, so the run aggregates as failed.
+  Synchronous throws from outside the interceptor chain are caught
+  directly. The walk continues so every setup failure is recorded."
   [frame-id frame-setup-decorators]
-  (doseq [r frame-setup-decorators]
-    (let [body          (:body r)
-          init-events   (:init body)
-          patch         (:app-db-patch body)]
-      (when patch
-        (rf/dispatch-sync [::apply-app-db-patch patch] {:frame frame-id}))
-      (doseq [ev init-events]
-        (rf/dispatch-sync ev {:frame frame-id})))))
+  (when (seq frame-setup-decorators)
+    (let [pending  (atom [])
+          drain!   (fn []
+                     (when-let [evs (seq @pending)]
+                       (reset! pending [])
+                       (doseq [tev evs]
+                         (let [orig-event (get-in tev [:tags :event])
+                               err        (get-in tev [:tags :exception])
+                               record     (phase-exception-record
+                                            frame-id :phase-0-setup
+                                            orig-event err
+                                            (pipeline-event-opts tev))]
+                           (try
+                             (rf/dispatch-sync [::append-teardown-assertion record]
+                                               {:frame frame-id})
+                             (catch #?(:clj Throwable :cljs :default) _ nil))))))
+          listener (fn [ev]
+                     (when (story-error/pipeline-exception-event? frame-id ev)
+                       (swap! pending conj ev)))]
+      (with-setup-trace-listener
+        listener
+        (fn []
+          (doseq [r frame-setup-decorators]
+            (let [body        (:body r)
+                  init-events (:init body)
+                  patch       (:app-db-patch body)]
+              (when patch
+                (try
+                  (rf/dispatch-sync [::apply-app-db-patch patch] {:frame frame-id})
+                  (catch #?(:clj Throwable :cljs :default) err
+                    (let [record (phase-exception-record
+                                   frame-id :phase-0-setup
+                                   [::apply-app-db-patch patch] err)]
+                      (try
+                        (rf/dispatch-sync [::append-teardown-assertion record]
+                                          {:frame frame-id})
+                        (catch #?(:clj Throwable :cljs :default) _ nil)))))
+                (drain!))
+              (doseq [ev init-events]
+                (try
+                  (rf/dispatch-sync ev {:frame frame-id})
+                  (catch #?(:clj Throwable :cljs :default) err
+                    (let [record (phase-exception-record
+                                   frame-id :phase-0-setup ev err)]
+                      (try
+                        (rf/dispatch-sync [::append-teardown-assertion record]
+                                          {:frame frame-id})
+                        (catch #?(:clj Throwable :cljs :default) _ nil)))))
+                (drain!))))))
+      ;; Final drain — catch any trace events delivered after the last
+      ;; dispatch inside the listener-bound region (belt-and-braces).
+      (let [collected @pending]
+        (reset! pending [])
+        (doseq [tev collected]
+          (let [orig-event (get-in tev [:tags :event])
+                err        (get-in tev [:tags :exception])
+                record     (phase-exception-record
+                             frame-id :phase-0-setup orig-event err
+                             (pipeline-event-opts tev))]
+            (try
+              (rf/dispatch-sync [::append-teardown-assertion record]
+                                {:frame frame-id})
+              (catch #?(:clj Throwable :cljs :default) _ nil))))))))
 
 ;; ---- :frame-setup decorator teardown -------------------------------------
-
-(defn- teardown-exception-record
-  "Build the `:rf.error/exception` assertion record projected when a
-  teardown event throws. Per `002-Runtime.md` §Error projection and
-  §Loader teardown contract — the record lands in `:rf.story/assertions`
-  so the variant's last result-map surfaces the failure (the play /
-  variant pane renders it inline).
-
-  `phase` is one of `:phase-loaders-teardown` (variant body's
-  `:loaders-teardown` events — rf2-lqs0b) or `:phase-teardown`
-  (`:frame-setup` decorator `:teardown` events — rf2-dg2uh).
-
-  Thin wrapper over the shared `re-frame.story.error/exception-record`
-  (rf2-9kpsq) — the Throwable→`{:message :stack :data}` projection + the
-  `:rf.error/exception` shape are the ONE canonical form."
-  [variant-id phase event err]
-  (story-error/exception-record variant-id phase event err))
 
 (defonce ^:private teardown-capture-counter (atom 0))
 
@@ -238,16 +338,20 @@
                      (doseq [tev evs]
                        (let [orig-event (get-in tev [:tags :event])
                              err        (get-in tev [:tags :exception])
-                             record     (teardown-exception-record
+                             record     (phase-exception-record
                                           variant-id :phase-teardown
-                                          orig-event err)]
+                                          orig-event err
+                                          (pipeline-event-opts tev))]
                          (try
                            (rf/dispatch-sync [::append-teardown-assertion record]
                                              {:frame variant-id})
                            (catch #?(:clj Throwable :cljs :default) _ nil))))))
         listener (fn [ev]
-                   (when (and (= :rf.error/handler-exception (:operation ev))
-                              (= variant-id (get-in ev [:tags :frame])))
+                   ;; rf2-294yq5.2 — capture every pipeline exception
+                   ;; (handler / coeffect / interceptor), not just
+                   ;; handler-exception: a teardown event whose cofx
+                   ;; injector or user interceptor throws was a false-green.
+                   (when (story-error/pipeline-exception-event? variant-id ev)
                      (swap! pending conj ev)))]
     (with-teardown-trace-listener
       listener
@@ -262,7 +366,7 @@
                   ;; Synchronous throw (outside the interceptor chain).
                   ;; Project directly. The trace-listener path covers
                   ;; in-handler throws that the interceptor chain catches.
-                  (let [record (teardown-exception-record
+                  (let [record (phase-exception-record
                                  variant-id :phase-teardown ev err)]
                     (try
                       (rf/dispatch-sync [::append-teardown-assertion record]
@@ -279,8 +383,9 @@
       (doseq [tev collected]
         (let [orig-event (get-in tev [:tags :event])
               err        (get-in tev [:tags :exception])
-              record     (teardown-exception-record
-                           variant-id :phase-teardown orig-event err)]
+              record     (phase-exception-record
+                           variant-id :phase-teardown orig-event err
+                           (pipeline-event-opts tev))]
           (try
             (rf/dispatch-sync [::append-teardown-assertion record]
                               {:frame variant-id})
@@ -332,16 +437,21 @@
                      (doseq [tev evs]
                        (let [orig-event (get-in tev [:tags :event])
                              err        (get-in tev [:tags :exception])
-                             record     (teardown-exception-record
+                             record     (phase-exception-record
                                           variant-id :phase-loaders-teardown
-                                          orig-event err)]
+                                          orig-event err
+                                          (pipeline-event-opts tev))]
                          (try
                            (rf/dispatch-sync [::append-teardown-assertion record]
                                              {:frame variant-id})
                            (catch #?(:clj Throwable :cljs :default) _ nil))))))
         listener (fn [ev]
-                   (when (and (= :rf.error/handler-exception (:operation ev))
-                              (= variant-id (get-in ev [:tags :frame])))
+                   ;; rf2-294yq5.2 — capture every pipeline exception
+                   ;; (handler / coeffect / interceptor), not just
+                   ;; handler-exception (a loaders-teardown event whose
+                   ;; cofx injector / user interceptor throws is a
+                   ;; first-class failure too).
+                   (when (story-error/pipeline-exception-event? variant-id ev)
                      (swap! pending conj ev)))]
     (with-teardown-trace-listener
       listener
@@ -350,7 +460,7 @@
           (try
             (rf/dispatch-sync ev {:frame variant-id})
             (catch #?(:clj Throwable :cljs :default) err
-              (let [record (teardown-exception-record
+              (let [record (phase-exception-record
                              variant-id :phase-loaders-teardown ev err)]
                 (try
                   (rf/dispatch-sync [::append-teardown-assertion record]
@@ -363,7 +473,7 @@
       (doseq [tev collected]
         (let [orig-event (get-in tev [:tags :event])
               err        (get-in tev [:tags :exception])
-              record     (teardown-exception-record
+              record     (phase-exception-record
                            variant-id :phase-loaders-teardown
                            orig-event err)]
           (try

@@ -139,11 +139,17 @@
      the egress gate — it runs BEFORE the listener does anything else, so
      a sensitive event never reaches the exception capture below.
 
-  2. Synchronous handler-exception capture: a non-suppressed
-     `:rf.error/handler-exception` event is stashed into
-     `pending-exceptions`, which the play-runner drains AFTER each
-     dispatch-sync settles (so it can record an assertion via
-     dispatch-sync without re-entering the in-flight drain)."
+  2. Synchronous pipeline-exception capture: a non-suppressed pipeline
+     exception (`:rf.error/handler-exception` /
+     `:rf.error/coeffect-exception` / `:rf.error/interceptor-exception` —
+     rf2-294yq5.2) is stashed into `pending-exceptions`, which the
+     play-runner drains AFTER each dispatch-sync settles (so it can
+     record an assertion via dispatch-sync without re-entering the
+     in-flight drain). Capturing only `:rf.error/handler-exception` was
+     a false-green: a play-script event whose cofx injector or user
+     interceptor threw would not surface. The shared
+     `story-error/pipeline-exception-event?` predicate is the single
+     projection."
   [frame-id]
   (fn [ev]
     (when (= frame-id (frame-of ev))
@@ -151,8 +157,7 @@
         (config/suppress-sensitive? ev)
         (config/note-suppressed! frame-id)
 
-        (and (= :error (:op-type ev))
-             (= :rf.error/handler-exception (:operation ev)))
+        (story-error/pipeline-exception-event? frame-id ev)
         (record-pending-exception! frame-id ev)
 
         :else nil))))
@@ -185,10 +190,15 @@
           ;; `:exception-message` (and a possibly-nil `:exception`); thread
           ;; it as the explicit `:message` override on the shared
           ;; projection so the message survives even without the throwable.
+          ;; rf2-294yq5.2 — preserve the originating `:operation` /
+          ;; `:failing-id` so a captured cofx / interceptor failure is
+          ;; distinguishable from a handler throw on the record.
           (assertions/record!
             frame-id
             (story-error/exception-record frame-id phase event-vec exc
-                                          {:message msg}))))
+                                          {:message    msg
+                                           :operation  (:operation ev)
+                                           :failing-id (get-in ev [:tags :failing-id])}))))
       (swap! pending-exceptions assoc frame-id []))))
 
 (defn install-trace-listener!
