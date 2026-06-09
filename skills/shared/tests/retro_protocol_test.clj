@@ -10,10 +10,15 @@
 ;;;;   3. Edit-gate split              — Finding 3, recommendation
 ;;;;
 ;;;; Plus a fourth surface (Lock 4) the original suite left unguarded:
-;;;; the shell-safety / command-injection boundary on the one
-;;;; destructive surface the protocol grants (`gh issue create`),
-;;;; specified in `issue-filing.md`. It is the same untrusted-evidence
-;;;; threat model as Lock 1 projected onto the shell.
+;;;; the shell-safety / command-injection boundary on the `gh issue`
+;;;; surfaces the protocol grants, specified in `issue-filing.md`. It is
+;;;; the same untrusted-evidence threat model as Lock 1 projected onto the
+;;;; shell — across the body (`--body-file`, Lock 4), the title (inline
+;;;; `--title`, Lock 4b), the per-filing OS-temp body path (Lock 4c), and
+;;;; the search query (inline `gh issue list --search`, Lock 4d,
+;;;; rf2-7g9htq.1 — `--search` has no `--search-file`, so a query lifted
+;;;; from evidence re-opens the same transcript→shell injection the
+;;;; title/body rules close).
 ;;;;
 ;;;; The audit's Finding 4 was PARTIAL — the prose was in place but no
 ;;;; regression suite asserted the locks. This file closes that gap by
@@ -531,6 +536,66 @@
              "directory (needs both 'per-filing' and an OS-temp token). "
              "The worked example must show the per-filing path, not assume "
              "the reader infers it from the shared leaf."))))
+
+;; ---------------------------------------------------------------------------
+;; Lock 4d — Search-argument safety on the inline `gh issue list --search`
+;; recipe (rf2-7g9htq.1)
+;;
+;; Search-before-file is mandatory, and the recipe is
+;; `gh issue list --repo <owner/repo> --search "<keywords>"`. `--search`
+;; is inline argv with no `--search-file`, so it is the SAME
+;; transcript→shell injection boundary as `--title`: a query lifted from
+;; the transcript / an error string / a suggested title can carry `$()`,
+;; backticks, quotes, `\`, or a newline that the shell expands before `gh`
+;; sees argv (and it leaks the raw evidence to GitHub as the search query).
+;; The title/body hardening closed `--title`/`--body`; this lock keeps the
+;; `--search` clause from drifting back out. EVERY corpus site that shows
+;; the search recipe must carry (or link) the agent-authored-keywords /
+;; never-paste-evidence rule next to it.
+;; ---------------------------------------------------------------------------
+
+(defn- search-recipe-has-safety-clause?
+  "True if `md` carries the search-argument safety clause near the
+   `gh issue list --search` recipe: it must mention `--search` and BOTH
+   the agent-authored-from-safe-alphabet positive rule AND the
+   never-paste-evidence prohibition."
+  [md]
+  (and (str/includes? md "--search")
+       (contains-any? md ["safe alphabet" "safe-alphabet" "author the"
+                          "author it" "author the `<keywords>`"
+                          "agent-authored"])
+       (contains-any? md ["never copy" "never paste" "never interpolate"
+                          "Never interpolate" "Never paste"
+                          "no `--search-file`" "no --search-file"])))
+
+(deftest issue-filing-search-recipe-carries-search-safety
+  (testing "issue-filing.md §Search before filing carries the --search safety clause"
+    (is (search-recipe-has-safety-clause? @issue-filing-md)
+        (str "skills/shared/issue-filing.md shows the `gh issue list "
+             "--search` recipe but no longer states the keywords are "
+             "agent-authored from the safe alphabet and never copied from "
+             "evidence. `--search` is inline argv with no `--search-file` — "
+             "the same transcript→shell injection boundary as `--title`. "
+             "Restore the §Search before filing safety clause (rf2-7g9htq.1)."))))
+
+(deftest retro-protocol-search-recipe-carries-search-safety
+  (testing "retro-protocol.md step 6 search recipe carries the --search safety clause"
+    (is (search-recipe-has-safety-clause? @protocol-md)
+        (str "skills/shared/retro-protocol.md shows the `gh issue list "
+             "--search` recipe in the filing sub-protocol but no longer "
+             "carries the agent-authored / never-paste-evidence `--search` "
+             "rule beside it (rf2-7g9htq.1)."))))
+
+(deftest issue-template-search-recipe-carries-search-safety
+  (testing "re-frame2-pair-retro/references/issue-template.md search recipe carries the --search safety clause"
+    (is (search-recipe-has-safety-clause? @issue-template-md)
+        (str "re-frame2-pair-retro/references/issue-template.md shows the "
+             "`gh issue list --search` command (it is the recipe the agent "
+             "follows) but no longer carries the agent-authored / "
+             "never-paste-evidence `--search` rule beside it. The worked "
+             "search command is exactly where the injection invitation "
+             "lives, so the clause must be local, not only in the shared "
+             "leaf (rf2-7g9htq.1)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cross-consumer adoption — both consuming skills must actually load

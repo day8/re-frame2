@@ -216,7 +216,7 @@ Canonical procedure (commit-and-compare):
 
 1. `dispatch {event: "[:foo …]", trace: true}` → observe baseline. Capture the `:epoch-id` from the resulting record. (The eval equivalent is `(re-frame2-pair.runtime/dispatch-and-collect [:foo …])`.)
 2. **Tell the user** which side effects in the cascade can't be rewound. Walk `:trace-events` for `:event/do-fx` involving non-pure fx (`:http`, navigation, localStorage, `:dispatch-later` that already landed) and warn before restoring.
-3. Rewind `app-db` to the captured epoch. The **default-reachable** form is the eval (the dedicated `restore-epoch` tool is `--allow-writes`-gated and not allow-listed by default):
+3. Rewind to the captured epoch — `restore-epoch` reinstalls the whole **frame-state** (both partitions: app-db *and* runtime-db, so machine snapshots / routes / elision rewind too; side effects and transient host state do not). The **default-reachable** form is the eval (the dedicated `restore-epoch` tool is `--allow-writes`-gated and not allow-listed by default):
    ```
    mcp__re-frame2-pair__eval-cljs {form: "(rf/restore-epoch :rf/default <epoch-id>)"}
    ```
@@ -233,7 +233,7 @@ Canonical procedure (commit-and-compare):
 
 ## "What would this event do?" (dry-run)
 
-**When the user wants to know the consequence of an event WITHOUT paying for it** — before firing a checkout, a destructive delete, anything that hits the network or navigates. `dispatch-dry-run` (rf2-17hvp) runs the full cascade — reducer, interceptors, schema validation, machine transitions, sub-runs, renders — then rolls the app-db back via `restore-epoch`. No fx execute; every fx that *would* have fired is enumerated with its args.
+**When the user wants to know the consequence of an event WITHOUT paying for it** — before firing a checkout, a destructive delete, anything that hits the network or navigates. `dispatch-dry-run` (rf2-17hvp) runs the full cascade — reducer, interceptors, schema validation, machine transitions, sub-runs, renders — then rolls the frame back via `restore-epoch` (which reinstalls the whole frame-state — both partitions — so any machine/route mutation the simulated cascade made is rewound too, not just app-db). No fx execute; every fx that *would* have fired is enumerated with its args.
 
 ```
 mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]"}
@@ -241,7 +241,7 @@ mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]"}
 
 Returns the same `:cascade-summary` shape as `dispatch` (so you read one vocabulary for both) plus:
 
-- `:rolled-back? true` — the app-db is unchanged after the simulation.
+- `:rolled-back? true` — the frame is unchanged after the simulation (the `restore-epoch` rewind reinstated the whole frame-state, both partitions).
 - `:would-fire-effects [{:fx-id :http :args {...}} {:fx-id :navigate :args [...]}]` — the real-world impact, enumerated. Narrate this: *"checkout would POST to `/orders` and navigate to `:order-confirmation` — nothing has actually happened yet."*
 - `:db-state-after-simulation {...}` — the would-be app-db (what state the cascade *would* have committed).
 - `:cascade-summary {:db-diff {...} :outcome :ok\|:error ...}` — a schema violation surfaces as `:outcome :error`; the rollback still fires.

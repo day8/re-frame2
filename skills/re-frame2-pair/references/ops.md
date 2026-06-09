@@ -158,7 +158,7 @@ Two modes — `subscribe` (push) and `watch-epochs` (poll) — over the same und
 
 | Op | MCP tool | Behaviour |
 |---|---|---|
-| `trace/subscribe` | `mcp__re-frame2-pair__subscribe` | Open a streaming subscription on the `:trace`, `:epoch`, `:fx`, or `:error` bus. Returns a `sub-id`; each batch arrives as a `notifications/progress` tick until termination. |
+| `trace/subscribe` | `mcp__re-frame2-pair__subscribe` | Open a streaming subscription on the `:trace`, `:epoch`, `:fx`, `:error`, or `:frameless` bus. Returns a `sub-id`; each batch arrives as a `notifications/progress` tick until termination. `:frameless` emits flat event batches (not cascade bundles) and is the right topic for **registration, reload, REPL, and other unjoined lifecycle events** that carry no `:rf.trace/dispatch-id` — the only live channel for them. |
 | `trace/unsubscribe` | `mcp__re-frame2-pair__unsubscribe` | Close a subscription by `sub-id`. Idempotent — unknown ids return `:existed? false`. |
 
 **Pull-mode poll (fallback).** The `watch-epochs` MCP tool is poll-only: each call returns the matching epochs that landed *after* `since-id`. To live-watch, call it repeatedly, passing the previous response's `:head-id` as the next `since-id`. Use this when the agent host doesn't surface `notifications/progress` to the model, or when you want a finite, controlled drain rather than a push stream.
@@ -206,8 +206,11 @@ Editing source is legitimate and often correct. The protocol is strict — after
 
 1. Make the edit with `Edit` / `Write`.
 2. Call `mcp__re-frame2-pair__tail-build` with a `probe` that verifies the browser has the new code.
-3. Only after the probe succeeds do you proceed to `dispatch`, `trace/*`, etc.
-4. If the probe times out, treat that as a compile error in the user's code — read the tail output, report it to the user, do *not* retry dispatching.
+3. Only after the probe succeeds (`{:ok? true …}`, the probe value flipped) do you proceed to `dispatch`, `trace/*`, etc.
+4. **`tail-build` does not tail the shadow-cljs server log** (the name is historical) — it polls your `probe` form and hands back *diagnostics*. So **branch on the result, don't treat every non-success as a compile error**:
+   - `{:ok? false :reason :timed-out :probe-values {:initial … :final …} :note …}` — the probe was reachable but its value never changed in `wait-ms`. The `:note` lists the candidate causes; use `:probe-values` to disambiguate. **If `:initial` and `:final` are equal, the reload may have landed but your probe doesn't discriminate it** — pick a better probe (one whose value provably changes on reload, e.g. a `handler-meta` hash) or ask the user to refresh the browser, then re-probe. Do *not* report a compile error on this evidence alone.
+   - `{:ok? false :reason :probe-errored :probe-error …}` — the probe form raised on every iteration. Treat this as a **malformed probe** (typo, dotted host-interop against a missing var), not a compile error, unless separate shadow-cljs / browser output proves an actual build failure. Fix the probe and re-run.
+   - A genuine compile error is confirmed from **actual shadow-cljs / browser console output**, not inferred from a `tail-build` timeout. When the runtime is reachable, the `subscribe`/`watch-epochs` `:frameless` topic (below) also surfaces reload / registration / compile lifecycle events.
 
 ```
 mcp__re-frame2-pair__tail-build {wait-ms: 5000, probe: "(some/probe-form)"}
@@ -231,7 +234,7 @@ re-frame2 ships first-class time-travel as part of the Tool-Pair contract — no
 | Op | Invocation | Purpose |
 |---|---|---|
 | `epoch/history` | `mcp__re-frame2-pair__eval-cljs {form: "(rf/epoch-history :rf/default)"}` | The full ring of `:rf/epoch-record` values for the frame, oldest-first |
-| `epoch/restore` | `mcp__re-frame2-pair__eval-cljs {form: "(rf/restore-epoch :rf/default <epoch-id>)"}` | Rewind the frame's `app-db` to the named epoch's `:db-after`. Returns `true` on success, `false` on any documented failure mode (see below). |
+| `epoch/restore` | `mcp__re-frame2-pair__eval-cljs {form: "(rf/restore-epoch :rf/default <epoch-id>)"}` | Rewind the frame's whole **frame-state** to the named epoch's `:frame-state-after` — both partitions (app-db AND runtime-db), reinstalled atomically via `replace-frame-state!`, so machine snapshots / route slice / elision / SSR metadata revive alongside app-db. (`:db-after` is the app-db *projection* of that frame-state.) Returns `true` on success, `false` on any documented failure mode (see below). |
 | `epoch/configure` | `mcp__re-frame2-pair__eval-cljs {form: "(rf/configure! :epoch-history {:depth 200})"}` | Bump the ring depth (default 50). |
 | `undo/step-back` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/undo-step-back)"}` | Sugar: restore the previous epoch in the operating frame |
 | `undo/to-epoch` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/undo-to-epoch <id>)"}` | Sugar over `restore-epoch` for the operating frame |
@@ -250,7 +253,7 @@ re-frame2 ships first-class time-travel as part of the Tool-Pair contract — no
 
 When `restore-epoch` returns `false`, read the matching trace event from `(re-frame.trace.tooling/trace-buffer {:op-type :error})` to get the structured `:tags`, then report to the user.
 
-**Caveat (always tell the user before restoring):** restore rewinds `app-db` only. Side effects that already fired (HTTP requests sent, navigation pushed, localStorage written, `:dispatch-later` already landed) are *not* undone.
+**Caveat (always tell the user before restoring):** restore rewinds durable **frame-state** — both the app-db and runtime-db partitions (so machine snapshots, the route slice, and elision declarations *are* rewound too). What it does **not** undo: side effects that already fired (HTTP requests sent, navigation pushed, localStorage written, `:dispatch-later` already landed) and transient host state outside the durable partitions (in-flight HTTP handles, trace rings).
 
 ## Bash-shim appendix (not reachable from this skill)
 
