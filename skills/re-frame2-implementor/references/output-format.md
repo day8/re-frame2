@@ -61,6 +61,7 @@ Produced at the end of each EP's implementation session. The session began with 
 - **Code:** committed at <commit-hash(es)>. Files touched:
   - <path/to/file.ext> — <one-line description>
   - <path/to/file.ext> — <one-line description>
+- **Slice gate run:** <the exact command run for this EP's smallest relevant slice — the port's unit-test command for the EP's module, or a targeted conformance subset for the EP's capability tags — and its result; OR a clear not-run reason (no local tooling / no port script yet). Not a bare "tests pass" claim.>
 - **Tests:** <unit tests landed alongside the EP — pass/fail count>.
 - **Conformance fixtures exercised:** <list of capability tags the EP gates; pass/fail count>.
 - **Spec gaps filed (issues):** <list of `day8/re-frame2` issue numbers filed during this EP; one line each>.
@@ -127,7 +128,7 @@ The port follows `spec/` at corpus commit <corpus-commit-hash> in https://github
 - **One report per session.** Don't fragment a Phase 1 wrap-up across multiple files; don't write a v1 completion report before gate 2 passes.
 - **Cite commits and corpus hashes.** Both shift; pinning them is what makes the report reproducible.
 - **Don't bury spec gaps in narrative.** Every GitHub issue filed against `day8/re-frame2` during the work goes in the bullet list — not in prose. The issue number is the contract surface.
-- **Don't run the engineer's builds for them.** The agent reports observed conformance scores (when the engineer ran the harness); it doesn't run the harness unbidden. Per the standing rule from the skill design: "running tests is general software practice, not skill-specific."
+- **Run the per-EP slice; leave the full gate to the engineer.** When the agent wrote an EP's code and has local tool access, it runs the smallest relevant slice from the port's own scripts before calling the EP landed, and records the exact command + result (or a clear not-run reason) — see the EP wrap-up's "Slice gate run" line. It does NOT run the full conformance harness or any release-sized suite unbidden; that stays engineer-owned, and the agent reports/diagnoses those scores only when the engineer ran (or asked it to run) the full pass. Per the skill design (L3): generic build mechanics are not the skill's job, but the skill-specific per-EP acceptance slice is.
 
 ## What the reports are for
 

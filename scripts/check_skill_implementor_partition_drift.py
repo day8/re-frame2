@@ -37,6 +37,15 @@ user-facing implementor docs and asserts:
   4. **No `reg-machine` line implying top-level `:sensitive` / `:large`** — the
      machine `:data` exception is schema-first (`:data-schema` props), with NO
      metadata-bearing `reg-machine` arity.
+  5. **No `rf2-XXXX` bead ids in user-facing leaves** — SKILL.md, README.md, and
+     every `references/*.md` leaf carry NO internal `rf2-` tracker ids (L7 in the
+     skill's `spec/design.md`). Bead ids are monorepo-internal workflow noise; an
+     external port author has no `bd` and no bead corpus, so a leaked id is
+     unexplained context that invites treating bead history as normative evidence.
+     Use public, stable evidence instead — spec section links, fixture names, API
+     entries, or a fully-qualified public PR link where it helps an external
+     reader. The skill's own `spec/` meta-docs MAY mention bead ids (authoring /
+     internal context) and are out of this scan's scope.
 
 Exit code:
     0  no drift detected
@@ -82,6 +91,16 @@ SCANNED_FILES = [
     SKILL_DIR / "references" / "cardinal-rules.md",
 ]
 
+
+def _beadid_scanned_files() -> list[Path]:
+    """User-facing leaves for the no-bead-ids scan (Rule 5): SKILL.md,
+    README.md, and every `references/*.md` leaf. Globbed (not hand-listed) so a
+    newly-added reference leaf is covered automatically. The skill's `spec/`
+    meta-docs are deliberately NOT included — L7 permits bead ids there."""
+    files = [SKILL_DIR / "SKILL.md", SKILL_DIR / "README.md"]
+    files.extend(sorted((SKILL_DIR / "references").glob("*.md")))
+    return files
+
 # --- Rule 1: deregister-listener! is never the verb (it is unregister-listener!).
 DEREGISTER_RE = re.compile(r"deregister-listener!")
 
@@ -117,6 +136,14 @@ MACHINE_EXCEPTION_RE = re.compile(
     r"|no top-level|accepts no",
     re.IGNORECASE,
 )
+
+# --- Rule 5: no `rf2-XXXX` internal bead ids in the user-facing leaves.
+# The id shape is `rf2-` + alphanumerics (some carry a `.N` sub-task suffix,
+# e.g. `rf2-d3fb7.1`). Word-boundary the prefix so it doesn't match inside a
+# longer token. Scanned over a SEPARATE file set (BEADID_SCANNED_FILES below):
+# SKILL.md + README.md + every references/*.md. The skill's own spec/ meta-docs
+# are deliberately excluded (L7 permits bead ids there).
+BEADID_RE = re.compile(r"\brf2-[a-z0-9]+(?:\.[0-9]+)?\b")
 
 
 def _slurp(path: Path) -> str:
@@ -184,6 +211,38 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
     return problems, lines_checked
 
 
+def find_beadid_drift(files: list[Path]) -> tuple[list[str], int]:
+    """Rule 5 scan: no `rf2-XXXX` bead id in any user-facing leaf (L7).
+
+    Returns (drift messages, lines scanned). A missing file is a SETUP error
+    — except README.md / a references leaf glob can never go missing silently,
+    so the SKILL.md anchor missing is the only hard SETUP signal here."""
+    problems: list[str] = []
+    lines_checked = 0
+    if not (SKILL_DIR / "SKILL.md").is_file():
+        problems.append(
+            "SETUP: re-frame2-implementor/SKILL.md missing — the no-bead-ids "
+            "scan anchor drifted from the skill layout."
+        )
+    for path in files:
+        if not path.is_file():
+            continue
+        for lineno, line in enumerate(_slurp(path).splitlines(), start=1):
+            lines_checked += 1
+            for m in BEADID_RE.finditer(line):
+                rel = path.relative_to(REPO_ROOT)
+                problems.append(
+                    f"{rel}:{lineno}: BEAD-ID-LEAK: `{m.group(0)}` is an "
+                    "internal tracker id — user-facing leaves (SKILL.md / "
+                    "README.md / references/*.md) carry NO `rf2-` ids (L7). "
+                    "Replace with public, stable evidence: a spec section link, "
+                    "a fixture name, an API entry, or a fully-qualified public "
+                    "PR link. (bead ids stay only in the skill's spec/ "
+                    f"meta-docs.)\n    {line.strip()}"
+                )
+    return problems, lines_checked
+
+
 def run(*, verbose: bool, ci: bool) -> int:
     if not SKILL_DIR.is_dir():
         sys.stderr.write(
@@ -193,17 +252,26 @@ def run(*, verbose: bool, ci: bool) -> int:
 
     problems, lines_checked = find_drift(SCANNED_FILES)
 
+    beadid_files = _beadid_scanned_files()
+    beadid_problems, beadid_lines = find_beadid_drift(beadid_files)
+    problems.extend(beadid_problems)
+
     if verbose:
         print(
             f"implementor partition/HTTP/API-name guard: scanned "
             f"{len(SCANNED_FILES)} files ({lines_checked} lines)."
+        )
+        print(
+            f"implementor no-bead-ids guard: scanned {len(beadid_files)} "
+            f"user-facing leaves ({beadid_lines} lines)."
         )
 
     if not problems:
         if verbose:
             print(
                 "partition-drift: no deregister-listener!, bare-:http-managed, "
-                "public-dispose-adapter!, or reg-machine-marks drift found."
+                "public-dispose-adapter!, reg-machine-marks, or bead-id drift "
+                "found."
             )
         return 0
 
@@ -213,7 +281,8 @@ def run(*, verbose: bool, ci: bool) -> int:
     print(
         f"\npartition-drift: {len(problems)} drift issue(s) — the implementor "
         "skill is a control surface; align it to shipped EP-0001 partition / "
-        "Spec 014 managed-HTTP / public-API reality."
+        "Spec 014 managed-HTTP / public-API reality, and keep internal bead ids "
+        "out of the user-facing leaves (L7)."
     )
     return 1
 
@@ -284,6 +353,50 @@ def _self_test() -> int:
     expect(
         "The six metadata-bearing sites accept `{:sensitive [paths] :large [paths]}`.",
         dirty=False, label="B7 six sites, no reg-machine on the line",
+    )
+
+    # Rule 5 — bead-id leak. line_problems() does NOT cover Rule 5 (it scans a
+    # separate file set), so exercise BEADID_RE directly.
+    def expect_beadid(line: str, *, leaked: bool, label: str) -> None:
+        nonlocal failures
+        got = bool(BEADID_RE.search(line))
+        if got != leaked:
+            print(
+                f"SELF-TEST FAIL ({label}): expected bead-id leaked={leaked}, "
+                f"got {got} for: {line!r}"
+            )
+            failures += 1
+
+    # LEAK fixtures — the exact rf2-ij6ulc finding-2 shapes.
+    expect_beadid(
+        "a stray `:rf/runtime` root now HARD-ERRORS (shipped EP-0001 bead 9, rf2-tfepxu).",
+        leaked=True, label="C1 plain bead id",
+    )
+    expect_beadid(
+        "the post-v1 deferral withdrawn via rf2-mle6e / PR #2863; the runtime records history.",
+        leaked=True, label="C2 bead id beside a PR ref",
+    )
+    expect_beadid(
+        "the dual-partition recompute trigger is a SILENT regression (rf2-d3fb7.1).",
+        leaked=True, label="C3 bead id with .N sub-task suffix",
+    )
+
+    # CLEAN fixtures — the corrected public-evidence wording must NOT flag.
+    expect_beadid(
+        "a stray `:rf/runtime` root now HARD-ERRORS (`:rf.error/legacy-runtime-root`).",
+        leaked=False, label="D1 spec error keyword, no bead id",
+    )
+    expect_beadid(
+        "the runtime records history per `spec/005-StateMachines.md` §History states.",
+        leaked=False, label="D2 spec section link, no bead id",
+    )
+    expect_beadid(
+        "backstopped by `effect-map-shape-bad-fx-entry.edn` and `effect-handler-bad-return.edn`.",
+        leaked=False, label="D3 fixture names, no bead id",
+    )
+    expect_beadid(
+        "a fully-qualified public PR link day8/re-frame2#2863 is fine for an external reader.",
+        leaked=False, label="D4 public PR ref is not a bead id",
     )
 
     if failures:

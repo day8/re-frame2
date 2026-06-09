@@ -16,7 +16,7 @@ The skill is **guidance + workflow** layered on top of `spec/`. The skill does n
 
 The same four pillars as the application-side `re-frame2` skill, adapted to the implementor domain:
 
-1. **Correctness** — workflow over explanations. The skill walks the two phases; the engineer (with their session) makes the decisions. **Q14 lock applies: NO verification module.** The skill never runs the engineer's builds or harness — running them is general software practice.
+1. **Correctness** — workflow over explanations. The skill walks the two phases; the engineer (with their session) makes the decisions. **Q14 lock applies: NO verification module** — the skill teaches no generic build/test mechanics (Pillar 4: don't teach what the AI already knows). It does, however, carry a narrow **per-EP slice gate** (L3): when the agent writes EP code and has local tool access, it runs the smallest relevant slice it can determine from the *port's own* scripts before calling the EP landed, or reports it couldn't. The engineer still owns the expensive/full conformance gates.
 2. **Idiomaticness** — verified against `spec/` + `spec/Implementor-Checklist.md` + `spec/conformance/`. The skill is downstream of the spec; if the spec is authoritative, the skill is correct by construction.
 3. **Context economy** — `SKILL.md` is a router; leaves are loaded on demand. The leaves point at spec sections by URL; they don't quote them.
 4. **Assume training knowledge** — the engineer knows what reactive substrates, FSMs, persistent data structures, and EDN are. The skill teaches the **re-frame2-specific binding** — which decisions are foundational, which EPs depend on which, what the conformance corpus is for.
@@ -37,11 +37,18 @@ Phase 1 locks decisions before any code is written. Phase 2 walks the EP corpus 
 
 **Why**: every Phase 1 decision propagates through every line of Phase 2 code. Engineers who skip Phase 1 to "just start coding" hit foundation-level rewrites halfway through. The phase split is operational, not advisory.
 
-### L3 — Q14 — NO verification module
+### L3 — Q14 — NO verification module, but a narrow per-EP slice gate
 
-Per `ai/findings/re-frame2-skill-design-v2.md` §Q14: the skill does not teach the agent to verify its own output. No `references/verify.md`, no "verification mandatory before done" hard rule. The agent walks the workflow; the engineer runs the builds, the tests, the conformance harness. This matches the `re-frame2` and `re-frame-migration` skills — consistent across the family.
+Per `ai/findings/re-frame2-skill-design-v2.md` §Q14: the skill does not teach the agent generic verification mechanics — no `references/verify.md`, no generic-build tutorial. It does NOT, however, leave a code-writing skill with zero feedback loop. The implementor skill is an **implementation driver** (the kickoff prompt tells the session to write the EP code; each EP wrap-up reports tests + fixtures exercised), so the verification contract is narrower than "the agent never runs anything":
 
-**Why**: running tests is general software practice. Pillar 4 says don't teach what the AI already knows.
+- **When the agent writes EP code AND has local tool access:** before calling the EP landed, it runs the **smallest relevant slice gate it can determine from the *port's own* scripts** (the port's unit-test command for the EP's module, or a targeted conformance subset for the EP's capability tags) — NOT the full suite, NOT a build mechanic it had to invent. If it cannot determine or run a slice (no local tooling, no port script yet), it says so explicitly in the EP wrap-up with a not-run reason, rather than silently deferring all feedback to the human.
+- **The engineer still owns the expensive/full gates:** the full claimed-capability conformance pass (acceptance gate 2) and any release-sized suite stay engineer-driven. The agent surfaces and diagnoses scores there; it does not drive the engineer's toolchain for the heavy gates.
+
+This is the distinction between **generic build mechanics** (not taught — Pillar 4) and the **skill-specific acceptance gate** (taught — the per-EP slice). The final EP wrap-up records exact commands/results or a clear not-run reason, not only a prose "tests pass" claim.
+
+**Why**: a code-writing skill that walks multi-day runtime changes and leaves the first real feedback to the human or a later full-suite gate is weaker workflow than the rest of the repo's worker discipline. The elegant path for a pre-alpha implementation guide is to teach the intended slice gate without becoming a generic testing tutorial.
+
+**Family-consistency note**: the original L3 cited cross-family consistency with the `re-frame2` and `re-frame-migration` skills (which also lock NO verification module). Those siblings are *not* implementation drivers in the same sense — they author apps / migrate code on an existing reference rather than building the runtime itself, so the per-EP slice gate is specific to this skill's implementation-driver role. Whether the same narrowing should propagate to the siblings is a separate cross-skill decision (filed as a follow-up); this lock revision is scoped to `re-frame2-implementor`.
 
 ### L4 — Substrate-agnostic phrasing throughout
 
