@@ -25,9 +25,7 @@ For a login form, a recording may look like:
 :script [[:type  "[data-test=login-email]" "ada@example.com"]
          [:type  "[data-test=login-password]" "correct-horse"]
          [:click "[data-test=login-submit]"]
-         [:wait-until [:db [:rf/runtime :machines :snapshots
-                            :login/flow :state]
-                       :authenticated]]
+         [:wait-until [:queue-empty]]
          [:assert [:rf.assert/state-is :login/flow :authenticated]]]
 ```
 
@@ -119,16 +117,18 @@ A fixed sleep is usually a little bug farm:
 It may pass on your laptop and fail on CI, because time passed is not the same
 thing as the app being ready.
 
-Prefer a condition:
+Prefer a condition. Settle on the event queue draining, then assert the
+machine state through `:rf.assert/state-is` (the machine snapshot lives in
+runtime-db, so a `[:wait-until [:db …]]` app-db path can't see it — settle on
+the drain and assert the state directly):
 
 ```clojure
-[:wait-until [:db [:rf/runtime :machines :snapshots
-                   :login/flow :state]
-              :authenticated]]
+[:wait-until [:queue-empty]]
+[:assert [:rf.assert/state-is :login/flow :authenticated]]
 ```
 
-The runner waits for a meaningful state and times out with a readable reason.
-That is much better than "maybe 300ms was enough today."
+The runner waits for the dispatch to settle to a fixed point and times out with
+a readable reason. That is much better than "maybe 300ms was enough today."
 
 ## Privacy at the recorder boundary
 

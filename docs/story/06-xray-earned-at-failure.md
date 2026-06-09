@@ -66,7 +66,7 @@ test failure: the run is not just red, it is red with a retained causal record.
 For a login failure, Xray can show:
 
 - the `:login/flow` dispatches in order;
-- the machine snapshot under `[:rf/runtime :machines :snapshots :login/flow]`;
+- the machine snapshot under `[:rf.runtime/machines :snapshots :login/flow]` (in runtime-db);
 - the effect stub for `:rf.http/managed`;
 - the final error data in app-db;
 - the assertion event that recorded the verdict.

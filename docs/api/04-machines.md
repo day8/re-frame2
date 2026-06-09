@@ -66,7 +66,7 @@ For the *why* — the design rationale, the v1 vs post-v1 split, the capability 
 (rf/dispatch [:session [:login {:user "alice" :pass "..."}]])
 ```
 
-The snapshot lives at `[:rf/runtime :machines :snapshots :session]` in `app-db`. The shape is `{:state :anonymous :data {...}}` (plus framework-managed slots for `:after` timer epochs and tags). Read it via `sub-machine` or directly with `subscribe-once`.
+The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame's **runtime-db** partition (not app-db). The shape is `{:state :anonymous :data {...}}` (plus framework-managed slots for `:after` timer epochs and tags). Read it via `sub-machine` or directly with `subscribe-once`.
 
 ## Inspection and subscription
 
@@ -142,7 +142,7 @@ The snapshot lives at `[:rf/runtime :machines :snapshots :session]` in `app-db`.
   ```
 - **Description**: Sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`. No-op when the `system-id` is unbound. The third-arity targets a non-default frame.
 
-When a child actor spawns under a parent, the parent's `:data` often gets the child's id stamped via `:on-spawn`. `dispatch-to-system` lets the parent name the child by *role* (`:logger`, `:websocket`, `:retry-coordinator`) instead of by gensym'd id. The per-frame `[:rf/runtime :machines :system-ids]` reverse index resolves the name. See [005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md).
+When a child actor spawns under a parent, the parent's `:data` often gets the child's id stamped via `:on-spawn`. `dispatch-to-system` lets the parent name the child by *role* (`:logger`, `:websocket`, `:retry-coordinator`) instead of by gensym'd id. The per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) resolves the name. See [005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md).
 
 From a **machine action** (which can't read app-db and whose `:on-spawn` return is dropped), emit the fx counterpart `[:rf.machine/dispatch-to-system [system-id event]]` from the action's `:fx` vector — same name-resolution, same no-op-when-unbound semantics, expressed as an effect. See [The actor-lifecycle fx](#the-actor-lifecycle-fx).
 
@@ -151,8 +151,8 @@ From a **machine action** (which can't read app-db and whose `:on-spawn` return 
 | `[fx-id args]` | Args | Status | Spec | Intuition |
 |---|---|---|---|---|
 | `[:rf.machine/spawn spawn-spec]` | spawn-spec map (per `:rf.fx/spawn-args`) | v1 | 005 | "Spawn a dynamic actor instance." Args carry `:machine-id` (the definition to instantiate), `:id-prefix`, `:data` (initial), `:on-spawn` (event dispatched with the gensym'd id), and `:start` (events to deliver immediately). Emitted from any event handler's `:fx` (including machine actions and the `:spawn` desugar). |
-| `[:rf.machine/destroy actor-id]` | actor id (keyword) | v1 | 005 | "Tear down this actor." Runs the actor's `:exit` action, dissociates `[:rf/runtime :machines :snapshots <actor-id>]`, and clears the actor's event-handler registration. Symmetric counterpart to `:rf.machine/spawn`. |
-| `[:rf.machine/dispatch-to-system [system-id event]]` | 2-element pair `[system-id event-vector]` | v1 | 005 | "Message my spawned child actor by name." Resolves `system-id` through the emitting frame's `[:rf/runtime :machines :system-ids]` reverse index and dispatches `event` to the bound actor; no-op when unbound. The action-side counterpart to the `dispatch-to-system` fn. Args ride as a single 2-element pair (the fx contract is a `[fx-id args]` pair). |
+| `[:rf.machine/destroy actor-id]` | actor id (keyword) | v1 | 005 | "Tear down this actor." Runs the actor's `:exit` action, dissociates `[:rf.runtime/machines :snapshots <actor-id>]` (in runtime-db), and clears the actor's event-handler registration. Symmetric counterpart to `:rf.machine/spawn`. |
+| `[:rf.machine/dispatch-to-system [system-id event]]` | 2-element pair `[system-id event-vector]` | v1 | 005 | "Message my spawned child actor by name." Resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and dispatches `event` to the bound actor; no-op when unbound. The action-side counterpart to the `dispatch-to-system` fn. Args ride as a single 2-element pair (the fx contract is a `[fx-id args]` pair). |
 | `[:raise event-vec]` | event vector | v1 | 005 | **Machine-only.** Inside a machine action's `:fx`, routes the event back into the same machine atomically and pre-commit. Unbound outside machine actions. |
 
 ### Spawn pattern
