@@ -15,7 +15,8 @@
   facade owns the two `events/reg-event-fx` calls so a `:reload`
   re-wires them on a fresh registrar. Per the rf2-2yabr cohesion split:
   URL-CHANGE-EVENTS seam."
-  (:require [re-frame.registrar :as registrar]
+  (:require [re-frame.frame :as frame]
+            [re-frame.registrar :as registrar]
             [re-frame.routing.can-leave :as can-leave]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.registry :as registry]
@@ -253,10 +254,17 @@
   popstate / initial / SSR routes through `:rf.route/handle-url-change`
   (default `:restore`)."
   [{:keys [frame] rdb :rf.db/runtime} [_ url opts :as event-vec]]
-  (let [opts    (or opts {})
+  (let [;; EP-0002 carried invariant — `:rf.route/transitioned` is a
+        ;; cascade event, so the cofx carries the envelope `:frame`; a nil
+        ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
+        ;; never a synthesised `:rf/default`.
+        frame   (frame/require-frame-stamp!
+                  frame :rf.route/transitioned
+                  {:where 'rf.route/transitioned-handler})
+        opts    (or opts {})
         rdb     (or rdb {})
         blocked (can-leave/maybe-block-navigation
-                  rdb (or frame :rf/default)
+                  rdb frame
                   event-vec url
                   (:bypass-leave-guard? opts))]
     (or blocked
@@ -266,8 +274,8 @@
         ;; (`handle-url-change-handler`, :restore below) and the programmatic
         ;; `:rf.route/navigate {:url ...}` path. Spec 009 requires `:frame` on
         ;; `:rf.error/no-such-handler {:kind :route}` and
-        ;; `:rf.warning/no-not-found-route`. The default frame still tags
-        ;; `:rf/default` (the dispatch cofx supplies it). EP-0001 (rf2-vzld77):
+        ;; `:rf.warning/no-not-found-route`. The carried `:frame` (the
+        ;; cascade cofx supplies it) tags those traces. EP-0001 (rf2-vzld77):
         ;; the route slice is durable routing runtime-db state.
         (url-change-fx rdb url :top frame))))
 
@@ -283,10 +291,17 @@
   threaded through so the SSR error-projection listener can attribute
   the :no-such-handler trace per-frame."
   [{:keys [frame] rdb :rf.db/runtime} [_ url opts :as event-vec]]
-  (let [opts    (or opts {})
+  (let [;; EP-0002 carried invariant — `:rf.route/handle-url-change` is a
+        ;; cascade event (popstate / initial / SSR), so the cofx carries
+        ;; the envelope `:frame`; a nil stamp is an invariant failure
+        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+        frame   (frame/require-frame-stamp!
+                  frame :rf.route/handle-url-change
+                  {:where 'rf.route/handle-url-change-handler})
+        opts    (or opts {})
         rdb     (or rdb {})
         blocked (can-leave/maybe-block-navigation
-                  rdb (or frame :rf/default)
+                  rdb frame
                   event-vec url
                   (:bypass-leave-guard? opts))]
     (or blocked

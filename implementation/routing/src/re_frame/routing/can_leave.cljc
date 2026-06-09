@@ -23,7 +23,8 @@
   re-wires them on a fresh registrar (the `clear-all!` test-fixture
   path). Per the rf2-2yabr cohesion split: CAN-LEAVE + PENDING-NAV
   seam."
-  (:require [re-frame.late-bind :as late-bind]
+  (:require [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.registry :as registry]
@@ -266,10 +267,17 @@
     ;; The :bypass-leave-guard? request flag is the rf2-yursn one-shot
     ;; escape hatch :rf.route/continue uses to re-issue the original
     ;; navigation request without re-running the leave guard.
-    (let [external? (url/external-url? url)
+    (let [;; EP-0002 carried invariant — `:rf/url-requested` is a cascade
+          ;; event, so the cofx carries the envelope `:frame`; a nil stamp
+          ;; is an invariant failure (`:rf.error/no-frame-context`), never a
+          ;; synthesised `:rf/default`.
+          frame     (frame/require-frame-stamp!
+                      frame :rf/url-requested
+                      {:where 'rf.route/url-requested-handler})
+          external? (url/external-url? url)
           app-url   (url/request-url->app-url url)
           blocked   (when-not external?
-                      (maybe-block-navigation (or rdb {}) (or frame :rf/default)
+                      (maybe-block-navigation (or rdb {}) frame
                                               event-vec app-url bypass-leave-guard?))]
       (cond
         external?

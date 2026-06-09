@@ -236,8 +236,16 @@
   closes the Goal-2 revertibility leak: spawn writes only app-db, destroy
   removes only app-db, so `restore-epoch` (app-db-only) reverts an
   actor's liveness perfectly with ZERO registrar drift."
-  [{frame-id :frame :or {frame-id :rf/default}} args]
-  (let [;; Per rf2-gr8q: prefer the pre-allocated id (declarative :spawn
+  [{frame-id :frame} args]
+  (let [;; EP-0002 carried invariant: `:rf.machine/spawn` runs inside an
+        ;; event cascade, so the fx context ALWAYS carries the envelope
+        ;; frame as `:frame` (the HELD stamp). A nil stamp is an invariant
+        ;; failure — surface `:rf.error/no-frame-context`, never repair to
+        ;; a synthesised `:rf/default`.
+        frame-id   (frame/require-frame-stamp!
+                     frame-id :rf.machine/spawn
+                     {:where 'rf.machine/spawn :event-id (:system-id args)})
+        ;; Per rf2-gr8q: prefer the pre-allocated id (declarative :spawn
         ;; routes through the transition reducer which bumps the parent
         ;; snapshot's `:rf/spawn-counter`). Hand-emitted spawn fxs carry
         ;; no pre-allocated id; the frame's app-db spawn-counter slot
@@ -418,8 +426,15 @@
   Subsequent `:on-child-done` / `:on-child-error` events arrive at the
   parent's `make-machine-handler` boundary and are intercepted by
   `intercept-spawn-all-event` (in `lifecycle-fx.join`)."
-  [{frame-id :frame :or {frame-id :rf/default}} args]
-  (let [parent-id  (:rf/parent-id args)
+  [{frame-id :frame} args]
+  (let [;; EP-0002 carried invariant — the fx context carries the cascade
+        ;; envelope frame; a nil stamp is an invariant failure
+        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+        frame-id   (frame/require-frame-stamp!
+                     frame-id :rf.machine/spawn-all-init
+                     {:where 'rf.machine/spawn-all-init
+                      :event-id (:rf/parent-id args)})
+        parent-id  (:rf/parent-id args)
         invoke-id  (:rf/spawn-id args)
         join-state (:join-state args)
         children   (:children join-state)]

@@ -308,6 +308,33 @@
          (emit-no-frame-context! payload)
          (throw (ex-info (str (:rf.error/id payload)) payload))))))
 
+(defn require-frame-stamp!
+  "Operation-time companion to `require-current-frame!` (EP-0002, Spec 002
+  §Frame target resolution). Where `require-current-frame!` READS the stamp
+  off the in-effect scope, this asserts the stamp a token was *supposed to
+  carry* is actually present: it returns `frame-id` unchanged when non-nil,
+  else emits + throws the always-on `:rf.error/no-frame-context`.
+
+  This is the framework-fx / runtime-subsystem seam. A framework fx invoked
+  inside a cascade ALWAYS receives the envelope frame as the fx-context
+  `:frame` (the HELD stamp threaded by `re-frame.fx`). A history listener,
+  managed-HTTP reply, timer, or other browser-/async-originated callback
+  ALWAYS captures the owner/initiation frame at install time. If the stamp
+  is nil at the call site, that is an INVARIANT FAILURE — a token reached a
+  frame-scoped operation carrying no frame — NOT a request to repair the
+  call by mutating a synthesised `:rf/default`. Surfacing it loudly (rather
+  than defaulting) keeps replay deterministic per the carried invariant.
+
+  `operation` is the op kind; `extra` (optional) merges call-site detail
+  (`{:where '<fx-id-or-fn> :event-id <id>}`) into the payload exactly as
+  `require-current-frame!` does."
+  ([frame-id operation] (require-frame-stamp! frame-id operation nil))
+  ([frame-id operation extra]
+   (or frame-id
+       (let [payload (no-frame-context-payload operation extra)]
+         (emit-no-frame-context! payload)
+         (throw (ex-info (str (:rf.error/id payload)) payload))))))
+
 ;; ---- lookup ---------------------------------------------------------------
 
 (defn frame

@@ -25,14 +25,16 @@
 (defn- frame-id-of-existing-url-binding
   "Scan the registrar's `:frame` map for any frame OTHER than `exclude-id`
   that currently carries an explicit `:url-bound? true`. Returns the
-  offending frame-id or nil. The `:rf/default` frame's implicit
-  `:url-bound? true` IS counted — the existing URL owner is unchanged."
+  offending frame-id or nil.
+
+  EP-0002 (rf2-nn0jqa): URL ownership is an EXPLICIT declaration — there is
+  no `:rf/default`-owns-by-default floor. `:rf/default` is counted here only
+  when it carries an explicit `:url-bound? true` like any other frame; an
+  un-annotated `:rf/default` is NOT an implicit owner."
   [exclude-id]
   (some (fn [[other-id other-meta]]
           (when (and (not= other-id exclude-id)
-                     (or (true? (nav-fx/url-bound?-from-config other-meta))
-                         (and (= :rf/default other-id)
-                              (not (false? (nav-fx/url-bound?-from-config other-meta))))))
+                     (true? (nav-fx/url-bound?-from-config other-meta)))
             other-id))
         (registrar/registrations :frame)))
 

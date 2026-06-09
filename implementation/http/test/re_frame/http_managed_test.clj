@@ -44,6 +44,12 @@
   (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
+  ;; and the managed-HTTP / machine / routing fxs now require a carried
+  ;; frame stamp. This suite exercises the ambient dispatch path against
+  ;; a single conventional app frame, so register `:rf/default` explicitly
+  ;; and pin it as the established scope for the whole body via with-frame.
+  (frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
@@ -61,7 +67,8 @@
   ;; (the canned-path `:after` coverage) must clear it between tests, or
   ;; a leaked `:after` mutates every subsequent test's reply payload.
   (http-managed/clear-all-http-interceptors!)
-  (t))
+  (rf/with-frame :rf/default
+    (t)))
 
 (use-fixtures :each reset-runtime)
 

@@ -12,6 +12,7 @@
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.http :as rf.http]
             ;; rf2-wj8vv — drive the full `:rf.http/managed` pipeline (fx
             ;; registration + in-flight registry) for the backoff-window
@@ -574,6 +575,12 @@
   handle indefinitely."
     (async done
       (rf/init! reagent-adapter/adapter)
+      ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
+      ;; and the managed-HTTP fxs require a carried frame stamp. Register
+      ;; `:rf/default` explicitly; each dispatch below carries `{:frame
+      ;; :rf/default}` (the override) so the sync dispatch AND the async
+      ;; abort continuation both target it without an ambient scope.
+      (frame/ensure-default-frame!)
       (http-managed/clear-all-in-flight!)
       (let [replies    (atom [])
             read-fired (atom false)
@@ -593,7 +600,7 @@
                     :request-id :loris
                     :on-failure [:reply/recorder]
                     :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue/slow-body])
+        (rf/dispatch-sync [:issue/slow-body] {:frame :rf/default})
         (-> (test-support/poll-until
               #(seq @replies)
               {:timeout-ms 2000 :label "cljs stalled-body timeout reply"})
@@ -644,6 +651,12 @@
       ;; `use-fixtures` reset here (it would tear down before the async
       ;; body completes). Install the adapter + clear the registry inline.
       (rf/init! reagent-adapter/adapter)
+      ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
+      ;; and the managed-HTTP fxs require a carried frame stamp. Register
+      ;; `:rf/default` explicitly; each dispatch below carries `{:frame
+      ;; :rf/default}` (the override) so the sync dispatch AND the async
+      ;; abort continuation both target it without an ambient scope.
+      (frame/ensure-default-frame!)
       (http-managed/clear-all-in-flight!)
       (let [fetch-count (atom 0)
             replies     (atom [])
@@ -667,7 +680,7 @@
                     :on-success [:reply/recorder]}]]}))
         (rf/reg-event-fx :do/abort
           (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
-        (rf/dispatch-sync [:issue])
+        (rf/dispatch-sync [:issue] {:frame :rf/default})
         ;; Poll (microtask-paced) until attempt #1 has fetched, failed 5xx,
         ;; and the request is sleeping in the backoff window. The backoff
         ;; handle is distinguishable from the in-flight-fetch handle by the
@@ -683,7 +696,7 @@
               {:timeout-ms 2000 :label "cljs backoff sleeping"})
             (.then (fn [_]
                      ;; Abort squarely inside the backoff window.
-                     (rf/dispatch-sync [:do/abort])
+                     (rf/dispatch-sync [:do/abort] {:frame :rf/default})
                      (is (empty? (registry/in-flight-snapshot))
                          "the registry is cleared the instant the backoff is cancelled")
                      ;; The aborted reply dispatches through the async router;
@@ -746,6 +759,12 @@
   (testing "rf2-065xo — a `:body` thunk that throws delivers ONE :on-failure reply with :rf.http/transport (NOT :rf.error/fx-handler-exception) and clears the registry"
     (async done
       (rf/init! reagent-adapter/adapter)
+      ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
+      ;; and the managed-HTTP fxs require a carried frame stamp. Register
+      ;; `:rf/default` explicitly; each dispatch below carries `{:frame
+      ;; :rf/default}` (the override) so the sync dispatch AND the async
+      ;; abort continuation both target it without an ambient scope.
+      (frame/ensure-default-frame!)
       (http-managed/clear-all-in-flight!)
       (let [replies (atom [])
             restore (with-failing-fetch)]
@@ -760,7 +779,7 @@
                     :request-id :prep-thunk
                     :on-failure [:reply/recorder]
                     :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue/throwing-thunk])
+        (rf/dispatch-sync [:issue/throwing-thunk] {:frame :rf/default})
         (-> (test-support/poll-until
               #(seq @replies)
               {:timeout-ms 2000 :label "cljs body-thunk prep failure reply"})
@@ -786,6 +805,12 @@
   (testing "rf2-065xo — a non-serialisable body (circular ref → JSON.stringify throws) delivers ONE :on-failure reply with :rf.http/transport"
     (async done
       (rf/init! reagent-adapter/adapter)
+      ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
+      ;; and the managed-HTTP fxs require a carried frame stamp. Register
+      ;; `:rf/default` explicitly; each dispatch below carries `{:frame
+      ;; :rf/default}` (the override) so the sync dispatch AND the async
+      ;; abort continuation both target it without an ambient scope.
+      (frame/ensure-default-frame!)
       (http-managed/clear-all-in-flight!)
       (let [replies   (atom [])
             restore   (with-failing-fetch)
@@ -806,7 +831,7 @@
                     :request-id :prep-encode
                     :on-failure [:reply/recorder]
                     :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue/unencodable])
+        (rf/dispatch-sync [:issue/unencodable] {:frame :rf/default})
         (-> (test-support/poll-until
               #(seq @replies)
               {:timeout-ms 2000 :label "cljs encode prep failure reply"})
@@ -828,6 +853,12 @@
   (testing "rf2-065xo — with `:retry {:on #{:rf.http/transport} …}` a throwing body thunk RETRIES (re-invoking the thunk per attempt) then finally fails :rf.http/transport"
     (async done
       (rf/init! reagent-adapter/adapter)
+      ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
+      ;; and the managed-HTTP fxs require a carried frame stamp. Register
+      ;; `:rf/default` explicitly; each dispatch below carries `{:frame
+      ;; :rf/default}` (the override) so the sync dispatch AND the async
+      ;; abort continuation both target it without an ambient scope.
+      (frame/ensure-default-frame!)
       (http-managed/clear-all-in-flight!)
       (let [replies     (atom [])
             invocations (atom 0)
@@ -848,7 +879,7 @@
                     :request-id :prep-retry
                     :on-failure [:reply/recorder]
                     :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue/retry-thunk])
+        (rf/dispatch-sync [:issue/retry-thunk] {:frame :rf/default})
         (-> (test-support/poll-until
               #(seq @replies)
               {:timeout-ms 4000 :label "cljs prep-failure retry exhaustion reply"})

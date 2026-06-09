@@ -151,7 +151,10 @@
   read timeout still has the JDK HttpClient enforce a 30s wall-clock
   bound."
     (let [ctx (normalise-args {:request {:url "/x"}}
-                              {:event [:some/event]})]
+                              ;; EP-0002 (rf2-nn0jqa): normalise-args reads
+                              ;; the carried frame stamp off the fx-ctx; this
+                              ;; direct-call unit test supplies it explicitly.
+                              {:event [:some/event] :frame :rf/default})]
       (is (= 30000 (:timeout-ms ctx))
           "absent :timeout-ms must default to 30000"))))
 
@@ -159,7 +162,10 @@
   (testing "rf2-it1cd — an explicit `:timeout-ms 5000` overrides the default"
     (let [ctx (normalise-args {:request    {:url "/x"}
                                :timeout-ms 5000}
-                              {:event [:some/event]})]
+                              ;; EP-0002 (rf2-nn0jqa): normalise-args reads
+                              ;; the carried frame stamp off the fx-ctx; this
+                              ;; direct-call unit test supplies it explicitly.
+                              {:event [:some/event] :frame :rf/default})]
       (is (= 5000 (:timeout-ms ctx))))))
 
 (deftest normalise-args-passes-explicit-nil-timeout-ms-through
@@ -169,7 +175,10 @@
   documented in Spec 014 §`:timeout-ms` security defaults."
     (let [ctx (normalise-args {:request    {:url "/x"}
                                :timeout-ms nil}
-                              {:event [:some/event]})]
+                              ;; EP-0002 (rf2-nn0jqa): normalise-args reads
+                              ;; the carried frame stamp off the fx-ctx; this
+                              ;; direct-call unit test supplies it explicitly.
+                              {:event [:some/event] :frame :rf/default})]
       (is (nil? (:timeout-ms ctx))
           "nil opt-out threads through unchanged"))))
 
@@ -182,7 +191,10 @@
   below.)"
     (let [ctx (normalise-args {:request    {:url "/x"}
                                :timeout-ms 0}
-                              {:event [:some/event]})]
+                              ;; EP-0002 (rf2-nn0jqa): normalise-args reads
+                              ;; the carried frame stamp off the fx-ctx; this
+                              ;; direct-call unit test supplies it explicitly.
+                              {:event [:some/event] :frame :rf/default})]
       (is (zero? (:timeout-ms ctx))
           "zero opt-out threads through unchanged"))))
 
