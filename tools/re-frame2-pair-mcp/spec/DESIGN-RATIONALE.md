@@ -439,8 +439,7 @@ position-vs-bytes footgun was hit; locked at PR #423 merge.
   which exercises `decode-all-frames` directly (partial-frame
   buffering, multi-frame splitting, and the `decode.position` cursor
   regression). On-wire round-trip coverage rides on the JS harnesses
-  `test/stdio-roundtrip.js`, `test/live-nrepl.js`, and the
-  `test/probe-decode.js` multi-frame walker diagnostic.
+  `test/stdio-roundtrip.js` and `test/live-nrepl.js`.
 
 ---
 

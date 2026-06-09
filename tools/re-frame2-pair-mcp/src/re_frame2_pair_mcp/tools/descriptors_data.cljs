@@ -139,13 +139,6 @@
   {:destructiveHint true
    :openWorldHint   true})
 
-(def ^:private streaming-annotations
-  "Annotations for streaming tools — `subscribe` opens a sub on the
-  runtime's trace/epoch bus, `unsubscribe` closes one. Neither
-  mutates app state, but both reach external state and have side-
-  effects on the streaming registry."
-  {:openWorldHint true})
-
 (def ^:private streaming-unsubscribe-annotations
   "Annotations for `unsubscribe` — closes a subscription. Idempotent
   (a second close is a no-op `:existed? false`). Touches the
@@ -158,11 +151,6 @@
   the runtime bus. Reaches external state (`:openWorldHint`); not
   idempotent (repeated calls create new subscriptions)."
   {:openWorldHint true})
-
-(def ^:private streaming-summary-annotations
-  "Annotations for the subscribe tool's final summary. Same as
-  `streaming-subscribe-annotations` since the tool is the same."
-  streaming-subscribe-annotations)
 
 (def ^:private streaming-info-annotations
   "Annotations for `list-streams` — pure read over the streaming-tap
