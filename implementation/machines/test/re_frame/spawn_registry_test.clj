@@ -201,28 +201,29 @@
         (is (not (contains? (get-in db [:rf.runtime/machines]) :spawned))
             "with both invokes torn down, the lazy-allocation slot is dissoc'd")))))
 
-;; ---- (5) keyword-form [:rf.machine/destroy actor-id] still works ---------
+;; ---- (5) keyword-form [:rf.machine/destroy actor-id] imperative destroy --
 ;;
-;; The legacy / imperative form (action emits `[:rf.machine/destroy actor-id]`
-;; with the recorded id directly) MUST continue to work — only the
-;; declarative-:spawn desugar adopts the runtime-resolved map form. This
-;; pins the back-compat path so user-written destroys aren't silently
-;; broken by the rf2-t07u change.
+;; The IMPERATIVE form (an action emits `[:rf.machine/destroy actor-id]`
+;; with the actor id it holds) is first-class current API — re-frame2's
+;; spelling of XState v5 `stopChild(actorId)`. The declarative-:spawn
+;; desugar uses the runtime-resolved map form; this keyword form is the
+;; canonical imperative entry-point, not a compatibility path. This pins
+;; that the imperative form drives a full teardown.
 
-(deftest legacy-keyword-form-destroy-machine-still-works
-  (testing "[:rf.machine/destroy actor-id] (keyword arg) preserves pre-rf2-t07u semantics"
+(deftest keyword-form-imperative-destroy-machine
+  (testing "[:rf.machine/destroy actor-id] (keyword arg) tears the actor down"
     (let [child  {:initial :running :data {} :states {:running {}}}
           ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is advisory only —
           ;; user code that needs the id at action time uses an atom
           ;; sidechannel or reads `[:rf.runtime/machines :spawned <parent> <invoke-id>]`
           ;; from the runtime-tracked slot. This test stashes the id in
-          ;; an atom so the `:tear-down` action can emit the legacy
+          ;; an atom so the `:tear-down` action can emit the imperative
           ;; keyword-form destroy.
           recorded (atom nil)
           parent {:initial :idle
                   :actions
                   ;; User-written exit action emits the keyword form
-                  ;; directly — same shape user code has always used.
+                  ;; directly — the canonical imperative destroy shape.
                   {:tear-down (fn [_ctx]
                                 {:fx [[:rf.machine/destroy @recorded]]})}
                   :on-spawn-actions
@@ -235,11 +236,11 @@
                                       :on-spawn   :record}
                              :on    {:done {:target :idle :action :tear-down}}}}}]
       (rf/reg-machine :worker/proc child)
-      (rf/reg-machine :sup/legacy parent)
-      (rf/dispatch-sync [:sup/legacy [:start]])
-      (let [spawned-id (get-in (frame-db) [:rf.runtime/machines :spawned :sup/legacy [:working]])]
+      (rf/reg-machine :sup/imperative parent)
+      (rf/dispatch-sync [:sup/imperative [:start]])
+      (let [spawned-id (get-in (frame-db) [:rf.runtime/machines :spawned :sup/imperative [:working]])]
         (is (= :worker/proc#1 spawned-id)))
-      (rf/dispatch-sync [:sup/legacy [:done]])
+      (rf/dispatch-sync [:sup/imperative [:done]])
       (let [db (frame-db)]
         ;; Both the user's keyword-form destroy AND the runtime's
         ;; tracked-form destroy fired in this transition. The runtime's

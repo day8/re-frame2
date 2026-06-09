@@ -18,18 +18,16 @@
   All tests run on the JVM through the plain-atom substrate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.machines.test-support :as mtest]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-(defn- frame-db []
-  (rf/runtime-db-value :rf/default))
-
-(defn- snapshot
-  [machine-id]
-  (get-in (frame-db) [:rf.runtime/machines :snapshots machine-id]))
+;; runtime-db / snapshot lookup via the shared machines test-support
+;; (rf2-3l8lqe finding #4) — no hardcoded `[:rf.runtime/machines …]` path.
+(def ^:private frame-db mtest/runtime-db)
+(def ^:private snapshot mtest/snapshot)
 
 ;; ---- common child machine -------------------------------------------------
 ;;

@@ -46,30 +46,23 @@
    #?(:cljs [cljs.reader])
    [re-frame.machines :as machines]
    [re-frame.machines.result :as result]
-   [re-frame.trace :as trace]))
+   [re-frame.machines.test-support :as mtest]))
 
 ;; ===========================================================================
-;; Harness — pure engine + trace capture
+;; Harness — pure engine + trace capture (shared, rf2-3l8lqe finding #4)
 ;; ===========================================================================
+;;
+;; Trace capture (register + guaranteed unregister, CLJ/CLJS-compatible) is
+;; the shared `mtest/trace-capture-fixture`; `history-events` / `reset-
+;; capture!` are thin wrappers over its `events-of` / `reset-captured!`.
 
-(def ^:dynamic *captured* nil)
-
-(defn- capture-fixture
-  "Register a trace listener appending every emitted event to `*captured*`
-  for the duration of one test, then unregister."
-  [f]
-  (binding [*captured* (atom [])]
-    (trace/register-listener! ::history-unit #(swap! *captured* conj %))
-    (try (f)
-      (finally (trace/unregister-listener! ::history-unit)))))
-
-(use-fixtures :each capture-fixture)
+(use-fixtures :each mtest/trace-capture-fixture)
 
 (defn- history-events
   [operation]
-  (filterv #(= operation (:operation %)) @*captured*))
+  (mtest/events-of operation))
 
-(defn- reset-capture! [] (reset! *captured* []))
+(defn- reset-capture! [] (mtest/reset-captured!))
 
 (defn- step
   "Apply one macrostep; assert it succeeded; return the post snapshot."
@@ -260,7 +253,7 @@
       (is (result/ok? r) "dangling deep path is benign — no failure Result")
       (is (= [:player :playing :at-start] (:state (result/snap r)))
           "discarded the dead leaf ⇒ fell back to :default-target → :at-start")
-      (is (empty? (filterv #(= :error (:op-type %)) @*captured*))
+      (is (empty? (filterv #(= :error (:op-type %)) (mtest/captured-events)))
           "no :rf.error/* trace for a dangling-at-runtime recording"))))
 
 (deftest dangling-shallow-child-falls-back-no-error
@@ -272,7 +265,7 @@
       (is (result/ok? r) "dangling shallow child is benign")
       (is (= [:player :playing :at-start] (:state (result/snap r)))
           "discarded the dead child ⇒ fell back to :default-target → :at-start")
-      (is (empty? (filterv #(= :error (:op-type %)) @*captured*))
+      (is (empty? (filterv #(= :error (:op-type %)) (mtest/captured-events)))
           "no :rf.error/* for a dangling shallow child"))))
 
 ;; ===========================================================================
