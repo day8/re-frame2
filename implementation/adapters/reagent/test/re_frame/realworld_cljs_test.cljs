@@ -251,7 +251,8 @@
     (is (false? (rf/compute-sub [:editor/dirty?] (rf/frame-state-value f))))))
 
 (defn- editor-can-leave-test []
-  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:editor/initialise] {:frame f})
     (is (true? (rf/compute-sub [:editor/can-leave?] (rf/frame-state-value f))))
     (rf/dispatch-sync [:editor/edit-field :title "Changed"] {:frame f})
@@ -347,7 +348,8 @@
   ;; or a concurrent delete), a stale index can point past the current
   ;; vector. The rollback's `subvec` must NOT throw IndexOutOfBounds — it
   ;; clamps the index to the current length and re-inserts at the tail.
-  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:comments/initialise] {:frame f})
     ;; Seed a single comment (the list is now length 1).
     (rf/dispatch-sync
@@ -570,7 +572,8 @@
   ;; when the draft failed validation, matching Pattern-Forms'
   ;; §Standard events table.
   (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
-                                 :fx-overrides {:auth.session/persist :rf/no-op}})]
+                                 :fx-overrides {:rf.http/managed       :realworld.test/canned-success-empty
+                                                :auth.session/persist :rf/no-op}})]
     (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
                                             :token "jwt-1"
                                             :username "alice"
@@ -616,7 +619,8 @@
                   (rf/frame-state-value frame)))
 
 (defn- tag-query-test []
-  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:tags/apply-filter "clojure"] {:frame f})
     (is (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))
     (rf/dispatch-sync [:home/show-your-feed] {:frame f})
@@ -686,7 +690,8 @@
 ;; ============================================================================
 
 (defn- routing-tests []
-  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     (rf/dispatch-sync [:rf.route/navigate :realworld.article/show {:slug "hello"}] {:frame f})
     (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
     (is (= "hello" (:slug (rf/compute-sub [:rf.route/params] (rf/frame-state-value f)))))
@@ -709,6 +714,7 @@
   ;; (core.cljs). Configure the test frame with the same interceptor so
   ;; the guard is exercised end-to-end.
   (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}
                                  :interceptors [routing/auth-guard]})]
     ;; Unauthenticated: navigating to a :requires-auth route
     ;; (:realworld.user/settings) is redirected to :realworld.auth/login.
@@ -752,6 +758,7 @@
 
   ;; --- direct-URL / reload / popstate (`:rf.route/handle-url-change`) ---
   (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}
                                  :interceptors [routing/auth-guard]})]
     ;; Logged-out direct URL (or reload) to a :requires-auth route.
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
@@ -777,6 +784,7 @@
 
   ;; --- anchor click (`:rf/url-requested`) ---
   (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}
                                  :interceptors [routing/auth-guard]})]
     ;; An anchor whose href targets a :requires-auth route. The
     ;; framework `rf/route-link` dispatches `:rf/url-requested` with the
@@ -805,6 +813,7 @@
 
   ;; --- authenticated: every entry point now PASSES through ---
   (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}
                                  :interceptors [routing/auth-guard]})]
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
     ;; direct-URL / reload to a guarded route proceeds when logged in.
