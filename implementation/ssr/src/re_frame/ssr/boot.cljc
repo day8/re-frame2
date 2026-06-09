@@ -13,7 +13,7 @@
 
   The client side now ships its mirror — ONE explicit boot call:
 
-      (ssr/hydrate! {:frame :rf/default :render-tree-fn #(…hiccup…)})
+      (ssr/hydrate! {:frame :app/main :render-tree-fn #(…hiccup…)})
       ;; → reads `__rf_payload`, dispatches `:rf/hydrate`, and (after
       ;;   the first render) verifies the render-tree hash against the
       ;;   server's.
@@ -46,7 +46,8 @@
   `day8/re-frame2-ssr` artefact alongside the rest of the SSR surface; it
   is re-exported from the `re-frame.ssr` façade as `ssr/hydrate!` /
   `ssr/read-server-payload`."
-  (:require [re-frame.interop :as interop]
+  (:require [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.router :as router]
             [re-frame.ssr.hydrate :as hydrate]
             [re-frame.trace :as trace]
@@ -110,6 +111,44 @@
                                   :recovery   :no-recovery}))
             nil))))))
 
+(defn- validate-payload-frame-id!
+  "EP-0002 (rf2-acjknb): assert the explicit client hydration `target`
+  frame agrees with the payload's `:rf/frame-id` — the SSR-wire spelling
+  of the frame stamp the SERVER rendered under (built by
+  `re-frame.ssr.payload-policy/build-payload`). Per Spec 011 §The
+  hydration payload + Spec 002 §Frame target resolution: the payload
+  frame-id is payload metadata + validation evidence, NOT a no-opts
+  target resolver. A host that wants the payload's frame to be the client
+  target passes that frame explicitly to `hydrate!`; if the explicit
+  target conflicts with the payload's frame-id, hydration surfaces a
+  structured `:rf.error/hydration-frame-id-mismatch` rather than silently
+  choosing either side.
+
+  A payload that carries NO `:rf/frame-id` (a host that omitted it, or a
+  client-only/no-server-slice page) is NOT a conflict — there is nothing
+  to disagree with, so the explicit target stands. Only a PRESENT-and-
+  DIFFERENT frame-id is a mismatch."
+  [target payload]
+  (let [payload-frame-id (:rf/frame-id payload)]
+    (when (and (some? payload-frame-id)
+               (not= payload-frame-id target))
+      (let [data {:rf.error/id      :rf.error/hydration-frame-id-mismatch
+                  :where            'rf.ssr/hydrate!
+                  :failing-id       :rf/hydrate
+                  :target-frame     target
+                  :payload-frame-id payload-frame-id
+                  :reason           (str "Hydration frame-id mismatch: the explicit "
+                                         ":frame target '" target "' conflicts with the "
+                                         "payload's :rf/frame-id '" payload-frame-id
+                                         "' (the frame the server rendered under). "
+                                         "Pass the same frame to hydrate! that the server "
+                                         "stamped, or correct the server's render frame — "
+                                         "the runtime will not silently choose a side.")
+                  :recovery         :supply-matching-frame}]
+        (when interop/debug-enabled?
+          (trace/emit-error! :rf.error/hydration-frame-id-mismatch data))
+        (throw (ex-info (str (:rf.error/id data)) data))))))
+
 (defn hydrate!
   "Boot the client from the server's hydration payload — the symmetric
   client-side counterpart of `re-frame.ssr.ring/ssr-handler`. Per Spec
@@ -145,10 +184,23 @@
 
   Opts:
 
-    :frame          — the target frame id. Default `:rf/default`. Must be
-                      a `:client`-platform frame for the compatibility-
+    :frame          — REQUIRED. The target frame id to hydrate into. The
+                      same frame the host passes to the root provider,
+                      streaming `install!`, resource preload, and Xray
+                      (EP-0002 rf2-acjknb — one carried frame; the client
+                      target is supplied, not synthesised). An absent
+                      `:frame` emits + throws `:rf.error/no-frame-context`
+                      (the pre-EP `:rf/default` default is removed). Must
+                      be a `:client`-platform frame for the compatibility-
                       check fxs to fire (Spec 011 §The :rf/hydrate event;
                       a `:server`-platform frame skips them per rf2-7bcn0).
+                      The payload's `:rf/frame-id` is VALIDATED against
+                      this explicit target: a conflict surfaces a
+                      structured `:rf.error/hydration-frame-id-mismatch`
+                      (Spec 011 §The hydration payload, EP-0002) rather
+                      than silently choosing either side. The payload
+                      frame-id is payload metadata + validation evidence,
+                      NOT a no-opts target resolver.
     :payload        — the hydration payload map (the `:rf/hydration-payload`
                       shape). When omitted, read from the DOM on CLJS;
                       on the JVM it is required (no DOM to read from).
@@ -169,8 +221,11 @@
       #?(:cljs
          (defn ^:export run []
            (rf/init! reagent-adapter/adapter)
-           (let [payload (ssr/hydrate! {:render-tree-fn #((rf/view :app/root))})]
-             (rdc/render react-root [(rf/view :app/root)])
+           (let [payload (ssr/hydrate! {:frame          :app/main
+                                        :render-tree-fn #((rf/view :app/root))})]
+             (rdc/render react-root
+               [rf/frame-provider {:frame :app/main}
+                [(rf/view :app/root)]])
              ;; …verify already ran inside hydrate! against render-tree-fn
              payload)))
 
@@ -178,17 +233,29 @@
   verify (e.g. async mount) can call `dispatch-sync [:rf/hydrate …]`
   directly and then `verify-hydration!` at their render site — `hydrate!`
   is the convenience that fuses the common ordering."
-  [{:keys [frame payload render-tree-fn element-id]
-    :or   {frame :rf/default}}]
+  [{:keys [frame payload render-tree-fn element-id]}]
   ;; `element-id` is consumed only by the CLJS DOM read; discard-bind it so
   ;; a JVM lint of this `.cljc` doesn't flag it as an unused
   ;; `:clj`-expansion binding (the read itself stays CLJS-only).
   (let [_       element-id
+        ;; EP-0002 (rf2-acjknb): the client hydration target is CARRIED —
+        ;; supplied explicitly via `:frame`. A nil stamp is an absent target,
+        ;; not a request to synthesise `:rf/default`; surface the always-on
+        ;; `:rf.error/no-frame-context`. Per Spec 002 §Frame target resolution.
+        frame   (frame/require-frame-stamp!
+                  frame :rf.ssr/hydrate {:where 'rf.ssr/hydrate!})
         payload (or payload
                     #?(:cljs (read-server-payload
                                (or element-id constants/payload-script-id))
                        :clj nil))]
     (when payload
+      ;; EP-0002 (rf2-acjknb): the payload's `:rf/frame-id` is the SSR-wire
+      ;; spelling of the server's frame stamp — payload metadata + validation
+      ;; evidence, NOT a no-opts target resolver. Validate it against the
+      ;; explicit client target: a conflict is a structured mismatch (the
+      ;; server hydrated a different frame than the client is installing
+      ;; into), surfaced rather than silently picking a side.
+      (validate-payload-frame-id! frame payload)
       ;; HOT PATH — seed app-db from the server's slice BEFORE first render.
       ;; `router/dispatch-sync!` is the fn-form `re-frame.core` re-exports
       ;; as `dispatch-sync*` (no call-site source-coord capture — this is
