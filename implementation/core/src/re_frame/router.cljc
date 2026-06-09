@@ -968,10 +968,32 @@
       (let [frame       (:frame (:coeffects ctx))
             effects     (:effects ctx)
             has-db?     (contains? effects :db)
+            ;; EP-0001 §535-551 (rf2-4eisfr): a runtime-db write also lands as
+            ;; a pending `:rf.db/runtime` effect (e.g. a pure
+            ;; `:rf.route/transitioned` returns `{:rf.db/runtime …}` and NO
+            ;; `:db`). The flow transform must observe the SETTLED pending
+            ;; runtime-db so a flow reading a `[:rf.db/runtime …]`-qualified
+            ;; input recomputes — the dual-partition TRIGGER (§542-544) keys on
+            ;; BOTH partitions, NOT on app-db publication alone. Missing this
+            ;; is a SILENT regression: a route/machine-reading flow would just
+            ;; stop updating. Note `has-runtime-effect?` (not `has-db?`):
+            ;; the runtime-db is resolved independently of whether the handler
+            ;; touched app-db.
+            has-runtime-effect? (contains? effects :rf.db/runtime)
             run-on-db   (late-bind/get-fn-cached :flows/run-flows-on-db)
             pending-db  (if has-db?
                           (:db effects)
                           (when run-on-db (frame/frame-app-db-value frame)))
+            ;; The pending runtime-db partition the flows read their qualified
+            ;; inputs against: the handler's `:rf.db/runtime` effect when one
+            ;; landed, else the current (unchanged) runtime-db. Only resolved
+            ;; when the flows artefact is loaded — apps without flows never
+            ;; touch it. Flow outputs write app-db only (runtime writes
+            ;; reserved, §539), so this value is read-only for the whole pass.
+            pending-runtime-db (when run-on-db
+                                 (if has-runtime-effect?
+                                   (:rf.db/runtime effects)
+                                   (frame/frame-runtime-db-value frame)))
             ;; Per rf2-ta0y7: stamp `:rf.event/v` + `:rf.trace/event-id`
             ;; on the t1 / t2 trace events so they carry the same
             ;; per-event attribution every other `:op-type :rf.event`
@@ -1021,7 +1043,13 @@
                   ;; which case there are no rows and nothing to restore.
                   snapshot-li (late-bind/get-fn-cached :flows/snapshot-last-inputs)
                   li-before   (when snapshot-li (snapshot-li frame))
-                  new-db (run-on-db frame pending-db)]
+                  ;; EP-0001 §535-551 (rf2-4eisfr): hand the flow transform
+                  ;; BOTH partitions of the pending frame-state. Bare `:inputs`
+                  ;; resolve against `pending-db` (app-db); `[:rf.db/runtime …]`
+                  ;; inputs resolve against `pending-runtime-db`. The returned
+                  ;; value is the flow-augmented APP-DB (runtime-db is read-only
+                  ;; for the pass).
+                  new-db (run-on-db frame pending-db pending-runtime-db)]
               ;; t2 — flows transformed the pending `:db`. Stamp the
               ;; flow-augmented value so the Xray panel can render the
               ;; t1→t2 reshape. The dirty-check below is the same
