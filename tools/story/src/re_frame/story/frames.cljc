@@ -44,6 +44,18 @@
   registered body changed. Stage 3 surfaces the entry point; the
   trigger lives in Stage 4."
   (:require [re-frame.core             :as rf]
+            ;; rf2-294yq5 — `reset-state!` reaches the raw frame-state
+            ;; write boundary (`frame/replace-frame-state!`) directly so an
+            ;; in-place fresh-run reset preserves frame IDENTITY + sub-cache
+            ;; + the app-db/runtime-db projection reactions. The epoch-backed
+            ;; facade surface (`rf/replace-frame-state!`) is the WRONG seam
+            ;; here: it throws `:rf.error/epoch-artefact-missing` when the
+            ;; epoch artefact is absent (a published Story jar carries no
+            ;; epoch dep), whereas the raw boundary is a pure container write
+            ;; with no epoch coupling — exactly what the epoch surface itself
+            ;; calls under the hood. Story's `test_support` already reaches
+            ;; `re-frame.frame` directly; this is the same boundary.
+            [re-frame.frame            :as frame]
             [re-frame.story.config     :as config]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.error      :as story-error]
@@ -673,6 +685,56 @@
 
 ;; ---- destruction ----------------------------------------------------------
 
+(defn- run-teardown-walks!
+  "Run the variant-frame teardown bookkeeping + dispatch walks that
+  precede the actual frame disposal (steps 1-4 of the `destroy!`
+  contract):
+
+  1. Clear lifecycle watchers + per-frame stub-call log; drop the
+     per-variant assertion accumulators + the play-runner's per-frame
+     run-state (rf2-booyu) via the late-bind hooks.
+  2. Dispatch-sync the variant body's `:loaders-teardown` events
+     (declared order, rf2-lqs0b) — cleans up loader-installed narrower
+     state. BEFORE the decorator teardown.
+  3. Dispatch-sync the `:frame-setup` decorator `:teardown` events
+     (reverse-declaration order) — cleans up decorator-installed wider
+     state.
+
+  Shared by `destroy!` (which follows with `rf/destroy-frame!`) and the
+  in-place `reset-state!` (rf2-294yq5, which follows with a frame-state
+  reset instead) so both paths run the SAME symmetric external-resource
+  cleanup. Exceptions in each walk are caught + projected onto the
+  variant's `[:rf.story/assertions]`; the walks never abort."
+  [variant-id]
+  (loaders/clear-watchers! variant-id)
+  (clear-stub-call-log! variant-id)
+  (when-let [drop (late-bind/get-fn :drop-assertion-accumulators)]
+    (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
+  ;; rf2-booyu — evict the play-runner's per-frame run-state on teardown
+  ;; (run-state / runs-by-play / active-play / step-boundaries) so a
+  ;; torn-down frame leaves no stale terminal play status behind. Routed
+  ;; through the `:drop-run-state` late-bind hook (frames cannot :require
+  ;; runner-events — cycle).
+  (when-let [drop (late-bind/get-fn :drop-run-state)]
+    (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
+  ;; Step 3 (rf2-lqs0b) — variant body :loaders-teardown. Runs BEFORE
+  ;; decorator teardown so loader-installed narrower state is cleaned
+  ;; up before decorator-installed wider state.
+  (try
+    (let [v-body (registrar/handler-meta :variant variant-id)
+          evs    (:loaders-teardown v-body)]
+      (when (seq evs)
+        (apply-loaders-teardown! variant-id evs)))
+    (catch #?(:clj Throwable :cljs :default) _ nil))
+  ;; Step 4 — :frame-setup decorator :teardown events. Resolve the
+  ;; decorator stack here (rather than carrying it through the caller
+  ;; signature) so the caller surface stays unchanged.
+  (try
+    (let [stack (decorators/resolve-decorators variant-id)]
+      (apply-frame-teardown! variant-id (:frame-setup stack)))
+    (catch #?(:clj Throwable :cljs :default) _ nil))
+  nil)
+
 (defn destroy!
   "Tear down a variant frame. Per `002-Runtime.md` §Loader teardown
   contract — §What the runtime guarantees the destroy walk is:
@@ -704,35 +766,60 @@
   Returns nil."
   [variant-id]
   (when config/enabled?
-    (loaders/clear-watchers! variant-id)
-    (clear-stub-call-log! variant-id)
-    (when-let [drop (late-bind/get-fn :drop-assertion-accumulators)]
-      (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
-    ;; rf2-booyu — evict the play-runner's per-frame run-state on teardown
-    ;; (run-state / runs-by-play / active-play / step-boundaries) so a
-    ;; destroyed frame leaves no stale terminal play status behind. Routed
-    ;; through the `:drop-run-state` late-bind hook (frames cannot :require
-    ;; runner-events — cycle).
-    (when-let [drop (late-bind/get-fn :drop-run-state)]
-      (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
-    ;; Step 3 (rf2-lqs0b) — variant body :loaders-teardown. Runs BEFORE
-    ;; decorator teardown so loader-installed narrower state is cleaned
-    ;; up before decorator-installed wider state.
-    (try
-      (let [v-body (registrar/handler-meta :variant variant-id)
-            evs    (:loaders-teardown v-body)]
-        (when (seq evs)
-          (apply-loaders-teardown! variant-id evs)))
-      (catch #?(:clj Throwable :cljs :default) _ nil))
-    ;; Step 4 — :frame-setup decorator :teardown events. Resolve the
-    ;; decorator stack here (rather than carrying it through the
-    ;; destroy! signature) so the caller surface stays unchanged —
-    ;; `destroy-variant!` takes only a variant-id.
-    (try
-      (let [stack (decorators/resolve-decorators variant-id)]
-        (apply-frame-teardown! variant-id (:frame-setup stack)))
-      (catch #?(:clj Throwable :cljs :default) _ nil))
+    (run-teardown-walks! variant-id)
     (rf/destroy-frame! variant-id)
+    nil))
+
+;; ---- in-place fresh-run reset (rf2-294yq5) --------------------------------
+
+(defn reset-state!
+  "Reset an EXISTING variant frame to fresh state IN PLACE — preserving
+  the frame's IDENTITY, sub-cache, and app-db/runtime-db projection
+  reactions — instead of `destroy!` + re-`allocate!`.
+
+  Why this exists (rf2-294yq5, the PR #3672 last-red fix). `run-variant`
+  must enforce a fresh-run boundary so a second run on the same id does
+  NOT inherit the first run's app-db and so loader variants re-run their
+  loaders (the lifecycle machine must leave `:ready`). The first cut
+  (`ensure-fresh-frame!` → `destroy!` + `allocate!`) achieved fresh state
+  but DESTROYED the frame: `destroy-frame!` tears down the sub-cache and
+  the partition projections. When the canvas has ALREADY mounted the
+  variant view under `frame-provider {:frame variant-id}` (its
+  `@(subscribe …)` reactions wired to THIS frame's sub-cache) before
+  `:component-did-mount` → `run-variant` runs, that destroy ORPHANS every
+  live reaction: a subsequent `:counter/set 42` updates the freshly
+  re-allocated frame's app-db, but the stale reaction never observes it,
+  so the DOM never re-renders (count-display stuck at \"0\"). Invisible to
+  the JVM (no React reconciliation), which is why a JVM-validated fix
+  missed it.
+
+  The fix: reset in place. We run the SAME teardown walks `destroy!`
+  runs (so loader/decorator-installed external resources are cleaned up
+  symmetrically), then overwrite BOTH frame-state partitions with `{}`
+  via the raw `frame/replace-frame-state!` write boundary — the same
+  atomic single-container install the epoch surface uses, but WITHOUT the
+  epoch coupling. Because the physical container, its projection
+  reactions, and the sub-cache all survive, the live mounted view's
+  reactions recompute over the reset value and re-render. A fresh frame
+  starts with app-db `{}` + runtime-db `{}` (Spec 002 §Frames always
+  start with app-db = {}); resetting runtime-db to `{}` drops the
+  lifecycle machine snapshot, so `loaders/current-state` reports
+  `:pre-mount` and the re-run's loaders fire (no `:ready` short-circuit).
+
+  No-op (returns nil) when the frame is not registered — the caller
+  (`run-phase-0!`) only resets when a frame already exists; the fresh
+  `allocate!` that follows builds the clean frame for the never-seen
+  case. Returns nil."
+  [variant-id]
+  (when config/enabled?
+    (run-teardown-walks! variant-id)
+    ;; Overwrite both partitions with the fresh-frame empty state through
+    ;; the one physical frame-state container — preserves frame identity,
+    ;; sub-cache, and projection reactions (live view reactions survive).
+    (frame/replace-frame-state!
+      variant-id
+      {frame/app-partition-key     {}
+       frame/runtime-partition-key {}})
     nil))
 
 ;; ---- destroy + re-allocate -----------------------------------------------
@@ -742,7 +829,13 @@
   `re-frame.core/reset-frame!` naming (rf2-noizc — aligning Story's
   frame helpers with the framework `*-frame!` convention). The caller
   is responsible for re-running the four-phase lifecycle (loaders →
-  events → render → play) after."
+  events → render → play) after.
+
+  NOTE the in-place `reset-state!` (rf2-294yq5) is the path
+  `run-variant`'s fresh-run boundary takes when a frame already exists —
+  it preserves live view reactions. This destroy + re-allocate helper is
+  the explicit full-teardown variant retained for callers that genuinely
+  want the frame torn down and rebuilt."
   [variant-id decorator-stack]
   (destroy! variant-id)
   (allocate! variant-id decorator-stack))
