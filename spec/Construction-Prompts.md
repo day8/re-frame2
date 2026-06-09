@@ -359,7 +359,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 4. **List the inputs (sub-events) that move between states.** Each input triggers exactly one transition.
 5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [{:keys [data event]}] boolean)` and each action `(fn [{:keys [data event]}] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). Per every machine callback receives a single context-map argument with `:data`, `:event`, `:state`, `:meta`. **Inline only when the body is a single non-branching expression.**
 
-**Where state lives.** Every machine's snapshot lives at the runtime-managed path `[:rf/runtime :machines :snapshots <machine-id>]` in the frame's `app-db`. For id `:auth.login/flow`, the snapshot is at `[:rf/runtime :machines :snapshots :auth.login/flow]` and contains `{:state ... :data ...}`. You do not pick the path — `make-machine-handler` does not accept a `:path` key. Per-frame isolation is automatic: each frame has its own `app-db` and thus its own `[:rf/runtime :machines :snapshots]` map. See [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live).
+**Where state lives.** Every machine's snapshot lives at the runtime-managed path `[:rf.runtime/machines :snapshots <machine-id>]` in the frame's **runtime-db** partition (not app-db). For id `:auth.login/flow`, the snapshot is at `[:rf.runtime/machines :snapshots :auth.login/flow]` and contains `{:state ... :data ...}`. You do not pick the path — `make-machine-handler` does not accept a `:path` key. Per-frame isolation is automatic: each frame has its own runtime-db and thus its own `[:rf.runtime/machines :snapshots]` map. See [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live).
 
 **Reading the snapshot in views.** The framework ships `:rf/machine` as a standard parametric sub. `@(rf/sub-machine :auth.login/flow)` returns the snapshot (sugar over `@(rf/subscribe [:rf/machine :auth.login/flow])`) — no per-machine `reg-sub` needed. Destructure inline, or write a derived sub `:<- [:rf/machine <id>]` for projections. See [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
 
@@ -513,7 +513,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 {:idle {:on {:fetch {:target :loading :action :spawn-fetch}}}}
 ```
 
-After this action, `(:pending-request data)` is the new actor's id; subsequent transitions can dispatch to it. The spawned actor's snapshot lives at `[:rf/runtime :machines :snapshots <gensym'd-id>]` (runtime-managed; the spawn-spec does not pick a location). The `:on-spawn` callback is an inline fn here — that's appropriate; it's a single non-branching `assoc`.
+After this action, `(:pending-request data)` is the new actor's id; subsequent transitions can dispatch to it. The spawned actor's snapshot lives at `[:rf.runtime/machines :snapshots <gensym'd-id>]` in runtime-db (runtime-managed; the spawn-spec does not pick a location). The `:on-spawn` callback is an inline fn here — that's appropriate; it's a single non-branching `assoc`.
 
 **Deeper guidance — see the appendix.** When you need the inline-fn vs named-action escape-hatch test, the v1 grammar subset, the parallel-regions decision between `:type :parallel` and N-machines-per-region, or first-class history states (`:type :history`), consult [CP-5 Machine Guide](CP-5-MachineGuide.md). It's a sibling appendix to keep CP-5 itself a build-facing prompt rather than a second machine spec.
 
@@ -537,12 +537,15 @@ After this action, `(:pending-request data)` is the new actor's id; subsequent t
 
 ;; Level 2 — unregistered handler fn (handler-level wiring; still no test frame).
 ;; Possible because make-machine-handler is a pure factory.
-;; Snapshots live at [:rf/runtime :machines :snapshots <id>] in app-db (runtime-managed).
+;; Snapshots live at [:rf.runtime/machines :snapshots <id>] in runtime-db (runtime-managed):
+;; the handler reads the snapshot from the :rf.db/runtime cofx and writes it back
+;; as a :rf.db/runtime effect — NOT app-db's :db.
 (deftest auth-login-happy-path-l2
-  (let [handler (rf/make-machine-handler {:initial :idle ...})]
-    (let [{:keys [db]} (handler {:db {:rf/runtime {:machines {:snapshots {:auth.login/flow {:state :idle :data {}}}}}}}
-                                [:auth.login/flow [:submit {:email "..."}]])]
-      (is (= :submitting (get-in db [:rf/runtime :machines :snapshots :auth.login/flow :state]))))))
+  (let [handler (rf/make-machine-handler {:initial :idle ...})
+        cofx    {:rf.db/runtime {:rf.runtime/machines {:snapshots {:auth.login/flow {:state :idle :data {}}}}}}
+        effects (handler cofx [:auth.login/flow [:submit {:email "..."}]])
+        runtime (:rf.db/runtime effects)]
+    (is (= :submitting (get-in runtime [:rf.runtime/machines :snapshots :auth.login/flow :state])))))
 
 ;; Level 3 — registered in a test frame (full integration; required for spawn lifecycle).
 (deftest auth-login-happy-path-l3
@@ -583,7 +586,7 @@ For projections, compose against `:rf/machine` via `:<-`:
 **AI-first checklist:**
 
 - Machine id is namespaced; registered via `reg-event-fx` + `make-machine-handler`.
-- No `:path` key in the machine spec — the runtime stores snapshots at `[:rf/runtime :machines :snapshots <id>]`.
+- No `:path` key in the machine spec — the runtime stores snapshots at `[:rf.runtime/machines :snapshots <id>]` in runtime-db.
 - All states are listed in `:states`; no string-based or computed state names.
 - Every input the machine listens to is in some state's `:on` map.
 - **Non-trivial guards and actions are named in the machine's `:guards` / `:actions` maps and referenced by keyword from the transition table, not inline.** Inline fns are reserved for single non-branching expressions per [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
@@ -595,7 +598,7 @@ For projections, compose against `:rf/machine` via `:<-`:
 - No `:db` in action effect maps — cross-cutting writes go via `:fx [[:dispatch <named-event>]]`.
 - Cross-cutting reads come through the event payload, not from `app-db`.
 - Cross-machine reuse of a guard/action is via a Clojure var referenced from each machine's `:guards` / `:actions` map — not via a global registry.
-- Views read state via `@(rf/sub-machine <machine-id>)` (or the explicit `@(rf/subscribe [:rf/machine <machine-id>])`); no manual `reg-sub` over `[:rf/runtime :machines :snapshots ...]`.
+- Views read state via `@(rf/sub-machine <machine-id>)` (or the explicit `@(rf/subscribe [:rf/machine <machine-id>])`); no manual `reg-sub` over `[:rf.runtime/machines :snapshots ...]`.
 - Transition table conforms to `:rf/transition-table` schema (per [Spec-Schemas](Spec-Schemas.md)).
 - Level-1 headless test passes via `machine-transition` (no event dispatch needed).
 - If the machine has terminal states, they're marked `:meta {:terminal? true}`.
@@ -797,7 +800,7 @@ Routing is *state plus events*. The URL is a derivable view of `app-db`; navigat
                     :on-error   [:cart/load-failed]}]]})))
 ```
 
-The handler reads `(get-in db [:rf/runtime :routing :current])` for any path/query params it needs — the route slice (consumer sub-id `:rf/route`) is already populated when `:on-match` events fire.
+The handler reads the route slice — which lives in **runtime-db** at `[:rf.runtime/routing :current]`, NOT app-db — for any path/query params it needs, via `(get-in (rf/runtime-db-value) [:rf.runtime/routing :current])` (the consumer-facing sub-id is `:rf/route`). The slice is already populated when `:on-match` events fire.
 
 **Template — route-aware root view:**
 
@@ -839,11 +842,11 @@ Routing has two co-equal URL-change events. Popstate and the initial sync (above
 
 **Pattern-level discipline:**
 
-- The route is in `app-db`; the URL is derivable. Never make routing state live outside `app-db`.
+- The route is framework-owned state in **runtime-db** (`[:rf.runtime/routing :current]`, read via the `:rf/route` sub); the URL is derivable. Never make routing state live in a parallel router outside the frame.
 - Navigation is an event. Don't call browser APIs directly from view code; dispatch `:rf.route/navigate` (or use `route-link`).
 - Per-route data loading is **declarative** — list events in `:on-match` on `reg-route`. The runtime dispatches them.
 - Server-side renders set the route via `:rf.route/handle-url-change` against the request URL; the same `:on-match` events run server-side.
-- Path params and query params are **separate maps** — `(get-in db [:rf/runtime :routing :current :params])` and `(get-in db [:rf/runtime :routing :current :query])`.
+- Path params and query params are **separate maps** in the runtime-db route slice — `(get-in (rf/runtime-db-value) [:rf.runtime/routing :current :params])` and `(get-in (rf/runtime-db-value) [:rf.runtime/routing :current :query])`.
 
 **AI-first checklist:**
 
