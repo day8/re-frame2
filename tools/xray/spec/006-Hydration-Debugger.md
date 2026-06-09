@@ -1,5 +1,30 @@
 # 006-Hydration-Debugger
 
+> **rf2-ici2id drift notice (2026-06-10).** The dedicated **Hydration
+> Debugger panel was dropped** (rf2-xy4yb; the Issues tab that would have
+> hosted it was also removed under rf2-gbz39 Option (c)). There is no
+> Hydration panel or tab in the live surface. SSR hydration mismatches now
+> surface as `:rf.ssr/*` rows on the L2 event timeline (category-prefix
+> `rf.ssr`) plus the always-on issues ribbon (auto-open-on-error) — see
+> the `runHydration` feature-matrix scenario
+> (`tools/xray/testbeds/feature_matrix/scenarios.cjs`), which verifies the
+> mismatch trace fired and the Epoch panel renders cleanly, not a
+> Hydration renderer.
+>
+> The supporting renderer code was removed in the same change as this
+> notice: `panels/hydration_pane_render.cljs`, `diff/hiccup.cljc`, and
+> `diff/hiccup_render.cljs` (plus their tests) had no live consumer — they
+> formed a closed self-loop referenced by nothing outside themselves and
+> their own tests. (The LIVE app-db diff engine is `diff/engine.cljc` +
+> `views/edn-inspector`, which is unaffected.)
+>
+> **Treat the entire body below as historical reference, not normative
+> spec.** The mismatch-bisector / side-by-side / sub-attribution surface
+> it describes is a design record for a panel that does not ship. A full
+> rewrite against the surviving `:rf.ssr/*`-row surface is tracked
+> separately (cf. the analogous `014-Registry-Catalogue.md` rf2-qy0nu
+> drift notice for the same 8-dead-panel sweep).
+
 ## Bug class
 
 **Body / head hydration mismatch.** The server-rendered tree and the

@@ -4139,8 +4139,10 @@ call 2026-05-26). The side panel has plenty of horizontal room; the
 whole-tree inspector reads comfortably in-place. Earlier framing of
 App-DB as "the canonical cramped in the side panel case" was wrong.
 
-Diff renderers' internal `inspect-value` leaves (`diff/hiccup_render.cljs`)
-intentionally **do not** carry the affordance — they're inner
+Diff renderers' internal `inspect-value` leaves (the diff-mode path of
+`views/edn-inspector`, per §10.0.8 below — the prior `diff/hiccup_render.cljs`
+mini-renderer was retired with the dropped Hydration panel cluster,
+rf2-ici2id) intentionally **do not** carry the affordance — they're inner
 mini-renderers inside a larger diff tree chrome, not user-facing leaf
 inspect mounts; an inline ↗ per inner leaf would clutter the diff
 display.
