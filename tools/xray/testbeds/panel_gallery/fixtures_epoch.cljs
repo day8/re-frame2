@@ -522,10 +522,12 @@
 ;;              ✓ ran        (`:rf.fx/handled`)
 ;;              ↺ overridden (`:rf.fx/override-applied`)
 ;;              – skipped    (`:rf.fx/skipped-on-platform`; NEUTRAL)
-;;   other  — a TOP-LEVEL effect key beyond `:db` / `:fx` on the returned
+;;   other  — a TOP-LEVEL effect key OUTSIDE the closed set on the returned
 ;;            map, LAST in the ledger. re-frame2's effect map is the closed
-;;            `{:db :fx}` shape; the runtime DROPS any other key, so the
-;;            row renders the muted `–` not-run diagnostic (NEUTRAL).
+;;            `{:db :fx :rf.db/runtime}` shape; the runtime DROPS any key
+;;            beyond it, so the row renders the muted `–` not-run diagnostic
+;;            (NEUTRAL). `:rf.db/runtime` is NOT an "other" key — it is a
+;;            committed runtime-db state effect with its own row.
 ;;
 ;; The single SIDE EFFECTS badge is the AND-of-rows: this all-actioned
 ;; ledger (the skipped + dropped rows are neutral) reads ✓.
