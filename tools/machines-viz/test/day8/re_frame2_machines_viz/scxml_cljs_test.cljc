@@ -203,7 +203,12 @@
       (is (str/includes? out "target=\"ready\""))
       ;; rf2-mnp93.1 — guard hex-escaped (`:ready?` → `ready_3f`).
       (is (str/includes? out "cond=\"ready_3f\""))
-      (is (str/includes? out "<transition target=\"blocked\"/>"))
+      ;; rf2-0pp6as — a targeted internal-default transition now carries
+      ;; the explicit `type="internal"` axis (so the export does not inherit
+      ;; SCXML's EXTERNAL targeted-transition default). The `:always`
+      ;; candidate is eventless (no `event=`) but is still a targeted
+      ;; internal-default transition, so it carries `type="internal"`.
+      (is (str/includes? out "<transition target=\"blocked\" type=\"internal\"/>"))
       ;; Eventless transitions must not carry event= — confirm by
       ;; searching for the malformed combination.
       (is (not (re-find #"event=\"\"" out))))))
@@ -952,13 +957,19 @@
       (is (true? (get-in back [:states :a :on :ping :reenter?]))
           "the decoded candidate carries `:reenter? true`")))
 
-  (testing "rf2-9dj21r — the internal-DEFAULT self-target emits NO
-            `type=\"external\"` and round-trips WITHOUT `:reenter?`"
+  (testing "rf2-9dj21r / rf2-0pp6as — the internal-DEFAULT self-target emits
+            the explicit `type=\"internal\"` (NEVER `type=\"external\"`) and
+            round-trips WITHOUT `:reenter?`"
     (let [xml  (scxml/spec->scxml internal-self-machine)
           back (scxml/scxml->spec xml)
           cand (get-in back [:states :a :on :ping])]
       (is (not (str/includes? xml "type=\"external\""))
           "the internal default does NOT emit the external type attr")
+      ;; rf2-0pp6as — the internal default is EXPLICIT: a target-bearing
+      ;; transition without `:reenter?` emits `type="internal"` so the
+      ;; export does not inherit SCXML's EXTERNAL targeted-transition default.
+      (is (str/includes? xml "type=\"internal\"")
+          "the internal default emits the explicit SCXML internal type axis")
       ;; A SOLE target-only candidate normalises to the bare-keyword
       ;; shorthand (`:same-state`) on import — the canonical, semantically
       ;; identical form. The point is it stays a TARGET-ONLY transition with
@@ -991,3 +1002,137 @@
           back (scxml/scxml->spec xml)]
       (is (not (str/includes? xml "type=\"external\"")))
       (is (= spec back)))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-0pp6as — SCXML self-target export must reference a DECLARED state id
+;; (never the dangling `same_2dstate` phantom), and must be EXPLICIT about
+;; the XState-v5-internal vs SCXML-external default-inversion. Pre-fix the
+;; SCXML resolver had no `:same-state` arm, so the sentinel exported the
+;; absolute path `[:same-state]` → `target="same_2dstate"` — a DANGLING id
+;; the document never declares. The local `scxml->spec` decoded that phantom
+;; back to `:same-state`, so the round-trip oracle FALSE-GREENED over invalid
+;; W3C SCXML. These tests assert the EXTERNAL form (declared-id validity +
+;; internal/external type axis), not just the local round-trip, so the suite
+;; cannot pass by decoding an invalid export back into the original EDN.
+
+(defn- declared-state-ids
+  "Every state / final / parallel / history id declared in an SCXML
+  document (the set of valid `target=` referents per xsd:ID uniqueness)."
+  [xml]
+  (->> (re-seq #"<(?:state|final|parallel|history)\b[^>]*\bid=\"([^\"]+)\"" xml)
+       (map second)
+       set))
+
+(defn- transition-target-ids
+  "Every nonempty `target=` id appearing on a `<transition>` in an SCXML
+  document."
+  [xml]
+  (->> (re-seq #"<transition\b[^>]*\btarget=\"([^\"]+)\"" xml)
+       (map second)
+       (remove str/blank?)
+       set))
+
+(defn- assert-targets-declared
+  "Validity guard (rf2-0pp6as): EVERY nonempty transition `target=` id must
+  reference a state DECLARED in the same SCXML document. This is the guard
+  the pre-fix dangling `same_2dstate` export would FAIL — the phantom id is
+  not in `declared-state-ids`."
+  [xml]
+  (let [declared (declared-state-ids xml)]
+    (doseq [t (transition-target-ids xml)]
+      (is (contains? declared t)
+          (str "transition target=\"" t "\" must reference a declared "
+               "state id; declared = " (pr-str declared))))))
+
+(deftest scxml-self-target-references-declared-id
+  (testing "rf2-0pp6as — ATOMIC self-target (`:same-state`) exports the
+            SOURCE state's real id, NEVER the dangling `same_2dstate`"
+    (let [spec {:initial :a
+                :states  {:a {:on {:ping {:target :same-state}}}}}
+          xml  (scxml/spec->scxml spec)]
+      (is (not (str/includes? xml "same_2dstate"))
+          "the `:same-state` sentinel must NOT leak as a phantom target id")
+      (is (str/includes? xml "<transition event=\"ping\" target=\"a\" type=\"internal\"/>")
+          "self-target references the source state's own id, internal default")
+      (assert-targets-declared xml)
+      ;; supplement the external-form assertions with the local round-trip:
+      ;; the canonical decode of a self-target is `:same-state`.
+      (is (= :same-state (get-in (scxml/scxml->spec xml) [:states :a :on :ping]))
+          "round-trips to the canonical `:same-state` self-target form")))
+
+  (testing "rf2-0pp6as — a keyword target NAMING the state's own key is the
+            SAME self-transition; it too references the declared id + decodes
+            to the canonical `:same-state`"
+    (let [spec {:initial :a
+                :states  {:a {:on {:ping {:target :a}}}}}
+          xml  (scxml/spec->scxml spec)]
+      (is (not (str/includes? xml "same_2dstate")))
+      (is (str/includes? xml "target=\"a\""))
+      (assert-targets-declared xml)
+      (is (= :same-state (get-in (scxml/scxml->spec xml) [:states :a :on :ping]))
+          "own-keyword self-target canonicalises to `:same-state` (Spec 005)")))
+
+  (testing "rf2-0pp6as — COMPOUND self/ancestor target (`:same-state` declared
+            on a compound) references the compound's own declared id"
+    (let [spec {:initial :outer
+                :states  {:outer {:initial :inner1
+                                  :on      {:reset {:target :same-state}}
+                                  :states  {:inner1 {} :inner2 {}}}}}
+          xml  (scxml/spec->scxml spec)]
+      (is (not (str/includes? xml "same_2dstate")))
+      (is (str/includes? xml "<transition event=\"reset\" target=\"outer\" type=\"internal\"/>")
+          "the compound self-target references the compound's own id, internal default")
+      (assert-targets-declared xml)
+      (is (= :same-state (get-in (scxml/scxml->spec xml) [:states :outer :on :reset]))
+          "round-trips to the canonical `:same-state` form")))
+
+  (testing "rf2-0pp6as — COMPOUND-declared DESCENDANT target references the
+            descendant's fully-qualified declared id with `type=\"internal\"`
+            (the case where SCXML internal IS the exact equivalent)"
+    (let [spec {:initial :outer
+                :states  {:outer {:initial :inner1
+                                  :on      {:go {:target [:outer :inner2]}}
+                                  :states  {:inner1 {} :inner2 {}}}}}
+          xml  (scxml/spec->scxml spec)
+          back (scxml/scxml->spec xml)]
+      (is (str/includes? xml "target=\"outer___inner2\" type=\"internal\"")
+          "descendant target references the qualified declared id, internal default")
+      (assert-targets-declared xml)
+      (is (= [:outer :inner2] (get-in back [:states :outer :on :go]))
+          "descendant target round-trips to its absolute vector path")))
+
+  (testing "rf2-0pp6as — the EXTERNAL (`:reenter? true`) self-target also
+            references the declared id and carries `type=\"external\"`"
+    (let [spec {:initial :a
+                :states  {:a {:on {:ping {:target :same-state :reenter? true}}}}}
+          xml  (scxml/spec->scxml spec)]
+      (is (not (str/includes? xml "same_2dstate")))
+      (is (str/includes? xml "<transition event=\"ping\" target=\"a\" type=\"external\"/>")
+          "the external self-target references the source id, type external")
+      (assert-targets-declared xml)
+      (is (= {:target :same-state :reenter? true}
+             (get-in (scxml/scxml->spec xml) [:states :a :on :ping]))
+          "exact round-trip preserves the external `:reenter?` axis")))
+
+  (testing "rf2-0pp6as — internal vs external self-targets export to DISTINCT,
+            DECLARED-id-valid SCXML (the two are runtime-distinct)"
+    (let [internal {:initial :a :states {:a {:on {:ping {:target :same-state}}}}}
+          external {:initial :a :states {:a {:on {:ping {:target :same-state :reenter? true}}}}}
+          xi (scxml/spec->scxml internal)
+          xe (scxml/spec->scxml external)]
+      (is (not= xi xe) "internal vs external must produce DISTINCT SCXML")
+      (is (str/includes? xi "type=\"internal\""))
+      (is (str/includes? xe "type=\"external\""))
+      (assert-targets-declared xi)
+      (assert-targets-declared xe))))
+
+(deftest scxml-all-fixtures-targets-declared
+  (testing "rf2-0pp6as — the declared-target validity guard holds for EVERY
+            non-parallel fixture's export (no dangling `target=` ids anywhere)"
+    (doseq [spec [idle-loading-success-error
+                  compound-machine
+                  always-machine
+                  reenter-self-machine
+                  internal-self-machine
+                  reenter-ancestor-machine]]
+      (assert-targets-declared (scxml/spec->scxml spec)))))
