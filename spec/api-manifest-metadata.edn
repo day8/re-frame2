@@ -511,6 +511,13 @@
   ["re-frame.schemas" "schemas-by-frame"]        {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "snapshot-schemas-by-frame"] {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "restore-schemas-by-frame!"] {:tier :internal-public :owner "010" :status "v1"}
+  ;; rf2-l4ljvr — bundle-level snapshot/restore for the validator/explainer/
+  ;; printer triple, the companion to the registry pair above. Internal-public
+  ;; test-support hooks (NOT a re-frame.core facade export): they are consumed
+  ;; by cross-artefact test-support (routing/ssr/ssr-ring fixtures) to capture
+  ;; and restore the pluggable schema bundle without reaching the raw atoms.
+  ["re-frame.schemas" "snapshot-schema-fns"]       {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "restore-schema-fns!"]       {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "clear-schemas-by-frame!"]   {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "frame-schema-entries"]      {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "on-frame-destroyed!"]       {:tier :internal-public :owner "010" :status "v1"}
