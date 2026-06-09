@@ -97,39 +97,47 @@
   [snapshot path app-db-mode]
   (if-not (map? snapshot)
     [snapshot {}]
-    (let [status* (atom {})
-          missing (js-obj)
+    (let [missing (js-obj)
           full?   (= :full app-db-mode)
+          ;; Pure two-output transform: returns `[new-frame-map
+          ;; status-entry-or-nil]`. The status entry is non-nil only on
+          ;; a path miss; the fold below threads it into the `:status`
+          ;; map. No side-channel atom — both outputs flow through the
+          ;; accumulator (rf2-k7otmg).
           process-frame
-          (fn [frame-id frame-map]
+          (fn [frame-map]
             (if-not (and (map? frame-map) (contains? frame-map :app-db))
-              frame-map
+              [frame-map nil]
               (let [db (:app-db frame-map)]
                 (cond
                   ;; No path + summary mode (rf2-tygdv default): summarise.
                   (and (nil? path) (not full?))
-                  (update frame-map :app-db summary/tree-summary)
+                  [(update frame-map :app-db summary/tree-summary) nil]
                   ;; No path + full mode: full slice (rf2-u2029 opt-in).
                   (nil? path)
-                  frame-map
+                  [frame-map nil]
                   ;; Root path (`[]`): return full db (agent opted in
                   ;; explicitly). Equivalent to legacy default behaviour.
                   (empty? path)
-                  frame-map
+                  [frame-map nil]
                   ;; Path supplied: get-in with missing sentinel.
                   :else
                   (let [v (get-in db path missing)]
                     (if (identical? v missing)
-                      (do (swap! status* assoc frame-id
-                                 {:exists? false
-                                  :deepest-valid-prefix
-                                  (summary/deepest-valid-prefix db path)})
-                          (assoc frame-map :app-db nil))
-                      (assoc frame-map :app-db v)))))))
-          processed (reduce-kv (fn [m fid fmap]
-                                 (assoc m fid (process-frame fid fmap)))
-                               {} snapshot)]
-      [processed @status*])))
+                      [(assoc frame-map :app-db nil)
+                       {:exists? false
+                        :deepest-valid-prefix
+                        (summary/deepest-valid-prefix db path)}]
+                      [(assoc frame-map :app-db v) nil]))))))
+          {:keys [processed status]}
+          (reduce-kv (fn [acc fid fmap]
+                       (let [[new-fmap status-entry] (process-frame fmap)
+                             acc' (assoc-in acc [:processed fid] new-fmap)]
+                         (if status-entry
+                           (assoc-in acc' [:status fid] status-entry)
+                           acc')))
+                     {:processed {} :status {}} snapshot)]
+      [processed status])))
 
 (defn summarise-other-slices-in-snapshot
   "Apply `tree-summary` to every frame's non-app-db slice whose
