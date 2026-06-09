@@ -159,7 +159,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 #### E2 Error reporting to tools
 
-- **Recovery:** <framework-owned typed per-category default — NO app-steering policy (the per-frame `:on-error` recovery policy was removed per rf2-hiqtk8); genuine recovery is local-at-source (managed-HTTP retry, optional-read fallback)>
+- **Recovery:** <framework-owned typed per-category default — NO app-steering recovery policy; genuine recovery is local-at-source (managed-HTTP retry, optional-read fallback)>
 - **Always-on error-emit substrate:** <how `register-error-listener!` fans `:rf.error/*` records to production monitors (Sentry / Rollbar / SSR fail-closed) post-elision, exception-isolated — the single error-observability surface, NOT only via the dev-elided trace stream (T1)>
 
 ## D5. Schema mechanism
