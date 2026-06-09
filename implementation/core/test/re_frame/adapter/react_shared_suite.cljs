@@ -1844,8 +1844,11 @@
     (rf/with-managed-request-stubs*
       {[:get "/articles"] {:reply {:ok [:hello :world]}}}
       (fn []
-        (rf/dispatch-sync [:articles/list]
-                          {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
+        ;; Documented wrapper form — NO manual :fx-overrides. The wrapper
+        ;; installs the :rf.http/managed override for the body's dynamic
+        ;; extent (rf2-rzqan); rf2-vn8qjv made that override a per-scope id,
+        ;; so hardcoding the stub id here would route to an unregistered fx.
+        (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
           (is (= :success (get-in db [:result :kind])))
           (is (= [:hello :world] (get-in db [:result :value]))))))))
@@ -1863,8 +1866,9 @@
     (rf/with-managed-request-stubs*
       {[:get "/articles"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}}
       (fn []
-        (rf/dispatch-sync [:articles/list]
-                          {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
+        ;; Documented wrapper form — NO manual :fx-overrides (see
+        ;; assert-http-with-managed-request-stubs; rf2-rzqan / rf2-vn8qjv).
+        (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
           (is (= :failure (get-in db [:result :kind])))
           (is (= :rf.http/http-4xx (get-in db [:result :failure :kind])))
