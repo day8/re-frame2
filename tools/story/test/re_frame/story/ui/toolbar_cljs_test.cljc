@@ -8,19 +8,20 @@
   ## Coverage layers
 
   - **Pure data** (JVM + CLJS): `toggle-mode` axis semantics,
-    `group-modes-by-axis` layout, `parse-modes-param` URL parsing,
-    `prune-unregistered` registrar-pruning, schema additivity for the
-    new `:axis` slot.
+    `group-modes-by-axis` layout, `share/parse-modes-param` URL
+    parsing, `share/prune-unregistered-modes` registrar-pruning (the
+    CLJC PRODUCTION helpers — rf2-96y71s removed the JVM copies that
+    used to shadow the live impl), schema additivity for the new
+    `:axis` slot.
   - **CLJS-only side-effects**: localStorage round-trip via
     `save-modes-to-storage!` + `load-modes-from-storage`,
-    `toggle-mode!` mutation against `shell-state-atom`, hydration
-    precedence (URL beats localStorage), the rendered hiccup carries
-    chip elements per registered mode."
-  (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+    `toggle-mode!` mutation against `shell-state-atom`, the rendered
+    hiccup carries chip elements per registered mode."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as story]
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.schemas :as schemas]
+            [re-frame.story.share :as share]
             [re-frame.story.ui.state :as state]
             #?@(:cljs [[re-frame.story.ui.cofx :as ui-cofx]
                        [re-frame.story.ui.toolbar :as toolbar]])))
@@ -33,35 +34,14 @@
      []
      (and (exists? js/window) (.-localStorage js/window))))
 
-;; The full `toolbar` ns is CLJS-only — it depends on `js/window`,
-;; `js/URLSearchParams`, and `localStorage`. The JVM arm of this test
-;; exercises the pure helpers that live in `state.cljc` (those run
-;; on both runtimes) and inlines duplicates of the pure parsing
-;; helpers below so the JVM corpus can exercise them without
-;; requiring the CLJS ns. The CLJS arm tests the live impure
-;; surfaces.
-
-#?(:clj
-   (defn ^:no-doc parse-modes-param-jvm
-     "JVM duplicate of `toolbar/parse-modes-param`. Tracks the live
-     CLJS impl byte-for-byte; if the live impl changes shape, this
-     copy must update."
-     [s]
-     (when (and (string? s) (seq (str/trim s)))
-       (->> (str/split s #",")
-            (map str/trim)
-            (remove str/blank?)
-            (map (fn [part]
-                   (if-let [slash (str/index-of part \/)]
-                     (keyword (subs part 0 slash) (subs part (inc slash)))
-                     (keyword part))))
-            vec))))
-
-#?(:clj
-   (defn ^:no-doc prune-unregistered-jvm
-     "JVM duplicate of `toolbar/prune-unregistered` (registered? arity)."
-     [modes registered?]
-     (vec (filter registered? (or modes [])))))
+;; rf2-96y71s: the `:active-modes` URL contract lives in ONE place.
+;; The pure `modes=` parser and the registrar-pruning helper are now
+;; the CLJC PRODUCTION fns `re-frame.story.share/parse-modes-param`
+;; and `re-frame.story.share/prune-unregistered-modes` — exercised
+;; directly on both runtimes below. The JVM arm no longer inlines
+;; copies of the toolbar parser (those copies asserted duplicated code
+;; rather than the live impl). The CLJS-only arm tests the live impure
+;; toolbar surfaces (localStorage, the Reagent ratom, chip hiccup).
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -171,38 +151,50 @@
       (is (= [:theme] (mapv first axes)))
       (is (= [] unaxed)))))
 
-;; ---- pure: URL parsing --------------------------------------------------
+;; ---- pure: URL parsing (the CLJC production helper) ---------------------
+;;
+;; rf2-96y71s: these exercise `share/parse-modes-param` directly — the
+;; SAME fn `share/parse-params` (and thus the url-state hydrator) uses.
+;; No JVM copy to drift out of sync.
 
 (deftest parse-modes-param-roundtrip
   (testing "single qualified mode id"
     (is (= [:Mode.app/dark]
-           (#?(:clj parse-modes-param-jvm :cljs toolbar/parse-modes-param)
-             "Mode.app/dark"))))
+           (share/parse-modes-param "Mode.app/dark"))))
   (testing "comma-separated list of ids"
     (is (= [:Mode.app/dark :Mode.app/mobile]
-           (#?(:clj parse-modes-param-jvm :cljs toolbar/parse-modes-param)
-             "Mode.app/dark,Mode.app/mobile"))))
+           (share/parse-modes-param "Mode.app/dark,Mode.app/mobile"))))
   (testing "whitespace around commas survives"
     (is (= [:Mode.app/a :Mode.app/b]
-           (#?(:clj parse-modes-param-jvm :cljs toolbar/parse-modes-param)
-             " Mode.app/a , Mode.app/b "))))
+           (share/parse-modes-param " Mode.app/a , Mode.app/b "))))
   (testing "blank input → nil"
-    (is (nil? (#?(:clj parse-modes-param-jvm :cljs toolbar/parse-modes-param)
-                "")))
-    (is (nil? (#?(:clj parse-modes-param-jvm :cljs toolbar/parse-modes-param)
-                "   "))))
+    (is (nil? (share/parse-modes-param "")))
+    (is (nil? (share/parse-modes-param "   "))))
   (testing "unqualified ids parse without a namespace"
-    (is (= [:bare] (#?(:clj parse-modes-param-jvm :cljs toolbar/parse-modes-param)
-                     "bare")))))
+    (is (= [:bare] (share/parse-modes-param "bare"))))
+  (testing "printed-keyword form (`:ns/name`) from a hand-copied URL"
+    (is (= [:Mode.app/dark]
+           (share/parse-modes-param ":Mode.app/dark")))))
 
-;; ---- pure: prune-unregistered -------------------------------------------
+;; ---- pure: prune-unregistered-modes (the CLJC production helper) --------
+;;
+;; rf2-96y71s: `share/prune-unregistered-modes` is the single registrar-
+;; pruning helper; the toolbar's `prune-unregistered` closes the live
+;; registrar predicate over it. Tested here with an injected set so the
+;; pure logic runs on both runtimes without the registrar.
 
-(deftest prune-unregistered-drops-stale
+(deftest prune-unregistered-modes-drops-stale
   (testing "ids not present in the registrar are dropped"
     (let [registered? #{:Mode.app/dark :Mode.app/light}]
       (is (= [:Mode.app/dark]
-             (#?(:clj prune-unregistered-jvm :cljs toolbar/prune-unregistered)
-               [:Mode.app/dark :Mode.app/sepia] registered?))))))
+             (share/prune-unregistered-modes
+               [:Mode.app/dark :Mode.app/sepia] registered?)))))
+  (testing "nil / empty modes coll yields []"
+    (is (= [] (share/prune-unregistered-modes nil (constantly true))))
+    (is (= [] (share/prune-unregistered-modes [] (constantly true)))))
+  (testing "every id stale → empty vector (not nil)"
+    (is (= [] (share/prune-unregistered-modes
+                [:Mode.app/gone :Mode.app/also-gone] #{})))))
 
 ;; ---- CLJS-only: live toolbar surfaces ----------------------------------
 ;;

@@ -13,9 +13,9 @@
                                    horizontal strip with chips per
                                    registered mode + a `[reset]` button.
   - `toggle-mode!`               — programmatic toggle for tests.
-  - `hydrate-modes-from-storage!`/`hydrate-modes-from-url!` — idempotent
-                                   one-shot hydrators run at shell
-                                   mount.
+  - `hydrate-modes-from-storage!` — idempotent one-shot localStorage
+                                   fallback hydrator, run at shell mount
+                                   BEFORE the URL hydrator.
   - `save-modes-to-storage!`     — persist after every change.
 
   ## Selection semantics
@@ -29,8 +29,23 @@
   - `:axis` absent → multi-select. Any subset can be active.
 
   The pure logic lives in `re-frame.story.ui.state/toggle-mode` (JVM-
-  testable); this ns wires the impure surfaces — localStorage,
-  `js/window.location.search`, and the Reagent ratom — around it.
+  testable); this ns wires the impure surfaces — localStorage and the
+  Reagent ratom — around it.
+
+  ## URL ownership boundary (rf2-96y71s)
+
+  This ns owns ONLY rendering, toggles, and localStorage persistence.
+  It does NOT read or parse `js/window.location` — all `modes=` URL
+  parsing lives in `re-frame.story.share` (`parse-modes-param`,
+  `parse-params`) and all URL-derived `:active-modes` hydration runs
+  through `re-frame.story.ui.url-state/apply-parsed-to-state`, the
+  single authoritative URL writer (spec/022 §Share semantics). The
+  toolbar's localStorage fallback (`hydrate-modes-from-storage!`) runs
+  FIRST on mount; the URL hydrator then either authoritatively-clears
+  `:active-modes` (when the URL carries query params) or — on a fresh
+  mount with no URL state at all — leaves the localStorage seed intact.
+  That ordering is the URL-over-localStorage precedence (last-shared
+  wins over last-used).
 
   ## Persistence
 
@@ -41,15 +56,14 @@
       re-frame.story/active-modes → \"[:Mode.app/dark :Mode.app/mobile]\"
 
   Stored as a `pr-str`-encoded vector of mode ids; `read-string` on
-  load. The URL deep-link (`?modes=...`) takes precedence over
-  localStorage on hydrate (last-shared wins over last-used).
-
-  Mode ids that no longer resolve at the registrar (stale storage after
-  a `reg-mode` rename) are silently dropped at hydrate time."
+  load. Mode ids that no longer resolve at the registrar (stale storage
+  after a `reg-mode` rename) are silently dropped at hydrate time via
+  `re-frame.story.share/prune-unregistered-modes`."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [re-frame.story.local-storage :refer [safe-local-storage]]
             [re-frame.story.registrar :as registrar]
+            [re-frame.story.share :as share]
             [re-frame.story.ui.backgrounds-switcher :as backgrounds-switcher]
             [re-frame.story.ui.element-inspector :as element-inspector]
             [re-frame.story.ui.play-status :as play-status]
@@ -91,62 +105,38 @@
     (try (.setItem ls ls-key (pr-str (vec modes)))
          (catch :default _ nil))))
 
-;; ---- URL deep-link -------------------------------------------------------
-
-(defn parse-modes-param
-  "Parse a `modes=` URL query-param value into a vector of mode-id
-  keywords. Each id arrives as `\"<ns>/<name>\"` (the canonical
-  `(name kw)` form share.cljc emits via `kw->str`) — split on `,` and
-  reconstruct via `keyword`. Pure data → data; JVM-testable.
-
-  Returns nil if `s` is blank, an empty vector if no ids parse."
-  [s]
-  (when (and (string? s) (seq (str/trim s)))
-    (->> (str/split s #",")
-         (map str/trim)
-         (remove str/blank?)
-         (map (fn [part]
-                (if-let [slash (str/index-of part "/")]
-                  (keyword (subs part 0 slash) (subs part (inc slash)))
-                  (keyword part))))
-         vec)))
-
-(defn modes-from-current-url
-  "Extract the `modes=` deep-link from `js/window.location.search`, if
-  any. Returns a vector of mode-id keywords or nil. CLJS-only — the
-  pure parsing fn `parse-modes-param` does the heavy lifting and is
-  JVM-testable."
-  []
-  (when (exists? js/window)
-    (let [search (some-> js/window .-location .-search)]
-      (when (and (string? search) (seq search))
-        (try
-          (let [params (js/URLSearchParams. search)
-                raw   (.get params "modes")]
-            (when (some? raw)
-              (parse-modes-param raw)))
-          (catch :default _ nil))))))
-
 ;; ---- registrar-pruning ---------------------------------------------------
 
 (defn prune-unregistered
-  "Drop mode ids from `modes` that no longer resolve at the
-  registrar (stale storage / share-URL pointing at a renamed mode).
-  Pure data → data; JVM-testable. `registered?` defaults to the live
-  registrar; tests may inject."
-  ([modes]
-   (prune-unregistered modes (fn [mid] (registrar/registered? :mode mid))))
-  ([modes registered?]
-   (vec (filter registered? (or modes [])))))
+  "Drop mode ids from `modes` that no longer resolve at the live
+  registrar (stale localStorage after a `reg-mode` rename). Delegates
+  to the CLJC production helper `share/prune-unregistered-modes` with
+  the live registrar predicate injected — the pure logic is JVM-tested
+  against `share/prune-unregistered-modes` directly, not a copy here."
+  [modes]
+  (share/prune-unregistered-modes
+    modes (fn [mid] (registrar/registered? :mode mid))))
 
 ;; ---- hydration -----------------------------------------------------------
+;;
+;; rf2-96y71s: the toolbar owns ONLY the localStorage FALLBACK. URL-
+;; derived `:active-modes` hydration is the url-state engine's job
+;; (`url-state/apply-parsed-to-state`, the single authoritative URL
+;; writer). This fallback runs FIRST on mount; the URL hydrator then
+;; either authoritatively-clears `:active-modes` (URL carries params)
+;; or leaves this seed intact (fresh mount, no URL state) — the
+;; URL-over-localStorage precedence (spec/022 §Share semantics).
 
 (defn hydrate-modes-from-storage!
   "Seed the shell-state's `:active-modes` from localStorage on first
   shell mount. Idempotent: only writes when the slot is the default
-  empty vector — so an already-populated state (deep-link, programmatic
-  test fixture) is never clobbered. Spec/010 §Persistence — chrome-wide
-  localStorage."
+  empty vector — so an already-populated state (programmatic test
+  fixture) is never clobbered. Stale ids are pruned against the live
+  registrar. Spec/010 §Persistence — chrome-wide localStorage.
+
+  Mirrors the `viewport-switcher/hydrate!` / `backgrounds-switcher/
+  hydrate!` shape: a localStorage-only seed that the URL hydrator may
+  later override."
   []
   (let [shell @state/shell-state-atom]
     (when (empty? (:active-modes shell))
@@ -154,29 +144,6 @@
         (let [pruned (prune-unregistered persisted)]
           (when (seq pruned)
             (state/swap-state! state/set-active-modes pruned)))))))
-
-(defn hydrate-modes-from-url!
-  "Seed the shell-state's `:active-modes` from the `?modes=...` query
-  param, if present. URL beats localStorage — spec/010 §URL deep-link
-  'last-shared wins over last-used'. Idempotent and one-shot at shell
-  mount."
-  []
-  (when-let [from-url (modes-from-current-url)]
-    (let [pruned (prune-unregistered from-url)]
-      (when (seq pruned)
-        (state/swap-state! state/set-active-modes pruned)))))
-
-(defn hydrate!
-  "One-shot hydration entry-point: URL takes precedence over storage.
-  Called from the shell's `:component-did-mount`. Spec/010 §URL deep-
-  link — already wired."
-  []
-  ;; URL first — clobbers localStorage on hydrate per spec/010.
-  (let [url-modes (modes-from-current-url)
-        pruned    (when (seq url-modes) (prune-unregistered url-modes))]
-    (if (seq pruned)
-      (state/swap-state! state/set-active-modes pruned)
-      (hydrate-modes-from-storage!))))
 
 ;; ---- programmatic toggle -------------------------------------------------
 
