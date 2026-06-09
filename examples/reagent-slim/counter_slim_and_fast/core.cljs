@@ -10,21 +10,30 @@
 
    What this fixture proves (the Reagent Slim bundle-isolation contract):
 
-     - Stock-Reagent impl isolation (S3-008): the advanced-compiled
-       bundle for this example contains NO `reagent.impl.*` symbols.
-       The slim rewrite has its own `reagent2.impl.*` substrate; the
-       bridge's `reagent.impl.*` internals must be entirely absent.
-     - Pure-CLJS SSR (S3-005): the bundle contains NO `react-dom/server`
-       symbols. The slim's
+     - Stock-Reagent impl isolation (Contract 2, S3-008): the
+       advanced-compiled bundle for this example contains NO
+       `reagent.impl.*` symbols. The slim rewrite has its own
+       `reagent2.impl.*` substrate; the bridge's `reagent.impl.*`
+       internals must be entirely absent.
+     - Pure-CLJS SSR (Contract 3, S3-005): the slim bundle contains NO
+       `react-dom/server` symbols. The slim's
        `reagent2.dom.server/render-to-static-markup` is pure-CLJS
        (per IMPL-SPEC §8.7), so the bundle has no compiled-in path
        to `react-dom/server`.
-     - The stock-Reagent counter bundle (`examples/counter`) keeps
-       both groups of symbols, demonstrating that the assertion logic
-       actually detects them.
+     - SSR-absence non-vacuity (Contract 4, S3-005): the slim bundle
+       POSITIVELY contains the SSR boot/serializer presence sentinels
+       (the `counterSlimPrerender` host-global the boot writes plus a
+       `reagent2.dom.server` serializer-owned literal), so the
+       react-dom/server absence above is not a vacuous proof against an
+       SSR-free bundle.
+     - The methodology control (Contract 1) is the stock-Reagent
+       counter bundle (`examples/counter`): it keeps the stock-Reagent
+       impl sentinels ONLY, demonstrating that the impl-isolation grep
+       detects them. It is NOT a control for react-dom/server — that
+       proof is bound by the positive slim-side presence check above.
 
    See `implementation/scripts/check-reagent-slim-bundle-isolation.cjs` for the
-   bundle-isolation grep that enforces both invariants in CI.
+   bundle-isolation grep that enforces all four contracts in CI.
 
    NOTE on frames: this fixture stays on the default frame
    deliberately. Keeping it single-frame focuses the bundle-isolation
