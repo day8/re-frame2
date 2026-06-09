@@ -237,6 +237,45 @@ test('Adapter change still arms template_expensive (regression) (rf2-jdj17.1)', 
   assert.equal(result.template_expensive, 'true');
 });
 
+// rf2-6yuzo4 — template npm-pin lockstep false-green. hooks.clj pins
+// :shadow-version + :react-version; version_lockstep_test asserts those
+// emitted pins match implementation/package.json's react / react-dom /
+// shadow-cljs entries (the source of truth), and the emitted-app smoke
+// symlinks implementation/node_modules (populated from
+// implementation/package-lock.json). Before the fix, a PR bumping those
+// package.json pins or the lockfile classified template_expensive=false
+// — so jvm-tools-template (the ONLY PR gate running version_lockstep_test
+// + the emitted-app smoke) was skipped and the template could keep
+// emitting a stale npm pin GREEN. These assertions lock the classifier
+// arming template_expensive on the npm source-of-truth + its lockfile,
+// while keeping shadow-cljs.edn / implementation/scripts/* off it (they
+// carry no emitted npm pin).
+
+test('implementation/package.json arms template_expensive (npm-pin lockstep) (rf2-6yuzo4)', () => {
+  const result = classify('implementation/package.json');
+  assert.equal(result.template_expensive, 'true');
+});
+
+test('implementation/package-lock.json arms template_expensive (emitted smoke links node_modules) (rf2-6yuzo4)', () => {
+  const result = classify('implementation/package-lock.json');
+  assert.equal(result.template_expensive, 'true');
+});
+
+test('implementation/shadow-cljs.edn does NOT arm template_expensive (no emitted npm pin) (rf2-6yuzo4)', () => {
+  const result = classify('implementation/shadow-cljs.edn');
+  assert.equal(result.template_expensive, 'false');
+});
+
+test('implementation/scripts/* does NOT arm template_expensive (no emitted npm pin) (rf2-6yuzo4)', () => {
+  const result = classify('implementation/scripts/build-foo.cjs');
+  assert.equal(result.template_expensive, 'false');
+});
+
+test('implementation/package.json still arms cljs_node_test (regression — it defines node deps) (rf2-6yuzo4)', () => {
+  const result = classify('implementation/package.json');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
 // rf2-f79t8 (a) — workflow-level shape: jvm-core + cljs must be
 // job-level gated (needs + if), NOT trigger-filtered, and the
 // pull_request trigger must stay unfiltered so the aggregator is always

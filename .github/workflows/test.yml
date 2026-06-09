@@ -1885,8 +1885,18 @@ jobs:
       # `-P` against the published coords cannot resolve and would always
       # red. The behavioural tier transitively resolves + compiles the
       # full deps tree under the :local/root rewrite, which is the
-      # strongest resolve signal achievable pre-publish. A published-coord
-      # resolve probe is a forward concern for the §3 release pipeline.
+      # strongest resolve signal achievable pre-publish.
+      #
+      # rf2-8n4s71 #1 — be precise about scope: this proves "generated
+      # code compiles + runs against the in-repo framework source", NOT
+      # "the emitted deps.edn coords RESOLVE for a real consumer". The
+      # local-root rewrite swaps out exactly the coords a published
+      # consumer would have to resolve. The published-coord resolve smoke
+      # (scaffold via `io.github.day8/re-frame2-template#<tag>` +
+      # `clojure -P` / `npm test` WITHOUT the rewrite) is a post-split
+      # forward concern — see tools/template/spec/005-Repo-Split.md
+      # §3.2 / §3.4 and the pre-split caveat in the release-template.yml
+      # GitHub Release body.
       - name: Run JVM tests (tools/template artefact)
         env:
           RF2_TEMPLATE_RUN_EMITTED_TESTS: "1"
