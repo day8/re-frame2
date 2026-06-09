@@ -32,35 +32,36 @@ The canonical shape of `your-app/core.cljs` — the entry namespace shadow-cljs'
 
 (defn ^:export init []
   (rf/init! reagent-adapter/adapter)
-  (rdc/render react-root [root-view]))
+  (rf/reg-frame :app/main {:on-create [:your-app/initialise]})
+  (rdc/render react-root
+    [rf/frame-provider {:frame :app/main}
+     [root-view]]))
 ```
 
 That's the whole entry namespace. Events / subs / views go above the mount point, in this same file for a tiny app or in their own namespaces (`your-app.events`, `your-app.subs`, `your-app.views`) and `:require`d here for any non-trivial app.
 
-`root-view` is the top-level registered view. See `first-counter.md` for what it looks like.
+`root-view` is the top-level registered view. See `first-counter.md` for what it looks like. **Note the `frame-provider` wrap:** under EP-0002 (the carried-frame invariant), the runtime never infers a frame — you register one explicitly with `reg-frame` and establish it at the root with `frame-provider`. Inside that subtree every bare `dispatch` / `subscribe` resolves against `:app/main`; a render *without* a provider would make every subscription raise `:rf.error/no-frame-context`. (A migration may pick `:rf/default` as the id for familiarity, but it is still registered and provided — never inferred.)
 
 The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's worked example in `examples/reagent/counter/core.cljs` happens to call its entry fn `run` — same shape, different name. Pick one and keep `shadow-cljs.edn`'s `:init-fn` pointing at whatever you choose; this skill uses `init` so the manual route matches the template.)
 
 ## Order of operations
 
-`init` must do these three things, **in this order**, every time:
+`init` must do these things, **in this order**, every time:
 
-1. **`(rf/init! reagent-adapter/adapter)`** — install the substrate adapter into the default frame.
-2. **(optional) `(rf/dispatch-sync [:your-app/initialise])`** — seed app-db synchronously before the first render. Most apps want this; some let the views render against an empty app-db and seed on first user interaction.
-3. **`(rdc/render react-root [root-view])`** — mount the React tree.
+1. **`(rf/init! reagent-adapter/adapter)`** — install the substrate adapter. (`init!` installs the adapter and runtime capabilities only; it creates **no** frame.)
+2. **`(rf/reg-frame :app/main {:on-create [:your-app/initialise]})`** — register the app frame and seed its app-db via `:on-create` (which runs synchronously, inside the frame's own scope). Some apps instead seed lazily on first interaction; either way the frame must be registered before render.
+3. **`(rdc/render react-root [rf/frame-provider {:frame :app/main} [root-view]])`** — mount the React tree **wrapped in the frame-provider** so every bare `dispatch` / `subscribe` under it resolves against `:app/main`.
 
-If you flip 1 and 3, you'll get either a crash (the views call `subscribe` against an uninitialised registry) or — more confusingly — a silent failure where the first render shows nothing and clicking does nothing.
-
-If you flip 2 and 3, the first render sees an empty app-db; usually fine, sometimes triggers a flash of unstyled state.
+If you render *without* the `frame-provider` (or before `reg-frame`), every `subscribe` / `dispatch` in the tree raises `:rf.error/no-frame-context` — the runtime refuses to guess a frame. If you render before `rf/init!`, the views call `subscribe` against an uninstalled adapter and you get `:rf.error/no-adapter-installed`.
 
 ## Why `rf/init!` exists (and why it's explicit)
 
-re-frame2 splits **the registry** (a process-global handler / sub / fx map) from **the substrate** (Reagent / UIx / Helix / plain atom). The substrate is supplied at boot via an *adapter map*; `rf/init!` is the moment that adapter map becomes the default frame's substrate.
+re-frame2 splits **the registry** (a process-global handler / sub / fx map) from **the substrate** (Reagent / UIx / Helix / plain atom). The substrate is supplied at boot via an *adapter map*; `rf/init!` is the moment that adapter map is installed as the runtime's substrate (it installs adapters and capabilities; it does not create a frame).
 
 Three consequences:
 
 - **Adapters are values, not magic.** `re-frame.adapter.reagent/adapter` is a regular CLJS var holding a map. `rf/init!` takes that value directly — no global registration, no name-based lookup. Swap it for `re-frame.adapter.uix/adapter` or `re-frame.adapter.helix/adapter` and you have a UIx / Helix app.
-- **`rf/init!` is idempotent in dev but not redundant.** Hot-reload of `core.cljs` will re-invoke `init`; calling `rf/init!` again is safe and resets the default frame's substrate config. Don't try to "guard" it with `defonce` — let it run.
+- **`rf/init!` is idempotent in dev but not redundant.** Hot-reload of `core.cljs` will re-invoke `init`; calling `rf/init!` again is safe and re-installs the substrate config. Don't try to "guard" it with `defonce` — let it run. (`reg-frame` on the same id is likewise a surgical, hot-reload-safe update.)
 - **No implicit boot.** Unlike re-frame v1 (where `re-frame.core` had no boot step), re-frame2 requires the explicit `init!`. The reason: multi-substrate support and the per-frame substrate-config model (Spec 006) need to know *which* adapter you want before any subscription resolves. There is no default.
 
 The adapter map carries the substrate's `state-container`, `read-container`, `replace-container!`, `subscribe`, `render`, and hot-reload hooks. You don't construct it; you require the namespace and pass its `adapter` var.
@@ -121,7 +122,7 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
   ```
 
   > **Heads-up on the UIx version target.** `spec/006-ReactiveSubstrate.md` §UIx version target names **UIx 2.x** (hooks-based) as the design target, but the shipped generator template pins **`com.pitch/uix.core` / `com.pitch/uix.dom` `1.4.4`** today. The template pin is the **known-good, tested** set — use it. If you have a reason to track UIx 2.x, treat it as an unverified manual override and test the adapter against it before relying on it. (Both pins read off `tools/template/resources/day8/re_frame2_template/_uix/deps.edn` and `spec/006-ReactiveSubstrate.md`; re-check both if either bumps.)
-- **entry ns** — require `[re-frame.adapter.uix :as uix-adapter]` (or `re-frame.adapter.helix`), pass `uix-adapter/adapter` to `rf/init!`, and mount with the substrate's own root API instead of `reagent.dom.client`. For UIx that's `uix.dom/create-root` + `uix.dom/render-root`, and the view must be wrapped in the `$` element macro from `uix.core`:
+- **entry ns** — require `[re-frame.adapter.uix :as uix-adapter]` (or `re-frame.adapter.helix`), pass `uix-adapter/adapter` to `rf/init!`, register the app frame, and mount with the substrate's own root API instead of `reagent.dom.client` — **wrapping the tree in the adapter's `frame-provider`** (a `$`-element, since UIx/Helix providers are native components). For UIx that's `uix.dom/create-root` + `uix.dom/render-root`, and the view is wrapped in the `$` element macro from `uix.core`:
   ```clojure
   (ns your-app.core
     (:require [uix.core             :refer [$]]
@@ -134,10 +135,13 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
 
   (defn ^:export init []
     (rf/init! uix-adapter/adapter)
-    (rf/dispatch-sync [:counter/initialise])
-    (uix-dom/render-root ($ views/counter-app) react-root))
+    (rf/reg-frame :app/main {:on-create [:counter/initialise]})
+    (uix-dom/render-root
+      ($ uix-adapter/frame-provider {:frame :app/main}
+        ($ views/counter-app))
+      react-root))
   ```
-  (Helix uses `(.render react-root ($ views/counter-app))` against a `react-dom/client` root, with `$` from `helix.core` — see the template's `_helix/core.cljs`.)
+  (Helix uses `(.render react-root ($ helix-adapter/frame-provider {:frame :app/main} ($ views/counter-app)))` against a `react-dom/client` root, with `$` from `helix.core` — see the template's `_helix/core.cljs`. Every adapter's `frame-provider` establishes the carried frame for its subtree; rendering without it raises `:rf.error/no-frame-context` on the first subscribe.)
 - **views** — this is the substitution `first-counter.md` does **not** cover. The Reagent first-counter uses `reg-view` with auto-injected `dispatch`/`subscribe`; UIx and Helix have **no auto-injection** — components read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/frame-handle))`, captured once per render (the handle closes over the render-time frame, so a closed-over `dispatch` still targets that frame from an async callback). UIx uses `defui` + `$`; Helix uses `defnc` + `helix.dom`. The events and subs are the same `reg-event-db` / `reg-sub` forms as the Reagent counter — only the view layer differs. Copy the matching `views.cljs` verbatim (verified against the template's `_uix/views.cljs` / `_helix/views.cljs`):
 
   ```clojure
@@ -193,6 +197,6 @@ If the author is coming from re-frame v1 (re-frame's first version), three thing
 | `(:require [reagent.core :as r])` then `(r/render ...)` | `(:require [reagent.dom.client :as rdc])` then `(rdc/render react-root [view])` — React 19 client-Root surface |
 | No explicit boot — `re-frame.core` was self-installing against Reagent | `(rf/init! reagent-adapter/adapter)` is mandatory; adapter is a value the app supplies |
 | `defn` views — re-frame v1 had no view registration | `reg-view` macro registers views in a per-app registry; auto-injects `dispatch` / `subscribe` |
-| Implicit single global `app-db` | One default frame; multi-frame apps are first-class via `frame-provider` |
+| Implicit single global `app-db` | You establish one app frame explicitly (`reg-frame` + a root `frame-provider`); the runtime never infers a default. Multi-frame apps are first-class via additional `frame-provider`s |
 
 The full v1→v2 migration story lives under `migration/from-re-frame-v1/` (linked from `SKILL-REDIRECT.md` at the repo root). This skill is greenfield-only; if the author has a v1 codebase, point them at migration instead.

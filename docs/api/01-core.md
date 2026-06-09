@@ -117,7 +117,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ;; User-defined fxs sit under a user-feature prefix per
   ;; spec/Conventions.md §Reserved namespaces — never under `:rf.<feature>/…`,
   ;; which is reserved for framework-owned surfaces.
-  (rf/reg-frame :rf/default
+  (rf/reg-frame :app/main
     {:doc          "App demo frame."
      :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
   ```
@@ -512,7 +512,7 @@ The two sub-families compose: `dispatch-to-system` ultimately calls `dispatch`, 
 
 ## Frames: the scoping primitive
 
-A frame is the scoping unit for `app-db`, the event queue, and the cascade. Most apps have exactly one frame (the default, `:rf/default`, autocreated on `init!`). Apps that need isolation between subsystems — embedded widgets, multi-tab pair tools, the SSR per-request runtime — declare additional frames and dispatch / subscribe against them via `{:frame :other}`.
+A frame is the scoping unit for `app-db`, the event queue, and the cascade. Most apps have exactly one frame, which you register and establish at your root with a `frame-provider`; `init!` does **not** create one for you (per [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant), frame identity is carried, not synthesised from absence). Apps that need isolation between subsystems — embedded widgets, multi-tab pair tools, the SSR per-request runtime — register additional frames and dispatch / subscribe against them via `{:frame :other}`.
 
 `reg-frame` and `make-frame` are rowed in **Registration** above. The two read-side surfaces:
 

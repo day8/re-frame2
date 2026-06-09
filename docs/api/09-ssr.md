@@ -114,10 +114,9 @@ The `<head>` of an SSR document is structurally separate from the body. Re-frame
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (active-head) → :rf/head-model
   (active-head frame-id) → :rf/head-model
   ```
-- **Description**: Resolve the head-model for the currently active route in the named frame. Sub-shape: `[:rf/head]` subscribes to this.
+- **Description**: Resolve the head-model for the currently active route in the named frame. Head rendering is a frame-scoped read (it reads the frame's route slice and app-db), so the frame is **carried, not ambient**: the no-arg form is gone (EP-0002), and a `nil` `frame-id` raises `:rf.error/no-frame-context` rather than resolving against a synthesised `:rf/default`. Sub-shape: `[:rf/head]` subscribes to this.
 
 ### `head-model->html`
 
@@ -164,7 +163,7 @@ All server-only — `:platforms #{:server}`. These build the response accumulato
 | Sub | Returns | Spec |
 |---|---|---|
 | `:rf/response` | The current request's response accumulator (status / headers / cookies / redirect) | 011 |
-| `:rf/head` | The head model for the active route (resolved via `(active-head)`) | 011 |
+| `:rf/head` | The head model for the active route (resolved via `active-head` against the subscribed frame) | 011 |
 | `:rf/public-error` | The sanitised public-error projection when an error page is being rendered; `nil` otherwise | 011 |
 
 ## Standard SSR cofx

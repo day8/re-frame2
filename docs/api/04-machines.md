@@ -140,7 +140,7 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
   (dispatch-to-system system-id event)
   (dispatch-to-system system-id event frame-id)
   ```
-- **Description**: Sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`. No-op when the `system-id` is unbound. The third-arity targets a non-default frame.
+- **Description**: Sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`. No-op when the `system-id` is unbound. The two-arity form resolves the frame from the carried scope it runs under; the three-arity form names the frame explicitly — there is no `:rf/default` fallback, and looking up under no scope raises `:rf.error/no-frame-context` (EP-0002).
 
 When a child actor spawns under a parent, the parent's `:data` often gets the child's id stamped via `:on-spawn`. `dispatch-to-system` lets the parent name the child by *role* (`:logger`, `:websocket`, `:retry-coordinator`) instead of by gensym'd id. The per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) resolves the name. See [005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md).
 
