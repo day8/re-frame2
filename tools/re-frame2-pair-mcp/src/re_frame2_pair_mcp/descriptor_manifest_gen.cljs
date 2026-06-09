@@ -28,6 +28,16 @@
   `tools/list` input surface, and the manifest stays deterministic +
   config-independent.
 
+  GATED INPUTS (rf2-qo3wvp). pair-mcp's `tools/list` surface gates NO
+  input key off behind an operator flag — its `eval-cljs` gate is
+  default-ON (rf2-a0z0h) and gates a whole TOOL, not an input property;
+  the `max-tokens` / `cache` splices above are deterministic, not gated.
+  So this generator passes NO gated-key set to `dm/build-manifest`
+  (defaulting to `#{}`), and every pair-mcp row carries
+  `:gated-input-keys []` — the uniform empty slot. (Contrast story-mcp,
+  which passes `#{\"include-sensitive\"}` for its six value-surfacing
+  tools.)
+
   THE ARTEFACT. `tool-descriptors.edn` at this artefact's root — the
   committed, byte-stable projection of the registry. BYTE-IDENTICAL in
   shape to story-mcp's because both servers route through the same
@@ -96,7 +106,7 @@
   exactly which of the manifest's governed slots drifted so a descriptor-
   only change is actionable without a manual whole-manifest diff."
   [old new]
-  (for [slot [:description :input-keys :required :output? :annotations :typicalTokens]
+  (for [slot [:description :input-keys :gated-input-keys :required :output? :annotations :typicalTokens]
         :let [o (get old slot)
               n (get new slot)]
         :when (not= o n)]
@@ -125,7 +135,7 @@
               (println "  Tools in the committed file the registry no longer has (removed/renamed tool):")
               (doseq [n removed] (println "    -" n)))
             (when (seq changed)
-              (println "  Existing tools whose descriptor catalogue row changed (input-keys / required / output? / annotations / description / typicalTokens):")
+              (println "  Existing tools whose descriptor catalogue row changed (input-keys / gated-input-keys / required / output? / annotations / description / typicalTokens):")
               (doseq [{:keys [name old new]} changed]
                 (println "    ~" name)
                 (doseq [[slot o n] (row-slot-deltas old new)]
