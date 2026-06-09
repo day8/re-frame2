@@ -110,10 +110,18 @@
   ;; Install the canned-failure override on the default frame so every
   ;; `:rf.http/managed` request resolves :failure. The chapter's
   ;; lockout scenario depends on three consecutive failures.
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence —
+  ;; register the app frame explicitly and wrap the render in a `frame-provider`
+  ;; so the `reg-view`-injected `dispatch`/`subscribe` (and the login machine
+  ;; reads) resolve to it (a no-provider render reads the no-provider sentinel
+  ;; and raises :rf.error/no-frame-context). The login machine is
+  ;; self-initialising, so there is no boot `dispatch-sync` to scope here.
   (rf/reg-frame :rf/default
     {:doc          "State-machines walkthrough demo frame."
      :fx-overrides {:rf.http/managed :auth.login/canned-failure}})
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root [root-view])))
+    (rdc/render @react-root
+                [rf/frame-provider {:frame :rf/default}
+                 [root-view]])))

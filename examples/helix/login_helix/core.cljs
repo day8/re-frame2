@@ -351,4 +351,11 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
-    (.render @react-root ($ root-view))))
+    ;; EP-0002 (rf2-9o48ih): wrap the render in the Helix `frame-provider` so the
+    ;; `use-subscribe` hook + the render-time `(rf/frame-handle)` capture in
+    ;; `login-form` resolve to `:rf/default` via React context. With NO provider
+    ;; the tree observes the no-provider sentinel and those reads raise
+    ;; `:rf.error/no-frame-context` (there is no `:rf/default` floor).
+    (.render @react-root
+             ($ helix-adapter/frame-provider {:frame :rf/default}
+                ($ root-view)))))

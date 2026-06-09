@@ -703,11 +703,19 @@
   ;; Install the demo override so `:rf.http/managed` calls route to the
   ;; in-process canned-stub fxs above. The example runs standalone — no
   ;; backend required.
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence —
+  ;; register the app frame explicitly, seed under `with-frame`, and wrap the
+  ;; render in a `frame-provider` so the `reg-view`-injected
+  ;; `dispatch`/`subscribe` resolve to it (a no-provider render reads the
+  ;; no-provider sentinel and raises :rf.error/no-frame-context).
   (rf/reg-frame :rf/default
     {:doc          "Nine-states demo frame."
      :fx-overrides {:rf.http/managed :nine-states.http/managed-demo}})
-  (rf/dispatch-sync [:nine-states.app/initialise])
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [:nine-states.app/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root [root-view])))
+    (rdc/render @react-root
+                [rf/frame-provider {:frame :rf/default}
+                 [root-view]])))

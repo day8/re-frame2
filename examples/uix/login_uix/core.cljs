@@ -362,4 +362,12 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
-    (uix-dom/render-root ($ root-view) @react-root)))
+    ;; EP-0002 (rf2-9o48ih): wrap the render in the UIx `frame-provider` so the
+    ;; `use-subscribe` hook + the render-time `(rf/frame-handle)` capture in
+    ;; `login-form` resolve to `:rf/default` via React context. With NO provider
+    ;; the tree observes the no-provider sentinel and those reads raise
+    ;; `:rf.error/no-frame-context` (there is no `:rf/default` floor).
+    (uix-dom/render-root
+      ($ uix-adapter/frame-provider {:frame :rf/default}
+         ($ root-view))
+      @react-root)))

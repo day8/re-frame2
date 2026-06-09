@@ -322,15 +322,29 @@
 ;; This matches the sibling notebook / dashboard_uix mount shape.
 (defonce react-root (atom nil))
 
+;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
+;; synthesises a frame from absence — an app must establish its frame
+;; explicitly. `init!` installs the adapter (it does NOT create the frame),
+;; `reg-frame` registers the app frame, the boot dispatch runs under
+;; `with-frame`, and the render is wrapped in the Helix `frame-provider` so the
+;; `use-subscribe` hook and the render-time `(rf/frame-handle)` capture inside
+;; `monitor` (the tick-loop arm/stop dispatches) resolve to the app frame via
+;; React context. There is no `:rf/default` floor.
+(def app-frame :rf/default)
+
 (defn run []
   (rf/init! helix-adapter/adapter)
+  (rf/reg-frame app-frame {})
   ;; Seed synchronously so the very first paint shows a populated UI rather
   ;; than a flash of empty panes. This also arms the first tick; the `monitor`
   ;; component's mount `use-effect` re-arms (idempotently, via the
   ;; `:monitor/tick-gen` guard) so the loop is owned by the component
   ;; lifecycle from then on — unmount stops it (see `:monitor/stop`).
-  (rf/dispatch-sync [:monitor/initialise])
+  (rf/with-frame app-frame
+    (rf/dispatch-sync [:monitor/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
-    (.render @react-root ($ monitor))))
+    (.render @react-root
+             ($ helix-adapter/frame-provider {:frame app-frame}
+                ($ monitor)))))

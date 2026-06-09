@@ -20,7 +20,10 @@
             ;; Requiring re-frame.routing here triggers its load-time
             ;; hook + reg-sub registrations; without it, the rf/reg-route
             ;; calls below throw :rf.error/routing-artefact-missing.
-            [re-frame.routing]))
+            ;; Aliased so the popstate handler can resolve the URL owner via
+            ;; `routing/url-owner-frame-id` (Spec 012 §popstate drives the
+            ;; URL-owner frame) — the EP-0002 owner-targeted dispatch.
+            [re-frame.routing :as routing]))
 
 ;; ============================================================================
 ;; ROUTES
@@ -237,11 +240,24 @@
 ;; mirroring the `when-not @react-root` mount guard. We remove-then-add
 ;; the same Var so the registration is deduped even when the Var is
 ;; redefined on reload.
+;;
+;; EP-0002 (rf2-9o48ih + rf2-nn0jqa): the URL-change dispatch is targeted at
+;; the explicitly-declared URL owner resolved AT CALL TIME via
+;; `routing/url-owner-frame-id` (Spec 012 §popstate drives the URL-owner
+;; frame) — NOT a frameless `(rf/dispatch …)`, which would raise
+;; `:rf.error/no-frame-context`. This example serves from a `/realworld/`
+;; sub-path and strips it in `current-url`, so it keeps its own base-path-aware
+;; listener rather than the framework's `rf/install-history-listener!` (which
+;; reads the unstripped browser URL); the owner-targeting is the same contract
+;; that listener implements. The owner is the `:url-bound? true` demo frame
+;; registered in `core/run`.
 (defn- on-popstate [_]
-  (rf/dispatch [:rf.route/handle-url-change (current-url)]))
+  (when-let [owner (routing/url-owner-frame-id)]
+    (rf/dispatch [:rf.route/handle-url-change (current-url)] {:frame owner})))
 
 (defn install-router! []
   (.removeEventListener js/window "popstate" on-popstate)
   (.addEventListener js/window "popstate" on-popstate)
-  (rf/dispatch-sync [:rf.route/handle-url-change (current-url)]))
+  (when-let [owner (routing/url-owner-frame-id)]
+    (rf/dispatch-sync [:rf.route/handle-url-change (current-url)] {:frame owner})))
 

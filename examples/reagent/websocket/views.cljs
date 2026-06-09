@@ -80,7 +80,14 @@
   (let [connected?    @(subscribe [:ws/connected?])
         reconnecting? @(subscribe [:ws/reconnecting?])
         failed?       @(subscribe [:ws/failed?])
-        any-active?   (or connected? reconnecting?)]
+        any-active?   (or connected? reconnecting?)
+        ;; EP-0002 (rf2-9o48ih): the Drop button calls a module-level
+        ;; mock-server seam that dispatches outside any drain / render scope.
+        ;; Capture this view's frame handle at render time and hand it to the
+        ;; seam so the deferred dispatch carries the frame (Spec 002
+        ;; §frame-handle) — a bare ambient dispatch would raise
+        ;; :rf.error/no-frame-context.
+        handle        (rf/frame-handle)]
     [:div.lifecycle
      [:button {:data-testid "ws-connect"
                :on-click    #(dispatch [:ws/connection
@@ -90,7 +97,7 @@
                :disabled    any-active?}
       "Connect"]
      [:button {:data-testid "ws-drop"
-               :on-click    #(websocket.messages/simulate-disconnect!)
+               :on-click    #(websocket.messages/simulate-disconnect! handle)
                :disabled    (not connected?)}
       "Drop connection (transport error)"]
      [:button {:data-testid "ws-disconnect"
@@ -139,7 +146,12 @@
                   client server-pushed event)."}
           demo-buttons []
   (let [connected?  @(subscribe [:ws/connected?])
-        last-reply  @(subscribe [:messages/last-reply])]
+        last-reply  @(subscribe [:messages/last-reply])
+        ;; EP-0002 (rf2-9o48ih): the server-push button calls a module-level
+        ;; mock-server seam that dispatches outside any drain / render scope.
+        ;; Capture this view's frame handle and pass it so the deferred
+        ;; dispatch carries the frame (see `lifecycle-buttons`).
+        handle      (rf/frame-handle)]
     [:div.demo-buttons
      [:button {:data-testid "ws-subscribe"
                :on-click    #(dispatch [:ws.app/subscribe-demo])
@@ -151,6 +163,7 @@
       "Request-reply (hello)"]
      [:button {:data-testid "ws-server-push"
                :on-click    #(websocket.messages/send-server-push!
+                              handle
                               {:type :push
                                :note "Manual server push"
                                :at   (.toISOString (js/Date.))})

@@ -491,4 +491,11 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root [root-view])))
+    ;; EP-0002 (rf2-9o48ih): wrap the render in a `frame-provider` so the
+    ;; `reg-view`-injected `dispatch`/`subscribe` (and the login machine reads)
+    ;; resolve to `:rf/default` via React context. With NO provider a `reg-view`
+    ;; reads the no-provider sentinel and those calls raise
+    ;; `:rf.error/no-frame-context` (there is no `:rf/default` floor).
+    (rdc/render @react-root
+                [rf/frame-provider {:frame :rf/default}
+                 [root-view]])))

@@ -36,23 +36,42 @@
 (defn- current-path []
   (hash->path (.. js/window -location -hash)))
 
+;; EP-0002 (rf2-9o48ih + rf2-nn0jqa): under the carried invariant the runtime
+;; never synthesises a frame from absence, and URL ownership is an EXPLICIT
+;; declaration — the app frame is registered with `:url-bound? true` so it owns
+;; the URL (Spec 012 §Multi-frame routing), seeds under `with-frame`, and the
+;; render is wrapped in a `frame-provider`.
+(def app-frame :rf/default)
+
 ;; Named handler so the listener install is idempotent: repeated `run`
 ;; (shadow hot reload, or a co-required test host invoking run twice)
 ;; must not stack duplicate hashchange listeners, mirroring the
 ;; `when-not @react-root` mount guard below. We remove-then-add the same
 ;; Var so the registration is deduped even when the Var is redefined on
 ;; reload.
+;;
+;; EP-0002: the URL-change dispatch is targeted at the URL-owning `app-frame`
+;; with an explicit `{:frame app-frame}` — NOT a frameless `(rf/dispatch …)`,
+;; which would raise `:rf.error/no-frame-context`. This example is HASH-based
+;; (`#/active`), so it keeps its own `hashchange` listener rather than the
+;; framework's popstate-driven `rf/install-history-listener!`; targeting the
+;; owner frame is the same contract that listener implements (Spec 012
+;; §popstate drives the URL-owner frame).
 (defn- on-hashchange [_]
-  (rf/dispatch [:rf.route/handle-url-change (current-path)]))
+  (rf/dispatch [:rf.route/handle-url-change (current-path)] {:frame app-frame}))
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [:todo/initialise])
-  (rf/dispatch-sync [:rf.route/handle-url-change (current-path)])
+  (rf/reg-frame app-frame {:doc "TodoMVC demo frame." :url-bound? true})
+  (rf/with-frame app-frame
+    (rf/dispatch-sync [:todo/initialise])
+    (rf/dispatch-sync [:rf.route/handle-url-change (current-path)]))
   (.removeEventListener js/window "hashchange" on-hashchange)
   (.addEventListener js/window "hashchange" on-hashchange)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root [views/root-view])))
+    (rdc/render @react-root
+                [rf/frame-provider {:frame app-frame}
+                 [views/root-view]])))
