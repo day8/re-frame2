@@ -199,6 +199,49 @@
       (assoc :cell-overrides (safe-cell-overrides (:cell-overrides arguments)
                                                   (cell-override-key-set vk active-modes))))))
 
+;; ---------------------------------------------------------------------------
+;; Shared lifecycle timeout (rf2-ovmc5e)
+;;
+;; `run-variant` and `preview-variant` both block on the SAME
+;; `story/run-variant` lifecycle via `async/deref-blocking`. The blocking
+;; ceiling is a single-threaded-stdio protection (rf2-g9fje): the MCP
+;; server's request loop is single-threaded, so an unbounded blocking
+;; deref on one tool parks every unrelated call. Both tools MUST share the
+;; same ceiling so they cannot drift by copy-paste — `preview-variant`
+;; previously hard-coded a hidden 5 s constant while `run-variant`
+;; advertised a tunable, capped `:timeout-ms`. One helper, one ceiling.
+;; ---------------------------------------------------------------------------
+
+(def ^:const max-timeout-ms
+  "Hard ceiling on `:timeout-ms` for the lifecycle tools (`run-variant`,
+  `preview-variant`). The MCP server's request loop is single-threaded —
+  a lifecycle call with an unbounded `:timeout-ms` parks the loop and
+  starves unrelated tool calls. 30 s matches the `:rf.http/timeout-ms`
+  baseline rf2-it1cd pinned for the project's outbound HTTP fx, so an
+  agent that learns one ceiling sees the same one everywhere.
+  Caller-supplied values above this clamp DOWN to the ceiling rather than
+  reject — a legitimate slow variant should still run, just capped."
+  30000)
+
+(def ^:const default-timeout-ms
+  "Default `:timeout-ms` for the lifecycle tools when the caller omits the
+  slot. 10 s — well under the 30 s ceiling, enough for the vast majority
+  of variants. Kept as a separate const from `max-timeout-ms` so the
+  descriptor schema can advertise both without re-spelling the literal."
+  10000)
+
+(defn resolve-timeout-ms
+  "Resolve the caller-supplied `:timeout-ms` arg into the JVM blocking
+  deref ceiling for a lifecycle tool. Reads the slot via the cross-MCP
+  `args/parse-positive-int` parser (string-form ints accepted), defaults
+  to `default-timeout-ms` when absent/unparseable, and clamps DOWN to
+  `max-timeout-ms` so one slow request can't park the single-threaded
+  stdio loop. Shared by `tool-run-variant` and `tool-preview-variant` so
+  the two lifecycle tools can never drift in their blocking policy."
+  [arguments]
+  (min max-timeout-ms
+       (args/parse-positive-int (:timeout-ms arguments) default-timeout-ms)))
+
 (defn with-variant
   "Resolve `:variant-id` from `arguments` (required), resolve it against
   the registered-variants set (no JVM intern outside the allowlist —

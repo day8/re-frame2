@@ -143,8 +143,19 @@ resource read at boot) so the jar is self-contained.
 ### `preview-variant`
 
 Given `:variant-id` (plus optional `:substrate`, `:active-modes`,
-`:cell-overrides`, `:base-url`), runs the canvas pipeline and
-returns the post-pipeline state plus a sharable URL.
+`:cell-overrides`, `:base-url`, `:timeout-ms`), runs the canvas pipeline
+and returns the post-pipeline state plus a sharable URL.
+
+`preview-variant` blocks on the SAME `story/run-variant` lifecycle as
+`run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking
+ceiling (rf2-ovmc5e): default 10 s, hard ceiling 30 s (matches
+`:rf.http/timeout-ms` per rf2-it1cd), caller values above the ceiling
+clamp DOWN rather than reject. The MCP request loop is single-threaded
+so an unbounded blocking deref would park unrelated calls; both
+lifecycle tools resolve the slot through the shared
+`tools.args/resolve-timeout-ms` helper (advertised via
+`schemas/with-timeout-ms`) so their blocking policy cannot drift by
+copy-paste.
 
 Wire-egress posture: `:app-db` is routed through
 `re-frame.core/elide-wire-value` against the variant frame's

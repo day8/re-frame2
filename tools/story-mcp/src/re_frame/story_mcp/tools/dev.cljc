@@ -106,6 +106,14 @@
   verdict — the verdict is `:status` (the old `:passing?` boolean was
   removed in the clean break).
 
+  Blocking-timeout posture (rf2-ovmc5e): because preview and `run-variant`
+  block on the SAME lifecycle, they share the SAME `:timeout-ms` knob +
+  ceiling via `targs/resolve-timeout-ms` (default 10 s, hard ceiling
+  30 s, caller values clamp DOWN). The MCP request loop is single-threaded
+  so an unbounded blocking deref would park unrelated calls; the shared
+  helper means the two tools cannot drift by copy-paste, and an agent can
+  discover + tune the ceiling from `tools/list` on either tool.
+
   Wire-egress posture (rf2-73wuj): the `:app-db` slot is routed
   through `re-frame.core/elide-wire-value`; the `:assertions` vec is
   filtered through `strip-sensitive`. Off-box defaults apply unless
@@ -118,9 +126,12 @@
             share-url  (story/variant-share-url vk base-url opts)
             outcome    (try
                          (async/deref-blocking (story/run-variant vk opts)
-                                               ;; Default 5s — preview is a snapshot,
-                                               ;; not a long-running load.
-                                               5000)
+                                               ;; rf2-ovmc5e — shared lifecycle
+                                               ;; ceiling: tunable `:timeout-ms`
+                                               ;; (default 10s, clamped to 30s),
+                                               ;; the SAME knob `run-variant` uses
+                                               ;; so the two cannot drift.
+                                               (targs/resolve-timeout-ms arguments))
                          (catch Throwable e
                            ;; A throw never produced a unified result; mint the
                            ;; :error verdict directly so preview speaks the SAME
@@ -195,11 +206,12 @@
 
    {:name           "preview-variant"
     :category       :dev
-    :description    (str "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/runtime :elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:effective-args` / `:snapshot` trees are value-redacted against the same declared-sensitive values (the secret reappears there at a non-app-db path the path walker can't reach). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. Runs the SAME `story/run-variant` lifecycle as `run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking knob (default 10000ms, hard ceiling 30000ms; caller values clamp DOWN). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf/runtime :elision]` registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:effective-args` / `:snapshot` trees are value-redacted against the same declared-sensitive values (the secret reappears there at a non-app-db path the path walker can't reach). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Default substrate: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :share-url \"...\" :status :pass :lifecycle :ready :app-db {...} :assertions [] :checks [] :rendered-hiccup [...]}. "
                          "2. UIx substrate + a mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> same shape, rendered under uix + dark mode. "
-                         "3. Not registered: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
+                         "3. Slow variant with an explicit timeout: {:variant-id \":story.slow/loader\" :timeout-ms 20000} -> runs against the 20s ceiling (clamped to 30s max); on overrun returns {:status :error :lifecycle :error :assertions [{:assertion :rf.error/run-failed :status :error ...}]}. "
+                         "4. Not registered: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  2000
     ;; rf2-90eft — `preview-variant` ships the variant's `:app-db`
     ;; re-keyed into `:rendered-hiccup` / `:effective-args` /
@@ -211,12 +223,13 @@
                   :properties (s/with-max-tokens
                                 (s/with-dedup
                                   (s/with-include-sensitive
-                                    {:variant-id s/kw-or-string
-                                     :substrate s/kw-or-string
-                                     :active-modes {:type "array" :items s/kw-or-string}
-                                     :cell-overrides {:type "object"}
-                                     :base-url {:type "string"
-                                                :description "Optional base URL for the share link (no default)."}})))
+                                    (s/with-timeout-ms
+                                      {:variant-id s/kw-or-string
+                                       :substrate s/kw-or-string
+                                       :active-modes {:type "array" :items s/kw-or-string}
+                                       :cell-overrides {:type "object"}
+                                       :base-url {:type "string"
+                                                  :description "Optional base URL for the share link (no default)."}}))))
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
