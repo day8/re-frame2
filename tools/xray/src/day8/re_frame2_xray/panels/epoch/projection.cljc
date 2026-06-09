@@ -409,20 +409,47 @@
                {:fx-id (first entry) :value (second entry)}))
         :else []))))
 
+;; ---- EP-0001 closed effect-map shape -----------------------------------
+;;
+;; Under EP-0001 the handler's returned effect map is the closed
+;; `{:db :fx :rf.db/runtime}` shape — three reserved keys, two of which
+;; are STATE effects that write a frame-state partition atomically:
+;;
+;;   :db            — the app-db partition write (→ `:rf.db/app`). Has its
+;;                    own dedicated rendering (`db-effect-row`).
+;;   :rf.db/runtime — the runtime-db partition write (→ `:rf.db/runtime`).
+;;                    A FIRST-CLASS state effect (`runtime-db-effect-row`),
+;;                    NOT an `:other-effects` key (rf2-ff9b0d).
+;;   :fx            — the canonical fx vector-of-vectors.
+;;
+;; Any top-level key BEYOND these three is `:other` — the runtime drops it
+;; silently, so it renders as a `:skipped` diagnostic.
+(def ^:private closed-effect-keys
+  "The reserved closed-effect-map keys the runtime reads (EP-0001 ·
+  Conventions §Reserved effect keys). `:db` + `:rf.db/runtime` are the two
+  STATE effects (partition writes), `:fx` the canonical fx vector. A
+  top-level key outside this set is dropped by the runtime → `:other`."
+  #{:db :fx :rf.db/runtime})
+
 (defn- effects-decomp
-  "Decompose the handler's returned effects map into the three
-  sections the HANDLER body renders per Mike pair-debug 2026-05-27:
+  "Decompose the handler's returned effects map into the sections the
+  HANDLER body renders per Mike pair-debug 2026-05-27 + EP-0001
+  (rf2-ff9b0d):
 
     {:fx-vec        — the canonical :fx vector-of-vectors when
                        present (`[[:dispatch [:foo]] [:http/get {...}]]`)
-     :other-effects — the effects map MINUS :db AND :fx (carries
-                       legacy top-level fx-ids like :dispatch,
-                       :http/get, :navigate when used directly on
-                       the return map rather than under :fx)}
+     :other-effects — the effects map MINUS the closed-effect set
+                       `{:db :fx :rf.db/runtime}` (carries legacy
+                       top-level fx-ids like :dispatch, :http/get,
+                       :navigate when used directly on the return map
+                       rather than under :fx — runtime drops these)}
 
-  The `:db` is NOT included here — it has its own dedicated
-  rendering via `handler-db-diff-block` (with the
-  [diff][full][full+diff] toggle). The view conditions each
+  The `:db` is NOT included here — it has its own dedicated rendering via
+  `handler-db-diff-block` (with the [diff][full][full+diff] toggle).
+  `:rf.db/runtime` is likewise EXCLUDED from `:other-effects` — it is a
+  legal closed-effect key (the runtime-db partition write), rendered as a
+  first-class SIDE EFFECTS row (`runtime-db-effect-row`), never as a
+  dropped/`:skipped` `other` key (rf2-ff9b0d). The view conditions each
   section's render on its slot being non-empty.
 
   Returns nil when no `:rf.fx/do-fx` fired (reg-event-db with no
@@ -432,7 +459,7 @@
     (let [fx (common/tag-of do-fx :rf.event/fx)]
       (when (map? fx)
         {:fx-vec        (:fx fx)
-         :other-effects (not-empty (dissoc fx :db :fx))}))))
+         :other-effects (not-empty (apply dissoc fx closed-effect-keys))}))))
 
 ;; rf2-bhxtr — the 4 legacy category-grouped machine builders
 ;; (`machine-lifecycle-rows` / `machine-transition-row` / `machine-guard-rows`
@@ -1740,6 +1767,88 @@
     {:fx-id  :db
      :status (if (db-rolled-back? events) :error :ok)}))
 
+;; ---- runtime-db (`:rf.db/runtime`) state effect — EP-0001 (rf2-ff9b0d) --
+;;
+;; Under EP-0001 a handler may write the RUNTIME-DB partition with a
+;; reserved `:rf.db/runtime` effect, committed atomically alongside any
+;; `:db` write (Spec 002 §The two-partition frame contract). The framework
+;; signals a partition commit with `:rf.event/frame-state-changed`, whose
+;; `:rf.event/partitions` tag is a subset of `#{:app-db :runtime-db}`
+;; naming which partition(s) changed (Spec 009 §Canonical per-event trace
+;; sequence). Mike ruling #6: `:rf.event/db-changed` is APP-DB-ONLY — a
+;; runtime-only commit emits ONLY `frame-state-changed` (`#{:runtime-db}`)
+;; and NO `db-changed`. So keying the runtime-db row off
+;; `frame-state-changed` is what makes a runtime-ONLY cascade render a SIDE
+;; EFFECTS row even when there is no `:db` and no `:fx`.
+
+(defn- frame-state-partitions
+  "The set of partition tags carried on the (forward, non-rollback)
+  `:rf.event/frame-state-changed` trace — a subset of
+  `#{:app-db :runtime-db}` (Spec 009). nil when no forward
+  frame-state-changed fired."
+  [events]
+  (some (fn [ev]
+          (when (and (= :rf.event/frame-state-changed (op ev))
+                     (not= :rollback (common/tag-of ev :rf.trace/phase)))
+            (common/tag-of ev :rf.event/partitions)))
+        events))
+
+(defn runtime-db-rolled-back?
+  "True iff a `:where :machine-data` schema-validation failure flagged the
+  cascade rolled back (EP-0001 rf2-jbbp7 · Spec 010 §Per-step recovery
+  row 7). The runtime-db partition carries durable machine snapshots; its
+  post-commit boundary is the `:where :machine-data` validator (the
+  app-db sibling of `db-rolled-back?`'s `:where :app-db`). A `false` from
+  it rolls back the WHOLE transition, so the runtime-db row paints ✗ and
+  the machine-data reason attaches to it via `attach-violations`."
+  [events]
+  (boolean
+    (some (fn [ev]
+            (and (= :rf.error/schema-validation-failure (op ev))
+                 (= :machine-data (common/tag-of ev :where))
+                 (true? (common/tag-of ev :rollback?))))
+          events)))
+
+(defn runtime-db-commit?
+  "True iff this cascade committed (or attempted) a runtime-db write
+  (EP-0001 rf2-ff9b0d). Two signals, EITHER sufficient:
+
+    (a) A forward `:rf.event/frame-state-changed` whose
+        `:rf.event/partitions` includes `:runtime-db` — the canonical
+        runtime-db-commit signal (fires for a runtime-only commit, which
+        emits NO `:rf.event/db-changed` per Mike ruling #6).
+    (b) A `:where :machine-data` schema violation — implies a runtime-db
+        commit was ATTEMPTED even on the abort path.
+
+  Keying off `frame-state-changed` is what makes the SIDE EFFECTS step
+  carry a first-class runtime-db row on a runtime-ONLY cascade — no `:db`,
+  no `:fx`, just `{:rf.db/runtime ...}`."
+  [events]
+  (or (runtime-db-rolled-back? events)
+      (contains? (frame-state-partitions events) :runtime-db)))
+
+(defn runtime-db-effect-row
+  "The synthesised `:rf.db/runtime` row — the handler's RUNTIME-DB
+  partition write, a first-class SIDE EFFECTS state effect (EP-0001
+  rf2-ff9b0d). nil when no runtime-db commit was attempted. `:status` is
+  `:error` on a `:where :machine-data` schema-fail rollback (so the badge
+  / `step-status` paints ✗ and the attached machine-data violation carries
+  the reason box), else `:ok`. Carries the `:fx-id :rf.db/runtime` marker
+  — the view renders its args slot as the clickable destination marker for
+  the runtime-db partition (the App-db panel's runtime-db lens carries the
+  actual diff; no duplication) and the attachment machinery matches
+  `:fx-id :rf.db/runtime` for the rollback reason box.
+
+  Sits AFTER the `:db` row and BEFORE the `:fx` rows in the flat ledger —
+  the partition writes commit atomically together, then `:fx` walks the
+  flow-augmented frame-state. A mixed `{:rf.db/runtime ... :fx [...]}`
+  return therefore shows the runtime write as APPLIED (an ✓ state-effect
+  row), never under `:skipped`/`other`."
+  [events]
+  (when (runtime-db-commit? events)
+    {:fx-id  :rf.db/runtime
+     :status (if (runtime-db-rolled-back? events) :error :ok)}))
+
 (defn fx-effect-rows
   "The `:fx` sub-step rows — one per entry in the handler's `:fx` vector
   (rf2-kt6js, the user-emitted fx rows formerly carried inline in
@@ -1777,19 +1886,25 @@
 
 (defn other-effect-rows
   "The `other` sub-step rows — one per TOP-LEVEL effect key on the
-  handler's returned map beyond `:db` / `:fx` (rf2-kt6js). Sourced from
-  `effects-decomp`'s `:other-effects` slot (the return map MINUS `:db`
-  and `:fx`).
+  handler's returned map BEYOND the closed-effect set
+  `{:db :fx :rf.db/runtime}` (rf2-kt6js · widened EP-0001 rf2-ff9b0d).
+  Sourced from `effects-decomp`'s `:other-effects` slot (the return map
+  MINUS those three reserved keys).
 
-  In re-frame2 the effect map is the closed `{:db :fx}` shape and the
-  runtime (`re-frame.router/run-fx-effects!`) reads ONLY `:fx`; any
-  other top-level key is silently DROPPED — never executed, never
-  traced. So each `other` row is a DIAGNOSTIC: `:status :skipped`
-  (not-run) flags that the handler declared an effect the runtime
-  ignored — almost always a bug (the effect belongs inside `:fx`).
+  In re-frame2 the effect map is the closed `{:db :fx :rf.db/runtime}`
+  shape: the runtime commits the two STATE effects (`:db` → app-db,
+  `:rf.db/runtime` → runtime-db) atomically and runs `:fx`. Any OTHER
+  top-level key is silently DROPPED — never executed, never traced. So
+  each `other` row is a DIAGNOSTIC: `:status :skipped` (not-run) flags
+  that the handler declared an effect the runtime ignored — almost always
+  a bug (the effect belongs inside `:fx`). `:rf.db/runtime` is NOT an
+  `other` key — it is a committed state effect with its own
+  `runtime-db-effect-row` (rf2-ff9b0d), so a mixed
+  `{:rf.db/runtime ... :fx [...]}` return never shows the runtime write
+  under `:skipped`/`other`.
 
-  Empty vec when the handler returned the canonical `{:db :fx}` shape
-  (the overwhelming common case), or when no do-fx fired."
+  Empty vec when the handler returned the canonical closed shape (the
+  overwhelming common case), or when no do-fx fired."
   [events]
   (let [other (:other-effects (effects-decomp events))]
     (if (map? other)
@@ -1838,10 +1953,15 @@
 
     1. the synthesised `:db` row (`db-effect-row`) — WHEN a `:db` commit
        was attempted (often present; absent when the handler returned
-       only `:fx` / only other / nothing, or THREW — no phantom `:db`,
-       per rf2-wnvid);
-    2. the handler's `:fx`-vector entries (`fx-effect-rows`) in order;
-    3. any top-level non-`:db`/`:fx` effects (`other-effect-rows`).
+       only `:fx` / only `:rf.db/runtime` / only other / nothing, or
+       THREW — no phantom `:db`, per rf2-wnvid);
+    2. the synthesised `:rf.db/runtime` row (`runtime-db-effect-row`) —
+       WHEN a runtime-db partition commit was attempted (EP-0001
+       rf2-ff9b0d). The two STATE-effect partitions commit atomically, so
+       the runtime-db row follows the `:db` row and precedes `:fx`;
+    3. the handler's `:fx`-vector entries (`fx-effect-rows`) in order;
+    4. any top-level non-closed-key effects (`other-effect-rows` — beyond
+       `{:db :fx :rf.db/runtime}`).
 
   There are NO `:db` / `:fx` / other group headers — the leading status
   glyph + effect-id + args edn-inspector on each row + the execution
@@ -1851,9 +1971,12 @@
   NEUTRAL). No post-commit / best-effort labels.
 
   nil (step OMITTED) when NO side effect occurred — no `:db` commit, no
-  `:fx`, no other effect. ALWAYS appears when a `:db` commit happened,
-  INCLUDING a plain reg-event-db with no `:fx` (`db-commit?` keys off
-  `:rf.event/db-changed`).
+  runtime-db commit, no `:fx`, no other effect. ALWAYS appears when a
+  `:db` commit happened (`db-commit?` keys off `:rf.event/db-changed`),
+  INCLUDING a plain reg-event-db with no `:fx`, AND when a runtime-ONLY
+  commit happened (`runtime-db-commit?` keys off the partition-tagged
+  `:rf.event/frame-state-changed` — Mike ruling #6: a runtime-only commit
+  emits NO `:rf.event/db-changed`).
 
   ## Atomicity
 
@@ -1877,10 +2000,13 @@
   `:threw` is the count of rows that threw — retained for non-view
   consumers; the single badge glyph carries the at-a-glance signal."
   [events]
-  (let [db-row  (db-effect-row events)
-        fx-rows (fx-effect-rows events)
-        other   (other-effect-rows events)
-        rows    (vec (concat (when db-row [db-row]) fx-rows other))]
+  (let [db-row      (db-effect-row events)
+        runtime-row (runtime-db-effect-row events)
+        fx-rows     (fx-effect-rows events)
+        other       (other-effect-rows events)
+        rows        (vec (concat (when db-row [db-row])
+                                 (when runtime-row [runtime-row])
+                                 fx-rows other))]
     (when (seq rows)
       {:step  :side-effects
        :badge :SIDE-EFFECTS
@@ -2461,6 +2587,24 @@
                     rows)))
     (attach-step-violation step row)))
 
+(defn- attach-to-runtime-db-row
+  "Per EP-0001 rf2-ff9b0d — attach a `:where :machine-data` schema-
+  violation to the SIDE EFFECTS step's `:rf.db/runtime` row (the handler's
+  runtime-db partition write). The runtime-db sibling of
+  `attach-to-fx-db-row`. Falls back to the step-level `:violations` if the
+  runtime-db row isn't present (shouldn't happen — a `:machine-data`
+  violation implies a runtime-db commit attempted)."
+  [step row]
+  (if (some #(= :rf.db/runtime (:fx-id %)) (:rows step))
+    (update step :rows
+            (fn [rows]
+              (mapv (fn [r]
+                      (if (= :rf.db/runtime (:fx-id r))
+                        (attach-row-violation r row)
+                        r))
+                    rows)))
+    (attach-step-violation step row)))
+
 (defn- attach-to-sub-row
   "When `step` is the SUBSCRIPTIONS step + the violation's `:failing-id`
   matches a `sub-id` in the step's `:rows`, attach to that row.
@@ -2529,6 +2673,16 @@
           (let [i (index-of #(= :side-effects (:step %)) s)]
             (if i
               (update s i attach-to-fx-db-row row)
+              s))
+
+          :machine-data
+          ;; EP-0001 rf2-ff9b0d — `:where :machine-data` violations are
+          ;; the runtime-db partition's post-commit boundary; attach to
+          ;; the SIDE EFFECTS step's `:rf.db/runtime` row (the runtime-db
+          ;; sibling of the :app-db → :db row attach).
+          (let [i (index-of #(= :side-effects (:step %)) s)]
+            (if i
+              (update s i attach-to-runtime-db-row row)
               s))
 
           :fx-args
@@ -3049,15 +3203,19 @@
     :ok))
 
 (defn cascade-rolled-back?
-  "True iff any `:app-db` schema violation in `rows` carries
-  `:rollback? true`. The view layer reads this off the cascade
-  context to visually mute every step DOWNSTREAM of the rollback
-  point (FX / SUBSCRIPTIONS / VIEWS) so the operator reads 'the
-  rest of this cascade didn't really run' at a glance."
+  "True iff any STATE-partition schema violation in `rows` carries
+  `:rollback? true` — `:where :app-db` (the app-db partition) OR
+  `:where :machine-data` (the runtime-db partition, EP-0001 rf2-ff9b0d).
+  Either partition's post-commit boundary failing unwinds the WHOLE
+  transition (Spec 010 §Per-step recovery rows 4 + 7), so both signal a
+  rolled-back cascade. The view layer reads this off the cascade context
+  to visually mute every step DOWNSTREAM of the rollback point (FX /
+  SUBSCRIPTIONS / VIEWS) so the operator reads 'the rest of this cascade
+  didn't really run' at a glance."
   [rows]
   (boolean
     (some (fn [r]
-            (and (= :app-db (:where r))
+            (and (contains? #{:app-db :machine-data} (:where r))
                  (true? (:rollback? r))))
           rows)))
 

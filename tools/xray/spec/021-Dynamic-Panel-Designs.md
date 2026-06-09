@@ -2922,9 +2922,9 @@ unchanged); only the aggregation moved.
 | `:event`        | DISPATCH                                            | step-level               |
 | `:cofx`         | COEFFECT step whose `:id` = `:failing-id`           | step-level (per cofx)    |
 | `:app-db`       | SIDE EFFECTS step `:db` row (the handler's app-db write) — per rf2-8resu / rf2-kt6js | row-level         |
+| `:machine-data` | SIDE EFFECTS step `:rf.db/runtime` row (the handler's runtime-db partition write — EP-0001 rf2-ff9b0d, the runtime-db sibling of the `:app-db` → `:db` attach, via `attach-to-runtime-db-row`). The runtime-db partition carries durable machine snapshots, so its post-commit boundary is `:where :machine-data`. When the violation triggered full-cascade rollback (`:rollback? true`), the rollback fact is also signalled via the §Rollback blast-radius mute pass; the violation itself stays attached to the runtime-db row. Per rf2-jbbp7 (see [spec/005 §Schema validation](../../../spec/005-StateMachines.md#schema-validation), [spec/010 §Per-step recovery row 7](../../../spec/010-Schemas.md#per-step-recovery)). | row-level (fallback step) |
 | `:fx-args`      | SIDE EFFECTS step, row whose `:fx-id` = `:failing-id` | row-level (fallback step)|
 | `:sub-return`   | SUBSCRIPTIONS step, row whose `:sub-id` = `:failing-id` | row-level (fallback step) |
-| `:machine-data` | HANDLER, machine-cascade row whose machine id = `:failing-id` (the failing machine). When the violation triggered full-cascade rollback (`:rollback? true`), the rollback fact is signalled via the §Rollback blast-radius mute pass (no special tail step); the violation itself stays attached to the machine-cascade row. Per rf2-jbbp7 (see [spec/005 §Schema validation](../../../spec/005-StateMachines.md#schema-validation), [spec/010 §Per-step recovery row 7](../../../spec/010-Schemas.md#per-step-recovery)). | row-level (fallback step) |
 
 Hot-reload drift no longer attaches to a cascade step — it surfaces
 via the Issues panel exclusively (rf2-7gf7v retired the standalone
@@ -3405,7 +3405,8 @@ signal. SKIPPED rows are **NEUTRAL** — they do not trip the badge to
 cross.
 
 **Row order (execution order).** The flat `:rows` slot is
-`[synthesised :db row, if present] + [:fx rows, in order] + [other rows]`:
+`[synthesised :db row, if present] + [synthesised :rf.db/runtime row, if
+present] + [:fx rows, in order] + [other rows]`:
 
 - **`:db` row** (FIRST, when present) — the handler's app-db write (the
   `:db` effect). `✓` on a successful commit; `✗` when the post-commit
@@ -3418,10 +3419,29 @@ cross.
   App-db panel reads the same shared focus). The `:db` row appears
   whenever a `:db` commit happened, **including a plain reg-event-db that
   returns only `:db`** (no `:fx`); it is **ABSENT** when the handler
-  returned only `:fx` / only other / nothing, or THREW (no phantom
-  `:db`, rf2-wnvid). Reconciles with rf2-4wywy: this is the HANDLER db
-  write (post-handler / pre-flow); the FLOW step's own `:db` diff (the
-  flow's t1→t2 reshape) stays a SEPARATE step.
+  returned only `:fx` / only `:rf.db/runtime` / only other / nothing, or
+  THREW (no phantom `:db`, rf2-wnvid). Reconciles with rf2-4wywy: this is
+  the HANDLER db write (post-handler / pre-flow); the FLOW step's own
+  `:db` diff (the flow's t1→t2 reshape) stays a SEPARATE step.
+- **`:rf.db/runtime` row** (after `:db`, before `:fx` — EP-0001
+  rf2-ff9b0d) — the handler's **runtime-db partition write** (the reserved
+  `:rf.db/runtime` STATE effect). The two partition writes (`:db` →
+  app-db, `:rf.db/runtime` → runtime-db) commit **atomically together**,
+  so the runtime-db row sits immediately after the `:db` row and before
+  the `:fx` rows. `✓` on a successful commit; `✗` when the post-commit
+  runtime-db boundary (the `:where :machine-data` validator — runtime-db
+  carries durable machine snapshots) rejected the write and the cascade
+  rolled back, with the violation reason box attaching to the row via
+  `attach-to-runtime-db-row`. The row appears whenever the runtime-db
+  partition was committed, **including a runtime-ONLY commit** (no `:db`,
+  no `:fx`). The `:db`-commit signal (`:rf.event/db-changed`) is
+  **APP-DB-ONLY** (EP-0001 Mike ruling #6) — a runtime-only commit emits
+  **no** `db-changed` — so the runtime-db row keys off the partition-
+  tagged **`:rf.event/frame-state-changed`** trace whose
+  `:rf.event/partitions` set includes `:runtime-db`. This is what makes a
+  runtime-only cascade render a SIDE EFFECTS row at all. A mixed
+  `{:rf.db/runtime .. :fx ..}` return therefore shows the runtime write as
+  an applied state effect (`✓`), **never** as a dropped/`other` row.
 - **`:fx` rows** — one row per entry in the handler's `:fx` vector, in
   order, each carrying the rf2-g1mfc open-code chip + a per-effect glyph:
   `✓` ran / `✗` threw / `↺` overridden / `–` skipped-on-platform (the
@@ -3432,16 +3452,19 @@ cross.
   fx) the `✓` means **ACTIONED** (the fx handler was invoked ok), not
   awaited — matching the trace's `:rf.fx/handled` semantics.
 - **`other` rows** (LAST) — one row per TOP-LEVEL effect key on the
-  handler's returned map beyond `:db` / `:fx` (the historical
-  `{:db .. :fx .. :other-key ..}` form). In re-frame2 the effect map is
-  the closed `{:db :fx}` shape (spec/002 §The binary fx-handler
-  signature — "the v1 :dispatch-n top-level key is gone") and the
-  runtime's `run-fx-effects!` reads ONLY `:fx`; any other key is
-  silently DROPPED — never executed, never traced. So each `other` row
-  is a `–` (skipped) not-run **DIAGNOSTIC** flagging a declared effect
-  the runtime ignored (almost always a bug — the effect belongs inside
-  `:fx`); it is NEUTRAL. In the canonical `{:db :fx}` shape there are NO
-  `other` rows.
+  handler's returned map **beyond the closed-effect set
+  `{:db :fx :rf.db/runtime}`** (the historical
+  `{:db .. :fx .. :other-key ..}` form). Under EP-0001 (spec/002 §The
+  two-partition frame contract) the effect map is the closed
+  `{:db :fx :rf.db/runtime}` shape: the runtime commits the two STATE
+  effects (`:db` → app-db, `:rf.db/runtime` → runtime-db) atomically and
+  runs `:fx`. Any **other** top-level key is silently DROPPED — never
+  executed, never traced. So each `other` row is a `–` (skipped) not-run
+  **DIAGNOSTIC** flagging a declared effect the runtime ignored (almost
+  always a bug — the effect belongs inside `:fx`); it is NEUTRAL.
+  `:rf.db/runtime` is **not** an `other` key — it is a committed state
+  effect with its own row (see above). In the canonical closed shape
+  there are NO `other` rows.
 
 **Atomicity governs which rows appear.** A `:db` schema-fail (pre-commit
 transactional) rolls the cascade back BEFORE any `:fx` ran (spec/002
@@ -3460,9 +3483,16 @@ exception-under-step rendering.
 **ALWAYS APPEARS.** Unlike the pre-rf2-kt6js `:fx` step (which showed
 only when an `:fx` fired), the SIDE EFFECTS step appears whenever ANY
 side effect occurred (a `:db` commit — including a bare reg-event-db —
-and/or `:fx` and/or other). The `:db`-commit signal is the framework's
-`:rf.event/db-changed` trace (a second one with `:rf.trace/phase
-:rollback` flags a schema-fail rollback) — NOT a fx-id-less
+and/or a runtime-db (`:rf.db/runtime`) commit — including a runtime-ONLY
+commit — and/or `:fx` and/or other). The `:db`-commit signal is the
+framework's `:rf.event/db-changed` trace (a second one with
+`:rf.trace/phase :rollback` flags a schema-fail rollback). The
+runtime-db-commit signal is the partition-tagged
+`:rf.event/frame-state-changed` trace whose `:rf.event/partitions`
+includes `:runtime-db` (EP-0001 rf2-ff9b0d — `:rf.event/db-changed` is
+APP-DB-ONLY per Mike ruling #6, so a runtime-only commit emits no
+`db-changed`; `frame-state-changed` is the only signal it surfaces).
+Neither is a fx-id-less
 `:rf.fx/handled` (which the substrate never emits; `re-frame.fx/emit-
 handled!` always stamps `:rf.fx/id`, and the `:db` install path
 `re-frame.router/commit-db-effect!` routes through `:rf.event/db-changed`,
