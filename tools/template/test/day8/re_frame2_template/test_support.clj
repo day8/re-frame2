@@ -172,3 +172,23 @@
                      (some? include-story?) (assoc :include-story? include-story?))]
      (deps-new/create opts)
      proj-dir)))
+
+(defn run-template-opts!
+  "Like `run-template!`, but merges `extra-opts` straight onto the
+  deps-new opts map — so a test can pass arbitrary template arguments
+  (reserved flags, typo keys, …) that the positional `run-template!`
+  arity can't express. Used by the argument-gate negative tests
+  (rf2-qck7t7): they assert reserved / unknown keys fail closed before
+  any scaffold is emitted."
+  [tmp project-name extra-opts]
+  (let [dir-str   (.toString ^Path tmp)
+        dir-name  (-> project-name name (string/replace #"^.*?/" ""))
+        proj-dir  (io/file dir-str dir-name)
+        opts      (merge {:template   'day8/re-frame2-template
+                          :name       (symbol project-name)
+                          :target-dir (.getCanonicalPath proj-dir)
+                          :src-dirs   [(template-resource-dir)]
+                          :overwrite  :delete}
+                         extra-opts)]
+    (deps-new/create opts)
+    proj-dir))

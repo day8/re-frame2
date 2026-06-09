@@ -563,6 +563,44 @@
                  "collapse so release builds (no Xray preload) don't ship "
                  "a blank gutter."))))))
 
+;; --- Stale Xray-layout-wording scan (rf2-qck7t7 Finding #2) ----------------
+;;
+;; `assert-xray-host-contract!` above pins the RUNTIME shape (DOM order +
+;; resize CSS var) for index.html / app.css only. The prose in the other
+;; emitted text files (deps.edn / shadow-cljs.edn comments) escaped that
+;; net: they kept describing the host as a "left layout column" / "left
+;; column" long after the runtime moved to the right-side layout-host
+;; contract. This guard scans EVERY emitted text file for the stale
+;; left-side wording so a future prose regression can't ship green while
+;; the narrow runtime tests stay happy.
+
+(def ^:private stale-xray-wording-re
+  #"(?i)left[- ]?(layout )?column")
+
+(defn- assert-no-stale-xray-wording!
+  "Walk the whole emitted tree and fail on any text file that still
+   describes the Xray host as a left column. The host is a RIGHT-side
+   layout host (README/CSS contract); the deps/shadow comments must say
+   so too. Only files that actually mention Xray/`data-rf-xray-host` are
+   checked, so the scan can't false-fire on unrelated app prose that
+   happens to use the phrase 'left column'."
+  [substrate ^java.io.File root]
+  (doseq [^java.io.File f (file-seq root)
+          :when (.isFile f)
+          ;; Restrict to the scaffold's text artefacts; defensive against
+          ;; anything binary a stray build step might leave behind.
+          :when (re-find #"(?i)\.(edn|cljs?|clj|md|html?|css|json|ya?ml|txt|js|cjs)$"
+                         (.getName f))]
+    (let [text (slurp f)]
+      (when (re-find #"(?i)data-rf-xray-host|xray" text)
+        (is (not (re-find stale-xray-wording-re text))
+            (str "emitted file " (.getName f) " (" substrate
+                 ") still describes the Xray host with stale left-side "
+                 "wording (\"left layout column\" / \"left column\"). The "
+                 "host is a RIGHT-side layout host — match the README/CSS "
+                 "contract (tools/xray/spec/011-Launch-Modes.md §Layout "
+                 "host contract)."))))))
+
 (defn- run-for-substrate!
   [substrate]
   (let [tmp  (tmp-dir (str "rf2-emission-" (name substrate) "-"))
@@ -572,6 +610,7 @@
         (assert-events-test-shape! substrate proj)
         (assert-scratch-with-frame-shape! substrate proj)
         (assert-xray-host-contract! substrate proj)
+        (assert-no-stale-xray-wording! substrate proj)
         (doseq [rel ["test/acme/my_app/events_test.cljs"
                      "src/acme/my_app/events.cljs"
                      "src/acme/my_app/schema.cljs"
