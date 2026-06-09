@@ -34,6 +34,7 @@ const {
   selectEntries,
   parseFilterPatterns,
   normalizeForFilter,
+  entryIdentities,
 } = require('../../examples/scripts/examples-filter.cjs');
 
 let failed = 0;
@@ -184,6 +185,78 @@ it('an unrelated substring selects nothing (no over-selection)', () => {
   assert.deepStrictEqual(selectBuildIds('does-not-exist'), []);
 });
 
+// rf2-n4nc2o: a filter term that appears ONLY in the absolute spec-path
+// prefix (i.e. a directory the repo happens to be checked out under) must
+// NOT match — selection keys on repo-stable identities (build id +
+// repo-relative spec path), never the absolute filesystem prefix. The old
+// code matched the absolute specPath too, so a filter substring of the
+// workspace/worktree directory name over-selected EVERY entry.
+//
+// We model this two ways:
+//   (a) directly: the candidate identities for a real entry never contain
+//       the absolute spec path (the leaky string), and
+//   (b) end-to-end: a filter drawn from a segment of the absolute REPO_ROOT
+//       prefix selects ZERO real entries, while the supported build/path
+//       shapes still select the singleton. Driving (b) off the live
+//       REPO_ROOT keeps the regression faithful in any checkout location
+//       (CI, a worktree, a path containing the filter term, …).
+
+it('entryIdentities excludes the absolute spec path (only build id + repo-relative path) (rf2-n4nc2o)', () => {
+  for (const e of EXAMPLES) {
+    const ids = entryIdentities(e);
+    assert.strictEqual(ids.length, 2, `entry ${e.build} should expose exactly two identities`);
+    // The absolute spec path, normalized, must NOT be one of them.
+    const absNorm = normalizeForFilter(e.specPath);
+    assert.ok(
+      !ids.includes(absNorm),
+      `entry ${e.build} leaks its absolute spec path as a match identity: ${absNorm}`,
+    );
+    // And the repo-relative spec path must never traverse out of the repo
+    // (no `..`), so it can't smuggle the workspace prefix back in.
+    const relSpec = path.relative(REPO_ROOT, e.specPath);
+    assert.ok(
+      !relSpec.split(/[\\/]/).includes('..'),
+      `entry ${e.build} repo-relative spec path escapes REPO_ROOT: ${relSpec}`,
+    );
+  }
+});
+
+it('a filter matching only the absolute REPO_ROOT prefix selects nothing (rf2-n4nc2o)', () => {
+  // A directory segment of the absolute checkout path that is NOT part of
+  // any build id or repo-relative spec path. Picking the segment just
+  // above the repo dir is a stable choice across checkouts.
+  const segs = path.resolve(REPO_ROOT).split(/[\\/]/).filter(Boolean);
+  // Prefer a segment that doesn't coincidentally appear in the stable
+  // identities (e.g. avoid a hypothetical `adapters` dir).
+  const identityBlob = EXAMPLES.flatMap(entryIdentities).join('|');
+  const leakyTerms = segs.filter(
+    (s) => s.length >= 2 && !identityBlob.includes(normalizeForFilter(s)),
+  );
+  assert.ok(
+    leakyTerms.length > 0,
+    'expected at least one REPO_ROOT path segment absent from stable identities',
+  );
+  for (const term of leakyTerms) {
+    assert.deepStrictEqual(
+      selectEntries(parseFilterPatterns(term)).map((e) => e.build),
+      [],
+      `filter '${term}' (an absolute REPO_ROOT prefix segment) over-selected`,
+    );
+  }
+
+  // Supported repo-stable shapes still resolve to the singleton.
+  for (const name of ADAPTERS) {
+    const buildId = `adapters/${name}-testbed`;
+    for (const shape of [`${name}-testbed`, `${name}/testbed`]) {
+      assert.deepStrictEqual(
+        selectBuildIds(shape),
+        [buildId],
+        `shape '${shape}' should still select ${buildId}`,
+      );
+    }
+  }
+});
+
 it('normalizeForFilter collapses _, \\ and / to a single -', () => {
   assert.strictEqual(normalizeForFilter('a_b'), 'a-b');
   assert.strictEqual(normalizeForFilter('a\\b'), 'a-b');
@@ -237,6 +310,60 @@ it('SPEC_ROOTS resolve under the repo root', () => {
       `SPEC_ROOT ${root} is outside REPO_ROOT ${REPO_ROOT}`,
     );
   }
+});
+
+// ---- root TESTING.md examples-gate drift guard (rf2-n4nc2o) --------------
+// The root testing guide previously documented a retired/nonexistent
+// `test:examples:realworld` command and "whole-example browser smoke"
+// wording for the examples gate, while the actual scripts are
+// adapter-smoke-only. Two teeth pin the human-facing gate map to reality:
+//
+//   1. Every example-gate script the guide names (the `test:examples*`
+//      family) must actually exist in implementation/package.json — so a
+//      reintroduced `test:examples:realworld` row fails loud rather than
+//      sending contributors to a nonexistent command.
+//   2. The retired "whole-example browser smoke" wording must not reappear
+//      for this gate — `test:examples` is the three adapter testbed smokes
+//      only (the `examples/` tree is test-free).
+
+const ROOT_TESTING_MD = path.join(REPO_ROOT, 'TESTING.md');
+const PKG_JSON = path.join(REPO_ROOT, 'implementation', 'package.json');
+
+it('every `test:examples*` command named in root TESTING.md exists in implementation/package.json (rf2-n4nc2o)', () => {
+  const doc = fs.readFileSync(ROOT_TESTING_MD, 'utf8');
+  const pkg = JSON.parse(fs.readFileSync(PKG_JSON, 'utf8'));
+  const scripts = new Set(Object.keys(pkg.scripts || {}));
+
+  // The examples gate lives in implementation/package.json; scope the
+  // existence check to the `test:examples`/`test:examples-*`/`:examples`
+  // family the root guide documents, so cross-package script names (e.g.
+  // tools/mcp-conformance's `test:re-frame2-pair*`) don't false-positive.
+  const named = new Set();
+  const re = /test:examples[A-Za-z0-9:_-]*/g;
+  let m;
+  while ((m = re.exec(doc)) !== null) {
+    named.add(m[0]);
+  }
+
+  const missing = [...named].filter((name) => !scripts.has(name)).sort();
+  assert.deepStrictEqual(
+    missing,
+    [],
+    `root TESTING.md names example-gate scripts absent from implementation/package.json: ${missing.join(', ')}`,
+  );
+});
+
+it('root TESTING.md does not resurrect the retired examples-gate wording (rf2-n4nc2o)', () => {
+  const doc = fs.readFileSync(ROOT_TESTING_MD, 'utf8');
+  assert.ok(
+    !/test:examples:realworld/.test(doc),
+    'root TESTING.md references the retired `test:examples:realworld` script',
+  );
+  assert.ok(
+    !/whole-example browser smoke/i.test(doc),
+    'root TESTING.md uses retired "whole-example browser smoke" wording for the examples gate; ' +
+      'test:examples is the three adapter testbed smokes only',
+  );
 });
 
 if (failed > 0) {
