@@ -37,15 +37,21 @@
 
 (def use-current-frame
   "UIx hook returning the current frame keyword from the surrounding
-  React context, or `:rf/default` when no frame-provider sits above.
+  React context, or the no-provider sentinel
+  (`re-frame.adapter.context/no-provider-sentinel`) when no frame-provider
+  sits above — NOT `:rf/default` (EP-0002 carried invariant: the React-
+  context default is a no-provider sentinel, never a synthesised default).
   Decision 2 mandates every React-shaped adapter resolves the same
   context, so a UIx subtree under a Reagent frame-provider sees the
   right frame and vice versa.
 
-  React-context tier only. For the full resolution chain
-  (dynamic-var → React-context → :rf/default) use `(rf/current-frame-id)`;
-  the routed `:adapter/current-frame` hook (registered below) covers
-  that chain. Per rf2-84myk."
+  React-context tier only — this is the NARROW raw `useContext` read; it
+  does not map the sentinel to nil. For the full resolution chain
+  (dynamic-var → React-context → nil) use `(rf/current-frame-id)`; the
+  routed `:adapter/current-frame` hook (registered below) covers that
+  chain and returns nil (not `:rf/default`) when no scope is established,
+  so a public frame-scoped op fails loudly with
+  `:rf.error/no-frame-context`. Per rf2-84myk."
   (:use-current-frame spine-fns))
 
 (defui frame-provider
@@ -64,10 +70,14 @@
   subtree silently — that footgun is gone by construction). A single
   child works too: `($ frame-provider {:frame :session} ($ app))`.
 
-  Per rf2-sixo: missing or `nil` `:frame` falls through to `:rf/default`.
-  The three React-shaped adapters share one React Context (per rf2-3yij
-  Decision 2) so a subtree under any frame-provider sees the right
-  frame regardless of which substrate rendered the provider.
+  `:frame` is REQUIRED (EP-0002 carried invariant). A missing or `nil`
+  `:frame` is a CONFIGURATION ERROR: the spine core
+  `build-frame-provider-element` emits `:rf.error/no-frame-context` and
+  throws rather than synthesising `:rf/default` — the runtime never
+  repairs absence (Spec 002 §Frame target resolution). The three
+  React-shaped adapters share one React Context (per rf2-3yij Decision 2)
+  so a subtree under any frame-provider sees the right frame regardless of
+  which substrate rendered the provider.
 
   Native shell above the prop-marshalling seam (rf2-z7hfp — Mike-ruled
   C, MOVE THE SEAM UP). This is a NATIVE UIx `defui` component, NOT a

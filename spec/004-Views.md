@@ -282,29 +282,27 @@ Whatever the call-site shape, `(rf/view :counter)` is the **canonical lookup** f
 
 **Bare `[:counter "Hello"]` in raw hiccup** (where Reagent itself would have to interpret the keyword as a registered view) is **not supported in v1**. It requires modifying or extending Reagent's keyword-tag interpretation, which is deferred to the substrate-decoupling work in Spec 006 / [011](011-SSR.md). It can ship later as a non-breaking addition once the substrate decision is settled.
 
-## Plain Reagent fns: staged adoption (with a loud footgun warning)
+## Plain Reagent fns: staged adoption (the footgun is now a loud error)
 
-Plain Reagent fns (`(defn my-view [args] ...)`) continue to work in re-frame2. They are not registered, so they do not get frame-injection. Their `subscribe`/`dispatch` calls (qualified `rf/`) target `:rf/default`.
+Plain Reagent fns (`(defn my-view [args] ...)`) continue to work in re-frame2. They are not registered, so they do not get frame-injection — they carry no `:contextType` wiring, so a plain fn **cannot read the surrounding `frame-provider`'s frame from React context**.
 
-This means plain fns are safe in single-frame apps (no different from today) and in default-frame portions of multi-frame apps. But if a plain fn is rendered **inside a non-default `frame-provider`** subtree, its `subscribe`/`dispatch` calls **silently route to `:rf/default`** — almost certainly not what the author intended.
+Under the EP-0002 carried invariant ([002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)) there is **no `:rf/default` floor**. A plain fn that cannot read the context resolves to *nil*, and its `subscribe`/`dispatch` (qualified `rf/`, the ambient 1-arity form) raises `:rf.error/no-frame-context` — the operation **fails fast** rather than silently routing to a conventional default. This is the sharper successor to the old warn-and-fall-through behaviour: a bare reagent fn that depends on the surrounding frame now errors loudly at the call site rather than reading the wrong frame's app-db.
 
-### The footgun is loud, but at most once per (component, non-default-frame) pair
+A plain fn is therefore only safe when it establishes its own frame scope — inside an explicit `with-frame`, or by capturing a `(rf/frame-handle)` at render time and using its bound ops (see §Affordance for plain fns below). A single-frame app keeps working by establishing exactly **one** root `frame-provider` / `with-frame`; *inside that scope* registered views (`reg-view`) pick up the frame ergonomically.
 
-The runtime emits a warning trace event the **first** time a plain Reagent fn renders inside a non-default frame, then suppresses repeats for that pair:
+### The footgun is now `:rf.error/no-frame-context`
+
+The error rides the always-on error axis (surface #4 per [009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production)), so it is observable in production where dev traces are elided. A representative payload:
 
 ```clojure
-{:operation :rf.warning/plain-fn-under-non-default-frame-once
- :op-type   :warning
- :tags      {:fn-name        "my-app.cart.views/render-summary"
-             :rendered-under :user-session-7
-             :routed-to      :rf/default
-             :reason         "Plain Reagent fns do not pick up the surrounding frame; their dispatch/subscribe targets :rf/default. To capture the surrounding frame, register the view via reg-view."}
- :recovery  :warned-and-replaced}
+{:rf.error/id :rf.error/no-frame-context
+ :operation   :subscribe        ;; or :dispatch
+ :where       :re-frame.subs/subscribe
+ :event-id    :cart/total       ;; the query-id / event-id the op carried
+ :recovery    :supply-frame}
 ```
 
-Suppression key: the `(component-id, non-default-frame-id)` pair, where `component-id` is the plain fn's stable identity (Var name in CLJS; equivalent fingerprint elsewhere). This deliberately bounds noise: a v1 app that adopts a single non-default frame for one feature gets one warning per plain component that ever renders under that frame, **not** one warning per render and **not** N warnings for N existing components in unrelated parts of the tree (which would amount to a hard footgun). 10x and re-frame-pair surface the warning. In dev, the runtime also `console.warn`s the first occurrence. In production, the warning code path is elided (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
-
-The suppression cache is per-frame-instance: destroying and re-creating a frame resets the warning history for that frame (so hot-reloaded development sessions don't accumulate stale entries). The `:rf.warning/plain-fn-under-non-default-frame-once` op-type is reserved; consumers branch on it.
+> **Migration note (EP-0002).** The earlier `:rf.warning/plain-fn-under-non-default-frame-once` once-per-pair warning is **superseded** by this error. Its firing case — a plain fn under a non-default provider falling through to `:rf/default` — is gone: there is no fall-through to warn about, only the loud no-frame-context error. Consumers (10x / pair) that branched on the warning should branch on `:rf.error/no-frame-context` instead. (The runtime's warn-once helper is retained as a structural no-op during the EP-0002 chain; a follow-on cleanup retires it.)
 
 ### Migration path
 

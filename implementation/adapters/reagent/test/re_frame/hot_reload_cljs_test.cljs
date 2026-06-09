@@ -30,7 +30,7 @@
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -128,15 +128,25 @@
     ;; CLJS's `:redef-in-file` lane — what matters for the contract is
     ;; the registry slot keyed on `:rf/id`, not the Clojure Var that
     ;; happens to back the form.
+    ;; EP-0002 (rf2-69r7ui): the `reg-view` MACRO injects a render-time
+    ;; frame-handle that captures `(current-frame-id)`, which REQUIRES an
+    ;; established scope (there is no `:rf/default` floor). Invoke the
+    ;; rendered body under an explicit `with-frame` so the handle captures a
+    ;; real frame rather than the render raising :rf.error/no-frame-context.
+    ;; (The `reg-view*` fn-form tests above register raw fns with no handle
+    ;; injection, so they need no scope.)
+    (rf/reg-frame :rf.hot-reload-test/banner-frame {:doc "render scope for the macro hot-reload test"})
     (let [observed (atom nil)]
       (reg-view ^{:rf/id :rf.hot-reload-test/banner} banner-v1 [t]
         (reset! observed [:m1 t])
         [:h1.m1 t])
-      ((rf/view :rf.hot-reload-test/banner) "hello")
+      (with-frame :rf.hot-reload-test/banner-frame
+        ((rf/view :rf.hot-reload-test/banner) "hello"))
       (is (= [:m1 "hello"] @observed))
       (reg-view ^{:rf/id :rf.hot-reload-test/banner} banner-v2 [t]
         (reset! observed [:m2 t])
         [:h2.m2 t])
-      ((rf/view :rf.hot-reload-test/banner) "world")
+      (with-frame :rf.hot-reload-test/banner-frame
+        ((rf/view :rf.hot-reload-test/banner) "world"))
       (is (= [:m2 "world"] @observed)
           "post-rereg lookup invokes the new macro-installed body"))))

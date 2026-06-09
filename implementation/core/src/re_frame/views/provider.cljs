@@ -86,12 +86,17 @@
   children in the shared frame Context Provider — inside the subtree,
   `(rf/frame-handle)` / `reg-view`-registered
   descendants resolve to the named frame. Per Spec 002 §What
-  `frame-provider` is.
+  `frame-provider` is (CLJS reference).
 
-  Reads `:frame` from props. When missing or `nil`, falls through to
-  `:rf/default` — defensive default that matches no-provider
-  behaviour and avoids breaking tooling-generated trees that elide
-  the prop.
+  `:frame` is REQUIRED (EP-0002 carried invariant). There is NO
+  `(or (:frame props) :rf/default)` floor: an explicit
+  `(rf/frame-provider {} …)` with no frame establishes no usable scope.
+  Per Spec 002 §Frame target resolution the runtime never synthesises a
+  frame from absence — a missing `:frame` is a CONFIGURATION ERROR. It
+  emits `:rf.error/no-frame-context` through the always-on error axis and
+  throws, so a tooling-generated or hand-authored tree that elides the
+  frame fails loudly at the provider rather than silently scoping every
+  descendant call to a conventional default.
 
   Reagent call shape:
 
@@ -109,7 +114,14 @@
   `build-frame-provider` is the lower-level substrate hook; this fn is
   the canonical user-facing surface."
   [props & children]
-  (let [frame-kw (or (:frame props) :rf/default)]
+  (let [frame-kw (:frame props)]
+    (when (nil? frame-kw)
+      (let [payload (frame/no-frame-context-payload
+                      :frame-provider
+                      {:where 're-frame.views.provider/frame-provider
+                       :recovery :supply-frame})]
+        (frame/emit-no-frame-context! payload)
+        (throw (ex-info (str (:rf.error/id payload)) payload))))
     (into [(build-frame-provider) frame-kw] children)))
 
 ;; ---- in-flight Reagent component -----------------------------------------
