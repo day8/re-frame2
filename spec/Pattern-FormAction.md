@@ -50,7 +50,7 @@ A cart page lets the user add an item to their basket from a product-detail card
   (let [draft        @(subscribe [:form.cart-add/draft])
         form-errors  @(subscribe [:form.cart-add/form-errors])
         qty-error    @(subscribe [:form.cart-add/field-error :quantity])
-        csrf-token   @(subscribe [:rf.csrf/token])]   ;; see §CSRF below
+        csrf-token   @(subscribe [:app.csrf/token])]   ;; app-owned — see §CSRF below (re-frame2 ships no :rf.csrf/* surface)
     [:form
      {:method    "POST"
       :action    (str "/cart/add")
@@ -99,8 +99,8 @@ The `action` attribute is what makes the form work without JS: the browser will 
   {:doc  "Add an item to the user's cart. Runs on both platforms; the POST entry point lives on the server."
    :schema [:cat [:= :cart/add-item] AddToCartForm]}  ;; schema validates form-params per 010
   [(rf/inject-cofx :rf.server/request)
-   (rf/inject-cofx :rf.csrf/active-token)]
-  (fn [{:keys [db rf.server/request rf.csrf/active-token]} [_ form-params]]
+   (rf/inject-cofx :app.csrf/active-token)]    ;; app-owned cofx — see §CSRF
+  (fn [{:keys [db rf.server/request app.csrf/active-token]} [_ form-params]]
     (cond
       ;; CSRF first — fail loud before validating anything else.
       (not= (:csrf-token form-params) active-token)
@@ -115,12 +115,13 @@ The `action` attribute is what makes the form work without JS: the browser will 
                  (update-in [:cart :items] (fnil conj []) draft)
                  (assoc-in  [:cart :add-form :status] :submitted)
                  (assoc-in  [:cart :add-form :submitted] draft))
-         :fx [[:rf.server/redirect {:status 303 :location "/cart"}]]}))))
+         :fx [[:rf.server/redirect {:status 303 :location "/cart"}]   ;; server only
+              [:dispatch [:rf.route/navigate :route/cart]]]}))))      ;; client only — shipped routing event
 ```
 
 Schema validation runs as the standard `:schema` boundary check ([010 §Validation timing](010-Schemas.md#validation-timing)). If `form-params` fails the `AddToCartForm` schema, the framework's structured-error trace fires (`:rf.error/schema-validation-failure`); the error projector ([011 §Server error projection](011-SSR.md#server-error-projection)) maps it to a 400 response with the public-error shape, *and* the per-field error sub for the form slice reads the validation result and renders the re-served page with inline messages. The app does not write a separate validation branch.
 
-The success path emits `303 See Other` (the canonical POST-redirect-GET pattern); the host adapter materialises the redirect, the browser GETs `/cart`, and the cart page renders.
+The success path emits both a `303 See Other` (the canonical POST-redirect-GET pattern) and a client-side `[:rf.route/navigate :route/cart]`. On the server, `:platforms` gating no-ops the navigate and the host adapter materialises the redirect — the browser GETs `/cart`, and the cart page renders. On the client (post-hydration), the redirect fx no-ops and `:rf.route/navigate` (the shipped programmatic-navigation event, registered by `day8/re-frame2-routing`) drives the SPA transition. The framework exposes **no** navigate fx under the `:rf.nav/*` namespace (that namespace ships only `push-url`, `replace-url`, `capture-scroll`, and `scroll` fxs); if you need a bare URL push rather than a route id, register an **app-owned** fx (e.g. `:app.nav/navigate`).
 
 ### Failure path — re-render with errors
 
@@ -141,21 +142,24 @@ When the schema fails (e.g. `quantity = 0`), the projector stamps 400 on the `:r
 
 ## CSRF handling
 
+**re-frame2 ships no CSRF surface.** There is no `:rf.csrf/*` sub, cofx, or app-db slot — and the `:rf/*` single-root namespace (every sub-namespace, `:rf.csrf/*` included) is reserved for the framework per [Conventions.md](Conventions.md). Register the CSRF surface under **your app's own feature prefix**; the `:app.csrf/*` ids below are illustrative placeholders for *your* registrations (substitute `:auth.csrf/*` or whatever prefix your app owns).
+
 Every form POST MUST carry a CSRF token; the server MUST reject a POST whose token does not match the session's active token.
 
-The token lives in two places in `app-db`:
+The token lives in two places in `app-db` (both at app-owned slots):
 
-- `[:rf.csrf :session-token]` — the per-session token, seeded by `:rf/server-init` from the request's session/cookie via `:rf.server/request` cofx.
-- `[:rf.csrf :form-token]` — the token rendered into the form (same value as `:session-token` for double-submit, or a freshly-rotated value for sync-pattern tokens). The view subscribes to `[:rf.csrf/token]` and emits a `<input type="hidden" name="csrf-token" value="…">`.
+- `[:app.csrf :session-token]` — the per-session token, seeded by `:rf/server-init` from the request's session/cookie via the `:rf.server/request` cofx.
+- `[:app.csrf :form-token]` — the token rendered into the form (same value as `:session-token` for double-submit, or a freshly-rotated value for sync-pattern tokens). The view subscribes to an app-owned `[:app.csrf/token]` and emits a `<input type="hidden" name="csrf-token" value="…">`.
 
-A `:rf.csrf/active-token` cofx exposes the session token to action handlers; the handler compares against the form-submitted `:csrf-token` field and fails-closed with 403 on mismatch (see the worked example above).
+An app-owned `:app.csrf/active-token` cofx exposes the session token to action handlers; the handler compares against the form-submitted `:csrf-token` field and fails-closed with 403 on mismatch (see the worked example above).
 
 ```clojure
-(rf/reg-cofx :rf.csrf/active-token
+;; App-owned — re-frame2 ships no CSRF cofx. Register under your app's prefix.
+(rf/reg-cofx :app.csrf/active-token
   {:doc       "The active CSRF token from the session. Server only."
    :platforms #{:server}}
   (fn [coeffects _]
-    (assoc coeffects :rf.csrf/active-token
+    (assoc coeffects :app.csrf/active-token
            (get-in coeffects [:rf.server/request :session :csrf-token]))))
 ```
 
@@ -193,17 +197,17 @@ The `:cart/add-item` event runs unchanged on both platforms. The differences are
 |---|---|---|
 | Dispatch site | `:rf/server-init`'s POST branch | view's `:on-submit` handler |
 | Source of `form-params` | parsed by host adapter from POST body | the view's `:draft` slice (Pattern-Forms) |
-| CSRF cofx | `:rf.csrf/active-token` (server-only) | client reads `[:rf.csrf :session-token]` from app-db directly |
-| Success effect | `[:rf.server/redirect …]` (full-page navigation) | `[:rf.nav/navigate "/cart"]` (SPA navigation) |
+| CSRF cofx | app-owned `:app.csrf/active-token` (server-only) | client reads app-owned `[:app.csrf :session-token]` from app-db directly |
+| Success effect | `[:rf.server/redirect …]` (full-page navigation) | `[:dispatch [:rf.route/navigate :route/cart]]` (SPA navigation, shipped routing event) |
 | Failure render | `render-to-string` re-emits the page with errors | the form view's existing error subs re-render in place |
 
-The success/failure effects are the only platform-divergent slot. Apps express this via `:platforms` ([011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx)) on the per-platform fx (`:rf.server/redirect` is server-only; `:rf.nav/navigate` is client-only) — the same event-handler body emits both, and each platform silently no-ops the one it doesn't own. The mental-model claim of [011-SSR.md](011-SSR.md) — "same handler tree both sides" — holds at this layer.
+The success/failure effects are the only platform-divergent slot. Apps express this via `:platforms` ([011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx)): `:rf.server/redirect` is server-only, so it no-ops on the client; the client-side `:rf.route/navigate` (the shipped programmatic-navigation event) is a no-op on the server. The same event-handler body emits both, and each platform silently no-ops the one it doesn't own. The mental-model claim of [011-SSR.md](011-SSR.md) — "same handler tree both sides" — holds at this layer.
 
 ```clojure
 ;; Inside the action handler — the fx vector can carry both platform-specific effects;
 ;; each platform's `:platforms` gating no-ops the wrong one.
-:fx [[:rf.server/redirect {:status 303 :location "/cart"}]    ;; server only
-     [:rf.nav/navigate "/cart"]]                              ;; client only
+:fx [[:rf.server/redirect {:status 303 :location "/cart"}]   ;; server only
+     [:dispatch [:rf.route/navigate :route/cart]]]           ;; client only — shipped routing event
 ```
 
 ## Composition with `:rf.server/request` cofx
@@ -228,8 +232,8 @@ Apps without a form slice (e.g. a pure-API endpoint that happens to share the ac
 
 - **Skipping the `action` attribute.** A form without `method` and `action` only works with JS — the progressive-enhancement guarantee breaks. Always emit the attributes; the `:on-submit` interceptor is purely additive.
 - **Validating only on the client.** Client validation is for UX; the server is the authority. Re-running the schema check in the action handler (via `:schema` on `reg-event-fx`) is mandatory — never trust the POST body.
-- **Building the redirect URL via `:rf.nav/navigate` on the server.** `:rf.nav/navigate` is client-only ([011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx)); on the server it no-ops silently. Use `:rf.server/redirect` (the server-only fx) for the POST-redirect-GET pattern.
-- **Reading the CSRF token from a hardcoded value or a query string.** Sessions rotate tokens; cofx-binding via `:rf.csrf/active-token` is the single source of truth. Apps that put the token in a URL leak it to referrer logs.
+- **Using a client-navigation event for the server redirect.** The client routing event `[:rf.route/navigate …]` is a no-op on the server ([011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx)); use `:rf.server/redirect` (the server-only fx) for the POST-redirect-GET pattern. (And do not reach for a navigate fx under `:rf.nav/*` — the framework ships none; `:rf.route/navigate` is the shipped programmatic-navigation event.)
+- **Reading the CSRF token from a hardcoded value or a query string.** Sessions rotate tokens; cofx-binding via the app-owned `:app.csrf/active-token` is the single source of truth. Apps that put the token in a URL leak it to referrer logs.
 - **Using `302 Found` for POST success.** Some clients re-POST on `302`; the canonical POST-redirect-GET status is `303 See Other`. The `:rf.server/redirect` fx defaults to 302 for GET-side redirects (per [011 §Standard fx](011-SSR.md#standard-fx)); apps MUST explicitly set `:status 303` for post-action redirects.
 - **Letting file uploads hit a `:sensitive? false` handler.** When a form mixes sensitive (password) and non-sensitive (avatar) fields, split into two POSTs; do not rely on per-field redaction. The trace-event sanitisation is map-level, not field-level.
 - **Writing to `app-db` from a multipart upload handler.** The `:tempfile` handle is opaque; pass it to a file-storage fx and write only the resulting URL or storage-id into `app-db`. The drain runs to fixed point; long-running uploads from inside the handler block the request thread.
@@ -246,7 +250,7 @@ A form-action implementation conforms to this convention when:
 - On schema failure, the per-form slice's `:errors` map is populated and the page re-renders; on schema success, the handler emits `[:rf.server/redirect {:status 303 :location "..."}]`.
 - The action handler MUST mark `:sensitive? true` when the form's fields carry credentials, PII, or other secrets; trace-event redaction follows from [009-Instrumentation.md §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) and [014 §Privacy](014-HTTPRequests.md#privacy).
 - Multipart uploads expose files as `{:filename :content-type :size :tempfile}` maps; file contents NEVER appear in trace events.
-- The same event runs unchanged on both platforms; platform-divergent fxs (`:rf.server/redirect` vs `:rf.nav/navigate`) compose via `:platforms` gating.
+- The same event runs unchanged on both platforms; platform-divergent effects (server-only `:rf.server/redirect` vs the client-only `:rf.route/navigate` routing event) compose via `:platforms` gating.
 
 ## Cross-references
 
