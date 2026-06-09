@@ -67,7 +67,7 @@
             [re-frame2-pair-mcp.tools.dispatch :as dispatch]
             [re-frame2-pair-mcp.tools.dispatch-dry-run :as dispatch-dry-run]
             [re-frame2-pair-mcp.tools.restore-epoch :as restore-epoch]
-            [re-frame2-pair-mcp.tools.reset-frame-db :as reset-frame-db]
+            [re-frame2-pair-mcp.tools.replace-app-db :as replace-app-db]
             [re-frame2-pair-mcp.tools.trace-window :as trace-window]
             [re-frame2-pair-mcp.tools.watch-epochs :as watch-epochs]
             [re-frame2-pair-mcp.tools.tail-build :as tail-build]
@@ -167,10 +167,10 @@
     :handler    (ignoring-extra #(restore-epoch/restore-epoch-tool %1 %2))
     :cacheable? false
     :descriptor data/restore-epoch}
-   {:name       "reset-frame-db"
-    :handler    (ignoring-extra #(reset-frame-db/reset-frame-db-tool %1 %2))
+   {:name       "replace-app-db"
+    :handler    (ignoring-extra #(replace-app-db/replace-app-db-tool %1 %2))
     :cacheable? false
-    :descriptor data/reset-frame-db}
+    :descriptor data/replace-app-db}
    {:name       "trace-window"
     :handler    (ignoring-extra #(trace-window/trace-window-tool %1 %2))
     :cacheable? true

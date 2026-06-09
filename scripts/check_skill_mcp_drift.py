@@ -154,7 +154,7 @@ MAPPINGS: list[Mapping] = [
             # operator who opts in at launch can add them to the skill's
             # allowed-tools for that deployment.
             "restore-epoch",
-            "reset-frame-db",
+            "replace-app-db",
         }),
     ),
     # story-mcp consumers (rf2-1v7tu HYBRID): both skills consume the
@@ -195,7 +195,7 @@ MAPPINGS: list[Mapping] = [
             "dispatch",
             "dispatch-dry-run",
             "restore-epoch",
-            "reset-frame-db",
+            "replace-app-db",
             "trace-window",
             "watch-epochs",
             "tail-build",

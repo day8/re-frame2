@@ -24,7 +24,7 @@ The mechanism:
   click.
 - MCP-driven mutations (via `tools/re-frame2-pair-mcp/`) — typically
   `dispatch` plus `eval-cljs` invocations of the runtime API's
-  `restore-epoch!` / `reset-frame-db!` accessors — are tagged
+  `restore-epoch!` / `replace-app-db!` accessors — are tagged
   `:origin :re-frame2-pair-mcp` and surface in the trace stream as
   distinguishable from app-issued mutations.
 

@@ -118,7 +118,7 @@ runWithWatchdog(
     // check above pins that SOME classifier is set; this pins WHICH —
     // the exact readOnly/destructive posture per tool + the budget-hint
     // prose. A destructive write tool (dispatch, eval-cljs, restore-epoch,
-    // reset-frame-db) silently re-classified readOnly would ship green
+    // replace-app-db) silently re-classified readOnly would ship green
     // under the shape check (readOnlyHint alone satisfies "≥1 set") but
     // turns RED here. See _runner.cjs for the per-posture rationale.
     assertClassificationRatchet(listed.tools, EXPECTED_CLASSIFICATIONS);

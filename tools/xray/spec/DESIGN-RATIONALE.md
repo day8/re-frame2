@@ -84,7 +84,7 @@ into a field, the runtime takes it?
 ### Options considered
 
 - **In-place edit affordance at v1.0.** Right-click a value, edit it,
-  the runtime swallows the change (via `reset-frame-db!`).
+  the runtime swallows the change (via `replace-app-db!`).
 - **In-place edit at v1.1.** Defer the affordance but commit to
   shipping it.
 - **Never.** App-db is read-only forever; mutations go through
@@ -105,7 +105,7 @@ into a field, the runtime takes it?
   the panel," and the cascade story would have a discontinuity.
 - If the user wants to mutate `app-db`, they have two reasonable
   paths: dispatch an event (via Re-dispatch, the REPL, or a
-  one-off `:fx` from a registered event), or do a `reset-frame-db!`
+  one-off `:fx` from a registered event), or do a `replace-app-db`
   via the MCP server (which is the explicit "I know what I'm
   doing" path).
 - Removing the affordance simplifies the UX: no edit-mode toggle,

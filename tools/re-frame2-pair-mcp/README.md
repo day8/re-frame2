@@ -15,7 +15,7 @@ via shadow-cljs to a single `.js` file) that exposes the twenty-eight
 re-frame2-pair ops as MCP tools (twenty-six read/inspect/action ops —
 including the operating-frame trio `set-operating-frame` /
 `reset-operating-frame` / `get-operating-frame` (rf2-zomfq) — plus the
-two write tools `restore-epoch` / `reset-frame-db`, which are gated behind
+two write tools `restore-epoch` / `replace-app-db`, which are gated behind
 `--allow-writes`). The authoritative ordered catalogue is `registry/tools`
 ([`src/re_frame2_pair_mcp/tools/registry.cljs`](src/re_frame2_pair_mcp/tools/registry.cljs));
 the table below mirrors it. AI agents (Claude Code, Cursor, Copilot) launch it
@@ -39,7 +39,7 @@ cljs-eval compile.
 | `dispatch`     | `dispatch.sh`             | Fire a re-frame2 event with `:origin :pair`. Modes: queued, sync, trace. Frame and fx-overrides supported. |
 | `dispatch-dry-run` | _(new — no bash equivalent)_ | Simulate a cascade WITHOUT committing it (rf2-17hvp): the full reducer + interceptor chain runs and schema validation fires, but every fx is redirected to a recording stub and the app-db is rolled back via `restore-epoch`. Every fx the cascade *would* have fired is enumerated in `:would-fire-effects`. NOT `--allow-writes`-gated — its contract is "no observable effect". |
 | `restore-epoch`| _(new — no bash equivalent)_ | Time-travel undo (rf2-ee38b.18): rewind a frame's app-db to a recorded prior epoch. The canonical pair-tool undo gesture (Tool-Pair §Time-travel). `epoch-id` is EDN (the runtime emits integer ids). **Gated behind `--allow-writes`** — returns `:rf.error/writes-disabled` without the flag. |
-| `reset-frame-db`| _(new — no bash equivalent)_ | State injection (rf2-ee38b.18): replace a frame's app-db with an arbitrary EDN value the runtime never recorded — the JSON-loaded-bug-repro case (Tool-Pair §Pair-tool writes). Records a synthetic epoch so `restore-epoch` can rewind past it. **Gated behind `--allow-writes`**. |
+| `replace-app-db`| _(new — no bash equivalent)_ | State injection (rf2-ee38b.18): replace a frame's app-db with an arbitrary EDN value the runtime never recorded — the JSON-loaded-bug-repro case (Tool-Pair §Pair-tool writes). Records a synthetic epoch so `restore-epoch` can rewind past it. **Gated behind `--allow-writes`**. |
 | `trace-window` | `trace-window.sh`         | Return the epochs that landed in the last N ms. Cursor-paginated (`:limit` / `:cursor`, default limit 50). |
 | `watch-epochs` | `watch-epochs.sh`         | Pull-mode poll for matching epochs added after a given epoch-id. Predicate keys: `:event-id`, `:event-id-prefix`, `:effects`, `:touches-path`, `:sub-ran`, `:render`, `:origin`, `:frame`, `:timing-ms` (number or `">N"` / `">=N"` / `"<N"` / `"<=N"` / `"=N"` — server-side wall-clock filter, rf2-r3azh). Cursor-paginated (`:limit` / `:cursor`, default limit 50). |
 | `tail-build`   | `tail-build.sh`           | Wait for a hot-reload to land by polling a probe form until its value changes. |
@@ -211,7 +211,7 @@ your editor is the source of truth.
 |-----------------------------|---------|--------------------------------------------------------------------------------------|
 | `--no-eval`                 | absent (eval-cljs ON) | Opt OUT of the `eval-cljs` tool. Default is eval-cljs ENABLED (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). See "eval-cljs gate" below. |
 | `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on the off-box read surfaces — direct-read tools (`snapshot` / `get-path` / `subscribe` / `trace-window` / `watch-epochs`) AND `dispatch-dry-run` (rf2-z7roa, whose `:db-state-after-simulation` + `:would-fire-effects[*].args` are app-db/fx-derived egress). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
-| `--allow-writes`            | OFF     | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `reset-frame-db` (state injection). Default-OFF gate (rf2-ee38b.18); without it both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval can express the same writes), so for a true read-only posture compose with `--no-eval`. See "writes gate" below. |
+| `--allow-writes`            | OFF     | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Default-OFF gate (rf2-ee38b.18); without it both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval can express the same writes), so for a true read-only posture compose with `--no-eval`. See "writes gate" below. |
 | `--port-file <path>`        | —       | Explicit, **cwd-independent** path to the nREPL port file. Highest precedence in port discovery (rf2-3dbwh); see "port-file flag" below. Accepts `--port-file <path>` and `--port-file=<path>`. |
 | `--http-port <n>`           | `9630`  | Shadow's web-server port for the auto-discovery probe (rf2-umoz2). Only consulted at port-discovery step 3; setting it has no effect when `--port-file` or `SHADOW_CLJS_NREPL_PORT` is present. |
 
@@ -305,8 +305,8 @@ the LLM-facing wire. Published builds ship with the gate **OFF**:
   before any tap consumer sees them. The `configure-raw-state!` signal
   that flips the runtime into this posture is issued by every tool that
   taps / egresses app-db — the read surfaces, `dispatch-dry-run`, AND
-  `reset-frame-db` — between the preload probe and the first state-
-  emitting eval, so a first `reset-frame-db` in an `--allow-writes`
+  `replace-app-db` — between the preload probe and the first state-
+  emitting eval, so a first `replace-app-db` in an `--allow-writes`
   session can never tap raw app-db ahead of the posture landing.
 
 Operators who need raw state for offline debug opt in at server launch:
@@ -332,7 +332,7 @@ of a pair-debug session.
 
 #### writes gate (rf2-ee38b.18)
 
-`restore-epoch` (time-travel undo) and `reset-frame-db` (state
+`restore-epoch` (time-travel undo) and `replace-app-db` (state
 injection) are the two Tool-Pair **write** primitives the server is the
 canonical consumer of (Tool-Pair §Time-travel, §Pair-tool writes). Both
 replace a frame's `app-db` wholesale — qualitatively more powerful than
@@ -507,7 +507,7 @@ The contract lives in [`spec/`](./spec/):
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What this server is, why it replaces the bash-shim chain. |
 | [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; lifecycle; tool dispatch. |
 | [`spec/002-nREPL-Transport.md`](./spec/002-nREPL-Transport.md) | Persistent socket, bencode framing, sentinel-based reconnect. |
-| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The full tool catalogue (the per-op set + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` / `list-streams` triad + `list-subscriptions` reactive-sub-cache read + `get-path` direct-read + `read-dom` view-plane read + the `record` / `read-recording` / `watch-until` signal-recorder set + the `handler-meta` / `list-handlers` registrar-introspection pair + the `restore-epoch` / `reset-frame-db` write pair gated behind `--allow-writes` + `dispatch-dry-run` + `get-re-frame2-pair-instructions` agent-onboarding), their argument schemas, EDN result shape. The authoritative ordered list is `registry/tools`. |
+| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The full tool catalogue (the per-op set + the `snapshot` mega-op + the streaming `subscribe` / `unsubscribe` / `list-streams` triad + `list-subscriptions` reactive-sub-cache read + `get-path` direct-read + `read-dom` view-plane read + the `record` / `read-recording` / `watch-until` signal-recorder set + the `handler-meta` / `list-handlers` registrar-introspection pair + the `restore-epoch` / `replace-app-db` write pair gated behind `--allow-writes` + `dispatch-dry-run` + `get-re-frame2-pair-instructions` agent-onboarding), their argument schemas, EDN result shape. The authoritative ordered list is `registry/tools`. |
 
 ## Development
 

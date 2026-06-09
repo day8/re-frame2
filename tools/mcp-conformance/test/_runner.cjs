@@ -504,7 +504,7 @@ function assertDescriptorShape(tools, { allowOpenWorld } = {}) {
 // pins WHICH tools exist. NEITHER pins per-tool CONTENT, so for an
 // UNCHANGED tool-set:
 //
-//   - a destructive write tool (restore-epoch, reset-frame-db,
+//   - a destructive write tool (restore-epoch, replace-app-db,
 //     register-variant, …) silently re-classified `readOnlyHint:true`
 //     / `destructiveHint` dropped still passes — `readOnlyHint` alone
 //     satisfies the "≥1 set" check. annotations are the TRUST SIGNAL an

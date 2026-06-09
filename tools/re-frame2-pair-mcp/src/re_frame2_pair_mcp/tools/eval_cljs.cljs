@@ -89,7 +89,7 @@
   ## Frame targeting (rf2-ntuzf)
 
   Every other structured op (`dispatch`, `snapshot`, `get-path`,
-  `trace-window`, `watch-epochs`, `subscribe`, `reset-frame-db`)
+  `trace-window`, `watch-epochs`, `subscribe`, `replace-app-db`)
   accepts an optional `:frame` arg targeting a named frame. Pre-
   rf2-ntuzf `eval-cljs` did NOT — the form ran against whatever
   ambient frame context existed at the call site (the MCP server's

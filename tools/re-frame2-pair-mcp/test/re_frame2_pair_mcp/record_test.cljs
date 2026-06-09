@@ -153,7 +153,7 @@
                                            (record/pred-source {:signal 0 :equals 1})
                                            "{:rf.size/include-large? false :rf.size/include-sensitive? false}")]
     (doseq [form [rec-form watch-form]
-            mutator ["pair-dispatch" "reset-frame-db" "app-db-reset"
+            mutator ["pair-dispatch" "replace-app-db" "app-db-reset"
                      ".setAttribute" ".dispatchEvent" ".innerHTML"
                      "restore-epoch"]]
       (is (not (str/includes? form mutator))

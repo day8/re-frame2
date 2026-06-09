@@ -167,7 +167,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The MCP surface takes a DATA predicate (EDN), never host source — the
-;; same injection-closing posture `dispatch` / `reset-frame-db` adopted
+;; same injection-closing posture `dispatch` / `replace-app-db` adopted
 ;; (rf2-vflrg). We compile the data predicate into a CLJS fn server-side-
 ;; emitted-into-the-form so the runtime's `start-recording!` / `watch-until`
 ;; receives a real `:pred-fn`. The predicate map is matched against the
@@ -193,7 +193,7 @@
   always DATA, never host source: a hostile `:equals (js/alert \"x\")`
   becomes `(quote (js/alert \"x\"))` — compared as a literal list, never
   evaluated. Same injection-closing posture as `dispatch` /
-  `reset-frame-db` (rf2-vflrg). The `:path` vector and the `:signal` index
+  `replace-app-db` (rf2-vflrg). The `:path` vector and the `:signal` index
   are quoted / integer-coerced for the same reason."
   [pred]
   (when (map? pred)

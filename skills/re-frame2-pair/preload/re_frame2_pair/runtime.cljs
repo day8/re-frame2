@@ -2031,7 +2031,7 @@
 
 (defn cascade-summary
   "Project an assembled `:rf/epoch-record` into the compact wire shape
-  surfaced by dispatch / reset-frame-db / restore-epoch / dispatch-dry-
+  surfaced by dispatch / replace-app-db / restore-epoch / dispatch-dry-
   run (rf2-6yqdl). See the §Cascade summary section header above for
   the slot inventory.
 
@@ -2489,7 +2489,7 @@
                      :before-epoch-id           before-id
                      ;; Project the would-be epoch into the same
                      ;; cascade-summary shape dispatch /
-                     ;; reset-frame-db / restore-epoch use (rf2-6yqdl).
+                     ;; replace-app-db / restore-epoch use (rf2-6yqdl).
                      ;; Operators read one vocabulary across all four.
                      :cascade-summary           (cascade-summary target-epoch)
                      :would-fire-effects        recorded

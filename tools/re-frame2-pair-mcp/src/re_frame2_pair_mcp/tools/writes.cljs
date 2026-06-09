@@ -7,7 +7,7 @@
     - `restore-epoch`   — time-travel undo: rewind a frame's app-db to
                           a recorded prior epoch
                           (spec/Tool-Pair.md §Time-travel).
-    - `reset-frame-db!` — state injection: replace a frame's app-db
+    - `replace-app-db!` — state injection: replace a frame's app-db
                           with an arbitrary value the runtime never
                           recorded (the JSON-loaded-bug-repro case,
                           spec/Tool-Pair.md §Pair-tool writes).
@@ -24,7 +24,7 @@
 
   Published builds ship these two tools **DISABLED**. The operator opts
   in at server launch via `--allow-writes`. When OFF (the default), the
-  `restore-epoch` and `reset-frame-db` tools return a structured
+  `restore-epoch` and `replace-app-db` tools return a structured
   `{:ok? false :reason :rf.error/writes-disabled ...}` WITHOUT touching
   the nREPL socket — a stock install cannot rewind history or inject
   state over the MCP **named-write** surface.
@@ -78,21 +78,21 @@
     {:ok?    false
      :reason :rf.error/writes-disabled
      :tool   tool
-     :hint   (str "State-mutating tools (restore-epoch, reset-frame-db) are "
+     :hint   (str "State-mutating tools (restore-epoch, replace-app-db) are "
                   "disabled by default; pass --allow-writes at server launch "
                   "to opt in. Read tools and dispatch are unaffected.")}))
 
 ;; ---------------------------------------------------------------------------
 ;; Server-boundary pre-dispatch gate (rf2-wz66k7).
 ;;
-;; The write-tool BODIES (`restore-epoch-tool` / `reset-frame-db-tool`)
+;; The write-tool BODIES (`restore-epoch-tool` / `replace-app-db-tool`)
 ;; each refuse `:rf.error/writes-disabled` as their first action without
 ;; touching the nREPL socket — correct AT THE TOOL LAYER. But the real MCP
 ;; server handler (`server.cljs/handle-call`) calls `ensure-connection!`
 ;; for EVERY tool BEFORE the tool body runs. On a stock install with no
 ;; nREPL port available, that connection step REJECTS (`:nrepl-port-not-
 ;; found`) and the tool body — and thus its write gate — NEVER fires. So a
-;; disabled `restore-epoch` / `reset-frame-db` returned a misleading
+;; disabled `restore-epoch` / `replace-app-db` returned a misleading
 ;; discovery error instead of the intended destructive-tool refusal, and
 ;; (when discovery WAS available) performed unnecessary connect /
 ;; elicitation work for a request that should be refused locally.
@@ -108,7 +108,7 @@
   "Tool names refused at the server boundary when `--allow-writes` is OFF
   (rf2-wz66k7). These two MUTATE app-db wholesale and can be refused with
   NO runtime connection — the gate is a pure function of the boot flag."
-  #{"restore-epoch" "reset-frame-db"})
+  #{"restore-epoch" "replace-app-db"})
 
 (defn refuse-pre-connection
   "Server-boundary pre-dispatch guard (rf2-wz66k7). Returns the

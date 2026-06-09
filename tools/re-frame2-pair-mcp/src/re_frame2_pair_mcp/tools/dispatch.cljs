@@ -339,7 +339,7 @@
         ;; frame — the runtime then no-op'd while the tool reported
         ;; `{:mode :sync}`. `->frame-keyword` strips the leading colon
         ;; so the frame routes the same way `eval-cljs` / `snapshot` /
-        ;; `reset-frame-db` already route it.
+        ;; `replace-app-db` already route it.
         frame        (some-> (wire/arg args :frame) args/->frame-keyword)
         fx-overrides (when-let [o (wire/arg args :fx-overrides)] (js->clj o :keywordize-keys true))
         ;; rf2-olvr5 finding 1 — `:trace` (`dispatch-and-collect`) and

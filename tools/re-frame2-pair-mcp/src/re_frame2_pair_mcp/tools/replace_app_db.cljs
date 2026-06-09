@@ -1,15 +1,16 @@
-(ns re-frame2-pair-mcp.tools.reset-frame-db
-  "Tool: reset-frame-db — state injection (rf2-ee38b.18).
+(ns re-frame2-pair-mcp.tools.replace-app-db
+  "Tool: replace-app-db — state injection (rf2-ee38b.18).
 
-  The Tool-Pair `reset-frame-db!` write primitive per
-  spec/Tool-Pair.md §Pair-tool writes: replace a frame's `app-db` with
-  an arbitrary value the runtime never recorded — the explicit
-  JSON-loaded-bug-repro use case. Wraps the preload runtime's
-  `app-db-reset!` (`(rf/reset-frame-db! frame-id new-db)`), which
-  bypasses the dispatch loop, replaces the container directly, and
-  records a synthetic `:rf/epoch-record` (`:event-id
-  :rf.epoch/db-replaced`) so a subsequent `restore-epoch` can rewind
-  past the injection.
+  The Tool-Pair `replace-app-db!` write primitive per
+  spec/Tool-Pair.md §Pair-tool writes (renamed from `reset-frame-db!`,
+  EP-0001 rf2-tfepxu — a db-shaped name never silently replaces
+  runtime-db): replace a frame's `app-db` with an arbitrary value the
+  runtime never recorded — the explicit JSON-loaded-bug-repro use case.
+  Wraps the preload runtime's `app-db-reset!`
+  (`(rf/replace-app-db! frame-id new-db)`), which bypasses the dispatch
+  loop, replaces the container directly, and records a synthetic
+  `:rf/epoch-record` (`:event-id :rf.epoch/db-replaced`) so a subsequent
+  `restore-epoch` can rewind past the injection.
 
   ## Gate (rf2-ee38b.18)
 
@@ -27,7 +28,7 @@
   certainly rejected by the frame's app-schema), never executed.
 
   The injection can fail for the documented `:rf.epoch/*` reasons
-  (no-such-frame, reset-during-drain, schema-mismatch — see
+  (no-such-frame, replace-app-db-during-drain, schema-mismatch — see
   spec/Tool-Pair.md §Pair-tool write failure modes). The runtime's
   `app-db-reset!` already returns a structured `{:ok? false :reason
   :reset-rejected ...}` on those soft failures; we pass it through.
@@ -41,7 +42,7 @@
   session launched with `--allow-writes` but the default sensitive-read
   posture (`--allow-sensitive-reads` OFF) could therefore emit raw
   app-db through tap consumers (10x, dev panels, the user's own
-  `add-tap`) on the FIRST `reset-frame-db` call — before any read
+  `add-tap`) on the FIRST `replace-app-db` call — before any read
   surface had a chance to signal the runtime.
 
   So this tool — like the direct-read surfaces (snapshot / get-path /
@@ -52,7 +53,7 @@
   cached 'delivered' flag would let a post-reload reset tap raw values);
   concurrent calls for the same build still share ONE in-flight
   configure Promise, so a reset can never tap raw values ahead of the
-  posture landing. This is why `reset-frame-db` does NOT use the plain
+  posture landing. This is why `replace-app-db` does NOT use the plain
   `probe/eval-after-runtime!` prelude (which skips the signal step) —
   it threads `signal-runtime!` between the probe and the eval."
   (:require [re-frame2-pair-mcp.nrepl :as nrepl]
@@ -69,9 +70,9 @@
 ;; shared `args/read-edn-arg` core (rf2-jkake.19); the richer
 ;; vector-shape `dispatch` parser is deliberately not shared with it.
 
-(defn reset-frame-db-tool [conn raw-args]
+(defn replace-app-db-tool [conn raw-args]
   (if-not (writes/writes-allowed?)
-    (js/Promise.resolve (writes/disabled-result "reset-frame-db"))
+    (js/Promise.resolve (writes/disabled-result "replace-app-db"))
     (let [db-str   (wire/arg raw-args :db)
           build-id (wire/arg-build conn raw-args)
           frame    (some-> (wire/arg raw-args :frame) args/->frame-keyword)
@@ -82,7 +83,7 @@
           (wire/err-text
             {:ok?    false
              :reason payload
-             :hint   "usage: reset-frame-db {db '<edn-app-db-value>' [frame :foo]}. db is parsed as EDN data (not host source) — e.g. \"{:cart {:items []}}\"."}))
+             :hint   "usage: replace-app-db {db '<edn-app-db-value>' [frame :foo]}. db is parsed as EDN data (not host source) — e.g. \"{:cart {:items []}}\"."}))
 
         :ok
         (let [new-db payload
@@ -113,4 +114,4 @@
                          (if (map? v)
                            v
                            {:ok? false :reason :unexpected-shape :value v :frame frame}))))
-              (.catch (fn [err] (probe/err->result :reset-frame-db-failed err)))))))))
+              (.catch (fn [err] (probe/err->result :replace-app-db-failed err)))))))))

@@ -129,7 +129,7 @@ The op vocabulary overlaps cleanly: the bash shims cover six of the
 canonical re-frame2-pair ops (`discover-app`, `eval-cljs`, `dispatch`,
 `trace-window`, `watch-epochs`, `tail-build`), with identical names
 and arg shapes — only the transport differs. Every other MCP tool
-(the write pair `restore-epoch` / `reset-frame-db`, `dispatch-dry-run`,
+(the write pair `restore-epoch` / `replace-app-db`, `dispatch-dry-run`,
 the mega-op reads `snapshot` / `get-path`, the read-orientation pair
 `orient` / `read-sub`, the view-plane reads `read-dom` / `read-ui`,
 the signal recorder `record` / `read-recording` / `watch-until`, the
@@ -932,7 +932,7 @@ mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`)
 reserved for derived projections that span multiple registry kinds.
 
 Pair2-mcp's current tools (`discover-app`, `orient`, `eval-cljs`,
-`dispatch`, `dispatch-dry-run`, `restore-epoch`, `reset-frame-db`,
+`dispatch`, `dispatch-dry-run`, `restore-epoch`, `replace-app-db`,
 `trace-window`, `watch-epochs`, `tail-build`, `snapshot`, `get-path`,
 `read-sub`, `read-dom`, `read-ui`, `record`, `read-recording`,
 `watch-until`, `subscribe`, `unsubscribe`, `list-subscriptions`,

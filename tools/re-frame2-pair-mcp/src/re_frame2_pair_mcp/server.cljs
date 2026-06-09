@@ -393,7 +393,7 @@
         name   (j/get params :name)
         args   (or (j/get params :arguments) #js {})]
     (if-let [refusal (writes/refuse-pre-connection name)]
-      ;; rf2-wz66k7 — a gated write tool (restore-epoch / reset-frame-db)
+      ;; rf2-wz66k7 — a gated write tool (restore-epoch / replace-app-db)
       ;; with `--allow-writes` OFF is refused HERE, before `ensure-
       ;; connection!`. Otherwise a stock install with no nREPL port returns
       ;; a misleading `:nrepl-port-not-found` (or runs discovery /
@@ -579,7 +579,7 @@
                                named gate (rf2-g9fje / rf2-uaymx).
     --allow-writes           — opt-in to the state-mutating tools
                                `restore-epoch` (time-travel undo) and
-                               `reset-frame-db` (state injection), rf2-ee38b.18.
+                               `replace-app-db` (state injection), rf2-ee38b.18.
                                Default OFF. Without the flag both return
                                `{:ok? false :reason :rf.error/writes-disabled}`
                                without touching the nREPL socket. `dispatch`
@@ -628,7 +628,7 @@
   ;; multi-MCP logs see one vocabulary.
   (log! "Sensitive reads:" (if allow-raw-state? "allowed (--allow-sensitive-reads)" "gated (default; pass --allow-sensitive-reads to opt in)"))
   ;; rf2-ee38b.18 — the state-mutating tool gate. Default OFF;
-  ;; restore-epoch / reset-frame-db replace app-db wholesale and the
+  ;; restore-epoch / replace-app-db replace app-db wholesale and the
   ;; gate keeps the named-write audit trail clean. Note: this gate
   ;; does NOT defend against eval-driven writes (eval-cljs can
   ;; express the same writes); see rf2-a0z0h for the rationale.

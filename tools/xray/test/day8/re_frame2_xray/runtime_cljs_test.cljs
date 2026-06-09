@@ -92,7 +92,7 @@
    ;; Mutation (3)
    ['dispatch!           runtime/dispatch!]
    ['restore-epoch!      runtime/restore-epoch!]
-   ['reset-frame-db!     runtime/reset-frame-db!]
+   ['replace-app-db!     runtime/replace-app-db!]
    ;; Streaming (3)
    ['subscribe!          runtime/subscribe!]
    ['unsubscribe!        runtime/unsubscribe!]
@@ -824,13 +824,13 @@
 ;; shape so the drift cannot silently return, and prove the per-slice
 ;; values route through egress-value (privacy + size minimisation).
 ;;
-;; `reset-frame-db!` records a synthetic epoch with :db-before = the old
+;; `replace-app-db!` records a synthetic epoch with :db-before = the old
 ;; app-db and :db-after = the injected value — the deterministic way to
 ;; seed an epoch with a known before/after pair in a node unit test
 ;; (the epoch artefact is a hard Xray dep per tools/xray/deps.edn).
 
 (defn- record-epoch-via-reset!
-  "Seed `before` into the sole frame, then `reset-frame-db!` to `after`
+  "Seed `before` into the sole frame, then `replace-app-db!` to `after`
   so the framework records a synthetic epoch carrying
   `:db-before before` / `:db-after after`. Returns the recorded
   epoch's `:epoch-id`."
