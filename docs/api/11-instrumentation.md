@@ -239,7 +239,7 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```clojure
   (elide-wire-value v opts) → v or an elision-marker substitution
   ```
-- **Description**: Walk `v` consulting `[:rf/runtime :elision :declarations]` and `[:rf/runtime :elision :sensitive-declarations]` of the named frame's `app-db`. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots.
+- **Description**: Walk `v` consulting `[:rf.runtime/elision :declarations]` and `[:rf.runtime/elision :sensitive-declarations]` of the named frame's **runtime-db**. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots.
 
 ### `elision-declarations`
 
@@ -249,7 +249,7 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   (elision-declarations)
   (elision-declarations frame-id)
   ```
-- **Description**: Read the current `[:rf/runtime :elision :declarations]` map for the frame (or `{}`). Pair-tool / introspection reader.
+- **Description**: Read the current `[:rf.runtime/elision :declarations]` map (from runtime-db) for the frame (or `{}`). Pair-tool / introspection reader.
 
 ### `populate-elision-from-schemas!`
 
