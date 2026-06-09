@@ -38,8 +38,8 @@ The error variant looks like this:
    :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
    :script [[:dispatch-sync [:rf.assert/state-is :login/flow :error]]
             [:dispatch-sync
-             [:rf.assert/path-equals
-              [:rf/runtime :machines :snapshots :login/flow :data :error]
+             [:rf.assert/sub-equals
+              [:login/error]
               "Invalid credentials."]]]
    :tags #{:dev :docs :test}})
 ```

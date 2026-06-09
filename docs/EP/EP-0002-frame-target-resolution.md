@@ -7,7 +7,7 @@ Status: final
 > EP is implemented **per the [Appendix reframing](#appendix-design-review-commentary--toward-a-smaller-more-carried-rule)** — the
 > positive *carried-invariant* formulation, not the subtractive as-written body. The
 > normative core of the reframed contract lives in
-> [`spec/002-Frames.md` §Frame target resolution](../spec/002-Frames.md#frame-target-resolution--the-carried-invariant).
+> [`spec/002-Frames.md` §Frame target resolution](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant).
 > This bead (`rf2-u5o1bo`) lands the **foundation** — decision + normative spec core +
 > chain decomposition; the downstream migration is the serial chain filed below.
 
@@ -1231,7 +1231,7 @@ For agents reading the body above against this section: the **§Frame Target
 Invariant** six-source list, the §Public API Shape framing, and the migration
 inventory's per-site "remove the default" phrasing are **subordinate** to the
 reframing rulings. The normative statement of the contract is
-[`spec/002-Frames.md` §Frame target resolution](../spec/002-Frames.md#frame-target-resolution--the-carried-invariant);
+[`spec/002-Frames.md` §Frame target resolution](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant);
 where the EP body and that spec section differ, the spec section governs.
 
 ## Bead Structure
