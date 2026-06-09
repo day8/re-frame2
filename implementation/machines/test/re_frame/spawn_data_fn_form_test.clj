@@ -26,19 +26,16 @@
   the same fn-form per Spec 005 §Spec-spec keys (line 1818)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.test-support :as mtest]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-(defn- snapshot
-  [machine-id]
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
-
-(defn- frame-db []
-  (rf/runtime-db-value :rf/default))
+;; runtime-db / snapshot lookup via the shared machines test-support
+;; (rf2-3l8lqe finding #4) — no hardcoded `[:rf.runtime/machines …]` path.
+(def ^:private snapshot mtest/snapshot)
+(def ^:private frame-db mtest/runtime-db)
 
 ;; ---- (1) literal-map :data — back-compat regression -----------------------
 
@@ -135,8 +132,7 @@
 
 (deftest fn-form-data-throw-routes-to-machine-action-exception
   (testing "fn-form `:data` throw halts the cascade and emits :rf.error/machine-action-exception (Spec 005:1597)"
-    (let [traces (atom [])
-          child  {:initial :running :data {} :states {:running {}}}
+    (let [child  {:initial :running :data {} :states {:running {}}}
           parent {:initial :idle
                   :states
                   {:idle    {:on {:start :working}}
@@ -145,9 +141,9 @@
                                                     (throw (ex-info "boom" {:why :test})))}}}}]
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/throwing parent)
-      (try
-        (trace/register-listener! ::h131-error
-                                  (fn [ev] (swap! traces conj ev)))
+      ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
+      ;; unregister in a `finally`, no hand-rolled register/try/finally.
+      (mtest/with-trace-capture traces
         (rf/dispatch-sync [:sup/throwing [:start]])
         ;; The cascade halted: no actor was spawned. Per Spec 005 §Errors,
         ;; the snapshot does NOT commit — the parent's lazy initial snapshot
@@ -163,8 +159,7 @@
         (is (some #(and (= :error (:op-type %))
                         (= :rf.error/machine-action-exception (:operation %)))
                   @traces)
-            "an :rf.error/machine-action-exception trace was emitted")
-        (finally (trace/unregister-listener! ::h131-error))))))
+            "an :rf.error/machine-action-exception trace was emitted")))))
 
 ;; ---- (5) :spawn-all child :data fn-form is materialised ------------------
 

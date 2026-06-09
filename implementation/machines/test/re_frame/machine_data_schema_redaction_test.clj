@@ -40,13 +40,13 @@
             ;; late-bind (`extract-sensitive-paths-from-schema` /
             ;; `extract-large-paths-from-schema`); the `.malli` adapter ns
             ;; publishes the default validator.
+            [re-frame.machines.test-support :as mtest]
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- fixtures -------------------------------------------------------------
 
@@ -410,8 +410,8 @@
 
 (def ^:private spawn-type-id :rf.machine-redaction/spawn-worker)
 
-(defn- frame-db []
-  (rf/runtime-db-value :rf/default))
+;; runtime-db lookup via the shared machines test-support (rf2-3l8lqe finding #4).
+(def ^:private frame-db mtest/runtime-db)
 
 (deftest spawned-instance-gets-schema-marks-keyed-under-instance-id
   (testing "spawning an actor whose TYPE carries a :sensitive? / :large?

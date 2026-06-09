@@ -25,10 +25,10 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.machines.test-support :as mtest]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
 (defn- element-coords [machine-id slot id]

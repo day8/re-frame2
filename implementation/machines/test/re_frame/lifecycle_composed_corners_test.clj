@@ -26,17 +26,20 @@
             [re-frame.frame :as frame]
             [re-frame.machines]
             [re-frame.machines.spawn-order :as spawn-order]
+            [re-frame.machines.test-support :as mtest]
             [re-frame.machines.timer :as timer]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- helpers --------------------------------------------------------------
 
+;; Intentional RAW manual-stop listener (not mtest/with-trace-capture): hands
+;; the caller a [observation-atom unregister-fn] pair so the test controls
+;; exactly WHEN it stops listening — the scope-macro form cannot express that.
 (defn- record!
   "Attach a trace listener and return [observation-atom unreg-fn]."
   [id]

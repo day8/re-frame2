@@ -30,16 +30,16 @@
       shallowest-first (per Spec 005 §Initial cascading)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines.test-support :as mtest]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-(defn- snapshot
-  [machine-id]
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
+;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+(def ^:private snapshot mtest/snapshot)
 
 ;; ---- (1) singleton-machine initial :entry firing -------------------------
 

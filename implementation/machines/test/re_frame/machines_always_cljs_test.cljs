@@ -13,16 +13,16 @@
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.machines.test-support :as mtest]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-(defn- snapshot
-  "Read the snapshot for `machine-id` from the default frame's app-db."
-  [machine-id]
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
+;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path. Inline trace
+;; captures below keep their raw trace.tooling register/unregister.
+(def ^:private snapshot mtest/snapshot)
 
 (deftest machine-always-cljs
   (testing ":always fires once after the resolving event under a true guard"

@@ -31,23 +31,22 @@
   notice the absent trace events."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace]))
+            [re-frame.machines.test-support :as mtest]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
 (defn- record-traces!
   "Register a trace listener for the duration of `body-fn`, returning
-  the captured trace vec."
+  the captured trace vec. Routed through the shared
+  `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed unregister
+  in a `finally`."
   [body-fn]
-  (let [seen (atom [])]
-    (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
-    (try (body-fn)
-         (finally (rf/unregister-listener! ::rec)))
+  (mtest/with-trace-capture seen
+    (body-fn)
     @seen))
 
 (defn- of-op [evs op]

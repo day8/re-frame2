@@ -52,8 +52,8 @@
             [re-frame.machines :as machines]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.result :as result]
-            [re-frame.machines.transition :as transition]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.test-support :as mtest]
+            [re-frame.machines.transition :as transition]))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-ugdas + rf2-t4582 — the BENIGN unhandled-event no-op (xstate-v5
@@ -71,13 +71,12 @@
 (defn- capture-events!
   "Drive a pure `machine-transition` while a tooling listener records every
   emitted trace event (full envelope). Returns the vector of events
-  (deterministic — no wall-clock / random)."
+  (deterministic — no wall-clock / random). Routed through the shared
+  `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed unregister
+  in a `finally`."
   [definition snapshot event]
-  (let [seen (atom [])]
-    (trace/register-listener! ::ops (fn [ev] (swap! seen conj ev)))
-    (try
-      (machines/machine-transition definition snapshot event)
-      (finally (trace/unregister-listener! ::ops)))
+  (mtest/with-trace-capture seen
+    (machines/machine-transition definition snapshot event)
     @seen))
 
 (defn- capture-ops!
@@ -178,25 +177,25 @@
   (testing "the initial-entry cascade emits the :initial-entry-phase action-ran
    and installs the initial state — NOT an unhandled-no-op for
    [:rf.machine/start]"
-    (let [seen (atom [])
-          _    (trace/register-listener! ::boot (fn [ev] (swap! seen conj ev)))
-          r    (try (parallel/apply-initial-entry-cascade
-                      boot-entry-spec {:state :a :data {}})
-                    (finally (trace/unregister-listener! ::boot)))
-          evs  @seen
-          ops  (mapv :operation evs)
-          no-op-evs (filter #(= :rf.machine.event/unhandled-no-op %) ops)
-          entry-evs (filter #(and (= :rf.machine/action-ran (:operation %))
-                                  (= :initial-entry (:phase (:tags %))))
-                            evs)]
-      (is (result/ok? r) "the bootstrap cascade succeeds")
-      (is (= :a (:state (::result/snap r))) "the initial state is installed")
-      (is (zero? (count no-op-evs))
-          "the bootstrap does NOT emit an unhandled-no-op (it is the machine's
-           BIRTH, not an ignored event)")
-      (is (pos? (count entry-evs))
-          "the entry action ran with :phase :initial-entry — the :initial-entry
-           cascade rendered"))))
+    ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
+    ;; unregister in a `finally`.
+    (mtest/with-trace-capture seen
+      (let [r    (parallel/apply-initial-entry-cascade
+                   boot-entry-spec {:state :a :data {}})
+            evs  @seen
+            ops  (mapv :operation evs)
+            no-op-evs (filter #(= :rf.machine.event/unhandled-no-op %) ops)
+            entry-evs (filter #(and (= :rf.machine/action-ran (:operation %))
+                                    (= :initial-entry (:phase (:tags %))))
+                              evs)]
+        (is (result/ok? r) "the bootstrap cascade succeeds")
+        (is (= :a (:state (::result/snap r))) "the initial state is installed")
+        (is (zero? (count no-op-evs))
+            "the bootstrap does NOT emit an unhandled-no-op (it is the machine's
+             BIRTH, not an ignored event)")
+        (is (pos? (count entry-evs))
+            "the entry action ran with :phase :initial-entry — the :initial-entry
+             cascade rendered")))))
 
 ;; ---------------------------------------------------------------------------
 ;; :rf.error/machine-bad-state-form — state-path throws on a malformed

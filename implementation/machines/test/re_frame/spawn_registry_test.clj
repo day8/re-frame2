@@ -38,20 +38,16 @@
   the in-app-db slot directly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.test-support :as mtest]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-(defn- snapshot
-  "Read the snapshot for `machine-id` from the default frame's app-db."
-  [machine-id]
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
-
-(defn- frame-db []
-  (rf/runtime-db-value :rf/default))
+;; runtime-db / snapshot lookup via the shared machines test-support
+;; (rf2-3l8lqe finding #4) — no hardcoded `[:rf.runtime/machines …]` path.
+(def ^:private snapshot mtest/snapshot)
+(def ^:private frame-db mtest/runtime-db)
 
 ;; ---- (1) spawn writes [:rf.runtime/machines :spawned <parent> <invoke-id>] ------------------
 
@@ -302,12 +298,14 @@
 
 (defn- capture-warn-ops!
   "Run `thunk` while a trace listener records every emitted `:operation`.
-  Returns the vector of operations seen during the body."
+  Returns the vector of operations seen during the body. Routed through the
+  shared `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
+  unregister in a `finally` — then projects each envelope to its
+  `:operation`."
   [thunk]
-  (let [seen (atom [])]
-    (trace/register-listener! ::on-spawn-warn (fn [ev] (swap! seen conj (:operation ev))))
-    (try (thunk) (finally (trace/unregister-listener! ::on-spawn-warn)))
-    @seen))
+  (mtest/with-trace-capture seen
+    (thunk)
+    (mapv :operation @seen)))
 
 (deftest on-spawn-returning-a-value-warns-exactly-once
   (testing "an :on-spawn callback that returns a non-nil (dropped) value

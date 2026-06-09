@@ -29,12 +29,12 @@
             ;; when the test ns doesn't reach `machines/...` directly.
             [re-frame.machines]
             [re-frame.machines.spawn-order :as spawn-order]
+            [re-frame.machines.test-support :as mtest]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- spawn-order channel — record / forget / clear ----------------------
 
@@ -166,8 +166,7 @@
 (deftest frame-destroy-emits-lifecycle-trace-per-active-machine
   (testing "destroy-frame! emits :rf.machine.lifecycle/destroyed per active actor with :reason :parent-frame-destroyed"
     (rf/reg-frame :lt/auth {:doc "lifecycle-trace frame"})
-    (let [traces (atom [])
-          child  {:initial :running :data {} :states {:running {}}}
+    (let [child  {:initial :running :data {} :states {:running {}}}
           boot   {:initial :idle
                   :data    {}
                   :states
@@ -181,22 +180,23 @@
       (rf/reg-machine :lt/child child)
       (rf/reg-machine :lt/boot boot)
       (rf/dispatch-sync [:lt/boot [:start]] {:frame :lt/auth})
-      (rf/register-listener! ::lt (fn [ev] (swap! traces conj ev)))
-      (rf/destroy-frame! :lt/auth)
-      (rf/unregister-listener! ::lt)
-      (let [destroyed (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
-                              @traces)]
-        ;; Two spawned actors PLUS the singleton :lt/boot snapshot
-        ;; that lives in [:rf.runtime/machines :snapshots] of this frame — three traces.
-        (is (= 3 (count destroyed))
-            "one trace per actor with a [:rf.runtime/machines :snapshots <id>] snapshot")
-        (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) destroyed)
-            "every trace carries :reason :parent-frame-destroyed")
-        (is (every? #(= :lt/auth (:frame (:tags %))) destroyed)
-            "every trace carries the destroyed frame id")
-        (is (= #{:lt/child#1 :lt/child#2 :lt/boot}
-               (set (map #(:machine-id (:tags %)) destroyed)))
-            "trace covers every active machine — spawned actors + the singleton boot machine")))))
+      ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
+      ;; unregister in a `finally`.
+      (mtest/with-trace-capture traces
+        (rf/destroy-frame! :lt/auth)
+        (let [destroyed (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
+                                @traces)]
+          ;; Two spawned actors PLUS the singleton :lt/boot snapshot
+          ;; that lives in [:rf.runtime/machines :snapshots] of this frame — three traces.
+          (is (= 3 (count destroyed))
+              "one trace per actor with a [:rf.runtime/machines :snapshots <id>] snapshot")
+          (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) destroyed)
+              "every trace carries :reason :parent-frame-destroyed")
+          (is (every? #(= :lt/auth (:frame (:tags %))) destroyed)
+              "every trace carries the destroyed frame id")
+          (is (= #{:lt/child#1 :lt/child#2 :lt/boot}
+                 (set (map #(:machine-id (:tags %)) destroyed)))
+              "trace covers every active machine — spawned actors + the singleton boot machine"))))))
 
 ;; ---- HTTP abort preserved for every active actor -------------------------
 

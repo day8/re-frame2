@@ -52,6 +52,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.machines :as machines]
             [re-frame.machines.result :as result]
+            [re-frame.machines.test-support :as mtest]
             [re-frame.trace :as trace]))
 
 (def auth-flow-spec
@@ -164,6 +165,11 @@
           r-no-listener (machines/machine-transition m input [:go])
           ;; A listener registered: same call, listener observes the
           ;; emitted diagnostics; assert the RETURNED Result is unchanged.
+          ;; Intentional RAW register/unregister (not mtest/with-trace-capture):
+          ;; this test's whole point is to compare the reduction WITH a raw
+          ;; listener present vs WITHOUT one, binding `r-with-listener` from the
+          ;; guarded call and reading `@seen` in the surrounding `let` — the
+          ;; scope-macro form cannot express the with/without comparison.
           seen          (atom [])
           r-with-listener
           (do (trace/register-listener! ::purity-probe (fn [ev] (swap! seen conj ev)))
@@ -250,13 +256,12 @@
 (defn- capture-error-depth!
   "Drive a pure `machine-transition` while a tooling listener records traces,
   returning the `:depth` tag of the first error trace whose `:operation`
-  matches `error-op` (or nil if none fired)."
+  matches `error-op` (or nil if none fired). Routed through the shared
+  `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed unregister
+  in a `finally`."
   [error-op definition snapshot event]
-  (let [seen (atom [])]
-    (trace/register-listener! ::depth-probe (fn [ev] (swap! seen conj ev)))
-    (try
-      (machines/machine-transition definition snapshot event)
-      (finally (trace/unregister-listener! ::depth-probe)))
+  (mtest/with-trace-capture seen
+    (machines/machine-transition definition snapshot event)
     (->> @seen
          (filter #(= error-op (:operation %)))
          first

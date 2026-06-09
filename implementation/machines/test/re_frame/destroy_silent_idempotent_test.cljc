@@ -33,23 +33,28 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.machines.test-support :as mtest]
    ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`
    ;; (production-DCE split).
    [re-frame.trace.tooling :as trace-tooling]
    [re-frame.registrar :as registrar]
-   [re-frame.test-support :as test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (mtest/make-reset-runtime-fixture
     #?(:clj  {:adapter plain-atom/adapter}
        :cljs {:adapter reagent-adapter/adapter})))
 
-(defn- snapshot
-  [machine-id]
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
+;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+(def ^:private snapshot mtest/snapshot)
 
+;; Intentional RAW register-only listener (not mtest/with-trace-capture):
+;; returns the live capture atom for the caller to read across multiple
+;; macrosteps; the per-test fixture reset clears the listener table — a fresh
+;; capture scope per call would lose the cross-step accumulation the silent-
+;; idempotent tests assert on.
 (defn- record-traces!
   [k]
   (let [a (atom [])]
