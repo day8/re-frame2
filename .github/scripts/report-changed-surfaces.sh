@@ -454,6 +454,23 @@ else
         mcp_conformance=true
         mcp_live=true
         ;;
+      skills/re-frame2/references/tooling/story-mcp-loop.md)
+        # rf2-jbwraa — code↔skill drift ratchet routing. The
+        # tools/story-mcp JVM test `skill-leaf-tool-names-match-registry`
+        # (tools_test.clj) PINS this leaf's prose catalogue against the
+        # live story-mcp tool registry (slurps ../../skills/re-frame2/
+        # references/tooling/story-mcp-loop.md). That gate fires only under
+        # `jvm-tools-story-mcp` (gated by tools_jvm) — which previously ran
+        # ONLY when tools/story-mcp/** changed, NOT when this cross-checked
+        # leaf changed. So a leaf edit that desynced the ratchet merged
+        # green and left main latently RED (rf2-r2xswa/#3637). Route a
+        # change to this specific leaf to tools_jvm + mcp_conformance,
+        # mirroring the tools/story-mcp/* case, so the ratchet runs at PR
+        # time. Scoped to the single pinned path — no broader skills/
+        # re-frame2/** fan-out.
+        tools_jvm=true
+        mcp_conformance=true
+        ;;
       skills/re-frame2-pair/tests/fixture/*)
         skills_structural=true
         mcp_conformance=true
