@@ -19,11 +19,12 @@
 
 ;; Initialise the count. The Story playground's `:setup` slot dispatches
 ;; this before any variant-specific events fire, so every variant starts
-;; from a known shape. We `assoc` rather than replace the whole `:db`
-;; so the Story runtime's per-frame lifecycle machine slot
-;; (`[:rf/runtime :machines :snapshots ...]`) — which sits in app-db before `:counter/initialise`
-;; runs — survives. Returning `{:db {:count ...}}` would clobber it
-;; and the variant's lifecycle would stall at `:pre-mount`.
+;; from a known shape. We `assoc` rather than replace the whole `:db` to
+;; preserve any app-db keys the variant seeded earlier (a conventional
+;; reducer shape). The Story runtime's per-frame lifecycle machine snapshot
+;; lives at `[:rf.runtime/machines :snapshots ...]` in the frame's
+;; runtime-db partition (EP-0001 rf2-vzld77 — durable runtime-db state, not
+;; app-db), so a `:db` (app-db) effect can never touch it.
 (rf/reg-event-fx :counter/initialise
   (fn [{:keys [db]} [_ initial-count]]
     {:db (assoc db :count (or initial-count 0))}))

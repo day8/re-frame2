@@ -53,7 +53,8 @@
   ;; double-install error if the adapter is already in place.
   (try (rf/init! plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
-  ;; Re-require machines so its `reg-sub :rf/machine` survives the
+  ;; Re-require machines so its framework `:rf/machine` runtime-db sub
+  ;; (EP-0001: reads `[:rf.runtime/machines :snapshots <id>]`) survives the
   ;; registrar/clear-all! call. Mirrors the machines test fixtures.
   (require 're-frame.machines :reload)
   (machines/reset-timers!)

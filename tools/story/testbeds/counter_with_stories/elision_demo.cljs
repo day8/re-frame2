@@ -91,7 +91,8 @@
 ;; `:large?` props live on the schema's own property map. The
 ;; framework's `populate-elision-from-schemas!` walker reads those
 ;; top-level props and writes a `{:large? true :source :schema}`
-;; entry into `[:rf/runtime :elision :declarations]`.
+;; entry into `[:rf.runtime/elision :declarations]` in the frame's
+;; runtime-db partition (EP-0001 rf2-vzld77).
 ;;
 ;; The runtime ROLLS BACK on a post-commit app-db schema failure —
 ;; the slot may be `nil` (when the user hasn't uploaded yet), so the
@@ -213,8 +214,9 @@
   "Register the demo console listener. Idempotent — re-registering
   under the same id replaces. Also calls
   `rf/populate-elision-from-schemas!` so the schema-driven `:large?`
-  declarations land in the active frame's `[:rf/runtime :elision
-  :declarations]` registry before any wire consumer asks for them.
+  declarations land in the active frame's `[:rf.runtime/elision
+  :declarations]` runtime-db registry (EP-0001 rf2-vzld77) before any
+  wire consumer asks for them.
   The populate step is normally run once at boot per Spec 009
   §Schema-driven boot population."
   []

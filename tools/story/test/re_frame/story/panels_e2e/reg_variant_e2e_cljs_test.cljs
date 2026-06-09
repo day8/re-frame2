@@ -57,7 +57,8 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story :as story]
             [re-frame.story.async :as async-lib]
-            [re-frame.story.loaders :as loaders]))
+            [re-frame.story.loaders :as loaders]
+            [re-frame.subs :as subs]))
 
 ;; ---- fixture: reset registrar + canonical vocab + counter events --------
 
@@ -68,12 +69,12 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-  ;; Re-register the machines artefact's framework-shipped sub
-  ;; (`:rf/machine`) after the registrar clear — see the matching
-  ;; comment in `variant_lifecycle_e2e_cljs_test.cljs`.
-  (rf/reg-sub :rf/machine
-              (fn [db [_ machine-id]]
-                (get-in db [:rf/runtime :machines :snapshots machine-id])))
+  ;; Re-register the machines artefact's framework-shipped `:rf/machine`
+  ;; sub (a runtime-db sub under EP-0001) after the registrar clear —
+  ;; see the matching comment in `variant_lifecycle_e2e_cljs_test.cljs`.
+  (subs/reg-runtime-sub :rf/machine
+    (fn [runtime-db [_ machine-id]]
+      (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (story/install-canonical-vocabulary!)
@@ -85,10 +86,11 @@
 ;; ---- counter events ------------------------------------------------------
 
 (defn- install-counter-events! []
-  ;; `assoc` (not replace) so the lifecycle machine slot under
-  ;; `[:rf/runtime :machines :snapshots :rf.story.lifecycle/machine]` survives — same
-  ;; warning as `counter_with_stories/events.cljs` and the matching
-  ;; comment in the lifecycle test.
+  ;; `assoc` (not replace) is the conventional reducer shape. The lifecycle
+  ;; machine snapshot under `[:rf.runtime/machines :snapshots
+  ;; :rf.story.lifecycle/machine]` lives in the frame's runtime-db partition
+  ;; (EP-0001 rf2-vzld77), so a `:db` (app-db) effect cannot touch it — same
+  ;; note as `counter_with_stories/events.cljs` and the lifecycle test.
   (rf/reg-event-db :counter/initialise
     (fn [db [_ n]] (assoc db :count (or n 0))))
   (rf/reg-event-db :counter/inc
@@ -157,6 +159,31 @@
               (is (assertions-passing? result)
                   "every :rf.assert/* row in the result is :passed? true")
               (story/destroy-variant! :story.counter/empty)
+              (done)))))))
+
+;; ---- rf2-ixb0bq — the re-registered :rf/machine sub reads runtime-db -----
+;;
+;; Regression guard. The fixture re-registers `:rf/machine` as a runtime-db
+;; sub (EP-0001). After a clean run the lifecycle machine's snapshot lives at
+;; `[:rf.runtime/machines :snapshots :rf.story.lifecycle/machine]` in the
+;; variant frame's runtime-db; computing the framework sub against the
+;; frame-state value resolves the LIVE `{:state :ready …}` snapshot — proving
+;; the read targets runtime-db, NOT the dead app-db `:rf/runtime` path.
+
+(deftest rf-machine-sub-resolves-live-runtime-db-snapshot
+  (testing ":rf/machine resolves the live lifecycle snapshot off runtime-db"
+    (async done
+      (-> (story/run-variant :story.counter/loaded)
+          (async-lib/then
+            (fn [_result]
+              (let [fs   (rf/frame-state-value :story.counter/loaded)
+                    snap (rf/compute-sub
+                          [:rf/machine :rf.story.lifecycle/machine] fs)]
+                (is (some? snap)
+                    ":rf/machine read the live runtime-db snapshot, not nil")
+                (is (= :ready (:state snap))
+                    "the live snapshot's :state is :ready after a clean run"))
+              (story/destroy-variant! :story.counter/loaded)
               (done)))))))
 
 ;; ---- (2) :story.counter/loaded -- count 7 -------------------------------

@@ -40,7 +40,8 @@
             [re-frame.story :as story]
             [re-frame.story.async :as async-lib]
             [re-frame.story.loaders :as loaders]
-            [re-frame.story.ui.canvas :as canvas]))
+            [re-frame.story.ui.canvas :as canvas]
+            [re-frame.subs :as subs]))
 
 ;; Async tests need a map-form fixture so cljs.test's `async` body
 ;; can suspend around the per-test boundary. Mirrors the proven reset
@@ -58,11 +59,15 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (try (rf/init! plain-atom/adapter) (catch :default _ nil))
-  ;; Re-register the machines artefact's framework-shipped sub
-  ;; (`:rf/machine`) after the registrar clear.
-  (rf/reg-sub :rf/machine
-              (fn [db [_ machine-id]]
-                (get-in db [:rf/runtime :machines :snapshots machine-id])))
+  ;; Re-register the machines artefact's framework-shipped `:rf/machine`
+  ;; sub after the registrar clear. EP-0001 (rf2-vzld77 / rf2-ixb0bq):
+  ;; machine snapshots are durable RUNTIME-DB state at
+  ;; [:rf.runtime/machines :snapshots <id>], so this is a runtime-db sub
+  ;; (db-position arg is the runtime-db value) — mirror `re-frame.machines`,
+  ;; NOT the retired app-db `:rf/runtime` path.
+  (subs/reg-runtime-sub :rf/machine
+    (fn [runtime-db [_ machine-id]]
+      (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (story/install-canonical-vocabulary!)
@@ -74,14 +79,14 @@
 ;; ---- fixtures: register the counter events the variants dispatch -------
 
 (defn- install-counter-events! []
-  ;; `assoc` rather than replace `db` so the variant frame's
-  ;; `[:rf/runtime :machines :snapshots :rf.story.lifecycle/machine]` slot (written by the
-  ;; lifecycle machine's transitions before any user event fires)
-  ;; survives the loader-event commit. Replacing the whole `:db`
-  ;; clobbers it and the lifecycle stalls at `:pre-mount` — same class
-  ;; of bug documented inline at
-  ;; `tools/story/testbeds/counter_with_stories/events.cljs` (the
-  ;; assoc-vs-replace warning).
+  ;; `assoc` rather than replace `db` is the conventional reducer shape —
+  ;; it preserves any app-db keys seeded earlier. The variant frame's
+  ;; lifecycle machine snapshot at `[:rf.runtime/machines :snapshots
+  ;; :rf.story.lifecycle/machine]` lives in the frame's runtime-db
+  ;; partition (EP-0001 rf2-vzld77 — durable runtime-db state, not app-db),
+  ;; so a `:db` (app-db) effect cannot touch it regardless of assoc-vs-
+  ;; replace. Same note inline at
+  ;; `tools/story/testbeds/counter_with_stories/events.cljs`.
   (rf/reg-event-db :counter/initialise
     (fn [db [_ n]] (assoc db :count (or n 5))))
   (rf/reg-event-db :counter/inc
@@ -132,6 +137,36 @@
                                         (= :rf.error/loader-incomplete (:assertion a))))
                                   (:assertions result)))
                   "no error assertions on a clean run")
+              (story/destroy-variant! :story.counter-matrix/loader-success)
+              (done)))))))
+
+;; ---- the re-registered :rf/machine sub reads the LIVE runtime-db snapshot
+;;
+;; rf2-ixb0bq regression guard. The fixture re-registers `:rf/machine` as a
+;; runtime-db sub (EP-0001). After a clean run the lifecycle machine's
+;; snapshot lives at `[:rf.runtime/machines :snapshots
+;; :rf.story.lifecycle/machine]` in the variant frame's runtime-db. We
+;; compute the framework sub against the variant frame's `frame-state-value`
+;; (the two-partition value `subscribe` resolves reactively) and assert it
+;; returns the LIVE `{:state :ready …}` snapshot — NOT nil. Reverting the
+;; fixture to the dead app-db `:rf/runtime` path makes this read nil → red.
+
+(deftest rf-machine-sub-resolves-live-runtime-db-snapshot
+  (testing ":rf/machine computed against the variant frame-state resolves
+            the live lifecycle snapshot off runtime-db, not nil"
+    (async done
+      (-> (story/run-variant :story.counter-matrix/loader-success)
+          (async-lib/then
+            (fn [_result]
+              (let [variant-id :story.counter-matrix/loader-success
+                    fs   (rf/frame-state-value variant-id)
+                    snap (rf/compute-sub
+                          [:rf/machine :rf.story.lifecycle/machine] fs)]
+                (is (some? snap)
+                    ":rf/machine resolved a non-nil snapshot — the sub read
+                     the live runtime-db partition, not the dead app-db path")
+                (is (= :ready (:state snap))
+                    "the live snapshot's :state is :ready after a clean run"))
               (story/destroy-variant! :story.counter-matrix/loader-success)
               (done)))))))
 

@@ -20,7 +20,8 @@
             [re-frame.story :as story]
             [re-frame.story.async :as async-lib]
             [re-frame.story.loaders :as loaders]
-            [re-frame.story.play.runner-events :as re]))
+            [re-frame.story.play.runner-events :as re]
+            [re-frame.subs :as subs]))
 
 ;; ---- fixtures ------------------------------------------------------------
 ;;
@@ -45,10 +46,14 @@
   ;; Re-register the machines artefact's framework-shipped sub
   ;; (`:rf/machine`) after the registrar clear. The JVM equivalent
   ;; uses `(require 're-frame.machines :reload)` which is unavailable
-  ;; in CLJS — we manually re-invoke the side-effecting part.
-  (rf/reg-sub :rf/machine
-              (fn [db [_ machine-id]]
-                (get-in db [:rf/runtime :machines :snapshots machine-id])))
+  ;; in CLJS — we manually re-invoke the side-effecting part. EP-0001
+  ;; (rf2-vzld77 / rf2-ixb0bq): machine snapshots are durable RUNTIME-DB
+  ;; state at [:rf.runtime/machines :snapshots <id>], so the framework sub
+  ;; is a runtime-db sub (db-position arg is the runtime-db value) — mirror
+  ;; `re-frame.machines` exactly, NOT the retired app-db `:rf/runtime` path.
+  (subs/reg-runtime-sub :rf/machine
+    (fn [runtime-db [_ machine-id]]
+      (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
   (machines/reset-timers!)
   (loaders/clear-watchers!)
   (story/install-canonical-vocabulary!)
