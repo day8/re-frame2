@@ -241,8 +241,13 @@ module.exports = {
         '/counter-with-stories/?variant=story.missing%2Fghost&modes=Mode.app%2Fghost&overrides=label%3A%22Ghost%22#/stories',
       );
 
+      // The canvas-first shell rework (rf2-ba86n.3) renders the calm
+      // empty state under [data-test="story-canvas-empty"] with the copy
+      // "Pick a story, variant, or workspace from the sidebar to render
+      // it here." A stale share URL pointing at an unregistered variant
+      // must degrade to this empty state — no canvas mounts.
       await expectVisible(
-        page.getByText(/Select a variant or workspace from the sidebar|select a variant from the sidebar/i, { exact: false }).first(),
+        page.locator('[data-test="story-canvas-empty"]'),
         10000,
       );
       const selectedVariants = await page.locator('[data-test-variant]').count();
@@ -973,6 +978,24 @@ module.exports = {
       const aside = page.getByRole('complementary');
       const settingsGroup = aside.locator('[data-controls-arg=":settings"]').first();
       await settingsGroup.waitFor({ state: 'visible', timeout: 5000 });
+
+      // Summarise-before-expand (rf2-ba86n.5, spec/019 §4): a :map group
+      // renders collapsed by default (a ▸ disclosure header + a one-line
+      // summary), so the nested child rows are NOT in the DOM until the
+      // group is expanded. Click the group's toggle-expand disclosure
+      // before asserting on the nested :title / :enabled? rows.
+      const settingsToggle = settingsGroup
+        .locator('[data-controls-action="toggle-expand"]')
+        .first();
+      await settingsToggle.waitFor({ state: 'visible', timeout: 5000 });
+      if ((await settingsToggle.getAttribute('aria-expanded')) !== 'true') {
+        await settingsToggle.click();
+        await waitForValue(
+          () => settingsToggle.getAttribute('aria-expanded'),
+          (value) => value === 'true',
+          { timeoutMs: 5000, description: ':settings group expanded' },
+        );
+      }
 
       // The :settings group MUST surface its two child keys via the
       // nested-row data-controls-key attribute.
