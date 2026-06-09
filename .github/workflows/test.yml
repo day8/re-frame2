@@ -2170,8 +2170,13 @@ jobs:
         working-directory: tools/re-frame2-pair-mcp
         run: npx shadow-cljs compile server
 
+      # rf2-vtp2er — lockfile-exact install. tools/mcp-conformance ships a
+      # committed package-lock.json, so `npm ci` gives a reproducible,
+      # drift-detecting install (fails if package.json + lock diverge)
+      # rather than `npm install` resolving semver ranges against the live
+      # registry. Matches the posture test:mcp-conformance now uses locally.
       - name: Install mcp-conformance deps
-        run: npm install
+        run: npm ci
 
       # exec-safety helpers (rf2-33vvc): unit-test the
       # trusted-PATH-resolution + symlink-safe-unlink helpers that the
@@ -2291,8 +2296,10 @@ jobs:
             ${{ runner.os }}-clj-tools-story-mcp-
             ${{ runner.os }}-clj-
 
+      # rf2-vtp2er — lockfile-exact install (committed package-lock.json).
+      # See the mcp-conformance-re-frame2-pair job for rationale.
       - name: Install mcp-conformance deps
-        run: npm install
+        run: npm ci
 
       - name: Run story-mcp end-to-end MCP-client conformance
         run: npm run test:story

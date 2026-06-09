@@ -25,13 +25,15 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
-const http = require('http');
-const net = require('net');
 const path = require('path');
 const { enforcePolicy, DEFAULT_OUT_ROOT } = require('./_path-policy.cjs');
 const {
+  TOKEN_FILE_BASENAME,
   createHarnessCleanup,
+  isValidExplicitPort,
+  resolveServePort,
   spawnHarnessProcess,
+  waitForOwnedHttpReady,
 } = require('./lib/local-browser-harness.cjs');
 
 const DEFAULT_PORT = 8021;
@@ -127,9 +129,13 @@ function ensureMountPoint() {
 //     gives a 200 to `/` but does NOT have our sentinel — we fail fast
 //     instead of running tests against the wrong asset tree.
 //   - A stale http-server child from a previous aborted run that
-//     re-bound the port between isPortFree() and our spawn — same
+//     re-bound the port between resolveServePort() and our spawn — same
 //     detection: its sentinel won't match this run's nonce.
-const TOKEN_FILE_BASENAME = '.rf-harness-token';
+//
+// The probe/token-fetch/owned-readiness mechanics live in the shared
+// local-browser-harness.cjs (waitForOwnedHttpReady + fetchToken); this
+// script only owns the per-run token write/cleanup + the launcher
+// diagnostics.
 const TOKEN_PATH = path.join(ROOT, TOKEN_FILE_BASENAME);
 
 function writeOwnershipToken() {
@@ -149,133 +155,36 @@ function removeOwnershipToken() {
   }
 }
 
-function fetchToken(port) {
-  return new Promise((resolve) => {
-    const req = http.get(
-      { host: '127.0.0.1', port, path: `/${TOKEN_FILE_BASENAME}`, timeout: 1000 },
-      (res) => {
-        if (res.statusCode !== 200) {
-          res.resume();
-          resolve(null);
-          return;
-        }
-        let body = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => { body += chunk; });
-        res.on('end', () => resolve(body.trim()));
-        res.on('error', () => resolve(null));
-      },
-    );
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
-  });
-}
-
-// True if the given TCP port is currently free on 127.0.0.1.
-// We bind a temporary listener and immediately release it. EADDRINUSE
-// on the bind attempt means it's busy; any other error is treated as
-// "not free" so we fall back to OS-chosen port.
-function isPortFree(port) {
-  return new Promise((resolve) => {
-    const srv = net.createServer();
-    srv.once('error', () => resolve(false));
-    srv.once('listening', () => {
-      srv.close(() => resolve(true));
-    });
-    srv.listen(port, '127.0.0.1');
-  });
-}
-
-// Ask the OS for a free port (listen on 0, capture, close).
-function findFreePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.once('error', reject);
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address();
-      srv.close(() => resolve(port));
-    });
-  });
-}
-
-// Resolve the port to use, honouring $BROWSER_TEST_PORT first, then
-// the historical default 8021, then a free OS-chosen port.
+// Resolve the port to use via the shared harness primitive
+// (local-browser-harness.cjs), honouring $BROWSER_TEST_PORT first, then
+// the historical default 8021, then a free OS-chosen port. The shared
+// `resolveServePort` carries the strict 1..65535 explicit-port contract
+// and the busy-port fallback (rf2-0u8kz / rf2-84gzw); this wrapper keeps
+// the launcher-specific diagnostics (distinguishing an explicitly-set but
+// unusable BROWSER_TEST_PORT from a busy default).
 async function resolvePort() {
   const envRaw = process.env.BROWSER_TEST_PORT;
-  if (envRaw && envRaw.trim() !== '') {
-    const parsed = parseInt(envRaw, 10);
-    // A usable explicit port is an integer in 1..65535 (rf2-0u8kz). Port 0
-    // is rejected here too: it binds an ephemeral port but is useless as an
-    // advertised BASE_URL, so treat it like any other invalid value and
-    // choose a free port deterministically.
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-      console.error(
-        `BROWSER_TEST_PORT="${envRaw}" is not a valid TCP port (want 1..65535); ignoring and choosing a free port.`
-      );
-      return await findFreePort();
-    }
-    if (await isPortFree(parsed)) {
-      return parsed;
-    }
-    const fallback = await findFreePort();
-    console.warn(
-      `BROWSER_TEST_PORT=${parsed} is busy; falling back to free port ${fallback}.`
-    );
-    return fallback;
-  }
-  if (await isPortFree(DEFAULT_PORT)) {
-    return DEFAULT_PORT;
-  }
-  const fallback = await findFreePort();
-  console.warn(
-    `Default port ${DEFAULT_PORT} is busy; falling back to free port ${fallback}. ` +
-      `Set BROWSER_TEST_PORT to pin a specific port.`
-  );
-  return fallback;
-}
-
-function probe(port) {
-  return new Promise((resolve) => {
-    const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: 1000 }, (res) => {
-      res.resume();
-      resolve(res.statusCode != null);
-    });
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(false);
-    });
+  const envSet = !!(envRaw && envRaw.trim() !== '');
+  const preferred = envSet ? parseInt(envRaw, 10) : DEFAULT_PORT;
+  return await resolveServePort(preferred, {
+    onFallback: (pref, fallback) => {
+      if (envSet && !isValidExplicitPort(pref)) {
+        console.error(
+          `BROWSER_TEST_PORT="${envRaw}" is not a valid TCP port (want 1..65535); ` +
+            `ignoring and using free port ${fallback}.`
+        );
+      } else if (envSet) {
+        console.warn(
+          `BROWSER_TEST_PORT=${pref} is busy; falling back to free port ${fallback}.`
+        );
+      } else {
+        console.warn(
+          `Default port ${DEFAULT_PORT} is busy; falling back to free port ${fallback}. ` +
+            `Set BROWSER_TEST_PORT to pin a specific port.`
+        );
+      }
+    },
   });
-}
-
-// Race-style readiness wait: resolves true once the server on `port`
-// answers AND its ownership token matches `expectedToken`. Resolves
-// false on timeout, on early child exit, or if the token mismatches
-// after the server becomes reachable (signals we're talking to a
-// foreign server that happens to be bound to the same port — refuse to
-// proceed). The caller distinguishes timeout vs early-exit vs
-// foreign-server via the state object and the returned reason.
-async function waitForReady(port, expectedToken, deadline, state) {
-  let sawReachable = false;
-  while (Date.now() < deadline) {
-    if (state.exited) return { ok: false, reason: 'child-exited' };
-    if (await probe(port)) {
-      sawReachable = true;
-      if (state.exited) return { ok: false, reason: 'child-exited' };
-      const got = await fetchToken(port);
-      if (got && got === expectedToken) {
-        return { ok: true };
-      }
-      if (got && got !== expectedToken) {
-        return { ok: false, reason: 'token-mismatch', got };
-      }
-      // token absent yet — http-server may have started but not yet
-      // be serving the sentinel file. Keep polling.
-    }
-    if (state.exited) return { ok: false, reason: 'child-exited' };
-    await new Promise((r) => setTimeout(r, POLL_MS));
-  }
-  return { ok: false, reason: sawReachable ? 'token-never-served' : 'timeout' };
 }
 
 (async () => {
@@ -310,8 +219,8 @@ async function waitForReady(port, expectedToken, deadline, state) {
 
   // Track the server's lifecycle so the readiness loop can fail fast
   // if http-server dies before becoming reachable. With pre-binding via
-  // isPortFree() this should be rare, but a slow-to-release socket or a
-  // race against a sibling spawner can still trigger EADDRINUSE.
+  // resolveServePort() this should be rare, but a slow-to-release socket
+  // or a race against a sibling spawner can still trigger EADDRINUSE.
   const state = { exited: false, exitCode: null, exitSignal: null };
   server.on('exit', (code, signal) => {
     state.exited = true;
@@ -319,7 +228,13 @@ async function waitForReady(port, expectedToken, deadline, state) {
     state.exitSignal = signal;
   });
 
-  const ready = await waitForReady(port, token, Date.now() + READY_TIMEOUT_MS, state);
+  // Readiness WITH ownership-token verification via the shared harness
+  // primitive (rf2-84gzw / rf2-gkf9): refuse to run tests against any
+  // server on `port` that does not serve this run's token.
+  const ready = await waitForOwnedHttpReady(port, token, Date.now() + READY_TIMEOUT_MS, {
+    pollMs: POLL_MS,
+    isAborted: () => state.exited,
+  });
   if (!ready.ok) {
     if (ready.reason === 'child-exited' || state.exited) {
       console.error(

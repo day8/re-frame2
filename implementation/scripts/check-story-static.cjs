@@ -41,16 +41,17 @@
 const { spawnSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
-const http = require('http');
-const net = require('net');
 const path = require('path');
 const {
   createDiagnosticBuffer,
   isVerboseTests,
 } = require('./lib/browser-test-report.cjs');
 const {
+  TOKEN_FILE_BASENAME,
   createHarnessCleanup,
+  resolveServePort,
   spawnHarnessProcess,
+  waitForOwnedHttpReady,
 } = require('./lib/local-browser-harness.cjs');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
@@ -79,8 +80,9 @@ cleanup.addCleanup(() => {
 cleanup.installSignalHandlers();
 
 // Per rf2-o38lb: ownership-token sentinel, same shape as
-// serve-and-run-browser-tests.cjs.
-const TOKEN_FILE_BASENAME = '.rf-harness-token';
+// serve-and-run-browser-tests.cjs. The basename + the probe/token-fetch/
+// owned-readiness mechanics come from the shared local-browser-harness.cjs;
+// this script only owns the per-run token write/cleanup.
 const TOKEN_PATH = path.join(OUT_DIR, TOKEN_FILE_BASENAME);
 
 function addChunk(diagnostics, prefix, chunk, stream = 'stdout') {
@@ -125,39 +127,19 @@ function runBuild(diagnostics) {
   diagnostics.add(`story-build.cjs exited ${result.status}`);
 }
 
-// True if the given TCP port is currently free on 127.0.0.1.
-function isPortFree(port) {
-  return new Promise((resolve) => {
-    const srv = net.createServer();
-    srv.once('error', () => resolve(false));
-    srv.once('listening', () => {
-      srv.close(() => resolve(true));
-    });
-    srv.listen(port, '127.0.0.1');
-  });
-}
-
-// Ask the OS for a free port (listen on 0, capture, close).
-function findFreePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.once('error', reject);
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address();
-      srv.close(() => resolve(port));
-    });
-  });
-}
-
+// Resolve the port via the shared harness primitive: prefer DEFAULT_PORT
+// when free, else fall back to an OS-chosen free port (rf2-84gzw). The
+// shared resolveServePort carries the strict 1..65535 explicit-port
+// contract (rf2-0u8kz); the launcher-specific fallback note is logged
+// into the diagnostics buffer.
 async function resolvePort(diagnostics) {
-  if (await isPortFree(DEFAULT_PORT)) {
-    return DEFAULT_PORT;
-  }
-  const fallback = await findFreePort();
-  diagnostics.add(
-    `Default port ${DEFAULT_PORT} is busy; falling back to free port ${fallback}.`,
-  );
-  return fallback;
+  return await resolveServePort(DEFAULT_PORT, {
+    onFallback: (preferred, fallback) => {
+      diagnostics.add(
+        `Default port ${preferred} is busy; falling back to free port ${fallback}.`,
+      );
+    },
+  });
 }
 
 function writeOwnershipToken() {
@@ -173,72 +155,6 @@ function removeOwnershipToken() {
   } catch (_) {
     // best-effort cleanup
   }
-}
-
-function probe(port) {
-  return new Promise((resolve) => {
-    const req = http.get(
-      { host: '127.0.0.1', port, path: '/', timeout: 1000 },
-      (res) => {
-        res.resume();
-        resolve(res.statusCode != null);
-      },
-    );
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(false);
-    });
-  });
-}
-
-function fetchToken(port) {
-  return new Promise((resolve) => {
-    const req = http.get(
-      { host: '127.0.0.1', port, path: `/${TOKEN_FILE_BASENAME}`, timeout: 1000 },
-      (res) => {
-        if (res.statusCode !== 200) {
-          res.resume();
-          resolve(null);
-          return;
-        }
-        let body = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => { body += chunk; });
-        res.on('end', () => resolve(body.trim()));
-        res.on('error', () => resolve(null));
-      },
-    );
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
-  });
-}
-
-// Race-style readiness wait: resolves true once the server on `port`
-// answers AND its ownership token matches `expectedToken`. Resolves
-// false on timeout, on early child exit, or if the token mismatches —
-// signals we're talking to a foreign server that happens to be bound
-// to the same port; refuse to proceed against unowned content.
-async function waitForReady(port, expectedToken, deadline, state) {
-  let sawReachable = false;
-  while (Date.now() < deadline) {
-    if (state.exited) return { ok: false, reason: 'child-exited' };
-    if (await probe(port)) {
-      sawReachable = true;
-      if (state.exited) return { ok: false, reason: 'child-exited' };
-      const got = await fetchToken(port);
-      if (got && got === expectedToken) {
-        return { ok: true };
-      }
-      if (got && got !== expectedToken) {
-        return { ok: false, reason: 'token-mismatch', got };
-      }
-      // token absent yet — keep polling.
-    }
-    if (state.exited) return { ok: false, reason: 'child-exited' };
-    await new Promise((r) => setTimeout(r, POLL_MS));
-  }
-  return { ok: false, reason: sawReachable ? 'token-never-served' : 'timeout' };
 }
 
 async function smokeTest(baseUrl, diagnostics) {
@@ -413,8 +329,12 @@ async function smokeTest(baseUrl, diagnostics) {
     }
   });
 
-  // 5. Wait for ready WITH ownership-token verification.
-  const ready = await waitForReady(port, token, Date.now() + READY_TIMEOUT_MS, state);
+  // 5. Wait for ready WITH ownership-token verification via the shared
+  //    harness primitive (rf2-84gzw / rf2-gkf9).
+  const ready = await waitForOwnedHttpReady(port, token, Date.now() + READY_TIMEOUT_MS, {
+    pollMs: POLL_MS,
+    isAborted: () => state.exited,
+  });
   if (!ready.ok) {
     if (ready.reason === 'child-exited' || state.exited) {
       console.error(
