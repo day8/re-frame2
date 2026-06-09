@@ -32,6 +32,35 @@
   sub-namespaced under `:rf.route.internal/*` so the user-facing
   `:rf.route/*` surface stays tidy.
 
+  ## Failure semantics — later :on-match events + first-error-wins
+
+  Per rf2-25i7r7 (finding 3) + Spec 012 §Per-route error handling
+  §Failure semantics. The navigation cascade runs inside re-frame2's
+  locked FIFO run-to-completion drain (Spec 002 §Run-to-completion),
+  which does NOT cancel events already queued. `commit-navigation`
+  queues every `:on-match` dispatch (and the FIFO `settle-transition`)
+  up front; the trap's `:rf.route.internal/on-match-error` is dispatched
+  from inside the throwing handler's error path and lands at the BACK of
+  the queue. So for `:on-match [[:load/fail] [:load/next]]`, `:load/next`
+  (and the settle) run before the error event — later route loaders are
+  NOT aborted. This continuation is the documented, intentional
+  consequence of the locked drain (true loader-cancellation would need a
+  generic front-of-queue / cancellation primitive in the core router,
+  not a routing-local concern).
+
+  What IS guaranteed:
+    - **Final state is always `:error`.** The settle handler guards on
+      `(= :loading transition)`, and the error event runs after settle,
+      so the slice lands on `:error` regardless of queue interleaving.
+    - **First-error-wins.** When MULTIPLE `:on-match` events throw in the
+      same transition, `on-match-error-handler` drops every same-nav-token
+      error after the slice is already `:error` — the FIRST attributed
+      failure is the recorded `:error`/attribution, and `:on-error` fires
+      exactly once. Aligns with xstate v5: an errored transition's first
+      error is the recorded one. A NEWER navigation (nav-token bump) is
+      dropped by the stale-token guard and resets the slice off `:error`
+      through its own commit, so failure-after-recovery still records.
+
   The listener is always-on (survives `:advanced` + `goog.DEBUG=false`)
   so production builds with the trace surface elided still observe
   :on-match errors and route them to :on-error policies.
@@ -125,15 +154,37 @@
     ;; (rf2-vzld77): the route slice is durable routing runtime-db state.
     (let [db            (or rdb {})
           current-token (get-in db [:rf.runtime/routing :current :nav-token])
+          current-trans (get-in db [:rf.runtime/routing :current :transition])
           current-id    (get-in db [:rf.runtime/routing :current :id])
           route-meta    (when current-id (registrar/lookup :route current-id))
           on-error-ev   (:on-error route-meta)]
-      (if (not= nav-token current-token)
+      (cond
         ;; Stale — the trap fired for an :on-match throw from a previous
         ;; navigation that has since been superseded. Drop silently
         ;; (the corpus-wide error-emit substrate already surfaced the
         ;; underlying :rf.error/handler-exception for observability).
+        (not= nav-token current-token)
         {}
+
+        ;; rf2-25i7r7 (finding 3 — route failure semantics): FIRST-error-
+        ;; wins. The locked FIFO run-to-completion drain (Spec 002) does
+        ;; not cancel already-queued events, so when a route declares
+        ;; `:on-match [[:load/fail1] [:load/fail2]]` and BOTH throw, two
+        ;; `:rf.route.internal/on-match-error` events land for the same
+        ;; nav-token. Without this guard the SECOND failure clobbers the
+        ;; first in the slice (wrong attribution) and `:on-error` fires
+        ;; twice. The route enters `:error` at the first attributed throw;
+        ;; once it is `:error` for the CURRENT nav-token, later same-token
+        ;; failures are dropped — the first error/attribution and a single
+        ;; `:on-error` dispatch are preserved. A NEWER navigation (token
+        ;; bump) is handled by the stale branch above and resets the slice
+        ;; off `:error` through its own commit, so a genuine
+        ;; failure-after-recovery still records. Aligns with xstate v5:
+        ;; an errored transition's first error is the recorded one.
+        (= :error current-trans)
+        {}
+
+        :else
         (cond->
           {:rf.db/runtime (-> db
                               (assoc-in [:rf.runtime/routing :current :transition] :error)
