@@ -457,28 +457,40 @@ segment. The `:rf.xray/pin-slice` / `:rf.xray/unpin-slice` /
 
 ## Reserved-keys group
 
-Per rf2-eguy4 phase-A the runtime owns ONE top-level `app-db` slot —
-`:rf/runtime` — containing six logical subsystems, catalogued in
-[Conventions §Reserved app-db keys](../../../spec/Conventions.md#reserved-app-db-keys).
-Xray's `[runtime]` group surfaces these six as operator-facing
-section labels; the underlying paths all live under `:rf/runtime`:
+EP-0001 (rf2-vzld77 / rf2-tj6w9l): the framework's durable subsystem
+state — machine snapshots, the route slice, the spawn registry, the
+elision registry — moved OUT of app-db's `:rf/runtime` container into a
+SEPARATE **runtime-db partition** keyed by the reserved `:rf.runtime/*`
+namespace, catalogued in
+[Conventions §Reserved runtime-db keys](../../../spec/Conventions.md#reserved-runtime-db-keys)
+and [002-Frames §The two-partition frame contract](../../../spec/002-Frames.md).
+Xray's `[runtime]` group surfaces these six as operator-facing section
+labels; the underlying paths now live under the runtime-db partition's
+`:rf.runtime/*` roots (NOT app-db):
 
-| Section label | Underlying path | Owner | One-line role |
+| Section label | Underlying path (runtime-db partition) | Owner | One-line role |
 |---|---|---|---|
-| `:rf/machines` | `[:rf/runtime :machines :snapshots]` | machine runtime | Per-frame map of `<machine-id> → :rf/machine-snapshot` — every active machine's snapshot. |
-| `:rf/system-ids` | `[:rf/runtime :machines :system-ids]` | machine runtime | Reverse index `<system-id> → <gensym'd-machine-id>` for `:system-id` named-machine addressing. |
-| `:rf/spawned` | `[:rf/runtime :machines :spawned]` | machine runtime | Declarative-`:spawn` / `:spawn-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
-| `:rf/route` | `[:rf/runtime :routing :current]` | routing runtime | The current route slice `{:id :params :query :transition :error}`. |
-| `:rf/pending-navigation` | `[:rf/runtime :routing :pending-navigation]` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
-| `:rf/elision` | `[:rf/runtime :elision]` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Populated at boot from `:large? true` / `:sensitive? true` schema slots; consulted by `rf/elide-wire-value` at every wire-boundary emit. Schemas are the only nomination path. |
+| `:rf/machines` | `[:rf.runtime/machines :snapshots]` | machine runtime | Per-frame map of `<machine-id> → :rf/machine-snapshot` — every active machine's snapshot. |
+| `:rf/system-ids` | `[:rf.runtime/machines :system-ids]` | machine runtime | Reverse index `<system-id> → <gensym'd-machine-id>` for `:system-id` named-machine addressing. |
+| `:rf/spawned` | `[:rf.runtime/machines :spawned]` | machine runtime | Declarative-`:spawn` / `:spawn-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
+| `:rf/route` | `[:rf.runtime/routing :current]` | routing runtime | The current route slice `{:id :params :query :transition :error}`. |
+| `:rf/pending-navigation` | `[:rf.runtime/routing :pending-navigation]` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
+| `:rf/elision` | `[:rf.runtime/elision]` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Populated at boot from `:large? true` / `:sensitive? true` schema slots; consulted by `rf/elide-wire-value` at every wire-boundary emit. Schemas are the only nomination path. |
 
 Conventions is the canonical home; this table is the panel-facing
-projection. Xray's `partition-reserved` treats any diff triple rooted
-at `:rf/runtime` as runtime-owned — those triples render in the
-`[runtime]` group rather than as slice mini-panels. The `runtime-areas`
-lookup in `app_db_diff_helpers.cljc` maps each operator label to its
-sub-path under `:rf/runtime`. If a new subsystem lands in Conventions,
-the `runtime-areas` table and this section are updated in lockstep.
+projection. The `runtime-areas` lookup in `app_db_diff_helpers.cljc`
+maps each operator label to its sub-path under the **runtime-db
+partition value** — sourced from `:rf.xray/target-frame-runtime-db` (the
+live partition) + each focused epoch's runtime-db pre/post-image (the
+`:rf.db/runtime` projection of `:frame-state-before` / `-after`), the
+same way the Machines inspector + Routing tab read runtime-db. The TOP
+user-domain section reads the app-db partition (minus any reserved `:rf*`
+key). Because the runtime subsystems no longer live in app-db, an app-db
+diff triple is never runtime-owned; `partition-reserved` /
+`reserved-path?` now key on the reserved `:rf*` NAMESPACE family (a
+framework-internal slot a host might stash at the app-db root). If a new
+subsystem lands in Conventions, the `runtime-areas` table and this
+section are updated in lockstep.
 
 ```
 ┌─ [runtime] ───────────────────────────────────────┐
@@ -540,7 +552,8 @@ db-before / db-after values BEFORE the `:redact-fn` runs — parallel to
 the `:rf.epoch/sensitive?` rollup. A path `P` counts in the framework's
 figure when:
 
-1. `P` is schema-declared sensitive (`[:rf/runtime :elision :sensitive-declarations]`,
+1. `P` is schema-declared sensitive (`[:rf.runtime/elision :sensitive-declarations]`
+   in the runtime-db partition, EP-0001 rf2-vzld77,
    populated from `{:sensitive? true}` per-slot schema props per
    [Spec 015](../../../spec/015-Data-Classification.md)).
 2. `(not= (get-in db-before P) (get-in db-after P))` — value-equality
@@ -560,10 +573,13 @@ Xray-side heuristic — paths `P` where:
 3. `P`'s parent subtree is NOT `identical?` across `db-before` /
    `db-after` (something in the enclosing subtree changed).
 
-Distinct paths are counted independently. The reserved
-`[:rf/runtime :elision]` subtree is skipped (the elision registry's
-own values may
-include `:rf/redacted` as documentation/sentinel form). Condition (3)
+Distinct paths are counted independently. The elision registry —
+post-EP-0001 (rf2-vzld77) at `[:rf.runtime/elision]` in the runtime-db
+partition, no longer in the app-db `:db-before` / `:db-after` the
+heuristic walks — is therefore naturally excluded; a host that still
+carries a stray reserved subtree in app-db has it skipped (the elision
+registry's own values may include `:rf/redacted` as
+documentation/sentinel form). Condition (3)
 is the structural-sharing tightener — without it every redacted slot
 in `app-db` would count for every cascade. The fallback is a tight
 upper bound; it may over-state if a sibling slot changed and the

@@ -36,20 +36,29 @@
         (hiccup-seq tree)))
 
 (defn- merge-area
-  "Stitch a single area-id's value into a `:rf/runtime` shape per the
-  `runtime-areas` table (`area-id` → sub-path). Pure data → data."
-  [db area-id v]
+  "Stitch a single area-id's value into the runtime-db PARTITION shape per
+  the `runtime-areas` table (`area-id` → `[:rf.runtime/…]` sub-path).
+  Pure data → data."
+  [rt area-id v]
   (let [path (get h/runtime-areas area-id)]
-    (if path (assoc-in db path v) db)))
+    (if path (assoc-in rt path v) rt)))
 
 (defn- runtime-db
-  "Build an app-db whose `:rf/runtime` container carries the values in
-  `areas` keyed by their logical area-id. Convenience for tests that
-  used to mint the old direct-root shape (`{:rf/machines …}`); now the
-  runtime container is nested per rf2-eguy4 phase-A."
-  ([areas] (runtime-db {} areas))
-  ([base areas]
-   (reduce-kv merge-area base areas)))
+  "Build a RUNTIME-DB partition value carrying the `areas` keyed by their
+  logical area-id (`:rf/machines` / `:rf/route` / …) at the `:rf.runtime/*`
+  paths the `runtime-areas` table names (EP-0001 rf2-tj6w9l — the runtime
+  subsystems moved to the runtime-db partition)."
+  [areas]
+  (reduce-kv merge-area {} areas))
+
+(defn- sections
+  "Build the section model the renderer consumes from a TOP user-domain
+  app-db + a map of runtime areas (stitched into the runtime-db partition
+  via `runtime-db`). Convenience wrapper over the two-partition
+  `current-state-sections` so the view-shape tests read cleanly."
+  ([areas] (sections {} areas))
+  ([app-db areas]
+   (h/current-state-sections app-db (runtime-db areas))))
 
 (defn- testids [tree]
   (->> (hiccup-seq tree)
@@ -63,8 +72,8 @@
 
 (deftest top-section-renders-user-domain-value
   (testing "the TOP section renders the app-db-minus-reserved value"
-    (let [model (h/current-state-sections (runtime-db {:counter 5 :user {:name "ada"}}
-                                                      {:rf/route {:id :home}}))
+    (let [model (sections {:counter 5 :user {:name "ada"}}
+                          {:rf/route {:id :home}})
           tree  (state/state-body model)]
       (is (some? (find-by-testid tree "rf-xray-app-db-state"))
           "panel state container present")
@@ -74,7 +83,7 @@
 (deftest top-section-empty-when-no-user-domain-keys
   (testing "a reserved-keys-only db → TOP section still renders, with the
             empty-state body (not omitted)"
-    (let [model (h/current-state-sections (runtime-db {:rf/route {:id :home}}))
+    (let [model (sections {:rf/route {:id :home}})
           tree  (state/state-body model)
           top   (find-by-testid tree "rf-xray-app-db-state-top")]
       (is (some? top) "TOP section is always present")
@@ -85,9 +94,8 @@
 
 (deftest machines-fan-out-one-section-per-id
   (testing "each machine renders its own section titled by the machine id"
-    (let [model (h/current-state-sections
-                  (runtime-db {:rf/machines {:title/flow {:state :playing}
-                                             :auth       {:state :idle}}}))
+    (let [model (sections {:rf/machines {:title/flow {:state :playing}
+                                         :auth       {:state :idle}}})
           tree  (state/state-body model)
           ids   (testids tree)]
       (is (contains? ids "rf-xray-app-db-state-instance-:rf/machines-:title/flow")
@@ -103,7 +111,7 @@
   (testing "rf2-jcdvo — absent / empty :rf/machines is OMITTED from the
             rendered tree entirely (no placeholder card with 'No
             machines registered.' copy)"
-    (let [model (h/current-state-sections {:counter 1})
+    (let [model (sections {:counter 1} {})
           tree  (state/state-body model)]
       (is (nil? (find-by-testid tree "rf-xray-app-db-state-area-:rf/machines"))
           "no machines area section in the tree")
@@ -114,10 +122,9 @@
 
 (deftest route-singleton-renders-one-section
   (testing ":rf/route renders as ONE singleton section titled `route`"
-    (let [model (h/current-state-sections
-                  (runtime-db {:rf/route {:id :app/article :params {:id "A"}
-                                          :query {} :fragment nil :transition :idle
-                                          :error nil :nav-token "nav-1"}}))
+    (let [model (sections {:rf/route {:id :app/article :params {:id "A"}
+                                      :query {} :fragment nil :transition :idle
+                                      :error nil :nav-token "nav-1"}})
           tree  (state/state-body model)]
       (is (some? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
           "route singleton section present"))))
@@ -126,7 +133,7 @@
   (testing "rf2-jcdvo — absent :rf/route is OMITTED from the rendered
             tree entirely (no placeholder card with 'No active route.'
             copy)"
-    (let [model (h/current-state-sections {:counter 1})
+    (let [model (sections {:counter 1} {})
           tree  (state/state-body model)]
       (is (nil? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
           "no route area section in the tree")
@@ -140,12 +147,14 @@
             section; every reserved-area card is omitted (data-driven
             visibility — sections appear as state accrues, not as
             persistent placeholders)"
-    (let [model (h/current-state-sections {})
+    (let [model (sections {} {})
           tree  (state/state-body model)
           ids   (testids tree)]
       (is (contains? ids "rf-xray-app-db-state-top")
           "TOP is the panel's anchor — always renders")
-      (doseq [area h/reserved-app-db-keys]
+      ;; Every logical reserved area is absent from an empty runtime-db, so
+      ;; no area card renders (EP-0001 rf2-tj6w9l — areas read runtime-db).
+      (doseq [area (keys h/runtime-areas)]
         (is (not (contains? ids (str "rf-xray-app-db-state-area-"
                                      (pr-str area))))
             (str "no placeholder card for empty reserved area " area))))))
@@ -154,10 +163,9 @@
   (testing "rf2-jcdvo — populated reserved areas render exactly as before
             (only the empty-area filtering changed); each populated area
             still gets a card the operator can read"
-    (let [model (h/current-state-sections
-                  (runtime-db {:counter 1}
-                              {:rf/route    {:id :home}
-                               :rf/machines {:auth {:state :idle}}}))
+    (let [model (sections {:counter 1}
+                          {:rf/route    {:id :home}
+                           :rf/machines {:auth {:state :idle}}})
           tree  (state/state-body model)
           ids   (testids tree)]
       (is (contains? ids "rf-xray-app-db-state-area-:rf/route")
@@ -171,8 +179,9 @@
   (testing "rf2-jcdvo — nil / empty db model renders without throwing —
             TOP empty + zero reserved-area cards (every reserved slot is
             empty so every entry is filtered out at projection time)"
-    (doseq [db [nil {}]]
-      (let [tree (state/state-body (h/current-state-sections db))]
+    (doseq [app-db [nil {}]
+            rt     [nil {}]]
+      (let [tree (state/state-body (h/current-state-sections app-db rt))]
         (is (some? (find-by-testid tree "rf-xray-app-db-state-top"))
             "TOP is the panel's anchor — always renders")
         (is (nil? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
@@ -197,10 +206,9 @@
   (testing "rf2-kbxgj — the dead `⤴ subs` downstream-subs trigger is gone
             from every section (TOP, machine fan-out, singleton areas,
             empty-state areas)"
-    (let [model (h/current-state-sections
-                  (runtime-db {:counter 5 :user {:name "ada"}}
-                              {:rf/route    {:id :home}
-                               :rf/machines {:title/flow {:state :playing}}}))
+    (let [model (sections {:counter 5 :user {:name "ada"}}
+                          {:rf/route    {:id :home}
+                           :rf/machines {:title/flow {:state :playing}}})
           tree  (state/state-body model)
           ids   (all-testids tree)]
       (is (not (contains? ids "rf-xray-app-db-state-top-triggers"))
@@ -213,10 +221,9 @@
   (testing "rf2-ilubp — the app-db inspect renders opt out of the EDN
             widget's universal ⎘ copy button (`:copy? false`); no
             `…-copy` testid appears on any value block"
-    (let [model (h/current-state-sections
-                  (runtime-db {:counter 5 :user {:name "ada"}}
-                              {:rf/route    {:id :home}
-                               :rf/machines {:title/flow {:state :playing}}}))
+    (let [model (sections {:counter 5 :user {:name "ada"}}
+                          {:rf/route    {:id :home}
+                           :rf/machines {:title/flow {:state :playing}}})
           tree  (state/state-body model)
           ids   (all-testids tree)]
       (is (not-any? #(.endsWith % "-copy") ids)
@@ -247,10 +254,9 @@
             section is a transparent padded container; the card chrome
             lives inside the body via the edn-inspector widget's
             `:card? true` opt"
-    (let [model  (h/current-state-sections
-                   (runtime-db {:counter 1}
-                               {:rf/route    {:id :home}
-                                :rf/machines {:title/flow {:state :idle}}}))
+    (let [model  (sections {:counter 1}
+                           {:rf/route    {:id :home}
+                            :rf/machines {:title/flow {:state :idle}}})
           tree   (state/state-body model)
           styles (section-styles tree)]
       (is (seq styles) "sections render")
@@ -265,7 +271,7 @@
   (testing "rf2-jcdvo — the TOP section's wrapper carries no border-top
             (consistent with every other section now that the divider
             was dropped)"
-    (let [model (h/current-state-sections {:counter 1})
+    (let [model (sections {:counter 1} {})
           tree  (state/state-body model)
           top   (find-by-testid tree "rf-xray-app-db-state-top")]
       (is (some? top))
@@ -277,13 +283,12 @@
             hairline border-top divider above it (the card chrome alone
             self-separates adjacent cards). With every reserved slot
             populated, every section renders without a divider."
-    (let [model (h/current-state-sections
-                  (runtime-db {:rf/machines           {:title/flow {:state :idle}}
-                               :rf/spawned            {:parent     {:invoke :child}}
-                               :rf/route              {:id :home}
-                               :rf/system-ids         #{:app}
-                               :rf/pending-navigation {:to :next}
-                               :rf/elision            {:declarations {}}}))
+    (let [model (sections {:rf/machines           {:title/flow {:state :idle}}
+                           :rf/spawned            {:parent     {:invoke :child}}
+                           :rf/route              {:id :home}
+                           :rf/system-ids         #{:app}
+                           :rf/pending-navigation {:to :next}
+                           :rf/elision            {:declarations {}}})
           tree   (state/state-body model)
           styles (section-styles tree)]
       (is (seq styles) "sections render")
@@ -327,7 +332,8 @@
   (testing "a changed user-domain value renders in DIFF mode — the
             section threads `:before` into the edn-inspector widget so
             it paints the inline `← was <prior>` annotation"
-    (let [model    (h/current-state-sections {:counter 2} {:counter 1})
+    (let [model    (h/current-state-sections {:counter 2} {}
+                                             {:app {:counter 1} :runtime {}})
           tree     (state/state-body model)
           top      (find-by-testid tree "rf-xray-app-db-state-top")
           mounts   (find-edn-inspector-mounts top)
@@ -345,7 +351,7 @@
             map as `:before` so the widget annotates the change"
     (let [before   (runtime-db {:rf/machines {:title/flow {:state :idle}}})
           after    (runtime-db {:rf/machines {:title/flow {:state :loaded}}})
-          model    (h/current-state-sections after before)
+          model    (h/current-state-sections {} after {:app {} :runtime before})
           tree     (state/state-body model)
           flow     (find-by-testid
                      tree "rf-xray-app-db-state-instance-:rf/machines-:title/flow")
@@ -375,7 +381,7 @@
     (let [before (runtime-db {:rf/machines {:door/main {:state :open}}})
           after  (runtime-db {:rf/machines {:door/main    {:state :open}
                                             :traffic/light {:state :red}}})
-          model  (h/current-state-sections after before)
+          model  (h/current-state-sections {} after {:app {} :runtime before})
           tree   (state/state-body model)
           new-mc (find-by-testid
                    tree "rf-xray-app-db-state-instance-:rf/machines-:traffic/light")
@@ -395,7 +401,7 @@
     (let [before (runtime-db {:rf/machines {:door/main {:state :open}}})
           after  (runtime-db {:rf/machines {:door/main    {:state :closed}
                                             :traffic/light {:state :red}}})
-          model  (h/current-state-sections after before)
+          model  (h/current-state-sections {} after {:app {} :runtime before})
           tree   (state/state-body model)
           door   (find-by-testid
                    tree "rf-xray-app-db-state-instance-:rf/machines-:door/main")
@@ -411,7 +417,7 @@
             with `:added? true` and no `:before`"
     (let [before (runtime-db {})
           after  (runtime-db {:rf/route {:id :home}})
-          model  (h/current-state-sections after before)
+          model  (h/current-state-sections {} after {:app {} :runtime before})
           tree   (state/state-body model)
           route  (find-by-testid tree "rf-xray-app-db-state-area-:rf/route")
           mounts (find-edn-inspector-mounts route)]
@@ -422,11 +428,10 @@
           "an :added slice carries no `:before` opt"))))
 
 (deftest no-diff-model-renders-current-state-no-annotation
-  (testing "the 1-arity (no pre-image) model renders plain current-state
-            — every mount is BROWSE mode (no `:before` opt) so the
-            widget renders no `← changed` annotation"
-    (let [model  (h/current-state-sections
-                   (runtime-db {:counter 2} {:rf/route {:id :home}}))
+  (testing "the no-diff (2-arity, no pre-image) model renders plain
+            current-state — every mount is BROWSE mode (no `:before` opt)
+            so the widget renders no `← changed` annotation"
+    (let [model  (sections {:counter 2} {:rf/route {:id :home}})
           tree   (state/state-body model)
           mounts (find-edn-inspector-mounts tree)]
       (is (seq mounts) "the panel mounts edn-inspector widget instances")
@@ -451,10 +456,9 @@
             DB tree renders comfortably in-place and the affordance
             would be unnecessary noise (Mike's live-testing call
             2026-05-26)"
-    (let [model  (h/current-state-sections
-                   (runtime-db {:counter 2}
-                               {:rf/route {:id :home}
-                                :rf/machines {:auth {:state :idle}}}))
+    (let [model  (sections {:counter 2}
+                           {:rf/route {:id :home}
+                            :rf/machines {:auth {:state :idle}}})
           tree   (state/state-body model)
           mounts (find-edn-inspector-mounts tree)]
       (is (seq mounts) "the panel mounts edn-inspector widget instances")
@@ -464,7 +468,8 @@
 (deftest diff-mode-mounts-also-omit-popup-affordance-opt
   (testing "rf2-7sdja — DIFF-mode mounts (when a pre-image is supplied)
             ALSO omit the popup affordance opt"
-    (let [model  (h/current-state-sections {:counter 2} {:counter 1})
+    (let [model  (h/current-state-sections {:counter 2} {}
+                                           {:app {:counter 1} :runtime {}})
           tree   (state/state-body model)
           mounts (find-edn-inspector-mounts tree)
           diff-mts (filter #(contains? (:opts %) :before) mounts)]
@@ -484,10 +489,9 @@
             panel produces (BROWSE mode, 1-arity / no-diff) carries
             `:card? true` so each top-level mount reads as a discrete
             inspector card"
-    (let [model  (h/current-state-sections
-                   (runtime-db {:counter 2}
-                               {:rf/route {:id :home}
-                                :rf/machines {:auth {:state :idle}}}))
+    (let [model  (sections {:counter 2}
+                           {:rf/route {:id :home}
+                            :rf/machines {:auth {:state :idle}}})
           tree   (state/state-body model)
           mounts (find-edn-inspector-mounts tree)]
       (is (seq mounts) "the panel mounts edn-inspector widget instances")
@@ -498,7 +502,8 @@
   (testing "rf2-63ie5 — DIFF-mode mounts (when a pre-image is supplied)
             ALSO carry `:card? true`; card chrome is independent of
             diff mode and applies to every top-level App-DB mount"
-    (let [model  (h/current-state-sections {:counter 2} {:counter 1})
+    (let [model  (h/current-state-sections {:counter 2} {}
+                                           {:app {:counter 1} :runtime {}})
           tree   (state/state-body model)
           mounts (find-edn-inspector-mounts tree)
           diff-mts (filter #(contains? (:opts %) :before) mounts)]
@@ -525,12 +530,12 @@
             chip now paint whenever `:before` is present, with no
             separate flag."
     (let [diff-tree  (state/state-body
-                       (h/current-state-sections {:counter 2} {:counter 1}))
+                       (h/current-state-sections {:counter 2} {}
+                                                 {:app {:counter 1} :runtime {}}))
           plain-tree (state/state-body
-                       (h/current-state-sections
-                         (runtime-db {:counter 2}
-                                     {:rf/route {:id :home}
-                                      :rf/machines {:auth {:state :idle}}})))
+                       (sections {:counter 2}
+                                 {:rf/route {:id :home}
+                                  :rf/machines {:auth {:state :idle}}}))
           mounts     (concat (find-edn-inspector-mounts diff-tree)
                              (find-edn-inspector-mounts plain-tree))]
       (is (seq mounts) "the panel mounts edn-inspector widget instances")
@@ -544,7 +549,7 @@
             reserved area"
     (let [before   (runtime-db {:rf/machines {:title/flow {:state :idle}}})
           after    (runtime-db {:rf/machines {:title/flow {:state :loaded}}})
-          model    (h/current-state-sections after before)
+          model    (h/current-state-sections {} after {:app {} :runtime before})
           tree     (state/state-body model)
           flow     (find-by-testid
                      tree "rf-xray-app-db-state-instance-:rf/machines-:title/flow")

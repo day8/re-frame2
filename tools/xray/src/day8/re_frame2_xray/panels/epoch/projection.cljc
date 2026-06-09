@@ -624,6 +624,14 @@
              :duration-ms (common/tag-of ev :duration-ms)
              :machine-id  (common/tag-of ev :machine-id)
              :input       input}
+      ;; rf2-lai1qv — the substrate stamps the selected transition's EXACT
+      ;; spec-path discriminator (`:transition-slot`) on the action-ran
+      ;; trace for the transition `:action`; carry it onto the row so
+      ;; `cascade-row-source-key` addresses the precise inline-source slot
+      ;; (candidate index / `:after` delay-key / root) rather than
+      ;; reconstructing from source-state / event / phase.
+      (common/tag-of ev :transition-slot)
+      (assoc :transition-slot (common/tag-of ev :transition-slot))
       (common/tag-of ev :exception)
       (assoc :exception (common/tag-of ev :exception))
       (seq action-fx)

@@ -1827,10 +1827,11 @@ distinct from the inline `:source-code` body above.
 | `:action`| keyword `action-id`     | `[:actions <id>]`                                     | entry `:source-code` | entry `:source-coords` |
 | `:action`| inline-fn, `:entry`     | `[:states <target-state>... :entry]`                  | enclosing state-node `:source-code :entry` | enclosing state-node `:source-coords` |
 | `:action`| inline-fn, `:exit`      | `[:states <source-state>... :exit]`                   | enclosing state-node `:source-code :exit` | enclosing state-node `:source-coords` |
-| `:action`| inline-fn, `:transition`| `[:states <source-state>... :on <event> :action]`     | enclosing transition-map `:source-code :action` | enclosing transition-map `:source-coords` |
-| `:action`| inline-fn, `:always`    | `[:states <source-state>... :always :action]`        | enclosing `:always` map `:source-code :action` (read-back also probes the index-0 vector-candidate path) | enclosing `:always` map / state-node `:source-coords` (walk-up) |
+| `:action`| inline-fn, `:transition`| `<slot-prefix> :action` (exact, via `:transition-slot`; fallback `[:states <source-state>... :on <event> :action]`) | enclosing transition-map `:source-code :action` | enclosing transition-map `:source-coords` |
+| `:action`| inline-fn, `:always`    | `<slot-prefix> :action` (exact, via `:transition-slot`; fallback `[:states <source-state>... :always :action]`) | enclosing `:always` map `:source-code :action` (legacy read-back also probes the index-0 vector path) | enclosing `:always` map / state-node `:source-coords` (walk-up) |
+| `:action`| inline-fn, `:after-action`| `<slot-prefix> :action` (exact, via `:transition-slot`; fallback `[:states <source-state>... :after :action]`) | enclosing `:after` transition-map `:source-code :action` | enclosing `:after` map / state-node `:source-coords` (walk-up) |
 | `:guard` | keyword `guard-id`      | `[:guards <id>]`                                      | entry `:source-code` | entry `:source-coords` |
-| `:guard` | inline-fn               | `[:states <source-state>... :on <event> :guard]`      | enclosing transition-map `:source-code :guard` | enclosing transition-map `:source-coords` |
+| `:guard` | inline-fn               | exact carried `:spec-path` if present; else `[:states <source-state>... :on <event> :guard]` | enclosing transition-map `:source-code :guard` | enclosing transition-map `:source-coords` |
 | `:transition` | —                  | `[:states <source-state>... :on <event>]`             | logical-state delta box (not source) | transition-map `:source-coords` |
 | `:timer` | —                       | `[:states <state>...]` (parent state-node, D1 shape)  | (body elided) | state-node `:source-coords` |
 
@@ -1845,21 +1846,48 @@ macrostep — intermediate-state inline-fns fall back to the
 headline state; source-key resolution degrades to the macrostep's
 source/target.
 
-**`:always` single-map vs vector candidate (rf2-k7yqod).** The runtime
-and validator both accept `:always` as EITHER a single transition map
-(`:always {:action (fn …)}`) OR a vector of guarded candidates
-(`:always [{:guard … :target …} {…}]`). The macro keys each form
-differently: a single-map `:always` is stamped at the bare `:always`
-path (`[:states <s> :always]`, mirroring single-map `:on`); a vector
-keys each candidate by index (`[:states <s> :always <i>]`). The
-source-key returns the INDEX-FREE single-map shape; the view read-back
-(`cascade-row-source-form`) probes the index-free path FIRST and, on a
-miss, the index-0 vector-candidate path — so a single-element vector
-`:always [{…}]` still resolves its body. Richer per-candidate index
-resolution for MULTI-candidate vectors (carrying the substrate's matched
-always-index onto the cascade row) is the rf2-lai1qv follow-on; until
-then a multi-candidate vector resolves its FIRST candidate's source
-(best-effort).
+**Exact transition spec-path via `:transition-slot` (rf2-lai1qv).** The
+reconstruct-from-`source-state`/`event`/`phase` path above is a FALLBACK.
+The substrate (`re-frame.machines.transition`) now stamps the SELECTED
+transition's exact spec-path DISCRIMINATOR on the `:rf.machine/action-ran`
+trace under `:transition-slot`, and `action-cascade-row` carries it onto
+the row. `cascade-row-source-key` builds the precise inline-source slot
+from it (`transition-slot->spec-prefix` + the `:action` leaf), which WINS
+over the reconstruction. The discriminator is:
+
+```
+{:decl-path     <state-path or []>   ;; [] = root / parallel-root :on
+ :slot          :on | :always | :after
+ :event-key     <matched :on key>     ;; exact / :ns/* / :* — nil for :always/:after
+ :delay-key     <:after delay key>    ;; nil otherwise
+ :candidate-idx <int or nil>          ;; nil = index-free (single-map / kw / vec-target)
+ :root?         <bool>}               ;; true iff decl-path is []
+```
+
+This closes the four cases the reconstruction missed:
+
+- **Candidate-vector `:on`** — `:candidate-idx` names the MATCHED
+  candidate (`[:states <s> :on <ev> <i>]`), not the hardcoded index 0.
+- **`:always` nonzero candidate** — `:candidate-idx` names the matched
+  `:always` candidate (`[:states <s> :always <i>]`); the index-free
+  single-map form carries `:candidate-idx nil` and resolves to the bare
+  `[:states <s> :always]` slot (the rf2-k7yqod keying).
+- **`:after`-action** — `:delay-key` names the exact `:after` slot
+  (`[:states <s> :after <delay-key>]`); the reconstruction could only
+  emit the bare `[:states <s> :after]` (delay-key unknown).
+- **Root / parallel-root `:on`** — `:decl-path []` / `:root? true`
+  resolves a root-relative `[:on <ev>]` slot OUTSIDE `:states`; the
+  reconstruction assumed a `:states` prefix.
+
+`:candidate-idx` is meaningful ONLY for the multi-candidate VECTOR value
+form (the only form the inline-source macro keys per-index); the
+single-map / keyword-target / vector-target forms carry `:candidate-idx
+nil` so the slot resolves at the bare path, matching the macro's keying.
+Boundary `:exit` / `:entry` actions are not transition actions — they
+carry NO discriminator and resolve via the `:source-state` /
+`:target-state` reconstruction. A guard's exact slot rides an explicit
+`:spec-path` tag on the `:rf.machine/guard-evaluated` trace
+(`guard-cascade-row` carries it; `cascade-row-source-key` prefers it).
 
 For `:transition` rows, the body renders the **logical-state DELTA
 box** (rf2-iwy0c — see "Transition row" below), NOT a source form;

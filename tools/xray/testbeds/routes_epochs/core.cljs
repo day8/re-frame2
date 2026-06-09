@@ -250,14 +250,21 @@
     {:db db
      :fx [[:dispatch [:rf.route/navigate :routes-epochs/home]]]}))
 
-(rf/reg-event-db :routes-epochs/load-profile
+(rf/reg-event-fx :routes-epochs/load-profile
   {:doc "Step #8's route-driven loader — fired as
          `:routes-epochs/profile`'s `:on-match`. Reads the route params
-         from the slice and writes `:profile` into app-db (the
-         transition runs :loading → :idle around this loader)."}
-  (fn handler-load-profile [db _ev]
-    (let [user (get-in db [:rf/runtime :routing :current :params :user])]
-      (assoc db :profile {:user user :loaded-at-step (:step db)}))))
+         from the route slice and writes `:profile` into app-db (the
+         transition runs :loading → :idle around this loader).
+
+         EP-0001 (rf2-vzld77 / rf2-tj6w9l): the route slice is durable
+         routing RUNTIME-DB state at `[:rf.runtime/routing :current]`, no
+         longer in app-db `:rf/runtime`. An event handler reads it off the
+         `:rf.db/runtime` coeffect every `reg-event-fx` receives — the
+         canonical `:on-match` loader idiom (mirrors the realworld
+         example's `:profile/load`)."}
+  (fn handler-load-profile [{:keys [db] rt :rf.db/runtime} _ev]
+    (let [user (get-in rt [:rf.runtime/routing :current :params :user])]
+      {:db (assoc db :profile {:user user :loaded-at-step (:step db)})})))
 
 ;; ============================================================================
 ;; GUARDED NAV (#10/#11) — a :can-leave gate
