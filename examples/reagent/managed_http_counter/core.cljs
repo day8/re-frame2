@@ -212,24 +212,33 @@
                the proven seed-in-flight pattern in
                tools/xray/testbeds/managed_http/core.cljs."
    :platforms #{:client}}
-  (fn fx-seed-long-request [_frame-ctx {:keys [request-id]}]
-    (http-registry/record-in-flight!
-      request-id nil
-      {:url      long-pending-url
-       ;; The abort-fn IS the in-flight request's cancellation hook. The
-       ;; live :rf.http/managed-abort handler resolves this handle by
-       ;; request-id and calls this fn with the abort `reason` (`:user`
-       ;; here). We clear the registry slot and dispatch the canonical
-       ;; :rf.http/aborted reply — the exact shape the live transport's
-       ;; abort path emits (Spec 014 §Failure categories) — back through
-       ;; default reply addressing to :counter/start-long.
-       :abort-fn (fn [reason]
-                   (http-registry/clear-in-flight! request-id)
-                   (rf/dispatch [:counter/start-long
-                                 {:rf/reply {:kind    :failure
-                                             :failure {:kind       :rf.http/aborted
-                                                       :request-id request-id
-                                                       :reason     reason}}}]))})
+  (fn fx-seed-long-request [frame-ctx {:keys [request-id]}]
+    ;; EP-0002 (rf2-9o48ih): the abort-fn fires later (when the LIVE
+    ;; :rf.http/managed-abort fx resolves this handle), so it carries no
+    ;; ambient frame of its own — a bare `rf/dispatch` inside it would raise
+    ;; :rf.error/no-frame-context. Capture the fx-context's frame and pass it
+    ;; explicitly on the deferred dispatch (Spec 002 §async fx capture the
+    ;; frame — the same `{:frame (:frame frame-ctx)}` pattern the boot example
+    ;; uses for its deferred reply).
+    (let [frame (:frame frame-ctx)]
+      (http-registry/record-in-flight!
+        request-id nil
+        {:url      long-pending-url
+         ;; The abort-fn IS the in-flight request's cancellation hook. The
+         ;; live :rf.http/managed-abort handler resolves this handle by
+         ;; request-id and calls this fn with the abort `reason` (`:user`
+         ;; here). We clear the registry slot and dispatch the canonical
+         ;; :rf.http/aborted reply — the exact shape the live transport's
+         ;; abort path emits (Spec 014 §Failure categories) — back through
+         ;; default reply addressing to :counter/start-long.
+         :abort-fn (fn [reason]
+                     (http-registry/clear-in-flight! request-id)
+                     (rf/dispatch [:counter/start-long
+                                   {:rf/reply {:kind    :failure
+                                               :failure {:kind       :rf.http/aborted
+                                                         :request-id request-id
+                                                         :reason     reason}}}]
+                                  {:frame frame}))}))
     nil))
 
 (rf/reg-event-fx :counter/start-long
@@ -302,11 +311,24 @@
 
 (defonce react-root (atom nil))
 
+;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
+;; synthesises a frame from absence — an app must establish its frame
+;; explicitly. `init!` installs the adapter (it does NOT create the frame),
+;; `reg-frame` registers the app frame, the boot dispatch runs under
+;; `with-frame`, and the render is wrapped in a `frame-provider` so every
+;; in-tree `dispatch`/`subscribe` resolves to the app frame. Matches the
+;; canonical mount in examples/reagent/counter/core.cljs.
+(def app-frame :rf/default)
+
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [:counter/initialise])
+  (rf/reg-frame app-frame {})
+  (rf/with-frame app-frame
+    (rf/dispatch-sync [:counter/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root [counter-app])))
+    (rdc/render @react-root
+                [rf/frame-provider {:frame app-frame}
+                 [counter-app]])))

@@ -313,8 +313,9 @@
           (is (some? pre-socket))
           ;; Simulate a transport-level drop. The mock fires :ws/closed
           ;; (with the source-socket-id) into the actor, which forwards
-          ;; to the parent.
-          (messages/simulate-disconnect!)
+          ;; to the parent. EP-0002 (rf2-9o48ih): the seam now takes a
+          ;; frame-handle so its deferred dispatch carries the frame.
+          (messages/simulate-disconnect! (rf/frame-handle f))
           (let [s (snapshot (rf/runtime-db-value f))]
             (is (= :reconnecting (:state s))
                 (str "expected :reconnecting got " (:state s)))
@@ -513,7 +514,8 @@
                                          :auth-token "demo"}]]
                           {:frame f})
         (let [pre-count (count (get-in (rf/app-db-value f) [:messages :received]))]
-          (messages/send-server-push! {:type :push
+          (messages/send-server-push! (rf/frame-handle f)
+                                      {:type :push
                                        :note "from the server"})
           (let [post (get-in (rf/app-db-value f) [:messages :received])]
             (is (= (inc pre-count) (count post)))

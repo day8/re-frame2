@@ -133,24 +133,6 @@
 ;; ROUTER WIRING
 ;; ============================================================================
 
-(defn current-url []
-  (str (.. js/window -location -pathname)
-       (.. js/window -location -search)
-       (.. js/window -location -hash)))
-
-;; Named handler so the listener install is idempotent: repeated `run`
-;; (shadow hot reload, or a co-required test host invoking run twice)
-;; must not stack duplicate popstate listeners, mirroring the
-;; `when-not @react-root` mount guard. We remove-then-add the same Var so
-;; the registration is deduped even when the Var is redefined on reload.
-(defn- on-popstate [_]
-  (rf/dispatch [:rf.route/handle-url-change (current-url)]))
-
-(defn install-router! []
-  (.removeEventListener js/window "popstate" on-popstate)
-  (.addEventListener js/window "popstate" on-popstate)
-  (rf/dispatch-sync [:rf.route/handle-url-change (current-url)]))
-
 ;; ============================================================================
 ;; MOUNT
 ;; ============================================================================
@@ -162,12 +144,38 @@
 ;; (`reg-view` defs `root-view`, which is what we render.)
 (defonce react-root (atom nil))
 
+;; EP-0002 (rf2-9o48ih + rf2-nn0jqa): under the carried invariant the runtime
+;; never synthesises a frame from absence, and URL ownership is an EXPLICIT
+;; declaration — a frame owns the browser URL only by carrying
+;; `:url-bound? true` (Spec 012 §Multi-frame routing). So the app frame:
+;;   1. is registered explicitly (`init!` installs only the adapter),
+;;   2. declares `:url-bound? true` so it owns the URL, and
+;;   3. seeds its app-db under `with-frame`.
+;; The render is wrapped in a `frame-provider` so every in-tree
+;; `dispatch`/`subscribe` resolves to it.
+;;
+;; The popstate listener is the framework's `rf/install-history-listener!`
+;; (Spec 012 §popstate drives the URL-owner frame) — NOT a hand-rolled
+;; frameless `(rf/dispatch [:rf.route/handle-url-change …])`. It resolves the
+;; URL owner AT POP TIME via `url-owner-frame-id` and dispatches the URL-change
+;; to THAT frame, so Back/Forward restores the owner's `:rf/route` slice. It
+;; also does the initial URL→slice sync and is idempotent (hot-reload safe).
+;; A hand-rolled frameless route dispatch would raise
+;; `:rf.error/no-frame-context`; the framework listener is the canonical,
+;; owner-resolving surface.
+(def app-frame :rf/default)
+
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [:routing.app/initialise])
-  (install-router!)
+  (rf/reg-frame app-frame {:doc "Routing demo frame." :url-bound? true})
+  (rf/with-frame app-frame
+    (rf/dispatch-sync [:routing.app/initialise]))
+  ;; Framework popstate listener + initial URL sync, targeted at the URL owner.
+  (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root [root-view])))
+    (rdc/render @react-root
+                [rf/frame-provider {:frame app-frame}
+                 [root-view]])))

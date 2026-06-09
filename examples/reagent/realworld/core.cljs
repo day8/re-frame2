@@ -404,7 +404,13 @@
   ;; 012 §Redirects and guards). This is what makes the `:requires-auth`
   ;; tags on :realworld.user/settings / :realworld.editor/new / :realworld.editor/edit actually
   ;; protect those routes.
+  ;; EP-0002 (rf2-9o48ih + rf2-nn0jqa): the runtime never synthesises a frame
+  ;; from absence, and URL ownership is an EXPLICIT declaration — this frame
+  ;; carries `:url-bound? true` so it owns the browser URL (Spec 012
+  ;; §Multi-frame routing). The boot dispatch runs under `with-frame` and the
+  ;; render is wrapped in a `frame-provider` below.
   (rf/reg-frame :rf/default {:doc          "Realworld demo frame."
+                             :url-bound?   true
                              :interceptors [routing/auth-guard]
                              :fx-overrides {:rf.http/managed :realworld.demo/http-stub}})
   ;; Register the Bearer-auth interceptor at app boot. Order matters:
@@ -416,9 +422,15 @@
   ;; prefix before the route matcher sees the URL so :realworld/home (path "/")
   ;; matches.
   (routing/set-base-path! "/realworld")
-  (rf/dispatch-sync [:app/initialise])
-  (routing/install-router!)
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [:app/initialise])
+    ;; install-router! does the initial URL→slice sync (a dispatch-sync) and
+    ;; wires the popstate listener; the sync runs under the frame scope, and
+    ;; the listener captures the URL owner per dispatch (see routing.cljs).
+    (routing/install-router!))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root [root-view])))
+    (rdc/render @react-root
+                [rf/frame-provider {:frame :rf/default}
+                 [root-view]])))

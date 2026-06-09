@@ -110,10 +110,19 @@
 (defn- deliver-to-actor!
   "Dispatch an inbound transport event into the spawned actor. The
    actor's machine handler translates the event into a parent-bound
-   `[:ws/connection [:ws/<kind> ...]]` dispatch."
-  [actor-id kind payload]
+   `[:ws/connection [:ws/<kind> ...]]` dispatch.
+
+   EP-0002 (rf2-9o48ih): inbound deliveries fire from the mock transport's
+   `later` callback — a detached `setTimeout` in async (browser) mode that
+   carries NO ambient frame, so a bare `rf/dispatch` here would raise
+   `:rf.error/no-frame-context`. The caller (`mock-socket-for-actor`) is
+   created inside the `:open-socket` action — i.e. under the actor's drain
+   frame — so it captures that frame's `dispatch` operation and threads it in
+   here. Passing the captured `dispatch` honours the carried invariant across
+   the async boundary (Spec 002 §frame-handle)."
+  [dispatch actor-id kind payload]
   (when actor-id
-    (rf/dispatch [actor-id [kind payload]])))
+    (dispatch [actor-id [kind payload]])))
 
 (defn- mock-encode-auth-reply [token]
   ;; A real server would validate the JWT; the mock accepts any
@@ -129,7 +138,14 @@
    and `:request` (→ correlated reply via the `:type :reply` echo)."
   [actor-id _url _auth-token]
   (let [id   (next-mock-socket-id)
-        open? (atom true)]
+        open? (atom true)
+        ;; EP-0002 (rf2-9o48ih): this fn runs inside the `:open-socket` action
+        ;; — i.e. under the actor's drain frame — so capture that frame's
+        ;; `dispatch` now and thread it into every (async, `later`-deferred)
+        ;; inbound delivery below. The detached `setTimeout` callback carries
+        ;; no ambient frame; the captured operation does (Spec 002
+        ;; §frame-handle).
+        dispatch (:dispatch (rf/frame-handle))]
     (swap! mock-server-state assoc-in [:sockets id]
            {:actor-id actor-id
             :open?    open?})
@@ -142,7 +158,7 @@
                   ;; Auth — produce :auth-ok / :auth-failed on the same
                   ;; channel after a microtask.
                   (later
-                    #(deliver-to-actor! actor-id :received
+                    #(deliver-to-actor! dispatch actor-id :received
                                         (mock-encode-auth-reply (:token msg))))
 
                   :request
@@ -151,7 +167,7 @@
                   ;; request-id round-trips so the connection machine's
                   ;; request-reply correlation lights up.
                   (later
-                    #(deliver-to-actor! actor-id :received
+                    #(deliver-to-actor! dispatch actor-id :received
                                         {:type       :reply
                                          :request-id (:request-id msg)
                                          :ok         true
@@ -162,7 +178,7 @@
                   ;; the example demonstrates server-pushed events
                   ;; arriving after the subscribe round-trip.
                   (later
-                    #(deliver-to-actor! actor-id :received
+                    #(deliver-to-actor! dispatch actor-id :received
                                         {:type :push
                                          :topic (:topic msg)
                                          :note  "subscribed"}))
@@ -174,7 +190,7 @@
               (reset! open? false)
               (swap! mock-server-state update :sockets dissoc id)
               (later
-                #(deliver-to-actor! actor-id :closed {:code 1000})))}))
+                #(deliver-to-actor! dispatch actor-id :closed {:code 1000})))}))
 
 ;; Exposed seams the views (and the headless tests) use to drive the
 ;; mock without dispatching through the actor.
@@ -184,30 +200,43 @@
    a running drain (i.e. test bodies, view click handlers). In sync
    mode it uses `dispatch-sync` so the chain runs to fixed point
    before returning; in async mode it falls back to the queued
-   `dispatch`."
-  [actor-id kind payload]
+   `dispatch`.
+
+   EP-0002 (rf2-9o48ih): a view click handler fires outside React render
+   scope and outside any drain, so the caller must supply a frame-bound
+   `dispatch` / `dispatch-sync` pair (the operations a `reg-view`-injected
+   `dispatch` / a captured `(rf/frame-handle)` provides). A bare ambient
+   `rf/dispatch` here would raise `:rf.error/no-frame-context`."
+  [{:keys [dispatch dispatch-sync]} actor-id kind payload]
   (when actor-id
     (if (:sync? @mock-server-state)
-      (rf/dispatch-sync [actor-id [kind payload]])
-      (rf/dispatch       [actor-id [kind payload]]))))
+      (dispatch-sync [actor-id [kind payload]])
+      (dispatch      [actor-id [kind payload]]))))
 
 (defn send-server-push!
   "Deliver a synthetic server push to every live mock socket. Used by
    the headless tests and the example's 'Trigger server push' button
-   to demonstrate the inbound translation path."
-  [body]
+   to demonstrate the inbound translation path.
+
+   `handle` is a `(rf/frame-handle)` operation bundle carrying the caller's
+   frame (the view passes its injected handle; tests pass an explicit one) —
+   EP-0002 requires the deferred dispatch carry a frame across the
+   click-handler / async boundary."
+  [handle body]
   (doseq [[_ {:keys [actor-id open?]}] (:sockets @mock-server-state)]
     (when @open?
-      (deliver-external! actor-id :received body))))
+      (deliver-external! handle actor-id :received body))))
 
 (defn simulate-disconnect!
   "Force every live mock socket closed, triggering the reconnect
-   cascade in the parent. Used by the 'Drop connection' button."
-  []
+   cascade in the parent. Used by the 'Drop connection' button. `handle`
+   is the caller's `(rf/frame-handle)` operation bundle (see
+   `send-server-push!`)."
+  [handle]
   (doseq [[_ {:keys [actor-id open?]}] (:sockets @mock-server-state)]
     (when @open?
       (reset! open? false)
-      (deliver-external! actor-id :closed {:code 1006 :reason "simulated"}))))
+      (deliver-external! handle actor-id :closed {:code 1006 :reason "simulated"}))))
 
 ;; ============================================================================
 ;; THE SOCKET ACTOR — :websocket/socket

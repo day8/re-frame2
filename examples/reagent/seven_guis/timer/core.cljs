@@ -189,11 +189,24 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 (defonce react-root (atom nil))
 
+;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
+;; synthesises a frame from absence — an app must establish its frame
+;; explicitly. `init!` installs the adapter (it does NOT create the frame),
+;; `reg-frame` registers the app frame, the boot dispatch runs under
+;; `with-frame`, and the render is wrapped in a `frame-provider` so every
+;; in-tree `dispatch`/`subscribe` resolves to the app frame. Matches the
+;; canonical mount in examples/reagent/counter/core.cljs.
+(def app-frame :rf/default)
+
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [:timer/initialise])
+  (rf/reg-frame app-frame {})
+  (rf/with-frame app-frame
+    (rf/dispatch-sync [:timer/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root [timer-view])))
+    (rdc/render @react-root
+                [rf/frame-provider {:frame app-frame}
+                 [timer-view]])))

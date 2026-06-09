@@ -92,11 +92,26 @@
 
 (defonce react-root (atom nil))
 
+;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
+;; synthesises a frame from absence — an app must establish its frame
+;; explicitly. `init!` installs the adapter (it does NOT create the frame),
+;; `reg-frame` registers the app frame, the boot dispatch runs under
+;; `with-frame`, and the render is wrapped in the Helix `frame-provider` so the
+;; `use-subscribe` hook and the render-time `(rf/frame-handle)` capture resolve
+;; to the app frame via React context. There is no `:rf/default` floor: a Helix
+;; tree rendered with NO provider observes the no-provider sentinel and any
+;; `use-subscribe` / `frame-handle` raises `:rf.error/no-frame-context`.
+(def app-frame :rf/default)
+
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! helix-adapter/adapter)
-  (rf/dispatch-sync [:counter/initialise])
+  (rf/reg-frame app-frame {})
+  (rf/with-frame app-frame
+    (rf/dispatch-sync [:counter/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
-    (.render @react-root ($ counter-app))))
+    (.render @react-root
+             ($ helix-adapter/frame-provider {:frame app-frame}
+                ($ counter-app)))))

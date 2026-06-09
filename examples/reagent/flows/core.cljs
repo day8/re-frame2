@@ -296,11 +296,23 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 (defonce react-root (atom nil))
 
+;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence —
+;; register the app frame explicitly, seed under `with-frame`, and wrap the
+;; render in a `frame-provider` so the `reg-view`-injected `dispatch`/`subscribe`
+;; resolve to it (a no-provider render reads the no-provider sentinel and raises
+;; :rf.error/no-frame-context). The frame id is `:rf/default` — the same id the
+;; ns-load `reg-app-schema` is scoped to above.
+(def app-frame :rf/default)
+
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [:cart/initialise])
+  (rf/reg-frame app-frame {})
+  (rf/with-frame app-frame
+    (rf/dispatch-sync [:cart/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root [cart-app])))
+    (rdc/render @react-root
+                [rf/frame-provider {:frame app-frame}
+                 [cart-app]])))
