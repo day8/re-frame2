@@ -75,6 +75,7 @@
             [re-frame.story.ui.help :as help]
             [re-frame.story.ui.keybindings :as keybindings]
             [re-frame.story.ui.mode-tabs :as mode-tabs]
+            [re-frame.story.ui.multi-substrate :as multi-substrate]
             [re-frame.story.ui.panels :as panels]
             [re-frame.story.ui.play-status :as play-status]
             [re-frame.story.ui.promotion :as promotion]
@@ -510,7 +511,16 @@
                     :viewport?   (fn [v]
                                    (or (nil? v) (viewport/valid-selection? v)))
                     :background? (fn [b]
-                                   (or (nil? b) (backgrounds/valid-selection? b)))}]
+                                   (or (nil? b) (backgrounds/valid-selection? b)))
+                    ;; rf2-dxz4sg: validate the URL substrate against the live
+                    ;; substrate registry so a stale/unregistered `substrate=`
+                    ;; degrades to the `:reagent` default rather than pinning a
+                    ;; substrate the host app never registered. nil (omitted)
+                    ;; is accepted here and resolved to `:reagent` inside
+                    ;; apply-parsed-to-state.
+                    :substrate?  (fn [s]
+                                   (or (nil? s)
+                                       (contains? (multi-substrate/registered-substrates) s)))}]
     (fn [state parsed]
       (url-state/apply-parsed-to-state state parsed validators))))
 

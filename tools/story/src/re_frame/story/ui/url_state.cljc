@@ -170,6 +170,7 @@
     :workspace?  fn   — registered? predicate for workspace ids
     :viewport?   fn   — recognised? for preset kw / custom map
     :background? fn   — recognised? for preset kw / colour string
+    :substrate?  fn   — registered? predicate for substrate ids
 
   Per rf2-hscut: workspace + variant are mutually exclusive in the
   sidebar (selecting one clears the other). If the URL carries both
@@ -202,6 +203,14 @@
     - omitted `tag-filter=` clears `:tag-filter`   to `#{}`
     - omitted (or invalid) `viewport=`/`background=` clear the slot to nil
       so the chrome falls back to its neutral default (`:full` / no bg).
+    - omitted (or invalid) `substrate=` clears `:substrate` to the default
+      `:reagent` (rf2-dxz4sg). The build side omits `substrate=` precisely
+      to encode the `:reagent` default (`share/build-params` only emits it
+      for a non-default substrate), so an omitted param MUST hydrate as
+      `:reagent` rather than preserving the recipient's stale in-memory
+      `:uix`/`:helix`. A present-but-unregistered substrate (rejected by the
+      `:substrate?` validator) likewise degrades to `:reagent` so a stale URL
+      can't pin a substrate the host app never registered.
   This means a share URL like `?variant=story.counter/loaded` restores the
   DEFAULT framing / filter / modes for the recipient rather than keeping
   their prior localStorage-seeded chrome, and back/forward from a populated
@@ -222,6 +231,16 @@
                         ((:viewport? validators) viewport))
         bg-ok?      (or (nil? (:background? validators))
                         ((:background? validators) background))
+        ;; rf2-dxz4sg: an omitted `substrate=` (nil) encodes the `:reagent`
+        ;; default on the build side, so it MUST hydrate as `:reagent`, not
+        ;; preserve the recipient's stale in-memory substrate. A
+        ;; present-but-unregistered substrate (rejected by the validator)
+        ;; likewise degrades to `:reagent`. With no `:substrate?` validator
+        ;; the layer can't reach the substrate registry, so any present id is
+        ;; accepted (the registrar-aware shell wiring supplies the validator).
+        sub-ok?     (or (nil? (:substrate? validators))
+                        ((:substrate? validators) substrate))
+        substrate*  (if (and substrate sub-ok?) substrate :reagent)
         ;; Variant wins over workspace when both are present (rf2-hscut).
         keep-variant?   (and variant-id variant-ok?)
         keep-workspace? (and (not keep-variant?) workspace-id ws-ok?)]
@@ -273,14 +292,17 @@
       ;; the chrome falls back to its default rather than keeping a stale
       ;; localStorage / prior-session value — the address bar stays the
       ;; source of truth for the full share surface.
+      ;; rf2-dxz4sg: `:substrate` joins the unconditional authoritative-clear
+      ;; — omitted/invalid ⇒ `:reagent` (computed as `substrate*` above), a
+      ;; registered non-default id ⇒ that id. This mirrors the build-side
+      ;; default-omission (`share/build-params`) so the address bar stays the
+      ;; source of truth for the substrate on both mount and back/forward.
       :always
       (-> (assoc :active-modes (vec active-modes))
           (assoc :viewport   (when vp-ok? viewport))
           (assoc :background (when bg-ok? background))
-          (assoc :tag-filter (set tag-filter)))
-
-      substrate
-      (assoc :substrate substrate))))
+          (assoc :tag-filter (set tag-filter))
+          (assoc :substrate  substrate*)))))
 
 ;; ---- CLJS-only: window.history + popstate -------------------------------
 
