@@ -817,17 +817,38 @@
 ;; ============================================================================
 
 (defn- hydration-payload-test []
-  (let [db {:rf/runtime {:routing {:current {:id :realworld/home}}}
-            :auth {:user {:username "alice"} :token "jwt"}
-            :articles {:status :loaded :data [] :error nil :loaded-at 1 :attempt 1}
-            :transient {:popup true}}
-        payload (ssr/hydration-payload db [:div "hello"])
+  ;; EP-0001 (rf2-vzld77): the SSR payload is built from a two-partition
+  ;; frame-state value `{:rf.db/app … :rf.db/runtime …}` (the shape
+  ;; `rf/frame-state-value` returns), NOT a flat single-map db. Application
+  ;; slices live in the `:rf.db/app` partition; the framework-owned
+  ;; subsystem trees (routing, machines) live in `:rf.db/runtime`. The
+  ;; payload splits them across `:rf/app-db` + `:rf/runtime-db` (the two
+  ;; slices the `:rf/hydrate` handler installs into the two partitions).
+  (let [frame-state {:rf.db/app     {:auth      {:user {:username "alice"} :token "jwt"}
+                                     :articles  {:status :loaded :data [] :error nil :loaded-at 1 :attempt 1}
+                                     :transient {:popup true}}
+                     :rf.db/runtime {:rf.runtime/routing  {:current {:id :realworld/home}}
+                                     :rf.runtime/machines {:snapshots {:settings/form {:state :neutral}}}
+                                     :rf.runtime/http     {:in-flight {}}}}
+        payload (ssr/hydration-payload frame-state [:div "hello"])
         exported-auth (get-in payload [:rf/app-db :auth])]
-    (is (= #{:rf/runtime :auth :articles}
+    ;; The app-db slice carries only the whitelisted application slices —
+    ;; `:auth` + `:articles` — and NOT the framework runtime trees (those
+    ;; ride `:rf/runtime-db`) nor the non-exported `:transient` slice.
+    (is (= #{:auth :articles}
            (set (keys (:rf/app-db payload)))))
+    ;; The runtime-db slice carries the durable, serializable runtime
+    ;; children — the route slice + machine snapshots — so the client
+    ;; resumes from the server's route and any mid-flow machines. Transient
+    ;; runtime state (in-flight HTTP) is excluded.
+    (is (= #{:rf.runtime/routing :rf.runtime/machines}
+           (set (keys (:rf/runtime-db payload)))))
+    (is (= {:id :realworld/home}
+           (get-in payload [:rf/runtime-db :rf.runtime/routing :current]))
+        "the server route slice rides the runtime-db partition")
     ;; rf2-ygh4m ITEM 7 — the bearer JWT must NOT cross the SSR seam.
     ;; The :auth slice still rides along (the client needs :user), but
-    ;; :token is redacted at the payload boundary (ssr/exportable-db);
+    ;; :token is redacted at the payload boundary (ssr/exportable-app-db);
     ;; the client re-derives it from localStorage on hydrate.
     (is (= {:username "alice"} (:user exported-auth))
         "the :auth :user payload survives hydration")
