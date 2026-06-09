@@ -59,12 +59,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- with-stub-validator []
-  (let [prev-v   @schemas/validator-fn
-        prev-e   @schemas/explainer-fn
+  (let [snap     (schemas/snapshot-schema-fns)
         validate (fn [schema value] (boolean (schema value)))
         explain  (fn [_schema value] {:reason :stub-explainer :value value})]
     (schemas/set-schema-fns! {:validate validate :explain explain})
-    (fn [] (schemas/set-schema-fns! {:validate prev-v :explain prev-e}))))
+    (fn [] (schemas/restore-schema-fns! snap))))
 
 (def ^:private frame-a :ssr/req-a)
 (def ^:private frame-b :ssr/req-b)

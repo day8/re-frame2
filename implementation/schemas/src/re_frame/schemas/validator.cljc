@@ -351,6 +351,52 @@
   (reset! explainer-fn default-malli-explain)
   (reset! printer-fn   default-edn-print))
 
+(defn snapshot-schema-fns
+  "Capture the currently-installed validator / explainer / printer bundle
+  as one opaque value (rf2-l4ljvr). The bundle-level companion to the
+  registry's `snapshot-schemas-by-frame` (storage.cljc) — together they
+  let a test capture+restore the WHOLE schema runtime (the per-frame
+  registry AND the pluggable validation bundle) through the encapsulated
+  API, never reaching the raw `validator-fn` / `explainer-fn` /
+  `printer-fn` atoms.
+
+  Returns a map in the SAME shape `set-schema-fns!` accepts and returns
+  (rf2-13meg / rf2-qdtcx2):
+
+    {:validate @validator-fn   ;; may be nil (validation disabled)
+     :explain  @explainer-fn   ;; may be nil (no explanation)
+     :print    @printer-fn}    ;; never nil (always at least default-edn-print)
+
+  so the value round-trips losslessly through `restore-schema-fns!`.
+  This is the missing capture half: before rf2-l4ljvr only
+  `reset-schema-validator!` existed (resets to the framework DEFAULT),
+  so a test that wanted to install a custom bundle and later restore the
+  PRIOR custom bundle had to hand-roll the snapshot via raw `@validator-fn`
+  derefs. Reads each atom under no lock — these are framework-wide defonce
+  atoms read at the test seam, mirroring `set-schema-fns!`'s own returns."
+  []
+  {:validate @validator-fn
+   :explain  @explainer-fn
+   :print    @printer-fn})
+
+(defn restore-schema-fns!
+  "Reinstall a validator / explainer / printer bundle captured by
+  `snapshot-schema-fns` (rf2-l4ljvr). The bundle-level companion to the
+  registry's `restore-schemas-by-frame!` (storage.cljc).
+
+  Restoring is a FULL bundle install — all three atoms are reset from the
+  snapshot map's `:validate` / `:explain` / `:print` keys. Delegates to
+  `set-schema-fns!` so a snapshot's keys land through the SAME write path
+  the public setter uses: in particular a `nil` `:print` coerces to
+  `default-edn-print` exactly like `set-schema-fns!` / `set-schema-printer!`
+  (rf2-ee38b.6), so the printer-never-nil invariant `run-printer` relies on
+  holds after a restore without a read-site guard — a `snapshot-schema-fns`
+  value always carries a non-nil `:print`, but routing the restore through
+  the coercing setter keeps the invariant true even for a hand-built bundle
+  map. Returns the installed bundle map (the `set-schema-fns!` return)."
+  [bundle]
+  (set-schema-fns! bundle))
+
 (defn using-default-validator?
   "True when `validator-fn` is still the framework-default
   `default-malli-validate`. Used by the

@@ -112,6 +112,18 @@
 (def set-schema-fns!         validator/set-schema-fns!)
 (def reset-schema-validator! validator/reset-schema-validator!)
 
+;; Bundle-level snapshot / restore (rf2-l4ljvr). The validator/explainer/
+;; printer companion to the registry's `snapshot-schemas-by-frame` /
+;; `restore-schemas-by-frame!` (below). `snapshot-schema-fns` captures the
+;; live bundle as one opaque value; `restore-schema-fns!` reinstalls it
+;; (coercing a nil `:print` to the default like `set-schema-fns!`, so the
+;; printer-never-nil invariant holds). Together with the registry pair they
+;; let test-support capture+restore the WHOLE schema runtime through the
+;; encapsulated API rather than reaching the raw `validator-fn` /
+;; `explainer-fn` / `printer-fn` atoms.
+(def snapshot-schema-fns     validator/snapshot-schema-fns)
+(def restore-schema-fns!     validator/restore-schema-fns!)
+
 ;; Printer / walker memo clear hooks (rf2-17sqc). Test-support: the
 ;; printer + sensitive-walker memos are process-lifetime caches bounded
 ;; by the registered-schema cardinality (schemas register once at boot).

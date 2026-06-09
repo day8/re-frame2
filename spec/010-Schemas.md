@@ -592,6 +592,29 @@ This recommendation is normative-soft: ports that ship a different default-absen
 
 What the extension point does NOT cover: a *mix* of validators in one process. The runtime resolves one validator and uses it for every `:schema` everywhere; a hybrid setup (one schema language for app schemas, a different one for boundary handlers) requires the user to register a *composite* validator that dispatches internally on schema shape.
 
+### Test-support: snapshot / restore the validator bundle
+
+The validator/explainer/printer surface carries an **encapsulated snapshot/restore pair** so a test (or fixture) can capture the live bundle, install a custom one, and reinstate the prior bundle without reaching the framework-internal validator atoms:
+
+These two hooks live on the `re-frame.schemas` namespace (they are `:internal-public` test-support surface, not part of the `re-frame.core` front-porch facade — unlike the `set-schema-*!` setters, which ARE re-exported into `re-frame.core`):
+
+```clojure
+(require '[re-frame.schemas :as schemas])
+
+;; Capture the currently-installed bundle as one opaque value
+;; (the same {:validate :explain :print} shape set-schema-fns! takes).
+(def snap (schemas/snapshot-schema-fns))
+
+(rf/set-schema-fns! {:validate stub-validate :explain stub-explain})
+;; ... exercise the validation path against the stub ...
+
+;; Reinstall the captured bundle. A nil :print coerces to the default
+;; EDN canonicaliser, so the printer-never-nil invariant holds.
+(schemas/restore-schema-fns! snap)
+```
+
+This is the **bundle-level** companion to the per-frame registry's `snapshot-schemas-by-frame` / `restore-schemas-by-frame!` test-support hooks (the registry side captures *which schemas are registered per frame*; the bundle side captures *which validator/explainer/printer is installed*). The two pairs compose: capturing+restoring both reinstates the whole schema runtime through the encapsulated API. `reset-schema-validator!` remains the shortcut for restoring the framework **defaults** specifically; `snapshot-schema-fns` / `restore-schema-fns!` are for capturing and reinstating an **arbitrary** prior bundle. All four are `:internal-public` test-support hooks rowed in [API.md §Schemas](API.md#schemas) — not part of the `re-frame.core` front-porch facade.
+
 ### Schema implies validation on CLJS (Malli wired by the artefact)
 
 On the CLJS reference, **requiring the schemas artefact wires the default Malli validator automatically** — there is nothing extra to opt into. The `re-frame.schemas` facade `:require`s the `re-frame.schemas.malli` adapter ns, whose only job is to publish `malli.core/validate` / `malli.core/explain` / `malli.error/humanize` into the framework's late-bind hook table on ns-load (`:schemas/malli-validate` / `:schemas/malli-explain` / `:schemas/humanize-explain!`). The schemas artefact's default validator consults these hooks on every call:

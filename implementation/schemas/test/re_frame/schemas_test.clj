@@ -1424,6 +1424,99 @@
       (is (= "::FROM-PUBLIC-BUNDLE::" (validator/run-printer :int))
           "the printer installed via the bundle setter reaches the hot path"))))
 
+;; ---- rf2-l4ljvr — bundle snapshot / restore ------------------------------
+;;
+;; The validator/explainer/printer BUNDLE companion to the registry's
+;; snapshot-schemas-by-frame / restore-schemas-by-frame! (tested below).
+;; Before rf2-l4ljvr only `reset-schema-validator!` existed (resets to the
+;; framework DEFAULT), so a test wanting to capture a custom bundle and
+;; later restore the PRIOR custom bundle hand-rolled the snapshot via raw
+;; `@validator-fn` derefs (the routing/ssr/ssr-ring `with-stub-validator`
+;; fixtures). `snapshot-schema-fns` / `restore-schema-fns!` close that
+;; asymmetry so consumers never touch the raw atoms.
+
+(deftest snapshot-schema-fns-captures-live-bundle
+  (testing "rf2-l4ljvr — snapshot-schema-fns returns the live
+            validator/explainer/printer triple in set-schema-fns! shape"
+    (let [v-fn (fn [_ _] true)
+          e-fn (fn [_ _] {:explained true})
+          p-fn (fn [_] "::SNAPSHOT-ME::")]
+      (rf/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
+      (let [snap (schemas/snapshot-schema-fns)]
+        (is (= #{:validate :explain :print} (set (keys snap)))
+            "snapshot is the {:validate :explain :print} bundle shape")
+        (is (= v-fn (:validate snap)) "captures the live validator")
+        (is (= e-fn (:explain snap))  "captures the live explainer")
+        (is (= p-fn (:print snap))    "captures the live printer")))))
+
+(deftest restore-schema-fns-reinstates-custom-bundle
+  (testing "rf2-l4ljvr — restore-schema-fns! faithfully round-trips a
+            custom validator+explainer+printer bundle: snapshot a custom
+            bundle, mutate to a different bundle, restore reinstates the
+            captured one (all three fns + the run-printer hot path)"
+    (let [v1 (fn [_ _] true)
+          e1 (fn [_ _] {:reason :first})
+          p1 (fn [_] "::FIRST::")]
+      ;; Install bundle 1 and snapshot it.
+      (rf/set-schema-fns! {:validate v1 :explain e1 :print p1})
+      (let [snap (schemas/snapshot-schema-fns)]
+        ;; Mutate to a completely different bundle.
+        (rf/set-schema-fns! {:validate (fn [_ _] false)
+                             :explain  (fn [_ _] {:reason :second})
+                             :print    (fn [_] "::SECOND::")})
+        (is (= "::SECOND::" (validator/run-printer :int))
+            "mid-state: the second bundle is live")
+        ;; Restore bundle 1.
+        (let [ret (schemas/restore-schema-fns! snap)]
+          (is (= v1 @schemas/validator-fn) "validator restored")
+          (is (= e1 @schemas/explainer-fn) "explainer restored")
+          (is (= p1 @schemas/printer-fn)   "printer restored")
+          (is (= "::FIRST::" (validator/run-printer :int))
+              "run-printer's hot path observes the restored printer")
+          (is (= snap ret)
+              "restore-schema-fns! returns the installed bundle (set-schema-fns! return)"))))))
+
+(deftest restore-schema-fns-coerces-nil-print-to-default
+  (testing "rf2-l4ljvr + rf2-ee38b.6 — restoring a bundle whose :print is
+            nil coerces it to default-edn-print (the printer-never-nil
+            invariant run-printer relies on), exactly like set-schema-fns!"
+    ;; A hand-built bundle with an explicit nil :print (snapshot-schema-fns
+    ;; never produces nil :print, but the restore path must stay safe).
+    (schemas/restore-schema-fns! {:validate (fn [_ _] true)
+                             :explain  nil
+                             :print    nil})
+    (is (some? @schemas/printer-fn)
+        "printer-fn is never nil after restore — coerced to the default")
+    (is (= ":int" (validator/run-printer :int))
+        "run-printer reaches the default EDN canonicaliser, no read-site guard")))
+
+(deftest snapshot-restore-bundle-composes-with-registry-pair
+  (testing "rf2-l4ljvr — the bundle snapshot/restore pair composes with
+            the registry snapshot/restore pair: capturing+restoring BOTH
+            reinstates the whole schema runtime (per-frame registry AND the
+            pluggable bundle) through the encapsulated API, no raw atoms"
+    (let [v-fn (fn [_ _] true)
+          p-fn (fn [_] "::COMPOSED::")]
+      ;; Establish a known runtime: a custom bundle + a registered schema.
+      (rf/set-schema-fns! {:validate v-fn :print p-fn})
+      (rf/reg-app-schema [:n] [:int])
+      ;; Capture BOTH the bundle and the registry.
+      (let [bundle-snap   (schemas/snapshot-schema-fns)
+            registry-snap (schemas/snapshot-schemas-by-frame)]
+        ;; Tear the whole runtime down to a different state.
+        (schemas/reset-schema-validator!)
+        (schemas/clear-schemas-by-frame!)
+        (is (not= v-fn @schemas/validator-fn) "bundle was reset away")
+        (is (= {} @schemas/schemas-by-frame)  "registry was cleared")
+        ;; Restore BOTH through the encapsulated API.
+        (schemas/restore-schema-fns! bundle-snap)
+        (schemas/restore-schemas-by-frame! registry-snap)
+        (is (= v-fn @schemas/validator-fn) "bundle validator restored")
+        (is (= "::COMPOSED::" (validator/run-printer :int))
+            "bundle printer restored on the hot path")
+        (is (= [:int] (rf/app-schema-at [:n]))
+            "registry schema restored — the two pairs compose")))))
+
 ;; ---- rf2-r2uh — :rf.schema/at-boundary interceptor ---------------------
 ;;
 ;; Per Spec 010 §Production builds — the boundary-validation interceptor

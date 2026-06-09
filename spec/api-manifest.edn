@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 487,
+ :var-count 489,
  :tier-vocab
  [:front-porch
   :advanced
@@ -307,6 +307,7 @@
   {:namespace "re-frame.schemas", :var "reg-app-schema", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "reg-app-schemas", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "reset-schema-validator!", :tier :advanced, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.schemas", :var "restore-schema-fns!", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "restore-schemas-by-frame!", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "schema-has-sensitive?", :tier :internal-public, :kind :fn, :owner "015", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "schema-sensitive-at?", :tier :internal-public, :kind :fn, :owner "015", :status "v1", :facade? false, :runtime-verified? true}
@@ -315,6 +316,7 @@
   {:namespace "re-frame.schemas", :var "set-schema-fns!", :tier :advanced, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "set-schema-printer!", :tier :advanced, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "set-schema-validator!", :tier :advanced, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.schemas", :var "snapshot-schema-fns", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "snapshot-schemas-by-frame", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "validate-app-schema!", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "validate-cofx!", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}

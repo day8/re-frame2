@@ -71,14 +71,19 @@
   "Install a tiny stub validator + explainer that interprets schemas as
   Clojure predicates `(fn [v] truthy?)`. Lets the schema-validation tests
   assert the validation path without dragging in Malli / spec.alpha.
-  Returns a cleanup fn for the caller to invoke."
+  Returns a cleanup fn for the caller to invoke.
+
+  Captures the prior bundle through the encapsulated
+  `snapshot-schema-fns` / `restore-schema-fns!` pair (rf2-l4ljvr) rather
+  than reaching the raw `validator-fn` / `explainer-fn` atoms — the
+  snapshot also preserves the printer, so the cleanup restores the full
+  prior bundle."
   []
-  (let [prev-v   @schemas/validator-fn
-        prev-e   @schemas/explainer-fn
+  (let [snap     (schemas/snapshot-schema-fns)
         validate (fn [schema value] (boolean (schema value)))
         explain  (fn [_schema value] {:reason :stub-explainer :value value})]
     (schemas/set-schema-fns! {:validate validate :explain explain})
-    (fn [] (schemas/set-schema-fns! {:validate prev-v :explain prev-e}))))
+    (fn [] (schemas/restore-schema-fns! snap))))
 
 (defn over-cap-url
   "Build a `/search?...` URL one unique query-key OVER
