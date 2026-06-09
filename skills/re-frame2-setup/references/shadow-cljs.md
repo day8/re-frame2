@@ -138,7 +138,17 @@ The top-level `:dev-http` (above) already starts the dev server. Add a `:devtool
   :devtools   {:preloads [day8.re-frame2-xray.preload]}}}
 ```
 
-- **No `:after-load` hook.** shadow-cljs's `:browser` target already re-runs the module `:init-fn` after each hot reload, so the freshly-loaded code re-installs the adapter and re-renders without an explicit `:after-load`. The template relies on this default and registers no `:after-load`. **Consequence to be aware of:** because `init` also runs `(rf/dispatch-sync [:your-app/initialise])` (the seed event — see `entry-namespace.md`), the re-invoked `init` re-runs that seed on **every** hot reload, resetting `app-db` to its initial state each save. For a counter that means the count jumps back to 0 on every reload — acceptable for greenfield. If preserving in-progress state across reloads matters later, add a `:devtools {:after-load ...}` pointing at a separate fn that re-renders **without** re-seeding (calls `rdc/render` but not `dispatch-sync`); shadow-cljs runs an explicit `:after-load` in place of the default `:init-fn` re-run.
+- **`:init-fn` is a one-time startup hook — it is NOT the hot-reload hook.** shadow-cljs's `:browser` target calls the module `:init-fn` **once**, at initial module load / page load. A plain code reload (you save a `.cljs` file, shadow recompiles and ships the new code) does **not** re-run `:init-fn` — by design, so a top-level `(init)` isn't re-executed on every save (this is exactly why `:init-fn` exists rather than a bare top-level call; see the shadow-cljs [User's Guide §Lifecycle hooks](https://shadow-cljs.github.io/docs/UsersGuide.html#_lifecycle_hooks)). The explicit re-render-after-reload hook is **`^:dev/after-load`** (a metadata tag on a zero-arg fn) or, equivalently, a `:devtools {:after-load your-app.core/render!}` entry in the build. If you set *neither*, shadow swaps the freshly-compiled code into the running page but runs no hook — React does not necessarily re-render until the next state change, so edits to view code can look stale until you change state or do a full refresh.
+
+  **The greenfield recipe — the simplest scaffold, with its limit stated.** This minimal counter ships **no** `^:dev/after-load` hook (matching the smallest scaffold). The cost: after editing view code you may need a state change (click `+1`) or a full page refresh to see it; the live tree won't necessarily re-render on a bare code reload. That trade is fine for greenfield. When you want reliable hot reload, add a separate render fn and an after-load hook that re-renders **without** re-seeding app-db:
+
+  ```clojure
+  ;; in your-app.core
+  (defn ^:dev/after-load render! []
+    (rdc/render react-root [counter-app]))   ;; re-render only — no rf/init!, no dispatch-sync
+  ```
+
+  Keep `(rf/init! …)` and the `(rf/dispatch-sync [:counter/initialise])` seed in `init` (the one-time startup path); the after-load hook only re-renders, so app-db state survives the reload instead of resetting to its seed on every save. (Coordinate this wording with the generator template's own hot-reload notes — see rf2-8n4s71 — so the template docs and this skill teach the same `:init-fn` = startup / `^:dev/after-load` = reload-hook lifecycle.)
 - `:preloads [day8.re-frame2-xray.preload]` — loads the Xray in-app devtools panel in dev/watch builds. `:preloads` (and the whole `:devtools` block) are cut from `release` builds automatically, so Xray never ships to production.
 - The dev server itself comes from the top-level `:dev-http {8280 "resources/public"}` (not from a `:http-port`/`:http-root` inside `:devtools` — that's the older style; the template uses the top-level `:dev-http` form).
 

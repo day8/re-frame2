@@ -63,7 +63,7 @@ Any non-setup question → route to the right skill; don't improvise here.
 4. **Write `shadow-cljs.edn` and `index.html`.** One `:target :browser` build, `:init-fn your-app.core/init`, `:source-paths` including `src/`, and the `:devtools/preloads [day8.re-frame2-xray.preload]` Xray wiring. `index.html` must provide the true-inline `[data-rf-xray-host]` **right** layout column beside `#app` (`<main>` first, `<aside data-rf-xray-host>` second; the host's width reads `var(--rf-xray-inline-width, 560px)`); Xray auto-opens there on app load. → [`references/shadow-cljs.md`](references/shadow-cljs.md) for the exact shape, the `:devtools` block, and the `index.html`.
 5. **Write the entry namespace.** `your-app/core.cljs` requires `[re-frame.core :as rf]` and `[re-frame.adapter.reagent :as reagent-adapter]`, then calls `(rf/init! reagent-adapter/adapter)` **before any dispatch or render**. The exported entry symbol is `init` (matching the template's `:init-fn ...core/init`). → [`references/entry-namespace.md`](references/entry-namespace.md) for the canonical shape, the React-root `defonce` pattern, and the order-of-operations contract.
 6. **Write the first counter.** A registered event, sub, view, and mount — end-to-end. → [`references/first-counter.md`](references/first-counter.md). **Reagent** uses the `reg-view` macro (auto-injected `dispatch`/`subscribe`); the leaf is Reagent-specific. **UIx / Helix** do NOT use `reg-view` — they read subs via the adapter's `use-subscribe` hook and dispatch via `(:dispatch (rf/frame-handle))`. For a UIx/Helix greenfield, take the complete generator route (cardinal rule 4) or copy the substrate `views.cljs` from [`references/entry-namespace.md` §UIx / Helix greenfield](references/entry-namespace.md) — the events/subs are the same `reg-event-db`/`reg-sub` forms, only the view layer differs. Do not combine a UIx/Helix entry ns with the Reagent `reg-view` counter.
-7. **Run and verify.** `npx shadow-cljs watch app` → open `http://localhost:<port>/`. Counter visible, `+`/`-` flips the number. **Done.**
+7. **Run and verify.** `npx shadow-cljs watch app` → open `http://localhost:<port>/`. Counter visible, the `+1` button increments the number. **Done.**
 
 ## Done checklist
 
@@ -75,7 +75,7 @@ Any non-setup question → route to the right skill; don't improvise here.
 - [ ] `index.html` provides `[data-rf-xray-host]` as the **right** column beside `#app` (`<main>` first, `<aside data-rf-xray-host>` second; width via `var(--rf-xray-inline-width, 560px)`).
 - [ ] Entry ns calls `(rf/init! reagent-adapter/adapter)` before any render.
 - [ ] `shadow-cljs watch <build-id>` compiles cleanly.
-- [ ] Browser shows the counter and `+`/`-` updates it.
+- [ ] Browser shows the counter and the `+1` button increments it.
 
 Hand off: *"Setup is done. Switch to **`re-frame2`** for events/subs/machines/schemas/frames/fx. For live REPL inspection, install **`re-frame2-pair`**."*
 

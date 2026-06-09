@@ -28,28 +28,24 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 ;; -- Events ----------------------------------------------------------------
 
 (rf/reg-event-db :counter/initialise
-  (fn [_db _event] {:count 0}))
+  (fn [_db _event] {:counter/value 0}))
 
-(rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :count inc)))
-
-(rf/reg-event-db :counter/dec
-  (fn [db _event] (update db :count dec)))
+(rf/reg-event-db :counter/increment
+  (fn [db _event] (update db :counter/value inc)))
 
 ;; -- Subscriptions ---------------------------------------------------------
 
-(rf/reg-sub :count
-  (fn [db _query] (:count db)))
+(rf/reg-sub :counter/value
+  (fn [db _query] (:counter/value db)))
 
 ;; -- Views -----------------------------------------------------------------
 
 (reg-view counter-buttons []
   [:div
-   [:button {:on-click #(dispatch [:counter/dec])} "-"]
-   [:span {:style {:margin "0 1em"}} @(subscribe [:count])]
-   [:button {:on-click #(dispatch [:counter/inc])} "+"]])
+   [:button {:on-click #(dispatch [:counter/increment])} "+1"]
+   [:span {:style {:margin "0 1em"}} @(subscribe [:counter/value])]])
 
-(reg-view root-view []
+(reg-view counter-app []
   [:div
    [:h1 "re-frame2 counter"]
    [counter-buttons]])
@@ -62,31 +58,33 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 (defn ^:export init []
   (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
-  (rdc/render react-root [root-view]))
+  (rdc/render react-root [counter-app]))
 ```
 
-That's the entire greenfield app. ~30 lines of substance, every re-frame2 primitive exercised once.
+That's the entire greenfield app. ~25 lines of substance, every re-frame2 primitive exercised once.
+
+This is the same `:counter/initialise` / `:counter/increment` events and `:counter/value` sub that the generator template registers (`tools/template/resources/day8/re_frame2_template/_shared/events.cljs` + `_shared/subs.cljs`) and that the UIx / Helix view snippets in [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md) dispatch and subscribe — so the SKILL.md claim "the events and subs are identical across substrates; only the view layer differs" holds in **copied** code. The canonical worked example at `examples/reagent/counter/core.cljs` uses the same namespaced `:counter/value` app-db key (seeded to `5` there) and additionally keeps a `:counter/dec` / `-` button; this minimal greenfield counter stays on the single-increment shape the template ships, so the three sources share one vocabulary. If you want decrement, add a `:counter/decrement` event (`(update db :counter/value dec)`) and a matching `-` button in **all** substrate views you use.
 
 ## What each block does
 
 ### Events
 
-Three events: an initialiser and two mutations. Each takes the current `db`, returns the next `db`. Pure functions, dispatched through re-frame2's drain so they run in order, one at a time.
+Two events: an initialiser and one mutation. Each takes the current `db`, returns the next `db`. Pure functions, dispatched through re-frame2's drain so they run in order, one at a time.
 
 `reg-event-db` is the "DB-only" event handler — the handler's return value replaces `app-db` for the registered frame. For events that need to return both a new DB **and** other effects (HTTP requests, navigation, child dispatches), the macro is `reg-event-fx` and the handler returns a map `{:db ... :fx [...]}`. The counter doesn't need that yet.
 
 ### Subscriptions
 
-One subscription, `[:count]`, reads `(:count db)`. Views deref it with `@(subscribe [:count])`. Under re-frame2's value-equal recompute suppression, the sub re-runs only when its inputs change; if the new return value is `=` to the previous one, downstream consumers don't re-render. That suppression is automatic; nothing to configure.
+One subscription, `[:counter/value]`, reads `(:counter/value db)`. Views deref it with `@(subscribe [:counter/value])`. Under re-frame2's value-equal recompute suppression, the sub re-runs only when its inputs change; if the new return value is `=` to the previous one, downstream consumers don't re-render. That suppression is automatic; nothing to configure.
 
 ### Views
 
-`reg-view` is a macro that **registers a view** under `(keyword *ns* sym)` — here, `:your-app.core/counter-buttons` and `:your-app.core/root-view`. It also defs a regular CLJS var with the same name so the hiccup `[counter-buttons]` reference works.
+`reg-view` is a macro that **registers a view** under `(keyword *ns* sym)` — here, `:your-app.core/counter-buttons` and `:your-app.core/counter-app`. It also defs a regular CLJS var with the same name so the hiccup `[counter-buttons]` reference works.
 
 Inside the body, two locals are **auto-injected** by the macro:
 
-- `dispatch` — bound to the current frame's `dispatch` fn. Use it like `(dispatch [:counter/inc])`.
-- `subscribe` — bound to the current frame's `subscribe` fn. Use it like `@(subscribe [:count])`.
+- `dispatch` — bound to the current frame's `dispatch` fn. Use it like `(dispatch [:counter/increment])`.
+- `subscribe` — bound to the current frame's `subscribe` fn. Use it like `@(subscribe [:counter/value])`.
 
 This is what makes registered views frame-aware without you threading the frame through every component. The macro resolves both at render time against whatever frame is in scope (the default frame, here; `frame-provider` lets multi-frame apps swap it for a subtree).
 
@@ -99,8 +97,8 @@ The result is regular Reagent hiccup. Reagent renders, the React 19 root commits
 `init`'s three lines (in this order):
 
 1. `(rf/init! reagent-adapter/adapter)` — install the Reagent substrate adapter.
-2. `(rf/dispatch-sync [:counter/initialise])` — seed `app-db` to `{:count 0}` before first render. `dispatch-sync` drains the event synchronously; the `app-db` is committed before `init` returns.
-3. `(rdc/render react-root [root-view])` — mount.
+2. `(rf/dispatch-sync [:counter/initialise])` — seed `app-db` to `{:counter/value 0}` before first render. `dispatch-sync` drains the event synchronously; the `app-db` is committed before `init` returns.
+3. `(rdc/render react-root [counter-app])` — mount.
 
 ## Verifying it works
 
@@ -117,10 +115,10 @@ Visit `http://localhost:8280/` (the template's port — or whatever you set in `
 You should see:
 
 - The heading `re-frame2 counter`
-- The number `0`
-- A `-` button on the left, `+` button on the right
+- A `+1` button
+- The number `0` beside it
 
-Click `+` — the number becomes `1`. Click `-` — back to `0`. Refresh the page — back to `0` (state lives in app-db, which resets on full reload).
+Click `+1` — the number becomes `1`, then `2`, and so on. Refresh the page — back to `0` (state lives in app-db, which resets on full reload).
 
 First-run failures, in roughly the order you'll hit them:
 - **`shadow-cljs: command not found` / `Cannot find module`** — `npm install` hasn't run (or you ran `npx shadow-cljs` before installing). Run `npm install`, then retry `npx shadow-cljs watch app`.
