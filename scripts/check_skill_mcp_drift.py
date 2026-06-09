@@ -523,6 +523,26 @@ BASH_RULES: list[BashRule] = [
         required_allow="gh issue *",
         description="re-frame-migration body instructs the agent to file GitHub issues; allow-list must permit Bash(gh issue *)",
     ),
+    # rf2-pd4is8: the migration-corpus pin check (cardinal rule 5 +
+    # references/setup.md §Pin the migration corpus) is a load-bearing,
+    # read-only provenance step the skill runs ITSELF. SKILL.md cardinal
+    # rule 5 spells out the two `git -C <path> rev-parse` / `remote
+    # get-url` commands; the allow-list must permit them, or the skill
+    # presents a provenance check it cannot run (the defect this rule
+    # catches). Scoped narrowly to the two read-only sub-surfaces — the
+    # build/test/install boundary (cardinal rule 5) stays the author's.
+    BashRule(
+        skill_md=REPO_ROOT / "skills" / "re-frame-migration" / "SKILL.md",
+        body_pattern=re.compile(r"\bgit\s+-C\b[^\n`]*\brev-parse\b", re.IGNORECASE),
+        required_allow="git -C * rev-parse *",
+        description="re-frame-migration body runs the corpus-pin `git -C … rev-parse` provenance check; allow-list must permit Bash(git -C * rev-parse *)",
+    ),
+    BashRule(
+        skill_md=REPO_ROOT / "skills" / "re-frame-migration" / "SKILL.md",
+        body_pattern=re.compile(r"\bgit\s+-C\b[^\n`]*\bremote\s+get-url\b", re.IGNORECASE),
+        required_allow="git -C * remote get-url *",
+        description="re-frame-migration body runs the corpus-pin `git -C … remote get-url` provenance check; allow-list must permit Bash(git -C * remote get-url *)",
+    ),
 ]
 
 
