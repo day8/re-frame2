@@ -13,7 +13,10 @@
 
    - `--test=` SELECTION: comma-split into symbols, simple symbols are
      namespace selectors and qualified symbols are single-var
-     selectors; `--list` / `--help` flags; unknown args are tolerated.
+     selectors; `--list` / `--help` flags; unknown args are COLLECTED by
+     the pure parser (into `:unknown-args`) and rejected as a fatal parse
+     error by `execute-cli` (rf2-14nojy.1) — the process-level pins below
+     prove that boundary.
    - FAILURE EXIT: the `:end-run-tests` defmethod exits 0 iff the
      summary is `cljs.test/successful?`, 1 otherwise — pinned via the
      predicate the defmethod branches on (calling the defmethod itself
@@ -70,10 +73,12 @@
     (is (= {:test-syms [] :help true} (cli/parse-args ["--help"]))))
   (testing "no args yields the run-all default (empty test-syms, no flags)"
     (is (= {:test-syms []} (cli/parse-args []))))
-  (testing "unknown args are collected (not printed) and do not abort parsing"
+  (testing "unknown args are collected (not printed); the pure parser does not abort"
     ;; The pure parser must NOT print on an unknown arg — it collects
-    ;; them into `:unknown-args` and the real CLI path reports them. This
-    ;; keeps the green-run contract gate truly silent-on-success: a
+    ;; them into `:unknown-args` and the real CLI path (`execute-cli`)
+    ;; reports them and exits NONZERO (rf2-14nojy.1, pinned at the process
+    ;; boundary below). Keeping the PARSER pure-and-silent is what keeps
+    ;; the green-run contract gate truly silent-on-success: a
     ;; `(println \"Unknown arg: ...\")` here would leak a non-summary line
     ;; into every consolidated `npm run test:cljs` run (rf2-spzkgo).
     (is (= {:test-syms '[ok.ns] :unknown-args ["--bogus"]}
@@ -271,22 +276,35 @@
   lines.  `Ran N tests containing M assertions.` / `K failures, J errors.`"
   #"^(Ran \d+ tests containing \d+ assertions\.|\d+ failures, \d+ errors\.)$")
 
+(defn- spawn-runner
+  "Re-spawn the SAME built `out/node-test.js` shadow-node runner this
+  process is executing, with `argv` (a CLJS vector of string args), and
+  return `{:status :stdout :stderr :error}`.
+
+  `process.argv[1]` is the runner script path and `process.argv[0]` the
+  node binary, so this exercises the REAL `shadow-node/main` -> `parse-args`
+  -> `execute-cli` CLI path end-to-end across a process boundary — the only
+  way to observe the `js/process.exit` codes the false-green guards branch
+  on (calling `execute-cli` in-process would tear down this runner)."
+  [argv]
+  (let [self (aget js/process.argv 1)
+        res  (.spawnSync node-child-process
+                         (aget js/process.argv 0) ; the node binary
+                         (apply array self argv)
+                         #js {:encoding "utf8"})]
+    {:status (.-status res)
+     :stdout (or (.-stdout res) "")
+     :stderr (or (.-stderr res) "")
+     ;; cljs.test spawn errors (e.g. ENOENT) surface on res.error.
+     :error  (.-error res)}))
+
 (deftest real-shadow-node-green-run-is-quiet
   (testing "the real out/node-test.js entry point emits ONLY the canonical summary on a focused green run (rf2-spzkgo)"
-    ;; `process.argv[1]` is the path to the runner script THIS process is
-    ;; executing (out/node-test.js) — re-running it focused on the green
-    ;; fixture exercises the real CLI path end-to-end.
-    (let [self     (aget js/process.argv 1)
-          green-ns "re-frame.test-quiet-green-fixture-cljs-test"
-          res      (.spawnSync node-child-process
-                               (aget js/process.argv 0) ; the node binary
-                               #js [self (str "--test=" green-ns)]
-                               #js {:encoding "utf8"})
-          status   (.-status res)
-          stdout   (or (.-stdout res) "")
-          stderr   (or (.-stderr res) "")
-          ;; cljs.test spawn errors (e.g. ENOENT) surface on res.error.
-          err      (.-error res)]
+    ;; Re-running the runner focused on the green fixture exercises the real
+    ;; CLI path end-to-end.
+    (let [green-ns "re-frame.test-quiet-green-fixture-cljs-test"
+          {status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner [(str "--test=" green-ns)])]
       (is (nil? err)
           (str "spawning the real runner must not error; got: " (pr-str err)))
       (is (zero? status)
@@ -313,3 +331,94 @@
                  stdout))
         (is (some #(re-matches #"0 failures, 0 errors\." %) non-blank)
             (str "the green tally line must be present; got:\n" stdout))))))
+
+;; ----------------------------------------------------------------------
+;; Unknown-arg FALSE-GREEN guard (rf2-14nojy.1) — process-level.
+;;
+;; The pure-parser pins above lock that `parse-args` COLLECTS unknown args
+;; into `:unknown-args` (it no longer prints; rf2-spzkgo).  But the real
+;; FALSE-GREEN lived past the parser, in `execute-cli`: pre-fix it merely
+;; PRINTED the unknowns and then fell through to the `:else`
+;; `run-all-tests` branch whenever no `--test=` selector survived.  A
+;; mistyped focused run — the space-separated `--test missing.ns` (both
+;; tokens unknown, no `--test=` form), or a misspelled flag like
+;; `--tests=foo` — therefore ran the FULL suite and exited GREEN, silently
+;; ignoring the requested selection.  The fix makes unknown args a fatal
+;; parse error: print them and `js/process.exit` NONZERO before running
+;; anything.  These pins drive the REAL runner across a process boundary
+;; (the only place the exit code is observable) and prove the false-green
+;; is closed — with the green-fixture-still-passes negative control that a
+;; correct invocation continues to exit 0.
+
+(deftest unknown-arg-is-fatal-not-false-green
+  (testing "a misspelled selector flag (--tests=...) is fatal, NOT a green full-suite run (rf2-14nojy.1)"
+    ;; `--tests=` (note the typo'd plural) is an unknown arg, not the
+    ;; `--test=` selector. Pre-fix it printed `Unknown arg: --tests=...`
+    ;; then ran the whole suite and exited 0. It must now exit NONZERO.
+    (let [{status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner ["--tests=re-frame.test-quiet-green-fixture-cljs-test"])]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (and (number? status) (not (zero? status)))
+          (str "a misspelled selector flag must exit NONZERO (not fall"
+               " through to a green full-suite run); got status " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (is (str/includes? stdout "Unknown arg: --tests=re-frame.test-quiet-green-fixture-cljs-test")
+          (str "the offending unknown arg must be named; got:\n" stdout))
+      ;; It must NOT have run the suite: no canonical summary line.
+      (is (not (str/includes? stdout "Ran "))
+          (str "the suite must NOT have run on an unknown-arg parse error —"
+               " a `Ran ...` summary means it fell through to run-all-tests"
+               " (the false green); got:\n" stdout))))
+  (testing "space-separated --test <selector> (both tokens unknown) is fatal, NOT a green run (rf2-14nojy.1)"
+    ;; The plausible space-separated form: `--test` and `missing.ns` are
+    ;; BOTH unknown args (the parser only recognises the `--test=` glued
+    ;; form), so no selector survives. Pre-fix this ran the full suite green.
+    (let [{status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner ["--test" "missing.ns"])]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (and (number? status) (not (zero? status)))
+          (str "space-separated --test <selector> must exit NONZERO; got "
+               status "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (is (and (str/includes? stdout "Unknown arg: --test")
+               (str/includes? stdout "Unknown arg: missing.ns"))
+          (str "both unknown tokens must be named; got:\n" stdout))
+      (is (not (str/includes? stdout "Ran "))
+          (str "the suite must NOT have run; a `Ran ...` summary means the"
+               " false-green fall-through to run-all-tests; got:\n" stdout))))
+  (testing "a clean focused invocation still exits 0 (negative control)"
+    ;; The guard must reject ONLY malformed args — a correct `--test=`
+    ;; selector against a real green ns must still run and exit 0.
+    (let [{status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner ["--test=re-frame.test-quiet-green-fixture-cljs-test"])]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (zero? status)
+          (str "a clean focused run must STILL exit 0 — the guard must not"
+               " reject valid args; got status " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (is (not (str/includes? stdout "Unknown arg"))
+          (str "a clean invocation must emit no `Unknown arg`; got:\n" stdout)))))
+
+(deftest unmatched-selector-is-fatal-at-real-runner
+  (testing "--test=<missing> (a parsed-but-unmatched selector) exits NONZERO at the REAL runner, not just the pure helper (rf2-lbo79.1 boundary)"
+    ;; The unmatched-selector guard was previously pinned only via the pure
+    ;; `cli/unmatched-selectors` helper. This drives it across the REAL
+    ;; process boundary: a well-formed `--test=` selector that matches NO
+    ;; test var must print the ERROR + exit NONZERO, never a 0-test green.
+    (let [{status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner ["--test=definitely.absent.namespace"])]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (and (number? status) (not (zero? status)))
+          (str "an unmatched --test= selector must exit NONZERO (not a"
+               " 0-test green); got status " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (is (str/includes? stdout "no tests matched --test= selector")
+          (str "the unmatched-selector ERROR must reach stdout; got:\n" stdout))
+      (is (str/includes? stdout "definitely.absent.namespace")
+          (str "the offending selector must be named; got:\n" stdout))
+      (is (not (str/includes? stdout "Ran "))
+          (str "no suite may have run; a `Ran ...` summary is the false"
+               " green; got:\n" stdout)))))
