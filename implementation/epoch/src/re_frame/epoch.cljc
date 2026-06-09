@@ -843,18 +843,30 @@
   returns `nil` in that case, no elision called. Production builds
   elide the entire epoch surface; consumers gate any
   `register-epoch-listener!` registration under `interop/debug-enabled?`
-  per Spec 009 §User-side listener registration."
-  [record]
-  (tool-pair/projected-record record))
+  per Spec 009 §User-side listener registration.
+
+  ## Egress opts (rf2-5w06uu)
+
+  The 2-arity accepts a trusted-local `opts` map —
+  `{:include-sensitive? :include-large? :include-runtime-db?}`, all
+  defaulting `false`. `:include-sensitive?` / `:include-large?` opt the
+  APP-DB partition's privacy / size posture back in across every payload
+  slot; they do NOT lift the frame-state `:rf.db/runtime` partition
+  boundary, which stays `:rf/redacted` unless `:include-runtime-db? true`
+  is also passed. The 1-arity is the safe, fully-redacted off-box path."
+  ([record] (tool-pair/projected-record record))
+  ([record opts] (tool-pair/projected-record record opts)))
 
 (defn projected-history
   "Convenience: return the projected vector of records for a frame.
-  Equivalent to `(mapv projected-record (epoch-history frame-id))`.
+  Equivalent to `(mapv #(projected-record % opts) (epoch-history frame-id))`.
   Tools that egress the whole ring (an MCP `watch-epochs` initial
   snapshot, a recorder dumping the full session) can call this once
-  rather than walking the raw ring and re-wrapping each record."
-  [frame-id]
-  (tool-pair/projected-history frame-id))
+  rather than walking the raw ring and re-wrapping each record. The
+  2-arity threads the trusted-local egress `opts` (rf2-5w06uu) to every
+  record; the 1-arity is the safe, fully-redacted off-box path."
+  ([frame-id] (tool-pair/projected-history frame-id))
+  ([frame-id opts] (tool-pair/projected-history frame-id opts)))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;

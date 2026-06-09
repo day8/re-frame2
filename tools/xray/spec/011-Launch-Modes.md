@@ -421,6 +421,31 @@ is ready, it MUST find the configured layout host and mount the shell
 there. If the host is missing, it MUST emit the diagnostic described in
 §Layout host contract and leave the app running.
 
+**The foundation side-effects fire on the preload path only (rf2-5w06uu).**
+The two-phase boot above runs at the load of
+`day8.re-frame2-xray.preload` (the `:devtools/preloads` entry) — the
+zero-config convenience path that SHOULD self-install. The MANUAL
+alternative — `(require '[day8.re-frame2-xray.core])` then `configure!`
+→ `init!`/`open!` — MUST be inert until the host explicitly calls
+`init!`/`open!`. Requiring the `core` facade (or any namespace
+transitively required to reach `configure!`/`init!`) MUST NOT run any
+of the five foundation side-effects: no handler / trace / epoch
+registration, no browser-global install, no keybinding attach, no
+auto-open scheduled. Concretely, `core` MUST NOT `:require` a namespace
+whose load performs the installation side-effects — the callable install
+primitives live in a side-effect-free-on-load namespace
+(`day8.re-frame2-xray.install`) that both `core/init!` and the
+`preload` boot block invoke; only the `preload` namespace's top-level
+boot block fires them at load. This separation is what makes the
+documented `configure!`-before-auto-open ordering reliable: a host that
+sets `:rf.xray/auto-open? false` or `:rf.xray/keybinding-enabled? false`
+via `core/configure!` BEFORE calling `init!` wins deterministically,
+because nothing fired merely from requiring the facade. `core/init!`
+then performs the manual install explicitly (register handlers →
+register trace collector → register epoch collector → attach keybinding,
+the same boot order as the foundation phase), and auto-open remains a
+preload-only concern — `init!` is open-explicit (the host calls `open!`).
+
 **Boot order.** Within the preload's foundation phase the side-
 effects MUST run in the order **register-handlers → register-
 trace-cb → register-epoch-listener → attach-keybinding**. The keybinding

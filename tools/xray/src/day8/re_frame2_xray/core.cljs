@@ -54,9 +54,18 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.focus :as focus]
+            ;; rf2-5w06uu — require the INERT install-helper ns, NOT the
+            ;; side-effecting `day8.re-frame2-xray.preload`. Loading
+            ;; `preload` runs its top-level boot block (settings load,
+            ;; handler/collector registration, browser globals,
+            ;; keybinding attach, auto-open) — so requiring this facade
+            ;; to reach the MANUAL `init!`/`configure!` API used to fire
+            ;; full preload behaviour before the host's `configure!`
+            ;; could win. `install` is load-inert; the side-effects fire
+            ;; only when `init!` (below) calls them.
+            [day8.re-frame2-xray.install :as install]
             [day8.re-frame2-xray.keybinding :as keybinding]
             [day8.re-frame2-xray.mount :as mount]
-            [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
             [day8.re-frame2-xray.theme.global-styles :as global-styles]))
@@ -154,8 +163,8 @@
    (init! nil))
   ([{:keys [default-frame theme density buffer-depths] :as _opts}]
    (registry/register-xray-handlers!)
-   (preload/register-trace-collector!)
-   (preload/register-epoch-collector!)
+   (install/register-trace-collector!)
+   (install/register-epoch-collector!)
    (keybinding/attach!)
    (when default-frame
      (rf/with-frame :rf/xray
