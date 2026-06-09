@@ -309,8 +309,10 @@
   `:warned`); the diagnostic names the runtime-db ownership rule rather than
   enforcing a capability or silently dropping the effect.
 
-  Framework-minted handlers (today: machine handlers — `assemble-initial-ctx`
-  stamps `:rf/framework-authority? true` from `:rf/machine?`) write
+  Framework-minted handlers — those whose registration meta satisfies
+  `framework-authority?` (the reserved `:rf/framework-authority? true` key,
+  or the `:rf/machine?` implication), stamped onto the context as
+  `:rf/framework-authority?` by `assemble-initial-ctx` — write
   `:rf.db/runtime` legitimately and DO NOT fire this diagnostic.
 
   Dev-only — gated on `interop/debug-enabled?` so production DCE-elides the
@@ -554,6 +556,34 @@
           :event/kind   :fx
           :handler-fn   handler-fn
           :interceptors (-> [] (into interceptors) (conj (wrap-event-handler :fx handler-fn))))))
+
+(defn framework-authority?
+  "True when a handler's registration `meta` carries framework-write
+  authority over the reserved `:rf.db/runtime` partition — i.e. the
+  handler may legitimately return a `:rf.db/runtime` effect without
+  tripping the `:rf.warning/app-handler-runtime-effect` dev diagnostic.
+
+  EP-0001 (rf2-3939ig) — the GENERAL minting mechanism. A registration
+  site mints authority by stamping the reserved `:rf/framework-authority?
+  true` registration-meta key (see Conventions §Reserved registration
+  meta). Spec 002 §Write authority names machines, routing, elision, and
+  ssr as the legitimate runtime-db writers; each framework registrar
+  stamps the key (the routing façade stamps it on its `reg-event-fx`
+  registrations; elision / ssr write the partition through privileged
+  frame-state helpers, not event effects, so they need no event-handler
+  authority — they never reach this predicate).
+
+  Machine handlers imply authority from the framework-owned `:rf/machine?`
+  stamp (the machine registrar `reg-machine*` already stamps `:rf/machine?
+  true`), so they need no separate `:rf/framework-authority?` key — this
+  predicate folds the implication in, keeping the machine contract
+  unchanged.
+
+  Reserved BY CONVENTION (Mike ruling #4), not a capability gate: the
+  effect is applied either way; the flag only governs the dev diagnostic."
+  [meta]
+  (boolean (or (:rf/framework-authority? meta)
+               (:rf/machine? meta))))
 
 ;; ---- registration ---------------------------------------------------------
 

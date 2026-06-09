@@ -448,11 +448,16 @@
 
   `:rf/framework-authority?` is a NON-coeffect context flag (not visible to
   handler bodies) recording whether THIS handler has framework-write
-  authority over the reserved `:rf.db/runtime` partition. It is true for
-  framework-minted handlers (today: machine handlers, `:rf/machine? true` —
-  the machine registrar mints a framework-authority handler per Spec 002
-  §Write authority). The effect-commit site reads it to decide whether a
-  returned `:rf.db/runtime` effect is in-bounds or should fire the
+  authority over the reserved `:rf.db/runtime` partition. Per the GENERAL
+  minting mechanism (EP-0001 rf2-3939ig), it is true for any handler whose
+  registration meta carries the reserved `:rf/framework-authority? true`
+  key — stamped by the framework registrars Spec 002 §Write authority names
+  (machines, routing; elision / ssr write through privileged frame-state
+  helpers, not event effects, so they mint no event-handler authority).
+  Machine handlers imply authority from `:rf/machine? true`, so the
+  `events/framework-authority?` predicate folds that implication in. The
+  effect-commit site reads this flag to decide whether a returned
+  `:rf.db/runtime` effect is in-bounds or should fire the
   `:rf.warning/app-handler-runtime-effect` dev diagnostic (reserved BY
   CONVENTION, not a security boundary — Mike ruling #4). It is NOT a
   capability gate: the effect is applied either way."
@@ -471,7 +476,7 @@
                   (:source envelope)   (assoc :source (:source envelope))
                   (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))
      :effects {}
-     :rf/framework-authority? (boolean (:rf/machine? handler-meta))
+     :rf/framework-authority? (events/framework-authority? handler-meta)
      :rf/fx-overrides fx-overrides}))
 
 (def ^:private handler-wrapping-interceptor-ids

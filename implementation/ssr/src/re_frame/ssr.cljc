@@ -182,7 +182,17 @@
 ;; Spec 011 §The :rf/hydrate event + §Hydration-mismatch detection +
 ;; rf2-69ad2 compatibility checks.
 
-(events/reg-event-fx :rf/hydrate hydrate/hydrate-event-handler)
+;; EP-0001 (rf2-3939ig): ssr is one of the legitimate runtime-db writers
+;; Spec 002 §Write authority names. The `:rf/hydrate` handler installs the
+;; hydration metadata into the reserved `[:rf.runtime/ssr :hydration]` slot
+;; by returning a `:rf.db/runtime` effect, so it mints framework-write
+;; authority via the general `:rf/framework-authority?` registration-meta key
+;; (Conventions §Reserved registration meta) — without it, every hydrate
+;; dispatch would trip the `:rf.warning/app-handler-runtime-effect`
+;; ownership diagnostic in dev (reserved BY CONVENTION, Mike ruling #4).
+(events/reg-event-fx :rf/hydrate
+                     {:rf/framework-authority? true}
+                     hydrate/hydrate-event-handler)
 
 (fx/reg-fx :rf.ssr/check-version
   {:doc       "Compare the payload's :rf/version (server) against the

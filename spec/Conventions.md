@@ -149,6 +149,19 @@ The reserved set is **fixed-and-additive**: existing reserved keys cannot be rep
 
 The reserved set is **fixed-and-additive**: existing reserved fx-ids cannot be repurposed; new ones are added by Spec change. Library- and feature-owned fx ids should be namespaced (`:auth.login/issue-request`, `:my-lib.fx/store`) to avoid colliding with the reserved unqualified set.
 
+<a id="reserved-registration-metadata-framework-owned"></a>
+
+### Reserved registration metadata (framework-owned)
+
+The metadata map accepted by the `reg-event-*` family (the optional middle slot, distinct from the positional `:interceptors` vector) carries a small set of framework-owned `:rf/*` keys. They are stamped by framework registration sites and read by the runtime; user code MUST NOT colonise them.
+
+| Reserved registration-meta key | Stamped by | Read by | Meaning | Spec |
+|---|---|---|---|---|
+| `:rf/framework-authority?` | framework subsystem registrars (the routing façade on every `reg-event-fx`; the SSR façade on `:rf/hydrate`) | the runtime, when assembling the event context | Marks the handler as a legitimate **runtime-db writer** — one that may return a `:rf.db/runtime` effect without firing the `:rf.warning/app-handler-runtime-effect` dev diagnostic. The general minting mechanism per [002 §Minting framework-write authority](002-Frames.md#minting-framework-write-authority). Reserved **by convention** (Mike ruling #4), NOT a capability gate: the effect applies either way. | 002 |
+| `:rf/machine?` / `:rf/machine` | the machine registrar (`reg-machine`) | the runtime + `(rf/machines)` / machine tooling | Discriminate a machine event handler and carry its spec. `:rf/machine? true` **implies** `:rf/framework-authority?` (the runtime folds the implication into the authority check), so a machine handler mints runtime-db write authority without a separate key. | 005 |
+
+The reserved set is **fixed-and-additive**: existing keys cannot be repurposed; new ones are added by Spec change. Keys outside the reserved set are tolerated as open-map user metadata. Routing-shipped events that touch the route slice inherit `:rf/framework-authority?` by sitting in the routing façade; an application that legitimately needs to write runtime-db from its own handler may stamp `:rf/framework-authority? true` itself — but the convention is that ordinary app code reaches subsystem state through public framework subs and effects, not by writing the runtime-db partition directly.
+
 <a id="reserved-app-db-keys"></a>
 <a id="rfruntime-sub-container-catalogue"></a>
 

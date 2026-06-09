@@ -378,6 +378,17 @@ No preservation code is needed; the handler cannot touch runtime-db through `:db
 
 Framework subsystems (machines, routing, elision, SSR) write runtime-db through `:rf.db/runtime` effects, privileged runtime APIs, or internal interceptors. Both **whole-value replacement** AND **operation-style writes** are supported (Mike ruling #5): normal subsystem writes prefer operations/helpers; restore / hydration / reset may replace the whole runtime-db (or the whole frame-state). A runtime write and an app-db write in the same cascade install as **one atomic frame-state transition** (per [§Run-to-completion](#run-to-completion-dispatch-drain-semantics) and [006](006-ReactiveSubstrate.md)).
 
+##### Minting framework-write authority
+
+A subsystem whose runtime-db writes ride through an **event handler** (one returning a `:rf.db/runtime` effect — e.g. routing's `:rf.route/navigate`, SSR's `:rf/hydrate`, a machine's snapshot-commit handler) declares its authority via a single **general** registration-meta key: `:rf/framework-authority? true` (a reserved registration-meta key, per [Conventions §Reserved registration metadata](Conventions.md#reserved-registration-metadata-framework-owned)). The registration site stamps it; the runtime reads it when assembling the event context and uses it to decide whether a returned `:rf.db/runtime` effect is in-bounds or should fire the `:rf.warning/app-handler-runtime-effect` dev diagnostic. It is **not** a capability gate — the effect applies either way; the flag governs only the diagnostic (reserved by convention, Mike ruling #4).
+
+Which registrars mint authority:
+
+- **routing** — the routing façade stamps `:rf/framework-authority? true` on every `reg-event-fx` it registers (`:rf.route/navigate`, `:rf.route/transitioned` / `:rf.route/handle-url-change`, `:rf/url-requested` / `:rf.route/continue` / `:rf.route/cancel`, `:rf.route.internal/settle-transition`, …) — every one reads and returns the reserved route slice.
+- **SSR** — the SSR façade stamps it on `:rf/hydrate`, which installs the hydration metadata into the runtime-db partition.
+- **machines** — machine handlers carry the framework-owned `:rf/machine? true` stamp (minted by the machine registrar). The runtime folds that stamp into the authority check, so a machine implies framework-write authority **without** a separate `:rf/framework-authority?` key — its existing contract is unchanged.
+- **elision** and **SSR's non-event writes** — these subsystems write runtime-db through **privileged frame-state helpers** (`swap-runtime-db!` / `replace-frame-state!`), not through event handlers returning a `:rf.db/runtime` effect, so they never reach the event-handler diagnostic and mint no event-handler authority. (Elision's per-frame declaration registry and any full-frame install / restore path are in this category.)
+
 Host handles remain **outside** frame-state. Timers, AbortControllers, listeners, promise handles, and substrate objects are teardown resources, not serializable runtime-db values. Runtime-db records enough durable facts to reconstitute or clean up those handles; it does not store the handles themselves (per §Durable vs transient below).
 
 #### Subscriptions read the partition they belong to
@@ -1629,8 +1640,10 @@ For machine events, `process-event!` step 1 lands inside the machine handler, wh
           ;; Fixed point reached. Commit ONE :rf.db/runtime write at
           ;; [:rf.runtime/machines :snapshots <id>] — machine snapshots are
           ;; runtime-db, so the snapshot install is a runtime-db partition
-          ;; write (the machine registrar mints a framework-authority handler;
-          ;; per [005] the snapshot effect is `:rf.db/runtime`, not `:db`).
+          ;; write. The handler has framework-write authority (the machine
+          ;; registrar's :rf/machine? stamp implies it; see §Minting
+          ;; framework-write authority); per [005] the snapshot effect is
+          ;; `:rf.db/runtime`, not `:db`.
           :else
           {:rf.db/runtime (assoc-in runtime-db snapshot-path in-flight)
            :fx accum-fx})))))

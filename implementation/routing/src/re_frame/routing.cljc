@@ -104,15 +104,30 @@
 ;; `(require 're-frame.routing :reload)` to recover from `clear-all!`
 ;; re-run every wire here.
 
+;; EP-0001 (rf2-3939ig) — the general framework-authority minting key.
+;; Routing is one of the legitimate runtime-db writers Spec 002 §Write
+;; authority names: every nav / url-change / can-leave / settle handler
+;; below reads + returns the reserved `:rf.db/runtime` route slice. Stamping
+;; this reserved registration-meta key (Conventions §Reserved registration
+;; meta) mints framework-write authority so the runtime's
+;; `:rf.warning/app-handler-runtime-effect` ownership diagnostic recognises
+;; these as in-bounds writers (it is reserved BY CONVENTION, Mike ruling #4 —
+;; not a capability gate). Applied uniformly to every framework-shipped
+;; routing event handler so a new routing handler that touches the slice
+;; inherits authority by sitting in this façade.
+(def ^:private framework-authority-meta {:rf/framework-authority? true})
+
 ;; :rf.route.internal/settle-transition — Spec 012 §Per-route data
 ;; loading §2 FIFO settle. EP-0001 (rf2-vzld77): the route slice is durable
 ;; runtime-db state, so this is a runtime-db event-fx handler.
 (events/reg-event-fx :rf.route.internal/settle-transition
+                     framework-authority-meta
                      routing-events/settle-transition-handler)
 
 ;; :rf.route.internal/on-match-error — Spec 012 §Per-route error
 ;; handling.
 (events/reg-event-fx :rf.route.internal/on-match-error
+                     framework-authority-meta
                      on-match-error/on-match-error-handler)
 
 ;; On-match error trap — Spec 009 always-on error-emit listener.
@@ -126,23 +141,30 @@
 ;; :rf.route/navigation-blocked — Spec 012 §Navigation blocking —
 ;; pending-nav protocol.
 (events/reg-event-fx :rf/url-requested
+                     framework-authority-meta
                      can-leave/url-requested-handler)
 (events/reg-event-fx :rf.route/navigation-blocked
+                     framework-authority-meta
                      can-leave/navigation-blocked-handler)
 (events/reg-event-fx :rf.route/continue
+                     framework-authority-meta
                      can-leave/continue-handler)
 (events/reg-event-fx :rf.route/cancel
+                     framework-authority-meta
                      can-leave/cancel-handler)
 
 ;; :rf.route/navigate — Spec 012 §Navigation is an event.
 (events/reg-event-fx :rf.route/navigate
+                     framework-authority-meta
                      navigate/navigate-handler)
 
 ;; :rf.route/transitioned + :rf.route/handle-url-change — Spec 012 §URL
 ;; changes are events.
 (events/reg-event-fx :rf.route/transitioned
+                     framework-authority-meta
                      url-change/transitioned-handler)
 (events/reg-event-fx :rf.route/handle-url-change
+                     framework-authority-meta
                      url-change/handle-url-change-handler)
 
 ;; :nav-token cofx — Spec 012 §Navigation tokens — stale-result
