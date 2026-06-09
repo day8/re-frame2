@@ -65,12 +65,6 @@
                   sensitive-paths))
           (handler-db-paths interceptors))))))
 
-(defn schema-sensitive-handler?
-  "True when a handler's path-scoped db slice overlaps a schema-declared
-  sensitive app-db slot."
-  [frame-id interceptors]
-  (boolean (seq (schema-redaction-paths frame-id interceptors))))
-
 (defn- redact-path
   [payload path]
   (let [path (vec path)]
