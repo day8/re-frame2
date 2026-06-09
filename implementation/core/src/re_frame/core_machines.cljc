@@ -144,13 +144,24 @@
   Delegates straight to the machines artefact's `:machines/reg-machine`
   hook. Per rf2-ftrcv there is NO registrar side-table to maintain — the
   machine's guard/action fn-source handler-meta is derived on demand from
-  the `:event` registration spec via [[machine-handler-meta]]."
-  [where-sym machine-id machine]
-  ((late-bind/require-fn! :machines/reg-machine
-                          where-sym
-                          machines-artefact
-                          {:machine-id machine-id})
-   machine-id machine))
+  the `:event` registration spec via [[machine-handler-meta]].
+
+  Per rf2-wgmipl the 4-arg form threads an `opts` registration-metadata map
+  (the `:schema` event-vector boundary validator, plus any other metadata)
+  to the hook's 3-arity. The 3-arg form (no opts) keeps the bare 2-arity so
+  programmatic callers / hooks that only implement the 2-arity still resolve."
+  ([where-sym machine-id machine]
+   ((late-bind/require-fn! :machines/reg-machine
+                           where-sym
+                           machines-artefact
+                           {:machine-id machine-id})
+    machine-id machine))
+  ([where-sym machine-id machine opts]
+   ((late-bind/require-fn! :machines/reg-machine
+                           where-sym
+                           machines-artefact
+                           {:machine-id machine-id})
+    machine-id machine opts)))
 
 (defn reg-machine*
   "Plain-fn surface for machine registration. Per Spec 005 §reg-machine
@@ -158,9 +169,17 @@
   carry a stamped spec, REPL workflows that bypass the macro path, and
   the macro's own emitted form. Programmatic callers see no
   per-element source-coord index (only the macro can walk the literal
-  spec at expansion time). Late-bound via :machines/reg-machine."
-  [machine-id machine]
-  (reg-machine-impl 'rf/reg-machine* machine-id machine))
+  spec at expansion time). Late-bound via :machines/reg-machine.
+
+  Per rf2-wgmipl the 3-arity accepts an `opts` registration-metadata map
+  whose `:schema` key validates the dispatched OUTER event vector at the
+  `:where :event` boundary — the machine + event-vector-schema shape (login /
+  realworld auth). The framework-owned `:rf/machine?` / `:rf/machine` keys are
+  stamped by the registration home and MUST NOT appear in `opts`."
+  ([machine-id machine]
+   (reg-machine-impl 'rf/reg-machine* machine-id machine))
+  ([machine-id machine opts]
+   (reg-machine-impl 'rf/reg-machine* machine-id machine opts)))
 
 (defn reg-machine
   "Fn-form delegate the `re-frame.core/reg-machine` macro routes through
@@ -171,9 +190,14 @@
 
   Callers should NOT invoke this directly — use `rf/reg-machine`
   (macro) or `rf/reg-machine*` (plain fn). It is public only because
-  the macro emits a reference to it."
-  [machine-id machine]
-  (reg-machine-impl 'rf/reg-machine machine-id machine))
+  the macro emits a reference to it.
+
+  Per rf2-wgmipl the 3-arity threads the macro's `opts` registration-metadata
+  map (carrying the event-vector `:schema`) through to the hook."
+  ([machine-id machine]
+   (reg-machine-impl 'rf/reg-machine machine-id machine))
+  ([machine-id machine opts]
+   (reg-machine-impl 'rf/reg-machine machine-id machine opts)))
 
 ;; ---- sugar surfaces — not late-bind wrappers -----------------------------
 

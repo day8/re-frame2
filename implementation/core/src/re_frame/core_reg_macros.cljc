@@ -333,26 +333,44 @@
      When `machine` is NOT a literal map (a symbol bound by `def` /
      `defmachine`, a let-bound expr), [[stamp-machine-spec-expr]] returns
      the spec expr unchanged — the co-located source lives on the
-     def'd value instead (via `defmachine`; rf2-gwj8l)."
-     [form-meta ns-sym file machine-id machine]
-     (let [machine-sym (gensym "machine__")
-           stamped     (stamp-machine-spec-expr machine ns-sym file machine-sym)
-           inline?     (not (identical? stamped machine-sym))]
-       ;; Per rf2-3un2g §Production elision: the binding-value rides an
-       ;; outer `interop/debug-enabled?` gate so Closure DCEs the dev
-       ;; coords (with `:column`) under `:advanced + goog.DEBUG=false`.
-       ;; See [[with-coords-form]] for the rationale.
-       `(binding [re-frame.source-coords/*pending-coords*
-                  (if re-frame.interop/debug-enabled?
-                    ~(source-coords/coords-form      form-meta file ns-sym)
-                    ~(source-coords/prod-coords-form form-meta file ns-sym))]
-          ~(if-not inline?
-             ;; Symbol / non-literal spec: register verbatim. A
-             ;; `defmachine`-stamped value already carries its source.
-             `(re-frame.core-machines/reg-machine ~machine-id ~machine)
-             `(let [~machine-sym ~machine
-                    stamped# ~stamped]
-                (re-frame.core-machines/reg-machine ~machine-id stamped#)))))))
+     def'd value instead (via `defmachine`; rf2-gwj8l).
+
+     Per rf2-wgmipl the 6-arg form threads an `opts-form` — the event-vector
+     `:schema` (and any other) registration-metadata map — into the emitted
+     `(reg-machine machine-id spec opts)` 3-arg call. `opts-form` is a RUNTIME
+     expression evaluated at the call site (not walked at expansion time); it
+     is forwarded verbatim. The 5-arg form (no opts) emits the bare 2-arg
+     `reg-machine` call, unchanged."
+     ([form-meta ns-sym file machine-id machine]
+      (expand-reg-machine form-meta ns-sym file machine-id machine ::no-opts))
+     ([form-meta ns-sym file machine-id machine opts-form]
+      (let [machine-sym (gensym "machine__")
+            stamped-sym (gensym "stamped__")
+            stamped     (stamp-machine-spec-expr machine ns-sym file machine-sym)
+            inline?     (not (identical? stamped machine-sym))
+            no-opts?    (= opts-form ::no-opts)
+            reg-call    (fn [spec-expr]
+                          (if no-opts?
+                            `(re-frame.core-machines/reg-machine ~machine-id ~spec-expr)
+                            `(re-frame.core-machines/reg-machine ~machine-id ~spec-expr ~opts-form)))]
+        ;; Per rf2-3un2g §Production elision: the binding-value rides an
+        ;; outer `interop/debug-enabled?` gate so Closure DCEs the dev
+        ;; coords (with `:column`) under `:advanced + goog.DEBUG=false`.
+        ;; See [[with-coords-form]] for the rationale.
+        `(binding [re-frame.source-coords/*pending-coords*
+                   (if re-frame.interop/debug-enabled?
+                     ~(source-coords/coords-form      form-meta file ns-sym)
+                     ~(source-coords/prod-coords-form form-meta file ns-sym))]
+           ~(if-not inline?
+              ;; Symbol / non-literal spec: register verbatim. A
+              ;; `defmachine`-stamped value already carries its source.
+              (reg-call machine)
+              ;; Explicit gensym (not an auto-gensym) so the binding symbol is
+              ;; stable across the two syntax-quote contexts the `reg-call`
+              ;; helper straddles (rf2-wgmipl refactor).
+              `(let [~machine-sym ~machine
+                     ~stamped-sym ~stamped]
+                 ~(reg-call stamped-sym))))))))
 
 #?(:clj
    (defn expand-defmachine

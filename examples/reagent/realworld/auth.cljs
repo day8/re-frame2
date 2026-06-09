@@ -13,7 +13,7 @@
             [re-frame.core :as rf]
             ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
-            ;; registers its late-bind hooks so rf/make-machine-handler
+            ;; registers its late-bind hooks so rf/reg-machine
             ;; (called below at ns-load) and the `:rf/machine` framework
             ;; sub resolve.
             [re-frame.machines]
@@ -83,114 +83,123 @@
 ;; AUTH STATE MACHINE
 ;; ============================================================================
 
-(rf/reg-event-fx :auth/flow
+;; rf2-genufr / rf2-wgmipl — `reg-machine` is the single registration home.
+;; The auth machine carries a `:data-schema` (validating the snapshot's
+;; `:data` slot); registering it here (rather than the former hand-composed
+;; `reg-event-fx` + `make-machine-handler`) stamps the `:rf/machine?` /
+;; `:rf/machine` metadata that makes the `:data-schema` LIVE (`(machine-meta
+;; :auth/flow)` reads it, the `:where :machine-data` walker resolves it) AND
+;; bridges its redaction marks — both in one place. Under the old direct path
+;; the `:data-schema` was silently INERT (the exact rf2-genufr bug). This
+;; machine validates only its `:data` (no outer event-vector `:schema`), so
+;; the opts map carries just `:doc` + `:rf.http/decode-schemas`.
+(rf/reg-machine :auth/flow
   {:doc "The auth flow: idle → submitting/restoring → authed | error.
          HTTP requests go via :rf.http/managed (Spec 014). Login /
          register / restore deliberately do NOT retry — the user's
          intent is one submission per click; a transient error surfaces
          in `:error` and the user retries themselves."
    :rf.http/decode-schemas [schema/UserResponse]}
-  (rf/make-machine-handler
-    ;; Per Spec 005 §Where snapshots live: spec map does NOT carry :id;
-    ;; the id is the surrounding reg-event-fx id.
-    {:initial :idle
-     :data    {:error nil}
-     ;; Snapshot :data validation. The snapshot lives in runtime-db
-     ;; ([:rf.runtime/machines :snapshots :auth/flow]), so its :data shape is
-     ;; validated here via :data-schema — not via an app-schema (EP-0001,
-     ;; Mike ruling #11: app schemas validate the app-db partition only).
-     :data-schema schema/AuthFlowData
-     :guards
-     {:has-token?
-      (fn [{[_ token] :event}]
-        (not (str/blank? token)))}
-     :actions
-     {:clear-error
-      (fn [_]
-        {:data {:error nil}})
+  ;; Per Spec 005 §Where snapshots live: spec map does NOT carry :id;
+  ;; the id is the surrounding reg-machine id.
+  {:initial :idle
+   :data    {:error nil}
+   ;; Snapshot :data validation. The snapshot lives in runtime-db
+   ;; ([:rf.runtime/machines :snapshots :auth/flow]), so its :data shape is
+   ;; validated here via :data-schema — not via an app-schema (EP-0001,
+   ;; Mike ruling #11: app schemas validate the app-db partition only).
+   :data-schema schema/AuthFlowData
+   :guards
+   {:has-token?
+    (fn [{[_ token] :event}]
+      (not (str/blank? token)))}
+   :actions
+   {:clear-error
+    (fn [_]
+      {:data {:error nil}})
 
-      :begin-login
-      (fn [{[_ {:keys [email password]}] :event}]
+    :begin-login
+    (fn [{[_ {:keys [email password]}] :event}]
+      {:data {:error nil}
+       :fx [[:rf.http/managed
+             (rh/request {:method     :post
+                          :path       "/users/login"
+                          :auth?      false
+                          :body       {:user {:email email :password password}}
+                          :decode     schema/UserResponse
+                          :on-success [:auth/flow [:auth/success]]
+                          :on-failure [:auth/flow [:auth/failure]]})]]})
+
+    :begin-register
+    (fn [{[_ {:keys [username email password]}] :event}]
+      {:data {:error nil}
+       :fx [[:rf.http/managed
+             (rh/request {:method     :post
+                          :path       "/users"
+                          :auth?      false
+                          :body       {:user {:username username
+                                              :email email
+                                              :password password}}
+                          :decode     schema/UserResponse
+                          :on-success [:auth/flow [:auth/success]]
+                          :on-failure [:auth/flow [:auth/failure]]})]]})
+
+    :begin-restore
+    (fn [_]
+      {:data {:error nil}
+       :fx [[:rf.http/managed
+             (rh/request {:method     :get
+                          :path       "/user"
+                          :decode     schema/UserResponse
+                          :on-success [:auth/flow [:auth/success]]
+                          :on-failure [:auth/flow [:auth/restore-failed]]})]]})
+
+    :store-session
+    (fn [{[_ {:keys [value]}] :event}]
+      ;; Per Spec 005 §Hard-disallow `:db`, a machine action sees no
+      ;; `:db` and emits no `:db`; the post-login bounce-back therefore
+      ;; runs as an ordinary event (`:auth/post-login-redirect`) that
+      ;; reads the guard-stashed `:return-to` slot, navigates there (or
+      ;; home), and clears it. See routing.cljs for where the slot is set.
+      (let [user (:user value)]
         {:data {:error nil}
-         :fx [[:rf.http/managed
-               (rh/request {:method     :post
-                            :path       "/users/login"
-                            :auth?      false
-                            :body       {:user {:email email :password password}}
-                            :decode     schema/UserResponse
-                            :on-success [:auth/flow [:auth/success]]
-                            :on-failure [:auth/flow [:auth/failure]]})]]})
+         :fx [[:dispatch [:auth/store-session user]]
+              [:auth.session/persist {:token (:token user)}]
+              [:dispatch [:auth/post-login-redirect]]]}))
 
-      :begin-register
-      (fn [{[_ {:keys [username email password]}] :event}]
-        {:data {:error nil}
-         :fx [[:rf.http/managed
-               (rh/request {:method     :post
-                            :path       "/users"
-                            :auth?      false
-                            :body       {:user {:username username
-                                                :email email
-                                                :password password}}
-                            :decode     schema/UserResponse
-                            :on-success [:auth/flow [:auth/success]]
-                            :on-failure [:auth/flow [:auth/failure]]})]]})
+    :record-error
+    (fn [{[_ {:keys [failure]}] :event}]
+      {:data {:error (rh/failure->message failure)}})
 
-      :begin-restore
-      (fn [_]
-        {:data {:error nil}
-         :fx [[:rf.http/managed
-               (rh/request {:method     :get
-                            :path       "/user"
-                            :decode     schema/UserResponse
-                            :on-success [:auth/flow [:auth/success]]
-                            :on-failure [:auth/flow [:auth/restore-failed]]})]]})
+    :clear-session
+    (fn [_]
+      {:data {:error nil}
+       :fx [[:dispatch [:auth/clear-session]]
+            [:auth.session/persist {:token nil}]
+            [:dispatch [:rf.route/navigate :realworld/home]]]})}
+   :states
+   {:idle
+    {:on {:auth/login    {:target :submitting :action :begin-login}
+          :auth/register {:target :submitting :action :begin-register}
+          :auth/restore  [{:target :restoring :guard :has-token? :action :begin-restore}
+                          {:target :idle}]}}
 
-      :store-session
-      (fn [{[_ {:keys [value]}] :event}]
-        ;; Per Spec 005 §Hard-disallow `:db`, a machine action sees no
-        ;; `:db` and emits no `:db`; the post-login bounce-back therefore
-        ;; runs as an ordinary event (`:auth/post-login-redirect`) that
-        ;; reads the guard-stashed `:return-to` slot, navigates there (or
-        ;; home), and clears it. See routing.cljs for where the slot is set.
-        (let [user (:user value)]
-          {:data {:error nil}
-           :fx [[:dispatch [:auth/store-session user]]
-                [:auth.session/persist {:token (:token user)}]
-                [:dispatch [:auth/post-login-redirect]]]}))
+    :submitting
+    {:on {:auth/success {:target :authed :action :store-session}
+          :auth/failure {:target :error  :action :record-error}}}
 
-      :record-error
-      (fn [{[_ {:keys [failure]}] :event}]
-        {:data {:error (rh/failure->message failure)}})
+    :restoring
+    {:on {:auth/success        {:target :authed :action :store-session}
+          :auth/restore-failed {:target :idle   :action :clear-session}}}
 
-      :clear-session
-      (fn [_]
-        {:data {:error nil}
-         :fx [[:dispatch [:auth/clear-session]]
-              [:auth.session/persist {:token nil}]
-              [:dispatch [:rf.route/navigate :realworld/home]]]})}
-     :states
-     {:idle
-      {:on {:auth/login    {:target :submitting :action :begin-login}
-            :auth/register {:target :submitting :action :begin-register}
-            :auth/restore  [{:target :restoring :guard :has-token? :action :begin-restore}
-                            {:target :idle}]}}
+    :authed
+    {:on {:auth/logout {:target :idle :action :clear-session}
+          :auth/login  {:target :submitting :action :begin-login}}}
 
-      :submitting
-      {:on {:auth/success {:target :authed :action :store-session}
-            :auth/failure {:target :error  :action :record-error}}}
-
-      :restoring
-      {:on {:auth/success        {:target :authed :action :store-session}
-            :auth/restore-failed {:target :idle   :action :clear-session}}}
-
-      :authed
-      {:on {:auth/logout {:target :idle :action :clear-session}
-            :auth/login  {:target :submitting :action :begin-login}}}
-
-      :error
-      {:on {:auth/login    {:target :submitting :action :begin-login}
-            :auth/register {:target :submitting :action :begin-register}
-            :auth/dismiss  {:target :idle       :action :clear-error}}}}}))
+    :error
+    {:on {:auth/login    {:target :submitting :action :begin-login}
+          :auth/register {:target :submitting :action :begin-register}
+          :auth/dismiss  {:target :idle       :action :clear-error}}}}})
 
 ;; ============================================================================
 ;; INITIALISATION + SESSION RESTORE

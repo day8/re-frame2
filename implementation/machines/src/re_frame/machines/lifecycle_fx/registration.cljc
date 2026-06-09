@@ -37,6 +37,40 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+;; ---- single-registration-home flag (rf2-genufr) ---------------------------
+;;
+;; A machine that carries a `:data-schema` has TWO registration-time
+;; side-effects that BOTH must run or the schema is silently inert AND a
+;; privacy leak (a `:sensitive?` `:data` slot egresses raw):
+;;
+;;   1. the `:rf/machine?` / `:rf/machine` registration-metadata stamp — the
+;;      `:where :machine-data` post-commit walker resolves the `:data-schema`
+;;      THROUGH `(machine-meta id)`, so without the stamp the schema validates
+;;      nothing; and
+;;   2. `register-data-schema-marks!` — bridges the schema's `:sensitive?` /
+;;      `:large?` per-slot markers into snapshot-egress redaction.
+;;
+;; `register-machine-event!` below is the SINGLE HOME that runs BOTH (it is
+;; the body of `reg-machine*` AND the new event-`:schema` arity). The bare
+;; `(reg-event-fx id meta (make-machine-handler spec))` direct path runs
+;; NEITHER automatically — which is exactly how this bug hid. So
+;; `make-machine-handler` FAILS LOUD when it is handed a `:data-schema`-bearing
+;; spec OUTSIDE the home (`*in-registration-home?*` unbound to true): a
+;; schema-bearing machine MUST flow through `reg-machine` / `reg-machine*` so
+;; both side-effects run. The home, plus the spawned-actor materialisation
+;; seams (`handler-meta-for` / `resolve-actor-handler-meta`, which run the
+;; marks bridge themselves), bind the flag around their `make-machine-handler`
+;; calls. A schema-LESS machine has nothing inert to leak, so the bare direct
+;; path stays legal for it (the Story testbed / schema-free examples rely on
+;; it).
+(def ^:dynamic *in-registration-home?*
+  "True while `make-machine-handler` is invoked from a registration site that
+  ALSO stamps the `:rf/machine?` / `:rf/machine` meta AND runs
+  `register-data-schema-marks!` (the single home, or the spawned-actor
+  resolver seams). When false/unbound, a `:data-schema`-bearing spec handed to
+  `make-machine-handler` is an unstamped-schema misconfiguration — fail loud."
+  false)
+
 ;; The reserved creation marker `:rf.machine/start` (renamed from
 ;; `:rf.machine/bootstrap` — rf2-gl588, pre-alpha no shim) is defined once in
 ;; the leaf engine namespace as `transition/start-marker` so the handler here
@@ -573,6 +607,37 @@
   event short-circuit branching off after step 1."
   [machine]
   (validation/validate-machine! machine)
+  ;; Per rf2-genufr — fail-loud guard. A `:data-schema`-bearing spec MUST be
+  ;; registered through the single home (`reg-machine` / `reg-machine*` / the
+  ;; event-`:schema` arity), which is the ONLY place the `:rf/machine?` /
+  ;; `:rf/machine` meta stamp AND `register-data-schema-marks!` BOTH run. The
+  ;; bare `(reg-event-fx id meta (make-machine-handler spec))` direct path runs
+  ;; neither — so a `:data-schema` reached here outside the home would be
+  ;; silently inert (validates nothing) AND a privacy leak (a `:sensitive?`
+  ;; `:data` slot egresses raw). Surface it at the moment of construction
+  ;; rather than letting it no-op. A schema-LESS spec is unaffected — the bare
+  ;; direct path stays legal for it.
+  (when (and (:data-schema machine)
+             (not *in-registration-home?*))
+    (throw (ex-info
+             ":rf.error/machine-schema-requires-reg-machine"
+             {:rf.error/id :rf.error/machine-schema-requires-reg-machine
+              :where       'rf-machines/make-machine-handler
+              :recovery    :use-reg-machine
+              :reason
+              (str "make-machine-handler was handed a machine spec carrying a "
+                   ":data-schema via the bare (reg-event-fx id meta "
+                   "(make-machine-handler spec)) direct path. That path stamps "
+                   "neither the :rf/machine? / :rf/machine registration "
+                   "metadata (so the :data-schema validates NOTHING) NOR the "
+                   ":sensitive? / :large? redaction marks (so a sensitive :data "
+                   "slot egresses RAW to the trace bus / AI-MCP). Register the "
+                   "machine through reg-machine / reg-machine* — and when the "
+                   "machine ALSO validates its outer event vector, use the "
+                   "event-:schema arity: (reg-machine id {:schema EventSchema} "
+                   "machine) or (reg-machine* id machine {:schema EventSchema}). "
+                   "These run both side-effects.")
+              :data-schema (:data-schema machine)})))
   ;; Per rf2-f9tu — `build-initial-snapshot` runs lazily INSIDE the
   ;; returned handler, not at registration time. The initial-state
   ;; computation reaches through `:initial` / `:states` / `:regions`;
@@ -779,6 +844,78 @@
           (declare! machine-id (when (seq marks) marks))))))
   nil)
 
+;; ---- the single registration home (rf2-genufr) ----------------------------
+
+(defn- register-machine-event!
+  "THE single home for registering a machine as an event handler. Per
+  rf2-genufr it is the one place that runs BOTH `:data-schema` side-effects:
+
+    1. the `:rf/machine?` / `:rf/machine` registration-metadata stamp (so the
+       `:where :machine-data` walker resolves the `:data-schema` through
+       `(machine-meta id)`); and
+    2. `register-data-schema-marks!` (EP-0005 — bridges the schema's
+       `:sensitive?` / `:large?` per-slot markers into snapshot-egress
+       redaction).
+
+  `reg-machine*` (both arities) routes through here, so the bare
+  `(reg-event-fx id meta (make-machine-handler spec))` direct path — which ran
+  NEITHER side-effect and so left a `:data-schema` inert AND a privacy leak — is
+  no longer needed (and `make-machine-handler` now fails loud when handed a
+  `:data-schema`-bearing spec outside this home; see its guard).
+
+  `opts` is an optional registration-metadata map (rf2-wgmipl). Its `:schema`
+  key (when present) is the `:where :event` boundary validator for the
+  dispatched OUTER event vector — the machine + event-vector-schema shape.
+  Other opts keys ride onto the metadata verbatim. The framework-owned
+  `:rf/machine?` / `:rf/machine` keys are stamped here and MUST NOT appear in
+  `opts`.
+
+  Per rf2-qpibk0 the schema marks are recorded in a SEPARATE table that
+  `marks-for :event machine-id` unions with the author-sourced `:event` entry
+  at read time — so the schema-vs-manual composition is order-independent."
+  [machine-id machine opts]
+  (when (or (contains? opts :rf/machine?) (contains? opts :rf/machine))
+    (throw (ex-info
+             ":rf.error/machine-reserved-meta-in-opts"
+             {:rf.error/id :rf.error/machine-reserved-meta-in-opts
+              :where       'rf-machines/reg-machine*
+              :recovery    :drop-reserved-keys
+              :reason      (str "reg-machine opts must not carry the "
+                                "framework-owned :rf/machine? / :rf/machine "
+                                "keys — the registration home stamps them.")
+              :machine-id  machine-id
+              :opts        opts})))
+  ;; Per rf2-s83iu: install a per-machine region-machine cache before
+  ;; the machine value is threaded through the handler closure and
+  ;; published to the registrar. Re-registration replaces the machine
+  ;; map and its attached cache atom, so no separate invalidation step
+  ;; is needed.
+  (let [machine    (parallel/install-region-cache machine)
+        ;; The home is the legitimate `make-machine-handler` site for a
+        ;; `:data-schema`-bearing spec — bind the flag so the fail-loud guard
+        ;; passes (the guard exists to catch the bare direct path, not us).
+        handler-fn (binding [*in-registration-home?* true]
+                     (make-machine-handler machine))
+        ;; Stamp the framework-owned discriminator keys LAST so they win over
+        ;; any (rejected-above, but defensive) opts collision.
+        meta       (assoc opts
+                          :rf/machine? true
+                          :rf/machine  machine)]
+    (events/reg-event-fx machine-id meta handler-fn)
+    ;; EP-0005 — bridge the `:data-schema`'s per-slot `:sensitive?` / `:large?`
+    ;; markers into snapshot-egress redaction. Per rf2-qpibk0 the schema marks
+    ;; are recorded in a SEPARATE table that `marks-for :event machine-id`
+    ;; unions with the author-sourced `:event` entry at read time — so the
+    ;; schema-vs-manual composition is order-independent regardless of whether
+    ;; a manual `register-marks!` ran before OR after `reg-machine` (no
+    ;; prior-marks capture needed; `reg-event-fx`'s bare-meta `register-marks!`
+    ;; can no longer clobber the schema set).
+    (register-data-schema-marks! machine-id machine)
+    (trace/emit! :rf.machine.lifecycle/created :rf.machine.lifecycle/created
+                 {:machine-id machine-id
+                  :initial    (:initial machine)})
+    machine-id))
+
 ;; ---- reg-machine* — plain-fn surface (rf2-8bp3) ---------------------------
 
 (defn reg-machine*
@@ -805,31 +942,17 @@
   `:line` / `:file` carried by `re-frame.source-coords/*pending-coords*`
   (set by the `reg-machine` macro) is merged into the registration
   metadata via the `reg-event-fx` defn's `merge-coords` call."
-  [machine-id machine]
-  ;; Per rf2-s83iu: install a per-machine region-machine cache before
-  ;; the machine value is threaded through the handler closure and
-  ;; published to the registrar. Re-registration replaces the machine
-  ;; map and its attached cache atom, so no separate invalidation step
-  ;; is needed.
-  (let [machine    (parallel/install-region-cache machine)
-        handler-fn (make-machine-handler machine)]
-    (events/reg-event-fx machine-id
-                         {:rf/machine? true
-                          :rf/machine  machine}
-                         handler-fn)
-    ;; EP-0005 — bridge the `:data-schema`'s per-slot `:sensitive?` / `:large?`
-    ;; markers into snapshot-egress redaction. Per rf2-qpibk0 the schema marks
-    ;; are recorded in a SEPARATE table that `marks-for :event machine-id`
-    ;; unions with the author-sourced `:event` entry at read time — so the
-    ;; schema-vs-manual composition is order-independent regardless of whether
-    ;; a manual `register-marks!` ran before OR after `reg-machine` (no
-    ;; prior-marks capture needed; `reg-event-fx`'s bare-meta `register-marks!`
-    ;; can no longer clobber the schema set).
-    (register-data-schema-marks! machine-id machine)
-    (trace/emit! :rf.machine.lifecycle/created :rf.machine.lifecycle/created
-                 {:machine-id machine-id
-                  :initial    (:initial machine)})
-    machine-id))
+  ([machine-id machine]
+   (reg-machine* machine-id machine nil))
+  ;; rf2-wgmipl — event-vector `:schema` arity. `opts` is an OPTIONAL
+  ;; registration-metadata map; the only honoured key today is `:schema` (the
+  ;; `:where :event` boundary validator for the dispatched OUTER vector — the
+  ;; machine + event-vector-schema shape login / realworld auth need). Any
+  ;; other opts keys (`:doc`, …) ride onto the registration metadata verbatim.
+  ;; The reserved `:rf/machine?` / `:rf/machine` keys are framework-owned and
+  ;; stamped by the home — they MUST NOT be supplied in `opts`.
+  ([machine-id machine opts]
+   (register-machine-event! machine-id machine opts)))
 
 (defn handler-meta-for
   "Build the registrar-shaped handler-meta map for a machine `spec`
@@ -850,7 +973,14 @@
   of the type."
   [spec]
   (let [machine    (parallel/install-region-cache spec)
-        handler-fn (make-machine-handler machine)]
+        ;; rf2-genufr — this materialisation seam stamps the `:rf/machine?` /
+        ;; `:rf/machine` meta below AND its caller (`resolve-actor-handler-meta`)
+        ;; re-runs the `register-data-schema-marks!` bridge for the instance, so
+        ;; it is a legitimate `make-machine-handler` home for a
+        ;; `:data-schema`-bearing spec — bind the flag so the fail-loud guard
+        ;; passes.
+        handler-fn (binding [*in-registration-home?* true]
+                     (make-machine-handler machine))]
     (events/event-handler-meta {:rf/machine? true :rf/machine machine}
                                []
                                handler-fn)))
