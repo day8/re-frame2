@@ -13,6 +13,7 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { resolveStoryFeatureLoadPort } = require('./story-feature-load-port.cjs');
+const { cleanStageDirs } = require('./examples-staging.cjs');
 const {
   createHarnessCleanup,
   spawnHarnessProcess,
@@ -59,6 +60,16 @@ const TESTBEDS = [
   },
 ];
 
+// Clean-stage boundary (rf2-bf4vdy): remove + recreate each testbed's output
+// dir BEFORE shadow-cljs compiles into it, so every served file is produced
+// from the current source this run — no stale file from a previous run can
+// satisfy a browser request the current testbed no longer produces. Cleans
+// only these two dirs (not the shared OUT_ROOT); the helper path-guards every
+// target to live strictly under OUT_ROOT.
+function cleanTestbedOutDirs() {
+  cleanStageDirs(TESTBEDS.map((t) => t.outDir), OUT_ROOT);
+}
+
 function compileAll() {
   const builds = TESTBEDS.map((t) => t.build);
   // Spawn the resolved shadow-cljs JS entry-point under THIS node binary,
@@ -94,6 +105,7 @@ function stageHtml() {
 
 async function main() {
   const port = await resolveStoryFeatureLoadPort({ env: process.env, repoRoot: REPO_ROOT });
+  cleanTestbedOutDirs();
   compileAll();
   stageHtml();
 

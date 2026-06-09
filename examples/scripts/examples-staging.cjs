@@ -60,6 +60,68 @@ function stageShared(outDir) {
   copyDirRecursive(SHARED_SRC, path.join(outDir, '_shared'));
 }
 
+// ---------------------------------------------------------------------------
+// Clean-stage boundary (rf2-bf4vdy).
+//
+// The examples + Story browser harnesses all serve the SHARED
+// implementation/out/examples root and previously OVERLAID their staged
+// fixtures onto it — copyDirRecursive only creates dirs + overwrites the files
+// it touches, so a file that a PREVIOUS run staged (a retired _shared asset, an
+// extra static file the manifest no longer declares, an old generated subtree)
+// stayed under the served root and could satisfy a browser request the current
+// source no longer produces — a stale-file false green.
+//
+// The Xray feature gate avoids this by owning a dedicated root it recreates
+// wholesale (serve-and-run-xray-feature-gate.cjs cleanAndStageRoot —
+// rmSync(OUT_ROOT) + mkdir). The examples/Story harnesses CANNOT do that: they
+// share out/examples and a narrow run stages only SOME builds, so blindly
+// deleting the whole shared root would wipe sibling outputs another harness (or
+// a parallel narrow run) may rely on. Instead, clean only the SELECTED output
+// dirs — recreating each from empty before staging — so every served file is
+// produced from the CURRENT source each run, with no stale residue.
+//
+// Path-guarded recursive delete: the resolved target MUST live strictly UNDER
+// `outRoot` (never equal to it, never an ancestor, never outside it). A target
+// that fails the guard throws rather than deleting — recursive deletion can
+// only ever touch a selected output dir under OUT_ROOT, never the shared root
+// itself or anything outside it.
+// ---------------------------------------------------------------------------
+
+// True iff `child` is strictly contained under `parent` (a proper descendant,
+// not `parent` itself). Both are resolved to absolute paths first.
+function isStrictlyUnder(child, parent) {
+  const c = path.resolve(child);
+  const p = path.resolve(parent);
+  if (c === p) return false;
+  const rel = path.relative(p, c);
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+// Remove + recreate each of `dirs` (empty), guarding that every target lives
+// strictly UNDER `outRoot`. Returns the list of cleaned absolute dirs. Throws
+// on a target that escapes the guard (so a misconfigured caller can never
+// recursively delete the shared root or an out-of-tree path). A dir that does
+// not yet exist is simply (re)created — the build may not have emitted into it
+// on a first run.
+function cleanStageDirs(dirs, outRoot, { io = fs } = {}) {
+  const cleaned = [];
+  for (const dir of dirs) {
+    const target = path.resolve(dir);
+    if (!isStrictlyUnder(target, outRoot)) {
+      throw new Error(
+        `cleanStageDirs: refusing to clean '${target}' — it is not strictly ` +
+          `under the owned staging root '${path.resolve(outRoot)}'. ` +
+          `Recursive deletion may only target a selected output dir under ` +
+          `OUT_ROOT (rf2-bf4vdy).`,
+      );
+    }
+    io.rmSync(target, { recursive: true, force: true });
+    io.mkdirSync(target, { recursive: true });
+    cleaned.push(target);
+  }
+  return cleaned;
+}
+
 // Stage one example's hand-written index.html + the _shared tree into its
 // output dir. Creates the output dir if the build hasn't emitted into it yet
 // (so the dev runner can stage before the first watch compile lands). Throws
@@ -223,6 +285,8 @@ module.exports = {
   copyDirRecursive,
   stageShared,
   stageExample,
+  isStrictlyUnder,
+  cleanStageDirs,
   readShadowEdn,
   stripEdnComments,
   parseExampleBuilds,

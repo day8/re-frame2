@@ -30,9 +30,24 @@
  *      og:image meta, and transitively the @import targets inside any
  *      referenced local CSS) to a real file in the repo source tree. A
  *      reference to a missing/renamed/typo'd local asset fails the gate.
- *      External URLs in <link href> / <script src> (http(s):// +
- *      protocol-relative //) and the build output main.js (produced by
- *      shadow-cljs, not source) are skipped.
+ *      The build output main.js (produced by shadow-cljs, not source) is
+ *      skipped.
+ *
+ *      DIRECT-HTML NETWORK REFS are NOT skipped (rf2-bf4vdy). An
+ *      asset-bearing external reference in the page — a `<script src>`, an
+ *      asset `<link href>` (stylesheet / preload / modulepreload / icon /
+ *      manifest / prefetch), an `<img>/<source>/<video>/<audio> src`, or a
+ *      LOCAL-staged-but-external og:image — pulls a third-party CDN
+ *      script / hosted stylesheet / hosted font / external media into every
+ *      staged example at load time. That is the same reproducibility /
+ *      offline-dev / hidden-dependency regression the external-CSS-@import
+ *      policy already guards (rf2-vou5mm / rf2-byf7y), so the gate REJECTS
+ *      any asset-bearing direct-HTML network ref unless its exact URL is
+ *      allowlisted (with a reason) in EXTERNAL_HTML_REF_ALLOWLIST below.
+ *      Pure NAVIGATION / metadata refs (anchors, in-page #fragments,
+ *      mailto:/tel: links, and inlined data: URIs) are NOT network asset
+ *      fetches and stay exempt. The allowlist starts EMPTY: no shipped
+ *      example page loads a remote asset, so the contract is fail-closed.
  *
  *      EXTERNAL CSS @import is NOT skipped (rf2-vou5mm). An external
  *      `@import url(https://…)` (or a protocol-relative `@import url(//…)`)
@@ -175,15 +190,66 @@ const EXTERNAL_IMPORT_ALLOWLIST = {
   //   },
 };
 
+// ---------------------------------------------------------------------------
+// Direct-HTML external network-ref allowlist (rf2-bf4vdy) — the ONE encoded
+// place that names an asset-bearing external reference (a `<script src>`, an
+// asset `<link href>`, an `<img>/<source>/<video>/<audio> src`, or an external
+// og:image) the scanner is permitted to see directly in an example page, each
+// with a reason. Any asset-bearing direct-HTML network ref NOT listed here
+// fails the gate.
+//
+// Why this exists: a direct external asset ref (a CDN <script>, a hosted
+// stylesheet/font <link>, an external image/media src) makes every staged
+// example fire a third-party network request at load time — the same
+// reproducibility / offline-dev / hidden-dependency regression the external-CSS
+// @import policy already guards (rf2-vou5mm / rf2-byf7y), just on the HTML side
+// rather than inside a stylesheet. The shared design system ships ZERO remote
+// assets, so this allowlist starts EMPTY and the contract is fail-closed.
+//
+// Shape mirrors EXTERNAL_IMPORT_ALLOWLIST: key = the external URL with any
+// ?query/#hash STRIPPED (the scanner normalises HTML refs that way before the
+// lookup); value = { reason } explaining why the remote dependency is
+// intentional. NB: only http(s) and the protocol-relative `//host/...` form
+// are gated — `data:` URIs are inlined (not a network request) and pure
+// navigation refs (anchors, #fragments, mailto:/tel:) are never asset fetches.
+// ---------------------------------------------------------------------------
+const EXTERNAL_HTML_REF_ALLOWLIST = {
+  // (empty) — no example page may load a remote script/stylesheet/font/image.
+  // Add an entry here ONLY with a deliberate decision and a reason. NB: the key
+  // is the query-stripped URL — e.g. `<script src=https://x/sdk.js?v=2>` is
+  // keyed as 'https://x/sdk.js':
+  //   'https://unpkg.com/some-lib/dist/lib.js': {
+  //     reason: 'why this remote script is intentionally loaded',
+  //   },
+};
+
 // Build output produced by shadow-cljs at stage time — never a repo-source
 // file, so the resolver skips it (every index.html ships <script src=main.js>).
 const BUILD_OUTPUTS = new Set(['main.js']);
 
 // ---------------------------------------------------------------------------
-// index.html enumeration. Walk the examples/ tree for index.html files,
-// skipping the _shared tree itself (it holds assets, not example pages) and
-// node_modules / build-output dirs.
+// Example host-page enumeration. Walk the examples/ tree for the HTML host
+// pages every staged example serves, skipping the _shared tree itself (it
+// holds assets, not example pages) and node_modules / build-output dirs.
+//
+// A "host page" is the page's own `index.html` OR an auxiliary showcase host
+// page named `<something>.index.html` — e.g. the Story showcase trios
+// `login/stories.index.html` and `nine_states/stories.index.html`, which mount
+// the example inside the Story shell + Xray and are held to the SAME shared-
+// asset contract as their sibling index.html (favicon + OG card + style.css).
+// Enumerating the `*.index.html` shape (rf2-x48bp4) gives the gate teeth over
+// those auxiliary pages, so a future edit cannot silently drop a required
+// shared asset from a showcase host page and stay green. (Before rf2-x48bp4
+// only the bare `index.html` name was enumerated, so the showcase pages carried
+// the assets but were never enforced.)
 // ---------------------------------------------------------------------------
+
+// True for the HTML host-page filenames the asset contract enumerates: the
+// bare `index.html` and any `<prefix>.index.html` auxiliary showcase host page
+// (e.g. `stories.index.html`).
+function isExampleHostPage(name) {
+  return name === 'index.html' || name.endsWith('.index.html');
+}
 
 function listExampleIndexHtml(root = EXAMPLES_ROOT) {
   const out = [];
@@ -201,7 +267,7 @@ function listExampleIndexHtml(root = EXAMPLES_ROOT) {
       if (entry.isDirectory()) {
         if (entry.name === 'node_modules' || entry.name === '_shared') continue;
         stack.push(full);
-      } else if (entry.isFile() && entry.name === 'index.html') {
+      } else if (entry.isFile() && isExampleHostPage(entry.name)) {
         out.push(full);
       }
     }
@@ -224,6 +290,100 @@ function isExternalRef(ref) {
     ref.startsWith('//') ||             // protocol-relative
     ref.startsWith('#')                 // in-page fragment
   );
+}
+
+// True only for refs that trigger a third-party NETWORK fetch at load time:
+// http(s):// and the protocol-relative `//host/...` form. A `data:` URI is
+// inlined (no request), and `#fragment` / `mailto:` / `tel:` are pure
+// navigation — none of those is a network asset dependency. Used to gate the
+// external CSS @import policy (rf2-vou5mm) AND the direct-HTML asset-ref policy
+// (rf2-bf4vdy) with one shared notion of "is this a remote fetch".
+function isNetworkRef(ref) {
+  return /^https?:/i.test(ref) || ref.startsWith('//');
+}
+
+// The asset `<link rel="...">` tokens whose href triggers a load-time fetch
+// (a remote one would be a third-party network dependency). `rel` values that
+// are pure navigation/metadata (canonical, alternate, author, license, …) are
+// NOT asset-bearing and are not gated. Multi-token rels (e.g. `rel="icon
+// shortcut"`) match if ANY token is asset-bearing.
+const ASSET_LINK_RELS = new Set([
+  'stylesheet',
+  'preload',
+  'modulepreload',
+  'prefetch',
+  'preconnect',
+  'dns-prefetch',
+  'icon',
+  'shortcut', // legacy `rel="shortcut icon"`
+  'apple-touch-icon',
+  'mask-icon',
+  'manifest',
+]);
+
+// Extract every ASSET-BEARING reference from an index.html's source, TAGGED
+// with the element/attribute it came from, so the direct-HTML network policy
+// (rf2-bf4vdy) can distinguish a remote asset fetch (rejected) from harmless
+// navigation/metadata (exempt). Returns [{ ref, source }] — `ref` is the
+// query/hash-stripped target, `source` a human-readable origin (e.g.
+// `<script src>`, `<link rel=stylesheet href>`, `<img src>`, `og:image`).
+// Order-preserving; de-duplicated on (ref, source).
+//
+// What counts as asset-bearing:
+//   - <script src=...>                          (always a fetch)
+//   - <link rel="<asset rel>" href=...>         (stylesheet/preload/icon/…)
+//   - <img|source|video|audio|track src=...>    (media fetch)
+//   - <meta property="og:image" content=...>    (social-preview fetch)
+// An <a href> / a <link rel="canonical"> / any non-asset element href is pure
+// navigation and is intentionally NOT returned.
+function extractAssetRefs(html) {
+  const out = [];
+  const seen = new Set();
+  const push = (raw, source) => {
+    if (!raw) return;
+    const clean = raw.split(/[?#]/)[0].trim();
+    if (!clean) return;
+    const key = `${source} ${clean}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ ref: clean, source });
+  };
+  const attr = (tag, name) => {
+    const m = tag.match(
+      new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i'),
+    );
+    return m ? (m[2] != null ? m[2] : m[3]) : null;
+  };
+
+  // <script src=...> — always an asset fetch.
+  for (const m of html.matchAll(/<script\b[^>]*>/gi)) {
+    const src = attr(m[0], 'src');
+    if (src) push(src, '<script src>');
+  }
+
+  // <link rel="..." href=...> — asset-bearing only for the rels above.
+  for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = m[0];
+    const href = attr(tag, 'href');
+    if (!href) continue;
+    const rel = (attr(tag, 'rel') || '').toLowerCase().trim();
+    const tokens = rel.split(/\s+/).filter(Boolean);
+    const isAsset = tokens.some((t) => ASSET_LINK_RELS.has(t));
+    if (isAsset) push(href, `<link rel="${rel || '(none)'}" href>`);
+  }
+
+  // <img|source|video|audio|track src=...> — media fetch.
+  for (const m of html.matchAll(/<(img|source|video|audio|track)\b[^>]*>/gi)) {
+    const src = attr(m[0], 'src');
+    if (src) push(src, `<${m[1].toLowerCase()} src>`);
+  }
+
+  // <meta property="og:image" content=...> — social-preview fetch.
+  for (const og of extractOgImageRefs(html)) {
+    push(og, 'og:image');
+  }
+
+  return out;
 }
 
 // Extract every asset reference from an index.html's source: <link href>,
@@ -470,8 +630,7 @@ function checkCssImports(io, cssAbsPath, displayRef, errors, seen, externalAllow
       // allowlisted with a reason (fail-closed — see EXTERNAL_IMPORT_ALLOWLIST).
       // data:/#fragment schemes are not network deps; only http/https and the
       // protocol-relative `//host/...` form are gated.
-      const isNetwork = /^https?:/i.test(imp) || imp.startsWith('//');
-      if (isNetwork && !Object.prototype.hasOwnProperty.call(externalAllowlist, imp)) {
+      if (isNetworkRef(imp) && !Object.prototype.hasOwnProperty.call(externalAllowlist, imp)) {
         errors.push(
           `${displayRef}: external @import '${imp}' pulls a third-party ` +
             `network dependency into staged examples. External CSS @imports ` +
@@ -498,6 +657,8 @@ function checkCssImports(io, cssAbsPath, displayRef, errors, seen, externalAllow
 function scanPage(io, indexAbsPath, opts = {}) {
   const allowlist = opts.allowlist || ALLOWLIST;
   const externalImportAllowlist = opts.externalImportAllowlist || EXTERNAL_IMPORT_ALLOWLIST;
+  const externalHtmlRefAllowlist =
+    opts.externalHtmlRefAllowlist || EXTERNAL_HTML_REF_ALLOWLIST;
   const required = opts.required || REQUIRED_SHARED_ASSETS;
   const errors = [];
   const relIndex = path.relative(REPO_ROOT, indexAbsPath).split(path.sep).join('/');
@@ -514,6 +675,26 @@ function scanPage(io, indexAbsPath, opts = {}) {
   const refs = extractHtmlRefs(html);
   const pageDir = path.dirname(indexAbsPath);
   const seenCss = new Set();
+
+  // 0) Direct-HTML network policy (rf2-bf4vdy): an asset-bearing external
+  //    reference in the page — a <script src>, an asset <link href>, an
+  //    <img>/<source>/<video>/<audio> src, or an external og:image — pulls a
+  //    third-party CDN script / hosted stylesheet/font / external media into
+  //    every staged example at load time. Reject it unless its exact URL is
+  //    allowlisted with a reason (fail-closed — EXTERNAL_HTML_REF_ALLOWLIST).
+  //    Only http(s)/protocol-relative refs are network deps; data: URIs are
+  //    inlined and pure navigation (#fragment / mailto: / a-href) is exempt.
+  for (const { ref, source } of extractAssetRefs(html)) {
+    if (!isNetworkRef(ref)) continue;
+    if (Object.prototype.hasOwnProperty.call(externalHtmlRefAllowlist, ref)) continue;
+    errors.push(
+      `${relIndex}: ${source} '${ref}' pulls a third-party network ` +
+        `dependency into staged examples. Direct-HTML external asset refs ` +
+        `(remote scripts / stylesheets / fonts / images) are forbidden ` +
+        `unless explicitly allowlisted with a reason in ` +
+        `EXTERNAL_HTML_REF_ALLOWLIST in check-examples-assets.cjs (rf2-bf4vdy).`,
+    );
+  }
 
   // 1) Resolve every local reference to a real file in the source tree.
   for (const ref of refs) {
@@ -855,10 +1036,15 @@ module.exports = {
   SOCIAL_PREVIEW_REQUIRED,
   ALLOWLIST,
   EXTERNAL_IMPORT_ALLOWLIST,
+  EXTERNAL_HTML_REF_ALLOWLIST,
+  ASSET_LINK_RELS,
   BUILD_OUTPUTS,
   listExampleIndexHtml,
+  isExampleHostPage,
   isExternalRef,
+  isNetworkRef,
   extractHtmlRefs,
+  extractAssetRefs,
   extractOgImageRefs,
   extractCssImports,
   resolveRef,
@@ -891,12 +1077,13 @@ if (require.main === module) {
 
   // Non-vacuous guard: a walk that silently recovers nothing must NOT let the
   // gate pass green having scanned zero pages. The repo ships well over a
-  // dozen example pages; require a sane floor.
+  // dozen example host pages (index.html + the *.index.html showcase pages);
+  // require a sane floor.
   if (indexes.length < 10) {
     console.error(
-      `check-examples-assets: only ${indexes.length} example index.html ` +
-        `page(s) found under examples/ — expected the full set. Walk or ` +
-        `layout drift; refusing to pass a vacuous gate.`,
+      `check-examples-assets: only ${indexes.length} example host page(s) ` +
+        `(index.html / *.index.html) found under examples/ — expected the ` +
+        `full set. Walk or layout drift; refusing to pass a vacuous gate.`,
     );
     process.exit(1);
   }
@@ -904,8 +1091,8 @@ if (require.main === module) {
   const { pages, errors } = scanAll({ indexes });
 
   console.log(
-    `check-examples-assets: scanning ${pages.length} example index.html ` +
-      `page(s) + the _shared tree.`,
+    `check-examples-assets: scanning ${pages.length} example host page(s) ` +
+      `(index.html + *.index.html showcase pages) + the _shared tree.`,
   );
 
   if (listOnly) {
@@ -923,10 +1110,12 @@ if (require.main === module) {
     for (const e of errors) console.error(`  - ${e}`);
     console.error(
       `\nA missing/renamed _shared asset, a broken @import, an unallowlisted ` +
-        `EXTERNAL CSS @import, or a page that drops a required shared asset ` +
-        `without an encoded ALLOWLIST exception fails this gate. Fix the ` +
-        `reference, restore the asset, drop the remote @import, or encode the ` +
-        `exception (with a reason) in ALLOWLIST / EXTERNAL_IMPORT_ALLOWLIST in ` +
+        `EXTERNAL CSS @import, an unallowlisted direct-HTML remote asset ref ` +
+        `(remote <script>/<link>/<img>), or a page that drops a required ` +
+        `shared asset without an encoded ALLOWLIST exception fails this gate. ` +
+        `Fix the reference, restore the asset, drop the remote dependency, or ` +
+        `encode the exception (with a reason) in ALLOWLIST / ` +
+        `EXTERNAL_IMPORT_ALLOWLIST / EXTERNAL_HTML_REF_ALLOWLIST in ` +
         `examples/scripts/check-examples-assets.cjs.`,
     );
     process.exit(1);

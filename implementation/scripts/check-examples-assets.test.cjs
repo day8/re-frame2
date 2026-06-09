@@ -35,8 +35,12 @@ const {
   SOCIAL_PREVIEW_REQUIRED,
   ALLOWLIST,
   EXTERNAL_IMPORT_ALLOWLIST,
+  EXTERNAL_HTML_REF_ALLOWLIST,
+  isExampleHostPage,
   isExternalRef,
+  isNetworkRef,
   extractHtmlRefs,
+  extractAssetRefs,
   extractOgImageRefs,
   extractCssImports,
   resolveRef,
@@ -111,12 +115,37 @@ console.log('check-examples-assets tests (rf2-8r0mj.2 + rf2-8r0mj.3 + rf2-emvyd)
 
 const realIndexes = listExampleIndexHtml();
 
-it('the real examples tree exposes a non-vacuous set of index.html pages', () => {
+it('the real examples tree exposes a non-vacuous set of host pages', () => {
   assert.ok(
     realIndexes.length >= 10,
-    `expected the full example set (>=10 index.html), got ` +
+    `expected the full example set (>=10 host pages), got ` +
       `${realIndexes.length} — walk/layout drift; a vacuous gate is forbidden`,
   );
+});
+
+// ---- host-page enumeration includes *.index.html showcase pages (rf2-x48bp4)
+
+it('isExampleHostPage accepts index.html AND *.index.html, not arbitrary html', () => {
+  assert.ok(isExampleHostPage('index.html'));
+  assert.ok(isExampleHostPage('stories.index.html'));
+  assert.ok(isExampleHostPage('foo.index.html'));
+  assert.ok(!isExampleHostPage('about.html'));
+  assert.ok(!isExampleHostPage('index.htm'));
+  assert.ok(!isExampleHostPage('stories.html'));
+});
+
+it('LIVE: the two Story showcase host pages are enumerated by the gate (rf2-x48bp4)', () => {
+  const rel = realIndexes.map((p) => path.relative(EXAMPLES_ROOT, p).split(path.sep).join('/'));
+  for (const page of [
+    'reagent/login/stories.index.html',
+    'reagent/nine_states/stories.index.html',
+  ]) {
+    assert.ok(
+      rel.includes(page),
+      `expected the gate to enumerate the showcase host page '${page}' so it ` +
+        `is held to the shared-asset contract, got: ${rel.join(', ')}`,
+    );
+  }
 });
 
 it('LIVE: every real example page resolves its assets + carries the contract', () => {
@@ -268,6 +297,50 @@ it('isExternalRef flags http(s)/protocol-relative/scheme refs, not local', () =>
   assert.ok(isExternalRef('#frag'));
   assert.ok(!isExternalRef('_shared/css/style.css'));
   assert.ok(!isExternalRef('base.css'));
+});
+
+it('isNetworkRef flags only http(s)/protocol-relative — not data:/mailto:/#frag', () => {
+  assert.ok(isNetworkRef('https://cdn.example.com/lib.js'));
+  assert.ok(isNetworkRef('http://example.com/a.css'));
+  assert.ok(isNetworkRef('//cdn.example.com/x.css'));
+  assert.ok(!isNetworkRef('data:image/svg+xml,...'));
+  assert.ok(!isNetworkRef('mailto:x@y.z'));
+  assert.ok(!isNetworkRef('tel:+123'));
+  assert.ok(!isNetworkRef('#frag'));
+  assert.ok(!isNetworkRef('_shared/css/style.css'));
+});
+
+// ---- direct-HTML asset-ref tagging (rf2-bf4vdy) -------------------------
+
+it('extractAssetRefs tags script src, asset link href, img/media src, og:image', () => {
+  const html = [
+    '<script src="https://cdn.example.com/sdk.js"></script>',
+    '<link rel="stylesheet" href="https://cdn.example.com/x.css">',
+    '<link rel="icon" href="_shared/img/favicon.svg">',
+    '<img src="https://img.example.com/hero.png">',
+    '<video src="//media.example.com/clip.mp4"></video>',
+    '<meta property="og:image" content="https://og.example.com/card.png">',
+  ].join('\n');
+  const tagged = extractAssetRefs(html);
+  const byRef = Object.fromEntries(tagged.map((t) => [t.ref, t.source]));
+  assert.ok(byRef['https://cdn.example.com/sdk.js'].includes('script'));
+  assert.ok(byRef['https://cdn.example.com/x.css'].includes('link'));
+  assert.ok(byRef['_shared/img/favicon.svg'].includes('link'));
+  assert.ok(byRef['https://img.example.com/hero.png'].includes('img'));
+  assert.ok(byRef['//media.example.com/clip.mp4'].includes('video'));
+  assert.strictEqual(byRef['https://og.example.com/card.png'], 'og:image');
+});
+
+it('extractAssetRefs does NOT treat an <a href> or rel=canonical as an asset', () => {
+  const html = [
+    '<a href="https://example.com/docs">docs</a>',
+    '<link rel="canonical" href="https://example.com/page">',
+    '<link rel="alternate" href="https://example.com/rss">',
+  ].join('\n');
+  const refs = extractAssetRefs(html).map((t) => t.ref);
+  assert.ok(!refs.includes('https://example.com/docs'), 'anchors are navigation, not assets');
+  assert.ok(!refs.includes('https://example.com/page'), 'rel=canonical is metadata, not an asset');
+  assert.ok(!refs.includes('https://example.com/rss'), 'rel=alternate is metadata, not an asset');
 });
 
 // ---- staging-aware resolution -------------------------------------------
@@ -425,6 +498,114 @@ it('TEETH: a data: @import is NOT treated as a network dep (not rejected)', () =
   );
 });
 
+// ---- TEETH: direct-HTML network policy (rf2-bf4vdy) ---------------------
+//
+// Before rf2-bf4vdy the scanner SKIPPED every external HTML ref, so a CDN
+// <script>, a hosted stylesheet/font <link>, an external <img>, or a hosted
+// og:image stayed green. The contract is now fail-closed: an unallowlisted
+// asset-bearing external HTML ref (http/https/protocol-relative) fails the
+// gate, while NAVIGATION refs (anchors, #fragments, data: URIs) stay exempt.
+
+it('TEETH: a direct external <script src> (CDN) is REJECTED', () => {
+  const html = goodHtml().replace(
+    '<script src="main.js"></script>',
+    '<script src="https://cdn.example.com/sdk.js"></script>\n<script src="main.js"></script>',
+  );
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  assert.ok(
+    errors.some(
+      (e) => e.includes('<script src>') && e.includes('cdn.example.com') && e.includes('rf2-bf4vdy'),
+    ),
+    `expected a rejected external script, got: ${errors.join(' | ')}`,
+  );
+  // It is a policy rejection, NOT a missing-on-disk file (never resolved).
+  assert.ok(
+    !errors.some((e) => e.includes('cdn.example.com') && e.includes('does not resolve')),
+    `an external script must never be checked on disk, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a direct external stylesheet <link href> (hosted CSS/font) is REJECTED', () => {
+  const html = goodHtml().replace(
+    '<link rel="stylesheet" href="_shared/css/style.css">',
+    '<link rel="stylesheet" href="_shared/css/style.css">\n' +
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter">',
+  );
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  assert.ok(
+    errors.some((e) => e.includes('link') && e.includes('fonts.googleapis.com')),
+    `expected a rejected hosted stylesheet/font link, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a protocol-relative external <img src> is REJECTED', () => {
+  const html = goodHtml().replace(
+    '<div id="app"></div>',
+    '',
+  ).replace('</head>', '</head>\n<img src="//img.example.com/hero.png">');
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  assert.ok(
+    errors.some((e) => e.includes('<img src>') && e.includes('//img.example.com/hero.png')),
+    `expected a rejected protocol-relative image, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: an external (hosted) og:image is REJECTED as a network dep', () => {
+  // An external og:image is the page's social card hosted off-site — it is a
+  // load-time fetch from the scraper's view, so the network policy fires.
+  const html = goodHtml().replace(
+    '<meta property="og:image" content="_shared/img/og.png">',
+    '<meta property="og:image" content="https://og.example.com/card.png">\n' +
+      '<meta property="og:image" content="_shared/img/og.png">',
+  );
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  assert.ok(
+    errors.some((e) => e.includes('og:image') && e.includes('og.example.com')),
+    `expected a rejected hosted og:image, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('an external HTML ref whose exact URL is allowlisted (with reason) scans clean', () => {
+  const written = 'https://cdn.example.com/sdk.js?v=2';
+  const allowKey = 'https://cdn.example.com/sdk.js';
+  const html = goodHtml().replace(
+    '<script src="main.js"></script>',
+    `<script src="${written}"></script>\n<script src="main.js"></script>`,
+  );
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE, {
+    externalHtmlRefAllowlist: {
+      [allowKey]: { reason: 'deliberate remote SDK for this test' },
+    },
+  });
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `an allowlisted external HTML ref should scan clean, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('a navigation <a href> to an external URL is NOT rejected (only assets are gated)', () => {
+  const html = goodHtml().replace(
+    '<div id="app"></div>',
+    '<div id="app"></div>\n<a href="https://re-frame2.org/docs">docs</a>',
+  );
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `an external <a href> is navigation, not an asset fetch, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('the LIVE EXTERNAL_HTML_REF_ALLOWLIST is empty (no remote HTML asset deps shipped)', () => {
+  assert.deepStrictEqual(
+    Object.keys(EXTERNAL_HTML_REF_ALLOWLIST),
+    [],
+    'no shipped example page may load a remote script/stylesheet/font/image; ' +
+      'the direct-HTML ref allowlist is fail-closed and starts empty (rf2-bf4vdy)',
+  );
+});
+
 it('TEETH: an external @import in the _shared tree is rejected by checkSharedTree', () => {
   // checkSharedTree enforces the no-remote-CSS contract directly on the
   // _shared source, independent of any page's reference graph.
@@ -445,6 +626,68 @@ it('TEETH: an external @import in the _shared tree is rejected by checkSharedTre
       (e) => e.includes('external @import') && e.includes('fonts.googleapis.com'),
     ),
     `expected checkSharedTree to reject the external @import, got: ${errors.join(' | ')}`,
+  );
+});
+
+// ---- TEETH: stories.index.html showcase page enforcement (rf2-x48bp4) ---
+//
+// The two Story showcase host pages (login/stories.index.html +
+// nine_states/stories.index.html) carry the shared assets, but before the gate
+// ENUMERATED them, a future edit could silently drop a required asset and stay
+// green. The negative control: a stories.index.html missing style.css must
+// fail the SAME required-asset contract as an index.html — proving enumeration
+// gives the showcase pages teeth.
+
+it('TEETH: a stories.index.html missing a required shared asset fails the gate (rf2-x48bp4)', () => {
+  const showcase = path.join(
+    EXAMPLES_ROOT, 'reagent', 'nine_states', 'stories.index.html',
+  );
+  const showcaseHtml = [
+    '<!doctype html><html><head>',
+    '<meta property="og:image" content="_shared/img/og.png">',
+    '<link rel="icon" href="_shared/img/favicon.svg">',
+    // style.css intentionally dropped — a regression a future edit could land.
+    '</head><body><script src="main.js"></script></body></html>',
+  ].join('\n');
+  const io = makeIo({
+    [showcase]: showcaseHtml,
+    [FAVICON]: '<svg/>',
+    [OG]: 'PNGDATA',
+  });
+  const { errors } = scanPage(io, showcase);
+  assert.ok(
+    errors.some(
+      (e) =>
+        e.includes('stories.index.html') &&
+        e.includes("missing required shared asset reference '_shared/css/style.css'"),
+    ),
+    `expected the showcase page to be held to the shared-asset contract, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('a well-formed stories.index.html with all shared assets scans clean (rf2-x48bp4)', () => {
+  const showcase = path.join(
+    EXAMPLES_ROOT, 'reagent', 'login', 'stories.index.html',
+  );
+  const showcaseHtml = [
+    '<!doctype html><html><head>',
+    '<meta property="og:image" content="_shared/img/og.png">',
+    '<link rel="icon" href="_shared/img/favicon.svg">',
+    '<link rel="stylesheet" href="_shared/css/style.css">',
+    '</head><body><script src="main.js"></script></body></html>',
+  ].join('\n');
+  const io = makeIo({
+    [showcase]: showcaseHtml,
+    [STYLE]: goodStyleCss(),
+    [STRUCTURE]: '/* structure */',
+    [FAVICON]: '<svg/>',
+    [OG]: 'PNGDATA',
+  });
+  const { errors } = scanPage(io, showcase);
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `a complete showcase page should scan clean, got: ${errors.join(' | ')}`,
   );
 });
 
