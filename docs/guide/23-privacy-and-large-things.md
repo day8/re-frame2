@@ -255,6 +255,17 @@ The Datadog shipper from [chapter 16](16-observability.md) is the sixth consumer
 
 The on-box dev UIs render a small `[● REDACTED]` / `[● ELIDED 5.2MB]` chip wherever a sentinel or marker lands in the rendered tree; the dev clicks the chip to opt in for a single live-fetch via the marker's `:handle`. That's the *only* path by which a sensitive or large value re-materialises on screen, and it's per-fetch, not session-wide. (There's a deliberate verb split worth internalising if you write your own consumer: `include-*` governs *bytes leaving the process*, `show-*` governs *pixels rendered to the dev*. Both default off; both are explicit when on.)
 
+## The runtime-db partition: a separate, coarser off-box default
+
+Everything above governs **app-db** — your application state, where `:sensitive?` / `:large?` ride per-slot on the schema. The *other* partition of a frame (chapter 02), **runtime-db** — the framework's own state: machine snapshots, the route slice, SSR hydration metadata — gets a blunter rule off-box: the **whole partition is redacted/omitted by default**, not per-slot-elided. A stray off-box ship never leaks framework runtime state, period, regardless of whether any individual runtime slot was declared sensitive.
+
+That makes runtime-db a partition you *opt into* off-box, rather than one you opt secrets *out of*. Two trusted-local tools let a developer inspecting their own running app lift that redaction — and here's a wrinkle worth knowing, because the two tools spell the opt-in differently:
+
+- **Xray** exposes a *dedicated, orthogonal* runtime-db axis. Its machine-state accessor takes an `:include-runtime-db?` opt that is **separate** from the `:include-sensitive?` / `:include-large?` opts. Lifting the partition redaction is independent of per-slot elision: opt in with `:include-runtime-db? true` and you see the live machine snapshot, but a `:sensitive?` slot *inside* it (say a `:sensitive?` `:data-schema`, or an `[:auth :password]` leaf) **still redacts**. Two knobs, composed.
+- **re-frame2-pair-mcp** has *no* `:include-runtime-db?` arg. It **folds** runtime-db opt-in onto its existing sensitive gate: the AI-facing `snapshot` tool's `:machines` slice ships `:rf/redacted` unless the server was launched with `--allow-sensitive-reads` **and** the call passed `:include-sensitive true` — the same one switch that lifts per-slot sensitive elision also lifts the runtime-db redaction, in one step.
+
+Both fail closed by default; both honour the same normative ruling (trusted-local tools may request richer diagnostics explicitly, default fails closed). The asymmetry is deliberate, not an oversight: the pair-mcp `--allow-sensitive-reads` boot gate is *already* that tool's coarse "I trust this local session" boundary, so the runtime-db opt-in rides it rather than adding a second knob behind a gate that's already the explicit opt-in. The practical takeaway for anyone reasoning about "how do I see machine/route state off-box": on Xray, reach for `:include-runtime-db?`; on pair-mcp, reach for `--allow-sensitive-reads` + `:include-sensitive` — and don't go hunting for an `:include-runtime-db?` on the pair side, because there isn't one.
+
 ## The one gap: exceptions
 
 The path-marked declarations redact everywhere the walker can resolve a *path against a known shape* — `app-db`, event arg-maps, sub outputs, fx inputs, cofx injections, machine `:data`, flow outputs. They do **not** walk exception messages or `ex-data` maps, and that's a small but real residual you need to know about.
