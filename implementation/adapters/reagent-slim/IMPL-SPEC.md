@@ -1001,47 +1001,48 @@ Because the throw is the only thing in the body, `:advanced` Closure compilation
 
 ---
 
-## §11 Deletions from re-frame2 enabled by the rewrite
+## §11 Core internals the rewrite was expected to delete — actual disposition as shipped
 
-The rewrite's narrowed `convert-prop-value` (§7.2 + DECISION-2) and folded source-coord stamping (§5.4 + §9.4) make several existing re-frame2 internals vestigial. Stage 4 deletes them as part of the rewrite-adoption commit.
+**Status: reconciled to shipped reality (rf2-prkgge).** This section was originally a forward-looking Stage-4 plan that listed re-frame2 core internals the rewrite would render vestigial and *delete* as part of the rewrite-adoption commit — on the premise that the narrowed `convert-prop-value` (§7.2 + DECISION-2) and a *renderer-folded* source-coord stamping (§5.4 + §9.4) would make them unreachable. Stage 4 (rf2-6hyy) has since shipped, and the refactor landed **differently** than that plan: the premise that source-coord stamping moves into the renderer (so the shared `re-frame.views` walker becomes unreachable) was abandoned. None of the four candidates was deleted — every one was **retained** (one of them refactored/extracted, the rest left in place). The subsections below now record the as-shipped disposition (retained / refactored) rather than the abandoned deletion plan.
 
 ### §11.1 `re-frame.adapter.context/coerce-context-value` — RETAINED (was: delete)
 
-File: `implementation/core/src/re_frame/adapter/context.cljs`. The shared coercion that un-stringifies `convert-prop-value`'s keyword-stringification path.
+File: `implementation/core/src/re_frame/adapter/context.cljs:93`. The shared coercion that un-stringifies `convert-prop-value`'s keyword-stringification path. **Verified current as shipped (rf2-prkgge).**
 
-**Retraction**: An earlier revision of this section instructed deleting `coerce-context-value` on the grounds that DECISION-2's narrowed `convert-prop-value` removes the over-stringification under the slim adapter. The audit during Stage 4-F surfaced that the function is **still load-bearing for the classic-Reagent adapter path** (`implementation/adapters/reagent/`), which uses stock `reagent.impl.template/convert-prop-value` and therefore still stringifies keyword props. Both adapters share the same `re-frame.views/current-frame` resolver via the `:adapter/current-frame` late-bind hook, so deleting the coercion would silently break `(rf/subscribe ...)` and `(rf/dispatch ...)` under any `[:> Provider {:value :tenant}]` raw-hiccup mount on the classic adapter.
+**What happened**: An earlier revision of this section instructed deleting `coerce-context-value` on the grounds that DECISION-2's narrowed `convert-prop-value` removes the over-stringification under the slim adapter. The Stage 4-F audit surfaced that the function is **still load-bearing for the classic-Reagent adapter path** (`implementation/adapters/reagent/`), which uses stock `reagent.impl.template/convert-prop-value` and therefore still stringifies keyword props. Both adapters share the same `re-frame.views/current-frame` resolver via the `:adapter/current-frame` late-bind hook, so deleting the coercion would silently break `(rf/subscribe ...)` and `(rf/dispatch ...)` under any `[:> Provider {:value :tenant}]` raw-hiccup mount on the classic adapter. The delete was therefore withdrawn before Stage 4 landed.
 
-The canonical user-facing mount (`rf/frame-provider`) now goes through `re-frame.adapter.context/provider-element`, which builds the Provider via `React.createElement` directly and bypasses Reagent's prop conversion altogether — so the user-facing path preserves namespaced frame-ids on every adapter. `coerce-context-value` remains as **defensive coverage for raw-hiccup Provider mounts** authored as `[:> (.-Provider frame-context) {:value :foo}]` directly, which still hit stock Reagent's prop conversion under the classic bridge.
+The canonical user-facing mount (`rf/frame-provider`) goes through `re-frame.adapter.context/provider-element`, which builds the Provider via `React.createElement` directly and bypasses Reagent's prop conversion altogether — so the user-facing path preserves namespaced frame-ids on every adapter. `coerce-context-value` remains as **defensive coverage for raw-hiccup Provider mounts** authored as `[:> (.-Provider frame-context) {:value :foo}]` directly, which still hit stock Reagent's prop conversion under the classic bridge.
 
-**Stage 4 actions** (revised):
-- **Keep** `coerce-context-value` in `re-frame.adapter.context`.
-- Keep the keyword-and-string coercion shape: `keyword? v → v`; non-empty `string? v → (keyword v)`; else nil.
-- Keep the call sites at `re-frame.views/current-frame` and `re-frame.adapter.context/function-component-current-frame` unchanged — both still consult the helper.
-- Stage 4-F item #2 (delete `coerce-context-value`) is **withdrawn**. The forced-defensive comments referenced in §11.2 are tightened to call out the helper's revised rationale (defensive cover for raw-hiccup mounts), not removed.
+**As shipped**:
+- `coerce-context-value` is **kept** in `re-frame.adapter.context` (`context.cljs:93`), live at call sites `context.cljs:191` and `views/provider.cljs:169`.
+- The keyword-and-string coercion shape is intact: `keyword? v → v`; non-empty `string? v → (keyword v)`; else nil.
+- Stage 4-F item #2 (delete `coerce-context-value`) was **withdrawn**. The defensive comments referenced in §11.2 were tightened (not removed) to call out the helper's revised rationale (defensive cover for raw-hiccup mounts).
 
-### §11.2 Defensive comments referencing rf2-d4sf
+### §11.2 Defensive comments referencing rf2-d4sf — TIGHTENED (verified current, rf2-prkgge)
 
 Multiple places reference Reagent's stringification as the rationale for defensive coercion:
-- `views.cljs` / `views/provider.cljs` (current-frame docstring).
-- `context.cljs` (the coerce-context-value section header).
+- `views/provider.cljs:155` (current-frame docstring).
+- `context.cljs:68` (the coerce-context-value section header / function-component current-frame, `context.cljs:143`).
 
-Stage 4 tightens these comments to reflect the revised state: under the slim adapter the stringification class is structurally absent (per DECISION-2); under the classic adapter it still applies to raw `[:> Provider {:value :foo}]` hiccup mounts. The canonical user-facing surface (`rf/frame-provider`) bypasses prop conversion via `provider-element` so the namespace of namespaced frame-ids survives the React-context round trip; the helper is the safety net for raw-hiccup paths.
+As shipped, these comments were **tightened** (not removed) to reflect the revised state: under the slim adapter the stringification class is structurally absent (per DECISION-2); under the classic adapter it still applies to raw `[:> Provider {:value :foo}]` hiccup mounts. The canonical user-facing surface (`rf/frame-provider`) bypasses prop conversion via `provider-element` so the namespace of namespaced frame-ids survives the React-context round trip; the helper is the safety net for raw-hiccup paths. The "defensive cover for raw-hiccup Provider mounts" wording is present in-tree at `context.cljs:68` and `provider.cljs:155`.
 
-### §11.3 The `inject-source-coord-attr` walker
+### §11.3 The `inject-source-coord-attr` walker — RETAINED + REFACTORED (was: delete; plan abandoned, rf2-prkgge)
 
-File: `implementation/core/src/re_frame/views.cljs:270-308`. Per §5.4 + §9.4, source-coord stamping moves into the renderer. The walker becomes unreachable.
+**Original plan** (abandoned): delete the `re-frame.views` source-coord walker (`inject-source-coord-attr`, the `dom-tag?` helper, `warn-non-dom-root!`, and the `warned-non-dom-roots` defonce) on the premise that source-coord stamping moves into the renderer (per the then-§5.4 + §9.4 design), so the walker becomes unreachable; `reg-view*` would bind `reagent2.impl.template/*source-coord*` instead of computing the coord-attr inline.
 
-**Stage 4 actions**:
-- Delete `inject-source-coord-attr`.
-- Delete `dom-tag?` helper (only used by `inject-source-coord-attr`).
-- Delete `warn-non-dom-root!` and the `warned-non-dom-roots` defonce — the renderer-side stamping no longer encounters non-DOM roots in a separate pass; the warning logic moves into `reagent2.impl.template/as-element` if Stage 4 chooses to keep the warning at all (the audit didn't show evidence of this warning firing in production).
-- Update `reg-view*` (views.cljs:312-367) to bind `reagent2.impl.template/*source-coord*` instead of computing the coord-attr inline.
+**What actually shipped**: the premise was abandoned. Source-coord stamping for the **classic Reagent adapter** did **not** move into a renderer — the shared `re-frame.views` hiccup walk stayed load-bearing. None of the four symbols was deleted; the walker was **refactored/extracted**, not removed:
 
-### §11.4 The thin-bridge adapter
+- **`inject-source-coord-attr` — RETAINED, extracted.** Split out of `re-frame.views` into the dedicated `re-frame.views.source-coord-annotation` ns (`source_coord_annotation.cljs:119`) per rf2-lh7p, so `views.cljs` stays focused on registration orchestration. It is live: `build-frame-aware-view` calls `source-coord/inject-source-coord-attr` at `views.cljs:572`. A cross-substrate variant was additionally lifted into `re-frame.substrate.spine` (`spine.cljs:1020`, called at `spine.cljs:1244`) for the React-hook adapters' shared spine.
+- **`dom-tag?` — RETAINED, extracted.** Moved into `re-frame.views.source-coord-annotation` (`source_coord_annotation.cljs:102`) alongside the walker it serves.
+- **`warn-non-dom-root!` — RETAINED, extracted.** Moved into `re-frame.views.warn-once` (`warn_once.cljs:45`); the source-coord-annotation walk calls it at `source_coord_annotation.cljs:169`. A parameterised cross-substrate variant (`make-warn-non-dom-root-fn`) lives in `spine.cljs:995`.
+- **`warned-non-dom-roots` defonce — RETAINED.** Lives in `re-frame.views.warn-once` (`warn_once.cljs:31`), with `clear-warned-non-dom-roots!` (`warn_once.cljs:33`, re-exported as `re-frame.views/clear-warned-non-dom-roots!` at `views.cljs:186`). It is enrolled in the rf2-z79p8 warn-once-clear governance chain (`warn_once.cljs:244-257`) so the test-reset fixture wipes it — it was *not* removed, and the warning was kept (not dropped).
+- **`reg-view*` does NOT bind `reagent2.impl.template/*source-coord*`.** The slim adapter's own vendored renderer *does* have a `*source-coord*` dynamic var (`reagent2/impl/template.cljs:563`, merged at `template.cljs:715-722`) — but that is the **slim adapter's internal hiccup interpreter** stamping its own output, not a replacement for the shared `re-frame.views` walker. The two coexist: the slim renderer stamps via `*source-coord*` for slim-mounted views; the `re-frame.views` walk (via `apply-adapter-wrap-view`, `views.cljs:426`) serves the classic Reagent adapter's inline-hiccup path, while UIx/Helix publish a `:adapter/wrap-view` hook that stamps via `React.cloneElement`.
 
-File: `implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs`. After the rewrite ships and `day8/reagent-classic` is cut as the bridge artefact, the on-disk thin bridge migrates to a new path (`implementation/adapters/reagent-classic/`?) **OR** is removed from the re-frame2 monorepo entirely and lives on its own.
+**Net**: zero deletions; one ns-extraction (rf2-lh7p) of an otherwise-retained walker + warn-once pair. The original "walker becomes unreachable" claim and its §5.4/§9.4 premise describe an abandoned design.
 
-**Stage 4 explicitly does NOT delete the bridge.** It coexists. The decision of when (and whether) to retire the bridge is a post-1.0 concern. The two artefacts ship in parallel; consumers pick.
+### §11.4 The thin-bridge adapter — RETAINED, coexists (verified current, rf2-prkgge)
+
+File: `implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs`. As shipped, the classic thin-bridge adapter still lives at its original path and **coexists** with `implementation/adapters/reagent-slim/` — Stage 4 did **not** delete it, exactly as planned. The eventual question of whether the on-disk bridge migrates to a `reagent-classic` path **OR** is cut out of the monorepo to live on its own (as `day8/reagent-classic`) remains a post-1.0 concern; the two adapter artefacts ship in parallel and consumers pick.
 
 ---
 
@@ -1180,9 +1181,9 @@ App that used `reagent.dom.server/render-to-string`: migrate to `re-frame.ssr/re
 
 ---
 
-## §14 Open questions / known limitations
+## §14 Open questions / known limitations — resolved as shipped (rf2-prkgge)
 
-The following surfaced during drafting. Stage 4 may need Mike's call on each.
+The following surfaced during drafting as Stage-4-or-later calls. Stage 4 (rf2-6hyy) has shipped; each subsection now records the disposition. (The four unfilled "file a `bd` bead" placeholders that originally sat in §14.3–§14.6 have been cleared and replaced with the real dispositions.)
 
 ### §14.1 The `defview` macro vs `reg-view` — namespace collision
 
@@ -1190,7 +1191,7 @@ Stage 4 ships `reagent2.impl.component/defview` as an optional Form-detection ma
 
 **Open question for Mike**: does `defview` ship as a Reagent-flavoured user surface, or is it simply absorbed into `reg-view` as an internal optimisation (Form detection moves into the macro that already exists)? If the latter, S3-003's "optional macro" framing changes — the runtime detection path stays load-bearing for `reg-view*` and direct `defn`-and-register paths, and `reg-view` quietly classifies at compile time.
 
-**Recommendation (no bead filed; this is a Stage-4-or-later call)**: ship the runtime detection in Stage 4-A, fold the compile-time classification into `reg-view`'s expansion in Stage 4-B (so users get the perf hint for free, no new macro to learn). Skip `defview`.
+**Disposition (as shipped)**: resolved per the rf2-yfbx decision — `defview` is **not** shipped. The runtime Form-detection path is the canonical implementation; no separate `defview` macro exists (see `reagent2/impl/component.cljs:31` and `component.clj:10`: "No separate `defview` macro is shipped"). This matches the original recommendation (ship runtime detection, skip `defview`).
 
 ### §14.2 The `reagent2.core/reaction` function vs `reagent2.ratom/reaction` macro
 
@@ -1202,15 +1203,15 @@ The rewrite ships `reagent2.core/reaction` (function) AND `reagent2.ratom/reacti
 
 The rewrite's `reagent2.dom.server` and `re-frame.ssr` both need the `boolean-attrs` and `void-tags` sets. Per §8.4 — Stage 4 lifts both from `re-frame.ssr`. **But** this creates a load-order ordering: `reagent2.dom.server` would need to require `re-frame.ssr`. The SSR seam is in a different artefact (`day8/re-frame2-ssr`), and the rewrite **must not** statically require it (per the bundle-isolation contract; cf. `re-frame.adapter.reagent`'s comment on lines 12-20 about not requiring the SSR ns).
 
-**Resolution**: duplicate the static sets in `reagent2.dom.server`. The sets are <30 lines total; the duplication has no maintenance cost (HTML5's void-tag list is fixed). Stage 4 lifts the values via copy-paste, not require.
+**Resolution (as shipped)**: the static sets were duplicated via copy-paste, not require. The void-tag set lives in `reagent2.impl.template/void-tags` and is consumed by `reagent2.dom.server` (`server.cljs:686`); boolean-attrs is local to the artefact. The HTML5 void-tag list is fixed, so the duplication carries no practical maintenance cost.
 
-**Recommendation**: file `bd` bead `rf2-XXXX` to track that if the void-tag list ever changes (extraordinarily unlikely), both copies must update. Low priority.
+**Disposition**: no bead filed. The lockstep concern (if the void-tag list ever changed — extraordinarily unlikely — both copies must update) is captured in-tree as a code comment at `server.cljs:121-124` calling out the `reagent2.impl.template/void-tags` ↔ `re-frame.ssr.emit/void-elements` keyword-vs-string duplication. A comment is the right weight for an immutable HTML5 list; a tracking bead was deemed unnecessary.
 
 ### §14.4 The `:component-did-catch` test-coverage strategy under React 19
 
 React 19's error-boundary contract has subtle edge cases — e.g. errors during `componentDidMount` of a child are caught by the nearest boundary, but errors during render of a sibling are not necessarily. Stage 4's test coverage in §6.5 needs to enumerate the exact cases. Stage 1 / Stage 2 didn't go to this depth.
 
-**Recommendation**: file `bd` bead `rf2-XXXX-error-boundary-cases` to track the exact case enumeration during Stage 4 implementation. The test list in §12.1 is a starting point, not a final spec.
+**Disposition (as shipped)**: no separate bead — the case enumeration was settled directly in the Stage 4 test suite. `reagent2.impl.template`/`component`'s `:component-did-catch` and error-boundary behaviour is exercised in `test/reagent2/impl/component_cljs_test.cljs` under React 19. The §12.1 list was the starting point; the shipped test file is the binding enumeration.
 
 ### §14.5 `flush-views!` interaction with React 19 Suspense
 
@@ -1218,15 +1219,15 @@ A child component throws a Promise (Suspense's standard pattern); the parent's `
 
 **Open question**: the spec says "drains React's pending work as a single composed operation" (§4.2). React 19's `act` does drain Suspense — but the precise sequencing (microtask-microtask vs microtask-then-act vs act-then-microtask) is non-trivial. Stage 4 picks an order and tests it; Stage 3 doesn't pre-commit.
 
-**Recommendation**: file `bd` bead `rf2-XXXX-flush-views-suspense` to capture the design choice + test as Stage 4 makes it.
+**Disposition (as shipped)**: settled and tracked as bead **rf2-w6ef**. Stage 4 picked the **microtask → act → microtask** ordering for `flush-views!`: a leading microtask flushes pending re-frame2 state changes before handing off to React's `act`; `act` drains React's commit phase and any Suspense boundaries (awaiting the thrown Promise, re-rendering on resolution); a trailing microtask settles re-frame2 effects that ran inside the React commit. The choice + rationale are documented at `reagent2/dom/client.cljs:24-59` and exercised by the Suspense test in `dom_client_cljs_test.cljs`.
 
 ### §14.6 Source-coord stamping + `:>` interop
 
 §5.4 specifies that the renderer stamps `:data-rf2-source-coord` on the first DOM-tag root. But what if the user's reg-view returns `[:> SomeReactComponent ...]` as the root? The current views.cljs path (`warn-non-dom-root!` line 246-258) emits a one-shot warning per id and skips the stamping. Under the rewrite's renderer-side stamping, the equivalent behaviour is: the `*source-coord*` dynamic var is read but the first-vector check sees `:>` (or any non-DOM-tag head) and skips. The warn-once needs to migrate too.
 
-**Status**: covered in §11.3 "delete `warn-non-dom-root!`" — but the warning is useful for pair-tooling consumers. Stage 4 decides whether to keep the warning by re-implementing it in the renderer or drop it because audit didn't show evidence of triggering.
+**Status (as shipped)**: the keep-or-drop call was made **KEEP**. As recorded in §11.3, `warn-non-dom-root!` and the `warned-non-dom-roots` defonce were *not* deleted — they were retained (extracted into `re-frame.views.warn-once`, `warn_once.cljs:31`/`:45`) and the warning still fires one-shot per id when a non-DOM-tag root is encountered (`source_coord_annotation.cljs:169`). The warn-once cache is enrolled in the rf2-z79p8 governance clear-chain so the test fixture wipes it. The warning is useful for pair-tooling consumers, which is why it survived.
 
-**Recommendation**: file `bd` bead `rf2-XXXX-source-coord-non-dom-root-warning` to track the keep-or-drop decision during Stage 4.
+**Disposition**: no separate bead — folded into §11.3's retained disposition (rf2-prkgge). The keep decision is reflected directly in the shipped code; no follow-up tracking is needed.
 
 ---
 
