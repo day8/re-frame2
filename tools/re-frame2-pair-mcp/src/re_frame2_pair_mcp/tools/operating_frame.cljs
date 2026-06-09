@@ -71,7 +71,8 @@
   (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
-            [re-frame2-pair-mcp.tools.probe :as probe]))
+            [re-frame2-pair-mcp.tools.probe :as probe]
+            [re-frame2-pair-mcp.tools.reserved-frame-guard :as guard]))
 
 ;; rf2-olvr5 finding 3 — the response cache key is `(tool, build,
 ;; args-fingerprint)`; it deliberately can NOT include the resolved
@@ -124,7 +125,8 @@
   (let [frame-str (wire/arg raw-args :frame)
         frame     (some-> frame-str args/->frame-keyword)
         build-id  (wire/arg-build conn raw-args)]
-    (if (nil? frame)
+    (cond
+      (nil? frame)
       (js/Promise.resolve
         (wire/err-text
           {:ok?    false
@@ -135,28 +137,68 @@
                         "subscribe, …) resolve to it instead of refusing "
                         "with :ambiguous-frame. Call get-operating-frame "
                         "to see the registered frames.")}))
+
+      ;; rf2-wdxyx3 finding 1 — refuse pinning a reserved `:rf/*` TOOL frame
+      ;; as the session's operating frame BEFORE any nREPL round-trip. A
+      ;; tool frame (Xray's `:rf/xray`, an SSR slot) is a devtool surface,
+      ;; NOT the app the operator is pairing against (Tool-Pair §Reserved
+      ;; tool frames are excluded from the ambiguity count). Were a pin
+      ;; allowed, the runtime's `current-frame` resolver would return the
+      ;; tool frame at tier 2, and a later no-`:frame` `get-path {path []}`
+      ;; would resolve the wholesale read through it — re-opening the exact
+      ;; context-window overflow the rf2-qef58 guard was introduced to
+      ;; close (the guard fires on the explicit `:frame` arg; an omitted
+      ;; `:frame` resolves runtime-side, where the client guard can't see
+      ;; the reserved pin). Closing the pin here removes the bypass at its
+      ;; source: a reserved frame is never the operating frame, so the
+      ;; nil-`:frame` resolution can never land on one. Sliced/explicit
+      ;; reads of a tool frame stay available via the per-call `:frame`
+      ;; arg. `:rf/default` is an app frame (the predicate's carve-out) and
+      ;; is allowed.
+      (guard/reserved-tool-frame? frame)
+      (js/Promise.resolve
+        (wire/err-text
+          {:ok?    false
+           :reason :reserved-tool-frame
+           :frame  frame
+           :hint   (str "Refusing to pin the reserved :rf/* TOOL frame " frame
+                        " as the operating frame. Reserved :rf/* frames are devtool "
+                        "surfaces (e.g. Xray's :rf/xray), not the app frame you pair "
+                        "against — pinning one would resolve every omitted-:frame read "
+                        "against it and re-open the wholesale-read overflow. Pin an APP "
+                        "frame instead (call get-operating-frame to list :app-frames), "
+                        "or pass :frame " frame " on a single call for a TARGETED "
+                        "(sliced) read of the tool frame.")}))
+
+      :else
       (let [form (set-form frame)]
         (probe/eval-after-runtime!
           conn build-id form :set-operating-frame-failed
           (fn [v]
-            ;; Two runtime shapes resolve into one the agent can rely on:
+            ;; rf2-wdxyx3 finding 2 — a known-tool execution failure
+            ;; (`:ok? false`) MUST ride back as an `isError` envelope so the
+            ;; MCP host routes recovery through the error channel and the
+            ;; invoke chokepoint does not treat a non-pin as a cache-flushing
+            ;; success. Two runtime shapes resolve into one the agent can
+            ;; rely on:
             ;;   - success: `frames-list`'s {:ok? true :frames :selected
-            ;;     :operating} triple. Pass through — `:selected` now
-            ;;     equals the just-pinned frame.
+            ;;     :operating} triple → `ok-text`; `:selected` now equals
+            ;;     the just-pinned frame.
             ;;   - unknown frame: {:ok? false :reason :no-such-frame
-            ;;     :frame :frames}. Add a corrective hint.
-            (wire/ok-text
-              (cond
-                (not (map? v))
-                {:ok? false :reason :unexpected-shape :frame frame :value v}
+            ;;     :frame :frames} → `err-text` with a corrective hint.
+            ;;   - degraded runtime (non-map) → `err-text` :unexpected-shape.
+            (cond
+              (not (map? v))
+              (wire/err-text {:ok? false :reason :unexpected-shape :frame frame :value v})
 
-                (false? (:ok? v))
+              (false? (:ok? v))
+              (wire/err-text
                 (assoc v :hint
                        (str "frame " frame " is not currently registered. "
                             "Pick one of " (vec (:frames v))
-                            " — call get-operating-frame to list them."))
+                            " — call get-operating-frame to list them.")))
 
-                :else v))))))))
+              :else (wire/ok-text v))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; reset-operating-frame

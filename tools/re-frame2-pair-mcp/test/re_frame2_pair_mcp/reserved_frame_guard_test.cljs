@@ -21,7 +21,8 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.reserved-frame-guard :as guard]
             [re-frame2-pair-mcp.tools.snapshot :as snapshot]
-            [re-frame2-pair-mcp.tools.get-path :as get-path]))
+            [re-frame2-pair-mcp.tools.get-path :as get-path]
+            [re-frame2-pair-mcp.tools.operating-frame :as op-frame]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: the reserved-frame predicate (server-side mirror of the runtime's).
@@ -102,7 +103,14 @@
   (testing "a user frame / :rf/default at path [] is allowed"
     (is (nil? (guard/get-path-refusal :stories [] nil)))
     (is (nil? (guard/get-path-refusal :rf/default [] nil))))
-  (testing "a nil frame (defaulted operating frame) does not fire the guard"
+  (testing "a nil frame (defaulted operating frame) does not fire this client-side guard"
+    ;; rf2-wdxyx3 finding 1 — this is NOT an escape hatch. The client guard
+    ;; can't see the runtime-resolved frame for an omitted-:frame call, but
+    ;; set-operating-frame refuses to PIN a reserved :rf/* frame, so the
+    ;; runtime's current-frame resolver can never return one at tier 2 — an
+    ;; omitted-:frame read resolves to an APP frame (or refuses
+    ;; :ambiguous-frame), never a tool frame. See
+    ;; set-operating-frame-refuses-reserved-tool-frame below.
     (is (nil? (guard/get-path-refusal nil [] nil)))))
 
 ;; ---------------------------------------------------------------------------
@@ -252,4 +260,75 @@
                    (is (not (tu/error? r)) "root get-path of a user frame is allowed")
                    (is (true? (:ok? (tu/extract-edn r))))
                    (is (seq @seen) "the read eval WAS reached")
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-wdxyx3 finding 1 — the operating-frame bypass. The client-side
+;; get-path guard fires on the explicit `:frame` arg; an omitted `:frame`
+;; resolves runtime-side via `current-frame`, which returns the session
+;; pin at tier 2. If `set-operating-frame` let a reserved `:rf/*` TOOL
+;; frame be pinned, a later `get-path {path "[]"}` with no `:frame` would
+;; resolve the wholesale read through it — re-opening the overflow the
+;; guard was built to close. The fix refuses the reserved-frame PIN at its
+;; source, so the resolver can never return a tool frame for an
+;; omitted-:frame call.
+;; ---------------------------------------------------------------------------
+
+(deftest set-operating-frame-refuses-reserved-tool-frame
+  ;; The bypass entry point: pinning :rf/xray as the operating frame is now
+  ;; refused BEFORE any nREPL round-trip (a reserved :rf/* frame is a
+  ;; devtool surface, never the app the operator pairs against). With the
+  ;; pin closed, an omitted-:frame read can never resolve to :rf/xray.
+  (async done
+    (let [seen (atom [])]
+      ;; `select-frame!`'s validate-then-pin form is the only non-prelude
+      ;; eval set-operating-frame would issue; `seen` staying empty proves
+      ;; the refusal short-circuited before the round-trip (no pin written).
+      (stub-eval! seen {:ok? true :frames [:rf/default :rf/xray]
+                        :selected :rf/xray :operating :rf/xray})
+      (-> (op-frame/set-operating-frame-tool (fresh-conn)
+                                             (tu/args->js {:frame ":rf/xray"}))
+          (.then (fn [r]
+                   (is (tu/error? r) "pinning a reserved :rf/* tool frame is refused")
+                   (let [edn (tu/extract-edn r)]
+                     (is (false? (:ok? edn)))
+                     (is (= :reserved-tool-frame (:reason edn)))
+                     (is (= :rf/xray (:frame edn)))
+                     (is (re-find #"get-operating-frame|app" (:hint edn))
+                         "redirects to an app frame / sliced :frame read"))
+                   (is (empty? @seen)
+                       "no select-frame! eval — the reserved pin was never written")
+                   (done)))))))
+
+(deftest set-operating-frame-allows-rf-default-and-app-frames
+  ;; Negative guard: :rf/default is an APP frame (the predicate's carve-out)
+  ;; and an ordinary user frame both pin normally — the refusal is scoped to
+  ;; reserved :rf/* TOOL frames only.
+  (async done
+    (let [seen (atom [])]
+      (stub-eval! seen {:ok? true :frames [:rf/default :stories]
+                        :selected :stories :operating :stories})
+      (-> (op-frame/set-operating-frame-tool (fresh-conn)
+                                             (tu/args->js {:frame ":stories"}))
+          (.then (fn [r]
+                   (is (not (tu/error? r)) "pinning an app frame succeeds")
+                   (is (true? (:ok? (tu/extract-edn r))))
+                   (is (seq @seen) "the validate-then-pin eval WAS reached")
+                   (done)))))))
+
+(deftest sliced-reserved-frame-read-still-succeeds-via-explicit-frame
+  ;; With the reserved-frame PIN closed, a TARGETED (sliced) read of a tool
+  ;; frame stays available through the explicit per-call :frame arg — the
+  ;; "preserve allowed targeted reads of reserved frames" acceptance
+  ;; criterion. (The "pinned :rf/xray + sliced read" example is moot: a
+  ;; reserved frame is never the operating frame.)
+  (async done
+    (let [seen (atom [])]
+      (stub-eval! seen {:ok? true :exists? true :value [1 2 3] :elided-count 0})
+      (-> (get-path/get-path-tool (fresh-conn)
+                                  (tu/args->js {:frame ":rf/xray" :path "[:rf.xray/epochs]"}))
+          (.then (fn [r]
+                   (is (not (tu/error? r)) "explicit :frame :rf/xray + non-root path is allowed")
+                   (is (true? (:ok? (tu/extract-edn r))))
+                   (is (seq @seen) "the sliced read eval WAS reached")
                    (done)))))))

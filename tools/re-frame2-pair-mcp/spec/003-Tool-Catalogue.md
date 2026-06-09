@@ -302,7 +302,7 @@ load-bearing: each carries different recovery semantics.
 
 | Dialect       | Meaning                                                            | Example reasons                                                                              |
 |---------------|--------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:unknown-tool`, `:runtime-not-preloaded`, `:nrepl-unreachable`, `:build-not-running`, `:no-runtime-connected`, `:runtime-loaded-but-preload-missing`, `:port-unresolved`, `:eval-error`, `:timed-out`, `:probe-errored`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
+| **Bare**      | Per-call validation / runtime failure (the normal tool body ran)   | `:invalid-kind`, `:missing-path`, `:not-an-event-vector`, `:path-not-found`, `:no-such-frame`, `:reserved-tool-frame`, `:no-new-epoch`, `:unknown-tool`, `:runtime-not-preloaded`, `:nrepl-unreachable`, `:build-not-running`, `:no-runtime-connected`, `:runtime-loaded-but-preload-missing`, `:port-unresolved`, `:eval-error`, `:timed-out`, `:probe-errored`, `:<verb>-failed` (e.g. `:snapshot-failed`, `:dispatch-failed`) |
 | `:rf.error/*` | Operator-gated denial OR shared cross-MCP error vocabulary — the server refused **without touching nREPL** because a boot-flag / resource cap rejected the call before the tool body ran, OR the call ran but failed in a way that warrants the shared cross-MCP error vocabulary (rf2-xn4f9: `:rf.error/eval-cljs-rejected` + `:rf.error/eval-cljs-timeout` are bare-shaped per-call failures but adopt the namespace so an agent host can pattern-match the eval-cljs error cluster as one family) | `:rf.error/eval-cljs-disabled`, `:rf.error/eval-cljs-rejected`, `:rf.error/eval-cljs-timeout`, `:rf.error/concurrent-stream-limit`, `:rf.error/stream-abuse-detected` |
 | `:rf.mcp/*`   | Wire-replacement-marker family (otherwise reserved for substitution markers like `:rf.mcp/overflow`, `:rf.mcp/dedup-table`, `:rf.mcp/cache-hit`, `:rf.mcp/summary`, `:rf.mcp/diff-from`). One carve-out as a `:reason` value: `:rf.mcp/cursor-stale` — cursor-staleness is detected at the wire boundary itself (the cursor envelope), not via tool body or boot gate, so it shares the `:rf.mcp/*` prefix with the rest of the wire-boundary vocabulary | `:rf.mcp/cursor-stale` (the only `:rf.mcp/*` `:reason` value) |
 
@@ -1265,7 +1265,8 @@ redacted unless the operator opted in. The `:elision` slot echoes the
 effective walker state; `:elided-large` reports the marker count when
 non-zero.
 
-**Returns** (failure):
+**Returns** (failure — all `isError: true`, the dry-run did NOT land,
+rf2-wdxyx3 finding 2):
 
 - `:reason :no-epoch-recorded` — epoch-history empty / frame
   unregistered / `interop/debug-enabled?` false. No rollback needed.
@@ -1886,7 +1887,9 @@ correlates hits without re-deriving order. An unresolved path carries
 `:exists? false` (never a `:path-not-found` envelope — the batch is a
 whole-or-nothing success).
 
-When the path doesn't resolve:
+When the path doesn't resolve, the failure rides as an **`isError`
+result** (`:ok? false`, per §Result envelopes — a known-tool execution
+failure is never a silent success, rf2-wdxyx3):
 
 ```clojure
 {:ok?                  false
@@ -1897,9 +1900,12 @@ When the path doesn't resolve:
 ```
 
 `:exists?` distinguishes a path that legitimately points at a `nil`
-value (`:exists? true :value nil`) from a path that doesn't resolve
-(`:ok? false :reason :path-not-found`). The deepest-valid-prefix lets
-the agent re-aim without a binary search.
+value (`:exists? true :value nil`, an `isError: false` success) from a
+path that doesn't resolve (`:ok? false :reason :path-not-found`,
+`isError: true`). The deepest-valid-prefix lets the agent re-aim without
+a binary search. Because the miss surfaces through the error channel it
+is never response-cached (cache eligibility keys off `isError`), so a
+later successful read of the same path is not masked by a stale failure.
 
 When `elision` is enabled (default), a declared / schema-`:large?`
 path or an over-threshold leaf returns a `:rf.size/large-elided`
@@ -3005,13 +3011,26 @@ Pin the session's operating frame.
 `":stories"`), `build` (string, optional).
 
 Per Tool-Pair §Tool-surface obligations, set **validates** that `frame`
-names a currently-registered frame; an unknown frame returns
-`{:ok? false :reason :no-such-frame :frame <id> :frames [...]}` (the
-registered list rides along so the agent can retarget). Validation and
-the pin write are one eval form — the membership check reads
-`(re-frame2-pair.runtime/frames-list)` and, on a hit, calls
-`(select-frame! <id>)` and returns the fresh triple; no check-then-act
-race across round-trips.
+names a currently-registered frame; an unknown frame returns the
+`isError` envelope `{:ok? false :reason :no-such-frame :frame <id>
+:frames [...]}` (the registered list rides along so the agent can
+retarget). Validation and the pin write are one eval form — the
+membership check reads `(re-frame2-pair.runtime/frames-list)` and, on a
+hit, calls `(select-frame! <id>)` and returns the fresh triple; no
+check-then-act race across round-trips.
+
+A **reserved `:rf/*` tool frame** (Xray's `:rf/xray`, an SSR slot — see
+Tool-Pair §Reserved tool frames) is **refused as an operating-frame
+pin** with `{:ok? false :reason :reserved-tool-frame :frame <id>}`,
+short-circuiting before any nREPL round-trip (rf2-wdxyx3 finding 1). A
+reserved frame is a devtool surface, not the app the operator pairs
+against; were it pinnable, the runtime's `current-frame` resolver would
+return it at tier 2 and a later no-`:frame` root read would resolve a
+wholesale read through it — re-opening the context-window overflow the
+wholesale-read guard closes. Closing the pin removes the bypass at its
+source: a reserved frame is never the operating frame. Targeted (sliced)
+reads of a tool frame remain available via the per-call `:frame` arg.
+`:rf/default` is an app frame and is pinnable normally.
 
 **Returns** the resolved triple on success:
 
@@ -3022,9 +3041,10 @@ race across round-trips.
  :operating <frame-id>}        ;; full resolution — now the pinned frame
 ```
 
-**Error envelopes**:
+**Error envelopes** (all `isError: true`):
 
 - `{:ok? false :reason :missing-frame :hint "..."}` — no `frame` arg.
+- `{:ok? false :reason :reserved-tool-frame :frame <id> :hint "..."}` — `frame` is a reserved `:rf/*` tool frame (refused before nREPL; rf2-wdxyx3).
 - `{:ok? false :reason :no-such-frame :frame <id> :frames [...] :hint "..."}` — `frame` not registered.
 - `{:ok? false :reason :set-operating-frame-failed :message "..."}` — runtime threw.
 

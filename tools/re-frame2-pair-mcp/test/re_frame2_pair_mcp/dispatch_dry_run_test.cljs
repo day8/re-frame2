@@ -366,11 +366,13 @@
                          "the elided-large indicator surfaces the marker count"))
                    (done)))))))
 
-(deftest no-new-epoch-failure-passes-through
-  ;; The reducer rejected the event or an interceptor early-returned.
-  ;; The runtime envelope's :reason :no-new-epoch passes through; no
-  ;; rollback was needed and none was performed. (Soft-failure
-  ;; envelopes carry no egress slots, so the walker is a no-op.)
+(deftest no-new-epoch-failure-rides-as-iserror
+  ;; rf2-wdxyx3 finding 2 — the reducer rejected the event or an
+  ;; interceptor early-returned, so the dry-run did NOT land. A known-tool
+  ;; runtime failure (`:ok? false`) MUST ride back as an isError envelope,
+  ;; matching the dispatch/read-sub no-silent-success parity model: the old
+  ;; ok-text shape let a non-landed dry-run read as green and be cache-
+  ;; eligible. The structured :reason/:hint rides through verbatim.
   (async done
     (let [env {:ok?    false
                :reason :no-new-epoch
@@ -381,7 +383,7 @@
             (fn []
               (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:noop]"})))
           (.then (fn [r]
-                   (is (not (err? r)) "soft-failure rides as ok-text, not isError")
+                   (is (err? r) ":ok? false dry-run rides as isError, not a silent ok-text")
                    (let [edn (read-result-text r)]
                      (is (false? (:ok? edn)))
                      (is (= :no-new-epoch (:reason edn))))

@@ -244,11 +244,24 @@
                      ;; runtime answered — surface it as `:unexpected-shape`.
                      (let [new-shape? (and (map? resp) (contains? resp :elided-count))
                            env        (if new-shape? (:value resp) resp)
-                           elided     (when new-shape? (:elided-count resp))]
-                       (wire/ok-text
-                         (if (map? env)
-                           (wire/with-indicators
-                             (assoc env :elision elision?)
-                             {:elided (or elided 0)})
-                           {:ok? false :reason :unexpected-shape :value env})))))
+                           elided     (when new-shape? (:elided-count resp))
+                           result     (if (map? env)
+                                        (wire/with-indicators
+                                          (assoc env :elision elision?)
+                                          {:elided (or elided 0)})
+                                        {:ok? false :reason :unexpected-shape :value env})]
+                       ;; rf2-wdxyx3 finding 2 — a known-tool runtime
+                       ;; failure (`:ok? false`, e.g. the reducer rejected
+                       ;; the event / an interceptor early-returned →
+                       ;; `:no-new-epoch`, or a degraded runtime →
+                       ;; `:unexpected-shape`) MUST ride back as an
+                       ;; `isError` envelope, matching the dispatch /
+                       ;; read-sub no-silent-success parity model and the
+                       ;; published wire contract. The old `ok-text` shape
+                       ;; let a non-landed dry-run read as green. The
+                       ;; structured `:reason`/`:hint` rides through
+                       ;; verbatim so the caller still sees why.
+                       (if (false? (:ok? result))
+                         (wire/err-text result)
+                         (wire/ok-text result)))))
             (.catch (fn [err] (probe/err->result :dispatch-dry-run-failed err))))))))
