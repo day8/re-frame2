@@ -178,17 +178,14 @@
 
   ;; ---- L4 tab registration ----------------------------------------------
   ;;
-  ;; The Epoch tab lands between Machines (order 4) and Routing
-  ;; (order 6). The previous gap at order 5 was reserved for exactly
-  ;; this surface (the "what happened in this epoch" canonical view);
-  ;; the existing seven tabs (Handler 0 · App-DB 1 · Reactive 2 ·
-  ;; Trace 3 · Machines 4 · Routing 6 · Issues 7) read in cascade
-  ;; order, and the new Epoch tab is the master inverse — every
-  ;; step the other tabs detail, rendered as one timeline.
-  ;;
-  ;; Per the bead body's worker-decision: co-exist initially. A
-  ;; follow-on bead retires the older tabs as the new Epoch panel
-  ;; matures.
+  ;; The Epoch tab is the master inverse of the other Dynamic tabs:
+  ;; the six tabs (Epoch · App-db · Views · Trace · Machines ·
+  ;; Routing) read in cascade order, and Epoch renders every step
+  ;; the other tabs detail as one timeline. (History: Epoch was
+  ;; added alongside the then-existing tabs; rf2-5gl5r since retired
+  ;; the Handler tab and rf2-gbz39 removed the Issues tab — issues
+  ;; surface inline in the Epoch panel + the L2 event-row pink-wash
+  ;; + the ribbon.) Epoch sits leftmost at :order -1.
 
   (panel-registry/reg-l4-tab!
     {:id    :epoch

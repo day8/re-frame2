@@ -215,11 +215,11 @@ locks the bare-`Panel` convention.
 **Why bare `Panel` wins.**
 
 1. **Panels are addressed by tab-key, not class name.** The 4-layer
-   shell switches over the 7 L3 tab ids enumerated in
+   shell switches over the 6 L3 tab ids enumerated in
    [`018-Event-Spine.md`](./018-Event-Spine.md) §5
    (`:epoch` · `:app-db` · `:views` · `:trace` · `:machines` ·
-   `:routing` · `:issues` — post rf2-5gl5r, after the Event/Handler
-   tab retirement) per
+   `:routing` — post rf2-5gl5r after the Event/Handler tab
+   retirement, post rf2-gbz39 after the Issues tab removal) per
    [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md).
    The reg-view symbol name is internal plumbing; the tab-key is the
    addressable identity.

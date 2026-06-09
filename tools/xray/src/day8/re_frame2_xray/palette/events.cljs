@@ -344,8 +344,9 @@
                                       (get db-with-recent :palette-recents)]))]
         (case verb
           :palette/select-panel
-          ;; Panel ids in `palette-panels` are the 7 L3 tab ids per
-          ;; spec/018 §5 (rf2-qy0nu trimmed the 14-id legacy list).
+          ;; Panel ids in `palette-panels` are the 6 L3 tab ids per
+          ;; spec/018 §5 (rf2-qy0nu trimmed the 14-id legacy list;
+          ;; rf2-gbz39 removed the Issues tab — 7→6).
           ;; Dispatch into `:rf.xray/select-tab` so the visible tab
           ;; flips; the legacy `:rf.xray/select-panel` slot is no
           ;; longer read by the 4-layer shell.

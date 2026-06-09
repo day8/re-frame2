@@ -2167,8 +2167,10 @@
      label]))
 
 (rf/reg-view tab-bar
-  "L3 tab bar — seven tabs per spec/018 §5 The 7 tabs (Routing
-  promoted per rf2-nrbs9 — follows the cohesive-sub-domain rule).
+  "L3 tab bar — six tabs per spec/018 §5 The 6 tabs (Routing
+  promoted per rf2-nrbs9 — follows the cohesive-sub-domain rule;
+  the Issues tab was removed per rf2-gbz39 — issues surface inline
+  in the Epoch panel + the L2 event-row pink-wash + the ribbon).
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/xray`.
