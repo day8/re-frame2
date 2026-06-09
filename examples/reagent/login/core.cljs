@@ -289,9 +289,18 @@
 
       :lock-account
       ;; Mark the account as locked after too many failed attempts.
+      ;; Fire-and-forget telemetry beacon (Spec 014 §Reply addressing
+      ;; "Silenced"): the lockout POST wants no reply folded back into the
+      ;; machine. `:on-success nil` / `:on-failure nil` silence both reply
+      ;; branches explicitly — without them the omitted-target default
+      ;; (co-located addressing) would dispatch
+      ;; `[:auth.login/flow {:rf/reply ...}]`, a map in the sub-event slot
+      ;; that `AuthLoginEvent` rejects, stranding noise after lockout.
       (fn [_]
         {:fx [[:rf.http/managed
-               {:request {:method :post :url "/api/auth/lock"}}]]})
+               {:request    {:method :post :url "/api/auth/lock"}
+                :on-success nil
+                :on-failure nil}]]})
 
       :store-session
       ;; Persist the session token returned by a successful login.
