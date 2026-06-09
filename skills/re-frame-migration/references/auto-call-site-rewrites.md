@@ -317,16 +317,22 @@ The `opts-shape` shape carries the same content; only the slot key changes (it n
 
 If the handler was `reg-event-db`, promote it to `reg-event-fx` so it can return an `:fx` slot.
 
-### M-16 — `^:flush-dom` metadata
+### M-16 — `^:flush-dom` metadata (two sub-cases: M-16a automatic, M-16b human-review)
 
-The v2 `:dispatch-later` fx reads **`:event`** (its handler destructures `{:keys [ms event]}`) — NOT `:dispatch`. A `:dispatch` key here is silently ignored and nothing fires. (v1's *top-level* `:dispatch-later` used `:dispatch` inside each map AND took a **vector of maps**; v2's `:dispatch-later` fx takes a **single map** keyed `:event`.)
+**The grep is the same for both sub-cases — classify each hit by *where the form appears*.** `^:flush-dom` reads the **same** in both, but the rewrite is **not** the same:
+
+- **M-16a — inside a `reg-event-fx` handler's effect map.** Automatic, mechanical `:fx` rewrite. The result runs unchanged.
+- **M-16b — at the top level: `(rf/dispatch ^:flush-dom …)` in app init / a component callback / the REPL.** **NOT automatic.** The M-16a rewrite does not apply (effect maps only exist inside a handler), and the naive port `(rf/dispatch-later …)` **throws at runtime** — `rf/dispatch-later` is NOT a function in v2; `:dispatch-later` exists only as an **fx id** consumed by the `:fx` runner. Classify each M-16b hit by location and **surface it for human review** — the rewrite depends on intent the agent cannot recover statically.
+
+`:dispatch-later` (in both sub-cases) reads **`:event`** (its handler destructures `{:keys [ms event]}`) — NOT `:dispatch`. A `:dispatch` key here is silently ignored and nothing fires. (v1's *top-level* `:dispatch-later` used `:dispatch` inside each map AND took a **vector of maps**; v2's `:dispatch-later` fx takes a **single map** keyed `:event`.)
+
+#### M-16a — inside an effect map (automatic)
 
 ```clojure
-;; SEARCH
+;; SEARCH — a ^:flush-dom dispatch inside a handler's returned effect map
 ^:flush-dom <event-vec>
 
-;; REWRITE
-;; Wrap in a :dispatch-later fx — note the :event key
+;; REWRITE — wrap in a :dispatch-later fx (note the :event key)
 {:fx [[:dispatch-later {:ms 0 :event <event-vec>}]] ...}
 ```
 
@@ -341,6 +347,36 @@ New form:
 {:db (assoc db :processing true)
  :fx [[:dispatch-later {:ms 0 :event [:do-work]}]]}
 ```
+
+#### M-16b — top-level `(rf/dispatch ^:flush-dom …)` (classify + flag for human review)
+
+```clojure
+;; SEARCH — a ^:flush-dom on a top-level dispatch (NOT inside an effect map)
+(rf/dispatch ^:flush-dom [:bootstrap])
+```
+
+There is no automatic rewrite. Surface every M-16b hit and let the operator pick between the **two sanctioned rewrites** (per MIGRATION.md M-16b):
+
+**(i) Drop the latency — the metadata was incidental.** Most top-level `^:flush-dom` annotations were defensive; at the top level there's no synchronously-chained second dispatch for the flush tick to sit between, so the metadata was doing nothing useful. If no intervening render is actually needed:
+```clojure
+;; re-frame2 (i) — no latency wanted
+(rf/dispatch [:bootstrap])
+```
+
+**(ii) Preserve the latency — route through a one-shot trampoline.** If the call site genuinely wants a paint tick before the dispatched handler runs, register a one-shot event whose body is the M-16a rewrite, then dispatch through it:
+```clojure
+;; re-frame2 (ii) — register once (e.g. in a boot.cljc)
+(rf/reg-event-fx :rf/dispatch-later-once
+  (fn [_ [_ ev]]
+    {:fx [[:dispatch-later {:ms 0 :event ev}]]}))
+
+;; at the call site
+(rf/dispatch [:rf/dispatch-later-once [:bootstrap]])
+```
+
+**Don't silently pick (i):** if the v1 author depended on the paint tick, (i) breaks the call site in a hard-to-debug way. The choice is a one-line judgement the operator owns — flag it.
+
+> **Worked contrast — same metadata, different treatment.** A handler returning `{:dispatch ^:flush-dom [:next-step] :db …}` is **M-16a** → mechanically becomes `{:db … :fx [[:dispatch-later {:ms 0 :event [:next-step]}]]}`, applied without asking. A top-level `(rf/dispatch ^:flush-dom [:bootstrap])` is **M-16b** → no `:fx` rewrite exists for it; surface it and pick (i) drop or (ii) trampoline. Applying the M-16a `:fx` shape to the M-16b call site (or porting it to a non-existent `(rf/dispatch-later …)` fn) produces invalid or runtime-throwing code — which is exactly why the two sub-cases are split.
 
 ---
 

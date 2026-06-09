@@ -32,12 +32,12 @@ The canonical shape of `your-app/core.cljs` — the entry namespace shadow-cljs'
 
 (defn ^:export init []
   (rf/init! reagent-adapter/adapter)
-  (rdc/render react-root [root-view]))
+  (rdc/render react-root [counter-app]))
 ```
 
 That's the whole entry namespace. Events / subs / views go above the mount point, in this same file for a tiny app or in their own namespaces (`your-app.events`, `your-app.subs`, `your-app.views`) and `:require`d here for any non-trivial app.
 
-`root-view` is the top-level registered view. See `first-counter.md` for what it looks like.
+`counter-app` is the top-level registered view (the name the generator template and `first-counter.md` use). See `first-counter.md` for what it looks like.
 
 The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's worked example in `examples/reagent/counter/core.cljs` happens to call its entry fn `run` — same shape, different name. Pick one and keep `shadow-cljs.edn`'s `:init-fn` pointing at whatever you choose; this skill uses `init` so the manual route matches the template.)
 
@@ -47,7 +47,7 @@ The entry symbol is `init`, matching the generator template's `:init-fn {{namesp
 
 1. **`(rf/init! reagent-adapter/adapter)`** — install the substrate adapter into the default frame.
 2. **(optional) `(rf/dispatch-sync [:your-app/initialise])`** — seed app-db synchronously before the first render. Most apps want this; some let the views render against an empty app-db and seed on first user interaction.
-3. **`(rdc/render react-root [root-view])`** — mount the React tree.
+3. **`(rdc/render react-root [counter-app])`** — mount the React tree.
 
 If you flip 1 and 3, you'll get either a crash (the views call `subscribe` against an uninitialised registry) or — more confusingly — a silent failure where the first render shows nothing and clicking does nothing.
 
@@ -60,10 +60,10 @@ re-frame2 splits **the registry** (a process-global handler / sub / fx map) from
 Three consequences:
 
 - **Adapters are values, not magic.** `re-frame.adapter.reagent/adapter` is a regular CLJS var holding a map. `rf/init!` takes that value directly — no global registration, no name-based lookup. Swap it for `re-frame.adapter.uix/adapter` or `re-frame.adapter.helix/adapter` and you have a UIx / Helix app.
-- **`rf/init!` is idempotent in dev but not redundant.** Hot-reload of `core.cljs` will re-invoke `init`; calling `rf/init!` again is safe and resets the default frame's substrate config. Don't try to "guard" it with `defonce` — let it run.
+- **`rf/init!` is idempotent — safe to call more than once.** A bare code reload does **not** re-invoke `init` (the `:init-fn` is a one-time startup hook — see [`shadow-cljs.md` §`:devtools` block](shadow-cljs.md)); `init` re-runs only on a full page reload or if you wire it into an `^:dev/after-load` hook. Whenever it *does* run again, calling `rf/init!` a second time is safe — it re-seats the default frame's substrate config. So leave `rf/init!` unguarded in `init` (don't wrap it in a `defonce`); the idempotence is what makes the one-time-startup vs explicit-after-load distinction harmless either way.
 - **No implicit boot.** Unlike re-frame v1 (where `re-frame.core` had no boot step), re-frame2 requires the explicit `init!`. The reason: multi-substrate support and the per-frame substrate-config model (Spec 006) need to know *which* adapter you want before any subscription resolves. There is no default.
 
-The adapter map carries the substrate's `state-container`, `read-container`, `replace-container!`, `subscribe`, `render`, and hot-reload hooks. You don't construct it; you require the namespace and pass its `adapter` var.
+**You don't construct the adapter map — you require the namespace and pass its exported `adapter` var.** App authors never assemble it by hand. (For the record, the contract it implements is the reactive-substrate adapter of [Spec 006](../../../spec/006-ReactiveSubstrate.md): required fns `:make-state-container`, `:read-container`, `:replace-container!`, `:make-derived-value`, `:render`, `:render-to-string`; optional `:subscribe-container`, `:register-context-provider`, `:flush-render!`; lifecycle `:dispose-adapter!`; plus a `:kind` discriminator. The physical container `:make-state-container` holds is **frame-state** — the two-partition value `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, not a bare app-db map — so app subs read the `:rf.db/app` projection and framework subs read `:rf.db/runtime`.) Constructing or extending that contract is the **`re-frame2-implementor`** skill's territory, not greenfield's.
 
 ## The Reagent root pattern (`defonce` + `rdc/create-root`)
 
@@ -99,7 +99,7 @@ src/your_app/
 └── views.cljs       ; reg-view-defined views
 ```
 
-then `(:require [your-app.events] [your-app.subs] [your-app.views :as views])` in `core.cljs` so the registrations happen at load time. Use `[views/root-view]` in `rdc/render`. The folder shape is a convention; re-frame2 has no opinion about it.
+then `(:require [your-app.events] [your-app.subs] [your-app.views :as views])` in `core.cljs` so the registrations happen at load time. Use `[views/counter-app]` in `rdc/render` (`counter-app` being the top-level view defined in `views.cljs`). The folder shape is a convention; re-frame2 has no opinion about it.
 
 When you split this way, the `[re-frame.views]` require **and** the `(:require-macros [re-frame.core :refer [reg-view]])` move into `views.cljs` (they belong wherever the `reg-view` forms live, not in `core.cljs`). This matches the template, whose `core.cljs` requires neither — only the side-effecting `[your-app.views :as views]` — while `views.cljs` carries `[re-frame.views]` + the `reg-view` macro-require. The single-file counter in `first-counter.md` keeps all three in `core.cljs` because the views live there.
 

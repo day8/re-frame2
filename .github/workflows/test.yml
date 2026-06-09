@@ -188,6 +188,24 @@ jobs:
       - name: Verify re-frame2-pair re-authoring docs match the MCP-only contract
         run: python scripts/check_skill_pair_authoring_drift.py --verbose --ci
 
+      # Setup-skill counter/lifecycle drift guard (rf2-fd1mf3). The
+      # re-frame2-setup skill's first-counter success criterion breaks if the
+      # event/sub ids its substrate view snippets DISPATCH/SUBSCRIBE drift from
+      # the ids it tells the author to INSTALL (an agent combined the Reagent
+      # leaf's `:counter/inc`/`:count` with the UIx/Helix snippets'
+      # `:counter/increment`/`:counter/value` and got a nil-rendering, no-op
+      # counter). The guard also pins the hot-reload lifecycle (`:init-fn` is the
+      # one-time startup hook, `^:dev/after-load` is the reload re-render hook —
+      # not "`:init-fn` re-runs each hot reload") and the current Spec 006
+      # adapter-key vocabulary (`:make-state-container`, not bare
+      # `state-container`). Self-test proves it fires on the drift shapes before
+      # the live scan asserts the skill is clean.
+      - name: Self-test the setup-skill counter/lifecycle drift guard
+        run: python scripts/check_skill_setup_counter_drift.py --self-test
+
+      - name: Verify re-frame2-setup counter vocabulary + lifecycle wording
+        run: python scripts/check_skill_setup_counter_drift.py --verbose --ci
+
   # PR-time gate for README link drift (rf2-br5u7). Source: the
   # rf2-oavap README sweep used a local `ai/link-sweep-v2.py` audit
   # that flagged 5 issues — 3 real, 2 false-positives caused by GitHub

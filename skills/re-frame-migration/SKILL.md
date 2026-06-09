@@ -146,7 +146,7 @@ Hand off: *"Migration complete. Switch to **`re-frame2`** for new application co
 ## Anti-patterns
 
 - **Don't apply Type B rewrites silently** — the Type A / Type B distinction exists precisely because Type B changes can break working code (e.g. M-3 run-to-completion semantics).
-- **Don't bump every dep at once** — only the re-frame coord (M-0). Other updates are separate tasks with separate failure modes.
+- **Don't bump *unrelated* dependencies** — keep the diff to what the migration forces. The **exemption is explicit**: the Phase-0b GO-state floor/toolchain edits ride into the M-0 pass — React → 19, Reagent → 2.x (and Reagent only if the project pins it directly), the component-library bumps the floor gate approved, the shadow-cljs (Check 4) bump, and any explicit ClojureScript pin — plus the Xray npm peer-deps (`@xyflow/react`, `elkjs`) when the 10x→Xray swap is triggered. Those are *forced by the migration*, not opportunistic upgrades. What stays banned: bumping a random utility/UI dep "while you're in there." Record every non-re-frame dependency you changed, and which gate justified it, in the migration report (cardinal rule 3 + [`output-format.md`](references/output-format.md)).
 - **Don't add `-schemas` / `-machines` / `-routing` "to be safe"** — the artefact split is pay-as-you-go (M-27 through M-32).
 - **Don't migrate plain-Reagent fns to `reg-view`** — that's O-2 (opt-in), never required. Plain Reagent fns work in v2 with a runtime warning only under non-default frames (M-11).
 - **Don't touch `re-frame-test` namespaces eagerly** — renamed to `re-frame.test-support` (M-25); apply as a mechanical pass. Don't rewrite test bodies unless they trip a separate rule.
