@@ -2155,3 +2155,116 @@
           (is (= 42 (get-in db [:reply :value]))
               "a well-formed {:ok v} still projects the success value"))
         (finally (stop-server! srv))))))
+
+;; ---- rf2-xmp74u — stub/canned request-chain failure honours TOP-LEVEL
+;;      :sensitive? -------------------------------------------------------------
+;;
+;; Production `managed-handler` seeds the effective top-level `:sensitive?`
+;; into the request middleware ctx (via `privacy/request-sensitive?`), so when
+;; a `:before` throws, the `:rf.error/http-interceptor-failed` trace redacts
+;; ALL query values + stamps `:sensitive?`. The canned/stub wrapper's
+;; `run-request-chain` built `ctx0` WITHOUT that top-level flag, so a request
+;; that opted in via the TOP-LEVEL `:sensitive? true` form (not the nested
+;; `[:request :sensitive?]`) ran the stub `:before` chain non-sensitive and
+;; leaked non-denylisted query values through the failure trace — a stub-path
+;; secret leak + a test false-green relative to production.
+;;
+;; We key the proof on a NON-denylisted query param (`customer_email`): only
+;; effective top-level sensitivity can scrub it. The chain's own `:sensitive-of`
+;; reducer (rf2-rznrz) still recomputes from a `:before`-MARKED request, so this
+;; seed is the pre-chain floor — exactly what production seeds.
+;;
+;; A `:before` throw inside `dispatch-sync`'s fx phase is swallowed into the
+;; error sink, so (mirroring `stub-url-erasing-before-throws-rf2-azrcs`) we
+;; drive the stub fx directly, with the trace listener capturing the emitted
+;; failure event.
+
+(deftest stub-request-chain-failure-honours-top-level-sensitive-rf2-xmp74u
+  (testing "rf2-xmp74u — a route-map stub with TOP-LEVEL :sensitive? true and a
+            throwing :before emits :rf.error/http-interceptor-failed redacting
+            the NON-denylisted query value AND stamping :sensitive? — matching
+            production, not the prior stub-path leak"
+    (let [traces      (atom [])
+          listener-id (gensym "xmp74u-stub-sensitive-")
+          recorded    (atom [])
+          original    (late-bind/get-fn :router/dispatch!)]
+      (late-bind/set-fn! :router/dispatch!
+                         (fn [ev opts] (swap! recorded conj [ev opts])))
+      (try
+        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        ;; A :before that throws AFTER the chain starts.
+        (rf/reg-http-interceptor :xmp74u/boom
+          {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
+        (re-frame.http-test-support/install-managed-request-stubs!
+          {[:get "https://api.example.invalid/v1"] {:reply {:ok {:stubbed true}}}})
+        (let [stub-fx (registrar/handler :fx :rf.http/managed-test-stub)
+              ;; TOP-LEVEL :sensitive? true (NOT [:request :sensitive?]).
+              ;; customer_email is NOT in the query-param denylist, so it
+              ;; only redacts when the request is effectively sensitive.
+              ex      (try
+                        (stub-fx {:frame :rf/default :event [:xmp74u/load]}
+                                 {:request    {:method :get
+                                               :url    "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"}
+                                  :sensitive? true})
+                        nil
+                        (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? ex) "the throwing :before propagated out of the stub chain")
+          (is (= ":rf.error/http-interceptor-failed" (.getMessage ex))
+              "the throw is the canonical interceptor-failed classification")
+          (is (empty? @recorded)
+              "NO synthetic reply was dispatched — the failed chain rejects the request"))
+        (let [w    (first (filter #(= :rf.error/http-interceptor-failed (:operation %)) @traces))
+              tags (:tags w)]
+          (is (some? w) "the interceptor-failed trace event was emitted")
+          ;; A sensitive request scrubs ALL query values (broader than the
+          ;; denylist). The load-bearing signal is customer_email — which the
+          ;; denylist alone leaves verbatim — being redacted: that can only
+          ;; happen if the stub chain seeded the TOP-LEVEL :sensitive? flag.
+          (is (= "https://api.example.invalid/v1?customer_email=:rf/redacted&page=:rf/redacted"
+                 (:url tags))
+              "the NON-denylisted query value is redacted — proving the stub
+               run-request-chain seeded top-level :sensitive? like production")
+          (is (true? (:sensitive? w))
+              ":sensitive? stamped on the stub-path failure trace, matching production"))
+        (finally
+          (re-frame.http-test-support/uninstall-managed-request-stubs!)
+          (trace/unregister-listener! listener-id)
+          (late-bind/set-fn! :router/dispatch! original))))))
+
+(deftest stub-request-chain-failure-non-sensitive-leaves-query-value-rf2-xmp74u
+  (testing "rf2-xmp74u (complement) — WITHOUT :sensitive?, the same throwing
+            :before leaves the NON-denylisted query value verbatim and does NOT
+            stamp :sensitive? (the seed is gated on actual sensitivity, not a
+            blanket scrub)"
+    (let [traces      (atom [])
+          listener-id (gensym "xmp74u-stub-nonsensitive-")
+          recorded    (atom [])
+          original    (late-bind/get-fn :router/dispatch!)]
+      (late-bind/set-fn! :router/dispatch!
+                         (fn [ev opts] (swap! recorded conj [ev opts])))
+      (try
+        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf/reg-http-interceptor :xmp74u/boom2
+          {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
+        (re-frame.http-test-support/install-managed-request-stubs!
+          {[:get "https://api.example.invalid/v1"] {:reply {:ok {:stubbed true}}}})
+        (let [stub-fx (registrar/handler :fx :rf.http/managed-test-stub)
+              _ex     (try
+                        (stub-fx {:frame :rf/default :event [:xmp74u/load2]}
+                                 {:request {:method :get
+                                            :url    "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"}})
+                        nil
+                        (catch clojure.lang.ExceptionInfo e e))]
+          (is (empty? @recorded) "NO synthetic reply was dispatched"))
+        (let [w    (first (filter #(= :rf.error/http-interceptor-failed (:operation %)) @traces))
+              tags (:tags w)]
+          (is (some? w) "the interceptor-failed trace event was emitted")
+          (is (= "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"
+                 (:url tags))
+              "non-sensitive: the non-denylisted query value rides through verbatim")
+          (is (not (true? (:sensitive? w)))
+              ":sensitive? not stamped for a non-sensitive request"))
+        (finally
+          (re-frame.http-test-support/uninstall-managed-request-stubs!)
+          (trace/unregister-listener! listener-id)
+          (late-bind/set-fn! :router/dispatch! original))))))
