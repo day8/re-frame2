@@ -273,7 +273,7 @@
   ;; 2. Clear per-process state held outside the registrar.
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   ;; 3. Reset id-allocators so the routing / machine fixtures see
   ;;    deterministic counters.
   (routing/reset-counters!)

@@ -31,7 +31,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
   ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`,
   ;; and ambient subscribe / dispatch now require a carried frame stamp.

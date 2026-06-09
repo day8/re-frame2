@@ -29,7 +29,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
   ;; Per-test JVM default — explicitly :server so a sibling test that
   ;; flipped the marker doesn't bleed across.

@@ -238,13 +238,13 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [ring-before        (rf/epoch-history :test/mcp)
-          schemas-before     @schemas/schemas-by-frame
+          schemas-before     (schemas/snapshot-schemas-by-frame)
           ;; Hit projected-record many times — a real forwarder might
           ;; project the same record multiple times (re-trigger, replay).
           _                  (dotimes [_ 25]
                                (mapv epoch/projected-record ring-before))
           ring-after         (rf/epoch-history :test/mcp)
-          schemas-after      @schemas/schemas-by-frame]
+          schemas-after      (schemas/snapshot-schemas-by-frame)]
       (is (= ring-before ring-after)
           "the epoch ring is unchanged — projected-record does not mutate")
       (is (= schemas-before schemas-after)
@@ -451,10 +451,10 @@
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [ring-before    (rf/epoch-history :test/mcp)
-          schemas-before @schemas/schemas-by-frame
+          schemas-before (schemas/snapshot-schemas-by-frame)
           _              (dotimes [_ 25] (epoch/projected-history :test/mcp))
           ring-after     (rf/epoch-history :test/mcp)
-          schemas-after  @schemas/schemas-by-frame]
+          schemas-after  (schemas/snapshot-schemas-by-frame)]
       (is (= ring-before ring-after)
           "the ring is unchanged after 25 bulk-projection calls")
       (is (= schemas-before schemas-after)

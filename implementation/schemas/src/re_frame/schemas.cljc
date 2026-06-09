@@ -70,35 +70,42 @@
             [re-frame.schemas.validator :as validator]
             [re-frame.schemas.walker :as walker]))
 
-;; ---- public-surface re-exports --------------------------------------------
+;; ---- raw schema atoms are NOT re-exported (encapsulated-only posture) ------
 ;;
-;; Atoms re-exported as Vars so test fixtures can `(reset! schemas/
-;; schemas-by-frame {})` and `@schemas/validator-fn` against the same
-;; underlying atom value.
+;; The four authoritative atoms — `storage/schemas-by-frame` (the per-frame
+;; registry) and `validator/{validator-fn,explainer-fn,printer-fn}` (the
+;; pluggable validation bundle) — are deliberately NOT re-exported onto this
+;; facade. The supported public surface is the encapsulated snapshot / restore
+;; / clear API below; tests and fixtures go through it rather than reaching the
+;; raw atoms.
 ;;
-;; Posture (rf2-1gm0o — public-by-design): the four atom Vars are an
-;; **intentional fixture-composition primitive**, not a backdoor. Test
-;; fixtures across the implementation tree (~70+ test namespaces under
-;; `implementation/{core,epoch,flows,http,routing,schemas,ssr}/test/`)
-;; compose `(reset! schemas/schemas-by-frame {})` directly alongside the
-;; flows facade's reset fns (`(flows/reset-flows!)` /
-;; `(flows/reset-last-inputs!)` per rf2-4gvb4 — the flows atoms moved
-;; behind an accessor seam) to express "wipe per-feature state to a known
-;; shape, atomically, before this test." The dedicated
-;; `snapshot-schemas-by-frame` / `restore-schemas-by-frame!` /
-;; `clear-schemas-by-frame!` / `reset-schema-validator!` fns serve the
-;; **registered-test-fixture pathway** (consumed by
-;; `re-frame.test-support`'s `reset-runtime-fixture` via the late-bind
-;; hook table); the raw atom Vars serve the **ad-hoc-test-fixture
-;; pathway** where the test author composes the setup without going
-;; through the registered fixture. Both surfaces are documented as
-;; supported. The atoms are NOT marked `^:private` because the dual
-;; pathway is by design — see rf2-ycqtv audit Finding #5.
-
-(def schemas-by-frame storage/schemas-by-frame)
-(def validator-fn     validator/validator-fn)
-(def explainer-fn     validator/explainer-fn)
-(def printer-fn       validator/printer-fn)
+;; Posture (rf2-l5r974 ruling, option (a) end-state — reverses the earlier
+;; rf2-1gm0o "public-by-design fixture primitive" framing). Exposing the atoms
+;; as Vars was an encapsulation leak that is worse than aesthetic:
+;;   1. `schemas-by-frame` is the authoritative store, so the rep could not
+;;      evolve without breaking ad-hoc consumers — already realised: rf2-naihn1
+;;      added per-frame `frame-reg-locks` companion state that
+;;      `clear-schemas-by-frame!` clears but raw `(reset! schemas-by-frame {})`
+;;      sites silently skip, leaving stale locks.
+;;   2. The public `printer-fn` atom bypassed the never-nil invariant
+;;      `run-printer` relies on with NO read guard — `(reset! printer-fn nil)`
+;;      NPEs the digest path; the setters exist precisely to coerce
+;;      nil → default.
+;;
+;; The supported encapsulated replacements (all below):
+;;   - REGISTRY:  `snapshot-schemas-by-frame` / `restore-schemas-by-frame!` /
+;;                `clear-schemas-by-frame!` (the last also drops the
+;;                `frame-reg-locks` companion).
+;;   - BUNDLE:    `snapshot-schema-fns` / `restore-schema-fns!` (rf2-l4ljvr) +
+;;                `set-schema-fns!` / `set-schema-{validator,explainer,printer}!`
+;;                / `reset-schema-validator!`.
+;;
+;; The schemas artefact's OWN white-box tests (implementation/schemas/test/…)
+;; may still reach `storage/schemas-by-frame` / `validator/validator-fn` via
+;; those home namespaces directly — that is legitimate internal testing, not
+;; public-facade use. Everything outside the schemas artefact uses the
+;; encapsulated API. A guard test (`re-frame.schemas-atom-privacy-test`) pins
+;; that the four atoms are not publicly resolvable from `re-frame.schemas`.
 
 ;; Validator / explainer / printer (rf2-froe + rf2-wla45). Each fn has
 ;; its own single-purpose setter (returning the single fn it installs);

@@ -505,10 +505,16 @@
   ["re-frame.schemas" "reset-schema-validator!"] {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "reg-app-schema"]          {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "reg-app-schemas"]         {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "validator-fn"]            {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "explainer-fn"]            {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "printer-fn"]              {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "schemas-by-frame"]        {:tier :internal-public :owner "010" :status "v1"}
+  ;; rf2-l5r974 (option a end-state) / rf2-btdpqn — the four raw schema atoms
+  ;; (schemas-by-frame / validator-fn / explainer-fn / printer-fn) are NO
+  ;; LONGER re-exported from the re-frame.schemas facade. They were an
+  ;; encapsulation-leak surface (the authoritative store's rep was frozen by
+  ;; exposure; the public printer-fn atom bypassed the never-nil invariant).
+  ;; The supported public surface is the encapsulated snapshot/restore/clear
+  ;; API (snapshot-schemas-by-frame / clear-schemas-by-frame! + the
+  ;; snapshot-schema-fns / set-schema-fns! bundle). The atoms remain the
+  ;; authoritative state in their home namespaces (storage / validator) but
+  ;; are not public Vars on the facade, so they carry NO manifest row.
   ["re-frame.schemas" "snapshot-schemas-by-frame"] {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "restore-schemas-by-frame!"] {:tier :internal-public :owner "010" :status "v1"}
   ;; rf2-l4ljvr — bundle-level snapshot/restore for the validator/explainer/

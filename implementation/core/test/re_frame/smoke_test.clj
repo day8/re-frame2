@@ -20,7 +20,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   ;; flows.cljc keeps a private last-inputs atom for dirty-checking
   ;; (per Spec 013 §Dirty-check semantics). Without resetting it, an
   ;; entry from a prior deftest can leak into a subsequent same-keyed

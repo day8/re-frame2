@@ -308,9 +308,11 @@
        framework / example registrations).
     2. Resets `frame/frames` to `{}`, plus the flows registry (via
        `flows/reset-flows!` per rf2-4gvb4 — atoms are private behind
-       an accessor seam) and `schemas/schemas-by-frame` (when those
-       artefacts are loaded — reset is late-bound so JVM tests that
-       don't pull them in are unaffected).
+       an accessor seam) and the schemas per-frame registry (via the
+       encapsulated `:schemas/clear-by-frame!` hook → `clear-schemas-
+       by-frame!` per rf2-l5r974 — the raw `schemas-by-frame` atom is
+       not re-exported) (when those artefacts are loaded — reset is
+       late-bound so JVM tests that don't pull them in are unaffected).
     3. Disposes the currently-installed substrate adapter.
     4. Cancels the machines' in-flight `:after` wall-clock timers.
     5. Clears trace listeners and adapter warn-once caches
@@ -327,8 +329,8 @@
     9. Restores the registrar to the captured snapshot.
    10. Resets `frame/frames` back to `{}` for symmetry, and (when their
        artefacts are loaded) the flows registry (via the
-       `:flows/reset-flows!` late-bind hook) and
-       `schemas/schemas-by-frame`.
+       `:flows/reset-flows!` late-bind hook) and the schemas per-frame
+       registry (via the `:schemas/clear-by-frame!` late-bind hook).
 
   Steps 9–10 run in a `finally` block so they fire even on test
   exceptions.

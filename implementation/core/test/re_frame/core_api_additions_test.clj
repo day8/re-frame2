@@ -30,7 +30,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (flows/reset-last-inputs!)
   (rf/init! plain-atom/adapter)
   ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`.

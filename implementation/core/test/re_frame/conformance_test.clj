@@ -236,7 +236,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   ;; rf2-wxe9t — drop every corpus-wide error-emit listener so a
   ;; listener installed by `collect-error-emit-records!` for one
   ;; fixture cannot fire against the next fixture's drains. The

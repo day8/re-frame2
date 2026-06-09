@@ -33,7 +33,19 @@
             [re-frame.schemas :as schemas]
             ;; rf2-pk8ur public-surface printer tests need run-printer
             ;; to assert the hot path observes the registered fn.
+            ;;
+            ;; rf2-btdpqn — the raw validator/explainer/printer atoms and the
+            ;; per-frame `schemas-by-frame` registry are no longer re-exported
+            ;; from the `re-frame.schemas` facade (rf2-l5r974 encapsulated-only
+            ;; posture). These are the schemas artefact's OWN white-box tests,
+            ;; which are EXEMPT from the public-facade ban: they reach the
+            ;; authoritative atoms through their HOME namespaces
+            ;; (`validator/validator-fn`, `storage/schemas-by-frame`) to assert
+            ;; the encapsulated setters/snapshot fns actually mutate the
+            ;; underlying state. That is legitimate internal testing, not
+            ;; public-facade use.
             [re-frame.schemas.validator :as validator]
+            [re-frame.schemas.storage :as storage]
             ;; Per rf2-t0hq the default validator routes through the
             ;; late-bind hook `:schemas/malli-validate`, which the
             ;; `re-frame.schemas.malli` adapter ns publishes at load
@@ -1218,9 +1230,9 @@
           e-fn (fn [_ _] {:explained true})
           p-fn (fn [_] "::BUNDLE-PRINTER::")]
       (rf/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
-      (is (= v-fn @schemas/validator-fn) "validator installed")
-      (is (= e-fn @schemas/explainer-fn) "explainer installed")
-      (is (= p-fn @schemas/printer-fn)   "printer installed")
+      (is (= v-fn @validator/validator-fn) "validator installed")
+      (is (= e-fn @validator/explainer-fn) "explainer installed")
+      (is (= p-fn @validator/printer-fn)   "printer installed")
       (is (= "::BUNDLE-PRINTER::" (validator/run-printer :int))
           "printer reaches the hot path"))))
 
@@ -1230,14 +1242,14 @@
             gone: passing a map installs that literal map AS the validator
             fn-value (a single-purpose setter), it does NOT bundle-install.
             The explainer/printer are left at their defaults."
-    (let [default-explainer @schemas/explainer-fn
-          default-printer   @schemas/printer-fn
+    (let [default-explainer @validator/explainer-fn
+          default-printer   @validator/printer-fn
           v-fn (fn [_ _] true)]
       (rf/set-schema-validator! v-fn)
-      (is (= v-fn @schemas/validator-fn) "validator installed")
-      (is (= default-explainer @schemas/explainer-fn)
+      (is (= v-fn @validator/validator-fn) "validator installed")
+      (is (= default-explainer @validator/explainer-fn)
           "explainer untouched — set-schema-validator! does not touch it")
-      (is (= default-printer @schemas/printer-fn)
+      (is (= default-printer @validator/printer-fn)
           "printer untouched — set-schema-validator! does not touch it"))))
 
 (deftest set-schema-explainer-only-leaves-validator-untouched
@@ -1345,7 +1357,7 @@
             the schemas namespace's validator-fn atom."
     (let [my-fn (fn [_ _] :sentinel)]
       (rf/set-schema-validator! my-fn)
-      (is (= my-fn @schemas/validator-fn)
+      (is (= my-fn @validator/validator-fn)
           "the atom carries the fn the user registered"))))
 
 ;; ---- rf2-pk8ur — set-schema-printer! public-surface contract -------------
@@ -1371,7 +1383,7 @@
             rf/set-schema-explainer! end-to-end pins above."
     (let [my-fn (fn [_schema-value] "::PUBLIC-SURFACE::")]
       (rf/set-schema-printer! my-fn)
-      (is (= my-fn @schemas/printer-fn)
+      (is (= my-fn @validator/printer-fn)
           "the atom carries the printer the public-surface caller registered")
       (is (= "::PUBLIC-SURFACE::" (validator/run-printer :int))
           "run-printer's hot path reaches the public-surface registration"))))
@@ -1418,9 +1430,9 @@
           e-fn (fn [_ _] {:explained true})
           p-fn (fn [_] "::FROM-PUBLIC-BUNDLE::")]
       (rf/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
-      (is (= v-fn @schemas/validator-fn))
-      (is (= e-fn @schemas/explainer-fn))
-      (is (= p-fn @schemas/printer-fn))
+      (is (= v-fn @validator/validator-fn))
+      (is (= e-fn @validator/explainer-fn))
+      (is (= p-fn @validator/printer-fn))
       (is (= "::FROM-PUBLIC-BUNDLE::" (validator/run-printer :int))
           "the printer installed via the bundle setter reaches the hot path"))))
 
@@ -1468,9 +1480,9 @@
             "mid-state: the second bundle is live")
         ;; Restore bundle 1.
         (let [ret (schemas/restore-schema-fns! snap)]
-          (is (= v1 @schemas/validator-fn) "validator restored")
-          (is (= e1 @schemas/explainer-fn) "explainer restored")
-          (is (= p1 @schemas/printer-fn)   "printer restored")
+          (is (= v1 @validator/validator-fn) "validator restored")
+          (is (= e1 @validator/explainer-fn) "explainer restored")
+          (is (= p1 @validator/printer-fn)   "printer restored")
           (is (= "::FIRST::" (validator/run-printer :int))
               "run-printer's hot path observes the restored printer")
           (is (= snap ret)
@@ -1485,7 +1497,7 @@
     (schemas/restore-schema-fns! {:validate (fn [_ _] true)
                              :explain  nil
                              :print    nil})
-    (is (some? @schemas/printer-fn)
+    (is (some? @validator/printer-fn)
         "printer-fn is never nil after restore — coerced to the default")
     (is (= ":int" (validator/run-printer :int))
         "run-printer reaches the default EDN canonicaliser, no read-site guard")))
@@ -1506,12 +1518,12 @@
         ;; Tear the whole runtime down to a different state.
         (schemas/reset-schema-validator!)
         (schemas/clear-schemas-by-frame!)
-        (is (not= v-fn @schemas/validator-fn) "bundle was reset away")
-        (is (= {} @schemas/schemas-by-frame)  "registry was cleared")
+        (is (not= v-fn @validator/validator-fn) "bundle was reset away")
+        (is (= {} @storage/schemas-by-frame)  "registry was cleared")
         ;; Restore BOTH through the encapsulated API.
         (schemas/restore-schema-fns! bundle-snap)
         (schemas/restore-schemas-by-frame! registry-snap)
-        (is (= v-fn @schemas/validator-fn) "bundle validator restored")
+        (is (= v-fn @validator/validator-fn) "bundle validator restored")
         (is (= "::COMPOSED::" (validator/run-printer :int))
             "bundle printer restored on the hot path")
         (is (= [:int] (rf/app-schema-at [:n]))
@@ -1859,12 +1871,12 @@
 
       ;; 2. Clear.
       (schemas/clear-schemas-by-frame!)
-      (is (= {} @schemas/schemas-by-frame)
+      (is (= {} @storage/schemas-by-frame)
           "clear-schemas-by-frame! emptied the atom")
 
       ;; 3. Restore.
       (schemas/restore-schemas-by-frame! snap)
-      (is (= snap @schemas/schemas-by-frame)
+      (is (= snap @storage/schemas-by-frame)
           "restore-schemas-by-frame! reproduces the atom byte-for-byte")
 
       ;; 4. Semantic faithfulness: validation against a restored
@@ -1886,10 +1898,10 @@
   (testing "clear-schemas-by-frame! drops all per-frame entries"
     (rf/reg-app-schema [:a] [:int])
     (rf/reg-app-schema [:b] [:string])
-    (is (seq @schemas/schemas-by-frame)
+    (is (seq @storage/schemas-by-frame)
         "pre-clear: registry is populated")
     (schemas/clear-schemas-by-frame!)
-    (is (empty? @schemas/schemas-by-frame)
+    (is (empty? @storage/schemas-by-frame)
         "post-clear: registry is empty")))
 
 (deftest restore-replaces-not-merges
@@ -1901,11 +1913,11 @@
           "fresh atom is empty (make-reset-runtime-fixture cleared it)")
       ;; Now register some schemas.
       (rf/reg-app-schema [:transient] [:int])
-      (is (seq @schemas/schemas-by-frame)
+      (is (seq @storage/schemas-by-frame)
           "post-reg: schemas present")
       ;; Restore to the empty snapshot.
       (schemas/restore-schemas-by-frame! empty-snap)
-      (is (= {} @schemas/schemas-by-frame)
+      (is (= {} @storage/schemas-by-frame)
           "restore replaced the atom — the transient schemas are gone, not merged"))))
 
 ;; ---- rf/reg-app-schemas (plural, rf2-jzs9) -------------------------------
@@ -1975,13 +1987,13 @@
   ;; rf2-naihn1 #2 — the load-bearing regression: pre-fix `(reg-app-schemas
   ;; nil)` returned `[]` (false green); post-fix it MUST throw.
   (testing "rf/reg-app-schemas rejects a nil first argument (not a silent no-op)"
-    (let [before @schemas/schemas-by-frame]
+    (let [before @storage/schemas-by-frame]
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo #":rf.error/bad-app-schemas-batch"
             (rf/reg-app-schemas nil))
           (str "nil batch must reject with :rf.error/bad-app-schemas-batch, "
                "not silently no-op to [] (the false-green this bead fixes)"))
-      (is (= before @schemas/schemas-by-frame)
+      (is (= before @storage/schemas-by-frame)
           (str "negative control: a rejected nil batch must NOT mutate the "
                "schema registry (throw fires before any swap!)")))))
 
@@ -2009,12 +2021,12 @@
                  42                          ; a number
                  #{[:a]}]]                   ; a set
       (testing (str "non-map arg " (pr-str bad))
-        (let [before @schemas/schemas-by-frame]
+        (let [before @storage/schemas-by-frame]
           (is (thrown-with-msg?
                 clojure.lang.ExceptionInfo #":rf.error/bad-app-schemas-batch"
                 (rf/reg-app-schemas bad))
               (str (pr-str bad) " must reject as a non-map batch"))
-          (is (= before @schemas/schemas-by-frame)
+          (is (= before @storage/schemas-by-frame)
               (str "negative control: rejected batch " (pr-str bad)
                    " must NOT mutate the schema registry")))))))
 

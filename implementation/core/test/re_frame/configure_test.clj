@@ -39,7 +39,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (trace/clear-listeners!)
   (trace-tooling/clear-trace-rings!)
   (rf/init! plain-atom/adapter)

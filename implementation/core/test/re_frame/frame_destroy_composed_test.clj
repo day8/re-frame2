@@ -48,7 +48,7 @@
   (reset! frame/frames {})
   (flows/reset-flows!)
   (flows/reset-last-inputs!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (trace/clear-listeners!)
   (epoch/clear-history!)
   (epoch/clear-epoch-listeners!)
@@ -440,7 +440,7 @@
 
     ;; --- schemas: register a schema rooted at the frame -------------------
     (rf/reg-app-schema [:n] [:int] {:frame :composed/leak-audit})
-    (is (contains? @schemas/schemas-by-frame :composed/leak-audit)
+    (is (contains? (schemas/snapshot-schemas-by-frame) :composed/leak-audit)
         "precondition: schema row exists for the frame")
 
     ;; --- flows: register a flow rooted at the frame -----------------------
@@ -496,7 +496,7 @@
         "post: frame entry is gone from the underlying atom")
     (is (nil? (registrar/lookup :frame :composed/leak-audit))
         "post: frame is unregistered from the registrar")
-    (is (not (contains? @schemas/schemas-by-frame :composed/leak-audit))
+    (is (not (contains? (schemas/snapshot-schemas-by-frame) :composed/leak-audit))
         "post: schema row dropped (per rf2-wkxng / rf2-6m0se)")
     (is (not (contains? (flows/flows-snapshot) :composed/leak-audit))
         "post: flow registry slot dropped (per rf2-wbtjn)")

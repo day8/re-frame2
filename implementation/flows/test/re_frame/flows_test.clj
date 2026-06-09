@@ -37,7 +37,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   ;; flows.cljc keeps a private last-inputs atom for dirty-checking
   ;; (per Spec 013 §Dirty-check semantics). The smoke-test fixture
   ;; doesn't reset it; left alone, an entry from this namespace's tests
@@ -991,7 +991,7 @@
     (rf/reg-flow {:id :one :inputs [[:a]] :output identity :path [:slots :one]})
     (is (contains? (get (flows/flows-snapshot) :rf/default) :one))
     (flows/reset-flows!)
-    (reset! schemas/schemas-by-frame {})
+    (schemas/clear-schemas-by-frame!)
     (is (empty? (get (flows/flows-snapshot) :rf/default))
         "per-frame map is empty after reset")
     (rf/reg-flow {:id :one :inputs [[:a]] :output identity :path [:slots :one]})
