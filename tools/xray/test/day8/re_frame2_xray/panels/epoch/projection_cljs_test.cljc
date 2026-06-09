@@ -63,6 +63,7 @@
 (def ^:private run-end-ev           teb/run-end-ev)
 (def ^:private cofx-run-ev          teb/cofx-run-ev)
 (def ^:private db-changed-ev        teb/db-changed-ev)
+(def ^:private frame-state-changed-ev teb/frame-state-changed-ev)
 (def ^:private do-fx-ev             teb/do-fx-ev)
 (def ^:private fx-handled-ev        teb/fx-handled-ev)
 (def ^:private flow-recomputed-ev   teb/flow-recomputed-ev)
@@ -2195,6 +2196,116 @@
                (fx-handled-ev :http/post {} 1.0)])]
       (is (= [:db :http/post] (ids-of s))
           "closed {:db :fx} shape → no `other` rows"))))
+
+;; ---- runtime-db (`:rf.db/runtime`) state effect — EP-0001 (rf2-ff9b0d) --
+
+(deftest side-effects-runtime-db-row-test
+  (testing "rf2-ff9b0d — a runtime-ONLY commit ({:rf.db/runtime ...},
+            NO :db, NO :fx) STILL shows the SIDE EFFECTS step with a
+            first-class :rf.db/runtime ✓ row. Keyed off the partition-
+            tagged :rf.event/frame-state-changed (#{:runtime-db}) — the
+            substrate emits NO :rf.event/db-changed for a runtime-only
+            commit (Mike ruling #6), so frame-state-changed is the sole
+            signal."
+    (let [s (proj/side-effects-step
+              [(do-fx-ev {:rf.db/runtime {:machines {:foo {:state [:idle]}}}})
+               (frame-state-changed-ev #{:runtime-db})])]
+      (is (= :side-effects (:step s)) "SIDE EFFECTS step present on a runtime-only commit")
+      (is (= [:rf.db/runtime] (ids-of s)) "the only row is the runtime-db row")
+      (is (= :ok (-> (row-with-id s :rf.db/runtime) :status))
+          "runtime-db committed → ✓")
+      (is (= :ok (proj/side-effects-badge-status (:rows s)))
+          "all state effects applied → badge ✓")))
+
+  (testing "rf2-ff9b0d — an app-db + runtime-db commit shows BOTH state
+            effects: the :db row leads, the :rf.db/runtime row follows
+            (atomic partition writes), both ✓"
+    (let [s (proj/side-effects-step
+              [(do-fx-ev {:db {:n 1} :rf.db/runtime {:machines {}}})
+               (db-changed-ev [[[:n] 0 1 :edit]])
+               (frame-state-changed-ev #{:app-db :runtime-db})])]
+      (is (= [:db :rf.db/runtime] (ids-of s))
+          ":db first, then the runtime-db state effect")
+      (is (= :ok (-> (row-with-id s :db) :status)))
+      (is (= :ok (-> (row-with-id s :rf.db/runtime) :status)))
+      (is (= :ok (proj/side-effects-badge-status (:rows s))))))
+
+  (testing "rf2-ff9b0d — a MIXED {:rf.db/runtime ... :fx [...]} return
+            shows the runtime write as APPLIED (an ✓ state-effect row),
+            NOT under :skipped/other. Order is runtime-db row then :fx."
+    (let [s (proj/side-effects-step
+              [(do-fx-ev {:rf.db/runtime {:machines {}}
+                          :fx [[:http/post {}]]})
+               (frame-state-changed-ev #{:runtime-db})
+               (fx-handled-ev :http/post {} 1.0)])]
+      (is (= [:rf.db/runtime :http/post] (ids-of s))
+          "runtime-db state effect leads, then the :fx row")
+      (is (= :ok (-> (row-with-id s :rf.db/runtime) :status))
+          "runtime write APPLIED — ✓, not skipped")
+      (is (not= :skipped (-> (row-with-id s :rf.db/runtime) :status))
+          ":rf.db/runtime is NEVER a dropped/other row")
+      (is (= :ok (proj/side-effects-badge-status (:rows s))))))
+
+  (testing "rf2-ff9b0d — :rf.db/runtime is a LEGAL closed-effect key,
+            EXCLUDED from `other-effects`; a true `other` key alongside
+            it still surfaces as a :skipped diagnostic"
+    (let [s    (proj/side-effects-step
+                 [(do-fx-ev {:db {:n 1}
+                             :rf.db/runtime {:machines {}}
+                             :fx [[:http/post {}]]
+                             :legacy/persist {:to :disk}})
+                  (db-changed-ev [])
+                  (frame-state-changed-ev #{:app-db :runtime-db})
+                  (fx-handled-ev :http/post {} 1.0)])]
+      (is (= [:db :rf.db/runtime :http/post :legacy/persist] (ids-of s))
+          ":db, runtime-db, :fx, then the dropped `other` effect last")
+      (is (= :ok (-> (row-with-id s :rf.db/runtime) :status))
+          "runtime-db is a committed state effect, not `other`")
+      (is (= :skipped (-> (row-with-id s :legacy/persist) :status))
+          "the genuine `other` key is still flagged dropped/skipped")
+      (is (= :ok (proj/side-effects-badge-status (:rows s)))
+          "a skipped `other` row is neutral — badge stays ✓")))
+
+  (testing "rf2-ff9b0d — a runtime-db schema-fail rollback (:where
+            :machine-data, :rollback?) paints the runtime-db row ✗ and
+            trips the badge to cross"
+    (let [s (proj/side-effects-step
+              [(do-fx-ev {:rf.db/runtime {:machines {}}})
+               (frame-state-changed-ev #{:runtime-db})
+               (schema-violation-ev :machine-data :some/machine
+                                    [:machines] {:bad true} true)])]
+      (is (= [:rf.db/runtime] (ids-of s)) "runtime-db row on a rolled-back commit")
+      (is (= :error (-> (row-with-id s :rf.db/runtime) :status))
+          "runtime-db row ✗ on machine-data schema-fail")
+      (is (= :error (proj/side-effects-badge-status (:rows s)))
+          "badge cross when the runtime-db row failed"))))
+
+(deftest runtime-db-machine-data-violation-attaches-to-row-test
+  (testing "rf2-ff9b0d — a :where :machine-data violation attaches to the
+            SIDE EFFECTS step's :rf.db/runtime row (the runtime-db sibling
+            of the :app-db → :db attach)"
+    (let [se-step (proj/side-effects-step
+                    [(do-fx-ev {:rf.db/runtime {:machines {}}})
+                     (frame-state-changed-ev #{:runtime-db})
+                     (schema-violation-ev :machine-data :some/machine
+                                          [:machines] {:bad true} true)])
+          rows    (proj/schema-violation-rows
+                    [(schema-violation-ev :machine-data :some/machine
+                                          [:machines] {:bad true} true)])
+          [out]   (proj/attach-violations [se-step] rows)
+          rt-row  (row-with-id out :rf.db/runtime)]
+      (is (seq (:violations rt-row))
+          "the machine-data violation lands on the runtime-db row")
+      (is (= :error (proj/step-status out))
+          "the SIDE EFFECTS step reads :error with the attached violation")))
+
+  (testing "rf2-ff9b0d — a :where :machine-data rollback marks the cascade
+            rolled back (downstream-mute signal), symmetric with :app-db"
+    (let [rows (proj/schema-violation-rows
+                 [(schema-violation-ev :machine-data :some/machine
+                                       [:machines] {:bad true} true)])]
+      (is (true? (proj/cascade-rolled-back? rows))
+          ":machine-data rollback rolls the cascade back too"))))
 
 ;; ---- SUBSCRIPTIONS ------------------------------------------------------
 

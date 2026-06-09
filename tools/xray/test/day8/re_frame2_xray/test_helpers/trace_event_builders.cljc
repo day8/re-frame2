@@ -47,6 +47,7 @@
   | `cofx-run-ev`                  | `:rf.cofx/run`                         | COEFFECT step                       |
   | `run-end-ev`                   | `:rf.event/run-end`                    | HANDLER duration                    |
   | `db-changed-ev`                | `:rf.event/db-changed`                 | APP-DB DIFF step                    |
+  | `frame-state-changed-ev`       | `:rf.event/frame-state-changed`        | SIDE EFFECTS `:rf.db/runtime` row   |
   | `do-fx-ev`                     | `:rf.fx/do-fx`                         | FX per-row attribution              |
   | `fx-handled-ev`                | `:rf.fx/handled`                       | FX per-row outcome                  |
   | `flow-recomputed-ev`           | `:rf.flow/computed`                    | FLOW step (one row per flow)        |
@@ -132,10 +133,35 @@
 (defn db-changed-ev
   "`:rf.event/db-changed` trace — drives both HANDLER's `:db-diff`
   slot AND the APP-DB DIFF step. `paths` is a vec of
-  `[path before after change-kind]` quads."
+  `[path before after change-kind]` quads.
+
+  EP-0001 (Mike ruling #6): `:rf.event/db-changed` is APP-DB-ONLY — it
+  fires ONLY when the app-db partition changed, NEVER for a runtime-only
+  commit. The runtime-db partition's commit signal is
+  `frame-state-changed-ev` (`:runtime-db` in the partition set)."
   [paths]
   (ev :rf.event :rf.event/db-changed
       {:rf.event/db-changed-paths paths}))
+
+(defn frame-state-changed-ev
+  "`:rf.event/frame-state-changed` trace (EP-0001 · Spec 009 §Canonical
+  per-event trace sequence) — the FRAME-LEVEL partition-commit signal.
+  Carries `:rf.event/partitions`, a SET drawn from
+  `#{:app-db :runtime-db}` naming which partition(s) this commit touched
+  (`re-frame.router/emit-frame-state-changed!`). Drives the SIDE EFFECTS
+  step's first-class `:rf.db/runtime` row (rf2-ff9b0d) — a runtime-only
+  commit emits THIS (with `#{:runtime-db}`) and NO `:rf.event/db-changed`,
+  so it is the sole signal that a runtime-ONLY cascade wrote frame-state.
+
+  `partitions` is the partition tag set (e.g. `#{:runtime-db}`,
+  `#{:app-db}`, `#{:app-db :runtime-db}`). The 2-arg form stamps the
+  `:rf.trace/phase` (`:rollback` for the post-rollback re-emit); the
+  1-arg form is the forward commit."
+  ([partitions] (frame-state-changed-ev partitions nil))
+  ([partitions phase]
+   (ev :rf.event :rf.event/frame-state-changed
+       (cond-> {:rf.event/partitions partitions}
+         phase (assoc :rf.trace/phase phase)))))
 
 ;; ---- fx ----------------------------------------------------------------
 
