@@ -1663,17 +1663,20 @@
 ;;   contract tool-side.
 ;;
 ;; - "OTHER" TOP-LEVEL EFFECTS ARE NOT EXECUTED BY THE re-frame2 RUNTIME.
-;;   The effect map is the closed `{:db :fx}` shape (spec/002 §The binary
-;;   fx-handler signature — "the v1 :dispatch-n top-level key is gone";
-;;   spec/002 §`:fx` ordering and atomicity guarantees). `re-frame.router/
-;;   run-fx-effects!` reads ONLY `(:fx effects)`; `:db` commits separately;
-;;   any other top-level key is silently ignored (no trace, no run). So
-;;   "other" is a DIAGNOSTIC: when the handler's returned map
-;;   (off the `:effects-decomp` `:other-effects` slot) carries a key
-;;   beyond `:db` / `:fx`, surface it as a `:skipped` (not-run) effect so
-;;   the operator sees the dropped effect rather than wondering why
-;;   nothing fired. No framework change records these — they don't exist
-;;   on the trace stream because the runtime never touched them.
+;;   The effect map is the closed `{:db :fx :rf.db/runtime}` shape (spec/002
+;;   §The two-partition frame contract; spec/002 §`:fx` ordering and
+;;   atomicity guarantees). The runtime commits the two STATE effects
+;;   (`:db` → app-db, `:rf.db/runtime` → runtime-db) and `re-frame.router/
+;;   run-fx-effects!` reads `(:fx effects)`; any top-level key OUTSIDE the
+;;   closed set is silently ignored (no trace, no run). So "other" is a
+;;   DIAGNOSTIC: when the handler's returned map (off the `:effects-decomp`
+;;   `:other-effects` slot) carries a key beyond `:db` / `:fx` /
+;;   `:rf.db/runtime`, surface it as a `:skipped` (not-run) effect so the
+;;   operator sees the dropped effect rather than wondering why nothing
+;;   fired. `:rf.db/runtime` is NOT an "other" key — it is a committed
+;;   state effect with its own row. No framework change records the dropped
+;;   keys — they don't exist on the trace stream because the runtime never
+;;   touched them.
 
 (def ^:private fx-outcome-op->status
   "Map a per-fx trace op → the fx-row `:status` (rf2-kt6js, lifted from

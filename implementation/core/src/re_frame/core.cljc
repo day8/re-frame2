@@ -200,8 +200,11 @@
 
      (rm/defreg-event-macro reg-event-fx events/reg-event-fx
        "Register a `(fn [cofx event-vec] effect-map)` event handler under
-       `id`. Effect-map is a closed shape: only `:db` and `:fx` at the
-       top level. Captures source-coords (Spec 001) at this call site.
+       `id`. Effect-map is a closed shape — `#{:db :rf.db/runtime :fx}`
+       at the top level; app handlers return only `:db` / `:fx`, while
+       `:rf.db/runtime` (the runtime-db partition) is reserved by
+       convention for framework / runtime-extension authority. Captures
+       source-coords (Spec 001) at this call site.
        Additionally captures the whole `(reg-event-fx :id ...)` form as
        a string under the handler's `:rf.handler/source` meta (Spec 009,
        rf2-xgfuy) — DEBUG-gated, elided in CLJS `:advanced` +

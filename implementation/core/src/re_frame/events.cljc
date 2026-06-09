@@ -714,8 +714,11 @@
   2. `:fx`  — vector of `[fx-id args]` pairs, processed in source order
      by the registered fx handlers (see `reg-fx`).
 
-  The effect-map is a **closed shape**: only `:db` and `:fx` are
-  permitted at the top level (per migration M-8). Legacy v1 top-level
+  The effect-map is a **closed shape** — `#{:db :rf.db/runtime :fx}` at
+  the top level (per migration M-8 + EP-0001). App handlers return only
+  `:db` and `:fx`; `:rf.db/runtime` (the runtime-db partition) is
+  reserved by convention for framework / runtime-extension authority and
+  is not part of an ordinary handler's vocabulary. Legacy v1 top-level
   keys (`:dispatch`, `:dispatch-later`, `:http`, ...) wrap as `:fx`
   entries — `{:fx [[:dispatch event] ...]}`.
 

@@ -440,11 +440,12 @@ Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-even
 
 ## Effect-map shape
 
-Closed: `:db` + `:fx` only. See [Spec-Schemas §:rf/effect-map](Spec-Schemas.md#rfeffect-map). Top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` from v1 migrate via [MIGRATION.md §M-8](../migration/from-re-frame-v1/README.md).
+Closed: `#{:db :rf.db/runtime :fx}`. Ordinary app handlers return only `:db` + `:fx`; `:rf.db/runtime` is reserved by convention for framework / runtime-extension authority (it writes the runtime-db partition — non-framework handlers emitting it are surfaced by dev diagnostics, not silently dropped). See [Spec-Schemas §:rf/effect-map](Spec-Schemas.md#rfeffect-map). Top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` from v1 migrate via [MIGRATION.md §M-8](../migration/from-re-frame-v1/README.md).
 
 | Key | Notes |
 |---|---|
-| `:db` | New `app-db` (replaces). |
+| `:db` | New `app-db` partition (replaces). The app-facing state key. |
+| `:rf.db/runtime` | New runtime-db partition (replaces). Reserved by convention for framework / runtime-extension authority — ordinary app handlers do not emit it. |
 | `:fx` | Vector of `[fx-id args]` pairs. |
 
 Standard `:fx` entries:
@@ -644,7 +645,7 @@ Per [Spec-Schemas.md](Spec-Schemas.md), the spec's own runtime shapes are descri
 | `:rf/dispatch-envelope` | Internal envelope wrapping every dispatch | 002 |
 | `:rf/dispatch-opts` | The user-facing opts map for `dispatch` / `dispatch-sync` / `subscribe` | 002 |
 | `:rf/registration-metadata` | Common metadata-map shape across `reg-*` | 001 / 010 |
-| `:rf/effect-map` | Return value of `reg-event-fx` handlers — **closed**: only `:db` and `:fx` | 002 |
+| `:rf/effect-map` | Return value of `reg-event-fx` handlers — **closed**: `#{:db :rf.db/runtime :fx}` (`:rf.db/runtime` reserved by convention for framework authority; app handlers use only `:db` / `:fx`) | 002 |
 | `:rf/trace-event` | Universal trace event shape | 009 |
 | `:rf/error-event` | Refinement of `:rf/trace-event` for `:op-type :error` / `:warning` (unified error/warning envelope) | 009 |
 | `:rf/handler-body-dsl` | Conformance corpus handler-body DSL (host-agnostic event/sub bodies; small-DSL grammar) | 008 / Spec-Schemas |
