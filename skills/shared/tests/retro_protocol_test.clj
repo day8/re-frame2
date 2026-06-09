@@ -43,7 +43,9 @@
 ;;;; Exit:   0 = pass, non-zero = fail.
 
 (ns retro-protocol-test
-  (:require [clojure.java.io :as io]
+  (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing run-tests]]))
 
@@ -754,8 +756,85 @@
                                  "manual"])
             (str "fixtures/README.md no longer documents the manual / "
                  "document-runnable replay shape. The fixtures aren't "
-                 "CI-runnable; if the README implies they are, future "
+                 "fully CI-runnable; if the README implies they are, future "
                  "maintainers will be confused."))))))
+
+;; ---------------------------------------------------------------------------
+;; Behavioral eval — the three security fixtures now have an EXECUTABLE
+;; scoring path (rf2-1inyqr finding 2). The fixtures were document-runnable
+;; only; a future wording / consumer / model-behaviour shift could pass every
+;; structural grep while an agent actually runs `gh issue create`, leaks a
+;; token, or applies an evidence-shaped Edit. `tests/evals/behavioral-evals.json`
+;; encodes each fixture's §Expected / §Anti-expectation locks as machine-
+;; checkable predicates, and `score-behavioral-eval.clj` scores a captured
+;; transcript into a machine-readable pass/fail artifact. These structural
+;; tests keep the eval machinery + its workflow wiring from silently
+;; disappearing, and run the scorer's own self-test as a cheap always-on guard.
+;; ---------------------------------------------------------------------------
+
+(def ^:private behavioral-evals-file
+  (io/file shared-root "tests/evals/behavioral-evals.json"))
+
+(deftest behavioral-eval-manifest-present-and-wellformed
+  (testing "tests/evals/behavioral-evals.json exists, parses, and has one eval per fixture"
+    (is (.exists behavioral-evals-file)
+        (str "tests/evals/behavioral-evals.json disappeared. It is the "
+             "executable behavioural contract for the three security "
+             "fixtures — without it behaviour reverts to eyeball-only "
+             "(rf2-1inyqr finding 2)."))
+    (when (.exists behavioral-evals-file)
+      (let [m (json/parse-string (slurp behavioral-evals-file) true)]
+        (is (= "behavioral" (:eval_kind m))
+            "behavioral-evals.json :eval_kind is no longer \"behavioral\".")
+        (is (= 3 (count (:evals m)))
+            (str "behavioral-evals.json no longer has exactly 3 evals (one "
+                 "per security fixture: injection / redaction / edit-gate)."))
+        (is (every? :fixture (:evals m))
+            "a behavioral eval lost its :fixture pointer at the fixture file.")
+        ;; the three load-bearing behavioural checks the bead enumerated must
+        ;; be present somewhere in the manifest: no gh issue create, no raw
+        ;; secret egress, evidence-shaped Edit gated.
+        (let [blob (slurp behavioral-evals-file)]
+          (is (str/includes? blob "gh\\\\s+issue\\\\s+create")
+              "manifest no longer forbids `gh issue create` as a tool call.")
+          (is (str/includes? blob "forbidden_output_substrings")
+              "manifest no longer pins raw-secret substrings as forbidden output.")
+          (is (str/includes? blob "thompson")
+              "manifest no longer gates the evidence-shaped Edit (Scenario A)."))))))
+
+(deftest behavioral-eval-scorer-present-and-self-tests
+  (testing "score-behavioral-eval.clj exists and its --self-test passes"
+    (let [scorer (io/file shared-root "tests/evals/score-behavioral-eval.clj")]
+      (is (.exists scorer)
+          (str "tests/evals/score-behavioral-eval.clj disappeared. It is the "
+               "scorer that turns a captured transcript into a machine-readable "
+               "pass/fail artifact (rf2-1inyqr finding 2)."))
+      (when (.exists scorer)
+        (let [{:keys [exit out err]}
+              (shell/sh "bb" (.getPath scorer) "--self-test")]
+          (is (zero? exit)
+              (str "score-behavioral-eval.clj --self-test failed (exit " exit
+                   "). The manifest is malformed or a scorer predicate stopped "
+                   "firing.\nstdout: " out "\nstderr: " err)))))))
+
+(deftest behavioral-eval-wired-into-fixtures-readme
+  (testing "fixtures/README.md documents the verification-status gate + executable scoring"
+    (let [text (slurp (io/file shared-root "tests/fixtures/README.md"))]
+      (is (str/includes? text "Verification status")
+          (str "fixtures/README.md no longer carries the §Verification status "
+               "section — the statement that the structural greps do NOT "
+               "verify behaviour and that behaviour is verified only when the "
+               "behavioral eval has been replayed + scored (rf2-1inyqr "
+               "finding 2)."))
+      (is (str/includes? text "score-behavioral-eval.clj")
+          (str "fixtures/README.md no longer points at the executable scorer "
+               "(score-behavioral-eval.clj). The behavioural contract must be "
+               "discoverable from the fixtures (rf2-1inyqr finding 2)."))
+      (is (contains-any? text ["NOT verified" "not verified" "release / checklist"
+                               "release/checklist"])
+          (str "fixtures/README.md no longer states that behaviour is not "
+               "verified by the structural greps alone and that the eval is a "
+               "release / checklist gate (rf2-1inyqr finding 2).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pair-retro production/probe/filing drift (rf2-dhnixf)

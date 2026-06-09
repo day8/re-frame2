@@ -431,6 +431,108 @@
                "registry (elision.cljc). Offending line(s): " (pr-str bad))))))
 
 ;; ---------------------------------------------------------------------------
+;; Lock — the leaf carries an AVAILABILITY-TIER model, not a flat names-only
+;; catalogue (rf2-1inyqr)
+;;
+;; The skills/shared best-practice review (rf2-1inyqr finding 1) found the
+;; leaf taught a flat `## The surfaces` catalogue with no capability /
+;; availability annotation — so a consuming skill could name the right
+;; Tool-Pair family while teaching the WRONG operational model: treating an
+;; absent epoch artefact like a broken pair tool, assuming `sub-cache` is
+;; portable to JVM/SSR, expecting `data-rf-view` in a production build, or
+;; abandoning usable production probes because the flat list hid which
+;; surfaces still answer. The authoritative tiers live in spec/Tool-Pair.md
+;; (dev-gate via `interop/debug-enabled?`, the `day8/re-frame2-epoch`
+;; artefact home + absent-artefact split, the CLJS-only `sub-cache` note,
+;; the 006 `data-rf-view` production-elision gate). These pins fail loudly
+;; if the leaf regresses to a names-only catalogue that drops the tier
+;; qualifiers.
+;; ---------------------------------------------------------------------------
+
+(deftest availability-tiers-section-present
+  (testing "the leaf carries an availability-tier section, not a flat catalogue"
+    (let [body @surfaces-md]
+      (is (str/includes? body "## Availability tiers")
+          (str "tool-pair-surfaces.md no longer carries the `## Availability "
+               "tiers` section. A flat surface catalogue silently teaches "
+               "that every surface answers everywhere — it does not. Agents "
+               "routing a finding need the dev-gate / artefact / host / "
+               "tool-side axes to avoid mistreating an absent artefact, a "
+               "JVM host, or a production build (rf2-1inyqr)."))
+      (is (str/includes? body "debug-enabled?")
+          (str "tool-pair-surfaces.md no longer names the `debug-enabled?` "
+               "dev-gate — the axis that decides which surfaces elide in a "
+               "production build (rf2-1inyqr).")))))
+
+(deftest availability-epoch-artefact-tier-pinned
+  (testing "the epoch-artefact tier names the artefact home + absent-artefact split"
+    (let [body @surfaces-md]
+      (is (str/includes? body "day8/re-frame2-epoch")
+          (str "tool-pair-surfaces.md no longer names the `day8/re-frame2-epoch` "
+               "artefact home for the time-travel surface. Without it an agent "
+               "treats an absent-artefact sentinel like a broken pair tool "
+               "(spec/Tool-Pair.md §Time-travel, rf2-1inyqr)."))
+      (is (str/includes? body ":rf.error/epoch-artefact-missing")
+          (str "tool-pair-surfaces.md no longer names the "
+               "`:rf.error/epoch-artefact-missing` raise — the absent-artefact "
+               "behaviour of the WRITE surfaces (injection mutators), which "
+               "differs from the read surfaces' silent sentinels. The split is "
+               "load-bearing for routing (rf2-1inyqr).")))))
+
+(deftest availability-sub-cache-is-cljs-only
+  (testing "the leaf marks sub-cache as a CLJS-only host-gated surface"
+    (let [body @surfaces-md]
+      (is (str/includes? body "CLJS-only")
+          (str "tool-pair-surfaces.md no longer carries the `CLJS-only` host "
+               "qualifier. `sub-cache` has no JVM/SSR equivalent and the call "
+               "MUST be host-gated; a portable-by-default reading is wrong "
+               "(spec/Tool-Pair.md §Platform-availability note, rf2-1inyqr).")))))
+
+(deftest availability-data-rf-view-production-elision-pinned
+  (testing "the leaf pins data-rf-view as production-elided so view-plane reads have an empty map"
+    (let [body @surfaces-md]
+      ;; data-rf-view is already pinned by view-plane-reads-enumerated; here
+      ;; we pin the AVAILABILITY claim — that it rides the production-elision
+      ;; gate, so a production-attached session must not expect the view↔DOM
+      ;; map to be populated (rf2-1inyqr).
+      (is (contains-any? body ["data-rf-view` not stamped"
+                               "data-rf-view / data-rf2-source-coord"
+                               "data-rf2-source-coord` / `data-rf-view`"
+                               "DOM annotations"])
+          (str "tool-pair-surfaces.md no longer pins that `data-rf-view` (and "
+               "`data-rf2-source-coord`) elide in production, leaving the "
+               "view-plane reads with an empty view↔DOM map. An agent that "
+               "expects view-plane reads in a production build routes a "
+               "finding wrong (spec/006 §Production elision, rf2-1inyqr).")))))
+
+(deftest availability-production-split-dev-gated-vs-still-answers
+  (testing "the leaf pins the production split: dev-gated surfaces go dark, others still answer"
+    (let [body @surfaces-md]
+      ;; The single most consequential tier fact: a production-elided build is
+      ;; a MIXED result. The dev-gated surfaces (trace / epoch / schema /
+      ;; source-coord) go dark; the registrar query API (orientation), the
+      ;; direct-read primitives (own egress posture), the operating-frame trio,
+      ;; and the always-on error-emit substrate keep answering. A flat
+      ;; catalogue teaches "everything is gone", which abandons usable probes.
+      (is (contains-any? body ["production-elision split"
+                               "production split"
+                               "still answers"
+                               "still answer"])
+          (str "tool-pair-surfaces.md no longer states the production-elision "
+               "split. Under `:advanced` + `goog.DEBUG=false` the build is a "
+               "MIXED result, not a total wall — the registrar query / "
+               "direct-read / error surfaces still answer (rf2-1inyqr)."))
+      (is (and (contains-any? body ["registrar query" "registry" "orientation"])
+               (str/includes? body "always-on error")
+               (str/includes? body "direct-read"))
+          (str "tool-pair-surfaces.md no longer names the surfaces that STILL "
+               "answer under production elision — the registrar query / "
+               "orientation shape, the direct-read primitives, and the "
+               "always-on error-emit substrate. Naming only the dark surfaces "
+               "teaches an agent to abandon usable production probes "
+               "(spec/009 §What IS available in production, rf2-1inyqr).")))))
+
+;; ---------------------------------------------------------------------------
 ;; Run
 ;; ---------------------------------------------------------------------------
 
