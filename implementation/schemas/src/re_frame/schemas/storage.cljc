@@ -118,6 +118,43 @@
                                     "of keys), or [] for the app-db root")
                      :rf.error/id :rf.error/bad-app-schema-path}))))
 
+;; ---- bulk first-argument shape validation (rf2-naihn1) --------------------
+;;
+;; `reg-app-schemas` documents its first argument as a `{path -> schema}`
+;; MAP (Spec 010 §`reg-app-schemas` / API.md). Before this fix the plural
+;; API never checked that shape: in Clojure `(keys nil)` is `nil` and
+;; iterating `nil` yields no entries, so `(reg-app-schemas nil)` ran the
+;; up-front `(run! assert-app-schema-path! (keys nil))` (no-op), registered
+;; nothing, and returned `[]` — INDISTINGUISHABLE from the documented `{}`
+;; no-op. A boot/config/schema-loader bug that passes `nil` (or any non-map
+;; — a vector, a string, a seq of pairs) instead of a schema map then gets
+;; a FALSE GREEN: no schemas registered, no validation contract installed,
+;; no error surfaced. That silently disables schema enforcement for the
+;; whole batch. Fix: reject nil / non-map FIRST, before any mutation, with
+;; an explicit error id; keep the empty map `{}` as the documented no-op.
+
+(defn valid-bulk-schemas-arg?
+  "True when `path->schema` is an acceptable `reg-app-schemas` first
+  argument: a map (INCLUDING the empty map `{}`, the documented no-op).
+  nil, vectors, strings, seqs of pairs, and every other non-map shape are
+  rejected — they would silently register nothing and hand back `[]`,
+  masking a malformed-input bug (rf2-naihn1)."
+  [path->schema]
+  (map? path->schema))
+
+(defn assert-bulk-schemas-arg!
+  "Throw `:rf.error/bad-app-schemas-batch` when `reg-app-schemas`'
+  first argument is not a `{path -> schema}` map. Called BEFORE any
+  store mutation so a nil / non-map batch rejects atomically rather than
+  silently no-op'ing to `[]` (rf2-naihn1). `{}` is accepted (the
+  documented empty no-op)."
+  [path->schema]
+  (when-not (valid-bulk-schemas-arg? path->schema)
+    (throw (ex-info ":rf.error/bad-app-schemas-batch"
+                    {:received    path->schema
+                     :expected    "a {path -> schema} map (possibly empty)"
+                     :rf.error/id :rf.error/bad-app-schemas-batch}))))
+
 (defn coerce->frame-id
   "Resolve a frame-id from the `opts-or-frame-id` argument the read
   surface accepts: coerce through `coerce-opts` (keyword sugar / opts
@@ -420,6 +457,99 @@
   (when-let [populate! (late-bind/get-fn :elision/populate-from-schemas!)]
     (populate! frame-id)))
 
+;; ---- per-frame registration linearization (rf2-naihn1) --------------------
+;;
+;; THE RACE (rf2-naihn1, P2 — off-box redaction loss). A `reg-app-schema`
+;; mutates TWO independent atoms in TWO unsynchronised steps:
+;;
+;;   step 1: (swap! schemas-by-frame assoc-in [frame-id path] meta)  ; CAS
+;;   step 2: populate-elision-for-frame! → re-reads @schemas-by-frame,
+;;           computes the schema-derived declarations, and writes the
+;;           frame's [:rf.runtime/elision …] registry via the elision
+;;           artefact's `swap-runtime-db!` (a read-then-replace that is
+;;           atomic ONLY under the single-drainer invariant — and
+;;           registration is NOT the drainer).
+;;
+;; Two concurrent registrations against the SAME frame can interleave the
+;; step-2 refreshes so a STALE snapshot's computation lands last:
+;;
+;;   A: writes schema A; reads {A}; computes declarations {A}
+;;   B: writes schema B; reads {A,B}; computes {A,B}; installs {A,B}
+;;   A: installs its older {A} — `install-schema-declarations!` first
+;;      DELETES every `:source :schema` declaration, then merges only A,
+;;      so B's declaration is dropped.
+;;
+;; Net: the schema side-table holds {A,B} but the runtime elision /
+;; sensitive registry holds only {A} until a later full repopulate. A
+;; `:sensitive?`-marked slot from B is then NOT redacted on a wire /
+;; trace / epoch / hydration emit that fires before the next dispatch —
+;; a sensitive value leaks off-box. The size-elision (`:large?`) registry
+;; loses B the same way.
+;;
+;; THE FIX: make the side-table write + the elision/sensitive refresh
+;; LINEARIZABLE PER FRAME (the bead's primary acceptance). A per-frame
+;; monitor is held across BOTH steps, so two registrations on the same
+;; frame serialise: the second's step-2 always reads the side-table that
+;; already contains the first's write, and the LAST refresh under the
+;; lock reflects the LATEST side-table. The bulk `reg-app-schemas` path
+;; takes the SAME lock once for the whole batch, so a concurrent singular
+;; registration cannot slot its refresh between the batch's writes and
+;; the batch's single final refresh.
+;;
+;; JVM-ONLY by construction: CLJS is single-threaded, so there is no
+;; cross-thread interleaving and `locking` would be meaningless — the
+;; reader conditional compiles the lock away in CLJS and runs the body
+;; directly. The lock is per-FRAME (a striped monitor keyed by frame-id)
+;; so registrations against disjoint frames never contend — preserving
+;; the parallel-frames isolation contract.
+
+#?(:clj
+   (defonce ^:private frame-reg-locks
+     ;; frame-id → monitor Object. Grown lazily by `frame-reg-lock`;
+     ;; never pruned (one tiny Object per frame-id ever registered —
+     ;; bounded by the app's frame cardinality, which is small). Cleared
+     ;; by `clear-schemas-by-frame!` so the test fixture starts clean.
+     (atom {})))
+
+#?(:clj
+   (defn- frame-reg-lock
+     "Return the per-frame monitor Object for `frame-id`, creating it on
+     first use. The returned Object is the lock `with-frame-reg-lock*`
+     synchronises on so the side-table write + elision refresh for one
+     frame are linearizable. Distinct frame-ids get distinct monitors,
+     so disjoint-frame registrations never contend (rf2-naihn1)."
+     [frame-id]
+     (or (get @frame-reg-locks frame-id)
+         (get (swap! frame-reg-locks
+                     (fn [m]
+                       (if (contains? m frame-id)
+                         m
+                         (assoc m frame-id (Object.)))))
+              frame-id))))
+
+(defn ^:no-doc clear-frame-reg-locks!
+  "Drop every per-frame registration monitor. Called by
+  `clear-schemas-by-frame!` (and thus the schemas test fixture) so a
+  fresh test starts with no stale locks. No-op in CLJS (single-threaded;
+  no monitors exist). Exposed `^:no-doc` for the fixture only."
+  []
+  #?(:clj (reset! frame-reg-locks {})))
+
+(defn- with-frame-reg-lock*
+  "Run `(thunk)` holding `frame-id`'s per-frame registration monitor on
+  the JVM so the schema side-table write + the schema-derived elision /
+  sensitive registry refresh are linearizable per frame (rf2-naihn1). In
+  CLJS the runtime is single-threaded, so the lock is elided and `thunk`
+  runs directly.
+
+  A plain higher-order fn (not a macro) so the `#?(:clj …)` reader
+  conditional cleanly compiles the JVM `locking` away in CLJS without a
+  self-referential-macro require — the schemas artefact is `.cljc` and
+  ships to both runtimes."
+  [frame-id thunk]
+  #?(:clj  (locking (frame-reg-lock frame-id) (thunk))
+     :cljs (thunk)))
+
 ;; ---- app-db schema registration -------------------------------------------
 
 (defn reg-app-schema
@@ -469,10 +599,6 @@
    (assert-app-schema-path! path)
    (let [opts         (coerce-opts opts-or-frame-id)
          frame-id     (resolve-frame opts)
-         ;; Capture the path's prior schema BEFORE the swap so the
-         ;; hot-reload `:rf.schema/violation` check (rf2-ee38b.6) can
-         ;; compare pre- vs post-reload shapes. nil on first registration.
-         prior-schema (get-in @schemas-by-frame [frame-id path :schema])
          ;; The per-frame schema-metadata map (the {path → schema-meta}
          ;; entry value) — `:schema` + `:path` + `:frame` + source-coords.
          ;; Named `schema-meta` to match the slice vocabulary
@@ -480,8 +606,55 @@
          ;; `validate-app-schema!` destructure) and to avoid shadowing
          ;; `clojure.core/meta`.
          schema-meta  (source-coords/merge-coords
-                        {:schema schema :path path :frame frame-id})]
-     (swap! schemas-by-frame assoc-in [frame-id path] schema-meta)
+                        {:schema schema :path path :frame frame-id})
+         ;; rf2-naihn1 — LINEARIZE the side-table write + the schema-
+         ;; derived elision/sensitive refresh per frame so a concurrent
+         ;; registration's STALE refresh can never overwrite a newer one
+         ;; (the off-box-redaction-loss race). Hold the per-frame monitor
+         ;; across BOTH: (1) capture the prior schema, (2) write the side-
+         ;; table, (3) populate the elision registry. Under the lock the
+         ;; populate always reads the side-table that already contains
+         ;; THIS write, and the last populate on the frame reflects the
+         ;; latest table. JVM-only; CLJS runs the thunk directly. Returns
+         ;; the prior schema so the hot-reload `:rf.schema/violation`
+         ;; check below (a lock-free, read-only dev trace) sees the pre-
+         ;; reload shape.
+         prior-schema
+         (with-frame-reg-lock* frame-id
+           (fn []
+             ;; Capture the path's prior schema BEFORE the swap so the
+             ;; hot-reload `:rf.schema/violation` check (rf2-ee38b.6) can
+             ;; compare pre- vs post-reload shapes. nil on first
+             ;; registration. Read INSIDE the lock so the relevance
+             ;; decision below is coherent with the side-table the
+             ;; refresh observes.
+             (let [prior (get-in @schemas-by-frame [frame-id path :schema])]
+               (swap! schemas-by-frame assoc-in [frame-id path] schema-meta)
+               ;; Per rf2-ee38b.6 / Spec 010 §`:large?` ("at boot, and on
+               ;; re-registration"): refresh the schema-derived elision
+               ;; declarations so size-elision / privacy redaction is live
+               ;; even for wire emits that fire before the first dispatch.
+               ;;
+               ;; This walks EVERY registered schema in the frame, so it
+               ;; is O(n) in the frame's schema count. Two guards keep it
+               ;; cheap:
+               ;;   - `:rf/defer-elision-populate?` lets the bulk
+               ;;     `reg-app-schemas` path run the walk ONCE after all
+               ;;     entries land instead of once per entry (the bulk
+               ;;     path takes the SAME per-frame lock for its whole
+               ;;     batch — see `reg-app-schemas`).
+               ;;   - `populate-relevant?` skips the walk entirely for the
+               ;;     common case (a fresh registration of a flag-free
+               ;;     schema), which provably cannot change the elision
+               ;;     registry.
+               ;; Without both, registering n schemas is O(n²) and wedged
+               ;; the rf2-utdxg concurrency-stress JVM gate. Gated on
+               ;; `interop/debug-enabled?` so production DCEs it.
+               (when (and interop/debug-enabled?
+                          (not (:rf/defer-elision-populate? opts))
+                          (populate-relevant? prior schema path))
+                 (populate-elision-for-frame! frame-id))
+               prior)))]
      ;; Per rf2-fq7d2: dev-time nudge when `:schemas/malli-validate` is
      ;; unbound AND the framework-default validator is still installed —
      ;; the default soft-passes per Spec 010 §Recommended soft-pass, so a
@@ -490,7 +663,9 @@
      ;; this only fires for a substitute-validator port or a test that
      ;; unbinds the hook (see the warning block above). Production elides
      ;; via the outer `interop/debug-enabled?` gate (Spec 009 §Production
-     ;; builds).
+     ;; builds). These are lock-free read-only dev side effects (warnings
+     ;; + a violation trace) — they touch neither the schema side-table
+     ;; nor the elision registry, so they run OUTSIDE the per-frame lock.
      (when interop/debug-enabled?
        (maybe-warn-validator-unavailable!)
        ;; Per rf2-jsokn: dev-time nudge when the registered schema is
@@ -503,27 +678,9 @@
        ;; Per rf2-ee38b.6 / Spec 010 §Schema migration on hot-reload:
        ;; emit `:rf.schema/violation` when a re-registration changes the
        ;; schema and the live app-db value at `path` fails the new shape.
-       ;; O(1) per call — reads the prior schema + one validation of the
-       ;; live value at this path; safe to run per-entry even in bulk.
-       (maybe-emit-schema-violation! frame-id path prior-schema schema)
-       ;; Per rf2-ee38b.6 / Spec 010 §`:large?` ("at boot, and on
-       ;; re-registration"): refresh the schema-derived elision
-       ;; declarations so size-elision / privacy redaction is live even
-       ;; for wire emits that fire before the first dispatch.
-       ;;
-       ;; This walks EVERY registered schema in the frame, so it is O(n)
-       ;; in the frame's schema count. Two guards keep it cheap:
-       ;;   - `:rf/defer-elision-populate?` lets the bulk
-       ;;     `reg-app-schemas` path run the walk ONCE after all entries
-       ;;     land instead of once per entry.
-       ;;   - `populate-relevant?` skips the walk entirely for the common
-       ;;     case (a fresh registration of a flag-free schema), which
-       ;;     provably cannot change the elision registry.
-       ;; Without both, registering n schemas is O(n²) and wedged the
-       ;; rf2-utdxg concurrency-stress JVM gate.
-       (when (and (not (:rf/defer-elision-populate? opts))
-                  (populate-relevant? prior-schema schema path))
-         (populate-elision-for-frame! frame-id)))
+       ;; O(1) — reads the prior schema (captured under the lock above) +
+       ;; one validation of the live value at this path.
+       (maybe-emit-schema-violation! frame-id path prior-schema schema))
      path)))
 
 (defn reg-app-schemas
@@ -576,6 +733,14 @@
    ;; sugar; bad shape → `:rf.error/bad-app-schemas-arg`). Write/read
    ;; agree; the singular `reg-app-schema` call re-coerces the
    ;; already-coerced map (idempotent — a map passes through verbatim).
+   ;; Per rf2-naihn1 — reject a nil / non-map first argument BEFORE any
+   ;; mutation (and before the path sweep, which `(keys nil)` would
+   ;; silently no-op through). `(reg-app-schemas nil)` previously
+   ;; registered nothing and returned `[]` — indistinguishable from the
+   ;; `{}` no-op — so a schema-loader bug passing nil got a false green
+   ;; with schema enforcement silently disabled. `{}` stays the
+   ;; documented empty no-op.
+   (assert-bulk-schemas-arg! path->schema)
    ;; Per rf2-sk0ql — validate EVERY path shape up front, before any
    ;; store mutation, so a single malformed key cannot half-register the
    ;; batch (the earlier-iterated entries would otherwise land before the
@@ -586,24 +751,38 @@
    (run! assert-app-schema-path! (keys path->schema))
    (let [opts       (coerce-opts opts-or-frame-id)
          frame-id   (resolve-frame opts)
-         entry-opts (assoc opts :rf/defer-elision-populate? true)
-         ;; Snapshot prior schemas BEFORE registering so relevance
-         ;; reflects each entry's true re-registration status, matching
-         ;; the singular path's per-call decision.
-         relevant?  (when interop/debug-enabled?
-                      (let [snapshot (get @schemas-by-frame frame-id)]
-                        (boolean
-                          (some (fn [[path schema]]
-                                  (populate-relevant?
-                                    (get-in snapshot [path :schema])
-                                    schema path))
-                                path->schema))))
-         paths      (mapv (fn [[path schema]]
-                            (reg-app-schema path schema entry-opts))
-                          path->schema)]
-     (when (and interop/debug-enabled? relevant?)
-       (populate-elision-for-frame! frame-id))
-     paths)))
+         entry-opts (assoc opts :rf/defer-elision-populate? true)]
+     ;; rf2-naihn1 — take the SAME per-frame registration monitor the
+     ;; singular path uses, ONCE, for the whole batch, so the batch's
+     ;; per-entry side-table writes AND its single final elision refresh
+     ;; are one linearizable unit per frame. A concurrent singular
+     ;; `reg-app-schema` on the same frame cannot slot its refresh
+     ;; between this batch's writes and this batch's final populate (the
+     ;; off-box-redaction-loss race). The monitor is reentrant on the
+     ;; JVM, so each delegated `reg-app-schema` re-acquiring it is free;
+     ;; those entries pass `:rf/defer-elision-populate? true`, so the
+     ;; O(n) full-frame walk runs at most once here. CLJS runs the thunk
+     ;; directly (single-threaded).
+     (with-frame-reg-lock* frame-id
+       (fn []
+         (let [;; Snapshot prior schemas BEFORE registering so relevance
+               ;; reflects each entry's true re-registration status,
+               ;; matching the singular path's per-call decision. Read
+               ;; under the lock so it is coherent with the writes below.
+               relevant? (when interop/debug-enabled?
+                           (let [snapshot (get @schemas-by-frame frame-id)]
+                             (boolean
+                               (some (fn [[path schema]]
+                                       (populate-relevant?
+                                         (get-in snapshot [path :schema])
+                                         schema path))
+                                     path->schema))))
+               paths     (mapv (fn [[path schema]]
+                                 (reg-app-schema path schema entry-opts))
+                               path->schema)]
+           (when (and interop/debug-enabled? relevant?)
+             (populate-elision-for-frame! frame-id))
+           paths))))))
 
 (defn app-schema-at
   "Look up the registered schema for a path in a frame, or nil.
@@ -711,9 +890,11 @@
 (defn clear-schemas-by-frame!
   "Reset the per-frame schema registry to `{}`. Used by test fixtures
   and by `make-reset-runtime-fixture`'s `:clear-app-schemas? true`
-  path (rf2-cq1ak)."
+  path (rf2-cq1ak). Also drops the per-frame registration monitors
+  (rf2-naihn1) so a fresh test starts with no stale locks."
   []
-  (reset! schemas-by-frame {}))
+  (reset! schemas-by-frame {})
+  (clear-frame-reg-locks!))
 
 (defn on-frame-destroyed!
   "Per Spec 002 §Destroy: drop every schema registered against the
