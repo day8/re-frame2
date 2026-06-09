@@ -571,3 +571,47 @@ reaction-returning signal functions, state-dependent hidden topology, and
 ambiguous descriptor grammar. The result is a static, inspectable graph per
 concrete query vector, with enough expressiveness for route, resource, form,
 Hasura, and machine view models.
+
+## Resolved Decisions
+
+The three §Open Issues are all settled — none remains an open question. Two were
+answered **de facto by the shipped implementation**, conservatively, and one is
+**deferred by design** per [§Rejected Ideas](#rejected-ideas). This section is the
+binding record (mirroring the EP-0001 / EP-0002 Resolved Decisions pattern); the
+§Open Issues phrasing above is read as the question each ruling answers.
+
+1. **Issue 3 (malformed input-fn return preview) — fail-closed off-box.**
+   Decided **by the implementation**, conservatively. The raw offending value
+   (`:returned`) rides **only** the dev-only trace path — `subs.cljc`
+   `emit-sub-input-fn-error!` emits it through `trace/emit-error!`, which DCEs
+   under `:advanced` + `goog.DEBUG=false`. The **always-on**,
+   production-survivable error surface (the `:error-emit/dispatch-on-error`
+   listener, axis 1) carries the **error-id** (`:rf.error/sub-input-fn-bad-return`
+   / `:rf.error/sub-input-fn-exception`), the **sub-id**, the **outer query-v**,
+   and the **frame** — but **NOT** the offending value. So the answer to "redacted
+   preview vs class/shape metadata in production" is **neither raw nor a preview
+   off-box**: the raw value never egresses in production; only a development trace
+   reader (which already has full app context) ever sees it. This is the ruled
+   posture — **fail-closed off-box**. A bad input return is still never silently
+   treated as no inputs: the structured error fires loudly on both axes and the
+   node recovers to a nil-yielding reaction.
+
+2. **Issue 2 (input-fn source coordinate) — enclosing `reg-sub` coordinate only,
+   as shipped.** `sub-topology` (in `re_frame/subs/tooling.cljc`) exposes the
+   **enclosing `reg-sub` source coordinate** — `:ns` / `:line` / `:file`,
+   auto-captured by the `reg-sub` macro per Spec 001 §Source-coordinate capture —
+   **not** a separate `input-fn` source coordinate. The static view reports the
+   `:input-kind :parametric` sentinel (the realized edge set is per-concrete-query-v
+   runtime state, not statically enumerable); the realized parametric edges live in
+   `sub-cache-snapshot`'s `:realized-inputs` slot. The two-level topology shape the
+   §Tooling section sketches is the one shipped.
+
+3. **Issue 1 (named / map-returning inputs) — deferred by design, not open.**
+   Map-returning input functions remain **out of scope for the v1 core**, exactly
+   as [§Rejected Ideas → Map-returning input functions](#rejected-ideas) records:
+   they introduce a second input grammar and force migration choices around map key
+   order and named destructuring, so the core ships **one unambiguous shape**
+   (vector of query vectors). They are **reconsiderable later as an explicit future
+   extension** — that is a deliberate deferral, not an unanswered question. Named
+   input grouping stays in user code above the subscription layer until such an
+   extension is proposed on its own merits.
