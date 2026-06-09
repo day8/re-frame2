@@ -4,7 +4,7 @@
    This sketch keeps the current re-frame2 API surface explicit:
    - `:article` and `:comments` use the standard Pattern-RemoteData shape.
    - `:comment-form` uses the standard Pattern-Forms slice shape.
-   - Route-driven loads read the current slug from `[:rf/runtime :routing :current :params :slug]`.
+   - Route-driven loads read the current slug from the runtime-db coeffect at `[:rf.runtime/routing :current :params :slug]`.
    - Post/delete flows are optimistic and roll back via ordinary events."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]

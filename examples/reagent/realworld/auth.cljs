@@ -8,7 +8,7 @@
      (rf/dispatch [:auth/flow [:auth/login creds]])
 
    Pattern-Forms owns the login/register draft slices under [:auth ...];
-   the machine snapshot itself lives at [:rf/runtime :machines :snapshots :auth/flow]."
+   the machine snapshot itself lives in runtime-db at [:rf.runtime/machines :snapshots :auth/flow]."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             ;; The Spec 005 state-machine ns lives in the
@@ -95,6 +95,11 @@
     ;; the id is the surrounding reg-event-fx id.
     {:initial :idle
      :data    {:error nil}
+     ;; Snapshot :data validation. The snapshot lives in runtime-db
+     ;; ([:rf.runtime/machines :snapshots :auth/flow]), so its :data shape is
+     ;; validated here via :data-schema — not via an app-schema (EP-0001,
+     ;; Mike ruling #11: app schemas validate the app-db partition only).
+     :data-schema schema/AuthFlowData
      :guards
      {:has-token?
       (fn [{[_ token] :event}]

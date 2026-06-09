@@ -1,6 +1,6 @@
 # 21 - The dynamic model
 
-Most application state isn't a flag. It's a *thing with a lifecycle*: a wizard that's three steps into a five-step flow, a route that's mid-transition with a stale fetch in flight, a checkout machine waiting on a payment, a flow recomputing a derived total. You've been taught, correctly, that all state lives in `app-db` and you change it by dispatching events. This chapter is about the slices of `app-db` where that second half stops being true — the **runtime-managed slices you read but don't write.** The runtime owns them. You subscribe to them like any other state, but you never `assoc` into them, because the machinery that put them there is the thing that keeps them correct.
+Most application state isn't a flag. It's a *thing with a lifecycle*: a wizard that's three steps into a five-step flow, a route that's mid-transition with a stale fetch in flight, a checkout machine waiting on a payment, a flow recomputing a derived total. You've been taught, correctly, that your application state lives in `app-db` and you change it by dispatching events. This chapter is about a *second* kind of state — the bookkeeping of running framework processes — that lives in a partition of its own, the **runtime-managed state you read but don't write.** The runtime owns it. You subscribe to it like any other state, but you never `assoc` into it, because the machinery that put it there is the thing that keeps it correct.
 
 ## The state you don't poke
 
@@ -17,25 +17,25 @@ The same shape recurs everywhere there's a *process* behind the data:
 - A **flow's** output — a derived value the runtime recomputes whenever its inputs move.
 - An **in-flight request's** lifecycle — the managed-effect bookkeeping that knows whether you're loading, succeeded, failed, or retrying.
 
-In each case the *value* belongs in `app-db` (so it survives time-travel, ships over SSR, shows up in the inspector). But the *authorship* belongs to the runtime. You read these slices through subscriptions. You influence them by dispatching the events the process understands — `:rf.route/navigate`, a machine trigger, an HTTP `:on-success`. You do not write them directly, and the framework reserves the keys precisely so you can't do it by accident.
+In each case the *value* belongs to the frame (so it survives time-travel, ships over SSR, shows up in the inspector). But the *authorship* belongs to the runtime, and — the part chapter 02 introduced — it doesn't live in `app-db` at all. It lives in **runtime-db**, the framework's own partition. You read these slices through subscriptions. You influence them by dispatching the events the process understands — `:rf.route/navigate`, a machine trigger, an HTTP `:on-success`. You do not write them directly, and the framework keeps them in a partition your handlers never hold precisely so you can't write them by accident.
 
-## The reserved `:rf/runtime` subtree
+## runtime-db — the framework's partition
 
-re-frame2 makes this concrete with a **reserved app-db subtree**. A single root key — `:rf/runtime` — at the root of every frame's `app-db` is owned by the framework. Your code reads under it; your code must not write under it. One key to recognise, one prefix to remember:
+A frame holds two partitions (chapter 02): **app-db**, which is yours, and **runtime-db**, which is the framework's. runtime-db is where every runtime-managed slice lives, addressed under reserved `:rf.runtime/*` keys. Your code reads it through framework subscriptions; your code must not write it. One partition to recognise, one prefix to remember:
 
-| Reserved path | Owner | What lives there |
+| Reserved runtime-db path | Owner | What lives there |
 |---|---|---|
-| `[:rf/runtime :machines :snapshots]` | machine runtime | A map of `<machine-id> → snapshot`. Each running machine's `{:state :data ...}` snapshot, per-frame isolated. |
-| `[:rf/runtime :machines :system-ids]` | machine runtime | The reverse index for `:system-id`-addressed machines. Allocated lazily. |
-| `[:rf/runtime :machines :spawned]` | machine runtime | Spawn-and-join bookkeeping for declarative `:spawn` / `:spawn-all`. |
-| `[:rf/runtime :routing :current]` | routing runtime | The current route slice: `:id`, `:params`, `:query`, `:transition`, `:error`, `:fragment`, `:nav-token`. |
-| `[:rf/runtime :routing :pending-navigation]` | routing runtime | The blocked-navigation slot a `:can-leave` guard populates. Allocated lazily. |
-| `[:rf/runtime :routing :scroll-positions]` (plus order/counters) | routing runtime | Scroll-restoration bookkeeping. |
-| `[:rf/runtime :elision]` | elision runtime | The wire-elision declaration registry, populated from schemas at boot. |
+| `[:rf.runtime/machines :snapshots]` | machine runtime | A map of `<machine-id> → snapshot`. Each running machine's `{:state :data ...}` snapshot, per-frame isolated. |
+| `[:rf.runtime/machines :system-ids]` | machine runtime | The reverse index for `:system-id`-addressed machines. Allocated lazily. |
+| `[:rf.runtime/machines :spawned]` | machine runtime | Spawn-and-join bookkeeping for declarative `:spawn` / `:spawn-all`. |
+| `[:rf.runtime/routing :current]` | routing runtime | The current route slice: `:id`, `:params`, `:query`, `:transition`, `:error`, `:fragment`, `:nav-token`. |
+| `[:rf.runtime/routing :pending-navigation]` | routing runtime | The blocked-navigation slot a `:can-leave` guard populates. Allocated lazily. |
+| `[:rf.runtime/routing :scroll-positions]` (plus order/counters) | routing runtime | Scroll-restoration bookkeeping. |
+| `[:rf.runtime/elision]` | elision runtime | The wire-elision declaration registry, populated from schemas at boot. |
 
-The set is **fixed-and-additive**: a path already in the table can never be repurposed, and new reserved paths arrive only by a spec change — never silently. That stability is a contract you can build on. And it's enforced, not just documented: the migration agent flags any user-registered schema or write under, say, `[:rf/runtime :machines]` as a collision, and the schema-bearing reference implementation registers the reserved subtree's own schemas at boot, so a stray write fails validation at the seam.
+The set is **fixed-and-additive**: a key already in the table can never be repurposed, and new reserved keys arrive only by a spec change — never silently. That stability is a contract you can build on. And the partition boundary is the enforcement: because runtime-db is not app-db, an ordinary `:db` effect cannot reach these keys at all. There is nothing to collide with — your app-db schema describes app data only, and a fresh `:db` return can never wipe a machine snapshot, because the snapshot was never in `:db`.
 
-Notice these paths are all **lazily allocated** where they can be — `[:rf/runtime :machines :system-ids]`, `[:rf/runtime :routing :pending-navigation]`, and `[:rf/runtime :elision]` simply don't exist in `app-db` until the first time the corresponding process needs them. A single-frame app with no machines, no routing, and no flows has an `app-db` with no `:rf/runtime` subtree at all. The subtree (and the keys under it) appears when, and only when, a runtime-managed process is actually running. You don't pay for the slices you don't use, and you can see at a glance from a raw `app-db` dump exactly which managed processes are live.
+Notice these paths are all **lazily allocated** where they can be — `[:rf.runtime/machines :system-ids]`, `[:rf.runtime/routing :pending-navigation]`, and `[:rf.runtime/elision]` simply don't exist until the first time the corresponding process needs them. A single-frame app with no machines, no routing, and no flows has an essentially empty runtime-db. The keys appear when, and only when, a runtime-managed process is actually running. You don't pay for the slices you don't use, and you can see at a glance from a runtime-db dump (`(rf/runtime-db-value frame-id)`) exactly which managed processes are live.
 
 ## Reading a managed slice
 
@@ -54,7 +54,7 @@ Reading is the easy half, and it's the half you do constantly. You subscribe, th
 @(rf/subscribe [:computed/cart-total])
 ```
 
-The framework ships reserved sub-ids (`[:rf/machine <id>]`, `[:rf/route]`, `[:rf.route/id]`, and friends) for exactly this. From a view's perspective there is *nothing special* about a managed slice — it's a value behind a subscription, and your view derives UI from it like it derives UI from anything else. The view neither knows nor cares that a state machine's transition function, rather than one of your event handlers, is what last wrote that value.
+The framework ships reserved sub-ids (`[:rf/machine <id>]`, `[:rf/route]`, `[:rf.route/id]`, and friends) for exactly this. They read runtime-db so you don't have to — and they're the *only* read path, because runtime-db isn't the `db` your handlers see. From a view's perspective there is *nothing special* about a managed slice — it's a value behind a subscription, and your view derives UI from it like it derives UI from anything else. The view neither knows nor cares that a state machine's transition function, rather than one of your event handlers, is what last wrote that value, nor that it came from a different partition.
 
 That uniformity is the point. The reader's mental model doesn't fork. "Subscribe to read, dispatch to change" holds for managed and unmanaged state alike — it's just that for managed state, "dispatch to change" means dispatching the events the *process* speaks, not an event that writes the slice directly.
 
@@ -63,13 +63,15 @@ That uniformity is the point. The reader's mental model doesn't fork. "Subscribe
 You don't write the route slice. You navigate, and the routing runtime writes it:
 
 ```clojure
-;; WRONG — reaching past the process to edit its bookkeeping.
+;; WRONG — trying to forge the route by hand.
 (rf/reg-event-db :go-to-cart
-  (fn [db _] (assoc-in db [:rf/runtime :routing :current :id] :route/cart)))   ;; don't do this
+  (fn [db _] (assoc db :route :route/cart)))   ;; don't — this writes app-db, not the route;
+                                               ;; the real route slice lives in runtime-db and
+                                               ;; the navigation never actually happens
 
 ;; RIGHT — dispatch the event the routing runtime understands.
 (rf/dispatch [:rf.route/navigate :route/cart])
-;; The runtime updates [:rf/runtime :routing :current], pushes the URL, fires :on-match, allocates a nav-token.
+;; The runtime updates [:rf.runtime/routing :current], pushes the URL, fires :on-match, allocates a nav-token.
 ```
 
 The wrong version sets *one field* of a multi-field slice and skips everything the navigation actually entails — the URL push never happens, `:on-match` never fires, the nav-token never advances (so a stale fetch can now clobber you), the transition FSM is left lying. The right version hands the work to the process that owns the slice, and the slice stays internally consistent because the only thing that ever writes it is the thing that understands it.
@@ -80,7 +82,8 @@ Same story for machines — you send a trigger, the machine's transition logic c
 ;; Influence the machine by dispatching its trigger event.
 (rf/dispatch [:checkout/payment-confirmed {:txn-id "..."}])
 ;; The machine runs its transition: exits :awaiting-payment, runs entry actions,
-;; writes the new snapshot to [:rf/runtime :machines :snapshots :checkout/flow]. You never touched the slice.
+;; writes the new snapshot to [:rf.runtime/machines :snapshots :checkout/flow] in runtime-db.
+;; You never touched the slice.
 ```
 
 And for flows you don't write the output at all — you write the *inputs*, and the runtime recomputes the output for you, which is the next section.
@@ -114,18 +117,18 @@ Once you see it, the pattern is everywhere: any time there's a *process* — a m
 
 ## Why the runtime owns these slices
 
-It would be fair to ask why the framework bothers reserving keys and forbidding writes instead of just trusting you to be careful. The answer is the same constraint argument that explains every other shape decision in re-frame2, and it's worth making explicit because it's the *why* behind the whole guide.
+It would be fair to ask why the framework bothers with a whole separate partition instead of just trusting you to be careful. The answer is the same constraint argument that explains every other shape decision in re-frame2, and it's worth making explicit because it's the *why* behind the whole guide.
 
 The load-bearing property of any system is its **dynamic model** — the story you tell yourself about *what happens when something changes*. Not what the code looks like at rest; what it *does over time*. Dijkstra's observation is the root of it: humans are good at reasoning about static structure and bad at simulating processes evolving in time, and programs are processes evolving in time. The thing that determines whether a codebase fits in your head is whether its dynamic story is simple enough to simulate.
 
-Reserved, runtime-owned slices make the dynamic story simpler in a specific, checkable way. When the *only* thing that can write under `[:rf/runtime :machines]` is the machine runtime, then a machine's behaviour over time is a function of its definition and the events sent to it — full stop. You don't have to consider whether some unrelated event handler reached in and edited the snapshot, because the architecture forbids it. The reachable-state space of the machine is bounded by its transition table, not by "anything in the app could have done anything to this map." You bought a smaller, more tractable dynamic model by *giving up a right you weren't using anyway* — the right to hand-edit a machine's internal bookkeeping, which you never wanted to do and which only ever produced bugs.
+The runtime-db partition makes the dynamic story simpler in a specific, checkable way. When the *only* thing that can write `[:rf.runtime/machines :snapshots]` is the machine runtime, then a machine's behaviour over time is a function of its definition and the events sent to it — full stop. You don't have to consider whether some unrelated event handler reached in and edited the snapshot, because the snapshot isn't even in the `db` those handlers see. The reachable-state space of the machine is bounded by its transition table, not by "anything in the app could have done anything to this map." You bought a smaller, more tractable dynamic model by *giving up a right you weren't using anyway* — the right to hand-edit a machine's internal bookkeeping, which you never wanted to do and which only ever produced bugs.
 
-That's the trade the entire framework makes, scaled down to one feature. Less power — you literally cannot write these slices — in exchange for a dynamic model small enough to hold in your head. And it pays compound interest: because these slices are values in `app-db`, and because the runtime is the sole author, the whole of a frame's managed state survives the wire (SSR ships a value, [chapter 20](20-server-side.md)), reverts on a pointer swap (time-travel, [chapter 16](16-observability.md)), and validates against schema. None of that would be safe if any handler could scribble on a machine's snapshot.
+That's the trade the entire framework makes, scaled down to one feature. Less power — you literally cannot write these slices through `:db` — in exchange for a dynamic model small enough to hold in your head. And it pays compound interest: because runtime-db is a value, and because the runtime is its sole author, the whole of a frame's managed state survives the wire (SSR ships it alongside app-db as one frame-state, [chapter 20](20-server-side.md)), reverts on a pointer swap (time-travel, [chapter 16](16-observability.md)), and validates against its own framework schemas. None of that would be safe if any handler could scribble on a machine's snapshot.
 
 ## The rule, stated once
 
 So here's the whole chapter as a single working rule you can carry:
 
-> **For runtime-managed slices — machines, routes, flows, in-flight requests — read through subscriptions, influence by dispatching the events the process understands, and never write the slice directly.** The runtime reserves the `:rf/runtime` subtree so you can't do it by accident; its sub-paths appear in `app-db` only when the process is live; and the value lives in `app-db` so it survives the wire, time-travel, and the inspector.
+> **For runtime-managed slices — machines, routes, flows, in-flight requests — read through subscriptions, influence by dispatching the events the process understands, and never write the slice directly.** The framework keeps these in the runtime-db partition (under reserved `:rf.runtime/*` keys), so an ordinary `:db` return can't touch them by accident; the keys appear only when the process is live; and runtime-db rides alongside app-db as one frame-state, so it survives the wire, time-travel, and the inspector.
 
 It's the same "subscribe to read, dispatch to change" loop you already know — refined for the slices where "change" means *asking a running process to advance itself*, not *editing its memory behind its back*. Master that distinction and the most intimidating-sounding parts of an app — the wizard, the checkout, the routed-and-loading page with three fetches in flight — turn out to be the same boring, readable, time-travellable state as the counter. They just have a process minding the store.

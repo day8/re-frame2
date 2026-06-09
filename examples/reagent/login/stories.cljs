@@ -179,8 +179,8 @@
 
   ;; Empty — the entry state. The variant fires a no-op
   ;; `:auth.login/dismiss` so the machine's `:initial` cascade seeds the
-  ;; snapshot; without it the `[:rf/runtime :machines :snapshots
-  ;; :auth.login/flow]` slot is nil until the first real event.
+  ;; snapshot; without it the `[:rf.runtime/machines :snapshots
+  ;; :auth.login/flow]` runtime-db slot is nil until the first real event.
   (story/reg-variant :story.login/empty
     {:doc        "Fresh form, nothing typed, no submit clicked — the
                  `:idle` entry state a user lands on. Email + password

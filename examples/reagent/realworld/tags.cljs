@@ -71,6 +71,10 @@
              :error    nil
              :loaded-at nil
              :attempt  0}
+   ;; Validates the snapshot's :data slot at every macrostep boundary.
+   ;; The snapshot lives in runtime-db, so this — not an app-schema — is
+   ;; the validation surface (EP-0001, Mike ruling #11).
+   :data-schema schema/TagsData
 
    :actions
    {:bump-attempt

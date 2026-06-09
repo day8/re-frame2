@@ -212,7 +212,7 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 ;;
-;; The machine snapshot lives at [:rf/runtime :machines :snapshots :auth.login/flow] (per
+;; The machine snapshot lives at [:rf.runtime/machines :snapshots :auth.login/flow] (per
 ;; Spec 005). These named subs project out the convenient pieces. The
 ;; "in :submitting?" / "in :authed?" predicates moved to the
 ;; `:rf/machine-has-tag?` framework sub in views below (per Spec 005
@@ -310,7 +310,7 @@
      :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
   ;; No `dispatch-sync` seed here (unlike counter / dashboard): the
   ;; machine handler is self-initialising — its `:initial`/`:data` seed
-  ;; [:rf/runtime :machines :snapshots :auth.login/flow] when the flow first runs (per
+  ;; [:rf.runtime/machines :snapshots :auth.login/flow] when the flow first runs (per
   ;; Spec 005 §Restore semantics), so no separate :initialise is needed.
   (when (exists? js/document)
     (when-not @react-root

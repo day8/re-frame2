@@ -315,8 +315,10 @@ which now defers here as the canonical statement):
 > event + sub ids (`:counter/initialise`, `:counter/inc`, `:counter/dec`,
 > `:counter/value`), the `:auth.login/flow` machine event, the
 > `:auth.login.demo/managed-stub` fx, the `:auth.login/state` /
-> `:auth.login/error` subs, and the
-> `[:rf/runtime :machines :snapshots :auth.login/flow]` app-schema path. It
+> `:auth.login/error` subs, and the `:auth.login/flow` machine's
+> `:data-schema` (the snapshot lives in runtime-db at
+> `[:rf.runtime/machines :snapshots :auth.login/flow]`, validated via
+> `:data-schema`, not `reg-app-schema` — EP-0001). It
 > proves **substrate parity**: byte-for-byte identical events, subs,
 > schemas, machine, and managed-HTTP stub driving three different reactive
 > view layers (Reagent `reg-view`, UIx `defui` + `use-subscribe`, Helix

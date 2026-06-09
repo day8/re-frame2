@@ -8,21 +8,24 @@
    `:cancel`, or unmount) which cascades a teardown to every surviving
    child.
 
-   Two machines run at runtime, and each gets a schema attached via
-   the mechanism that fits HOW the runtime addresses its snapshot:
+   Two machines run at runtime. Machine snapshots live in the framework's
+   runtime-db partition at `[:rf.runtime/machines :snapshots <id>]`, NOT in
+   app-db — and `reg-app-schema` validates the app-db partition only (EP-0001,
+   Mike ruling #11). So both machines validate their snapshot's `:data` via the
+   machine's own `:data-schema` slot, the surface the runtime addresses for
+   runtime-db-resident snapshots:
 
-   - `:work/flow`       — the parent coordinator, a singleton at a
-                          fixed id. Its snapshot lives at the fixed
-                          path `[:rf/runtime :machines :snapshots
-                          :work/flow]`, so `FlowSnapshot` is attached
-                          with `rf/reg-app-schema` on that path.
+   - `:work/flow`       — the parent coordinator, a singleton at the fixed
+                          id `:work/flow`. `FlowData` is attached via its
+                          `:data-schema` slot on `reg-machine`.
    - `:work/processor`  — the child machine type. Each child is
                           spawned via `:spawn-all` and gets a gensym'd
                           id (e.g. `:work/processor#0`) assigned by the
                           runtime at spawn time, so its snapshot lives
-                          at an UNKNOWN path that varies per instance.
-                          A fixed `reg-app-schema` path cannot reach it.
-                          Instead, `ProcessorData` is attached via the
+                          at an UNKNOWN runtime-db path that varies per
+                          instance — another reason `:data-schema` (not a
+                          fixed path) is the right surface. `ProcessorData`
+                          is attached via the
                           child machine's `:data-schema` slot on `reg-machine`
                           (see `worker.cljs`), which validates each spawned
                           instance's initial `:data` at spawn time, before
@@ -35,8 +38,8 @@
    recovery row 7 — `:where :machine-data` for the child)."
   (:require [re-frame.core :as rf]
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
-            ;; Loading the ns here registers its late-bind hooks so
-            ;; rf/reg-app-schema resolves below.
+            ;; Loading the ns here registers its late-bind hooks so the
+            ;; machines' `:data-schema` slots are validated at runtime.
             [re-frame.schemas]))
 
 ;; ============================================================================
@@ -62,14 +65,16 @@
 ;;               :outcome    <:complete | :cancelled | :error | nil>}
 ;;    :tags     #{...}}                       ;; runtime-owned union
 
-(def FlowSnapshot
+;; The parent snapshot's `:data` slot. The surrounding snapshot (`:state`,
+;; `:tags`) is runtime-owned; the machine `:data-schema` describes `:data`
+;; only (Spec 005 §Schema validation). Attached via the `:data-schema` slot
+;; on `(reg-machine :work/flow ...)` in `worker.cljs`.
+(def FlowData
   [:map
-   [:state [:enum :idle :working :complete :cancelled :error]]
-   [:data  [:map
-            [:total    :int]
-            [:shards   [:vector :keyword]]
-            [:progress ProgressMap]
-            [:outcome  [:maybe [:enum :complete :cancelled :error]]]]]])
+   [:total    :int]
+   [:shards   [:vector :keyword]]
+   [:progress ProgressMap]
+   [:outcome  [:maybe [:enum :complete :cancelled :error]]]])
 
 ;; ============================================================================
 ;; CHILD :data SHAPE — :work/processor (one instance per shard)
@@ -99,16 +104,12 @@
    [:rf/spawn-id  {:optional true} :any]])
 
 ;; ============================================================================
-;; SCHEMA REGISTRATION
+;; SCHEMA ATTACHMENT
 ;; ============================================================================
 ;;
-;; `:work/flow` is a singleton at a fixed id, so its full snapshot is
-;; attached on the fixed snapshot path. (The `:work/processor` children
-;; are attached via the machine `:data-schema` slot in `worker.cljs` — see the
-;; ns docstring for why a fixed path cannot reach a gensym'd-id snapshot.)
-
-;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db state, not app-db —
-;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
-;; schemas validate the app-db partition only, Mike ruling #11). The
-;; machine's own `:data-schema` is the snapshot-validation surface, so the
-;; vestigial app-schema reg is removed.
+;; Both machines attach their `:data` schema via the machine `:data-schema`
+;; slot in `worker.cljs` — `FlowData` on `:work/flow`, `ProcessorData` on
+;; `:work/processor`. There is no `reg-app-schema` here: machine snapshots
+;; live in the runtime-db partition, and `reg-app-schema` validates the
+;; app-db partition only (EP-0001, Mike ruling #11). `:data-schema` is the
+;; snapshot-validation surface for runtime-db-resident machine state.

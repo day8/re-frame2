@@ -149,7 +149,7 @@
     ;; Terminal action: dispatch the parent's :on-child-done keyword.
     ;; The runtime intercepts the event at the parent's machine
     ;; boundary and updates the join state at
-    ;;   [:rf/runtime :machines :spawned :work/flow [:working] :done]
+    ;;   [:rf.runtime/machines :spawned :work/flow [:working] :done]
     ;; The second-position arg is the user-supplied shard id (e.g.
     ;; :s1) so the parent can address which child completed.
     (fn action-dispatch-done [{:keys [data]}]
@@ -224,7 +224,7 @@
 ;; parent has no per-child bookkeeping in :data beyond the aggregated
 ;; :progress map (the user wants to see it; the runtime doesn't read
 ;; it). The :children / :done / :failed / :resolved? join-state map
-;; lives in app-db under [:rf/runtime :machines :spawned :work/flow [:working]] — runtime
+;; lives in runtime-db under [:rf.runtime/machines :spawned :work/flow [:working]] — runtime
 ;; owned per Spec 005 §Spawn-id tracking.
 
 (def shards
@@ -248,6 +248,11 @@
              :shards   shards
              :progress (zipmap shards (repeat 0))
              :outcome  nil}
+
+   ;; Validates the snapshot's :data slot. The snapshot lives in runtime-db
+   ;; ([:rf.runtime/machines :snapshots :work/flow]), so :data-schema — not
+   ;; an app-schema — is the validation surface (EP-0001, Mike ruling #11).
+   :data-schema schema/FlowData
 
    :actions
    {:reset-progress
@@ -313,7 +318,7 @@
       :join             :all
       ;; The keywords children dispatch back. The runtime intercepts
       ;; events whose inner-event-id matches these and updates the
-      ;; join-state at [:rf/runtime :machines :spawned :work/flow [:working]].
+      ;; join-state at [:rf.runtime/machines :spawned :work/flow [:working]].
       :on-child-done    :work/child-done
       :on-child-error   :work/child-error
       ;; The events the runtime dispatches into the parent when the

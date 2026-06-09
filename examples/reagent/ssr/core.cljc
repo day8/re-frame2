@@ -123,17 +123,23 @@
     (assoc db :articles value)))
 
 ;; The runtime ships a default :rf/hydrate handler that uses the locked
-;; :replace-app-db policy (per Spec 011 §The :rf/hydrate event): server is
-;; authoritative for the initial client app-db. We re-register here only to
-;; document the contract for the example's readers — the body matches the
-;; runtime default. If you wanted client-only transient state to survive
-;; hydration, this is the place you'd switch to an explicit merge in the
-;; order *you* want — but the default is replace, and that's the spec lock.
+;; :replace-frame-state policy (per Spec 011 §The :rf/hydrate event): server is
+;; authoritative for the initial client frame-state. Hydration installs a whole
+;; frame-state — the payload's :rf/app-db (app-db partition) AND :rf/runtime-db
+;; (the serializable runtime-db projection: machine snapshots, route slice, …)
+;; — in one atomic transition. We re-register here only to document the contract
+;; for the example's readers; the body matches the runtime default. (This
+;; example carries no machines and doesn't hydrate the route, so its
+;; :rf/runtime-db is empty — but the shape is the same one a richer app uses.)
+;; If you wanted client-only transient state to survive hydration, this is the
+;; place you'd switch to an explicit merge — but the default is replace, and
+;; that's the spec lock.
 (rf/reg-event-fx :rf/hydrate
-  {:doc       "Seed the client-side app-db from the server-supplied payload."
+  {:doc       "Install a coherent frame-state (app-db + serializable runtime-db) from the server payload."
    :platforms #{:client}}
-  (fn handler-rf-hydrate [_ [_ {:rf/keys [app-db version schema-digest]}]]
-    {:db app-db                                     ;; replace, not merge
+  (fn handler-rf-hydrate [_ [_ {:rf/keys [app-db runtime-db version schema-digest]}]]
+    {:db            app-db                          ;; app-db partition (replace, not merge)
+     :rf.db/runtime (or runtime-db {})              ;; runtime-db partition (replace, not merge)
      :fx (cond-> [[:rf.ssr/check-version version]]
            schema-digest (conj [:rf.ssr/check-schema-digest schema-digest]))}))
 
@@ -218,7 +224,8 @@
                   :platform  :server
                   :on-create [:rf/server-init]})]
        (rf/with-frame f
-         (let [final-db (rf/app-db-value f)
+         (let [final-db      (rf/app-db-value f)        ;; app-db partition
+               final-runtime (rf/runtime-db-value f)    ;; runtime-db partition (serializable)
                hiccup   ((rf/view :app/root))
                  ;; render-to-string with :emit-hash? embeds
                  ;; data-rf-render-hash="<hex>" on the root element. The
@@ -234,7 +241,8 @@
                  render-hash (rf/render-tree-hash hiccup)
                  payload  {:rf/version     1
                            :rf/frame-id    f
-                           :rf/app-db      final-db
+                           :rf/app-db      final-db        ;; app-db partition
+                           :rf/runtime-db  final-runtime   ;; serializable runtime-db projection
                            :rf/render-hash render-hash}]
              {:status  200
               :headers {"Content-Type" "text/html"}
@@ -295,12 +303,13 @@
      ;; default-adapter registry — each adapter ns exports an `adapter`
      ;; var the consumer requires and passes here.
      (rf/init! reagent-adapter/adapter)
-     ;; If the page was server-rendered, `:rf/hydrate` replaces app-db with
-     ;; the payload's :rf/app-db slice (locked :replace-app-db policy per
-     ;; Spec 011 §The :rf/hydrate event). On a "client-only" load (no
-     ;; payload script), :ssr/client-bootstrap runs as a no-op and the page
-     ;; renders the empty-articles fallback. Hydrate BEFORE first render so
-     ;; the initial render runs against the seeded app-db.
+     ;; If the page was server-rendered, `:rf/hydrate` installs the server's
+     ;; frame-state — the payload's :rf/app-db and :rf/runtime-db slices
+     ;; (locked :replace-frame-state policy per Spec 011 §The :rf/hydrate
+     ;; event). On a "client-only" load (no payload script),
+     ;; :ssr/client-bootstrap runs as a no-op and the page renders the
+     ;; empty-articles fallback. Hydrate BEFORE first render so the initial
+     ;; render runs against the seeded frame-state.
      (if-let [payload (read-server-payload)]
        (rf/dispatch-sync [:rf/hydrate payload])
        (rf/dispatch-sync [:ssr/client-bootstrap]))

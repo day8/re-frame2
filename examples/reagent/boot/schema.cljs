@@ -80,7 +80,7 @@
 ;; BOOT-MACHINE SNAPSHOT
 ;; ============================================================================
 ;;
-;; The boot machine lives at [:rf/runtime :machines :snapshots :app/boot]. Its `:state`
+;; The boot machine lives in runtime-db at [:rf.runtime/machines :snapshots :app/boot]. Its `:state`
 ;; cycles `:configuring → :loading-deps → :hydrating → :ready`
 ;; (terminal), with `:failed` (terminal) reached if any child errors.
 ;; `:data` carries the per-phase progress slot and the loaded payloads.

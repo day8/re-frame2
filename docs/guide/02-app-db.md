@@ -104,37 +104,50 @@ New readers ask this within the first hour: "Okay, but where does X go in app-db
 
 - **Form state.** A form is a state machine in a trenchcoat — `:draft`, `:status`, per-field errors — and it lives under `[:forms <form-id>]`. [Chapter 11 — Forms](11-forms.md) covers the seven-event lifecycle.
 
-- **State machines.** Each active machine occupies a slot at `[:rf/runtime :machines :snapshots <machine-id>]`. The slot is **runtime-managed** — you read it through subscriptions, you don't reach in and write it. [Chapter 12 — Machines](12-machines.md) is the chapter.
+- **State machines.** Each active machine's snapshot is **runtime-managed** — you read it through subscriptions, you don't reach in and write it — and it lives in a separate partition (next section), not in app-db. [Chapter 12 — Machines](12-machines.md) is the chapter.
 
-- **Route state.** A URL-bound frame keeps its route under `[:rf/runtime :routing :current]`, also runtime-managed. [Chapter 19 — Routing](19-routing.md) is where the URL-as-state story lives.
+- **Route state.** A URL-bound frame's route is also runtime-managed and also lives in that separate partition. [Chapter 19 — Routing](19-routing.md) is where the URL-as-state story lives.
 
-That word **runtime-managed** is worth flagging now, because it's the one exception to "app-db is entirely yours." A single root key — `:rf/runtime` — is where the framework keeps the slices it maintains *for* you (machines under `[:rf/runtime :machines]`, routing under `[:rf/runtime :routing]`, elision under `[:rf/runtime :elision]`, and so on). They live in app-db (so they're inspectable, diffable, time-travellable like everything else — the property doesn't get a carve-out), but you don't write to them directly; you read them through subscriptions and you change them by dispatching the events the relevant feature provides. The `:rf/runtime` key is the signal: that's framework territory. [Chapter 21 — The dynamic model](21-dynamic-model.md) is the deep dive on these "read but don't write" slices. Everything *without* the `:rf/` prefix is yours to shape.
+The two examples above point at the one place "app-db is entirely yours" needs a footnote — and it turns out it isn't a footnote *inside* app-db at all.
 
-## One concrete map, so it's not abstract
+## app-db is yours; the framework's runtime state lives next door
 
-Here's app-db for a small but real app — a counter, a logged-in user, a draft form, plus the runtime-managed bits — so you can see all of the above in one picture:
+There is exactly one category of state that is in re-frame2 but is **not** yours: the bookkeeping the framework maintains *for* a running process — a state machine's snapshot, the active route slice, the wire-elision registry, the metadata SSR hydration needs. It's real state, it's per-frame, and it has to be inspectable and time-travellable like everything else. But it is *not* application data, and you must not hand-edit it (chapter 21 is the whole "read but don't write" story).
+
+The clean way to keep that promise is to not put it in app-db in the first place. A frame holds **two partitions**:
+
+- **app-db** — the `:db` you already know. It holds your application data and **nothing else**. Every `reg-event-db` handler receives and returns app-db; an ordinary `:db` effect replaces app-db.
+- **runtime-db** — the framework's partition. Machine snapshots, the route slice, elision declarations, SSR hydration metadata — all the runtime-managed slices live here, addressed under reserved `:rf.runtime/*` keys (`:rf.runtime/machines`, `:rf.runtime/routing`, `:rf.runtime/elision`). You never write it through `:db`; the relevant feature writes it, and you read it through that feature's subscriptions.
+
+Why two partitions and not one map with a reserved key? Because a single map invites a footgun: a handler returning a fresh `{:user ...}` from `:db` would silently wipe a machine snapshot or the route if those lived under a key in the same map. With runtime-db a *separate* partition, an ordinary `:db` return replaces **only** app-db — runtime-db is a partition your handler never holds, so it cannot be clobbered by accident. The boundary is structural, not a rule you have to remember.
+
+It pays a second dividend, and it's the one this whole framework keeps cashing: once app-db holds nothing but application data, a schema over app-db (chapter 08) describes a *pure* application contract — no framework noise mixed in — which is exactly the legible-to-a-human-or-an-agent shape the rest of the guide is built around.
+
+The two compose into a **frame-state** value — `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}` — and that composite is what survives the wire, reverts on time-travel, and hydrates from SSR as one coherent unit. Day to day you almost never name it: you write events against app-db, you read runtime-managed slices through subscriptions, and the partition seam is invisible. It only surfaces when a tool, a test, or the SSR boot path needs the whole frame at once.
+
+## One concrete picture, so it's not abstract
+
+Here's a frame for a small but real app — a counter, a logged-in user, a draft form (all yours, in app-db), plus the runtime-managed bits (in runtime-db) — so you can see the partition in one shot:
 
 ```clojure
-{;; --- user feature: state you own ---
- :user    {:id      42
+;; app-db — your application data, and nothing else
+{:user    {:id      42
            :name    "Mike"
            :session :active}
 
- ;; --- counter feature: state you own ---
  :counter {:n       5
            :history [5 4 3 2 1]}
 
- ;; --- form feature: the standard forms slice ---
  :forms   {:profile/edit
            {:draft     {:name "Mike T."}
             :status    :draft
-            :submitted nil}}
+            :submitted nil}}}
 
- ;; --- runtime-managed slots: you read, you don't write ---
- :rf/runtime {:routing  {:current {:route-id :home :params {} :query {}}}
-              :machines {:snapshots {}}}}
+;; runtime-db — the framework's partition; you read it, you don't write it
+{:rf.runtime/routing  {:current {:route-id :home :params {} :query {}}}
+ :rf.runtime/machines {:snapshots {}}}
 ```
 
-It's a map. It has nested maps. Every event handler in the app reads from some part of it and returns a new version of the whole thing. Every subscription reads from it. Every view derives from a subscription. You can `pprint` the whole thing, diff it against yesterday's, snapshot it, restore it. The logged-in user, the counter and its history, the half-typed form, the current route — the entire app, as one value you can hold in your hand.
+Both are maps. Both are immutable values. Every event handler reads from app-db and returns a new app-db; every subscription reads app-db (or, for the runtime-managed slices, reads runtime-db through a framework sub). You can `pprint` either one, diff it against yesterday's, snapshot it, restore it. The logged-in user, the counter and its history, the half-typed form, the current route, every live machine — the entire app, as two values you can hold in your hand, with a clean line between the part you own and the part the framework keeps for you.
 
 That's app-db. One sentence, and you've just read all of its consequences. The next chapter takes the counter from chapter 01 and rebuilds it for real, in a project on your own machine, so you can watch this map move under your own hands instead of borrowing mine.

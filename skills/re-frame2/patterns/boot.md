@@ -115,16 +115,16 @@ Each link is a Pattern-AsyncEffect interaction. Past three links, scatter wins; 
 
 **The retry-ownership boundary.** Mixed transport-vs-semantic retry — e.g. auth machine handling 401-then-refresh-then-retry — sits at the boundary between `:rf.http/managed :retry` (transport: backoff + attempt count) and machine transitions (semantic: refresh-then-loop-back-to `:loading-me`). Both compose. See `patterns/managed-http.md`.
 
-**Boot UI — single signal.** Subscribe and render against the snapshot:
+**Boot UI — single signal.** The snapshot lives in the **runtime-db** partition, so derive from the framework `:rf/machine` sub (which reads runtime-db) rather than reaching into a partition layer-1 subs don't see:
 
 ```clojure
-(rf/reg-sub :app.boot/phase (fn [db _] (get-in db [:rf/runtime :machines :snapshots :app/boot :data :phase])))
-(rf/reg-sub :app.boot/state (fn [db _] (get-in db [:rf/runtime :machines :snapshots :app/boot :state])))
+(rf/reg-sub :app.boot/phase :<- [:rf/machine :app/boot] (fn [snap _] (get-in snap [:data :phase])))
+(rf/reg-sub :app.boot/state :<- [:rf/machine :app/boot] (fn [snap _] (:state snap)))
 ```
 
 No parallel `:loading?` flag — the machine's state IS the UI signal.
 
-**SSR handoff.** `:rf/server-init` runs server-meaningful phases. Client-only phases (`:hydrating` from `localStorage`, `:ws/connect`) skipped via `:platforms #{:client}`. Server writes `[:rf/runtime :machines :snapshots :app/boot :state] = :hydrating` (or `:routing`) into hydrated `app-db`; client restores per Spec 005 and resumes. No double-fetch of `/config`.
+**SSR handoff.** `:rf/server-init` runs server-meaningful phases. Client-only phases (`:hydrating` from `localStorage`, `:ws/connect`) skipped via `:platforms #{:client}`. The server's machine snapshot rides the hydration payload's serializable runtime-db projection — `[:rf.runtime/machines :snapshots :app/boot :state] = :hydrating` (or `:routing`) — and the client installs it as part of the frame-state on `:rf/hydrate`, then resumes per Spec 005. No double-fetch of `/config`.
 
 **Re-boot.** Dispatch a wildcard parent event: `:auth.session/expired {:target :authenticating}`. Most apps reload the page on session expiry.
 

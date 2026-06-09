@@ -12,13 +12,12 @@
   (:require [re-frame.core :as rf]
             #?(:cljs [cljs.reader :as reader])))
 
-(def ssr-slice-keys
-  "Top-level user-domain slices the SSR payload exports. `:rf/runtime`
-  carries the framework-owned subsystem trees (routing, machines, elision)
-  — its current-route slice + machine snapshots are part of the hydration
-  payload per rf2-eguy4 phase-A."
-  [:rf/runtime
-   :auth
+(def ssr-app-slice-keys
+  "Top-level **app-db** slices the SSR payload exports. These are
+  application data only — the framework-owned subsystem trees (routing,
+  machines, elision) live in the separate runtime-db partition, not here
+  (EP-0001 two-partition frame), and ride the payload under :rf/runtime-db."
+  [:auth
    :articles
    :article
    :comments
@@ -29,19 +28,37 @@
    :editor
    :comment-form])
 
-(defn exportable-db [db]
+(def ssr-runtime-keys
+  "The serializable **runtime-db** children the SSR payload exports so the
+  client starts from the server's route + machine state. The current-route
+  slice + machine snapshots are durable runtime-db facts; transient runtime
+  state (host handles, in-flight HTTP) is excluded."
+  [:rf.runtime/routing
+   :rf.runtime/machines])
+
+(defn exportable-app-db [app-db]
   ;; Secrets do not cross the SSR seam. The bearer JWT lives at
   ;; [:auth :token]; embedding it in server-rendered HTML would leak a
   ;; live credential into page source (view-source-visible, proxy-logged,
   ;; CDN-cacheable). Redact it at the payload boundary — the client
   ;; re-derives the token from localStorage on hydrate via
   ;; `:auth/initialise` (auth.cljs), so dropping it here costs nothing.
-  (cond-> (select-keys db ssr-slice-keys)
-    (contains? db :auth) (update :auth dissoc :token)))
+  (cond-> (select-keys app-db ssr-app-slice-keys)
+    (contains? app-db :auth) (update :auth dissoc :token)))
 
-(defn hydration-payload [db render-tree]
+(defn exportable-runtime-db [runtime-db]
+  ;; Project only the durable, serializable runtime-db children — route slice
+  ;; and machine snapshots — so the client resumes from the server's route
+  ;; and any machines mid-flow.
+  (select-keys runtime-db ssr-runtime-keys))
+
+(defn hydration-payload
+  "Build the two-partition hydration payload from a frame-state value
+  (`{:rf.db/app … :rf.db/runtime …}`, e.g. `(rf/frame-state-value frame-id)`)."
+  [{:rf.db/keys [app runtime]} render-tree]
   {:rf/version     1
-   :rf/app-db      (exportable-db db)
+   :rf/app-db      (exportable-app-db app)
+   :rf/runtime-db  (exportable-runtime-db runtime)
    :rf/render-hash (rf/render-tree-hash render-tree)})
 
 #?(:cljs

@@ -18,12 +18,21 @@ Most apps never touch any of this — a single-frame app just calls `rf/dispatch
 | One-off explicit routing (`dispatch`) | `{:frame …}` trailing opt on `dispatch` / `dispatch-sync` |
 | One-off explicit routing (`subscribe`) | leading `frame-id` arg — `(rf/subscribe :frame-id query-v)` (NOT a `{:frame …}` opt) |
 | Read a frame's app-db / its id | `app-db-value` / `current-frame-id` |
+| Read a frame's runtime-db / whole frame-state (tools, SSR) | `runtime-db-value` / `frame-state-value` |
+| Install state from outside a cascade (tools, tests, SSR) | `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!` |
 
 A `reg-view` body needs none of these for ordinary dispatch / subscribe — the macro injects frame-aware `dispatch` and `subscribe` locals automatically. A plain (non-`reg-view`) Reagent / UIx / Helix fn that needs to dispatch asks for `(rf/frame-handle)`. An arbitrary async callback uses `frame-bound-fn`.
 
 ## What a frame is
 
-A **frame** is an isolated runtime boundary: its own `app-db`, its own router queue, its own sub-cache. Frames are identified by keywords. Every re-frame2 app has at least one — `:rf/default` — registered automatically on `init!`.
+A **frame** is an isolated runtime boundary holding **two durable partitions** plus its own router queue and sub-cache. Frames are identified by keywords. Every re-frame2 app has at least one — `:rf/default` — registered automatically on `init!`.
+
+The two partitions:
+
+- **app-db** (`:db`) — the application's data, and nothing else. Every `reg-event-db` handler receives and returns app-db; an ordinary `:db` effect replaces app-db only.
+- **runtime-db** (`:rf.db/runtime`) — the framework's partition: machine snapshots at `[:rf.runtime/machines :snapshots]`, the route slice at `[:rf.runtime/routing :current]`, elision declarations at `[:rf.runtime/elision]`, SSR metadata. Reserved **by convention** under `:rf.runtime/*` keys. App code reads it through framework subs (`sub-machine`, `[:rf.route/*]`), never through `:db`; it's a separate partition, so a fresh `:db` return can't clobber a machine or the route by accident.
+
+Together they compose a **frame-state** value: `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. The composite is what serialises for SSR, reverts on time-travel, and hydrates as one unit. `reg-app-schema` validates the app-db partition only — keep teaching it as "the app-db schema"; it describes a *pure* application contract with no framework state mixed in.
 
 Frames are mutable runtime objects, not values. User code holds keywords and lets the framework resolve them.
 
@@ -38,14 +47,23 @@ Frames are mutable runtime objects, not values. User code holds keywords and let
 
 ;; Destroy / reset.
 (rf/destroy-frame! :frame-id)
-(rf/reset-frame!   :frame-id)        ;; destroy + re-register with same config
+(rf/reset-frame!   :frame-id)        ;; destroy + re-register: clears BOTH partitions, re-fires :on-create
+                                     ;; (for app-db-only reset that keeps live machines/routes: reset-app-db!)
 
 ;; Inspect.
 (rf/current-frame-id)               ;; returns the active frame id
-(rf/app-db-value :frame-id)             ;; current app-db VALUE (plain map, no deref)
+(rf/app-db-value :frame-id)         ;; current app-db partition VALUE (plain map, no deref)
+(rf/runtime-db-value :frame-id)     ;; current runtime-db partition VALUE (tools / privileged runtime)
+(rf/frame-state-value :frame-id)    ;; {:rf.db/app … :rf.db/runtime …} — the whole frame (SSR / epoch / tools)
+
+;; Install from outside a cascade (tools / tests / SSR — NOT app code).
+(rf/replace-app-db!     :frame-id app-db)        ;; replace ONLY app-db (state injection)
+(rf/reset-app-db!       :frame-id)               ;; app-db → {}, runtime-db (live machines/routes) preserved
+(rf/replace-runtime-db! :frame-id runtime-db)    ;; replace ONLY runtime-db
+(rf/replace-frame-state! :frame-id frame-state)  ;; replace BOTH partitions atomically (full-frame install)
 ```
 
-Verified in `re-frame.frame` (`reg-frame`, `make-frame`, `destroy-frame!`). The public macro layer is in `re-frame.core`.
+Verified in `re-frame.frame` (`reg-frame`, `make-frame`, `destroy-frame!`). The public macro layer is in `re-frame.core`. The partition mutators replace the former `reset-frame-db!` — `replace-app-db!` is its direct rename; `replace-frame-state!` is the distinct full-frame surface so a db-shaped name never silently overwrites runtime-db.
 
 ## Frame resolution chain
 
