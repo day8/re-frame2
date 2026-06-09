@@ -72,7 +72,18 @@
              #?@(:cljs [:include-macros true])]
             [re-frame.core-call-site-macros  :as csm]
             [re-frame.core-reg-view-macro    :as rvm]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            ;; NOTE: re-frame.substrate.plain-atom is deliberately NOT
+            ;; required here. It carries no ns-load side-effect that core
+            ;; needs — its only load-time effect is the CLJS
+            ;; `:adapter/add-on-dispose!` / `:adapter/dispose!` route-hook!
+            ;; block, which is keyed on the adapter being the
+            ;; `(rf/init! ...)`-installed one and so is inert unless a
+            ;; consumer installs plain-atom. `rf/init!` takes the adapter
+            ;; map directly (no default-adapter registry), so consumers
+            ;; that want the plain-atom path require the ns themselves and
+            ;; pass `plain-atom/adapter` — eagerly pulling it into the
+            ;; facade would ship JVM/SSR adapter code into every consumer
+            ;; (rf2-1mdvlv).
             #?@(:cljs [[re-frame.views :as views]]))
   ;; The macros are defined in this ns's `#?(:clj ...)` blocks below.
   ;; CLJS users see them under `rf/<name>` via this self-`:require-
