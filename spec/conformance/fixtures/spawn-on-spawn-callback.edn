@@ -68,12 +68,15 @@
    :snapshot     {:state :idle :data {}}
    :event        [:go]
    ;; After entering :working, the desugared spawn fx fires. The
-   ;; on-spawn callback runs but cannot mutate `:data` — the parent's
-   ;; `:data` stays {}. The in-snapshot counter at `:rf/spawn-counter`
-   ;; records the bumped value (the runtime's deterministic allocator
-   ;; per rf2-gr8q).
+   ;; on-spawn callback runs but cannot mutate `:data` (its return is
+   ;; dropped) — so the parent's USER-domain `:data` carries no callback
+   ;; write. Per rf2-rc8wci the RUNTIME binds the assigned actor id into the
+   ;; parent's `:data` under the reserved per-invoke map :rf/spawned
+   ;; (XState-context parity) — {[:working] :http/post#1}. The in-snapshot
+   ;; counter at `:rf/spawn-counter` records the bumped value (the runtime's
+   ;; deterministic allocator per rf2-gr8q).
    :expect-next-snapshot {:state            :working
-                          :data             {}
+                          :data             {:rf/spawned {[:working] :http/post#1}}
                           :rf/spawn-counter {:http/post 1}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :data          {:url "/api/x"}

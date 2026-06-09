@@ -60,8 +60,14 @@
      :error  {}}}
    :snapshot     {:state :idle :data {}}
    :event        [:start]
+   ;; Per rf2-rc8wci: a :spawn-all binds the WHOLE {<child-id> <spawned-id>}
+   ;; map into the parent's :data under :rf/spawned, keyed by the shared
+   ;; invoke-id `[:hydrating]` (XState-context parity; all N children
+   ;; recorded under the one key, no clobber).
    :expect-next-snapshot {:state            :hydrating
-                          :data             {}
+                          :data             {:rf/spawned {[:hydrating] {:cfg  :load-config#1
+                                                                        :flag :load-feature-flags#1
+                                                                        :user :load-user-profile#1}}}
                           :rf/spawn-counter {:load-config        1
                                              :load-feature-flags 1
                                              :load-user-profile  1}}

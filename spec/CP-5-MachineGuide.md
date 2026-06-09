@@ -212,6 +212,7 @@ For readers familiar with xstate, the explicit list of where re-frame2 chose dif
 | xstate | re-frame2 | Why |
 |---|---|---|
 | `ActorRef` runtime objects | Snapshots at `[:rf.runtime/machines :snapshots <id>]` in runtime-db | Data orientation; agent-friendliness; no leak footguns |
+| `const ref = spawn(child)` captured into `context`, then `stopChild(ref)` | The declarative `:spawn` reducer binds the assigned id into the parent's `:data` under `:rf/spawned` (rf2-rc8wci); an action reads `(get-in data [:rf/spawned <invoke-id>])` and emits `[:rf.machine/destroy <id>]` | Same capability (an action holding the id of an actor it spawned) but the id rides the revertible, SSR-survivable snapshot rather than a live mutable ref — no leak footgun, and `restore-epoch` reverts it for free |
 | Per-actor mailboxes | One per-frame router queue | Simpler model; drain at the frame level is the granularity that matters |
 | `raise` (self-event) vs `sendTo` (other-actor) | Single `dispatch`; `:raise` is sugar for self-dispatch with atomic semantics | One pipeline; no per-actor mailbox to put events at the front of |
 | Three creation modes (`createActor` / `invoke` / `spawn`) | One mechanism, two patterns (singleton via `reg-event-fx`; dynamic via the `[:rf.machine/spawn ...]` fx) | Lifetime is encoded in the runtime-db snapshot shape and registration lifetime |

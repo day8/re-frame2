@@ -375,6 +375,40 @@
         n     (get-in snap' [:rf/spawn-counter machine-id])]
     [snap' (format-spawn-id machine-id n)]))
 
+(defn- bind-spawned-id-into-parent-data
+  "Per rf2-rc8wci — bind a declaratively-`:spawn`'d actor's assigned id into
+  the SPAWNING (parent) machine's own `:data`, at spawn-time, under the
+  reserved per-invoke map `:rf/spawned`: `{:rf/spawned {<invoke-id> <spawned-id>}}`.
+
+  This is the re-frame2 spelling of XState v5's `spawn(...)`-into-`context`
+  capture: an action can later read its own `:data` to obtain the id of an
+  actor it spawned and emit `[:rf.machine/destroy <id>]` — a clean first-class
+  path with NO external-atom side-channel and no runtime-db reverse-index
+  coupling. It is the REVERSE direction of the child-lineage stamps the
+  spawn-fx writes onto a spawned CHILD's own `:data` (`:rf/self-id` /
+  `:rf/parent-id` / `:rf/spawn-id`, per Spec 005 §Runtime stamps): here the
+  PARENT captures the CHILD's id, keyed by the SAME `<invoke-id>` the child
+  records under `:rf/spawn-id` and the runtime tracks at
+  `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`.
+
+  Keyed by `invoke-id` (the absolute prefix-path of the `:spawn`-bearing
+  state node) rather than a single lossy 'last-spawned' slot so a parent that
+  spawns from several distinct `:spawn`-bearing states never clobbers an
+  earlier binding. The per-invoke VALUE is:
+
+    - single `:spawn` — the bare `<spawned-id>` keyword;
+    - `:spawn-all`     — a `{<child-id> <spawned-id>}` map (the per-child id
+      keyed by the `:children`-map `:id`), mirroring the join-state's
+      `:children` so all N children under the one shared `<invoke-id>` are
+      recorded without clobber.
+
+  The write threads through the parent's snapshot like `:rf/spawn-counter`, so
+  it reverts atomically with the cascade and survives `pr-str` / `read-string`
+  and SSR. Always-written on a declarative spawn (cheap, predictable — no
+  opt-in)."
+  [snap invoke-id spawned-id-or-children]
+  (assoc-in snap [:data :rf/spawned invoke-id] spawned-id-or-children))
+
 ;; ---- state-path helpers (hierarchical) ------------------------------------
 ;;
 ;; Per Spec 005 §State paths and §Entry/exit cascading along the LCA, the
@@ -2063,7 +2097,15 @@
             s'       (apply-on-spawn machine s-alloc spawn-spec id)]
         (if (result/fail? s')
           (reduced (result/fail-with s' {:spawn-id invoke-id}))
-          [s' (into acc-fx spawn-fx)])))))
+          ;; Per rf2-rc8wci — bind the assigned actor id into the parent's
+          ;; own `:data` under `[:rf/spawned <invoke-id>]` (XState-context
+          ;; parity). Threaded onto the parent snapshot AFTER the advisory
+          ;; `:on-spawn` ran (the bind never depends on `:on-spawn`, which
+          ;; cannot carry the id back — its return is dropped, rf2-grw4i /
+          ;; rf2-v0rrr) so a later action can read the id and imperatively
+          ;; `[:rf.machine/destroy <id>]` with no external-atom side-channel.
+          [(bind-spawned-id-into-parent-data s' invoke-id id)
+           (into acc-fx spawn-fx)])))))
 
 (defn- handle-spawn-all-decl
   "Handle the `:spawn-all` branch of the spawn reducer in
@@ -2154,7 +2196,12 @@
                  children-with-ids)]
         (if (result/fail? s')
           (reduced s')
-          [s' (-> acc-fx (conj init-fx) (into spawn-fxs-r))])))))
+          ;; Per rf2-rc8wci — bind the `:spawn-all`'s children id-map into the
+          ;; parent's own `:data` under `[:rf/spawned <invoke-id>]` (the whole
+          ;; `{<child-id> <spawned-id>}` map, mirroring the join-state's
+          ;; `:children`), so an action can read it without an external atom.
+          [(bind-spawned-id-into-parent-data s' invoke-id children-map)
+           (-> acc-fx (conj init-fx) (into spawn-fxs-r))])))))
 
 (defn final-state-node?
   "Per Spec 005 §Final states (rf2-gn80): true iff the state-node declares
