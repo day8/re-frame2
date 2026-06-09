@@ -40,24 +40,38 @@
 
 (declare hydrate-event-handler*)
 
+(defn- slice-malformed-reason
+  "Reason string for a PRESENT-but-non-map partition slice (`:rf/app-db`
+  or `:rf/runtime-db`). Factored out so both partition checks fail closed
+  identically (Spec 011 §The :rf/hydrate event — \"Both partitions
+  validate fail-closed before installation\")."
+  [slice-key slice-val]
+  (str "the :rf/hydrate payload's " slice-key " slice is not a map (got "
+       (cond (nil? slice-val) "nil"
+             :else (pr-str (type slice-val)))
+       "); hydration rejected — the client frame-state is left unchanged"))
+
 (defn- malformed-hydration-payload!
-  "Fail-CLOSED guard for the `:rf/hydrate` boundary (rf2-gro94). The
-  payload is a DESERIALISED, UNTRUSTED transport input (the server's
+  "Fail-CLOSED guard for the `:rf/hydrate` boundary (rf2-gro94, rf2-g00l2t).
+  The payload is a DESERIALISED, UNTRUSTED transport input (the server's
   `pr-str`'d EDN, round-tripped through `cljs.reader/read-string` at the
-  boot site). `:replace-app-db` is the locked merge policy (Spec 011 §The
-  :rf/hydrate event), so the resolved `:rf/app-db` becomes the ENTIRE
-  client app-db. Blindly installing a non-map slice (a string, vector,
+  boot site). `:replace-frame-state` is the locked merge policy (Spec 011
+  §The :rf/hydrate event), so the resolved `:rf/app-db` becomes the ENTIRE
+  client app-db AND the resolved `:rf/runtime-db` becomes the runtime-db
+  partition. Blindly installing a non-map slice (a string, vector,
   number — a corrupt / hostile / version-skewed payload) silently coerces
   the malformed input to a successful hydration: the same fail-OPEN class
   the schemas / routing sweeps closed at their boundaries.
 
-  Returns a `:rf.error/*` reason string when `payload` is not a map, or
-  when the `:rf/app-db` slice KEY is present but its value is not a map
-  (incl. an explicit nil / false / non-collection); nil when the payload
-  is structurally acceptable (a map, with the `:rf/app-db` key either
-  absent or carrying a map). A wholly-ABSENT app-db slice key is NOT
-  malformed — it is the documented client-only / no-server-slice shape
-  that falls back to the existing `db`."
+  Per Spec 011 §The :rf/hydrate event BOTH partitions validate fail-closed
+  before installation: returns a `:rf.error/*` reason string when `payload`
+  is not a map, or when EITHER the `:rf/app-db` OR `:rf/runtime-db` slice
+  KEY is present but its value is not a map (incl. an explicit nil / false /
+  non-collection); nil when the payload is structurally acceptable (a map,
+  with each partition key either absent or carrying a map). A wholly-ABSENT
+  app-db / runtime-db slice key is NOT malformed — it is the documented
+  client-only / no-server-slice first-load shape that falls back to the
+  existing partition value."
   [payload]
   (cond
     (not (map? payload))
@@ -72,10 +86,18 @@
     ;; no-server-slice fallback and is NOT flagged here).
     (and (contains? payload :rf/app-db)
          (not (map? (:rf/app-db payload))))
-    (str "the :rf/hydrate payload's :rf/app-db slice is not a map (got "
-         (cond (nil? (:rf/app-db payload)) "nil"
-               :else (pr-str (type (:rf/app-db payload))))
-         "); hydration rejected — the client app-db is left unchanged")
+    (slice-malformed-reason :rf/app-db (:rf/app-db payload))
+
+    ;; The `:rf/runtime-db` slice KEY is present but its value is not a
+    ;; map. EP-0001 (rf2-vzld77): hydration installs a coherent
+    ;; FRAME-STATE — `:rf/runtime-db` becomes the runtime-db partition
+    ;; (machine snapshots, route slice, SSR metadata). A present-but-non-map
+    ;; runtime-db is rejected the same way as app-db (rf2-g00l2t closed the
+    ;; fail-OPEN where it was silently coerced to nil and dropped). A
+    ;; wholly-absent key is the legitimate no-server-runtime fallback.
+    (and (contains? payload :rf/runtime-db)
+         (not (map? (:rf/runtime-db payload))))
+    (slice-malformed-reason :rf/runtime-db (:rf/runtime-db payload))
 
     :else nil))
 
@@ -131,6 +153,11 @@
         ;; payload-runtime-db→partition install.) The base for the metadata
         ;; merge is the payload slice when present, else the existing
         ;; runtime-db coeffect.
+        ;; A present-but-non-map :rf/runtime-db is already REJECTED by the
+        ;; fail-closed guard (rf2-g00l2t), so by the time we get here `pr`
+        ;; is either absent (nil → no-server-runtime fallback) or a map.
+        ;; The `(when (map? pr) pr)` is a belt-and-braces no-op on the
+        ;; validated path.
         payload-rt    (let [pr (:rf/runtime-db payload)] (when (map? pr) pr))
         runtime-base  (or payload-rt runtime-db {})
         ;; Declarative hydration-metadata construction — additive,
