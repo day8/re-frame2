@@ -1860,6 +1860,78 @@
       (is (= {} (rf/app-schemas))
           "no schemas registered on the active frame"))))
 
+;; ---- rf2-naihn1 #2 — bulk-input false-green --------------------------------
+;;
+;; THE BUG (pre-fix): `reg-app-schemas` never checked that its first
+;; argument is a `{path -> schema}` map. In Clojure `(keys nil)` is `nil`
+;; and iterating `nil`/non-maps yields no entries, so `(reg-app-schemas
+;; nil)` ran the up-front path sweep as a no-op, registered nothing, and
+;; returned `[]` — INDISTINGUISHABLE from the documented `{}` no-op. A
+;; boot/config/schema-loader bug passing `nil` (or any non-map) got a
+;; FALSE GREEN: schema enforcement silently disabled for the whole batch.
+;;
+;; THE FIX: reject nil / non-map FIRST, before any store mutation, with
+;; the explicit error id `:rf.error/bad-app-schemas-batch`. `{}` stays
+;; the documented empty no-op (covered by the test above).
+;;
+;; NEGATIVE CONTROL: each rejecting case asserts the schema registry was
+;; NOT mutated (the throw fires before the `swap!`), so the bad batch is
+;; truly atomic-reject, not half-applied.
+
+(deftest reg-app-schemas-rejects-nil-batch
+  ;; rf2-naihn1 #2 — the load-bearing regression: pre-fix `(reg-app-schemas
+  ;; nil)` returned `[]` (false green); post-fix it MUST throw.
+  (testing "rf/reg-app-schemas rejects a nil first argument (not a silent no-op)"
+    (let [before @schemas/schemas-by-frame]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo #":rf.error/bad-app-schemas-batch"
+            (rf/reg-app-schemas nil))
+          (str "nil batch must reject with :rf.error/bad-app-schemas-batch, "
+               "not silently no-op to [] (the false-green this bead fixes)"))
+      (is (= before @schemas/schemas-by-frame)
+          (str "negative control: a rejected nil batch must NOT mutate the "
+               "schema registry (throw fires before any swap!)")))))
+
+(deftest reg-app-schemas-carries-error-id-on-nil
+  (testing "the rejection ex-info carries the :rf.error/id error category"
+    (let [ex (try (rf/reg-app-schemas nil) nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "nil batch threw")
+      (is (= :rf.error/bad-app-schemas-batch
+             (:rf.error/id (ex-data ex)))
+          "ex-data carries the explicit error category")
+      (is (= nil (:received (ex-data ex)))
+          "ex-data echoes the rejected first argument"))))
+
+(deftest reg-app-schemas-rejects-non-map-batches
+  ;; Representative non-map first arguments. Each previously iterated to
+  ;; zero entries and returned [] (or, for a seq-of-pairs, would have
+  ;; attempted to register garbage); all must now atomically reject.
+  (testing "rf/reg-app-schemas rejects representative non-map first arguments"
+    (doseq [bad [[]                          ; empty vector
+                 [[:a] :int]                 ; flat vector that LOOKS like one entry
+                 [[[:a] :int]]               ; a seq of [path schema] pairs
+                 "schemas"                   ; a string
+                 :a                          ; a keyword
+                 42                          ; a number
+                 #{[:a]}]]                   ; a set
+      (testing (str "non-map arg " (pr-str bad))
+        (let [before @schemas/schemas-by-frame]
+          (is (thrown-with-msg?
+                clojure.lang.ExceptionInfo #":rf.error/bad-app-schemas-batch"
+                (rf/reg-app-schemas bad))
+              (str (pr-str bad) " must reject as a non-map batch"))
+          (is (= before @schemas/schemas-by-frame)
+              (str "negative control: rejected batch " (pr-str bad)
+                   " must NOT mutate the schema registry")))))))
+
+(deftest reg-app-schemas-empty-map-still-no-op-post-fix
+  ;; Pin that the fix did NOT regress the documented `{}` no-op: the
+  ;; empty map is a map, so it passes the new shape gate and returns [].
+  (testing "rf/reg-app-schemas {} remains the documented no-op returning []"
+    (is (= [] (rf/reg-app-schemas {})))
+    (is (= {} (rf/app-schemas)))))
+
 ;; ---- rf2-ieu0i — :schema canonical ---------------------------------------
 ;;
 ;; Per Mike's decision at rf2-ieu0i the framework collapses the dual
