@@ -181,9 +181,12 @@
       (marks/clear-machine-schema-marks! spawned-id)
       (is (nil? (marks/marks-for :event spawned-id))
           "marks cleared (destroy simulation)")
-      ;; Simulate restore-epoch's app-db revert: re-seed the captured snapshot
-      ;; into runtime-db. restore-epoch reverts app-db ONLY — it does NOT
-      ;; re-run the spawn bridge, so the marks are still absent at this point.
+      ;; Simulate restore-epoch's frame-state revert: re-seed the captured
+      ;; snapshot into runtime-db (the partition machine snapshots live in
+      ;; post-EP-0001). restore-epoch reverts the WHOLE frame-state — both
+      ;; partitions — but it does NOT re-run the spawn bridge, so the
+      ;; per-instance marks (which live in the marks artefact's own table,
+      ;; outside frame-state) are still absent at this point.
       (frame/swap-runtime-db! :rf/default
                               (fn [rt] (assoc-in rt (paths/snapshot-path spawned-id) live-snap)))
       (is (nil? (marks/marks-for :event spawned-id))

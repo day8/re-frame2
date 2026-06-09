@@ -886,8 +886,10 @@
   Per rf2-egvm4t this is ALSO the restore/replay REHYDRATION seam for a
   spawned actor's per-instance `:data-schema` marks. The destroy / finalize /
   frame-teardown lifecycle clears those marks (so a destroyed actor leaves no
-  marks residue), and `restore-epoch` reverts app-db only — it brings the
-  snapshot back but does NOT re-run the spawn bridge. The first dispatch to a
+  marks residue), and `restore-epoch` (since EP-0001) reverts the WHOLE
+  frame-state — both partitions — so it brings the runtime-db snapshot back
+  but does NOT re-run the spawn bridge that originally declared the marks. The
+  first dispatch to a
   restored (or replayed) actor hits THIS cold path (no registered handler),
   so re-running the bridge here under `actor-id` rehydrates the marks from the
   restored snapshot's resolved spec (`:data-schema`) in lock-step with the
