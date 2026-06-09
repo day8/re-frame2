@@ -84,13 +84,30 @@ before the bounded allowlists run.** Concretely:
     allowlist is derived from the same effective args the render uses.
   - the object-form `register-variant` `:body` is keywordised by
     `coerce-body` only **behind the `--allow-writes` operator gate** and
-    only **after** the rf2-g9fje depth cap, so the intern is bounded by
-    both an operator gate and a depth ceiling (the `fresh-keyword`
-    policy). The EDN-string body path is unchanged (the hardened
+    only **after** the rf2-g9fje depth cap AND the rf2-tag30h **width
+    cap** (`max-body-string-keys`, total string-key count across the
+    tree), so the intern is bounded by an operator gate, a depth ceiling,
+    AND a width ceiling. The depth cap alone bounds nesting but not the
+    number of distinct unknown string keys a shallow object can carry —
+    a wide body would intern a fresh keyword per key before the registrar
+    rejected it. The EDN-string body path is unchanged (the hardened
     `clojure.edn` reader yields keyword data directly).
+  - the fresh **id** a write path mints — `register-variant`'s
+    `:variant-id` and `record-as-variant`'s write-back `:new-variant-id`
+    — is validated against the canonical `:story.<path>/<name>` grammar
+    on the STRING shape (`mcp-base.args/fresh-keyword-checked` +
+    `re-frame.story.schemas/variant-id-shape?`, single-sourced with the
+    keyword-level `variant-id?`) BEFORE interning (rf2-tag30h). The
+    earlier `fresh-keyword` interned first and let the registrar's
+    downstream `assert-id!` reject on grammar — but that reject ran AFTER
+    the intern, so an invalid id (which correctly returned an MCP error)
+    still permanently grew the keyword table. The pre-intern shape check
+    fails closed with no intern: a rejected id leaves the keyword table
+    unchanged.
 
 This closes the input-side vector. The output-side egress scrubbing
-(rf2-12f2q) is a separate concern documented with the result envelope.
+(rf2-12f2q, pre-frame hardening rf2-tag30h) is a separate concern
+documented with the result envelope.
 
 ## Protocol version pin
 

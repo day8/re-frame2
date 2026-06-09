@@ -317,6 +317,57 @@
         (keyword name-part)))
     :else nil))
 
+(def ^:private default-fresh-keyword-max-len
+  "Upper bound on the combined `ns` + `name` character count a
+  `fresh-keyword-checked` id may carry before it is rejected WITHOUT
+  interning. A keyword id is a short symbolic label; a multi-kilobyte
+  string is not a legitimate id and minting it would grow the JVM
+  keyword table by an arbitrarily large slot. 512 is generous for any
+  real `:story.<path>/<name>` while still capping the per-attempt cost."
+  512)
+
+(defn fresh-keyword-checked
+  "Like `fresh-keyword`, but validate the DECOMPOSED `[ns-part name-part]`
+  string shape against `shape-ok?` (and a length cap) BEFORE interning —
+  so an id that fails the caller's grammar leaves NO keyword in the JVM
+  table (rf2-tag30h). Returns the interned keyword on success, or `nil`
+  when the input is nil / blank / over-long / fails `shape-ok?` (the
+  caller maps `nil` to its own structured error).
+
+  `fresh-keyword` interns first and lets a downstream registrar reject on
+  grammar — but the reject happens AFTER the intern, so a hostile or
+  malfunctioning client can permanently grow the keyword table through
+  failed write attempts even though each correctly returns an error. The
+  grammar check must run on the STRING shape, before the keyword is
+  constructed. `shape-ok?` receives `[ns-part name-part]` (either may be
+  `nil` for a bare name) and returns truthy iff the id is admissible.
+
+  `:max-len` (default 512) caps the combined `ns`+`name` length — a
+  defence against a single enormous-id intern even when the grammar
+  itself is permissive.
+
+  On CLJS keywords are not interned in the JVM-table sense, so the
+  growth concern does not apply; the same shape gate runs for behavioural
+  parity (a malformed id is rejected identically on both hosts)."
+  ([v shape-ok?] (fresh-keyword-checked v shape-ok? default-fresh-keyword-max-len))
+  ([v shape-ok? max-len]
+   (cond
+     (keyword? v)
+     (when (shape-ok? [(namespace v) (name v)]) v)
+
+     (nil? v) nil
+
+     (string? v)
+     (when-let [[ns-part name-part] (normalise-keyword-string v)]
+       (let [len (+ (count (or ns-part "")) (count (or name-part "")))]
+         (when (and (<= len max-len)
+                    (shape-ok? [ns-part name-part]))
+           (if ns-part
+             (keyword ns-part name-part)
+             (keyword name-part)))))
+
+     :else nil)))
+
 (defn parse-mode
   "Normalise a possibly-string MCP arg into one of a small set of
   mode keywords. Accepts strings (`\"diff\"`/`\"full\"` etc),

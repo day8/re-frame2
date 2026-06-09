@@ -261,7 +261,7 @@ RESOLVES author args into runtime VALUES, so the value-bearing slots
 replies / `:db-seed` / `:sub-overrides` override values / `:setup-order`
 + `:script-order` step payloads) are value-redacted against the variant
 frame's declared-sensitive values at egress (rf2-12f2q, rf2-q8ebq.1) via
-the shared `egress/scrub-frame-value` step — the SAME value-based
+the shared `egress/scrub-explain-values` step — the SAME value-based
 redaction the live tools apply. The remaining plan-STRUCTURE slots
 (`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
 `:strict-conflicts` / `:tags` / …) are author-published discovery
@@ -269,6 +269,17 @@ metadata and pass through unredacted. Pass `:include-sensitive true`
 to opt out (gated by `--allow-sensitive-reads`, same posture as
 `preview-variant`). See [`002-Tool-Registry.md`](002-Tool-Registry.md)
 §`explain-variant` for the full value-vs-structure split.
+
+**Pre-frame egress (rf2-tag30h).** `explain-variant` is a no-run path: a
+caller can read it BEFORE any `run-variant` / `preview-variant` allocates
+the variant frame. The live-app-db reader yields no candidate secrets
+when the frame is unallocated, so the egress ALSO derives candidate
+secrets from the plan's OWN `:db-seed` slot at the variant's
+declared-sensitive PATHS (read straight from schema storage, which is
+keyed by frame id and exists pre-allocation). A secret authored into
+`:db-seed` and re-surfaced in `:effective-args` / `:network` / a step
+payload is therefore redacted even with no live frame — the no-run
+privacy contract holds fail-closed.
 
 **Errors.** `isError: true` when `:variant-id` is not registered.
 

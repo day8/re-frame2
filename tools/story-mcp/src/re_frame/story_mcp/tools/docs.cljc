@@ -327,16 +327,18 @@
   `variant-id`'s declared-sensitive values (rf2-12f2q). Plan-structure
   slots pass through untouched — they are author-published discovery
   metadata. `include?` opts out (the `--allow-sensitive-reads` + per-call
-  escape hatch)."
+  escape hatch).
+
+  Delegates to `egress/scrub-explain-values`, which collects candidate
+  secrets from BOTH the live variant-frame app-db AND the plan's own
+  `:db-seed` slot. The plan-`:db-seed` source is the FAIL-CLOSED pre-frame
+  path (rf2-tag30h): `explain-variant` is a no-run path a caller can hit
+  before any run allocates the frame, so a secret authored into `:db-seed`
+  (and re-surfaced in `:effective-args` / `:network` / a step payload)
+  must be value-matched against the plan's own seed, not just a live
+  app-db that does not yet exist."
   [explain variant-id include?]
-  (if (or include? (nil? explain))
-    explain
-    (reduce (fn [m k]
-              (cond-> m
-                (contains? m k)
-                (update k egress/scrub-frame-value variant-id include?)))
-            explain
-            explain-value-bearing-slots)))
+  (egress/scrub-explain-values explain variant-id explain-value-bearing-slots include?))
 
 (defn tool-explain-variant
   "Docs: the variant-plan `:explain` projection for a variant — the SAME

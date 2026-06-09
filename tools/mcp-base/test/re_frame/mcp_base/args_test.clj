@@ -1,6 +1,6 @@
 (ns re-frame.mcp-base.args-test
   "Tests for the shared MCP argument-coercion helpers (rf2-vw4sq)."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-base.args :as args]))
 
 ;; ---------------------------------------------------------------------------
@@ -198,6 +198,51 @@
     (is (= (keyword novel-name) (args/fresh-keyword novel-name)))
     (is (some? (find-keyword novel-name))
         "fresh-keyword MUST intern — that's the entire point of the primitive")))
+
+;; ---------------------------------------------------------------------------
+;; fresh-keyword-checked — grammar-gated intern (rf2-tag30h). Validates the
+;; STRING shape BEFORE interning so a rejected id leaves NO keyword.
+;; ---------------------------------------------------------------------------
+
+(deftest fresh-keyword-checked-interns-only-on-valid-shape
+  ;; A `[ns name]` predicate that demands a `story.`-prefixed namespace.
+  (let [shape-ok? (fn [[ns nm]] (and (string? ns)
+                                     (string? nm)
+                                     (pos? (count nm))
+                                     (= ns "story.x")))]
+    (testing "a valid-shape novel id interns and returns the keyword"
+      (let [valid "story.x/tag30h-checked-valid"]
+        (is (nil? (find-keyword "story.x" "tag30h-checked-valid"))
+            "precondition: not interned")
+        (is (= :story.x/tag30h-checked-valid
+               (args/fresh-keyword-checked valid shape-ok?)))
+        (is (some? (find-keyword "story.x" "tag30h-checked-valid"))
+            "a valid id DOES intern — the gate only blocks the invalid ones")))
+    (testing "an invalid-shape novel id returns nil and interns NOTHING"
+      (let [invalid "not-story/tag30h-checked-invalid"]
+        (is (nil? (find-keyword "not-story" "tag30h-checked-invalid"))
+            "precondition: not interned")
+        (is (nil? (args/fresh-keyword-checked invalid shape-ok?)))
+        (is (nil? (find-keyword "not-story" "tag30h-checked-invalid"))
+            "a rejected id MUST NOT leave an interned keyword")))))
+
+(deftest fresh-keyword-checked-length-cap-rejects-without-interning
+  (let [shape-ok? (constantly true)               ; grammar permissive
+        long-name (apply str "story.x/" (repeat 600 "z"))]
+    (is (nil? (args/fresh-keyword-checked long-name shape-ok? 512))
+        "an over-long id is rejected by the length cap")))
+
+(deftest fresh-keyword-checked-nil-and-non-string-return-nil
+  (let [shape-ok? (constantly true)]
+    (is (nil? (args/fresh-keyword-checked nil shape-ok?)))
+    (is (nil? (args/fresh-keyword-checked 42 shape-ok?)))
+    (is (nil? (args/fresh-keyword-checked [:foo] shape-ok?)))))
+
+(deftest fresh-keyword-checked-passes-through-valid-keyword
+  (let [shape-ok? (fn [[ns _]] (= ns "story.x"))]
+    (is (= :story.x/already (args/fresh-keyword-checked :story.x/already shape-ok?)))
+    (is (nil? (args/fresh-keyword-checked :not-story/already shape-ok?))
+        "a keyword failing the shape predicate is rejected too")))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-mode
