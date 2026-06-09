@@ -51,8 +51,14 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
+  ;; EP-0002 (rf2-5q7um6): reg-flow / reg-app-schema are context-required
+  ;; frame-local — an ambient call under no scope raises
+  ;; :rf.error/no-frame-context. Pin :rf/default (an ordinary frame) as the
+  ;; established scope for the body.
+  (frame/ensure-default-frame!)
   (let [captured (atom [])]
-    (binding [*captured* captured]
+    (binding [*captured*           captured
+              frame/*current-frame* :rf/default]
       (trace/register-listener!
         ::schema-violation-recorder
         (fn [ev]

@@ -23,6 +23,7 @@
   clojure.spec port) needs to be able to plug into the digest
   pipeline without re-implementing it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
             [re-frame.schemas.validator :as validator]))
 
@@ -31,7 +32,16 @@
   ;; are framework-wide; restore the defaults around each test so
   ;; sibling tests are not poisoned.
   (schemas/reset-schema-validator!)
-  (try (test-fn)
+  ;; EP-0002 (rf2-5q7um6): the digest-seam tests register schemas via
+  ;; reg-app-schema, which is now context-required frame-local. Pin
+  ;; :rf/default as the established scope so those ambient registrations
+  ;; carry a frame stamp (no :rf/default floor). No `ensure-default-frame!`
+  ;; here — these tests install no adapter; `reg-app-schema` only needs the
+  ;; carried STAMP (it writes the plain `schemas-by-frame` atom), and the
+  ;; schema-derived elision-populate step no-ops when the frame has no live
+  ;; runtime-db container.
+  (try (binding [frame/*current-frame* :rf/default]
+         (test-fn))
        (finally (schemas/reset-schema-validator!))))
 
 (use-fixtures :each reset)

@@ -65,7 +65,7 @@
             [re-frame.flows]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ----------------------------------------------------------------------------
 ;; Constants
@@ -160,6 +160,11 @@
 ;; app-db (incl. :input, :a-result, :b-result, :c-result) is frozen at
 ;; tick N-1's committed value.
 
+;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local; a bare
+;; ns-load call raises :rf.error/no-frame-context. This testbed hosts on
+;; :rf/default, so name it explicitly for all three flows.
+(with-frame :rf/default
+
 (rf/reg-flow
   {:id     ::flow-a
    :inputs [[:input]]
@@ -228,7 +233,7 @@
              (+ a b))
    :path   [:c-result]
    :doc    "Sums :a-result + :b-result. Watches :flow-a and
-            :flow-b's outputs."})
+            :flow-b's outputs."}))
 
 ;; ----------------------------------------------------------------------------
 ;; Tick handler — the cascade engine
