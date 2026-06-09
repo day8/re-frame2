@@ -121,7 +121,7 @@
             ;; testbed reuses `root` + `steps` with its own per-frame
             ;; host-frame + run-step events.
             [runner.core :as runner])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; APP-DB SEED
@@ -174,7 +174,11 @@
 ;; schema-violation issue survives in Xray's Issues lens.
 
 (def AuthSlice [:map [:token :string]])
-(rf/reg-app-schema [:auth] AuthSlice)
+;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; bare ns-load call raises :rf.error/no-frame-context. This testbed's deck
+;; hosts on :rf/default (see `host-frame` below), so name it explicitly.
+(with-frame :rf/default
+  (rf/reg-app-schema [:auth] AuthSlice))
 
 ;; ============================================================================
 ;; COEFFECT — :standard-epochs/now  (button #2)
@@ -271,12 +275,15 @@
 ;; changed. Button #5 bumps `:base`; App-db shows `:derived` recompute
 ;; and Trace shows the flow run.
 
-(rf/reg-flow
-  {:id     :standard-epochs/derived
-   :inputs [[:base]]
-   :output (fn [base] (* 2 (or base 0)))
-   :path   [:derived]
-   :doc    "Derived = 2 × :base. Recomputes on the post-handler flows pass."})
+;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local; name the
+;; :rf/default host frame explicitly for this ns-load registration.
+(with-frame :rf/default
+  (rf/reg-flow
+    {:id     :standard-epochs/derived
+     :inputs [[:base]]
+     :output (fn [base] (* 2 (or base 0)))
+     :path   [:derived]
+     :doc    "Derived = 2 × :base. Recomputes on the post-handler flows pass."}))
 
 ;; ============================================================================
 ;; EVENTS — the button ladder
@@ -802,9 +809,14 @@
   (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
   ;; Single, plain frame — no URL machinery, no history listener (there is
-  ;; no routing here). The default frame is the one Xray reads. Mount the
+  ;; no routing here). The host frame is the one Xray reads. Mount the
   ;; standalone wrapper (header + the parameterised `root`) on the
-  ;; `:rf/default` host-frame with the `standard-epochs` testid prefix and
-  ;; the deck's run-step event. The runner cursor lives in app-db `:step`.
-  (rf/dispatch-sync [:standard-epochs/reset])
-  (rdc/render react-root [standalone]))
+  ;; host-frame with the `standard-epochs` testid prefix and the deck's
+  ;; run-step event. The runner cursor lives in app-db `:step`.
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — register the host frame, scope the boot dispatch, and wrap
+  ;; the render in a `frame-provider` (the carried invariant).
+  (rf/reg-frame host-frame {})
+  (rf/with-frame host-frame
+    (rf/dispatch-sync [:standard-epochs/reset]))
+  (rdc/render react-root [rf/frame-provider {:frame host-frame} [standalone]]))

@@ -98,11 +98,20 @@
              mount-node (make-mount-node!)
              root       (react-dom-client/createRoot mount-node)]
          (try
-           (act-fn
-             (fn []
-               (.render root
-                 (r/as-element
-                   (sub-overrides/override-provider overrides [login-panel])))))
+           ;; EP-0002 (rf2-9o48ih): `login-panel` is a plain Reagent fn (no
+           ;; `:contextType` wiring), so its `subscribe` resolves the frame from
+           ;; the dynamic-var tier, not React context. The Story override-
+           ;; provider carries sub-overrides, NOT a frame scope. Bind the
+           ;; ambient `:rf/default` frame around the synchronous `act` render so
+           ;; the view's subscribe resolves a frame (the fixture already ensured
+           ;; the `:rf/default` frame exists) instead of raising
+           ;; :rf.error/no-frame-context.
+           (binding [frame/*current-frame* :rf/default]
+             (act-fn
+               (fn []
+                 (.render root
+                   (r/as-element
+                     (sub-overrides/override-provider overrides [login-panel]))))))
            (let [text (.-textContent mount-node)]
              (is (re-find #"error" text)
                  "the pinned :error state surfaces in the rendered DOM")
@@ -123,12 +132,16 @@
              root       (react-dom-client/createRoot mount-node)]
          (try
            ;; nil overrides → the Provider is render-transparent; the view
-           ;; reads the real (default nil → idle) subscription.
-           (act-fn
-             (fn []
-               (.render root
-                 (r/as-element
-                   (sub-overrides/override-provider nil [login-panel])))))
+           ;; reads the real (default nil → idle) subscription. EP-0002
+           ;; (rf2-9o48ih): bind the ambient `:rf/default` frame around the
+           ;; render so the plain-fn view's subscribe resolves a frame via the
+           ;; dynamic-var tier (the override-provider carries no frame scope).
+           (binding [frame/*current-frame* :rf/default]
+             (act-fn
+               (fn []
+                 (.render root
+                   (r/as-element
+                     (sub-overrides/override-provider nil [login-panel]))))))
            (let [text (.-textContent mount-node)]
              (is (re-find #"idle" text)
                  "no override → the real idle state renders")
@@ -147,6 +160,11 @@
        (rf/reg-sub :login/message (fn [db _] (get-in db [:login :message])))
        ;; Seed a REAL app-db value distinct from the override.
        (rf/reg-event-db ::seed (fn [_ _] {:login {:state :ok}}))
+       ;; EP-0002 (rf2-9o48ih): the dispatch + the plain-fn view's subscribe
+       ;; both need a carried frame. Bind the ambient `:rf/default` scope
+       ;; (the fixture ensured the frame exists) around the seed dispatch and
+       ;; the synchronous `act` render so neither raises no-frame-context.
+       (binding [frame/*current-frame* :rf/default]
        (rf/dispatch-sync [::seed])
        (let [overrides  {[:login/state] :error}
              mount-node (make-mount-node!)
@@ -164,4 +182,4 @@
              (is (not= :error (subs/compute-sub [:login/state] {:login {:state :ok}}))
                  "the override can never satisfy a sub-equals assertion"))
            (finally
-             (try (.unmount root) (catch :default _ nil)))))))))
+             (try (.unmount root) (catch :default _ nil))))))))))

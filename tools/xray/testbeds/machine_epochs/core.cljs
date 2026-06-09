@@ -940,10 +940,18 @@
 (defn ^:export run []
   (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — register the SHELL frame explicitly and scope the boot
+  ;; dispatches to it. The per-track machine frames are reg-frame'd inside
+  ;; the `:machine-epochs/select` handler (a real cascade — `*handler-scope*`
+  ;; bound), so each track's `:on-create` async-queues correctly. The
+  ;; render is wrapped in a `frame-provider` on the shell frame.
+  (rf/reg-frame shell-frame {})
   ;; Seed the SHELL frame's bookkeeping, then auto-select the default track so
   ;; the operator lands on a live arc (the SHELL-FRAME-FIRST-PAINT smaller
   ;; call) rather than an empty shell. The select creates + boots the door
   ;; frame and re-points Xray at it.
-  (rf/dispatch-sync [:machine-epochs/seed])
-  (rf/dispatch-sync [:machine-epochs/select default-track])
-  (rdc/render react-root [root]))
+  (rf/with-frame shell-frame
+    (rf/dispatch-sync [:machine-epochs/seed])
+    (rf/dispatch-sync [:machine-epochs/select default-track]))
+  (rdc/render react-root [rf/frame-provider {:frame shell-frame} [root]]))

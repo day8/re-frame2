@@ -803,20 +803,30 @@
 
 ;; ---- frame-handle (the keystone) + frame-aware closures ------------------
 ;;
-;; `current-frame-id` exposes the 3-tier resolution chain (dynamic var →
-;; React context → `:rf/default`), single-sourced through
-;; `frame/resolve-current-frame`. `frame-handle` is the keystone: a
-;; per-frame OPERATION BUNDLE (`{:frame :dispatch :dispatch-sync
-;; :subscribe}`) captured at CREATION time, so its ops survive async
-;; boundaries that unwind the dynamic-var / React-context binding.
+;; `current-frame-id` reads the carried-invariant scope/hold stamp via
+;; `frame/require-current-frame!` (EP-0002): the dynamic `*current-frame*`
+;; var or a React-context frame-provider scope, with NO `:rf/default`
+;; floor — absence raises `:rf.error/no-frame-context`. `frame-handle` is
+;; the keystone: a per-frame OPERATION BUNDLE (`{:frame :dispatch
+;; :dispatch-sync :subscribe}`) captured at CREATION time, so its ops
+;; survive async boundaries that unwind the dynamic-var / React-context
+;; scope. The no-arg `frame-handle` / `frame-bound-fn*` capture forms
+;; capture ONLY when a real scope exists at capture time.
 
 (defn current-frame-id
-  "Return the active frame id at the call site. Resolution chain: dynamic
-  var -> React context (CLJS only, via `:adapter/current-frame` late-
-  bind hook) -> `:rf/default`. A keyword. Per Spec 002 §Reading the
-  frame from React context."
+  "Return the active frame id the in-effect scope carries — a keyword.
+  Resolution is the carried-invariant scope/hold chain via
+  `frame/require-current-frame!` (EP-0002): the dynamic `*current-frame*`
+  stamp or a React-context frame-provider scope (CLJS only, via the
+  `:adapter/current-frame` late-bind hook). There is NO `:rf/default`
+  floor — called under no established scope it raises
+  `:rf.error/no-frame-context` rather than reporting an invented default.
+  This is the context READER form; it is `frame-scoped` and so requires a
+  scope. Per Spec 002 §Resolver surface + §Reading the frame from React
+  context."
   []
-  (frame/resolve-current-frame))
+  (frame/require-current-frame! :current-frame-id
+                                {:where 're-frame.core/current-frame-id}))
 
 (defn make-frame-handle
   "Internal constructor for `frame-handle` (and the `reg-view` injection
@@ -909,8 +919,19 @@
   A per-call `:frame` in the dispatch opts MUST NOT override the
   captured frame — the handle is LOCKED to one frame. It is an
   OPERATION BUNDLE, not a container: read the frame's app-db value via
-  `(rf/app-db-value (:frame handle))`, not the handle itself."
-  ([]         (make-frame-handle (current-frame-id) nil))
+  `(rf/app-db-value (:frame handle))`, not the handle itself.
+
+  EP-0002: the no-arg form captures the scope/hold stamp at CREATION
+  time via `frame/require-current-frame!` — it captures ONLY when a real
+  scope exists at capture time. Capturing outside any scope raises
+  `:rf.error/no-frame-context`, never a captured `:rf/default` (per Spec
+  002 §Resolver surface). Use the 1-arity `(frame-handle frame-id)` to
+  lock a handle to a named frame from outside any scope (the right shape
+  for async callbacks / tools / tests / SSR)."
+  ([]         (make-frame-handle
+                (frame/require-current-frame!
+                  :frame-handle {:where 're-frame.core/frame-handle})
+                nil))
   ([frame-id] (make-frame-handle frame-id nil)))
 
 ;; ---- frame-scope lexical macros ------------------------------------------
@@ -999,9 +1020,17 @@
   realised with `doall` / `mapv` / `into` inside the render scope).
   Reach for `frame-bound-fn*` when you have a genuine async-boundary
   case; reach for `doall` when you have a reactive-tracking case. Per
-  rf2-atqkg the two are not interchangeable."
+  rf2-atqkg the two are not interchangeable.
+
+  EP-0002: the 1-arity form captures the scope/hold stamp at WRAP time
+  via `frame/require-current-frame!` — it captures ONLY when a real scope
+  exists at wrap time. Wrapping outside any scope raises
+  `:rf.error/no-frame-context`, never a captured `:rf/default` (per Spec
+  002 §Resolver surface). Use the 2-arity `(frame-bound-fn* frame-id f)`
+  to bind an explicit frame from outside any scope."
   ([f]
-   (let [frame (current-frame-id)]
+   (let [frame (frame/require-current-frame!
+                 :frame-bound-fn* {:where 're-frame.core/frame-bound-fn*})]
      (fn [& args]
        (binding [frame/*current-frame* frame]
          (apply f args)))))
@@ -1264,13 +1293,18 @@
 
 (defn snapshot-of
   "Return the value at `path` in a frame's app-db — convenience over
-  `(get-in (rf/app-db-value frame-id) path)`. Frame resolution:
-  `(:frame opts)` if supplied, else `(current-frame-id)`. Returns `nil`
-  if the frame is missing or the path resolves to nothing. Per Spec 002
-  §The public registrar query API."
+  `(get-in (rf/app-db-value frame-id) path)`. Frame resolution (EP-0002
+  carried invariant): an explicit `(:frame opts)` override WINS; else the
+  scope/hold stamp via `frame/require-current-frame!`. Returns `nil` if
+  the frame is missing or the path resolves to nothing. A snapshot read
+  under no `:frame` opt and no established scope raises
+  `:rf.error/no-frame-context` rather than reading an invented default.
+  Per Spec 002 §The public registrar query API."
   ([path] (snapshot-of path nil))
   ([path opts]
-   (let [frame-id (or (:frame opts) (current-frame-id))]
+   (let [frame-id (or (:frame opts)
+                      (frame/require-current-frame!
+                        :snapshot-of {:where 're-frame.core/snapshot-of}))]
      (get-in (frame/frame-app-db-value frame-id) path))))
 
 ;; Per rf2-bmzq0: `sub-topology` and `sub-cache-snapshot` live in
@@ -1287,9 +1321,14 @@
      (defn sub-cache
        "Inspect a frame's runtime sub-cache — CLJS-only, returns
        `{query-v {:value v :ref-count n}}`. JVM returns `nil` (cache has no
-       reaction values). No-arg form uses the active frame. Per Spec 002
-       §The public registrar query API."
-       ([] (sub-cache (current-frame-id)))
+       reaction values). No-arg form resolves the scope/hold stamp via
+       `frame/require-current-frame!` (EP-0002) — called under no
+       established scope it raises `:rf.error/no-frame-context` rather than
+       inspecting an invented default. Pass the 1-arity form to inspect a
+       named frame from outside any scope. Per Spec 002 §The public
+       registrar query API."
+       ([] (sub-cache (frame/require-current-frame!
+                        :sub-cache {:where 're-frame.core/sub-cache})))
        ([frame-id]
         (subs/sub-cache-snapshot frame-id)))
 
@@ -1786,13 +1825,20 @@
                     (some? received) (assoc :received received)))))
 
 (defn init!
-  "Idempotent boot — installs a substrate adapter and ensures the
-  `:rf/default` frame exists. Pass the adapter spec map directly (no
-  default-adapter registry; rf2-agql):
+  "Idempotent boot — installs a substrate adapter. Pass the adapter spec
+  map directly (no default-adapter registry; rf2-agql):
     (require '[re-frame.adapter.reagent :as reagent])
     (rf/init! reagent/adapter)
   Non-map / nil raises `:rf.error/no-adapter-specified`. Per Spec 006
-  §Adapter selection at boot."
+  §Adapter selection at boot.
+
+  `init!` does NOT create a `:rf/default` frame. Per Spec 002 §`:rf/default`
+  is an ordinary id (EP-0002), the runtime never synthesises a default
+  frame — frame identity is carried, not found. Declare your app's root
+  frame explicitly (`(rf/reg-frame :app {…})` / `with-frame` / a
+  frame-provider) and dispatch / subscribe within that scope. A small app
+  or test may still choose `:rf/default` as its explicit frame id; the
+  runtime will not infer it."
   [adapter-map]
   (cond
     (nil? adapter-map)        (bad-init-arg! nil)
@@ -1801,7 +1847,6 @@
     (do
       (when-not (adapter/current-adapter)
         (adapter/install-adapter! adapter-map))
-      (frame/ensure-default-frame!)
       nil)))
 
 (defn init-platform

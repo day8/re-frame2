@@ -65,7 +65,7 @@
             [re-frame.flows]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ----------------------------------------------------------------------------
 ;; Constants
@@ -160,6 +160,11 @@
 ;; app-db (incl. :input, :a-result, :b-result, :c-result) is frozen at
 ;; tick N-1's committed value.
 
+;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local; a bare
+;; ns-load call raises :rf.error/no-frame-context. This testbed hosts on
+;; :rf/default, so name it explicitly for all three flows.
+(with-frame :rf/default
+
 (rf/reg-flow
   {:id     ::flow-a
    :inputs [[:input]]
@@ -228,7 +233,7 @@
              (+ a b))
    :path   [:c-result]
    :doc    "Sums :a-result + :b-result. Watches :flow-a and
-            :flow-b's outputs."})
+            :flow-b's outputs."}))
 
 ;; ----------------------------------------------------------------------------
 ;; Tick handler — the cascade engine
@@ -371,5 +376,12 @@
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [::initialise])
-  (rdc/render react-root [root]))
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — `:rf/default` is this testbed's app frame, registered
+  ;; explicitly here (init! installs only the adapter). The boot dispatch
+  ;; runs under the frame scope and the render is wrapped in a
+  ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
+  (rf/reg-frame :rf/default {})
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [::initialise]))
+  (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

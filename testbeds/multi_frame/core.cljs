@@ -212,4 +212,12 @@
   (rf/reg-frame frame-a   {:on-create [::counter-init]})
   (rf/reg-frame frame-b   {:on-create [::counter-init]})
   (rf/reg-frame frame-log {:on-create [::log-init]})
-  (rdc/render react-root [root]))
+  ;; EP-0002 (rf2-9o48ih): `root` is a `reg-view`, so its wrapper resolves
+  ;; a frame at render time for its injected bindings — it must render
+  ;; under a provider. Use a neutral SHELL frame (`:rf/default`) as the
+  ;; root scope; the three per-frame providers nested inside override it
+  ;; for their subtrees, and the cross-bump button still dispatches with an
+  ;; explicit `{:frame frame-a}` (the override wins over this shell scope),
+  ;; so the "dispatch from outside the app providers" intent is preserved.
+  (rf/reg-frame :rf/default {})
+  (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

@@ -779,13 +779,22 @@
   Required keys on the flow map: :id :inputs :output :path.
   Optional: :doc :schema.
 
-  The frame to register against comes from the optional :frame opt;
-  default is (frame/current-frame) — usually :rf/default unless
-  called inside a (with-frame ...) wrapper or under a frame-provider."
+  EP-0002 — flows are CONTEXT-REQUIRED FRAME-LOCAL registration. The
+  frame to register against is the explicit `:frame` opt (the *override*),
+  else the carried-invariant scope chain via `frame/require-current-frame!`
+  (a `with-frame` / frame-provider scope, or a frame `:on-create` hook). A
+  `reg-flow` issued under no established scope and no explicit `:frame`
+  raises the always-on `:rf.error/no-frame-context` (per Spec 002 §Frame
+  target resolution) rather than silently registering against `:rf/default`
+  — namespace-load time is not a reason to synthesise a default frame."
   ([flow] (reg-flow flow {}))
   ([flow {:keys [frame] :as _opts}]
    (validate-flow flow)
-   (let [frame-id (or frame (frame/current-frame))
+   (let [frame-id (or frame
+                      (frame/require-current-frame!
+                        :reg-flow
+                        {:where    'rf/reg-flow
+                         :event-id (:id flow)}))
          flow-id  (:id flow)]
      ;; rf2-zbxvqj: reject registration against a NON-LIVE frame BEFORE any
      ;; state mutates. `frame/frame` returns nil when the frame record is
@@ -1142,7 +1151,12 @@
 
 (defn clear-flow
   "Deregister a flow from a frame; dissoc its output path from that
-  frame's app-db (only that frame). Frame defaults to (current-frame).
+  frame's app-db (only that frame). EP-0002 — context-required
+  frame-local: the explicit `:frame` opt (the *override*) wins, else the
+  carried-invariant scope chain via `frame/require-current-frame!`. A
+  `clear-flow` issued under no established scope and no explicit `:frame`
+  raises `:rf.error/no-frame-context` rather than clearing against
+  `:rf/default`.
 
   Per audit rf2-q25os: the nested-path dissoc is robust against the
   output path never having been materialised (no spurious nil parent
@@ -1160,7 +1174,11 @@
   not the parent's emptiness."
   ([id] (clear-flow id {}))
   ([id {:keys [frame] :as _opts}]
-   (let [frame-id (or frame (frame/current-frame))
+   (let [frame-id (or frame
+                      (frame/require-current-frame!
+                        :clear-flow
+                        {:where    'rf/clear-flow
+                         :event-id id}))
          ;; rf2-4wqu6 finding 2: the flow lookup + `:path` capture MUST
          ;; happen INSIDE the drain-lock, not before it. Pre-fix this
          ;; read the flow and captured `path` ahead of

@@ -565,9 +565,13 @@
   ;; surfaces resolves its classpath-relative `:file` to an on-disk URI.
   (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
-  ;; Seed app-db on the single, plain default frame — no URL machinery.
-  (rf/dispatch-sync [:edn-inspector/reset])
-  (rdc/render react-root [root])
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — register the single, plain host frame, scope the boot
+  ;; dispatch, and wrap the render in a `frame-provider` (carried invariant).
+  (rf/reg-frame host-frame {})
+  (rf/with-frame host-frame
+    (rf/dispatch-sync [:edn-inspector/reset]))
+  (rdc/render react-root [rf/frame-provider {:frame host-frame} [root]])
   ;; Mount the inline Xray sidecar (Epoch + App-db panels) into
   ;; `[data-rf-xray-host]`, standard_epochs-style. `init!` is the public
   ;; manual alternative to the `:preloads` wiring (so no shadow-cljs.edn

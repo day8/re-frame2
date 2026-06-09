@@ -32,6 +32,12 @@
   (reset! schemas/schemas-by-frame {})
   (flows/reset-last-inputs!)
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`.
+  ;; Register it explicitly as an ordinary frame so the registrar-query
+  ;; tests below (which assert `:rf/default` is enumerable) have a real
+  ;; frame to find. `current-frame-id` outside a scope still RAISES — the
+  ;; with-frame tests assert the carried-invariant absence path directly.
+  (frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
@@ -44,15 +50,25 @@
 ;; ===========================================================================
 
 (deftest with-frame-bare-keyword
-  (testing "(with-frame :keyword body) binds *current-frame* across body"
+  (testing "(with-frame :keyword body) binds *current-frame* across body;
+            outside the macro current-frame-id raises :rf.error/no-frame-context
+            (EP-0002 — no :rf/default floor, rf2-jue6sp)"
     (rf/reg-frame :wf/alpha {:doc "alpha"})
-    (is (= :rf/default (rf/current-frame-id))
-        "outside the macro: resolves to :rf/default")
+    ;; Outside the macro: the carried-invariant absence error.
+    (is (= :rf.error/no-frame-context
+           (:rf.error/id (ex-data
+                           (try (rf/current-frame-id) nil
+                                (catch clojure.lang.ExceptionInfo e e)))))
+        "outside the macro: current-frame-id raises rather than defaulting")
     (let [observed (rf/with-frame :wf/alpha (rf/current-frame-id))]
       (is (= :wf/alpha observed)
           "inside the macro body: resolves to the bound id"))
-    (is (= :rf/default (rf/current-frame-id))
-        "after the macro returns: dynamic binding unwinds")))
+    ;; After the macro returns the dynamic binding has unwound — absence again.
+    (is (= :rf.error/no-frame-context
+           (:rf.error/id (ex-data
+                           (try (rf/current-frame-id) nil
+                                (catch clojure.lang.ExceptionInfo e e)))))
+        "after the macro returns: the dynamic binding unwinds, absence raises")))
 
 (deftest with-frame-multi-form-body
   (testing "(with-frame :keyword expr1 expr2 ...) evaluates all body forms,
@@ -98,8 +114,13 @@
           "the body saw the just-created id as current-frame")
       (is (nil? (rf/frame-meta @captured-id))
           "the frame was destroyed on body exit")
-      (is (= :rf/default (rf/current-frame-id))
-          "*current-frame* reverted after the body"))))
+      ;; EP-0002 (rf2-jue6sp): after the body the dynamic scope has
+      ;; unwound — current-frame-id raises rather than reporting :rf/default.
+      (is (= :rf.error/no-frame-context
+             (:rf.error/id (ex-data
+                             (try (rf/current-frame-id) nil
+                                  (catch clojure.lang.ExceptionInfo e e)))))
+          "*current-frame* reverted after the body — absence raises"))))
 
 (deftest with-new-frame-destroys-on-exception
   (testing "(with-new-frame [f ...] body) destroys the frame even when body throws"
@@ -255,8 +276,11 @@
     (let [all (rf/frame-ids)]
       (is (contains? all :fi/alpha))
       (is (contains? all :fi/beta))
+      ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`;
+      ;; the fixture registers it explicitly, and frame-ids enumerates it
+      ;; like any other ordinary frame.
       (is (contains? all :rf/default)
-          "the default frame is always present"))))
+          "the explicitly-registered :rf/default frame is enumerated"))))
 
 (deftest frame-ids-1-arity-filters-by-prefix
   (testing "(frame-ids ns-prefix) returns ids whose keyword namespace

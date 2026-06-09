@@ -140,6 +140,17 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.flows :reload)
+  ;; EP-0002 (rf2-5q7um6): the conformance corpus registers flows and
+  ;; dispatches ambiently against :rf/default; reg-flow + dispatch are now
+  ;; context-required (no :rf/default floor). Register :rf/default as an
+  ;; ordinary frame here so the scope is available — but do NOT pin
+  ;; `*current-frame*` around the whole body: `run-fixture`'s `reg-frame`
+  ;; must run with no in-flight scope so its `:on-create` cascade fires
+  ;; SYNCHRONOUSLY (frame/reg-frame async-queues on-create when
+  ;; `*current-frame*` is bound — Spec 002 §reg-frame from inside a
+  ;; handler). `run-fixture` pins the scope itself, after `reg-frame`,
+  ;; around `realise-flows!` + the dispatch loop.
+  (frame/ensure-default-frame!)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -518,12 +529,23 @@
           ;; registering them before the destroy would wipe them.
           _            (rf/destroy-frame! :rf/default)
           _            (realise-event-sub-fx-handlers fixture)
+          ;; reg-frame runs with NO in-flight scope so its `:on-create`
+          ;; cascade fires SYNCHRONOUSLY (Spec 002 §reg-frame from inside a
+          ;; handler async-queues on-create when `*current-frame*` is bound;
+          ;; EP-0002 / rf2-5q7um6). The carried-invariant scope is pinned
+          ;; AFTER reg-frame, around `realise-flows!` + the dispatch loop.
           _            (if (seq frames-spec)
                          (doseq [f frames-spec]
                            (rf/reg-frame (:id f) (dissoc f :id)))
                          (rf/reg-frame :rf/default frame-config))
-          _            (realise-flows! fixture)
           dispatches   (or (:fixture/dispatches fixture) [])]
+      ;; EP-0002 (rf2-5q7um6): reg-flow + bare single-frame dispatches are
+      ;; context-required frame-local. Pin :rf/default as the established
+      ;; scope for the no-explicit-frame calls below. Multi-frame fixtures
+      ;; pass explicit `{:frame …}` envelopes (the override), which win over
+      ;; this ambient binding.
+      (binding [frame/*current-frame* :rf/default]
+       (realise-flows! fixture)
       ;; Dispatches may be:
       ;;   - a bare event vector (single-frame default)
       ;;   - an envelope map `{:event [...] :frame <id> ...}` (multi-frame,
@@ -545,7 +567,7 @@
               (rf/dispatch-sync event (dissoc opts :event))))
 
           :else
-          (rf/dispatch-sync ev)))
+          (rf/dispatch-sync ev))))
       ;; ---- assertion gathering -----------------------------------------
       (let [expect           (or (:fixture/expect fixture) {})
             expected-db      (:final-app-db expect)

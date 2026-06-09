@@ -57,7 +57,13 @@
   ;; A one-off host event to plant a known db on the observed frame.
   (rf/reg-event-db :test/seed-host-db (fn [_ [_ db]] db))
   (rf/with-frame :rf/default
-    (rf/dispatch-sync [:test/seed-host-db host-db])))
+    (rf/dispatch-sync [:test/seed-host-db host-db]))
+  ;; EP-0002 (rf2-bd4div) — the inspected target no longer defaults to
+  ;; `:rf/default`; select the host frame explicitly so the value sub's
+  ;; observed-frame fallback (`:rf.xray/target-frame-db`) projects from it
+  ;; rather than nil.
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])))
 
 ;; ---- hiccup walk helpers ------------------------------------------------
 

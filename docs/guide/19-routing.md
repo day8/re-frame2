@@ -359,15 +359,15 @@ Path syntax is the primary binding; query strings bind separately via the route'
 
 ### Multi-frame routing
 
-Each frame ([chapter 18](18-frames.md)) may carry its own route slice at `[:rf.runtime/routing :current]` in its own runtime-db — per-frame isolation comes for free, since each frame has its own partition — but **only one frame is URL-bound**:
+Each frame ([chapter 18](18-frames.md)) may carry its own route slice at `[:rf.runtime/routing :current]` in its own runtime-db — per-frame isolation comes for free, since each frame has its own partition — but **only one frame owns the browser URL, and ownership is declared, never inferred**. There is no implicit URL-owning frame: per the carried-frame invariant the runtime will not anchor URL ownership to a conventional default. A frame becomes the URL owner only by declaring `{:url-bound? true}` in its bootstrap config:
 
 | Frame | URL-bound? | Behaviour |
 |---|---|---|
-| `:rf/default` | yes (default) | `:rf.route/navigate` fires `:rf.nav/push-url`; popstate dispatches here; the browser bar reflects this frame's route. |
-| Non-default | no (default) | `:rf.route/navigate` updates the frame's slice but does **not** push the URL. The address bar is untouched. |
-| Non-default with `{:url-bound? true}` | yes (opt-in) | The runtime enforces single ownership — a second URL-bound frame is a `:rf.error/duplicate-url-binding` trace. |
+| declared with `{:url-bound? true}` | yes (explicit) | `:rf.route/navigate` fires `:rf.nav/push-url`; popstate dispatches here; the browser bar reflects this frame's route. The runtime enforces single ownership — a second URL-bound frame is a `:rf.error/duplicate-url-binding` trace. |
+| any other frame | no | `:rf.route/navigate` updates the frame's slice but does **not** push the URL. The address bar is untouched. |
+| no frame declares ownership | no owner | There is no URL owner: outbound `:rf.nav/push-url` / `:rf.nav/replace-url` no-op and the `popstate` listener skips — the runtime never infers a default owner from absence. |
 
-This is what lets a Story variant render *"the cart at `/cart/items/abc` in the loaded state"* without hijacking the page's address bar, lets per-test frames route without ever touching `pushState`, and lets per-request SSR frames take the request URL with no client-side history to worry about.
+In practice your one app frame declares `{:url-bound? true}` at its root. This is what lets a Story variant render *"the cart at `/cart/items/abc` in the loaded state"* without hijacking the page's address bar, lets per-test frames route without ever touching `pushState`, and lets per-request SSR frames take the request URL with no client-side history to worry about.
 
 ### The pure helpers
 

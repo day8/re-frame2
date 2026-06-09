@@ -52,9 +52,19 @@
             [re-frame.views :as views]
             [re-frame2-pair.runtime :as pair]))
 
+;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's default
+;; ambient `*current-frame*` :rf/default scope. The parent/child views are
+;; reg-views whose `subscribe` resolves the frame from the enclosing
+;; `frame-provider` via the React-context tier; the renders run synchronously
+;; inside `flushSync` / `dispatch-and-settle!`, inside the test body's dynamic
+;; extent, so an ambient :rf/default scope would shadow the React-context tier
+;; at tier 1 and the child would never mount. The pure-runtime second test
+;; carries explicit `{:frame …}` on its dispatch, so it does not rely on the
+;; ambient scope either.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+    {:adapter reagent-adapter/adapter
+     :ambient-frame nil}))
 
 (defn- browser? []
   (and (exists? js/document)

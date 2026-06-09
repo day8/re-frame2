@@ -135,9 +135,18 @@
 (defn- render-head*
   "Resolve a normalised opts map and run the registered head fn. The
   caller-facing `render-head` carries the documented two-shape contract
-  on its signature and delegates the work here."
+  on its signature and delegates the work here.
+
+  EP-0002 (rf2-acjknb): the head fn reads the frame's app-db (and, unless
+  `:route` is supplied, the frame's runtime-db route slice), so a frame is
+  the carried target — an absent `:frame` stamp emits + throws
+  `:rf.error/no-frame-context` (no `:rf/default`-against-absence
+  rendering). Per Spec 002 §Frame target resolution."
   [head-id {:keys [frame] :as opts}]
-  (let [route    (if (contains? opts :route)
+  (let [frame    (frame/require-frame-stamp!
+                   frame :rf.ssr/render-head
+                   {:where 'rf/render-head :event-id head-id})
+        route    (if (contains? opts :route)
                    (:route opts)
                    (frame-route frame))
         head-reg (registrar/lookup :head head-id)]
@@ -149,7 +158,9 @@
                        :reason   (str "No head registered under " head-id ".")
                        :recovery :no-recovery})))
     (let [head-fn (:handler-fn head-reg)
-          db      (when frame (frame/frame-app-db-value frame))
+          ;; `frame` is a required non-nil stamp here (require-frame-stamp!
+          ;; above), so the app-db read is unconditional.
+          db      (frame/frame-app-db-value frame)
           model   (head-fn db route)]
       (record-fragment! frame head-id model)
       model)))
@@ -204,22 +215,28 @@
   `render-head` and return the model. Otherwise return the `default-head`
   per Spec 011 §Default head.
 
-  Two arities:
-
-    (active-head)            — uses the default frame `:rf/default`
-                               (matches the call shape in tools / dev
-                               consoles).
     (active-head frame-id)   — explicit frame.
 
+  EP-0002 (rf2-acjknb): head rendering is a frame-scoped read (it reads
+  the frame's runtime-db route slice + app-db), so the frame target is
+  CARRIED — supplied explicitly. The pre-EP no-arg form synthesised
+  `:rf/default` from absence; that ambient floor is removed. A nil
+  `frame-id` is an absent stamp — `require-frame-stamp!` emits + throws
+  the always-on `:rf.error/no-frame-context` rather than rendering the
+  head against a synthesised default frame. Per Spec 002 §Frame target
+  resolution.
+
   Returns the resolved head-model. Per Spec 011 §`render-head`."
-  ([] (active-head :rf/default))
-  ([frame-id]
-   (let [route   (frame-route frame-id)
-         head-id (route-head-id route)]
-     (if head-id
-       ;; The route declares an id but it may not be registered — surface
-       ;; that as :rf.error/no-such-head per Spec 011, but only when the
-       ;; route explicitly opts in. Routes without :head silently fall
-       ;; back to the default per Spec 011 §Default head.
-       (render-head head-id {:frame frame-id :route route})
-       (default-head frame-id)))))
+  [frame-id]
+  (let [frame-id (frame/require-frame-stamp!
+                   frame-id :rf.ssr/active-head
+                   {:where 'rf/active-head})
+        route    (frame-route frame-id)
+        head-id  (route-head-id route)]
+    (if head-id
+      ;; The route declares an id but it may not be registered — surface
+      ;; that as :rf.error/no-such-head per Spec 011, but only when the
+      ;; route explicitly opts in. Routes without :head silently fall
+      ;; back to the default per Spec 011 §Default head.
+      (render-head head-id {:frame frame-id :route route})
+      (default-head frame-id))))

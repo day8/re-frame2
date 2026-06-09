@@ -31,6 +31,15 @@
 ;; `state/config` var. The `:init-fn` runs OUTSIDE each test's
 ;; `(with-redefs [interop/debug-enabled? false] ...)`, so config lands at
 ;; the normal gate value.
+;;
+;; EP-0002 (rf2-9o48ih / rf2-nn0jqa): `init!` no longer synthesises
+;; `:rf/default`. The canonical fixture, when handed an `:adapter`, ALSO
+;; ensures the conventional `:rf/default` frame and binds it as the body's
+;; ambient scope — the carried-invariant equivalent of wrapping every test
+;; in `(with-frame :rf/default …)`. So the bare framework-operation surfaces
+;; this suite drives (dispatch / epoch / restore-epoch / replace-app-db!)
+;; resolve a carried frame stamp without a hand-rolled `reg-frame` + `with-
+;; frame` dance here. Explicit `{:frame …}` opts in the bodies still win.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter

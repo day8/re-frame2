@@ -22,6 +22,7 @@
                               to the abort-fn → `finalise-failure!`
                               cascade per rf2-plngk."
   (:require [clojure.string]
+            [re-frame.frame          :as frame]
             [re-frame.http-encoding  :as encoding]
             [re-frame.http-middleware :as middleware]
             [re-frame.http-privacy   :as privacy]
@@ -206,7 +207,14 @@
     :as   args-map}
    frame-ctx]
   (let [origin-event (:event frame-ctx)
-        frame        (or (:frame frame-ctx) :rf/default)
+        ;; EP-0002 carried invariant — `:rf.http/managed` runs inside an
+        ;; event cascade, so the fx context ALWAYS carries the envelope
+        ;; frame as `:frame` (the HELD stamp used for reply-to-origin
+        ;; addressing). A nil stamp is an invariant failure
+        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+        frame        (frame/require-frame-stamp!
+                       (:frame frame-ctx) :rf.http/managed
+                       {:where 'rf.http/managed :event-id (first origin-event)})
         ;; rf2-wvkn — when the originating event-id is a spawned actor's
         ;; address, capture it so the in-flight registry can index by
         ;; actor-id alongside :request-id. The destroy cascade then has
@@ -281,7 +289,13 @@
   ;; source rather than wiring two racing abort mechanisms against one
   ;; request. Per Spec 014 §`:abort-signal` (external).
   (validate-abort-config! args-map)
-  (let [frame-id     (or (:frame frame-ctx) :rf/default)
+  (let [;; EP-0002 carried invariant — the fx context carries the cascade
+        ;; envelope frame as `:frame`; a nil stamp is an invariant failure
+        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+        frame-id     (frame/require-frame-stamp!
+                       (:frame frame-ctx) :rf.http/managed
+                       {:where 'rf.http/managed
+                        :event-id (first (:event frame-ctx))})
         ;; rf2-622e3 — resolve once, thread the result through
         ;; frame-ctx's :event slot so normalise-args reads it
         ;; directly instead of re-running the OR-chain.

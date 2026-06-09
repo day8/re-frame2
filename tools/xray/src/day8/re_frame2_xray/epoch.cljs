@@ -81,10 +81,13 @@
   ;; ---- events ------------------------------------------------------------
 
   ;; `:rf.xray/set-target-frame` — host-frame focus picker. Dispatched
-  ;; by `core/set-target-frame!`. Writing nil resets to the default
-  ;; (`:rf/default`); a known frame-id seeds `:epoch-history` from the
-  ;; framework's per-frame epoch ring so the immediate subscribe-after-
-  ;; dispatch read sees a hydrated slot.
+  ;; by `core/set-target-frame!`. EP-0002 (rf2-bd4div) — writing nil resets
+  ;; to UNSELECTED (dissocs `:target-frame`), NOT to a synthesised
+  ;; `:rf/default`: the inspected target is never absence-repaired to the
+  ;; ordinary `:rf/default` id (Spec 002 §Frame target resolution). A known
+  ;; frame-id seeds `:epoch-history` from the framework's per-frame epoch
+  ;; ring so the immediate subscribe-after-dispatch read sees a hydrated
+  ;; slot; a nil resets the history to `[]` (`rf/epoch-history nil` → `[]`).
   ;;
   ;; rf2-ulpp8 — the reducer ALSO aligns `[:focus :frame]` to the same
   ;; target. The two axes encode the same gesture (the user is observing

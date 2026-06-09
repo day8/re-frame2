@@ -109,7 +109,7 @@ Worked-example check: `examples/reagent/realworld/auth.cljs` (test fixture frame
 | P5 Schemas | ◐ | `:schema` for the view's *props vector* is documented but most examples don't use it. Construction Prompts CP-4 enforces. |
 | P6 Deterministic execution | ✓ | Pure render-tree per pattern contract. |
 | P7 Machine-readable errors | n/a | (Errors during render are mostly substrate concerns.) |
-| P8 Low hidden context | ◐ | Plain Reagent fns "silently route to `:rf/default`" if rendered under a non-default frame. Documented as a known limitation. Removing this footgun (or making it loud at runtime) closes the gap. |
+| P8 Low hidden context | ✓ | **Closed by EP-0002.** A plain Reagent fn that can't read its `frame-provider`'s frame no longer silently routes to `:rf/default` — there is no ambient default; its ambient `subscribe`/`dispatch` raise `:rf.error/no-frame-context` (loud at runtime). Frame identity is *carried, not found*. |
 | Constrained model | ✓ | Pure `(state, props) → render-tree`. |
 | Data is code | ✓ | Hiccup is the canonical example of data-is-code. |
 
@@ -267,9 +267,9 @@ Construction-Prompts.md describes how an AI uses the prompts but doesn't specify
 
 Pattern contract is id-based (per recent edits), but the CLJS reference accepts function values. The two forms should be clearly separated — id-valued for portable testing, function-valued for one-off CLJS lambdas — and the documentation should lead with id-valued in the pattern's primary examples.
 
-### G-D. The plain-Reagent-fn footgun
+### G-D. The plain-Reagent-fn footgun — RESOLVED (EP-0002)
 
-Plain Reagent fns rendered inside a non-default frame silently route to `:rf/default`. This violates P8 (hidden context). Either remove the footgun (mandate `reg-view`) or make it loud (runtime warning).
+Plain Reagent fns rendered inside a `frame-provider` used to silently route to `:rf/default` (a P8 hidden-context violation). **EP-0002 closes this**: there is no ambient `:rf/default`, so a plain fn that can't read the provider's frame raises `:rf.error/no-frame-context` — the footgun is now loud at runtime (the "make it loud" resolution, taken to its strongest form: a structured error, not a warning). Fix at the call site is `reg-view`, `with-frame`, or a captured `frame-handle`.
 
 ### G-E. View invocation has two forms — Var canonical, `(view :id)` for late-binding
 

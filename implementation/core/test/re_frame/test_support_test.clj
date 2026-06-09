@@ -39,7 +39,17 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  (test-fn))
+  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; framework operation surfaces require a carried frame stamp. Register
+  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
+  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
+  ;; `{:frame …}` opts in the test bodies still win. A top-level
+  ;; `reg-frame …:on-create` still drains synchronously — the lifecycle
+  ;; async/sync split keys off `*handler-scope*` (a real cascade), not
+  ;; this ambient scope.
+  (rf/reg-frame :rf/default {})
+  (rf/with-frame :rf/default
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 

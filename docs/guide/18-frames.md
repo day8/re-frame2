@@ -1,6 +1,6 @@
 # 18 - Frames
 
-You want two independent copies of your app on one screen — a Story canvas showing the same widget in three states, a split-pane editor with live and preview sides, a server render handling a hundred concurrent requests — and you want them to stop leaking state into each other. This chapter is **frames**, the isolated context that makes that not a nightmare. The good news up front: if your app is one app on one page, you already have exactly one frame, you've been using it the whole time, and you never had to know it existed.
+You want two independent copies of your app on one screen — a Story canvas showing the same widget in three states, a split-pane editor with live and preview sides, a server render handling a hundred concurrent requests — and you want them to stop leaking state into each other. This chapter is **frames**, the isolated context that makes that not a nightmare. The good news up front: if your app is one app on one page, you establish exactly one frame at your root, and inside it every `dispatch` / `subscribe` you've already written runs unchanged, never naming a frame.
 
 ## The request that breaks everything you've built
 
@@ -32,7 +32,7 @@ Here's the one-sentence version, and it's the load-bearing idea the rest of the 
 
 **A frame is one running instance of your re-frame2 app.**
 
-That's it. Single-frame apps have one instance. Multi-frame apps have several. The framework treats them identically — nothing in the dispatch pipeline, the interceptor chain, or the subscription graph cares whether the frame it's running against is the default one or the fourteenth one you hand-rolled for a Story.
+That's it. Single-frame apps have one instance. Multi-frame apps have several. The framework treats them identically — nothing in the dispatch pipeline, the interceptor chain, or the subscription graph cares whether the frame it's running against is your one app frame or the fourteenth one you hand-rolled for a Story.
 
 Mechanically, a frame is an **isolated runtime boundary** identified by a keyword (`:left`, `:test/auth-flow`, `:ssr.req/abc123`). It owns exactly these pieces of runtime state:
 
@@ -51,7 +51,7 @@ That distinction is what saves the analytics widget. The view, the sub, the hand
 
 ## When you actually need more than one
 
-Before you go frame-happy, the honest framing: the mental model "one app, one `app-db`, one queue, one sub-cache" is correct for the overwhelming majority of apps. You will write whole real applications and never type the word `frame`. This chapter is for the minority case, and for the one scrap of vocabulary even the majority case has to be able to recognise (`:rf/default`, coming up).
+Before you go frame-happy, the honest framing: the mental model "one app, one `app-db`, one queue, one sub-cache" is correct for the overwhelming majority of apps. You will write whole real applications and never type the word `frame` past your root. This chapter is for the minority case — and for the one thing even the majority case has to do once: establish that single frame at the root (the root provider, coming up).
 
 The cases that genuinely want more than one frame, roughly in order of how often you'll meet them:
 
@@ -68,21 +68,37 @@ And the cases that *look* like multi-frame and absolutely are not — getting th
 
 If you want a single discriminator to settle any borderline case, it's this question: **would these two instances ever sensibly share a piece of state?** If yes — they're slices of the *same* frame. If no, if they're genuinely two separate runs of the same app — they're separate frames. The analytics panels never want to share their date range; that "no" is the signal that they're two frames.
 
-## `:rf/default` — the frame you've had all along
+## Frame identity is carried, not found
 
-Every example before this chapter has been running inside a frame. The counter in chapter 03, the cascade in chapter 04, the subscription graph in chapter 05 — all of it. You never saw the frame because the framework pre-registers one for you at load time, named `:rf/default`, and every `dispatch` / `subscribe` that doesn't name a frame quietly resolves against it.
+Every example before this chapter has been running inside a frame — the counter in chapter 03, the cascade in chapter 04, the subscription graph in chapter 05. The frame stayed invisible because it was *established at the root* and then rode along, ambient, through every call underneath. That is the one rule this whole chapter is consequences of:
+
+> **Frame identity is a value that travels with every causal token** — a dispatch envelope, an fx context, a captured callback, an SSR payload. An operation reads its frame from the token it is holding. **It never discovers one from the ambient world, and it never synthesises one from absence.**
+
+A bare `(rf/dispatch [:counter/inc])` works *because a scope above it established a frame* — a root `frame-provider`, a `with-frame`, the handler the dispatch is firing from. The call inherits that frame; it does not go looking for a process-global default to fall back on. There **is** no process-global default. A frame-scoped operation issued with *no* established scope and *no* carried frame is a loud error — `:rf.error/no-frame-context` — not a silent write to a conventional frame:
 
 ```clojure
-;; What you've been writing all this time:
-(rf/dispatch [:counter/inc])
+;; Inside an established scope (root provider, with-frame, a handler) — ambient, ergonomic:
+(rf/dispatch [:counter/inc])              ;; routes to the established frame
 
-;; What the framework actually routes:
-(rf/dispatch [:counter/inc] {:frame :rf/default})
+;; With no scope at all — e.g. a stray async callback after its scope unwound:
+(rf/dispatch [:counter/inc])              ;; => :rf.error/no-frame-context  (loud, not silent)
 ```
 
-`:rf/default` is not a special case bolted onto the side. It's a completely ordinary frame sitting in the registry, listable by your tooling, addressable by keyword like any other. The *only* special thing about it is that the framework registers it on your behalf, so single-frame apps get to pretend frames don't exist.
+This is why you establish a frame at your application root and never think about it again inside the tree — and it is why the async section below matters: the only place a call loses its frame is where a *token crosses a boundary* (an async hop, a tool session) and the scope it was riding has unwound. The fix is always to **carry the frame as a value** across that boundary, never to hope a default catches it.
 
-And that's the real payoff of the design: the mental shift from "this is *the* `app-db`" to "this is *one frame's* `app-db`" costs you **nothing** in single-frame code — `:rf/default` is invisible scaffolding — and it's *exactly* the shift you'll already have made the day you grow a second frame. You don't refactor your way into multi-frame. You just stop letting the default be implicit.
+### `:rf/default` is just an ordinary id
+
+`:rf/default` is a perfectly legal frame id you *may* choose — a small app, an example, or a test can register it and select it explicitly. But it carries **no framework privilege**: it is not created for you at load time, not the frame a missing context resolves to, not a lookup tier. If you want it, you register and scope it like any other frame:
+
+```clojure
+(rf/reg-frame :rf/default {:on-create [:counter/initialise]})
+
+(rdc/render root
+  [rf/frame-provider {:frame :rf/default}
+   [counter]])
+```
+
+A migration from re-frame v1 may pick `:rf/default` as its explicit app-frame id (it reads familiarly), but the runtime will not infer it — you still establish it at the root. The mental shift from "this is *the* `app-db`" to "this is *one frame's* `app-db`" costs you one root provider in single-frame code, and it's *exactly* the shift you'll already have made the day you grow a second frame.
 
 ## Creating a frame
 
@@ -187,7 +203,7 @@ Go back and reread the analytics problem from the top of the chapter. The "but h
 
 The split-counter works because of a quiet bit of magic in the last section, and it's the magic that the rest of this chapter is about. Inside a `reg-view` body the injected `dispatch` knows it's under `:left` because `reg-view` reads the frame from React context **at render time** and bakes it into the `dispatch` closure. The `:on-click` lambda closes over that closure, so when the click fires — long after render unwound — it still dispatches into `:left`. The frame rode along inside the closure.
 
-Now break that. Render time is not the only moment a callback gets created, and React context is **render-only knowledge** — it's gone the instant render returns. The moment your callback is built somewhere *other* than directly in a `reg-view` body — or fires across an async boundary — the ambient "I'm under `:left`" knowledge has evaporated, and a bare `dispatch` falls through to `:rf/default`. That's a state leak: the left panel's WebSocket message lands in the wrong `app-db`.
+Now break that. Render time is not the only moment a callback gets created, and React context is **render-only knowledge** — it's gone the instant render returns. The moment your callback is built somewhere *other* than directly in a `reg-view` body — or fires across an async boundary — the ambient "I'm under `:left`" knowledge has evaporated, the token the callback dispatches carries no frame stamp, and a bare `dispatch` fails loudly with `:rf.error/no-frame-context`. That loud failure is the feature: under the old design the dispatch would have *silently* fallen through to a default frame, and the left panel's WebSocket message would have landed in the wrong `app-db` with no error at all. The carried invariant turns that silent state leak into an immediate, attributed error — but the *fix* is the same either way: carry the frame across the boundary.
 
 The cases where this bites:
 
@@ -293,7 +309,7 @@ One sharp edge that ties back to the async section: **the lexical binding these 
 
 Rounding out the surface, the read / introspection verbs — what tools, tests, and the REPL use to look at a frame from outside:
 
-- **`(rf/current-frame-id)`** — the active frame at the call site, resolved through the chain (dynamic var → React context → `:rf/default`). A keyword.
+- **`(rf/current-frame-id)`** — the active frame at the call site, resolved from the established scope (dynamic var → React context). A keyword, or `:rf.error/no-frame-context` if no scope is in play — it does not synthesise a default.
 - **`(rf/app-db-value frame-id)`** — the current **app-db** partition of a frame as a plain map (the deref'd *value*, no container, no reactivity). `nil` if the frame isn't registered. This is how you assert against a frame's application state in a test, and how a handle's owner reads the state behind the ops.
 - **`(rf/runtime-db-value frame-id)`** — the **runtime-db** partition value: the framework-owned slices (machine snapshots, the route slice, …). The tool/privileged-runtime read — application code reads these slices through framework subs instead, but tools and conformance harnesses enumerate them here.
 - **`(rf/frame-state-value frame-id)`** — the coherent **frame-state** projection, `{:rf.db/app … :rf.db/runtime …}`. The whole-frame read SSR serialisation, epoch capture, and time-travel use.
@@ -333,4 +349,4 @@ Most frames you'll ever register fall into one of four shapes: a normal client a
 
 The same `:preset` key works on `make-frame` too, with the same expansion. The win is legibility: a reader skimming the source can tell at a glance that *this* is a test frame and *that* one is a Story variant, without decoding a metadata map. The expansion is locked — four presets, no more — which keeps the set canonical for AI scaffolding and for cross-codebase recognition. [Chapter 20](20-server-side.md), [chapter 13](13-testing.md), and the [Story tutorial](../story/index.md) each introduce the preset they need in the context that needs it.
 
-The chapters that exercise multi-frame in anger are all downstream of this one — [testing](13-testing.md) uses the per-test fixture and `with-new-frame`, [Story](../story/index.md) the frame-per-variant, [the server side](20-server-side.md) the per-request frame. Each of those walks its own surface. This chapter is the substrate they all stand on: a frame is one isolated instance of your app, the framework gives you the first one free, everything you've already learned runs inside it unchanged, and when a callback has to outlive its render you capture the frame with a handle and carry it across.
+The chapters that exercise multi-frame in anger are all downstream of this one — [testing](13-testing.md) uses the per-test fixture and `with-new-frame`, [Story](../story/index.md) the frame-per-variant, [the server side](20-server-side.md) the per-request frame. Each of those walks its own surface. This chapter is the substrate they all stand on: a frame is one isolated instance of your app, you establish one at your root with a single provider, everything you've already learned runs inside it unchanged, and when a callback has to outlive its render you capture the frame with a handle and carry it across.

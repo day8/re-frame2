@@ -160,7 +160,7 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
   ```clojure
   (reg-http-interceptor id interceptor-map)
   ```
-- **Description**: Register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain. `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` (request-side) and `:after (fn [ctx response] response')` (response-side), plus optional `:frame` (default `:rf/default`) and the standard `:rf/registration-metadata`. The `:before` chain runs in registration order; the `:after` chain runs in REVERSE registration order; `:after` sees the SAME ctx the `:before` chain produced (request-correlated handling).
+- **Description**: Register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain. `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` (request-side) and `:after (fn [ctx response] response')` (response-side), plus optional `:frame` (the EP-0002 *override*) and the standard `:rf/registration-metadata`. The target frame is the explicit `:frame`, else the carried scope it registers under (`with-frame` / an `:on-create` hook); registering under **no** scope raises `:rf.error/no-frame-context` — there is no `:rf/default` default. The `:before` chain runs in registration order; the `:after` chain runs in REVERSE registration order; `:after` sees the SAME ctx the `:before` chain produced (request-correlated handling).
 - **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
 
 ### `clear-http-interceptor`
@@ -171,7 +171,7 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
   (clear-http-interceptor id)
   (clear-http-interceptor frame id)
   ```
-- **Description**: Unregister an interceptor by id. Single-arity targets `:rf/default`.
+- **Description**: Unregister an interceptor by id. The single-arity `(clear-http-interceptor id)` resolves the frame from the carried scope it runs under; the two-arity `(clear-http-interceptor frame id)` names the frame explicitly. Either form raises `:rf.error/no-frame-context` when the frame is absent (single-arity under no scope, or two-arity passed `nil`) — it never clears against a synthesised `:rf/default`.
 
 ```clojure
 (rf/reg-http-interceptor :auth/inject

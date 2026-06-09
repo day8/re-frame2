@@ -263,11 +263,19 @@
 ;; ---- key handling -------------------------------------------------------
 
 (defn- handle-input-keydown
-  [dispatch ^js e results]
+  ;; EP-0002 (rf2-bd4div) — a deferred key handler fires at CLICK time,
+  ;; after render has committed and the frame context has unwound, so it
+  ;; carries NO ambient frame stamp. It must therefore not `rf/subscribe`
+  ;; the cursor itself (that ambient read raises `:rf.error/no-frame-context`
+  ;; under no scope rather than falling through to a synthesised
+  ;; `:rf/default`). The `cursor` is read at RENDER time by `palette-view`
+  ;; (where the surrounding instance frame's React context is live) and
+  ;; threaded in alongside the frame-aware `dispatch`, mirroring how the
+  ;; dispatch itself is injected rather than resolved at click time.
+  [dispatch cursor ^js e results]
   (let [k         (.-key e)
         ctrl?     (or (.-ctrlKey e) (.-metaKey e))
         count     (count results)
-        cursor    @(rf/subscribe [:rf.xray/palette-cursor])
         active    (when (and (seq results) (< cursor count))
                     (nth results cursor))]
     (case k
@@ -356,7 +364,7 @@
                 :on-change    #(dispatch
                                  [:rf.xray/palette-set-query
                                   (.. % -target -value)])
-                :on-key-down  #(handle-input-keydown dispatch % results)
+                :on-key-down  #(handle-input-keydown dispatch cursor % results)
                 :style        (input-style)}]
        [:span {:data-testid "rf-xray-palette-result-count"
                :style {:color (:text-tertiary tokens)

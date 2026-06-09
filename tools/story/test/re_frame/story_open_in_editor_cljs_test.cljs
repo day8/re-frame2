@@ -15,8 +15,10 @@
     chip uses (Xray-parity port)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.story.config :as config]
-            [re-frame.story.ui.open-in-editor :as open-in-editor]))
+            [re-frame.story.ui.open-in-editor :as open-in-editor])
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -490,6 +492,11 @@
   test suite uses."
   []
   (reset! captured-editor-fx [])
+  ;; EP-0002 (rf2-bd4div): `:rf.story/open-in-editor` dispatches under a
+  ;; carried frame stamp. Register the ordinary `:rf/default` frame so the
+  ;; `with-frame :rf/default`-scoped dispatches below have a frame to land
+  ;; on (these tests exercise the dispatch→fx glue, not a variant frame).
+  (frame/ensure-default-frame!)
   (open-in-editor/install!)
   (rf/reg-fx :rf.editor/open
     (fn [_ctx args] (swap! captured-editor-fx conj args))))
@@ -499,8 +506,9 @@
             bare coord produces a `:rf.editor/open` fx whose :uri is the
             resolved URI"
     (install-with-capture!)
-    (rf/dispatch-sync [:rf.story/open-in-editor
-                       {:file "src/app/events.cljs" :line 17 :column 3}])
+    (with-frame :rf/default
+      (rf/dispatch-sync [:rf.story/open-in-editor
+                         {:file "src/app/events.cljs" :line 17 :column 3}]))
     (is (= 1 (count @captured-editor-fx))
         "exactly one open-fx fires per dispatch")
     (is (= "vscode://file/src/app/events.cljs:17:3"
@@ -512,8 +520,9 @@
             wrapper shape some panels use) produces the same fx as the
             bare-coord form"
     (install-with-capture!)
-    (rf/dispatch-sync [:rf.story/open-in-editor
-                       {:source-coord {:file "src/x.cljs" :line 5 :column 1}}])
+    (with-frame :rf/default
+      (rf/dispatch-sync [:rf.story/open-in-editor
+                         {:source-coord {:file "src/x.cljs" :line 5 :column 1}}]))
     (is (= "vscode://file/src/x.cljs:5:1"
            (:uri (first @captured-editor-fx))))))
 
@@ -523,8 +532,9 @@
             flatten coords at projection time can dispatch them as
             strings without losing line info"
     (install-with-capture!)
-    (rf/dispatch-sync [:rf.story/open-in-editor
-                       {:source-coord "src/app/events.cljs:42"}])
+    (with-frame :rf/default
+      (rf/dispatch-sync [:rf.story/open-in-editor
+                         {:source-coord "src/app/events.cljs:42"}]))
     (is (= "vscode://file/src/app/events.cljs:42:1"
            (:uri (first @captured-editor-fx))))))
 
@@ -532,7 +542,8 @@
   (testing "rf2-r2un8 — bare display string (no wrapper) defensively
             handled by the parser"
     (install-with-capture!)
-    (rf/dispatch-sync [:rf.story/open-in-editor "src/x.cljs:7"])
+    (with-frame :rf/default
+      (rf/dispatch-sync [:rf.story/open-in-editor "src/x.cljs:7"]))
     (is (= "vscode://file/src/x.cljs:7:1"
            (:uri (first @captured-editor-fx))))))
 
@@ -541,8 +552,9 @@
             (the same source of truth the chip render uses)"
     (install-with-capture!)
     (config/set-editor! :cursor)
-    (rf/dispatch-sync [:rf.story/open-in-editor
-                       {:file "src/x.cljs" :line 10}])
+    (with-frame :rf/default
+      (rf/dispatch-sync [:rf.story/open-in-editor
+                         {:file "src/x.cljs" :line 10}]))
     (is (= "cursor://file/src/x.cljs:10:1"
            (:uri (first @captured-editor-fx))))))
 
@@ -552,8 +564,9 @@
             `open!` is a no-op for); the handler doesn't short-circuit"
     (install-with-capture!)
     (config/set-editor! {:custom "http://evil.example/{path}"})
-    (rf/dispatch-sync [:rf.story/open-in-editor
-                       {:file "src/x.cljs" :line 1}])
+    (with-frame :rf/default
+      (rf/dispatch-sync [:rf.story/open-in-editor
+                         {:file "src/x.cljs" :line 1}]))
     (is (= 1 (count @captured-editor-fx))
         "fx still fires — the handler doesn't short-circuit")
     (is (nil? (:uri (first @captured-editor-fx)))

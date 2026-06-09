@@ -23,7 +23,7 @@ The shape is deliberately boring, which is what makes it stable:
  :op-type   :rf.event              ;; which family it belongs to
  :time      1716800000000          ;; when (host clock, ms)
  :tags      {:rf.trace/event-id :counter/inc
-             :frame :rf/default
+             :frame :app/main
              ...}}                  ;; the open bag of specifics
 ```
 
@@ -73,7 +73,7 @@ There's a second correlation channel for the case where one event *causes* anoth
 
 Synchronous delivery has a catch: if you weren't *registered as a listener* when an event fired, you missed it. There's no replay of the live stream. That's a problem for any tool that attaches *after* something interesting already happened — a REPL you opened mid-session, an AI pair-programmer you summoned because the app's already broken, a devtools panel you toggled open three clicks too late.
 
-So alongside the live stream, each frame keeps a **ring buffer** of recent history. (Frames are the isolated app contexts from [chapter 18](18-frames.md); for a single-app page there's just the one, `:rf/default`.) The buffer's unit of retention is the *cascade*, not the individual event — one dispatched event takes one slot, regardless of whether that cascade emitted five trace events or fifty thousand. When a new cascade arrives and the buffer is full, the oldest cascade — and every trace event under it — gets evicted as a unit.
+So alongside the live stream, each frame keeps a **ring buffer** of recent history. (Frames are the isolated app contexts from [chapter 18](18-frames.md); for a single-app page there's just the one — the app frame you establish at your root.) The buffer's unit of retention is the *cascade*, not the individual event — one dispatched event takes one slot, regardless of whether that cascade emitted five trace events or fifty thousand. When a new cascade arrives and the buffer is full, the oldest cascade — and every trace event under it — gets evicted as a unit.
 
 There's exactly one knob:
 
@@ -86,7 +86,7 @@ Fifty cascades. That's "the last fifty things the app did," diagnostic detail an
 Reading the buffer is one call, per frame:
 
 ```clojure
-(rf/trace-buffer :rf/default)
+(rf/trace-buffer :app/main)
 ;; → a vector of cascade bundles, oldest first — each one the grouped
 ;;   {:event :handler :fx :effects :subs :renders ...} shape, ready to render.
 ```

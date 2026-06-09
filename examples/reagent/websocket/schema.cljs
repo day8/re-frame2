@@ -22,7 +22,8 @@
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Loading the ns here registers its late-bind hooks so
             ;; rf/reg-app-schema resolves at the call sites below.
-            [re-frame.schemas]))
+            [re-frame.schemas])
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ============================================================================
 ;; CONNECTION MACHINE :data SHAPE
@@ -130,4 +131,9 @@
 ;; schemas validate the app-db partition only, Mike ruling #11). The
 ;; machine's own `:data-schema` is the snapshot-validation surface, so the
 ;; vestigial app-schema reg is removed.
-(rf/reg-app-schema [:messages]                   MessagesSlice)
+;;
+;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
+;; the :rf/default frame, so name it explicitly here.
+(with-frame :rf/default
+  (rf/reg-app-schema [:messages]                   MessagesSlice))

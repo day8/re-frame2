@@ -12,6 +12,7 @@
   `:reload` re-wires it on a fresh registrar. Per the rf2-2yabr cohesion
   split: NAVIGATE-EVENT seam."
   (:require [clojure.string :as str]
+            [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
@@ -131,7 +132,15 @@
     ;; :rf.route.nav-token/allocated as the cascade begins (rf2-d60go) —
     ;; the programmatic path matches the URL-driven path so async loaders
     ;; have a token to thread through stale-suppression.
-    (let [opts (or opts {})
+    (let [;; EP-0002 carried invariant — `:rf.route/navigate` is a cascade
+          ;; event, so the cofx carries the envelope `:frame`; a nil stamp
+          ;; is an invariant failure (`:rf.error/no-frame-context`), never a
+          ;; synthesised `:rf/default`. Validated once; the trace stamps and
+          ;; the leave-guard call below all read this carried value.
+          frame (frame/require-frame-stamp!
+                  frame :rf.route/navigate
+                  {:where 'rf.route/navigate-handler})
+          opts (or opts {})
           rdb  (or rdb-raw {})
           {:keys [route-id path-params query-params matched-fragment unmatched-url
                   throw-reason requested-url external-url-target?]}
@@ -400,7 +409,7 @@
         ;; protocol stays uniform across both entry points.
         :else
         (if-let [blocked (can-leave/maybe-block-navigation
-                           rdb (or frame :rf/default)
+                           rdb frame
                            event-vec url
                            (:bypass-leave-guard? opts))]
           blocked

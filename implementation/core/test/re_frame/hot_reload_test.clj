@@ -33,11 +33,23 @@
   (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-69r7ui): there is no `:rf/default` floor — the runtime
+  ;; never synthesises a frame from absence, so a bare dispatch / subscribe
+  ;; raises :rf.error/no-frame-context. The tests below that exercise the
+  ;; default app frame register it EXPLICITLY and target it via an explicit
+  ;; `{:frame :rf/default}` opt (`:rf/default` is an ordinary, legal frame
+  ;; id a small app / test may register and select — Spec 002 §`:rf/default`
+  ;; is an ordinary id).
+  (rf/reg-frame :rf/default {:doc "the explicit app frame for this test ns"})
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc and ssr.cljc; clear-all! wiped them. Re-eval those
   ;; registrations so :rf/hydrate, :rf.nav/push-url etc. resurrect.
   (require 're-frame.routing :reload)
   (require 're-frame.ssr    :reload)
+  ;; The snapshot test uses `rf/make-machine-handler`; re-load machines so
+  ;; the artefact's reg surface is live in isolated runs too (the snapshot
+  ;; slot lives in runtime-db per EP-0001).
+  (require 're-frame.machines :reload)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -73,7 +85,7 @@
       (let [drain-thread
             (Thread.
               ^Runnable (fn []
-                          (rf/dispatch-sync [:step :a])))]
+                          (rf/dispatch-sync [:step :a] {:frame :rf/default})))]
         (.start drain-thread)
         ;; Wait for the v1 body to be in-flight.
         (.await enter-latch 5 TimeUnit/SECONDS)
@@ -92,7 +104,7 @@
       (is (= :v1 (:ran-version (rf/app-db-value :rf/default)))
           ":db effect from the v1 closure committed")
       ;; The next dispatch picks up the new body via fresh registry lookup.
-      (rf/dispatch-sync [:step :b])
+      (rf/dispatch-sync [:step :b] {:frame :rf/default})
       (is (= [[:v1-start :a] [:v1-end :a] [:v2 :b]] @observations)
           "post-drain dispatches resolve to v2")
       (is (= :v2 (:ran-version (rf/app-db-value :rf/default)))
@@ -115,12 +127,12 @@
                   (swap! observations conj [:v1-post n])
                   (assoc db :seen-version :v1))]
       (rf/reg-event-db :tick v1-fn)
-      (rf/dispatch-sync [:tick 1])
+      (rf/dispatch-sync [:tick 1] {:frame :rf/default})
       (is (= [[:v1-pre 1] [:v1-post 1]] @observations)
           "handler's body completes against its captured v1 fn")
       (is (= :v1 (:seen-version (rf/app-db-value :rf/default))))
       ;; A subsequent dispatch sees the new body.
-      (rf/dispatch-sync [:tick 2])
+      (rf/dispatch-sync [:tick 2] {:frame :rf/default})
       (is (= [[:v1-pre 1] [:v1-post 1] [:v2 2]] @observations)
           "the next dispatch resolves the new v2 body")
       (is (= :v2 (:seen-version (rf/app-db-value :rf/default)))))))
@@ -177,7 +189,7 @@
   (testing "re-registering an upstream sub evicts its DOWNSTREAM :<- dependents
             so they recompute against the new upstream body"
     (rf/reg-event-db :seed (fn [_ _] {:n 10}))
-    (rf/dispatch-sync [:seed])
+    (rf/dispatch-sync [:seed] {:frame :rf/default})
     ;; v1 of :a is the identity over :n (= 10); :sum is :a + 0 (= 10).
     (rf/reg-sub :a (fn [db _] (:n db)))
     (rf/reg-sub :sum :<- [:a] (fn [a _] (+ a 0)))
@@ -218,7 +230,7 @@
     ;; entries directly so the closure walk is exercised against a cycle
     ;; without needing the reactive build to succeed.
     (rf/reg-event-db :seed (fn [_ _] {:n 1}))
-    (rf/dispatch-sync [:seed])
+    (rf/dispatch-sync [:seed] {:frame :rf/default})
     (rf/reg-sub :base (fn [db _] (:n db)))
     (let [cache (:sub-cache (frame/frame :rf/default))]
       ;; Hand-craft a cycle in the cache's :inputs topology. No live

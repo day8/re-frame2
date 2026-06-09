@@ -1,8 +1,16 @@
 (ns re-frame.router.diagnostics
-  "Dev-only diagnostics for the router: fallthrough-to-default warnings
-  (rf2-o8m0), cross-frame dispatch-sync warnings (rf2-fp97), and the
-  no-handler error path. Extracted from `re-frame.router` per rf2-0ytl4
-  Phase-2 seam R-B.
+  "Dev-only diagnostics for the router: cross-frame dispatch-sync warnings
+  (rf2-fp97) and the no-handler error path. Extracted from
+  `re-frame.router` per rf2-0ytl4 Phase-2 seam R-B.
+
+  The async-callback fallthrough-to-default warning family
+  (`:rf.warning/dispatch-from-async-callback-fell-through-to-default`,
+  rf2-o8m0) was RETIRED in EP-0002 (rf2-9wa0lf): there is no longer a
+  `:rf/default` floor for a bare dispatch to slide onto, so the warning's
+  precondition can never arise. A dispatch under no established scope now
+  fails loudly at envelope-build time with `:rf.error/no-frame-context`
+  (emitted from `re-frame.frame/require-current-frame!`), replacing the
+  dev-only warning with an always-on, production-survivable error.
 
   Every fn here either runs on a cold/error path or sits behind
   `interop/debug-enabled?` — production builds (`:advanced` +
@@ -19,99 +27,15 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(defn non-default-frame-registered?
-  "True when at least one registered, non-destroyed frame other than
-  `:rf/default` exists. The `:rf.warning/dispatch-from-async-callback-
-  fell-through-to-default` warning is suppressed when this is false:
-  single-frame apps cannot hit the footgun (the resolution chain has
-  nowhere else to land), so emitting the warning would be noise rather
-  than signal. Per rf2-o8m0.
-
-  Body gated on `interop/debug-enabled?` (the sole caller is the dev-
-  only `emit-fallthrough-warning!`); production calls observe the
-  trivial `false` and the `frame/frame-ids` walk + transducer DCEs."
-  []
-  (when interop/debug-enabled?
-    (let [ids (frame/frame-ids)]
-      (boolean (some (fn [k] (not= :rf/default k)) ids)))))
-
-(defn emit-fallthrough-warning!
-  "Per rf2-o8m0: dispatch landed on `:rf/default` purely because the
-  resolution chain found nothing else (dynamic var unbound, adapter
-  React-context unresolvable, no explicit `:frame` opt) AND the target
-  handler does not exist on `:rf/default`. The user almost certainly
-  wanted the dispatch to ride a non-default frame; the most common
-  trigger is dispatching from an async callback (setTimeout,
-  addEventListener, requestAnimationFrame, Promise.then) attached
-  inside a view body, where the surrounding `*current-frame*` binding
-  does not survive the async escape (per Spec 002 §Dispatches issued
-  from inside a handler body).
-
-  Suppressed when no non-default frame is registered — single-frame
-  apps cannot hit the footgun.
-
-  `:source-coord` is left to the existing `:rf.trace/trigger-handler`
-  surface (rf2-3nn8): when a handler is in scope, `emit-error!` /
-  `emit!` hoists the triggering handler's source-coord automatically.
-  When no handler is in scope (the async-callback case the warning is
-  primarily aimed at) `*handler-scope*`'s `:trigger-handler` is nil and the
-  field is omitted — `dispatch` is a fn, not a macro, so the call site
-  cannot be stamped without changing the public API. Documented
-  limitation; tools that need call-site attribution capture it
-  externally.
-
-  Body gated on `interop/debug-enabled?` so the warning surface DCEs
-  wholesale under `:advanced` + `goog.DEBUG=false` (rf2-gaqwr): the
-  `:fell-through-to-default?` envelope key is only set in dev (per
-  `build-envelope`) so the inner `(when ...)` is always falsy in
-  production, but without the outer compile-time gate the reason-string
-  allocation, the warning keyword's interned slot, the
-  `non-default-frame-registered?` call, and the helper-fn closure all
-  survive Closure DCE."
-  [envelope]
-  (when interop/debug-enabled?
-    (when (and (:fell-through-to-default? envelope)
-               (non-default-frame-registered?))
-      (let [event    (:event envelope)
-            event-id (first event)
-            reason   (str "Dispatch of `" event-id "` resolved to `:rf/default` "
-                          "because no `:frame` was supplied and `*current-frame*` "
-                          "was unbound, but no handler for that event is "
-                          "registered on `:rf/default`. The dispatch most "
-                          "likely originated from an async callback "
-                          "(`setTimeout`, `addEventListener`, "
-                          "`requestAnimationFrame`, `Promise.then`) attached "
-                          "from inside a view body — the surrounding "
-                          "frame-context binding does not survive the async "
-                          "escape (per Spec 002 §Dispatches issued from "
-                          "inside a handler body). Fixes (priority order): "
-                          "(a) use `:dispatch-later` or a registered `reg-fx` "
-                          "— both capture the frame in their closure; "
-                          "(b) capture `(rf/frame-handle)` inside the "
-                          "render and call its `:dispatch` op from the callback; "
-                          "(c) attach the listener from a Form-3 "
-                          "`:component-did-mount` / `use-effect` hook so "
-                          "the handle is captured during render but "
-                          "the listener runs after commit.")]
-        (trace/emit! :warning
-                     :rf.warning/dispatch-from-async-callback-fell-through-to-default
-                     {:event        event
-                      :event-id     event-id
-                      :detected-at  (interop/now-ms)
-                      :routed-to    :rf/default
-                      :reason       reason
-                      :recovery     :no-recovery})))))
-
 (defn handle-no-handler!
-  "Per rf2-o8m0: when a dispatch lands on `:rf/default` purely because
-  resolution fell through (no `:frame` opt, dynamic var unbound, adapter
-  context unresolvable) AND the handler is missing from `:rf/default`,
-  the user-supplied event almost certainly belongs to a different frame
-  and the dispatch lost its frame-context binding mid-flight (typically:
-  an async callback attached inside a view body). Emit the warning ahead
-  of the `:rf.error/no-such-handler` error so consumers see the specific
-  diagnostic; the error fires too, preserving the existing handler-
-  missing trace contract.
+  "Emit `:rf.error/no-such-handler` when a dispatched event has no
+  registered handler on its (explicitly carried) target frame. The
+  dispatch reached here only because its frame was resolved (an explicit
+  `{:frame …}` override, an established scope, or a captured stamp) — a
+  frameless bare dispatch never gets this far: it raised
+  `:rf.error/no-frame-context` at envelope-build time (EP-0002 §Dispatch
+  And Router; the async-callback fallthrough warning that used to fire
+  ahead of this error is retired).
 
   Per rf2-2hvga (= B / widen): the `:rf.error/no-such-handler` category
   ALSO fans out through the always-on error-emit listener (axis 1 /
@@ -127,11 +51,9 @@
   `:frame`-stampable record carries the target `frame` + attempted
   `event` for 7d30s + shipper attribution.
 
-  The `emit-fallthrough-warning!` warning above and the dev `trace/emit-
-  error!` below stay dev-only (they DCE under `goog.DEBUG=false`); the
-  always-on listener fan-out is what survives."
-  [envelope event-id event frame]
-  (emit-fallthrough-warning! envelope)
+  The dev `trace/emit-error!` below stays dev-only (it DCEs under
+  `goog.DEBUG=false`); the always-on listener fan-out is what survives."
+  [event-id event frame]
   ;; Axis 1 — always-on listener (survives prod elision). Listener-only.
   (when-let [dispatch-on-error!
              (late-bind/get-fn-cached :error-emit/dispatch-on-error)]

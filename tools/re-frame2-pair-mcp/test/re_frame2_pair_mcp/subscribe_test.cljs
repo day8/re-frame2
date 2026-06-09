@@ -595,6 +595,24 @@
     (is (str/includes? form ":rf.size/include-sensitive? false")
         "sensitive slots redact when the caller did NOT opt in")))
 
+(deftest drain-form-threads-operating-frame
+  ;; EP-0002 (rf2-bd4div) — the drain runs on the nREPL eval thread, which
+  ;; carries NO ambient `with-frame` scope, so a frameless
+  ;; `re-frame.core/elide-wire-value` fails CLOSED and redacts every cascade
+  ;; slot to `:rf/redacted`. The walker opts MUST therefore thread the
+  ;; resolved operating frame in as the explicit `:frame` override
+  ;; (`(re-frame2-pair.runtime/current-frame)`), the same idiom the
+  ;; sub-cache walker + pair-dispatch override use. Without this the live
+  ;; subscribe streaming gate goes RED (the cascade event vector — and its
+  ;; causal nonce — never crosses the wire; it redacts away).
+  (let [form (sub/drain-form "sub-frame" true false)]
+    (is (str/includes? form "(re-frame2-pair.runtime/current-frame)")
+        "the walker opts resolve the operating frame app-side")
+    (is (str/includes? form ":frame")
+        "the resolved frame is merged in as the explicit :frame override")
+    (is (str/includes? form "merge")
+        "the frame override is merged onto the elision opts map")))
+
 (deftest drain-form-gated-elision-honours-include-sensitive
   ;; Gate ON path — when the operator passed `--allow-sensitive-reads` AND the
   ;; caller passed `:include-sensitive true`, the walker still fires
