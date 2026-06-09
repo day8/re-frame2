@@ -211,22 +211,37 @@
                   optional `:frame` (id), plus any
                   `:rf/registration-metadata` slots. The fx body splits
                   `:id` off and passes the remaining map straight through
-                  to the fn-form (per rf2-uheqq shape iii)."}
-           (fn [_ctx {:keys [id] :as args}]
-             (middleware/reg-http-interceptor id (dissoc args :id))))
+                  to the fn-form (per rf2-uheqq shape iii).
+
+                  EP-0002 — the carried frame is the fx-context `:frame`
+                  (the cascade envelope stamp); the args `:frame` is the
+                  per-call *override*. The body threads the fx-context
+                  frame in when the args omit one, so the fn-form receives
+                  an explicit frame and never falls through to a
+                  synthesised `:rf/default` (a frameless cascade would have
+                  failed at dispatch already)."}
+           (fn [{ctx-frame :frame} {:keys [id] :as args}]
+             (middleware/reg-http-interceptor
+               id (-> (dissoc args :id)
+                      (update :frame #(or % ctx-frame))))))
 
 (fx/reg-fx :rf.fx/clear-http-interceptor
            {:doc "Spec 014 §Middleware (rf2-6y3q) — clear a request-side
                   interceptor by id as an fx. Args is the map
                   `{:frame <id> :id <kw>}` (NOT positional, matching the
                   fx-convention shape — sibling to `:rf.fx/reg-http-interceptor`
-                  which also takes a map). `:frame` defaults to `:rf/default`
-                  when absent or nil. The fn-form `clear-http-interceptor` is
-                  the positional surface; this fx is the data-shaped surface
+                  which also takes a map). The fn-form `clear-http-interceptor`
+                  is the positional surface; this fx is the data-shaped surface
                   for EDN-driven callers (conformance fixtures, event
-                  handlers at boot — rf2-k7tlm)."}
-           (fn [_ctx {:keys [frame id]}]
-             (middleware/clear-http-interceptor (or frame :rf/default) id)))
+                  handlers at boot — rf2-k7tlm).
+
+                  EP-0002 — the carried frame is the fx-context `:frame`
+                  (the cascade envelope stamp); the args `:frame` is the
+                  per-call *override*. The args frame wins, else the
+                  fx-context frame, threaded explicitly into the fn-form so
+                  it never repairs to a synthesised `:rf/default`."}
+           (fn [{ctx-frame :frame} {:keys [frame id]}]
+             (middleware/clear-http-interceptor (or frame ctx-frame) id)))
 
 ;; The two canned-stub fxs (`:rf.http/managed-canned-success` /
 ;; `:rf.http/managed-canned-failure`) used to register here inside a

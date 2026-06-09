@@ -135,14 +135,26 @@
   nil)
 
 (defn declarations
-  "Return schema-derived `:large?` declarations for `frame-id`."
-  ([] (declarations :rf/default))
+  "Return schema-derived `:large?` declarations for `frame-id`. EP-0002 —
+  the zero-arity ambient form resolves the frame through the
+  carried-invariant scope chain (`frame/require-current-frame!`); under no
+  established scope it raises `:rf.error/no-frame-context` rather than
+  reading a synthesised `:rf/default` registry."
+  ([] (declarations (frame/require-current-frame!
+                      :elision-declarations
+                      {:where 're-frame.elision/declarations})))
   ([frame-id]
    (or (get (registry-of frame-id) :declarations) {})))
 
 (defn sensitive-declarations
-  "Return schema-derived `:sensitive?` declarations for `frame-id`."
-  ([] (sensitive-declarations :rf/default))
+  "Return schema-derived `:sensitive?` declarations for `frame-id`. EP-0002
+  — the zero-arity ambient form resolves the frame through the
+  carried-invariant scope chain (`frame/require-current-frame!`); under no
+  established scope it raises `:rf.error/no-frame-context` rather than
+  reading a synthesised `:rf/default` registry."
+  ([] (sensitive-declarations (frame/require-current-frame!
+                                :elision-sensitive-declarations
+                                {:where 're-frame.elision/sensitive-declarations})))
   ([frame-id]
    (or (get (registry-of frame-id) :sensitive-declarations) {})))
 
@@ -178,8 +190,16 @@
 
 (defn populate-elision-from-schemas!
   "Populate `[:rf.runtime/elision :declarations]` from `{:large? true}`
-  schema slot metadata. Returns the populated paths."
-  ([] (populate-elision-from-schemas! (frame/current-frame)))
+  schema slot metadata. Returns the populated paths. EP-0002 — the
+  zero-arity ambient form resolves the frame through the carried-invariant
+  scope chain (`frame/require-current-frame!`); under no established scope
+  it raises `:rf.error/no-frame-context` rather than populating a
+  synthesised `:rf/default` registry. The per-dispatch / registration-time
+  callers (router, schema storage) always pass an explicit `frame-id`."
+  ([] (populate-elision-from-schemas!
+        (frame/require-current-frame!
+          :populate-elision-from-schemas
+          {:where 're-frame.elision/populate-elision-from-schemas!})))
   ([frame-id]
    (install-schema-declarations!
      frame-id
@@ -189,8 +209,14 @@
 (defn populate-sensitive-from-schemas!
   "Populate `[:rf.runtime/elision :sensitive-declarations]` from
   `{:sensitive? true}` schema slot metadata. Returns the populated
-  paths."
-  ([] (populate-sensitive-from-schemas! (frame/current-frame)))
+  paths. EP-0002 — the zero-arity ambient form resolves the frame through
+  the carried-invariant scope chain (`frame/require-current-frame!`); under
+  no scope it raises `:rf.error/no-frame-context` rather than populating a
+  synthesised `:rf/default` registry."
+  ([] (populate-sensitive-from-schemas!
+        (frame/require-current-frame!
+          :populate-sensitive-from-schemas
+          {:where 're-frame.elision/populate-sensitive-from-schemas!})))
   ([frame-id]
    (install-schema-declarations!
      frame-id
@@ -198,8 +224,14 @@
      (schema-declarations frame-id :schemas/extract-sensitive-paths-from-schema))))
 
 (defn populate-from-schemas!
-  "Refresh both schema-owned declaration registries for `frame-id`."
-  ([] (populate-from-schemas! (frame/current-frame)))
+  "Refresh both schema-owned declaration registries for `frame-id`. EP-0002
+  — the zero-arity ambient form resolves the frame through the
+  carried-invariant scope chain; under no scope it raises
+  `:rf.error/no-frame-context`."
+  ([] (populate-from-schemas!
+        (frame/require-current-frame!
+          :populate-from-schemas
+          {:where 're-frame.elision/populate-from-schemas!})))
   ([frame-id]
    {:large     (populate-elision-from-schemas! frame-id)
     :sensitive (populate-sensitive-from-schemas! frame-id)}))
@@ -529,36 +561,77 @@
                   (warn-large-unschema'd! (:frame-id ctx) path bytes))))))
         v))))
 
+(defn- elide-against-frame
+  "Inner walk for `elide-wire-value` against a KNOWN carried frame.
+  `frame-id` is the resolved frame whose elision registry supplies the
+  sensitive / large declaration tables. Pure walk — no frame resolution
+  happens here (the caller has already resolved + validated the stamp)."
+  [v opts frame-id]
+  (let [reg       (registry-of frame-id)
+        ;; Precedence (API.md L507): explicit opt > configured > default.
+        threshold (let [opt (:rf.size/threshold-bytes opts)]
+                    (if (some? opt) opt (configured-threshold-bytes)))
+        large     (or (:declarations reg) {})
+        sensitive (or (:sensitive-declarations reg) {})
+        ctx       {:frame-id           frame-id
+                   :large              large
+                   :sensitive          sensitive
+                   ;; Prefix set of every declared path — bounds the forked
+                   ;; candidate decl-path set as the walker descends maps
+                   ;; (rf2-wm9kp). Empty when nothing is declared ⇒ the fork
+                   ;; prunes to {} immediately and the walker is identity.
+                   :decl-prefixes      (decl-prefix-set {:large large :sensitive sensitive})
+                   :include-large?     (true? (:rf.size/include-large? opts))
+                   :include-sensitive? (true? (:rf.size/include-sensitive? opts))
+                   :include-digests?   (true? (:rf.size/include-digests? opts))
+                   :threshold-bytes    threshold
+                   :as-of-epoch        (:as-of-epoch opts)}
+        seed-path (vec (:path opts))]
+    ;; Seed the candidate declaration-coordinate set with the offset path
+    ;; (`#{[]}` for the common no-offset call). The walk forks/prunes it
+    ;; against `:decl-prefixes` on every map-key descent.
+    (walk v seed-path #{seed-path} ctx)))
+
 (defn elide-wire-value
   "Walk `v` and substitute schema-declared sensitive or large paths for
-  wire egress. Sensitive wins over large when both declarations match."
+  wire egress. Sensitive wins over large when both declarations match.
+
+  EP-0002 (rf2-gjq3ow) — the wire-egress frame resolves from the CARRIED
+  stamp: the explicit `:frame` opt (*override*) wins, else the in-effect
+  carried-invariant scope (`frame/resolve-current-frame` — a `with-frame`
+  binding or an enclosing frame-provider). There is NO `:rf/default` floor:
+  a frame's elision policy may be applied only when that frame is KNOWN
+  (Spec 002 §Frame target resolution; EP-0002 §Trace, Projection, And
+  Elision / §Privacy And Egress).
+
+  Frameless egress FAILS CLOSED. When no frame is carried, the per-frame
+  elision registry is unreachable, so a permissive identity walk would ship
+  every value verbatim under NO policy — the silent leak this contract
+  exists to abolish. Rather than borrow another frame's marks, the whole
+  value is conservatively redacted to the `:rf/redacted` sentinel.
+  `:rf.size/include-sensitive? true` is the deliberate opt-out: a caller
+  that has explicitly waived sensitive redaction gets the value walked with
+  an empty policy (the identity transform), so an inspector that genuinely
+  wants the raw, policy-free value asks for it on purpose."
   ([v] (elide-wire-value v nil))
   ([v opts]
-   (let [frame-id  (or (:frame opts) (frame/current-frame) :rf/default)
-         reg       (registry-of frame-id)
-         ;; Precedence (API.md L507): explicit opt > configured > default.
-         threshold (let [opt (:rf.size/threshold-bytes opts)]
-                     (if (some? opt) opt (configured-threshold-bytes)))
-         large     (or (:declarations reg) {})
-         sensitive (or (:sensitive-declarations reg) {})
-         ctx       {:frame-id           frame-id
-                    :large              large
-                    :sensitive          sensitive
-                    ;; Prefix set of every declared path — bounds the forked
-                    ;; candidate decl-path set as the walker descends maps
-                    ;; (rf2-wm9kp). Empty when nothing is declared ⇒ the fork
-                    ;; prunes to {} immediately and the walker is identity.
-                    :decl-prefixes      (decl-prefix-set {:large large :sensitive sensitive})
-                    :include-large?     (true? (:rf.size/include-large? opts))
-                    :include-sensitive? (true? (:rf.size/include-sensitive? opts))
-                    :include-digests?   (true? (:rf.size/include-digests? opts))
-                    :threshold-bytes    threshold
-                    :as-of-epoch        (:as-of-epoch opts)}
-         seed-path (vec (:path opts))]
-     ;; Seed the candidate declaration-coordinate set with the offset path
-     ;; (`#{[]}` for the common no-offset call). The walk forks/prunes it
-     ;; against `:decl-prefixes` on every map-key descent.
-     (walk v seed-path #{seed-path} ctx))))
+   (let [frame-id (or (:frame opts) (frame/resolve-current-frame))]
+     (cond
+       ;; Known carried frame ⇒ apply that frame's elision policy.
+       (some? frame-id)
+       (elide-against-frame v opts frame-id)
+
+       ;; Frameless + the caller waived sensitive redaction ⇒ identity
+       ;; walk against an empty (no-frame) policy. The walker is the
+       ;; identity transform when no declarations are reachable.
+       (true? (:rf.size/include-sensitive? opts))
+       (elide-against-frame v opts ::no-frame)
+
+       ;; Frameless egress, no opt-out ⇒ fail closed: no policy is
+       ;; available, so conservatively redact the whole value rather than
+       ;; borrow another frame's marks.
+       :else
+       privacy/redacted-sentinel))))
 
 (defn marker?
   [v]

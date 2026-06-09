@@ -80,6 +80,10 @@
   (reset! schemas/schemas-by-frame {})
   (flows/reset-last-inputs!)
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`, and
+  ;; the managed-HTTP / flow fxs now require a carried frame stamp. Register
+  ;; `:rf/default` explicitly and pin it as the established scope for the body.
+  (frame/ensure-default-frame!)
   ;; clear-all! wiped the ns-load-time registrations of these artefacts;
   ;; :reload re-evaluates each ns body so its registrations resurrect.
   (require 're-frame.routing :reload)
@@ -88,15 +92,16 @@
   (require 're-frame.http-managed :reload)
   (require 're-frame.http-test-support :reload)
   (http-managed/clear-all-in-flight!)
-  (let [captured (atom [])]
-    (binding [*captured* captured]
-      (trace/register-listener!
-        ::flows-http-recorder
-        (fn [ev] (swap! captured conj ev)))
-      (try
-        (test-fn)
-        (finally
-          (trace/unregister-listener! ::flows-http-recorder))))))
+  (rf/with-frame :rf/default
+    (let [captured (atom [])]
+      (binding [*captured* captured]
+        (trace/register-listener!
+          ::flows-http-recorder
+          (fn [ev] (swap! captured conj ev)))
+        (try
+          (test-fn)
+          (finally
+            (trace/unregister-listener! ::flows-http-recorder)))))))
 
 (use-fixtures :each reset-runtime)
 

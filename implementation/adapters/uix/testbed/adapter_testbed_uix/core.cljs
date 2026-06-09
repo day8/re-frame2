@@ -44,6 +44,16 @@
   (uix-dom/create-root (js/document.getElementById "app")))
 
 (defn ^:export init []
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — `:rf/default` is this testbed's app frame, registered
+  ;; explicitly here (init! installs only the adapter). The boot dispatch
+  ;; runs under the frame scope and the render is wrapped in the UIx
+  ;; `frame-provider` so the `use-subscribe` / `frame-handle` reads inside
+  ;; `root` resolve to it.
   (rf/init! uix-adapter/adapter)
-  (rf/dispatch-sync [:counter/init])
-  (uix-dom/render-root ($ root) app-root))
+  (rf/reg-frame :rf/default {})
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [:counter/init]))
+  (uix-dom/render-root
+    ($ uix-adapter/frame-provider {:frame :rf/default} ($ root))
+    app-root))

@@ -97,7 +97,7 @@ Do NOT hardcode runtime values in the fx registration's options map — registra
 
 **Listener registered at boot.** When the reply channel is a single broadcast surface (a Web Worker's `onmessage`, a Service Worker `MessageChannel`, a native bridge), register the listener once at boot — it dispatches a correlation-keyed event; the fx-handler just posts and includes a correlation id in the payload.
 
-A boot-registered listener has **no ambient frame** when the reply fires — it is not inside the originating fx's closure — so the reply would land in `:rf/default` unless the originating frame round-trips through the posted message. The fx-handler reads `:frame` off its first-arg map and posts it as `:reply-frame`; the listener threads it back into the reply dispatch.
+A boot-registered listener has **no frame scope** when the reply fires — it is not inside the originating fx's closure — so a bare reply dispatch would raise `:rf.error/no-frame-context` (EP-0002: the runtime never synthesises a default). The frame must be **carried** through the message round-trip: the fx-handler reads `:frame` off its first-arg map and posts it as `:reply-frame`; the listener threads it back into the reply dispatch (as the explicit `{:frame …}` override).
 
 ```clojure
 (defn install-worker-listener! [worker]
@@ -106,9 +106,9 @@ A boot-registered listener has **no ambient frame** when the reply fires — it 
           (let [{:keys [reply-event payload reply-frame]}
                 (js->clj (.-data msg-event) :keywordize-keys true)]
             ;; reply-frame came back from the posted message; without it the
-            ;; reply would silently land in :rf/default (see anti-patterns).
+            ;; reply would raise :rf.error/no-frame-context (see anti-patterns).
             (rf/dispatch (conj reply-event payload)
-                         {:frame (keyword reply-frame)})))))   ;; "rf/default" → :rf/default
+                         {:frame (keyword reply-frame)})))))   ;; explicit override carries the frame
 
 (rf/reg-fx :worker/post
   (fn fx-worker-post [m {:keys [op args reply-event]}]
@@ -131,7 +131,7 @@ A boot-registered listener has **no ambient frame** when the reply fires — it 
 - **Mutating `app-db` from inside the fx-handler.** The fx posts work and registers a listener; it does not write state. State writes live in the dispatched reply handler.
 - **Implicit dispatching from inside the fx.** Always require the caller to pass `:on-success` / `:on-error` explicitly — that's the only place a reader can find where the reply lands.
 - **Closures as event payload.** Reply events must serialise (for SSR hydration, Tool-Pair epoch replay, trace events). Pass ids and data; the handler closes over its own context.
-- **Forgetting to capture `:frame`.** An async dispatch fired without `{:frame frame-id}` lands in the default frame. Tests that target a non-default frame will silently see no state change. Always read `:frame` off the first-arg map and pass it through.
+- **Forgetting to carry `:frame`.** An async dispatch fired without a carried frame (no `{:frame frame-id}`, no captured handle) raises `:rf.error/no-frame-context` — the runtime refuses to guess a default. Always read `:frame` off the first-arg map and pass it through (or capture a `frame-handle` at fx time).
 - **Treating WebSockets as Async Effect.** Long-lived connections with retry / backoff / subscription state are state-machine-shaped; use Pattern-WebSocket. Individual *messages* over an established connection fit this pattern.
 
 ## Worked example

@@ -22,9 +22,9 @@ So the framework inverts it: **the registration declares the truth, the walker e
 
 This is the same move re-frame2 makes everywhere: push the decision to the one site where it has a stable, authoritative answer, then let the platform carry it to all the places that need it. You've seen it with schemas as the source of truth for app-db shape; privacy and size are just two more facts about a slot, declared on the same surface, in the same vocabulary.
 
-## The one place you declare it
+## The canonical place you declare it
 
-Both flags live on the same surface: a Malli slot's per-slot props map, the one you met in [chapter 08 — Schemas](08-schemas.md). One keyword, one map, and the whole trace-consuming world honours it.
+Both flags live on the same surface: a Malli slot's per-slot props map, the one you met in [chapter 08 — Schemas](08-schemas.md). One keyword, one map, and the whole trace-consuming world honours it. This is the *canonical* place — the place to declare a slot's privacy and size by default, because it's where the truth lives next to the type. There is one explicit runtime complement for the cases the schema can't reach, and we'll meet it below; reach for it as the exception, not the habit.
 
 ```clojure
 (rf/reg-app-schema
@@ -35,7 +35,7 @@ Both flags live on the same surface: a Malli slot's per-slot props map, the one 
    [:audit-log    {:large?     true :hint "Audit log entries"} [:vector :map]]]) ;; elided in traces
 ```
 
-That's the declaration. There is no second site, no companion interceptor, no registration call. `:sensitive?` says *secret*; `:large?` says *too big to ship raw*. Same map, two verbs.
+That's the declaration. No companion interceptor, no handler annotation to cross-reference, no per-tool plumbing — the flag on the slot is the whole of it. `:sensitive?` says *secret*; `:large?` says *too big to ship raw*. Same map, two verbs. (There *is* one runtime augmentation call — `rf/add-marks` / `rf/set-marks` — for slots a schema can't reach; it's the deliberate escape hatch covered under [§Declaring marks at runtime](#declaring-marks-at-runtime), not a co-equal second home for the everyday case.)
 
 What makes this the right surface — and not, say, a handler annotation or a runtime registration — is that it's where an AI agent or a human reading the schema *already is.* The schema is the AI-first surface for app shape (per chapter 08); declaring the privacy claim and the size claim on the same line as the type means an agent reading `[:credit-card {:sensitive? true} :string]` sees the whole truth about the slot in one glance, in the same vocabulary as everything else. There's no separate handler-side declaration to cross-reference, no interceptor to grep for, no runtime side effect to chase. The fact lives where the type lives.
 
@@ -134,6 +134,29 @@ You'll write code faster than you write schemas — that's just how development 
 ```
 
 It fires **once per slot per session** (re-emits on the same path short-circuit, so a chatty cascade doesn't flood your dev panel), and it's **dev-only** — under `goog.DEBUG=false` the entire warning emit-site compiles away to nothing, zero production cost. The fix when you see it: open the schema for the slice, add `{:large? true}` (or `{:large? false}` if you've decided the slot really should ride the wire and you want to silence the nudge), reload. Both verdicts are valid; both are explicit.
+
+## Declaring marks at runtime
+
+The canonical declaration above wants a schema, and the recommendation stands: when a slot has a shape, mark it where the shape lives. But two cases sit outside that grain. A slot that has *no* schema registered — the `[:user :photo-cache]` the warning above just nudged you about — has nowhere for a slot prop to attach. And occasionally the sensitivity is *dynamic*: a path you only learn is secret at runtime, or one a feature module wants to mark without owning the schema that declares the slot's shape. For exactly those cases the framework ships an explicit runtime path-marks API — `rf/add-marks` and `rf/set-marks`:
+
+```clojure
+;; Mark paths sensitive/large at runtime, against a frame.
+;; Mark keywords are :sensitive and :large (path-list form, not slot props).
+(rf/add-marks :rf/default
+  {[:user :photo-cache] :large        ;; no schema for this slot
+   [:session :jwt]      :sensitive})  ;; learned-at-runtime secret
+```
+
+Two verbs, mirroring `reg-app-schema`'s own additive-vs-replace shape:
+
+- **`rf/add-marks`** — *additive merge.* The paths you pass merge into the frame's existing mark-set; unmentioned paths keep their prior state, and repeat calls accumulate. This is the form feature-modular code reaches for — each module declares its own marks without clobbering another's.
+- **`rf/set-marks`** — *wholesale replace.* The paths you pass become the frame's `:marks`-sourced set; previously-marks-declared paths not mentioned this time are cleared. Schema-attached marks are untouched — `set-marks` only replaces entries it owns.
+
+Both are **frame-scoped** (the first arg is the `frame-id`, the same asymmetry as `reg-app-schema`) and both are **pure declarations**: like the schema flag, they don't mutate `app-db`, don't install an interceptor, and don't change any handler's view of the data. They only feed the same mark-lookup table the walker already consults at the wire boundary — runtime marks redact through exactly the same one walker, with exactly the same sentinels.
+
+The two sources **union, and neither can unmark the other.** A path is sensitive if the schema says so *or* a runtime mark says so; there is no precedence fight and no way for one source to override the other down to "not sensitive." That asymmetry is the safe one — adding a second declaration site can only ever *add* protection, never silently strip it — which is precisely why the runtime API can sit alongside the schema without reopening the leak risk the schema-first stance closes.
+
+So the relationship to hold in your head: the **schema is the canonical declaration** for a slot's privacy and size — schema-first wins, and it's where you'll declare marks the overwhelming majority of the time. `add-marks` / `set-marks` is the **explicit runtime augmentation API** for the schema-less and the dynamic cases — a deliberate escape hatch, not a co-equal everyday alternative. Same enforcement, same walker, same sentinels; the only difference is *when* and *where* the truth gets declared. (Spec 015 is the normative home for the path-marks contract and the union rule.)
 
 ## When both flags land on one slot
 
@@ -304,13 +327,14 @@ The framework deliberately does *not* ship this for you, and the reason is the s
 
 None of this should make you paranoid about every exception. The gap bites only at the intersection of two facts: the handler reads a sensitive-path value, *and* it throws with that value in the message or ex-data. Most handlers do neither, and most exceptions are about structural failures — a missing key, a timeout — where no secret ends up in the message at all.
 
-## Four declarations, in the order you'll reach for them
+## Five declarations, in the order you'll reach for them
 
-Everything in this chapter reduces to four moves, ranked by how often you'll use them:
+Everything in this chapter reduces to five moves, ranked by how often you'll use them:
 
 1. **Schema-slot `:sensitive?`** — for data-shape secrets. The card number, the session token, the patient record number. One flag, every consumer honours it. You'll write this 90% of the time.
 2. **Schema-slot `:large?` + `:hint`** — for size, not secrecy. The photo blob, the audit log, the cached PDF. The marker keeps `:path` / `:bytes` / `:hint` / `:handle` so consumers know what was elided and can opt in to fetch.
 3. **Handler-meta `:sensitive?`** — for cross-cutting handler-scope sensitivity. The export bundle, the third-party POST, the operation that composes individually-innocent slots into a sensitive whole. Rare.
-4. **A `safe-throw` convention** — for the exception-assembly gap the walker can't reach. The one place the contract asks you to participate.
+4. **Runtime `add-marks` / `set-marks`** — the explicit escape hatch for the schema-less and the dynamic cases: a slot with no schema to carry the flag, or a path you only learn is sensitive at runtime. Unions with the schema; never co-equal with it. Reach for it when the canonical place can't hold the truth.
+5. **A `safe-throw` convention** — for the exception-assembly gap the walker can't reach. The one place the contract asks you to participate.
 
-Not one of these is an interceptor you wire by hand, a registration you remember at every call site, or a per-consumer filter you ship to every tool. You declare the truth once where the truth lives; the platform carries it to every wire boundary it owns.
+Not one of these is an interceptor you wire by hand or a per-consumer filter you ship to every tool. You declare the truth once where the truth lives — canonically on the schema, and via the runtime marks API for the slots a schema can't reach — and the platform carries it to every wire boundary it owns.

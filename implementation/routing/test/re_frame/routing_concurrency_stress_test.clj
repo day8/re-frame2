@@ -77,11 +77,19 @@
   (reset! schemas/schemas-by-frame {})
   (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`, and
+  ;; routing/nav fxs require a carried frame stamp. Register `:rf/default`
+  ;; explicitly as the conventional app frame; URL ownership is now an
+  ;; explicit declaration, so opt in via `{:url-bound? true}`. Pin it as the
+  ;; ambient scope for the body.
+  (rf/reg-frame :rf/default {:url-bound? true
+                             :doc "concurrency-stress suite default app frame (explicit URL owner)."})
   ;; Framework events / fx (routing.cljc) are registered at ns-load;
   ;; clear-all! wiped them. Reload to resurrect.
   (require 're-frame.routing :reload)
   (routing/reset-counters!)
-  (test-fn))
+  (rf/with-frame :rf/default
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 

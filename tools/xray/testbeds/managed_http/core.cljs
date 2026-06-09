@@ -497,5 +497,11 @@
 (defn ^:export run []
   (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [::initialise])
-  (rdc/render react-root [root]))
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — establish the host frame explicitly, run the boot dispatch
+  ;; under its scope, and wrap the render in a `frame-provider` so in-tree
+  ;; dispatch/subscribe resolve to it (the carried invariant).
+  (rf/reg-frame host-frame {})
+  (rf/with-frame host-frame
+    (rf/dispatch-sync [::initialise]))
+  (rdc/render react-root [rf/frame-provider {:frame host-frame} [root]]))

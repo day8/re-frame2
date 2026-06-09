@@ -49,7 +49,16 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
-  (test-fn))
+  ;; EP-0002 (rf2-5q7um6): `reg-flow` / `clear-flow` are context-required
+  ;; frame-local — an ambient call under NO established scope now raises
+  ;; `:rf.error/no-frame-context` (there is no `:rf/default` floor). `init!`
+  ;; no longer creates `:rf/default`; register it as an ordinary frame and
+  ;; pin `*current-frame*` so the ambient `reg-flow` / `dispatch-sync` calls
+  ;; in the bodies below carry a scope stamp. Fixture-level equivalent of
+  ;; wrapping each body in `(rf/with-frame :rf/default …)`.
+  (frame/ensure-default-frame!)
+  (binding [frame/*current-frame* :rf/default]
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 

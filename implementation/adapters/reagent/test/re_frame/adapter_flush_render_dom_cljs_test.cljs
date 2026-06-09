@@ -33,9 +33,17 @@
             [re-frame.test-support :as test-support]
             [re-frame.views]))
 
+;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's default
+;; ambient `*current-frame*` :rf/default scope. The probe is a reg-view whose
+;; `subscribe` resolves its frame from the enclosing `frame-provider` via the
+;; React-context tier. The render runs synchronously inside `flushSync` /
+;; `flush-render!`, i.e. inside the test body's dynamic extent — an ambient
+;; :rf/default scope would shadow the React-context tier at tier 1 and the
+;; subscribe would read :rf/default's (empty) app-db instead of the provider's.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+    {:adapter reagent-adapter/adapter
+     :ambient-frame nil}))
 
 (defn- browser? []
   (and (exists? js/document)

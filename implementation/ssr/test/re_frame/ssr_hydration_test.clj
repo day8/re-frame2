@@ -623,8 +623,12 @@
           ;; slice via the same payload-policy path the Ring adapter uses.
           server-app-db {:count 7 :title "seeded"
                          :server-only/auth "SECRET"}
+          ;; EP-0002 (rf2-acjknb): the server stamps the payload's
+          ;; :rf/frame-id with the SAME frame the client hydrates into, and
+          ;; hydrate! VALIDATES the two agree. Build the payload under
+          ;; `client-frame` so server + client carry one frame stamp.
           payload       (build-server-payload
-                          :rf/default server-app-db "deadbeef"
+                          client-frame server-app-db "deadbeef"
                           {:version 1 :payload [:count :title]})
           ;; Client side: the symmetric boot call.
           returned      (ssr/hydrate! {:frame   client-frame
@@ -675,8 +679,9 @@
                                        :ssr {:detect-mismatch? true}})
           ;; Server hash is a DELIBERATELY divergent value so the verify
           ;; step's comparison fails — proving the verify step actually ran.
+          ;; EP-0002 (rf2-acjknb): payload :rf/frame-id == the client target.
           payload       (build-server-payload
-                          :rf/default {:count 7 :title "seeded"}
+                          client-frame {:count 7 :title "seeded"}
                           "server00"                 ;; != the client tree hash
                           {:version 1 :payload [:count :title]})
           traces        (capture-traces!
@@ -703,8 +708,9 @@
           ;; Compute the server hash from the SAME tree so the round-trip
           ;; hashes agree — the happy path.
           matched-hash  (ssr/render-tree-hash client-tree)
+          ;; EP-0002 (rf2-acjknb): payload :rf/frame-id == the client target.
           payload       (build-server-payload
-                          :rf/default {:count 7 :title "seeded"}
+                          client-frame {:count 7 :title "seeded"}
                           matched-hash
                           {:version 1 :payload [:count :title]})
           traces        (capture-traces!
@@ -719,6 +725,70 @@
       ;; Sanity: the seed still landed (the verify step doesn't gate hydrate).
       (is (= 7 (rf/subscribe-once client-frame [:count]))
           ":rf/hydrate still applied the seeded slice"))))
+
+;; ===========================================================================
+;; rf2-acjknb — EP-0002: hydrate! requires :frame; payload :rf/frame-id is
+;; VALIDATED against the explicit target (no :rf/default-from-absence, no
+;; silent side-pick on a frame-id conflict).
+;; ===========================================================================
+
+(deftest boot-hydrate-absent-frame-raises-no-frame-context
+  (testing "rf2-acjknb (EP-0002): the client hydration target is carried —
+            :frame is REQUIRED. Calling hydrate! with no :frame raises
+            :rf.error/no-frame-context rather than synthesising :rf/default.
+            The malformed-payload guard never runs (the absence fails first
+            at the boundary)."
+    (register-baseline-handlers!)
+    (let [ex (try (ssr/hydrate! {:payload {:rf/app-db {:count 1}}})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "hydrate! with no :frame must throw")
+      (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex)))
+          "an absent :frame surfaces :rf.error/no-frame-context"))))
+
+(deftest boot-hydrate-frame-id-mismatch-raises-structured-error
+  (testing "rf2-acjknb (EP-0002): the payload's :rf/frame-id is validated
+            against the explicit :frame target. A present-and-different
+            frame-id (the server rendered under a DIFFERENT frame than the
+            client is installing into) raises a structured
+            :rf.error/hydration-frame-id-mismatch — the runtime never
+            silently picks a side, and app-db is NOT replaced."
+    (register-baseline-handlers!)
+    (let [client-frame (rf/make-frame {:doc "mismatch client frame"
+                                       :platform :client})
+          ;; Payload stamped with a DIFFERENT frame id than the client target.
+          other-frame  (rf/make-frame {:doc "the server's other frame"
+                                       :platform :server})
+          payload      (build-server-payload
+                         other-frame {:count 7 :title "seeded"} "deadbeef"
+                         {:version 1 :payload [:count :title]})
+          ex           (try (ssr/hydrate! {:frame client-frame :payload payload})
+                            nil
+                            (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "a payload/target frame-id conflict must throw")
+      (is (= :rf.error/hydration-frame-id-mismatch (:rf.error/id (ex-data ex)))
+          "the conflict surfaces a structured :rf.error/hydration-frame-id-mismatch")
+      (is (= client-frame (:target-frame (ex-data ex)))
+          "the error carries the explicit client target frame")
+      (is (= other-frame (:payload-frame-id (ex-data ex)))
+          "the error carries the payload's (server) frame-id")
+      ;; The conflict halts BEFORE :rf/hydrate dispatches — app-db untouched.
+      (is (= 0 (rf/subscribe-once client-frame [:count]))
+          "the mismatch is surfaced before the app-db replace; no slice landed"))))
+
+(deftest boot-hydrate-absent-payload-frame-id-no-conflict
+  (testing "rf2-acjknb (EP-0002): a payload carrying NO :rf/frame-id is not a
+            conflict — there is nothing to disagree with, so the explicit
+            client target stands and hydration proceeds normally."
+    (register-baseline-handlers!)
+    (let [client-frame (rf/make-frame {:doc "no-payload-frame-id client"
+                                       :platform :client})
+          ;; A hand-built payload deliberately WITHOUT :rf/frame-id.
+          payload      {:rf/version 1 :rf/app-db {:count 7 :title "seeded"}}
+          returned     (ssr/hydrate! {:frame client-frame :payload payload})]
+      (is (= payload returned) "hydration proceeded (no frame-id to conflict)")
+      (is (= 7 (rf/subscribe-once client-frame [:count]))
+          "the seeded slice landed — an absent payload :rf/frame-id is no conflict"))))
 
 (deftest boot-hydrate-render-tree-fn-is-synchronous-and-post-seed
   (testing "rf2-3w6dmy finding 1: hydrate!'s VERIFY contract is
@@ -735,8 +805,12 @@
           ;; Records WHEN render-tree-fn ran + WHAT app-db it saw.
           called?       (atom false)
           seen-count    (atom ::not-called)
+          ;; EP-0002 (rf2-acjknb): stamp the payload's :rf/frame-id with the
+          ;; SAME frame the client hydrates into, so the carried-frame
+          ;; validation agrees (a :rf/default stamp would now raise
+          ;; :rf.error/hydration-frame-id-mismatch against client-frame).
           payload       (build-server-payload
-                          :rf/default {:count 11 :title "seeded"}
+                          client-frame {:count 11 :title "seeded"}
                           "server00"
                           {:version 1 :payload [:count :title]})
           returned      (ssr/hydrate!

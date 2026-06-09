@@ -76,26 +76,26 @@ For hosts that want to control the install timing — a custom boot pipeline wit
 The `opts` map accepts these keys today (pre-alpha — additional keys land under follow-on work):
 
 ```clojure
-{:default-frame :app/main          ;; target-frame for the scrubber
+{:target-frame  :app/main          ;; the inspected HOST frame for the scrubber
  :theme         :dark              ;; / :light / :high-contrast (TBD-impl)
  :density       :compact           ;; / :cosy (TBD-impl)
  :ai-provider   {:provider :claude ;; ...} (TBD-impl)
  :buffer-depths {:trace 200 :epoch 50}}
 ```
 
-Pre-alpha posture wires the four foundation side-effects (registry, trace collector, epoch collector, keybinding listener) and threads `:default-frame` through to `:rf.xray/set-target-frame`. The other keys (`:theme`, `:density`, `:ai-provider`, `:buffer-depths`) are accepted today but ignored at runtime — passing them now keeps host code forward-compatible.
+Pre-alpha posture wires the four foundation side-effects (registry, trace collector, epoch collector, keybinding listener) and threads `:target-frame` through to `:rf.xray/set-target-frame`. Note the EP-0002 vocabulary split: `:target-frame` is the **inspected host frame**, distinct from Xray's **own** state frame (`:rf/xray`). The legacy `:default-frame` key is **retired** — it conflated the two and read like the `:rf/default` ambient fallback the carried-frame invariant removes. **Omitting `:target-frame` leaves the target unselected** (the frame picker / mount discovery policy chooses); Xray never falls back to `:rf/default`. The other keys (`:theme`, `:density`, `:ai-provider`, `:buffer-depths`) are accepted today but ignored at runtime — passing them now keeps host code forward-compatible.
 
 ## Frame picker
 
-Most apps run one host frame (`:rf/default`) and Xray observes it implicitly. Multi-frame hosts — Story, parallel-frames testbeds, story-mode chrome wrapping a tool surface — need to tell Xray which frame the scrubber and panels are observing.
+A host running a single app frame selects it explicitly — via `init! {:target-frame …}`, `set-target-frame!`, or the picker chip — because Xray inspects a **carried** target, never an inferred default. Multi-frame hosts — Story, parallel-frames testbeds, story-mode chrome wrapping a tool surface — likewise tell Xray which frame the scrubber and panels are observing.
 
 ### `target-frame`
 
 - **Signature**:
   ```clojure
-  (xray/target-frame) → keyword
+  (xray/target-frame) → keyword | nil
   ```
-- **Description**: Read the currently-targeted host frame. Defaults to `:rf/default` until `set-target-frame!` flips it. One-shot read (does NOT register for reactive re-render). Reactive consumers subscribe to `:rf.xray/target-frame` directly via the framework's sub surface.
+- **Description**: Read the currently-selected inspected-host frame, or `nil` when no target has been selected yet (host config, the picker, or `set-target-frame!` selects it). It is **not** defaulted to `:rf/default` — `:rf/default` is an ordinary id, never an Xray fallback. One-shot read (does NOT register for reactive re-render). Reactive consumers subscribe to `:rf.xray/target-frame` directly via the framework's sub surface.
 
 ### `set-target-frame!`
 
@@ -103,7 +103,7 @@ Most apps run one host frame (`:rf/default`) and Xray observes it implicitly. Mu
   ```clojure
   (xray/set-target-frame! frame-id) → nil
   ```
-- **Description**: Set the host frame Xray targets. Dispatches `:rf.xray/set-target-frame` into the `:rf/xray` frame so the sub and every dependent panel re-fire on the standard reactive path. `nil` resets to the default.
+- **Description**: Set the inspected-host frame Xray targets. Dispatches `:rf.xray/set-target-frame` into the `:rf/xray` frame so the sub and every dependent panel re-fire on the standard reactive path. `set-target-frame! nil` resets to the **unselected** state (panels render their no-frame-selected state and the picker prompts a choice) — it no longer resets *through* a synthesised `:rf/default`.
 
 The L1 frame picker chip in the shell's top strip is wired to this — clicking flips `set-target-frame!`, and every panel in view (Trace, Views, Machines, App-DB Diff) rescopes to the new frame. Hosts can drive the same flip programmatically from a per-route effect, a Settings-popup wire-up, or a test harness assertion.
 

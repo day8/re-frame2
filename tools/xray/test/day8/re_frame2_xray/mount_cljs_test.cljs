@@ -998,13 +998,14 @@
                    `:rf.xray/app-db-current+diff` resolves the picked
                    frame's focused epoch rather than the empty-state."))))))))
 
-(deftest first-open!-seeds-default-frame-when-no-pre-mount-cascades
-  (testing "rf2-boyc2 — cold start: no pre-mount cascades in the trace
-            buffer → `spine/focusable-head-frame-id` returns nil →
-            seed-frame falls back to `defaults/default-target-frame`
-            (`:rf/default`). Preserves the pre-fix cold-start behaviour
-            so the existing empty-history landing experience is
-            unchanged."
+(deftest first-open!-leaves-target-unselected-when-no-pre-mount-cascades
+  (testing "EP-0002 (rf2-bd4div) — cold start: no pre-mount cascades in the
+            trace buffer → `spine/focusable-head-frame-id` returns nil →
+            seed-frame is `defaults/default-target-frame` = nil = UNSELECTED.
+            The target is NOT defaulted to `:rf/default` (the carried
+            invariant: `:rf/default` is an ordinary id, never an
+            absence-repair fallback). The frame picker prompts a choice; the
+            panels render their unselected-target state."
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
@@ -1012,9 +1013,9 @@
                         rf/epoch-history (fn [_] [])]
             (mount/open!)
             (rf/with-frame :rf/xray
-              (is (= :rf/default @(rf/subscribe [:rf.xray/target-frame]))
-                  "cold start (no pre-mount cascades) → seed frame is
-                   the default `:rf/default`. Same surface as pre-fix."))))))))
+              (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
+                  "cold start (no pre-mount cascades) → target UNSELECTED
+                   (nil), not a synthesised `:rf/default`."))))))))
 
 (deftest first-open!-ignores-xray-internal-cascades-when-picking-seed-frame
   (testing "rf2-boyc2 — the seed-frame projection applies the same

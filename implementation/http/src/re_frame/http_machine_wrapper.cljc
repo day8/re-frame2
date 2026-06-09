@@ -48,7 +48,8 @@
   which composes against these handlers directly — also lives in
   `re-frame.http-test-support` (per rf2-lwmgw — single discoverable
   home for HTTP test surfaces)."
-  (:require [re-frame.http-encoding   :as encoding]
+  (:require [re-frame.frame           :as frame]
+            [re-frame.http-encoding   :as encoding]
             [re-frame.http-middleware :as middleware]
             [re-frame.http-privacy    :as privacy]
             [re-frame.late-bind       :as late-bind]))
@@ -106,7 +107,13 @@
   sensitive is honoured); seeding the floor here matches production's
   pre-chain reading."
   [frame-ctx args-map]
-  (let [frame-id     (or (:frame frame-ctx) :rf/default)
+  (let [;; EP-0002 carried invariant — the canned stub runs inside a
+        ;; cascade, so the fx context carries the envelope frame as
+        ;; `:frame`; a nil stamp is an invariant failure
+        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+        frame-id     (frame/require-frame-stamp!
+                       (:frame frame-ctx) :rf.http/managed-canned
+                       {:where 'rf.http/run-request-chain})
         origin-event (encoding/resolve-origin-event frame-ctx args-map)
         sensitive?   (privacy/request-sensitive? args-map origin-event)
         ctx0         {:request    (:request args-map)
@@ -167,7 +174,12 @@
   chain via `dispatch-canned-reply!`. Does NOT run the `:before` chain —
   the caller already did."
   [frame-ctx args-map middleware-ctx]
-  (let [frame-id (or (:frame frame-ctx) :rf/default)
+  (let [;; EP-0002 carried invariant — fx-context `:frame` is the cascade
+        ;; envelope stamp; a nil stamp is an invariant failure, never a
+        ;; synthesised `:rf/default`.
+        frame-id (frame/require-frame-stamp!
+                   (:frame frame-ctx) :rf.http/managed-canned-success
+                   {:where 'rf.http/emit-canned-success!})
         value    (get args-map :value {:stubbed true})]
     (dispatch-canned-reply!
       {:origin-event   (encoding/resolve-origin-event frame-ctx args-map)
@@ -183,7 +195,12 @@
   "Synthesise a failure reply from a PRE-COMPUTED post-`:before`
   `middleware-ctx` (rf2-azrcs). Symmetric with `emit-canned-success!`."
   [frame-ctx args-map middleware-ctx]
-  (let [frame-id (or (:frame frame-ctx) :rf/default)
+  (let [;; EP-0002 carried invariant — fx-context `:frame` is the cascade
+        ;; envelope stamp; a nil stamp is an invariant failure, never a
+        ;; synthesised `:rf/default`.
+        frame-id (frame/require-frame-stamp!
+                   (:frame frame-ctx) :rf.http/managed-canned-failure
+                   {:where 'rf.http/emit-canned-failure!})
         kind     (or (:kind args-map) :rf.http/transport)
         tags     (or (:tags args-map) {})
         failure  (assoc tags :kind kind)]

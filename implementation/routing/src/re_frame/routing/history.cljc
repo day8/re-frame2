@@ -78,20 +78,32 @@
      This mirrors the locked routing-history contract (the
      `popstate-via-window-listener-cljs` test dispatches `dispatch-sync`)."
      []
-     (let [w (when (exists? js/window) js/window)]
+     (let [w (when (exists? js/window) js/window)
+           ;; EP-0002 (rf2-nn0jqa) — the popstate dispatch targets the
+           ;; EXPLICITLY-declared URL owner; `url-owner-frame-id` returns
+           ;; nil when no frame declared `:url-bound? true`. The runtime no
+           ;; longer synthesises `:rf/default` ownership from absence, so
+           ;; the handler resolves the owner AT POP TIME and skips the
+           ;; dispatch when none is declared rather than firing a frameless
+           ;; `:rf.route/handle-url-change` (which would raise
+           ;; `:rf.error/no-frame-context`). Installing a history listener
+           ;; without declaring a URL owner is a routing-config no-op, not
+           ;; a default-frame write.
+           dispatch-to-owner!
+           (fn []
+             (when-let [owner (nav-fx/url-owner-frame-id)]
+               (router/dispatch-sync! [:rf.route/handle-url-change (current-url)]
+                                      {:frame owner})))]
        (when w
          (when-let [prev @history-listener-atom]
            (try (.removeEventListener w "popstate" prev)
                 (catch :default _ nil)))
-         (let [handler (fn [_event]
-                         (router/dispatch-sync! [:rf.route/handle-url-change (current-url)]
-                                                {:frame (nav-fx/url-owner-frame-id)}))]
+         (let [handler (fn [_event] (dispatch-to-owner!))]
            (.addEventListener w "popstate" handler)
            (reset! history-listener-atom handler)))
        ;; Initial sync: hydrate the owner's slice from the current URL so
        ;; a deep link / reload lands on the right route on first paint.
-       (router/dispatch-sync! [:rf.route/handle-url-change (current-url)]
-                              {:frame (nav-fx/url-owner-frame-id)})
+       (dispatch-to-owner!)
        nil)))
 
 #?(:cljs

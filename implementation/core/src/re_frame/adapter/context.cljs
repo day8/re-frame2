@@ -29,11 +29,25 @@
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]))
 
+(def no-provider-sentinel
+  "The React-context default value — the **no-provider sentinel**, NOT
+  `:rf/default`. Per Spec 002 §Frame target resolution — the carried
+  invariant (EP-0002): the React-context default carries no framework
+  privilege and the runtime never synthesises a frame from absence. A
+  component rendered with NO enclosing `frame-provider` observes this
+  sentinel; the resolver reads it as 'no frame in scope' and returns nil
+  (it is the reader's nil, not a `:rf/default` floor). A dedicated
+  namespaced keyword (rather than nil) so a raw `_currentValue` read can
+  positively distinguish 'no Provider above me' from a genuinely corrupted
+  context value (nil / false / a number / a JS object)."
+  :rf.frame/no-provider)
+
 (defonce frame-context
-  ;; The default value is :rf/default — Spec 002 §`:rf/default` guarantees
-  ;; this frame always exists. Components without an enclosing
-  ;; frame-provider resolve to it.
-  (.createContext React :rf/default))
+  ;; Default = the no-provider sentinel (NOT :rf/default). Components
+  ;; without an enclosing frame-provider observe this; the resolver maps it
+  ;; to nil (no scope) rather than to a synthesised default frame, per the
+  ;; EP-0002 carried invariant.
+  (.createContext React no-provider-sentinel))
 
 ;; rf2-fa4ly: stamp a human-readable `displayName` on the React Context
 ;; object so React DevTools' Context inspector shows the entry as
@@ -130,15 +144,20 @@
   "Emit `:rf.error/frame-context-corrupted` (per Spec 009 §Error
   categories). The React-context value at the function-component read
   site (`_currentValue`) was a shape `coerce-context-value` cannot
-  resolve to a frame keyword — typically nil, false, a number, an
-  empty string, or a JS object. Recovery is `:replaced-with-default`:
-  the resolution chain falls through to `:rf/default`."
+  resolve to a frame keyword AND is not the no-provider sentinel —
+  typically false, a number, an empty string, or a JS object. Recovery is
+  `:no-frame-context`: the resolution chain returns nil (NOT a synthesised
+  `:rf/default` — per the EP-0002 carried invariant). A public frame-
+  scoped operation reading nil then fails loudly with
+  `:rf.error/no-frame-context`; the corruption is reported here as its own
+  distinct category so a disturbed context boundary is not silently folded
+  into ordinary 'no scope'."
   [v]
   (trace/emit-error! :rf.error/frame-context-corrupted
                      {:received v
                       :type     (value-type-tag v)
-                      :recovery :replaced-with-default
-                      :reason   "React-context `_currentValue` is not a frame keyword; check the closest `frame-provider` boundary (or whether the subtree was rendered through an unwrapped portal)."}))
+                      :recovery :no-frame-context
+                      :reason   "React-context `_currentValue` is not a frame keyword and not the no-provider sentinel; check the closest `frame-provider` boundary (or whether the subtree was rendered through an unwrapped portal)."}))
 
 ;; ---- function-component current-frame (UIx / Helix; rf2-d4sf) ------------
 ;;
@@ -160,7 +179,11 @@
 ;; what the warning targets).
 
 (defn function-component-current-frame
-  "Resolution chain for function-component substrates (UIx, Helix):
+  "Resolution chain (READER) for function-component substrates (UIx,
+  Helix). Returns the scope frame, or **nil** when no scope is
+  established — it never synthesises `:rf/default` (per Spec 002 §Frame
+  target resolution — the carried invariant, EP-0002). The two tiers it
+  observes:
 
     1. `re-frame.frame/*current-frame*` (dynamic var) — set by
        `with-frame` / `frame-bound-fn`.
@@ -168,31 +191,41 @@
        `_currentValue` off the shared context object directly (the
        substrate-portable path; UIx's `use-context` and Helix's
        `use-context` are both sugar over this read).
-    3. `:rf/default`.
+
+  Returns nil when neither tier names a frame — a component rendered with
+  no enclosing `frame-provider` observes the no-provider sentinel, which
+  resolves to nil ('no scope'). Public frame-scoped operations turn that
+  nil into a loud `:rf.error/no-frame-context` via
+  `frame/require-current-frame!`; low-level readers / tooling model 'no
+  context' with the nil directly.
 
   Tolerates Reagent's prop-stringified-keyword shape via
   `coerce-context-value` — relevant when a UIx / Helix subtree is
   embedded in a tree whose `frame-provider` was authored as a Reagent
   `[:> ...]` interop call.
 
-  Corrupted-`_currentValue` detection (rf2-8q66): the
-  `createContext` default is `:rf/default` (a keyword), so a
-  function-component read should always observe either a keyword or
-  the prop-stringified-keyword shape. Anything else (nil, false, a
-  number, an empty string, a JS object) means the React-context
-  boundary was disturbed — a portal rendering outside its Provider, a
-  library mutating `_currentValue`, or a Provider authored with a
-  non-keyword value. The runtime emits
-  `:rf.error/frame-context-corrupted` and falls through to
-  `:rf/default` (recovery `:replaced-with-default`)."
+  Corrupted-`_currentValue` detection (rf2-8q66): the `createContext`
+  default is now the no-provider sentinel (a keyword), so a function-
+  component read should always observe either a frame keyword, the prop-
+  stringified-keyword shape, or the sentinel. Anything else (false, a
+  number, an empty string, a JS object) means the React-context boundary
+  was disturbed — a portal rendering outside its Provider, a library
+  mutating `_currentValue`, or a Provider authored with a non-keyword
+  value. The runtime emits `:rf.error/frame-context-corrupted` and returns
+  nil (recovery `:no-frame-context`)."
   []
   (or frame/*current-frame*
       (let [v (.-_currentValue ^js frame-context)]
-        (or (coerce-context-value v)
-            ;; Corrupted branch: value is not a frame keyword and not
-            ;; a non-empty string — covers nil, false, numbers, empty
-            ;; strings, and JS objects. Emit the structured error and
-            ;; fall through.
-            (do (emit-frame-context-corrupted! v)
-                nil)))
-      :rf/default))
+        (cond
+          ;; No enclosing Provider — the sentinel resolves to nil ('no
+          ;; scope'), NOT a synthesised default. This is the common,
+          ;; benign case; it is NOT corruption.
+          (= v no-provider-sentinel) nil
+          ;; A real frame keyword (or prop-stringified keyword) names the
+          ;; enclosing Provider's frame.
+          (coerce-context-value v)   (coerce-context-value v)
+          ;; Corrupted branch: not a frame keyword, not the sentinel —
+          ;; covers false, numbers, empty strings, and JS objects. Emit
+          ;; the structured error and return nil (no synthesis).
+          :else                      (do (emit-frame-context-corrupted! v)
+                                         nil)))))

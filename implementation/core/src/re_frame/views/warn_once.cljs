@@ -59,18 +59,33 @@
 
 ;; ---- plain-fn-under-non-default-frame warning (rf2-d3k3) -----------------
 ;;
-;; Per Spec 004 §Plain Reagent fns and Spec 006 §Plain-fn-under-non-default-
-;; frame warning: a plain Reagent fn (not registered via `reg-view`, so
-;; without the `^{:contextType frame-context}` metadata `reg-view` attaches)
-;; cannot read the surrounding React-context frame. When such a fn renders
-;; inside a non-default `frame-provider` and calls `(rf/subscribe ...)` or
-;; `(rf/dispatch ...)`, the resolution chain falls through to `:rf/default`
-;; — almost certainly not what the author intended.
+;; SUPERSEDED BY EP-0002 (rf2-69r7ui). The old contract: a plain Reagent fn
+;; (not registered via `reg-view`, so without the `^{:contextType
+;; frame-context}` metadata `reg-view` attaches) cannot read the
+;; surrounding React-context frame, so its `(rf/subscribe ...)` /
+;; `(rf/dispatch ...)` fell through to `:rf/default` — and this helper
+;; emitted a once-per-pair warning about the silent fall-through.
 ;;
-;; The runtime emits `:rf.warning/plain-fn-under-non-default-frame-once` at
-;; most once per `(component-id, non-default-frame-id)` pair, per Spec 004
-;; §The footgun is loud, but at most once per (component, non-default-frame)
-;; pair. Detection sits at subscribe-time per Spec 006 §706: subscribe
+;; Under EP-0002 there is NO `:rf/default` floor. A plain fn that cannot
+;; read the context resolves to nil (the no-provider sentinel coerces to
+;; nil), and `frame/require-current-frame!` — which `subs/subscribe` and
+;; the dispatch envelope call BEFORE this helper — raises the always-on
+;; `:rf.error/no-frame-context` and HALTS the operation. That loud error
+;; IS the sharper diagnostic this warning used to soften: a bare reagent fn
+;; under no usable scope now fails fast rather than silently targeting a
+;; default. So the warning's original firing case (plain fn under a
+;; non-default provider, no `with-frame`) is now UNREACHABLE — the throw
+;; happens first. The only remaining reachable code path is a plain fn
+;; under an explicit `with-frame` scope (Condition 4 below requires
+;; `*current-frame*` SET for the resolution to have succeeded), where the
+;; fn correctly picks up the dynamic-var frame and NO warning is wanted —
+;; so this helper is now a structural no-op. It is retained (rather than
+;; deleted) so the late-bind hook table + the warn-once governance chain
+;; keep a stable shape across the EP-0002 chain; a follow-on cleanup bead
+;; may retire it once the `:rf.warning/plain-fn-under-non-default-frame-once`
+;; consumers (10x / pair) migrate to the no-frame-context error.
+;;
+;; Detection sits at subscribe-time per Spec 006 §706: subscribe
 ;; consults this helper through the late-bind hook table; the JVM build
 ;; never sees this ns and the lookup returns nil there.
 ;;
@@ -134,9 +149,12 @@
   passes through stock Reagent's `convert-prop-value`, which
   stringifies the keyword. The keyword/string coercion below tolerates
   both shapes so the detection logic sees a keyword regardless of how
-  the closest Provider was authored. The createContext default —
-  `:rf/default` — survives as a keyword because it never passed
-  through prop-conversion."
+  the closest Provider was authored. EP-0002 (rf2-69r7ui): the
+  createContext default is the no-provider sentinel
+  (`adapter-context/no-provider-sentinel`, a keyword), so this raw read
+  returns that sentinel when no Provider sits above — distinguishable
+  from a genuine frame keyword by the caller (the detection below already
+  filters to the non-default-provider case)."
   []
   (let [v (.-_currentValue ^js adapter-context/frame-context)]
     (cond

@@ -15,7 +15,17 @@
   originating user event's trigger.
 
   JVM-only — the cascade propagation is platform-agnostic; the runtime
-  paths under test do not depend on a CLJS host."
+  paths under test do not depend on a CLJS host.
+
+  EP-0002 (rf2-9wa0lf): under the carried-invariant frame contract the
+  top-level `dispatch-sync` calls below must establish a frame scope — a
+  bare dispatch under no scope now raises `:rf.error/no-frame-context`
+  (there is no `:rf/default` floor). The fixture registers an ordinary
+  `:rf/default` frame and pins `*current-frame*` to it (the fixture-level
+  equivalent of `(with-frame :rf/default …)`); the CHILD dispatches
+  (`:fx [[:dispatch …]]` / `:dispatch-later`) already carry the parent's
+  `:frame` explicitly via `child-dispatch-opts`, so the cascade
+  propagation under test is unchanged."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -35,7 +45,10 @@
   (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
-  (test-fn))
+  ;; EP-0002: establish an explicit frame scope (no synthesised default).
+  (frame/ensure-default-frame!)
+  (binding [frame/*current-frame* :rf/default]
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 

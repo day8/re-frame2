@@ -78,12 +78,16 @@
   projection + picker-scoping helpers consume.
 
   An entry whose `:frame` slot is absent (defensive — every flow
-  registration stamps `:frame`) buckets under `:rf/default`. Pure data —
-  JVM-runnable."
+  registration stamps `:frame`) buckets under the distinct
+  `:rf.xray/no-frame-stamp` sentinel. EP-0002 (rf2-bd4div) — a missing
+  frame stamp is NOT bucketed under `:rf/default` (now an ordinary id
+  that a real flow may legitimately register in): conflating the two
+  would mis-attribute a stamp-less registration to a real frame's group.
+  Pure data — JVM-runnable."
   [registrations]
   (reduce-kv
     (fn [acc flow-id meta]
-      (let [frame-id (get meta :frame :rf/default)]
+      (let [frame-id (get meta :frame :rf.xray/no-frame-stamp)]
         (assoc-in acc [frame-id flow-id] meta)))
     {}
     registrations))

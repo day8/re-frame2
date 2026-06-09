@@ -30,7 +30,8 @@
             ;; Loading the demo ns fires its registrations against the
             ;; registrar — the tests then exercise the registered
             ;; handlers + the listener install/uninstall surface.
-            [counter-with-stories.elision-demo]))
+            [counter-with-stories.elision-demo])
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
@@ -61,9 +62,13 @@
   ;; ns-load `reg-app-schema` call ran once at module load; the
   ;; preceding `(clear!)` step wiped it. Re-stamping it here keeps
   ;; the schema-driven elision branch (test 3) working.
+  ;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local;
+  ;; pass the target frame explicitly (the *override*) rather than relying on
+  ;; an ambient default.
   (rf/reg-app-schema [:user/avatar-pdf]
                      [:maybe [:string {:large? true
-                                       :hint   "Avatar PDF blob"}]])
+                                       :hint   "Avatar PDF blob"}]]
+                     {:frame :rf/default})
   ;; Re-run the schema-driven elision-registry boot population
   ;; against the post-init frame. The demo ns's `reg-app-schema`
   ;; call lives in registry-meta land; the per-frame `[:rf.runtime/elision
@@ -81,7 +86,21 @@
   (reset! frame/frames {})
   (event-emit/clear-event-listeners!))
 
-(use-fixtures :each {:before before! :after after!})
+;; EP-0002 (rf2-bd4div): these tests exercise the ambient dispatch /
+;; app-db-read paths, which now require a carried frame stamp. A function
+;; fixture pins `:rf/default` (registered in `before!` via
+;; `ensure-default-frame!`) as the established scope for the whole test
+;; body via `with-frame` — the demo app runs in the ordinary `:rf/default`
+;; frame (see the demo ns's `core/run`), so the testbed's reads/dispatches
+;; carry that explicit stamp rather than relying on a synthesised default.
+;; (The map-shape :before/:after hooks cannot wrap the body in `with-frame`.)
+(use-fixtures :each
+  (fn [test-fn]
+    (before!)
+    (try
+      (with-frame :rf/default
+        (test-fn))
+      (finally (after!)))))
 
 ;; ---- 1. :sensitive? registration metadata is queryable -------------------
 

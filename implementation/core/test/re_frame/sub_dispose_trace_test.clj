@@ -43,10 +43,19 @@
   (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (rf/init! plain-atom/adapter)
+  ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`,
+  ;; and ambient subscribe / unsubscribe / clear-sub-cache! now require a
+  ;; carried frame stamp. These dispose-trace tests exercise the ambient
+  ;; cache lifecycle against a single conventional app frame, so the
+  ;; fixture registers `:rf/default` explicitly and pins it as the
+  ;; established scope for the whole body via `with-frame` — the dispose
+  ;; traces still assert `:frame :rf/default`.
+  (frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  (test-fn))
+  (rf/with-frame :rf/default
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 

@@ -198,7 +198,6 @@ The Settings shape (validated by Malli):
                  :custom-url   "https://..."   ;; only when :provider = :custom
                  :custom-headers {"X-..." "..."}}
  :buffer-depths {:trace 200 :epoch 50}
- :default-frame :app/main
  :sidebar-mode  :grouped / :show-all
  :launcher-pill {:hidden? false}
  :keybindings   {:toggle ["Ctrl+Shift+C"] ...}}

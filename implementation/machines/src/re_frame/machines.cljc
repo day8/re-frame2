@@ -139,13 +139,24 @@
 
 (defn machine-by-system-id
   "Look up the spawned-machine id currently bound to `system-id` in the
-  active frame's `[:rf.runtime/machines :system-ids]` reverse index, or nil. The `frame`
-  arg defaults to the current frame (per `frame/current-frame`); pass
-  an explicit frame-id for cross-frame lookups.
+  active frame's `[:rf.runtime/machines :system-ids]` reverse index, or nil.
 
-  Per Spec 005 §Named addressing via :system-id."
+  EP-0002 carried invariant: the 1-arity ambient form resolves the frame
+  through the scope/hold chain via `frame/require-current-frame!` — a
+  lookup issued under no established scope raises
+  `:rf.error/no-frame-context` rather than reading an invented default's
+  reverse index. Pass the 2-arity `(machine-by-system-id system-id
+  frame-id)` to look up a named frame from outside any scope (async
+  callbacks / tools / cross-frame lookups).
+
+  Per Spec 005 §Named addressing via :system-id + Spec 002 §Resolver
+  surface."
   ([system-id]
-   (machine-by-system-id system-id (frame/current-frame)))
+   (machine-by-system-id
+     system-id
+     (frame/require-current-frame!
+       :machine-by-system-id
+       {:where 're-frame.machines/machine-by-system-id})))
   ([system-id frame-id]
    ;; EP-0001 (rf2-vzld77): the system-ids reverse index is durable
    ;; machine runtime-db state — read it off the runtime-db partition.
@@ -177,10 +188,16 @@
   reverse index and dispatches `event` to the bound actor. No-op when the
   system-id is unbound (symmetric with the `dispatch-to-system` FN's
   no-op fall-through). Per Spec 005 §Cross-machine messaging by name."
-  [{frame-id :frame :or {frame-id :rf/default}} [system-id event]]
-  (when-let [machine-id (machine-by-system-id system-id frame-id)]
-    (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-      (dispatch! [machine-id event] {:frame frame-id})))
+  [{frame-id :frame} [system-id event]]
+  ;; EP-0002 carried invariant — the cascade envelope frame is the
+  ;; fx-context `:frame`; a nil stamp is an invariant failure
+  ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+  (let [frame-id (frame/require-frame-stamp!
+                   frame-id :rf.machine/dispatch-to-system
+                   {:where 'rf.machine/dispatch-to-system :event-id system-id})]
+    (when-let [machine-id (machine-by-system-id system-id frame-id)]
+      (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+        (dispatch! [machine-id event] {:frame frame-id}))))
   nil)
 
 (defn reset-timers!

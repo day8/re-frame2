@@ -24,8 +24,9 @@
             (Spec 012 §Multi-frame routing)"
     (let [traces (atom [])]
       (rf/register-listener! ::dup-bind (fn [ev] (swap! traces conj ev)))
-      ;; :rf/default is implicitly :url-bound? true. A second frame
-      ;; opting in collides.
+      ;; EP-0002 (rf2-nn0jqa): URL ownership is explicit. This suite's
+      ;; fixture registered `:rf/default {:url-bound? true}` as the declared
+      ;; owner, so a second frame opting in collides with it.
       (rf/reg-frame :my-frame {:url-bound? true})
       (rf/unregister-listener! ::dup-bind)
       (is (some (fn [ev]
@@ -217,8 +218,13 @@
 (deftest duplicate-url-binding-only-owner-drives-navigation
   (testing "rf2-25i7r7 finding 2: when two frames carry :url-bound? true,
             only the single deterministic owner's :rf.nav/push-url fires;
-            the losing binding's navigation no-ops the history mutation"
-    (rf/reg-frame :loser {:url-bound? true})   ;; conflicts with :rf/default
+            the losing binding's navigation no-ops the history mutation.
+            EP-0002 (rf2-nn0jqa): ownership is the deterministic resolution
+            over the stored :url-bound? true metadata (alphabetical-first id
+            via `url-owner-frame-id`), NOT a :rf/default privilege. The
+            fixture's :rf/default sorts before :second-owner, so :rf/default
+            is the deterministic owner here and the newcomer loses."
+    (rf/reg-frame :second-owner {:url-bound? true})   ;; conflicts with :rf/default
     (rf/reg-route :route/home {:path "/home"})
     (let [pushed (atom [])]
       ;; Re-register the production-gated fx that consults the REAL
@@ -228,10 +234,10 @@
                  {:platforms #{:server :client}
                   :doc       "test fx consulting the production url-owner resolver"}
                  (fn [{:keys [frame]} url]
-                   (when (= (or frame :rf/default) (routing/url-owner-frame-id))
+                   (when (= frame (routing/url-owner-frame-id))
                      (swap! pushed conj {:frame frame :url url}))))
       ;; Owner (:rf/default) pushes; the losing binding does not.
       (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :rf/default})
-      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :loser})
+      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :second-owner})
       (is (= [{:frame :rf/default :url "/home"}] @pushed)
           "only the deterministic owner's navigate pushes the URL; the loser no-ops"))))

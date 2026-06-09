@@ -43,7 +43,13 @@
   (trace/clear-listeners!)
   (trace-tooling/clear-trace-rings!)
   (rf/init! plain-atom/adapter)
-  (try (test-fn)
+  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; framework operation surfaces require a carried frame stamp. Register
+  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
+  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
+  ;; `{:frame …}` opts in the test bodies still win.
+  (rf/reg-frame :rf/default {})
+  (try (rf/with-frame :rf/default (test-fn))
        (finally
          ;; Restore defaults so we do not leak tweaks into other suites.
          (rf/configure! :trace-buffer {:cascades-retained 50})

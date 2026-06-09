@@ -39,6 +39,9 @@
             ;; pull the views ns in so its `reg-view` forms register.
             [{{namespace}}.events]
             [{{namespace}}.subs]
+            ;; Frame-local schema registration — called from `init` under the
+            ;; app's frame scope (see register-schema! below).
+            [{{namespace}}.schema     :as schema]
             [{{namespace}}.views      :as views]
             ;; Loading the stories ns fires the Story `reg-*` calls.
             [{{namespace}}.stories]))
@@ -59,7 +62,10 @@
 (defn- mount-app! []
   (story/unmount-shell!)
   (ensure-app-root!)
-  (rdc/render @app-root [views/counter-app]))
+  ;; EP-0002 carried-frame invariant: wrap the live-app render in a
+  ;; `frame-provider` so the in-tree dispatch/subscribe in `counter-app`
+  ;; resolve to the app's `:rf/default` frame (registered in `init`).
+  (rdc/render @app-root [rf/frame-provider {:frame :rf/default} [views/counter-app]]))
 
 (defn- mount-stories! []
   (tear-down-app-root!)
@@ -95,6 +101,13 @@
    shadow's hot-reload pipeline re-invokes it on each rebuild."
   []
   (rf/init! reagent-adapter/adapter)
+  ;; EP-0002 carried-frame invariant (Spec 002 §Frame target resolution):
+  ;; `init!` installs the adapter only — the runtime never synthesises a
+  ;; frame from absence. Register `:rf/default` as the app frame, then run
+  ;; frame-local boot work (schema attach + seed dispatch) inside its scope.
+  ;; The live-app render wraps `counter-app` in a `frame-provider` (see
+  ;; mount-app!).
+  (rf/reg-frame :rf/default {})
   ;; The canonical Story vocabulary auto-installs on the first `reg-*`
   ;; call in `{{namespace}}.stories` (loaded via the :require above)
   ;; per rf2-p1ydc — no explicit `(story/install-canonical-vocabulary!)`
@@ -102,7 +115,9 @@
   ;; during dev experiments.
   ;; Seed app-db before the first render so the live-app branch sees a
   ;; populated frame.
-  (rf/dispatch-sync [:counter/initialise])
+  (rf/with-frame :rf/default
+    (schema/register-schema!)
+    (rf/dispatch-sync [:counter/initialise]))
   ;; Wire hash-change so reloading `#/stories` lands on the shell
   ;; without a manual click-through. `install-hash-listener!` removes any
   ;; listener a previous hot-reload installed before adding this one, so
