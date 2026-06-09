@@ -655,6 +655,8 @@
   ["re-frame.epoch" "restore-epoch"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "replace-app-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "reset-app-db!"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "replace-runtime-db!"]        {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "clear-epoch-listeners!"]     {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
