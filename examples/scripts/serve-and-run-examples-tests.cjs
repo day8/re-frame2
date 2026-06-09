@@ -44,6 +44,10 @@ const {
   parseFilterPatterns,
   selectEntries,
 } = require('./examples-filter.cjs');
+// Shared staging helpers (rf2-pdo5mx) — the recursive copy + _shared fan-out
+// live in one place so the standalone-example dev runner (serve-example.cjs)
+// reuses the SAME staging this orchestrator does, rather than duplicating it.
+const { stageShared } = require('./examples-staging.cjs');
 const {
   createHarnessCleanup,
   spawnHarnessProcess,
@@ -176,35 +180,10 @@ function compileAll() {
   }
 }
 
-function copyDirRecursive(src, dest) {
-  // Minimal recursive copy. Used by `stageShared` below to fan the
-  // `examples/_shared/` design-system tree into every staged smoke
-  // dir. Each file overwrites the destination unconditionally so
-  // repeat runs pick up re-compiled bundles.
-  fs.mkdirSync(dest, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, entry.name);
-    const d = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDirRecursive(s, d);
-    } else if (entry.isFile()) {
-      fs.copyFileSync(s, d);
-    }
-  }
-}
-
-// Shared examples design system: one stylesheet + favicon + OG image
-// across all three substrates. The hand-written index.html files
-// reference these via relative paths like `_shared/css/style.css`, so
-// the orchestrator stages the `examples/_shared/` tree into every
-// example's output dir alongside main.js + index.html. Single source
-// on disk; one copy step per build (cheap — a handful of small files).
-const SHARED_SRC = path.join(REPO_ROOT, 'examples', '_shared');
-
-function stageShared(outDir) {
-  if (!fs.existsSync(SHARED_SRC)) return;
-  copyDirRecursive(SHARED_SRC, path.join(outDir, '_shared'));
-}
+// `copyDirRecursive` + `stageShared` (the `examples/_shared/` design-system
+// fan-out) are hoisted into examples-staging.cjs (rf2-pdo5mx) so the
+// standalone-example dev runner reuses the SAME staging. `stageShared` is
+// imported at the top of this file.
 
 function stageHtml() {
   // Silent-on-success: per-file staging notices are suppressed.

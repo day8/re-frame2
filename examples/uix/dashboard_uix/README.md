@@ -53,17 +53,73 @@ dashboard_uix/
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/dashboard-uix
+npm run dev:example -- examples/dashboard-uix
 ```
 
-The watch build emits `main.js` into `out/examples/dashboard-uix/`;
-copy this folder's hand-written [`index.html`](index.html) (and the
-shared assets it references under [`../../_shared/`](../../_shared/))
-alongside it, then serve `out/examples/dashboard-uix/` over HTTP.
+One command: it stages this folder's hand-written
+[`index.html`](index.html) + the shared `_shared/` assets next to the
+compiled `main.js`, starts `shadow-cljs watch` (edits recompile live),
+serves `out/examples/dashboard-uix/` on a free local port, and prints
+the URL to open. Add `--no-watch` for a one-shot compile-and-serve.
+
 (`npm run test:examples` does not build this example — it compiles and
 serves only the three adapter testbeds; see
 [`examples/uix/README.md`](../README.md).) Examples are test-free per
 [`examples/README.md`](../../README.md).
+
+<details><summary>Advanced: raw <code>shadow-cljs watch</code></summary>
+
+`npm run dev:example` wraps the raw watch + manual staging recipe. To
+drive shadow-cljs directly: `shadow-cljs watch examples/dashboard-uix`
+emits `main.js` into `out/examples/dashboard-uix/`; you then copy this
+folder's [`index.html`](index.html) (and the shared assets under
+[`../../_shared/`](../../_shared/)) alongside it and serve the output
+dir yourself.
+
+</details>
+
+## Accessibility + responsive — what to copy, and a manual checklist
+
+Because this is the UIx example meant to model a *polished* multi-pane
+app, its controls and layout demonstrate the accessibility +
+responsive shape a real UIx app should copy:
+
+- **Tag filter chips are multi-select toggles** — each chip is a real
+  `<button>` carrying `aria-pressed`, and the row is a `role="group"`
+  with an `aria-label`. Assistive tech reads the on/off state, not just
+  a visual class.
+- **The range picker is a single-select mode control** — it uses the
+  radio idiom (`role="radiogroup"` on the row, `role="radio"` +
+  `aria-checked` on each chip), so it announces as a one-of-N choice
+  rather than three independent buttons.
+- **Sparklines are decorative** (`aria-hidden="true"`) — the card's
+  eyebrow, value, and label already carry the metric name + value as
+  text, so the SVG is a visual restatement, not a separate nameless
+  graphic to announce.
+- **Layout stays within its box at every width** — the card grid floor
+  is `minmax(min(100%, 280px), 1fr)` so a narrow viewport collapses to
+  one full-width column instead of overflowing; two `@media`
+  breakpoints stack the header and shrink the oversized H1 / card
+  padding on tablet + phone.
+
+Examples are **test-free** (no `*.spec.cjs` under `examples/`), so this
+class of design-led polish is guarded by the manual checklist below
+rather than a per-example browser spec. Run it when you touch this
+example's markup or CSS (the WCAG palette-contrast + focus-ring
+contracts on the shared stylesheet are already enforced statically by
+`check-examples-assets`; the items here are the layout/semantics that
+need an eye):
+
+1. **Keyboard** — Tab reaches every chip + the range buttons; the
+   focus ring is visible on each; Enter/Space toggles them.
+2. **Screen reader** (VoiceOver / NVDA) — tag chips announce
+   "pressed/not pressed"; range chips announce as a radio group with
+   the selected one "checked"; the sparklines are NOT announced.
+3. **Narrow viewport** (≈360px, DevTools device toolbar) — no
+   horizontal scrollbar; the grid is one column; the header stacks;
+   the H1 does not overrun the edge.
+4. **Wide viewport** (≥1180px) — the grid is multi-column; the header
+   row aligns title left / controls right.
 
 ## Cross-references
 

@@ -56,19 +56,32 @@ counter_uix/
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/counter-uix
+npm run dev:example -- examples/counter-uix
 ```
 
-The watch build emits `main.js` into `out/examples/counter-uix/`;
-copy this folder's hand-written [`index.html`](index.html) (and the
-shared assets it references under [`../../_shared/`](../../_shared/))
-alongside it, then serve `out/examples/counter-uix/` over HTTP.
+One command: it stages this folder's hand-written
+[`index.html`](index.html) + the shared `_shared/` assets next to the
+compiled `main.js`, starts `shadow-cljs watch` (edits recompile live),
+serves `out/examples/counter-uix/` on a free local port, and prints the
+URL to open. Add `--no-watch` for a one-shot compile-and-serve.
+
 (`npm run test:examples` does not build this example — it compiles and
 serves only the three adapter testbeds; see
 [`examples/uix/README.md`](../README.md).) Examples are
 test-free per [`examples/README.md`](../../README.md); the UIx adapter
 smoke lives at
 [`implementation/adapters/uix/testbed/spec.cjs`](../../../implementation/adapters/uix/testbed/spec.cjs).
+
+<details><summary>Advanced: raw <code>shadow-cljs watch</code></summary>
+
+`npm run dev:example` wraps the raw watch + manual staging recipe. To
+drive shadow-cljs directly: `shadow-cljs watch examples/counter-uix`
+emits `main.js` into `out/examples/counter-uix/`; you then copy this
+folder's [`index.html`](index.html) (and the shared assets under
+[`../../_shared/`](../../_shared/)) alongside it and serve the output dir
+yourself.
+
+</details>
 
 ## Cross-references
 
