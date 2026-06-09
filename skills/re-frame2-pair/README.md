@@ -134,7 +134,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: When I first enter the Dashboard panel, the global reset button doesn't work. Fix it, then return to the previous state and fire the same event again, iterating until it works.
 >
-> **Claude**: I called `(rf/restore-epoch :rf/default <pre-click-epoch-id>)` — the restore returned `true`, so `app-db` is back. (Caveat: any HTTP requests or navigation that already fired during the original cascade are *not* reversed — restore rewinds `app-db` only.) The panel-level subscription was wrong; I patched it. Re-ran the event, `app-db` now updates as expected. Want me to put the patch into the source code?
+> **Claude**: I called `(rf/restore-epoch :rf/default <pre-click-epoch-id>)` — the restore returned `true`, so the whole frame-state is back (both partitions: app-db *and* runtime-db, so any machine snapshots / route slice / elision declarations are rewound too). (Caveat: any HTTP requests or navigation that already fired during the original cascade are *not* reversed — restore rewinds durable frame-state, not side effects or transient host state.) The panel-level subscription was wrong; I patched it. Re-ran the event, `app-db` now updates as expected. Want me to put the patch into the source code?
 
 ### Stub an effect for a what-if
 

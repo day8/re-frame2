@@ -251,6 +251,107 @@
                "rf2-985x1t).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Lock — the four partition-aware state-injection mutators (rf2-7g9htq.2)
+;;
+;; The leaf used to name only `replace-app-db!` / `reset-app-db!` (the
+;; app-db-only halves), under-teaching the post-EP-0001 partition-aware
+;; write API. spec/Tool-Pair.md §Pair-tool writes defines FOUR mutators;
+;; a skill that omits the runtime-db / full-frame siblings can describe
+;; arbitrary repro / story state injection as app-db-only and miss the
+;; full-frame install (`replace-frame-state!`) for machine snapshots /
+;; routes / elision / SSR metadata. These pins fail loudly if the leaf
+;; mentions `replace-app-db!` but drops either partition-aware sibling.
+;; ---------------------------------------------------------------------------
+
+(deftest state-injection-names-all-four-mutators
+  (testing "the leaf names the four partition-aware state-injection mutators"
+    (let [body @surfaces-md]
+      (when (str/includes? body "replace-app-db!")
+        (is (and (str/includes? body "replace-runtime-db!")
+                 (str/includes? body "replace-frame-state!"))
+            (str "tool-pair-surfaces.md names `replace-app-db!` but no longer "
+                 "names both `replace-runtime-db!` (runtime-db-only privileged "
+                 "write) and `replace-frame-state!` (full-frame atomic "
+                 "install). The post-EP-0001 injection surface is FOUR "
+                 "partition-aware mutators, not the app-db-only pair "
+                 "(spec/Tool-Pair.md §Pair-tool writes, rf2-7g9htq.2)."))
+        (is (str/includes? body "reset-app-db!")
+            (str "tool-pair-surfaces.md dropped `reset-app-db!` from the "
+                 "four-mutator state-injection family (rf2-7g9htq.2).")))
+      (is (contains-any? body ["never silently touch" "never silently touches"
+                               "never silently"])
+          (str "tool-pair-surfaces.md no longer warns that the db-shaped "
+               "names (`replace-app-db!` / `reset-app-db!`) preserve "
+               "runtime-db — the load-bearing partition guarantee a "
+               "story/repro tool relies on (rf2-7g9htq.2).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock — restore-epoch is whole-frame-state, not app-db-only (rf2-7g9htq /
+;; rf2-7a1mkv). The leaf must teach that restore reinstalls BOTH partitions
+;; via replace-frame-state!, so a consuming skill doesn't describe machine
+;; snapshots / routes / elision as surviving time-travel.
+;; ---------------------------------------------------------------------------
+
+(deftest restore-epoch-named-as-frame-state-both-partitions
+  (testing "restore-epoch is described as whole frame-state (both partitions)"
+    (let [body @surfaces-md]
+      (is (contains-any? body ["frame-state-after" "frame-state"])
+          (str "tool-pair-surfaces.md no longer frames `restore-epoch` as a "
+               "frame-state rewind. Restore reinstalls BOTH partitions "
+               "(app-db AND runtime-db) via `replace-frame-state!`, not the "
+               "app-db projection alone (spec/Tool-Pair.md §Restore)."))
+      (is (str/includes? body "replace-frame-state!")
+          (str "tool-pair-surfaces.md no longer names `replace-frame-state!` "
+               "as the restore install surface (rf2-7a1mkv).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock — the privacy-relevant read catalogue covers the STREAMING reads +
+;; the signal recorder, not just the one-shot direct-read set (rf2-7g9htq.3).
+;;
+;; The earlier leaf scoped the fail-closed egress map to the one-shot set
+;; (snapshot / get-path / read-sub / list-subscriptions / dispatch-dry-run)
+;; and omitted the streaming reads (subscribe / trace-window / watch-epochs)
+;; and the signal recorder — all of which are privacy-bearing off-box reads
+;; under the SAME default-off gate. A consuming skill using this leaf as the
+;; privacy map could treat streaming epoch reads and recordings as outside
+;; the boundary. These pins keep the broader catalogue + its emission sites
+;; (elide-wire-value for direct values / recorded samples; projected-record
+;; for epoch records) visible at the leaf.
+;; ---------------------------------------------------------------------------
+
+(deftest streaming-reads-named-as-gated-egress
+  (testing "the leaf names the streaming reads subscribe / trace-window / watch-epochs as gated egress"
+    (let [body @surfaces-md]
+      (is (and (str/includes? body "subscribe")
+               (str/includes? body "trace-window")
+               (str/includes? body "watch-epochs"))
+          (str "tool-pair-surfaces.md no longer names the streaming reads "
+               "(`subscribe` / `trace-window` / `watch-epochs`) as off-box "
+               "egress under the same default-off gate. They project / elide "
+               "privacy-bearing values and are NOT outside the fail-closed "
+               "boundary (re-frame2-pair-mcp §sensitive-reads gate, "
+               "rf2-7g9htq.3)."))
+      (is (str/includes? body "projected-record")
+          (str "tool-pair-surfaces.md no longer names `projected-record` — "
+               "the normative emission site for egressed EPOCH records "
+               "(distinct from `elide-wire-value` for direct values). "
+               "Without it the leaf overloads one emission site across "
+               "value shapes (rf2-7g9htq.3).")))))
+
+(deftest signal-recorder-egress-not-read-only-free-pass
+  (testing "the leaf states recorded samples are elided before egress, not exempt for being read-only"
+    (let [body @surfaces-md]
+      (is (contains-any? body ["read-only is not the same as egress-safe"
+                               "read-only is not"
+                               "before entering the change log"
+                               "before they enter the change log"])
+          (str "tool-pair-surfaces.md no longer states that the signal "
+               "recorder's read-only-by-construction posture does NOT exempt "
+               "its recorded samples from elision — samples are value egress "
+               "and route through `elide-wire-value` before entering the "
+               "change log (rf2-7g9htq.3).")))))
+
+;; ---------------------------------------------------------------------------
 ;; Run
 ;; ---------------------------------------------------------------------------
 

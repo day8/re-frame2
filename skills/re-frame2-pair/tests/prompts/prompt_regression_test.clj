@@ -126,6 +126,14 @@
 (defn- contains-any? [text alts]
  (some #(str/includes? text %) alts))
 
+(defn- section-from
+ "Return the chunk of `md` starting at the heading containing `anchor`
+ and ending at the next `## ` heading (or EOF). Empty if no match.
+ Generalises `recipe-section` to any markdown leaf."
+ [md anchor]
+ (let [pat (re-pattern (str "(?ms)## .*" (java.util.regex.Pattern/quote anchor) ".*?(?=^## |\\z)"))]
+ (or (some-> (re-find pat md)) "")))
+
 (defn- assert-row [{:keys [id prompt recipe-anchor must-mention]}]
  (testing (str id " — " prompt)
  (let [section (recipe-section @recipes-md recipe-anchor)]
@@ -403,6 +411,73 @@
     (is (str/includes? @capabilities-md "first render-key")
         (str "capabilities.md must point at `(first render-key)` for source-"
              "coord resolution, matching recipes.md (rf2-a85bb2)."))))
+
+;; ---------------------------------------------------------------------------
+;; Restore / hot-reload teaching drift (rf2-7a1mkv)
+;; ---------------------------------------------------------------------------
+;;
+;; Finding 1 — restore-epoch reinstalls the whole frame-state (both app-db
+;; AND runtime-db partitions via replace-frame-state!), NOT app-db only. The
+;; pair skill used to teach "restore rewinds app-db only" / "app-db is back".
+;; These assertions fail if that stale framing returns and assert the
+;; positive frame-state framing.
+;; Finding 2 — tail-build returns probe diagnostics (:probe-values / :reason
+;; / :note); a timeout is NOT always a compile error. The "read the tail
+;; output / treat a timeout as a compile error" framing must not return.
+;; Finding 3 — the subscribe topic catalogue in ops.md must list :frameless.
+
+(deftest restore-not-taught-as-app-db-only
+  (testing "pair skill no longer teaches restore as app-db-only (rf2-7a1mkv finding 1)"
+    (doseq [[label md] [["ops.md" @ops-md]
+                        ["recipes.md" @recipes-md]
+                        ["README.md" @readme-md]
+                        ["capabilities.md" @capabilities-md]]]
+      (is (not (includes-ci? md "restore rewinds app-db only"))
+          (str label " carries the stale 'restore rewinds app-db only' "
+               "framing — restore reinstalls the whole frame-state, both "
+               "partitions, via replace-frame-state! (rf2-7a1mkv)."))
+      (is (not (includes-ci? md "old snapshots in app-db"))
+          (str label " carries the stale 'old snapshots in app-db' wording — "
+               "machine snapshots live in the runtime-db partition "
+               "([:rf.runtime/machines …]) (rf2-7a1mkv).")))
+    (is (str/includes? @ops-md "frame-state")
+        (str "ops.md no longer positively teaches restore as a frame-state "
+             "rewind (both partitions) (rf2-7a1mkv).")))
+  (testing "ops.md restore caveat names runtime-db revival + the side-effect limit"
+    (is (and (str/includes? @ops-md "frame-state")
+             (includes-ci? @ops-md "runtime-db"))
+        (str "ops.md restore caveat must say restore rewinds frame-state "
+             "(both partitions incl. runtime-db) while NOT reversing side "
+             "effects / transient host state (rf2-7a1mkv)."))))
+
+(deftest hot-reload-branches-on-probe-values-not-blanket-compile-error
+  (testing "ops.md hot-reload branches on :probe-values / :reason, not 'all timeouts are compile errors' (rf2-7a1mkv finding 2)"
+    (let [hr (section-from @ops-md "Hot-reload coordination")]
+      (is (str/includes? hr ":probe-values")
+          (str "ops.md hot-reload guidance no longer mentions `:probe-values` "
+               "— the diagnostic tail-build returns on timeout so the agent "
+               "can tell a stuck probe from a compile error (rf2-7a1mkv)."))
+      (is (str/includes? hr ":probe-errored")
+          (str "ops.md hot-reload guidance no longer covers `:probe-errored` "
+               "as a malformed-probe path distinct from a compile error "
+               "(rf2-7a1mkv)."))
+      (is (not (str/includes? hr "treat that as a compile error in the user's code — read the tail output"))
+          (str "ops.md still tells the agent to treat any tail-build timeout "
+               "as a compile error and read the tail output — tail-build does "
+               "not tail logs; branch on :reason / :probe-values (rf2-7a1mkv)."))
+      (is (or (includes-ci? hr "does not tail")
+              (includes-ci? hr "historical"))
+          (str "ops.md hot-reload guidance must note tail-build does NOT "
+               "actually tail the shadow-cljs server log (rf2-7a1mkv).")))))
+
+(deftest subscribe-topic-catalogue-includes-frameless
+  (testing "ops.md subscribe/trace topic list includes :frameless (rf2-7a1mkv finding 3)"
+    (is (str/includes? @ops-md ":frameless")
+        (str "ops.md no longer lists `:frameless` in the subscribe topic "
+             "catalogue — the only live channel for registration / reload / "
+             "REPL / other unjoined lifecycle events without a "
+             ":rf.trace/dispatch-id (subscribe.cljs recognises it; "
+             "rf2-7a1mkv finding 3)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run
