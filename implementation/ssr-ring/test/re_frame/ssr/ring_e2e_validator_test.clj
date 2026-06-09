@@ -84,12 +84,8 @@
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.test-fixture :as tf]
-            [ring.adapter.jetty :as jetty])
-  (:import [java.net URI]
-           [java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers]
-           [java.time Duration]
-           [org.eclipse.jetty.server Server]))
+            [re-frame.ssr.ring.test-support :as ts]
+            [re-frame.ssr.test-fixture :as tf]))
 
 ;; rf2-i3qc0 — canonical reset-runtime fixture; same shape as
 ;; `ring_test.clj`. Each test starts from a wiped registrar + reloaded
@@ -103,49 +99,23 @@
 ;; ===========================================================================
 ;; Server lifecycle helpers
 ;; ===========================================================================
+;;
+;; rf2-l1qgjw — the ephemeral Jetty host (`ts/with-jetty`) + `java.net.http`
+;; GET (`ts/http-get`) now live in `re-frame.ssr.ring.test-support`. This
+;; suite needs the `{:status :headers :body}` shape to run its CRLF-on-wire
+;; header scan, so it calls `ts/http-get` with `:with-headers? true`. The
+;; 10s read timeout (its requests are single, fast) stays explicit.
 
-(defn- start-jetty!
-  "Run `handler` under Jetty on an ephemeral port (`:port 0`) and return
-  `{:server <Server> :port <int>}`. `:join? false` so this thread does
-  not block; `:host \"127.0.0.1\"` so we never bind a public interface
-  in CI. `:send-server-version? false` and `:send-date-header? false`
-  trim ambient noise out of header assertions."
-  [handler]
-  (let [^Server server (jetty/run-jetty handler
-                                        {:port                 0
-                                         :host                 "127.0.0.1"
-                                         :join?                false
-                                         :send-server-version? false
-                                         :send-date-header?    false})
-        port (.. server (getURI) (getPort))]
-    {:server server :port port}))
-
-(defn- stop-jetty!
-  [^Server server]
-  (.stop server))
+(def ^:private read-timeout-secs 10)
 
 (defn- http-get
-  "Issue a real HTTP GET against `http://127.0.0.1:<port>/<path>` via
-  `java.net.http.HttpClient` (JDK-built-in; no extra dep). Returns
-  `{:status :headers :body}` where `:headers` is a `{name -> [val ...]}`
-  map (java.net.http's natural multimap shape — preserved here so the
-  CRLF-on-wire scan reads every value verbatim)."
+  "Issue a real HTTP GET and return `{:status :headers :body}` observed on
+  the wire. `:headers` is java.net.http's `{name -> [val ...]}` multimap
+  (preserved verbatim so the CRLF scan reads every value), via the shared
+  `ts/http-get` helper with a per-call client."
   [port path]
-  (let [client  (-> (HttpClient/newBuilder)
-                    (.connectTimeout (Duration/ofSeconds 5))
-                    (.build))
-        req     (-> (HttpRequest/newBuilder)
-                    (.uri (URI/create (str "http://127.0.0.1:" port path)))
-                    (.timeout (Duration/ofSeconds 10))
-                    (.GET)
-                    (.build))
-        resp    (.send client req (HttpResponse$BodyHandlers/ofString))
-        headers (->> (.. resp (headers) (map))
-                     (map (fn [[k v]] [k (vec v)]))
-                     (into {}))]
-    {:status  (.statusCode resp)
-     :headers headers
-     :body    (.body resp)}))
+  (ts/http-get (ts/new-http-client) port path read-timeout-secs
+               :with-headers? true))
 
 (defn- any-header-contains-crlf?
   "Scan every wire header value for CR / LF / NUL. The point of the
@@ -161,17 +131,6 @@
                 vs))
         (vals headers)))
 
-(defmacro with-jetty
-  "Bind `bindings` to `(start-jetty! handler)` and tear the server down
-  in `finally`. `bindings` is `[port-sym handler-expr]`; the macro
-  exposes `port-sym` to the body."
-  [[port-sym handler-expr] & body]
-  `(let [{server# :server port# :port} (start-jetty! ~handler-expr)
-         ~port-sym port#]
-     (try
-       ~@body
-       (finally
-         (stop-jetty! server#)))))
 
 ;; ===========================================================================
 ;; Test 1 — bad tag-name keyword → 500 via the SSR error projector
@@ -210,7 +169,7 @@
                     {:on-create [:init/ok-bad-tag]
                      :root-view [:pages/bad-tag]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (with-jetty [port handler]
+      (ts/with-jetty [port handler]
         (let [{:keys [status body headers]} (http-get port "/")]
           (is (= 500 status)
               "tag-name validator throw surfaces as 500 on the wire —
@@ -265,7 +224,7 @@
                       {:on-create [:init/ok-render-throw]
                        :root-view [:pages/render-throw]
                        :payload :rf.ssr.payload/whole-app-db})]
-      (with-jetty [port handler-a]
+      (ts/with-jetty [port handler-a]
         (let [{status-a :status body-a :body} (http-get port "/")]
           (is (= 500 status-a))
           ;; Path B: drain-time throw via CRLF cookie value (separate
@@ -283,7 +242,7 @@
                             {:on-create [:init/drain-throw]
                              :root-view [:pages/drain-throw]
                              :payload :rf.ssr.payload/whole-app-db})]
-            (with-jetty [port-b handler-b]
+            (ts/with-jetty [port-b handler-b]
               (let [{status-b :status body-b :body} (http-get port-b "/")]
                 (is (= 500 status-b))
                 (is (= status-a status-b)
@@ -349,7 +308,7 @@
                     {:on-create [:init/bad-cookie]
                      :root-view [:pages/bad-cookie-page]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (with-jetty [port handler]
+      (ts/with-jetty [port handler]
         (let [{:keys [status headers]} (http-get port "/")]
           (is (= 500 status)
               "validator's `:rf.error/cookie-invalid-value` trace flowed
@@ -395,7 +354,7 @@
                     {:on-create [:init/bad-header]
                      :root-view [:pages/bad-header-page]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (with-jetty [port handler]
+      (ts/with-jetty [port handler]
         (let [{:keys [status headers]} (http-get port "/")]
           (is (= 500 status)
               "validator's `:rf.error/header-invalid-value` trace flowed
@@ -447,7 +406,7 @@
                     {:on-create [:init/ok]
                      :root-view [:pages/greeting]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (with-jetty [port handler]
+      (ts/with-jetty [port handler]
         (let [{:keys [status body headers]} (http-get port "/")]
           (is (= 200 status))
           (let [ct (or (first (get headers "content-type"))

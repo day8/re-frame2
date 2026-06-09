@@ -80,15 +80,12 @@
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.test-fixture :as tf]
-            [ring.adapter.jetty :as jetty])
+            [re-frame.ssr.ring.test-support :as ts]
+            [re-frame.ssr.test-fixture :as tf])
   (:import [java.io InputStream IOException]
-           [java.net URI]
-           [java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers]
-           [java.time Duration]
+           [java.net.http HttpResponse$BodyHandlers]
            [java.util.concurrent CountDownLatch TimeUnit]
-           [java.util.concurrent.atomic AtomicInteger AtomicLong]
-           [org.eclipse.jetty.server Server]))
+           [java.util.concurrent.atomic AtomicInteger AtomicLong]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -109,87 +106,29 @@
       10000))
 
 ;; ===========================================================================
-;; Jetty + HttpClient harness (mirrors streaming_robustness_test.clj)
+;; Jetty + HttpClient harness + leak detector
 ;; ===========================================================================
+;;
+;; rf2-l1qgjw — the ephemeral Jetty host, the `java.net.http` client /
+;; request builder, and the `rf2-ssr-streaming-*` daemon-thread leak
+;; detector now live in `re-frame.ssr.ring.test-support` (aliased `ts`),
+;; shared with the other live-host / streaming-thread test namespaces.
+;; The concurrency burst's intentional per-test knobs stay explicit at
+;; the call sites below: a 30s read timeout (slower-completing under
+;; contention than the single-request tests' 10s) and a 50ms leak-poll
+;; cadence (slower than the single-request 10ms because we expect a
+;; higher transient peak count and don't want the poll observable in
+;; profiles).
 
-(defn- start-jetty!
-  [handler]
-  (let [^Server server (jetty/run-jetty handler
-                                        {:port                 0
-                                         :host                 "127.0.0.1"
-                                         :join?                false
-                                         :send-server-version? false
-                                         :send-date-header?    false})
-        port (.. server (getURI) (getPort))]
-    {:server server :port port}))
-
-(defn- stop-jetty!
-  [^Server server]
-  (.stop server))
-
-(defmacro with-jetty
-  [[port-sym handler-expr] & body]
-  `(let [{server# :server port# :port} (start-jetty! ~handler-expr)
-         ~port-sym port#]
-     (try
-       ~@body
-       (finally
-         (stop-jetty! server#)))))
-
-(defn- new-http-client
-  "Single shared HttpClient — `HttpClient` instances are fully thread-
-  safe and pool connections internally per the JDK contract, so all
-  worker threads can share one without contention beyond the
-  underlying socket pool."
-  []
-  (-> (HttpClient/newBuilder)
-      (.connectTimeout (Duration/ofSeconds 5))
-      (.build)))
-
-(defn- http-get-request
-  [port path]
-  (-> (HttpRequest/newBuilder)
-      (.uri (URI/create (str "http://127.0.0.1:" port path)))
-      (.timeout (Duration/ofSeconds 30))
-      (.GET)
-      (.build)))
-
-;; ===========================================================================
-;; Daemon-thread leak detector (shared with streaming_robustness_test.clj
-;; intent — duplicated here so this ns is independently runnable and the
-;; two tests don't co-load each other's scaffolding)
-;; ===========================================================================
-
-(def ^:private daemon-thread-name-prefix "rf2-ssr-streaming-")
-
-(defn- live-streaming-threads
-  []
-  (->> (Thread/getAllStackTraces)
-       (.keySet)
-       (filter (fn [^Thread t]
-                 (and (.isAlive t)
-                      (some-> (.getName t)
-                              (.startsWith daemon-thread-name-prefix)))))
-       vec))
+(def ^:private read-timeout-secs 30)
+(def ^:private leak-poll-ms 50)
 
 (defn- await-no-streaming-threads!
-  "Poll until no `rf2-ssr-streaming-*` thread is alive, or `timeout-ms`
-  elapses. 50ms poll cadence — slightly slower than the per-request
-  test's 10ms because we expect a higher transient peak count and
-  don't want the poll itself to be observable in profiles.
-
-  rf2-fun38: NOT a thin wrapper over `test-support/poll-until` — that
-  helper *throws* on timeout, but this site WANTS the leaked-thread
-  vec on timeout so the test assertion can name the offending threads
-  in its failure message. Different return contract; keep this loop."
+  "Concurrency-burst poll cadence (50ms) over the shared leak detector.
+  rf2-fun38: returns the leaked-thread vec on timeout (does not throw) so
+  the assertion can name the offenders."
   [timeout-ms]
-  (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-    (loop []
-      (let [alive (live-streaming-threads)]
-        (cond
-          (empty? alive)                           []
-          (>= (System/currentTimeMillis) deadline) alive
-          :else (do (Thread/sleep 50) (recur)))))))
+  (ts/await-no-streaming-threads! timeout-ms leak-poll-ms))
 
 ;; ===========================================================================
 ;; Token-echo handler — proves per-request frame isolation
@@ -265,8 +204,8 @@
                     {:on-create [:rf.test.ozhy9/init]
                      :root-view [:rf.test.ozhy9/root]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (with-jetty [port handler]
-        (let [client     (new-http-client)
+      (ts/with-jetty [port handler]
+        (let [client     (ts/new-http-client)
               latch      (CountDownLatch. 1)
               ;; AtomicInteger counts COMPLETIONS — successful response
               ;; receipt regardless of body content. The body-token
@@ -287,7 +226,7 @@
                     (try
                       (dotimes [iter-idx n-reqs-per-thread]
                         (let [token    (token-for thread-idx iter-idx)
-                              req      (http-get-request port (str "/req/" token))
+                              req      (ts/http-get-request port (str "/req/" token) read-timeout-secs)
                               response (.send client req
                                               (HttpResponse$BodyHandlers/ofString))
                               status   (.statusCode response)
@@ -401,8 +340,8 @@
                     {:on-create [:rf.test.ozhy9/init]
                      :root-view [:rf.test.ozhy9/root]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (with-jetty [port handler]
-        (let [client     (new-http-client)
+      (ts/with-jetty [port handler]
+        (let [client     (ts/new-http-client)
               latch      (CountDownLatch. 1)
               completed  (AtomicInteger. 0)
               futures
@@ -413,7 +352,7 @@
                     (dotimes [iter-idx n-reqs-per-thread]
                       (try
                         (let [token    (token-for thread-idx iter-idx)
-                              req      (http-get-request port (str "/req/" token))
+                              req      (ts/http-get-request port (str "/req/" token) read-timeout-secs)
                               response (.send client req
                                               (HttpResponse$BodyHandlers/ofInputStream))
                               ^InputStream body-is (.body response)
@@ -479,8 +418,8 @@
                     {:on-create [:rf.test.ozhy9/init]
                      :root-view [:rf.test.ozhy9/root]
                      :payload :rf.ssr.payload/whole-app-db})]
-      (with-jetty [port handler]
-        (let [client     (new-http-client)
+      (ts/with-jetty [port handler]
+        (let [client     (ts/new-http-client)
               latch      (CountDownLatch. 1)
               ;; AtomicInteger that we sample peak across — every
               ;; sampler thread contends here.
@@ -498,7 +437,7 @@
                   ;; sampler-stop counts down. CPU cost is bounded by
                   ;; the burst duration (a few seconds at most).
                   (while (zero? (.getCount sampler-stop))
-                    (let [n (count (live-streaming-threads))]
+                    (let [n (count (ts/live-streaming-threads))]
                       (loop []
                         (let [cur (.get peak-count)]
                           (when (and (> n cur)
@@ -512,7 +451,7 @@
                     (.await latch)
                     (dotimes [iter-idx n-reqs-per-thread]
                       (let [token (token-for thread-idx iter-idx)
-                            req   (http-get-request port (str "/req/" token))]
+                            req   (ts/http-get-request port (str "/req/" token) read-timeout-secs)]
                         (.send client req
                                (HttpResponse$BodyHandlers/ofString)))))))]
           (.start sampler-thread)

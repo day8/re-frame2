@@ -84,14 +84,10 @@
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
             [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.test-fixture :as tf]
-            [ring.adapter.jetty :as jetty])
-  (:import [java.net URI]
-           [java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers]
-           [java.time Duration]
-           [java.util.concurrent CountDownLatch]
-           [java.util.concurrent.atomic AtomicLong]
-           [org.eclipse.jetty.server Server]))
+            [re-frame.ssr.ring.test-support :as ts]
+            [re-frame.ssr.test-fixture :as tf])
+  (:import [java.util.concurrent CountDownLatch]
+           [java.util.concurrent.atomic AtomicLong]))
 
 ;; rf2-i3qc0 — canonical reset-runtime fixture; same shape every
 ;; ssr-ring JVM test uses. Each test starts from a wiped registrar +
@@ -101,50 +97,23 @@
 (use-fixtures :each tf/reset-runtime)
 
 ;; ===========================================================================
-;; Jetty + java.net.http harness (mirrors ring_e2e_validator_test.clj)
+;; Jetty + java.net.http harness
 ;; ===========================================================================
+;;
+;; rf2-l1qgjw — the ephemeral Jetty host + `java.net.http` client / GET
+;; helper now live in `re-frame.ssr.ring.test-support` (aliased `ts`),
+;; shared with the other live-host test namespaces. The 30s read timeout
+;; (these drain-time + concurrency-split tests complete slower than the
+;; 10s single-request streaming tests) stays an explicit `ts/http-get`
+;; argument at each call site.
 
-(defn- start-jetty!
-  [handler]
-  (let [^Server server (jetty/run-jetty handler
-                                        {:port                 0
-                                         :host                 "127.0.0.1"
-                                         :join?                false
-                                         :send-server-version? false
-                                         :send-date-header?    false})
-        port (.. server (getURI) (getPort))]
-    {:server server :port port}))
-
-(defn- stop-jetty!
-  [^Server server]
-  (.stop server))
-
-(defmacro with-jetty
-  [[port-sym handler-expr] & body]
-  `(let [{server# :server port# :port} (start-jetty! ~handler-expr)
-         ~port-sym port#]
-     (try
-       ~@body
-       (finally
-         (stop-jetty! server#)))))
-
-(defn- new-http-client []
-  (-> (HttpClient/newBuilder)
-      (.connectTimeout (Duration/ofSeconds 5))
-      (.build)))
+(def ^:private read-timeout-secs 30)
 
 (defn- http-get
-  "Issue a real HTTP GET against `http://127.0.0.1:<port><path>` and
-  return `{:status :body}` observed on the wire."
-  [^HttpClient client port path]
-  (let [req  (-> (HttpRequest/newBuilder)
-                 (.uri (URI/create (str "http://127.0.0.1:" port path)))
-                 (.timeout (Duration/ofSeconds 30))
-                 (.GET)
-                 (.build))
-        resp (.send client req (HttpResponse$BodyHandlers/ofString))]
-    {:status (.statusCode resp)
-     :body   (.body resp)}))
+  "Issue a real HTTP GET and return `{:status :body}` observed on the
+  wire (this suite's 30s read-timeout pinned via the shared helper)."
+  [client port path]
+  (ts/http-get client port path read-timeout-secs))
 
 ;; ===========================================================================
 ;; Stub validator — interpret a `:params` schema as a Clojure predicate
@@ -227,8 +196,8 @@
 
       (testing "bytes-on-the-wire through Jetty — a real HTTP server
                 preserves the projected 404 status"
-        (with-jetty [port handler]
-          (let [client (new-http-client)
+        (ts/with-jetty [port handler]
+          (let [client (ts/new-http-client)
                 {:keys [status body]} (http-get client port "/no-such-page")]
             (is (= 404 status)
                 "the projected 404 survives the full Jetty round-trip")
@@ -298,8 +267,8 @@
                    render-time body replacement)")))
 
           (testing "bytes-on-the-wire through Jetty — 400 survives the round-trip"
-            (with-jetty [port handler]
-              (let [client (new-http-client)
+            (ts/with-jetty [port handler]
+              (let [client (ts/new-http-client)
                     {:keys [status body]} (http-get client port "/articles/zoo")]
                 (is (= 400 status)
                     "drain-time :schema-validation-failure → default
@@ -349,8 +318,8 @@
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
                      :payload :rf.ssr.payload/whole-app-db})]
-      (with-jetty [port handler]
-        (let [client       (new-http-client)
+      (ts/with-jetty [port handler]
+        (let [client       (ts/new-http-client)
               n-threads     8
               n-per-thread  10
               latch         (CountDownLatch. 1)
