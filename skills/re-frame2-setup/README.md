@@ -34,7 +34,7 @@ Invoke as `clojure -Tnew create :template io.github.day8/re-frame2-template :nam
 > invocation is forward-correct and will work once the repo split and first
 > release land. See [`tools/template/README.md`](../../tools/template/README.md) for both routes.
 
-The two routes are complementary, not redundant:
+The two routes are complementary, not redundant — and they are run by different actors. **The template is a user-run command**: the author invokes `clojure -Tnew create …` in their own shell. **This skill executes the manual seven-step scaffold** instead — its `allowed-tools` grant covers `clojure -Stree`, npm, and `shadow-cljs watch`/`compile`, but deliberately *not* `clojure -Tnew create`. So when the skill steers an author toward the one-command generator, it hands them the command to run; it does not invoke `-Tnew` on their behalf (it couldn't pre-publish anyway — the published coordinate doesn't resolve and the `:local/root` dev form needs a reviewed monorepo checkout). Both routes land on the same canonical scaffold.
 
 | Use the **template** when… | Use this **skill** when… |
 |---|---|
@@ -67,11 +67,18 @@ The canonical seven-step greenfield path:
 - Live REPL inspection of the running app — that's [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair).
 - Migrating an existing re-frame v1 codebase to v2 — that's a different problem; see [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 - Test infrastructure, CI, deployment — out of scope. The author chooses their own.
-- Anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx or Helix greenfield, `references/entry-namespace.md` §UIx / Helix greenfield gives the two adapter substitutions and points at the generator template's complete `_uix/` / `_helix/` variants (`clojure -Tnew create ... :substrate :uix`), which is the fastest non-Reagent path.
+- Anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx or Helix greenfield, `references/entry-namespace.md` §UIx / Helix greenfield gives the two adapter substitutions this skill hand-wires; the fastest non-Reagent path is the **user-run** generator template's complete `_uix/` / `_helix/` variants (`clojure -Tnew create ... :substrate :uix`, run by the author — see "Relationship to the generator template" above for who runs what).
 
 ## Status
 
-Pre-alpha. The skill is authored; it has not yet been exercised against a fresh project end-to-end. The structure mirrors the `re-frame2-pair` skill in this same repo. The content is grounded against the canonical example in `examples/reagent/counter/core.cljs` and the deps shapes from `implementation/core/deps.edn`, `implementation/adapters/reagent/deps.edn`, and `implementation/shadow-cljs.edn`.
+Pre-alpha. The skill is authored; it has not yet been exercised against a fresh project end-to-end (a generated-project buildability smoke — materialise the default scaffold, then `npm install` + `npx shadow-cljs compile app` — is a deferred follow-up, gated on the framework artefacts publishing to Clojars so a fresh project can resolve them without a monorepo checkout). The structure mirrors the `re-frame2-pair` skill in this same repo. The content is grounded against the canonical example in `examples/reagent/counter/core.cljs` and the deps shapes from `implementation/core/deps.edn`, `implementation/adapters/reagent/deps.edn`, and `implementation/shadow-cljs.edn`.
+
+**Drift guards (what's tested today).** Two layers protect the *prose* from regressing while the buildability smoke is pending:
+
+- `scripts/check_skill_setup_counter_drift.py` — repo-level gate (Python). Guards counter-id vocabulary, the `:init-fn` = startup / `^:dev/after-load` = reload-hook lifecycle wording, and the Spec 006 adapter-key vocabulary. Runs in the `verify-skill-mcp-drift` CI job.
+- `tests/setup_drift_test.clj` — skill-local structural guard (Babashka). Locks the build-discipline lockstep framing, UIx/Helix template-pin parity, the right-side Xray host shape, the CSP dev/prod split, npx-qualified commands, the substrate-views path, the publication-state coordinate branch, the loud schema-missing contract, the day-one Xray preload in the canonical `shadow-cljs.edn` block, and the user-run-generator framing. Run locally with `bb tests/setup_drift_test.clj` (from `skills/re-frame2-setup/`); in CI it is gated by the `skills-structural` job (fires on any `skills/re-frame2-setup/**` change).
+
+Both are *prose/structural* drift guards, not buildability checks — they assert the skill teaches the right shapes, not that an emitted project compiles. Real-regression coverage of the wiring lives in the substrate contract tests (`npm run test:cljs`).
 
 ## Layout
 

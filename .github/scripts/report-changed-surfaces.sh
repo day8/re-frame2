@@ -462,6 +462,11 @@ else
       skills/re-frame2-pair/*|skills/shared/*)
         skills_structural=true
         ;;
+      skills/re-frame2-setup/*)
+        # rf2-agi57x — the re-frame2-setup skill carries a structural drift
+        # guard (tests/setup_drift_test.clj) gated under skills-structural.
+        skills_structural=true
+        ;;
       docs/tools/playground/*|docs/cljs/playground.js|docs/cljs/playground.css|docs/cljs/playground-rf2.js)
         # rf2-ee38b.22 — the docs/cljs live-cell playground (CM6 + Scittle
         # bootstrap + the re-frame2 SCI bundle). The tools-playground job

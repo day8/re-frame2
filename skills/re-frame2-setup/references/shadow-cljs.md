@@ -4,16 +4,18 @@ The minimal `shadow-cljs.edn` build for a greenfield re-frame2 Reagent single-pa
 
 ## Contents
 
-- Minimal `shadow-cljs.edn`
+- The day-one `shadow-cljs.edn`
 - The `index.html` that loads the bundle
-- `:devtools` block (optional, for hot-reload)
+- `:devtools` block (the Xray preload + the hot-reload after-load hook)
 - Production build (`release`)
 - nREPL — only if you'll use `re-frame2-pair`
 - What re-frame2 does NOT need
 
 ---
 
-## Minimal `shadow-cljs.edn`
+## The day-one `shadow-cljs.edn`
+
+The complete default greenfield build, matching the generator template. The `:devtools {:preloads [day8.re-frame2-xray.preload]}` entry is **part of the day-one shape** — Xray is a day-one dep (`deps-versions.md`) and the `index.html` below ships the `[data-rf-xray-host]` column it opens into, so the canonical block wires the preload that fills that column. (Without it you get a compiling app whose right-side host stays empty even though the Xray dep and host markup are present — a false-green scaffold. The dedicated `:devtools` section below explains the block and the separate hot-reload after-load hook.)
 
 ```clojure
 {:deps   {:aliases [:shadow]}           ;; pull classpath from deps.edn's :shadow alias
@@ -26,10 +28,11 @@ The minimal `shadow-cljs.edn` build for a greenfield re-frame2 Reagent single-pa
   {:target     :browser
    :output-dir "resources/public/js"
    :asset-path "/js"
-   :modules    {:main {:init-fn your-app.core/init}}}}}
+   :modules    {:main {:init-fn your-app.core/init}}
+   :devtools   {:preloads [day8.re-frame2-xray.preload]}}}}  ;; day-one Xray panel — fills [data-rf-xray-host]
 ```
 
-The greenfield build entry, matching the generator template. Four things matter for re-frame2:
+The greenfield build entry, matching the generator template. Five things matter for re-frame2:
 
 1. **`:deps {:aliases [:shadow]}`.** shadow-cljs reads the classpath from `deps.edn` via the `:shadow` alias — don't duplicate the `day8/re-frame2-*` coordinates here. The alias is where the JVM-side build deps live: it supplies `thheller/shadow-cljs` + `org.clojure/tools.namespace` and `:extra-paths ["test" "dev"]`. The template defines it in `deps.edn`:
    ```clojure
@@ -43,6 +46,7 @@ The greenfield build entry, matching the generator template. Four things matter 
 2. **`:dev-http {8280 "resources/public"}`.** The top-level dev-server form (current shadow-cljs idiom). It serves `resources/public/` on port `8280` — `index.html` lives at `resources/public/index.html`. The template uses `8280`; reuse it so a teammate on the template route sees the same number.
 3. **`:init-fn your-app.core/init`.** shadow-cljs calls this symbol at bundle-init time. The function must be exported (`(defn ^:export init [] ...)`). This is the entry point that calls `(rf/init! reagent-adapter/adapter)` — see `entry-namespace.md`. (`init` matches the generator template; the symbol name is yours to choose, as long as `:init-fn` points at it — see `entry-namespace.md`.)
 4. **One module.** A single-page re-frame2 app needs exactly one `:modules` entry. Code-splitting is possible later but not part of greenfield.
+5. **`:devtools {:preloads [day8.re-frame2-xray.preload]}`.** The day-one Xray devtools preload. Because Xray is a day-one dep (`deps-versions.md`) and `index.html` carries the `[data-rf-xray-host]` column, the canonical build wires the preload that auto-mounts Xray into that column once `rf/init!` seats the adapter. This entry is dev-only — shadow cuts `:devtools` (preloads and all) from `release` builds automatically, so Xray never ships to production. The dedicated [`:devtools` section](#devtools-block-the-xray-preload--the-hot-reload-after-load-hook) below covers this block and the separate, opt-in `^:dev/after-load` hot-reload hook.
 
 The template also ships a second `:test {:target :node-test ...}` build under `:builds` (for `cljs.test` runners) and `:source-paths ["src" "test" "dev"]`. That test build is out of scope for this skill (it stops at "the counter mounts"), but it's there in the scaffold — don't be surprised comparing the two.
 
@@ -124,9 +128,9 @@ Six contractual bits:
 - **CSP — dev meta tag, `'unsafe-inline'` styles.** The CSP meta tag declares `style-src 'self' 'unsafe-inline'` (matching the template). The `'unsafe-inline'` is **deliberate and load-bearing in dev**: re-frame2 views use inline `:style` props (the counter's `[:span {:style {:margin "0 1em"}}]`) and the default-on Xray devtools injects `<style>` blocks and inline styles — a strict `style-src 'self'` would emit CSP violations and break Xray styling on first run. The page chrome (the shell/host layout) lives in `css/app.css` regardless; only the per-component `:style` props need `'unsafe-inline'`. The meta tag deliberately **omits `frame-ancestors`** (browsers ignore it from `<meta>` — it is a response-header-only directive). Both tightenings — dropping `'unsafe-inline'` and adding `frame-ancestors` — belong to the production response header (see **Production hardening** below).
 - **`<script src="/js/main.js">`** — `/js/` comes from `:asset-path "/js"`; `main.js` comes from the module name `:main`. If you rename either, this path follows. The absolute path from site root is correct for shadow-cljs's dev server.
 
-## `:devtools` block (hot-reload + Xray)
+## `:devtools` block (the Xray preload + the hot-reload after-load hook)
 
-The top-level `:dev-http` (above) already starts the dev server. Add a `:devtools` block per build for the Xray devtools panel — wired this way in the generator template:
+The top-level `:dev-http` (above) already starts the dev server. The day-one build already carries the `:devtools {:preloads [day8.re-frame2-xray.preload]}` entry (see the canonical block at the top of this file) — this section explains that preload and the **separate, opt-in** `^:dev/after-load` hot-reload hook. The `:devtools` block reproduced here is the same one from the day-one build, shown in context:
 
 ```clojure
 :builds
@@ -154,7 +158,15 @@ The top-level `:dev-http` (above) already starts the dev server. Add a `:devtool
 
 With this block in place, `npx shadow-cljs watch app` starts the dev server (use `npx` — or `npm run watch` — so the locally-installed `shadow-cljs` from `node_modules/.bin` resolves even with no global binary on PATH). Visit `http://localhost:8280/` and the browser auto-refreshes on every recompile.
 
-re-frame2's *core* does not need a preload for hot-reload — shadow-cljs's default behaviour is enough. **Xray is the one default preload:** because Xray is a day-one dep (see `deps-versions.md`), the template wires `day8.re-frame2-xray.preload` here. It auto-opens into the `[data-rf-xray-host]` column from the `index.html` above after `rf/init!` installs the substrate adapter (there is no lazy/manual-only launch step). If you genuinely want a Xray-free build, drop the `:preloads` entry and the `day8/re-frame2-xray` dep together.
+re-frame2's *core* does not need a preload for hot-reload — shadow-cljs's default behaviour is enough. **Xray is the one default preload:** because Xray is a day-one dep (see `deps-versions.md`), the template wires `day8.re-frame2-xray.preload` here. It auto-opens into the `[data-rf-xray-host]` column from the `index.html` above after `rf/init!` installs the substrate adapter (there is no lazy/manual-only launch step). The default day-one scaffold keeps the preload.
+
+**Explicit Xray opt-out (the only no-Xray path).** If you genuinely want a Xray-free build, opt out by removing **all three** pieces together — they are one contract:
+
+1. the `:devtools {:preloads [day8.re-frame2-xray.preload]}` entry from the build (above);
+2. the `day8/re-frame2-xray` dep from `deps.edn` (`deps-versions.md`); and
+3. the `<aside ... data-rf-xray-host>` host column from `index.html` (and its `.rf2-xray-host` CSS rules).
+
+Dropping the preload while leaving the dep + host markup is exactly the false-green this skill's default block avoids: a compiling app whose Xray host stays permanently empty. There is no "keep the dep, drop the preload" half-state — Xray is in or out as a unit.
 
 ## Production build (`release`)
 
