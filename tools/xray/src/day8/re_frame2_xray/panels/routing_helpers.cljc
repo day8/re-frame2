@@ -296,7 +296,11 @@
 ;; given route — WITHOUT actually dispatching any framework event.
 ;; That preview is structural: the matched params (derived from the
 ;; row's pattern + the chosen URL), the registered `:on-match` event
-;; vector, and the expected app-db slot (`[:rf/runtime :routing :current ...]`).
+;; vector, and the expected runtime-db slot
+;; (`[:rf.runtime/routing :current ...]`). EP-0001 (rf2-vzld77) moved
+;; the framework-owned route slice OUT of app-db and into the target
+;; frame's runtime-db; the preview must name that path so a developer
+;; following it inspects the place real navigation actually writes.
 
 (defn simulate-navigation-preview
   "Pure data → data. Given a registered-routes map + a `route-id`, plus
@@ -304,21 +308,23 @@
   surface), return a preview map describing what a real navigation
   would carry:
 
-      {:route-id    <keyword>
-       :path        <string-or-nil>     ;; the route's registered pattern
-       :url         <string-or-nil>     ;; the simulated URL (or nil)
-       :matched?    <bool>              ;; did url match this route's pattern?
-       :params      <map-or-nil>        ;; matched params (nil when no url)
-       :on-match    <vector-or-nil>     ;; registered :on-match event vector
-       :db-slot     [:rf/runtime :routing :current]  ;; where the slice would land
-       :slot-shape  <map>               ;; preview of the routing :current slice
-                                        ;; that would land in app-db
-       :unknown?    <bool>}             ;; true when route-id not registered
+      {:route-id        <keyword>
+       :path            <string-or-nil>  ;; the route's registered pattern
+       :url             <string-or-nil>  ;; the simulated URL (or nil)
+       :matched?        <bool>           ;; did url match this route's pattern?
+       :params          <map-or-nil>     ;; matched params (nil when no url)
+       :on-match        <vector-or-nil>  ;; registered :on-match event vector
+       :runtime-db-slot [:rf.runtime/routing :current]  ;; where the slice lands
+       :slot-shape      <map>            ;; preview of the routing :current slice
+                                         ;; that would land in runtime-db
+       :unknown?        <bool>}          ;; true when route-id not registered
 
-  Hermetic — no dispatch, no fx, no app-db mutation. The shape mirrors
-  what the framework's `:rf.route/navigate` handler would write into
-  `[:rf/runtime :routing :current]` so the user can reason about the cascade without
-  triggering it.
+  Hermetic — no dispatch, no fx, no runtime-db / app-db mutation. The
+  shape mirrors what the framework's `:rf.route/navigate` handler would
+  write into the target frame's runtime-db at
+  `[:rf.runtime/routing :current]` (EP-0001 rf2-vzld77 — the route slice
+  is framework-owned runtime-db state, NOT app data) so the user can
+  reason about the cascade without triggering it.
 
   When `route-id` is not in `routes-map` returns `{:unknown? true
   :route-id route-id}` — the view surfaces this as an unregistered
@@ -347,15 +353,15 @@
            slot     (cond-> {:id route-id}
                       (some? path)   (assoc :path path)
                       (some? params) (assoc :params params))]
-       {:route-id   route-id
-        :path       path
-        :url        url
-        :matched?   (boolean matched?)
-        :params     params
-        :on-match   on-match
-        :db-slot    [:rf/runtime :routing :current]
-        :slot-shape slot
-        :unknown?   false})
+       {:route-id        route-id
+        :path            path
+        :url             url
+        :matched?        (boolean matched?)
+        :params          params
+        :on-match        on-match
+        :runtime-db-slot [:rf.runtime/routing :current]
+        :slot-shape      slot
+        :unknown?        false})
      {:route-id route-id
       :unknown? true})))
 

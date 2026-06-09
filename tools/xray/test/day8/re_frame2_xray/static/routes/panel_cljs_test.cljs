@@ -310,13 +310,13 @@
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-on-match"))
             "preview shows registered :on-match")
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-db-slot"))
-            "preview shows the [:rf/runtime :routing :current] db slot")
+            "preview shows the [:rf.runtime/routing :current] runtime-db slot")
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-slot-shape"))
             "preview shows the slot shape that would land"))
       ;; The current slice MUST still be the baseline — no real navigation.
       (let [slice @(rf/subscribe [:rf.xray/current-route-slice])]
         (is (= :route/cart (:id slice))
-            "current slice unchanged — preview did NOT mutate app-db")))))
+            "current slice unchanged — preview did NOT mutate the runtime-db route slice")))))
 
 ;; ---- (8) cross-link to Dynamic Routing ----------------------------------
 

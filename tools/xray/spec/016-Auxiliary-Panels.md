@@ -304,10 +304,12 @@ list browse-all surface with hermetic Simulate-URL preview.
   ranking algorithm.
 - **Per-row hermetic Simulate-navigation preview** — clicking the
   expanded row's `Simulate navigation` button renders an inline
-  preview of `:on-match`'s app-db slot + the matched params, **without
-  calling the host's navigation fx**. The host's current-route slice
-  (at `[:rf/runtime :routing :current]`) is unchanged; this is a lens,
-  not a verb. The preview match is **row-local**: it matches the
+  preview of `:on-match`'s runtime-db route slice + the matched params,
+  **without calling the host's navigation fx**. The host's current-route
+  slice (the framework-owned runtime-db state at
+  `[:rf.runtime/routing :current]`, EP-0001 rf2-vzld77 — NOT app-db) is
+  unchanged; this is a lens, not a verb. The preview match is
+  **row-local**: it matches the
   SELECTED row's own compiled pattern against the entered URL — NOT the
   global rank winner (rf2-m9rx6). For overlapping routes (e.g. an exact
   route plus a lower-ranked splat fallback that both match
@@ -338,10 +340,11 @@ list browse-all surface with hermetic Simulate-URL preview.
 
 The Simulate-navigation preview MUST NOT call the host's navigation
 fx (`:rf/url-requested`, `:rf.route/navigate`, `history.pushState`,
-etc.). It MUST NOT write the host's current-route slice (at
-`[:rf/runtime :routing :current]`). The preview is a pure-data
+etc.). It MUST NOT write the host's current-route slice (the
+framework-owned runtime-db state at `[:rf.runtime/routing :current]`,
+EP-0001 rf2-vzld77). The preview is a pure-data
 projection: given a route-id + a URL, return what `:on-match`'s
-app-db slot would look like if that URL navigated. The host stays
+runtime-db route slice would look like if that URL navigated. The host stays
 where it is; Xray is a lens, not a verb. (This is the load-bearing
 distinction from the host's `:rf.route/navigate` fx — the Dynamic
 lens picks that up if the user runs it; the Static preview never
@@ -374,8 +377,9 @@ signal.
 
 - `:rf.xray/registered-routes` — shared with Static Routes.
 - `:rf.xray/current-route-slice` — composite over
-  `:rf.xray/target-frame-db` reading the current-route slice at
-  `[:rf/runtime :routing :current]`. Switching the L1 frame picker
+  `:rf.xray/target-frame-runtime-db` reading the current-route slice at
+  `[:rf.runtime/routing :current]` (EP-0001 rf2-vzld77 — the route slice
+  is framework-owned runtime-db state). Switching the L1 frame picker
   re-binds the lens.
 - `:rf.xray/cascades` — the shared cascade projection. The composite
   scans the focused cascade's trace events for the routing-emit.

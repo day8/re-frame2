@@ -29,8 +29,9 @@
     the runtime landed. A full page refresh wipes both — the next
     `discover-app` tool call reports `:reason :runtime-not-preloaded`
     with a setup hint.
-  - `*current-origin*` — `^:dynamic` var holding the `:tags :origin`
-    value the runtime stamps onto every mutation it performs;
+  - `*current-origin*` — `^:dynamic` var holding the dispatch `:origin`
+    opt the runtime stamps onto every mutation it performs (surfacing on
+    the trace bus as the `:rf.event/origin` tag);
     `current-origin` (no earmuffs) is the plain read accessor that
     returns it. The default `:xray-mcp` is grandfathered from the
     original xray-mcp design; revising the default to a more accurate
@@ -129,8 +130,12 @@
 ;; Origin dynamic var
 ;; ---------------------------------------------------------------------------
 ;;
-;; Convention: every MCP-driven side-effect on the trace bus carries a
-;; `:tags :origin <server-name>` tag. The MCP server renders a
+;; Convention: every MCP-driven side-effect on the trace bus carries an
+;; `:rf.event/origin <server-name>` tag. The runtime threads the value as
+;; the framework dispatch `:origin` OPT (`{:origin <server-name>}`); the
+;; router's `emit-dispatched-trace` projects that onto the
+;; `:rf.event/dispatched` row's `[:tags :rf.event/origin]` (Spec 009
+;; §Origin). The MCP server renders a
 ;; `binding` form that wraps the runtime's accessor call with
 ;; `(binding [*current-origin* <server-name>] ...)`; mutating accessors
 ;; read the bound value (via `*current-origin*` / `current-origin`) when
@@ -147,8 +152,9 @@
 ;; async-tagging gap per Lock #4 / I6).
 
 (def ^:dynamic *current-origin*
-  "The `:tags :origin` value stamped on every mutation the runtime
-  performs on behalf of the MCP server. Defaults to `:xray-mcp`; the
+  "The dispatch `:origin` opt value stamped on every mutation the runtime
+  performs on behalf of the MCP server (surfacing on the trace bus as the
+  `:rf.event/origin` tag). Defaults to `:xray-mcp`; the
   server's `eval-cljs` tool re-binds it for the synchronous extent of
   the user-supplied form."
   :xray-mcp)
@@ -869,9 +875,12 @@
 ;; ---------------------------------------------------------------------------
 
 (defn dispatch!
-  "Tool: `dispatch`. Fire `event-vec` tagged `:origin *current-origin*`
-  (defaults to `:xray-mcp`). Returns `{:ok? true :event-id <kw>
-  :origin <kw> :mode <kw>}`.
+  "Tool: `dispatch`. Fire `event-vec` through the framework dispatch
+  OPTS map as `{:origin *current-origin*}` (defaults to `:xray-mcp`), so
+  the emitted `:rf.event/dispatched` trace carries `[:tags
+  :rf.event/origin]` and `get-trace-buffer {:origin <origin>}` can
+  isolate the tool-dispatched cascade. Returns `{:ok? true :event-id <kw>
+  :frame <id> :origin <kw> :mode <kw>}`.
 
   Modes: `:queued` (default — non-blocking `rf/dispatch`); `:sync`
   (the synchronous variant). The MCP server picks the mode at the
@@ -891,11 +900,20 @@
         :hint "Pass :frame :foo or register at least one frame."}
 
        :else
-       (let [tagged (with-meta event-vec {:tags {:origin origin}})]
+       ;; Pass the bound origin through the framework's dispatch OPTS map
+       ;; (`{:origin origin}`) — NOT as event-vector metadata. The router's
+       ;; `build-envelope` reads `:origin` off the opts map (defaulting to
+       ;; `:app`) and `emit-dispatched-trace` stamps it onto the
+       ;; `:rf.event/dispatched` trace as `[:tags :rf.event/origin]` (Spec
+       ;; 002 §Frame target resolution / Spec 009 §Origin). A `{:tags
+       ;; {:origin …}}` event-meta path was NEVER read by the framework, so
+       ;; tool-dispatched cascades were indistinguishable from app-origin
+       ;; ones on the trace bus.
+       (do
          (rf/with-frame fid
            (if sync?
-             (rf/dispatch-sync tagged)
-             (rf/dispatch tagged)))
+             (rf/dispatch-sync event-vec {:origin origin})
+             (rf/dispatch event-vec {:origin origin})))
          {:ok?      true
           :event-id (first event-vec)
           :frame    fid
