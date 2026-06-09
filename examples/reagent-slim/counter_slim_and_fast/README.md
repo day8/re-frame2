@@ -18,22 +18,34 @@ The S3-008 + S3-005 contract from
 §1.4 + §1.8 + §8 — a binding adapter-owned bundle-isolation claim
 about the slim substrate:
 
-1. **Stock-Reagent impl isolation.** The advanced-compiled bundle for
-   this example contains NO `reagent.impl.*` symbols. The slim
-   rewrite has its own `reagent2.impl.*` substrate; the bridge's
-   `reagent.impl.*` internals must be entirely absent.
-2. **Pure-CLJS SSR.** The bundle contains NO `react-dom/server`
-   symbols, even though `run` exercises
+1. **Stock-Reagent impl isolation (Contract 2, S3-008).** The
+   advanced-compiled bundle for this example contains NO
+   `reagent.impl.*` symbols. The slim rewrite has its own
+   `reagent2.impl.*` substrate; the bridge's `reagent.impl.*`
+   internals must be entirely absent.
+2. **Pure-CLJS SSR (Contract 3, S3-005).** The bundle contains NO
+   `react-dom/server` symbols, even though `run` exercises
    `reagent2.dom.server/render-to-static-markup` at boot. The slim's
    SSR seam is pure-CLJS (per IMPL-SPEC §8.7), so the bundle has no
    compiled-in path to `react-dom/server`.
-3. **Methodology control.** The stock-Reagent counter bundle
-   (`examples/counter`) MUST still contain both groups of symbols —
-   that proves the grep has signal. If a future stock-Reagent upgrade
-   DCEs them out of the stock bundle too, the test fails loudly and
-   the sentinel set gets re-derived.
+3. **SSR-absence non-vacuity (Contract 4, S3-005).** The
+   `react-dom/server` absence in (2) is non-vacuous because the slim
+   bundle *positively* contains the slim SSR boot/serializer presence
+   sentinels — the `counterSlimPrerender` host-global the boot writes
+   and a `reagent2.dom.server` serializer-owned literal. Without those,
+   removing the SSR exercise would leave (2) passing against a bundle
+   that no longer does SSR at all.
 
-The grep that enforces all three invariants lives at
+The methodology control is the stock-Reagent counter bundle
+(`examples/counter`): **Contract 1** requires it to still contain the
+stock-Reagent impl sentinels, which proves the (2) grep has signal. It
+is a control for the **stock-Reagent implementation fingerprints only**
+— the `react-dom/server` proof is not controlled here but by the
+positive slim-side presence check in (3). If a future stock-Reagent
+upgrade DCEs the impl sentinels out of the stock bundle too, the test
+fails loudly and the sentinel set gets re-derived.
+
+The grep that enforces all four contracts lives at
 [`implementation/scripts/check-reagent-slim-bundle-isolation.cjs`](../../../implementation/scripts/check-reagent-slim-bundle-isolation.cjs);
 the changed-surface CI job is `cljs-reagent-slim-bundle-isolation` in
 `.github/workflows/test.yml`.
@@ -88,6 +100,17 @@ To iterate against the source, watch the build directly from
 ```bash
 shadow-cljs watch examples/counter-slim-and-fast
 ```
+
+The watch build emits `main.js` into
+`out/examples/counter-slim-and-fast/` (the build's `:output-dir` in
+`implementation/shadow-cljs.edn`). To load it in a browser, copy this
+folder's hand-written [`index.html`](index.html) alongside that
+`main.js`, stage the [`examples/_shared/`](../../_shared/) tree next to
+it so the page's `_shared/...` references resolve, then serve
+`out/examples/counter-slim-and-fast/` over HTTP.
+(`npm run test:examples` does not build this standalone example — it
+compiles and serves only the three adapter testbeds; see
+[`examples/README.md`](../../README.md).)
 
 The Reagent Slim bundle-isolation contract is exercised separately
 when slim-related paths change, and in the nightly/manual expensive

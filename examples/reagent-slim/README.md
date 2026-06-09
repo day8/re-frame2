@@ -16,12 +16,13 @@ The example sits in its own folder with the CLJS source (`core.cljs`) and a hand
 ## What the example demonstrates
 
 - **`reagent-slim/counter_slim_and_fast/`** ([build id `examples/counter-slim-and-fast`](../../implementation/shadow-cljs.edn))
-  The same `:counter/*` events and subs as the canonical Reagent counter, mounted on the slim substrate. (Sharing the `:counter/*` event+sub ids with the stock fixture is a **deliberate, documented exception** to the example id-prefix convention — it demonstrates adapter parity; see [`examples/TESTING.md` § Exception 1 — the stock/slim counter `:counter/*` id share](../TESTING.md#exception-1--the-stockslim-counter-counter-id-share). The views are *not* shared: `reg-view` auto-namespaces them under `:counter-slim-and-fast.core/*` vs the stock `:counter.core/*`.) Its `run` fn deliberately exercises `reagent2.dom.server/render-to-static-markup` at boot so the pure-CLJS SSR contract is non-vacuous. The paired verifier asserts two bundle-isolation invariants on the `:advanced` bundle:
+  The same `:counter/*` events and subs as the canonical Reagent counter, mounted on the slim substrate. (Sharing the `:counter/*` event+sub ids with the stock fixture is a **deliberate, documented exception** to the example id-prefix convention — it demonstrates adapter parity; see [`examples/TESTING.md` § Exception 1 — the stock/slim counter `:counter/*` id share](../TESTING.md#exception-1--the-stockslim-counter-counter-id-share). The views are *not* shared: `reg-view` auto-namespaces them under `:counter-slim-and-fast.core/*` vs the stock `:counter.core/*`.) Its `run` fn deliberately exercises `reagent2.dom.server/render-to-static-markup` at boot so the pure-CLJS SSR contract is non-vacuous. The paired verifier asserts these bundle-isolation contracts on the `:advanced` bundle:
 
-  1. **Stock-Reagent impl isolation** — no `reagent.impl.*` symbols (the slim rewrite has its own `reagent2.impl.*` substrate; the bridge's impl tree must be entirely absent).
-  2. **Pure-CLJS SSR** — no `react-dom/server` symbols, even though the example runs `reagent2.dom.server/render-to-static-markup` at boot (per IMPL-SPEC §8 + S3-005).
+  1. **Stock-Reagent impl isolation** (Contract 2, S3-008) — no `reagent.impl.*` symbols in the slim bundle (the slim rewrite has its own `reagent2.impl.*` substrate; the bridge's impl tree must be entirely absent).
+  2. **Pure-CLJS SSR** (Contract 3, S3-005) — no `react-dom/server` symbols in the slim bundle, even though the example runs `reagent2.dom.server/render-to-static-markup` at boot (per IMPL-SPEC §8 + S3-005).
+  3. **SSR-absence non-vacuity** (Contract 4, S3-005) — the slim bundle *positively* contains the SSR boot/serializer presence sentinels (the `counterSlimPrerender` host-global the boot writes plus a `reagent2.dom.server` serializer-owned literal), so the (2) absence is not a vacuous proof against an SSR-free bundle.
 
-  The stock-Reagent `examples/counter` bundle is required to still contain both symbol groups as a methodology control.
+  The methodology control (Contract 1) is the stock-Reagent `examples/counter` bundle: it must still contain the **stock-Reagent impl sentinels only** — that proves the (1) grep has signal. The `react-dom/server` proof is not controlled by the stock bundle but by the positive slim-side presence check in (3).
 
 ## Testing
 
