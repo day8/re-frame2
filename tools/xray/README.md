@@ -34,17 +34,54 @@ dedicated xray-mcp jar is unnecessary; agents read the same trace bus
 
 ## Headline experiences
 
-| Surface | What it does |
-|---|---|
-| **Event-detail panel** (hero) | Lands on every open. The event vector, the diff, the inline mini-graph, fx fired, subs recomputed, renders, duration. Answers the canonical questions on first paint. |
-| **Time-travel scrubber** | Bottom rail. Passive scrubbing rebases the view of history; explicit rewind calls `restore-epoch` with the six failure modes surfaced. |
-| **Slice-centric app-db panel** | The slices that changed, the slices the user pinned. Read-only. |
-| **Machine inspector** | Stately-quality state-chart per machine. Embeds `tools/machines-viz/`. |
-| **Schema-violation timeline** | One row per registered schema; coloured dot per failure with recovery mode. |
-| **Hydration debugger** | Server vs client render-tree side-by-side. Only visible when SSR hydration runs. |
-| **Issues ribbon** | Unified feed: errors + warnings + schema violations + hydration mismatches. |
+The chrome is a **4-layer spine** (chrome ribbon · event list · tab bar ·
+detail panel) per [`spec/018-Event-Spine.md`](./spec/018-Event-Spine.md).
+Selecting an event in the L2 event list moves a single spine sub
+(`:rf.xray/focus`); every Dynamic tab is a *lens on that one focused
+event*. Time-travel is the spine itself — the events-ribbon nav cluster
+plus the event list are the scrubber; there is no bottom rail. Issues are
+not a tab — they surface inline in the Epoch panel, the L2 event-row
+pink-wash, and the always-on issues ribbon signal (per rf2-gbz39).
 
-Full panel inventory in [`spec/000-Vision.md`](./spec/000-Vision.md).
+### Dynamic mode — the 6 tabs (lenses on the focused event)
+
+| Tab | What it shows for the focused event |
+|---|---|
+| **Epoch** (`e`) | Lands on every open. The numbered cascade — dispatch · coeffects · handler · flow · fx · effects — plus inline issues (per-step pass/fail + the "Exception Thrown" block). Answers the canonical questions on first paint. |
+| **App-db** (`a`) | The slice-centric `:db-before → :db-after` diff for this event; pinned slices; full-tree escape hatch. Read-only. |
+| **Views** (`v`) | The subs recomputed because of this event + the components that re-rendered. |
+| **Trace** (`t`) | The raw trace stream filtered to this event's cascade, with the wall-clock axis for timers / retries / deferred dispatches. |
+| **Machine** (`m`) | The transitions this event triggered + spawn/destroy cascades. Stately-quality state-chart per machine; embeds `tools/machines-viz/`. |
+| **Routes** (`r`) | The matched route + params/query/fragment + Simulate-URL, for the focused event. |
+
+### Static mode — the 5 browse surfaces (registry catalogue, event-independent)
+
+A peer 3-layer surface (no spine) for browsing *everything that could
+fire*, not just what did — per Lock #14/#15 in
+[`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md). Toggle with
+`Ctrl+Shift+M`.
+
+| Tab | What it browses |
+|---|---|
+| **Machines** (`m`) | Every registered machine; topology chart + browse-list with a `→ Dynamic` jump chip. |
+| **Routes** (`r`) | Every registered route; substring search + hermetic Simulate-URL / Simulate-navigation preview + `→ Dynamic` jump. |
+| **Schemas** (`c`) | Every app-db / event / sub schema; the Malli EDN + jump-to-source. |
+| **Flows** (`f`) | Every `reg-flow` registration; inputs, output path, owning frame, doc-string. |
+| **Interceptors** (`i`) | Every registered interceptor. |
+
+Full canonical inventory in [`spec/000-Vision.md`](./spec/000-Vision.md)
+§The tab table and [`spec/018-Event-Spine.md`](./spec/018-Event-Spine.md).
+
+> **Maintainers — chrome-shape drift guard.** When a Dynamic/Static tab
+> is added, retired, folded, or renamed, update this Headline-experiences
+> table in the SAME change, alongside the canonical sources
+> ([`spec/000-Vision.md`](./spec/000-Vision.md) §tab table,
+> [`spec/018-Event-Spine.md`](./spec/018-Event-Spine.md) §5, and
+> [`testbeds/panel_gallery/core.cljs`](./testbeds/panel_gallery/core.cljs)).
+> The README is the first orientation surface; stale tab vocabulary here
+> teaches the wrong mental model. The authoritative tab inventory is the
+> `panel-registry/reg-l4-tab!` calls in `src/.../panels/*` (Dynamic) and
+> `src/.../static/*/panel.cljs` (Static).
 
 ## Quick start
 
