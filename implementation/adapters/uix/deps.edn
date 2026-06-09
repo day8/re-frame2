@@ -15,6 +15,16 @@
 ;; Per rf2-3yij Decision 8 we target UIx 2.x (hooks-based). UIx 1.x
 ;; back-compat is explicitly out of scope.
 ;;
+;; PRODUCT-VERSION vs MAVEN-VERSION (rf2-xcyaei). "UIx 2.x" is the
+;; product/API-family name (the hooks-based generation hosted at
+;; github.com/pitch-io/uix), NOT the Maven coordinate version. UIx 2 is
+;; published on Clojars as `com.pitch/uix.core` with version numbers in
+;; the 1.x.x series — so the `com.pitch/uix.core {:mvn/version "1.4.4"}`
+;; pin below IS UIx 2.x. The legacy UIx 1 generation (roman01la/uix) is
+;; a different, pre-hooks codebase and is the surface ruled out of scope
+;; above. Do not "upgrade" this coordinate to a 2.x.y Maven version — no
+;; such version exists; that would be a non-resolving coordinate.
+;;
 ;; UIx itself is a CLJS-only library; this artefact is therefore
 ;; CLJS-only. The :test alias exists for classpath-probe parity with
 ;; the other per-adapter artefacts (Reagent's :test alias is also

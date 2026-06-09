@@ -1,7 +1,7 @@
 # reagent-slim — Stage 3 implementation spec
 
 > Stage 3 of rf2-5djt (parent epic). Bead **rf2-60le**.
-> The artefact is `day8/reagent-slim`; the bridge is `day8/reagent-classic`.
+> The artefact is `day8/reagent-slim`; the classic thin-bridge adapter ships today as `day8/re-frame2-reagent` (`day8/reagent-classic` is a possible post-1.0 rename of that bridge — see §11.4 — and is used in this spec only where the discussion is explicitly about that future rename).
 > Stage 1 (rf2-ui6g) closed the surface; Stage 2 (rf2-142b) sized the wins. This
 > document is the engineering spec Stage 4 (rf2-6hyy) implements against.
 >
@@ -258,7 +258,7 @@ Stage 1 §1.6 marked `RAtom`, `Reaction`, `Track`, `RCursor`, `Wrapper` as SHOUL
 
 `re-frame.interop/ratom?` (`interop.cljs:26-29`) tests `(satisfies? ratom/IReactiveAtom ^js x)` — protocol-based, not class-based. The protocol is exported; both `RAtom` and `Reaction` reify it. Cross-substrate code that does `(instance? RAtom x)` or `(instance? Reaction x)` keeps working. Code that does `(instance? Track x)` or `(instance? RCursor x)` does not — but the audits showed zero such call sites in any of the four production codebases.
 
-If a downstream consumer surfaces a need for `Track` / `RCursor` / `Wrapper` after release, the right answer is to migrate them to the bridge artefact (`day8/reagent-classic`) per the rewrite's scoping commitment, not extend the rewrite.
+If a downstream consumer surfaces a need for `Track` / `RCursor` / `Wrapper` after release, the right answer is to migrate them to the bridge artefact (`day8/re-frame2-reagent`) per the rewrite's scoping commitment, not extend the rewrite.
 
 ### §2.4 `reagent2.dom.client` — mount entry
 
@@ -415,7 +415,7 @@ The rewrite preserves this. Stage 4 confirms via a cross-substrate test that cal
 
 ### §3.5 The dropped types — `Track`, `RCursor`, `Wrapper`
 
-Per §2.3a — not shipped. Audit-confirmed zero usage. If a future consumer surfaces a real need, the migration path is `day8/reagent-classic`.
+Per §2.3a — not shipped. Audit-confirmed zero usage. If a future consumer surfaces a real need, the migration path is the bridge artefact `day8/re-frame2-reagent`.
 
 ---
 
@@ -602,7 +602,7 @@ Any other key throws `:rf.error/create-class-key-unsupported` at `create-class` 
                                  "Unsupported: " (pr-str unsupported) ". "
                                  "Migrate to the supported keys, restructure "
                                  "via :on-create / :on-destroy events, or "
-                                 "switch to day8/reagent-classic.")
+                                 "switch to the bridge adapter day8/re-frame2-reagent.")
            :keys            (vec unsupported)
            :supported-keys  supported})))
     spec))
@@ -906,7 +906,7 @@ A test-time-only build pulls in `react-dom/server` and runs both implementations
 - Sequence children with and without keys.
 - Mixed-type children (string + number + vector).
 
-The test diffs the outputs and asserts byte-for-byte equality, with explicit known-difference allow-listing for cases like attribute ordering that aren't part of the contract. Stage 4 documents any intentional differences in MIGRATION.md.
+The test diffs the outputs and asserts byte-for-byte equality, with explicit known-difference allow-listing for cases like attribute ordering that aren't part of the contract. Any intentional differences are recorded in the parity test's known-difference allow-list (`reagent2.dom.server` parity suite).
 
 ---
 
@@ -1093,9 +1093,9 @@ Per §1.5 — Stage 4 confirms `verify-version-lockstep.sh` recognises the new a
 | **R-001** Narrowed `convert-prop-value` may break apps relying on silent stringification | `template_test.cljs` exercises every `html-attr-name?` branch; tests assert the dev-mode `console.warn` fires once per `[k name-of-v]` pair. |
 | **R-002** 7-key Form-3 cap may break niche consumers | `component_test.cljs` constructs `create-class` with each of {`:component-will-mount`, `:UNSAFE_componentWillMount`, `:component-will-receive-props`, `:UNSAFE_componentWillReceiveProps`, `:component-will-update`, `:UNSAFE_componentWillUpdate`, `:should-component-update`, `:get-derived-state-from-props`, `:get-initial-state`} and asserts each throws `:rf.error/create-class-key-unsupported` with the unsupported key in `:keys`. |
 | **R-003** Compile-time Form-detection macro changes user-facing API | The runtime path is the canonical (mandatory) implementation; the `defview` macro is optional. Tests assert plain `defn` + `reg-view` works with all three Form shapes. |
-| **R-004** Pure-CLJS `render-to-static-markup` differs from `react-dom/server` | `parity_test.cljs` per §8.7 — corpus-based diff. Known-difference allow-list documented in MIGRATION.md. |
+| **R-004** Pure-CLJS `render-to-static-markup` differs from `react-dom/server` | `parity_test.cljs` per §8.7 — corpus-based diff. Known-difference allow-list documented in the parity test itself. |
 | **R-005** Microtask scheduler interacts unexpectedly with React 19 transitions | `dom_client_test.cljs` exercises `useTransition` boundaries; `flush-views!` drains React's pending work without race. |
-| **R-006** 10x v1 monkey-patches break | NOT tested in this artefact — documented as a known breakage in MIGRATION.md. 10x v1 doesn't load against the rewrite; Xray is the contract. Apps running 10x v1 stay on `day8/reagent-classic`. |
+| **R-006** 10x v1 monkey-patches break | NOT tested in this artefact — documented as a known breakage in the migration corpus (`migration/from-re-frame-v1/README.md`). 10x v1 doesn't load against the rewrite; Xray is the contract. Apps running 10x v1 stay on the bridge `day8/re-frame2-reagent`. |
 | **R-007** Bundle estimates may be off by 30-50% | Per S3-008, the comparison build is delivered (rf2-5lbx) — see §12.2 + §12.3. The S3-008 *contract* (no stock-Reagent impl-leak, no `react-dom/server` leak) is enforced quantitatively by the symbol grep. The *size* half of R-007 remains a Stage-5 follow-up: in the in-tree shadow-cljs build both adapter trees live on the same classpath, and `re-frame.interop` still statically `:require`s stock `reagent.core` / `reagent.ratom`, so a per-build classpath-pruning hook is needed before the realised-gzip-reduction measurement is meaningful. The current in-tree numbers (stock counter ~93 KB gz, slim counter ~93 KB gz) reflect that shared-classpath shape and are NOT the binding "slim" claim. |
 
 ---
@@ -1150,7 +1150,7 @@ Per-key migration recipes:
 | `:should-component-update` | Move the optimisation to React.memo or a custom reactive shape. The audit (rf2-cgcv + rf2-kfpf) found zero usage across all four codebases. |
 | `:get-derived-state-from-props` | Restructure the component to compute derived state from props at render time (idiomatic React function-component shape). Audit-confirmed zero usage. |
 
-Apps that genuinely need a banned key for a real use case stay on `day8/reagent-classic` (the bridge).
+Apps that genuinely need a banned key for a real use case stay on `day8/re-frame2-reagent` (the bridge).
 
 ### §13.3 Apps that used dropped surfaces
 
