@@ -1924,22 +1924,46 @@
   id-recording alternatives. `trace/emit!` is gated on
   `interop/debug-enabled?` (Closure DCE / JVM flag) so this is production-
   free and adds no module-level mutable state — the engine stays a pure
-  function of `[machine snapshot event]`."
+  function of `[machine snapshot event]`.
+
+  Error contract (rf2-km4bn4): the `:on-spawn` callback is a machine
+  action like any other, so a THROW must route through the documented
+  machine action exception contract — NOT escape as a generic
+  `:rf.error/handler-exception`. Mirroring `run-action` / `materialise-data`,
+  the call is wrapped in try/catch: on throw, return a `result/fail`
+  Result stamped with the stable action id `:rf.spawn/on-spawn` plus
+  enough context to locate the spawn (`:spawned-id`; the caller adds
+  `:spawn-id` / `:child-id`, and `apply-transition-once` stamps
+  `:decl-path` / `:transition` / `:state-path`). The lifecycle boundary
+  (`registration/trace-action-failure!`) then emits exactly one
+  `:rf.error/machine-action-exception` and drops the accumulated effects —
+  so a throwing observer never commits the parent/child snapshot or the
+  spawned registry slot. On SUCCESS the snapshot is returned UNCHANGED, as
+  before. (No `:rf.machine/action-ran` activity trace fires here on either
+  path: `:on-spawn` is an advisory observer, not a cascade action — adding
+  it would introduce a novel `:phase` outside the documented closed set,
+  Spec-Schemas.md §`action-ran`.)"
   [machine snap spawn-spec spawned-id]
-  (when-let [f (let [aref (:on-spawn spawn-spec)]
-                 (when aref
-                   (or (chase-ref (:on-spawn-actions machine) aref)
-                       (chase-ref (:actions machine) aref))))]
-    (let [ret (f {:data (:data snap) :id spawned-id})]
-      (when (some? ret)
-        (trace/emit! :warning :rf.warning/on-spawn-return-ignored
-                     {:machine-id (or (:rf/parent-id machine) (:id machine))
+  (if-let [f (let [aref (:on-spawn spawn-spec)]
+               (when aref
+                 (or (chase-ref (:on-spawn-actions machine) aref)
+                     (chase-ref (:actions machine) aref))))]
+    (try
+      (let [ret (f {:data (:data snap) :id spawned-id})]
+        (when (some? ret)
+          (trace/emit! :warning :rf.warning/on-spawn-return-ignored
+                       {:machine-id (or (:rf/parent-id machine) (:id machine))
+                        :spawned-id spawned-id
+                        :returned   ret
+                        :remedy     [:system-id
+                                     [:rf.runtime/machines :spawned :<parent> :<invoke-id>]
+                                     :rf.machine/update-snapshot]}))
+        snap)
+      (catch #?(:clj Throwable :cljs :default) e
+        (result/fail {:action-ref :rf.spawn/on-spawn
                       :spawned-id spawned-id
-                      :returned   ret
-                      :remedy     [:system-id
-                                   [:rf.runtime/machines :spawned :<parent> :<invoke-id>]
-                                   :rf.machine/update-snapshot]}))))
-  snap)
+                      :exception  e})))
+    snap))
 
 (defn- spawn-one
   "Single-spawn primitive shared by `:spawn` and `:spawn-all` per-child.
@@ -1975,8 +1999,13 @@
   runs the `:on-spawn` advisory callback.
 
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
-  around a `result/fail` Result (stamped with
-  `:action-ref :rf.spawn/data-fn` and `:spawn-id`) on `:data` failure."
+  around a `result/fail` Result on failure. The failure is stamped
+  `:action-ref :rf.spawn/data-fn` + `:spawn-id` for a `:data`-fn throw,
+  or — per rf2-km4bn4 — `:action-ref :rf.spawn/on-spawn` + `:spawn-id`
+  (carried up from `apply-on-spawn`) for a throwing `:on-spawn` callback,
+  so the lifecycle boundary routes BOTH through the machine action
+  exception contract rather than letting an `:on-spawn` throw escape as a
+  generic handler exception."
   [machine parent-id s acc-fx prefix n event]
   (let [spawn-spec   (:spawn n)
         invoke-id    (vec prefix)
@@ -1993,8 +2022,14 @@
     (if (result/fail? spawn-r)
       (reduced spawn-r)
       (let [spawn-fx (result/fx spawn-r)
+            ;; Per rf2-km4bn4: a throwing `:on-spawn` callback returns a
+            ;; `result/fail` (not a snapshot) — short-circuit the spawn
+            ;; reducer so no parent/child snapshot or registry slot commits
+            ;; and the accumulated fx is dropped at the lifecycle boundary.
             s'       (apply-on-spawn machine s-alloc spawn-spec id)]
-        [s' (into acc-fx spawn-fx)]))))
+        (if (result/fail? s')
+          (reduced (result/fail-with s' {:spawn-id invoke-id}))
+          [s' (into acc-fx spawn-fx)])))))
 
 (defn- handle-spawn-all-decl
   "Handle the `:spawn-all` branch of the spawn reducer in
@@ -2067,13 +2102,25 @@
           children-with-ids)]
     (if (result/fail? spawn-fxs-r)
       (reduced spawn-fxs-r)
-      ;; (4) Thread :on-spawn advisory callbacks across siblings.
+      ;; (4) Thread :on-spawn advisory callbacks across siblings. Per
+      ;; rf2-km4bn4 a throwing child `:on-spawn` returns a `result/fail`
+      ;; (not the threaded snapshot); short-circuit the sibling reduce on
+      ;; the FIRST throw — stamping the failing `:child-id` + `:spawn-id`
+      ;; onto the failure — so the reducer never terminates mid-spawn
+      ;; without a machine-scoped trace, and no parent/child snapshot or
+      ;; registry slot commits.
       (let [s' (reduce
                  (fn [snap child]
-                   (apply-on-spawn machine snap child (:rf/spawned-id child)))
+                   (let [r (apply-on-spawn machine snap child (:rf/spawned-id child))]
+                     (if (result/fail? r)
+                       (reduced (result/fail-with r {:spawn-id invoke-id
+                                                     :child-id (:id child)}))
+                       r)))
                  s-alloc
                  children-with-ids)]
-        [s' (-> acc-fx (conj init-fx) (into spawn-fxs-r))]))))
+        (if (result/fail? s')
+          (reduced s')
+          [s' (-> acc-fx (conj init-fx) (into spawn-fxs-r))])))))
 
 (defn final-state-node?
   "Per Spec 005 §Final states (rf2-gn80): true iff the state-node declares
