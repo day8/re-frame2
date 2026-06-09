@@ -407,8 +407,21 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `cross-spec-dispatch-sync-in-handler.edn` | `:cross-spec/dispatch-sync-in-handler` | Cross-Spec #14 (Drain loop × Substrate): a handler that triggers `dispatch-sync` mid-drain (directly or transitively via a naive fx-side chain) trips the router's `:in-drain?` guard and emits `:rf.error/dispatch-sync-in-handler` with `:no-recovery`; the would-be leaf handler does NOT run. Pins the substrate-level ban; render-time observables are out-of-scope so the fx path is the corpus's testable seam |
 | `cross-spec-server-error-projection.edn` | `:cross-spec/server-error-projection` | Cross-Spec #16 (Errors × SSR): an fx handler throws on a server frame; the runtime emits `:rf.error/fx-handler-exception` with the original exception detail; the active error projector maps it to the locked generic-500 public-error on the request frame's response accumulator. The trace stream preserves full detail; the public-error is sanitised — the projector IS the sanitisation seam |
 | `cross-spec-hot-reload-sub-mid-cascade.edn` | `:cross-spec/hot-reload-sub-mid-cascade` | Cross-Spec #18 (Subscriptions × Hot-reload): re-registering a sub via the harness's `{:reg-sub <id> :body <body>}` step disposes the per-frame cache slot for that query-id; subsequent subscribes build against the new body. The registrar emits `:rf.registry/handler-replaced` with `:kind :sub` + `:id` + `:different-fn?`; the post-replacement sub-value confirms the cache was invalidated and the new body is active |
+| `data-classification-flow-output-inherits-from-input.edn` | `:data-classification/flow-output-inherits-from-input` | Spec 015:568 (Data Classification × Flows): the `:fixture/app-marks` harness step declares `[:user :ssn]` sensitive (`add-marks`); a `reg-flow` reading that input copies it to `[:derived :ssn-copy]`. The flow output INHERITS the input's data-classification by default, so the same event's `:rf.event/db-pending-post-flow` (t2) trace redacts both the input slot AND the propagated output slot to `:rf/redacted` while leaving the unmarked sibling `[:user :name]` raw — the path-precise trace-egress redaction contract |
 
-Coverage spans the main categories: handlers, frames, envelope, subs, fx, errors, machines, routing, SSR, hydration, epoch, trace bus, view registration, and HTTP request interceptors.
+Coverage spans the main categories: handlers, frames, envelope, subs, fx, errors, machines, routing, SSR, hydration, epoch, trace bus, view registration, HTTP request interceptors, and data-classification path-marks.
+
+### The `:fixture/app-marks` harness step — data-classification path-marks
+
+The `data-classification/` category exercises the Spec 015 path-marks redaction contract. A fixture declares app-db path-marks via the optional top-level `:fixture/app-marks` key — an ORDERED vector of declaration op-maps the harness applies against the established frame scope (after `reg-frame`, before static `reg-flow` registration, so a flow whose `:inputs` overlap a marked path inherits the propagated output mark at registration time):
+
+```clojure
+:fixture/app-marks
+[{:add-marks {[:user :ssn] :sensitive}}    ;; additively merge into the frame mark-set
+ {:set-marks {[:auth :token] :sensitive}}]  ;; OR replace the frame mark-set wholesale
+```
+
+Each op-map carries exactly one of `:add-marks` (additive merge) or `:set-marks` (wholesale replace); the value is a `{path mark}` map where `path` is a `get-in`-shaped vector and `mark` is `:sensitive` or `:large`. The ordered-vector form lets a fixture pin the `add-marks` / `set-marks` sequencing (e.g. the spec's `set-marks-replaces-not-merges` / `add-marks-merges-not-replaces` cases). The declarations feed the emit-time trace-tag projection — sensitive slots render `:rf/redacted` and large slots render `:rf.size/large-elided` inside the relevant trace `:tags` (e.g. the `:rf.event/db` slot on the t1 / t2 pending-db trace events) before any listener observes them. Fixtures using `:fixture/app-marks` declare the `:data-classification/marks` capability.
 
 ## Render-time observables (out of scope)
 

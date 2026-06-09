@@ -139,7 +139,14 @@
     ;; `flow-frame-scoped.edn` runs through the core corpus too (rf2-29ovh).
     :flow/frame-scoped
     ;; Spec 014 — :rf.http/managed (rf2-z1mw)
-    :rf.http/managed})
+    :rf.http/managed
+    ;; Spec 015 §Data classification (rf2-s2s3xv) — the `data-classification/`
+    ;; fixture category exercises the path-marks redaction contract through
+    ;; the t2 pending-db trace egress (`add-marks` / `set-marks` declaring
+    ;; sensitive / large paths via `:fixture/app-marks`). Claimed so
+    ;; `data-classification-flow-output-inherits-from-input.edn` (Spec 015:568)
+    ;; runs through the core corpus.
+    :data-classification/marks})
 
 ;; ---- claimed fixture spec version(s) -------------------------------------
 ;;
@@ -573,6 +580,31 @@
           (rf/reg-flow (-> flow-meta
                            (assoc :id flow-id)
                            (assoc :output output-fn))))))))
+
+(defn- realise-app-marks!
+  "Apply a fixture's `:fixture/app-marks` data-classification declarations
+  against the established frame scope (Spec 015 §App-db marks; rf2-s2s3xv).
+
+  `:fixture/app-marks` is an ORDERED vector of op-maps so a fixture can pin
+  the `add-marks` / `set-marks` sequencing the spec's category fixtures care
+  about (`set-marks-replaces-not-merges`, `add-marks-merges-not-replaces`).
+  Each op-map carries exactly one of:
+
+    {:add-marks {path mark, ...}}   — additively merge into the frame mark-set
+    {:set-marks {path mark, ...}}   — replace the frame mark-set wholesale
+
+  `path` is a `get-in`-shaped vector; `mark` is `:sensitive` or `:large`.
+
+  Called AFTER `reg-frame` (the frame's runtime-db elision slot exists) and
+  BEFORE `realise-flows!` — so a flow whose `:inputs` overlap a marked path
+  inherits the propagated output mark at `reg-flow` time (the realistic
+  ordering: mark the input, then register the flow). `add-marks` / `set-marks`
+  take an explicit `frame-id`, so we pass the scope frame directly."
+  [fixture scope-frame]
+  (doseq [op (or (:fixture/app-marks fixture) [])]
+    (cond
+      (contains? op :add-marks) (rf/add-marks scope-frame (:add-marks op))
+      (contains? op :set-marks) (rf/set-marks scope-frame (:set-marks op)))))
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
@@ -1103,6 +1135,12 @@
                            (rf/reg-frame (:id f) (dissoc f :id)))
                          :else
                          (rf/reg-frame :rf/default frame-config))
+          ;; Data-classification path-marks (Spec 015 §App-db marks;
+          ;; rf2-s2s3xv) run AFTER reg-frame (the frame's runtime-db elision
+          ;; slot exists) and BEFORE realise-flows! so a flow input that
+          ;; overlaps a marked path inherits the propagated output mark at
+          ;; reg-flow time. `add-marks` / `set-marks` are frame-scoped.
+          _            (realise-app-marks! fixture scope-frame)
           ;; Flow registration runs AFTER reg-frame: per Spec 013 flows
           ;; are frame-scoped, and the rf2-wbtjn destroy-frame! teardown
           ;; hook would wipe any flows registered before the destroy.
