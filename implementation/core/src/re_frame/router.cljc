@@ -12,6 +12,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
             [re-frame.error-emit :as error-emit]
+            [re-frame.events :as events]
             [re-frame.fx :as fx]
             [re-frame.router.diagnostics :as diag]
             [re-frame.substrate.adapter :as adapter]
@@ -1188,6 +1189,50 @@
     (trace/emit-error! :rf.error/flow-eval-exception
                        {:frame frame :event event :exception e})))
 
+(defn- emit-legacy-runtime-root!
+  "Surface `:rf.error/legacy-runtime-root` through BOTH the always-on
+  error-emit substrate AND the dev-only trace surface — the FINAL-effects
+  boundary counterpart (rf2-u1kdvg) of the in-chain
+  `events/reject-legacy-runtime-root!` throw.
+
+  Why a SEPARATE in-band emit rather than re-throwing: the in-chain guard
+  runs inside the handler-wrapping interceptor's `:before`, so a
+  handler-RETURNED legacy root is caught by `execute-chain` and surfaced as
+  `:rf.error/handler-exception`. But a legacy `:rf/runtime` root inserted
+  into `[:effects :db]` by a user / framework `:after` interceptor lands
+  AFTER that guard has run, in the FINAL effects map the router consumes.
+  Detecting it here and THROWING would escape `process-event!` into
+  `drain-emergency-release!` — which re-throws, abandoning the rest of the
+  drained queue (the very `:on-error`-bypass / queue-abandonment footgun the
+  bead closes). So we emit in-band and abort THIS event only (`:error`
+  outcome, NO commit, NO `:fx`), preserving the no-partial-commit promise
+  while keeping the drain alive.
+
+  Always-on per rf2-hqbeh / rf2-bacs4: axis-1 listeners observe the
+  rejection in production where the trace surface DCEs. LISTENER-ONLY (axis
+  2 not invoked): a legacy-root write is `:no-recovery` — there is no
+  `{:swallow | :replacement | :default}` choice — so the per-frame
+  `:on-error` policy is bypassed by passing nil for the policy-event,
+  mirroring the other no-recovery categories."
+  [event event-id frame start-ms]
+  (let [end-ms     (interop/now-ms)
+        elapsed-ms (long (max 0 (- end-ms start-ms)))
+        tags       (events/legacy-runtime-root-ex-data event)]
+    ;; Axis 1 — always-on listener (survives prod elision). No exception
+    ;; object: this is an invalid-write rejection, not a host throw.
+    (error-emit/dispatch-on-error!
+      :rf.error/legacy-runtime-root
+      event
+      event-id
+      frame
+      nil
+      elapsed-ms
+      end-ms
+      nil)                                  ;; LISTENER-ONLY — :no-recovery
+    ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
+    (trace/emit-error! :rf.error/legacy-runtime-root
+                       (assoc tags :frame frame))))
+
 (defn- run-fx-effects!
   "Walk :fx in source order, threading fx-overrides through so per-frame
   / per-call overrides take effect. Per-frame :platform overrides the
@@ -1488,9 +1533,24 @@
   of any downstream rollback — it is the proximate, most-actionable
   signal."
   [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
-  (let [effects        (:effects final-ctx)
-        error          (:rf/interceptor-error final-ctx)
+  (let [error          (:rf/interceptor-error final-ctx)
         flow-error     (:rf/flow-error final-ctx)
+        ;; FINAL-effects boundary policing (rf2-u1kdvg). `commit-fx-effects`
+        ;; polices a `reg-event-fx` HANDLER RETURN during the chain's
+        ;; `:before` pass — BEFORE the `:after` interceptors run. By the
+        ;; time the router consumes `(:effects final-ctx)` the whole chain
+        ;; (every `:before` AND every `:after`) has run, so an effect can
+        ;; arrive here malformed by a route the per-handler-return checks
+        ;; never saw: a `reg-event-ctx` return (no effect-map validation) or
+        ;; an `:after`-interceptor mutation. `police-final-effects!` is the
+        ;; single authoritative shape gate applied to the FINAL map — it
+        ;; drops foreign top-level keys (so a foreign key is no longer
+        ;; SILENTLY ignored at the partition commit) and drops a
+        ;; non-sequential `:fx` (so it never reaches `fx/do-fx` to throw a
+        ;; raw host exception AFTER the db commit), emitting
+        ;; `:rf.error/effect-map-shape` (`:logged-and-skipped`) for each.
+        ;; Runs BEFORE any commit, preserving the no-partial-commit promise.
+        effects        (events/police-final-effects! (:effects final-ctx) event)
         db-before      (get-in final-ctx [:coeffects :db])
         ;; Pre-handler runtime-db partition (EP-0001 rf2-adwcv6): the
         ;; `:rf.db/runtime` coeffect `assemble-initial-ctx` injected by
@@ -1515,6 +1575,21 @@
       (do
         (emit-flow-eval-exception! flow-error event event-id frame start-ms)
         :flow-error)
+      ;; FINAL-effects boundary legacy-root rejection (rf2-u1kdvg, EP-0001
+      ;; decision #8). `events/reject-legacy-runtime-root!` ran in-chain
+      ;; (during the handler-wrapper's `:before`) so a handler-RETURNED
+      ;; `:rf/runtime` root surfaces as `:rf.error/handler-exception`. But an
+      ;; `:after` interceptor can insert the retired `:rf/runtime` root into
+      ;; the FINAL `[:effects :db]` AFTER that guard ran — bypassing it and
+      ;; landing legacy-shaped data in app-db. Enforce the rejection on the
+      ;; FINAL db effect immediately BEFORE commit. In-band (NO throw) so the
+      ;; rejection aborts THIS event only without escaping to the drain's
+      ;; emergency release: no commit, no `:fx`, the rest of the queue keeps
+      ;; draining. Mirrors the no-partial-commit promise of the in-chain guard.
+      (events/legacy-runtime-root? (:db effects))
+      (do
+        (emit-legacy-runtime-root! event event-id frame start-ms)
+        :error)
       ;; Per Spec 010 §Per-step recovery row 4: `commit-frame-effects!`
       ;; returns false when post-commit app-db schema validation rejected
       ;; the new state and rolled the WHOLE frame-state transition back to
