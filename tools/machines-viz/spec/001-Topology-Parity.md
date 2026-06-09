@@ -770,20 +770,27 @@ state boxes. The feature stays opt-in behind `:direction :auto`.
   the match is by **edge-id** (not endpoint node-ids like the from/to
   lens), it lights **every** traversed arm — microsteps, guard-fork
   candidates — the lens cannot reach. **Palette delegated to Figma.**
-- ✅ **Parallel fired-edge coverage (rf2-8ncxrf / rf2-3v3gv1 / rf2-l8ls6w).**
+- ✅ **Parallel fired-edge coverage (rf2-8ncxrf / rf2-85a9do / rf2-3v3gv1 / rf2-l8ls6w).**
   A `:type :parallel` transition emits ONE `:rf.machine/transition` whose
   `:before` / `:after` carry the WHOLE region-map. `extract-fired-edge-ids`
   (Xray-side) derives the fired edges per region from the region-map **plus**
-  the structured `:cascade`: (a) a region that **changed via a region-local
-  transition** lights its region-scoped edge (rf2-8ncxrf); (b) a region that
-  **changed via the parallel ROOT `:on`** (no region-local edge moved it)
-  lights the MACHINE-ROOT-sourced chip whose region-qualified `:to-path` names
-  it (rf2-3v3gv1); (c) a region that was **HANDLED but UNCHANGED** — a real
-  targetless/internal or external self transition with `before == after` and a
-  non-empty cascade — lights its self/internal edge, distinguished from a
-  RESTING region (declined the event, absent from the cascade) by the
-  `:cascade` `:region` stamps (rf2-l8ls6w). All three mint ids that agree with
-  the live chart by construction (the projection is the single edge-id source).
+  the structured `:cascade`. A region that **changed** is resolved through an
+  ordered fallback (the edge shapes are mutually exclusive per region):
+  (a) **region-local transition** — lights its region-scoped edge (rf2-8ncxrf);
+  (b) **the region's OWN top-level `:on` fallback** — no region-local edge
+  matched, but the region def carried a region-level `:on` whose machine-level
+  fallback edge (`:machine-level?`, sourced from the region CONTAINER per
+  §rf2-7i7t3, in-region `:to-path`, **not** `:parallel-root-on?`) moved it; it
+  lights that edge, reserved between the region-local and root-`:on` arms
+  (rf2-85a9do); (c) **the parallel ROOT `:on`** — neither a region-local nor a
+  region-level `:on` edge matched, so the MACHINE-ROOT-sourced chip whose
+  region-qualified `:to-path` names the region lights (rf2-3v3gv1). Separately,
+  a region that was **HANDLED but UNCHANGED** — a real targetless/internal or
+  external self transition with `before == after` and a non-empty cascade —
+  lights its self/internal edge, distinguished from a RESTING region (declined
+  the event, absent from the cascade) by the `:cascade` `:region` stamps
+  (rf2-l8ls6w). All four arms mint ids that agree with the live chart by
+  construction (the projection is the single edge-id source).
 
 ## §5 — Roadmap
 
