@@ -68,6 +68,21 @@
     (.mkdirs pkg-dir)
     (spit (io/file pkg-dir (str file-stem ".clj")) (str source "\n"))))
 
+(defn- drain-process
+  "Drain `proc`'s stdout AND stderr concurrently, then `waitFor`.
+  Returns {:exit :out :err}.  The concurrent drain is what
+  `run-runner` relies on to avoid the pipe deadlock (rf2-spzkgo); this
+  helper is the shared primitive both it and the deadlock regression
+  use, so the regression proves the EXACT drain order the real harness
+  ships."
+  [^Process proc]
+  (let [out-f (future (slurp (.getInputStream proc)))
+        err-f (future (slurp (.getErrorStream proc)))
+        out   @out-f
+        err   @err-f
+        exit  (.waitFor proc)]
+    {:exit exit :out out :err err}))
+
 (defn- run-runner
   "Relaunch a fresh JVM that runs `re-frame.test-quiet.runner/-main` with
   `extra-args`, putting `fixture-dir` on both the classpath and the
@@ -87,11 +102,15 @@
                        extra-args)
         proc     (-> (ProcessBuilder. ^java.util.List cmd)
                      (.redirectErrorStream false)
-                     (.start))
-        out      (slurp (.getInputStream proc))
-        err      (slurp (.getErrorStream proc))
-        exit     (.waitFor proc)]
-    {:exit exit :out out :err err}))
+                     (.start))]
+    ;; Drain stdout AND stderr CONCURRENTLY (rf2-spzkgo): with separate
+    ;; pipes, slurping stdout fully and only THEN reading stderr can
+    ;; deadlock — a child that fills the stderr pipe blocks on write (so
+    ;; it never closes stdout / exits), while the parent blocks on stdout
+    ;; EOF and never reaches the stderr drain or `waitFor`.
+    ;; `drain-process` reads both on their own threads, so both pipes keep
+    ;; flowing regardless of which stream the child writes to.
+    (drain-process proc)))
 
 (defn- with-fixture-dir
   "Make a fresh temp dir, run `f` with it, then delete it."
@@ -536,3 +555,77 @@
                    " got:\n" out))
           (is (str/includes? out "0 failures, 0 errors.")
               (str "the green summary must still print; got:\n" out)))))))
+
+;; ----------------------------------------------------------------------
+;; Subprocess-harness pipe-deadlock regression — rf2-spzkgo.
+;;
+;; The harness drains a child's stdout and stderr on separate threads
+;; (see `drain-process` / `run-runner`).  Pre-fix it slurped stdout to
+;; EOF and only THEN read stderr: a child that fills the stderr pipe
+;; buffer (~64 KB on most OSes) blocks on its stderr write before
+;; closing stdout, so the parent — still blocked on stdout EOF — never
+;; reaches the stderr drain or `waitFor`, and both hang forever.
+;;
+;; This child writes a stderr payload far larger than any pipe buffer
+;; (~1 MB) AND a stdout marker, then exits NONZERO.  With the concurrent
+;; drain the harness must return the full captured stderr, the stdout
+;; marker, and the real exit code — promptly.  We run it on a bounded
+;; future so a regression that reintroduces the sequential drain fails
+;; as a TIMEOUT (deref deadline) instead of hanging the whole suite.
+
+(def ^:private big-stderr-bytes
+  "~1 MB — comfortably past any plausible OS pipe buffer (~64 KB)."
+  (* 1024 1024))
+
+(deftest harness-does-not-deadlock-on-large-stderr
+  (testing "a child flooding stderr while exiting nonzero is drained without deadlock (rf2-spzkgo)"
+    (with-fixture-dir
+      (fn [dir]
+        ;; The child program is written to a FILE rather than passed via
+        ;; `clojure.main -e`: on Windows, `ProcessBuilder` re-quoting
+        ;; strips the embedded double-quotes from an inline `-e` form, so
+        ;; `"STDOUT-MARKER"` would arrive as a bare symbol and the child
+        ;; would die compiling. A `.clj` file on disk has no such
+        ;; cross-platform arg-quoting hazard.  It writes a stdout marker,
+        ;; floods stderr with `big-stderr-bytes` of payload, then
+        ;; `System/exit`s NONZERO.
+        (let [flood-file (io/file dir "deadlock_flood.clj")]
+          (spit flood-file
+                (str "(.print (System/out) \"STDOUT-MARKER\")\n"
+                     "(.flush (System/out))\n"
+                     "(let [chunk (apply str (repeat 1024 \"E\"))]\n"
+                     "  (dotimes [_ " (quot big-stderr-bytes 1024) "]\n"
+                     "    (.print (System/err) chunk)))\n"
+                     "(.flush (System/err))\n"
+                     "(System/exit 3)\n"))
+          (let [os-win   (str/includes? (str/lower-case (System/getProperty "os.name")) "win")
+                java-bin (str (io/file (System/getProperty "java.home") "bin"
+                                       (if os-win "java.exe" "java")))
+                cmd      [java-bin "-cp" (System/getProperty "java.class.path")
+                          "clojure.main" (.getAbsolutePath flood-file)]
+                result-f (future
+                           (-> (ProcessBuilder. ^java.util.List cmd)
+                               (.redirectErrorStream false)
+                               (.start)
+                               (drain-process)))
+                ;; A correctly draining harness returns in well under a
+                ;; second; 60s is a generous ceiling that still FAILS (not
+                ;; hangs) if the sequential-drain deadlock is reintroduced.
+                result   (deref result-f 60000 ::timed-out)]
+            (is (not= ::timed-out result)
+                (str "the harness deadlocked: a >pipe-buffer stderr flood with a"
+                     " sequential (stdout-then-stderr) drain hangs forever"
+                     " (rf2-spzkgo) — it must drain both streams concurrently"))
+            (when (not= ::timed-out result)
+              (let [{:keys [exit out err]} result]
+                (is (= 3 exit)
+                    (str "the child's nonzero exit code must be captured; got "
+                         exit "\n--- stderr head ---\n"
+                         (subs err 0 (min 300 (count err)))))
+                (is (str/includes? out "STDOUT-MARKER")
+                    (str "the stdout marker must be captured alongside the"
+                         " stderr flood; got stdout:\n" out))
+                (is (>= (count err) big-stderr-bytes)
+                    (str "the full stderr flood must be captured, not truncated"
+                         " by a partial drain; got " (count err)
+                         " bytes, expected >= " big-stderr-bytes))))))))))
