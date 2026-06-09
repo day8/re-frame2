@@ -398,18 +398,19 @@
         (is (= (get raw k) (get projected k))
             (str "bookkeeping slot " k " passes through unchanged"))))))
 
-(deftest projected-record-structured-projections-pass-through
-  (testing ":renders / :effects carry no app-db material (only
-            render-keys, fx-ids, and outcome tags), so they pass through
-            the projection unchanged. `:sub-runs` rows carry value-bearing
-            `:prev-value` / `:value` (rf2-at60h) so they are NOT value-free
-            in general — but a row that is neither whole-output sensitive
-            (already redacted at the marks emit site) nor whole-output
-            large (no `:large?` flag → nothing to substitute) survives the
-            projection byte-for-byte. This cascade declares only a SENSITIVE
-            schema path and reads no large-marked sub, so its `:sub-runs`
-            rows still pass through identically; the large-value egress
-            case is pinned by `projected-record-elides-large-sub-output`."
+(deftest projected-record-renders-and-subruns-pass-through-when-value-free
+  (testing ":renders carries no app-db material (render-keys, timing,
+            cause), so it passes through the projection unchanged. `:sub-runs`
+            rows carry value-bearing `:prev-value` / `:value` (rf2-at60h) so
+            they are NOT value-free in general — but a row that is neither
+            whole-output sensitive (already redacted at the marks emit site)
+            nor whole-output large (no `:large?` flag → nothing to substitute)
+            survives the projection byte-for-byte. This cascade declares only a
+            SENSITIVE schema path and reads no large-marked sub, so its
+            `:sub-runs` rows still pass through identically; the large-value
+            egress case is pinned by `projected-record-elides-large-sub-output`.
+            (`:effects` is NOT pass-through any more — its `:args` fail closed,
+            pinned by the rf2-rlt3sv tests below.)"
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
     (rf/reg-event-db :login
@@ -419,8 +420,138 @@
     (let [raw       (last-record :test/main)
           projected (epoch/projected-record raw)]
       (is (= (:sub-runs raw) (:sub-runs projected)))
-      (is (= (:renders  raw) (:renders  projected)))
-      (is (= (:effects  raw) (:effects  projected))))))
+      (is (= (:renders  raw) (:renders  projected))))))
+
+;; ---- rf2-rlt3sv — :effects :args fail closed off-box ----------------------
+;;
+;; The structured :effects rows carry :args — the RAW fx-handler argument
+;; captured verbatim from the :rf.fx/args trace tag. These are payload-bearing
+;; user data (an HTTP body, a [:login pw] dispatch, a payment map) that is NOT
+;; routed through the marks-projection chokepoint at emit time and NOT rooted
+;; at the frame's app-db, so the schema-path walker cannot prove any value
+;; safe. Off-box egress FAILS CLOSED: projected-record redacts each row's :args
+;; to :rf/redacted for EVERY outcome, preserving :fx-id / :outcome /
+;; :error-trace. NEGATIVE CONTROL: the RAW ring record keeps the exact args
+;; (asserted distinct from the projected sentinel), and :include-fx-args? true
+;; lifts the redaction.
+
+(defn- effect-row [record fx-id]
+  (some #(when (= fx-id (:fx-id %)) %) (:effects record)))
+
+(deftest projected-record-elides-fx-args-success-row
+  (testing "an :ok fx row's :args are payload-bearing and fail closed off-box;
+            the raw ring keeps them (negative control); :fx-id / :outcome are
+            preserved; :include-fx-args? true lifts the redaction"
+    (rf/reg-frame :test/main {})
+    (let [secret {:password "topsecret" :token "abc123"}]
+      (rf/reg-fx :fxp/login (fn [_ _] nil))
+      (rf/reg-event-fx :do-login
+                       (fn [_ [_ creds]] {:fx [[:fxp/login creds]]}))
+      (rf/dispatch-sync [:do-login secret] {:frame :test/main})
+
+      (let [raw       (last-record :test/main)
+            raw-row   (effect-row raw :fxp/login)
+            proj-row  (effect-row (epoch/projected-record raw) :fxp/login)
+            wide-row  (effect-row (epoch/projected-record raw {:include-fx-args? true})
+                                  :fxp/login)]
+        ;; Negative control: the raw ring record carries the EXACT secret args.
+        (is (= secret (:args raw-row))
+            "raw ring keeps the exact fx args (on-box restore fidelity)")
+        ;; Off-box default: args fail closed to the :rf/redacted sentinel.
+        (is (= :rf/redacted (:args proj-row))
+            "off-box projection redacts :args (fails closed)")
+        (is (not= (:args raw-row) (:args proj-row))
+            "negative control: projected args are NOT the raw secret")
+        ;; Value-free metadata preserved.
+        (is (= :fxp/login (:fx-id proj-row)))
+        (is (= :ok (:outcome proj-row)))
+        ;; Trusted-local opt-in lifts the redaction.
+        (is (= secret (:args wide-row))
+            ":include-fx-args? true keeps the raw args for trusted-local")))))
+
+(deftest projected-record-elides-fx-args-skipped-on-platform-row
+  (testing "a :skipped-on-platform fx row's :args fail closed off-box (the
+            skip path's args are not pre-redacted)"
+    (rf/reg-frame :test/main {})
+    (let [secret {:k "session-key" :v "secret-value"}]
+      ;; :client-only fx is skipped on the JVM (:server) host.
+      (rf/reg-fx :fxp/local-storage {:platforms #{:client}} (fn [_ _] nil))
+      (rf/reg-event-fx :save
+                       (fn [_ [_ payload]] {:fx [[:fxp/local-storage payload]]}))
+      (rf/dispatch-sync [:save secret] {:frame :test/main})
+
+      (let [raw      (last-record :test/main)
+            raw-row  (effect-row raw :fxp/local-storage)
+            proj-row (effect-row (epoch/projected-record raw) :fxp/local-storage)]
+        (is (= :skipped-on-platform (:outcome raw-row))
+            "fixture produced a skipped-on-platform row")
+        (is (= secret (:args raw-row)) "raw ring keeps the exact args")
+        (is (= :rf/redacted (:args proj-row))
+            "off-box projection redacts the skipped row's :args")
+        (is (= :fxp/local-storage (:fx-id proj-row)))
+        (is (= :skipped-on-platform (:outcome proj-row)))))))
+
+(deftest projected-record-elides-fx-args-no-such-fx-row
+  (testing "a :rf.error/no-such-fx row's :args fail closed off-box; :error
+            metadata (:outcome / :error-trace) is preserved"
+    (rf/reg-frame :test/main {})
+    (let [secret {:card "4111-1111-1111-1111"}]
+      ;; No fx registered under :fxp/missing → :rf.error/no-such-fx.
+      (rf/reg-event-fx :charge
+                       (fn [_ [_ payload]] {:fx [[:fxp/missing payload]]}))
+      (rf/dispatch-sync [:charge secret] {:frame :test/main})
+
+      (let [raw      (last-record :test/main)
+            raw-row  (effect-row raw :fxp/missing)
+            proj-row (effect-row (epoch/projected-record raw) :fxp/missing)]
+        (is (some? raw-row) "fixture produced a no-such-fx :effects row")
+        (is (= :error (:outcome raw-row)))
+        (is (= secret (:args raw-row)) "raw ring keeps the exact args")
+        (is (= :rf/redacted (:args proj-row))
+            "off-box projection redacts the no-such-fx row's :args")
+        (is (= :fxp/missing (:fx-id proj-row)))
+        (is (= :error (:outcome proj-row)))
+        (is (= (:error-trace raw-row) (:error-trace proj-row))
+            ":error-trace metadata is preserved (value-free)")))))
+
+(deftest projected-record-elides-fx-args-handler-exception-row
+  (testing "an :rf.error/fx-handler-exception row's :args fail closed off-box;
+            :error metadata is preserved"
+    (rf/reg-frame :test/main {})
+    (let [secret {:ssn "123-45-6789"}]
+      (rf/reg-fx :fxp/boom (fn [_ _] (throw (ex-info "boom" {}))))
+      (rf/reg-event-fx :explode
+                       (fn [_ [_ payload]] {:fx [[:fxp/boom payload]]}))
+      (rf/dispatch-sync [:explode secret] {:frame :test/main})
+
+      (let [raw      (last-record :test/main)
+            raw-row  (effect-row raw :fxp/boom)
+            proj-row (effect-row (epoch/projected-record raw) :fxp/boom)]
+        (is (some? raw-row) "fixture produced an fx-handler-exception :effects row")
+        (is (= :error (:outcome raw-row)))
+        (is (= secret (:args raw-row)) "raw ring keeps the exact args")
+        (is (= :rf/redacted (:args proj-row))
+            "off-box projection redacts the handler-exception row's :args")
+        (is (= :fxp/boom (:fx-id proj-row)))
+        (is (= :error (:outcome proj-row)))
+        (is (= (:error-trace raw-row) (:error-trace proj-row))
+            ":error-trace metadata is preserved")))))
+
+(deftest projected-record-fx-args-projection-is-idempotent
+  (testing "re-projecting an already-projected :effects row leaves :args as the
+            :rf/redacted sentinel (no drift under double-projection)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-fx :fxp/login (fn [_ _] nil))
+    (rf/reg-event-fx :do-login
+                     (fn [_ [_ creds]] {:fx [[:fxp/login creds]]}))
+    (rf/dispatch-sync [:do-login {:password "topsecret"}] {:frame :test/main})
+
+    (let [raw    (last-record :test/main)
+          once   (epoch/projected-record raw)
+          twice  (epoch/projected-record once)]
+      (is (= :rf/redacted (:args (effect-row once  :fxp/login))))
+      (is (= :rf/redacted (:args (effect-row twice :fxp/login)))
+          "double-projection is idempotent at the :args slot"))))
 
 (deftest projected-record-trigger-event-projected
   (testing ":trigger-event is walked through the projection so a

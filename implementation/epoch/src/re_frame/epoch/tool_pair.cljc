@@ -37,11 +37,13 @@
       `:frame-state-after` slots (app-db partition elided, runtime-db
       partition default-redacted per EP-0001 ruling #14), the derived
       `:db-before` / `:db-after` app-db projections, `:trigger-event`,
-      `:trace-events`, AND the value-bearing structured `:sub-runs` rows
-      (their `:prev-value` / `:value` slots — rf2-at60h). The value-free
-      `:renders` / `:effects` metadata and the record-level bookkeeping
-      pass through unchanged. `projected-record`'s own docstring is the
-      authoritative per-slot contract.
+      `:trace-events`, the value-bearing structured `:sub-runs` rows
+      (their `:prev-value` / `:value` slots — rf2-at60h), AND the structured
+      `:effects` rows' payload-bearing `:args` (fail-closed to `:rf/redacted`
+      off-box — rf2-rlt3sv). The value-free `:renders` metadata, the
+      `:effects` rows' `:fx-id` / `:outcome` / `:error-trace`, and the
+      record-level bookkeeping pass through unchanged. `projected-record`'s
+      own docstring is the authoritative per-slot contract.
 
   Per rf2-0wi86 Phase-2 seam E. The orchestrators `restore-epoch` and
   `replace-app-db!` live in the `re-frame.epoch` facade — they wire
@@ -137,14 +139,25 @@
   [snapshot]
   (get-in snapshot [:meta :rf/snapshot-version]))
 
-(defn- machine-definition-version
-  "Read the currently-registered machine definition's
-  `:rf/snapshot-version`. Per Spec 005 §Snapshot shape — the
-  definition's `:meta :rf/snapshot-version` is the canonical slot."
+(defn- spec-snapshot-version
+  "Read a resolved machine SPEC map's `:rf/snapshot-version`. Per
+  Spec 005 §Snapshot shape — the definition's `:meta :rf/snapshot-version`
+  is the canonical slot. Nil-spec-safe."
+  [machine]
+  (get-in machine [:meta :rf/snapshot-version]))
+
+(defn- singleton-definition-version
+  "Read a currently-registered SINGLETON machine definition's
+  `:rf/snapshot-version` by snapshot key. The key of a singleton's snapshot
+  IS its registered machine-id (a `reg-machine`'d machine outlives no
+  per-instance allocation), so the registrar probe resolves it directly.
+  Returns nil when `machine-id` is not a registered machine (e.g. a spawned
+  actor's instance-id key — those resolve via `:rf/machine-type`, see
+  `machine-version-mismatch`)."
   [machine-id]
-  (when-let [reg (machine-registration machine-id)]
-    (let [machine (:rf/machine reg)]
-      (get-in machine [:meta :rf/snapshot-version]))))
+  (some-> (machine-registration machine-id)
+          :rf/machine
+          spec-snapshot-version))
 
 ;; EP-0001 (rf2-vzld77 / rf2-3aizt1 / rf2-k4xe7u) — the machine snapshots
 ;; and route slice are DURABLE runtime-db partition state. rf2-vzld77 moved
@@ -254,30 +267,75 @@
             [{:kind :route :id route-id}]))]
     (vec (concat missing-machines missing-route))))
 
+(defn- current-definition-version
+  "Resolve the CURRENT definition `:rf/snapshot-version` for one recorded
+  snapshot the SAME way dispatch resolves the live spec (rf2-rlt3sv):
+
+    - SINGLETON snapshots — the snapshot key IS the registered machine-id, so
+      `singleton-definition-version` resolves the live spec by key.
+    - SPAWNED-ACTOR snapshots — the key is an instance-id with NO per-instance
+      registration; the actor's TYPE rides the snapshot under `:rf/machine-type`
+      (a registered TYPE keyword OR an inline `:definition` spec map, per Spec
+      005 §Reserved snapshot-internal keys). The late-bound
+      `:machines/spec-from-snapshot` hook (published by `re-frame.machines`,
+      body `resolver/spec-from-snapshot`) resolves the same spec the lazy
+      actor-handler resolver materialises on dispatch; its
+      `[:meta :rf/snapshot-version]` is the spawned actor's current version.
+
+  Returns `{:current <int-or-nil> :type <type-ref-or-nil>}`. `:current` is the
+  resolved version (nil when no definition resolves — a cleared TYPE is a
+  MISSING reference, caught upstream by `missing-references`, not a version
+  drift). `:type` is the spawned actor's `:rf/machine-type` (keyword or inline
+  map) when the snapshot carried one, nil for a singleton — surfaced so the
+  drift trace can identify the actor's TYPE as well as its instance id."
+  [machine-id snapshot]
+  (let [singleton (singleton-definition-version machine-id)]
+    (if (some? singleton)
+      ;; The snapshot key names a registered machine — a singleton.
+      {:current singleton :type nil}
+      ;; No registered machine under the key: a spawned actor whose TYPE rides
+      ;; the snapshot. Resolve the spec the dispatch-time way.
+      (let [type-ref      (:rf/machine-type snapshot)
+            from-snapshot (late-bind/get-fn :machines/spec-from-snapshot)
+            spec          (when from-snapshot (from-snapshot snapshot))]
+        {:current (spec-snapshot-version spec)
+         :type    type-ref}))))
+
 (defn machine-version-mismatch
   "Walk the recorded runtime-db partition's `[:rf.runtime/machines :snapshots]`
   for snapshot version drift. The recorded snapshot may carry
-  `:rf/snapshot-version` under `:meta`; the registered machine definition
-  carries `:rf/snapshot-version` under its own `:meta`. When they differ,
-  return the first mismatch as
-  `{:machine-id <id> :recorded <int> :current <int>}`. nil when no
-  mismatch is found.
+  `:rf/snapshot-version` under `:meta`; the CURRENT machine definition carries
+  `:rf/snapshot-version` under its own `:meta`. When they differ, return the
+  first mismatch as
+  `{:machine-id <id> :machine-type <type-or-nil> :recorded <int> :current <int>}`.
+  nil when no mismatch is found.
 
   `runtime-db` is the `:rf.db/runtime` partition of the epoch-recorded
   frame-state (EP-0001 rf2-3aizt1 / rf2-k4xe7u).
 
-  Per rf2-ocg1: both versions are read through the public Spec 005
-  §Snapshot shape contract — the snapshot's `[:meta :rf/snapshot-version]`
-  and the registered machine's `[:meta :rf/snapshot-version]`."
+  The current definition is resolved the SAME way dispatch resolves the live
+  spec (rf2-rlt3sv): a SINGLETON by its snapshot key (the key IS the registered
+  machine-id), a SPAWNED ACTOR by its snapshot's `:rf/machine-type` (registered
+  TYPE keyword or inline `:definition` map — `current-definition-version`).
+  Before the fix the version probe compared the snapshot KEY against the
+  registrar for EVERY snapshot, so a spawned actor's instance-id key never
+  resolved and a hot-reloaded actor TYPE's version drift silently passed — an
+  older, incompatible spawned-actor snapshot could be installed by
+  `restore-epoch` reporting success.
+
+  Per rf2-ocg1: the recorded version is read through the public Spec 005
+  §Snapshot shape contract — the snapshot's `[:meta :rf/snapshot-version]`;
+  the current version through the resolved spec's `[:meta :rf/snapshot-version]`."
   [runtime-db]
   (some (fn [[machine-id snapshot]]
           (let [recorded (snapshot-version snapshot)]
             (when (some? recorded)
-              (let [current (machine-definition-version machine-id)]
+              (let [{:keys [current type]} (current-definition-version machine-id snapshot)]
                 (when (and (some? current) (not= recorded current))
-                  {:machine-id machine-id
-                   :recorded   recorded
-                   :current    current})))))
+                  {:machine-id   machine-id
+                   :machine-type type
+                   :recorded     recorded
+                   :current      current})))))
         (get-in runtime-db machine-snapshots-path)))
 
 ;; ---- shared precondition helpers ------------------------------------------
@@ -422,15 +480,22 @@
                            :epoch-id epoch-id
                            :missing  (vec missing)}}
 
-                (if-let [{:keys [machine-id recorded current]} (machine-version-mismatch runtime-target)]
+                (if-let [{:keys [machine-id machine-type recorded current]} (machine-version-mismatch runtime-target)]
                   ;; (6) Machine snapshot version drift?
+                  ;; rf2-rlt3sv: `:machine-type` identifies a SPAWNED actor's
+                  ;; TYPE (keyword or inline-definition map) alongside its
+                  ;; instance `:machine-id`; nil/omitted for a singleton whose
+                  ;; key is its own type. Spawned-actor drift is now caught:
+                  ;; the current version resolves via `:rf/machine-type`, not
+                  ;; the unregistered instance-id key.
                   {:outcome :fail
                    :op      :rf.epoch/restore-version-mismatch
-                   :tags    {:frame            frame-id
-                             :epoch-id         epoch-id
-                             :machine-id       machine-id
-                             :version-recorded recorded
-                             :version-current  current}}
+                   :tags    (cond-> {:frame            frame-id
+                                     :epoch-id         epoch-id
+                                     :machine-id       machine-id
+                                     :version-recorded recorded
+                                     :version-current  current}
+                              (some? machine-type) (assoc :machine-type machine-type))}
 
                   {:outcome :ok :epoch epoch})))))))))
 
@@ -679,10 +744,12 @@
 ;;
 ;; The remaining full-value slots — the derived `:db-before` /
 ;; `:db-after` app-db projections, `:trigger-event`, and `:trace-events`
-;; — also route through `elide-wire-value`. The value-free structured
-;; slots (`:renders`, `:effects`) carry no app-db material — they
-;; project render-keys, fx-ids, and outcome tags — so the projection
-;; leaves them as-is. The record-level bookkeeping (`:epoch-id`,
+;; — also route through `elide-wire-value`. The structured `:effects`
+;; rows carry payload-bearing `:args` (raw fx-handler arguments) that fail
+;; closed to `:rf/redacted` off-box (rf2-rlt3sv, `elide-effects-slot`); the
+;; `:renders` slot carries no app-db material (render-keys + timing +
+;; cause), so the projection leaves it as-is. The record-level bookkeeping
+;; (`:epoch-id`,
 ;; `:frame`, `:committed-at`, `:event-id`, `:outcome`, `:halt-reason`,
 ;; `:schema-digest`, `:rf.epoch/sensitive?`,
 ;; `:rf.epoch/redacted-modified-paths-count`) is structurally
@@ -846,6 +913,18 @@
   marker value rebuilt through a second pass would be wrong-sized, so a
   slot already carrying a marker is left untouched.
 
+  The structured `:effects` rows are ALSO payload-bearing (rf2-rlt3sv):
+  each carries `:args` — the RAW fx-handler argument captured verbatim from
+  the `:rf.fx/args` trace tag, NOT routed through the marks-projection
+  chokepoint and NOT rooted at the frame's app-db, so the schema-path walker
+  cannot prove it safe. Off-box egress FAILS CLOSED: `:args` lands as
+  `:rf/redacted` for every outcome row (`:ok` / `:skipped-on-platform` /
+  `:error`) under the `:include-fx-args? false` default — see
+  `elide-effects-slot`. The value-free row metadata (`:fx-id`, `:outcome`,
+  `:error-trace`) passes through unchanged. The trusted-local
+  `:include-fx-args? true` opt keeps the raw `:args` (orthogonal to the
+  app-db `:include-sensitive?` / `:include-large?` opt-ins).
+
   Per-PATH large declarations (a sub with `:large [<path>]` marks but no
   whole-output `:large?` stamp) are already substituted INTO the value
   at the marks emit site (`redact-with-paths`), so they ride the row
@@ -879,6 +958,49 @@
     sub-runs
     (mapv #(elide-sub-run-row % opts) sub-runs)))
 
+(defn- elide-effect-row
+  "Project one structured `:effects` row for off-box egress (rf2-rlt3sv).
+
+  Each row carries `:args` — the RAW fx-handler argument payload captured
+  verbatim from the `:rf.fx/args` trace tag (`re-frame.fx/handle-one-fx`).
+  These args are payload-bearing user data (an `:http` request body, a
+  `[:login pw]` dispatch vector, a payment map, …) and — unlike the
+  `:rf.event/db` snapshots — they are NOT passed through the marks-projection
+  chokepoint at emit time, NOR are they rooted at the frame's app-db, so the
+  schema-path-keyed `elide-wire-value` walker cannot prove any of them safe.
+  A safe per-fx projection cannot be proven, so off-box egress FAILS CLOSED
+  (Spec 009 §Privacy / sensitive data in traces + Security.md §Off-box egress):
+  the `:args` slot is replaced with the `:rf/redacted` sentinel by default for
+  EVERY outcome row (`:ok`, `:skipped-on-platform`, `:error` — the
+  no-such-fx / handler-exception rows whose args are never pre-redacted).
+  `:fx-id`, `:outcome`, and `:error-trace` are value-free metadata and pass
+  through unchanged.
+
+  `opts` `:include-fx-args? true` is the trusted-local opt-in (rf2-5w06uu
+  family) — a developer's own Xray panel inspecting their own running app
+  keeps the raw `:args`. It is ORTHOGONAL to the app-db `:include-sensitive?`
+  / `:include-large?` opt-ins (fx args are a different keyspace, not app-db
+  values), so those do NOT lift it.
+
+  Idempotent: a row whose `:args` was already replaced with `:rf/redacted`
+  re-redacts to the same sentinel. A row carrying no `:args` key passes
+  through (no slot to fabricate)."
+  [row {:keys [include-fx-args?]}]
+  (if (or include-fx-args? (not (contains? row :args)))
+    row
+    (assoc row :args :rf/redacted)))
+
+(defn- elide-effects-slot
+  "Project the structured `:effects` vector for off-box egress (rf2-rlt3sv):
+  walk each row through `elide-effect-row`, fail-closed-redacting the
+  payload-bearing `:args` slot. Nil- and non-sequential-preserving (a
+  `:redact-fn` may have already replaced the whole slot with a scalar
+  sentinel)."
+  [effects opts]
+  (if-not (sequential? effects)
+    effects
+    (mapv #(elide-effect-row % opts) effects)))
+
 (defn projected-record
   "Project an `:rf/epoch-record` for off-box egress. Routes the
   full-value payload slots (`:frame-state-before`, `:frame-state-after`,
@@ -894,7 +1016,8 @@
 
       {:include-sensitive?  <bool>   ;; reveal app-db sensitive values
        :include-large?      <bool>   ;; reveal app-db large values
-       :include-runtime-db? <bool>}  ;; reveal the frame-state runtime-db partition
+       :include-runtime-db? <bool>   ;; reveal the frame-state runtime-db partition
+       :include-fx-args?    <bool>}  ;; reveal the structured `:effects` `:args`
 
   All default `false` — the 1-arity (`(projected-record record)`) is the
   safe, fully-redacted off-box path. `:include-sensitive?` /
@@ -925,8 +1048,13 @@
   the `:rf.size/large-elided` marker for those slots under the
   `:include-large? false` default — see `elide-sub-runs-slot`. The
   non-value row metadata (`:sub-id`, `:query-v`, `:value-changed?`,
-  `:cascade?`, `:cause-sub`, `:cause-event-id`) and the value-free
-  `:renders` / `:effects` projections pass through unchanged.
+  `:cascade?`, `:cause-sub`, `:cause-event-id`) passes through unchanged.
+
+  The structured `:effects` rows are payload-bearing too (rf2-rlt3sv):
+  each carries `:args` — the RAW fx-handler argument, which fails closed to
+  `:rf/redacted` off-box under the `:include-fx-args? false` default (see
+  `elide-effects-slot`). The value-free row metadata (`:fx-id`, `:outcome`,
+  `:error-trace`) and the whole `:renders` projection pass through unchanged.
 
   The record-level bookkeeping (`:epoch-id`, `:frame`, `:committed-at`,
   `:event-id`, `:outcome`, `:halt-reason`, `:schema-digest`,
@@ -976,7 +1104,16 @@
          (update :trace-events  elide-trace-events-slot frame-id opts)
 
          (contains? record :sub-runs)
-         (update :sub-runs      elide-sub-runs-slot opts))))))
+         (update :sub-runs      elide-sub-runs-slot opts)
+
+         ;; rf2-rlt3sv: the structured `:effects` rows carry payload-bearing
+         ;; `:args` (the raw fx-handler argument). They are NOT app-db-rooted,
+         ;; so the schema-path walker cannot prove them safe — off-box egress
+         ;; fails closed, redacting `:args` to `:rf/redacted` while preserving
+         ;; the value-free `:fx-id` / `:outcome` / `:error-trace` metadata. The
+         ;; trusted-local `:include-fx-args? true` opt keeps the raw args.
+         (contains? record :effects)
+         (update :effects       elide-effects-slot opts))))))
 
 (defn projected-history
   "Convenience: return the projected vector of records for a frame.

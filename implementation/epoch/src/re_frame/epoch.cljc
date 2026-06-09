@@ -834,10 +834,19 @@
   slots substituted with the `:rf.size/large-elided` marker under the
   `:include-large? false` default). The non-value row metadata (`:sub-id`,
   `:query-v`, `:value-changed?`, `:cascade?`, `:cause-sub`,
-  `:cause-event-id`) and the value-free `:renders` / `:effects`
-  projections pass through unchanged. The record-level bookkeeping
-  (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:outcome`,
-  `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`,
+  `:cause-event-id`) passes through unchanged.
+
+  The structured `:effects` rows are payload-bearing too (rf2-rlt3sv):
+  each carries `:args` — the RAW fx-handler argument captured verbatim from
+  the `:rf.fx/args` trace tag, NOT routed through the marks-projection
+  chokepoint and NOT app-db-rooted, so the schema-path walker cannot prove
+  it safe. Off-box egress FAILS CLOSED: `:args` lands as `:rf/redacted` for
+  every outcome row under the `:include-fx-args? false` default. The
+  value-free `:fx-id` / `:outcome` / `:error-trace` row metadata and the
+  whole `:renders` projection pass through unchanged. The trusted-local
+  `:include-fx-args? true` opt keeps the raw `:args`. The record-level
+  bookkeeping (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`,
+  `:outcome`, `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`,
   `:rf.epoch/redacted-modified-paths-count`) also passes through
   unchanged — it carries no app-db material.
 
@@ -859,12 +868,15 @@
   ## Egress opts (rf2-5w06uu)
 
   The 2-arity accepts a trusted-local `opts` map —
-  `{:include-sensitive? :include-large? :include-runtime-db?}`, all
-  defaulting `false`. `:include-sensitive?` / `:include-large?` opt the
-  APP-DB partition's privacy / size posture back in across every payload
-  slot; they do NOT lift the frame-state `:rf.db/runtime` partition
-  boundary, which stays `:rf/redacted` unless `:include-runtime-db? true`
-  is also passed. The 1-arity is the safe, fully-redacted off-box path."
+  `{:include-sensitive? :include-large? :include-runtime-db?
+  :include-fx-args?}`, all defaulting `false`. `:include-sensitive?` /
+  `:include-large?` opt the APP-DB partition's privacy / size posture back
+  in across every payload slot; they do NOT lift the frame-state
+  `:rf.db/runtime` partition boundary, which stays `:rf/redacted` unless
+  `:include-runtime-db? true` is also passed, NOR the structured `:effects`
+  `:args` (a different keyspace), which stay `:rf/redacted` unless
+  `:include-fx-args? true` is passed (rf2-rlt3sv). The 1-arity is the safe,
+  fully-redacted off-box path."
   ([record] (tool-pair/projected-record record))
   ([record opts] (tool-pair/projected-record record opts)))
 
