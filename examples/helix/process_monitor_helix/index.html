@@ -188,6 +188,72 @@
     .pm-log-level-warn  { color: var(--hx-amber); }
     .pm-log-level-error { color: var(--hx-red); }
     .pm-log-msg { color: var(--hx-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ── Responsive layout ──────────────────────────────────────────────
+       The desktop composition above is the canonical two-pane shell. The
+       breakpoints below give the design-led example a usable narrow-viewport
+       path so it never produces document-level horizontal overflow at
+       phone / tablet widths (rf2-civdws). Everything stays within the
+       element box: panes stack, tiles wrap, and the fixed desktop row/log
+       tracks collapse to auto-fit content rather than reserving fixed px. */
+
+    /* Tablet and below: drop the two-column shell to a single stacked
+       column so the minmax(380px, …) left pane no longer forces a floor
+       wider than a narrow viewport. The right (log) pane moves below the
+       process pane; the divider becomes a bottom rule. */
+    @media (max-width: 900px) {
+      .pm-grid {
+        grid-template-columns: 1fr;
+        grid-auto-rows: minmax(0, auto);
+      }
+      .pm-pane {
+        border-right: 0;
+        border-bottom: 1px solid var(--hx-rule-strong);
+      }
+      .pm-pane:last-child { border-bottom: 0; }
+      /* Give each scroll pane a bounded height once stacked so neither
+         pane monopolises the viewport. */
+      .pm-list, .pm-loglist { max-height: 48vh; }
+    }
+
+    /* Narrow phones: wrap the summary tiles to as many equal columns as
+         fit (min 8.5em each) instead of forcing five, tighten the shell-head
+         padding, and collapse the fixed process/log row tracks so the
+         flexible name/message column absorbs the remaining width. */
+    @media (max-width: 560px) {
+      .pm-shell-head { padding: 1.1em 1em 0.9em; }
+      .pm-tiles {
+        grid-template-columns: repeat(auto-fit, minmax(8.5em, 1fr));
+      }
+      .pm-pane-head { padding: 0.8em 1em; flex-wrap: wrap; gap: 0.5em; }
+      .pm-row, .pm-log { padding-left: 1em; padding-right: 1em; }
+      /* Process rows: explicit two-row template so the six DOM children
+         (dot, name, pid, meter, cpu, mem) place deterministically. Row 1
+         carries dot + name + pid + cpu + mem; the meter spans the full
+         width on row 2. No fixed px tracks remain, so nothing forces the
+         row wider than its container. */
+      .pm-row {
+        grid-template-columns: 12px minmax(0, 1fr) auto auto auto;
+        grid-template-areas:
+          "dot name pid cpu mem"
+          "meter meter meter meter meter";
+        column-gap: 8px;
+        row-gap: 6px;
+      }
+      .pm-row > .pm-dot      { grid-area: dot; }
+      .pm-row > .pm-row-name { grid-area: name; }
+      .pm-row > .pm-row-pid  { grid-area: pid; }
+      .pm-row > .pm-row-meter{ grid-area: meter; }
+      .pm-row > .pm-row-cpu  { grid-area: cpu; }
+      .pm-row > .pm-row-mem  { grid-area: mem; }
+      /* Log rows: tick + level + message; the pid is dropped on narrow
+         widths and the message keeps the flexible track. */
+      .pm-log {
+        grid-template-columns: auto auto minmax(0, 1fr);
+        column-gap: 8px;
+      }
+      .pm-log-pid { display: none; }
+    }
   </style>
 </head>
 <body>

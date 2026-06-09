@@ -134,20 +134,25 @@
    [:? :any]])
 
 ;; The login flow's runtime state lives in the machine snapshot at
-;; [:rf.runtime/machines :snapshots :auth.login/flow] (per [005 §Where snapshots live]).
-;; The snapshot shape is {:state <kw> :data <map>} per Spec 005.
-(def AuthLoginSnapshot
+;; [:rf.runtime/machines :snapshots :auth.login/flow] (runtime-db, NOT
+;; app-db — per [005 §Where snapshots live]). Per Spec 010 §Machine data
+;; schema + Spec 005 §Schema validation, a machine declares a top-level
+;; `:data-schema` that validates the snapshot's `:data` SLOT only — not
+;; the whole `{:state … :data …}` snapshot, and not an app-db path. So
+;; this schema describes the `:data` map (`:attempts` + `:error`) the
+;; machine seeds and the actions evolve; it is attached via the machine's
+;; `:data-schema` slot on the `make-machine-handler` spec below and
+;; validates at the `:where :machine-data` boundary.
+(def AuthLoginData
   [:map
-   [:state [:enum :idle :submitting :error-shown :authed :locked-out]]
-   [:data  [:map
-            [:attempts {:default 0} :int]
-            [:error    [:maybe :string]]]]])
+   [:attempts {:default 0} :int]
+   [:error    [:maybe :string]]])
 
 ;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db state, not app-db —
 ;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
 ;; schemas validate the app-db partition only, Mike ruling #11). The
-;; machine's own `:data-schema` is the snapshot-validation surface, so the
-;; vestigial app-schema reg is removed.
+;; machine's own `:data-schema` (attached below) is the snapshot-validation
+;; surface, so no app-schema reg applies to the login snapshot.
 
 ;; ============================================================================
 ;; FX  (Spec 014 + per-app demo stub)
@@ -230,14 +235,23 @@
 ;; maps and are referenced by keyword from the transition table; resolution
 ;; is machine-local (no global registry).
 
-(rf/reg-event-fx :auth.login/flow
-  {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
-   :schema AuthLoginEvent}
-  (rf/make-machine-handler
-    ;; Per Spec 005 §Where snapshots live: the spec map does NOT carry
-    ;; :id; the machine's id is the surrounding reg-event-fx id.
-    {:initial :idle
-     :data    {:attempts 0 :error nil}
+;; The login flow's machine spec. Bound to a `def` (rather than inlined into
+;; `reg-event-fx`) so the SAME spec value can be both built into the handler
+;; AND stamped onto the registration metadata as `:rf/machine` — see the
+;; registration note below.
+(def auth-login-machine
+  ;; Per Spec 005 §Where snapshots live: the spec map does NOT carry :id;
+  ;; the machine's id is the surrounding registration id.
+  {:initial :idle
+   ;; Spec 010 §Machine data schema — `:data-schema` validates the
+   ;; snapshot's `:data` slot (not the whole snapshot) at the
+   ;; `:where :machine-data` boundary. The macrostep walker resolves it
+   ;; via `(machine-meta :auth.login/flow)`, so the registration below
+   ;; MUST stamp `:rf/machine?` / `:rf/machine` for this to validate.
+   ;; Malformed `:data` (e.g. a non-string `:error`) fails the run with
+   ;; `:rf.error/schema-validation-failure :where :machine-data`.
+   :data-schema AuthLoginData
+   :data    {:attempts 0 :error nil}
 
      :guards
      {:under-retry-limit
@@ -322,7 +336,27 @@
       ;; terminal lockout must be visible and non-interactive, not a live
       ;; form (rf2-q6bm7d).
       {:tags #{:auth/locked}
-       :meta {:terminal? true}}}}))
+       :meta {:terminal? true}}}})
+
+;; Register the machine as the `:auth.login/flow` event handler.
+;;
+;; This machine ALSO validates its dispatched event VECTOR (against
+;; `AuthLoginEvent`), so it can't use the bare `(reg-machine :id spec)`
+;; macro — that surface takes no event `:schema`. Instead we register via
+;; `reg-event-fx` with the machine handler and stamp the SAME metadata
+;; `reg-machine` would (`:rf/machine? true` + `:rf/machine spec`) alongside
+;; the event `:schema`. The `:rf/machine?` / `:rf/machine` keys are what
+;; `(machine-meta :auth.login/flow)` reads, and the `:where :machine-data`
+;; macrostep walker resolves the `:data-schema` THROUGH that metadata — so
+;; without these keys the `:data-schema` above would never validate (it
+;; would be dead documentation). This is the documented "machine + event-
+;; vector schema" idiom (the login / realworld auth shape).
+(rf/reg-event-fx :auth.login/flow
+  {:doc        "Login flow: idle → submitting → authed / error-shown / locked-out."
+   :schema     AuthLoginEvent
+   :rf/machine? true
+   :rf/machine  auth-login-machine}
+  (rf/make-machine-handler auth-login-machine))
 
 ;; ============================================================================
 ;; EVENTS  (CP-1)
