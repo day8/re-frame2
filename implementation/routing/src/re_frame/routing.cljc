@@ -28,6 +28,7 @@
   - `re-frame.routing.registry`       — reg-route + match-url + route-url + route-table cache
   - `re-frame.routing.scroll`         — scroll-restoration helpers + :rf.nav/scroll fxs
   - `re-frame.routing.events`         — shared nav-event helpers + :rf.route.internal/settle-transition
+  - `re-frame.routing.plan`           — pure pre-commit navigation-planning seam (fragment/not-found/classification/telemetry/scroll) shared by both nav entry points
   - `re-frame.routing.on-match-error` — :on-match error trap + listener
   - `re-frame.routing.can-leave`      — :can-leave gate + pending-nav protocol + :rf/url-requested
   - `re-frame.routing.nav-token`      — :rf.route/with-nav-token + stale-suppression fx
