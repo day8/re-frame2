@@ -947,8 +947,16 @@
           ;; unified channel covers head + body; the bundled runtime emits
           ;; only :failing-id :rf/hydrate. Here the HOST supplies its own
           ;; attribution value through the seam (see verify-fn call below).
+          ;;
+          ;; EP-0001 (rf2-tfepxu): the server-settled route slice rides the
+          ;; payload's `:rf/runtime-db` key (the hydrate handler installs it
+          ;; into the runtime-db partition under `:rf.runtime/routing`), NOT
+          ;; under the retired top-level `:rf/runtime` app-db root — which the
+          ;; post-commit guard now rejects as `:rf.error/legacy-runtime-root`.
+          ;; This test only asserts the server-hash stash, so the route slice
+          ;; is illustrative payload content placed in its post-EP home.
           payload   {:rf/version     1
-                     :rf/app-db      {:rf/runtime {:routing {:current {:id :route/article :params {:id "123"}}}}}
+                     :rf/runtime-db  {:rf.runtime/routing {:current {:id :route/article :params {:id "123"}}}}
                      :rf/render-hash "head-hash-server-A"}
           traces    (atom [])
           f         (rf/make-frame {:platform :client})]
