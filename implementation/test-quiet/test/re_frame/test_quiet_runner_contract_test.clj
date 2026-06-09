@@ -525,6 +525,65 @@
                    " must STILL be swallowed; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
+;; Banner-prefix OVERDROP — rf2-14nojy.2.
+;;
+;; The earlier prefix-precision fix (rf2-pjlx6.1) still dropped a line as
+;; soon as it reached the EXACT prefix `Running tests in #{`, swallowing
+;; everything to the newline.  cognitect prints the banner with `println`,
+;; so the real banner is the WHOLE line and stops at the set literal's
+;; closing `}` — but a user/fixture diagnostic that merely SHARES that
+;; prefix and carries trailing content, e.g.
+;; `Running tests in #{:fixture :phase} MARKER`, was silently overdropped
+;; even though it is not the banner.  The fix treats a full-prefix match as
+;; a CANDIDATE and confirms it at the newline: drop only when the remainder
+;; is a balanced set literal followed by nothing but whitespace.  This pins
+;; that the overdrop line now SURVIVES while the real banner stays absent.
+
+(deftest banner-prefix-overdrop-survives
+  (testing "a line starting EXACTLY 'Running tests in #{' with trailing content survives (rf2-14nojy.2)"
+    (with-fixture-dir
+      (fn [dir]
+        (write-fixture! dir "overdrop_fixture_test" "overdrop-fixture-test"
+                        (str "(deftest an-overdrop-test"
+                             " (println \"Running tests in #{:fixture :phase} OVERDROP-MARKER\")"
+                             " (is (= 1 1)))"))
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (zero? exit)
+              (str "the overdrop suite is green; must exit 0; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          ;; The CORE of rf2-14nojy.2: a fixture line sharing the EXACT
+          ;; banner prefix but carrying trailing content after the set
+          ;; literal must NOT be swallowed.
+          (is (str/includes? out "Running tests in #{:fixture :phase} OVERDROP-MARKER")
+              (str "a fixture line that starts exactly 'Running tests in #{'"
+                   " but has trailing content after the set literal is NOT"
+                   " the banner and must survive (rf2-14nojy.2 overdrop);"
+                   " got:\n" out))
+          (is (str/includes? out "0 failures, 0 errors.")
+              (str "the green summary must still print; got:\n" out)))))))
+
+(deftest real-banner-still-dropped-alongside-overdrop-lookalike
+  (testing "the real `Running tests in #{...}` discovery banner is STILL dropped (rf2-14nojy.2 negative control)"
+    (with-fixture-dir
+      (fn [dir]
+        ;; A clean green fixture: the ONLY `Running tests in #{...}` line on
+        ;; stdout would be cognitect's own discovery banner. Proving it is
+        ;; absent confirms the narrowed candidate/confirm logic did not stop
+        ;; dropping the genuine banner while it gained the overdrop guard.
+        (write-fixture! dir "banner_still_dropped_test" "banner-still-dropped-test"
+                        "(deftest a-passing-test (is (= 1 1)))")
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (zero? exit)
+              (str "green suite must exit 0; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (not (str/includes? out "Running tests in #{"))
+              (str "the genuine `Running tests in #{...}` banner must STILL"
+                   " be swallowed — the overdrop guard must not have made the"
+                   " filter forward the real banner; got:\n" out))
+          (is (not (str/includes? out discovery-banner-marker))
+              (str "no part of the banner may reach stdout; got:\n" out)))))))
+
+;; ----------------------------------------------------------------------
 ;; Unterminated-partial survival across System/exit — rf2-pjlx6.2.
 ;;
 ;; cognitect exits straight from the computed fail/error counts, so the

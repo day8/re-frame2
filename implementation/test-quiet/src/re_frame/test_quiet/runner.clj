@@ -47,6 +47,7 @@
   exit logic and changes none of it."
   (:require
     [re-frame.test-quiet]
+    [clojure.string :as str]
     [clojure.test]
     [cognitect.test-runner]))
 
@@ -62,6 +63,17 @@
   emitted by a test or fixture is forwarded, not silently swallowed: only
   the runner's own banner opens a set literal here.
 
+  The prefix is NECESSARY but not SUFFICIENT to confirm the banner (the
+  rf2-14nojy.2 overdrop): cognitect emits the banner via `println`, so it
+  is the WHOLE line — `(format \"Running tests in %s\" dirs)` and nothing
+  more — whereas a user/fixture line such as
+  `Running tests in #{:fixture :phase} MARKER` shares the exact prefix but
+  carries trailing content after the closing `}`.  Dropping on the prefix
+  alone swallowed that trailing diagnostic.  `banner-filtering-writer`
+  therefore treats a full-prefix match only as a CANDIDATE: it buffers the
+  rest of the line and drops it only if the remainder is a balanced set
+  literal followed by nothing but whitespace (`banner-line-remainder?`).
+
   Note the leading `\\n` in cognitect's format string: the banner is
   `\\nRunning tests in #{...}\\n` — it opens with a BLANK LINE.  That
   leading newline is part of the banner artefact and is swallowed along
@@ -69,6 +81,49 @@
   in `banner-filtering-writer`); the text we *match* on is the
   non-blank-line portion below."
   "Running tests in #{")
+
+(defn- banner-line-remainder?
+  "True iff `remainder` — the text on a banner-candidate line AFTER the
+  `discovery-banner-prefix` (`Running tests in #{`) — completes the
+  cognitect discovery banner and NOTHING else.
+
+  cognitect prints the banner with `println` as `(format \"Running tests
+  in %s\" dirs)` where `dirs` is the dir-string SET, so the whole line is
+  `Running tests in #{<set-body>}` and stops there.  This confirms that
+  shape: the remainder must contain the set body, the closing `}` that
+  balances the prefix's `#{`, and then only whitespace.  Anything after
+  the closing brace — e.g. the ` MARKER` in a fixture's
+  `Running tests in #{:fixture :phase} MARKER` — means it is NOT the
+  banner and must be forwarded (the rf2-14nojy.2 overdrop guard).
+
+  The scan tracks brace depth (the prefix already opened depth 1) and
+  skips over Clojure string literals so a `}` inside a quoted dir name
+  (`#{\"a}b\"}`) does not close the set early.  Returns false if the
+  remainder never balances back to depth 0 (a partial banner that has not
+  yet reached its own newline — handled as a still-open candidate by the
+  caller)."
+  [^String remainder]
+  (let [n (.length remainder)]
+    (loop [i 0, depth 1, in-str? false]
+      (if (>= i n)
+        false ; never closed the set on this line → not a complete banner
+        (let [c (.charAt remainder i)]
+          (cond
+            in-str?
+            (cond
+              (= c \\)        (recur (+ i 2) depth in-str?) ; skip escaped char
+              (= c \")        (recur (inc i) depth false)
+              :else           (recur (inc i) depth in-str?))
+
+            (= c \")          (recur (inc i) depth true)
+            (= c \{)          (recur (inc i) (inc depth) in-str?)
+            (= c \})          (let [d (dec depth)]
+                                (if (zero? d)
+                                  ;; Set closed — banner iff only whitespace
+                                  ;; (a `\r` before the `\n`, say) follows.
+                                  (str/blank? (subs remainder (inc i)))
+                                  (recur (inc i) d in-str?)))
+            :else             (recur (inc i) depth in-str?)))))))
 
 (defn- banner-filtering-writer
   "A `java.io.Writer` that forwards every character to `target` EXCEPT
@@ -82,8 +137,16 @@
      it (the banner candidate);
    - the moment it diverges from the banner prefix we forward the whole
      run immediately and pass the rest of the line straight through;
-   - the moment it reaches the full banner prefix we know it IS the banner
-     and drop the remainder of the line.
+   - the moment it reaches the full banner prefix the line is a banner
+     CANDIDATE, not a confirmed banner: cognitect prints the banner with
+     `println`, so the banner is the WHOLE line and stops at the set
+     literal's closing `}`.  We keep buffering the remainder and decide at
+     the line's newline — drop the line only if the remainder is a
+     balanced set literal followed by nothing but whitespace
+     (`banner-line-remainder?`); otherwise the prefix was shared by a
+     user/fixture diagnostic such as `Running tests in #{:fixture} MARKER`
+     and the whole buffered line is forwarded (the rf2-14nojy.2 overdrop
+     guard).
 
   cognitect's banner opens with a BLANK LINE — the format string is
   `\"\\nRunning tests in %s\"`, so the leading `\\n` renders an empty line
@@ -103,11 +166,14 @@
   fail/error counts, so neither `flush` nor `close` runs).  An eager
   forward means a bare `(print ...)` diagnostic with no trailing newline
   still reaches stdout before exit.  The only text that can sit unflushed
-  at exit is a strict banner-prefix candidate or a single pending blank —
-  both of which the `finally` flush and the JVM shutdown hook forward (a
-  genuine trailing blank line therefore still survives exit), while the
-  banner itself completes and is dropped before any exit because cognitect
-  prints it with `println` and runs the suite after.
+  at exit is a banner candidate (the full buffered line so far — a strict
+  banner prefix, possibly extended into an as-yet-unterminated banner
+  remainder) or a single pending blank — all of which the `finally` flush
+  and the JVM shutdown hook forward (a genuine trailing blank line and a
+  bare `Running tests in #{...`-prefixed partial therefore both survive
+  exit), while the real banner itself completes and is dropped before any
+  exit because cognitect prints it with `println` and runs the suite
+  after.
 
   Help text, parse-error diagnostics, the reporter's failure output, and
   bare test stdout all pass through untouched; only the banner line is
@@ -120,11 +186,15 @@
   exactly one place."
   ^java.io.Writer [^java.io.Writer target]
   (let [prefix-len (.length ^String discovery-banner-prefix)
-        ;; `buf` holds the live banner-prefix candidate for the current
-        ;; line. `state` is one of:
-        ;;   :watching    — buf is a viable prefix of the banner-so-far;
-        ;;   :passthrough — this line diverged; forward chars verbatim;
-        ;;   :dropping    — this line IS the banner; drop to its newline.
+        ;; `buf` holds the live candidate for the current line — the
+        ;; banner-prefix run while `:watching`, extended with the
+        ;; post-prefix remainder while `:banner-candidate`. `state` is one
+        ;; of:
+        ;;   :watching         — buf is a viable prefix of the banner-so-far;
+        ;;   :banner-candidate — buf reached the full prefix; keep buffering
+        ;;                       the remainder, decide drop/forward at the
+        ;;                       line's newline (rf2-14nojy.2);
+        ;;   :passthrough      — this line diverged; forward chars verbatim.
         buf   (StringBuilder.)
         state (volatile! :watching)
         ;; `pending-blank?` holds back a single empty line that MIGHT be
@@ -178,44 +248,64 @@
                                                (do (flush-pending-blank!)
                                                    (emit! (.toString buf))
                                                    (.write target (int \newline))))
+                                ;; Reached the full prefix — DECIDE now that
+                                ;; the line is complete (rf2-14nojy.2). The
+                                ;; remainder is everything buffered after the
+                                ;; prefix; if it is a balanced set literal +
+                                ;; only whitespace this IS the discovery
+                                ;; banner → drop the whole line (and the
+                                ;; pending blank that was its leading
+                                ;; newline). Otherwise the prefix was shared
+                                ;; by a real diagnostic → flush the pending
+                                ;; blank and forward the whole buffered line.
+                                :banner-candidate
+                                (let [remainder (subs (.toString buf) prefix-len)]
+                                  (if (banner-line-remainder? remainder)
+                                    (drop-pending-blank!)
+                                    (do (flush-pending-blank!)
+                                        (.write target (.toString buf))
+                                        (.write target (int \newline)))))
                                 ;; Diverged line — its chars already went
                                 ;; straight through; terminate it.
-                                :passthrough (.write target (int \newline))
-                                ;; The banner line — drop its newline too,
-                                ;; so no blank line is left behind.
-                                :dropping    nil)
+                                :passthrough (.write target (int \newline)))
                               (reset-line!))
 
                           (= @state :passthrough)
                           (.write target (int c))
 
-                          (= @state :dropping)
-                          nil ; swallow the rest of the banner line
+                          ;; A full-prefix candidate keeps accreting its
+                          ;; remainder; the drop/forward call is deferred to
+                          ;; the newline above.
+                          (= @state :banner-candidate)
+                          (.append buf c)
 
                           :else ; :watching — extend the candidate
                           (do
                             (.append buf c)
-                            (cond
-                              ;; Reached the full prefix → confirmed banner.
-                              ;; Any pending blank was its leading newline.
-                              (>= (.length buf) prefix-len)
-                              (do (drop-pending-blank!)
-                                  (.setLength buf 0)
-                                  (vreset! state :dropping))
-                              ;; Still on track to be the banner — keep
-                              ;; holding (and keep any pending blank held;
-                              ;; it stands or falls with this line).
-                              (.startsWith ^String discovery-banner-prefix
-                                           (.toString buf))
-                              nil
-                              ;; Diverged → this line is not the banner, so
-                              ;; the pending blank preceded real content;
-                              ;; flush it, then forward the diverged run.
-                              :else
-                              (do (flush-pending-blank!)
-                                  (emit! (.toString buf))
-                                  (.setLength buf 0)
-                                  (vreset! state :passthrough))))))
+                            (let [s (.toString buf)]
+                              (cond
+                                ;; Reached (or passed) the full prefix AND it
+                                ;; really IS the prefix → banner CANDIDATE
+                                ;; (not yet confirmed; the line might carry
+                                ;; trailing content). Keep the pending blank
+                                ;; held — it stands or falls with this line at
+                                ;; the newline decision.
+                                (and (>= (.length buf) prefix-len)
+                                     (.startsWith s ^String discovery-banner-prefix))
+                                (vreset! state :banner-candidate)
+                                ;; Still a viable prefix of the banner — keep
+                                ;; holding (and keep any pending blank held;
+                                ;; it stands or falls with this line).
+                                (.startsWith ^String discovery-banner-prefix s)
+                                nil
+                                ;; Diverged → this line is not the banner, so
+                                ;; the pending blank preceded real content;
+                                ;; flush it, then forward the diverged run.
+                                :else
+                                (do (flush-pending-blank!)
+                                    (emit! s)
+                                    (.setLength buf 0)
+                                    (vreset! state :passthrough)))))))
         consume-str! (fn [^String s]
                        (dotimes [i (.length s)]
                          (consume-char! (.charAt s i))))]

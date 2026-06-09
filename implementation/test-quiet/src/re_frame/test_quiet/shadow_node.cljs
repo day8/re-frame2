@@ -78,12 +78,24 @@
                          (contains? test-var-syms (symbol ns name)))))))))
 
 (defn execute-cli [{:keys [test-syms help list unknown-args] :as _opts}]
-  ;; Report any unknown args (the pure `cli/parse-args` collects them but
-  ;; does not print — so it can be unit-pinned without leaking a
-  ;; non-summary line on a green run; rf2-spzkgo).  Tolerated, not fatal:
-  ;; parsing continues and valid flags still take effect.
-  (doseq [arg unknown-args]
-    (println (str "Unknown arg: " arg)))
+  ;; Unknown args are a FATAL parse error (rf2-14nojy.1): the pure
+  ;; `cli/parse-args` collects them into `:unknown-args` (without printing,
+  ;; so it can be unit-pinned without leaking a non-summary line on a green
+  ;; run; rf2-spzkgo). Pre-fix `execute-cli` merely PRINTED them and then
+  ;; fell through — so a mistyped focused-run such as the space-separated
+  ;; `--test missing.ns` (both tokens unknown, no `--test=` selector) or a
+  ;; misspelled flag like `--tests=foo` ran NO requested tests, dropped into
+  ;; the `:else` `run-all-tests` branch, and exited GREEN if the full suite
+  ;; was green — a focused-run false green of the same class the
+  ;; `--test=<missing>` guard (rf2-lbo79.1) closes. Reject unknown args here:
+  ;; print them and `js/process.exit` NONZERO before running anything. This
+  ;; runs ahead of `--help`/`--list`, so those stay clean successful
+  ;; non-test commands ONLY when no unknown arg accompanies them.
+  (when (seq unknown-args)
+    (doseq [arg unknown-args]
+      (println (str "Unknown arg: " arg)))
+    (println "Use --help to see known options.")
+    (js/process.exit 1))
   (let [test-env (ct/empty-env)]
     (cond
       help
