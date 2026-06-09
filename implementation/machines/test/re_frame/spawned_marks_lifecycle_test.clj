@@ -47,14 +47,14 @@
             [re-frame.frame :as frame]
             [re-frame.machines]
             [re-frame.machines.paths :as paths]
+            [re-frame.machines.test-support :as mtest]
             [re-frame.marks :as marks]
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- fixtures -------------------------------------------------------------
 

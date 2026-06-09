@@ -18,10 +18,10 @@
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.machines.test-support :as mtest]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
 (deftest machine-system-id-cljs

@@ -24,12 +24,16 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.machines :as machines]
+            [re-frame.machines.test-support :as mtest]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
             [re-frame.trace.tooling]))
 
+;; This ns keeps a bespoke reset-runtime fixture (it ALSO clears listeners
+;; and reloads the machines ns) rather than reusing the shared
+;; make-reset-runtime-fixture.
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
@@ -48,20 +52,19 @@
    :states  {:off {:on {:flip :on}}
              :on  {:on {:flip :off}}}})
 
+;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4).
 (defn- live-snapshot?
   [machine-id]
-  (some? (get-in (rf/runtime-db-value :rf/default)
-                 [:rf.runtime/machines :snapshots machine-id])))
+  (some? (mtest/snapshot machine-id)))
 
 (defn- with-recorder
   "Register a recorder, run `body-fn`, return captured
-  :rf.warning/runtime-state-dropped events."
+  :rf.warning/runtime-state-dropped events. Routed through the shared
+  `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
+  unregister in a `finally`."
   [body-fn]
-  (let [recorded (atom [])
-        id       (gensym "dropped-snap-rec")]
-    (trace/register-listener! id (fn [ev] (swap! recorded conj ev)))
-    (try (body-fn)
-         (finally (trace/unregister-listener! id)))
+  (mtest/with-trace-capture recorded
+    (body-fn)
     (->> @recorded
          (filter #(= :rf.warning/runtime-state-dropped (:operation %)))
          vec)))

@@ -29,17 +29,17 @@
   this bead removes the need for it)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace]))
+            [re-frame.machines.test-support :as mtest]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
+;; Routed through the shared `mtest/with-trace-capture` (rf2-3l8lqe finding #4)
+;; — guaranteed unregister in a `finally`.
 (defn- record-traces! [body-fn]
-  (let [seen (atom [])]
-    (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
-    (try (body-fn) (finally (rf/unregister-listener! ::rec)))
+  (mtest/with-trace-capture seen
+    (body-fn)
     @seen))
 
 (defn- ops [evs op] (filterv #(= op (:operation %)) evs))

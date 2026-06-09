@@ -35,12 +35,12 @@
       those slots (no nil-stamping)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines.test-support :as mtest]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; Canonical key-set that the destroyed-trace emission sites are
 ;; responsible for assembling. The trace framework auto-stamps
@@ -59,6 +59,11 @@
 (defn- destroyed-traces [captured]
   (filter #(= :rf.machine/destroyed (:operation %)) @captured))
 
+;; Intentional RAW manual-stop listener (not mtest/with-trace-capture): this
+;; is the destroyed-trace SHAPE probe — it returns a [capture-atom
+;; unregister-fn] pair so a test can inspect the raw envelope key-set and
+;; control exactly when it stops capturing (the scope-macro form cannot
+;; express the manual-stop). Per rf2-kjmtbq this site is left as raw by design.
 (defn- record!
   []
   (let [a  (atom [])

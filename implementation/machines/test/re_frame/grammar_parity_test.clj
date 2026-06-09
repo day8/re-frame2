@@ -27,12 +27,12 @@
             [re-frame.machines :as machines]
             [re-frame.machines.grammar :as grammar]
             [re-frame.machines.result :as result]
+            [re-frame.machines.test-support :as mtest]
             [re-frame.machines.transition :as transition]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- registration-error-id
   "Register `machine` and return the thrown `:rf.error/id` discriminator,

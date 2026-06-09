@@ -27,28 +27,27 @@
   the full lifecycle handler (the path where the bug surfaced)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.test-support :as mtest]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-(defn- snapshot
-  [machine-id]
-  (get-in (rf/runtime-db-value :rf/default)
-          [:rf.runtime/machines :snapshots machine-id]))
-
-(defn- frame-db []
-  (rf/runtime-db-value :rf/default))
+;; runtime-db / snapshot lookup via the shared machines test-support
+;; (rf2-3l8lqe finding #4) — no hardcoded `[:rf.runtime/machines …]` path.
+(def ^:private snapshot mtest/snapshot)
+(def ^:private frame-db mtest/runtime-db)
 
 (defn- capture-traces!
-  "Drive `thunk` while recording every emitted trace envelope. Returns the
-  vector of envelopes (deterministic on the JVM — no wall-clock / random)."
+  "Drive `thunk` while recording every emitted trace envelope; return the
+  vector of envelopes (deterministic on the JVM — no wall-clock / random).
+  The VALUE-returning counterpart to `mtest/with-trace-capture` (which is a
+  scope macro, not a value-producing call) — kept local because the call
+  sites below bind the returned vector in a `let`. Still guarantees
+  unregister in a `finally` via the shared helper's listener."
   [thunk]
-  (let [seen (atom [])]
-    (trace/register-listener! ::on-spawn-throw (fn [ev] (swap! seen conj ev)))
-    (try (thunk) (finally (trace/unregister-listener! ::on-spawn-throw)))
+  (mtest/with-trace-capture seen
+    (thunk)
     @seen))
 
 (defn- action-exceptions

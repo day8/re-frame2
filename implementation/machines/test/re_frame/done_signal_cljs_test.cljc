@@ -26,19 +26,20 @@
    ;; late-bind registry so `rf/reg-machine` resolves (mirrors
    ;; `final_state_cljs_test`).
    [re-frame.machines]
+   [re-frame.machines.test-support :as mtest]
    [re-frame.trace.tooling :as trace-tooling]
    [re-frame.registrar :as registrar]
-   [re-frame.test-support :as test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (mtest/make-reset-runtime-fixture
     #?(:clj  {:adapter plain-atom/adapter}
        :cljs {:adapter reagent-adapter/adapter})))
 
-(defn- snapshot [machine-id]
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
+;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+(def ^:private snapshot mtest/snapshot)
 
 (defn- record-traces! [k]
   (let [a (atom [])]
