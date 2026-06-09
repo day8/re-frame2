@@ -160,6 +160,24 @@ jobs:
       - name: Verify the implementor skill keeps Spec 015 in the core gate
         run: python scripts/check_skill_implementor_order.py --verbose --ci
 
+      # Partition / HTTP-fx / API-name drift guard (rf2-whsb0c + rf2-6c59ob):
+      # the re-frame2-implementor skill is a control surface — API names and
+      # contract shapes copied from it become a port author's tests + public
+      # surface. This guard fails the build if the skill re-introduces:
+      # `deregister-listener!` (verb is `unregister-listener!`); bare `:http`
+      # described as the Spec 014 managed HTTP fx (it is `:rf.http/managed`);
+      # public `dispose-adapter!` (the public verb is `destroy-adapter!`,
+      # `:dispose-adapter!` is the adapter-spec map's internal slot); or a
+      # `reg-machine` line implying top-level `:sensitive` / `:large` keys
+      # (machine `:data` is the schema-first `:data-schema` exception). The
+      # self-test proves the guard fires on the drift shapes before the live
+      # scan asserts the skill is clean.
+      - name: Self-test the implementor partition/HTTP/API-name guard
+        run: python scripts/check_skill_implementor_partition_drift.py --self-test
+
+      - name: Verify the implementor skill partition/HTTP/API-name teaching
+        run: python scripts/check_skill_implementor_partition_drift.py --verbose --ci
+
       # Distribution-completeness guard (rf2-f14su): a published skill that
       # loads a sibling `../shared/<leaf>` reference in normal operation can
       # NEVER ship that leaf in its own npm tarball / plugin bundle (a `files`
