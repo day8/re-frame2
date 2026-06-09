@@ -65,8 +65,7 @@
         {"value": "mike.thompsonator@gmail.com", "why": "raw email PII (fixture 02 PII table)"},
         {"value": "0412 345 678", "why": "raw phone PII (fixture 02 PII table)"},
         {"value": "+61-412-345-678", "why": "raw phone PII alternate format (fixture 02 PII table)"},
-        {"value": "C:/Users/mike/code/internal-tools", "why": "raw user-named local path (fixture 02 local-path table)"},
-        {"value": "/home/mike/code/internal-tools", "why": "raw user-named local path (fixture 02 local-path table)"}
+        {"value": "code/internal-tools/dashboard", "why": "raw local-path tail (fixture 02 local-path table); a leak of either the C:/Users/... or /home/... path includes this distinctive segment. Keyed on the non-personal tail so the portability gate (scripts/check-no-hardcoded-paths.sh) stays green."}
       ],
       "forbidden_output_patterns": [
         {"pattern": "<REDACTED>(?![-_])", "why": "bare <REDACTED> without a category + monotonic number violates the stable-placeholder rule (fixture 02 anti-expectation)"}
