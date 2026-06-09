@@ -6,8 +6,11 @@
   The entire epoch surface is gated on `interop/debug-enabled?` (Tool-
   Pair §Time-travel §Production elision). Absent-artefact wrappers
   degrade silently (empty vector / `false` / no-op) so a release build
-  that omits the artefact does not raise. `replace-app-db!` /
-  `reset-app-db!` are the exception — they raise
+  that omits the artefact does not raise. The four partition-aware
+  injection mutators (`replace-app-db!` / `reset-app-db!` /
+  `replace-runtime-db!` / `replace-frame-state!`) are the exception — each
+  records a synthetic epoch, so it cannot degrade silently (the caller's
+  invariant is 'undo works after this call'); they raise
   `:rf.error/epoch-artefact-missing`."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
@@ -109,6 +112,68 @@
   Returns `true` on success, `false` on any failure."
   {:hook :epoch/reset-app-db! :artefact epoch-artefact :on-absent :throw}
   ([frame-id] :delegate))
+
+(defwrapper replace-runtime-db!
+  "Replace `frame-id`'s `runtime-db` partition with `runtime-db`, bypassing
+  the dispatch loop — the runtime-db sibling of `replace-app-db!` (Tool-Pair
+  §Pair-tool writes). Privileged runtime / full-frame tool surface for
+  injecting framework-owned subsystem state (machine snapshots, route
+  slice, …); the app-db partition is preserved unchanged. Records a
+  synthetic `:rf/epoch-record` so `restore-epoch` can rewind the previous
+  state; emits `:rf.epoch/db-replaced` on success.
+
+  Failure modes (each is a no-op on `runtime-db` and emits a structured
+  error trace — the shared four-mutator failure surface):
+
+    :rf.error/no-such-handler                   — frame not registered
+    :rf.epoch/replace-app-db-during-drain       — drain in flight
+    :rf.epoch/replace-app-db-schema-mismatch    — `runtime-db` fails the
+                                                   framework-owned runtime-db
+                                                   validator (reg-runtime-schema)
+
+  Dev-only — gated on `interop/debug-enabled?`. Production builds
+  (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
+  via `:epoch/replace-runtime-db!`; raises `:rf.error/epoch-artefact-missing`
+  when the `day8/re-frame2-epoch` artefact is not on the classpath
+  (the surface records an epoch and so cannot degrade silently — the
+  caller's invariant is 'undo works after this call').
+
+  Returns `true` on success, `false` on any failure."
+  {:hook :epoch/replace-runtime-db! :artefact epoch-artefact :on-absent :throw}
+  ([frame-id runtime-db] :delegate))
+
+(defwrapper replace-frame-state!
+  "Replace BOTH of `frame-id`'s partitions atomically with `frame-state`
+  (`{:rf.db/app … :rf.db/runtime …}`), bypassing the dispatch loop — the
+  full-frame install for tool-driven replay / fixture install (Tool-Pair
+  §Pair-tool writes). The whole-frame sibling of `replace-app-db!`; a
+  db-shaped name never silently replaces runtime-db, so this is the
+  explicit full-frame surface (Mike ruling #10). A missing partition key
+  installs `nil` for that partition (a full-frame replace is whole-value
+  by contract). Records a synthetic `:rf/epoch-record` so `restore-epoch`
+  can rewind the previous state; emits `:rf.epoch/db-replaced` on success.
+
+  Failure modes (each is a no-op on the frame-state and emits a structured
+  error trace — the shared four-mutator failure surface):
+
+    :rf.error/no-such-handler                   — frame not registered
+    :rf.epoch/replace-app-db-during-drain       — drain in flight
+    :rf.epoch/replace-app-db-schema-mismatch    — the app-db partition fails
+                                                   the frame's app-schema set
+                                                   OR the runtime-db partition
+                                                   fails the framework-owned
+                                                   runtime-db validator
+
+  Dev-only — gated on `interop/debug-enabled?`. Production builds
+  (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
+  via `:epoch/replace-frame-state!`; raises
+  `:rf.error/epoch-artefact-missing` when the `day8/re-frame2-epoch`
+  artefact is not on the classpath (it records an epoch and so cannot
+  degrade silently).
+
+  Returns `true` on success, `false` on any failure."
+  {:hook :epoch/replace-frame-state! :artefact epoch-artefact :on-absent :throw}
+  ([frame-id frame-state] :delegate))
 
 (defwrapper projected-record
   "Project an `:rf/epoch-record` for off-box egress. Per Security.md

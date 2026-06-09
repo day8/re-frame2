@@ -156,6 +156,44 @@
   "Path to the active route's `:id` inside the runtime-db partition value."
   [:rf.runtime/routing :current :id])
 
+(defn failing-runtime-paths
+  "Return a vector of failing schema-paths for a candidate `runtime-db`
+  value against the framework-owned runtime-db validator — the runtime-db
+  sibling of `failing-schema-paths` (which targets the app-db partition).
+  Empty vector means valid.
+
+  Per Tool-Pair §Pair-tool writes and Spec 010 §App schemas validate the
+  app-db partition only: the runtime-db side of `replace-runtime-db!` /
+  `replace-frame-state!` is checked against the framework-owned runtime-db
+  validator (`reg-runtime-schema`), NOT the user app-schema set. In the
+  reference implementation that validator is the machine-data boundary
+  (`:machines/validate-machine-data!`, Spec 005 §Schema validation): it
+  walks `[:rf.runtime/machines :snapshots]` and validates each snapshot's
+  `:data` against the registered machine's `:data-schema`, emitting its
+  own per-snapshot trace and returning a boolean.
+
+  Soft-pass cases (return `[]`):
+    * the machines artefact is not on the classpath (hook absent) — no
+      runtime-db validator means no runtime-db to disprove;
+    * the validator returns true / nil (every snapshot conformed, or none
+      carried a `:data-schema`).
+
+  Failure case: the validator returned false — at least one snapshot's
+  `:data` failed its `:data-schema`. The validator does not surface the
+  failing leaf paths (it emits its own per-snapshot trace naming each), so
+  the returned vector names the runtime-db root the failure walked
+  (`[:rf.runtime/machines :snapshots]`) — the same shape the app-db
+  validator returns for an app-db failure. The validity question is
+  `(empty? (failing-runtime-paths frame-id runtime-db))`."
+  [frame-id runtime-db]
+  (if-let [validate (late-bind/get-fn :machines/validate-machine-data!)]
+    (let [result (try (validate runtime-db nil frame-id)
+                      (catch #?(:clj Throwable :cljs :default) _ true))]
+      (if (or (nil? result) (true? result))
+        []
+        [machine-snapshots-path]))
+    []))
+
 (defn missing-references
   "Walk the recorded runtime-db partition for ids that are no longer present
   in the registrar. Closed v1 surface — `[:rf.runtime/machines :snapshots]`
@@ -495,6 +533,89 @@
       ;; cases), folding what was previously a two-helper / two-walk
       ;; chain into one.
       (let [failing (failing-schema-paths frame-id new-db)]
+        (if (seq failing)
+          {:outcome :fail
+           :op      :rf.epoch/replace-app-db-schema-mismatch
+           :tags    {:frame         frame-id
+                     :failing-paths failing}}
+          {:outcome :ok})))))
+
+(defn check-replace-runtime-db-preconditions!
+  "Validate the three documented preconditions for `replace-runtime-db!`
+  (the runtime-db sibling of `check-replace-app-db-preconditions!`).
+  Returns `{:outcome :ok}` when all checks pass, otherwise
+  `{:outcome :fail :op <kw> :tags <map>}`. Pure data — no trace events
+  emitted from here; emission is the caller's job.
+
+  Per Tool-Pair §Pair-tool writes the four injection mutators share the
+  identical failure-mode shape — the same `:rf.epoch/replace-app-db-*`
+  trace ops cover all four (Spec 009 §Trace events explicitly lists
+  `replace-runtime-db!` / `replace-frame-state!` under those ops). The
+  only difference is the schema check targets the runtime-db partition
+  against the framework-owned runtime-db validator (`failing-runtime-
+  paths`), NOT the user app-schema set."
+  [frame-id new-runtime-db]
+  (let [frame-result (frame-exists-or-fail frame-id)]
+    (cond
+      ;; (1) Frame registered?
+      (= :fail (:outcome frame-result))
+      frame-result
+
+      ;; (2) In-flight drain?
+      (drain-in-flight? (:frame-record frame-result))
+      {:outcome :fail
+       :op      :rf.epoch/replace-app-db-during-drain
+       :tags    {:frame frame-id}}
+
+      :else
+      ;; (3) Runtime-db schema mismatch? Single walk against the
+      ;; framework-owned runtime-db validator (Tool-Pair §Pair-tool writes
+      ;; — the runtime-db side is checked against `reg-runtime-schema`, not
+      ;; the app-schema set).
+      (let [failing (failing-runtime-paths frame-id new-runtime-db)]
+        (if (seq failing)
+          {:outcome :fail
+           :op      :rf.epoch/replace-app-db-schema-mismatch
+           :tags    {:frame         frame-id
+                     :failing-paths failing}}
+          {:outcome :ok})))))
+
+(defn check-replace-frame-state-preconditions!
+  "Validate the three documented preconditions for `replace-frame-state!`
+  (the full-frame sibling of `check-replace-app-db-preconditions!`).
+  Returns `{:outcome :ok}` when all checks pass, otherwise
+  `{:outcome :fail :op <kw> :tags <map>}`. Pure data — no trace events
+  emitted from here; emission is the caller's job.
+
+  `frame-state` carries BOTH partitions (`{:rf.db/app … :rf.db/runtime …}`),
+  so the schema check validates the app-db partition against the frame's
+  app-schema set AND the runtime-db partition against the framework-owned
+  runtime-db validator, surfacing the union of failing paths (Tool-Pair
+  §Pair-tool writes — `replace-frame-state!` replaces both atomically, so
+  either partition's schema failure rejects the whole install)."
+  [frame-id frame-state]
+  (let [frame-result (frame-exists-or-fail frame-id)]
+    (cond
+      ;; (1) Frame registered?
+      (= :fail (:outcome frame-result))
+      frame-result
+
+      ;; (2) In-flight drain?
+      (drain-in-flight? (:frame-record frame-result))
+      {:outcome :fail
+       :op      :rf.epoch/replace-app-db-during-drain
+       :tags    {:frame frame-id}}
+
+      :else
+      ;; (3) Schema mismatch? Both partitions are validated — the app-db
+      ;; side against the app-schema set, the runtime-db side against the
+      ;; framework-owned runtime-db validator. A failure on EITHER rejects
+      ;; the whole atomic install; the trace carries the union of failing
+      ;; paths.
+      (let [app-db      (get frame-state frame/app-partition-key)
+            runtime-db  (get frame-state frame/runtime-partition-key)
+            failing     (into (vec (failing-schema-paths frame-id app-db))
+                              (failing-runtime-paths frame-id runtime-db))]
         (if (seq failing)
           {:outcome :fail
            :op      :rf.epoch/replace-app-db-schema-mismatch

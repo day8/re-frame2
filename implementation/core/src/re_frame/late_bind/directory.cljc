@@ -555,6 +555,14 @@
    {:key         :epoch/reset-app-db!
     :producer-ns 're-frame.epoch
     :description "Reset a frame's app-db partition to {}, preserving live runtime-db (app-db sibling of reset-frame!)."}
+   {:key         :epoch/replace-runtime-db!
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-szbzei"
+    :description "Replace a frame's runtime-db partition (state injection), preserving live app-db. Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch rewinds past it, returns boolean, shares the drain-guard + framework-owned runtime-db schema-validation contract."}
+   {:key         :epoch/replace-frame-state!
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-szbzei"
+    :description "Replace BOTH of a frame's partitions atomically (full-frame install). Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch rewinds past it, returns boolean, shares the drain-guard + app-db / runtime-db schema-validation contract."}
    {:key         :epoch/register-epoch-listener!
     :producer-ns 're-frame.epoch
     :description "Register an epoch-settled callback."}

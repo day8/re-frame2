@@ -33,7 +33,14 @@
             [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace]
+            ;; rf2-szbzei — the partition-injection mutators
+            ;; (replace-runtime-db! / replace-frame-state!) are now
+            ;; epoch-backed Tool-Pair writes that delegate to the epoch
+            ;; artefact's late-bind hooks; load the namespace so the hooks
+            ;; are published (otherwise the :on-absent :throw wrapper raises
+            ;; :rf.error/epoch-artefact-missing).
+            [re-frame.epoch]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
@@ -286,9 +293,10 @@
   (testing "replace-app-db! writes only app-db; runtime-db survives"
     (rf/reg-frame :pc/m-app {:doc "m-app"})
     (rf/replace-runtime-db! :pc/m-app {:rf.runtime/machines {:m 1}})
-    ;; The frame-level helper (epoch artefact not on core's classpath, so the
-    ;; public `rf/replace-app-db!` epoch-delegate is exercised in the epoch
-    ;; artefact's own suite).
+    ;; The frame-level helper exercises the internal partition write directly
+    ;; (the public `rf/replace-app-db!` epoch-delegate's full contract — return
+    ;; value, synthetic epoch, failure modes — is exercised in the epoch
+    ;; artefact's own suite; here we only need the partition-isolation effect).
     (frame/replace-app-db! :pc/m-app {:k 1})
     (is (= {:k 1} (rf/app-db-value :pc/m-app)))
     (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :pc/m-app))
