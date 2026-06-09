@@ -38,8 +38,9 @@ suffix). Consumers that want the registration anchor reach
 
 ## What's deliberately *missing*
 
-- No `:on-error` policy fn — the default per-`:where` recovery is what
-  consumers verify against.
+- No app-steering recovery policy (the per-frame `:on-error` recovery
+  policy was removed per rf2-hiqtk8) — the framework's default per-`:where`
+  recovery is what consumers verify against.
 - No `:rf.schema/at-boundary` interceptor — that interceptor is for
   production-mode schema enforcement on untrusted-input handlers, not
   for the dev-mode validation surfaces this testbed exercises.

@@ -101,17 +101,12 @@
               "envelope carries NO :dispatched-at under disabled gate"))))))
 
 (deftest always-on-error-emit-still-fires-when-debug-disabled
-  (testing "Per Spec 009 §Error-emit + rf2-bacs4 / rf2-hqbeh: the
-            always-on error-emit substrate fires REGARDLESS of the
-            debug gate. Both the corpus-wide listener path AND the
-            per-frame `:on-error` policy fn survive the SSR
-            production posture — error recovery is not a dev-only
-            concern."
+  (testing "Per Spec 009 §Error-emit + rf2-bacs4: the always-on
+            error-emit substrate fires REGARDLESS of the debug gate.
+            The corpus-wide listener path survives the SSR production
+            posture — error observability is not a dev-only concern."
     (with-redefs [interop/debug-enabled? false]
-      (let [listener-saw (atom nil)
-            policy-saw   (atom nil)]
-        (rf/reg-frame :rf/default
-                      {:on-error (fn [ev] (reset! policy-saw ev) nil)})
+      (let [listener-saw (atom nil)]
         (rf/register-error-listener!
           :prod-gate/err-rec
           (fn [record] (reset! listener-saw record)))
@@ -119,6 +114,4 @@
                          (fn [_db _] (throw (ex-info "boom" {}))))
         (rf/dispatch-sync [:prod-gate/throws])
         (is (some? @listener-saw)
-            "error-emit listener fired under disabled debug gate")
-        (is (some? @policy-saw)
-            ":on-error policy fn fired under disabled debug gate")))))
+            "error-emit listener fired under disabled debug gate")))))

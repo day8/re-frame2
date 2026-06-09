@@ -9,7 +9,7 @@ description: >
  session", "what went wrong with my pair session", "review my
  re-frame2-pair session", "draft an issue about that"); or (b)
  **post-error within a re-frame2-pair session** — after a stack trace,
- failed dispatch, red CI, or `:on-error` policy fire during live pair
+ failed dispatch, red CI, or a runtime error during live pair
  work, to post-mortem the firefight. Requires evidence: a concrete
  `re-frame2-pair` session in this conversation (turns where the user
  attached, dispatched, walked traces/epochs, hot-swapped, or
@@ -92,7 +92,7 @@ Load [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — the seven-
 5. **Generate improvements at the right layer** — skill wording, structured op, runtime surface, cross-platform behavior, validation/fixture, instrumentation, or an upstream `re-frame2` GitHub issue. Prefer proposals that remove repeated effort, not just this session's exact symptom. Offer options: no action / docs / tool change / re-frame2-pair issue / upstream re-frame2 issue.
 6. **Prioritize.** Favor high-impact, specific, evidence-supported, trust-improving ideas. Return 2-5; default mix is 1-3 grounded + 0-2 bolder.
 
-Load [`references/analysis-lenses.md`](references/analysis-lenses.md) when the session has multiple plausible causes or you want a sharper taxonomy — including the `:on-error` policy lens when the session touched a frame's `:on-error` slot (inspecting it, hot-swapping it, or chasing why an error wasn't recovered the expected way). Load [`references/known-frictions.md`](references/known-frictions.md) when the session resembles a recurring class of pain and you want to sanity-check one-off vs pattern.
+Load [`references/analysis-lenses.md`](references/analysis-lenses.md) when the session has multiple plausible causes or you want a sharper taxonomy — including the error-observability lens when the session chased an error (why it fired, where it surfaced, or why the framework's typed recovery wasn't what the user expected). Load [`references/known-frictions.md`](references/known-frictions.md) when the session resembles a recurring class of pain and you want to sanity-check one-off vs pattern.
 
 ## Output format
 

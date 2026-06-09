@@ -340,27 +340,16 @@
   reserved-fx typed-throw path already fanned out through this
   substrate; this brings the three drift sites into line.
 
-  `error-event` is the structured `{:operation :op-type :tags :recovery}`
-  policy event passed to the per-frame `:on-error` fn (axis 2). Pass it
-  ONLY for the recovery-scoped `:rf.error/fx-handler-exception` category
-  (a handler-like exception, mirroring the reserved-fx path's
-  `:recovery :no-recovery` event — sibling fx still fire, app-db is NOT
-  rolled back). Pass `nil` for the invalid-operation categories
-  (`:rf.error/no-such-fx`, `:rf.error/override-fallthrough`) so ONLY the
-  listener fires — they carry no `{:swallow | :replacement | :default}`
-  recovery decision, matching the `:rf.error/frame-destroyed`
-  listener-only model in error-emit.cljc.
-
   `trace-payload` is the existing dev-trace map for the category
   (unchanged shape, so dev consumers see exactly what they did before)."
-  [category event event-id frame-id exception error-event trace-payload]
-  ;; Always-on substrate (axis 1 + axis 2). The late-bind hook is how
-  ;; fx.cljc reaches error-emit without a static require (would form a
-  ;; load cycle); `nil` when the substrate ns hasn't loaded (it is a
-  ;; foundational always-on surface, so in practice it is present).
+  [category event event-id frame-id exception trace-payload]
+  ;; Always-on substrate (the corpus-wide listener). The late-bind hook
+  ;; is how fx.cljc reaches error-emit without a static require (would
+  ;; form a load cycle); `nil` when the substrate ns hasn't loaded (it is
+  ;; a foundational always-on surface, so in practice it is present).
   (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
     (dispatch-on-error! category event event-id frame-id exception 0
-                        (interop/now-ms) error-event))
+                        (interop/now-ms)))
   ;; Dev trace path; DCE'd in CLJS prod.
   (trace/emit-error! category trace-payload))
 
@@ -420,16 +409,12 @@
             ;; reachable runtime error (Spec 009 §Error event catalogue) —
             ;; fan it out through the always-on listener so override-map
             ;; mistakes are visible in production, not only under dev
-            ;; traces. LISTENER-ONLY (`error-event` nil): the recovery is
-            ;; the framework's own `:replaced-with-default` (use the
-            ;; registered fx), not a per-frame `:on-error` `{:swallow |
-            ;; :replacement | :default}` decision — mirrors the
-            ;; invalid-operation listener-only model.
+            ;; traces. The recovery is the framework's own
+            ;; `:replaced-with-default` (use the registered fx).
             (emit-fx-error! :rf.error/override-fallthrough
                             origin-event
                             origin-event-id
                             frame-id
-                            nil
                             nil
                             {:failing-id     original-fx-id
                              :overrides-map  overrides
@@ -623,20 +608,7 @@
                     frame-id
                     e
                     0
-                    errored-at-ms
-                    {:operation category
-                     :op-type   :error
-                     :tags      (merge {:event-id          origin-event-id
-                                        :event             origin-event
-                                        :frame             frame-id
-                                        :rf.fx/id          fx-id
-                                        :rf.fx/args         args
-                                        :handler-id        nil
-                                        :exception         e
-                                        :exception-message msg
-                                        :recovery          :no-recovery}
-                                       (dissoc ex-data-map :rf.error/id))
-                     :recovery  :no-recovery}))
+                    errored-at-ms))
                 ;; Trace path for dev consumers; DCE'd in CLJS prod.
                 (trace/emit-error! category
                                    (merge {:failing-id        fx-id
@@ -745,33 +717,18 @@
                           (let [msg (#?(:clj .getMessage :cljs .-message) e)]
                             ;; rf2-goum9x: a thrown registered fx is
                             ;; production-survivable (Spec 009/011) — fan it
-                            ;; out through the always-on error-emit substrate
-                            ;; (axis 1 listener + axis 2 per-frame `:on-error`)
+                            ;; out through the always-on error-emit listener
                             ;; so SSR fails-closed to 500 and off-box shippers
-                            ;; see it, NOT just the dev trace. Recovery-scoped
-                            ;; (a handler-like exception): `:recovery
-                            ;; :no-recovery` — the fx is skipped, siblings
-                            ;; still fire, app-db is NOT rolled back (preserves
-                            ;; fx-walk semantics). Mirrors the reserved-fx
-                            ;; typed-throw path above.
+                            ;; see it, NOT just the dev trace. The fx is
+                            ;; skipped, siblings still fire, app-db is NOT
+                            ;; rolled back (preserves fx-walk semantics).
+                            ;; Mirrors the reserved-fx typed-throw path above.
                             (emit-fx-error!
                               :rf.error/fx-handler-exception
                               origin-event
                               origin-event-id
                               frame-id
                               e
-                              {:operation :rf.error/fx-handler-exception
-                               :op-type   :error
-                               :tags      {:event-id          origin-event-id
-                                           :event             origin-event
-                                           :frame             frame-id
-                                           :rf.fx/id          fx-id
-                                           :rf.fx/args         args
-                                           :handler-id        nil
-                                           :exception         e
-                                           :exception-message msg
-                                           :recovery          :no-recovery}
-                               :recovery  :no-recovery}
                               {:failing-id        fx-id
                                :rf.fx/id          fx-id
                                :rf.fx/args        args
@@ -794,17 +751,12 @@
       ;; rf2-goum9x: an unknown fx-id is a production-reachable runtime
       ;; error (Spec 009 §Error event catalogue) — fan it out through the
       ;; always-on listener so load-order / optional-artefact mistakes are
-      ;; visible in production, not only under dev traces. LISTENER-ONLY:
-      ;; `error-event` is nil so the per-frame `:on-error` policy is NOT
-      ;; invoked — an invalid operation carries no `{:swallow |
-      ;; :replacement | :default}` recovery decision (mirrors the
-      ;; `:rf.error/frame-destroyed` model). The fx is dropped; the
-      ;; cascade continues with the remaining `:fx` entries.
+      ;; visible in production, not only under dev traces. The fx is
+      ;; dropped; the cascade continues with the remaining `:fx` entries.
       (emit-fx-error! :rf.error/no-such-fx
                       origin-event
                       origin-event-id
                       frame-id
-                      nil
                       nil
                       {:rf.fx/id   fx-id
                        :rf.fx/args args

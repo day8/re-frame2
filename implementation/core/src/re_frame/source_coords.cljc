@@ -260,10 +260,9 @@
 ;; Populated unconditionally at registration time via [[remember-error-
 ;; coords!]]; the error-emit substrate reads it via [[error-coords-for]]
 ;; when assembling the tight error-record passed to corpus-wide listener
-;; fans (Sentry / Honeybadger / Rollbar) and the per-frame `:on-error`
-;; policy event. Survives `:advanced` + `goog.DEBUG=false` — the
-;; namespace and the atom are unconditional; only the dev-side merge
-;; into public registry-meta is elided.
+;; fans (Sentry / Honeybadger / Rollbar). Survives `:advanced` +
+;; `goog.DEBUG=false` — the namespace and the atom are unconditional;
+;; only the dev-side merge into public registry-meta is elided.
 
 (defonce
   ^{:doc "kind → id → coords-map. Atomic. Per-process. Mirrors the

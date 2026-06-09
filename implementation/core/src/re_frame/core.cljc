@@ -1524,11 +1524,11 @@
   error-record per `:rf.error/*` event (see `re-frame.error-emit` ns
   docstring for the record shape). For off-box observability shippers
   (Sentry, Honeybadger, Rollbar). Re-registering the same id replaces.
-  Returns `id`. Per Spec 009 §Error-handler policy."}
+  Returns `id`. Per Spec 009 §Error observability."}
   register-error-listener!   error-emit/register-error-listener!)
 
 (def ^{:doc "Drop the always-on error-emit listener registered under `id`.
-  Returns nil. Per Spec 009 §Error-handler policy."}
+  Returns nil. Per Spec 009 §Error observability."}
   unregister-error-listener! error-emit/unregister-error-listener!)
 
 (def ^{:doc "Walk `v` and substitute schema-declared sensitive or large

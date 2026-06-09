@@ -2129,8 +2129,7 @@
   (testing (str name " — #4 machines under SSR (allowed-subset)")
     (rf/reg-frame :req {:preset :ssr-server})
     (let [m (rf/frame-meta :req)]
-      (is (= :server (:platform m)) ":ssr-server preset sets :platform :server")
-      (is (= :rf.error/server-projection (:on-error m)) ":ssr-server preset wires :on-error"))
+      (is (= :server (:platform m)) ":ssr-server preset sets :platform :server"))
     (rf/reg-machine :ssr/timed
       {:initial :idle :data {}
        :states {:idle    {:on {:fetch {:target :loading}}}

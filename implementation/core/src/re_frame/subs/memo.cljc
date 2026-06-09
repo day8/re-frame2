@@ -397,15 +397,11 @@
           ;; — that is the whole point: it is the production-survivable
           ;; status source of truth.
           ;;
-          ;; LISTENER-ONLY (axis 2 / surface #5 NOT invoked — `error-event`
-          ;; nil). Per the Mike-ruled rf2-2hvga two-axis catalogue,
-          ;; `:rf.error/sub-exception` is NOT recovery-policy-eligible: its
-          ;; recovery is the built-in 'return nil', NOT a `{:swallow |
-          ;; :replacement | :default}` policy choice. The SSR fail-closed
-          ;; posture (rf2-vvwmi) rides axis 1 (the always-on listener
-          ;; record the `error-emit-projection-listener` buffers), not the
-          ;; per-frame `:on-error` policy fn — so passing nil here is
-          ;; correct AND preserves the SSR 500 projection.
+          ;; `:rf.error/sub-exception` recovery is the framework's built-in
+          ;; 'return nil' — there is no app-steering recovery policy
+          ;; (rf2-hiqtk8). The SSR fail-closed posture (rf2-vvwmi) rides the
+          ;; always-on listener record the `error-emit-projection-listener`
+          ;; buffers — which preserves the SSR 500 projection.
           (when-let [dispatch-on-error!
                      (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
             (dispatch-on-error!
@@ -415,8 +411,7 @@
               frame-id
               e
               0                                   ;; elapsed-ms
-              (interop/now-ms)                    ;; time
-              nil))                               ;; LISTENER-ONLY — axis 2 not invoked
+              (interop/now-ms)))                  ;; time
           ;; Dev-only trace path — preserved for the trace surface +
           ;; retain-N buffer + dev-side projection (carries the same rich
           ;; internal detail). DCEs under `:advanced` + `goog.DEBUG=false`.

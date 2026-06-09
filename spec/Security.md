@@ -347,7 +347,7 @@ Every concrete security call recorded as a bead, with one-line *behavioural* rat
 | | Runtime dev-flag (host-specific env/property) for the long-running-host production gate | SSR / long-running posture: explicit dev-flag opt-out, read once at startup. Eliminates the dev-side trace surface in production. |
 | | Always-on error-emit substrate (not gated by the dev-flag) | The handler-exception path is the primary production-monitoring case; gating it on the dev-flag would eliminate the production observability surface. Dev-side enrichments (`:dispatch-id`, source-coord) elide with the rest of the trace surface. |
 | | Always-on event-emit substrate | Sibling to the error-emit substrate; per-event records for hosted observability. |
-| | Always-on error-emit listener surface | Corpus-wide fan-out path parallel to per-frame `:on-error`. Mutually isolated from the per-frame policy fn. |
+| | Always-on error-emit listener surface | Corpus-wide fan-out per `:rf.error/*` event to observability shippers; per-listener exceptions isolated. (The per-frame `:on-error` recovery policy was removed per rf2-hiqtk8 — recovery is framework-owned.) |
 | | SSR response accumulator moved to side-channel store (not in `app-db`) | Hydration payload defaults to shipping the whole app-db. Response state (auth cookies, internal `X-*` headers) in app-db default-leaks; side-channel store makes the privacy boundary self-enforcing. |
 
 ### Pragmatic stance (the nine policy beads)

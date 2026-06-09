@@ -534,11 +534,10 @@
 
 (defn- emit-pipeline-exception!
   "Surface an interceptor-chain exception as the trace event for its TRUE
-  failing component AND invoke the frame's `:on-error` policy fn through
-  the always-on error-emit substrate (per rf2-hqbeh). The chain captures
-  the exception into `:rf/interceptor-error` rather than re-throwing (the
-  drain must not abort); this helper translates that into both delivery
-  channels.
+  failing component AND fan it out through the always-on error-emit
+  listener substrate (per rf2-bacs4). The chain captures the exception
+  into `:rf/interceptor-error` rather than re-throwing (the drain must
+  not abort); this helper translates that into both delivery channels.
 
   Per rf2-mszrz the category + `:failing-id` are derived from the
   captured component identity via `classify-pipeline-exception` — a
@@ -556,20 +555,17 @@
   slot, the router-installed redaction interceptor stores the scrubbed
   event form under `:rf/redacted-event`; this helper surfaces it.
 
-  Per rf2-hqbeh: the per-frame `:on-error` slot is a runtime error-
-  recovery surface and MUST fire even when the trace surface is
-  compile-time elided in CLJS production builds. Per rf2-bacs4: a
-  corpus-wide listener registry runs in parallel for off-box
-  observability shippers (Sentry / Honeybadger / Rollbar). We build
-  the structured error-event map AND the tight error-record up-front,
-  hand both to `error-emit/dispatch-on-error!` (always-on; survives
-  `goog.DEBUG=false`), then forward to the dev-only
-  `trace/emit-error!` for trace listeners and the retain-N buffer.
-  The trace path enriches the emitted event with the cascade's
-  `:dispatch-id` and the in-scope handler's source-coord; the
-  always-on path delivers the same `:operation`/`:tags` body the
-  policy fn expects PLUS the tight `:error/:event/:event-id/:frame/
-  :time/:exception/:elapsed-ms` record to corpus-wide listeners."
+  Per rf2-bacs4: a corpus-wide listener registry runs for off-box
+  observability shippers (Sentry / Honeybadger / Rollbar) and MUST fire
+  even when the trace surface is compile-time elided in CLJS production
+  builds. We build the tight error-record up-front, hand it to
+  `error-emit/dispatch-on-error!` (always-on; survives `goog.DEBUG=
+  false`), then forward to the dev-only `trace/emit-error!` for trace
+  listeners and the retain-N buffer. The trace path enriches the emitted
+  event with the cascade's `:dispatch-id` and the in-scope handler's
+  source-coord; the always-on path delivers the tight `:error/:event/
+  :event-id/:frame/:time/:exception/:elapsed-ms` record to corpus-wide
+  listeners."
   [error event-id event frame ctx start-ms]
   (let [exception  (:exception error)
         msg        #?(:clj (.getMessage ^Throwable exception) :cljs (.-message exception))
@@ -610,15 +606,11 @@
                      ;; (the pre-rf2-mszrz behaviour) mis-fed consumers.
                      handler-throw? (assoc :handler-id event-id)
                      icpt-coord     (assoc :source-coord icpt-coord))]
-    ;; Always-on per rf2-hqbeh / rf2-bacs4: the `:on-error` policy fn
-    ;; fires through the always-on substrate so production builds with
-    ;; the trace surface elided still observe the error; in parallel,
-    ;; every fn registered through `rf/register-error-listener!`
-    ;; receives the tight error-record. The synthesised error-event
-    ;; matches the dev-side `:rf/trace-event` shape closely enough for
-    ;; policy fns to discriminate on `:operation` / `:tags`. Trigger-
-    ;; handler / dispatch-id enrichment is dev-only and not present
-    ;; here — those ride the trace path below.
+    ;; Always-on per rf2-bacs4: every fn registered through
+    ;; `rf/register-error-listener!` receives the tight error-record so
+    ;; production builds with the trace surface elided still observe the
+    ;; error. Trigger-handler / dispatch-id enrichment is dev-only and
+    ;; not present here — those ride the trace path below.
     (error-emit/dispatch-on-error!
       operation
       emit-event
@@ -626,11 +618,7 @@
       frame
       exception
       elapsed-ms
-      end-ms
-      {:operation operation
-       :op-type   :error
-       :tags      tags
-       :recovery  :no-recovery})
+      end-ms)
     ;; Dev-side trace emission. Gated by `interop/debug-enabled?` inside
     ;; `trace/emit-error!`; DCEs to a no-op in CLJS prod builds.
     (trace/emit-error! operation tags)))
@@ -1138,39 +1126,18 @@
   with the NEXT event.
 
   Per rf2-hrt5c: `trace/emit-error!` is gated by `interop/debug-enabled?`
-  and DCEs under `:advanced` + `goog.DEBUG=false` — so the substrate path
-  is what survives prod elision and reaches off-box monitors. Mirrors
-  the pipeline-exception path (`emit-pipeline-exception!`). There is no
-  `:handler-id` (the throw came from the flow transform, not a handler);
-  `:where :flow-eval` discriminates this path for policy fns.
-
-  Per rf2-je5p8: `evaluate-flow!`'s catch (preserved through
-  `run-flows-on-db`'s re-wrap) carries `:rf.flow/failed-id` on the
-  ex-data; it is stamped onto the substrate record's `:tags` as
-  `:flow-id` so CLJS-prod ops (where `:rf.flow/failed` DCEs) can
-  attribute the cascade-level error to a specific flow. Attribution is
-  `:flow-id`-only — there is no real flow value to carry."
+  and DCEs under `:advanced` + `goog.DEBUG=false` — so the always-on
+  listener path is what survives prod elision and reaches off-box
+  monitors. Mirrors the pipeline-exception path
+  (`emit-pipeline-exception!`)."
   [e event event-id frame start-ms]
   (let [end-ms     (interop/now-ms)
         ;; Per rf2-bacs4 §Record shape: `:elapsed-ms` is an integer.
         ;; Round once at the substrate boundary (JVM long / CLJS float).
-        elapsed-ms (long (max 0 (- end-ms start-ms)))
-        msg        #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))
-        flow-id    (some-> (ex-data e) :rf.flow/failed-id)
-        tags       (cond-> {:event-id          event-id
-                            :event             event
-                            :frame             frame
-                            :where             :flow-eval
-                            :handler-id        nil
-                            :exception         e
-                            :exception-message msg
-                            :reason            "Flow evaluation threw."
-                            :recovery          :no-recovery}
-                     flow-id (assoc :flow-id flow-id))]
-    ;; Always-on per rf2-bacs4 / rf2-hqbeh — fires in CLJS production
-    ;; where `trace/emit-error!` below is compile-time elided. The two
-    ;; fan-out paths (corpus-wide listener registry + per-frame
-    ;; `:on-error` policy) are independent and isolated.
+        elapsed-ms (long (max 0 (- end-ms start-ms)))]
+    ;; Always-on per rf2-bacs4 — the corpus-wide listener registry fires
+    ;; in CLJS production where `trace/emit-error!` below is compile-time
+    ;; elided.
     (error-emit/dispatch-on-error!
       :rf.error/flow-eval-exception
       event
@@ -1178,11 +1145,7 @@
       frame
       e
       elapsed-ms
-      end-ms
-      {:operation :rf.error/flow-eval-exception
-       :op-type   :error
-       :tags      tags
-       :recovery  :no-recovery})
+      end-ms)
     ;; Dev-side trace emission. Gated by `interop/debug-enabled?` inside
     ;; `trace/emit-error!`; DCEs in CLJS prod. Same payload shape as
     ;; before — existing trace consumers are unaffected.
@@ -1203,23 +1166,19 @@
   AFTER that guard has run, in the FINAL effects map the router consumes.
   Detecting it here and THROWING would escape `process-event!` into
   `drain-emergency-release!` — which re-throws, abandoning the rest of the
-  drained queue (the very `:on-error`-bypass / queue-abandonment footgun the
-  bead closes). So we emit in-band and abort THIS event only (`:error`
+  drained queue (the very queue-abandonment footgun the bead closes). So
+  we emit in-band and abort THIS event only (`:error`
   outcome, NO commit, NO `:fx`), preserving the no-partial-commit promise
   while keeping the drain alive.
 
-  Always-on per rf2-hqbeh / rf2-bacs4: axis-1 listeners observe the
-  rejection in production where the trace surface DCEs. LISTENER-ONLY (axis
-  2 not invoked): a legacy-root write is `:no-recovery` — there is no
-  `{:swallow | :replacement | :default}` choice — so the per-frame
-  `:on-error` policy is bypassed by passing nil for the policy-event,
-  mirroring the other no-recovery categories."
+  Always-on per rf2-bacs4: the corpus-wide listener observes the
+  rejection in production where the trace surface DCEs."
   [event event-id frame start-ms]
   (let [end-ms     (interop/now-ms)
         elapsed-ms (long (max 0 (- end-ms start-ms)))
         tags       (events/legacy-runtime-root-ex-data event)]
-    ;; Axis 1 — always-on listener (survives prod elision). No exception
-    ;; object: this is an invalid-write rejection, not a host throw.
+    ;; Always-on listener (survives prod elision). No exception object:
+    ;; this is an invalid-write rejection, not a host throw.
     (error-emit/dispatch-on-error!
       :rf.error/legacy-runtime-root
       event
@@ -1227,8 +1186,7 @@
       frame
       nil
       elapsed-ms
-      end-ms
-      nil)                                  ;; LISTENER-ONLY — :no-recovery
+      end-ms)
     ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
     (trace/emit-error! :rf.error/legacy-runtime-root
                        (assoc tags :frame frame))))
@@ -1309,20 +1267,14 @@
 
 (defn- emit-frame-destroyed!
   "Surface `:rf.error/frame-destroyed` through BOTH the always-on
-  error-emit listener (axis 1 / surface #4 — survives `goog.DEBUG=
-  false`) AND the dev-only trace surface. Per the rf2-2hvga ruling
-  (= B + recover-but-emit): a dispatch / subscribe to a destroyed or
-  unknown frame RECOVERS (the caller no-ops / returns nil) but the
-  diagnostic must reach production observability — the runtime cannot
-  distinguish a benign teardown / hot-reload race from a real
-  use-after-destroy bug, so it recovers (race-safe) AND emits on the
-  production-watched stream (bug stays observable).
-
-  LISTENER-ONLY (axis 2 / surface #5 NOT invoked): frame-destroyed is
-  an invalid operation with no recovery point — there is no
-  `{:swallow | :replacement | :default}` choice for dispatching into a
-  frame that no longer exists — so the per-frame `:on-error` policy fn
-  is deliberately bypassed by passing `nil` for `error-event`.
+  error-emit listener (surface #4 — survives `goog.DEBUG=false`) AND the
+  dev-only trace surface. Per the rf2-2hvga ruling (= B + recover-but-
+  emit): a dispatch / subscribe to a destroyed or unknown frame RECOVERS
+  (the caller no-ops / returns nil) but the diagnostic must reach
+  production observability — the runtime cannot distinguish a benign
+  teardown / hot-reload race from a real use-after-destroy bug, so it
+  recovers (race-safe) AND emits on the production-watched stream (bug
+  stays observable).
 
   `:frame`-stampable: the record carries the target `frame-id` and the
   attempted `event` so the 7d30s `:frame`-stamp audit + off-box
@@ -1332,10 +1284,10 @@
 
   Reached via the `:error-emit/dispatch-on-error` late-bind hook — the
   drain helper is on the same facade as the dispatch entry points and
-  router already static-requires `error-emit`, but routing all the new
+  router already static-requires `error-emit`, but routing all the
   non-recovery sites through one helper keeps the gating uniform."
   [event-id event frame-id]
-  ;; Axis 1 — always-on listener (survives prod elision).
+  ;; Always-on listener (survives prod elision).
   (error-emit/dispatch-on-error!
     :rf.error/frame-destroyed
     event
@@ -1343,8 +1295,7 @@
     frame-id
     nil                                   ;; no exception — invalid op, not a throw
     0                                     ;; elapsed-ms
-    (interop/now-ms)                      ;; time
-    nil)                                  ;; LISTENER-ONLY — axis 2 not invoked
+    (interop/now-ms))                     ;; time
   ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
   (trace/emit-error! :rf.error/frame-destroyed
                      {:frame frame-id :event event :reason :frame-destroyed}))
@@ -2439,8 +2390,8 @@
        (nil? frame-record)
        ;; Per rf2-2hvga (= B + recover-but-emit): dispatch-sync into a
        ;; destroyed / unknown frame RECOVERS (no-op) AND emits the
-       ;; production-survivable `:rf.error/frame-destroyed` (axis 1 /
-       ;; listener-only — no `:on-error` policy for an invalid op).
+       ;; production-survivable `:rf.error/frame-destroyed` through the
+       ;; always-on listener.
        (trace/with-call-site call-site
          (emit-frame-destroyed! (first event) event (:frame envelope)))
 

@@ -18,7 +18,7 @@
             [re-frame.core :as rf]
             [re-frame.cofx :as cofx]
             ;; rf2-wxe9t — the always-on error-emit substrate (Spec 009
-            ;; §What IS available in production §Error-handler policy)
+            ;; §What IS available in production §Error observability)
             ;; is the fan-out path the conformance runner observes for
             ;; the `:error-emit-records` expectation. Requiring the ns
             ;; here makes its registry available without each fixture
