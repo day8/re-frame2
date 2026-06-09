@@ -309,23 +309,23 @@
 ;; ---- rf2-j9phb (TE-R2.3) — destroy-frame! hook-cascade coverage -----------
 ;;
 ;; The other half of the round-2 audit finding. `destroy-frame!`'s
-;; rf2-ggkay refactor factored four cleanup-hook fires through the
+;; rf2-ggkay refactor factored the cleanup-hook fires through the
 ;; `safe-call-hook!` helper:
 ;;
-;;   :privacy/clear-suppression-cache!  — privacy warn-once cache reset
 ;;   :ssr/on-frame-destroyed            — SSR side-channel atoms cleanup
 ;;   :machines/on-frame-destroyed!      — machines timer-table cleanup
 ;;   :epoch/on-frame-destroyed          — fired via notify-epoch-listeners!
 ;;
 ;; Same shape as TE-R2.2: register a sentinel under each key, destroy a
-;; frame, assert all four fired exactly once.
+;; frame, assert all fired exactly once. (rf2-rxnnxh removed the obsolete
+;; no-op `:privacy/clear-suppression-cache!` hook — Path-D privacy has no
+;; warn-once cache, so the compatibility hook bought nothing.)
 
 (def ^:private destroy-frame-hook-keys
-  "The four destroy-frame! cleanup-hook keys. Each fires through
+  "The destroy-frame! cleanup-hook keys. Each fires through
   `frame/safe-call-hook!` (rf2-ggkay) inside the destroy cascade.
   Mirrored here so the assertion visits each by name."
-  [:privacy/clear-suppression-cache!
-   :ssr/on-frame-destroyed
+  [:ssr/on-frame-destroyed
    :machines/on-frame-destroyed!
    :epoch/on-frame-destroyed])
 
@@ -340,8 +340,8 @@
           (late-bind/set-fn! k (fn [& _]
                                  (swap! call-counts update k inc)
                                  nil)))
-        ;; Register and destroy a frame. The destroy cascade walks all
-        ;; four cleanup hooks exactly once.
+        ;; Register and destroy a frame. The destroy cascade walks every
+        ;; cleanup hook exactly once.
         (rf/reg-frame :rf2-j9phb/target {})
         (frame/destroy-frame! :rf2-j9phb/target)
 
@@ -354,19 +354,13 @@
 (deftest destroy-frame-cleanup-hooks-receive-frame-id
   (testing "cleanup hooks that take the destroyed frame's id receive it
             correctly — :ssr / :machines / :epoch all pass the id"
-    ;; :privacy/clear-suppression-cache! is zero-arg; :ssr / :machines
-    ;; take the destroyed id. :epoch/on-frame-destroyed takes (id db-before
-    ;; db-after) since rf2-9neiq (the two snapshots for the :halted-destroy
-    ;; record). Pin each arg shape so a future refactor that swaps
-    ;; positional → varargs (or drops the id) breaks loudly.
+    ;; :ssr / :machines take the destroyed id. :epoch/on-frame-destroyed
+    ;; takes (id db-before db-after) since rf2-9neiq (the two snapshots for
+    ;; the :halted-destroy record). Pin each arg shape so a future refactor
+    ;; that swaps positional → varargs (or drops the id) breaks loudly.
     (let [snapshot   @late-bind/hooks
           captured-args (atom {})]
       (try
-        (late-bind/set-fn! :privacy/clear-suppression-cache!
-                           (fn []
-                             (swap! captured-args assoc
-                                    :privacy/clear-suppression-cache!
-                                    ::called-zero-arg)))
         (doseq [k [:ssr/on-frame-destroyed
                    :machines/on-frame-destroyed!]]
           (late-bind/set-fn! k (fn [id]
@@ -382,9 +376,6 @@
         (rf/reg-frame :rf2-j9phb/arg-target {})
         (frame/destroy-frame! :rf2-j9phb/arg-target)
 
-        (is (= ::called-zero-arg
-               (get @captured-args :privacy/clear-suppression-cache!))
-            "privacy hook is zero-arg")
         (is (= :rf2-j9phb/arg-target
                (get @captured-args :ssr/on-frame-destroyed))
             "ssr hook receives the destroyed frame id")

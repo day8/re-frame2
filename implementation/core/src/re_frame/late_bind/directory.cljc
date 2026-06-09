@@ -839,12 +839,6 @@
     :design-bead "rf2-931pm"
     :description "Restore the no-op default focus predicate (no epoch focused). Xray's Reactive panel calls this on unmount."}
 
-   ;; ---- re-frame.privacy (rf2-w3n5u schema-first privacy) -------------------
-   {:key         :privacy/clear-suppression-cache!
-    :producer-ns 're-frame.privacy
-    :design-bead "rf2-w3n5u"
-    :description "No-op compatibility teardown hook for the removed registration-time privacy warning cache."}
-
    ;; NOTE (rf2-7pgiz): `:subs/resolve-sub-override` — the SUBSTITUTIVE
    ;; dev-only sub-override seam consulted by `re-frame.subs/subscribe`
    ;; inside its `interop/debug-enabled?` gate — is PUBLISHED from the
