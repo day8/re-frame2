@@ -299,6 +299,129 @@ function readFileSafe(io, p) {
   }
 }
 
+// Read a file as RAW BYTES (a Buffer), never decoded as text — used to inspect
+// the og.png signature/dimensions. The CLI passes the real fs (no encoding =>
+// Buffer); the synthetic test io returns whatever string was stored, which
+// validatePng coerces to a Buffer so a fixture can supply real PNG bytes.
+function readBytesSafe(io, p) {
+  try {
+    return io.readFileSync(p); // no encoding => Buffer for the real fs
+  } catch {
+    return null;
+  }
+}
+
+// The 8-byte PNG file signature (89 50 4E 47 0D 0A 1A 0A).
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+// The canonical social-preview raster dimensions (examples/_shared/README.md
+// declares img/og.png is the 1200x630 card).
+const OG_PNG_WIDTH = 1200;
+const OG_PNG_HEIGHT = 630;
+
+// Validate that `data` is a decodable PNG whose IHDR declares the expected
+// dimensions. Returns { ok, width, height, reason }. A spec-conformant PNG
+// always opens with the 8-byte signature immediately followed by the IHDR
+// chunk (length=13, type='IHDR', then width:uint32be, height:uint32be), so
+// reading the dimensions needs no full decoder — just the first 24 bytes.
+// Accepts a Buffer or coerces a string fixture to one (latin1 preserves bytes).
+function validatePng(data, expectedWidth = OG_PNG_WIDTH, expectedHeight = OG_PNG_HEIGHT) {
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'latin1');
+  if (buf.length < 24) {
+    return { ok: false, reason: `file is only ${buf.length} byte(s); too short to be a PNG` };
+  }
+  if (!buf.subarray(0, 8).equals(PNG_SIGNATURE)) {
+    return { ok: false, reason: 'missing the 8-byte PNG signature (not a PNG file)' };
+  }
+  // Bytes 8..16 are the IHDR chunk length (must be 13) + type ('IHDR').
+  if (buf.subarray(12, 16).toString('latin1') !== 'IHDR') {
+    return { ok: false, reason: "first chunk is not IHDR (malformed PNG header)" };
+  }
+  const width = buf.readUInt32BE(16);
+  const height = buf.readUInt32BE(20);
+  if (width !== expectedWidth || height !== expectedHeight) {
+    return {
+      ok: false,
+      width,
+      height,
+      reason: `dimensions are ${width}x${height}, expected ${expectedWidth}x${expectedHeight}`,
+    };
+  }
+  return { ok: true, width, height };
+}
+
+// ---------------------------------------------------------------------------
+// WCAG contrast — the shared palette must clear AA for normal text and the
+// focus-indicator must clear the 3:1 non-text bar (rf2-febmqu + rf2-mon7tz).
+// A small static check over the :root tokens declared in style.css, so a
+// regression that re-introduces a sub-AA foreground (or restores the old
+// low-alpha amber focus ring) turns the gate RED — examples are teaching
+// surfaces and must not model an accessibility-regressed default.
+// ---------------------------------------------------------------------------
+
+const WCAG_AA_NORMAL_TEXT = 4.5; // 1.4.3 — normal-size text
+const WCAG_NON_TEXT = 3.0; // 1.4.11 — UI component / focus indicator
+
+function srgbToLinear(channel) {
+  const c = channel / 255;
+  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+// Relative luminance of a #rrggbb / #rgb hex colour (WCAG 2.x definition).
+function relativeLuminance(hex) {
+  let h = hex.replace('#', '').trim();
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return 0.2126 * srgbToLinear(r) + 0.7152 * srgbToLinear(g) + 0.0722 * srgbToLinear(b);
+}
+
+// WCAG contrast ratio between two hex colours (1..21).
+function contrastRatio(fgHex, bgHex) {
+  const l1 = relativeLuminance(fgHex);
+  const l2 = relativeLuminance(bgHex);
+  const hi = Math.max(l1, l2);
+  const lo = Math.min(l1, l2);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+// Parse the `--ex-*: #hex;` custom-property declarations out of a style.css
+// source into a { tokenName: '#hex' } map. Only solid hex values are read
+// (the contrast checks operate on opaque token pairs).
+function parseExTokens(css) {
+  const tokens = {};
+  for (const m of css.matchAll(/(--ex-[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,8})\b/g)) {
+    tokens[m[1]] = m[2];
+  }
+  return tokens;
+}
+
+// The shared token contrast contract. Each row is a foreground token paired
+// with the background token(s) it is actually rendered against in the shipped
+// CSS, plus the WCAG floor it must clear. Computed from the parsed --ex-*
+// tokens so a palette edit that drops a pair below threshold fails the gate.
+// `min` = the contrast floor; `worst` background is whichever the row lists.
+function sharedContrastContract(tokens) {
+  const surfaces = ['--ex-bg', '--ex-bg-raised', '--ex-bg-sunken'];
+  return [
+    // Normal text / link / muted / skeleton foregrounds on every paper surface.
+    { fg: '--ex-accent-deep', bgs: surfaces, min: WCAG_AA_NORMAL_TEXT, role: 'link / value text' },
+    { fg: '--ex-ink-faint', bgs: surfaces, min: WCAG_AA_NORMAL_TEXT, role: 'muted / skeleton text' },
+    { fg: '--ex-ink-muted', bgs: surfaces, min: WCAG_AA_NORMAL_TEXT, role: 'secondary text' },
+    { fg: '--ex-ink', bgs: surfaces, min: WCAG_AA_NORMAL_TEXT, role: 'body text' },
+    // White-text filled action backgrounds (buttons / login submit / pills):
+    // white-on-fill must clear AA, so the FILL is the "fg" against #FFFFFF here.
+    { fg: '--ex-accent-deep', bgs: ['#FFFFFF'], min: WCAG_AA_NORMAL_TEXT, role: 'white label on filled action', invert: true },
+    { fg: '--ex-success', bgs: ['#FFFFFF'], min: WCAG_AA_NORMAL_TEXT, role: 'white label on connected pill', invert: true },
+    { fg: '--ex-error', bgs: ['#FFFFFF'], min: WCAG_AA_NORMAL_TEXT, role: 'white label on error pill', invert: true },
+    { fg: '--ex-ink-muted', bgs: ['#FFFFFF'], min: WCAG_AA_NORMAL_TEXT, role: 'white label on disconnected pill', invert: true },
+    // The keyboard focus indicator ring uses --ex-accent-deep; it must clear
+    // the 3:1 non-text bar against every surface it can sit on.
+    { fg: '--ex-accent-deep', bgs: surfaces, min: WCAG_NON_TEXT, role: 'focus-indicator ring' },
+  ];
+}
+
 // Resolve a local reference from `pageDir` to its real SOURCE location,
 // modelling the orchestrator's staging. A `_shared/...` reference is staged
 // from the single canonical examples/_shared/ tree (copied into every page's
@@ -466,6 +589,30 @@ function checkSharedTree(io, opts = {}) {
       );
     }
   }
+
+  // The shipped og.png is the social-preview RASTER every page references. A
+  // bare existence check (above) would stay green if the bytes were replaced
+  // by non-PNG content (a renamed SVG/text file) or a wrong-size export — both
+  // break link-preview scrapers silently. Validate the actual bytes: decodable
+  // PNG signature + IHDR + the documented 1200x630 dimensions (rf2-mon7tz).
+  const ogPngPath = path.join(sharedRoot, 'img', 'og.png');
+  if (io.existsSync(ogPngPath)) {
+    const bytes = readBytesSafe(io, ogPngPath);
+    if (bytes == null) {
+      errors.push(`examples/_shared/img/og.png: could not read the raster bytes.`);
+    } else {
+      const v = validatePng(bytes);
+      if (!v.ok) {
+        errors.push(
+          `examples/_shared/img/og.png: not a valid ${OG_PNG_WIDTH}x${OG_PNG_HEIGHT} ` +
+            `social-preview PNG — ${v.reason}. The canonical card is the ` +
+            `${OG_PNG_WIDTH}x${OG_PNG_HEIGHT} raster (examples/_shared/README.md); ` +
+            `re-export img/og.svg to a real PNG. Link-preview scrapers receive a ` +
+            `broken/wrong-size image otherwise (rf2-mon7tz).`,
+        );
+      }
+    }
+  }
   const externalImportAllowlist =
     opts.externalImportAllowlist || EXTERNAL_IMPORT_ALLOWLIST;
 
@@ -547,6 +694,67 @@ function checkSharedTree(io, opts = {}) {
       );
     }
   }
+
+  // Accessibility contracts on style.css (rf2-febmqu + rf2-mon7tz).
+  if (style != null) {
+    // (a) Shared palette CONTRAST contract (rf2-febmqu): every shipped
+    //     foreground/background token pair must clear its WCAG floor (AA 4.5:1
+    //     for normal text, 3:1 for the focus-indicator ring). Computed from the
+    //     parsed --ex-* tokens so a palette edit that drops a pair below the
+    //     floor turns the gate RED.
+    const tokens = parseExTokens(style);
+    const resolve = (name) =>
+      name.startsWith('--ex-') ? tokens[name] : name; // literal hex passthrough
+    for (const row of sharedContrastContract(tokens)) {
+      const fgHex = resolve(row.fg);
+      if (!fgHex) continue; // token not declared (renamed) — not this check's job
+      for (const bg of row.bgs) {
+        const bgHex = resolve(bg);
+        if (!bgHex) continue;
+        const ratio = contrastRatio(fgHex, bgHex);
+        if (ratio < row.min) {
+          const pair = row.invert
+            ? `white text on ${row.fg} (${fgHex})`
+            : `${row.fg} (${fgHex}) on ${bg} (${bgHex})`;
+          errors.push(
+            `examples/_shared/css/style.css: ${row.role} fails WCAG ` +
+              `${row.min === WCAG_AA_NORMAL_TEXT ? 'AA' : 'non-text'} — ` +
+              `${pair} is ${ratio.toFixed(2)}:1, below ${row.min}:1. Use an ` +
+              `AA-safe token (prefer --ex-accent-deep / --ex-ink-muted) ` +
+              `(rf2-febmqu).`,
+          );
+        }
+      }
+    }
+
+    // (b) FOCUS-INDICATOR contract (rf2-mon7tz): the form-control focus rule
+    //     must not strip the native outline without an accessible replacement.
+    //     The old rule paired `outline: none` with a ≈1.5:1 low-alpha amber
+    //     ring (rgba(200,116,26,0.18)) — keyboard users lost the indicator.
+    //     Require a :focus-visible treatment whose ring uses the AA-safe accent
+    //     token, and forbid the low-alpha amber ring from coming back.
+    const hasFocusVisible = /input:focus-visible[^{]*\{[^}]*box-shadow:[^}]*--ex-accent-deep/m.test(
+      style,
+    );
+    if (!hasFocusVisible) {
+      errors.push(
+        `examples/_shared/css/style.css: form controls must carry a visible ` +
+          `':focus-visible' indicator whose ring uses the AA-safe ` +
+          `'--ex-accent-deep' token (≥3:1 on every surface). A bare ` +
+          `'outline: none' without an accessible replacement is forbidden ` +
+          `(rf2-mon7tz).`,
+      );
+    }
+    // The low-alpha amber ring (the pre-fix ≈1.5:1 indicator) must not return.
+    if (/box-shadow:[^;}]*rgba\(\s*200\s*,\s*116\s*,\s*26\s*,\s*0?\.\d+\s*\)/m.test(style)) {
+      errors.push(
+        `examples/_shared/css/style.css: the low-alpha amber focus ring ` +
+          `'rgba(200,116,26,0.18)' is below the 3:1 focus-indicator bar and ` +
+          `must not be used as the focus indicator. Use a solid ` +
+          `'--ex-accent-deep' ring (rf2-mon7tz).`,
+      );
+    }
+  }
   return errors;
 }
 
@@ -580,6 +788,18 @@ module.exports = {
   scanPage,
   checkSharedTree,
   scanAll,
+  // og.png raster byte-validation (rf2-mon7tz)
+  PNG_SIGNATURE,
+  OG_PNG_WIDTH,
+  OG_PNG_HEIGHT,
+  validatePng,
+  // shared palette contrast + focus-indicator contract (rf2-febmqu + rf2-mon7tz)
+  WCAG_AA_NORMAL_TEXT,
+  WCAG_NON_TEXT,
+  contrastRatio,
+  relativeLuminance,
+  parseExTokens,
+  sharedContrastContract,
 };
 
 // ---------------------------------------------------------------------------
