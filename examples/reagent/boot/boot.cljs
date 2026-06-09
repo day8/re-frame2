@@ -205,6 +205,13 @@
 
 (rf/reg-machine :app/boot
   {:initial :configuring
+   ;; Validates the `:app/boot` snapshot's `:data` slot at the
+   ;; `:where :machine-data` boundary (Spec 010 §Machine data schema +
+   ;; Spec 005 §Schema validation). `BootData` describes `:data` only —
+   ;; the singleton's snapshot is runtime-db, so its `:data-schema` (not
+   ;; an `reg-app-schema`) is the snapshot-validation surface, symmetric
+   ;; with the `:boot/loader` child above.
+   :data-schema schema/BootData
    :data    {:phase  :configuring
              :config nil
              :flags  nil

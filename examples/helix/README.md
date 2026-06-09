@@ -30,7 +30,7 @@ Per Decision 4 the `reg-view` macro stays Reagent-only; Helix users write `defnc
   Same login state machine (`:idle -> :submitting -> :authed`/`:error-shown`/`:locked-out`), same Malli schemas, same `:auth.login.demo/managed-stub` stub fx as the Reagent and UIx login examples. The view layer is a Helix `defnc` form using `helix.hooks/use-state` for local input state. Entering credentials and submitting drives the machine to `:authed` and the welcome banner appears.
 
 - **`helix/process_monitor_helix/`** ([build id `examples/process-monitor-helix`](../../implementation/shadow-cljs.edn))
-  Design-led example proving Helix can drive a substantive multi-pane layout. Shares the `_shared/css/style.css` "Editorial Warm" identity with the Reagent notebook and UIx dashboard counterparts. No state machines, no HTTP — design-led examples exist to prove polished visuals + interaction, not to replay platform features other examples already cover.
+  Design-led example proving Helix can drive a substantive multi-pane layout. Shares the `_shared/css/style.css` "Editorial Warm" identity with the Reagent notebook and UIx dashboard counterparts. The desktop layout is the canonical two-pane shell (process pane + log pane); narrow viewports get a responsive path (stacked panes ≤900px, wrapping summary tiles and collapsed row/log tracks ≤560px) so the declared `width=device-width` viewport renders without horizontal overflow on phones and tablets. No state machines, no HTTP — design-led examples exist to prove polished visuals + interaction, not to replay platform features other examples already cover.
 
 ## Testing
 

@@ -15,10 +15,13 @@ in one file, kept compact for AI-readability.
   snapshot lives in runtime-db at `[:rf.runtime/machines :snapshots
   :auth.login/flow]`, read via `sub-machine`. States: `:idle →
   :submitting → {:error-shown | :authed | :locked-out}`.
-- **CP-8 schema attachment** — Malli schema for the machine snapshot's
-  `:data`, attached via the machine's `:data-schema` slot. (Machine
-  snapshots are runtime-db, not app-db, so `reg-app-schema` — which
-  validates the app-db partition only — is not the surface for them.)
+- **CP-8 schema attachment** — `AuthLoginData`, a Malli schema for the
+  machine snapshot's `:data` SLOT (the `:attempts` + `:error` map — not
+  the whole `{:state … :data …}` snapshot), attached via the machine's
+  top-level `:data-schema` slot on `make-machine-handler`. It validates
+  at the `:where :machine-data` boundary. (Machine snapshots are
+  runtime-db, not app-db, so `reg-app-schema` — which validates the
+  app-db partition only — is not the surface for them.)
 - **CP-1 + CP-2** — pure `reg-event-db` handlers and pure `reg-sub`
   derivations off the machine snapshot.
 - **CP-3 registered fx** — `:rf.http/managed` (Spec 014) plus

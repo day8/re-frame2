@@ -34,11 +34,18 @@
      - boot-failure-path          — a failure during the parallel
        phase routes the boot to :failed and records the error in
        :data."
-  (:require [cljs.test :refer-macros [deftest testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
+            ;; The schemas Malli adapter publishes the registered validator
+            ;; the `:where :machine-data` boundary routes through; boot.core
+            ;; pulls it transitively (via boot.schema), require explicitly so
+            ;; this ns is self-sufficient.
+            [re-frame.schemas :as schemas]
+            [re-frame.schemas.malli]
+            [boot.schema :as boot-schema]
             [re-frame.views]
             ;; The canned-stub helpers below resolve
             ;; :rf.http/managed-canned-success / failure via registrar
@@ -204,3 +211,106 @@
         (let [err (rf/compute-sub [:app.boot/error] db)]
           (assert (some? err)
                   "expected :app.boot/error to be populated on the failure path"))))))
+
+;; ============================================================================
+;; MACHINE :data SCHEMA BOUNDARY  (rf2-t5ky67 issue 2)
+;; ============================================================================
+;;
+;; The singleton `:app/boot` machine attaches a top-level `:data-schema`
+;; (`boot.schema/BootData`) that validates the snapshot's `:data` slot at the
+;; `:where :machine-data` boundary (Spec 010 §Machine data schema). These
+;; tests prove the schema is attached, rejects malformed `:data`, fires the
+;; boundary trace + rolls back on a real violating macrostep, and that the
+;; app-db slice schemas (`reg-app-schema [:config]` etc.) keep validating the
+;; app-db partition independently.
+
+(defn- collect-machine-data-traces!
+  "Run `thunk` while collecting `:rf.error/schema-validation-failure` traces
+   with `:where :machine-data`. Returns the captured (filtered) vector."
+  [thunk]
+  (let [traces (atom [])]
+    (rf/register-listener! ::collect (fn [ev] (swap! traces conj ev)))
+    (try (thunk)
+         (finally (rf/unregister-listener! ::collect)))
+    (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
+                   (= :machine-data (-> % :tags :where)))
+             @traces)))
+
+(deftest boot-data-schema-attached
+  (testing "the :app/boot machine carries BootData on its :data-schema slot"
+    (let [meta (rf/machine-meta :app/boot)]
+      (is (some? meta) "machine-meta resolves the registered :app/boot machine")
+      (is (= boot-schema/BootData (:data-schema meta))
+          "the :data-schema round-trips as boot.schema/BootData")))
+  (testing "BootData validates the :data slot only (rejects a malformed :config)"
+    (is (true?  (schemas/validate-with-registered-fn
+                  boot-schema/BootData
+                  {:phase :configuring :config nil :flags nil
+                   :user nil :routes nil :error nil}))
+        "the initial all-nil :data conforms")
+    (is (true?  (schemas/validate-with-registered-fn
+                  boot-schema/BootData
+                  {:phase :hydrating :config test-config :flags nil
+                   :user nil :routes nil :error nil}))
+        "a well-formed promoted :config conforms")
+    (is (false? (schemas/validate-with-registered-fn
+                  boot-schema/BootData
+                  {:phase :loading-deps :config {:api-base "/api"} :flags nil
+                   :user nil :routes nil :error nil}))
+        "a :config missing required keys (:env/:build/:title) fails the data-slot schema")))
+
+(deftest boot-malformed-data-fails-boundary
+  (testing "a config child returning a malformed Config drives :promote-staged to write bad :data, failing the :machine-data boundary"
+    ;; canned-success returns a structurally-WRONG config (missing
+    ;; :env / :build / :title) for /config.json; the other URLs are
+    ;; never reached because the config macrostep fails first.
+    (reg-canned-success-by-url!
+      :boot.test/canned-bad-config
+      (fn [url]
+        (if (re-find #"/config\.json$" (str url))
+          {:api-base "/api"}     ;; missing :env :build :title → violates Config
+          {})))
+    (let [frame  (atom nil)
+          traces (collect-machine-data-traces!
+                   #(reset! frame
+                      (rf/make-frame
+                        {:on-create    [:boot/initialise]
+                         :fx-overrides {:rf.http/managed
+                                        :boot.test/canned-bad-config}})))]
+      (try
+        (is (<= 1 (count traces))
+            "at least one :where :machine-data trace fires when the boot machine's :data goes malformed")
+        (is (some #(= :app/boot (-> % :tags :machine-id)) traces)
+            "a trace names the :app/boot machine")
+        ;; `:recovery` rides the trace ENVELOPE, not :tags (rf2-twt7m) —
+        ;; mirrors the :where :app-db projection.
+        (let [boot-trace (some #(when (= :app/boot (-> % :tags :machine-id)) %) traces)]
+          (is (= :no-recovery (:recovery boot-trace))))
+        (finally (when @frame (rf/destroy-frame! @frame))))))
+
+  (testing "the app-db slice schema validates the app-db partition independently of the machine :data boundary"
+    ;; The example registers `[:config] [:maybe Config]` as an APP schema
+    ;; (validates the app-db partition only). App schemas are frame-scoped,
+    ;; so register the example's own `Config` on this test frame, then write
+    ;; a structurally-wrong slice: the post-commit app-db validator must
+    ;; reject it at `:where :app-db` — a DIFFERENT boundary from the
+    ;; machine `:data` one above, proving the two surfaces are distinct.
+    (let [app-traces (atom [])]
+      (rf/register-listener! ::app
+                             (fn [ev]
+                               (when (and (= :rf.error/schema-validation-failure (:operation ev))
+                                          (= :app-db (-> ev :tags :where)))
+                                 (swap! app-traces conj ev))))
+      (try
+        (with-new-frame [f (rf/make-frame {})]
+          (rf/reg-app-schema [:config] [:maybe boot-schema/Config] {:frame f})
+          (rf/dispatch-sync [::write-bad-config] {:frame f}))
+        (finally (rf/unregister-listener! ::app)))
+      (is (pos? (count @app-traces))
+          "a malformed [:config] app-db slice fails at :where :app-db (slice schema validates app-db only)"))))
+
+;; A tiny event used only by the test above to write a malformed [:config]
+;; app-db slice, so the app-db slice schema's :where :app-db boundary is
+;; exercised distinctly from the machine :data boundary.
+(rf/reg-event-db ::write-bad-config
+  (fn [db _] (assoc db :config {:api-base "/api"})))   ;; missing required Config keys
