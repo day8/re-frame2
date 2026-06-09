@@ -89,9 +89,22 @@
             [re-frame.views])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
+;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` OPTS OUT of the fixture's default
+;; ambient `*current-frame*` :rf/default scope. EVERY render-based test in this
+;; suite pins the React-context tier (tier 2) of the resolution chain — a
+;; reg-view inside a `frame-provider` must resolve the provider's frame, and a
+;; reg-view with NO provider must fail closed with `:rf.error/no-frame-context`.
+;; The React renders below run SYNCHRONOUSLY inside `flushSync`, i.e. still
+;; inside the test body's dynamic extent; an ambient :rf/default scope would
+;; satisfy `current-frame-id` / `subscribe` / dispatch at tier 1 and the
+;; React-context tier under test would never be consulted. Opting the whole
+;; suite out keeps the resolution honest. (Scenario-3 + the prop-stringified
+;; cases additionally `(binding [*current-frame* nil] …)` for belt-and-braces;
+;; that is idempotent here.)
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+    {:adapter reagent-adapter/adapter
+     :ambient-frame nil}))
 
 ;; ---- browser gate ----------------------------------------------------------
 

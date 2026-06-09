@@ -484,11 +484,20 @@
             mount-node   (make-mount-node!)
             root         (rdc/create-root mount-node)]
         (try
-          (react-dom/flushSync
-            (fn []
-              (rdc/render root
-                          [rf/frame-provider {:frame target-frame}
-                           [plain-fn]])))
+          ;; EP-0002 (rf2-9o48ih): clear the fixture's ambient `*current-frame*`
+          ;; :rf/default scope around the synchronous `flushSync` render. The
+          ;; render runs inside the test body's dynamic extent, so the ambient
+          ;; scope would otherwise satisfy the plain fn's `subscribe` at tier 1
+          ;; (resolving :rf/default) and the no-frame-context contract under
+          ;; test would never fire. With the scope cleared the plain fn (no
+          ;; :contextType) cannot read context and resolves nil → the loud
+          ;; :rf.error/no-frame-context this test pins.
+          (binding [frame/*current-frame* nil]
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root
+                            [rf/frame-provider {:frame target-frame}
+                             [plain-fn]]))))
           (is (some? @render-error)
               "a plain fn's subscribe (no :contextType) raised rather than falling through to :rf/default")
           (is (= :rf.error/no-frame-context
@@ -519,11 +528,16 @@
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node)]
         (try
-          (react-dom/flushSync
-            (fn []
-              ;; No frame-provider — the React-context tier resolves to
-              ;; the no-provider sentinel → nil → no-frame-context.
-              (rdc/render root [plain-default])))
+          ;; EP-0002 (rf2-9o48ih): clear the fixture's ambient `*current-frame*`
+          ;; :rf/default scope around the synchronous render so the
+          ;; no-provider → no-frame-context contract is actually exercised
+          ;; (the ambient scope would otherwise resolve :rf/default at tier 1).
+          (binding [frame/*current-frame* nil]
+            (react-dom/flushSync
+              (fn []
+                ;; No frame-provider — the React-context tier resolves to
+                ;; the no-provider sentinel → nil → no-frame-context.
+                (rdc/render root [plain-default]))))
           (is (some? @render-error)
               "a plain fn with no enclosing provider raised rather than reading :rf/default")
           (is (= :rf.error/no-frame-context
@@ -620,10 +634,20 @@
               mount-node (make-mount-node!)
               root       (rdc/create-root mount-node)]
           (try
-            (react-dom/flushSync
-              (fn []
-                (rdc/render root [rf/frame-provider {:frame target-frame}
-                                  [render-fn]])))
+            ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture binds an ambient
+            ;; `*current-frame*` :rf/default scope around the test body. The
+            ;; React render below runs SYNCHRONOUSLY inside `flushSync` — i.e.
+            ;; still inside that dynamic extent — so the reg-view's
+            ;; `current-frame-id` / `subscribe` would resolve the ambient
+            ;; :rf/default (tier 1) and never reach the React-context tier
+            ;; (tier 2) under test. Clear the ambient scope around the render so
+            ;; the provider's frame is actually resolved via React context —
+            ;; the contract this test pins.
+            (binding [frame/*current-frame* nil]
+              (react-dom/flushSync
+                (fn []
+                  (rdc/render root [rf/frame-provider {:frame target-frame}
+                                    [render-fn]]))))
             (is (= target-frame @resolved-frame)
                 "current-frame inside the reg-view reads the surrounding provider's frame, not :rf/default")
             (is (= 42 @resolved-value)
@@ -747,10 +771,15 @@
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node)]
         (try
-          (react-dom/flushSync
-            (fn []
-              (rdc/render root [rf/frame-provider {:frame target-frame}
-                                [render-fn]])))
+          ;; EP-0002 (rf2-9o48ih): clear the fixture's ambient `*current-frame*`
+          ;; :rf/default scope around the synchronous render so the dispatch's
+          ;; `:frame` default resolves via the React-context tier (the provider's
+          ;; frame), not the ambient :rf/default that tier 1 would otherwise win.
+          (binding [frame/*current-frame* nil]
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root [rf/frame-provider {:frame target-frame}
+                                  [render-fn]]))))
           (is (= :here (:stamped (rf/app-db-value target-frame)))
               "dispatch routed to the provider's frame — its app-db carries the stamp")
           (is (not= :here (:stamped (rf/app-db-value :rf/default)))
