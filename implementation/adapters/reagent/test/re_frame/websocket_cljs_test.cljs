@@ -34,7 +34,7 @@
             [websocket.connection :as ws.connection]
             [websocket.messages :as messages]
             [websocket.core])
-  (:require-macros [re-frame.core :refer [with-new-frame]]))
+  (:require-macros [re-frame.core :refer [with-frame with-new-frame]]))
 
 ;; ============================================================================
 ;; TEST-ONLY RE-REGISTRATION SCAFFOLDING
@@ -110,7 +110,23 @@
   ;; machine's own `:data-schema` is the snapshot-validation surface; the
   ;; vestigial app-schema reg is dropped. Only the genuine app-db slice
   ;; (`[:messages]`) keeps its app-schema.
-  (rf/reg-app-schema [:messages]                   ws.schema/MessagesSlice)
+  ;;
+  ;; rf2-ofzxh9 — `reg-app-schema` is EP-0002 context-required frame-local
+  ;; (rf2-5q7um6): it resolves `*current-frame*` and raises
+  ;; `:rf.error/no-frame-context` under no scope. `register-all!` runs from
+  ;; the fixture's `:init-fn`, which fires OUTSIDE the fixture's ambient
+  ;; `*current-frame*` binding (`make-reset-runtime-fixture` invokes `:init-fn`
+  ;; before it `binding`s the ambient frame around the test body). Bare, this
+  ;; threw `:rf.error/no-frame-context` — and because the node-test build runs
+  ;; every `*_cljs_test` ns in ONE shared JS runtime, that throw, fired during
+  ;; a concurrently-pending async test's `done` window, surfaced as the
+  ;; intermittent `FAIL in () (:) unexpected reject: :rf.error/no-frame-context`
+  ;; + `Async test called done more than one time` flake. Name `:rf/default`
+  ;; explicitly here, mirroring the example's own `(with-frame :rf/default …)`
+  ;; ns-load idiom (examples/reagent/websocket/schema.cljs) — the fixture has
+  ;; already `ensure-default-frame!`'d it.
+  (with-frame :rf/default
+    (rf/reg-app-schema [:messages]                 ws.schema/MessagesSlice))
 
   ;; --- websocket.connection ----------------------------------------------
   (rf/reg-machine :ws/connection ws.connection/connection-machine)
