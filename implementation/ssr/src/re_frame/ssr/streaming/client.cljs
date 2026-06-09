@@ -409,9 +409,13 @@
 
   Opts:
 
-    :frame      — the target frame id whose app-db receives the deltas.
-                  Default `:rf/default` (the frame the bootstrap
-                  `ssr/hydrate!`s).
+    :frame      — REQUIRED. The target frame id whose app-db receives the
+                  deltas — the SAME frame the bootstrap `ssr/hydrate!`s
+                  into and the root provider mounts (EP-0002 rf2-acjknb —
+                  one carried frame; the streaming target is supplied, not
+                  synthesised). An absent `:frame` emits + throws
+                  `:rf.error/no-frame-context` (the pre-EP `:rf/default`
+                  default is removed).
     :root       — the DOM root to observe + query. Default
                   `js/document`. A test harness passes a detached
                   container so it can drive chunk-arrival deterministically.
@@ -438,52 +442,60 @@
            ;; Install BEFORE the first chunks may have arrived so the
            ;; observer catches them; the initial sweep also covers chunks
            ;; that landed before the bundle executed.
-           (streaming-client/install! {:frame :rf/default})
-           (rdc/render react-root [(rf/view :app/root)])
+           (streaming-client/install! {:frame :app/main})
+           (rdc/render react-root
+             [rf/frame-provider {:frame :app/main}
+              [(rf/view :app/root)]])
            ;; Reconcile against the canonical payload once it lands.
            ;; (A host typically polls / observes for `__rf_payload`, or
            ;; the streaming bootstrap calls `ssr/hydrate!` on completion.)
            ))"
   ([] (install! {}))
   ([{:keys [frame root payload-id]
-     :or   {frame      :rf/default
-            root       (when (exists? js/document) js/document)
+     :or   {root       (when (exists? js/document) js/document)
             payload-id "__rf_payload"}}]
-   ;; No DOM (a non-browser runtime / a host calling install! too early)
-   ;; → no-op stop fn. The runtime is a DOM consumer by definition.
-   (if (or (nil? root) (not (exists? js/MutationObserver)))
-     (fn no-op-stop! [])
-     (let [seen      (atom #{})
-           observer  (atom nil)
-           stop!     (fn stop! []
-                       (when-let [o @observer]
-                         (.disconnect o)
-                         (reset! observer nil)))
-           on-mutations
-           (fn [_mutations _obs]
-             ;; A cheap full re-sweep on any mutation is correct + simple:
-             ;; `seen` makes re-processing idempotent, and the resolved-
-             ;; chunk count over a page's lifetime is small (one per
-             ;; suspense boundary). Walking the mutation records to find
-             ;; only the added resolved templates is a micro-opt that adds
-             ;; tree-walking complexity for no measurable win at these
-             ;; cardinalities.
-             (sweep! root frame seen)
-             (when (final-payload-present? root payload-id)
-               (stop!)))]
-       ;; Initial sweep — chunks that streamed in before this bundle
-       ;; executed (the common case: the shell + several cards land while
-       ;; main.js downloads + boots). Materialises fallbacks into visible
-       ;; mounts + applies any resolved chunks already present.
-       (sweep! root frame seen)
-       (if (final-payload-present? root payload-id)
-         ;; Stream already complete by the time we installed — nothing to
-         ;; observe; the bootstrap's `:rf/hydrate` is the reconciliation.
-         (fn already-complete-stop! [])
-         (let [obs (js/MutationObserver. on-mutations)]
-           (reset! observer obs)
-           ;; Observe the whole subtree: resolved `<template>`s + the
-           ;; final payload `<script>` arrive as descendant additions of
-           ;; `<body>` / `#app` as the response streams.
-           (.observe obs root #js {:childList true :subtree true})
-           stop!))))))
+   ;; EP-0002 (rf2-acjknb): the streaming delta-merge target is CARRIED —
+   ;; supplied explicitly via `:frame`. A nil stamp is an absent target,
+   ;; not a request to synthesise `:rf/default`; surface the always-on
+   ;; `:rf.error/no-frame-context`. Per Spec 002 §Frame target resolution.
+   (let [frame (frame/require-frame-stamp!
+                 frame :rf.ssr/streaming-install
+                 {:where 'rf.ssr.streaming.client/install!})]
+     ;; No DOM (a non-browser runtime / a host calling install! too early)
+     ;; → no-op stop fn. The runtime is a DOM consumer by definition.
+     (if (or (nil? root) (not (exists? js/MutationObserver)))
+       (fn no-op-stop! [])
+       (let [seen      (atom #{})
+             observer  (atom nil)
+             stop!     (fn stop! []
+                         (when-let [o @observer]
+                           (.disconnect o)
+                           (reset! observer nil)))
+             on-mutations
+             (fn [_mutations _obs]
+               ;; A cheap full re-sweep on any mutation is correct + simple:
+               ;; `seen` makes re-processing idempotent, and the resolved-
+               ;; chunk count over a page's lifetime is small (one per
+               ;; suspense boundary). Walking the mutation records to find
+               ;; only the added resolved templates is a micro-opt that adds
+               ;; tree-walking complexity for no measurable win at these
+               ;; cardinalities.
+               (sweep! root frame seen)
+               (when (final-payload-present? root payload-id)
+                 (stop!)))]
+         ;; Initial sweep — chunks that streamed in before this bundle
+         ;; executed (the common case: the shell + several cards land while
+         ;; main.js downloads + boots). Materialises fallbacks into visible
+         ;; mounts + applies any resolved chunks already present.
+         (sweep! root frame seen)
+         (if (final-payload-present? root payload-id)
+           ;; Stream already complete by the time we installed — nothing to
+           ;; observe; the bootstrap's `:rf/hydrate` is the reconciliation.
+           (fn already-complete-stop! [])
+           (let [obs (js/MutationObserver. on-mutations)]
+             (reset! observer obs)
+             ;; Observe the whole subtree: resolved `<template>`s + the
+             ;; final payload `<script>` arrive as descendant additions of
+             ;; `<body>` / `#app` as the response streams.
+             (.observe obs root #js {:childList true :subtree true})
+             stop!)))))))
