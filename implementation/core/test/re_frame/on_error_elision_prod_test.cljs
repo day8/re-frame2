@@ -1,21 +1,12 @@
 (ns re-frame.on-error-elision-prod-test
-  "Per rf2-hqbeh — the per-frame `:on-error` slot is a runtime
-  error-recovery surface and MUST fire even when the CLJS trace surface
-  is compile-time elided in production builds (`:advanced` +
-  `goog.DEBUG=false`).
-
-  Before rf2-hqbeh the `:on-error` policy rode the trace surface
-  exclusively; with the surface elided, registered `:on-error`
-  callbacks did not fire in CLJS prod. A user-registered Sentry-shape
-  forwarder went silent on the production-build path it was written
-  for. This file pins the fix.
-
-  Per rf2-bacs4 — the corpus-wide
-  `register-error-listener!` registry is the second always-on
-  fan-out path from the same error-emit substrate; off-box
-  observability shippers (Sentry / Honeybadger / Rollbar) wire through
-  it. This file pins that the listener registry survives elision
-  alongside the per-frame `:on-error` policy.
+  "Per rf2-bacs4 — the corpus-wide `register-error-listener!` registry is
+  the always-on error observability surface; off-box observability
+  shippers (Sentry / Honeybadger / Rollbar) wire through it. It MUST fire
+  even when the CLJS trace surface is compile-time elided in production
+  builds (`:advanced` + `goog.DEBUG=false`). This file pins that the
+  listener registry survives elision. (The per-frame `:on-error` recovery
+  policy was REMOVED per rf2-hiqtk8 — recovery is framework-owned via the
+  per-category typed defaults, not an app-steering policy.)
 
   Companion to `re-frame.trace-listener-elision-prod-test` (rf2-2zdu)
   and `re-frame.source-coord-dom-elision-prod-test` (rf2-uwg5). The
@@ -41,84 +32,19 @@
                 ;; tests — defonce means it would otherwise leak.
                 (error-emit/clear-error-listeners!))}))
 
-;; ---- :on-error survives goog.DEBUG=false ----------------------------------
+;; ---- handler-exception recovers under goog.DEBUG=false --------------------
 
-(deftest on-error-fires-under-prod-when-handler-throws
-  (testing "Per rf2-hqbeh: under `:advanced` + `goog.DEBUG=false`, a
-            frame's `:on-error` policy fn MUST fire when an event
-            handler throws — the trace surface is gone, but the
-            always-on error-emit substrate delivers the structured
-            error event to the policy fn so production monitoring
-            integrations still observe the failure."
-    (let [seen (atom [])]
-      ;; Re-register :rf/default with an :on-error policy. The fixture
-      ;; make-reset-runtime-fixture installs :rf/default with no policy; we
-      ;; re-register to attach one. Per Spec 002 §Re-registration —
-      ;; surgical update, the existing app-db / sub-cache survive.
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [error-event]
-                                 (swap! seen conj error-event)
-                                 nil)})
-      (rf/reg-event-db :prod/throw
-                       (fn [_db _]
-                         (throw (ex-info "kaboom" {:cause :test}))))
-      (rf/dispatch-sync [:prod/throw])
-      (is (= 1 (count @seen))
-          ":on-error fired exactly once for the thrown handler — prod-elision contract holds")
-      (let [ev (first @seen)]
-        (is (= :rf.error/handler-exception (:operation ev))
-            ":on-error received the structured :operation discriminator")
-        (is (= :error (:op-type ev))
-            "and the :op-type :error discriminator")
-        (is (= :prod/throw (get-in ev [:tags :event-id]))
-            "and :event-id under :tags identifying the failing handler")
-        (is (= :rf/default (get-in ev [:tags :frame]))
-            "and :frame identifying the policy's host frame")))))
-
-(deftest on-error-no-op-when-not-registered-under-prod
-  (testing "When no `:on-error` policy is configured on the frame, the
-            always-on substrate is a no-op and the handler exception
-            still propagates through the rest of the runtime per the
-            documented per-category recovery. The dispatch settles —
-            the drain does not abort."
+(deftest handler-throw-recovers-under-prod
+  (testing "Under `:advanced` + `goog.DEBUG=false`, a handler throw is
+            caught by the runtime (interceptor chain wraps it in
+            `:rf/interceptor-error`) and the drain settles — the dispatch
+            returns nil, the cascade does not abort. Recovery is
+            framework-owned; there is no app-steering policy."
     (rf/reg-event-db :prod/quiet-throw
                      (fn [_db _]
                        (throw (ex-info "boom" {}))))
-    ;; No :on-error registered; just confirm dispatch returns without
-    ;; throwing. The runtime catches the handler exception (interceptor
-    ;; chain wraps it in :rf/interceptor-error) and the drain settles.
     (is (nil? (rf/dispatch-sync [:prod/quiet-throw]))
         "dispatch-sync returns nil; the drain settled after the exception")))
-
-(deftest on-error-policy-exception-emits-loudly-under-prod
-  (testing "Per rf2-avnzbp + rf2-ciy: when the `:on-error` policy fn
-            itself throws, the runtime MUST NOT recursively invoke the
-            policy on its own exception — but it MUST NOT silently swallow
-            it either. Under `:advanced` + `goog.DEBUG=false`,
-            `:rf.error/on-error-policy-exception` fans out through the
-            always-on listener (axis 1) so the policy-fn bug stays
-            observable in production, while recovery still proceeds (the
-            cascade does not abort, the drain settles)."
-    (let [seen (atom [])]
-      (rf/register-error-listener!
-        :prod/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [_error-event]
-                                 (throw (ex-info "policy itself threw" {})))})
-      (rf/reg-event-db :prod/policy-throw
-                       (fn [_db _]
-                         (throw (ex-info "handler threw" {}))))
-      ;; Should NOT throw — the policy fn's exception is caught + emitted.
-      (is (nil? (rf/dispatch-sync [:prod/policy-throw]))
-          "dispatch-sync returned nil despite both handler AND policy throwing")
-      (let [policy-rec (some #(when (= :rf.error/on-error-policy-exception (:error %)) %) @seen)]
-        (is (some? policy-rec)
-            ":rf.error/on-error-policy-exception survives goog.DEBUG=false — loud, not swallowed")
-        (is (= :rf/default (:frame policy-rec)))
-        (is (some? (:exception policy-rec)))
-        (is (= :rf.error/handler-exception (:original policy-rec))
-            ":original correlates the policy failure with the original error under prod")))))
 
 ;; ---- rf2-bacs4 corpus-wide listener survives goog.DEBUG=false -----------
 
@@ -170,28 +96,6 @@
       (is (= 1 (count @seen))
           "the sibling listener still received the record under prod"))))
 
-(deftest listener-and-policy-fire-independently-under-prod
-  (testing "Per rf2-bacs4 §independent paths under prod: when both a
-            per-frame `:on-error` policy fn AND a corpus-wide listener
-            are registered, BOTH fire on a handler exception. Neither
-            blocks the other under `:advanced` + `goog.DEBUG=false`."
-    (let [listener-saw (atom nil)
-          policy-saw   (atom nil)]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [ev] (reset! policy-saw ev) nil)})
-      (rf/register-error-listener!
-        :prod/recorder
-        (fn [record] (reset! listener-saw record)))
-      (rf/reg-event-db :prod/both
-                       (fn [_db _] (throw (ex-info "boom" {}))))
-      (rf/dispatch-sync [:prod/both])
-      (is (some? @policy-saw)
-          "per-frame :on-error fired under prod")
-      (is (some? @listener-saw)
-          "corpus-wide listener fired under prod — both paths survive elision")
-      (is (= :rf.error/handler-exception (:error @listener-saw)))
-      (is (= :prod/both (:event-id @listener-saw))))))
-
 ;; ---- (removed) rf2-vnjfg handler-meta :sensitive? redaction under prod ---
 ;;
 ;; The handler-meta `:sensitive?` annotation has been removed. Per-path
@@ -235,29 +139,6 @@
             ":source-coord :column is ABSENT in prod (DCE'd from the
              coords-form literal under :advanced + goog.DEBUG=false)")))))
 
-(deftest source-coord-rides-policy-event-tags-under-prod
-  (testing "Per rf2-3un2g Policy B: under `:advanced` + `goog.DEBUG=false`,
-            the structured `error-event` passed to the per-frame
-            `:on-error` policy fn MUST include `:source-coord` under
-            `:tags` for handlers registered via the public macro path.
-            In-app recovery surfaces get the same observability signal
-            as Sentry shippers."
-    (let [policy-saw (atom nil)]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [ev] (reset! policy-saw ev) nil)})
-      (rf/reg-event-db :rf2-3un2g/prod-policy-coord-throw
-                       (fn [_db _]
-                         (throw (ex-info "boom" {}))))
-      (rf/dispatch-sync [:rf2-3un2g/prod-policy-coord-throw])
-      (is (some? @policy-saw)
-          ":on-error policy fired under :advanced + goog.DEBUG=false")
-      (let [sc (get-in @policy-saw [:tags :source-coord])]
-        (is (some? sc)
-            ":source-coord rides :tags on the structured error-event in prod")
-        (is (symbol?  (:ns sc)))
-        (is (integer? (:line sc)))
-        (is (string?  (:file sc)))))))
-
 (deftest registry-meta-stripped-of-coord-keys-under-prod
   (testing "Per rf2-3un2g Policy A: under `:advanced` + `goog.DEBUG=false`
             the public `rf/handler-meta` MUST NOT carry `:ns` / `:file`
@@ -285,13 +166,11 @@
 ;; ONLY (`trace/emit-error!`), which DCEs under `:advanced` + `goog.DEBUG=
 ;; false`, so a frame-destroyed / no-such-handler / no-such-sub / compute-sub
 ;; throw lost its diagnostic entirely in production. Now they ALSO fan out
-;; through the always-on error-emit listener (axis 1 / surface #4), which
-;; survives `goog.DEBUG=false`. Each test here is the production-mode
-;; counterpart of the dev-mode test in `re-frame.on-error-test`.
-;;
-;; Axis 2 (#5 per-frame `:on-error` policy) stays NARROW: a companion test
-;; pins that the policy fn does NOT fire for these non-recovery categories
-;; under prod.
+;; through the always-on error-emit listener (surface #4), which survives
+;; `goog.DEBUG=false`. Each test here is the production-mode counterpart
+;; of the dev-mode test in `re-frame.on-error-test`. Recovery is
+;; framework-owned (the per-category typed defaults); there is no
+;; app-steering policy (rf2-hiqtk8).
 ;; ==========================================================================
 
 (deftest frame-destroyed-dispatch-listener-survives-prod
@@ -463,59 +342,6 @@
         (is (some? r) "listener received :rf.error/no-such-cofx under prod")
         (is (= :goum9x/prod-unknown-cofx (:event-id r)))
         (is (= :rf/default (:frame r)))))))
-
-(deftest fx-cofx-invalid-operation-categories-skip-policy-under-prod
-  (testing "Per rf2-goum9x axis-2 (NARROW) under prod: the per-frame
-            `:on-error` policy fn is NOT invoked for the invalid-operation
-            fx/cofx categories (no-such-fx, override-fallthrough,
-            no-such-cofx) even under `goog.DEBUG=false`. Only the always-on
-            listener fans out."
-    (let [policy-fires (atom 0)
-          listener-saw (atom #{})]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [_ev] (swap! policy-fires inc) nil)})
-      (rf/register-error-listener! :prod/recorder
-                                   (fn [record] (swap! listener-saw conj (:error record))))
-      (rf/reg-event-fx :goum9x/prodnp-unknown-fx
-                       (fn [_ _] {:fx [[:goum9x/prodnp-never {}]]}))
-      (rf/dispatch-sync [:goum9x/prodnp-unknown-fx])
-      (rf/reg-fx :goum9x/prodnp-real (fn [_ _] nil))
-      (rf/reg-event-fx :goum9x/prodnp-bad-override
-                       (fn [_ _] {:fx [[:goum9x/prodnp-real]]}))
-      (rf/dispatch-sync [:goum9x/prodnp-bad-override]
-                        {:fx-overrides {:goum9x/prodnp-real :goum9x/prodnp-missing}})
-      (rf/reg-event-db :goum9x/prodnp-unknown-cofx
-                       [(rf/inject-cofx :goum9x/prodnp-no-cofx)]
-                       (fn [db _] db))
-      (rf/dispatch-sync [:goum9x/prodnp-unknown-cofx])
-      (is (zero? @policy-fires)
-          "the :on-error policy fn did NOT fire for any invalid-operation fx/cofx category under prod")
-      (is (contains? @listener-saw :rf.error/no-such-fx))
-      (is (contains? @listener-saw :rf.error/override-fallthrough))
-      (is (contains? @listener-saw :rf.error/no-such-cofx)))))
-
-(deftest non-recovery-categories-skip-policy-under-prod
-  (testing "Per rf2-2hvga axis-2 (NARROW) under prod: the per-frame
-            `:on-error` policy fn (#5) is NOT invoked for the widened
-            non-recovery categories even under `goog.DEBUG=false`. Only
-            the always-on listener (#4) fans out."
-    (let [policy-fires (atom 0)
-          listener-saw (atom #{})]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [_ev] (swap! policy-fires inc) nil)})
-      (rf/register-error-listener! :prod/recorder
-                                   (fn [record] (swap! listener-saw conj (:error record))))
-      (rf/dispatch-sync [:no/handler-here2])
-      (rf/subscribe-once :rf/default [:no/such-sub-here2])
-      (rf/dispatch [:x] {:frame :gone/frame2})
-      (rf/reg-sub :nrp/throwing (fn [_db _q] (throw (ex-info "boom" {}))))
-      (rf/compute-sub [:nrp/throwing] {})
-      (is (zero? @policy-fires)
-          "the :on-error policy fn did NOT fire for any non-recovery category under prod")
-      (is (contains? @listener-saw :rf.error/no-such-handler))
-      (is (contains? @listener-saw :rf.error/no-such-sub))
-      (is (contains? @listener-saw :rf.error/frame-destroyed))
-      (is (contains? @listener-saw :rf.error/sub-exception)))))
 
 ;; (removed) sensitive-handler-error-record-redacted-under-prod
 ;; The handler-meta `:sensitive?` annotation has been removed. Redaction on

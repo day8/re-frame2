@@ -732,7 +732,7 @@ Decision: **`:rf.schema/at-boundary`** (interceptor `:id` keyword; Var `re-frame
 
 ### Schema migration on hot-reload
 
-When a sub-path schema changes during dev (file save re-evaluates `reg-app-schema` with a different schema for the same path), the live `app-db` value at that path may now violate the new schema. The runtime emits a `:rf.schema/violation` trace event (`:op-type :warning`) so dev panels highlight the stale slice; the live app continues running. The trace event's `:tags` carry `:path`, `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`, and `:frame` — enumerated authoritatively in [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) (row `:rf.schema/violation`). Default recovery is `:logged-and-skipped` — `app-db` is **not** auto-cleared or rewound. Escalation to a frame's `:on-error` policy is a separate design call and is out of scope for this resolution.
+When a sub-path schema changes during dev (file save re-evaluates `reg-app-schema` with a different schema for the same path), the live `app-db` value at that path may now violate the new schema. The runtime emits a `:rf.schema/violation` trace event (`:op-type :warning`) so dev panels highlight the stale slice; the live app continues running. The trace event's `:tags` carry `:path`, `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`, and `:frame` — enumerated authoritatively in [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) (row `:rf.schema/violation`). Default recovery is `:logged-and-skipped` — `app-db` is **not** auto-cleared or rewound.
 
 ### Pluggable validator and implementation-defined default
 

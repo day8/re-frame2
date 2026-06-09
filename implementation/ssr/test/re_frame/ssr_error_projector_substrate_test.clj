@@ -93,13 +93,7 @@
             f                                  ;; frame
             ex                                 ;; exception
             0                                  ;; elapsed-ms
-            (System/currentTimeMillis)         ;; time
-            {:operation :rf.error/handler-exception
-             :op-type   :error
-             :tags      {:frame f
-                         :event-id :boom
-                         :exception ex
-                         :recovery :no-recovery}})
+            (System/currentTimeMillis))        ;; time
           (is (= 500 (:status (ssr/get-response f)))
               "The framework's own error-emit listener
                (`::error-projection`) routed the record to the buffer,

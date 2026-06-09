@@ -37,29 +37,14 @@ Plus two narrower families surfaced by the per-feature artefacts:
 
 The closed catalogue at [Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue) enumerates every category. **The prefix list is stable**; new categories adopt an existing prefix. New ad-hoc prefixes are not part of the contract.
 
-## How an `:on-error` policy uses the catalogue
+## Where v1's `reg-event-error-handler` went (M-13 / M-26)
 
-A frame's `:on-error` policy (M-13 replacement) receives any error event whose `:frame` matches the policy's frame. The policy fn dispatches on `:operation` and **returns a closed-shape recovery map (or `nil`)** — never a raw effect-map. The return-map contract is pinned in [Spec 009 §Return-map contract](../../../spec/009-Instrumentation.md#return-map-contract): the recognised keys are `:recovery` (REQUIRED — one of the closed recovery keywords), `:replacement` (only honoured when `:recovery` is `:replaced-with-default`), and `:notes`. A bare `{:fx [...]}` map has **no `:recovery` key and is rejected** by the runtime (`:rf.error/bad-on-error-return`); the effects never run. To run effects, side-effect in the policy body and return `nil`, or dispatch a fresh event — the runtime never re-runs the failing handler.
+v1's process-wide `reg-event-error-handler` is **dropped**. There is **no app-steering error-recovery policy** in v2 — recovery is framework-owned (the **typed per-category default**: frame-destroyed recovers + emits, sub-exception returns `nil`, handler-exception fails loud without crashing the app). Earlier v2 drafts documented a per-frame `:on-error` recovery policy as the replacement; that policy was **REMOVED per rf2-hiqtk8** (its return value was never read or applied, and errors are not generically recoverable by an app policy). When migrating v1 code that registered a process-wide error handler:
 
-```clojure
-(rf/reg-frame
-  :rf/default
-  {:on-error
-   (fn [{:keys [operation tags] :as evt}]
-     (case operation
-       ;; Observe-only: side-effect in the body, return nil to let the
-       ;; runtime apply its documented per-category default recovery.
-       :rf.error/handler-exception      (do (log-to-monitoring evt) nil)
-       ;; Substitute a value: :replaced-with-default + a :replacement of the
-       ;; failing slot's normal return type (for handler-exception, an effect-map).
-       :rf.error/schema-validation-failure
-       {:recovery :replaced-with-default
-        :replacement (:default-value tags)}
-       ;; ... etc — see the catalogue for every :operation the policy may receive
-       nil))})                                       ; let the default recovery apply
-```
+- **Observability** → register a corpus-wide `register-error-listener!` (always-on; survives production builds). It receives the tight record per `:rf.error/*` event; forward it to your monitor.
+- **Genuine recovery** for *expected* failures → handle at the source (managed-HTTP `:retry`, optional-read fallback). To re-run a failed event, dispatch a fresh one; the runtime never re-runs the failing handler.
 
-The full list of `:operation` values the policy may see is exactly the catalogue; the recovery keywords (`:no-recovery` / `:replaced-with-default` / `:skipped` / `:warned-and-replaced` / `:logged-and-skipped` / `:ignored`) are the closed set in [Spec 009 §Recovery contract](../../../spec/009-Instrumentation.md#recovery-contract). **Reference Spec 009 when writing the `case` arms** — don't guess from memory, and don't return a raw effect-map.
+A v1 error-handler that returned a substitute value or swallowed an error has **no v2 equivalent** — drop the steering and rely on the framework's typed default, moving any genuine recovery to the source.
 
 ## Trace listener vs. error-emit listener (dev-only vs. always-on)
 
@@ -91,15 +76,14 @@ The error-handling surface is **split** across the dev/prod gate. Getting this b
 
 **Always-on (survives `:advanced` + `goog.DEBUG=false`):**
 
-- **The per-frame `:on-error` policy slot.** It is NOT gated by `re-frame.interop/debug-enabled?` — it rides a small always-on error-emit substrate (`re-frame.error-emit`) that survives production builds. Registered policy fns **fire on production handler exceptions** (`:rf.error/handler-exception`, the primary production-monitoring case) per [Spec 009 §What is available in production](../../../spec/009-Instrumentation.md#what-is-available-in-production). A migration audit that reports "the new `:on-error` doesn't run in production" is hitting a **real bug**, not the elision — the slot is meant to fire.
-- **`register-error-listener!`** (the error-emit listener) — same always-on substrate, independent fan-out path.
+- **`register-error-listener!`** (the error-emit listener) — the single error-observability surface. It is NOT gated by `re-frame.interop/debug-enabled?` — it rides a small always-on error-emit substrate (`re-frame.error-emit`) that survives production builds, fanning out one tight record per catalogued production-reachable `:rf.error/*` event per [Spec 009 §What is available in production](../../../spec/009-Instrumentation.md#what-is-available-in-production).
 
 **Dev-only (production-elided per [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code)):**
 
 - The raw **trace stream** and `register-listener!` listeners — no events delivered in prod.
-- Dev-side enrichments on the always-on path: `:rf.trace/dispatch-id` correlation, `:rf.trace/trigger-handler` source-coord, the `:rf.error/bad-on-error-return` validation trace, and the retain-N ring buffer. (Note: `:rf.error/on-error-policy-exception` is NOT dev-only — per rf2-avnzbp a policy-fn throw fans out through the always-on error-emit listener so the bug stays observable in production.)
+- Dev-side enrichments on the always-on path: `:rf.trace/dispatch-id` correlation, `:rf.trace/trigger-handler` source-coord, and the retain-N ring buffer.
 
-So: route **production** error monitoring through the `:on-error` slot and/or `register-error-listener!` (always-on); use `register-listener!` only for the **dev** loop.
+So: route **production** error monitoring through `register-error-listener!` (always-on); use `register-listener!` only for the **dev** loop.
 
 ## Stale advice the migration agent will encounter
 

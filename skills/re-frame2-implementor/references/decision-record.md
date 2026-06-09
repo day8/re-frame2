@@ -147,7 +147,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 #### T3 Production elision
 
 - **Dev-trace-surface mechanism:** <e.g. "Closure DCE via debug-enabled?" / "Vite define + tree-shake" / "#if !DEBUG"> — elides the `register-listener!` registry, rich trace emit sites, ring buffer, perf bridge.
-- **Always-on substrates kept live:** <how `register-event-listener!` / `register-error-listener!` + per-frame `:on-error` survive the production build on a separate ungated path — these are NOT elided (production observability / error reporting / SSR fail-closed)>
+- **Always-on substrates kept live:** <how `register-event-listener!` / `register-error-listener!` survive the production build on a separate ungated path — these are NOT elided (production observability / error reporting / SSR fail-closed)>
 - **CI verifier:** <sentinel-string scan asserting dev-only strings absent from production bundles AND a positive assertion that the always-on substrates remain present (catch over-aggressive DCE)>
 
 ### Errors (E1–E2)
@@ -159,8 +159,8 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 #### E2 Error reporting to tools
 
-- **Policy slot:** <the per-frame `:on-error` slot in `reg-frame` metadata — always-on (`:default` / `:swallow` / `:replacement`)>
-- **Always-on error-emit substrate:** <how `register-error-listener!` fans `:rf.error/*` records to production monitors (Sentry / Rollbar / SSR fail-closed) post-elision, exception-isolated — NOT only via the dev-elided trace stream (T1)>
+- **Recovery:** <framework-owned typed per-category default — NO app-steering recovery policy; genuine recovery is local-at-source (managed-HTTP retry, optional-read fallback)>
+- **Always-on error-emit substrate:** <how `register-error-listener!` fans `:rf.error/*` records to production monitors (Sentry / Rollbar / SSR fail-closed) post-elision, exception-isolated — the single error-observability surface, NOT only via the dev-elided trace stream (T1)>
 
 ## D5. Schema mechanism
 

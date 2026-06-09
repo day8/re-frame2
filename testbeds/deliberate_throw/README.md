@@ -25,9 +25,10 @@ lets a consumer verify it discriminates.
 - No `try` / `catch` around any trigger site. The throw must propagate
   to the framework boundary; that's where the structured error event is
   emitted.
-- No `:on-error` policy fn on the frame. The default per-category
-  `:recovery` is what consumers test against; an `:on-error` override
-  would mask it.
+- Recovery is the framework's typed per-category default — the
+  `:recovery` consumers test against. There is no app-steering recovery
+  policy (the per-frame `:on-error` recovery policy was removed per
+  rf2-hiqtk8); observe errors via `register-error-listener!`.
 - No epoch recorder wired into the app. The recorder is the consumer's
   concern — `tools/xray/testbeds/deliberate-throw-recorder/spec.cjs`
   (when filed) will register the listener itself.

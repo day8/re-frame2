@@ -1,26 +1,13 @@
 (ns re-frame.on-error-test
-  "Per rf2-hqbeh — exercise the per-frame `:on-error` slot end-to-end:
-
-    - Policy fn fires when a registered handler throws.
-    - Policy fn receives a structured error event with
-      `:operation :rf.error/handler-exception`, `:op-type :error`,
-      and `:tags {:event-id ..., :frame ..., :exception ..., ...}`.
-    - Policy fn's own exceptions are caught inside the always-on
-      substrate per Spec 009 §1052 — the drain settles, the cascade
-      does not abort.
-    - Re-registration of the frame replaces the `:on-error` slot;
-      the old policy fn does NOT fire after replacement.
-
-  Per rf2-bacs4 — exercise the corpus-wide
-  `register-error-listener!` registry alongside the per-frame
-  slot:
+  "Per rf2-bacs4 — exercise the corpus-wide `register-error-listener!`
+  registry (the single always-on error observability surface; the
+  per-frame `:on-error` recovery policy was REMOVED per rf2-hiqtk8 —
+  recovery is framework-owned via the per-category typed defaults, not an
+  app-steering policy):
 
     - A registered listener fires per `:rf.error/*` event.
     - Listener exceptions are swallowed; siblings still run.
     - Unregistering a listener stops it receiving subsequent events.
-    - The listener and the per-frame `:on-error` policy fn are
-      INDEPENDENT — a buggy listener cannot block the policy fn, and
-      a buggy policy fn cannot block listeners.
     - The error-record shape is TIGHT: exactly
       `{:error :event :event-id :frame :time :exception :elapsed-ms}`.
     - `:elapsed-ms` is an integer on every platform (rf2-ph8pa
@@ -45,116 +32,6 @@
                 ;; test so a listener registered by one test doesn't
                 ;; leak into the next.
                 (error-emit/clear-error-listeners!))}))
-
-;; ============================================================================
-;; rf2-hqbeh — per-frame :on-error policy
-;; ============================================================================
-
-(deftest on-error-fires-when-handler-throws
-  (testing "Per rf2-hqbeh / Spec 009 §Error-handler policy: a frame
-            with `:on-error` set sees the structured error event when a
-            registered handler throws."
-    (let [seen (atom [])]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [error-event]
-                                 (swap! seen conj error-event)
-                                 nil)})
-      (rf/reg-event-db :on-error-test/throw
-                       (fn [_db _]
-                         (throw (ex-info "boom" {:cause :test}))))
-      (rf/dispatch-sync [:on-error-test/throw])
-      (is (= 1 (count @seen))
-          ":on-error fired exactly once")
-      (let [ev (first @seen)]
-        (is (= :rf.error/handler-exception (:operation ev)))
-        (is (= :error (:op-type ev)))
-        (is (= :on-error-test/throw (get-in ev [:tags :event-id])))
-        (is (= :rf/default (get-in ev [:tags :frame])))
-        (is (= :no-recovery (get-in ev [:tags :recovery])))))))
-
-(deftest on-error-policy-exception-does-not-propagate
-  (testing "Per Spec 009 §Error event catalogue
-            (`:rf.error/on-error-policy-exception`): an `:on-error` policy
-            fn that throws does NOT take down the drain — its exception is
-            caught inside the always-on substrate."
-    (rf/reg-frame :rf/default
-                  {:on-error (fn [_error-event]
-                               (throw (ex-info "policy threw" {})))})
-    (rf/reg-event-db :on-error-test/policy-throw
-                     (fn [_db _]
-                       (throw (ex-info "handler threw" {}))))
-    ;; The dispatch must return normally — the policy fn's exception is
-    ;; caught by error-emit/dispatch-on-error!.
-    (is (nil? (rf/dispatch-sync [:on-error-test/policy-throw])))))
-
-(deftest on-error-policy-exception-emits-loudly-not-swallowed
-  (testing "Per rf2-avnzbp + rf2-ciy + the loud-failure posture: when an
-            `:on-error` policy fn throws, the runtime does NOT silently
-            swallow it. It surfaces `:rf.error/on-error-policy-exception`
-            LOUDLY through the always-on listener (axis 1), correlating
-            the policy failure with the original error via `:original`,
-            and STILL recovers (no propagation to user code, no recursive
-            policy invocation). The handler-exception that triggered the
-            policy fans out too — so a listener sees BOTH categories."
-    (let [seen (atom [])]
-      (rf/register-error-listener!
-        :test/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [_error-event]
-                                 (throw (ex-info "policy boom"
-                                                 {:detail :test})))})
-      (rf/reg-event-db :on-error-test/policy-emit-throw
-                       (fn [_db _] (throw (ex-info "handler boom" {}))))
-      (is (nil? (rf/dispatch-sync [:on-error-test/policy-emit-throw]))
-          "dispatch settled — policy throw recovered, did not propagate")
-      ;; The original handler-exception fanned out once …
-      (let [handler-rec (some #(when (= :rf.error/handler-exception (:error %)) %) @seen)
-            policy-rec  (some #(when (= :rf.error/on-error-policy-exception (:error %)) %) @seen)]
-        (is (some? handler-rec)
-            "listener saw the original :rf.error/handler-exception")
-        ;; … AND the policy-fn throw was surfaced loudly as its own category.
-        (is (some? policy-rec)
-            "listener saw :rf.error/on-error-policy-exception — NOT swallowed")
-        (is (= :rf/default (:frame policy-rec))
-            ":frame names the policy's host frame")
-        (is (some? (:exception policy-rec))
-            ":exception carries the policy fn's throw")
-        (is (= :rf.error/handler-exception (:original policy-rec))
-            ":original correlates the policy failure with the error it was handling")
-        ;; No recursive storm: exactly ONE policy-exception record (the
-        ;; loud emit is listener-only — it does NOT re-invoke the policy).
-        (is (= 1 (count (filter #(= :rf.error/on-error-policy-exception (:error %)) @seen)))
-            "exactly one :rf.error/on-error-policy-exception — no recursive re-emit")))))
-
-(deftest re-registration-replaces-on-error
-  (testing "Per Spec 002 §Re-registration — surgical update: re-
-            registering the frame replaces the `:on-error` slot; the
-            previous policy fn does NOT fire after replacement."
-    (let [first-policy-fires  (atom 0)
-          second-policy-fires (atom 0)]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [_ev] (swap! first-policy-fires inc))})
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [_ev] (swap! second-policy-fires inc))})
-      (rf/reg-event-db :on-error-test/throw-after-rereg
-                       (fn [_db _]
-                         (throw (ex-info "boom" {}))))
-      (rf/dispatch-sync [:on-error-test/throw-after-rereg])
-      (is (zero? @first-policy-fires)
-          "old :on-error did not fire after re-registration")
-      (is (= 1 @second-policy-fires)
-          "new :on-error fired exactly once"))))
-
-(deftest no-on-error-registered-is-a-no-op
-  (testing "When the frame's config carries no `:on-error`, the always-
-            on substrate quietly no-ops and the rest of the runtime
-            proceeds with the documented per-category recovery."
-    (rf/reg-event-db :on-error-test/no-policy-throw
-                     (fn [_db _]
-                       (throw (ex-info "boom" {}))))
-    ;; :rf/default is registered by the fixture with no :on-error.
-    (is (nil? (rf/dispatch-sync [:on-error-test/no-policy-throw])))))
 
 ;; ============================================================================
 ;; rf2-bacs4 — corpus-wide register-error-listener!
@@ -249,70 +126,6 @@
       (is (= 2 (count @seen))
           "listener fired again after re-registration under the same id"))))
 
-(deftest listener-and-on-error-policy-fire-independently
-  (testing "Per rf2-bacs4: the corpus-wide listener registry and the
-            per-frame `:on-error` policy fn fire from ONE normative
-            emission site along TWO independent fan-out paths. Both
-            see the same handler exception; a buggy listener cannot
-            block the policy fn, and a buggy policy fn cannot block
-            listeners."
-    (let [listener-saw (atom nil)
-          policy-saw   (atom nil)]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [ev] (reset! policy-saw ev) nil)})
-      (rf/register-error-listener!
-        :test/recorder
-        (fn [record] (reset! listener-saw record)))
-      (rf/reg-event-db :err/both
-                       (fn [_db _] (throw (ex-info "boom" {}))))
-      (rf/dispatch-sync [:err/both])
-      ;; Both paths fired.
-      (is (some? @policy-saw)   "per-frame :on-error policy fired")
-      (is (some? @listener-saw) "corpus-wide listener fired")
-      ;; The two paths carry DIFFERENT shapes — the policy fn receives
-      ;; the legacy structured error-event (with `:operation`/`:tags`),
-      ;; the listener receives the tight record (rf2-bacs4 shape).
-      (is (= :rf.error/handler-exception (:operation @policy-saw))
-          "policy fn received the legacy structured shape")
-      (is (= :rf.error/handler-exception (:error @listener-saw))
-          "listener received the tight record shape")
-      (is (= :err/both (:event-id @listener-saw))))))
-
-(deftest listener-isolation-policy-throw-does-not-block-listener
-  (testing "Per rf2-bacs4 §independent paths: a policy-fn throw is
-            caught by the substrate and does NOT prevent the
-            corpus-wide listener from firing — the two fan-out paths
-            are mutually isolated."
-    (let [listener-saw (atom nil)]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [_ev] (throw (ex-info "policy boom" {})))})
-      (rf/register-error-listener!
-        :test/recorder
-        (fn [record] (reset! listener-saw record)))
-      (rf/reg-event-db :err/policy-throws
-                       (fn [_db _] (throw (ex-info "handler boom" {}))))
-      (is (nil? (rf/dispatch-sync [:err/policy-throws]))
-          "dispatch settled despite both handler and policy throwing")
-      (is (some? @listener-saw)
-          "corpus-wide listener fired even though policy fn threw"))))
-
-(deftest listener-isolation-listener-throw-does-not-block-policy
-  (testing "Per rf2-bacs4 §independent paths: a listener throw is
-            caught by the substrate and does NOT prevent the
-            per-frame `:on-error` policy fn from firing."
-    (let [policy-saw (atom nil)]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [ev] (reset! policy-saw ev) nil)})
-      (rf/register-error-listener!
-        :test/throws
-        (fn [_record] (throw (ex-info "listener boom" {}))))
-      (rf/reg-event-db :err/listener-throws
-                       (fn [_db _] (throw (ex-info "handler boom" {}))))
-      (is (nil? (rf/dispatch-sync [:err/listener-throws]))
-          "dispatch settled despite both handler and listener throwing")
-      (is (some? @policy-saw)
-          "per-frame :on-error policy fired even though listener threw"))))
-
 (deftest listener-elapsed-ms-is-integer
   (testing "Per rf2-bacs4 §Record shape + rf2-ph8pa contract:
             `:elapsed-ms` MUST be an integer on every platform. CLJS
@@ -369,9 +182,10 @@
 ;; (under `:advanced` + `goog.DEBUG=false`) lives in
 ;; `re-frame.on-error-elision-prod-test` — production-survival is the crux.
 ;;
-;; Axis 2 (#5 per-frame `:on-error` policy) is NARROW: it is NOT invoked for
-;; these invalid-operation / built-in-recovery categories. A companion test
-;; asserts the policy fn does NOT fire.
+;; Recovery is framework-owned (the per-category typed defaults); the per-frame
+;; `:on-error` recovery policy was REMOVED (rf2-hiqtk8, collapsing the rf2-2hvga
+;; axis-2 / recovery-policy-eligible column). The listener is the single
+;; always-on observability surface.
 ;; ============================================================================
 
 (deftest listener-fires-on-frame-destroyed-dispatch
@@ -497,14 +311,11 @@
 ;; lists them as production-reachable runtime errors and Spec 011 maps
 ;; `:rf.error/fx-handler-exception` to a 500 off the always-on substrate.
 ;;
-;;   - :rf.error/fx-handler-exception — RECOVERY-SCOPED (axis 1 + axis 2):
-;;       the per-frame `:on-error` policy fires (a handler-like exception),
-;;       `:recovery :no-recovery` — the fx is skipped, siblings still fire,
-;;       app-db is NOT rolled back.
+;;   - :rf.error/fx-handler-exception — recovers (the fx is skipped,
+;;       siblings still fire, app-db is NOT rolled back).
 ;;   - :rf.error/no-such-fx / :rf.error/override-fallthrough /
-;;     :rf.error/no-such-cofx — INVALID-OPERATION (axis 1 only): listener
-;;       fires, the per-frame `:on-error` policy does NOT (no recovery
-;;       decision), mirroring the :rf.error/frame-destroyed model.
+;;     :rf.error/no-such-cofx — invalid operations; the listener fires and
+;;       the framework applies its built-in recovery.
 ;; ============================================================================
 
 (deftest listener-fires-on-fx-handler-exception
@@ -550,27 +361,6 @@
           "siblings on either side of the throwing fx still fired")
       (is (= true (:committed? (rf/app-db-value :rf/default)))
           ":db committed before the :fx walk — the fx throw does NOT roll it back"))))
-
-(deftest fx-handler-exception-invokes-on-error-policy
-  (testing "Per rf2-goum9x: :rf.error/fx-handler-exception is
-            RECOVERY-SCOPED — the per-frame `:on-error` policy fn (axis 2)
-            DOES fire with the structured error event (a handler-like
-            exception), unlike the invalid-operation fx categories."
-    (let [policy-saw (atom [])]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [ev] (swap! policy-saw conj ev) nil)})
-      (rf/reg-fx :goum9x/policy-throwing-fx
-                 (fn [_ _] (throw (ex-info "fx-boom" {}))))
-      (rf/reg-event-fx :goum9x/run-policy-fx
-                       (fn [_ _] {:fx [[:goum9x/policy-throwing-fx]]}))
-      (rf/dispatch-sync [:goum9x/run-policy-fx])
-      (let [ev (some (fn [x] (when (= :rf.error/fx-handler-exception (:operation x)) x))
-                     @policy-saw)]
-        (is (some? ev) ":on-error policy fired for the fx-handler-exception")
-        (is (= :error (:op-type ev)))
-        (is (= :goum9x/run-policy-fx (get-in ev [:tags :event-id])))
-        (is (= :rf/default (get-in ev [:tags :frame])))
-        (is (= :no-recovery (get-in ev [:tags :recovery])))))))
 
 (deftest listener-fires-on-no-such-fx
   (testing "Per rf2-goum9x: an unknown fx-id fans `:rf.error/no-such-fx`
@@ -629,41 +419,6 @@
         (is (= :goum9x/run-unknown-cofx (:event-id r))
             "the event that ran the offending interceptor chain rides :event-id")
         (is (= :rf/default (:frame r)))))))
-
-(deftest fx-cofx-invalid-operation-categories-skip-on-error-policy
-  (testing "Per rf2-goum9x axis-2 (NARROW): the per-frame `:on-error`
-            policy fn is NOT invoked for the invalid-operation fx/cofx
-            categories (no-such-fx, override-fallthrough, no-such-cofx) —
-            they carry no `{:swallow | :replacement | :default}` recovery
-            decision. Only the always-on listener fans out. (The
-            recovery-scoped fx-handler-exception is covered separately.)"
-    (let [policy-fires (atom 0)
-          listener-saw (atom #{})]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [_ev] (swap! policy-fires inc) nil)})
-      (rf/register-error-listener! :test/recorder
-                                   (fn [record] (swap! listener-saw conj (:error record))))
-      ;; no-such-fx
-      (rf/reg-event-fx :goum9x/np-unknown-fx
-                       (fn [_ _] {:fx [[:goum9x/np-never {}]]}))
-      (rf/dispatch-sync [:goum9x/np-unknown-fx])
-      ;; override-fallthrough
-      (rf/reg-fx :goum9x/np-real (fn [_ _] nil))
-      (rf/reg-event-fx :goum9x/np-bad-override
-                       (fn [_ _] {:fx [[:goum9x/np-real]]}))
-      (rf/dispatch-sync [:goum9x/np-bad-override]
-                        {:fx-overrides {:goum9x/np-real :goum9x/np-missing}})
-      ;; no-such-cofx
-      (rf/reg-event-db :goum9x/np-unknown-cofx
-                       [(rf/inject-cofx :goum9x/np-no-cofx)]
-                       (fn [db _] db))
-      (rf/dispatch-sync [:goum9x/np-unknown-cofx])
-      (is (zero? @policy-fires)
-          "the :on-error policy fn did NOT fire for any invalid-operation fx/cofx category")
-      (is (contains? @listener-saw :rf.error/no-such-fx))
-      (is (contains? @listener-saw :rf.error/override-fallthrough))
-      (is (contains? @listener-saw :rf.error/no-such-cofx)
-          "but the always-on listener DID receive every category"))))
 
 ;; ============================================================================
 ;; rf2-bxud9v — sub error records carry the failing SUB's source-coord.
@@ -736,36 +491,30 @@
           (is (integer? (:line sc)))
           (is (string?  (:file sc))))))))
 
-(deftest non-recovery-categories-do-not-invoke-on-error-policy
-  (testing "Per rf2-2hvga axis-2 (NARROW): the per-frame `:on-error`
-            policy fn (#5) is NOT invoked for invalid-operation /
-            built-in-recovery categories — frame-destroyed,
-            no-such-handler, no-such-sub, sub-exception. Only the
-            always-on listener (#4) fans out. A `{:swallow | :replacement
-            | :default}` recovery decision is meaningless for these."
-    (let [policy-fires  (atom 0)
-          listener-saw  (atom #{})]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [_ev] (swap! policy-fires inc) nil)})
+(deftest non-recovery-categories-fan-out-to-listener
+  (testing "Per rf2-2hvga (= B / widen): every catalogued production-
+            reachable runtime `:rf.error/*` — frame-destroyed,
+            no-such-handler, no-such-sub, sub-exception — fans out
+            through the always-on listener (the single observability
+            surface). Recovery is the framework's per-category typed
+            default; there is no app-steering policy (rf2-hiqtk8)."
+    (let [listener-saw (atom #{})]
       (rf/register-error-listener! :test/recorder
                                    (fn [record] (swap! listener-saw conj (:error record))))
-      ;; no-such-handler on :rf/default (carries the policy).
+      ;; no-such-handler on :rf/default.
       (rf/dispatch-sync [:no/handler-here2])
       ;; no-such-sub on :rf/default.
       (rf/subscribe-once :rf/default [:no/such-sub-here2])
-      ;; frame-destroyed via dispatch into :rf/default-after-destroy?
-      ;; Use a dedicated frame so :rf/default's policy is the one under test.
+      ;; frame-destroyed via dispatch into an unknown frame.
       (rf/dispatch [:x] {:frame :gone/frame2})
-      ;; compute-sub sub-exception (no frame attribution → no policy anyway).
+      ;; compute-sub sub-exception.
       (rf/reg-sub :nrp/throwing (fn [_db _q] (throw (ex-info "boom" {}))))
       (rf/compute-sub [:nrp/throwing] {})
-      (is (zero? @policy-fires)
-          "the :on-error policy fn did NOT fire for any non-recovery category")
       (is (contains? @listener-saw :rf.error/no-such-handler))
       (is (contains? @listener-saw :rf.error/no-such-sub))
       (is (contains? @listener-saw :rf.error/frame-destroyed))
       (is (contains? @listener-saw :rf.error/sub-exception)
-          "but the always-on listener DID receive every category"))))
+          "the always-on listener received every category"))))
 
 ;; ============================================================================
 ;; rf2-u0zz5 — atomicity contract: any pre-install throw aborts the event

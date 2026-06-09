@@ -338,17 +338,14 @@
                  ;; runtime error (Spec 009 §Error event catalogue) — fan it
                  ;; out through the always-on error-emit listener so
                  ;; load-order / optional-artefact mistakes are visible in
-                 ;; production, not only under dev traces. LISTENER-ONLY
-                 ;; (`error-event` nil): the recovery is the framework's own
-                 ;; no-op (the ctx flows through unchanged), NOT a per-frame
-                 ;; `:on-error` `{:swallow | :replacement | :default}`
-                 ;; decision — mirrors the invalid-operation listener-only
-                 ;; model. The late-bind hook is how cofx.cljc reaches
+                 ;; production, not only under dev traces. The recovery is
+                 ;; the framework's own no-op (the ctx flows through
+                 ;; unchanged). The late-bind hook is how cofx.cljc reaches
                  ;; error-emit without a static require (load cycle).
                  (when-let [dispatch-on-error!
                             (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
                    (dispatch-on-error! :rf.error/no-such-cofx event event-id
-                                       frame-id nil 0 (interop/now-ms) nil))
+                                       frame-id nil 0 (interop/now-ms)))
                  ;; Dev trace path; DCE'd in CLJS prod.
                  (trace/emit-error! :rf.error/no-such-cofx
                                     (cond-> {:rf.cofx/id        cofx-id

@@ -13,9 +13,8 @@
 
     B. **Error-emit substrate retains source-coord in prod**. The tight
        record passed to corpus-wide listeners (Sentry / Honeybadger /
-       Rollbar shippers) AND the structured policy-event passed to the
-       per-frame `:on-error` fn MUST include `:source-coord` even under
-       the disabled debug gate. The coord rides the always-on parallel
+       Rollbar shippers) MUST include `:source-coord` even under the
+       disabled debug gate. The coord rides the always-on parallel
        `error-coords-by-id` registry — NOT the public registry-meta.
 
   Naming convention: `_test.clj` (JVM-only) by design — the canonical
@@ -110,31 +109,6 @@
               ":source-coord :line is an integer")
           (is (string? (:file sc))
               ":source-coord :file is a string"))))))
-
-(deftest policy-event-tags-include-source-coord-under-disabled-debug-gate
-  (testing "Per rf2-3un2g Policy B: under the disabled debug gate, the
-            structured `error-event` passed to the per-frame `:on-error`
-            policy fn MUST include `:source-coord` under `:tags`. In-app
-            recovery surfaces (custom error overlays, breadcrumb
-            recorders) get the same observability signal as the
-            corpus-wide listener."
-    (rf/reg-event-db :rf2-3un2g/policy-error-handler
-                     (fn [_db _]
-                       (throw (ex-info "boom" {:cause :test}))))
-    (with-redefs [interop/debug-enabled? false]
-      (let [seen (atom nil)]
-        (rf/reg-frame :rf/default
-                      {:on-error (fn [ev] (reset! seen ev) nil)})
-        (rf/dispatch-sync [:rf2-3un2g/policy-error-handler])
-        (is (some? @seen)
-            ":on-error policy fired under disabled debug gate")
-        (let [sc (get-in @seen [:tags :source-coord])]
-          (is (some? sc)
-              "`:source-coord` rides `:tags` on the structured error-event
-               under disabled debug gate")
-          (is (symbol? (:ns sc)))
-          (is (integer? (:line sc)))
-          (is (string? (:file sc))))))))
 
 ;; ---- programmatic registrations bypass the parallel registry -----------
 

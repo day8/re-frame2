@@ -255,14 +255,10 @@
   callers (frame pickers, tooling) read the nil from `current-frame` /
   `resolve-current-frame` and never reach here."
   [payload]
-  (let [operation (:operation payload)
-        event-id  (:event-id payload)]
-    ;; Axis 1 (BROAD) — always-on listener registry (survives prod elision).
-    ;; LISTENER-ONLY: no-frame-context is an invalid operation with no
-    ;; recovery point (there is no {:swallow|:replacement|:default} choice
-    ;; for an operation that named no frame), so the per-frame `:on-error`
-    ;; policy fn (axis 2) is deliberately bypassed — and we have no frame to
-    ;; route a policy through anyway. Pass `nil` for `error-event`.
+  (let [event-id (:event-id payload)]
+    ;; Always-on listener registry (survives prod elision).
+    ;; no-frame-context is an invalid operation — and we have no frame
+    ;; anyway.
     (when-let [dispatch-on-error! (late-bind/get-fn :error-emit/dispatch-on-error)]
       (dispatch-on-error!
         :rf.error/no-frame-context
@@ -271,8 +267,7 @@
         nil                              ;; no frame — that is the whole point
         nil                              ;; no exception — invalid op, not a throw
         0                                ;; elapsed-ms
-        (interop/now-ms)                 ;; time
-        nil))                            ;; LISTENER-ONLY — axis 2 not invoked
+        (interop/now-ms)))               ;; time
     ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
     (trace/emit-error! :rf.error/no-frame-context payload)
     payload))
@@ -379,7 +374,7 @@
   §`:rf/frame-meta`: return the effective metadata map for a frame as a
   flat shape — `:id` plus the post-preset-expansion user-supplied
   metadata keys (`:preset`, `:fx-overrides`, `:drain-depth`, `:doc`,
-  `:tags`, `:url-bound?`, `:platform`, `:on-error`, `:ssr`, …) merged
+  `:tags`, `:url-bound?`, `:platform`, `:ssr`, …) merged
   with the lifecycle fields (`:created-at`, `:destroyed?`, `:listeners`).
 
   Per Spec 002 §Frame presets, the `:preset` key is preserved verbatim
@@ -775,9 +770,7 @@
   ;;                  bound off frame-meta without consulting the global default).
   ;;   :story      -> same HTTP redirect as :test; tighter :drain-depth 16
   ;;                  so a runaway dispatch cascade fails fast under a story.
-  ;;   :ssr-server -> :platform :server (gates fx via reg-fx :platforms);
-  ;;                  :on-error :rf.error/server-projection (server-side
-  ;;                  exception projection per Spec 011).
+  ;;   :ssr-server -> :platform :server (gates fx via reg-fx :platforms).
   ;; User-supplied keys win on conflict; see expand-preset.
   ;;
   ;; rf2-cdmle — the :test / :story redirect targets
@@ -793,8 +786,7 @@
                  :drain-depth  100}
     :story      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
                  :drain-depth  16}
-    :ssr-server {:platform     :server
-                 :on-error     :rf.error/server-projection}
+    :ssr-server {:platform :server}
     nil         {}
     (throw (ex-info ":rf.error/unknown-preset"
                     {:preset preset

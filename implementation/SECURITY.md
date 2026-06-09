@@ -79,11 +79,10 @@ The JVM stub is not a "no-op stub" — it is a real, runtime-honoured gate. The 
 
 ### Always-on substrates — production-survivable on both hosts
 
-Three substrates survive `:advanced` + `goog.DEBUG=false` on CLJS, and survive `re-frame.debug=false` on JVM:
+Two substrates survive `:advanced` + `goog.DEBUG=false` on CLJS, and survive `re-frame.debug=false` on JVM:
 
-- **The per-frame `:on-error` policy fn** (per [`../spec/009-Instrumentation.md`](../spec/009-Instrumentation.md)). Always runs; production-monitoring case.
 - **The event-emit listener surface** — `re-frame.event-emit/dispatch-on-event!` plus the listener registry. Always fans out per-event records to registered observability listeners (Datadog, Honeycomb, Sentry, custom).
-- **The error-emit listener surface** — `re-frame.error-emit/dispatch-on-error!` plus the listener registry. Corpus-wide fan-out path parallel to per-frame `:on-error`. Mutually isolated from the per-frame policy fn.
+- **The error-emit listener surface** — `re-frame.error-emit/dispatch-on-error!` plus the listener registry. Corpus-wide fan-out per `:rf.error/*` event to registered observability shippers; per-listener exceptions isolated. (The per-frame `:on-error` recovery policy was removed per rf2-hiqtk8 — recovery is framework-owned via the per-category typed defaults.)
 
 Sensitive data marking on these substrates is path-based per the upcoming data-classification mechanism (separate spec doc; in progress). The legacy handler-meta `:sensitive?` annotation has been removed; per-path elision (the per-frame `[:rf/runtime :elision]` registry, populated from app-schema `:sensitive?` slot meta) is the load-bearing privacy surface on these substrates.
 
@@ -197,7 +196,7 @@ Every concrete CLJS-reference security call recorded as a bead, with one-line ra
 | rf2-0la4f | JVM `re-frame.debug` / `RE_FRAME_DEBUG` env/property gate | SSR / long-running JVM posture: explicit dev-flag opt-out, read once at ns-load. Eliminates the dev-side trace surface in production. |
 | rf2-hqbeh | Always-on error-emit substrate (not gated by `debug-enabled?`) | The handler-exception path is the primary production-monitoring case; gating it on `debug-enabled?` would eliminate the production observability surface. Dev-side enrichments (`:dispatch-id`, source-coord) elide with the rest of the trace surface. |
 | rf2-rirbq | Always-on event-emit substrate | Sibling to the error-emit substrate; per-event records for hosted observability (Datadog, Honeycomb, Sentry). |
-| rf2-bacs4 | Always-on error-emit listener surface | Corpus-wide fan-out path parallel to per-frame `:on-error`. Mutually isolated from the per-frame policy fn. |
+| rf2-bacs4 | Always-on error-emit listener surface | Corpus-wide fan-out per `:rf.error/*` event to observability shippers; per-listener exceptions isolated. (The per-frame `:on-error` recovery policy was removed per rf2-hiqtk8.) |
 | rf2-jbcmt | SSR response accumulator moved to side-channel atom (not in `app-db`) | Hydration payload defaults to shipping the whole app-db. Response state (auth cookies, internal `X-*` headers) in app-db default-leaks; side-channel atom makes the privacy boundary self-enforcing. |
 
 ### Pragmatic stance (the nine policy beads)

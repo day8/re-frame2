@@ -624,8 +624,6 @@ Each error / warning category enumerated in [009 §Error event catalogue](009-In
 
 Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from the `:rf/error-event` envelope above; the per-category schemas below describe the *additional* category-specific keys. Open-map convention applies — implementations may add fields additively without breaking consumers (per [§Schema convention](#schema-convention)).
 
-> **One carve-out.** `:rf.error/on-error-policy-exception` (`OnErrorPolicyExceptionRecord`, below) is the lone category that does NOT ride the dev-trace `:rf/error-event` surface and therefore carries NO `:tags` payload. It is fanned directly at the always-on error-emit listener (surface #4), so its schema describes a #4 listener *record* — discriminated by a top-level `:error` slot (not `:category`) and with no `:recovery` slot. See its definition for the full rationale (rf2-xto1tx).
-
 ```clojure
 ;; --- runtime: handler / sub / fx / interceptor exceptions ---
 
@@ -878,41 +876,6 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:returned-type :any]
    [:reason        :string]
    [:recovery      [:= :no-recovery]]])
-
-(def OnErrorPolicyExceptionRecord
-  ;; Per 009 §Error event catalogue (`:rf.error/on-error-policy-exception`,
-  ;; rf2-ciy / rf2-avnzbp): a frame's `:on-error` policy fn itself threw
-  ;; while processing an error event.
-  ;;
-  ;; CARVED OUT of the dev-trace `:tags` framing (rf2-xto1tx). Unlike every
-  ;; other row in this section, this category NEVER rides the dev-trace
-  ;; `:rf/error-event` surface — it is fanned LOUDLY and DIRECTLY at the
-  ;; always-on error-emit listener registry (surface #4), listener-only, with
-  ;; NO recursive re-invocation of the per-frame `:on-error` policy (#5) (the
-  ;; unbounded-recursion guard). It therefore survives `goog.DEBUG=false` and
-  ;; is never silently swallowed in CLJS prod. The shape below is the
-  ;; #4 listener RECORD (`{:error :event :event-id :frame :time :exception
-  ;; :elapsed-ms}`, per 009 §What IS available in production) — NOT a `:tags`
-  ;; payload. There is no `:category` / `:recovery` key
-  ;; (those are dev-trace-event keys); the discriminator is the top-level
-  ;; `:error` slot. `:event` / `:event-id` / `:elapsed-ms` are carried as
-  ;; `nil` (the policy throw has no failing event vector of its own).
-  ;; `:exception` is the policy fn's throwable (the object — message + ex-data
-  ;; ride on it; NOT a serialised string). `:original` is the original
-  ;; operation **keyword** (`(:operation error-event)` — NOT an event vector),
-  ;; an additive top-level slot correlating the policy failure with the error
-  ;; the policy was handling. `:frame` names the policy's host frame. After
-  ;; the loud emit the runtime applies the original error's per-category
-  ;; default recovery.
-  [:map
-   [:error      [:= :rf.error/on-error-policy-exception]]
-   [:frame      {:optional true} :keyword]
-   [:exception  {:optional true} :any]       ;; the policy fn's throwable (object, not a string)
-   [:original   {:optional true} :keyword]   ;; the original operation keyword, NOT an event vector
-   [:event      {:optional true} [:maybe [:vector :any]]]   ;; nil — no failing event vector of its own
-   [:event-id   {:optional true} [:maybe :keyword]]         ;; nil
-   [:time       {:optional true} :any]                      ;; emit timestamp (host clock)
-   [:elapsed-ms {:optional true} [:maybe :int]]])           ;; nil
 
 (def FlowEvalExceptionTags
   [:map
@@ -2594,7 +2557,6 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     [:drain-depth  {:optional true} :int]
     [:url-bound?   {:optional true} :boolean]                              ;; per [012-Routing.md](012-Routing.md)
     [:platform     {:optional true} :keyword]                              ;; the frame's active platform; per [011-SSR.md](011-SSR.md). Single keyword (one platform per frame); compared against `reg-fx`'s `:platforms` set.
-    [:on-error     {:optional true} :keyword]                              ;; error-projection target; per [011-SSR.md](011-SSR.md). The `:ssr-server` preset wires `:rf.error/server-projection`.
     ]])
 ```
 
@@ -2617,8 +2579,7 @@ The fixed, closed expansion table for `:preset` values. Each preset expands to a
                   [:fx-overrides [:= {:rf.http/managed :rf.http/managed-canned-success}]] ;; exact pair fixed by 002 §`:story` preset
                   [:drain-depth  [:= 16]]]]
    [:ssr-server  [:map
-                  [:platform     [:= :server]]
-                  [:on-error     [:= :rf.error/server-projection]]]]])
+                  [:platform     [:= :server]]]]])
 ```
 
 The fully-expanded metadata returned from `frame-meta` conforms to `:rf/frame-meta`; the schema for the expansion *table itself* is `:rf/preset-expansion`. Implementations must produce the same expansion the table specifies, modulo user-supplied overrides.

@@ -496,12 +496,12 @@
 ;; `trace/emit-error!` ONLY. In CLJS production builds, that path is
 ;; DCE'd by `goog.DEBUG=false` — flow failures became silent to
 ;; corpus-wide error listeners (Sentry / Honeybadger / Rollbar
-;; shippers registered via `register-error-listener!`) and to
-;; the per-frame `:on-error` policy fn. The handler-exception path
-;; (`emit-handler-exception!`) had ALREADY been routed through the
-;; always-on substrate; flow-eval was asymmetric. This test pins the
-;; symmetric routing: a flow-eval throw must surface on the listener
-;; registry record in JVM dev AND survive prod elision in CLJS.
+;; shippers registered via `register-error-listener!`). The
+;; handler-exception path (`emit-handler-exception!`) had ALREADY been
+;; routed through the always-on substrate; flow-eval was asymmetric.
+;; This test pins the symmetric routing: a flow-eval throw must surface
+;; on the listener registry record in JVM dev AND survive prod elision
+;; in CLJS.
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-eval-exception-routes-through-error-emit-substrate
@@ -546,51 +546,6 @@
             "record carries the tight rf2-bacs4 keys plus rf2-3un2g
              :source-coord (always-on parallel error-coord registry —
              the failing handler was macro-registered above)")))))
-
-(deftest flow-eval-exception-fires-per-frame-on-error-policy
-  (testing "Per rf2-hrt5c: a flow whose :output throws ALSO fires the
-            per-frame `:on-error` policy fn through the substrate.
-            The structured error-event carries `:operation
-            :rf.error/flow-eval-exception` and `:where :flow-eval`
-            so policy fns can discriminate the flow-eval path from
-            the handler-exception path."
-    (let [policy-saw (atom nil)]
-      (rf/reg-frame :rf/default
-                    {:on-error (fn [ev] (reset! policy-saw ev) nil)})
-      (rf/reg-event-db :init (fn [_ _] {:n 1}))
-      (rf/reg-flow {:id     :boom
-                    :inputs [[:n]]
-                    :output (fn [_] (throw (ex-info "flow boom" {})))
-                    :path   [:doomed]})
-      (rf/dispatch-sync [:init])
-      (let [ev @policy-saw]
-        (is (some? ev) ":on-error policy fired for the flow-eval throw")
-        (is (= :rf.error/flow-eval-exception (:operation ev))
-            ":operation names the flow-eval-exception path")
-        (is (= :error (:op-type ev)))
-        (is (= :no-recovery (:recovery ev)))
-        (let [tags (:tags ev)]
-          (is (= :flow-eval (:where tags))
-              ":where :flow-eval distinguishes from :handler-exception")
-          (is (nil? (:handler-id tags))
-              ":handler-id nil — no handler ran; the throw came from
-               the outermost-`:after` flow walk (pre-install)")
-          (is (= :init       (:event-id tags)))
-          (is (= [:init]     (:event tags)))
-          (is (= :rf/default (:frame tags)))
-          (is (some? (:exception tags)))
-          ;; Per rf2-je5p8: :flow-id is stamped into :tags from the
-          ;; ex-info wrapping in evaluate-flow!'s catch. This is the
-          ;; ONLY per-flow attribution that survives CLJS prod
-          ;; elision — `:rf.flow/failed` trace is DCE'd.
-          (is (= :boom (:flow-id tags))
-              ":flow-id is propagated from evaluate-flow!'s ex-info wrap (rf2-je5p8)")
-          ;; Attribution is `:flow-id`-only. There is no real flow VALUE
-          ;; to carry, so the cascade-level error MUST NOT claim a
-          ;; `:flow` slot — the contract is the id alone (Spec 013
-          ;; §Failure semantics / §Resolved decisions).
-          (is (not (contains? tags :flow))
-              ":flow is NOT stamped — no real flow value exists"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5c. :rf.fx/reg-flow cycle detection routes through error-emit (rf2-eb4lp)
