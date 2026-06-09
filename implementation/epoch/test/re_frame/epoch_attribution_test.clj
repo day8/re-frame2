@@ -87,46 +87,42 @@
   de-duped; a genuine re-render never collapses back to the mount epoch."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.flows :as flows]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
+            ;; `trace` + `state` are used in test BODIES (`trace/emit!`,
+            ;; `trace/frame-trace-disabled?`, the `state/buffer-*!` /
+            ;; `state/*-mount-attribution!` private-helper exercises) —
+            ;; NOT for fixture config reset.
             [re-frame.trace :as trace]
             [re-frame.elision]
             [re-frame.epoch :as epoch]
             [re-frame.epoch.state :as state]
+            [re-frame.test-support :as test-support]
             [re-frame.machines]))
 
 ;; ---- fixture ---------------------------------------------------------------
 ;;
-;; Mirrors `re-frame.epoch-test/reset-runtime` — the attribution surface
-;; reaches the same shared atoms (`state/last-settled-epoch`,
-;; `mount-attribution`, the per-frame ring), all wiped by
-;; `epoch/clear-history!`. Per rf2-dq2b7 the former two render-attribution
-;; atoms (`mount-epoch-by-render-key` + `render-deps-by-render-key`)
-;; collapsed into a single `mount-attribution` atom.
-
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
-  (flows/reset-last-inputs!)
-  (trace/clear-listeners!)
-  ;; rf2-tqlmq — the per-frame trace-emission gate (`:rf.trace/frame-no-emit?`)
-  ;; is process-sticky (it tracks frame registrations, which `reset! frames {}`
-  ;; does not unwind). inv-7 registers a trace-disabled observer frame; clear
-  ;; the set between tests so a prior case's registration cannot leak in.
-  (trace/clear-frame-no-emit!)
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
+;; registrar at ns-load + restores around each test, and fires the epoch
+;; reset-hook table (history / listeners / config-to-default) so the
+;; shared attribution atoms (`state/last-settled-epoch`,
+;; `mount-attribution`, the per-frame ring) start clean each test.
+;;
+;; The `:init-fn` adds two suite-specific steps the shared fixture
+;; doesn't own:
+;;   - `(rf/configure! :epoch-history {:trace-events-keep 5})` — the
+;;     suite's non-default keep (NOT the shipped 50 = :depth; Mike
+;;     pair-debug 2026-05-27), through the public boundary so no test ns
+;;     reaches into the private `state/config` var.
+;;   - `(trace/clear-frame-no-emit!)` — rf2-tqlmq: the per-frame
+;;     trace-emission gate (`:rf.trace/frame-no-emit?`) is process-sticky
+;;     and NOT a reset-hook-table row; inv-7 registers a trace-disabled
+;;     observer frame, so clear the set between tests.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn (fn []
+                (rf/configure! :epoch-history {:trace-events-keep 5})
+                (trace/clear-frame-no-emit!))}))
 
 ;; ---- shared post-settle-emit fixture --------------------------------------
 ;;

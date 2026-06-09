@@ -15,33 +15,26 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
-            [re-frame.epoch.state :as state]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
+            [re-frame.test-support :as test-support]
             ;; Side-effect require: machines publishes the late-bind hook
             ;; (see epoch_test.clj for the same dance).
             [re-frame.machines]))
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
-  (flows/reset-last-inputs!)
-  (trace/clear-listeners!)
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
+;; registrar at ns-load + restores around each test, fires the epoch
+;; reset-hook table (history / listeners / config-to-default), and the
+;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
+;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
+;; public `configure!` boundary — no test ns reaches into the private
+;; `state/config` var. The `:init-fn` runs OUTSIDE each test's
+;; `(with-redefs [interop/debug-enabled? false] ...)`, so config lands at
+;; the normal gate value.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
 
 (deftest epoch-history-inert-when-debug-disabled
   (testing "Per rf2-0la4f: when the JVM debug gate reads false, the

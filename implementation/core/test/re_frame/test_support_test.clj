@@ -166,7 +166,7 @@
 ;; ---- rf2-j9phb (TE-R2.2) — make-reset-runtime-fixture hook-cascade coverage ----
 ;;
 ;; The fixture's per-test reset drives an inline table
-;; (`test_support.cljc/reset-hook-table`) of nine late-bind hook keys
+;; (`test_support.cljc/reset-hook-table`) of late-bind hook keys
 ;; across two phases (`:pre-dispose` and `:post-dispose`). The pure-shape
 ;; refactor that landed via rf2-d7vw8 made the call-set explicit — but
 ;; the call-set is still implicit: a future change that drops a row
@@ -177,7 +177,8 @@
 ;;
 ;; Mechanism:
 ;;   1. Snapshot the late-bind hooks atom.
-;;   2. Replace each of the nine known reset-hook-table keys with a
+;;   2. Replace each known reset-hook-table key in
+;;      `reset-hook-expected-counts` with a
 ;;      sentinel that increments a per-key counter atom. (Replace
 ;;      regardless of whether the producer registered it on the test
 ;;      classpath — the sentinel ensures the fixture's hook walk
@@ -217,6 +218,7 @@
    :http/clear-all-in-flight!       1
    :epoch/clear-history!            1
    :epoch/clear-epoch-listeners!          1
+   :epoch/reset-config!             1
    :adapter/clear-warn-once-caches! 1})
 
 (deftest make-reset-runtime-fixture-fires-every-hook-the-documented-number-of-times

@@ -86,16 +86,21 @@
   ;; the slot to `0` drops every record's `:trace-events`.
   50)
 
+(def ^:private default-config
+  ;; The shipped baseline config. Three keys today (:depth,
+  ;; :trace-events-keep, :redact-fn). Map shape kept open so future
+  ;; (rf/configure! :epoch-history {...}) extensions don't break the
+  ;; shape. Per rf2-wp70d / Tool-Pair §Time-travel §Redaction hook +
+  ;; Security.md §Epoch privacy posture: :redact-fn defaults to nil —
+  ;; apps that record sensitive material into app-db opt in by
+  ;; installing a fn. `reset-config!` restores exactly this map, and
+  ;; the `defonce` below initialises from it.
+  {:depth             default-depth
+   :trace-events-keep default-trace-events-keep
+   :redact-fn         nil})
+
 (defonce ^:private config
-  ;; Three keys today (:depth, :trace-events-keep, :redact-fn). Map
-  ;; shape kept open so future (rf/configure! :epoch-history {...})
-  ;; extensions don't break the shape. Per rf2-wp70d / Tool-Pair
-  ;; §Time-travel §Redaction hook + Security.md §Epoch privacy
-  ;; posture: :redact-fn defaults to nil — apps that record
-  ;; sensitive material into app-db opt in by installing a fn.
-  (atom {:depth             default-depth
-         :trace-events-keep default-trace-events-keep
-         :redact-fn         nil}))
+  (atom default-config))
 
 (defn non-neg-int?
   "True for non-negative integer values; nil and non-numeric values
@@ -139,6 +144,27 @@
   "Return the current epoch-history configuration map."
   []
   @config)
+
+(defn reset-config!
+  "Restore the live config atom to the shipped `default-config`
+  baseline (`:depth` 50, `:trace-events-keep` 50, `:redact-fn` nil).
+  Returns nil.
+
+  Test-support seam (rf2-yw1w1u): `re-frame.test-support`'s reset-hook
+  table fires this — via the `:epoch/reset-config!` late-bind hook —
+  once per fixture invocation so a prior test's `(rf/configure!
+  :epoch-history ...)` (which MERGES) can't leak `:trace-events-keep`,
+  `:depth`, or an installed `:redact-fn` into the next test. Resetting
+  to the WHOLE default map (rather than merging) is what clears a
+  previously-installed `:redact-fn` without the test ns reaching into
+  the private `config` var directly. Suites that intentionally want a
+  non-default value (e.g. `:trace-events-keep 5` to make the
+  keep<depth elision path reachable cheaply) re-apply it through the
+  public `configure!` boundary in their `:init-fn`, which runs AFTER
+  this reset."
+  []
+  (reset! config default-config)
+  nil)
 
 (defn depth []
   (:depth @config default-depth))
