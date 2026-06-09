@@ -63,6 +63,16 @@
             [re-frame.schemas.malli]
             [re-frame.schemas :as schemas]
             [re-frame.machines.data-validation :as machine-data]
+            ;; rf2-g1a4ho — the two PRODUCTION-PATH drivers below register a
+            ;; flow / a sub-override and drive the real drain + subscribe
+            ;; cascades end-to-end. Requiring `re-frame.flows` publishes the
+            ;; `:flows/run-flows-on-db` late-bind hook so the router's
+            ;; always-present flows-after-interceptor actually runs the flow
+            ;; transform on `dispatch-sync`; `plain-atom` is the substrate the
+            ;; drain / subscribe paths run against.
+            [re-frame.flows]
+            [re-frame.late-bind :as late-bind]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.security.gen :as gen]))
@@ -233,14 +243,123 @@
       (is (= :rf/redacted (-> trace :tags :received)) ":received redacted")
       (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
 
-;; The :sub-override and :flow-output emit fns are private to their
-;; namespaces (re-frame.subs / re-frame.flows) and only reachable through a
-;; full reactive / drain cascade that the node-test harness does not stand
-;; up. They build their failure tags then route them through the SAME shared
-;; seam (`:schemas/redact-validation-tags`) the corpus above exercises
-;; end-to-end. We assert the seam scrubs the EXACT tag shape each site builds,
-;; so a shape drift (a new value-bearing slot added without listing it in
-;; `value-bearing-slots`) is caught here.
+;; ---------------------------------------------------------------------------
+;; PRODUCTION-PATH coverage for `:where :flow-output` and `:where
+;; :sub-override` (rf2-g1a4ho).
+;;
+;; The two corpus drivers below REGISTER a real flow / a real sub-override on
+;; a `:sensitive?`-marked output schema and drive the ACTUAL production
+;; cascade — `dispatch-sync` → router flows-after-interceptor → private
+;; `validate-output!` for flows; `subscribe` → `resolve-sub-override` →
+;; private `maybe-validate-sub-override!` for the sub-override seam — far
+;; enough to emit `:rf.error/schema-validation-failure`. They then assert the
+;; captured trace has NO sentinel and IS stamped `:sensitive?`.
+;;
+;; This couples the security invariant to the real call sites: a refactor in
+;; `flows.cljc`'s `validate-output!` or `subs.cljc`'s
+;; `maybe-validate-sub-override!` that drops the `(redact schema)` application,
+;; emits a new un-listed value-bearing slot, or loses the `:sensitive?` stamp
+;; now goes RED here — the false-green gap the prior shape-only tests left
+;; open (the production emit could bypass the seam while the handcrafted
+;; tag-shape test stayed green). Verify-by-revert: removing the
+;; `redact (->> (redact schema))` cond-> arm from either production path makes
+;; the corresponding test below fail (the sentinel surfaces in `:explain` /
+;; `:value`).
+;;
+;; The flow driver is `.cljc` (the flow path is cross-runtime); the
+;; sub-override driver is `#?(:cljs ...)` because the `:sub-overrides`
+;; subscribe seam is a CLJS-only dev surface (`re-frame.subs`'
+;; `maybe-validate-sub-override!` / `resolve-sub-override` are guarded
+;; `#?(:cljs …)`).
+;; ---------------------------------------------------------------------------
+
+(defn- with-runtime*
+  "Install the plain-atom substrate + ensure the `:rf/default` frame for the
+  extent of `thunk`, then dispose. The shared adapter-less reset fixture
+  (which `:clear-app-schemas?`-resets and pins `:rf/default` as the ambient
+  scope) does NOT install an adapter — the flow drain / subscribe production
+  paths need one. The outer fixture's `frame/*current-frame* :rf/default`
+  binding supplies the ambient scope; we just stand up the substrate and the
+  default frame here, and the next test's fixture run disposes the adapter on
+  the way in (we dispose eagerly too for symmetry)."
+  [thunk]
+  (try (rf/init! plain-atom/adapter) (catch #?(:clj Throwable :cljs :default) _ nil))
+  (frame/ensure-default-frame!)
+  (try (thunk)
+       (finally
+         ;; Drop the flow registry + dirty-check rows so a sibling test in
+         ;; this ns does not re-run our flow on its own dispatch.
+         (when-let [reset! (late-bind/get-fn :flows/reset-flows!)]
+           (try (reset!) (catch #?(:clj Throwable :cljs :default) _ nil))))))
+
+(deftest flow-output-production-path-redacts-sensitive
+  (testing "rf2-g1a4ho — :where :flow-output PRODUCTION PATH: a flow whose
+            output fails a :sensitive?-marked schema drives the real
+            dispatch-sync drain cascade and the emitted
+            schema-validation-failure trace redacts every value-bearing slot
+            + stamps :sensitive?. Reverting flows.cljc's `(redact schema)`
+            arm makes this RED."
+    (with-runtime*
+      (fn []
+        ;; Seed an event that writes the flow's input; the flow's :output
+        ;; copies the sentinel-bearing value to its :path, where it fails
+        ;; the :sensitive? output schema. The failing value carries the
+        ;; sentinel so, absent redaction, it rides verbatim in :value /
+        ;; :explain on the trace bus.
+        (rf/reg-event-db :flow/seed (fn [_ _] {:in failing-sensitive-value}))
+        (rf/reg-flow {:id     :flow/secret
+                      :inputs [[:in]]
+                      :output (fn [in] in)            ;; pass the bad value through
+                      :path   [:derived]
+                      :schema sensitive-map-schema})
+        (let [trace (capture-failure
+                      #(rf/dispatch-sync [:flow/seed]))]
+          (assert-no-leak ":where :flow-output (production path)" trace)
+          (is (= :flow-output (-> trace :tags :where))
+              ":where :flow-output — drove the real flow-output emit site")
+          (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
+          (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))))
+
+#?(:cljs
+   (deftest sub-override-production-path-redacts-sensitive
+     (testing "rf2-g1a4ho — :where :sub-override PRODUCTION PATH (CLJS): a
+               :sub-overrides HIT pinning a value that fails the sub's
+               :sensitive?-marked output schema drives the real subscribe ->
+               resolve-sub-override -> maybe-validate-sub-override! path; the
+               emitted trace redacts every value-bearing slot + stamps
+               :sensitive?. Reverting subs.cljc's `(redact schema)` arm makes
+               this RED."
+       (with-runtime*
+         (fn []
+           ;; A sub declaring a :sensitive?-marked output schema. The
+           ;; override pins a value that fails it, planting the sentinel.
+           (rf/reg-sub :sub/secret {:schema sensitive-map-schema}
+                       (fn [_db _] {:secret "ok"}))
+           ;; Publish the override resolver the Story carriage would publish:
+           ;; an exact-query-vector HIT returns `[value]`.
+           (late-bind/set-fn! :subs/resolve-sub-override
+             (fn [query-v]
+               (when (= query-v [:sub/secret])
+                 [failing-sensitive-value])))
+           (try
+             (let [trace (capture-failure
+                           #(deref (rf/subscribe [:sub/secret])))]
+               (assert-no-leak ":where :sub-override (production path)" trace)
+               (is (= :sub-override (-> trace :tags :where))
+                   ":where :sub-override — drove the real override emit site")
+               (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
+               (is (= :rf/redacted (-> trace :tags :received)) ":received redacted")
+               (is (= :rf/redacted (-> trace :tags :rf.sub/query-v))
+                   ":rf.sub/query-v redacted"))
+             (finally
+               (late-bind/set-fn! :subs/resolve-sub-override nil))))))))
+
+;; SUPPLEMENTARY (rf2-g1a4ho) — the handcrafted tag-shape tests below now
+;; backstop the production-path drivers above: they exercise the shared seam
+;; against the EXACT tag map each site builds, so a shape drift (a new
+;; value-bearing slot added without listing it in `value-bearing-slots`) is
+;; caught here even if a future production-path refactor stops building that
+;; slot. They are no longer the ONLY coverage for these two emit sites.
 
 (deftest sub-override-tag-shape-redacts-through-seam
   (testing "rf2-o69h5 — the :where :sub-override tag shape redacts every
