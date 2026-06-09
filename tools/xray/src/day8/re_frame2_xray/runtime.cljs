@@ -916,8 +916,8 @@
                            :hint   (str "Restore failed — read the trace bus "
                                         "for the structured :rf.epoch/* row.")))))))
 
-(defn reset-frame-db!
-  "Tool: `reset-frame-db`. Inject `:value` into a frame's `app-db`,
+(defn replace-app-db!
+  "Tool: `replace-app-db`. Inject `:value` into a frame's `app-db`,
   bypassing the cascade. Schema-validates against current schemas via
   `rf/replace-app-db!` (renamed from `rf/reset-frame-db!`, EP-0001
   rf2-tfepxu); the framework's wrapper returns `true` on success and

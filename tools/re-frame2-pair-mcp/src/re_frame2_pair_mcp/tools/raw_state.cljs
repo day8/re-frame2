@@ -159,7 +159,7 @@
   build-id was still in the resolved set, `signal-runtime!` returned a
   no-op, the freshly-recreated runtime stayed at its permissive default,
   and the next state-emitting tool (snapshot / get-path / subscribe /
-  reset-frame-db / restore-epoch / dispatch-dry-run / record /
+  replace-app-db / restore-epoch / dispatch-dry-run / record /
   watch-until) could tap RAW prev/next app-db through `tap>` even with
   `--allow-sensitive-reads` OFF.
 

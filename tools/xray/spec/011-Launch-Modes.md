@@ -731,7 +731,7 @@ browser running the user's re-frame2 app (with Xray runtime preloaded)
 
 The agent sees the **same trace bus and epoch history** that
 Xray-the-panel sees, via the same runtime accessors. Tool calls are
-read-mostly; writes (`restore-epoch`, `reset-frame-db`, `dispatch`)
+read-mostly; writes (`restore-epoch`, `replace-app-db`, `dispatch`)
 are confirmed by the agent host (typically Claude Code's
 tool-permission prompt).
 

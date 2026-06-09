@@ -165,7 +165,7 @@ wired into the build, and consumers can use it today.
   (`record` / `read-recording` / `watch-until`), the streaming triad
   (`subscribe` / `unsubscribe` / `list-streams`), the reactive-sub-cache
   read `list-subscriptions`, the write pair (`restore-epoch` /
-  `reset-frame-db`, gated behind `--allow-writes`), the
+  `replace-app-db`, gated behind `--allow-writes`), the
   registrar-introspection pair (`handler-meta` / `list-handlers`), and
   `get-re-frame2-pair-instructions` (authoritative ordered catalogue:
   `src/re_frame2_pair_mcp/tools/registry.cljs`);

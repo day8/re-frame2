@@ -13,7 +13,7 @@
   | dispatch-dry-run | Simulate a cascade without committing it (rf2-17hvp)   |
   | restore-epoch | Time-travel undo — rewind a frame to a prior epoch        |
   |               | (gated behind --allow-writes; rf2-ee38b.18)              |
-  | reset-frame-db| State injection — replace a frame's app-db with EDN data  |
+  | replace-app-db| State injection — replace a frame's app-db with EDN data  |
   |               | (gated behind --allow-writes; rf2-ee38b.18)              |
   | trace-window  | Epochs in the last N ms                                   |
   | watch-epochs  | Pull-mode live epoch streaming                            |
@@ -52,7 +52,7 @@
     `cursor`, `args`, `summary`, `snapshot-pipeline`, `boundary-step`,
     `writes` (the --allow-writes gate, rf2-ee38b.18).
   - Tools: `discover-app`, `eval-cljs`, `dispatch`, `dispatch-dry-run`,
-    `restore-epoch`, `reset-frame-db`, `trace-window`, `watch-epochs`,
+    `restore-epoch`, `replace-app-db`, `trace-window`, `watch-epochs`,
     `tail-build`, `snapshot`, `get-path`, `read-dom`, `record`,
     `read-recording`, `watch-until`, `subscribe`, `unsubscribe`,
     `list-subscriptions`, `list-streams`, `handler-meta`, `list-handlers`,

@@ -123,7 +123,7 @@
 
 (defn dispatch-id-of-epoch
   "Return an `:rf/epoch-record`'s settling cascade `:dispatch-id`, or nil
-  when none is known (synthetic epochs from `reset-frame-db!`, a rejected
+  when none is known (synthetic epochs from `replace-app-db!`, a rejected
   dispatch that never reached run-start).
 
   Per rf2-rly4a the record carries `:dispatch-id` as a first-class slot

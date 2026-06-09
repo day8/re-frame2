@@ -63,8 +63,9 @@
   ;; rf2-hga49 — `restore-epoch` is a side-effecting framework call (it
   ;; rewinds an OBSERVED frame's `app-db` to a past epoch's `:db-after`),
   ;; so it lives in an fx, not a `reg-event-db` reducer. `rf/restore-epoch`
-  ;; returns `false` on any of the six documented failure modes (per
-  ;; Tool-Pair §Time-travel — Restore) leaving the frame unchanged; on
+  ;; returns `false` on any of the seven documented failure modes (per
+  ;; Tool-Pair §Time-travel — Restore, including
+  ;; `:rf.epoch/restore-non-ok-record`) leaving the frame unchanged; on
   ;; failure we dispatch the inline flash so the operator is told (never
   ;; a silent lie). The framework also emits a structured `:rf.epoch/*`
   ;; trace row on the bus — Xray's own Trace panel surfaces the specifics.

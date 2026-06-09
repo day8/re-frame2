@@ -241,7 +241,7 @@ A singleton is created **lazily** by default — the initial-entry cascade folds
 
 #### 3. Build the initial db so it does NOT clobber the birth snapshot
 
-Here is the footgun. Machine snapshots live **in `app-db`** at `[:rf/runtime :machines :snapshots <id>]` (per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)) — deliberately, so machine state reverts atomically with `app-db` on `restore-epoch` / `reset-frame-db` / time-travel. The consequence: a handler that does a **wholesale `{:db fresh-map}` replace** — the v1 `:initialize-db` idiom — drops `:rf/runtime` and every live machine snapshot with it. If that replace runs **after** the boot machine has started, the boot machine is silently dead and every subsequent dispatch to it is a no-op.
+Here is the footgun. Machine snapshots live **in `app-db`** at `[:rf/runtime :machines :snapshots <id>]` (per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)) — deliberately, so machine state reverts atomically with `app-db` on `restore-epoch` / `replace-app-db` / time-travel. The consequence: a handler that does a **wholesale `{:db fresh-map}` replace** — the v1 `:initialize-db` idiom — drops `:rf/runtime` and every live machine snapshot with it. If that replace runs **after** the boot machine has started, the boot machine is silently dead and every subsequent dispatch to it is a no-op.
 
 There are two correct shapes; prefer the first.
 

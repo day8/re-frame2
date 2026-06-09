@@ -24,7 +24,7 @@
   ## Predicate vocabulary — DATA, not host source
 
   The `pred` arg is an EDN data predicate (same injection-closing posture
-  as `dispatch` / `reset-frame-db`, rf2-vflrg). It is compiled into a pure
+  as `dispatch` / `replace-app-db`, rf2-vflrg). It is compiled into a pure
   value-comparison fn by `record/pred-source` — shared with `record`'s
   `:stop {:pred ...}` so the two surfaces read identically. Recognised
   shapes (matched against the positional sample map `{<signal-index>

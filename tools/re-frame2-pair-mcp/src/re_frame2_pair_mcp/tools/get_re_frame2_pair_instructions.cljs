@@ -68,7 +68,7 @@
     "                          :cascade-summary + :unreplayable-effects vector\n"
     "                          (rf2-6yqdl) listing fx the original cascade\n"
     "                          fired that the restore cannot undo.\n"
-    "  reset-frame-db        — state injection; replace a frame's app-db\n"
+    "  replace-app-db        — state injection; replace a frame's app-db\n"
     "                          with EDN data (gated behind --allow-writes).\n"
     "  trace-window          — epochs in the last N ms (cursor-paginated).\n"
     "  watch-epochs          — pull-mode poll for matching epochs.\n"

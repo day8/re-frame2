@@ -321,7 +321,7 @@
   `:invalid-db-edn`) so each tool's error envelope stays specific.
 
   Factors out the trim+read+sentinel core shared verbatim by
-  `reset-frame-db` (`:db`), `restore-epoch` (`:epoch-id`), and
+  `replace-app-db` (`:db`), `restore-epoch` (`:epoch-id`), and
   `handler-meta` (`:id`). The richer `dispatch` / `dispatch-dry-run`
   event parsers are deliberately NOT routed through here — they layer a
   vector-shape contract + parsed-type classification on top, and their

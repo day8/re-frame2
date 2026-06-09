@@ -77,7 +77,7 @@
 //
 //   - `eval-cljs` with `--no-eval` ⇒ isError + `:rf.error/eval-cljs-disabled`
 //     (rf2-a0z0h — the opt-out post-default-ON eval gate).
-//   - `restore-epoch` / `reset-frame-db` with `--allow-writes` ABSENT ⇒
+//   - `restore-epoch` / `replace-app-db` with `--allow-writes` ABSENT ⇒
 //     isError + `:rf.error/writes-disabled` (rf2-ee38b.18 default-OFF
 //     write gate; coverage added rf2-6r5qe.1). This pins the pair-mcp
 //     half of the NAMING.md cross-server write-gate contract that was
@@ -503,11 +503,11 @@ runWithWatchdog(
     //
     // The pair-mcp `--allow-writes` gate (rf2-ee38b.18) guards the two
     // state-mutating tools `restore-epoch` (time-travel undo) and
-    // `reset-frame-db` (state injection). It is DEFAULT-OFF — the
+    // `replace-app-db` (state injection). It is DEFAULT-OFF — the
     // published-build posture — and this server booted WITHOUT
     // `--allow-writes`, so the gate is closed. Each tool body checks
     // `writes/writes-allowed?` FIRST (restore_epoch.cljs:59,
-    // reset_frame_db.cljs) and short-circuits to the canonical
+    // replace_app_db.cljs) and short-circuits to the canonical
     // `{:ok? false :reason :rf.error/writes-disabled :tool "<name>"}`
     // envelope WITHOUT touching the nREPL socket.
     //
@@ -535,7 +535,7 @@ runWithWatchdog(
     // honest home for the pair-mcp WRITE-gate wire check for the exact
     // reason end-to-end-flag-gates.cjs's "Coverage boundary" comment
     // routes the pair-mcp EVAL-gate check here. We probe BOTH gated tools
-    // — `restore-epoch` AND `reset-frame-db` — so a gate-check dropped
+    // — `restore-epoch` AND `replace-app-db` — so a gate-check dropped
     // from one tool but not the other is caught.
     //
     // The `arguments` are well-formed (a parseable epoch-id / db EDN
@@ -545,7 +545,7 @@ runWithWatchdog(
     // the refused tool in the envelope.
     const WRITE_GATE_PROBES = [
       { name: 'restore-epoch', arguments: { 'epoch-id': '0' } },
-      { name: 'reset-frame-db', arguments: { db: '{}' } },
+      { name: 'replace-app-db', arguments: { db: '{}' } },
     ];
     for (const probe of WRITE_GATE_PROBES) {
       const resp = await client.callTool(probe);

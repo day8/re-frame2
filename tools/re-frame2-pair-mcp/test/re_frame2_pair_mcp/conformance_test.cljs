@@ -295,7 +295,7 @@
     | eval-cljs              | yes   | yes         | (covered by ↑ )   |
     | dispatch               | yes   | yes         | yes               |
     | restore-epoch          | yes   | yes         | gated-default     |
-    | reset-frame-db         | yes   | yes         | gated-default     |
+    | replace-app-db         | yes   | yes         | gated-default     |
     | trace-window           | yes   | n/a         | n/a               |
     | watch-epochs           | yes   | n/a         | n/a               |
     | tail-build             | yes   | n/a         | n/a               |
@@ -862,10 +862,10 @@
     {:isError? true
      :reason :missing-epoch-id}}
 
-   ;; ---------- reset-frame-db (rf2-ee38b.18 — gated write) ---------------
-   {:fixture/id    :reset-frame-db/disabled-default
-    :fixture/doc   "reset-frame-db with --allow-writes OFF returns :rf.error/writes-disabled without touching the runtime."
-    :fixture/tool  "reset-frame-db"
+   ;; ---------- replace-app-db (rf2-ee38b.18 — gated write) ---------------
+   {:fixture/id    :replace-app-db/disabled-default
+    :fixture/doc   "replace-app-db with --allow-writes OFF returns :rf.error/writes-disabled without touching the runtime."
+    :fixture/tool  "replace-app-db"
     :fixture/args  {:db "{:k :v}"}
     :fixture/eval-script
     [[:default nil]]
@@ -873,9 +873,9 @@
     {:isError? true
      :reason :rf.error/writes-disabled}}
 
-   {:fixture/id    :reset-frame-db/happy
-    :fixture/doc   "reset-frame-db with --allow-writes ON passes the runtime's app-db-reset! envelope through; db rides as EDN data. Signals configure-raw-state! before app-db-reset! (rf2-z7roa raw-state tap posture)."
-    :fixture/tool  "reset-frame-db"
+   {:fixture/id    :replace-app-db/happy
+    :fixture/doc   "replace-app-db with --allow-writes ON passes the runtime's app-db-reset! envelope through; db rides as EDN data. Signals configure-raw-state! before app-db-reset! (rf2-z7roa raw-state tap posture)."
+    :fixture/tool  "replace-app-db"
     :fixture/allow-writes? true
     :fixture/allow-raw-state? false
     :fixture/args  {:db "{:counter 0}"}
@@ -895,9 +895,9 @@
     {:isError? false
      :edn-submap {:ok? true :frame :rf/default}}}
 
-   {:fixture/id    :reset-frame-db/missing-db
-    :fixture/doc   "reset-frame-db with --allow-writes ON but no :db surfaces :missing-db."
-    :fixture/tool  "reset-frame-db"
+   {:fixture/id    :replace-app-db/missing-db
+    :fixture/doc   "replace-app-db with --allow-writes ON but no :db surfaces :missing-db."
+    :fixture/tool  "replace-app-db"
     :fixture/allow-writes? true
     :fixture/args  {}
     :fixture/eval-script

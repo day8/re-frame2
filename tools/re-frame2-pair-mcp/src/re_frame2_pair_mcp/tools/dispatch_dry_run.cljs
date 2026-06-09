@@ -44,7 +44,7 @@
       forced safe (`elision` true, `include-sensitive` false).
     - `:cascade-summary` is a depth-bounded projection (path lists +
       counts, not verbatim values) so it rides through unwalked, the
-      same way `dispatch` / `reset-frame-db` / `restore-epoch` surface
+      same way `dispatch` / `replace-app-db` / `restore-epoch` surface
       it (rf2-6yqdl).
 
   ## Raw-state tap signal (rf2-z7roa / rf2-c2dtu)

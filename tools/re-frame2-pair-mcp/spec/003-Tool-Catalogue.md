@@ -3,7 +3,7 @@
 > Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
 > each MCP tool below routes through one or more of the Tool-Pair
 > primitives (`app-db-value`, `epoch-history`, `register-listener!`,
-> `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
+> `register-epoch-listener!`, `restore-epoch`, `replace-app-db!`,
 > `dispatch`, `dispatch-sync`).
 
 The twenty-eight MCP tools. All twenty-eight are catalogued below; the
@@ -17,7 +17,7 @@ rf2-4y595 for NAMING.md `list-<things>` conformance), the operating-frame
 trio `set-operating-frame` + `reset-operating-frame` + `get-operating-frame`
 (rf2-zomfq — the [Tool-Pair §Tool-surface obligations][tsobl] ops that
 surface the session frame pin, the escape from tier-4 `:ambiguous-frame`),
-the write pair `restore-epoch` + `reset-frame-db` (rf2-ee38b.18 — the
+the write pair `restore-epoch` + `replace-app-db` (rf2-ee38b.18 — the
 Tool-Pair time-travel + state-injection primitives, gated behind
 `--allow-writes`), `dispatch-dry-run` (rf2-17hvp — simulate a cascade without
 committing), the view-plane reads `read-dom` (rf2-nfjil) + the typed
@@ -564,7 +564,7 @@ CLI flags:
 |---------------------------|---------------|------------------|
 | `--no-eval`               | absent (eval-cljs ON) | Disables `eval-cljs` (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is the REPL primitive of a pair-debug session. With this flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
 | `--allow-sensitive-reads` | OFF           | Honours caller-supplied `:include-sensitive true` and `:elision false` on the off-box read surfaces — the direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`) AND `dispatch-dry-run` (rf2-z7roa), whose `:db-state-after-simulation` + `:would-fire-effects[*].args` slots are app-db/fx-derived egress. Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
-| `--allow-writes`          | OFF           | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `reset-frame-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes), so for a true read-only posture compose with `--no-eval`. |
+| `--allow-writes`          | OFF           | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes), so for a true read-only posture compose with `--no-eval`. |
 
 When `--allow-sensitive-reads` is OFF (the published-build default), the
 off-box read surfaces above — and `dispatch-dry-run`'s egress slots
@@ -604,8 +604,8 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
 
    This signal is issued by every tool that taps / egresses app-db,
    between the preload probe and the first state-emitting eval — the
-   read surfaces, `dispatch-dry-run`, `restore-epoch`, `reset-frame-db`,
-   AND `dispatch` (rf2-z7roa / rf2-6nks4 / rf2-8fin7.3). `reset-frame-db` in
+   read surfaces, `dispatch-dry-run`, `restore-epoch`, `replace-app-db`,
+   AND `dispatch` (rf2-z7roa / rf2-6nks4 / rf2-8fin7.3). `replace-app-db` in
    particular MUST issue it before its `app-db-reset!` call so the FIRST
    reset of a `--allow-writes` session cannot tap raw app-db ahead of
    the posture landing. `dispatch` issues it so the runtime redacts the
@@ -733,7 +733,7 @@ Evaluate a CLJS form in the connected browser runtime via
 ### Frame targeting (rf2-ntuzf)
 
 Every other structured op (`dispatch`, `snapshot`, `get-path`,
-`trace-window`, `watch-epochs`, `subscribe`, `reset-frame-db`) accepts
+`trace-window`, `watch-epochs`, `subscribe`, `replace-app-db`) accepts
 a `:frame` arg that targets a named frame. Pre-rf2-ntuzf `eval-cljs`
 did NOT — its form ran against the MCP server's ambient frame
 context (`:rf/default`), so `(rf/subscribe ...)` / `(rf/dispatch ...)`
@@ -837,7 +837,7 @@ deadline.
 
 ## Universal: cascade summary on state-mutating tools (rf2-6yqdl)
 
-`dispatch`, `reset-frame-db`, and `restore-epoch` each surface a
+`dispatch`, `replace-app-db`, and `restore-epoch` each surface a
 `:cascade-summary` slot in their success response — a compact
 projection of the assembled `:rf/epoch-record` answering the universal
 "what did my call just do?" question in one round-trip, with no
@@ -857,7 +857,7 @@ want the full epoch read `(rf/epoch-history)` or run `trace-window` /
 
 Every slot is optional — absent when the underlying signal is empty.
 For example, synthetic `:rf.epoch/db-replaced` epochs from
-`reset-frame-db` carry no `:event-vector` (no dispatch happened); a
+`replace-app-db` carry no `:event-vector` (no dispatch happened); a
 restore's `:cascade-summary` carries an additional `:restore? true`
 marker so consumers can branch.
 
@@ -956,7 +956,7 @@ The `frame` arg is colon-tolerant (rf2-ldfnx): both the documented
 colon-prefixed id (`":rf/xray"` — the form discover-app surfaces, §Id
 representation) and the bare-name form (`"rf/xray"`) coerce to the same
 `:rf/xray`. It routes through the shared `fresh-keyword` coercion, the
-SAME path `eval-cljs` / `snapshot` / `get-path` / `reset-frame-db` use,
+SAME path `eval-cljs` / `snapshot` / `get-path` / `replace-app-db` use,
 so a frame-targeted dispatch lands on the named frame in a multi-frame
 app. (The pre-rf2-ldfnx shape used raw `(keyword …)`, which minted the
 malformed `::rf/xray` from the colon-prefixed form — a frame that
@@ -1168,7 +1168,7 @@ minting a new confirmation gate:
   declared-sensitive slots through verbatim.
 - `:cascade-summary` is a depth-bounded projection (path lists +
   counts, not verbatim values) so it rides through unwalked, the same
-  as `dispatch` / `reset-frame-db` / `restore-epoch` (rf2-6yqdl).
+  as `dispatch` / `replace-app-db` / `restore-epoch` (rf2-6yqdl).
 
 Like the read surfaces, the tool also issues `configure-raw-state!`
 (`raw-state/signal-runtime!`) between the preload probe and the eval,
@@ -1203,7 +1203,7 @@ under `--allow-sensitive-reads`), `build` (string).
 ```
 
 The cascade-summary slot uses the same shape as `dispatch` /
-`restore-epoch` / `reset-frame-db` (rf2-6yqdl); operators read one
+`restore-epoch` / `replace-app-db` (rf2-6yqdl); operators read one
 vocabulary across all four. `:db-state-after-simulation` is the would-
 be `:db-after` of the rolled-back epoch — surfaced through the elision
 walker BY DEFAULT (rf2-z7roa; see §Privacy above) so the operator can
@@ -1263,14 +1263,14 @@ the id is not in the ring or a drain is in flight (the documented
 [`Tool-Pair.md` §Restore failure modes](../../../spec/Tool-Pair.md#time-travel)).
 The `app-db` is unchanged on failure.
 
-## reset-frame-db
+## replace-app-db
 
 State injection — replace a frame's `app-db` with an arbitrary EDN
 value the runtime never recorded; the explicit JSON-loaded-bug-repro
 case per
 [`Tool-Pair.md` §Pair-tool writes](../../../spec/Tool-Pair.md#pair-tool-writes--state-injection).
-Wraps the `reset-frame-db!` Tool-Pair write primitive
-(`(rf/reset-frame-db! frame-id new-db)`): bypasses the dispatch loop,
+Wraps the `replace-app-db!` Tool-Pair write primitive
+(`(rf/replace-app-db! frame-id new-db)`): bypasses the dispatch loop,
 replaces the container directly, and records a synthetic
 `:rf/epoch-record` (`:event-id :rf.epoch/db-replaced`) so a later
 `restore-epoch` can rewind past the injection.
@@ -2224,7 +2224,7 @@ compiled predicate **server-side**, returning `{:held? bool :sample {...}
 
 **Signals** use the same vocabulary as `record`. **`pred`** is a **data**
 predicate map (no host source crosses the wire; same injection-closing
-posture as `dispatch` / `reset-frame-db`), matched against the positional
+posture as `dispatch` / `replace-app-db`), matched against the positional
 sample map `{<signal-index> <value>}`:
 
 | Predicate | Holds when |

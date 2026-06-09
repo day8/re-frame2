@@ -79,7 +79,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 - [009-Instrumentation.md §Origin tagging: `:rf.event/origin`](009-Instrumentation.md#origin-tagging-rfeventorigin) — the trace lift: the runtime promotes the dispatch opt onto every `:rf.event/dispatched` event under `:tags :rf.event/origin`; example values (`:pair`, `:claude`, `:story`, `:test`); the filter axis it enables.
 
 **Consumers.**
-- `tools/re-frame2-pair-mcp/` — tags every dispatch / eval-cljs / restore-epoch / reset-frame-db with `:origin :re-frame2-pair-mcp` (per its NAMING.md row).
+- `tools/re-frame2-pair-mcp/` — tags every dispatch / eval-cljs / restore-epoch / replace-app-db with `:origin :re-frame2-pair-mcp` (per its NAMING.md row).
 - `tools/story-mcp/` — does not ship `dispatch` directly, but its `register-variant` / `record-as-variant` writes carry `:origin :story-mcp`.
 - `tools/xray/` — trace panel filter axis.
 - Framework boot paths (router, SSR, machine timer) — set `:origin` to a runtime-reserved `:rf/*` value where the post-mortem distinction is useful.

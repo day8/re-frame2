@@ -1,8 +1,8 @@
-(ns re-frame2-pair-mcp.reset-frame-db-test
-  "Unit tests for the reset-frame-db tool (rf2-ee38b.18).
+(ns re-frame2-pair-mcp.replace-app-db-test
+  "Unit tests for the replace-app-db tool (rf2-ee38b.18).
 
   State injection — replaces a frame's app-db with an arbitrary EDN
-  value via the Tool-Pair `reset-frame-db!` write primitive. Pins:
+  value via the Tool-Pair `replace-app-db!` write primitive. Pins:
 
     - the `--allow-writes` gate (default OFF returns
       `:rf.error/writes-disabled` without touching the runtime);
@@ -17,7 +17,7 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.writes :as writes]
-            [re-frame2-pair-mcp.tools.reset-frame-db :as reset-frame-db]))
+            [re-frame2-pair-mcp.tools.replace-app-db :as replace-app-db]))
 
 (defn- fresh-conn []
   (let [conn (nrepl/make-conn 0 "127.0.0.1")]
@@ -74,7 +74,7 @@
       (writes/set-allow-writes! false)
       (-> (with-captured-eval! captured :should-not-reach
             (fn []
-              (reset-frame-db/reset-frame-db-tool (fresh-conn) #js {:db "{:k :v}"})))
+              (replace-app-db/replace-app-db-tool (fresh-conn) #js {:db "{:k :v}"})))
           (.then (fn [r]
                    (is (err? r))
                    (is (= :rf.error/writes-disabled (:reason (read-result-text r))))
@@ -101,7 +101,7 @@
                 (raw-state/set-allow-raw-state! false)
                 (-> (with-captured-eval! captured forms {:ok? true :frame :rf/default}
                       (fn []
-                        (reset-frame-db/reset-frame-db-tool (fresh-conn)
+                        (replace-app-db/replace-app-db-tool (fresh-conn)
                                                             #js {:db "{:counter 0}"})))
                     (.finally (fn [] (raw-state/set-allow-raw-state! prev)))))))
           (.then (fn [_]
@@ -129,7 +129,7 @@
             (fn []
               (with-captured-eval! captured {:ok? true :frame :rf/default}
                 (fn []
-                  (reset-frame-db/reset-frame-db-tool (fresh-conn)
+                  (replace-app-db/replace-app-db-tool (fresh-conn)
                                                       #js {:db "{:counter 0}"})))))
           (.then (fn [r]
                    (is (not (err? r)))
@@ -152,7 +152,7 @@
             (fn []
               (with-captured-eval! captured {:ok? false :reason :reset-rejected}
                 (fn []
-                  (reset-frame-db/reset-frame-db-tool (fresh-conn)
+                  (replace-app-db/replace-app-db-tool (fresh-conn)
                                                       #js {:db "(println :pwn)"})))))
           (.then (fn [_]
                    (let [parsed (cljs.reader/read-string @captured)]
@@ -172,7 +172,7 @@
             (fn []
               (with-captured-eval! captured {:ok? true :frame :stories}
                 (fn []
-                  (reset-frame-db/reset-frame-db-tool (fresh-conn)
+                  (replace-app-db/replace-app-db-tool (fresh-conn)
                                                       #js {:db "{:count 0}" :frame ":stories"})))))
           (.then (fn [_]
                    (let [parsed (cljs.reader/read-string @captured)]
@@ -185,7 +185,7 @@
   (async done
     (-> (with-writes-on!
           (fn []
-            (reset-frame-db/reset-frame-db-tool (fresh-conn) #js {})))
+            (replace-app-db/replace-app-db-tool (fresh-conn) #js {})))
         (.then (fn [r]
                  (is (err? r))
                  (is (= :missing-db (:reason (read-result-text r))))
@@ -195,7 +195,7 @@
   (async done
     (-> (with-writes-on!
           (fn []
-            (reset-frame-db/reset-frame-db-tool (fresh-conn) #js {:db "{:a"})))
+            (replace-app-db/replace-app-db-tool (fresh-conn) #js {:db "{:a"})))
         (.then (fn [r]
                  (is (err? r))
                  (is (= :invalid-db-edn (:reason (read-result-text r))))
@@ -214,7 +214,7 @@
                                              :reason :reset-rejected
                                              :hint "schema mismatch"}
                 (fn []
-                  (reset-frame-db/reset-frame-db-tool (fresh-conn)
+                  (replace-app-db/replace-app-db-tool (fresh-conn)
                                                       #js {:db "{:bad :shape}"})))))
           (.then (fn [r]
                    (is (not (err? r)) "soft-failure rides as ok-text, not isError")
@@ -245,7 +245,7 @@
             (fn []
               (with-captured-eval! (atom nil) runtime-envelope
                 (fn []
-                  (reset-frame-db/reset-frame-db-tool (fresh-conn)
+                  (replace-app-db/replace-app-db-tool (fresh-conn)
                                                       #js {:db "{:counter 0}"})))))
           (.then (fn [r]
                    (is (not (err? r)))

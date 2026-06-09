@@ -1,14 +1,14 @@
 (ns re-frame2-pair-mcp.writes-test
   "Server-boundary write-gate tests (rf2-wz66k7).
 
-  The write-tool BODIES (`restore-epoch-tool` / `reset-frame-db-tool`)
+  The write-tool BODIES (`restore-epoch-tool` / `replace-app-db-tool`)
   refuse `:rf.error/writes-disabled` as their first action without
   touching nREPL — already covered (restore_epoch_test /
-  reset_frame_db_test). But the real MCP server handler
+  replace_app_db_test). But the real MCP server handler
   (`server.cljs/handle-call`) runs `ensure-connection!` for EVERY tool
   BEFORE the tool body. On a stock install with NO nREPL port, that
   connection step REJECTS and the tool body's gate NEVER fires, so a
-  disabled `restore-epoch` / `reset-frame-db` returned a misleading
+  disabled `restore-epoch` / `replace-app-db` returned a misleading
   `:nrepl-port-not-found` (or ran discovery / elicitation) instead of the
   intended destructive-tool refusal — the default-safe write posture was
   observably FALSE at the MCP boundary.
@@ -39,7 +39,7 @@
 
 (deftest refuse-pre-connection-gates-the-two-write-tools-when-off
   (writes/set-allow-writes! false)
-  (doseq [tool ["restore-epoch" "reset-frame-db"]]
+  (doseq [tool ["restore-epoch" "replace-app-db"]]
     (let [result (writes/refuse-pre-connection tool)]
       (is (some? result) (str tool " is refused at the boundary when writes are OFF"))
       (is (err? result))
@@ -49,7 +49,7 @@
 
 (deftest refuse-pre-connection-passes-write-tools-through-when-on
   (writes/set-allow-writes! true)
-  (doseq [tool ["restore-epoch" "reset-frame-db"]]
+  (doseq [tool ["restore-epoch" "replace-app-db"]]
     (is (nil? (writes/refuse-pre-connection tool))
         (str tool " falls through to normal dispatch when writes are ON"))))
 
@@ -91,7 +91,7 @@
     (writes/set-allow-writes! false)
     (assert-refused-locally "restore-epoch" done)))
 
-(deftest reset-frame-db-refused-before-connection
+(deftest replace-app-db-refused-before-connection
   (async done
     (writes/set-allow-writes! false)
-    (assert-refused-locally "reset-frame-db" done)))
+    (assert-refused-locally "replace-app-db" done)))

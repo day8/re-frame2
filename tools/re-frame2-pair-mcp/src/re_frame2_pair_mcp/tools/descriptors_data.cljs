@@ -557,14 +557,14 @@
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
-;; reset-frame-db
+;; replace-app-db
 ;; ---------------------------------------------------------------------------
 
-(def reset-frame-db
-  {:name "reset-frame-db"
+(def replace-app-db
+  {:name "replace-app-db"
    :description (str "State injection (rf2-ee38b.18): replace a frame's app-db with an arbitrary EDN value the "
                      "runtime never recorded — the JSON-loaded-bug-repro case per spec/Tool-Pair.md §Pair-tool "
-                     "writes. Wraps the `reset-frame-db!` Tool-Pair write primitive: bypasses the dispatch loop, "
+                     "writes. Wraps the `replace-app-db!` Tool-Pair write primitive: bypasses the dispatch loop, "
                      "replaces the container directly, and records a synthetic `:rf/epoch-record` "
                      "(`:event-id :rf.epoch/db-replaced`) so a later `restore-epoch` can rewind past the injection. "
                      "The `db` arg is parsed as EDN DATA (not host source — same injection-closing posture as "

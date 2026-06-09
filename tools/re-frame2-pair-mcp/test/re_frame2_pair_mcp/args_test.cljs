@@ -121,7 +121,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; read-edn-arg — the [:ok parsed] / [:err reason] EDN-arg helper
-;; (rf2-jkake.19). Factored out of reset-frame-db (:db),
+;; (rf2-jkake.19). Factored out of replace-app-db (:db),
 ;; restore-epoch (:epoch-id) and handler-meta (:id); each passes its own
 ;; per-tool reason keywords so the error envelope stays specific. The
 ;; three outcomes (missing / invalid / ok) were only exercised

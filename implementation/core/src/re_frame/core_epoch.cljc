@@ -31,9 +31,15 @@
 (defwrapper restore-epoch
   "Rewind the named frame's `app-db` to the named epoch's `:db-after`.
   Per Tool-Pair §Time-travel: returns `true` on success, `false` on any
-  of the six documented failure modes (each emits a structured
+  of the seven documented failure modes (each emits a structured
   `:rf.epoch/*` error trace and leaves `app-db` unchanged) and `false`
-  when the `day8/re-frame2-epoch` artefact is not on the classpath.
+  when the `day8/re-frame2-epoch` artefact is not on the classpath. The
+  seven modes are `:rf.error/no-such-handler` (frame not registered),
+  `:rf.epoch/restore-during-drain`, `:rf.epoch/restore-unknown-epoch`,
+  `:rf.epoch/restore-non-ok-record` (target epoch's `:outcome` is not
+  `:ok`), `:rf.epoch/restore-schema-mismatch`,
+  `:rf.epoch/restore-missing-handler`, and
+  `:rf.epoch/restore-version-mismatch`.
   Late-bound via `:epoch/restore-epoch`."
   {:hook :epoch/restore-epoch :artefact epoch-artefact :on-absent :false}
   ([frame-id epoch-id] :delegate))

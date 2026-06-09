@@ -3,7 +3,7 @@
 > Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
 > re-frame2-pair-mcp is the canonical consumer of `app-db-value`,
 > `epoch-history`, `register-listener!`, `register-epoch-listener!`,
-> `restore-epoch`, `reset-frame-db!`, `dispatch`, `dispatch-sync`,
+> `restore-epoch`, `replace-app-db!`, `dispatch`, `dispatch-sync`,
 > plus the destroyed-frame and operating-frame rules.
 
 ## Why it exists
