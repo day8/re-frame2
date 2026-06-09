@@ -24,27 +24,52 @@
   frame id (a migration may pick it, a test may register + select it) — the
   ban is on using it as an *absence repair*, not on the keyword itself.
 
-  Scope: only `implementation/**/src/` (the production reference). Test
-  fixtures legitimately register + select `:rf/default` and may carry
-  `(or frame :rf/default)` in their OWN harness code, so `test/` is
-  excluded. Docstrings / comments that DESCRIBE the absence of the floor
+  Scope (rf2-wwt8a3): both `implementation/**/src/` (the production
+  reference) AND `tools/**/src/` — Xray, story, story-mcp, the pair-MCP,
+  machines-viz, the template + testbed-support. EP-0002's own Audit
+  Evidence named the tool tree as the DENSEST `:rf/default` surface and
+  the most likely place ambient frame assumptions creep back, yet the
+  shipped lint covered one tree of five (SS-12's sweep ambition was
+  \"docs skills tools implementation spec\"). The tools are clean today;
+  this lint is the guard that keeps them clean. Both trees are reached by
+  filesystem walk — the lint reads files as text (`slurp`), so no
+  classpath dependency on `tools/` is introduced. `test/` is excluded in
+  BOTH trees: test fixtures legitimately register + select `:rf/default`
+  and may carry `(or frame :rf/default)` in their OWN harness code
+  (e.g. `tools/xray/test/.../sub_reactivity.cljs` has a
+  `:or {frame :rf/default}` helper default — a test-helper, consistently
+  exempt). Docstrings / comments that DESCRIBE the absence of the floor
   (e.g. \"there is NO `(or frame-kw :rf/default)` floor\") are NOT
-  offences — the scan strips line comments and skips backtick-quoted prose
-  so it flags live code only.
+  offences — the scan strips line comments, double-quoted string literals
+  (MCP descriptor / hint prose like \"-> {:frames [:rf/default :stories]}\"
+  is data, not a live floor), and backtick-quoted prose, so it flags live
+  code only.
 
-  Walks the same source tree as `re-frame.late-bind-drift-test` /
-  `re-frame.warn-once-clear-governance-test`."
+  Walks the production source the same way as
+  `re-frame.late-bind-drift-test` / `re-frame.warn-once-clear-governance-test`,
+  extended to also cover the sibling `tools/` tree."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
 (def ^:private repo-implementation-root
+  "Absolute path to `implementation/`. Tests run from
+  `implementation/core/`, so `..` reaches it."
   (-> (io/file "..") .getCanonicalFile))
 
+(def ^:private repo-tools-root
+  "Absolute path to the sibling `tools/` tree (rf2-wwt8a3). From
+  `implementation/core/`, `../../tools` reaches it. The walk is pure
+  text — `slurp` over the files — so this adds no classpath edge from
+  the core test artefact to `tools/`."
+  (-> (io/file "../../tools") .getCanonicalFile))
+
 (defn- source-files
-  "Every `.clj{,c,s}` under `implementation/**/src/` (skips `test/`)."
+  "Every `.clj{,c,s}` under `implementation/**/src/` AND `tools/**/src/`
+  (skips `test/` in both)."
   []
-  (->> (file-seq repo-implementation-root)
+  (->> (concat (file-seq repo-implementation-root)
+               (file-seq repo-tools-root))
        (filter #(.isFile ^java.io.File %))
        (filter (fn [^java.io.File f]
                  (let [n (.getName f)]
@@ -65,6 +90,21 @@
   [^String line]
   (let [idx (.indexOf line ";")]
     (if (neg? idx) line (subs line 0 idx))))
+
+(def ^:private string-literal-re
+  "A double-quoted Clojure string span, `\\\"`-escapes included."
+  #"\"(?:\\.|[^\"\\])*\"")
+
+(defn- strip-string-literals
+  "Replace every double-quoted string span on the line with a space, so a
+  `:rf/default` that appears only inside string DATA — an MCP tool's
+  descriptor / hint prose like `\"-> {:frames [:rf/default :stories]}\"`
+  (rf2-wwt8a3, dense in `tools/re-frame2-pair-mcp`) — is not mistaken for
+  a live `[:rf/default …]` positional floor. A real floor is code, never
+  string content, so this can only REDUCE false positives, never mask a
+  genuine floor."
+  [^String line]
+  (str/replace line string-literal-re " "))
 
 (defn- backtick-quoted-mention?
   "True when the only `:rf/default` on the (comment-stripped) line sits
@@ -117,7 +157,7 @@
   (->> (str/split-lines content)
        (map-indexed (fn [i line] [(inc i) line]))
        (keep (fn [[n raw]]
-               (let [code (strip-line-comment raw)]
+               (let [code (-> raw strip-line-comment strip-string-literals)]
                  (when (and (str/includes? code ":rf/default")
                             (not (backtick-quoted-mention? code))
                             (or (re-find or-default-re code)
@@ -126,8 +166,9 @@
                    [n (str/trim raw)]))))))
 
 (deftest no-rf-default-absence-repair-in-production-source
-  (testing "no production source synthesises `:rf/default` from missing
-            frame context — none of `(or … :rf/default)`,
+  (testing "no production source — `implementation/**/src/` OR
+            `tools/**/src/` (rf2-wwt8a3) — synthesises `:rf/default` from
+            missing frame context — none of `(or … :rf/default)`,
             `:or {frame-id :rf/default}`, or the positional
             `[:rf/default <sym>]` floor. EP-0002 carried invariant: absence
             is `:rf.error/no-frame-context`, never an invented default
