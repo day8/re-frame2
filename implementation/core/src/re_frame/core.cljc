@@ -1780,13 +1780,20 @@
                     (some? received) (assoc :received received)))))
 
 (defn init!
-  "Idempotent boot — installs a substrate adapter and ensures the
-  `:rf/default` frame exists. Pass the adapter spec map directly (no
-  default-adapter registry; rf2-agql):
+  "Idempotent boot — installs a substrate adapter. Pass the adapter spec
+  map directly (no default-adapter registry; rf2-agql):
     (require '[re-frame.adapter.reagent :as reagent])
     (rf/init! reagent/adapter)
   Non-map / nil raises `:rf.error/no-adapter-specified`. Per Spec 006
-  §Adapter selection at boot."
+  §Adapter selection at boot.
+
+  `init!` does NOT create a `:rf/default` frame. Per Spec 002 §`:rf/default`
+  is an ordinary id (EP-0002), the runtime never synthesises a default
+  frame — frame identity is carried, not found. Declare your app's root
+  frame explicitly (`(rf/reg-frame :app {…})` / `with-frame` / a
+  frame-provider) and dispatch / subscribe within that scope. A small app
+  or test may still choose `:rf/default` as its explicit frame id; the
+  runtime will not infer it."
   [adapter-map]
   (cond
     (nil? adapter-map)        (bad-init-arg! nil)
@@ -1795,7 +1802,6 @@
     (do
       (when-not (adapter/current-adapter)
         (adapter/install-adapter! adapter-map))
-      (frame/ensure-default-frame!)
       nil)))
 
 (defn init-platform

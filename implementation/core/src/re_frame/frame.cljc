@@ -9,7 +9,13 @@
   holds keywords; this namespace holds the frame records.
 
   Reserved frame ids:
-    :rf/default              — universal default frame (always present)
+    :rf/default              — an ORDINARY frame id (per Spec 002 §`:rf/default`
+                              is an ordinary id, EP-0002). It carries NO
+                              framework privilege: the runtime never creates
+                              it, never infers it from a missing stamp, and
+                              never uses it as a resolution floor. A small
+                              app, example, or test may register and select
+                              it EXPLICITLY like any other id.
     :rf.frame/<gensym>       — anonymous instances from make-frame"
   (:require [clojure.string]
             [re-frame.registrar :as registrar]
@@ -83,20 +89,55 @@
 (defonce ^:private destroying-frames
   (atom #{}))
 
-;; ---- frame resolution at call sites --------------------------------------
+;; ---- frame resolution at call sites — the carried invariant ---------------
 ;;
-;; *current-frame* is the dynamic var that with-frame binds. Subscribe and
-;; dispatch default to (current-frame) when no :frame is supplied, so views
-;; nested under a (with-frame ...) wrapper or a Reagent frame-provider
-;; auto-route to the right frame.
+;; Per Spec 002 §Frame target resolution — the carried invariant (EP-0002):
+;; **frame identity is carried, not found.** A frame-scoped operation reads
+;; its frame from the causal token it holds — the dynamic scope a `with-frame`
+;; / frame-provider established, or a frame stamp it captured. It never
+;; *synthesises* one from absence: there is no process-global `:rf/default`
+;; floor that catches operations issued under no scope at all.
+;;
+;; The rationale leads with **replay determinism + temporal non-locality**,
+;; NOT purity (per EP-0002 §Resolved Decisions R1-R7):
+;;
+;;   - A silently-defaulted frame poisons replay — `restore-epoch`,
+;;     time-travel, and Story / Causa determinism all become unsound the
+;;     moment an operation's target depends on which frame happened to be
+;;     ambient rather than on a value carried in the token being replayed.
+;;   - "sole live frame" is true only until a second frame appears, so an
+;;     ambient floor would let adding Xray, Story, or an SSR frame silently
+;;     change the meaning of distant, untouched application code (temporal
+;;     non-locality).
+;;
+;; The surface is split deliberately (Spec 002 §Resolver surface):
+;;
+;;   - `current-frame` / `resolve-current-frame` are **readers** — they
+;;     return the scope frame or **nil**. They never repair absence. Low-
+;;     level detection, frame pickers, and tooling model "no context" with
+;;     the nil return without throwing.
+;;   - `require-current-frame!` is the **requiring** primitive — "read the
+;;     stamp on the token I hold". It returns the frame stamp or, when the
+;;     token carries none, raises/emits `:rf.error/no-frame-context`.
+;;     Public frame-scoped operations call THIS so the nil-returning reader
+;;     never silently becomes a second, softer fallback.
+;;
+;; `*current-frame*` is the dynamic var that `with-frame` (and the router's
+;; per-handler binding) sets — the *scope* carrier. It is nil at top of
+;; stack and after any async hop unwinds the binding.
 
 (def ^:dynamic *current-frame* nil)
 
 (defn current-frame
-  "Resolution chain: dynamic var → :rf/default. CLJS-side
-  re-frame.views extends this with a React-context lookup."
+  "Return the lexical/dynamic-scope frame, or **nil** when no scope is
+  established. A **reader**: it reports what scope is in effect; it does
+  NOT repair absence by synthesising `:rf/default` (per Spec 002 §Frame
+  target resolution — the carried invariant, EP-0002). The dynamic-var
+  tier only — the React-context tier is consulted by
+  `resolve-current-frame` (CLJS). Public frame-scoped operations that must
+  have a frame call `require-current-frame!`, not this reader."
   []
-  (or *current-frame* :rf/default))
+  *current-frame*)
 
 ;; Per Spec 009 §Per-frame trace rings (rf2-g1b2m / rf2-8uwce): publish
 ;; the in-flight frame-id through `late-bind` so the trace tooling
@@ -106,31 +147,166 @@
 (late-bind/set-fn! :frame/current-frame-id (fn [] *current-frame*))
 
 (defn resolve-current-frame
-  "Resolve the active frame at a no-explicit-frame call site. The
-  3-tier resolution chain — dynamic var → React context → `:rf/default` —
-  per Spec 002 §Reading the frame from React context and Spec 006
-  §Lookup algorithm.
+  "Resolve the active frame at a no-explicit-frame call site — the
+  dynamic-or-adapter/React-context scope frame, or **nil** when no scope
+  is established. A **reader**: it never repairs absence by synthesising
+  `:rf/default` (per Spec 002 §Frame target resolution — the carried
+  invariant, EP-0002). The two scope tiers it observes:
 
-  On CLJS this consults the `:adapter/current-frame` late-bind hook
-  so the React-context tier is LIVE — adapters publish their React-
-  context-aware impl through the hook at ns-load time. When the hook
-  is unbound (no adapter loaded yet, or JVM build) the fallback is
-  `current-frame` which honours the dynamic-var tier and the
-  `:rf/default` tier; the React-context tier silently no-ops.
+    1. `*current-frame*` (dynamic var) — set by `with-frame` /
+       `frame-bound-fn` / the router's per-handler binding.
+    2. The closest enclosing frame-provider via React context (CLJS).
 
-  This is the canonical 3-tier resolver — `subs/subscribe`,
-  `router/dispatch*`'s default-frame computation, and
-  `core/current-frame-id` all delegate here so the React-context tier is
-  single-sourced (rf2-jj8xf)."
+  On CLJS this consults the `:adapter/current-frame` late-bind hook so
+  the React-context tier is LIVE — adapters publish their React-context-
+  aware impl through the hook at ns-load time. That impl returns nil when
+  neither the dynamic var nor an enclosing Provider names a frame (the
+  Provider default is now the no-provider sentinel, NOT `:rf/default`, per
+  Spec 002 §`:rf/default` is an ordinary id + the EP-0002 React-context
+  bead). When the hook is unbound (no adapter loaded yet, or JVM build)
+  the result is `current-frame` — the dynamic-var tier alone; the React-
+  context tier silently no-ops to nil.
+
+  This is the canonical scope reader — `subs/subscribe`,
+  `router/dispatch*`'s frame computation, and `core/current-frame-id`
+  delegate here so the React-context tier is single-sourced (rf2-jj8xf).
+  Public frame-scoped operations that must have a frame call
+  `require-current-frame!`, which is built on this reader."
   []
   ;; Sticky hook (rf2-f72pd) — `:adapter/current-frame` is published
   ;; once per loaded React-shaped adapter at ns-load time and routed
-  ;; via `current-adapter`; it fires on every default-frame resolution
-  ;; (every dispatch and every subscribe).
+  ;; via `current-adapter`; it fires on every ambient resolution
+  ;; (every ambient dispatch and every ambient subscribe).
   #?(:cljs (if-let [f (late-bind/get-fn-cached :adapter/current-frame)]
              (f)
              (current-frame))
      :clj  (current-frame)))
+
+;; ---- :rf.error/no-frame-context — the absence-is-the-corollary error ------
+;;
+;; Per Spec 002 §The error and its ladder + §Resolver surface (EP-0002):
+;; `require-current-frame!` is "read the stamp on the token I hold";
+;; `:rf.error/no-frame-context` is "this token carries no stamp". The error
+;; is reserved for the **absence of a target**, never a **bad** target — a
+;; caller who supplies `{:frame :ghost}` HAS carried a stamp; that is a
+;; registry-lookup failure (`:rf.error/frame-destroyed`), a different
+;; category. So this error is emitted BEFORE any frame-registry lookup, so
+;; a missing context is never mis-reported as `frame-destroyed` for a
+;; synthesised default.
+;;
+;; The frameless error is itself frameless: it rides the ALWAYS-ON error
+;; axis (`re-frame.error-emit/dispatch-on-error!`, surface #4 — survives
+;; `:advanced` + `goog.DEBUG=false`), not per-frame epoch capture. It
+;; carries capture-site ancestry through the `:rf.trace/dispatch-id` /
+;; `:rf.trace/parent-dispatch-id` correlation graph (read off the in-scope
+;; `trace/*handler-scope*`), so the hardest case — a callback captured at
+;; handler X in frame Y whose continuation fires with no stamp after the
+;; cascade ended — is fully attributed even though the error has no frame
+;; of its own.
+;;
+;; `error-emit` statically requires THIS ns (the always-on error substrate
+;; sits above frame in the load order), so we reach `dispatch-on-error!`
+;; through the published `:error-emit/dispatch-on-error` late-bind hook to
+;; avoid the cycle — the producer always loads at boot, so the lookup never
+;; misses in production.
+
+(defn no-frame-context-payload
+  "Build the canonical `:rf.error/no-frame-context` payload for an ambient
+  frame-scoped `operation` that found no carried stamp and no established
+  scope. Per Spec 002 §The error and its ladder, the representative shape
+  is:
+
+    {:rf.error/id :rf.error/no-frame-context
+     :operation   <op-kw>     ;; e.g. :dispatch / :subscribe
+     :where       <sym-or-kw> ;; the resolving call site
+     :event-id    <kw>        ;; the in-flight op's id, when known
+     :recovery    :supply-frame}
+
+  `extra` (optional) merges additional context-site ancestry slots —
+  `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` (capture-site
+  correlation) — and any caller-supplied `:where` / `:event-id`. Caller-
+  supplied keys win over the defaults so a call site can name itself
+  precisely."
+  ([operation] (no-frame-context-payload operation nil))
+  ([operation extra]
+   (merge {:rf.error/id :rf.error/no-frame-context
+           :operation   operation
+           :recovery    :supply-frame}
+          ;; Capture-site ancestry off the in-scope handler scope: the
+          ;; cascade's dispatch-id correlates a stampless continuation back
+          ;; to the cascade that captured the callback. nil outside any
+          ;; cascade (a genuinely top-of-stack frameless op) — `cond->`'d
+          ;; in so absent rather than nil.
+          (let [did (some-> trace/*handler-scope* :dispatch-id)]
+            (when did {:rf.trace/dispatch-id did}))
+          extra)))
+
+(defn emit-no-frame-context!
+  "Surface `:rf.error/no-frame-context` through the always-on error axis
+  (production-survivable) AND the dev-only trace surface, then return the
+  payload. Per Spec 002 §The error and its ladder the diagnostic must be
+  observable in production where the dev trace is elided, so it rides
+  `re-frame.error-emit/dispatch-on-error!` (reached via the
+  `:error-emit/dispatch-on-error` late-bind hook — `error-emit` requires
+  this ns, so a static require would cycle).
+
+  This is the EMISSION half; callers that must also halt the operation use
+  `require-current-frame!` (which emits then throws). Detection-only
+  callers (frame pickers, tooling) read the nil from `current-frame` /
+  `resolve-current-frame` and never reach here."
+  [payload]
+  (let [operation (:operation payload)
+        event-id  (:event-id payload)]
+    ;; Axis 1 (BROAD) — always-on listener registry (survives prod elision).
+    ;; LISTENER-ONLY: no-frame-context is an invalid operation with no
+    ;; recovery point (there is no {:swallow|:replacement|:default} choice
+    ;; for an operation that named no frame), so the per-frame `:on-error`
+    ;; policy fn (axis 2) is deliberately bypassed — and we have no frame to
+    ;; route a policy through anyway. Pass `nil` for `error-event`.
+    (when-let [dispatch-on-error! (late-bind/get-fn :error-emit/dispatch-on-error)]
+      (dispatch-on-error!
+        :rf.error/no-frame-context
+        nil                              ;; no event vector — absence, not a throw on a dispatch
+        event-id
+        nil                              ;; no frame — that is the whole point
+        nil                              ;; no exception — invalid op, not a throw
+        0                                ;; elapsed-ms
+        (interop/now-ms)                 ;; time
+        nil))                            ;; LISTENER-ONLY — axis 2 not invoked
+    ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
+    (trace/emit-error! :rf.error/no-frame-context payload)
+    payload))
+
+(defn require-current-frame!
+  "Return the frame stamp (id) the in-effect scope carries, or raise/emit
+  `:rf.error/no-frame-context` when the token carries no stamp. This is the
+  \"read the stamp on the token I hold\" primitive (Spec 002 §Resolver
+  surface, EP-0002); absence is its corollary error.
+
+  Resolution is the scope reader (`resolve-current-frame`) ONLY — explicit
+  `{:frame …}` override resolution belongs to each public surface's call
+  site (it wins before this helper is consulted). When the reader returns a
+  frame, that stamp is returned unchanged — NO frame-registry lookup
+  happens here, so a missing context is never mis-reported as
+  `:rf.error/frame-destroyed` (the registry-lookup category for a bad
+  explicit target). When the reader returns nil, the always-on
+  `:rf.error/no-frame-context` is emitted (with capture-site ancestry) and
+  then thrown so the operation halts loudly rather than writing to an
+  invented default.
+
+  `operation` is the op kind (`:dispatch` / `:subscribe` / …). `extra`
+  (optional) supplies call-site detail merged into the payload — typically
+  `{:where '<resolving-fn> :event-id <id>}`.
+
+  Public frame-scoped operations that resolve ambiently call this; low-
+  level detection / pickers / tooling read the nil from the readers
+  directly and never throw."
+  ([operation] (require-current-frame! operation nil))
+  ([operation extra]
+   (or (resolve-current-frame)
+       (let [payload (no-frame-context-payload operation extra)]
+         (emit-no-frame-context! payload)
+         (throw (ex-info (str (:rf.error/id payload)) payload))))))
 
 ;; ---- lookup ---------------------------------------------------------------
 
@@ -1148,11 +1324,33 @@
       (destroy-frame! id)
       (reg-frame id config))))
 
-;; ---- :rf/default ----------------------------------------------------------
+;; ---- :rf/default — TEST-ONLY fixture helper -------------------------------
+;;
+;; Per Spec 002 §`:rf/default` is an ordinary id (EP-0002): `:rf/default`
+;; is NOT created by `init!`, is NOT the React-context default, is NOT a
+;; lookup tier, and is NOT inferred from a missing stamp. The runtime never
+;; synthesises it. `init!` no longer calls this.
+;;
+;; This helper survives ONLY as a convenience for TEST FIXTURES that pin
+;; `*current-frame*` to `:rf/default` and dispatch ambiently — the standard
+;; `re-frame.test-support/make-reset-runtime-fixture` and the per-suite
+;; reset-runtime fixtures across the adapter / SSR test trees call it to
+;; establish a known default scope. It is a TEST PATH, not a runtime path:
+;; no production / SSR code reaches it, and the chain's later call-site
+;; beads (EP-0002 §3+) migrate real ambient call sites to carry an explicit
+;; frame. Kept (rather than deleted) because removing it would break those
+;; out-of-scope test fixtures wholesale; the name + this banner make the
+;; test-only intent unambiguous.
 
 (defn ensure-default-frame!
-  "The :rf/default frame is registered automatically the first time the
-  runtime boots. Idempotent."
+  "TEST-ONLY fixture helper. Register the ordinary `:rf/default` frame if
+  absent (idempotent), so a test that pins `*current-frame*` to
+  `:rf/default` and dispatches ambiently has a frame to land on.
+
+  NOT a runtime path — `init!` does NOT call this (per Spec 002
+  §`:rf/default` is an ordinary id, EP-0002: the runtime never synthesises
+  a default frame). Application / SSR boot code that wants a default-named
+  app frame registers it explicitly via `(rf/reg-frame :rf/default {…})`."
   []
   (when-not (get @frames :rf/default)
-    (reg-frame :rf/default {:doc "Universal default frame."})))
+    (reg-frame :rf/default {:doc "Test-fixture default frame (ordinary id; not a runtime floor)."})))
