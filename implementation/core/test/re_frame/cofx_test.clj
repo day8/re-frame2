@@ -11,7 +11,17 @@
     2. The 1-arity form carries :cofx-id and :event-id; no :cofx-value.
     3. The 2-arity form additionally carries :cofx-value.
     4. :platforms gating skips with :rf.cofx/skipped-on-platform
-       (rf2-gey3d — Spec 011 §634-642 contract; mirrors reg-fx's gate)."
+       (rf2-gey3d — Spec 011 §634-642 contract; mirrors reg-fx's gate).
+
+  EP-0002 (rf2-9wa0lf): the carried-invariant frame contract means a
+  bare `(rf/dispatch-sync [...])` under NO established scope now raises
+  `:rf.error/no-frame-context` — there is no `:rf/default` floor. These
+  cofx tests establish an explicit frame scope (the fixture registers an
+  ordinary `:rf/default` frame and binds `*current-frame*` to it for the
+  body — equivalent to wrapping every body in `(with-frame :rf/default …)`),
+  so the ambient `dispatch-sync` calls resolve their target through scope
+  rather than a synthesised default. `frameless-dispatch-raises-no-frame-
+  context` pins the new failure mode directly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -32,7 +42,15 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  (test-fn))
+  ;; EP-0002: establish an explicit frame scope for the body. `init!` no
+  ;; longer creates `:rf/default`; register it as an ordinary frame and
+  ;; pin `*current-frame*` so the ambient `dispatch-sync` calls below
+  ;; carry a scope stamp (the carried-invariant contract — no synthesised
+  ;; default floor). This is the fixture-level equivalent of wrapping each
+  ;; body in `(rf/with-frame :rf/default …)`.
+  (frame/ensure-default-frame!)
+  (binding [frame/*current-frame* :rf/default]
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
@@ -113,6 +131,38 @@
         (rf/dispatch-sync [:cofx-test/silent-no-cofx]))
       (is (not (clojure.string/includes? (str out) "re-frame2: no cofx registered"))
           "no stray println of the legacy `re-frame2: no cofx registered` warning"))))
+
+;; ---- EP-0002: frameless dispatch raises :rf.error/no-frame-context --------
+;;
+;; Per Spec 002 §Frame target resolution — the carried invariant: a cofx-
+;; driven dispatch issued under NO established scope (the fixture's
+;; `*current-frame*` binding explicitly removed) carries no frame stamp,
+;; so the runtime raises `:rf.error/no-frame-context` at envelope-build
+;; time rather than synthesising `:rf/default`. The handler never runs.
+
+(deftest frameless-dispatch-raises-no-frame-context
+  (testing "a bare dispatch-sync outside any frame scope raises
+            :rf.error/no-frame-context (no :rf/default floor) — the cofx
+            handler never runs"
+    (let [fired? (atom false)]
+      (rf/reg-event-fx :cofx-test/frameless
+        [(rf/inject-cofx :cofx-test/whatever)]
+        (fn [_ _] (reset! fired? true) {}))
+      ;; Strip the fixture's scope binding to reproduce a top-of-stack
+      ;; bare dispatch (the canonical async-callback / REPL shape).
+      (binding [frame/*current-frame* nil]
+        (let [ex (try
+                   (rf/dispatch-sync [:cofx-test/frameless])
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? ex)
+              "frameless dispatch-sync threw rather than silently routing")
+          (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex)))
+              "the throw carries the :rf.error/no-frame-context id")
+          (is (= :dispatch (:operation (ex-data ex)))
+              ":operation tags the dispatch surface")))
+      (is (false? @fired?)
+          "the cofx-bearing handler never ran — no enqueue under no scope"))))
 
 ;; ---- :platforms gating (rf2-gey3d) ----------------------------------------
 ;;

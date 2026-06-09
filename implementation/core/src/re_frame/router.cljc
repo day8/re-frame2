@@ -74,8 +74,15 @@
   "Build the dispatch envelope per Spec 002 §Routing: the dispatch envelope.
   The envelope carries:
     :event              the user-facing event vector
-    :frame              resolved frame keyword (caller-supplied via opts,
-                        else the active *current-frame*, else :rf/default)
+    :frame              resolved frame keyword per the EP-0002 carried
+                        invariant: explicit `{:frame …}` opt wins
+                        (override), else `frame/require-current-frame!`
+                        reads the scope/hold stamp (`with-frame` /
+                        frame-provider / a captured `*current-frame*`
+                        binding). Absence raises `:rf.error/no-frame-
+                        context` BEFORE any registry lookup — there is no
+                        `:rf/default` floor. Per Spec 002 §Frame target
+                        resolution — the carried invariant.
     :fx-overrides       per-call fx-id-to-fx-id remapping
     :interceptor-overrides
     :trace-id           tooling
@@ -155,28 +162,50 @@
         ;; and the assoc DCE under `:advanced` + `goog.DEBUG=false` (and
         ;; the JVM `-Dre-frame.debug=false` SSR-prod gate).
         dispatched-at      (when interop/debug-enabled? (interop/now-ms))
-        ;; Per rf2-d4sf the 3-tier resolution chain (dynamic var →
-        ;; React context → `:rf/default`) is single-sourced through
-        ;; `frame/resolve-current-frame` (rf2-jj8xf) — the React-context
-        ;; tier consults the `:adapter/current-frame` late-bind hook on
-        ;; CLJS so dispatch picks it up; JVM and the no-adapter-loaded
-        ;; case fall through to the dynamic-var → `:rf/default` chain.
-        default-frame      (frame/resolve-current-frame)
-        explicit-frame?    (some? (:frame opts))
-        ;; Per rf2-o8m0: capture whether resolution fell through the entire
-        ;; chain (dynamic var unbound, adapter context unresolvable, no
-        ;; explicit `:frame` opt) and landed on `:rf/default` purely as
-        ;; the bottom-of-chain default. The warning surface in
-        ;; `process-event*` uses this flag to discriminate "dispatch
-        ;; explicitly targeted :rf/default" from "dispatch lost its
-        ;; frame-context binding and silently slid to :rf/default." Dev-
-        ;; only — like the rest of the trace surface, elided under
-        ;; `interop/debug-enabled?` so production carries no allocation
-        ;; for the warning detection.
-        fallthrough?       (when interop/debug-enabled?
-                             (and (not explicit-frame?)
-                                  (nil? frame/*current-frame*)
-                                  (= :rf/default default-frame)))
+        ;; Per rf2-jbzhj: surface unrecognised opts keys (typically a typo'd
+        ;; opt like `:fram` for `:frame`) rather than silently swallowing
+        ;; them. Emitted HERE — BEFORE the frame resolution below — so a
+        ;; `:fram` typo still gets its specific, actionable warning even
+        ;; though the dispatch then fails with `:rf.error/no-frame-context`
+        ;; (the typo IS why no `:frame` was carried, so the typo warning is
+        ;; the more useful diagnostic to surface first). Dev-only:
+        ;; `unknown-dispatch-opts` returns nil under `interop/debug-enabled?
+        ;; false`, so the whole `when-let` body — including the diagnostics-
+        ;; ns warning fn — DCEs in production. Every dispatch path
+        ;; (`dispatch!`, `dispatch-sync!`, the frame-handle ops) funnels
+        ;; through here, so this is the single chokepoint for the check. The
+        ;; dispatch proceeds unchanged regardless (warn-only).
+        _                  (when-let [unknown (diag/unknown-dispatch-opts opts)]
+                             (diag/emit-unknown-dispatch-opts-warning! unknown event))
+        ;; EP-0002 §Dispatch And Router — the carried-invariant envelope
+        ;; frame. Resolution order:
+        ;;   1. explicit `{:frame …}` opt WINS (override). A caller who
+        ;;      named a frame HAS carried a stamp — that stamp is used
+        ;;      verbatim, even if it later proves unregistered (a bad
+        ;;      explicit target is a `:rf.error/frame-destroyed` registry-
+        ;;      lookup failure at the dispatch site, a DIFFERENT category
+        ;;      from absence).
+        ;;   2. otherwise `frame/require-current-frame!` reads the
+        ;;      scope/hold stamp (`with-frame` / frame-provider via
+        ;;      `resolve-current-frame`, or a captured `*current-frame*`
+        ;;      binding). When no scope is established and no stamp is
+        ;;      carried, it emits the always-on `:rf.error/no-frame-
+        ;;      context` (with capture-site ancestry) and THROWS — so the
+        ;;      dispatch raises here, BEFORE the frame-registry lookup in
+        ;;      `dispatch!` / `dispatch-sync!`, and NOTHING is enqueued.
+        ;; There is no `:rf/default` floor: a bare dispatch under no scope
+        ;; fails loudly rather than silently mutating an invented default
+        ;; (per Spec 002 §Frame target resolution — the carried invariant).
+        ;;
+        ;; The `:rf.frame/id` extra threads the runtime-context frame-id
+        ;; spelling into the error payload's `:event-id` slot when known,
+        ;; so a frameless top-level dispatch's error is attributed to the
+        ;; event it was carrying.
+        frame              (or (:frame opts)
+                               (frame/require-current-frame!
+                                 :dispatch
+                                 {:where    're-frame.router/build-envelope
+                                  :event-id (first event)}))
         ;; Per rf2-j20a7 / Spec 005 §Level 4: a dispatch emitted from a
         ;; machine's own processing (its `:action` / `:entry` / `:exit` /
         ;; transition handling, via `:fx [[:dispatch …]]` or an inter-
@@ -191,18 +220,8 @@
         ;; ordering guarantee — NOT a trace concern — so the flag is
         ;; carried unconditionally (never gated on interop/debug-enabled?).
         machine-internal?  (true? (:rf.machine/internal? opts))]
-    ;; Per rf2-jbzhj: surface unrecognised opts keys (typically a typo'd
-    ;; opt like `:fram` for `:frame`) rather than silently swallowing
-    ;; them. Dev-only: `unknown-dispatch-opts` returns nil under
-    ;; `interop/debug-enabled? false`, so the whole `when-let` body —
-    ;; including the diagnostics-ns warning fn — DCEs in production. Every
-    ;; dispatch path (`dispatch!`, `dispatch-sync!`, the frame-handle ops)
-    ;; funnels through here, so this is the single chokepoint for the
-    ;; check. The dispatch proceeds unchanged regardless (warn-only).
-    (when-let [unknown (diag/unknown-dispatch-opts opts)]
-      (diag/emit-unknown-dispatch-opts-warning! unknown event))
     (cond-> {:event                  event
-             :frame                  (or (:frame opts) default-frame)
+             :frame                  frame
              ;; Per rf2-5uwl: merge the lexical-scope `*fx-overrides*`
              ;; (bound by `rf/with-fx-overrides`) under the per-call opt so
              ;; the per-call opt wins on key collision. The per-frame
@@ -242,7 +261,6 @@
       dispatched-at      (assoc :dispatched-at      dispatched-at)
       dispatch-id        (assoc :dispatch-id        dispatch-id)
       parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id)
-      fallthrough?       (assoc :fell-through-to-default? true)
       ;; Per rf2-j20a7: carry the machine-internal continuation flag onto
       ;; the envelope so `dispatch!` can front-of-queue insert it.
       machine-internal?  (assoc :rf.machine/internal? true))))
@@ -285,11 +303,14 @@
       (resolve! event frame)
       (catch #?(:clj Throwable :cljs :default) _ nil))))
 
-;; Fallthrough-to-default + cross-frame dispatch-sync warnings + the
-;; no-handler error path live in `re-frame.router.diagnostics`. Every
-;; one of those fns runs on a cold/error path or sits behind
-;; `interop/debug-enabled?`, so the cross-ns indirection adds no
-;; measurable cost.
+;; Cross-frame dispatch-sync warnings + the no-handler error path live
+;; in `re-frame.router.diagnostics`. Every one of those fns runs on a
+;; cold/error path or sits behind `interop/debug-enabled?`, so the
+;; cross-ns indirection adds no measurable cost. (The async-callback
+;; fallthrough-to-default warning family was RETIRED in EP-0002 — a bare
+;; dispatch under no scope now fails loudly with `:rf.error/no-frame-
+;; context` at envelope-build time rather than silently sliding to
+;; `:rf/default` and warning.)
 
 (def ^:private empty-fx-overrides
   "Shared sentinel returned by `apply-overrides` on the no-override hot
@@ -1188,10 +1209,11 @@
 ;;   handle-frame-destroyed!     early-exit: emit :rf.error/frame-destroyed
 ;;                               when the frame record is gone (frame disposed
 ;;                               between enqueue and dispatch)
-;;   diag/handle-no-handler!     early-exit: emit fallthrough warning (when
-;;                               applicable) plus :rf.error/no-such-handler.
-;;                               Lives in re-frame.router.diagnostics per
-;;                               rf2-0ytl4 seam R-B.
+;;   diag/handle-no-handler!     early-exit: emit :rf.error/no-such-handler
+;;                               (the EP-0002-retired fallthrough warning
+;;                               no longer fires here). Lives in
+;;                               re-frame.router.diagnostics per rf2-0ytl4
+;;                               seam R-B.
 ;;   prepare-handler-ctx         build the full interceptor chain (incl. the
 ;;                               outermost flows-after-interceptor) + initial
 ;;                               context and the effective fx-overrides map;
@@ -1685,7 +1707,7 @@
                              ;; flows / schemas / epoch artefact seams.
                              (resolve-unhandled event frame))]
         (if (nil? handler-meta)
-          (diag/handle-no-handler! envelope event-id event frame)
+          (diag/handle-no-handler! event-id event frame)
           (run-handler-cascade! envelope event-id event frame
                                 frame-record handler-meta))))))
 
