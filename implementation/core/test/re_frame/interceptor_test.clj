@@ -32,7 +32,14 @@
   ;; Framework-shipped registrations live in routing.cljc / ssr.cljc /
   ;; machines.cljc and are wiped by clear-all!. None of these tests need
   ;; them, so we skip the require-reload dance — keeps the fixture cheap.
-  (test-fn))
+  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
+  ;; framework operation surfaces require a carried frame stamp. Register
+  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
+  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
+  ;; `{:frame …}` opts in the test bodies still win.
+  (rf/reg-frame :rf/default {})
+  (rf/with-frame :rf/default
+    (test-fn)))
 
 (use-fixtures :each reset-runtime)
 

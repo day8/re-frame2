@@ -252,12 +252,18 @@
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [::initialise])
-  ;; Populate the elision registry from any registered schemas
-  ;; carrying :large? marks. Per [API.md §`populate-elision-from-
-  ;; schemas!`] this walks the app-schema registry and writes
-  ;; `{:large? true :source :schema}` slots into the elision
-  ;; declarations map. The schema-driven path's declaration enters
-  ;; the registry without an explicit handler dispatch.
-  (rf/populate-elision-from-schemas!)
-  (rdc/render react-root [root]))
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — register `:rf/default` as the app frame, scope the boot
+  ;; dispatch + the frame-local elision population (a registration-time
+  ;; frame-local surface, EP §6), and wrap the render in a frame-provider.
+  (rf/reg-frame :rf/default {})
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [::initialise])
+    ;; Populate the elision registry from any registered schemas
+    ;; carrying :large? marks. Per [API.md §`populate-elision-from-
+    ;; schemas!`] this walks the app-schema registry and writes
+    ;; `{:large? true :source :schema}` slots into the elision
+    ;; declarations map. The schema-driven path's declaration enters
+    ;; the registry without an explicit handler dispatch.
+    (rf/populate-elision-from-schemas!))
+  (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

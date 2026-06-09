@@ -895,9 +895,26 @@
           ;; inside a handler is an error, and even were it permitted
           ;; the two cascades would interleave (forbidden by the no-
           ;; cross-frame-drain rule in Spec 002 §Run-to-completion).
-          ;; The signal for "inside a handler" is `*current-frame*`
-          ;; being bound — the router binds it in `process-event!`
-          ;; for the duration of the cascade.
+          ;;
+          ;; The signal for "inside a handler" is `trace/*handler-scope*`
+          ;; being bound — the router binds it (via
+          ;; `with-dispatch-id+call-site`) for the duration of a handler's
+          ;; execution and ONLY then. EP-0002 (rf2-9o48ih): the prior
+          ;; signal was `*current-frame*`, but under the carried invariant
+          ;; a test harness (or any caller) may establish an AMBIENT
+          ;; `with-frame` scope for its bare dispatches — binding
+          ;; `*current-frame*` WITHOUT any cascade in flight. That made a
+          ;; genuine TOP-LEVEL `reg-frame`/`make-frame` (no handler running)
+          ;; look mid-cascade and wrongly async-queue its `:on-create`, so
+          ;; the post-creation state was never observable synchronously.
+          ;; `*handler-scope*` is bound by the router's per-handler frame
+          ;; ONLY — it is set during real cascade processing and is nil
+          ;; under a bare ambient scope — so it distinguishes
+          ;; "created mid-cascade" (async) from "top-level boot under an
+          ;; ambient scope" (synchronous) precisely. Both lifecycle
+          ;; contract tests still hold: a child frame reg'd from inside a
+          ;; handler async-queues (handler-scope bound); a top-level
+          ;; reg-frame runs `:on-create` synchronously (handler-scope nil).
           ;; Per rf2-hxj0d: stamp the frame-init dispatch with
           ;; `:source :frame-init` so the Epoch panel's DISPATCH step
           ;; renders "from frame-init" instead of being mislabelled
@@ -923,8 +940,9 @@
                                        (:file   config) (assoc :file   (:file   config))
                                        (:line   config) (assoc :line   (:line   config))
                                        (:column config) (assoc :column (:column config)))))]
-              (if *current-frame*
-                ;; Handler-created child frame: async-queue on the child.
+              (if trace/*handler-scope*
+                ;; Handler-created child frame (a cascade is in flight):
+                ;; async-queue on the child.
                 (when-let [dispatch (late-bind/get-fn :router/dispatch!)]
                   (dispatch on-create init-opts))
                 ;; Top-level (no in-flight cascade): synchronous, as before.

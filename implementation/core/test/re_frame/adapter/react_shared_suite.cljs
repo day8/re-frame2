@@ -500,6 +500,16 @@
   not silently folded into ordinary 'no scope'."
   [{:keys [substrate-kw name]}]
   (testing (str name " — frame-context: corrupted _currentValue emits + recovers to nil")
+    ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
+    ;; `*current-frame*` :rf/default scope (the carried-invariant equivalent of
+    ;; wrapping every adapter test in `(with-frame :rf/default …)`). The
+    ;; React-context corruption tier is the SECOND tier of
+    ;; `function-component-current-frame` — it is only consulted when no dynamic
+    ;; scope is bound. Clear the ambient scope here so the `_currentValue` read
+    ;; (and its corruption detection) is actually exercised; otherwise the
+    ;; dynamic-var tier shadows it and the read resolves to :rf/default before
+    ;; the context is ever inspected.
+    (binding [frame/*current-frame* nil]
     (let [lk       (keyword "re-frame.adapter.react-shared-suite"
                             (str "fc-" (clojure.core/name substrate-kw)))
           original (.-_currentValue ^js adapter-context/frame-context)
@@ -536,13 +546,23 @@
                 (rf/current-frame-id))
               "adapter-routed public read raises no-frame-context on a corrupted boundary")
           (let [errs (corruption-traces traces)]
-            (is (= 1 (count errs))
-                "one frame-context-corrupted error fired through the adapter-routed path")
+            ;; EP-0002 (rf2-9o48ih): the public `current-frame-id` resolves
+            ;; through the `:adapter/current-frame` routed-hook chain. In the
+            ;; multi-adapter node-test build (Reagent + UIx + Helix all loaded)
+            ;; that ambient resolution can read `_currentValue` more than once,
+            ;; so a corrupted boundary fires the structured diagnostic at least
+            ;; once (not exactly once — that exact-count contract holds only
+            ;; for the DIRECT `function-component-current-frame` calls above).
+            ;; The load-bearing contract is that the corruption IS surfaced
+            ;; (distinctly from ordinary 'no scope') AND the public read fails
+            ;; closed with `:rf.error/no-frame-context` (asserted above).
+            (is (pos? (count errs))
+                "frame-context-corrupted error fired through the adapter-routed path")
             (is (= :empty-string (-> errs first :tags :type))
                 ":tags :type distinguishes empty-string from a populated string")))
         (finally
           (trace-tooling/unregister-listener! lk)
-          (set! (.-_currentValue ^js adapter-context/frame-context) original))))))
+          (set! (.-_currentValue ^js adapter-context/frame-context) original)))))))
 
 ;; ===========================================================================
 ;; frame-provider CORE branches (rf2-7kjz8 / rf2-z7hfp) — folded from UIx's
@@ -1960,7 +1980,14 @@
   (testing (str name " — #3 machine spawn at boot before adapter ready")
     (rf/reg-event-fx :init-shape
       (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:snapshots {:flow/boot {:state :armed :data {}}}}}}))
-    (rf/reg-frame :booted {:on-create [:init-shape]})
+    ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
+    ;; `*current-frame*` :rf/default scope. `reg-frame`'s `:on-create` dispatch
+    ;; branches on `*current-frame*` (in-flight-cascade heuristic, rf2-cufbh)
+    ;; between a synchronous top-level drain and an async child-frame queue.
+    ;; This test models a TOP-LEVEL boot — clear the ambient scope so the
+    ;; `:on-create` cascade drains synchronously and its seed is observable.
+    (binding [frame/*current-frame* nil]
+      (rf/reg-frame :booted {:on-create [:init-shape]}))
     (is (= :armed (get-in (rf/runtime-db-value :booted) [:rf.runtime/machines :snapshots :flow/boot :state]))
         ":on-create completed against an installed adapter — runtime-db carries the seed")))
 

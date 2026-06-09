@@ -809,9 +809,14 @@
   (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
   ;; Single, plain frame — no URL machinery, no history listener (there is
-  ;; no routing here). The default frame is the one Xray reads. Mount the
+  ;; no routing here). The host frame is the one Xray reads. Mount the
   ;; standalone wrapper (header + the parameterised `root`) on the
-  ;; `:rf/default` host-frame with the `standard-epochs` testid prefix and
-  ;; the deck's run-step event. The runner cursor lives in app-db `:step`.
-  (rf/dispatch-sync [:standard-epochs/reset])
-  (rdc/render react-root [standalone]))
+  ;; host-frame with the `standard-epochs` testid prefix and the deck's
+  ;; run-step event. The runner cursor lives in app-db `:step`.
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — register the host frame, scope the boot dispatch, and wrap
+  ;; the render in a `frame-provider` (the carried invariant).
+  (rf/reg-frame host-frame {})
+  (rf/with-frame host-frame
+    (rf/dispatch-sync [:standard-epochs/reset]))
+  (rdc/render react-root [rf/frame-provider {:frame host-frame} [standalone]]))

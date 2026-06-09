@@ -526,6 +526,12 @@
           _            (rf/destroy-frame! :rf/default)
           _            (rf/reg-frame :rf/default frame-config)
           dispatches   (or (:fixture/dispatches fixture) [])]
+      ;; EP-0002 (rf2-9o48ih): a bare `dispatch-sync` with no explicit
+      ;; `{:frame …}` opt resolves its target from the established frame
+      ;; scope, never from an invented `:rf/default` floor (the carried
+      ;; invariant). This single-frame SSR runner targets `:rf/default`;
+      ;; establish that scope explicitly so the dispatches resolve to it.
+      (rf/with-frame :rf/default
       (doseq [ev dispatches]
         (cond
           (and (vector? ev) (= :rf/hydrate (first ev)))
@@ -535,7 +541,7 @@
           (rf/dispatch-sync ev {:source :ssr-hydration})
 
           :else
-          (rf/dispatch-sync ev)))
+          (rf/dispatch-sync ev))))
       ;; ---- :fixture/render-after-hydrate -------------------------------
       ;; SSR hydration fixtures simulate the client-side first render
       ;; by feeding the runtime's `verify-hydration!` a synthetic

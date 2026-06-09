@@ -54,13 +54,27 @@
 
 (defonce react-root (atom nil))
 
+;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
+;; synthesises a frame from absence — an app must establish its frame
+;; explicitly. This example uses `:rf/default` as its app frame id (a
+;; migration may pick `:rf/default`, but the runtime will not infer it):
+;; `init!` installs the adapter (it does NOT create the frame), `reg-frame`
+;; registers the app frame, the boot dispatch runs under `with-frame`, and
+;; the render is wrapped in a `frame-provider` so every in-tree
+;; `dispatch`/`subscribe` resolves to the app frame.
+(def app-frame :rf/default)
+
 (defn run []
   ;; rf/init! takes the adapter spec map directly. Each adapter
   ;; ns exports an `adapter` var; consumers require the ns and pass the
   ;; var explicitly. There is no default-adapter registry.
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [:counter/initialise])
+  (rf/reg-frame app-frame {})
+  (rf/with-frame app-frame
+    (rf/dispatch-sync [:counter/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root [counter-app])))
+    (rdc/render @react-root
+                [rf/frame-provider {:frame app-frame}
+                 [counter-app]])))

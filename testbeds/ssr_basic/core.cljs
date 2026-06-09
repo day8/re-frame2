@@ -192,18 +192,22 @@
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
   (install-trace-listener!)
-
+  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; absence — register `:rf/default` as the client app frame and scope the
+  ;; hydrate / boot dispatch + render to it (the carried invariant).
+  (rf/reg-frame :rf/default {})
   (let [payload (some-> (read-server-payload) materialise-response)]
-    (if payload
-      ;; HOT PATH — :rf/hydrate is auto-registered by re-frame.ssr;
-      ;; replaces app-db with the payload's :rf/app-db, stashes
-      ;; metadata at [:rf/hydration], dispatches the two compatibility-
-      ;; check fxs (which the trace listener mirrors).
-      (rf/dispatch-sync [:rf/hydrate payload])
-      ;; Degraded path: no payload baked. Don't crash — render against
-      ;; the empty app-db. This is the "client-only first load" shape.
-      (rf/dispatch-sync [::inc]))
-    (rdc/render react-root [root])
+    (rf/with-frame :rf/default
+      (if payload
+        ;; HOT PATH — :rf/hydrate is auto-registered by re-frame.ssr;
+        ;; replaces app-db with the payload's :rf/app-db, stashes
+        ;; metadata at [:rf/hydration], dispatches the two compatibility-
+        ;; check fxs (which the trace listener mirrors).
+        (rf/dispatch-sync [:rf/hydrate payload])
+        ;; Degraded path: no payload baked. Don't crash — render against
+        ;; the empty app-db. This is the "client-only first load" shape.
+        (rf/dispatch-sync [::inc])))
+    (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]])
 
     ;; HOT PATH — verify-hydration! reads the server-hash stashed at
     ;; [:rf/hydration :server-hash], computes the client-render hash,

@@ -122,11 +122,24 @@
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+    ;; EP-0002 (rf2-9o48ih): each test spins its OWN top-level frame via
+    ;; `make-frame` (inside `with-new-frame`); opt out of the ambient
+    ;; `:rf/default` scope so the new frame's `:on-create` drains
+    ;; synchronously (top-level boot) rather than being treated as a
+    ;; mid-cascade child-frame creation. In-body dispatches run inside the
+    ;; `with-new-frame` scope, so they do not rely on the ambient frame.
+    {:adapter       reagent-adapter/adapter
+     :ambient-frame nil}))
 
 ;; ============================================================================
 ;; TESTS
 ;; ============================================================================
+
+;; EP-0002 (rf2-9o48ih): these tests model a TOP-LEVEL boot. The fixture
+;; above opts out of the ambient `:rf/default` scope (`:ambient-frame nil`)
+;; so each `make-frame`'s `:on-create` drains synchronously (rather than
+;; being treated as a mid-cascade child-frame creation, rf2-cufbh) and the
+;; post-boot state is observable, as a real top-level `make-frame` boot is.
 
 (deftest boot-machine-progression
   (testing "happy path: boot machine traverses :configuring → :loading-deps → :hydrating → :ready and all slices land"
