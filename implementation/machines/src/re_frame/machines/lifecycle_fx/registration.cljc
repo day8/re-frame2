@@ -386,7 +386,7 @@
   signal Xray renders as the `[START]` badge (rf2-it4vt) in BOTH paths
   automatically. The trace is emitted only on success (a thrown `:entry`
   action short-circuits to `:fail` → `trace-action-failure!` instead).
-  Restoration paths (SSR / `restore-epoch` / `reset-frame-db`) install a
+  Restoration paths (SSR / `restore-epoch` / `replace-app-db`) install a
   present, non-pending snapshot, so `:needs-bootstrap?` is false and NO
   `:rf.machine/started` fires — the snapshot IS the state."
   [ctx]

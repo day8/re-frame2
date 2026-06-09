@@ -1,6 +1,6 @@
 (ns re-frame.epoch.tool-pair
   "Tool-Pair boundary surfaces — the preconditions, restore-perform, and
-  off-box projection helpers behind `restore-epoch`, `reset-frame-db!`,
+  off-box projection helpers behind `restore-epoch`, `replace-app-db!`,
   `projected-record`, and `projected-history`.
 
   The name (rf2-dga99) covers BOTH halves of the seam: the WRITE-in
@@ -14,7 +14,7 @@
   Responsibilities:
 
     * **Precondition validators** — `check-restore-preconditions!` and
-      `check-reset-frame-db-preconditions!` are pure data transforms
+      `check-replace-app-db-preconditions!` are pure data transforms
       (no trace emission, no app-db writes); they return
       `{:outcome :ok ...}` or `{:outcome :fail :op <kw> :tags <map>}`
       so the orchestrating facade fn can emit the trace and decide
@@ -36,7 +36,7 @@
       (Xray-MCP `watch-epochs`, story / pair recorders).
 
   Per rf2-0wi86 Phase-2 seam E. The orchestrators `restore-epoch` and
-  `reset-frame-db!` live in the `re-frame.epoch` facade — they wire
+  `replace-app-db!` live in the `re-frame.epoch` facade — they wire
   the precondition check + the trace emission + the perform / listener
   fan-out steps together. Pure-data shape of the preconditions makes
   the orchestrators a four-line case-match."
@@ -391,7 +391,7 @@
 ;; ---- write-boundary liveness guard (rf2-7i872) ----------------------------
 ;;
 ;; Precondition validation (`check-restore-preconditions!` /
-;; `check-reset-frame-db-preconditions!`) resolves the frame, but a frame
+;; `check-replace-app-db-preconditions!`) resolves the frame, but a frame
 ;; can be destroyed in the window BETWEEN the precondition pass and the
 ;; actual container write (the validate-then-destroy race — most often a
 ;; tool gesture interleaving with the owning component's teardown). Once
@@ -404,7 +404,7 @@
 ;; returns `false`) — NOT a synthetic success. This helper resolves the
 ;; container at the write boundary and yields the canonical no-such-handler
 ;; failure when it has disappeared, so `perform-restore!` /
-;; `perform-reset-frame-db!` can bail BEFORE emitting success, recording a
+;; `perform-replace-app-db!` can bail BEFORE emitting success, recording a
 ;; synthetic epoch, or fanning out to listeners.
 
 (defn live-container-or-fail
@@ -468,10 +468,10 @@
                       :epoch-id (:epoch-id epoch)})
         true))))
 
-;; ---- reset-frame-db! preconditions ----------------------------------------
+;; ---- replace-app-db! preconditions ----------------------------------------
 
-(defn check-reset-frame-db-preconditions!
-  "Validate the three documented preconditions for `reset-frame-db!`.
+(defn check-replace-app-db-preconditions!
+  "Validate the three documented preconditions for `replace-app-db!`.
   Returns `{:outcome :ok}` when all checks pass, otherwise
   `{:outcome :fail :op <kw> :tags <map>}` matching the precondition-
   failure shape of `check-restore-preconditions!`. Pure data — no
@@ -486,7 +486,7 @@
       ;; (2) In-flight drain?
       (drain-in-flight? (:frame-record frame-result))
       {:outcome :fail
-       :op      :rf.epoch/reset-frame-db-during-drain
+       :op      :rf.epoch/replace-app-db-during-drain
        :tags    {:frame frame-id}}
 
       :else
@@ -497,7 +497,7 @@
       (let [failing (failing-schema-paths frame-id new-db)]
         (if (seq failing)
           {:outcome :fail
-           :op      :rf.epoch/reset-frame-db-schema-mismatch
+           :op      :rf.epoch/replace-app-db-schema-mismatch
            :tags    {:frame         frame-id
                      :failing-paths failing}}
           {:outcome :ok})))))

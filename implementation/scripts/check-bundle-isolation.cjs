@@ -239,15 +239,15 @@ const ARTEFACTS = [
       // epoch.cljc — on-frame-destroyed! emits this per silenced cb.
       { source: 're-frame.epoch on-frame-destroyed! (rf.epoch.cb/silenced-on-frame-destroy)',
         sentinel: 'rf.epoch.cb/silenced-on-frame-destroy' },
-      // epoch.cljc — reset-frame-db! success trace.
-      { source: 're-frame.epoch reset-frame-db! (rf.epoch/db-replaced)',
+      // epoch.cljc — replace-app-db! success trace.
+      { source: 're-frame.epoch replace-app-db! (rf.epoch/db-replaced)',
         sentinel: 'rf.epoch/db-replaced' },
-      // epoch.cljc — reset-frame-db! drain-in-flight rejection.
-      { source: 're-frame.epoch reset-frame-db! (rf.epoch/reset-frame-db-during-drain)',
-        sentinel: 'rf.epoch/reset-frame-db-during-drain' },
-      // epoch.cljc — reset-frame-db! schema-mismatch rejection.
-      { source: 're-frame.epoch reset-frame-db! (rf.epoch/reset-frame-db-schema-mismatch)',
-        sentinel: 'rf.epoch/reset-frame-db-schema-mismatch' },
+      // epoch.cljc — replace-app-db! drain-in-flight rejection.
+      { source: 're-frame.epoch replace-app-db! (rf.epoch/replace-app-db-during-drain)',
+        sentinel: 'rf.epoch/replace-app-db-during-drain' },
+      // epoch.cljc — replace-app-db! schema-mismatch rejection.
+      { source: 're-frame.epoch replace-app-db! (rf.epoch/replace-app-db-schema-mismatch)',
+        sentinel: 'rf.epoch/replace-app-db-schema-mismatch' },
     ],
     // One consumer-side string: `epoch/settle!` — the late-bind hook
     // key the router calls into at drain-empty (router.cljc). Core

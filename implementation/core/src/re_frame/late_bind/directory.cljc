@@ -549,9 +549,12 @@
    {:key         :epoch/restore-epoch
     :producer-ns 're-frame.epoch
     :description "Restore app-db / schemas to a previously-captured epoch."}
-   {:key         :epoch/reset-frame-db!
+   {:key         :epoch/replace-app-db!
     :producer-ns 're-frame.epoch
-    :description "Reset a frame's app-db to the epoch-recorded snapshot."}
+    :description "Replace a frame's app-db partition (state injection), preserving live runtime-db."}
+   {:key         :epoch/reset-app-db!
+    :producer-ns 're-frame.epoch
+    :description "Reset a frame's app-db partition to {}, preserving live runtime-db (app-db sibling of reset-frame!)."}
    {:key         :epoch/register-epoch-listener!
     :producer-ns 're-frame.epoch
     :description "Register an epoch-settled callback."}

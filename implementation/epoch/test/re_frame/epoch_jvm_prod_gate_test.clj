@@ -1,12 +1,12 @@
 (ns re-frame.epoch-jvm-prod-gate-test
   "Per rf2-0la4f (security audit): the epoch artefact's dev-only
-  surfaces — `register-epoch-listener!`, `restore-epoch`, `reset-frame-db!`,
+  surfaces — `register-epoch-listener!`, `restore-epoch`, `replace-app-db!`,
   the per-frame ring buffer carrying `:db-before` / `:db-after` /
   raw `:trace-events` — MUST honour the JVM-side production gate
   `re-frame.interop/debug-enabled?`. When the gate reads `false`
   (the SSR production posture per rf2-vnjfg / rf2-0la4f), the epoch
   surface drops to its no-op floor: no record lands in the ring, no
-  cb fires, `restore-epoch` and `reset-frame-db!` return `false`.
+  cb fires, `restore-epoch` and `replace-app-db!` return `false`.
 
   The companion core gate vocabulary suite is
   `re-frame.interop-debug-gate-test`; the core integration suite is
@@ -85,14 +85,14 @@
       (is (false? (rf/restore-epoch :rf/default :some-epoch-id))
           "restore-epoch returns false (refuses to operate)"))))
 
-(deftest reset-frame-db-refuses-when-debug-disabled
-  (testing "Per rf2-0la4f: `reset-frame-db!` MUST refuse to operate
+(deftest replace-app-db-refuses-when-debug-disabled
+  (testing "Per rf2-0la4f: `replace-app-db!` MUST refuse to operate
             when the JVM debug gate is off. Same admin-surface
             concern as `restore-epoch` — pair-tool writes (Tool-Pair
             §Pair-tool writes) are a dev-only surface."
     (with-redefs [interop/debug-enabled? false]
-      (is (false? (rf/reset-frame-db! :rf/default {:any "db"}))
-          "reset-frame-db! returns false (refuses to operate)"))))
+      (is (false? (rf/replace-app-db! :rf/default {:any "db"}))
+          "replace-app-db! returns false (refuses to operate)"))))
 
 (deftest epoch-still-records-with-default-gate
   (testing "Sanity: with the gate at its default `true` reading
@@ -163,10 +163,10 @@
         ;; tests via the global config atom.
         (rf/configure! :epoch-history {:redact-fn nil})))))
 
-(deftest redact-fn-not-invoked-on-reset-frame-db-under-disabled-gate
-  (testing "Per rf2-wp70d.5: `reset-frame-db!` returns false under the
+(deftest redact-fn-not-invoked-on-replace-app-db-under-disabled-gate
+  (testing "Per rf2-wp70d.5: `replace-app-db!` returns false under the
             disabled gate (already pinned above) — the gated arm that
-            would call `perform-reset-frame-db!` → `maybe-redact` is
+            would call `perform-replace-app-db!` → `maybe-redact` is
             elided. A throwing `:redact-fn` cannot run, so it cannot
             cause a warning emit, and the early-return false is
             preserved regardless of whether a fn is installed."
@@ -176,10 +176,10 @@
                       {:redact-fn (fn [r]
                                     (swap! invocations inc)
                                     r)})
-        (is (false? (rf/reset-frame-db! :rf/default {:any "db"}))
-            "reset-frame-db! refuses under the disabled gate")
+        (is (false? (rf/replace-app-db! :rf/default {:any "db"}))
+            "replace-app-db! refuses under the disabled gate")
         (is (zero? @invocations)
-            ":redact-fn was never reached — perform-reset-frame-db!
+            ":redact-fn was never reached — perform-replace-app-db!
              never ran")
         (rf/configure! :epoch-history {:redact-fn nil})))))
 

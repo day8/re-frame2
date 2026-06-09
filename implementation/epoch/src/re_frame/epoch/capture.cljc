@@ -60,12 +60,12 @@
     :rf.epoch/restore-version-mismatch
     :rf.epoch/restore-during-drain
     :rf.epoch/restore-non-ok-record
-    ;; reset-frame-db! success + its two failure modes (Tool-Pair §Pair-
-    ;; tool writes, rf2-zq55). All three fire after the synthetic record
+    ;; replace-app-db! success + its two failure modes (Tool-Pair §Pair-
+    ;; tool writes). All three fire after the synthetic record
     ;; has been built and the cascade-buffer (if any) has been harvested.
     :rf.epoch/db-replaced
-    :rf.epoch/reset-frame-db-during-drain
-    :rf.epoch/reset-frame-db-schema-mismatch
+    :rf.epoch/replace-app-db-during-drain
+    :rf.epoch/replace-app-db-schema-mismatch
     ;; Redact-fn exception warning (rf2-wp70d / Tool-Pair §Time-travel
     ;; §Redaction hook). Emitted by `maybe-redact` AFTER
     ;; `harvest-buffer!` has emptied the cascade buffer for this

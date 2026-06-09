@@ -6,8 +6,9 @@
   The entire epoch surface is gated on `interop/debug-enabled?` (Tool-
   Pair §Time-travel §Production elision). Absent-artefact wrappers
   degrade silently (empty vector / `false` / no-op) so a release build
-  that omits the artefact does not raise. `reset-frame-db!` is the
-  exception — it raises `:rf.error/epoch-artefact-missing`."
+  that omits the artefact does not raise. `replace-app-db!` /
+  `reset-app-db!` are the exception — they raise
+  `:rf.error/epoch-artefact-missing`."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
 
@@ -53,11 +54,13 @@
   {:hook :epoch/unregister-epoch-listener! :artefact epoch-artefact :on-absent :nil}
   ([id] :delegate))
 
-(defwrapper reset-frame-db!
-  "Replace `frame-id`'s `app-db` with `new-db`, bypassing the dispatch
-  loop. Per Tool-Pair §Pair-tool writes (rf2-zq55).
+(defwrapper replace-app-db!
+  "Replace `frame-id`'s `app-db` partition with `new-db`, bypassing the
+  dispatch loop. Per Tool-Pair §Pair-tool writes. Renamed from
+  `reset-frame-db!` (EP-0001 rf2-tfepxu, Mike ruling #10 — a db-shaped
+  name never silently replaces runtime-db; the live runtime-db survives).
 
-  The canonical Tool-Pair write surface for state injection — pair
+  The canonical Tool-Pair write surface for app-db state injection — pair
   tools use it for evolved-state-shape probes after a handler hot-swap,
   story-tool fixture setup, conformance-harness state seeding, and
   time-travel from JSON-loaded bug repros. Records a synthetic
@@ -67,21 +70,39 @@
   Failure modes (each is a no-op on `app-db` and emits a structured
   error trace):
 
-    :rf.error/no-such-handler                 — frame not registered
-    :rf.epoch/reset-frame-db-during-drain     — drain in flight
-    :rf.epoch/reset-frame-db-schema-mismatch  — `new-db` fails the
-                                                 frame's app-schema set
+    :rf.error/no-such-handler                   — frame not registered
+    :rf.epoch/replace-app-db-during-drain       — drain in flight
+    :rf.epoch/replace-app-db-schema-mismatch    — `new-db` fails the
+                                                   frame's app-schema set
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds
   (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
-  via `:epoch/reset-frame-db!`; raises `:rf.error/epoch-artefact-missing`
+  via `:epoch/replace-app-db!`; raises `:rf.error/epoch-artefact-missing`
   when the `day8/re-frame2-epoch` artefact is not on the classpath
   (the surface records an epoch and so cannot degrade silently — the
   caller's invariant is 'undo works after this call').
 
   Returns `true` on success, `false` on any failure."
-  {:hook :epoch/reset-frame-db! :artefact epoch-artefact :on-absent :throw}
+  {:hook :epoch/replace-app-db! :artefact epoch-artefact :on-absent :throw}
   ([frame-id new-db] :delegate))
+
+(defwrapper reset-app-db!
+  "Reset `frame-id`'s `app-db` partition to `{}`, bypassing the dispatch
+  loop, while preserving live runtime-db (machines / routes / elision /
+  SSR survive). The app-db-only sibling of the whole-frame `reset-frame!`
+  (EP-0001 rf2-tfepxu, Mike ruling #10). Equivalent to
+  `(replace-app-db! frame-id {})` — same synthetic-epoch recording, same
+  gating and failure modes.
+
+  Dev-only — gated on `interop/debug-enabled?`. Production builds
+  (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
+  via `:epoch/reset-app-db!`; raises `:rf.error/epoch-artefact-missing`
+  when the `day8/re-frame2-epoch` artefact is not on the classpath
+  (it records an epoch and so cannot degrade silently).
+
+  Returns `true` on success, `false` on any failure."
+  {:hook :epoch/reset-app-db! :artefact epoch-artefact :on-absent :throw}
+  ([frame-id] :delegate))
 
 (defwrapper projected-record
   "Project an `:rf/epoch-record` for off-box egress. Per Security.md

@@ -212,20 +212,20 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.epoch/restore-epoch (rf.epoch/restore-non-ok-record)',
     sentinel: 'rf.epoch/restore-non-ok-record' },
   // re-frame.epoch — :rf.epoch/db-replaced trace op (Tool-Pair §Pair-tool
-  // writes, rf2-zq55). Emitted by reset-frame-db! on the success path.
-  // The whole reset-frame-db! body is gated by an
+  // writes). Emitted by replace-app-db! on the success path.
+  // The whole replace-app-db! body is gated by an
   // `(if-not interop/debug-enabled? false ...)` early-return; the success
   // arm and its string sentinel must elide under :advanced.
-  { source: 're-frame.epoch/reset-frame-db! (rf.epoch/db-replaced)',
+  { source: 're-frame.epoch/replace-app-db! (rf.epoch/db-replaced)',
     sentinel: 'rf.epoch/db-replaced' },
-  // re-frame.epoch — :rf.epoch/reset-frame-db-during-drain failure mode
-  // (rf2-zq55). Same elision gate as the success path.
-  { source: 're-frame.epoch/reset-frame-db! (rf.epoch/reset-frame-db-during-drain)',
-    sentinel: 'rf.epoch/reset-frame-db-during-drain' },
-  // re-frame.epoch — :rf.epoch/reset-frame-db-schema-mismatch failure
-  // mode (rf2-zq55). Same elision gate.
-  { source: 're-frame.epoch/reset-frame-db! (rf.epoch/reset-frame-db-schema-mismatch)',
-    sentinel: 'rf.epoch/reset-frame-db-schema-mismatch' },
+  // re-frame.epoch — :rf.epoch/replace-app-db-during-drain failure mode
+  // (EP-0001 rf2-tfepxu). Same elision gate as the success path.
+  { source: 're-frame.epoch/replace-app-db! (rf.epoch/replace-app-db-during-drain)',
+    sentinel: 'rf.epoch/replace-app-db-during-drain' },
+  // re-frame.epoch — :rf.epoch/replace-app-db-schema-mismatch failure
+  // mode (EP-0001 rf2-tfepxu). Same elision gate.
+  { source: 're-frame.epoch/replace-app-db! (rf.epoch/replace-app-db-schema-mismatch)',
+    sentinel: 'rf.epoch/replace-app-db-schema-mismatch' },
   // re-frame.epoch — :rf.epoch.cb/silenced-on-frame-destroy listener
   // silencing trace (Tool-Pair §Surface behaviour against destroyed
   // frames, rf2-d656). Emitted by on-frame-destroyed! once per
@@ -237,8 +237,8 @@ const DEV_ONLY_SENTINELS = [
     sentinel: 'rf.epoch.cb/silenced-on-frame-destroy' },
   // re-frame.epoch — :rf.warning/epoch-redact-fn-exception (rf2-wp70d).
   // Emitted by maybe-redact when an installed :redact-fn throws.
-  // Every consumer of maybe-redact (settle!, perform-reset-frame-db!
-  // via reset-frame-db!'s if-not gate, on-frame-destroyed!) sits
+  // Every consumer of maybe-redact (settle!, perform-replace-app-db!
+  // via replace-app-db!'s if-not gate, on-frame-destroyed!) sits
   // inside the universal `interop/debug-enabled?` gate, so this
   // string literal must elide in :advanced + goog.DEBUG=false.
   { source: 're-frame.epoch/maybe-redact (rf.warning/epoch-redact-fn-exception)',

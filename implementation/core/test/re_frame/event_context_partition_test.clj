@@ -19,6 +19,7 @@
        applied either way (the diagnostic is a warning, not a gate)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
@@ -179,3 +180,83 @@
           "no :rf.db/runtime effect ⇒ no diagnostic")
       (is (true? (:touched? (rf/app-db-value :ctx/plain)))
           "the :db effect committed normally"))))
+
+;; ===========================================================================
+;; EP-0001 (rf2-tfepxu, decision #8) — legacy :rf/runtime root is a HARD ERROR
+;; ===========================================================================
+;;
+;; Per Conventions §The legacy :rf/runtime root — hard error in final form:
+;; the retired app-db root key `:rf/runtime` is gone. A handler whose `:db`
+;; effect carries a top-level `:rf/runtime` key THROWS
+;; `:rf.error/legacy-runtime-root`. Framework runtime state lives in the
+;; runtime-db partition (`:rf.db/runtime`), never under an app-db root.
+
+(deftest reject-legacy-runtime-root-throws-on-stray-key
+  (testing "the guard fn throws :rf.error/legacy-runtime-root when app-db carries :rf/runtime"
+    (let [thrown (try
+                   (events/reject-legacy-runtime-root!
+                     {:user/id 1 :rf/runtime {:rf.runtime/machines {}}}
+                     [:some/event])
+                   ::no-throw
+                   (catch clojure.lang.ExceptionInfo e e))]
+      (is (instance? clojure.lang.ExceptionInfo thrown)
+          "reject-legacy-runtime-root! throws on a stray :rf/runtime root")
+      (is (= :rf.error/legacy-runtime-root (:rf.error/id (ex-data thrown)))
+          "ex-data carries :rf.error/id :rf.error/legacy-runtime-root")
+      (is (= :some/event (:event-id (ex-data thrown)))
+          "ex-data names the offending event-id")
+      (is (= :rf/runtime (:offending-key (ex-data thrown)))
+          "ex-data names :rf/runtime as the offending key"))))
+
+(deftest reject-legacy-runtime-root-is-a-noop-for-clean-app-db
+  (testing "the guard fn returns the value unchanged (no throw) when :rf/runtime is absent"
+    (let [clean {:user/id 1 :cart {:items []}}]
+      (is (= clean (events/reject-legacy-runtime-root! clean [:ok/event]))
+          "a clean app-db passes through untouched")
+      (is (= nil (events/reject-legacy-runtime-root! nil [:ok/event]))
+          "nil (no :db effect) is a no-op"))))
+
+(deftest db-handler-returning-legacy-runtime-root-surfaces-hard-error
+  (testing "a reg-event-db handler returning a :rf/runtime root surfaces :rf.error/legacy-runtime-root"
+    (rf/reg-frame :ctx/legacy-db {:doc "ctx"})
+    (let [recorded (record-traces! ::legacy-db)]
+      (rf/reg-event-db :ctx/writes-legacy-root
+        (fn [db _] (assoc db :rf/runtime {:rf.runtime/machines {:m 1}})))
+      (rf/dispatch-sync [:ctx/writes-legacy-root] {:frame :ctx/legacy-db})
+      ;; The throw is captured by the interceptor machinery and surfaced as
+      ;; :rf.error/handler-exception carrying the original ex-info.
+      (let [errs (error-events recorded :rf.error/handler-exception)
+            ex   (some-> errs first :tags :exception)]
+        (is (= 1 (count errs))
+            "exactly one handler-exception trace for the legacy-root write")
+        (is (= :rf.error/legacy-runtime-root (:rf.error/id (ex-data ex)))
+            "the captured exception is :rf.error/legacy-runtime-root")
+        (is (not (contains? (rf/app-db-value :ctx/legacy-db) :rf/runtime))
+            "the legacy :rf/runtime root never lands in app-db (hard-error rejects the write)")))))
+
+(deftest fx-handler-returning-legacy-runtime-root-surfaces-hard-error
+  (testing "a reg-event-fx handler whose :db effect carries :rf/runtime surfaces the hard error"
+    (rf/reg-frame :ctx/legacy-fx {:doc "ctx"})
+    (let [recorded (record-traces! ::legacy-fx)]
+      (rf/reg-event-fx :ctx/fx-writes-legacy-root
+        (fn [{:keys [db]} _] {:db (assoc db :rf/runtime {:rf.runtime/routing {}})}))
+      (rf/dispatch-sync [:ctx/fx-writes-legacy-root] {:frame :ctx/legacy-fx})
+      (let [errs (error-events recorded :rf.error/handler-exception)
+            ex   (some-> errs first :tags :exception)]
+        (is (= :rf.error/legacy-runtime-root (:rf.error/id (ex-data ex)))
+            "the :fx-path :db effect with a legacy root is rejected too")
+        (is (not (contains? (rf/app-db-value :ctx/legacy-fx) :rf/runtime))
+            "the legacy root never commits")))))
+
+(deftest legitimate-runtime-db-effect-is-not-a-legacy-root-error
+  (testing "a framework :rf.db/runtime effect (the NEW partition) is NOT the legacy-root hard error"
+    (rf/reg-frame :ctx/new-runtime {:doc "ctx"})
+    (let [recorded (record-traces! ::new-runtime)]
+      (rf/reg-event-fx :ctx/fw-runtime
+        {:doc "framework-authority" :rf/machine? true}
+        (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
+      (rf/dispatch-sync [:ctx/fw-runtime] {:frame :ctx/new-runtime})
+      (is (empty? (error-events recorded :rf.error/handler-exception))
+          "writing the :rf.db/runtime partition is legitimate — no legacy-root throw")
+      (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :ctx/new-runtime))
+          "the runtime-db partition committed normally"))))

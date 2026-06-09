@@ -280,6 +280,61 @@
                          "code should reach subsystem state through public framework "
                          "subscriptions and effects, and write application data via `:db`.")}))))
 
+;; ---- legacy :rf/runtime root — HARD ERROR (EP-0001 rf2-tfepxu) -------------
+;;
+;; Per Conventions §The legacy `:rf/runtime` root — hard error in final form
+;; (decision #8) + 009 §Error event catalogue: the former single reserved
+;; app-db root `:rf/runtime` is RETIRED. Framework durable state now lives in
+;; the runtime-db partition (`:rf.db/runtime`), addressed by `:rf.runtime/*`
+;; children. A stray `:rf/runtime` root surviving at the TOP of app-db —
+;; whether written by user code or carried over from v1-shaped code — is a
+;; HARD ERROR (`:rf.error/legacy-runtime-root`) in the final form (pre-alpha:
+;; no long-lived migration alias; the temporary migration WARNING is removed
+;; now that all in-repo consumers are on runtime-db).
+;;
+;; This supersedes the retired `:rf.warning/runtime-state-dropped` containment
+;; diagnostic: under the two-partition contract an ordinary `:db` return
+;; replaces ONLY app-db and CANNOT touch runtime-db (the clobber footgun is
+;; structurally gone), so the only remaining way `:rf/runtime` reaches app-db
+;; is a handler that EXPLICITLY writes it — which this guard rejects loudly.
+
+(def ^:private legacy-runtime-root-key
+  "The retired app-db root key. Framework durable state moved to the
+  runtime-db partition; a stray `:rf/runtime` at the top of app-db is the
+  legacy-shaped write this guard rejects."
+  :rf/runtime)
+
+(defn reject-legacy-runtime-root!
+  "Throw `:rf.error/legacy-runtime-root` (ex-info) when `app-db` carries the
+  retired `:rf/runtime` root key at its top level. Per Conventions §The
+  legacy `:rf/runtime` root + decision #8: a HARD ERROR in the final form —
+  framework runtime state lives in the runtime-db partition now, never under
+  an app-db `:rf/runtime` root. A no-op (returns `app-db`) for any value that
+  does not carry the legacy key, so it is cheap on the hot path.
+
+  Always-on (NOT dev-gated): a legacy-shaped write is a structural contract
+  violation that must surface in every build, not a dev-only advisory."
+  [app-db event]
+  (when (and (map? app-db) (contains? app-db legacy-runtime-root-key))
+    (let [event-id (when (vector? event) (first event))]
+      (throw (ex-info
+               ":rf.error/legacy-runtime-root"
+               {:rf.error/id :rf.error/legacy-runtime-root
+                :where       'rf/reg-event-db
+                :event-id    event-id
+                :event       event
+                :recovery    :no-recovery
+                :reason
+                (str "Event `" event-id "` returned a `:db` value carrying the "
+                     "retired `:rf/runtime` app-db root. Framework runtime state "
+                     "now lives in the runtime-db partition (the reserved "
+                     "`:rf.db/runtime` effect, addressed by `:rf.runtime/*` "
+                     "children) — NOT under an app-db `:rf/runtime` root, which "
+                     "is retired. Move framework/runtime writes to the "
+                     "`:rf.db/runtime` effect; keep application data under `:db`.")
+                :offending-key legacy-runtime-root-key}))))
+  app-db)
+
 (defn- commit-fx-effects
   "fx-kind commit: enforce the closed effect-map (M-8 + EP-0001) and assoc
   :db / :rf.db/runtime / :fx into the context. Bad-return / nil-return policy
@@ -386,8 +441,14 @@
       (fn [ctx]
         (if (:rf/skip-handler? ctx)
           ctx
-          (let [event (interceptor/get-coeffect ctx :event)]
-            (commit ctx event (invoke handler-fn ctx event))))))))
+          (let [event   (interceptor/get-coeffect ctx :event)
+                new-ctx (commit ctx event (invoke handler-fn ctx event))]
+            ;; EP-0001 (rf2-tfepxu, decision #8): a `:db` effect carrying the
+            ;; retired `:rf/runtime` app-db root is a HARD ERROR — reject it
+            ;; at the single post-commit chokepoint covering all three event
+            ;; kinds. No-op (cheap) when the legacy key is absent.
+            (reject-legacy-runtime-root! (interceptor/get-effect new-ctx :db) event)
+            new-ctx))))))
 
 (defn event-handler-meta
   "Build the registrar-shaped handler-meta map for an `:fx`-kind event

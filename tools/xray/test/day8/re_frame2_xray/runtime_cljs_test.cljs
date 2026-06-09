@@ -838,7 +838,7 @@
   (rf/reg-event-db :test/seed-before (fn [_ _] before))
   (rf/dispatch-sync [:test/seed-before])
   (let [fid (first (rf/frame-ids))]
-    (rf/reset-frame-db! fid after)
+    (rf/replace-app-db! fid after)
     (-> (rf/epoch-history fid) peek :epoch-id)))
 
 (deftest get-app-db-diff-returns-changed-paths-shape

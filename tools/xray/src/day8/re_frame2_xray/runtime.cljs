@@ -919,10 +919,11 @@
 (defn reset-frame-db!
   "Tool: `reset-frame-db`. Inject `:value` into a frame's `app-db`,
   bypassing the cascade. Schema-validates against current schemas via
-  `rf/reset-frame-db!`; the framework's wrapper returns `true` on
-  success and `false` on any of the three documented failure rows
-  (`:rf.error/no-such-handler`, `:rf.epoch/reset-frame-db-during-drain`,
-  `:rf.epoch/reset-frame-db-schema-mismatch` — each emits a structured
+  `rf/replace-app-db!` (renamed from `rf/reset-frame-db!`, EP-0001
+  rf2-tfepxu); the framework's wrapper returns `true` on success and
+  `false` on any of the three documented failure rows
+  (`:rf.error/no-such-handler`, `:rf.epoch/replace-app-db-during-drain`,
+  `:rf.epoch/replace-app-db-schema-mismatch` — each emits a structured
   trace and leaves `app-db` unchanged).
 
   Returns `{:ok? true :frame <id> :origin <kw>}` on success;
@@ -940,7 +941,7 @@
        :hint "Pass :value <edn-map> to inject."}
 
       :else
-      (let [ok? (rf/reset-frame-db! fid value)]
+      (let [ok? (rf/replace-app-db! fid value)]
         (cond-> {:ok?    (boolean ok?)
                  :frame  fid
                  :origin *current-origin*}

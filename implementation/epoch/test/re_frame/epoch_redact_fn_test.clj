@@ -29,7 +29,7 @@
 
   Plus the `configure!` validation surface (`fn?` / `nil` accepted,
   other shapes silently dropped), and the three per-site wirings
-  (`settle!`, `perform-reset-frame-db!`,
+  (`settle!`, `perform-replace-app-db!`,
   `on-frame-destroyed!`'s `:halted-destroy` path)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -413,7 +413,7 @@
            (the leaf is already the sentinel target)"))))
 
 ;; ============================================================================
-;;  Per-site wirings — settle! / perform-reset-frame-db! /
+;;  Per-site wirings — settle! / perform-replace-app-db! /
 ;;  on-frame-destroyed!'s :halted-destroy path
 ;; ============================================================================
 
@@ -429,8 +429,8 @@
     (is (= :redacted (:rf/test-tag (last-record :test/main)))
         "settle! path: ring record carries the redact-fn's tag")))
 
-(deftest wiring-reset-frame-db-applies-redact-fn
-  (testing "the perform-reset-frame-db! synthetic-record commit path
+(deftest wiring-replace-app-db-applies-redact-fn
+  (testing "the perform-replace-app-db! synthetic-record commit path
             runs the redact-fn (pair-tool injection / story tools
             land the synthetic :rf.epoch/db-replaced record through
             this seam)"
@@ -439,12 +439,12 @@
       (rf/register-epoch-listener! ::watch (fn [r] (reset! synthetic r)))
       (rf/configure! :epoch-history
                     {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
-      (rf/reset-frame-db! :test/main {:injected :state})
+      (rf/replace-app-db! :test/main {:injected :state})
       (is (= :redacted (:rf/test-tag @synthetic))
-          "reset-frame-db! path: listener received the redacted
+          "replace-app-db! path: listener received the redacted
            synthetic record")
       (is (= :redacted (:rf/test-tag (last-record :test/main)))
-          "reset-frame-db! path: ring received the same redacted
+          "replace-app-db! path: ring received the same redacted
            synthetic record"))))
 
 (deftest wiring-halted-destroy-applies-redact-fn

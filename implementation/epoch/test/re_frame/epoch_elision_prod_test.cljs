@@ -18,7 +18,7 @@
   - `restore-epoch`           — `(if-not interop/debug-enabled? false ...)`
                                 — returns `false` and never invokes
                                 the restore machinery.
-  - `reset-frame-db!`         — `(if-not interop/debug-enabled? false ...)`
+  - `replace-app-db!`         — `(if-not interop/debug-enabled? false ...)`
                                 — Pair-tool write surface returns
                                 `false` without mutating app-db.
   - `on-frame-destroyed!`     — `(when interop/debug-enabled? ...)` —
@@ -108,10 +108,10 @@
     (is (false? (rf/restore-epoch :rf.nonexistent/frame 0))
         "restore-epoch returns false under prod even for an unknown frame")))
 
-;; ---- reset-frame-db! is a no-op returning false under prod ---------------
+;; ---- replace-app-db! is a no-op returning false under prod ---------------
 
-(deftest reset-frame-db-returns-false-under-prod
-  (testing "Per Spec 009 §Production builds: `reset-frame-db!` (Tool-
+(deftest replace-app-db-returns-false-under-prod
+  (testing "Per Spec 009 §Production builds: `replace-app-db!` (Tool-
             Pair §Pair-tool writes) is gated on `interop/debug-enabled?`
             via an `(if-not …)` early-return. Under prod it returns
             `false` WITHOUT mutating app-db — the dev-only Pair-tool
@@ -122,8 +122,8 @@
     (is (= {:original true}
            (rf/app-db-value :rf/default))
         "baseline: app-db has the seeded value")
-    (is (false? (rf/reset-frame-db! :rf/default {:replaced :should-not-stick}))
-        "reset-frame-db! returns false under prod")
+    (is (false? (rf/replace-app-db! :rf/default {:replaced :should-not-stick}))
+        "replace-app-db! returns false under prod")
     (is (= {:original true}
            (rf/app-db-value :rf/default))
         "app-db is UNCHANGED under prod — Pair-tool write firewalled

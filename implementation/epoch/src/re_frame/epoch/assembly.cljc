@@ -125,7 +125,7 @@
   data. The assembled record (and the post-settle back-fill probe,
   which is shaped `(cond-> record ...)`) both carry `:epoch-id`, so
   the same `(:epoch-id record)` read covers every invocation path:
-  normal settle, `reset-frame-db!`, `:halted-destroy`, and the
+  normal settle, `replace-app-db!`, `:halted-destroy`, and the
   post-settle back-fill (where `compute-redacted-delta` hands this fn
   a probe carrying the ring record's `:epoch-id`).
 

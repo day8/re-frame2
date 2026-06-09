@@ -10,26 +10,27 @@
 ;;;; Tool-Pair write surface — and could plausibly return
 ;;;; `{:ok? true}` without mutating state or appending the synthetic
 ;;;; epoch that `restore-epoch` depends on. The fix delegates to
-;;;; `rf/reset-frame-db!` (Tool-Pair §Pair-tool writes).
+;;;; `rf/replace-app-db!` (Tool-Pair §Pair-tool writes; renamed from
+;;;; `rf/reset-frame-db!`, EP-0001 rf2-tfepxu).
 ;;;;
 ;;;; Why a structural test rather than a runtime test:
 ;;;;
 ;;;; `preload/re_frame2_pair/runtime.cljs` is CLJS-only — loaded into
 ;;;; the consumer app via shadow-cljs `:devtools :preloads` — so it
 ;;;; can't run under bb directly. The semantic contract
-;;;; of `rf/reset-frame-db!` (mutates app-db, appends a synthetic
+;;;; of `rf/replace-app-db!` (mutates app-db, appends a synthetic
 ;;;; `:rf.epoch/db-replaced` epoch, schema-validates, drain-checks,
 ;;;; emits trace, fires listeners) is already covered by the JVM
 ;;;; tests at
 ;;;; implementation/epoch/test/re_frame/epoch_test.clj
-;;;; reset-frame-db!-replaces-container
-;;;; reset-frame-db!-records-undo-epoch (also covers the
+;;;; replace-app-db!-replaces-container
+;;;; replace-app-db!-records-undo-epoch (also covers the
 ;;;; restore-epoch-rewinds-past-injection case)
-;;;; reset-frame-db!-emits-trace (`:rf.epoch/db-replaced`)
-;;;; reset-frame-db!-fires-listeners
-;;;; reset-frame-db!-failure-unknown-frame
-;;;; reset-frame-db!-failure-during-drain
-;;;; reset-frame-db!-failure-schema-mismatch
+;;;; replace-app-db!-emits-trace (`:rf.epoch/db-replaced`)
+;;;; replace-app-db!-fires-listeners
+;;;; replace-app-db!-failure-unknown-frame
+;;;; replace-app-db!-failure-during-drain
+;;;; replace-app-db!-failure-schema-mismatch
 ;;;;
 ;;;; What we MUST verify here is that re-frame2-pair's `app-db-reset!` actually
 ;;;; delegates to that surface — not to some other API that won't
@@ -37,7 +38,7 @@
 ;;;; locates the `app-db-reset!` defn form, and asserts the structural
 ;;;; contract:
 ;;;;
-;;;; 1. The body invokes `rf/reset-frame-db!` (the canonical
+;;;; 1. The body invokes `rf/replace-app-db!` (the canonical
 ;;;; Tool-Pair write surface — guarantees app-db mutation +
 ;;;; synthetic-epoch append per).
 ;;;; 2. The body does NOT reach into `rf/handler-meta` to grab
@@ -130,12 +131,13 @@
  "the defn form is present in the source")))
 
 (deftest delegates-to-canonical-tool-pair-surface
- (testing "app-db-reset! delegates to rf/reset-frame-db! — the canonical
+ (testing "app-db-reset! delegates to rf/replace-app-db! — the canonical
  Tool-Pair §Pair-tool writes surface that mutates
  app-db, appends a synthetic :rf.epoch/db-replaced epoch,
- schema-validates, and drain-checks"
- (is (calls? 'rf/reset-frame-db! app-db-reset-form)
- "(rf/reset-frame-db! frame-id v) appears in the body")))
+ schema-validates, and drain-checks (renamed from rf/reset-frame-db!,
+ EP-0001 rf2-tfepxu)"
+ (is (calls? 'rf/replace-app-db! app-db-reset-form)
+ "(rf/replace-app-db! frame-id v) appears in the body")))
 
 (deftest does-not-reach-through-handler-meta
  (testing "app-db-reset! does NOT use the buggy `(rf/handler-meta :frame
@@ -158,7 +160,7 @@
  ;; reset! at all here would be suspicious.
 ))
  app-db-reset-form))
- "no `(reset! container ...)` — delegating to rf/reset-frame-db!
+ "no `(reset! container ...)` — delegating to rf/replace-app-db!
  means the container is replaced inside that surface, not here")))
 
 (deftest preserves-tap-log-guardrail
@@ -199,7 +201,7 @@
 
 (deftest catches-throw
  (testing "the :rf.error/epoch-artefact-missing throw from
- rf/reset-frame-db! (when the day8/re-frame2-epoch artefact
+ rf/replace-app-db! (when the day8/re-frame2-epoch artefact
  isn't loaded) is caught and surfaced — the caller sees the
  failure rather than a stack trace"
  (is (calls? 'try app-db-reset-form)

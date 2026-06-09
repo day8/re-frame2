@@ -105,7 +105,14 @@
     ;; `request` is the host-supplied HTTP request map (Ring shape under
     ;; the bundled adapter); read URL/headers/cookies from here rather
     ;; than from a positional event arg.
-    {:db (assoc-in db [:rf/runtime :routing :current] {:id :ssr.app/articles :params {}})
+    ;;
+    ;; EP-0001 (rf2-tfepxu): the framework route slice lives in the
+    ;; runtime-db partition at `[:rf.runtime/routing :current]`, NOT under a
+    ;; legacy app-db `:rf/runtime` root (which is now a hard error). This
+    ;; example's render never reads the route slice, so the vestigial
+    ;; pre-EP `:db` write is simply dropped — the server flow only needs to
+    ;; kick off the managed-HTTP article fetch.
+    {:db db
      :fx [[:rf.http/managed
            {:request    {:method :get :url "/api/articles"}
             :decode     :json
