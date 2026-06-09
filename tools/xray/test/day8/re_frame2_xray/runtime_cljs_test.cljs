@@ -666,6 +666,86 @@
           ":include-sensitive? true ⇒ the raw value passes through"))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-5w06uu — epoch egress must NOT bypass frame-state runtime-db redaction
+;; when a caller opts into sensitive / large APP-DB values.
+;; ---------------------------------------------------------------------------
+;;
+;; The frame-state slots are `{:rf.db/app <app-db> :rf.db/runtime
+;; <runtime-db>}`. The `:rf.db/runtime` partition (machine snapshots,
+;; route slice, spawn registry, elision registry, SSR/hydration metadata)
+;; is REDACTED off-box by default (Mike ruling #14). `:include-sensitive?`
+;; / `:include-large?` opt into the APP-DB partition's privacy / size
+;; posture only — they MUST NOT lift the orthogonal runtime-db partition
+;; boundary. A trusted-local caller opts into runtime-db explicitly with
+;; `:include-runtime-db? true`.
+
+(defn- frame-state-record []
+  ;; A record carrying both partitions in :frame-state-after, per the
+  ;; rf2-5w06uu acceptance criteria.
+  {:epoch-id    "e1"
+   :frame       :rf/default
+   :event-id    :auth/login
+   :frame-state-after {:rf.db/app     {:auth {:username "ada" :password "shh"}}
+                       :rf.db/runtime {:rf.runtime/machines {:m :running}}}})
+
+(deftest egress-record-default-redacts-app-sensitive-and-runtime-db
+  (testing "rf2-5w06uu — default egress (no opts) redacts the app-db
+            sensitive value AND default-redacts the runtime-db partition
+            of the frame-state slot"
+    (seed-sensitive-schema!)
+    (let [out (runtime/egress-record (frame-state-record))
+          fs  (:frame-state-after out)]
+      (is (= "ada" (get-in fs [:rf.db/app :auth :username]))
+          "non-sensitive app-db value passes through")
+      (is (= :rf/redacted (get-in fs [:rf.db/app :auth :password]))
+          "sensitive app-db value redacted on the default path")
+      (is (= :rf/redacted (:rf.db/runtime fs))
+          "runtime-db partition redacted on the default path"))))
+
+(deftest egress-record-include-sensitive-keeps-runtime-db-redacted
+  (testing "rf2-5w06uu — {:include-sensitive? true} reveals app-db
+            sensitive values but KEEPS :rf.db/runtime redacted (the bypass
+            bug: it used to walk the raw record and leak runtime-db)"
+    (seed-sensitive-schema!)
+    (let [out (runtime/egress-record (frame-state-record)
+                                     {:include-sensitive? true})
+          fs  (:frame-state-after out)]
+      (is (= "shh" (get-in fs [:rf.db/app :auth :password]))
+          ":include-sensitive? true reveals the app-db sensitive value")
+      (is (= :rf/redacted (:rf.db/runtime fs))
+          ":include-sensitive? true does NOT lift the runtime-db redaction"))))
+
+(deftest egress-record-include-large-keeps-runtime-db-redacted
+  (testing "rf2-5w06uu — {:include-large? true} also keeps :rf.db/runtime
+            redacted (orthogonal partition boundary holds under the size
+            opt-in too)"
+    (seed-sensitive-schema!)
+    (let [out (runtime/egress-record (frame-state-record)
+                                     {:include-large? true})
+          fs  (:frame-state-after out)]
+      (is (= :rf/redacted (:rf.db/runtime fs))
+          ":include-large? true does NOT lift the runtime-db redaction")
+      ;; Sensitive app-db value still redacted (large opt-in is not a
+      ;; sensitive opt-in).
+      (is (= :rf/redacted (get-in fs [:rf.db/app :auth :password]))
+          ":include-large? alone does not reveal sensitive app-db values"))))
+
+(deftest egress-record-trusted-local-opts-into-runtime-db
+  (testing "rf2-5w06uu — only the explicit trusted-local
+            :include-runtime-db? true reveals the runtime-db partition;
+            sensitive/large handling still applies inside the allowed
+            partitions"
+    (seed-sensitive-schema!)
+    (let [out (runtime/egress-record (frame-state-record)
+                                     {:include-sensitive?  true
+                                      :include-runtime-db? true})
+          fs  (:frame-state-after out)]
+      (is (= {:rf.runtime/machines {:m :running}} (:rf.db/runtime fs))
+          ":include-runtime-db? true crosses the runtime-db partition")
+      (is (= "shh" (get-in fs [:rf.db/app :auth :password]))
+          ":include-sensitive? still applies inside the app-db partition"))))
+
+;; ---------------------------------------------------------------------------
 ;; EP-0001 (rf2-jj1xer · ruling #14) — partition-aware runtime-db egress.
 ;; ---------------------------------------------------------------------------
 ;;

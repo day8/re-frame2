@@ -651,16 +651,30 @@
 ;; same posture as the wire-elision walker). New egress tools call
 ;; `projected-record` and trust the contract.
 
+(defn- elide-wire-opts
+  "Build the `elide-wire-value` opts map from a `projected-record` egress
+  opts map (rf2-5w06uu). `:include-sensitive?` / `:include-large?` default
+  `false` (the off-box default — the safe path); a trusted-local caller
+  opts back in per call. Translates the plain opt keys to the framework's
+  `:rf.size/*` namespaced keys and stamps the record frame so
+  schema-declared sensitive / large paths (keyed by absolute app-db path)
+  match the walked value."
+  [frame-id {:keys [include-sensitive? include-large?]}]
+  {:frame                      frame-id
+   :rf.size/include-sensitive? (boolean include-sensitive?)
+   :rf.size/include-large?     (boolean include-large?)})
+
 (defn- elide-payload-slot
   "Walk one payload slot through `elide-wire-value` rooted at the named
-  frame, with off-box defaults (`:include-sensitive? false`,
-  `:include-large? false`). Returns the elided value; `nil` slots are
-  preserved as nil (a halted-destroy record's `:db-before` /
-  `:db-after` are nil per rf2-v0jwt; the schema admits the absent /
-  nil slot — the projection MUST NOT fabricate a value)."
-  [v frame-id]
+  frame. Off-box defaults (`:include-sensitive? false`,
+  `:include-large? false`) hold unless `opts` opts back in (rf2-5w06uu).
+  Returns the elided value; `nil` slots are preserved as nil (a
+  halted-destroy record's `:db-before` / `:db-after` are nil per
+  rf2-v0jwt; the schema admits the absent / nil slot — the projection
+  MUST NOT fabricate a value)."
+  [v frame-id opts]
   (when (some? v)
-    (elision/elide-wire-value v {:frame frame-id})))
+    (elision/elide-wire-value v (elide-wire-opts frame-id opts))))
 
 (defn- elide-frame-state-slot
   "Project a `:frame-state-before` / `:frame-state-after` slot for off-box
@@ -671,26 +685,39 @@
     - `:rf.db/app` — the application state. Elided through the standard
       `elide-wire-value` walk (sensitive paths → `:rf/redacted`, large
       paths → markers), the SAME projection the `:db-before` / `:db-after`
-      app-db projections receive.
+      app-db projections receive. `opts` `:include-sensitive?` /
+      `:include-large?` opt the app-db partition's privacy / size posture
+      back in (rf2-5w06uu).
 
     - `:rf.db/runtime` — the framework runtime-db. REDACTED by default off-box
       (Mike ruling #14 — Spec 011 §Off-box redaction + Security.md §Epoch
       privacy posture): the runtime-db side is substituted with the
       `:rf/redacted` sentinel rather than walked, so machine snapshots /
       route slice / SSR metadata do not egress to AI / log channels by
-      default. Trusted-local tools that need richer diagnostics request them
-      explicitly (a future opt); the default fails closed.
+      default. The runtime-db partition boundary is ORTHOGONAL to the
+      app-db `:include-sensitive?` / `:include-large?` opt-ins — those do
+      NOT lift it (the rf2-5w06uu bypass). A TRUSTED-LOCAL caller that
+      genuinely needs runtime-db diagnostics opts in explicitly with
+      `:include-runtime-db? true`; the runtime-db value is then elided
+      through the same walk (its own per-slot sensitive / large
+      declarations still apply) rather than redacted whole.
 
   Nil-preserving (a halted-destroy record may carry a nil frame-state slot;
   the projection MUST NOT fabricate a value)."
-  [fs frame-id]
+  [fs frame-id {:keys [include-runtime-db?] :as opts}]
   (when (some? fs)
     (cond-> fs
       (contains? fs :rf.db/app)
-      (update :rf.db/app elision/elide-wire-value {:frame frame-id})
-      ;; Default-redact the runtime-db side off-box (ruling #14).
-      (contains? fs :rf.db/runtime)
-      (assoc :rf.db/runtime :rf/redacted))))
+      (update :rf.db/app elision/elide-wire-value (elide-wire-opts frame-id opts))
+      ;; Default-redact the runtime-db side off-box (ruling #14). The
+      ;; trusted-local `:include-runtime-db? true` opt-in lifts the
+      ;; partition redaction; the value still rides the value walk so its
+      ;; own sensitive / large declarations apply (rf2-5w06uu).
+      (and (contains? fs :rf.db/runtime) (not include-runtime-db?))
+      (assoc :rf.db/runtime :rf/redacted)
+
+      (and (contains? fs :rf.db/runtime) include-runtime-db?)
+      (update :rf.db/runtime elision/elide-wire-value (elide-wire-opts frame-id opts)))))
 
 (defn- reroot-trace-event-db-slots
   "Per rf2-ta0y7: the `:rf.event/db-pending` (t1) and
@@ -723,21 +750,22 @@
   `:trace-events` slot with a scalar sentinel (`:rf/redacted`) — the
   fn returns it untouched in that case (no descend into a non-
   vector)."
-  [trace-events frame-id]
+  [trace-events frame-id opts]
   (if-not (sequential? trace-events)
     trace-events
-    (mapv (fn [ev]
-            (if-not (map? ev)
-              ev
-              (let [op (:operation ev)]
-                (if (and (or (= op :rf.event/db-pending)
-                             (= op :rf.event/db-pending-post-flow))
-                         (some? (get-in ev [:tags :rf.event/db])))
-                  (update-in ev [:tags :rf.event/db]
-                             elision/elide-wire-value
-                             {:frame frame-id :path []})
-                  ev))))
-          trace-events)))
+    (let [wire-opts (assoc (elide-wire-opts frame-id opts) :path [])]
+      (mapv (fn [ev]
+              (if-not (map? ev)
+                ev
+                (let [op (:operation ev)]
+                  (if (and (or (= op :rf.event/db-pending)
+                               (= op :rf.event/db-pending-post-flow))
+                           (some? (get-in ev [:tags :rf.event/db])))
+                    (update-in ev [:tags :rf.event/db]
+                               elision/elide-wire-value
+                               wire-opts)
+                    ev))))
+            trace-events))))
 
 (defn- elide-trace-events-slot
   "The `:trace-events` projection chain (rf2-ta0y7): first re-root the
@@ -745,13 +773,15 @@
   sensitive / large declarations match natively, then run the bulk
   `elide-wire-value` walk over the whole vector to handle the other
   payload-bearing tag values (`:rf.event/v`, `:rf.cofx/value`, etc.)
-  with their own per-tag paths. Idempotent (a second pass walks
-  already-redacted scalars). Nil-preserving."
-  [v frame-id]
+  with their own per-tag paths. `opts` `:include-sensitive?` /
+  `:include-large?` opt the per-call posture back in (rf2-5w06uu).
+  Idempotent (a second pass walks already-redacted scalars).
+  Nil-preserving."
+  [v frame-id opts]
   (when (some? v)
     (-> v
-        (reroot-trace-event-db-slots frame-id)
-        (elision/elide-wire-value {:frame frame-id}))))
+        (reroot-trace-event-db-slots frame-id opts)
+        (elision/elide-wire-value (elide-wire-opts frame-id opts)))))
 
 (defn- elide-sub-run-row
   "Project a single structured `:sub-runs` row for off-box egress
@@ -777,10 +807,17 @@
   Per-PATH large declarations (a sub with `:large [<path>]` marks but no
   whole-output `:large?` stamp) are already substituted INTO the value
   at the marks emit site (`redact-with-paths`), so they ride the row
-  pre-marked and need no projection here."
-  [row]
-  (if-not (:large? row)
-    row
+  pre-marked and need no projection here.
+
+  `opts` `:include-large? true` opts the whole-output large value back in
+  (rf2-5w06uu): a trusted-local caller keeps the raw `:value` /
+  `:prev-value`; the `:large?` flag is still stripped so the projected
+  row's shape matches the on-box base shape's metadata."
+  [row {:keys [include-large?]}]
+  (cond
+    (not (:large? row)) row
+    include-large?      (dissoc row :large?)
+    :else
     (-> row
         (cond-> (contains? row :value)
           (update :value (fn [v]
@@ -792,13 +829,13 @@
 
 (defn- elide-sub-runs-slot
   "Project the structured `:sub-runs` vector for off-box egress: walk
-  each row through `elide-sub-run-row`. Nil- and non-sequential-
-  preserving (a `:redact-fn` may have already replaced the slot with a
-  scalar sentinel)."
-  [sub-runs]
+  each row through `elide-sub-run-row` with the per-call `opts`. Nil- and
+  non-sequential-preserving (a `:redact-fn` may have already replaced the
+  slot with a scalar sentinel)."
+  [sub-runs opts]
   (if-not (sequential? sub-runs)
     sub-runs
-    (mapv elide-sub-run-row sub-runs)))
+    (mapv #(elide-sub-run-row % opts) sub-runs)))
 
 (defn projected-record
   "Project an `:rf/epoch-record` for off-box egress. Routes the
@@ -808,6 +845,28 @@
   off-box defaults `:include-sensitive? false` / `:include-large? false`.
   Sensitive paths land as `:rf/redacted`; large paths land as
   `:rf.size/large-elided` markers per the §Composition rule.
+
+  ## Egress opts (rf2-5w06uu)
+
+  The 2-arity accepts an `opts` map of trusted-local per-call overrides:
+
+      {:include-sensitive?  <bool>   ;; reveal app-db sensitive values
+       :include-large?      <bool>   ;; reveal app-db large values
+       :include-runtime-db? <bool>}  ;; reveal the frame-state runtime-db partition
+
+  All default `false` — the 1-arity (`(projected-record record)`) is the
+  safe, fully-redacted off-box path. `:include-sensitive?` /
+  `:include-large?` opt the APP-DB partition's privacy / size posture back
+  in across every payload slot. They are ORTHOGONAL to the runtime-db
+  partition boundary: the `:rf.db/runtime` side of the frame-state slots
+  stays `:rf/redacted` UNLESS the trusted-local caller ALSO passes
+  `:include-runtime-db? true` (which routes runtime-db through the same
+  value walk, where its own per-slot sensitive / large declarations still
+  apply). This closes the rf2-5w06uu bypass where a per-tool egress path
+  walked the raw record and lifted the runtime-db partition just because
+  the caller asked for sensitive / large APP-DB values. Extending the
+  normative projection (rather than per-tool reimplementation) keeps
+  Security.md §Off-box egress's single-emission-site contract.
 
   EP-0001 (rf2-3aizt1, decision #2 + Mike ruling #14): the CANONICAL
   `:frame-state-before` / `:frame-state-after` slots egress with their
@@ -846,40 +905,46 @@
   elide the entire epoch surface; consumers gate any
   `register-epoch-listener!` registration under `interop/debug-enabled?`
   per Spec 009 §User-side listener registration."
-  [record]
-  (when (map? record)
-    (let [frame-id (:frame record)]
-      (cond-> record
-        ;; EP-0001 (rf2-3aizt1, decision #2 + ruling #14): the CANONICAL
-        ;; frame-state slots egress with the app-db partition elided and the
-        ;; runtime-db partition default-redacted off-box (see
-        ;; `elide-frame-state-slot`).
-        (contains? record :frame-state-before)
-        (update :frame-state-before elide-frame-state-slot frame-id)
+  ([record] (projected-record record nil))
+  ([record opts]
+   (when (map? record)
+     (let [frame-id (:frame record)]
+       (cond-> record
+         ;; EP-0001 (rf2-3aizt1, decision #2 + ruling #14): the CANONICAL
+         ;; frame-state slots egress with the app-db partition elided and the
+         ;; runtime-db partition default-redacted off-box (see
+         ;; `elide-frame-state-slot`). rf2-5w06uu — `opts` thread the
+         ;; trusted-local sensitive / large / runtime-db overrides.
+         (contains? record :frame-state-before)
+         (update :frame-state-before elide-frame-state-slot frame-id opts)
 
-        (contains? record :frame-state-after)
-        (update :frame-state-after  elide-frame-state-slot frame-id)
+         (contains? record :frame-state-after)
+         (update :frame-state-after  elide-frame-state-slot frame-id opts)
 
-        (contains? record :db-before)
-        (update :db-before     elide-payload-slot frame-id)
+         (contains? record :db-before)
+         (update :db-before     elide-payload-slot frame-id opts)
 
-        (contains? record :db-after)
-        (update :db-after      elide-payload-slot frame-id)
+         (contains? record :db-after)
+         (update :db-after      elide-payload-slot frame-id opts)
 
-        (contains? record :trigger-event)
-        (update :trigger-event elide-payload-slot frame-id)
+         (contains? record :trigger-event)
+         (update :trigger-event elide-payload-slot frame-id opts)
 
-        (contains? record :trace-events)
-        (update :trace-events  elide-trace-events-slot frame-id)
+         (contains? record :trace-events)
+         (update :trace-events  elide-trace-events-slot frame-id opts)
 
-        (contains? record :sub-runs)
-        (update :sub-runs      elide-sub-runs-slot)))))
+         (contains? record :sub-runs)
+         (update :sub-runs      elide-sub-runs-slot opts))))))
 
 (defn projected-history
   "Convenience: return the projected vector of records for a frame.
-  Equivalent to `(mapv projected-record (epoch-history frame-id))`.
+  Equivalent to `(mapv #(projected-record % opts) (epoch-history frame-id))`.
   Tools that egress the whole ring (an MCP `watch-epochs` initial
   snapshot, a recorder dumping the full session) can call this once
-  rather than walking the raw ring and re-wrapping each record."
-  [frame-id]
-  (mapv projected-record (state/history-for frame-id)))
+  rather than walking the raw ring and re-wrapping each record. The
+  2-arity threads the trusted-local egress `opts` (rf2-5w06uu —
+  `:include-sensitive?` / `:include-large?` / `:include-runtime-db?`) to
+  every record; the 1-arity is the safe, fully-redacted off-box path."
+  ([frame-id] (projected-history frame-id nil))
+  ([frame-id opts]
+   (mapv #(projected-record % opts) (state/history-for frame-id))))
