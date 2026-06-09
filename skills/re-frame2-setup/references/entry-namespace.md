@@ -109,13 +109,15 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
 
 - **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix` (or `-helix`), drop the `reagent/reagent` pin, and add the substrate's Maven deps **at the exact versions the generator template pins** (the template is the source of truth — do not chase latest or invent a version, same discipline as the Reagent/React/shadow pins in [`deps-versions.md`](deps-versions.md)). Verified against the template's `_uix/deps.edn` / `_helix/deps.edn`:
 
+  > **Pre-publish coordinate shape.** The `day8/re-frame2-uix` / `day8/re-frame2-helix` **framework** coords shown below use `:mvn/version "<VERSION>"` — the **post-publish** shape. re-frame2 is not on Clojars yet, so today the framework adapter coord takes the **`:git/sha` / `:local/root`** form (one shared `<SHA>`, the same way as the Reagent day-one set) — see [`deps-versions.md` §Choosing the coordinate](deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape). The `com.pitch/uix.*` / `lilactown/helix` substrate deps below are published on Clojars and keep `:mvn/version`.
+
   ```clojure
-  ;; UIx — replace the reagent line with:
+  ;; UIx — replace the reagent line with (framework coord post-publish shape; pre-publish use :git/sha):
   day8/re-frame2-uix {:mvn/version "<VERSION>"}
   com.pitch/uix.core {:mvn/version "1.4.4"}
   com.pitch/uix.dom  {:mvn/version "1.4.4"}
 
-  ;; Helix — replace the reagent line with:
+  ;; Helix — replace the reagent line with (framework coord post-publish shape; pre-publish use :git/sha):
   day8/re-frame2-helix {:mvn/version "<VERSION>"}
   lilactown/helix      {:mvn/version "0.2.2"}
   ```
