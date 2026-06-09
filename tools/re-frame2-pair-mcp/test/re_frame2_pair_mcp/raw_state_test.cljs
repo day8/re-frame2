@@ -128,14 +128,19 @@
         "raw-state gate defaults OFF (rf2-c2dtu)")))
 
 (deftest parse-launch-flags-ignores-unknown
-  ;; Future flags must not break older invocations.
+  ;; The PARSER stays permissive — future flags + node/shadow wrapper
+  ;; argv must not break the parse. The validation layer
+  ;; (`launch-diagnostics`, rf2-a0kxsb) is what NAMES the unknown flag at
+  ;; boot; see `launch-diagnostics-*` below. The parser itself just
+  ;; plucks what it understands and leaves the rest alone.
   (let [flags (server/parse-launch-flags ["--no-such-flag" "--allow-sensitive-reads"])]
     (is (true? (:allow-raw-state? flags)))))
 
 (deftest parse-launch-flags-old-name-rejected
   ;; Hard rename (rf2-2x3ql): the legacy `--allow-raw-state` flag is no
   ;; longer recognised. No back-compat shim — passing it must NOT enable
-  ;; the gate.
+  ;; the gate. (rf2-a0kxsb: it now ALSO earns a :removed-flag diagnostic
+  ;; naming the replacement — see `launch-diagnostics-names-removed-flag`.)
   (let [flags (server/parse-launch-flags ["--allow-raw-state"])]
     (is (false? (:allow-raw-state? flags))
         "Legacy --allow-raw-state must not enable the gate post-rename")))
@@ -143,14 +148,86 @@
 (deftest parse-launch-flags-legacy-allow-eval-is-noop
   ;; Hard removal (rf2-a0z0h, pre-alpha): the legacy `--allow-eval`
   ;; opt-in flag is no longer recognised because the default flipped to
-  ;; ON. No back-compat shim — passing it MUST be silently ignored (the
-  ;; gate is on regardless), and the new `--no-eval` opt-out is the
-  ;; only flag the parser reads. An operator with a stale
-  ;; `~/.claude.json` carrying `--allow-eval` keeps a working server;
-  ;; the flag just doesn't do anything anymore.
+  ;; ON. No back-compat shim — passing it does not change the gate (the
+  ;; gate is on regardless). rf2-a0kxsb: rather than a SILENT no-op, the
+  ;; validation layer now emits an intentional :removed-flag diagnostic
+  ;; naming the replacement (see `launch-diagnostics-names-removed-flag`);
+  ;; the parsed gate state is unchanged (still default ON).
   (let [flags (server/parse-launch-flags ["--allow-eval"])]
     (is (true? (:eval-allowed? flags))
-        "Legacy --allow-eval must NOT disable the gate (silent no-op; gate stays at default ON)")))
+        "Legacy --allow-eval must NOT disable the gate (gate stays at default ON)")))
+
+;; ---------------------------------------------------------------------------
+;; Launch-config diagnostics (rf2-a0kxsb). The parsers stay permissive;
+;; this layer scans the SAME argv against the declared flag schema and
+;; returns structured diagnostics naming any rejected / suspicious input
+;; + its effective fallback. `main` logs each at boot before readiness.
+;; ---------------------------------------------------------------------------
+
+(deftest launch-diagnostics-clean-config-empty
+  (is (= [] (server/launch-diagnostics [])))
+  (is (= [] (server/launch-diagnostics
+              ["--no-eval" "--allow-sensitive-reads" "--allow-writes"
+               "--port-file" "/abs/nrepl.port" "--http-port=9700"
+               "--max-concurrent-streams=20"]))
+      "every recognised flag (boolean / valued / resource) parses clean"))
+
+(deftest launch-diagnostics-names-unknown-flag
+  (let [[d :as ds] (server/launch-diagnostics ["--no-eavl"])]
+    (is (= 1 (count ds)))
+    (is (= :unknown-flag (:rf.config/issue d)))
+    (is (= "--no-eavl"   (:rf.config/input d)))
+    (is (= :warn         (:rf.config/severity d)))))
+
+(deftest launch-diagnostics-names-removed-flag
+  (testing "renamed --allow-raw-state names the replacement"
+    (let [[d] (server/launch-diagnostics ["--allow-raw-state"])]
+      (is (= :removed-flag (:rf.config/issue d)))
+      (is (re-find #"allow-sensitive-reads" (:rf.config/effect d)))))
+  (testing "removed --allow-eval names the default-ON flip"
+    (let [[d] (server/launch-diagnostics ["--allow-eval"])]
+      (is (= :removed-flag (:rf.config/issue d)))
+      (is (re-find #"--no-eval" (:rf.config/effect d))))))
+
+(deftest launch-diagnostics-names-missing-value
+  (testing "trailing valued flag with no value"
+    (let [[d] (server/launch-diagnostics ["--port-file"])]
+      (is (= :missing-value (:rf.config/issue d)))
+      (is (= "--port-file"  (:rf.config/input d)))))
+  (testing "valued flag immediately followed by another flag"
+    (let [[d] (server/launch-diagnostics ["--http-port" "--no-eval"])]
+      (is (= :missing-value (:rf.config/issue d)))
+      (is (= "--http-port"  (:rf.config/input d)))))
+  (testing "a valued flag WITH a value is clean"
+    (is (= [] (server/launch-diagnostics ["--port-file" "/abs/nrepl.port"])))))
+
+(deftest launch-diagnostics-names-malformed-http-port
+  (let [[d] (server/launch-diagnostics ["--http-port" "garbage"])]
+    (is (= :malformed-value (:rf.config/issue d)))
+    (is (re-find #"9630" (:rf.config/effect d)))))
+
+(deftest launch-diagnostics-names-malformed-resource-flag
+  (testing "non-positive resource cap"
+    (let [[d] (server/launch-diagnostics ["--max-concurrent-streams=0"])]
+      (is (= :malformed-value (:rf.config/issue d)))
+      (is (= "--max-concurrent-streams=0" (:rf.config/input d)))))
+  (testing "non-numeric resource cap"
+    (let [[d] (server/launch-diagnostics ["--abuse-window-ms=abc"])]
+      (is (= :malformed-value (:rf.config/issue d)))))
+  (testing "a valid positive resource cap is clean"
+    (is (= [] (server/launch-diagnostics ["--max-events-per-sec=200"])))))
+
+(deftest resource-env-diagnostics-names-invalid-env
+  (testing "zero / non-numeric / blank env vars each earn a :malformed-env"
+    (let [ds (server/resource-env-diagnostics
+               #js {:RE_FRAME2_PAIR_MCP_MAX_STREAMS        "0"
+                    :RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC "not-a-number"})]
+      (is (= 2 (count ds)))
+      (is (every? #(= :malformed-env (:rf.config/issue %)) ds))))
+  (testing "valid + unset env is clean"
+    (is (= [] (server/resource-env-diagnostics
+                #js {:RE_FRAME2_PAIR_MCP_MAX_STREAMS "15"})))
+    (is (= [] (server/resource-env-diagnostics #js {})))))
 
 ;; ---------------------------------------------------------------------------
 ;; --port-file launch flag (rf2-3dbwh) — explicit, cwd-independent port file.

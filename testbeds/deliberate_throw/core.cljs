@@ -72,11 +72,14 @@
 ;; Button C — throw inside flow :output
 ;; ----------------------------------------------------------------------------
 ;;
-;; The flow is registered once at ns-load (registration order doesn't
-;; matter — the runtime topsorts before the first drain). Button C's
-;; handler bumps :flow-input; on the post-handler flows pass, the
-;; runtime walks this flow, calls :output with the new input, and the
-;; throw fires there.
+;; The flow is registered once at boot, inside `run` AFTER `rf/init!` has
+;; made the `:rf/default` frame live (registration order relative to the
+;; events/fx/subs above doesn't matter — the runtime topsorts before the
+;; first drain). `reg-flow` targets the current frame and rejects a
+;; non-live frame (rf2-zbxvqj guard), so it must NOT run at ns-load —
+;; init! has not run yet there. Button C's handler bumps :flow-input; on
+;; the post-handler flows pass, the runtime walks this flow, calls
+;; :output with the new input, and the throw fires there.
 ;;
 ;; Per [spec/013 §Failure semantics]: two trace events fire in order —
 ;; :rf.flow/failed (per-flow attribution) followed by the cascade-level
@@ -84,14 +87,19 @@
 ;; `:db` is preserved (prior writes survive); the failing flow's
 ;; `last-inputs` is NOT advanced.
 
-(rf/reg-flow
-  {:id     ::throws
-   :inputs [[:flow-input]]
-   :output (fn [_input]
-             ;; HOT PATH — the throw site for :rf.error/flow-eval-exception.
-             (throw (ex-info "deliberate-throw / flow" {:where :flow})))
-   :path   [:flow-output]
-   :doc    "Flow :output that throws every recompute."})
+(defn- register-throwing-flow!
+  "Register the Button-C flow against the live `:rf/default` frame.
+  Called from `run` after `rf/init!` — a frame must be live or the
+  rf2-zbxvqj guard in `reg-flow` rejects with :rf.error/flow-frame-not-live."
+  []
+  (rf/reg-flow
+    {:id     ::throws
+     :inputs [[:flow-input]]
+     :output (fn [_input]
+               ;; HOT PATH — the throw site for :rf.error/flow-eval-exception.
+               (throw (ex-info "deliberate-throw / flow" {:where :flow})))
+     :path   [:flow-output]
+     :doc    "Flow :output that throws every recompute."}))
 
 (rf/reg-event-db ::throw-in-flow
   (fn [db _ev]
@@ -168,5 +176,8 @@
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
+  ;; reg-flow must run AFTER init! — it targets the live :rf/default
+  ;; frame, which ensure-default-frame! (inside init!) establishes.
+  (register-throwing-flow!)
   (rf/dispatch-sync [::initialise])
   (rdc/render react-root [root]))

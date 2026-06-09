@@ -29,8 +29,17 @@ agent-onboarding text.
  :active-modes      [keyword] (optional)
  :cell-overrides    {keyword any} (optional)
  :base-url          string (optional)
+ :timeout-ms        number  (optional, default 10000, capped at 30000)
  :include-sensitive boolean (optional, gated — see below)}
 ```
+
+`:timeout-ms` is the JVM blocking ceiling for the lifecycle run.
+`preview-variant` blocks on the SAME `story/run-variant` lifecycle as
+`run-variant`, so it exposes the SAME tunable knob (rf2-ovmc5e): default
+10 s, hard ceiling 30 s (matches `:rf.http/timeout-ms` per rf2-it1cd),
+caller values above the ceiling clamp DOWN rather than reject. Both
+tools resolve it through the shared `tools.args/resolve-timeout-ms`
+helper so their blocking policy cannot drift.
 
 `:include-sensitive` is honoured ONLY when the server was started
 with `--allow-sensitive-reads` (rf2-g9fje); when that boot gate is
@@ -344,7 +353,22 @@ produce distinct hashes — the same tuple input `run-variant` /
 
 ### `run-a11y`
 
-**Input.** `{:variant-id keyword (required)}`.
+**Input.**
+
+```clojure
+{:variant-id        keyword (required)
+ :include-sensitive boolean (optional, gated — see `preview-variant`)}
+```
+
+The `:violations` vec is live runtime DOM state — each axe-core node
+carries `:html` (the violating element's outerHTML), so a value
+rendered into the DOM lands verbatim there. `:violations` is
+value-redacted against the variant frame's declared-`:sensitive?`
+values by default; `:include-sensitive true` opts out, following the
+same `--allow-sensitive-reads` boot gate as `preview-variant`
+(rf2-g9fje) — one of the six value-surfacing tools that carry the
+opt-in (the others: `preview-variant`, `run-variant`, `read-failures`,
+`explain-variant`, `record-as-variant`).
 
 **Output.** `{:variant-id keyword :violations [map] :note string|nil}`.
 The shared-process (CLJS co-hosted) deploy returns the accumulated

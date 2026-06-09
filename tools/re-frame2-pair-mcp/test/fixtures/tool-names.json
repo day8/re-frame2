@@ -8,6 +8,7 @@
     "get-operating-frame",
     "get-path",
     "get-re-frame2-pair-instructions",
+    "get-stream-controls",
     "handler-meta",
     "list-handlers",
     "list-streams",

@@ -56,6 +56,7 @@ const {
   parseExTokens,
   sharedContrastContract,
   WCAG_AA_NORMAL_TEXT,
+  RETIRED_OG_SOURCE_COLORS,
 } = scanner;
 
 // A real, decodable 1200x630 PNG (signature + IHDR + IDAT + IEND), used wherever
@@ -84,6 +85,15 @@ const GOOD_SHARED_STYLE = [
   'input:focus-visible { border-color: var(--ex-accent-deep);',
   '  box-shadow: 0 0 0 3px var(--ex-accent-deep); }',
 ].join('\n');
+
+// The responsive Xray-host shell rule (rf2-y82dk9): a max-width media query
+// that stacks .rf2-testbed-shell to a column. checkSharedTree now requires it,
+// so fixtures whose structure.css must scan CLEAN append it. Declared up here
+// (not beside sharedCssIo) because the `it` helper runs each test synchronously
+// as the module evaluates — earlier tests call sharedCssIo before a const
+// declared further down would leave the temporal dead zone.
+const RESPONSIVE_SHELL =
+  '@media (max-width: 900px) { .rf2-testbed-shell { flex-direction: column; } }';
 
 let failed = 0;
 function it(label, fn) {
@@ -1105,13 +1115,16 @@ it('LIVE: no real example page ships an SVG (or otherwise non-raster) og:image',
 
 // A minimal _shared/css io: style.css @imports structure.css; structure.css
 // contents are supplied per-test so we can pin the cascade check both ways.
-// (SHARED_ROOT is declared up with the other path constants.)
+// (SHARED_ROOT is declared up with the other path constants.) The structure.css
+// always carries the responsive-shell rule so these cascade fixtures isolate
+// their own concern rather than tripping the rf2-y82dk9 shell contract.
 function sharedCssIo(structureCss) {
   return makeIo({
     // An AA-safe style.css so the contrast/focus contracts (rf2-febmqu +
     // rf2-mon7tz) are satisfied — this helper pins the CSS-CASCADE contract.
     [path.join(SHARED_ROOT, 'css', 'style.css')]: GOOD_SHARED_STYLE,
-    [path.join(SHARED_ROOT, 'css', 'structure.css')]: structureCss,
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]:
+      structureCss + '\n' + RESPONSIVE_SHELL,
     [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
     // checkSharedTree requires both the shipped raster and its source art, and
     // now validates the og.png BYTES — supply a real 1200x630 PNG.
@@ -1157,6 +1170,155 @@ it('TEETH: dropping the compact .cells-grid input width:56px is flagged', () => 
   assert.ok(
     errors.some((e) => e.includes('width: 56px')),
     `expected a missing-cells-width error, got: ${errors.join(' | ')}`,
+  );
+});
+
+// ---- TEETH: responsive Xray-host shell contract (rf2-y82dk9) ------------
+//
+// The .rf2-testbed-shell is a fixed two-column flex (host flex-shrink:0 at
+// ~560px + 320px min-width) — it overflows narrow viewports. The shared shell
+// must encode a deliberate stack-below-breakpoint behaviour; a structure.css
+// with NO responsive media query turns the gate RED.
+
+const CASCADE_BASELINE = SCOPED_SENDFORM + '\n' + CELLS_INPUT;
+
+// sharedCssIo appends RESPONSIVE_SHELL, so it always carries the responsive
+// rule. To pin the NEGATIVE case (no responsive fallback) we build the io
+// directly with a structure.css that omits it.
+function noResponsiveIo(structureCss) {
+  return makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]: GOOD_SHARED_STYLE,
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]: structureCss,
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    [path.join(SHARED_ROOT, 'img', 'og.png')]: VALID_OG_PNG,
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
+  });
+}
+
+it('LIVE: the shipped structure.css stacks the Xray-host shell below a breakpoint', () => {
+  const errors = checkSharedTree(require('fs'));
+  assert.ok(
+    !errors.some((e) => e.includes('rf2-testbed-shell') && e.includes('rf2-y82dk9')),
+    `the shipped shell must carry a responsive fallback, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a structure.css with no responsive shell media query is flagged', () => {
+  const errors = checkSharedTree(noResponsiveIo(CASCADE_BASELINE), {
+    sharedRoot: SHARED_ROOT,
+  });
+  assert.ok(
+    errors.some(
+      (e) => e.includes("'.rf2-testbed-shell'") && e.includes('rf2-y82dk9'),
+    ),
+    `expected a missing-responsive-shell error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a max-width media query that does NOT stack the shell is still flagged', () => {
+  // A media query that only tweaks padding (no flex-direction: column) does not
+  // satisfy the stack contract.
+  const bad =
+    CASCADE_BASELINE +
+    '\n@media (max-width: 900px) { .rf2-testbed-shell #app { padding: 1em; } }';
+  const errors = checkSharedTree(noResponsiveIo(bad), { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some(
+      (e) => e.includes("'.rf2-testbed-shell'") && e.includes('rf2-y82dk9'),
+    ),
+    `a non-stacking media query must not satisfy the contract, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: the responsive stacked-shell media query scans clean', () => {
+  const good = CASCADE_BASELINE + '\n' + RESPONSIVE_SHELL;
+  const errors = checkSharedTree(noResponsiveIo(good), { sharedRoot: SHARED_ROOT });
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `the stacked-shell media query should scan clean, got: ${errors.join(' | ')}`,
+  );
+});
+
+// ---- TEETH: OG source-art palette conformance (rf2-y82dk9) --------------
+//
+// og.svg is the editable master the shipped og.png is re-exported from; its
+// colour literals mirror the --ex-* CSS tokens. The og.png byte-check is opaque
+// to colour, so a shared-palette darkening (e.g. --ex-ink-faint #8A8270 →
+// #6E6654, rf2-febmqu) can leave the source art stale and still pass. A retired
+// /sub-AA literal used as a PAINT value in og.svg turns the gate RED — while a
+// doc comment that NAMES the retired value (the migration note) does not.
+
+// A full _shared tree with an overridable og.svg, so og.svg-only contracts can
+// be pinned in isolation. structure.css carries the responsive rule + cascade
+// baseline so only the og.svg concern can fail.
+function ogSvgIo(ogSvg) {
+  return makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]: GOOD_SHARED_STYLE,
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]:
+      CASCADE_BASELINE + '\n' + RESPONSIVE_SHELL,
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    [path.join(SHARED_ROOT, 'img', 'og.png')]: VALID_OG_PNG,
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]: ogSvg,
+  });
+}
+
+const RETIRED_INK_FAINT = '#8A8270';
+const AA_SAFE_INK_FAINT = '#6E6654';
+
+it('RETIRED_OG_SOURCE_COLORS names the retired #8A8270 → #6E6654 ink-faint migration', () => {
+  const row = RETIRED_OG_SOURCE_COLORS.find((c) => c.retired === RETIRED_INK_FAINT);
+  assert.ok(row, 'the retired #8A8270 ink-faint value must be registered');
+  assert.strictEqual(row.replacement, AA_SAFE_INK_FAINT);
+  assert.ok(row.reason && row.reason.length > 0, 'each retired colour carries a reason');
+});
+
+it('TEETH: the retired #8A8270 used as an og.svg fill is flagged', () => {
+  const badSvg =
+    '<svg xmlns="http://www.w3.org/2000/svg">' +
+    `<text fill="${RETIRED_INK_FAINT}">REAGENT - UIX - HELIX</text></svg>`;
+  const errors = checkSharedTree(ogSvgIo(badSvg), { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some(
+      (e) => e.includes('og.svg') && e.includes(RETIRED_INK_FAINT) && e.includes('rf2-y82dk9'),
+    ),
+    `expected a retired-source-colour error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: the retired colour as a stroke / stop-color is also flagged', () => {
+  for (const attr of ['stroke', 'stop-color']) {
+    const badSvg =
+      '<svg xmlns="http://www.w3.org/2000/svg">' +
+      `<line ${attr}="${RETIRED_INK_FAINT}"/></svg>`;
+    const errors = checkSharedTree(ogSvgIo(badSvg), { sharedRoot: SHARED_ROOT });
+    assert.ok(
+      errors.some((e) => e.includes('og.svg') && e.includes(RETIRED_INK_FAINT)),
+      `expected a retired-colour error for ${attr}, got: ${errors.join(' | ')}`,
+    );
+  }
+});
+
+it('a doc COMMENT naming the retired colour (migration note) does NOT trip the gate', () => {
+  // The source-art header documents the #8A8270 → #6E6654 migration by naming
+  // the retired value — that is prose, not a live paint, so it must scan clean.
+  const docSvg =
+    '<svg xmlns="http://www.w3.org/2000/svg">' +
+    `<!-- faint ink ${AA_SAFE_INK_FAINT}: the old ${RETIRED_INK_FAINT} was sub-AA -->` +
+    `<text fill="${AA_SAFE_INK_FAINT}">REAGENT</text></svg>`;
+  const errors = checkSharedTree(ogSvgIo(docSvg), { sharedRoot: SHARED_ROOT });
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `a doc-comment mention must not trip the gate, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('LIVE: the shipped og.svg uses no retired/sub-AA palette literal', () => {
+  const errors = checkSharedTree(require('fs'));
+  assert.ok(
+    !errors.some((e) => e.includes('og.svg') && e.includes('rf2-y82dk9')),
+    `the shipped source art must use the AA-safe palette, got: ${errors.join(' | ')}`,
   );
 });
 

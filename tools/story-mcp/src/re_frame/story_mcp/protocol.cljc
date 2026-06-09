@@ -225,6 +225,51 @@
       m))
     m))
 
+(def unknown-arg-keys-meta
+  "Reserved METADATA key (NOT a map entry) under which `normalize-frame`
+  records the RAW top-level `tools/call` argument-key STRINGS a caller
+  sent that fell outside the bounded `arg-keys` allowlist (rf2-ovmc5e).
+
+  ## Why metadata, not a map entry
+
+  The no-intern ingress invariant (rf2-3luf3) is preserved verbatim: the
+  unknown keys are kept as STRINGS and never converted to keywords, and
+  they ride as Clojure metadata on the normalised arguments map rather
+  than as map entries — so they never reach a handler's `(get args ...)`
+  read, never pollute the keyword table, and never serialise back over
+  the wire. The dispatcher (`wire-pipeline/invoke-tool`) reads this
+  metadata BEFORE handler dispatch and, when non-empty, returns a
+  tool-level `isError: true` diagnostic naming the unknown keys, the tool,
+  and the allowed key set — so a top-level argument typo (`:timeuot-ms`)
+  surfaces an agent-recoverable error instead of being silently dropped
+  and defaulting through. The metadata key itself is a compile-time
+  interned keyword, so admitting it carries no intern risk."
+  ::unknown-arg-keys)
+
+(defn- normalize-arguments
+  "Normalise a `tools/call` `arguments` map: keyword-keep the bounded
+  `arg-keys` allowlist (dropping — and NOT interning — every other key),
+  then record the RAW STRING keys that were dropped as metadata under
+  `unknown-arg-keys-meta` (rf2-ovmc5e). Returns the renamed map; the
+  metadata is attached only when at least one top-level key was dropped,
+  so the common (all-recognised) path adds no metadata.
+
+  The dropped keys are collected as strings off the ORIGINAL map's keys
+  (a JSON object parsed string-keyed); a key already keyword-shaped on a
+  direct-invoke caller's map is stringified via `name` for the report.
+  Non-map input passes through untouched."
+  [m]
+  (if-not (map? m)
+    m
+    (let [renamed (rename-allowed-keys m arg-keys)
+          unknown (into []
+                        (comp (remove #(some? (args/safe-keyword % arg-keys)))
+                              (map #(if (keyword? %) (name %) (str %))))
+                        (keys m))]
+      (if (seq unknown)
+        (vary-meta renamed assoc unknown-arg-keys-meta unknown)
+        renamed))))
+
 (defn normalize-frame
   "Normalise a string-keyed parsed JSON frame into the keyword-keyed
   shape the dispatcher + tool layer expect, WITHOUT interning any
@@ -241,7 +286,13 @@
   for the tool layer to apply its own bounded keyword policy.
 
   Non-map input (a bare JSON scalar / array on the wire) passes through
-  untouched; the dispatcher's `valid-envelope?` check then rejects it."
+  untouched; the dispatcher's `valid-envelope?` check then rejects it.
+
+  Top-level `:arguments` keys outside the allowlist are dropped (no
+  intern) but their RAW STRING form is recorded as metadata under
+  `unknown-arg-keys-meta` (rf2-ovmc5e) so the dispatcher can surface an
+  agent-recoverable diagnostic rather than silently dropping a typo'd
+  control knob — see `normalize-arguments`."
   [parsed]
   (if-not (map? parsed)
     parsed
@@ -253,7 +304,7 @@
                   (let [p (rename-allowed-keys params params-keys)]
                     (cond-> p
                       (map? (:arguments p))
-                      (update :arguments rename-allowed-keys arg-keys)))))))))
+                      (update :arguments normalize-arguments)))))))))
 
 (defn write-json
   "Serialise `message` to JSON. Returns the string (no trailing newline —

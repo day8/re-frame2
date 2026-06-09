@@ -203,14 +203,32 @@ hr {
 }
 
 /* -- Xray-host shell (counter testbed pattern) -------------------------- */
+/*
+ * Responsive contract (rf2-y82dk9). The desktop layout is a two-column flex:
+ * the app on the left, the inline Xray host fixed at --rf-xray-inline-width
+ * (default 560px) on the right. With `flex-shrink:0` + a 320px host min-width
+ * that desktop shell needs ~624px before any app content shows, so on a phone
+ * it would overflow horizontally even though the pages declare a responsive
+ * viewport. Below the --rf-testbed-shell-stack breakpoint (900px) we STACK:
+ * the columns become rows (app on top, Xray host below), the host drops its
+ * fixed width / min-width and goes full-bleed, and its height is capped so the
+ * panel never crowds the app off-screen. The host/app DOM contract
+ * (`.rf2-testbed-shell > #app` + `[data-rf-xray-host]`) is untouched, so Xray
+ * auto-mounting and the counter/flows examples keep working at every width.
+ * See examples/_shared/README.md §Responsive Xray-host shell.
+ */
+
+:root {
+  --rf-xray-accent: #7C5CFF;
+  /* The viewport width at/under which the inline-Xray shell stacks instead of
+     sitting side-by-side. ~624px is the narrowest the side-by-side layout can
+     be without overflow; 900px keeps a comfortable app column before stacking. */
+  --rf-testbed-shell-stack: 900px;
+}
 
 .rf2-testbed-shell {
   display: flex;
   min-height: 100vh;
-}
-
-:root {
-  --rf-xray-accent: #7C5CFF;
 }
 
 [data-rf-xray-host] {
@@ -223,6 +241,23 @@ hr {
   flex: 1;
   min-width: 0;
   padding: 2em;
+}
+
+/* Narrow viewports: stack the inline-Xray host below the app rather than
+   overflowing the side-by-side desktop shell (rf2-y82dk9). */
+@media (max-width: 900px) {
+  .rf2-testbed-shell {
+    flex-direction: column;
+  }
+  .rf2-testbed-shell [data-rf-xray-host] {
+    /* Drop the fixed inline width + min-width: full-bleed under the app, with a
+       capped height so the panel scrolls internally instead of dominating. */
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
+    max-height: 60vh;
+    overflow: auto;
+  }
 }
 
 /* -- Universal disabled state -------------------------------------------- */
