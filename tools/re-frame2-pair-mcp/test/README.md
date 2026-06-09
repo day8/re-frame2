@@ -113,12 +113,6 @@ documented as a smoke harness. Exercises:
 Run with: `NREPL_TEST_PORT=17778 node test/live-nrepl.js`
 (after starting an nREPL on that port).
 
-#### `probe-decode.js` — bencode probe
-
-Diagnostic — invokes the bencode multi-frame walker against
-hand-constructed buffers. Used to debug regressions in the `nrepl@2`
-upgrade path. Not part of the gate.
-
 #### `probe-mcp-path-test.cjs` — `~/.claude.json` drift probe (rf2-vsxgz)
 
 Unit tests for `bin/probe-mcp-path.cjs`. The probe is a pure

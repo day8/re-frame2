@@ -24,8 +24,7 @@
   CLJS companion (`re-frame.story-fingerprint-cljs-test`) pins
   host-portability of the hash."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.story.fingerprint :as fp]
-            [re-frame.story.identity    :as ident]))
+            [re-frame.story.fingerprint :as fp]))
 
 ;; ===========================================================================
 ;; ADVERSARIAL CORPUS
@@ -539,10 +538,6 @@
         "run-hash == canonical-hash over the enumerated run slice")))
 
 (deftest snapshot-identity-uses-the-same-primitive
-  (testing "identity/content-hash + identity/canonical-form are the SAME
-            vars as the fingerprint primitive (folded, not duplicated)"
-    (is (identical? ident/content-hash   fp/content-hash))
-    (is (identical? ident/canonical-form fp/canonical-form)))
   (testing "the folded content-hash is strip-free, so the snapshot tuple's
             hash is byte-stable across the fold (deliberate migration:
             snapshot identity keeps its :variant-id slot)"

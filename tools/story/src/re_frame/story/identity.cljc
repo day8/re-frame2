@@ -18,9 +18,8 @@
   exactly one canonical path; `:plan-hash`, `:run-hash`, determinism, and
   semantic-diff share it with snapshot identity.
 
-  This ns keeps its public surface (`snapshot-tuple`, `snapshot-identity`,
-  and the back-compat `canonical-form` / `content-hash` re-exports) so the
-  shipping watch-mode + visual-regression call sites keep working
+  This ns keeps its public surface (`snapshot-tuple`, `snapshot-identity`)
+  so the shipping watch-mode + visual-regression call sites keep working
   unchanged. Snapshot identity hashes its tuple through the fingerprint
   `content-hash` low primitive — the **strip-free** ordered hash.
 
@@ -36,8 +35,8 @@
   VALUE changes with the bump. External visual-regression baselines
   therefore re-capture on their next run (the bump is the re-stamp signal);
   there are no in-repo stored hash fixtures to migrate. The hashing CODE
-  still lives in the single fingerprint primitive — this ns only re-exports
-  it. The snapshot tuple also carries a `:rf/snapshot-canonical` data slot,
+  lives in the single fingerprint primitive; this ns hashes its snapshot
+  tuple through it. The snapshot tuple also carries a `:rf/snapshot-canonical` data slot,
   which reads its value straight from `fingerprint/canonical-version` (it is
   NOT a second, independently-versioned marker — it tracks the one tag).
 
@@ -47,8 +46,7 @@
   strip-free snapshot `content-hash`, so the snapshot tuple keeps its
   `:variant-id` slot exactly as before. The deliberate path for any *new*
   consumer is to call `re-frame.story.fingerprint/canonicalize` (or
-  `content-hash` / `canonical-hash` / `plan-hash` / `run-hash`) directly
-  rather than these re-exports.
+  `content-hash` / `canonical-hash` / `plan-hash` / `run-hash`) directly.
 
   ## What's in the hash
 
@@ -100,33 +98,6 @@
             [re-frame.story.args        :as args]
             [re-frame.story.fingerprint :as fingerprint]
             [re-frame.story.registrar   :as registrar]))
-
-;; ---- canonicalisation + hash (folded into fingerprint) -------------------
-;;
-;; rf2-5x1wt.3 — the canonical projection + the 8-char-hex content hash
-;; now live in the single primitive `re-frame.story.fingerprint`. These
-;; vars are thin re-exports so the shipping watch-mode + visual-regression
-;; call sites (and the JVM/CLJS runtime tests that assert on them) keep
-;; their import surface. New consumers should call the fingerprint ns
-;; directly. The rf2-lvrqa canonical-version v2 bump re-stamps the hash
-;; value (type tags + fn sentinel); the re-export wiring is unchanged.
-
-(def canonical-form
-  "Back-compat re-export of `re-frame.story.fingerprint/canonical-form`.
-  The single canonical projection now lives in the fingerprint ns; this
-  alias keeps the shipping import surface. New code should call
-  `re-frame.story.fingerprint/canonicalize` (which also strips volatile
-  fields) directly."
-  fingerprint/canonical-form)
-
-(def content-hash
-  "Back-compat re-export of `re-frame.story.fingerprint/content-hash`.
-  The single content-hash primitive now lives in the fingerprint ns; this
-  alias keeps the shipping import surface. The hash VALUE was re-stamped by
-  the rf2-lvrqa canonical-form revision (`canonical-version`
-  `:rf/snapshot-canonical-v2`: structural type tags + the `:rf/opaque-fn`
-  fn sentinel); the re-export wiring is unchanged."
-  fingerprint/content-hash)
 
 ;; ---- snapshot tuple -------------------------------------------------------
 
@@ -272,7 +243,7 @@
   ([variant-id] (snapshot-identity variant-id nil))
   ([variant-id {:keys [active-modes substrate] :as opts}]
    (let [tuple (snapshot-tuple variant-id opts)
-         hex   (content-hash tuple)]
+         hex   (fingerprint/content-hash tuple)]
      {:variant-id    variant-id
       :active-modes  (vec (or active-modes []))
       :substrate     substrate
