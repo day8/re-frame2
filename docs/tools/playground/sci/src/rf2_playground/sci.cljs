@@ -127,9 +127,20 @@
 
 (defonce ^:private inited? (atom false))
 
+;; EP-0002 (carried-frame invariant): `rf/init!` installs the adapter but the
+;; runtime never synthesises a frame from absence. The playground is a
+;; consumer app, so it establishes its own app frame — `:rf/default` — once,
+;; here. Cells then dispatch/subscribe against it without any per-cell frame
+;; boilerplate: `renderLast` evaluates each cell's source under a
+;; `with-frame :rf/default` scope (so a top-level `dispatch-sync` in the cell
+;; resolves) and mounts the cell's component under a `frame-provider` (so the
+;; render-time `subscribe` resolves). See `renderLast`.
+(def ^:private app-frame :rf/default)
+
 (defn- ensure-init! []
   (when-not @inited?
     (rf/init! reagent-slim-adapter/adapter)
+    (rf/reg-frame app-frame {})
     (reset! inited? true)))
 
 ;; ---------------------------------------------------------------------------
@@ -149,12 +160,20 @@
   for `target-el` so edits re-render in place."
   [src target-el]
   (ensure-init!)
-  (let [component (sci/eval-string* sci-ctx src)
+  ;; Evaluate the cell under the app frame's scope so a top-level
+  ;; `dispatch-sync` in the cell source resolves to `:rf/default` (EP-0002 —
+  ;; the runtime never infers a frame from absence). The dynamic `with-frame`
+  ;; binding is in effect for the synchronous SCI eval.
+  (let [component (rf/with-frame app-frame
+                    (sci/eval-string* sci-ctx src))
         root (or (get @roots target-el)
                  (let [rt (rdc/create-root target-el)]
                    (swap! roots assoc target-el rt)
                    rt))]
-    (rdc/render root component)
+    ;; Mount under a `frame-provider` so the cell component's render-time
+    ;; `subscribe` / `frame-handle` reads resolve to `:rf/default` via React
+    ;; context.
+    (rdc/render root [rf/frame-provider {:frame app-frame} component])
     nil))
 
 ;; ---------------------------------------------------------------------------
