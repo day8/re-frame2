@@ -61,6 +61,14 @@
     "discover"
     "restore"
     "reset"
+    "replace"     ; rf2-0acvdb (EP-0001 rf2-tfepxu) — `replace-<thing>`
+                  ; whole-value state injection, bypassing the normal
+                  ; cascade. `replace-app-db` (re-frame2-pair) is gated
+                  ; behind `--allow-writes`; it wraps the framework's
+                  ; `replace-app-db!` Tool-Pair write primitive (renamed
+                  ; from the former `reset-frame-db` — a db-shaped name
+                  ; must never silently replace runtime-db). Mirrors
+                  ; NAMING.md §The verb table `replace-<thing>` row.
     "set"         ; rf2-zomfq — the SOLE catalogued `set-` carve-out:
                   ; `set-operating-frame` (re-frame2-pair) pins ONE named
                   ; session setting the Tool-Pair contract mandates under
