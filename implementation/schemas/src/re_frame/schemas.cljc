@@ -99,8 +99,11 @@
 (def printer-fn       validator/printer-fn)
 
 ;; Validator / explainer / printer (rf2-froe + rf2-wla45). Each fn has
-;; its own single-purpose setter; `set-schema-fns!` installs the bundle
-;; atomically (rf2-13meg — the honest bundle name).
+;; its own single-purpose setter (returning the single fn it installs);
+;; `set-schema-fns!` installs the bundle atomically (rf2-13meg — the
+;; honest bundle name) and returns the installed bundle map
+;; `{:validate … :explain … :print …}` (rf2-qdtcx2 — a bundle setter
+;; returns its bundle, not just the validator).
 (def set-schema-validator!   validator/set-schema-validator!)
 (def set-schema-explainer!   validator/set-schema-explainer!)
 (def set-schema-printer!     validator/set-schema-printer!)

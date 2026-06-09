@@ -285,7 +285,7 @@
    {:key         :schemas/set-schema-fns!
     :producer-ns 're-frame.schemas
     :design-bead "rf2-13meg"
-    :description "Install the validator/explainer/printer bundle atomically from a single map (the honest bundle setter — replaces the old set-schema-validator! map-arity)."}
+    :description "Install the validator/explainer/printer bundle atomically from a single map (the honest bundle setter — replaces the old set-schema-validator! map-arity). Returns the installed bundle map {:validate … :explain … :print …} (rf2-qdtcx2)."}
    {:key         :schemas/validate-with-registered-fn
     :producer-ns 're-frame.schemas
     :design-bead "rf2-r2uh"
