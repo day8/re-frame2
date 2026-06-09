@@ -467,8 +467,9 @@
       sourced from `(rf/registrations :route)`. The Static Routes
       panel also reads this sub — process-global, frame-agnostic.
     - `:rf.xray/current-route-slice` — composite over the spine's
-      target-frame app-db reading the routing slice at
-      `[:rf/runtime :routing :current]`.
+      target-frame RUNTIME-DB reading the routing slice at
+      `[:rf.runtime/routing :current]` (EP-0001 rf2-vzld77 — the route
+      slice is framework-owned runtime-db state, not app-db).
     - `:rf.xray/routing-tab-data` — view-facing topology-plus-overlay
       composite (focused-epoch scoped). Carries `:silent?`, `:topology`,
       `:activity`, `:from-id`, `:to-id`, `:navigated?`, `:current`.

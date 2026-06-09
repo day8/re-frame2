@@ -565,7 +565,8 @@
       (is (= :route/audit (:route-id pv)))
       (is (= "/admin/audit" (:path pv)))
       (is (= [:audit/load] (:on-match pv)))
-      (is (= [:rf/runtime :routing :current] (:db-slot pv)))
+      ;; EP-0001 (rf2-vzld77): the route slice lands in runtime-db, not app-db.
+      (is (= [:rf.runtime/routing :current] (:runtime-db-slot pv)))
       (is (false? (:matched? pv)))
       (is (nil? (:params pv)))
       (is (= {:id :route/audit :path "/admin/audit"} (:slot-shape pv))))))
@@ -578,7 +579,7 @@
       (is (false? (:unknown? pv)))
       (is (true? (:matched? pv)))
       (is (= "/cart" (:url pv)))
-      (is (= [:rf/runtime :routing :current] (:db-slot pv)))
+      (is (= [:rf.runtime/routing :current] (:runtime-db-slot pv)))
       (is (contains? (:slot-shape pv) :id))
       (is (= :route/cart (-> pv :slot-shape :id))))))
 

@@ -7,12 +7,14 @@
   Per the parent epic decision (option (a): two-verbs-two-homes) and
   the findings doc §4.3 option (a): the per-row 'Simulate navigation'
   button is HERMETIC — NO real dispatch into the host app, NO fx, NO
-  app-db mutation. It surfaces a preview of what would land:
+  runtime-db / app-db mutation. It surfaces a preview of what would land:
 
     - matched params (derived from the row's pattern + the optional
       URL from the row's simulate-URL input);
     - the registered `:on-match` event vector;
-    - the expected app-db slot (`[:rf/runtime :routing :current ...]`) shape.
+    - the expected runtime-db route slice
+      (`[:rf.runtime/routing :current ...]`, EP-0001 rf2-vzld77 — the
+      framework-owned route slice lives in runtime-db, not app-db) shape.
 
   The hermetic posture is the spec point — Xray is a lens, not a
   remote control. Real navigation lives behind `:rf.route/navigate`
@@ -85,7 +87,8 @@
                         :font-style  "italic"
                         :margin-bottom "4px"}}
          "Hermetic preview — nothing is dispatched. Shows what would land "
-         "in app-db if the host navigated to this route."]
+         "in the framework's runtime-db route slice if the host navigated "
+         "to this route."]
         (field-row {:label  "Path"
                     :value  (or (:path pv) "—")
                     :mono?  true
@@ -110,8 +113,8 @@
                               "—")
                     :mono?  true
                     :testid "rf-xray-static-routes-sim-nav-on-match"})
-        (field-row {:label  "DB slot"
-                    :value  (pr-str (:db-slot pv))
+        (field-row {:label  "Runtime-db slot"
+                    :value  (pr-str (:runtime-db-slot pv))
                     :mono?  true
                     :testid "rf-xray-static-routes-sim-nav-db-slot"})
         (field-row {:label  "Slot shape"

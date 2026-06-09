@@ -10,7 +10,13 @@
     2. A synthetic 3-route catalogue injected via
        `:rf.xray/set-registered-routes-override-for-test`.
     3. Simulate-URL `/articles` resolves a WINNER candidate without
-       mutating the host's `[:rf/runtime :routing :current]` slot (hermetic preview).
+       mutating the host's runtime-db route slice at
+       `[:rf.runtime/routing :current]` (hermetic preview). EP-0001
+       (rf2-vzld77) moved the framework-owned route slice into
+       runtime-db; the guard compares that slice (via
+       `rf/runtime-db-value`) so a future accidental navigation /
+       runtime-db write can't slip past by leaving only the retired
+       app-db path untouched.
     4. The `:rf.xray.static.routes/jump-to-dynamic` cross-link flips
        mode → `:dynamic` and opens the Dynamic Routing tab.
 
@@ -90,12 +96,16 @@
       {:install-host counter/install-and-init!}
       (fn []
         (install-override!)
-        ;; Snapshot the host's current-route slot BEFORE simulating. The
-        ;; counter fixture does not write [:rf/runtime :routing :current],
-        ;; so we expect nil here — and the same nil afterwards.
+        ;; Snapshot the host's REAL current-route slice BEFORE simulating.
+        ;; EP-0001 (rf2-vzld77): real navigation writes the route slice to
+        ;; the host frame's RUNTIME-DB at [:rf.runtime/routing :current],
+        ;; not app-db. The counter fixture does not navigate, so we expect
+        ;; nil here — and the same nil afterwards. Reading the runtime-db
+        ;; path (not the retired app-db path) is what makes the guard
+        ;; catch a future accidental runtime-db write.
         (let [counter-before    (e2e/sub-host [:counter/value])
-              host-route-before (some-> (rf/app-db-value :rf/default)
-                                        (get-in [:rf/runtime :routing :current]))]
+              host-route-before (some-> (rf/runtime-db-value :rf/default)
+                                        (get-in [:rf.runtime/routing :current]))]
           (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/articles"]
                             {:frame :rf/xray})
           (let [data       (e2e/sub-xray [:rf.xray.static.routes/tab-data])
@@ -111,11 +121,11 @@
                 "winner is not :route/articles — rank cascade picked the wrong row")
             (is (true? (:winner? winner))
                 "winner candidate not flagged :winner? true"))
-          ;; Hermetic — the host's current-route slot is unchanged.
-          (let [host-route-after (some-> (rf/app-db-value :rf/default)
-                                          (get-in [:rf/runtime :routing :current]))]
+          ;; Hermetic — the host's real runtime-db route slice is unchanged.
+          (let [host-route-after (some-> (rf/runtime-db-value :rf/default)
+                                          (get-in [:rf.runtime/routing :current]))]
             (is (= host-route-before host-route-after)
-                "Simulate-URL was NOT hermetic — host current-route slot changed"))
+                "Simulate-URL was NOT hermetic — host runtime-db route slice changed"))
           ;; Sanity — the host's counter app-db is also undisturbed.
           (is (= counter-before (e2e/sub-host [:counter/value]))
               "Simulate-URL leaked into the host's counter slot"))))))

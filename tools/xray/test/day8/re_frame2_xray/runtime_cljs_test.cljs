@@ -357,33 +357,67 @@
 ;; (6) Dispatch tagging — events stamped with `:origin :xray-mcp`.
 ;; ---------------------------------------------------------------------------
 
-(deftest dispatch-tags-event-with-current-origin
-  (testing "`dispatch!` attaches `{:tags {:rf.event/origin <current-origin>}}` as
-            event metadata so the framework's trace bus carries the
-            Xray-MCP tag (Lock #4 / I1)"
+(defn- dispatched-rows-with-origin
+  "Read the per-frame trace ring (the same surface `get-trace-buffer`
+  egresses) and return the `:rf.event/dispatched` rows whose
+  `[:tags :rf.event/origin]` equals `origin`. End-to-end witness: a
+  green here means the framework's dispatch opts → envelope → trace tag
+  path actually stamped the tag — NOT merely that the accessor echoed an
+  origin in its return map."
+  [origin]
+  (->> (:events (runtime/get-trace-buffer {:origin origin}))
+       (filterv #(= :rf.event/dispatched (:operation %)))))
+
+(deftest dispatch-stamps-rf-event-origin-tag-on-trace
+  (testing "`dispatch!` passes the bound origin through the framework
+            dispatch OPTS map, so the emitted `:rf.event/dispatched`
+            trace carries `[:tags :rf.event/origin]` and
+            `get-trace-buffer {:origin <origin>}` isolates the
+            tool-dispatched cascade (Lock #4 / I1)"
     (let [captured (atom nil)]
       (rf/reg-event-db :test/capture-meta
         (fn [db [_ marker]]
           (reset! captured marker)
           (assoc db :marker marker)))
-      ;; sync? so the dispatch completes before we check.
+      (trace-tooling/clear-trace-buffer! :rf/default)
+      ;; sync? so the dispatch completes (and its trace lands) before we read.
       (let [result (runtime/dispatch! [:test/capture-meta :ok] {:sync? true})]
         (is (true? (:ok? result)))
         (is (= :xray-mcp (:origin result))
             "result echoes the bound origin"))
-      (is (= :ok @captured)
-          "handler ran"))))
+      (is (= :ok @captured) "handler ran")
+      ;; The load-bearing assertion: read it back off the trace bus.
+      (let [rows (dispatched-rows-with-origin :xray-mcp)]
+        (is (seq rows)
+            "`get-trace-buffer {:origin :xray-mcp}` returns the dispatched cascade")
+        (is (every? #(= :xray-mcp (get-in % [:tags :rf.event/origin])) rows)
+            "every returned :rf.event/dispatched row carries [:tags :rf.event/origin] :xray-mcp")
+        (is (some #(= :test/capture-meta (first (get-in % [:tags :rf.event/v])))
+                  rows)
+            "the dispatched row is the one we fired"))
+      ;; Negative control: a different origin filter must NOT return it.
+      (is (empty? (dispatched-rows-with-origin :some-other-tool))
+          "the cascade is attributed to :xray-mcp, not an arbitrary origin"))))
 
 (deftest dispatch-rebinds-origin-via-eval-cljs-extent
-  (testing "a `binding` around `dispatch!` re-tags the dispatch — this
-            is the synchronous-extent contract `eval-cljs` rides
-            (Lock #4 / I6)"
+  (testing "a `binding` around `dispatch!` re-tags the dispatch on the
+            trace bus — this is the synchronous-extent contract
+            `eval-cljs` rides (Lock #4 / I6)"
     (rf/reg-event-db :test/origin-marker
       (fn [db _] db))
+    (trace-tooling/clear-trace-buffer! :rf/default)
     (binding [runtime/*current-origin* :test-rebind]
       (let [result (runtime/dispatch! [:test/origin-marker] {:sync? true})]
         (is (= :test-rebind (:origin result))
-            "dispatch carries the re-bound origin, not the default")))))
+            "dispatch carries the re-bound origin, not the default")))
+    (let [rows (dispatched-rows-with-origin :test-rebind)]
+      (is (seq rows)
+          "`get-trace-buffer {:origin :test-rebind}` returns the re-tagged cascade")
+      (is (every? #(= :test-rebind (get-in % [:tags :rf.event/origin])) rows)
+          "the rebound origin reaches the trace tag, not just the return map"))
+    ;; The default origin filter must NOT pick up the rebound dispatch.
+    (is (empty? (dispatched-rows-with-origin :xray-mcp))
+        "rebinding fully replaced the default origin on the trace tag")))
 
 (deftest dispatch-refuses-non-vector
   (testing "non-vector `event` shapes refuse structurally — the same
