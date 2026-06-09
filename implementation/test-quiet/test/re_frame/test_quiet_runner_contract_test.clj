@@ -68,20 +68,45 @@
     (.mkdirs pkg-dir)
     (spit (io/file pkg-dir (str file-stem ".clj")) (str source "\n"))))
 
+(def ^:private default-drain-timeout-ms
+  "Shared ceiling for a drained subprocess.  A correctly-exiting child
+  returns in well under a second; this generous bound makes a wedged
+  child FAIL with a structured `:timed-out?` diagnostic instead of
+  hanging the whole JVM suite (rf2-8dfq5j.3)."
+  60000)
+
 (defn- drain-process
-  "Drain `proc`'s stdout AND stderr concurrently, then `waitFor`.
-  Returns {:exit :out :err}.  The concurrent drain is what
-  `run-runner` relies on to avoid the pipe deadlock (rf2-spzkgo); this
-  helper is the shared primitive both it and the deadlock regression
-  use, so the regression proves the EXACT drain order the real harness
-  ships."
-  [^Process proc]
-  (let [out-f (future (slurp (.getInputStream proc)))
-        err-f (future (slurp (.getErrorStream proc)))
-        out   @out-f
-        err   @err-f
-        exit  (.waitFor proc)]
-    {:exit exit :out out :err err}))
+  "Drain `proc`'s stdout AND stderr concurrently, then `waitFor` UNDER A
+  TIMEOUT.  Returns {:exit :out :err :timed-out?}.  The concurrent drain
+  is what `run-runner` relies on to avoid the pipe deadlock (rf2-spzkgo);
+  this helper is the shared primitive every subprocess path uses, so the
+  deadlock regression proves the EXACT drain order the real harness
+  ships.
+
+  The timeout/kill policy lives HERE (rf2-8dfq5j.3) so EVERY subprocess
+  test inherits fail-fast behaviour: on expiry the child is force-killed
+  (`destroyForcibly`), the drain threads are interrupted, and the result
+  carries `:timed-out? true` plus whatever stdout/stderr drained before
+  the kill — so an assertion sees a structured failure with command
+  context, not a hung suite.  `:exit` is -1 on a timeout (no real exit
+  code).  Pass `timeout-ms` to override the default ceiling."
+  ([^Process proc] (drain-process proc default-drain-timeout-ms))
+  ([^Process proc timeout-ms]
+   (let [out-f (future (slurp (.getInputStream proc)))
+         err-f (future (slurp (.getErrorStream proc)))
+         done? (.waitFor proc timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)]
+     (if done?
+       {:exit (.exitValue proc) :out @out-f :err @err-f :timed-out? false}
+       (do
+         ;; The child outlived the ceiling — force-kill it and interrupt
+         ;; the drain threads so neither this helper nor the futures hang.
+         (.destroyForcibly proc)
+         (future-cancel out-f)
+         (future-cancel err-f)
+         {:exit       -1
+          :out        (try @out-f (catch Throwable _ ""))
+          :err        (try @err-f (catch Throwable _ ""))
+          :timed-out? true})))))
 
 (defn- run-runner
   "Relaunch a fresh JVM that runs `re-frame.test-quiet.runner/-main` with
@@ -676,7 +701,9 @@
                      " sequential (stdout-then-stderr) drain hangs forever"
                      " (rf2-spzkgo) — it must drain both streams concurrently"))
             (when (not= ::timed-out result)
-              (let [{:keys [exit out err]} result]
+              (let [{:keys [exit out err timed-out?]} result]
+                (is (false? timed-out?)
+                    "the flood child exits, so the helper must NOT time out")
                 (is (= 3 exit)
                     (str "the child's nonzero exit code must be captured; got "
                          exit "\n--- stderr head ---\n"
@@ -688,3 +715,50 @@
                     (str "the full stderr flood must be captured, not truncated"
                          " by a partial drain; got " (count err)
                          " bytes, expected >= " big-stderr-bytes))))))))))
+
+;; ----------------------------------------------------------------------
+;; Shared drain timeout/kill policy — rf2-8dfq5j.3.
+;;
+;; `drain-process` carries the timeout/kill policy so EVERY subprocess
+;; path (the real `run-runner`, the deadlock regression, future helpers)
+;; fails fast on a wedged child instead of hanging the suite.  This pins
+;; that fail-fast behaviour directly: a child that NEVER exits must be
+;; force-killed at the ceiling and the helper must return `:timed-out?
+;; true` promptly — so a future change that drops the `.waitFor` timeout
+;; cannot silently reintroduce an unbounded hang.
+
+(deftest drain-process-kills-and-flags-a-hanging-child
+  (testing "a child that never exits is force-killed and flagged timed-out (rf2-8dfq5j.3)"
+    (with-fixture-dir
+      (fn [dir]
+        ;; A child that blocks forever with no output and no exit path —
+        ;; the worst case the finding describes.  Written to a file for
+        ;; the same cross-platform arg-quoting reason as the flood child.
+        (let [hang-file (io/file dir "hang_forever.clj")]
+          (spit hang-file "@(promise)\n") ; deref an unfulfilled promise → blocks forever
+          (let [os-win   (str/includes? (str/lower-case (System/getProperty "os.name")) "win")
+                java-bin (str (io/file (System/getProperty "java.home") "bin"
+                                       (if os-win "java.exe" "java")))
+                cmd      [java-bin "-cp" (System/getProperty "java.class.path")
+                          "clojure.main" (.getAbsolutePath hang-file)]
+                proc     (-> (ProcessBuilder. ^java.util.List cmd)
+                             (.redirectErrorStream false)
+                             (.start))
+                ;; A SHORT explicit ceiling keeps the test fast; the outer
+                ;; deref is the belt-and-suspenders so even a regressed
+                ;; helper fails as a TIMEOUT, never an infinite hang.
+                result-f (future (drain-process proc 1500))
+                result   (deref result-f 30000 ::outer-timeout)]
+            (is (not= ::outer-timeout result)
+                (str "the helper itself hung: `drain-process` must enforce its"
+                     " own `.waitFor` timeout and return promptly (rf2-8dfq5j.3)"))
+            (when (not= ::outer-timeout result)
+              (is (true? (:timed-out? result))
+                  (str "a never-exiting child must be flagged `:timed-out? true`;"
+                       " got " (pr-str (dissoc result :out :err))))
+              (is (= -1 (:exit result))
+                  "a timed-out drain reports exit -1 (no real exit code)")
+              (is (not (.isAlive proc))
+                  "the child must be force-killed on the timeout, not left alive"))
+            ;; Cleanup belt: ensure the child is gone regardless.
+            (.destroyForcibly proc)))))))

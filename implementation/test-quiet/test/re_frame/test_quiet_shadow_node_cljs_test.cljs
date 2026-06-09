@@ -276,27 +276,63 @@
   lines.  `Ran N tests containing M assertions.` / `K failures, J errors.`"
   #"^(Ran \d+ tests containing \d+ assertions\.|\d+ failures, \d+ errors\.)$")
 
+(def ^:private spawn-timeout-ms
+  "Hard ceiling for a spawned focused runner.  A correctly-exiting child
+  returns in well under a second; this generous bound makes a child that
+  stops exiting FAIL with a structured `:timed-out?` diagnostic instead
+  of hanging the whole CLJS suite (rf2-8dfq5j.3)."
+  60000)
+
+(def ^:private spawn-max-buffer-bytes
+  "Output cap for a spawned focused runner — `spawnSync` kills the child
+  and surfaces an ENOBUFS-class error once either stream exceeds this,
+  so a runaway child cannot exhaust this process's memory."
+  (* 8 1024 1024))
+
 (defn- spawn-runner
   "Re-spawn the SAME built `out/node-test.js` shadow-node runner this
   process is executing, with `argv` (a CLJS vector of string args), and
-  return `{:status :stdout :stderr :error}`.
+  return `{:status :stdout :stderr :error :signal :timed-out?}`.
 
   `process.argv[1]` is the runner script path and `process.argv[0]` the
   node binary, so this exercises the REAL `shadow-node/main` -> `parse-args`
   -> `execute-cli` CLI path end-to-end across a process boundary — the only
   way to observe the `js/process.exit` codes the false-green guards branch
-  on (calling `execute-cli` in-process would tear down this runner)."
-  [argv]
-  (let [self (aget js/process.argv 1)
-        res  (.spawnSync node-child-process
-                         (aget js/process.argv 0) ; the node binary
-                         (apply array self argv)
-                         #js {:encoding "utf8"})]
-    {:status (.-status res)
-     :stdout (or (.-stdout res) "")
-     :stderr (or (.-stderr res) "")
-     ;; cljs.test spawn errors (e.g. ENOENT) surface on res.error.
-     :error  (.-error res)}))
+  on (calling `execute-cli` in-process would tear down this runner).
+
+  `opts` is an optional CLJS map:
+   - `:env` — extra environment entries (merged over the parent env) the
+     child runs with;
+  A shared `:timeout`/`:maxBuffer` policy is applied to EVERY spawn so a
+  wedged or runaway child fails fast with a diagnostic rather than
+  stranding the suite (rf2-8dfq5j.3).  On a `spawnSync` timeout the child
+  is sent SIGTERM and `res.signal` is `\"SIGTERM\"`; `:timed-out?`
+  surfaces that for assertions."
+  ([argv] (spawn-runner argv {}))
+  ([argv {:keys [env]}]
+   (let [self     (aget js/process.argv 1)
+         child-env (when env
+                     (let [merged (js/Object.assign #js {} js/process.env)]
+                       (doseq [[k v] env]
+                         (aset merged (name k) v))
+                       merged))
+         res  (.spawnSync node-child-process
+                          (aget js/process.argv 0) ; the node binary
+                          (apply array self argv)
+                          (cond-> #js {:encoding  "utf8"
+                                       :timeout   spawn-timeout-ms
+                                       :maxBuffer spawn-max-buffer-bytes}
+                            child-env (doto (aset "env" child-env))))
+         signal (.-signal res)]
+     {:status     (.-status res)
+      :stdout     (or (.-stdout res) "")
+      :stderr     (or (.-stderr res) "")
+      ;; cljs.test spawn errors (e.g. ENOENT, ETIMEDOUT, ENOBUFS) surface
+      ;; on res.error.
+      :error      (.-error res)
+      :signal     signal
+      ;; spawnSync kills the child with SIGTERM on a :timeout expiry.
+      :timed-out? (= signal "SIGTERM")})))
 
 (deftest real-shadow-node-green-run-is-quiet
   (testing "the real out/node-test.js entry point emits ONLY the canonical summary on a focused green run (rf2-spzkgo)"
@@ -422,3 +458,99 @@
       (is (not (str/includes? stdout "Ran "))
           (str "no suite may have run; a `Ran ...` summary is the false"
                " green; got:\n" stdout)))))
+
+;; ----------------------------------------------------------------------
+;; console.warn buffer red-replay (rf2-8dfq5j.2).
+;;
+;; The shadow-node `console.warn` stub no longer DISCARDS warnings on the
+;; success path — it buffers them in a bounded ring and the
+;; `:end-run-tests` reporter replays the buffer to stderr ONLY on a RED
+;; run, restoring the diagnostic context a failing CLJS run needs.  This
+;; can only be observed across a process boundary (the replay fires just
+;; before `js/process.exit`).  We drive the REAL runner against
+;; `re-frame.test-quiet-red-warn-fixture-cljs-test`, whose warn-then-fail
+;; behaviour is gated on `RF2_TQ_RED_WARN_FIXTURE=1` (so the whole-suite
+;; run stays green): with the env var set the fixture warns + fails, and
+;; the buffered warning must surface in the red output; with it UNSET the
+;; same fixture is green and emits no warning.
+
+(deftest red-run-replays-buffered-console-warn
+  (testing "a RED run replays the buffered console.warn diagnostic (rf2-8dfq5j.2)"
+    (let [red-ns "re-frame.test-quiet-red-warn-fixture-cljs-test"
+          {status :status stdout :stdout stderr :stderr err :error
+           timed-out? :timed-out?}
+          (spawn-runner [(str "--test=" red-ns)]
+                        {:env {:RF2_TQ_RED_WARN_FIXTURE "1"}})]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (not timed-out?)
+          "the armed fixture run must not time out")
+      (is (and (number? status) (not (zero? status)))
+          (str "the armed fixture is RED; must exit NONZERO; got " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      ;; The CORE pin: the warning the green-path stub withholds is
+      ;; replayed on red, so its marker text must appear in the combined
+      ;; output (the replay targets stderr).
+      (is (str/includes? (str stdout stderr) "RED-WARN-FIXTURE-MARKER")
+          (str "the buffered console.warn must be replayed on a RED run"
+               " (rf2-8dfq5j.2); got\n--- stdout ---\n" stdout
+               "\n--- stderr ---\n" stderr))
+      (is (str/includes? (str stdout stderr) "[test-quiet] console.warn:")
+          (str "the replay must label the buffered warnings; got\n"
+               "--- stderr ---\n" stderr))))
+  (testing "the SAME fixture is GREEN + quiet when unarmed (negative control)"
+    ;; Without the env arming flag the fixture passes and emits no
+    ;; warning, so the green-path quiet contract holds and the marker is
+    ;; ABSENT from stdout — proving the warning is genuinely withheld on
+    ;; green, not merely always printed.
+    (let [red-ns "re-frame.test-quiet-red-warn-fixture-cljs-test"
+          {status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner [(str "--test=" red-ns)])]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (zero? status)
+          (str "the unarmed fixture is GREEN; must exit 0; got " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (is (not (str/includes? stdout "RED-WARN-FIXTURE-MARKER"))
+          (str "an unarmed (green) run must NOT emit the warning marker on"
+               " stdout — green stays quiet; got:\n" stdout))
+      (let [non-blank (->> (str/split-lines stdout)
+                           (map str/trim)
+                           (remove str/blank?))]
+        (is (every? #(re-matches allowed-green-line-re %) non-blank)
+            (str "a green run must emit ONLY the canonical summary lines;"
+                 " got:\n" (str/join "\n" non-blank)))))))
+
+;; ----------------------------------------------------------------------
+;; Shared spawn timeout/output policy (rf2-8dfq5j.3).
+;;
+;; The process-level pins above all route through `spawn-runner`, which
+;; applies a single `:timeout` + `:maxBuffer` policy to every spawn so a
+;; wedged or runaway child fails fast with a diagnostic rather than
+;; hanging the whole CLJS suite.  This pins the fail-fast behaviour itself
+;; via a deliberately-hanging child so a future change cannot silently
+;; drop the timeout: a child that never exits must surface a SIGTERM
+;; timeout, not block forever.  We spawn the node binary directly on a
+;; tiny inline program (no runner needed) with a SHORT explicit timeout so
+;; the test stays fast.
+
+(deftest spawn-timeout-kills-a-hanging-child
+  (testing "spawnSync timeout terminates a child that never exits (rf2-8dfq5j.3)"
+    (let [;; A child that blocks forever: an idle interval keeps the event
+          ;; loop alive with no exit path.
+          res (.spawnSync node-child-process
+                          (aget js/process.argv 0) ; node binary
+                          #js ["-e" "setInterval(function(){}, 1000)"]
+                          #js {:encoding  "utf8"
+                               :timeout   1500
+                               :maxBuffer (* 1024 1024)})]
+      ;; The CORE pin: spawnSync must have KILLED the child on timeout
+      ;; (SIGTERM), proving the shared policy fails fast instead of
+      ;; hanging. A regression that dropped `:timeout` would block here
+      ;; forever (the child never exits on its own).
+      (is (= "SIGTERM" (.-signal res))
+          (str "a hanging child must be SIGTERM-killed on the spawnSync"
+               " timeout (rf2-8dfq5j.3); got signal " (pr-str (.-signal res))
+               " status " (pr-str (.-status res))))
+      (is (some? (.-error res))
+          "spawnSync must surface an ETIMEDOUT-class error on the timeout"))))
