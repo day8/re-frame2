@@ -18,9 +18,9 @@
     - run-in-reaction, with-let-values (impl-internal in stock; not
       part of the rewrite's surface)
 
-  Apps that genuinely need a dropped surface stay on day8/reagent-classic
-  (the bridge); the rewrite's commitment is to ship only the surfaces
-  the audited codebases actually exercise.
+  Apps that genuinely need a dropped surface stay on the bridge adapter
+  day8/re-frame2-reagent; the rewrite's commitment is to ship only the
+  surfaces the audited codebases actually exercise.
 
   Design notes (per IMPL-SPEC §3 + Stage 2 §4 efficiency analysis):
 

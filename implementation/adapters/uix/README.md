@@ -2,6 +2,8 @@
 
 Maven artefact: `day8/re-frame2-uix`. Target: UIx 2.x (hooks-based). Public ns: `re-frame.adapter.uix`.
 
+> **UIx product version vs Maven coordinate version.** "UIx 2.x" is the *product/API-family* name — the hooks-based generation hosted at [pitch-io/uix](https://github.com/pitch-io/uix). It is **not** a Maven version number. UIx 2 is published on Clojars as `com.pitch/uix.core` with version numbers in the **1.x.x** series, so the `com.pitch/uix.core {:mvn/version "1.4.4"}` pin in [`deps.edn`](deps.edn) *is* UIx 2.x. The legacy UIx 1 generation (roman01la/uix) is a separate, pre-hooks codebase and is explicitly out of scope. There is no `2.x.y` Maven coordinate to bump to.
+
 This adapter implements re-frame2's substrate contract on top of UIx — Pitch's modern, hooks-based CLJS React wrapper. Subscriptions are read via the `use-subscribe` hook (returning a plain value, not a reaction); frame context is composed via React context.
 
 See [`../README.md`](../README.md) for the wider adapter tier and the substrate contract; [Spec 004 — Views](../../../spec/004-Views.md) for `reg-view` / `reg-view*` semantics; [Spec 006 — Reactive substrate](../../../spec/006-ReactiveSubstrate.md) for the contract this adapter implements.
