@@ -475,6 +475,33 @@
   [ms]
   (str "calc(" ms "ms * var(" (:scale-var-name motion) ", 1))"))
 
+(def ^:private glow-keyframe-name
+  "Keyframe identifier the chart stylesheet defines (see
+  `chart/chart-stylesheet`); shared so component + stylesheet cannot
+  drift on the name."
+  "mv-chart-transition-glow")
+
+(defn glow-animation-css
+  "Build the canonical FIRED/FOCUSED edge + event-node glow
+  `animation` shorthand (rf2-4o43j8).
+
+  The motion grammar (`spec/Principles.md` §chart animation) requires
+  this to be **event-driven and finite**: it fires ONE iteration on a
+  changed fired/focused epoch token, then settles to a stable
+  end-state (the keyframe's `100%` frame, held by `forwards`) while
+  the static fired/focused affordance (stroke width, hue, glow ring)
+  remains painted. There is NO `infinite` loop — a fired arm must not
+  keep strobing for as long as the host leaves it focused.
+
+  The duration flows through the `--rf-xray-motion-scale` seam
+  (`duration-css`) so `prefers-reduced-motion: reduce` collapses the
+  flash to a single settle frame.
+
+  Pure data → string; JVM-portable."
+  []
+  (str glow-keyframe-name " " (duration-css (:glow-duration-ms motion))
+       " ease-out forwards"))
+
 ;; rf2-dt5b1 — the deterministic tag-pill colour rotation
 ;; (`tag-pill-palette` / `tag-pill-color`, rf2-m1b88 / rf2-a2b55) was
 ;; RETIRED. `chart.nodes/tag-pill` renders every state-tag chip in ONE

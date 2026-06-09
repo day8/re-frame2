@@ -723,7 +723,17 @@
   "Inline stylesheet carrying the transition-glow keyframes + the
   prefers-reduced-motion override. Mirrors the previous SVG render's
   `transition-glow-css` so the focused-edge animation continues to
-  work post-migration."
+  work post-migration.
+
+  rf2-4o43j8 — the fired/focused glow is an event-driven, FINITE
+  flash (per `spec/Principles.md` §chart animation): the consumers
+  (`chart.edges` / `chart.nodes.event-node`) play it as ONE iteration
+  via `tokens/glow-animation-css` (`… ease-out forwards`), NOT an
+  `infinite` loop. The `100%` frame settles to full opacity so the
+  static fired/focused affordance (stroke width / hue / glow ring)
+  reads at full strength once the flash completes. Duration flows
+  through `--rf-xray-motion-scale`, so `prefers-reduced-motion:
+  reduce` collapses the flash to a single settle frame."
   (str
     ":root { --rf-xray-motion-scale: 1; }\n"
     "@media (prefers-reduced-motion: reduce) {\n"
@@ -732,7 +742,7 @@
     "@keyframes mv-chart-transition-glow {\n"
     "  0%   { opacity: 0.55; }\n"
     "  20%  { opacity: 1.00; }\n"
-    "  100% { opacity: 0.85; }\n"
+    "  100% { opacity: 1.00; }\n"
     "}\n"
     ".react-flow__attribution { display: none !important; }\n"))
 
