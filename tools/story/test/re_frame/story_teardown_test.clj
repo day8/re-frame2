@@ -29,7 +29,8 @@
   - **schema accepts the optional slot** — `reg-decorator` rejects a
     `:frame-setup` body that omits all of `:init` / `:app-db-patch` /
     `:teardown`, but accepts `{:teardown [...]}` standalone."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as frame]
             [re-frame.machines         :as machines]
@@ -42,6 +43,7 @@
             [re-frame.story.loaders    :as loaders]
             [re-frame.story.play.runner-events :as runner-events]
             [re-frame.story.schemas    :as schemas]
+            [re-frame.trace.tooling    :as trace-tooling]
             [malli.core                :as m]))
 
 ;; ---- fixtures -------------------------------------------------------------
@@ -355,3 +357,70 @@
           "active-play evicted on destroy — no leak")
       (is (nil? (runner-events/settle-boundaries :story.runstate/v))
           "step-boundaries evicted on destroy — no leak"))))
+
+;; ===========================================================================
+;; rf2-294yq5.4 — per-frame play trace listener is unregistered on destroy
+;; ===========================================================================
+
+(defn- play-listener-id? [id]
+  ;; `play/install-trace-listener!` keys its per-frame listener under
+  ;; `:re-frame.story.play/trace-<frame-id>`. Match on the namespace so the
+  ;; test does not reach into the private `listener-id` formula.
+  (and (keyword? id)
+       (= "re-frame.story.play" (namespace id))
+       (clojure.string/starts-with? (name id) "trace-")))
+
+(deftest destroy-variant-unregisters-play-trace-listener
+  (testing "after run-variant installs the per-frame play trace listener and
+            the variant is destroyed, the listener is UNREGISTERED — it does
+            not survive teardown to inspect future trace events (rf2-294yq5.4)"
+    (let [live (atom #{})]
+      ;; Instrument the trace-tooling registry so the test observes which
+      ;; listener ids are live without reaching into its private atom.
+      (with-redefs [trace-tooling/register-listener!
+                    (fn [id f]
+                      (swap! live conj id)
+                      (swap! @#'trace-tooling/listeners assoc id f)
+                      id)
+                    trace-tooling/unregister-listener!
+                    (fn [id]
+                      (swap! live disj id)
+                      (swap! @#'trace-tooling/listeners dissoc id)
+                      nil)]
+        (rf/reg-event-db :lst/noop (fn [db _] db))
+        (story/reg-variant :story.listener/v {:events [[:lst/noop]]})
+        (async/deref-blocking (story/run-variant :story.listener/v) 5000)
+        (is (some play-listener-id? @live)
+            "run-variant installed the per-frame play trace listener")
+        (story/destroy-variant! :story.listener/v)
+        (is (not-any? play-listener-id? @live)
+            "destroy unregistered the play trace listener — no stale closure
+             survives the frame lifecycle")))))
+
+(deftest reset-run-variant-does-not-accumulate-listeners
+  (testing "running the SAME variant twice (the fresh-run boundary destroys
+            the prior frame between runs — rf2-294yq5.3) does not leak a
+            second play trace listener; each run installs one and the prior
+            is gone (rf2-294yq5.4)"
+    (let [live (atom #{})]
+      (with-redefs [trace-tooling/register-listener!
+                    (fn [id f]
+                      (swap! live conj id)
+                      (swap! @#'trace-tooling/listeners assoc id f)
+                      id)
+                    trace-tooling/unregister-listener!
+                    (fn [id]
+                      (swap! live disj id)
+                      (swap! @#'trace-tooling/listeners dissoc id)
+                      nil)]
+        (rf/reg-event-db :lst/noop2 (fn [db _] db))
+        (story/reg-variant :story.listener2/v {:events [[:lst/noop2]]})
+        (async/deref-blocking (story/run-variant :story.listener2/v) 5000)
+        (async/deref-blocking (story/run-variant :story.listener2/v) 5000)
+        (is (= 1 (count (filter play-listener-id? @live)))
+            "exactly one play trace listener is live after two runs — the
+             fresh-run boundary destroyed the first run's frame (and its
+             listener) before the second run installed its own")
+        (story/destroy-variant! :story.listener2/v)
+        (is (not-any? play-listener-id? @live)
+            "and the final destroy clears it")))))

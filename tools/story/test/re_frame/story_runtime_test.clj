@@ -1232,6 +1232,166 @@
       (is (some #(= :phase-2-events (:phase %)) (:assertions r))))
     (story/destroy-variant! :story.err/v)))
 
+;; ---- rf2-294yq5.5 — exception ex-data wire-elision -----------------------
+
+(deftest exception-ex-data-redacts-sensitive-slot-jvm
+  (testing "a handler throwing ex-info with a value at a path-marked-sensitive
+            key records :rf/redacted in :error :data, NOT the raw secret; the
+            :error :message survives verbatim (rf2-294yq5.5). JVM gate (the
+            CLJS twin lives in error_projection_redaction_cljs_test.cljs)"
+    (rf/reg-event-db :auth/boom-jvm
+      (fn [_ _]
+        (throw (ex-info "Invalid credentials"
+                        {:token  "BEARER-secret-12345"
+                         :reason :bad-password}))))
+    (story/reg-variant :story.err-redaction-jvm/v
+      {:events      []
+       :play-script [[:dispatch-sync [:auth/boom-jvm]]]})
+    ;; Allocate the frame (first run records the error UNMARKED), then mark
+    ;; the ex-data key sensitive and re-run the play under the marks.
+    (async/deref-blocking (story/run-variant :story.err-redaction-jvm/v) 5000)
+    (rf/add-marks :story.err-redaction-jvm/v {[:token] :sensitive})
+    (async/deref-blocking (story/execute-play! :story.err-redaction-jvm/v) 5000)
+    (let [recs (story/read-assertions :story.err-redaction-jvm/v)
+          ex   (last (filter #(= :rf.error/exception (:assertion %)) recs))
+          data (get-in ex [:error :data])]
+      (is (some? ex) "the throwing handler was captured as an exception record")
+      (is (= :rf/redacted (:token data))
+          "the sensitive ex-data slot is redacted, NOT the raw bearer token")
+      (is (= :bad-password (:reason data))
+          "a non-sensitive ex-data slot passes through")
+      (is (= "Invalid credentials" (get-in ex [:error :message]))
+          "the message string survives verbatim (NOT auto-walked)"))
+    (story/destroy-variant! :story.err-redaction-jvm/v)))
+
+(deftest exception-ex-data-non-sensitive-passes-through-jvm
+  (testing "with NO marks, captured ex-data passes through unredacted —
+            frame-scoped elision only redacts marked paths (rf2-294yq5.5)"
+    (rf/reg-event-db :plain/boom-jvm
+      (fn [_ _] (throw (ex-info "boom" {:detail "not-secret"}))))
+    (story/reg-variant :story.err-plain-jvm/v
+      {:events [[:plain/boom-jvm]]})
+    (let [r    (async/deref-blocking (story/run-variant :story.err-plain-jvm/v) 5000)
+          ex   (last (filter #(= :rf.error/exception (:assertion %)) (:assertions r)))]
+      (is (= "not-secret" (get-in ex [:error :data :detail]))
+          "an unmarked ex-data slot is not redacted"))
+    (story/destroy-variant! :story.err-plain-jvm/v)))
+
+;; ---- rf2-294yq5.1 — :frame-setup :init failures are captured -------------
+
+(deftest frame-setup-init-throw-is-captured-as-failed-assertion
+  (testing "a :frame-setup :init handler that THROWS is captured as a
+            :phase-0-setup :rf.error/exception assertion — NOT a silent
+            :pass / :ready against a frame missing its declared
+            preconditions (rf2-294yq5.1)"
+    (rf/reg-event-db :test/setup-boom
+      (fn [_ _] (throw (ex-info "setup blew up" {:why :setup}))))
+    (story/reg-decorator :boom-setup
+      {:kind :frame-setup
+       :init [[:test/setup-boom]]})
+    (story/reg-variant :story.init-boom/v
+      {:decorators [[:boom-setup]]
+       :events     []})
+    (let [r    (async/deref-blocking (story/run-variant :story.init-boom/v) 5000)
+          recs (:assertions r)]
+      (is (some #(and (= :rf.error/exception (:assertion %))
+                      (= :phase-0-setup (:phase %)))
+                recs)
+          "the throwing :init handler was captured as a :phase-0-setup
+           exception assertion")
+      (is (not= :pass (:status r))
+          "the run does NOT aggregate to :pass — a broken setup is a
+           failed run, not a false green")
+      (is (seq recs)
+          "the assertions vector is non-empty (regression: it was [] before
+           the listener-before-setup fix)"))
+    (story/destroy-variant! :story.init-boom/v)))
+
+;; ---- rf2-294yq5.2 — cofx / interceptor failures are captured -------------
+
+(deftest cofx-injection-throw-is-captured
+  (testing "a phase-2 event whose injected COFX throws is captured as an
+            :rf.error/exception assertion carrying the
+            :rf.error/coeffect-exception operation (rf2-294yq5.2) — the
+            old handler-exception-only capture was a false green"
+    (rf/reg-cofx :test/boom-cofx
+      (fn [_coeffects] (throw (ex-info "cofx blew up" {:why :cofx}))))
+    (rf/reg-event-fx :test/uses-boom-cofx
+      [(rf/inject-cofx :test/boom-cofx)]
+      (fn [_ _] {}))
+    (story/reg-variant :story.cofx-boom/v
+      {:events [[:test/uses-boom-cofx]]})
+    (let [r    (async/deref-blocking (story/run-variant :story.cofx-boom/v) 5000)
+          recs (:assertions r)
+          exc  (first (filter #(= :rf.error/exception (:assertion %)) recs))]
+      (is (some? exc)
+          "the cofx-injection throw was captured as an exception assertion")
+      (is (= :phase-2-events (:phase exc)))
+      (is (= :rf.error/coeffect-exception (:operation exc))
+          "the originating coeffect-exception operation is preserved")
+      (is (not= :pass (:status r))
+          "a cofx failure flips the run off :pass"))
+    (story/destroy-variant! :story.cofx-boom/v)))
+
+(deftest user-interceptor-throw-is-captured
+  (testing "a phase-2 event whose USER INTERCEPTOR :before throws is
+            captured as an :rf.error/exception assertion carrying the
+            :rf.error/interceptor-exception operation (rf2-294yq5.2)"
+    (let [boom-icpt (rf/->interceptor
+                      :id :test/boom-icpt
+                      :before (fn [_ctx] (throw (ex-info "icpt blew up" {:why :icpt}))))]
+      (rf/reg-event-db :test/uses-boom-icpt
+        [boom-icpt]
+        (fn [db _] db))
+      (story/reg-variant :story.icpt-boom/v
+        {:events [[:test/uses-boom-icpt]]})
+      (let [r    (async/deref-blocking (story/run-variant :story.icpt-boom/v) 5000)
+            recs (:assertions r)
+            exc  (first (filter #(= :rf.error/exception (:assertion %)) recs))]
+        (is (some? exc)
+            "the interceptor :before throw was captured as an exception assertion")
+        (is (= :rf.error/interceptor-exception (:operation exc))
+            "the originating interceptor-exception operation is preserved")
+        (is (= :test/boom-icpt (:failing-id exc))
+            "the failing interceptor id is preserved")
+        (is (not= :pass (:status r))))
+      (story/destroy-variant! :story.icpt-boom/v))))
+
+;; ---- rf2-294yq5.3 — run-variant enforces a fresh-run boundary ------------
+
+(deftest run-variant-twice-is-stateless
+  (testing "two consecutive run-variant calls on the same id produce the
+            SAME fresh app-db — run-variant does not reuse the prior frame
+            (rf2-294yq5.3)"
+    (rf/reg-event-db :test/inc-counter
+      (fn [db _] (update db :counter (fnil inc 0))))
+    (story/reg-variant :story.fresh/v
+      {:events [[:test/inc-counter]]})
+    (let [r1 (async/deref-blocking (story/run-variant :story.fresh/v) 5000)
+          r2 (async/deref-blocking (story/run-variant :story.fresh/v) 5000)]
+      (is (= 1 (:counter (:app-db r1))))
+      (is (= 1 (:counter (:app-db r2)))
+          "the SECOND run starts from a fresh app-db (counter 0 → 1), NOT
+           the first run's leftover state (which would give 2)"))
+    (story/destroy-variant! :story.fresh/v)))
+
+(deftest run-variant-twice-reruns-loaders
+  (testing "a LOADER variant reruns its loaders on the second run-variant —
+            the prior :ready frame is destroyed, so run-loaders! does not
+            short-circuit (rf2-294yq5.3)"
+    (rf/reg-event-db :test/load-mark
+      (fn [db _] (update db :loads (fnil inc 0))))
+    (story/reg-variant :story.fresh-loader/v
+      {:loaders [[:test/load-mark]]})
+    (let [r1 (async/deref-blocking (story/run-variant :story.fresh-loader/v) 5000)
+          r2 (async/deref-blocking (story/run-variant :story.fresh-loader/v) 5000)]
+      (is (= 1 (:loads (:app-db r1)))
+          "first run runs the loader once")
+      (is (= 1 (:loads (:app-db r2)))
+          "second run reruns the loader against a FRESH frame (1, not a
+           skipped loader leaving the slot absent, and not 2 from carryover)"))
+    (story/destroy-variant! :story.fresh-loader/v)))
+
 ;; ===========================================================================
 ;; CONFIGURE!
 ;; ===========================================================================

@@ -123,7 +123,13 @@ For a render against variant V belonging to story S:
    so the global decorator's wrap is the outermost element in the
    rendered tree.
 3. `:frame-setup` decorators fire at frame creation (before phase 1
-   loaders), in the same order.
+   loaders), in the same order. Their `:init` dispatches are bracketed
+   by a scoped trace listener (rf2-294yq5.1): a pipeline exception
+   thrown by an `:init` handler (or its cofx / interceptor) is captured
+   and projected onto `[:rf.story/assertions]` as a `:rf.error/exception`
+   record with `:phase :phase-0-setup`, so the run aggregates as FAILED.
+   A broken setup is never a silent `:pass` / `:ready` against a frame
+   missing its declared preconditions.
 4. `:fx-override` decorators register their stubs at frame creation,
    before loaders.
 
@@ -259,13 +265,24 @@ runtime's phase-1 driver in two complementary places:
    re-frame's interceptor chain (rare — most handler throws are
    caught one level deeper).
 2. **Per-phase trace listener (rf2-z2dq8)** registered around the
-   loader walk. re-frame's interceptor chain catches handler-internal
-   throws and emits `:rf.error/handler-exception` trace events rather
-   than re-throwing. The listener collects these events into a
-   per-frame `pending-exceptions` atom; the driver's `finally` block
-   then calls `play/drain-pending-exceptions! variant-id
+   loader walk. re-frame's interceptor chain catches pipeline-internal
+   throws and emits an `:rf.error/*` trace event rather than
+   re-throwing. Per the framework router's `classify-pipeline-exception`
+   (rf2-mszrz) the throw is attributed to its TRUE failing component:
+   `:rf.error/coeffect-exception` (a cofx injector threw),
+   `:rf.error/interceptor-exception` (a user interceptor threw), or
+   `:rf.error/handler-exception` (the event handler itself threw). The
+   listener captures ALL THREE — the one projection predicate
+   `re-frame.story.error/pipeline-exception-event?` (rf2-294yq5.2) —
+   into a per-frame `pending-exceptions` atom; the driver's `finally`
+   block then calls `play/drain-pending-exceptions! variant-id
    :phase-1-loaders` to project each captured event onto
-   `[:rf.story/assertions]` as a `:rf.error/exception` record.
+   `[:rf.story/assertions]` as a `:rf.error/exception` record. Capturing
+   only `:rf.error/handler-exception` (the pre-rf2-294yq5 behaviour) was
+   a false green: a loader/event/play/teardown path whose cofx injector
+   or user interceptor threw passed silently. The originating
+   `:operation` and `:failing-id` are preserved on the record so a cofx
+   failure is distinguishable from a handler failure.
 
 The record carries `:phase :phase-1-loaders` (distinguishing the
 loader phase from `:phase-2-events`, `:phase-3-render`, and
@@ -458,8 +475,14 @@ the variant body).
 
 **What the runtime guarantees.** On `destroy-variant!`:
 
-1. Per-variant assertion accumulators are dropped
-   (`frames/clear-stub-call-log!`).
+1. Per-variant accumulators are dropped (`frames/clear-stub-call-log!`,
+   the play module's per-frame `pending-exceptions` slot) AND the
+   per-frame play trace listener is unregistered
+   (`play/remove-trace-listener!` — rf2-294yq5.4). Dropping only the
+   `pending-exceptions` entry left the listener registered against a
+   destroyed frame, where `clear-all-play-state!` could no longer find
+   it; long-running / hot-reload sessions accumulated stale listener
+   closures inspecting every future trace event.
 2. Lifecycle watchers are cleared
    (`loaders/clear-watchers!`).
 3. **The variant body's `:loaders-teardown` events dispatch-sync into
@@ -622,7 +645,15 @@ baselines.
 
 `run-variant` runs the four-phase lifecycle:
 
-1. Allocate (or `reset-frame!`) the variant's frame.
+1. **Fresh-run boundary** (rf2-294yq5.3): if a frame already exists
+   under `variant-id`, `run-variant` DESTROYS it first, then allocates
+   a clean frame. `run-variant` never reuses an existing frame — a bare
+   `allocate!` against an existing frame goes through `reg-frame`'s
+   surgical-update path, which preserves the prior app-db and sub-cache,
+   and (worse) leaves an already-`:ready` loader variant short-circuiting
+   its loaders on the second run. Two consecutive `run-variant` calls on
+   the same id therefore produce the SAME fresh app-db, and loader
+   variants rerun their loaders. Determinism by default.
 2. Run `:loaders` (phase 1), wait for `:loaders-complete-when`
    predicate.
 3. Run `:events` (phase 2).
