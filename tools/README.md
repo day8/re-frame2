@@ -107,11 +107,16 @@ wired into the build, and consumers can use it today.
   [`tools/machines-viz/README.md`](./machines-viz/README.md).
 
 - **`tools/testbed-support/`** — a small dev-only support library
-  (single ns `re-frame.testbed.config`) the Xray / Story browser
-  testbeds share: `resolve-project-root` derives the on-disk project
-  root for "open in editor" from a build-env `goog-define` (seeded per
-  build via `#shadow/env`, so it's cross-platform with no hardcoded
-  checkout path) with a `?project-root=` per-session override. It is
+  (two namespaces: `re-frame.testbed.config` and
+  `re-frame.testbed.story-host`) the Xray / Story browser testbeds share.
+  `config/resolve-project-root` derives the on-disk project root for
+  "open in editor" from a build-env `goog-define` (seeded per build via
+  `#shadow/env`, so it's cross-platform with no hardcoded checkout path)
+  with a `?project-root=` per-session override, normalising both tiers to
+  a canonical forward-slash form so Windows and POSIX checkout roots
+  resolve identically. `story-host/mount-with-hash-routing!` owns the
+  live-app ↔ Story-shell hash-toggle host harness the showcase testbeds
+  share. It is
   **not a published jar** — no `deps.edn`/Clojars coord; it's wired into
   the testbed builds as an extra source path in
   `implementation/shadow-cljs.edn`. Bundle-isolated (nothing under

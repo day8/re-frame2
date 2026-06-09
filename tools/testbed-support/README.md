@@ -36,9 +36,15 @@ other clone and every Mac/Linux maintainer (rf2-5dphw).
   source coords resolve (rf2-w4yw9q). Paste the checkout root unencoded,
   including a literal `+` (e.g. `?project-root=/home/dev/re-frame2+wip`);
   the parser decodes percent-escapes but preserves `+` rather than
-  mapping it to a space (rf2-xdsat.1). When neither tier is present it
-  returns `nil`, and the testbed configures no root — "open in editor"
-  degrades to a graceful no-op rather than a broken link.
+  mapping it to a space (rf2-xdsat.1). Both tiers and the subdir are
+  normalised to a canonical forward-slash form (`\` → `/`, trailing /
+  leading slash stripped), so a Windows override
+  (`?project-root=C:\Users\me\code\re-frame2\`, raw or `%5C`-encoded)
+  resolves to a clean single-separator path rather than a `\/` boundary —
+  matching the launcher's build-env normalisation and the
+  separator-agnostic editor-URI composer (rf2-d01s6s). When neither tier
+  is present it returns `nil`, and the testbed configures no root —
+  "open in editor" degrades to a graceful no-op rather than a broken link.
 
 ## The Story host harness (`story-host`)
 
@@ -70,7 +76,8 @@ tools/testbed-support/
 └── src/re_frame/testbed/
     ├── config.cljs                           ; resolve-project-root + the repo-root goog-define
     ├── config_cljs_test.cljs                 ; CLJS unit tests for the resolver
-    └── story_host.cljs                       ; mount-with-hash-routing! (live-app↔shell host)
+    ├── story_host.cljs                       ; mount-with-hash-routing! (live-app↔shell host)
+    └── story_host_cljs_test.cljs             ; CLJS unit tests for the host harness
 ```
 
 ## How it's wired
@@ -85,9 +92,14 @@ and seed `re-frame.testbed.config/repo-root` via that file's
 
 ## How to test
 
-The `config_cljs_test.cljs` corpus runs as part of the testbed CLJS test
-surface; there is no standalone test alias for this directory (no
-`deps.edn`).
+Both `config_cljs_test.cljs` (the resolver) and `story_host_cljs_test.cljs`
+(the host harness's listener lifecycle / hot-reload behaviour) run as part
+of the always-on CLJS gate: `npm run test:cljs` from `implementation/`
+compiles the `:node-test` build, whose `:ns-regexp "cljs-test$"` discovers
+both namespaces through this slice's wired `../tools/testbed-support/src`
+source path. There is no standalone test alias for this directory (no
+`deps.edn`); the suites live under `src/` precisely so that wired source
+path picks them up.
 
 ## See also
 
