@@ -116,44 +116,34 @@
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
             [re-frame.epoch.assembly :as assembly]
+            ;; `state` is used in test BODIES for the private back-fill
+            ;; path (`state/back-fill-sub-run!`) + the private listeners
+            ;; var (`@#'state/listeners`) the concurrency invariants
+            ;; exercise directly — NOT for fixture config reset (that now
+            ;; flows through `configure!`).
             [re-frame.epoch.state :as state]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
+            [re-frame.test-support :as test-support]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
-            ;; hook publishes `rf/reg-machine` only when loaded. The
-            ;; epoch_test.clj fixture pulls it in for symmetry across
-            ;; the suite; we follow suit so the reset-runtime shape
-            ;; matches and the registrar/clear-all! reload works
-            ;; identically.
+            ;; hook publishes `rf/reg-machine` only when loaded. Pulled in
+            ;; for symmetry across the suite so the captured ns-load
+            ;; baseline includes the machines registrations.
             [re-frame.machines])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
-;; ---- fixture (mirrors epoch_test.clj's `reset-runtime`) ------------------
-
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
-  (flows/reset-last-inputs!)
-  (trace/clear-listeners!)
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  ;; Reset the config atom directly so :trace-events-keep / a stale
-  ;; :depth from a sibling test can't leak; configure! merges, so a
-  ;; per-test opt-in to elision would otherwise persist. The fixture
-  ;; forces :trace-events-keep 5 (NOT the shipped default of 50 = :depth,
-  ;; see `re-frame.epoch.state/default-trace-events-keep`).
-  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;; ---- fixture --------------------------------------------------------------
+;;
+;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
+;; registrar at ns-load + restores around each test, fires the epoch
+;; reset-hook table (history / listeners / config-to-default), and the
+;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
+;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
+;; public `configure!` boundary — no test ns reaches into the private
+;; `state/config` var for fixture reset.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
 
 ;; ---- stress dials ---------------------------------------------------------
 

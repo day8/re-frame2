@@ -59,20 +59,18 @@
 ;; `test-support/make-reset-runtime-fixture` (rf2-am9d): the registrar is
 ;; snapshot/restored around each test so framework / example
 ;; registrations survive cross-ns CLJS test runs.
+;;
+;; rf2-yw1w1u — epoch state isolation (ring history, listeners, config)
+;; now flows through the fixture's reset-hook table
+;; (`:epoch/clear-history!`, `:epoch/clear-epoch-listeners!`,
+;; `:epoch/reset-config!`), so the `:init-fn` only re-applies this
+;; suite's non-default `:trace-events-keep 5` (NOT the shipped 50 =
+;; :depth) through the public `configure!` boundary — no test ns reaches
+;; into the private `state/config` var for fixture reset.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
-     :init-fn (fn []
-                ;; Per the JVM fixture (epoch_test.clj): reset epoch
-                ;; state and the config atom between tests so a prior
-                ;; test's `:depth 3` or pending cb leaks don't bleed
-                ;; into the next. The fixture's adapter install
-                ;; replaces the registrar / frames; epoch's own state
-                ;; lives in module-level atoms that need their own
-                ;; reset.
-                (epoch/clear-history!)
-                (epoch/clear-epoch-listeners!)
-                (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil}))}))
+     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
 
 ;; ---- 1. Recording — happy-path record shape -------------------------------
 

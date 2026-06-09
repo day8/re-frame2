@@ -29,10 +29,17 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.flows :as flows]
+            ;; Side-effect require: flows publishes the `:flows/reg-flow`
+            ;; late-bind hook at ns-load. Several restore-* tests register
+            ;; flows via `rf/reg-flow` in their bodies; without this load
+            ;; they throw `:rf.error/flows-artefact-missing`. Loading it
+            ;; HERE means the capture/restore fixture's ns-load registrar
+            ;; snapshot includes the flows surface. Alias unused — the
+            ;; fixture no longer touches the private flows atoms (the
+            ;; reset-hook table owns flows reset).
+            [re-frame.flows]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             ;; rf2-szbzei — the runtime-db schema-validation precondition on
             ;; replace-runtime-db! / replace-frame-state! routes through the
             ;; machine-data boundary's `:schemas/validate-with-registered-fn`
@@ -40,16 +47,33 @@
             ;; by this .malli adapter ns). Without it the registered-validator
             ;; soft-passes and the runtime-db-validation-fires test can't drive
             ;; a real schema failure. Side-effect require — alias unused.
+            ;; (Also transitively loads `re-frame.schemas` so the fixture's
+            ;; ns-load registrar snapshot includes the schemas surface.)
             [re-frame.schemas.malli]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
             [re-frame.elision]
             [re-frame.epoch :as epoch]
             [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.listeners :as epoch.listeners]
+            ;; `state` is used in test BODIES for the deep private-impl
+            ;; unit tests (the `@#'state/value-changed-epoch-for` scan
+            ;; against a hand-built `@#'state/histories` ring, and the
+            ;; shipped-default accessor probe) — NOT for fixture config
+            ;; reset, which now flows through the public `configure!`
+            ;; boundary + the `:epoch/reset-config!` reset hook.
             [re-frame.epoch.state :as state]
             [re-frame.epoch.tool-pair :as tool-pair]
+            ;; Side-effect require: routing publishes its `:routing/*`
+            ;; late-bind hooks (incl. the `rf/reg-route` registrar kind)
+            ;; at ns-load. Several tests call `rf/reg-route` in their
+            ;; bodies; loading routing HERE (rather than reloading it in
+            ;; the fixture) means the capture/restore fixture's ns-load
+            ;; registrar snapshot includes routing's registrations and
+            ;; restores them around each test (rf2-yw1w1u).
+            [re-frame.routing]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
             ;; hook publishes `rf/reg-machine` only when the namespace is
             ;; loaded. Several restore-* tests register machines via
@@ -59,33 +83,27 @@
             [re-frame.machines]))
 
 ;; ---- fixtures --------------------------------------------------------------
-
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
-  ;; Per smoke_test.clj fixture (rf2-xsfj): flows.cljc keeps a private
-  ;; last-inputs atom for dirty-checking. Clear it so a prior test's
-  ;; flow registration can't leak its last-inputs into a same-keyed
-  ;; flow in a subsequent test.
-  (flows/reset-last-inputs!)
-  (trace/clear-listeners!)
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  ;; Reset the config atom directly so :trace-events-keep (rf2-iegsz)
-  ;; doesn't leak between tests — `configure!` merges, so a per-test
-  ;; opt-in to elision would otherwise persist. The fixture forces
-  ;; :trace-events-keep 5 (NOT the shipped default of 50 = :depth, see
-  ;; `re-frame.epoch.state/default-trace-events-keep`; Mike pair-debug
-  ;; 2026-05-27) so the keep<depth elision path is reachable with a
-  ;; handful of dispatches.
-  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;;
+;; rf2-yw1w1u — the canonical capture/restore fixture. It snapshots the
+;; registrar at ns-load and restores around each test (so the routing /
+;; schemas / machines registrations this ns's `:require` chain brought
+;; live survive cross-ns runs without a `clear-all!` + reload dance), and
+;; fires the epoch reset-hook table (`:epoch/clear-history!`,
+;; `:epoch/clear-epoch-listeners!`, `:epoch/reset-config!`) so each test
+;; starts from a clean epoch slate with config reset to the shipped
+;; default. The `:init-fn` re-applies the suite's non-default
+;; `:trace-events-keep 5` (rf2-iegsz — a keep<depth OVERRIDE so the
+;; elision path is reachable with a handful of dispatches; NOT the
+;; shipped default of 50 = :depth, see
+;; `re-frame.epoch.state/default-trace-events-keep`; Mike pair-debug
+;; 2026-05-27) through the public `configure!` boundary — no test ns
+;; reaches into the private `state/config` var for fixture reset. The
+;; `:init-fn` runs AFTER the post-dispose reset hooks, so the override
+;; lands on top of the freshly-reset default.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -1762,6 +1780,17 @@
 ;; records and miss a genuine value-change, mis-attributing the render. The fix
 ;; bounds the scan on the directly-observable elision state (break at the first
 ;; record MISSING `:trace-events`) so it tracks reality under any reconfigure.
+;;
+;; rf2-yw1w1u — the two tests below KEEP direct private-var access
+;; (`@#'state/histories`, `@#'state/config`, `@#'state/value-changed-epoch-for`)
+;; rather than the shared fixture / `configure!` boundary. They are
+;; narrow unit tests of the PRIVATE `value-changed-epoch-for` scan: they
+;; hand-stuff a bespoke `histories` ring (a post-reduction transient gap
+;; / a manually-elided boundary) that no public API can construct, then
+;; pin the private config to the exact keep the scenario needs. Routing
+;; the config line through `configure!` while the rest of the setup is
+;; raw private-atom manipulation would be inconsistent and add no
+;; isolation — these cases live entirely below the public surface.
 
 (defn- vc-record
   "A minimal epoch record carrying a value-changed `:rf.sub/run` for
@@ -3851,7 +3880,7 @@
             `shipped-trace-events-keep-default-is-50` for the real
             default)."
     (is (= 5 (:trace-events-keep (epoch/current-config)))
-        "fixture OVERRIDE — see reset-runtime; NOT the shipped default")))
+        "fixture OVERRIDE — see the :init-fn configure! call; NOT the shipped default")))
 
 (deftest shipped-trace-events-keep-default-is-50
   (testing "rf2-wmki8 — the SHIPPED runtime default :trace-events-keep is
@@ -3867,6 +3896,13 @@
     ;; partial `configure!` leaves). Drive a config WITHOUT the slot and
     ;; confirm the accessor reports the shipped 50 — proving the var is the
     ;; live default, not just a declared constant.
+    ;;
+    ;; rf2-yw1w1u — KEEPS direct private-var access: `configure!` /
+    ;; `merge-config!` MERGES, so it cannot produce a config map MISSING
+    ;; the `:trace-events-keep` slot (the exact shape this test needs to
+    ;; exercise the accessor's fallback). Only a raw `reset!` of the
+    ;; private `config` can build that shape — the shared fixture's
+    ;; reset-to-default always carries the slot.
     (reset! @#'state/config {:depth 50 :redact-fn nil})
     (is (= 50 (state/trace-events-keep))
         "trace-events-keep accessor falls back to the shipped 50 default")

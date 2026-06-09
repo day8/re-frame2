@@ -31,9 +31,17 @@
       have passed.
 
     * **Projected egress** — `projected-record` and `projected-history`
-      route the four payload-bearing slots through
-      `re-frame.elision/elide-wire-value` for off-box egress
-      (Xray-MCP `watch-epochs`, story / pair recorders).
+      route every payload-bearing slot through the privacy projection
+      for off-box egress (Xray-MCP `watch-epochs`, story / pair
+      recorders). That is: the canonical `:frame-state-before` /
+      `:frame-state-after` slots (app-db partition elided, runtime-db
+      partition default-redacted per EP-0001 ruling #14), the derived
+      `:db-before` / `:db-after` app-db projections, `:trigger-event`,
+      `:trace-events`, AND the value-bearing structured `:sub-runs` rows
+      (their `:prev-value` / `:value` slots — rf2-at60h). The value-free
+      `:renders` / `:effects` metadata and the record-level bookkeeping
+      pass through unchanged. `projected-record`'s own docstring is the
+      authoritative per-slot contract.
 
   Per rf2-0wi86 Phase-2 seam E. The orchestrators `restore-epoch` and
   `replace-app-db!` live in the `re-frame.epoch` facade — they wire
@@ -651,17 +659,35 @@
 ;; route through `projected-record` first, parallel to how direct-read
 ;; tools route through `elide-wire-value` (per rf2-czv3p).
 ;;
-;; The projection wraps `re-frame.elision/elide-wire-value` against the
-;; record's frame-id and the four payload-bearing slots that may carry
-;; sensitive or large material: `:db-before`, `:db-after`,
-;; `:trigger-event`, and `:trace-events`. The cheap structured slots
-;; (`:sub-runs`, `:renders`, `:effects`) carry no app-db material —
-;; they project sub-ids, render-keys, fx-ids, and outcome tags — so
-;; the projection leaves them as-is. The record-level bookkeeping
-;; (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:outcome`,
-;; `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`,
+;; The projection routes the record's frame-id and EVERY payload-bearing
+;; slot through the elision boundary. Two of those slots are
+;; value-bearing in ways the original four-slot model missed:
+;;
+;;   - The CANONICAL frame-state slots `:frame-state-before` /
+;;     `:frame-state-after` (EP-0001 rf2-3aizt1 decision #2 + ruling #14):
+;;     their `:rf.db/app` partition is elided through the same
+;;     `elide-wire-value` walk the `:db-*` projections receive, while
+;;     their `:rf.db/runtime` partition is DEFAULT-REDACTED to
+;;     `:rf/redacted` off-box (see `elide-frame-state-slot`).
+;;   - The structured `:sub-runs` rows (rf2-at60h): each carries the
+;;     sub's computed `:prev-value` / `:value`, so the rows DO carry
+;;     app-db material and the whole-output `:large?` case is projected
+;;     through the `:rf.size/large-elided` marker (see
+;;     `elide-sub-runs-slot`). Their non-value metadata (`:sub-id`,
+;;     `:query-v`, `:value-changed?`, `:cascade?`, `:cause-sub`,
+;;     `:cause-event-id`) passes through.
+;;
+;; The remaining full-value slots — the derived `:db-before` /
+;; `:db-after` app-db projections, `:trigger-event`, and `:trace-events`
+;; — also route through `elide-wire-value`. The value-free structured
+;; slots (`:renders`, `:effects`) carry no app-db material — they
+;; project render-keys, fx-ids, and outcome tags — so the projection
+;; leaves them as-is. The record-level bookkeeping (`:epoch-id`,
+;; `:frame`, `:committed-at`, `:event-id`, `:outcome`, `:halt-reason`,
+;; `:schema-digest`, `:rf.epoch/sensitive?`,
 ;; `:rf.epoch/redacted-modified-paths-count`) is structurally
-;; non-sensitive and passes through.
+;; non-sensitive and passes through. `projected-record`'s docstring is
+;; the authoritative per-slot contract.
 ;;
 ;; Per-tool reimplementation of the projection is prohibited (the
 ;; same posture as the wire-elision walker). New egress tools call

@@ -22,34 +22,29 @@
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
             [re-frame.epoch.capture :as capture]
+            ;; `state` is used in test BODIES (`state/buffer-event!` /
+            ;; `state/buffer-for`) to populate the in-flight buffer the
+            ;; cascade-cause walk reads — NOT for fixture config reset.
             [re-frame.epoch.state :as state]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
+            [re-frame.test-support :as test-support]
             ;; Side-effect require (mirror epoch_test.clj fixture).
             [re-frame.machines]))
 
-;; ---- fixture (mirrors epoch_test.clj's reset-runtime) ---------------------
-
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
-  (flows/reset-last-inputs!)
-  (trace/clear-listeners!)
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;; ---- fixture --------------------------------------------------------------
+;;
+;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
+;; registrar at ns-load + restores around each test, fires the epoch
+;; reset-hook table (history / listeners / config-to-default), and the
+;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
+;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
+;; public `configure!` boundary — no test ns reaches into the private
+;; `state/config` var for fixture reset.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
 
 ;; ---- synthetic-buffer helpers ---------------------------------------------
 ;;

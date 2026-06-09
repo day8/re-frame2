@@ -34,33 +34,32 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
-            [re-frame.epoch.state :as state]
-            [re-frame.flows :as flows]
             [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
+            [re-frame.test-support :as test-support]
             ;; Side-effect requires (mirror epoch_test.clj fixture).
             [re-frame.machines]))
 
 ;; ---- fixtures --------------------------------------------------------------
-
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
-  (flows/reset-last-inputs!)
-  (trace/clear-listeners!)
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;;
+;; rf2-yw1w1u — the canonical capture/restore fixture. It snapshots the
+;; registrar at ns-load and restores around each test (so framework /
+;; example registrations survive cross-ns runs) and fires the epoch
+;; reset-hook table (`:epoch/clear-history!`,
+;; `:epoch/clear-epoch-listeners!`, `:epoch/reset-config!`) so each test
+;; starts from a clean epoch slate with config reset to the shipped
+;; default. The `:init-fn` re-applies the suite's non-default
+;; `:trace-events-keep 5` (NOT the shipped 50 = :depth, see
+;; `re-frame.epoch.state/default-trace-events-keep`; Mike pair-debug
+;; 2026-05-27) through the public `configure!` boundary — no test ns
+;; reaches into the private `state/config` var. The `:init-fn` runs
+;; AFTER the post-dispose reset hooks, so the override lands on top of
+;; the freshly-reset default.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
 

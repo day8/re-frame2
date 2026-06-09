@@ -572,6 +572,10 @@
    {:key         :epoch/configure!
     :producer-ns 're-frame.epoch
     :description "Configure epoch buffer size / capture policy."}
+   {:key         :epoch/reset-config!
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-yw1w1u"
+    :description "Restore epoch-history config to the shipped default baseline (test isolation) so a prior test's (rf/configure! :epoch-history ...) merge can't leak :depth / :trace-events-keep / :redact-fn. Fired by re-frame.test-support's reset-hook table so test namespaces don't reset the private re-frame.epoch.state/config var directly."}
    {:key         :epoch/clear-history!
     :producer-ns 're-frame.epoch
     :description "Clear the committed-epoch ring buffer (test isolation)."}

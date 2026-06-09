@@ -121,6 +121,17 @@
   []
   (state/current-config))
 
+(defn- reset-config!
+  "Restore the epoch-history config to the shipped default baseline.
+  Test-support seam only — published through the `:epoch/reset-config!`
+  late-bind hook so `re-frame.test-support`'s reset-hook table can
+  isolate epoch config between tests without test namespaces
+  dereferencing the private `re-frame.epoch.state/config` var
+  (rf2-yw1w1u). Delegates to `state/reset-config!`, whose docstring is
+  the canonical pin."
+  []
+  (state/reset-config!))
+
 ;; The record-assembly helpers — `maybe-redact`, `current-schema-digest`,
 ;; the sensitive-rollup family, and `build-record` itself — live in
 ;; `re-frame.epoch.assembly`.
@@ -937,6 +948,11 @@
    :epoch/register-epoch-listener!   register-epoch-listener!
    :epoch/unregister-epoch-listener! unregister-epoch-listener!
    :epoch/configure!                 configure!
+   ;; rf2-yw1w1u: test-support config-isolation hook. `re-frame.test-
+   ;; support`'s reset-hook table fires this to restore epoch config to
+   ;; the shipped default between tests, so test namespaces no longer
+   ;; reset the private `state/config` var directly.
+   :epoch/reset-config!              reset-config!
    :epoch/clear-history!             clear-history!
    :epoch/clear-epoch-listeners!     clear-epoch-listeners!
 

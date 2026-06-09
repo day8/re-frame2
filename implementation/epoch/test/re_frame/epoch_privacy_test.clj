@@ -28,40 +28,31 @@
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
-            [re-frame.epoch.state :as state]
-            [re-frame.flows :as flows]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.marks :as marks]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
+            [re-frame.test-support :as test-support]
             ;; Side-effect requires (mirrors epoch_test.clj):
             [re-frame.machines]))
 
 ;; ---- fixtures --------------------------------------------------------------
-
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
-  (flows/reset-last-inputs!)
-  ;; The sub-output / per-registration marks tables are NOT cleared by
-  ;; `registrar/clear-all!`, so reset them here to keep the whole-output
-  ;; `:large?` propagation (rf2-at60h) from leaking across test cases.
-  (marks/clear-sub-output-marks!)
-  (marks/clear-marks!)
-  (trace/clear-listeners!)
-  (epoch/clear-history!)
-  (epoch/clear-epoch-listeners!)
-  (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;;
+;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
+;; registrar at ns-load + restores around each test, and fires the
+;; reset-hook table: epoch (history / listeners / config-to-default) AND
+;; the marks tables (`:marks/clear-marks!`,
+;; `:marks/clear-sub-output-marks!`) — those are NOT registrar kinds, so
+;; the table's late-bind hooks own resetting them between tests, keeping
+;; the whole-output `:large?` propagation (rf2-at60h) from leaking. The
+;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
+;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
+;; public `configure!` boundary — no test ns reaches into the private
+;; `state/config` var.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn (fn [] (rf/configure! :epoch-history {:trace-events-keep 5}))}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
