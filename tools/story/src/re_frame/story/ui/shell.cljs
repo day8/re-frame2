@@ -845,15 +845,21 @@
          ;; prefers-contrast more / when config/enabled? is false.
          ;; Idempotent.
          (depth/inject-grain-css!)
-         ;; rf2-xi9zk: hydrate chrome-wide :active-modes from URL +
-         ;; localStorage before the first render of the toolbar /
-         ;; canvas. URL wins over localStorage per spec/010 §URL deep-
-         ;; link. Idempotent and one-shot.
-         (toolbar/hydrate!)
+         ;; rf2-96y71s: seed chrome-wide :active-modes from the
+         ;; localStorage FALLBACK only. The toolbar no longer reads the
+         ;; URL — URL-derived :active-modes hydration is owned solely by
+         ;; the url-state engine (hydrate-url-state! below, via
+         ;; apply-parsed-to-state). This localStorage seed runs FIRST so
+         ;; the URL hydrator can authoritatively override it when the
+         ;; URL carries params, and leave it intact on a fresh no-URL
+         ;; mount — the URL-over-localStorage precedence (spec/022
+         ;; §Share semantics). Idempotent and one-shot.
+         (toolbar/hydrate-modes-from-storage!)
          ;; rf2-zll4h: hydrate the chrome-wide viewport + background
          ;; selections from localStorage. Both are idempotent and
          ;; one-shot; they no-op when the slot is already populated
-         ;; (e.g. a programmatic test fixture seeded them).
+         ;; (e.g. a programmatic test fixture seeded them). Same
+         ;; localStorage-first / URL-authoritative discipline as modes.
          (viewport-switcher/hydrate!)
          (backgrounds-switcher/hydrate!)
          (start-hot-reload-poll!)

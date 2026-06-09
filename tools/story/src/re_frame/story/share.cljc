@@ -112,6 +112,24 @@
   [s]
   (parse-keyword-token s))
 
+(defn prune-unregistered-modes
+  "Drop mode ids from `modes` that no longer resolve at the registrar
+  (stale localStorage / a share-URL pointing at a renamed mode). Pure
+  data → data; JVM-testable via an injected `registered?` predicate.
+
+  `registered?` is a `(mode-id → boolean)` predicate — the production
+  caller (`re-frame.story.ui.toolbar`) closes it over the live
+  `re-frame.story.registrar`; tests pass a set / fn. Returns a vector
+  (never nil); a nil/empty `modes` yields `[]`.
+
+  Only the stored-modes (localStorage) hydration path prunes — URL-
+  derived `:active-modes` ride the canonical `apply-parsed-to-state`
+  writer verbatim (like every other URL-owned slot), so this helper is
+  shared by `share.cljc`'s mode codec rather than duplicated in the
+  toolbar or its tests."
+  [modes registered?]
+  (vec (filter registered? (or modes []))))
+
 ;; ---- rf2-o4u18: workspace / mode-tab / viewport / background / tag-filter
 
 (defn parse-workspace-param

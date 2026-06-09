@@ -13,9 +13,12 @@
     `hydrate-modes-from-storage!`, assert the active modes are
     rehydrated from localStorage.
 
-  - **URL deep-link beats localStorage on reload** — set theme in
-    localStorage, simulate a reload with a different mode in the URL
-    via `hydrate-modes-from-url!`, assert the URL's modes win.
+  - **URL beats localStorage on mount** — the mount-hydration order
+    (`hydrate-modes-from-storage!` then the url-state engine's
+    `apply-parsed-to-state`) is exercised through the SINGLE canonical
+    ownership path (rf2-96y71s): the localStorage seed lands first, the
+    URL parse (`share/parse-params`) + apply then authoritatively
+    overrides it. The toolbar no longer reads the URL itself.
 
   - **Unknown mode id in localStorage is dropped at hydrate** — write
     a stale id (referring to a `reg-mode` that no longer exists) into
@@ -33,10 +36,12 @@
   variant). The CLJS tests gate on a working `js/window.localStorage`
   via the same `browser?` predicate the sibling toolbar test uses."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.story            :as story]
-            [re-frame.story.registrar  :as story-registrar]
-            [re-frame.story.ui.state   :as state]
-            [re-frame.story.ui.toolbar :as toolbar]))
+            [re-frame.story             :as story]
+            [re-frame.story.registrar   :as story-registrar]
+            [re-frame.story.share        :as share]
+            [re-frame.story.ui.state     :as state]
+            [re-frame.story.ui.toolbar   :as toolbar]
+            [re-frame.story.ui.url-state :as url-state]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -78,6 +83,52 @@
   in the side-table, not in the shell state)."
   []
   (state/reset-shell-state!))
+
+(defn- modes-url-search
+  "Build the canonical `?modes=...` search string for `mode-ids` via the
+  PRODUCTION encoder `share/build-params` — the same wire form the live
+  share URL emits — so the test round-trips through the real codec rather
+  than hand-assembling tokens (and avoids the `(name kw)`-drops-namespace
+  trap)."
+  [mode-ids]
+  (str "?" (first (share/build-params {:active-modes mode-ids}))))
+
+(defn- mount-hydrate-modes!
+  "Compose the shell-mount `:active-modes` hydration through the SINGLE
+  documented ownership path (rf2-96y71s), exactly as `shell/shell`'s
+  `:component-did-mount` does, but with the URL search supplied as data
+  (`url-search`, e.g. \"?modes=Mode.app%2Fdark\" or \"\") so the test
+  drives both the localStorage seed and the URL authority without
+  touching `js/window.location`:
+
+    1. `toolbar/hydrate-modes-from-storage!` — localStorage FALLBACK
+       seeds `:active-modes` (idempotent, pruned against the registrar).
+    2. The url-state engine then folds the parsed `share/parse-params`
+       shape via `url-state/apply-parsed-to-state` — the SINGLE
+       authoritative URL writer. A present `modes=` overwrites the seed;
+       an omitted `modes=` (but other params present) authoritatively
+       CLEARS `:active-modes` to []; a fully-empty search (`\"\"`) means
+       no URL state — `apply-parsed-to-state` is NOT run, so the
+       localStorage seed survives (the URL-over-localStorage precedence).
+
+  `url-search` is the raw `location.search` string; `\"\"` / nil ⇒ no
+  URL params at all (fresh mount). Mirrors `shell/hydrate-url-state!`'s
+  `parse-current-url` gate: empty search ⇒ skip the apply."
+  [url-search]
+  (toolbar/hydrate-modes-from-storage!)
+  (when (and (string? url-search) (seq url-search))
+    (let [usp    (js/URLSearchParams. url-search)
+          getter {"variant"    (.get usp "variant")
+                  "workspace"  (.get usp "workspace")
+                  "mode-tab"   (.get usp "mode-tab")
+                  "modes"      (.get usp "modes")
+                  "viewport"   (.get usp "viewport")
+                  "background" (.get usp "background")
+                  "tag-filter" (.get usp "tag-filter")
+                  "overrides"  (.get usp "overrides")
+                  "substrate"  (.get usp "substrate")}
+          parsed (share/parse-params getter)]
+      (state/swap-state! url-state/apply-parsed-to-state parsed {}))))
 
 ;; ===========================================================================
 ;; rf2-jpi7n — mode persistence across reload (the marquee scenario)
@@ -147,42 +198,83 @@
           "empty active set survives reload"))))
 
 ;; ===========================================================================
-;; rf2-jpi7n — URL deep-link beats localStorage on reload
+;; rf2-96y71s — modes=, omitted modes=, and localStorage fallback all
+;; compose through ONE documented ownership path.
 ;;
-;; Per spec/010 §URL deep-link 'last-shared wins over last-used'.
-;; The hydration entry point (hydrate!) reads URL first; if present,
-;; URL wins. If no URL, falls back to localStorage. We test the
-;; URL-via-hydrate-modes-from-url! arm directly (the live
-;; modes-from-current-url reads js/window.location which we can't
-;; easily mock; the pure parse-modes-param is JVM-tested by the sibling
-;; toolbar_cljs_test).
+;; The toolbar no longer reads the URL. Mount hydration is:
+;;   1. toolbar/hydrate-modes-from-storage!  (localStorage FALLBACK)
+;;   2. url-state/apply-parsed-to-state       (the SINGLE URL authority)
+;; `mount-hydrate-modes!` composes exactly that with the URL search
+;; supplied as data. These three tests pin the precedence end-to-end
+;; against the canonical share/url-state path — no manual simulation of
+;; the parser, no second URL reader.
 ;; ===========================================================================
 
-(deftest hydrate-from-url-overwrites-non-empty-state
-  (testing "hydrate-modes-from-url! unconditionally writes when URL
-            params are present. Pin the precedence: even a populated
-            in-memory slot is replaced (per spec/010 §URL deep-link —
-            'last-shared wins')"
+(deftest mount-url-modes-beat-localstorage
+  (testing "rf2-96y71s — a URL carrying `modes=` overrides the
+            localStorage seed: the localStorage hydrator seeds :dark
+            first, then apply-parsed-to-state writes the URL's :light.
+            Last-shared wins over last-used — through ONE path."
     (when (browser?)
       (story/reg-mode :Mode.persist.theme/dark  {:axis :theme :args {:theme :dark}})
       (story/reg-mode :Mode.persist.theme/light {:axis :theme :args {:theme :light}})
-      ;; Pre-condition: localStorage seeded with :dark.
-      (toolbar/toggle-mode! :Mode.persist.theme/dark)
-      (is (= [:Mode.persist.theme/dark]
-             (:active-modes (state/get-state))))
-      ;; Simulate the URL-driven hydrate path by directly invoking
-      ;; the underlying state mutation hydrate-modes-from-url! would
-      ;; perform (we can't safely mutate js/window.location.search in
-      ;; the test runner). Per spec/010 the URL precedence is checked
-      ;; in `hydrate!` — pinning the data-shape contract: the URL
-      ;; modes overwrite, not append.
-      (let [url-modes [:Mode.persist.theme/light]
-            pruned    (toolbar/prune-unregistered url-modes)]
-        (state/swap-state! state/set-active-modes pruned))
+      ;; localStorage seeded with :dark (last-used).
+      (toolbar/save-modes-to-storage! [:Mode.persist.theme/dark])
+      (simulate-reload!)
+      ;; Mount with a URL that carries modes=...light (last-shared).
+      (mount-hydrate-modes! (modes-url-search [:Mode.persist.theme/light]))
       (is (= [:Mode.persist.theme/light]
              (:active-modes (state/get-state)))
-          "URL modes (light) replaced the localStorage seed (dark) —
-           last-shared wins over last-used"))))
+          "URL modes (light) replaced the localStorage seed (dark)"))))
+
+(deftest mount-omitted-modes-clears-localstorage-seed
+  (testing "rf2-96y71s / rf2-fkmnh — a URL that carries OTHER params but
+            OMITS `modes=` is authoritative: it CLEARS the localStorage
+            seed to [] (the URL is the source of truth for the full
+            share surface). A share link like ?variant=foo restores the
+            DEFAULT (no modes) chrome for the recipient."
+    (when (browser?)
+      (story/reg-mode :Mode.persist.theme/dark {:axis :theme :args {:theme :dark}})
+      (toolbar/save-modes-to-storage! [:Mode.persist.theme/dark])
+      (simulate-reload!)
+      ;; Mount with a populated URL that has NO modes= param.
+      (mount-hydrate-modes! "?variant=story.counter/loaded")
+      (is (= [] (:active-modes (state/get-state)))
+          "omitted modes= cleared the localStorage seed — URL authoritative"))))
+
+(deftest mount-no-url-falls-back-to-localstorage
+  (testing "rf2-96y71s — a fresh mount with NO URL state at all preserves
+            the localStorage seed (apply-parsed-to-state is not run when
+            the search is empty). This is the intentional last-used
+            fallback that survives ONLY when the URL carries nothing."
+    (when (browser?)
+      (story/reg-mode :Mode.persist.theme/dark {:axis :theme :args {:theme :dark}})
+      (story/reg-mode :Mode.persist.vp/mobile  {:axis :viewport :args {:viewport :mobile}})
+      (toolbar/save-modes-to-storage!
+        [:Mode.persist.theme/dark :Mode.persist.vp/mobile])
+      (simulate-reload!)
+      ;; Mount with NO URL params — localStorage is the only source.
+      (mount-hydrate-modes! "")
+      (is (= #{:Mode.persist.theme/dark :Mode.persist.vp/mobile}
+             (set (:active-modes (state/get-state))))
+          "no URL state ⇒ localStorage seed survives (last-used fallback)"))))
+
+(deftest mount-url-modes-prune-is-url-authoritative
+  (testing "rf2-96y71s — URL-derived modes ride apply-parsed-to-state
+            verbatim (the canonical writer does not prune against the
+            registrar — same discipline as every other URL-owned slot).
+            A stale localStorage seed, by contrast, IS pruned by the
+            localStorage hydrator before the URL apply overrides it."
+    (when (browser?)
+      (story/reg-mode :Mode.persist.theme/dark {:axis :theme :args {:theme :dark}})
+      ;; localStorage seed carries a stale id; the storage hydrator prunes it.
+      (toolbar/save-modes-to-storage!
+        [:Mode.persist.theme/dark :Mode.persist.removed/zzz])
+      (simulate-reload!)
+      ;; URL carries the live :dark only.
+      (mount-hydrate-modes! (modes-url-search [:Mode.persist.theme/dark]))
+      (is (= [:Mode.persist.theme/dark] (:active-modes (state/get-state)))
+          "URL modes win; the stale localStorage id never surfaces"))))
 
 ;; ===========================================================================
 ;; rf2-jpi7n — unknown mode id in localStorage is dropped at hydrate

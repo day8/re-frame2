@@ -303,16 +303,29 @@ that no longer resolve at the registrar (stale storage after a
 shows an unknown chip for at most one render cycle before re-render
 prunes it.
 
-### URL deep-link — already wired
+### URL deep-link — owned by the url-state engine (rf2-96y71s)
 
-`re-frame.story.share/build-params` already encodes `:active-modes`
-into the share URL as the `modes=` query param (per
-[`share.cljc`](../src/re_frame/story/share.cljc) lines 65-96). The
-inverse hydrate (parse `?modes=...` on shell mount, seed
-`:active-modes`) is implementation scope for the impl bead — the
-contract from this spec is "if the URL carries `modes=`, the toolbar
-opens with those chips active." The URL takes precedence over
-localStorage on hydrate (last-shared wins over last-used).
+`re-frame.story.share/build-params` encodes `:active-modes` into the
+share URL as the `modes=` query param;
+`re-frame.story.share/parse-modes-param` (reached via
+`share/parse-params`) is the inverse, and
+`re-frame.story.ui.url-state/apply-parsed-to-state` is the SINGLE
+authoritative writer that folds the parsed `:active-modes` back into
+shell-state on mount and on every popstate. The toolbar does NOT read
+or parse the URL — it owns rendering, toggles, and the localStorage
+fallback only.
+
+The contract from this spec is unchanged: "if the URL carries `modes=`,
+the toolbar opens with those chips active," and the URL takes precedence
+over localStorage (last-shared wins over last-used). The precedence is
+realised by mount ORDER: `toolbar/hydrate-modes-from-storage!` seeds the
+localStorage fallback FIRST, then the url-state hydrator authoritatively
+overrides it — a present `modes=` writes the parsed modes, an omitted
+`modes=` (alongside any other params) clears `:active-modes` to `[]`
+(spec/022 §Share semantics — the URL is authoritative for every URL-owned
+chrome slot), and a fully bare URL leaves the localStorage seed intact.
+See [`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md)
+§Share semantics for the full URL-owned-slot ownership story.
 
 ## Interaction with Storybook addons — confirmed mappings
 
