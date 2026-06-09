@@ -767,7 +767,7 @@
 (defn- ensure-fresh-frame!
   "Enforce a FRESH-RUN boundary for `variant-id` (rf2-294yq5.3). Per
   spec/002-Runtime §`run-variant` step 1 — `run-variant` allocates OR
-  `reset-frame!`s the variant frame; it never reuses an existing one.
+  resets the variant frame; it never reuses an existing one.
 
   `frames/allocate!` against an existing frame goes through
   `reg-frame`'s surgical-update path, which PRESERVES the prior app-db
@@ -777,25 +777,37 @@
   an already-`:ready` frame, so a loader variant would SKIP its loaders
   on the second run (a stateful, order-dependent false result).
 
-  When a frame already exists under `variant-id` we `destroy!` it first
-  so the subsequent `allocate!` builds a clean frame (fresh app-db,
-  fresh lifecycle, no leaked trace listener — destroy! also runs the
-  teardown walk). When no frame exists this is a no-op. Determinism by
-  default; an intentionally-persistent mode would be an explicit opt,
-  not the default."
+  When a frame already exists under `variant-id` we reset it to fresh
+  state IN PLACE via `frames/reset-state!` — overwriting both frame-state
+  partitions with `{}` through the one physical container so the frame's
+  IDENTITY, sub-cache, and projection reactions all survive. This is the
+  rf2-294yq5 PR #3672 last-red fix: the prior cut `destroy!`d the frame
+  here, but the canvas mounts the variant view (establishing its
+  `@(subscribe …)` reactions on this frame's sub-cache) BEFORE
+  `:component-did-mount` → `run-variant` runs — so a destroy orphaned
+  every live reaction and a subsequent `:counter/set 42` never re-rendered
+  the DOM (count-display stuck at \"0\"), invisible to the JVM. The in-place
+  reset gives the same fresh app-db AND drops the lifecycle machine
+  snapshot (runtime-db → `{}`) so loaders re-run — without breaking the
+  live reactions. When no frame exists this is a no-op and the subsequent
+  `allocate!` builds the clean frame. Determinism by default; an
+  intentionally-persistent mode would be an explicit opt, not the default."
   [variant-id]
   (when (contains? (set (rf/frame-ids)) variant-id)
-    (frames/destroy! variant-id)))
+    (frames/reset-state! variant-id)))
 
 (defn- run-phase-0!
   "Phase 0: enforce a fresh-run boundary, allocate the variant frame
   with its decorator stack, then install the play-runner's privacy
   egress listener.
 
-  rf2-294yq5.3 — `ensure-fresh-frame!` destroys any pre-existing frame
-  under `variant-id` BEFORE allocation so two consecutive `run-variant`
-  calls on the same id produce the same fresh app-db and loader variants
-  rerun their loaders on the second call (spec/002 §`run-variant` step 1).
+  rf2-294yq5.3 — `ensure-fresh-frame!` resets any pre-existing frame
+  under `variant-id` to fresh state IN PLACE BEFORE allocation so two
+  consecutive `run-variant` calls on the same id produce the same fresh
+  app-db and loader variants rerun their loaders on the second call
+  (spec/002 §`run-variant` step 1). The in-place reset (rf2-294yq5 PR
+  #3672) preserves frame identity + sub-cache so a live mounted view's
+  reactions survive the re-run — a `destroy!` here would orphan them.
 
   The listener install order matters (rf2-v2g9): it must be in place
   BEFORE phase-1 loaders fire so the privacy gate suppresses sensitive
