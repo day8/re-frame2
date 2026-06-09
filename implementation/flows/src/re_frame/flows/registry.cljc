@@ -241,6 +241,12 @@
 ;; The tightened validator rejects each malformation up front with a stable
 ;; error id and ex-data that names the offending entries / elements so
 ;; callers don't have to chase the failure into the topo / evaluator stack.
+;;
+;; The OPTIONAL output data-classification keys (`:sensitive` / `:large` /
+;; `:sensitive?` / `:large?`, Spec 015 §7) are validated in the same table
+;; (rf2-cgk0wb): previously they were FAIL-OPEN — a malformed declaration
+;; (`:sensitive [:token]`, `:large "blob"`, `:sensitive? :yes`) registered
+;; cleanly but installed no redaction, the worst failure for a safety feature.
 
 (defn- valid-path-element?
   "Path elements are scalar map keys: keyword, string, integer, symbol, or
@@ -255,6 +261,16 @@
   "A path is a non-empty vector of valid path elements."
   [x]
   (and (vector? x) (seq x) (every? valid-path-element? x)))
+
+(defn- valid-output-subpath?
+  "A flow output classification subpath (an entry of `:sensitive` / `:large`)
+  is a vector of scalar path elements, AND — unlike a flow `:inputs` path or
+  the flow `:path` — the EMPTY vector `[]` is legal: it marks the whole
+  output value (the `[[]]` whole-value convention, Spec 015:81). So this is
+  `valid-path?` minus the non-empty requirement: a vector whose every element
+  (if any) is a scalar key."
+  [x]
+  (and (vector? x) (every? valid-path-element? x)))
 
 ;; Every validation throw shares the canonical thrown-error skeleton
 ;; (per Spec 009 §The thrown-error shape):
@@ -353,7 +369,75 @@
    {:pred     (fn [flow] (every? valid-path-element? (:path flow)))
     :error-kw :rf.error/flow-bad-path
     :reason   ":path elements must each be a scalar key (keyword / string / integer / symbol / boolean)"
-    :extras   (fn [flow] {:bad-elements (vec (remove valid-path-element? (:path flow)))})}])
+    :extras   (fn [flow] {:bad-elements (vec (remove valid-path-element? (:path flow)))})}
+
+   ;; rf2-cgk0wb issue 2: the OPTIONAL output data-classification keys
+   ;; (`:sensitive` / `:large` per-path vectors; `:sensitive?` / `:large?`
+   ;; whole-output booleans) were FAIL-OPEN. `explicit-flow-output-mark-paths`
+   ;; silently `(filter vector?)`-dropped malformed `:sensitive` / `:large`
+   ;; entries and only honoured a LITERAL `true` for `:sensitive?` / `:large?`,
+   ;; so a typo (`:sensitive [:token]`, `:large "blob"`, `:sensitive? :yes`,
+   ;; `:large? 1`) registered with a normal return value and NO diagnostic
+   ;; while the intended redaction / large-elision silently never happened.
+   ;; That is the worst failure mode for a SAFETY feature: the author believes
+   ;; a slot is protected and it is not. Reject at the API boundary instead —
+   ;; same fail-FAST posture the core flow-path validation already takes, and
+   ;; the same `:rf.error/flow-bad-*` family. These rules fire AFTER the core
+   ;; `:id` / `:inputs` / `:output` / `:path` rules (a flow with a broken
+   ;; required shape reports that first), but BEFORE any registry / app-db /
+   ;; elision-declaration state mutates (validate-flow is the first call in
+   ;; `reg-flow`, before `frame-id` / the `swap!`), so a rejected registration
+   ;; installs NO flow row and NO elision declaration.
+   ;;
+   ;; Vector-of-subpaths rules: `:sensitive` / `:large`, when PRESENT, must be
+   ;; a vector whose every entry is a valid output subpath — a vector of
+   ;; scalar keys, with `[]` legal (the `[[]]` whole-output convention,
+   ;; Spec 015:81). `valid-output-subpath?` is `valid-path?` minus the
+   ;; non-empty requirement. The `vector?`-of-the-whole and
+   ;; every-entry-well-formed checks are split so the diagnostic distinguishes
+   ;; "you passed a non-vector" from "one of your entries is malformed".
+   {:pred     (fn [flow] (or (not (contains? flow :sensitive))
+                             (vector? (:sensitive flow))))
+    :error-kw :rf.error/flow-bad-marks
+    :reason   ":sensitive, when present, must be a vector of output subpaths (each a vector of scalar keys; [] marks the whole output)"
+    :extras   (fn [flow] {:bad-key :sensitive :bad-value (:sensitive flow)})}
+
+   {:pred     (fn [flow] (or (not (contains? flow :sensitive))
+                             (every? valid-output-subpath? (:sensitive flow))))
+    :error-kw :rf.error/flow-bad-marks
+    :reason   ":sensitive entries must each be a vector of scalar keys (keyword / string / integer / symbol / boolean); [] marks the whole output"
+    :extras   (fn [flow] {:bad-key     :sensitive
+                          :bad-entries (vec (remove valid-output-subpath? (:sensitive flow)))})}
+
+   {:pred     (fn [flow] (or (not (contains? flow :large))
+                             (vector? (:large flow))))
+    :error-kw :rf.error/flow-bad-marks
+    :reason   ":large, when present, must be a vector of output subpaths (each a vector of scalar keys; [] marks the whole output)"
+    :extras   (fn [flow] {:bad-key :large :bad-value (:large flow)})}
+
+   {:pred     (fn [flow] (or (not (contains? flow :large))
+                             (every? valid-output-subpath? (:large flow))))
+    :error-kw :rf.error/flow-bad-marks
+    :reason   ":large entries must each be a vector of scalar keys (keyword / string / integer / symbol / boolean); [] marks the whole output"
+    :extras   (fn [flow] {:bad-key     :large
+                          :bad-entries (vec (remove valid-output-subpath? (:large flow)))})}
+
+   ;; Whole-output boolean rules: `:sensitive?` / `:large?`, when PRESENT,
+   ;; must be an actual boolean. `explicit-flow-output-mark-paths` and the
+   ;; propagation resolver branch on literal `true` / `false`; any other
+   ;; present value (`:yes`, `1`, `"true"`) would silently behave as ABSENT
+   ;; (neither force-mark nor opt-out), which is exactly the fail-open trap.
+   {:pred     (fn [flow] (or (not (contains? flow :sensitive?))
+                             (boolean? (:sensitive? flow))))
+    :error-kw :rf.error/flow-bad-marks
+    :reason   ":sensitive?, when present, must be a boolean (true forces the whole output sensitive; false opts out of propagation)"
+    :extras   (fn [flow] {:bad-key :sensitive? :bad-value (:sensitive? flow)})}
+
+   {:pred     (fn [flow] (or (not (contains? flow :large?))
+                             (boolean? (:large? flow))))
+    :error-kw :rf.error/flow-bad-marks
+    :reason   ":large?, when present, must be a boolean (true forces the whole output large)"
+    :extras   (fn [flow] {:bad-key :large? :bad-value (:large? flow)})}])
 
 (defn- validate-flow [flow]
   (some (fn [{:keys [pred error-kw reason extras]}]
