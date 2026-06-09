@@ -888,6 +888,64 @@
           ":uuid path param coerced to a #uuid object")
       (is (uuid? (get-in m [:params :id])) "the slice carries a UUID object, not a string"))))
 
+;; rf2-fwz29i: OPTIONED Malli scalar schemas (`[:int {:min 1}]`,
+;; `[:uuid {}]`, `[:double {...}]`, `[:boolean {}]`, optioned enums, and
+;; `[:maybe inner]`) must coerce the URL string identically to the bare
+;; form on CLJS, exactly as on the JVM. The pre-fix coercion table held the
+;; raw vector type-form, so the still-string value failed the optioned
+;; schema and every valid deep link 404'd. This is the CLJS half of the
+;; JVM `rf2-fwz29i-*` pins in routing_test.clj.
+(deftest optioned-scalar-coercion-cljs-rf2-fwz29i
+  (testing "optioned :query scalars coerce equivalently to bare forms on CLJS"
+    (register-routes!)
+    (rf/reg-route :hist/items
+                  {:path  "/items"
+                   :query [:map
+                           [:page [:int {:min 1}]]
+                           [:ratio [:double {:min 0.0}]]
+                           [:id [:uuid {}]]
+                           [:archived [:boolean {}]]]})
+    (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
+          m (routing/match-url
+              (str "/items?page=2&ratio=1.5&id=" uuid-str "&archived=true"))]
+      (is (= 2 (get-in m [:query :page]))
+          "[:int {:min 1}] coerces \"2\" to 2 (was string → 404)")
+      (is (= 1.5 (get-in m [:query :ratio])) "[:double {...}] coerces")
+      (is (= (parse-uuid uuid-str) (get-in m [:query :id]))
+          "[:uuid {...}] coerces to a UUID object")
+      (is (true? (get-in m [:query :archived])) "[:boolean {...}] coerces")
+      (is (false? (:validation-failed? m))
+          "coerced typed values conform to their optioned schemas — no 404")))
+
+  (testing "optioned :params (path) scalars coerce equivalently on CLJS"
+    (rf/reg-route :hist/opt-page    {:path "/op/:n"  :params [:map [:n [:int {:min 1}]]]})
+    (rf/reg-route :hist/opt-article {:path "/oa/:id" :params [:map [:id [:uuid {}]]]})
+    (is (= 2 (get-in (routing/match-url "/op/2") [:params :n]))
+        "[:int {:min 1}] path param coerces to 2")
+    (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
+          m        (routing/match-url (str "/oa/" uuid-str))]
+      (is (= (parse-uuid uuid-str) (get-in m [:params :id]))
+          "[:uuid {}] path param coerces to a UUID object")
+      (is (false? (:validation-failed? m)))))
+
+  (testing "optioned `[:enum {...} :a :b]` keeps the keyword allowlist gate"
+    (rf/reg-route :hist/sorted
+                  {:path  "/sorted"
+                   :query [:map [:sort [:enum {:default :asc} :asc :desc]]]})
+    (is (= :asc (get-in (routing/match-url "/sorted?sort=asc") [:query :sort]))
+        "declared enum value interns even with an opts map")
+    (is (= "nope" (get-in (routing/match-url "/sorted?sort=nope") [:query :sort]))
+        "value outside the allowlist stays a string"))
+
+  (testing "[:maybe inner] coerces the present value against the inner type"
+    (rf/reg-route :hist/maybe
+                  {:path  "/maybe"
+                   :query [:map [:page [:maybe [:int {:min 1}]]]]})
+    (let [m (routing/match-url "/maybe?page=7")]
+      (is (= 7 (get-in m [:query :page]))
+          "[:maybe [:int {:min 1}]] coerces through wrapper + option")
+      (is (false? (:validation-failed? m))))))
+
 ;; rf2-zmcq6 (CODE half): {:fragment ""} normalizes to nil at the navigate
 ;; boundary on CLJS so the pushed URL and slice fragment agree with
 ;; URL-driven nav.

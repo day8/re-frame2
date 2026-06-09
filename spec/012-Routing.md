@@ -771,6 +771,8 @@ An external classification emits `:rf.route/external-url-requested` (carrying `:
 
 The view exposes three behavioural seams: passthrough attributes (`:class`, `:title`, `:id`, `:aria-label`, …) flow through to the `<a>`; a caller-supplied `:on-click` runs before the framework's interception and can pre-empt it by calling `.preventDefault`; and modifier-key clicks defer to the browser so middle-click / cmd-click / shift-click keep their native open-in-new-tab affordances. `route-url` is the single point where the URL is synthesised, so route-rename and route-shape changes flow into every `route-link` site without per-link edits.
 
+**Native-anchor attributes are never intercepted.** A passthrough attribute whose semantics require the browser to handle the click — a `target` other than `_self` (`_blank` / `_parent` / `_top` / a named frame), or `download` — defers to the browser even on a plain left-click, the same as a modifier-key click. SPA interception would convert a `{:target "_blank"}` link into same-document navigation and a `{:download …}` link into a no-op navigation, silently breaking the native anchor contract the DOM attributes advertise. The framework treats these attributes as a fourth defer-to-browser seam alongside modifier/middle clicks and caller `.preventDefault`: the link still renders as a real `<a href=…>` with the attributes, and the click is left for the browser. Authors who want SPA interception omit those attributes (or set `:target "_self"`).
+
 ## Scroll restoration
 
 Browser-default behaviour on `popstate` restores scroll position. For SPA-controlled scroll (e.g., scroll to top on forward navigation, restore on back), declare a `:scroll` strategy on the route or pass `:scroll` in the `:rf.route/navigate` opts.

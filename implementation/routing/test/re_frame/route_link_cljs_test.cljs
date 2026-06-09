@@ -196,6 +196,77 @@
       (is (not prevented?))
       (is (nil? dispatched)))))
 
+;; ---- rf2-fwz29i: native-anchor attributes defer to the browser ----------
+;;
+;; A route-link rendered with native-handling anchor attributes
+;; (`target="_blank"` / `download`) looks like a normal anchor in the DOM,
+;; and a user expects the native new-tab / download behaviour. Intercepting
+;; a plain left-click into a same-document `:rf/url-requested` dispatch
+;; silently breaks that contract. The pre-fix click handler intercepted on
+;; ANY unmodified primary click regardless of these attributes; the fix
+;; gates interception on `native-anchor?`. These tests prove plain
+;; left-clicks on such links do NOT preventDefault and do NOT dispatch.
+
+(deftest target-blank-defers-to-browser-rf2-fwz29i
+  (testing "{:target \"_blank\"} → plain left-click defers to the browser
+            (no preventDefault, no :rf/url-requested)"
+    (rf/reg-route :route/cart {:path "/cart"})
+    (let [{:keys [dispatched prevented? href]}
+          (click! {:to :route/cart :target "_blank"} (mk-event {}))]
+      (is (= "/cart" href) "the href is still synthesised")
+      (is (not prevented?)
+          "target=_blank leaves the click for the browser (new-tab native)")
+      (is (nil? dispatched)
+          "no SPA :rf/url-requested dispatch — native target wins"))))
+
+(deftest target-parent-and-top-defer-rf2-fwz29i
+  (testing "non-self frame targets (_parent / _top / named) also defer"
+    (rf/reg-route :route/cart {:path "/cart"})
+    (doseq [t ["_parent" "_top" "named-frame"]]
+      (let [{:keys [dispatched prevented?]}
+            (click! {:to :route/cart :target t} (mk-event {}))]
+        (is (not prevented?) (str "target=" t " defers to the browser"))
+        (is (nil? dispatched) (str "no dispatch for target=" t))))))
+
+(deftest download-defers-to-browser-rf2-fwz29i
+  (testing "{:download ...} → plain left-click defers to the browser
+            (no preventDefault, no :rf/url-requested)"
+    (rf/reg-route :route/report {:path "/report"})
+    ;; A string download name (the common case).
+    (let [{:keys [dispatched prevented?]}
+          (click! {:to :route/report :download "report.pdf"} (mk-event {}))]
+      (is (not prevented?) "download leaves the click for the browser")
+      (is (nil? dispatched) "no SPA dispatch — native download wins"))
+    ;; A boolean-true download (attribute present, no filename).
+    (let [{:keys [dispatched prevented?]}
+          (click! {:to :route/report :download true} (mk-event {}))]
+      (is (not prevented?) "download=true also defers")
+      (is (nil? dispatched)))))
+
+(deftest target-self-still-intercepts-rf2-fwz29i
+  (testing "{:target \"_self\"} is the default same-document target — it
+            still gets SPA interception (the native distinction is only
+            for off-document targets)"
+    (rf/reg-route :route/cart {:path "/cart"})
+    (let [{:keys [dispatched prevented?]}
+          (click! {:to :route/cart :target "_self"} (mk-event {}))]
+      (is prevented? "target=_self is same-document — interception applies")
+      (is (= :rf/url-requested (first dispatched))
+          "_self link dispatches :rf/url-requested like a plain link"))))
+
+(deftest download-false-still-intercepts-rf2-fwz29i
+  (testing "{:download false} / {:download nil} do not request a native
+            download, so SPA interception still applies"
+    (rf/reg-route :route/cart {:path "/cart"})
+    (let [{:keys [dispatched prevented?]}
+          (click! {:to :route/cart :download false} (mk-event {}))]
+      (is prevented? "download=false does not defer")
+      (is (= :rf/url-requested (first dispatched))))
+    (let [{:keys [dispatched prevented?]}
+          (click! {:to :route/cart :download nil} (mk-event {}))]
+      (is prevented? "download=nil does not defer")
+      (is (= :rf/url-requested (first dispatched))))))
+
 ;; ---- caller-supplied :on-click can pre-empt ----------------------------
 
 (deftest caller-on-click-pre-empts-when-preventing-default
