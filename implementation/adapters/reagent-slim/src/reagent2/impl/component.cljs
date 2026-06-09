@@ -576,13 +576,32 @@
 
   `f` is treated as the `:reagent-render` of an implicit Form-1/Form-2
   spec; runtime detection between Form-1 and Form-2 happens inside
-  `wrap-render`."
+  `wrap-render`.
+
+  React-context wiring (rf2-0bz5ah): a `:contextType` carried in `f`'s
+  CLJS metadata is assigned to the synthesised class's static
+  `.-contextType` field, mirroring stock Reagent's `fn-to-class` (which
+  threads `(meta f)` — including `:contextType` — through `create-class`).
+  React then populates `this.context` on the class instance with the
+  closest enclosing Provider's value for that context. This is the wiring
+  the frame-context tier of `re-frame.views/current-frame` depends on:
+  `reg-view*`'s wrapper stamps `{:contextType frame-context}` on the
+  render fn so a reg-view'd component can resolve its enclosing
+  `frame-provider` via `(.-context cmp)` (IMPL-SPEC §5.1 / §9.6). Without
+  this assignment a slim reg-view rendered under a `frame-provider` reads
+  React's empty default context (the no-provider sentinel), so the
+  React-context tier never resolves and a subscribe under a provider-only
+  scope (no ambient `with-frame`) finds no frame. `:contextType` is set
+  AFTER `create-class*` so it bypasses the 7-key cap (it is a React static
+  field, not a lifecycle slot)."
   [f]
   (or (.-cljsReagentClass-fn ^js f)
-      (let [klass (create-class*
-                    {:reagent-render f
-                     :display-name   (or (some-> f .-displayName)
-                                         (some-> f .-name)
-                                         "")})]
+      (let [^js klass (create-class*
+                        {:reagent-render f
+                         :display-name   (or (some-> f .-displayName)
+                                             (some-> f .-name)
+                                             "")})]
+        (when-some [ctx (:contextType (meta f))]
+          (set! (.-contextType klass) ctx))
         (set! (.-cljsReagentClass-fn ^js f) klass)
         klass)))
