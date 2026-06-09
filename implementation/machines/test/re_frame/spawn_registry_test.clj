@@ -148,8 +148,15 @@
             spawned-id (get-in db [:rf.runtime/machines :spawned :auth/main [:authenticating]])]
         (is (= :http/post#1 spawned-id))
         (is (some? (get-in db [:rf.runtime/machines :snapshots spawned-id])))
-        (is (= {} (get-in (snapshot :auth/main) [:data]))
-            "user's :data is untouched — runtime no longer requires :on-spawn"))
+        ;; Per rf2-rc8wci the runtime now binds the spawned id into the
+        ;; parent's `:data` under `[:rf/spawned <invoke-id>]` (XState-context
+        ;; parity) — so the user's domain `:data` keys are still untouched,
+        ;; but the reserved `:rf/spawned` capture is present.
+        (is (= {:rf/spawned {[:authenticating] :http/post#1}}
+               (get-in (snapshot :auth/main) [:data]))
+            "user domain :data untouched; runtime stamps only the reserved :rf/spawned id capture")
+        (is (empty? (dissoc (get-in (snapshot :auth/main) [:data]) :rf/spawned))
+            "no user-domain :data key was written — :on-spawn still not required"))
       ;; Mid-flight abandon → :idle.
       (rf/dispatch-sync [:auth/main [:auth/failed]])
       (let [db (frame-db)]
@@ -197,6 +204,153 @@
         (is (not (contains? (get-in db [:rf.runtime/machines]) :spawned))
             "with both invokes torn down, the lazy-allocation slot is dissoc'd")))))
 
+;; ---- (rf2-rc8wci) spawned-id bound into the parent's own :data -----------
+;;
+;; The declarative `:spawn` binds the assigned actor id into the SPAWNING
+;; (parent) machine's own `:data` under the reserved per-invoke map
+;; `:rf/spawned` — `{:rf/spawned {<invoke-id> <spawned-id>}}`. This is the
+;; re-frame2 spelling of XState v5's `spawn(...)`-into-`context` capture: an
+;; action reads its OWN `:data` to obtain the id of an actor it spawned and
+;; emits `[:rf.machine/destroy <id>]` with NO external-atom side-channel and
+;; no runtime-db reverse-index coupling. It is the REVERSE direction of the
+;; child-lineage stamps (`:rf/self-id` / `:rf/parent-id` / `:rf/spawn-id`)
+;; the spawn-fx writes onto the spawned CHILD's own `:data` — here the PARENT
+;; captures the CHILD's id, keyed by the SAME `<invoke-id>` the child records
+;; under `:rf/spawn-id` and the runtime tracks at
+;; `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`.
+
+(deftest spawned-id-bound-into-parent-data
+  (testing "a declarative :spawn binds the assigned id into the parent's :data under [:rf/spawned <invoke-id>]"
+    (let [child  {:initial :running :data {} :states {:running {}}}
+          parent {:initial :idle
+                  :states  {:idle    {:on {:start :working}}
+                            :working {:spawn {:machine-id :worker/proc}
+                                      :on    {:done :idle}}}}]
+      (rf/reg-machine :worker/proc child)
+      (rf/reg-machine :sup/captures parent)
+      (rf/dispatch-sync [:sup/captures [:start]])
+      (let [parent-data (:data (snapshot :sup/captures))
+            spawned-id  (get-in parent-data [:rf/spawned [:working]])]
+        (is (= :worker/proc#1 spawned-id)
+            "parent's :data carries the spawned id under [:rf/spawned <invoke-id>] — XState-context parity")
+        ;; SYMMETRY: the parent's :data slot equals the runtime registry slot
+        ;; (the reverse-index that already existed); they key on the SAME
+        ;; <invoke-id>. The :data read is the in-snapshot, no-coupling view.
+        (is (= spawned-id
+               (get-in (frame-db) [:rf.runtime/machines :spawned :sup/captures [:working]]))
+            "parent's :data :rf/spawned mirrors the runtime registry slot exactly")
+        ;; SYMMETRY: the child's own :rf/spawn-id lineage stamp is the SAME
+        ;; <invoke-id> the parent keys its :data map under — the two halves
+        ;; of the lineage point at each other.
+        (is (= [:working] (get-in (snapshot spawned-id) [:data :rf/spawn-id]))
+            "child's :rf/spawn-id == the parent's :rf/spawned key (the reverse direction)")))))
+
+(deftest action-reads-parent-data-id-and-destroys-no-atom
+  (testing "an action reads the id from its own :data and emits [:rf.machine/destroy <id>] — full round-trip, NO external atom"
+    (let [child  {:initial :running :data {} :states {:running {}}}
+          ;; The exit action reads the spawned id from the parent's OWN :data
+          ;; (the unified context-map's :data key) — no atom, no runtime-db
+          ;; path coupling — and emits the imperative keyword-form destroy.
+          parent {:initial :idle
+                  :actions
+                  {:tear-down (fn [{data :data}]
+                                (let [id (get-in data [:rf/spawned [:working]])]
+                                  {:fx [[:rf.machine/destroy id]]}))}
+                  :states
+                  {:idle    {:on {:start :working}}
+                   :working {:spawn {:machine-id :worker/proc}
+                             ;; The :tear-down action fires on the :done
+                             ;; transition and emits the imperative destroy
+                             ;; using the id it read from the parent's own
+                             ;; :data — exercising the full clean round-trip.
+                             :on    {:done {:target :idle :action :tear-down}}}}}]
+      (rf/reg-machine :worker/proc child)
+      (rf/reg-machine :sup/clean parent)
+      (rf/dispatch-sync [:sup/clean [:start]])
+      (let [spawned-id (get-in (snapshot :sup/clean) [:data :rf/spawned [:working]])]
+        (is (= :worker/proc#1 spawned-id)
+            "(precondition) id captured into parent :data with no atom")
+        (is (some? (get-in (frame-db) [:rf.runtime/machines :snapshots spawned-id]))
+            "(precondition) the actor is alive"))
+      ;; The :done transition runs :tear-down, which read the id from :data
+      ;; and emitted the imperative destroy.
+      (rf/dispatch-sync [:sup/clean [:done]])
+      (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots :worker/proc#1]))
+          "the actor was torn down via an id read from the parent's own :data — no external atom involved"))))
+
+(deftest multi-spawn-parent-data-no-clobber
+  (testing "multiple :spawn-bearing states + a :spawn-all each record under their own invoke-id key — no lossy clobber"
+    (let [child-a {:initial :running :data {} :states {:running {}}}
+          child-b {:initial :running :data {} :states {:running {}}}
+          gc-x    {:initial :running :data {} :states {:running {}}}
+          gc-y    {:initial :running :data {} :states {:running {}}}
+          ;; Parent has two distinct :spawn-bearing states (a-running /
+          ;; b-running, different invoke-ids) plus a :spawn-all state
+          ;; (forking, one shared invoke-id with two children).
+          parent  {:initial :idle
+                   :states
+                   {:idle      {:on {:fork-a  :a-running
+                                     :fork-b  :b-running
+                                     :fork-all :forking}}
+                    :a-running {:spawn {:machine-id :child/a} :on {:back :idle}}
+                    :b-running {:spawn {:machine-id :child/b} :on {:back :idle}}
+                    :forking   {:spawn-all
+                                {:children       [{:id :x :machine-id :gc/x}
+                                                  {:id :y :machine-id :gc/y}]
+                                 :join           :all
+                                 :on-child-done  :gc/done
+                                 :on-child-error :gc/failed
+                                 :on-all-complete [:all/done]}
+                                :on {:back :idle :all/done :idle}}}}]
+      (rf/reg-machine :child/a child-a)
+      (rf/reg-machine :child/b child-b)
+      (rf/reg-machine :gc/x gc-x)
+      (rf/reg-machine :gc/y gc-y)
+      (rf/reg-machine :sup/many parent)
+      ;; Spawn A.
+      (rf/dispatch-sync [:sup/many [:fork-a]])
+      (let [d (:data (snapshot :sup/many))]
+        (is (= :child/a#1 (get-in d [:rf/spawned [:a-running]]))
+            "A's id recorded under its own invoke-id key"))
+      ;; Tear A, spawn B — distinct invoke-id, A's slot does not collide.
+      (rf/dispatch-sync [:sup/many [:back]])
+      (rf/dispatch-sync [:sup/many [:fork-b]])
+      (let [d (:data (snapshot :sup/many))]
+        (is (= :child/b#1 (get-in d [:rf/spawned [:b-running]]))
+            "B's id recorded under its own distinct invoke-id key — no clobber")
+        ;; A's earlier binding is still present in the :data map (the parent
+        ;; never clears its own :data captures — they accumulate per invoke-id,
+        ;; which is exactly why a single 'last-spawned' slot would be lossy).
+        (is (= :child/a#1 (get-in d [:rf/spawned [:a-running]]))
+            "A's earlier :data binding survived the B spawn — keyed-map shape is non-lossy"))
+      ;; :spawn-all records the WHOLE {<child-id> <spawned-id>} map under the
+      ;; one shared invoke-id — both children, no clobber under the single key.
+      (rf/dispatch-sync [:sup/many [:back]])
+      (rf/dispatch-sync [:sup/many [:fork-all]])
+      (let [d (:data (snapshot :sup/many))]
+        (is (= {:x :gc/x#1 :y :gc/y#1} (get-in d [:rf/spawned [:forking]]))
+            ":spawn-all records the full children id-map under the shared invoke-id — both children, no clobber")))))
+
+(deftest runtime-db-reverse-index-still-works
+  (testing "the runtime-db reverse-index read still resolves the id (no regression alongside the new :data read)"
+    (let [child  {:initial :running :data {} :states {:running {}}}
+          parent {:initial :idle
+                  :states  {:idle    {:on {:start :working}}
+                            :working {:spawn {:machine-id :worker/proc}
+                                      :on    {:done :idle}}}}]
+      (rf/reg-machine :worker/proc child)
+      (rf/reg-machine :sup/reverse parent)
+      (rf/dispatch-sync [:sup/reverse [:start]])
+      (let [db          (frame-db)
+            via-registry (get-in db [:rf.runtime/machines :spawned :sup/reverse [:working]])
+            via-data     (get-in (snapshot :sup/reverse) [:data :rf/spawned [:working]])]
+        (is (= :worker/proc#1 via-registry)
+            "the runtime-db reverse-index slot still resolves the spawned id (unchanged)")
+        (is (= via-registry via-data)
+            "the new :data read and the pre-existing reverse-index agree on the id")
+        (is (some? (get-in db [:rf.runtime/machines :snapshots via-registry]))
+            "the actor's snapshot is reachable from the reverse-index id, as before")))))
+
 ;; ---- (5) keyword-form [:rf.machine/destroy actor-id] imperative destroy --
 ;;
 ;; The IMPERATIVE form (an action emits `[:rf.machine/destroy actor-id]`
@@ -209,12 +363,14 @@
 (deftest keyword-form-imperative-destroy-machine
   (testing "[:rf.machine/destroy actor-id] (keyword arg) tears the actor down"
     (let [child  {:initial :running :data {} :states {:running {}}}
-          ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is advisory only —
-          ;; user code that needs the id at action time uses an atom
-          ;; sidechannel or reads `[:rf.runtime/machines :spawned <parent> <invoke-id>]`
-          ;; from the runtime-tracked slot. This test stashes the id in
-          ;; an atom so the `:tear-down` action can emit the imperative
-          ;; keyword-form destroy.
+          ;; This test pins the keyword-form imperative destroy MECHANISM
+          ;; in isolation, so it feeds the id via a test-local atom. NOTE:
+          ;; the atom is NOT the idiomatic way to obtain the id — per
+          ;; rf2-rc8wci the first-class path is to read it from the parent's
+          ;; own `:data` under `[:rf/spawned <invoke-id>]` (see
+          ;; `action-reads-parent-data-id-and-destroys-no-atom` above for
+          ;; the no-atom round-trip). The atom here only isolates the
+          ;; `[:rf.machine/destroy <id>]` keyword-arg shape under test.
           recorded (atom nil)
           parent {:initial :idle
                   :actions

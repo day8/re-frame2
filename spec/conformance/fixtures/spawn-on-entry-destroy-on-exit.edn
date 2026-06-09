@@ -88,13 +88,17 @@
    :event        [:submit]
    ;; After the transition, :authenticating's auto-spawn entry has run.
    ;; Per rf2-grw4i / rf2-v0rrr the :on-spawn callback is purely advisory
-   ;; — its return value is dropped, so the parent's :data is NOT mutated
-   ;; by the callback. The fixture harness assigns the deterministic id
-   ;; :http/post#1 for spawn-fx in test mode; production code that needs
-   ;; the id from :data reads it via the runtime-tracked
+   ;; — its return value is dropped, so the parent's USER-domain :data is
+   ;; NOT mutated by the callback. Per rf2-rc8wci the RUNTIME binds the
+   ;; assigned actor id into the parent's :data under the reserved per-invoke
+   ;; map :rf/spawned (XState-context parity) — {[:authenticating] :http/post#1}.
+   ;; The fixture harness assigns the deterministic id :http/post#1 for
+   ;; spawn-fx in test mode; an action reads the id from this :data slot (the
+   ;; first-class path) — equivalently it remains at the runtime-tracked
    ;; [:rf.runtime/machines :spawned <parent> <invoke-id>] slot.
    :expect-next-snapshot {:state             :authenticating
-                          :data              {:credentials {:user "alice" :pass "secret"}}
+                          :data              {:credentials {:user "alice" :pass "secret"}
+                                              :rf/spawned  {[:authenticating] :http/post#1}}
                           :rf/spawn-counter  {:http/post 1}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :data          {:url "/api/login"

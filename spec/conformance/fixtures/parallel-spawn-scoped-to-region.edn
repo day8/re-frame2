@@ -40,8 +40,18 @@
    ;; Per rf2-gr8q: the in-snapshot spawn-counter is threaded across
    ;; regions; entering :loading in the :data region bumps the
    ;; `:fetcher` slot to 1.
+   ;;
+   ;; Per rf2-rc8wci: the runtime binds the spawned id into the parent's
+   ;; (region-shared) `:data` under :rf/spawned (XState-context parity). For
+   ;; a REGION-scoped :spawn the key is the IN-REGION prefix-path `[:loading]`
+   ;; (the region machine's own frame of reference — the action that reads it
+   ;; back runs in that same region context), whereas the runtime-owned
+   ;; registry / the child's `:rf/spawn-id` carry the region-name-prefixed
+   ;; `[:data :loading]` (the fx-level prefix that keeps the top-level
+   ;; registry slot per-region-unique). Documented asymmetry: the :data key
+   ;; is region-local, the registry key is region-qualified.
    :expect-next-snapshot {:state            {:data :loading :ui :neutral}
-                          :data             {}
+                          :data             {:rf/spawned {[:loading] :fetcher#1}}
                           :rf/spawn-counter {:fetcher 1}}
    :expect-effects
    [[:rf.machine/spawn

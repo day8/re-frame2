@@ -66,12 +66,15 @@
      :authenticated {}}}
    :snapshot     {:state :idle :data {}}
    :event        [:submit]
-   ;; Snapshot's :data is unchanged — there's no :on-spawn callback, so
-   ;; the parent's :data carries no spawn-related bookkeeping. Per
-   ;; rf2-gr8q the spawn-id allocator advances the snapshot's
-   ;; `:rf/spawn-counter` slot — visible at top level alongside `:data`.
+   ;; The parent's USER-domain :data is unchanged — there's no :on-spawn
+   ;; callback and no user write. Per rf2-rc8wci the RUNTIME binds the
+   ;; assigned actor id into the parent's :data under the reserved per-invoke
+   ;; map :rf/spawned (XState-context parity) regardless of :on-spawn —
+   ;; {[:authenticating] :http/post#1}. Per rf2-gr8q the spawn-id allocator
+   ;; advances the snapshot's `:rf/spawn-counter` slot — visible at top
+   ;; level alongside `:data`.
    :expect-next-snapshot {:state            :authenticating
-                          :data             {}
+                          :data             {:rf/spawned {[:authenticating] :http/post#1}}
                           :rf/spawn-counter {:http/post 1}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :id-prefix     :http/post

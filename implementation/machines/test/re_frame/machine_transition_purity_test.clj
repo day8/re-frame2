@@ -109,8 +109,14 @@
       ;; `get-in`.
       (is (= :authenticating (:state snap1))
           "snapshot's :state advances to :authenticating")
-      (is (= {} (:data snap1))
-          "user-facing :data is unchanged (the :http/post :data is on the spawn fx, not in the parent snapshot)")
+      ;; Per rf2-rc8wci the pure transition now binds the spawned id into the
+      ;; parent's own `:data` under `[:rf/spawned <invoke-id>]` (XState-context
+      ;; parity) — part of the pure-fn result, deterministic from the inputs.
+      ;; No USER-domain `:data` key was written; only the reserved capture.
+      (is (= {:rf/spawned {[:authenticating] :http/post#1}} (:data snap1))
+          "the spawned id is captured into the parent's :data under :rf/spawned (XState-context parity)")
+      (is (empty? (dissoc (:data snap1) :rf/spawned))
+          "user-domain :data is unchanged — only the reserved :rf/spawned capture is added")
       (is (= 1 (get-in snap1 [:rf/spawn-counter :http/post]))
           "the in-snapshot counter advanced to 1 for the :http/post slot")))
 
