@@ -128,8 +128,8 @@
 
 (def AuthSlice
   "The auth slice. :user holds the current :User payload (or nil);
-   :token is the JWT (or nil). The auth machine snapshot itself lives at
-   [:rf/runtime :machines :snapshots :auth/flow].
+   :token is the JWT (or nil). The auth machine snapshot itself lives in
+   runtime-db at [:rf.runtime/machines :snapshots :auth/flow].
 
    :return-to is the optional post-login bounce-back target stashed by the
    routing auth-guard (routing.cljs) when an unauthenticated user is
@@ -144,41 +144,44 @@
      [:id     :keyword]
      [:params [:maybe :map]]]]])
 
-(def AuthFlowSnapshot
-  [:map
-   [:state [:enum :idle :submitting :authed :error :restoring]]
-   [:data  [:map
-            [:error [:maybe :string]]]]])
+;; Machine snapshots live in the framework-owned **runtime-db** partition at
+;; [:rf.runtime/machines :snapshots <id>], NOT in app-db. `reg-app-schema`
+;; validates the app-db partition only (EP-0001, Mike ruling #11), so a machine
+;; snapshot's shape is validated through the machine's own `:data-schema` slot
+;; (which describes the snapshot's `:data` map) rather than an app-schema on a
+;; runtime path. The `*Data` schemas below are attached as `:data-schema` where
+;; each machine is registered (auth.cljs / tags.cljs / settings.cljs).
 
-(def TagsSnapshot
-  "Snapshot shape for the `:realworld/tags` machine — the
+(def AuthFlowData
+  "The `:data` slot of the `:auth/flow` machine snapshot."
+  [:map
+   [:error [:maybe :string]]])
+
+(def TagsData
+  "The `:data` slot of the `:realworld/tags` machine snapshot — the
    :data-region machine variant of Pattern-RemoteData. The
    state-keyword IS the Pattern-RemoteData status enum; `:data` carries
    the items, error, loaded-at, and attempt fields that the slice form
    would store in the slice itself."
   [:map
-   [:state [:enum :idle :loading :fetching :loaded :error]]
-   [:data  [:map
-            [:tags      [:vector :string]]
-            [:error     [:maybe :any]]
-            [:loaded-at [:maybe :int]]
-            [:attempt   :int]]]])
+   [:tags      [:vector :string]]
+   [:error     [:maybe :any]]
+   [:loaded-at [:maybe :int]]
+   [:attempt   :int]])
 
-(def SettingsFormSnapshot
-  "Snapshot shape for the `:settings/form` machine — the
+(def SettingsFormData
+  "The `:data` slot of the `:settings/form` machine snapshot — the
    :form-region machine variant of Pattern-Forms. The state-keyword
    IS the form lifecycle (`:neutral` / `:incorrect` / `:correct`
    + `:submitting`); `:data` carries the draft + per-field
    validation state + the projected submit-error string."
   [:map
-   [:state [:enum :neutral :incorrect :correct :submitting]]
-   [:data  [:map
-            [:draft        :map]
-            [:submitted    [:maybe :map]]
-            [:errors       [:map-of :keyword [:vector :string]]]
-            [:touched      [:set :keyword]]
-            [:submit-error [:maybe :string]]
-            [:loaded-at    [:maybe :int]]]]])
+   [:draft        :map]
+   [:submitted    [:maybe :map]]
+   [:errors       [:map-of :keyword [:vector :string]]]
+   [:touched      [:set :keyword]]
+   [:submit-error [:maybe :string]]
+   [:loaded-at    [:maybe :int]]])
 
 (def FormSlice
   [:map
@@ -229,14 +232,15 @@
 ;; `reg-app-schema` calls. Source-coords for the bulk call stamp every
 ;; registered entry.
 
+;; All paths here are app-db paths. Machine snapshots are NOT app-db — they
+;; live in runtime-db and are validated through each machine's `:data-schema`
+;; (the *Data schemas above), so they do not appear in this app-schema map.
 (rf/reg-app-schemas
   {[:auth]                          AuthSlice
-   [:rf/runtime :machines :snapshots :auth/flow]        AuthFlowSnapshot
    [:articles]                      RequestSlice
    [:articles :data]                [:vector Article]
    [:article]                       RequestSlice
    [:article :data]                 [:maybe Article]
-   [:rf/runtime :machines :snapshots :realworld/tags]   TagsSnapshot
    [:profile]                       RequestSlice
    [:profile :data]                 [:maybe Profile]
    [:profile.articles]              RequestSlice
@@ -250,5 +254,4 @@
    [:comment-form]                  FormSlice
    [:auth :login-form]              FormSlice
    [:auth :register-form]           FormSlice
-   [:editor]                        EditorSlice
-   [:rf/runtime :machines :snapshots :settings/form]    SettingsFormSnapshot})
+   [:editor]                        EditorSlice})

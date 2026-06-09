@@ -148,7 +148,7 @@
      " Code & design licensed under MIT."]]])
 
 (reg-view ^{:doc "Renders a confirm dialog when navigation is blocked by a
-                  :can-leave guard. Reads the [:rf/runtime :routing :pending-navigation] slot via the `:rf/pending-navigation` sub."}
+                  :can-leave guard. Reads the runtime-db [:rf.runtime/routing :pending-navigation] slot via the `:rf/pending-navigation` sub."}
           pending-nav-dialog []
   (when-let [pending @(subscribe [:rf/pending-navigation])]
     [:div.pending-nav-overlay

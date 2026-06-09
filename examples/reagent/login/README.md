@@ -11,11 +11,14 @@ in one file, kept compact for AI-readability.
 - **CP-6 feature scaffold** — the `:auth.login/*` registry slice as
   one coherent feature: schema + events + subs + views + machine +
   tests, kept in one file for compactness.
-- **CP-5 state machine** — the login flow as a transition table read
-  via `[:rf/runtime :machines :snapshots :auth.login/flow]`. States: `:idle →
+- **CP-5 state machine** — the login flow as a transition table; its
+  snapshot lives in runtime-db at `[:rf.runtime/machines :snapshots
+  :auth.login/flow]`, read via `sub-machine`. States: `:idle →
   :submitting → {:error-shown | :authed | :locked-out}`.
-- **CP-8 schema attachment** — Malli schema for the machine snapshot,
-  attached via `rf/reg-app-schema [:rf/runtime :machines :snapshots :auth.login/flow]`.
+- **CP-8 schema attachment** — Malli schema for the machine snapshot's
+  `:data`, attached via the machine's `:data-schema` slot. (Machine
+  snapshots are runtime-db, not app-db, so `reg-app-schema` — which
+  validates the app-db partition only — is not the surface for them.)
 - **CP-1 + CP-2** — pure `reg-event-db` handlers and pure `reg-sub`
   derivations off the machine snapshot.
 - **CP-3 registered fx** — `:rf.http/managed` (Spec 014) plus

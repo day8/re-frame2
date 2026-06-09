@@ -41,9 +41,11 @@ The `reg-event-*` middle slots are positional and **both optional, independently
 | `rf/frame-bound-fn` | `([args] body+)` — macro: fn that re-binds the captured frame in its body (async callbacks) |
 | `rf/frame-bound-fn*` | `(f)` / `(frame-id f)` — `*`-twin of the macro; wraps an existing fn value |
 | `rf/current-frame-id` | `()` — active frame id; `:rf/default` outside any binding |
-| `rf/app-db-value` | `(frame-id)` — value-form app-db read (plain map, no deref) |
-| `rf/snapshot-of` | `(path)` / `(path opts)` — `get-in` over the active frame |
-| `rf/make-frame` / `rf/reset-frame!` / `rf/destroy-frame!` | low-level frame lifecycle |
+| `rf/app-db-value` | `(frame-id)` — value-form **app-db** partition read (plain map, no deref) |
+| `rf/runtime-db-value` | `(frame-id)` — value-form **runtime-db** partition read (framework state; tools / privileged runtime) |
+| `rf/frame-state-value` | `(frame-id)` → `{:rf.db/app … :rf.db/runtime …}` — the whole frame (SSR / epoch / tools) |
+| `rf/snapshot-of` | `(path)` / `(path opts)` — `get-in` over the active frame's app-db |
+| `rf/make-frame` / `rf/reset-frame!` / `rf/destroy-frame!` | low-level frame lifecycle (`reset-frame!` clears BOTH partitions) |
 
 ## Machines
 
@@ -129,7 +131,10 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 | `rf/epoch-history` | `(frame-id)` → `[epoch-records]` |
 | `rf/restore-epoch` | `(frame-id epoch-id)` → bool |
 | `rf/register-epoch-listener!` / `rf/unregister-epoch-listener!` | per-drain-settle listener |
-| `rf/reset-frame-db!` | `(frame-id new-db)` → bool — dev/pair-tool write |
+| `rf/replace-app-db!` | `(frame-id app-db)` → bool — app-db-only state injection (dev/pair-tool; renamed from `reset-frame-db!`) |
+| `rf/reset-app-db!` | `(frame-id)` → bool — app-db → {}, runtime-db preserved |
+| `rf/replace-runtime-db!` | `(frame-id runtime-db)` → bool — runtime-db-only write (privileged) |
+| `rf/replace-frame-state!` | `(frame-id frame-state)` → bool — replace BOTH partitions atomically (full-frame install) |
 
 ## Interceptors, boot, introspection
 

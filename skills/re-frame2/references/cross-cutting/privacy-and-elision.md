@@ -1,6 +1,6 @@
 # Privacy and size elision
 
-re-frame2 uses a **schema-first wire-boundary elision pass**. Every tool or listener that emits trace, listener, snapshot, sub-cache, or path data routes through `rf/elide-wire-value`, which consults the active frame's schema-derived `[:rf/runtime :elision]` registry.
+re-frame2 uses a **schema-first wire-boundary elision pass**. Every tool or listener that emits trace, listener, snapshot, sub-cache, or path data routes through `rf/elide-wire-value`, which consults the active frame's schema-derived `[:rf.runtime/elision]` registry (in runtime-db, the framework partition).
 
 Two per-slot Malli metadata flags are canonical:
 
@@ -65,15 +65,14 @@ Off-box defaults suppress both large and sensitive values. `:rf.size/include-lar
 
 ## Registry shape
 
-The runtime owns `[:rf/runtime :elision]` in app-db:
+The runtime owns `[:rf.runtime/elision]` in runtime-db (the framework partition, not app-db):
 
 ```clojure
-{:rf/runtime
- {:elision
-  {:declarations {[:user :profile :avatar-png]
-                  {:large? true :source :schema :hint "base64 PNG, up to 2MB"}}
-   :sensitive-declarations {[:auth :login :password]
-                            {:sensitive? true :source :schema}}}}}
+{:rf.runtime/elision
+ {:declarations {[:user :profile :avatar-png]
+                 {:large? true :source :schema :hint "base64 PNG, up to 2MB"}}
+  :sensitive-declarations {[:auth :login :password]
+                           {:sensitive? true :source :schema}}}}
 ```
 
 The registry is populated from app schemas and refreshed on schema hot reload. It is not a user mutation surface.
@@ -81,6 +80,10 @@ The registry is populated from app schemas and refreshed on schema hot reload. I
 ## Warnings
 
 If the walker sees a large string at a path with no `{:large? true}` schema metadata, dev builds emit `:rf.warning/large-value-unschema'd` once per `(frame, path)`. The fix is to add `{:large? true}` to the schema slot when the value should be elided.
+
+## Off-box runtime-db redaction
+
+The **runtime-db** partition (framework state: machine snapshots, route slice, …) is **redacted / omitted by default** for AI and log egress. The app-db partition is what schema-driven `:sensitive?` / `:large?` elision governs; runtime-db is not part of the default off-box projection at all. Trusted *local* tools (Xray, re-frame2-pair) may request the richer runtime-db diagnostics explicitly — Xray via an `:include-runtime-db?` axis, pair-mcp via `:include-sensitive` — but the default-off posture means a stray off-box ship never leaks framework runtime state. Transient diagnostics (host handles, in-flight HTTP, trace rings) are never in the default projection regardless.
 
 ## Cross-references
 

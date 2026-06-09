@@ -44,14 +44,17 @@ The interesting question is step 8: when the client takes over, *how does it lan
 
 The naive answer is "re-do all the work" — the client runs the same `:on-create`, makes the same fetches, drains to the same state. But that makes the user wait twice for the same data and defeats the point of SSR entirely. The re-frame2 answer is: the server **serialises its final state** and ships it down with the HTML, and the client seeds its frame from that.
 
+What does "its final state" mean now that a frame has two partitions (chapter 02)? Both of them. The server ships its app-db *and* the serializable part of its runtime-db — machine snapshots, the route slice, SSR hydration metadata — so the client doesn't just inherit the app data, it inherits any machines mid-flow and the resolved route too. They travel as two payload keys, `:rf/app-db` and `:rf/runtime-db`:
+
 ```clojure
 ;; ---- Server side ----
-(let [final-db (rf/app-db-value request-frame)
+(let [{:rf.db/keys [app runtime]} (rf/frame-state-value request-frame)  ;; both partitions, one read
       hiccup   [(rf/view :app/root)]
       html     (rf/render-to-string hiccup {:frame request-frame})
       payload  {:rf/version     "1.0"
                 :rf/frame-id    :app/main
-                :rf/app-db      final-db
+                :rf/app-db      app                ;; the app-db partition
+                :rf/runtime-db  runtime            ;; the serializable runtime-db projection
                 :rf/render-hash (rf/render-tree-hash hiccup)}]
   ;; ... ship html + payload to the client ...
   )
@@ -64,9 +67,9 @@ The naive answer is "re-do all the work" — the client runs the same `:on-creat
     (rdc/render root [(rf/view :app/root)])))
 ```
 
-A couple of shape notes so the code reads cleanly: `app-db-value` returns the current `app-db` *value* — a plain map, not a deref-able container — so there's no `@`. `(rf/view :id)` looks up the registered render fn by id; the canonical hiccup head is that fn inside a vector (`[(rf/view :app/root)]`) so the emitter treats it as a component. `render-tree-hash` is a stable structural hash both sides compute from the same canonical-EDN representation — it's what makes mismatch detection (below) reliable.
+A couple of shape notes so the code reads cleanly: `frame-state-value` returns the coherent two-partition *value* — `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, a plain map, not a deref-able container — so there's no `@`. (If you only need the app data, `app-db-value` returns just the app-db partition.) The serializable carve-out matters: only *durable* runtime-db facts ride the wire — host handles, in-flight HTTP, and server-only request/response accumulators are transient and stay home. `(rf/view :id)` looks up the registered render fn by id; the canonical hiccup head is that fn inside a vector (`[(rf/view :app/root)]`) so the emitter treats it as a component. `render-tree-hash` is a stable structural hash both sides compute from the same canonical-EDN representation — it's what makes mismatch detection (below) reliable.
 
-The default `:rf/hydrate` behaviour is **`:replace-app-db`**: the server's serialised slice replaces whatever the client bootstrap pre-seeded. This is locked, and the reasoning is sound — the server is authoritative for the initial `app-db`, and a defaulting *merge* policy would bury "which slice wins?" ordering bugs. If you genuinely need client-only transient state to survive (a `:browser/window-size` set by a resize listener that fired before hydration arrived), the customisation point is to re-register `:rf/hydrate` with your own handler that performs an explicit merge in the order *you* intend. The default replaces; opt-in merge is your choice and you own its semantics.
+The default `:rf/hydrate` behaviour is **`:replace-frame-state`**: the server's serialised state replaces whatever the client bootstrap pre-seeded, installing both partitions in one atomic transition. This is locked, and the reasoning is sound — the server is authoritative for the initial state, and a defaulting *merge* policy would bury "which slice wins?" ordering bugs. If you genuinely need client-only transient state to survive (a `:browser/window-size` set by a resize listener that fired before hydration arrived), the customisation point is to re-register `:rf/hydrate` with your own handler that performs an explicit merge in the order *you* intend. The default replaces; opt-in merge is your choice and you own its semantics.
 
 After hydration the client renders, and because it's running with the server-supplied state its first render produces the same hiccup → the same HTML → and the existing server-shipped DOM is *matched, not replaced*. The hand-off from server-rendered to interactive is invisible.
 

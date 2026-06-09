@@ -149,7 +149,7 @@
      :fx-overrides {:rf.http/managed :boot.demo/http-stub}})
 
   ;; Kick the boot. The `:app/boot` machine's :initial state and
-  ;; :data seed `[:rf/runtime :machines :snapshots :app/boot]` on first dispatch (per
+  ;; :data seed `[:rf.runtime/machines :snapshots :app/boot]` (runtime-db) on first dispatch (per
   ;; Spec 005 §Restore semantics); :boot/initialise fires
   ;; `[:app/boot [:rf.machine/start]]`, the creation marker that births
   ;; the machine directly into :configuring and runs its :spawn

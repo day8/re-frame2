@@ -66,7 +66,7 @@
 
    Trigger boot once at app start via `[:app/boot [:rf.machine/start]]`.
    The machine self-initialises (per Spec 005 §Restore semantics): the
-   `:initial` state and `:data` seed `[:rf/runtime :machines :snapshots :app/boot]` when
+   `:initial` state and `:data` seed `[:rf.runtime/machines :snapshots :app/boot]` (runtime-db) when
    the dispatch lands."
   (:require [re-frame.core :as rf]
             ;; Spec 005 state-machine ns ships in the

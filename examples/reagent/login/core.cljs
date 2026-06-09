@@ -12,7 +12,7 @@
                                                 runs without a backend.
    - Registered view (CP-4)                — Var reference (canonical), Form-1 only
    - State machine (CP-5)                  — login flow as a transition table
-                                              read via [:rf/runtime :machines :snapshots :auth.login/flow]
+                                              read via [:rf.runtime/machines :snapshots :auth.login/flow]
    - State tags (Spec 005 §State tags)     — :auth/busy on :submitting,
                                               :auth/authenticated on :authed,
                                               :auth/locked on :locked-out.
@@ -97,7 +97,7 @@
 ;; ============================================================================
 ;;
 ;; Open by default. The snapshot schema describes the shape of
-;; [:rf/runtime :machines :snapshots :auth.login/flow] in app-db. It does not carry :closed
+;; [:rf.runtime/machines :snapshots :auth.login/flow] in app-db. It does not carry :closed
 ;; true — this isn't a system boundary.
 
 ;; The submit-event payload — the credentials map the view collects from
@@ -134,7 +134,7 @@
    [:? :any]])
 
 ;; The login flow's runtime state lives in the machine snapshot at
-;; [:rf/runtime :machines :snapshots :auth.login/flow] (per [005 §Where snapshots live]).
+;; [:rf.runtime/machines :snapshots :auth.login/flow] (per [005 §Where snapshots live]).
 ;; The snapshot shape is {:state <kw> :data <map>} per Spec 005.
 (def AuthLoginSnapshot
   [:map
@@ -330,7 +330,7 @@
 ;;
 ;; The machine handler (registered above as :auth.login/flow via reg-event-fx
 ;; + make-machine-handler) is self-initialising: its `:initial` state and
-;; `:data` seed [:rf/runtime :machines :snapshots :auth.login/flow] when the machine first runs.
+;; `:data` seed [:rf.runtime/machines :snapshots :auth.login/flow] when the machine first runs.
 ;; No separate :initialise event is required (per [005 §Restore semantics]).
 ;;
 ;; Sub-events route in via:
@@ -340,7 +340,7 @@
 ;; SUBSCRIPTIONS  (CP-2)
 ;; ============================================================================
 
-;; The machine snapshot lives at [:rf/runtime :machines :snapshots :auth.login/flow] (per
+;; The machine snapshot lives at [:rf.runtime/machines :snapshots :auth.login/flow] (per
 ;; Spec 005). These named subs project out the convenient pieces. The
 ;; "in :submitting?" and "in :authed?" predicates moved to the
 ;; `rf/machine-has-tag?` queries in views below (per Spec 005 §State tags).

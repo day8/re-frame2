@@ -95,19 +95,22 @@ Same no-hook → `:rf.ssr/compatibility-check-skipped` posture.
 
 ## The canonical `:rf/hydrate` handler
 
-The runtime ships this handler by default. **Re-register only if you need a non-replace merge policy** — the default is `:replace-app-db` (server-authoritative), and that's spec-locked. The two check fxs ride inside `:fx`:
+The runtime ships this handler by default. **Re-register only if you need a non-replace merge policy** — the default is `:replace-frame-state` (server-authoritative), and that's spec-locked. Hydration installs a whole **frame-state**, not just an app-db slice: the payload carries `:rf/app-db` (the app-db partition) and an optional `:rf/runtime-db` (the *serializable* runtime-db projection — machine snapshots, route slice, elision declarations, SSR metadata), and the handler installs both partitions in one atomic transition. The framework `:rf/hydrate` handler is framework-authority, so it may emit the reserved `:rf.db/runtime` effect. The two check fxs ride inside `:fx`:
 
 ```clojure
 (rf/reg-event-fx :rf/hydrate
-  {:doc       "Seed the client-side app-db from the server-supplied payload."
+  {:doc       "Install a coherent frame-state (app-db + serializable runtime-db) from the server payload."
    :platforms #{:client}}                                ;; hydration is client-side only
-  (fn [_ [_ {:rf/keys [version frame-id app-db schema-digest]}]]
-    {:db app-db                                          ;; replace, not merge
+  (fn [_ [_ {:rf/keys [version frame-id app-db runtime-db render-hash schema-digest]}]]
+    {:db            app-db                               ;; app-db partition (replace, not merge)
+     :rf.db/runtime (-> runtime-db                       ;; runtime-db partition (replace, not merge)
+                        (assoc-in [:rf.runtime/ssr :hydration :server-hash] render-hash)
+                        (cond-> version (assoc-in [:rf.runtime/ssr :hydration :version] version)))
      :fx (cond-> [[:rf.ssr/check-version version]]
            schema-digest (conj [:rf.ssr/check-schema-digest schema-digest]))}))
 ```
 
-Matches `examples/reagent/ssr/core.cljc` and the reference body in [`spec/011-SSR.md §The :rf/hydrate event`](../../../../spec/011-SSR.md#the-rfhydrate-event). If you override to add client-only transient state, **preserve `[:rf/runtime :ssr :hydration :server-hash]`** — `verify-hydration!` reads it after first render to drive `:rf.ssr/hydration-mismatch` detection.
+Matches `examples/reagent/ssr/core.cljc` and the reference body in [`spec/011-SSR.md §The :rf/hydrate event`](../../../../spec/011-SSR.md#the-rfhydrate-event). If you override to add client-only transient state, **preserve `[:rf.runtime/ssr :hydration :server-hash]`** (a runtime-db path) — `verify-hydration!` reads it after first render to drive `:rf.ssr/hydration-mismatch` detection.
 
 ## The trace events you'll see
 

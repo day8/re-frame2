@@ -174,23 +174,26 @@ Machines ([chapter 12](12-machines.md)) are the densest logic in most apps — "
 
 `machine-transition` is a pure function: feed it a snapshot and an event, get the next snapshot back. This is where the *vast majority* of machine bugs get caught, because this is where the actual logic lives — the transition table.
 
-**Depth 2 — the unregistered handler fn.** `make-machine-handler` turns the machine into a regular event-handler fn you can call directly with a synthetic cofx map. This tests the *boundary* — that the machine lifts its effects correctly into the handler protocol:
+**Depth 2 — the unregistered handler fn.** `make-machine-handler` turns the machine into a regular event-handler fn you can call directly with a synthetic cofx map. This tests the *boundary* — that the machine lifts its effects correctly into the handler protocol. The snapshot lives in **runtime-db**, which the handler reads from the `:rf.db/runtime` coeffect and writes back through the `:rf.db/runtime` effect — so the cofx and the assertion both name that partition, not `:db`:
 
 ```clojure
 (let [handler (rf/make-machine-handler login-flow)
-      result  (handler {:db {:rf/runtime {:machines {:snapshots {:auth.login/flow {:state :idle :data {}}}}}}}
+      result  (handler {:db            {}    ;; app-db — empty; the machine doesn't touch it
+                        :rf.db/runtime {:rf.runtime/machines
+                                        {:snapshots {:auth.login/flow {:state :idle :data {}}}}}}
                        [:auth.login/flow [:auth.login/submit {...}]])]
-  (is (= :submitting (get-in result [:db :rf/runtime :machines :snapshots :auth.login/flow :state]))))
+  (is (= :submitting (get-in result [:rf.db/runtime :rf.runtime/machines
+                                     :snapshots :auth.login/flow :state]))))
 ```
 
-**Depth 3 — registered in a test frame.** The full integration: register the machine, dispatch through the frame, assert against its `app-db`. This proves the machine wires into a real dispatch loop:
+**Depth 3 — registered in a test frame.** The full integration: register the machine, dispatch through the frame, assert against its snapshot. Since the snapshot lives in the runtime-db partition (not app-db), read it with `runtime-db-value` — or, more idiomatically, through `sub-machine`. This proves the machine wires into a real dispatch loop:
 
 ```clojure
 (rf/with-new-frame [f (rf/make-frame {})]
   (rf/reg-machine :auth.login/flow login-flow)
   (rf/dispatch-sync [:auth.login/flow [:auth.login/submit {...}]])
-  (is (= :submitting (get-in (rf/app-db-value f)
-                              [:rf/runtime :machines :snapshots :auth.login/flow :state]))))
+  (is (= :submitting (get-in (rf/runtime-db-value f)
+                              [:rf.runtime/machines :snapshots :auth.login/flow :state]))))
 ```
 
 The three depths exist so that *failure tells you where the bug is*. A red Depth-1 test means the transition logic is wrong. A green Depth-1 but red Depth-2 means the logic's fine and the effect-lifting boundary is broken. A green Depth-2 but red Depth-3 means the boundary's fine and the wiring into the frame is wrong. Most days you write Depth-1 tests and nothing else; the other two are there for when "it works in isolation but not in the app" needs disambiguating fast.

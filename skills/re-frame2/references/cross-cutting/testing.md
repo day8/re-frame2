@@ -201,7 +201,7 @@ When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-righ
 
 ## Machine snapshots and tag queries
 
-A machine's snapshot lives at `(get-in app-db [:rf/runtime :machines :snapshots machine-id])` — a map of `{:state ... :data ... :tags ...}` (`:tags` is absent when the active state-configuration's tag union is empty).
+A machine's snapshot lives in the **runtime-db** partition at `(get-in runtime-db [:rf.runtime/machines :snapshots machine-id])` — a map of `{:state ... :data ... :tags ...}` (`:tags` is absent when the active state-configuration's tag union is empty). Read runtime-db with `runtime-db-value` (not `app-db-value`, which returns the app-db partition only) — or, preferably, read the snapshot through `sub-machine`.
 
 ```clojure
 (rf/reg-machine :loader
@@ -213,8 +213,8 @@ A machine's snapshot lives at `(get-in app-db [:rf/runtime :machines :snapshots 
 
 (rf/dispatch-sync [:loader [:fetch]])
 
-;; Direct snapshot access — full-shape assertions
-(let [s (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots :loader])]
+;; Direct snapshot access — full-shape assertions (runtime-db partition)
+(let [s (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots :loader])]
   (is (= :loading      (:state s)))
   (is (= #{:transient} (:tags s))))
 
@@ -283,7 +283,7 @@ Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a te
 - A `:each` `make-reset-runtime-fixture` is installed with the right `:adapter`.
 - Event drive is `dispatch-sync` (not `dispatch`) or `ts/dispatch-sequence`.
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
-- Machine assertions use `sub-machine` / `machine-has-tag?` or `(get-in db [:rf/runtime :machines :snapshots id])` — not internal machine namespaces.
+- Machine assertions use `sub-machine` / `machine-has-tag?` or `(get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots id])` — runtime-db partition, not internal machine namespaces, and not `db`/app-db.
 - Schema-validation, fx-stubs, and frame-scoping each use the public surface above. No fixture lifts `registrar/clear-all!`.
 
 ---

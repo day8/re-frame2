@@ -6,7 +6,7 @@ The URL is application state. Your back button is a dispatch. A route change is 
 
 **The URL is a sub.**
 
-Hold that, because it's the whole chapter compressed. The current route lives at `[:rf/runtime :routing :current]` in `app-db`. Views read it through an ordinary subscription (`(rf/subscribe [:rf/route])`). The root view dispatches on `:rf.route/id` to pick which page to show. Navigation — programmatic, link-click, or the browser's own back/forward — all funnels through the same handler. There is no separate routing runtime, no route-aware components, no "router context" you have to thread. Routing is just data reflected in the address bar.
+Hold that, because it's the whole chapter compressed. The current route lives at `[:rf.runtime/routing :current]` in the frame's runtime-db (the framework partition, chapter 02). Views read it through an ordinary subscription (`(rf/subscribe [:rf/route])`) — same as any other state, partition or not. The root view dispatches on `:rf.route/id` to pick which page to show. Navigation — programmatic, link-click, or the browser's own back/forward — all funnels through the same handler. There is no separate routing runtime, no route-aware components, no "router context" you have to thread. Routing is just data reflected in the address bar.
 
 And to be clear about the bar this clears: that's feature parity with React Router, TanStack Router, and reitit's frontend module — deep links, nested layouts, blocked navigation, scroll restoration, the lot — while never once leaving re-frame2's single mental model. You already know how to handle state that's a value, derived through subs, mutated through events. The URL is that, and nothing more.
 
@@ -19,7 +19,7 @@ Routing ships as its own per-feature artefact, `day8/re-frame2-routing`:
         day8/re-frame2-routing  {...}}}
 ```
 
-This isn't bureaucracy — it's the modularity strategy paying off. An app that doesn't route doesn't bundle a byte of routing code, and the bundle-isolation CI gate *enforces* that: core's release build is asserted to carry zero routing-namespace markers, and re-importing `re-frame.routing` from core fails the build. Once the artefact is on the classpath, one `(:require [re-frame.routing])` at app boot wires the late-bind hooks, and from then on `reg-route`, `:rf.route/navigate`, the `:rf/route` sub family, and the `:rf.route/...` effects are all available through plain `re-frame.core`. (The state itself lands at `[:rf/runtime :routing]` in `app-db`; `:rf/route` is the sub-id that projects out the consumer-facing slice.)
+This isn't bureaucracy — it's the modularity strategy paying off. An app that doesn't route doesn't bundle a byte of routing code, and the bundle-isolation CI gate *enforces* that: core's release build is asserted to carry zero routing-namespace markers, and re-importing `re-frame.routing` from core fails the build. Once the artefact is on the classpath, one `(:require [re-frame.routing])` at app boot wires the late-bind hooks, and from then on `reg-route`, `:rf.route/navigate`, the `:rf/route` sub family, and the `:rf.route/...` effects are all available through plain `re-frame.core`. (The state itself lands at `[:rf.runtime/routing]` in runtime-db, the framework partition; `:rf/route` is the sub-id that projects out the consumer-facing slice.)
 
 ## The smallest routing loop that does anything
 
@@ -81,24 +81,23 @@ When two routes could both match the same URL, a structural ranking cascade pick
 
 ## The route slice — where the URL lives as state
 
-That navigation back in the smallest loop wrote something into `app-db`. The runtime maintains exactly one such slice — at `[:rf/runtime :routing :current]` — and it is the source of truth every route-aware sub reads from:
+That navigation back in the smallest loop wrote something into the frame. Not into `app-db` — the route is framework-managed state, so it lives in the **runtime-db** partition (chapter 02; the read-but-don't-write story is [chapter 21](21-dynamic-model.md)). The runtime maintains exactly one such slice — at `[:rf.runtime/routing :current]` in runtime-db — and it is the source of truth every route-aware sub reads from:
 
 ```clojure
-{:rf/runtime
- {:routing
-  {:current
-   {:id           :route/article             ;; current route id
-    :params       {:id #uuid "..."}          ;; path params (matches :params schema)
-    :query        {:q "clojure" :page 2}     ;; query/search params (matches :query schema)
-    :fragment     "section-2"                ;; URL #fragment, or nil
-    :transition   :idle                      ;; :idle | :loading | :error
-    :error        nil                        ;; populated when :transition = :error
-    :nav-token    "nav-42"}}}}               ;; per-navigation epoch token
+{:rf.runtime/routing
+ {:current
+  {:id           :route/article             ;; current route id
+   :params       {:id #uuid "..."}          ;; path params (matches :params schema)
+   :query        {:q "clojure" :page 2}     ;; query/search params (matches :query schema)
+   :fragment     "section-2"                ;; URL #fragment, or nil
+   :transition   :idle                      ;; :idle | :loading | :error
+   :error        nil                        ;; populated when :transition = :error
+   :nav-token    "nav-42"}}}                ;; per-navigation epoch token
 ```
 
 A few things worth internalising about this slice:
 
-The whole `[:rf/runtime :routing]` subtree is **reserved** — the routing runtime owns it, and your code reads it but never writes it directly. (That "runtime-managed slice you read but don't write" property is a recurring shape; [chapter 21](21-dynamic-model.md) is the whole pattern.) The consumer-facing sub-id is `:rf/route`, which projects the slice at `[:rf/runtime :routing :current]`.
+The whole `[:rf.runtime/routing]` subtree is **reserved** — it lives in runtime-db, the routing runtime owns it, and your code reads it but never writes it directly. Because it's a separate partition, an ordinary `:db` return can't touch it by accident at all. (That "runtime-managed slice you read but don't write" property is a recurring shape; [chapter 21](21-dynamic-model.md) is the whole pattern.) The consumer-facing sub-id is `:rf/route`, which projects the slice at `[:rf.runtime/routing :current]`.
 
 Path params (`:params`) and query params (`:query`) are kept as **distinct maps** — captured separately, validated against separate schemas, never silently merged. If a consumer wants them merged, it builds the merged map in a derived sub; the slice keeps them honest.
 
@@ -132,7 +131,7 @@ Prefer the route-id form. A route-id is enumerable, refactorable, and queryable 
 
 When a navigation event fires, three things happen in a **locked order**:
 
-1. The route slice at `[:rf/runtime :routing :current]` updates — id, params, query, fragment, transition, fresh nav-token.
+1. The route slice at `[:rf.runtime/routing :current]` updates — id, params, query, fragment, transition, fresh nav-token.
 2. The browser URL is pushed, via the `:rf.nav/push-url` effect (which is `:platforms #{:client}` — see [the server side](20-server-side.md) for why that matters).
 3. The route's `:on-match` events dispatch in order, and the route's scroll strategy emits as a `:rf.nav/scroll` effect.
 
@@ -143,7 +142,7 @@ State first, URL second, data-loading third. The ordering is the contract: if th
 The flip side of "navigation is an event" is that *every* way the URL can change comes back in as an event too — and there are two of them, one per direction the URL moves. A link click or a programmatic push fires `:rf.route/transitioned`; a back/forward press, an initial page load, or the SSR request URL fires `:rf.route/handle-url-change`. They're **co-equal siblings**, not a delegate pair: each runs the identical slice-rewrite, and they differ only in their default scroll strategy — `:top` for forward nav, `:restore` for popstate (so Back returns you to where you were). Both:
 
 1. Call `match-url` to resolve the URL against the registered route table.
-2. Set the route slice at `[:rf/runtime :routing :current]` with the matched id, params, query, fragment, transition, and a fresh `:nav-token`.
+2. Set the route slice at `[:rf.runtime/routing :current]` with the matched id, params, query, fragment, transition, and a fresh `:nav-token`.
 3. Dispatch the matched route's `:on-match` events.
 
 ```clojure
@@ -217,7 +216,7 @@ A route declares the events the runtime should dispatch whenever that route beco
 
 The semantics, and they're carefully chosen:
 
-1. When the route becomes active — URL-driven or programmatic — the runtime dispatches each `:on-match` event in order, *after* writing the route slice at `[:rf/runtime :routing :current]` and *before* any data-dependent view renders.
+1. When the route becomes active — URL-driven or programmatic — the runtime dispatches each `:on-match` event in order, *after* writing the route slice at `[:rf.runtime/routing :current]` and *before* any data-dependent view renders.
 2. `:rf.route/transition` is `:loading` while the dispatches drain, back to `:idle` when they finish. That's your loading-state, for free.
 3. Re-navigating to the **same** route-id with **changed** params or query *does* re-fire `:on-match` — the route is becoming active again under new inputs. Re-navigating with identical params does **not** re-fire; the runtime compares the post-update slice against the pre-update slice and skips when nothing relevant changed. No accidental double-loads.
 4. `:on-match` runs server- and client-side, so SSR populates the same data via the same vector. Hydration does **not** re-fire it — the seeded `app-db` already carries the data, and re-fetching it would defeat the entire point of SSR.
@@ -232,7 +231,7 @@ There's a classic async bug lurking here, and re-frame2 handles it so you mostly
 The fix is the **navigation token**. Each navigation gets a fresh token written into the route slice; an async result is committed only if the token it carries still matches the current one.
 
 ```clojure
-;; Showing only the relevant sub-tree at [:rf/runtime :routing :current] for clarity.
+;; Showing only the relevant sub-tree at [:rf.runtime/routing :current] for clarity.
 
 ;; Step 1: user navigates to article "A". nav-token = "nav-1".
 {:id :route/article :params {:id "A"} :transition :loading :nav-token "nav-1"}
@@ -262,7 +261,7 @@ The mechanism is mostly invisible; you'll meet it the day you write an `:on-matc
 
 ## The not-found route — register it, it's required
 
-Every app **must** register a `:rf.route/not-found` route. When a URL fails to match anything, the runtime sets the route slice at `[:rf/runtime :routing :current]` to `{:id :rf.route/not-found :params {:url <url>} ...}` and proceeds with that route's `:on-match` as normal:
+Every app **must** register a `:rf.route/not-found` route. When a URL fails to match anything, the runtime sets the route slice at `[:rf.runtime/routing :current]` to `{:id :rf.route/not-found :params {:url <url>} ...}` and proceeds with that route's `:on-match` as normal:
 
 ```clojure
 (rf/reg-route :rf.route/not-found
@@ -289,10 +288,12 @@ If any `:on-match` event errors, the runtime sets `:rf.route/transition` to `:er
    :on-error [:route/cart-load-failed]})
 
 (rf/reg-event-fx :route/cart-load-failed
-  (fn [{:keys [db]} _]
-    (let [error (get-in db [:rf/runtime :routing :current :error])]
+  (fn [{:keys [db] runtime-db :rf.db/runtime} _]
+    (let [error (get-in runtime-db [:rf.runtime/routing :current :error])]
       {:db (assoc-in db [:cart :load-error] (:rf.error/message error))})))
 ```
+
+The route slice is in runtime-db, so the handler reads it from the `:rf.db/runtime` coeffect (the framework injects the runtime-db partition there by reference) — never from `db`, which is app-db. The handler's own write still returns `:db`; it's only *reading* a framework-managed slice.
 
 `:on-error` is *route-scoped* handling layered over the framework's structured-error contract — it doesn't replace it. The structured error trace still fires; `:on-error` is the route's specific response to it.
 
@@ -313,10 +314,10 @@ Declare the guard as a sub on the route — naming the *positive* case, so `fals
   (fn [dirty? _] (not dirty?)))             ;; true ⇒ OK to leave
 ```
 
-When a navigation is requested, the runtime evaluates the *current* route's `:can-leave` sub. `true` (or no guard) proceeds normally. `false` **blocks**: the URL does not change, no `pushState`, no update to the route slice at `[:rf/runtime :routing :current]`, no `:on-match` — instead the runtime writes to the pending-nav slot at `[:rf/runtime :routing :pending-navigation]` describing what was attempted:
+When a navigation is requested, the runtime evaluates the *current* route's `:can-leave` sub. `true` (or no guard) proceeds normally. `false` **blocks**: the URL does not change, no `pushState`, no update to the route slice at `[:rf.runtime/routing :current]`, no `:on-match` — instead the runtime writes to the pending-nav slot at `[:rf.runtime/routing :pending-navigation]` describing what was attempted:
 
 ```clojure
-;; At [:rf/runtime :routing :pending-navigation] in app-db:
+;; At [:rf.runtime/routing :pending-navigation] in runtime-db:
 {:id                  "pn-7"
  :requested-by-event  [:rf/url-requested {:url "/editor/articles/42"}]
  :requested-url       "/editor/articles/42"
@@ -358,7 +359,7 @@ Path syntax is the primary binding; query strings bind separately via the route'
 
 ### Multi-frame routing
 
-Each frame ([chapter 18](18-frames.md)) may carry its own route slice at `[:rf/runtime :routing :current]` — it's a regular `app-db` path, not a special concept — but **only one frame is URL-bound**:
+Each frame ([chapter 18](18-frames.md)) may carry its own route slice at `[:rf.runtime/routing :current]` in its own runtime-db — per-frame isolation comes for free, since each frame has its own partition — but **only one frame is URL-bound**:
 
 | Frame | URL-bound? | Behaviour |
 |---|---|---|

@@ -30,7 +30,7 @@ Most concepts map cleanly. A handful of slots re-frame2 **deliberately renames o
 | **delayed transitions** (`after`) | `:after {<ms> transition-spec}` | Convergence on the name. No recurring timers / pause-resume in v1. |
 | **`raise` (self-event)** | `:raise` inside an action's `:fx` | **Divergence:** sugar for atomic self-dispatch — there is no per-actor mailbox to insert in front of. |
 | **`sendTo` / `sender` (reply to a request)** | include the reply event in the request vector | **Divergence:** no new API; the event vector carries its own reply target. |
-| **`ActorRef` runtime objects** | snapshots at `[:rf/runtime :machines :snapshots <id>]` in `app-db` | **Divergence (architecture):** data-oriented, agent-friendly, no live-object leak footguns. Read via `sub-machine`. |
+| **`ActorRef` runtime objects** | snapshots at `[:rf.runtime/machines :snapshots <id>]` in the runtime-db partition | **Divergence (architecture):** data-oriented, agent-friendly, no live-object leak footguns. Read via `sub-machine`. |
 | **`setup({actors, guards, actions})`** | per-machine `:guards` / `:actions` maps in the spec | **Divergence:** machine-scoped (not globally registered) — each machine has its own guard/action namespace, validated at registration; cross-machine reuse is via plain Clojure vars. |
 | **three creation modes** (`createActor` / `invoke` / `spawn`) | one mechanism, two patterns: singleton via `reg-event-fx`, dynamic via `:spawn` / `[:rf.machine/spawn ...]` | **Divergence:** lifetime is encoded by `app-db` shape + registration lifetime, not by which constructor you call. |
 
@@ -233,11 +233,11 @@ When a machine drives a discrete event-fx flow (boot, websocket-connection lifec
 ## Common gotchas
 
 - **The artefact must be loaded.** `(:require [re-frame.machines])` at the namespace declaring `rf/reg-machine` (or at app boot before any machine call). Forgetting it throws `:rf.error/machines-artefact-missing` with `:recovery :no-recovery`.
-- **`:rf.machine/*` and `:rf/*` are reserved.** Names like `:rf.machine/spawn` and the reserved app-db root `:rf/runtime` (with the framework parking `:machines`, `:routing`, `:elision`, … under it) belong to the runtime. Pick your own feature prefix for event keywords.
+- **`:rf.machine/*`, `:rf/*`, and `:rf.runtime/*` are reserved.** Names like `:rf.machine/spawn` and the reserved runtime-db children `:rf.runtime/machines`, `:rf.runtime/routing`, `:rf.runtime/elision`, … belong to the runtime (they live in the framework's runtime-db partition, not your app-db). Pick your own feature prefix for event keywords.
 - **Callbacks receive one context map, not the raw snapshot.** `(fn [{:keys [data event]}] ...)` — the body inspects `(:input data)`, not `(get-in snap [:data :input])`. `data` is already the snapshot's `:data` slot. Same shape for guards, actions, `:entry`, `:exit`.
 - **Actions return an effect map.** `{:data new-data}` (or `{:fx [...]}` or both). Returning a bare data map silently does nothing; `nil` is a no-op.
 - **Use `reg-machine` (macro), not `reg-machine*` (fn).** The macro stamps per-element source coords that tools rely on (`re-frame.core` macro layer, Spec 005 §Source-coord stamping). Reach for `reg-machine*` only for programmatic registration with computed ids.
-- **Re-registration replaces.** Last-write-wins, per the standard registrar semantics; the prior snapshot at `[:rf/runtime :machines :snapshots <id>]` survives (the snapshot is in `app-db`, the spec is in the registrar). Hot-reload survives a machine re-declaration.
+- **Re-registration replaces.** Last-write-wins, per the standard registrar semantics; the prior snapshot at `[:rf.runtime/machines :snapshots <id>]` survives (the snapshot is in runtime-db, the spec is in the registrar). Hot-reload survives a machine re-declaration.
 
 ## Deeper material
 

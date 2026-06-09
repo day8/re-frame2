@@ -34,11 +34,14 @@ Here's the one-sentence version, and it's the load-bearing idea the rest of the 
 
 That's it. Single-frame apps have one instance. Multi-frame apps have several. The framework treats them identically — nothing in the dispatch pipeline, the interceptor chain, or the subscription graph cares whether the frame it's running against is the default one or the fourteenth one you hand-rolled for a Story.
 
-Mechanically, a frame is an **isolated runtime boundary** identified by a keyword (`:left`, `:test/auth-flow`, `:ssr.req/abc123`). It owns exactly three pieces of runtime state:
+Mechanically, a frame is an **isolated runtime boundary** identified by a keyword (`:left`, `:test/auth-flow`, `:ssr.req/abc123`). It owns exactly these pieces of runtime state:
 
-- An **`app-db`** — the one immutable map this frame's events read and write.
+- An **`app-db`** — the immutable map this frame's events read and write. Your application data.
+- A **runtime-db** — the framework's own partition for this frame: machine snapshots, the route slice, elision declarations, SSR metadata (chapter 02 and [chapter 21](21-dynamic-model.md) are the partition story). You read it through framework subscriptions; you never write it through `:db`.
 - A **router queue** — the events waiting to be drained for *this* frame.
-- A **subscription cache** — the memoised values of every active `reg-sub` against *this* frame's `app-db`.
+- A **subscription cache** — the memoised values of every active `reg-sub` against *this* frame's state.
+
+The app-db and runtime-db together form this frame's **frame-state** — `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}` — the composite value that ships over SSR, reverts on time-travel, and hydrates as one coherent unit. Day to day you write events against app-db and read managed slices through subs; the partition seam only surfaces when a tool, a test, or the SSR boot path needs the whole frame at once.
 
 And — this is the part that surprises people — here is what a frame emphatically does **not** own:
 
@@ -119,7 +122,7 @@ Need to fire several init events? The single `:on-create` handler does it throug
 The three lifecycle verbs round out the surface:
 
 - **`reg-frame` on a name that already exists** is a *surgical update*: the config is replaced, but the live runtime state (`app-db`, queue, sub-cache) is **preserved** and the `:on-create` event does **not** re-fire. This is the hot-reload-friendly shape — re-saving a file that re-runs your `reg-frame` calls won't blow away the state you were looking at, exactly the way `app-db` doesn't reset when you save a file today.
-- **`reset-frame!`** is the explicit "I actually do want the init cascade again" verb — equivalent to a `destroy-frame!` followed by a fresh `reg-frame` with the current config, so `:on-create` re-fires against a `{}` `app-db`.
+- **`reset-frame!`** is the explicit "I actually do want the init cascade again" verb — equivalent to a `destroy-frame!` followed by a fresh `reg-frame` with the current config. It resets the **whole** frame: both partitions clear (a `{}` app-db *and* an empty runtime-db — every machine snapshot, route slice, and elision declaration dropped) and `:on-create` re-fires from scratch. If you want only the application state reset while live machines and the current route survive, that's `reset-app-db!` (under [Reading and listing frames](#reading-and-listing-frames) below).
 - **`destroy-frame!`** tears the frame down: it fires `:on-destroy`, then removes the keyword from the registry. A subsequent `dispatch` / `subscribe` against that keyword throws (`:reason :frame-destroyed`) — a destroyed frame is gone, not silently re-defaulted.
 
 ## Targeting a frame — and why you mostly won't have to
@@ -291,9 +294,18 @@ One sharp edge that ties back to the async section: **the lexical binding these 
 Rounding out the surface, the read / introspection verbs — what tools, tests, and the REPL use to look at a frame from outside:
 
 - **`(rf/current-frame-id)`** — the active frame at the call site, resolved through the chain (dynamic var → React context → `:rf/default`). A keyword.
-- **`(rf/app-db-value frame-id)`** — the current `app-db` of a frame as a plain map (the deref'd *value*, no container, no reactivity). `nil` if the frame isn't registered. This is how you assert against a frame's state in a test, and how a handle's owner reads the state behind the ops.
-- **`(rf/snapshot-of path)` / `(rf/snapshot-of path {:frame id})`** — convenience over `(get-in (rf/app-db-value frame-id) path)`; resolves the current frame when you don't pass one.
+- **`(rf/app-db-value frame-id)`** — the current **app-db** partition of a frame as a plain map (the deref'd *value*, no container, no reactivity). `nil` if the frame isn't registered. This is how you assert against a frame's application state in a test, and how a handle's owner reads the state behind the ops.
+- **`(rf/runtime-db-value frame-id)`** — the **runtime-db** partition value: the framework-owned slices (machine snapshots, the route slice, …). The tool/privileged-runtime read — application code reads these slices through framework subs instead, but tools and conformance harnesses enumerate them here.
+- **`(rf/frame-state-value frame-id)`** — the coherent **frame-state** projection, `{:rf.db/app … :rf.db/runtime …}`. The whole-frame read SSR serialisation, epoch capture, and time-travel use.
+- **`(rf/snapshot-of path)` / `(rf/snapshot-of path {:frame id})`** — convenience over `(get-in (rf/app-db-value frame-id) path)`; resolves the current frame when you don't pass one. (It reads app-db — runtime-managed slices come through subs.)
 - **`(rf/frame-ids)`** / **`(rf/frame-meta frame-id)`** — list the registered frames and read a frame's effective metadata. The shape your tooling walks.
+
+And the write side — the partition-aware mutators tools, tests, and the SSR boot path use to *install* state from outside a cascade (you never reach for these from app code; handlers write app-db by returning `:db`):
+
+- **`(rf/replace-app-db! frame-id app-db)`** — replace **only** the app-db partition. The app-db-only state-injection write your test fixtures and the pair tool use.
+- **`(rf/reset-app-db! frame-id)`** — reset the app-db partition to `{}` while leaving runtime-db (live machines, the current route) intact. The app-db-only sibling of `reset-frame!`.
+- **`(rf/replace-runtime-db! frame-id runtime-db)`** — replace **only** the runtime-db partition. Privileged runtime / full-frame tool surface.
+- **`(rf/replace-frame-state! frame-id frame-state)`** — replace **both** partitions atomically (`{:rf.db/app … :rf.db/runtime …}`). The full-frame install — SSR hydration, epoch replay, fixture install. The name is deliberate: a `db`-shaped name never silently overwrites runtime-db, so when you mean "the whole frame," you say so.
 
 There's also `app-db-container` — but it returns the underlying substrate-managed *reactive cell* (an atom under stock Reagent, a different cell under other substrates), and it exists for **framework internals, tools, and adapter code** that need to read or replace the container itself. Application code never wants it: handlers receive `db` through coeffects, views read via subscriptions, and tests assert against `app-db-value`. If you find yourself reaching for `app-db-container` in app code, you've almost certainly taken a wrong turn — the value accessor is what you want.
 

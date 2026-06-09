@@ -201,8 +201,8 @@
 ;; SUBSCRIPTIONS — chapter §Reading a machine: sub-machine
 ;; ============================================================================
 
-;; The machine snapshot lives at
-;; [:rf/runtime :machines :snapshots :auth.login/flow] (per Spec 005).
+;; The machine snapshot lives in runtime-db at
+;; [:rf.runtime/machines :snapshots :auth.login/flow] (per Spec 005).
 ;; The framework ships `:rf/machine` as the canonical layer-3 entry
 ;; point onto that path (see re-frame.machines §framework-shipped subs);
 ;; the named subs below chain off it to project out the convenient

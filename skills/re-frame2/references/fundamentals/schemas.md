@@ -31,6 +31,8 @@ Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-sche
 
 Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. Default frame is `(current-frame-id)`; pass `{:frame :other}` in `opts` to target another.
 
+`reg-app-schema` validates the **app-db partition only**. The framework's runtime-db partition (machine snapshots, route slice, elision declarations — under `:rf.runtime/*`) is governed by its own framework schemas, not yours. This is the payoff of the two-partition frame: your `reg-app-schema` set describes a *pure* application contract with no framework state mixed in. Keep calling it "the app-db schema" — that's the public name; it just happens to cover exactly the partition you own.
+
 ## What `:schema` does on a handler
 
 Every `reg-*` macro accepts a `:schema` key in its metadata-map:
