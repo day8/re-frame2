@@ -1,6 +1,15 @@
 # EP-0002: Explicit Frame Target Resolution
 
-Status: proposal
+Status: final
+
+> **Decision recorded 2026-06-09 (see [§Resolved Decisions](#resolved-decisions)).**
+> **Option C** (remove the ambient `:rf/default` fallback) is **accepted**, and the
+> EP is implemented **per the [Appendix reframing](#appendix-design-review-commentary--toward-a-smaller-more-carried-rule)** — the
+> positive *carried-invariant* formulation, not the subtractive as-written body. The
+> normative core of the reframed contract lives in
+> [`spec/002-Frames.md` §Frame target resolution](../spec/002-Frames.md#frame-target-resolution--the-carried-invariant).
+> This bead (`rf2-u5o1bo`) lands the **foundation** — decision + normative spec core +
+> chain decomposition; the downstream migration is the serial chain filed below.
 
 ## Abstract
 
@@ -1109,6 +1118,121 @@ repo-wide migration of tests, docs, examples, tools, and skills that assume
 `:rf/default`, and revoking the earlier single-frame invisibility goal — is
 accepted because frame correctness now underpins SSR, Story, Xray, pair tools, AI
 tooling, resource management, managed effects, and the runtime partition.
+
+## Resolved Decisions
+
+Recorded 2026-06-09 under Mike's "action all EPs / keep going" (bead
+`rf2-u5o1bo`). Two things are settled here: (1) the seven Open Issues are resolved
+against their Recommendations, and (2) the EP is implemented **via the Appendix
+reframing**, not its subtractive as-written body. Where the body and the appendix
+describe the same rule differently, the **appendix formulation is the binding
+form** and the body is read as supporting motivation.
+
+### The reframing ruling (binding)
+
+The contract is authored as the appendix argues — *one carried invariant*, the
+*scope/hold/override* triad, *one frame stamp*, *foregrounded hold*, a
+*strict-core-vs-tiered-discovery* split, and a *replay-determinism* lead. Concretely:
+
+- **R1 — Lead with the carried invariant (appendix A).** The headline is positive
+  and singular: *frame identity travels with every causal token; an operation reads
+  its frame from the token it holds, never discovers one from the ambient world.*
+  "Absence is an error" is the **corollary**, not the headline. The body's
+  subtractive framing ("remove the fallback / delete the vocabulary") is retained
+  only as migration mechanics, not as the statement of the rule.
+- **R2 — Reuse scope/hold/override (appendix B), not a bespoke six-source list.**
+  The §Frame Target Invariant six-source list is **superseded** by the published
+  [`docs/api/02-views.md`](../api/02-views.md) triad — **scope** (`with-frame` /
+  `with-new-frame` / `frame-provider`), **hold** (`frame-handle` /
+  `frame-bound-fn` / `frame-bound-fn*` / captured envelope), **override** (the
+  per-call `{:frame …}`). The six sources are instances of these three. The triad
+  collapses at a boundary to the only distinction that matters: **carried as a
+  value** (hold + override) vs **ambient in an established scope** (scope).
+- **R3 — One canonical frame stamp (appendix C).** `:frame`, `:rf.frame/id`,
+  `:rf/frame-id`, `url-owner-frame-id`, `:target-frame`, `:own-frame`, and
+  `default-target-frame` are unified into **one inspectable carried shape** — the
+  *frame stamp* — that appears identically wherever a causal token flows. The
+  genuinely distinct **roles** (URL *owner* vs inspected *target* vs Xray *own*)
+  become **qualified** stamps, not unrelated keys. This folds the EP-0001
+  `:frame → :rf.frame/id` context-key rename into the larger unification.
+- **R4 — Foreground hold (appendix D).** The async-safe *captured handle* is the
+  **primary** mental model and resolution carrier; `with-frame` is demoted to
+  synchronous-lexical-block sugar used inside roots, never near an async hop. The
+  body's special async rule largely dissolves because the fragile primitive is no
+  longer first.
+- **R5 — Scope the strict core against the tiered discovery layer (appendix F).**
+  The **embedded app/runtime path** is strict: absence is
+  `:rf.error/no-frame-context`, justified by **replay-determinism + temporal
+  non-locality** (NOT purity). The **interactive Tool-Pair / Xray / pair-MCP
+  discovery layer KEEPS its proven four-tier contract**, including tier-3
+  sole-app-frame *unique resolution* (unique resolution is not synthesis). Tier 3
+  is **not** reconciled away — it is scoped to where an operator is present and
+  ambiguity can prompt. `:rf.error/no-frame-context`, `:ambiguous-frame`, and
+  `:rf.tool/no-frame-selected` are reconciled into **one ladder**: *absent →
+  ambiguous → unselected*.
+- **R6 — Lead the rationale with replay determinism (appendix G).** A
+  silently-defaulted frame **poisons replay** — epoch replay, `restore-epoch`,
+  time-travel, and Story / Causa determinism become unsound. "Frames are carried so
+  history is replayable" is the central argument; the benchmark libraries
+  (TanStack / Redux / Apollo / Relay) are supporting, not central. Detection shifts
+  left where the shape allows (conformance lint + registration-time flagging), and
+  the frameless error carries **capture-site ancestry** through the existing
+  `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` correlation graph.
+- **R7 — The values ranking (appendix coda).** The one-time ranking the appendix
+  asks for is **adopted**: *explicit, carried frame identity outranks v1 call-shape
+  fidelity.* The bare-function call shape survives in this EP only where that shape
+  is free (inside an established `with-frame` / provider scope); rootless bare calls
+  are the loud-failure case. The revocation of "frame plurality is invisible to
+  single-frame apps" is **refined, not wholesale**: plurality stays invisible
+  *inside a frame's scope*; only the absence of **any** scope is made loud.
+
+### Open-Issue resolutions
+
+The seven Open Issues are resolved against their Recommendations (Mike accepted
+them), each re-expressed through the reframing above:
+
+1. **`init!` creates no frame.** `init!` installs adapters and runtime
+   capabilities; it does **not** create or guarantee `:rf/default`. A separate app
+   bootstrap helper may create a named frame explicitly from opts.
+   `ensure-default-frame!` is removed as an `init!` side effect.
+2. **Mutating ops fail; tool reads may return structured data.** A frame-scoped
+   *mutation* with no carried stamp raises/emits `:rf.error/no-frame-context`. Tool
+   *reads* may return structured no-target data on the *absent → ambiguous →
+   unselected* ladder (R5) rather than throwing, so frame pickers can render the
+   state.
+3. **Unique resolution only at the discovery layer.** Sole-app-frame resolution
+   (tier 3) lives **only** in the interactive Tool-Pair / Xray / pair-MCP discovery
+   layer, never in the embedded core resolver. It is unique resolution, not
+   synthesis, and it is gated on operator presence (R5).
+4. **`:rf/default` becomes an ordinary id.** The reservation buys neither migration
+   nor docs clarity once "the runtime never infers it" is the rule, so `:rf/default`
+   is demoted to an ordinary user-selectable keyword. It remains a legal explicit id
+   (a migration may choose it) but carries no framework privilege and no special
+   lookup tier. (This is the "otherwise make it ordinary" branch of the
+   Recommendation.)
+5. **Migration prefers root/provider wrapping.** Migration tooling rewrites bare v1
+   calls into a `with-frame` / provider root; explicit `{:frame …}` call sites are
+   for async callbacks, tools, tests, and SSR — i.e. the *hold* / *override* cases
+   (R2, R4).
+6. **Always-on emission for the frameless error.** `:rf.error/no-frame-context` is
+   emitted through the always-on error axis (the production-survivable error-emit
+   listener), not per-frame epoch capture — the error is itself frameless. It
+   carries capture-site ancestry per R6.
+7. **Boot-time frame-local `reg-*` need an explicit frame.** Registration-time
+   frame-local surfaces (`reg-flow`, `reg-app-schema`, schema-population, elision
+   declarations, HTTP interceptor registration, future frame-local registrars) must
+   receive an explicit frame, run inside `with-frame`, run inside an `:on-create`
+   hook, or be classified as genuinely global. Namespace-load time is not a reason
+   to select `:rf/default`.
+
+### What is superseded
+
+For agents reading the body above against this section: the **§Frame Target
+Invariant** six-source list, the §Public API Shape framing, and the migration
+inventory's per-site "remove the default" phrasing are **subordinate** to the
+reframing rulings. The normative statement of the contract is
+[`spec/002-Frames.md` §Frame target resolution](../spec/002-Frames.md#frame-target-resolution--the-carried-invariant);
+where the EP body and that spec section differ, the spec section governs.
 
 ## Bead Structure
 
