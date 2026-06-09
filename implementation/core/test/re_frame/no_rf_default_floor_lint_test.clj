@@ -12,8 +12,13 @@
   absence is `:rf.error/no-frame-context`, NEVER repaired by synthesising
   `:rf/default`. The runtime must therefore carry NO
 
-    - `:or {frame-id :rf/default}` destructuring default, and
-    - `(or … :rf/default)` resolution floor
+    - `:or {frame-id :rf/default}` destructuring default,
+    - `[:rf/default <sym>]` POSITIONAL floor — synthesising `:rf/default`
+      as the frame argument of a delegated/recursive call (e.g. a
+      `defwrapper` single-arity that recurses `([id] [:rf/default id])`,
+      injecting the default the impl would otherwise resolve from the
+      carried scope — the rf2-vl5xsp floor), and
+    - `(or… :rf/default)` resolution floor
 
   in PRODUCTION source. `:rf/default` remains a perfectly legal EXPLICIT
   frame id (a migration may pick it, a test may register + select it) — the
@@ -91,6 +96,20 @@
   absence repair expressed through a `:keys` / `:or` binding."
   #":or\s*\{[^}]*:rf/default[^}]*\}")
 
+(def ^:private positional-default-re
+  "A `[:rf/default <sym>]` POSITIONAL floor — `:rf/default` synthesised as
+  the leading (frame) element of a vector literal that is then passed
+  positionally to a delegated/recursive call, ahead of one or more
+  further args. This is the rf2-vl5xsp shape: a `defwrapper` single-arity
+  whose recursion body is `[:rf/default id]`, injecting the default frame
+  the late-bound impl would otherwise resolve from the carried scope.
+
+  Requires `:rf/default` to be FOLLOWED by further content before the
+  closing `]` (a trailing arg), so a bare `[:rf/default]` — an explicit
+  one-element frame-id vector, not an absence repair of a frame ARGUMENT —
+  is not flagged. The `[^]\\n]+` tail keeps the match on one line."
+  #"\[\s*:rf/default\s+[^]\n]+\]")
+
 (defn- offending-lines
   "Return `[line-no line]` pairs in `content` that carry a live (non-
   comment, non-prose) `:rf/default` absence-repair floor."
@@ -102,13 +121,15 @@
                  (when (and (str/includes? code ":rf/default")
                             (not (backtick-quoted-mention? code))
                             (or (re-find or-default-re code)
-                                (re-find destructure-default-re code)))
+                                (re-find destructure-default-re code)
+                                (re-find positional-default-re code)))
                    [n (str/trim raw)]))))))
 
 (deftest no-rf-default-absence-repair-in-production-source
   (testing "no production source synthesises `:rf/default` from missing
-            frame context — neither `(or … :rf/default)` nor
-            `:or {frame-id :rf/default}`. EP-0002 carried invariant: absence
+            frame context — none of `(or … :rf/default)`,
+            `:or {frame-id :rf/default}`, or the positional
+            `[:rf/default <sym>]` floor. EP-0002 carried invariant: absence
             is `:rf.error/no-frame-context`, never an invented default
             (Appendix G — shift detection left into a CI lint)."
     (let [offenders
