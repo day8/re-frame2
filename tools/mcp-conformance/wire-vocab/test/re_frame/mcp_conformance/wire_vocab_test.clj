@@ -84,7 +84,8 @@
   live server: the schemas are normative, the fixtures are authored
   from each server's spec/source, and the grep step pins those
   authored fixtures to the actual source/spec text."
-  (:require [clojure.string  :as str]
+  (:require [clojure.java.io :as io]
+            [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
             [de-dupe.core    :as dd]
             [malli.core      :as m]
@@ -1470,6 +1471,99 @@
                    "`canonical-markers` to include :story-mcp in "
                    ":servers, add a story-mcp fixture, and extend "
                    "`server-source-files`.")))))))
+
+;; ---------------------------------------------------------------------------
+;; story-mcp source inventory completeness (rf2-ribu5a).
+;;
+;; `fx/story-mcp-tool-source-files` is the single inventory the generic
+;; near-miss / uncontracted-marker / slot-name sweeps grep. Before
+;; rf2-ribu5a it was a HAND-MAINTAINED list that had silently fallen
+;; behind the directory: it ran through `recorder.cljc` but omitted
+;; `dedup.cljc` (emits the cross-MCP `:rf.mcp/dedup-table` marker) and
+;; `cursor.cljc` (routes the cross-MCP `:rf.mcp/cursor-stale` marker) —
+;; so a near-miss drift in EITHER file could escape the very gates that
+;; exist to catch it (only `cursor.cljc` had a bespoke compensating
+;; pin; `dedup.cljc` had none). The inventory is now derived from a
+;; filesystem listing; these tests pin that contract so the drift class
+;; cannot recur:
+;;
+;;   1. completeness — the derived inventory equals a fresh directory
+;;      listing of `tools/story_mcp/tools/*.cljc` (the historically
+;;      omitted files are necessarily present; any future tool file is
+;;      swept the moment it lands).
+;;   2. participation — `dedup.cljc` (the file with NO bespoke
+;;      compensating pin) is in the set the generic sweep iterates, so
+;;      its `:rf.mcp/dedup-table` emission and any near-miss are checked
+;;      generically, not only indirectly against `mcp-base/vocab.cljc`.
+;; ---------------------------------------------------------------------------
+
+(deftest story-mcp-tool-inventory-is-filesystem-complete
+  ;; The derived inventory MUST equal a fresh listing of the tools dir —
+  ;; a tool file added/removed on disk is reflected with zero list
+  ;; maintenance. A divergence here means the derivation drifted from
+  ;; the directory (it cannot, by construction — this pins that).
+  (let [dir            (io/file fx/repo-root fx/story-mcp-tools-dir)
+        fresh-listing  (->> (.listFiles dir)
+                            (filter #(.isFile %))
+                            (map #(.getName %))
+                            (filter #(re-find #"\.cljc$" %))
+                            (map #(str fx/story-mcp-tools-dir "/" %))
+                            set)]
+    (is (= fresh-listing (set fx/story-mcp-tool-source-files))
+        (str "story-mcp tool-source inventory diverged from the "
+             "filesystem listing of " fx/story-mcp-tools-dir
+             ". Derived: " (sort fx/story-mcp-tool-source-files)
+             "\nFresh: " (sort fresh-listing)))))
+
+(deftest story-mcp-inventory-includes-historically-omitted-tool-files
+  ;; Regression for rf2-ribu5a: the two files the hand list dropped MUST
+  ;; be in the inventory. dedup.cljc had NO bespoke compensating pin, so
+  ;; its omission was a genuine false-green hole on the generic
+  ;; uncontracted-marker / near-miss sweeps.
+  (let [inventory (set fx/story-mcp-tool-source-files)]
+    (is (contains? inventory
+                   "tools/story-mcp/src/re_frame/story_mcp/tools/dedup.cljc")
+        "dedup.cljc (emits :rf.mcp/dedup-table) MUST be in the central inventory")
+    (is (contains? inventory
+                   "tools/story-mcp/src/re_frame/story_mcp/tools/cursor.cljc")
+        "cursor.cljc (routes :rf.mcp/cursor-stale) MUST be in the central inventory")))
+
+(deftest dedup-source-participates-in-generic-story-mcp-sweep
+  ;; Proves dedup.cljc is actually swept by the GENERIC story-mcp
+  ;; uncontracted-marker machinery — `story-mcp-still-emits-zero-
+  ;; uncontracted-cross-mcp-markers` iterates `fx/story-mcp-source-files`,
+  ;; so dedup.cljc must be a member. Before rf2-ribu5a it was NOT, and —
+  ;; unlike cursor.cljc — had NO bespoke compensating pin, so an
+  ;; accidental inline emission of any uncontracted canonical marker
+  ;; (e.g. `:rf.mcp/summary`) in dedup.cljc would have escaped every
+  ;; generic sweep.
+  ;;
+  ;; The participation is structural (membership in the swept set), NOT
+  ;; a literal-presence assertion: dedup.cljc emits its ONE contracted
+  ;; marker via the shared `base-vocab/dedup-table-key` SYMBOL — the
+  ;; `:rf.mcp/dedup-table` literal as DATA lives only in
+  ;; `mcp-base/vocab.cljc` (byte-identical across servers by design,
+  ;; same posture as cursor.cljc sourcing its reason from
+  ;; `vocab/cursor-stale-reason`). So the file correctly carries the
+  ;; literal only in docstrings, which the uncontracted sweep strips
+  ;; before grepping — and because `:rf.mcp/dedup-table` IS in
+  ;; story-mcp's `:servers`, the sweep skips it for dedup.cljc and fires
+  ;; only on genuinely uncontracted markers.
+  (let [dedup-rel "tools/story-mcp/src/re_frame/story_mcp/tools/dedup.cljc"]
+    (is (some #{dedup-rel} fx/story-mcp-source-files)
+        "dedup.cljc must be in the source set the uncontracted-marker sweep iterates")
+    ;; Belt-and-braces: dedup.cljc carries NO uncontracted canonical
+    ;; marker as inline data today (mirrors the green state the generic
+    ;; sweep asserts). If a future edit inline-emits one, BOTH this pin
+    ;; and the generic sweep flip RED.
+    (let [stripped          (fx/strip-comments-and-strings (fx/read-source dedup-rel))
+          uncontracted-keys (for [{:keys [key servers]} canonical-markers
+                                  :when (not (contains? servers :story-mcp))]
+                              key)]
+      (doseq [key uncontracted-keys]
+        (is (not (str/includes? stripped (marker-key->literal key)))
+            (str key " (uncontracted for story-mcp) found as inline data in "
+                 dedup-rel " — would be a cross-MCP vocabulary leak."))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Envelope indicator-field gate (rf2-2499j MUST-level pin).

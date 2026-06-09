@@ -258,6 +258,73 @@ test('Other per-feature artefact (machines) does NOT arm template_expensive — 
   assert.equal(result.template_expensive, 'false');
 });
 
+// rf2-ribu5a — epoch live-MCP-redaction routing false-green fix. The
+// re-frame2-pair live fixture resolves day8/re-frame2-epoch as a
+// :local/root, and the hermetic mcp-conformance-re-frame2-pair job's
+// INNER_TESTS include live-re-frame2-pair-redaction.cjs (the
+// egress-protection regression for the pull-mode epoch tools
+// trace-window / watch-epochs). That job is gated on mcp_live='true'.
+// Folded into the generic per-feature bucket, an
+// implementation/epoch/src/... change set NEITHER mcp_live NOR
+// mcp_conformance — so a PR breaking the epoch egress/redaction contract
+// merged GREEN at PR time (a false-green on a data-leak guard). These
+// assertions lock the dedicated epoch case arming the live gate, while
+// keeping the OTHER per-feature artefacts off it (they have no live MCP
+// dependency) so the scope stays disciplined.
+
+test('implementation/epoch/src change arms mcp_live + mcp_conformance (live redaction gate) (rf2-ribu5a)', () => {
+  const result = classify('implementation/epoch/src/re_frame/epoch.cljc');
+  assert.equal(
+    result.mcp_live,
+    'true',
+    'an epoch source change must run the live re-frame2-pair redaction gate (its only PR-time epoch egress verifier)',
+  );
+  assert.equal(result.mcp_conformance, 'true');
+});
+
+test('implementation/epoch change still arms the generic per-feature gates (regression) (rf2-ribu5a)', () => {
+  const result = classify('implementation/epoch/src/re_frame/epoch.cljc');
+  assert.equal(result.implementation_jvm, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+  assert.equal(result.cljs_prod, 'true');
+  assert.equal(result.bundle_isolation, 'true');
+});
+
+test('implementation/epoch is NOT in the scaffold — does NOT arm template_expensive (rf2-ribu5a)', () => {
+  const result = classify('implementation/epoch/src/re_frame/epoch.cljc');
+  assert.equal(result.template_expensive, 'false');
+});
+
+test('Other per-feature artefacts (machines/flows/ssr) do NOT arm mcp_live — no live MCP dep (rf2-ribu5a scope)', () => {
+  for (const file of [
+    'implementation/machines/src/re_frame/machines.cljc',
+    'implementation/flows/src/re_frame/flows.cljc',
+    'implementation/ssr/src/re_frame/ssr.cljc',
+  ]) {
+    const result = classify(file);
+    assert.equal(
+      result.mcp_live,
+      'false',
+      `${file} has no live MCP fixture dependency; it must NOT arm mcp_live`,
+    );
+    assert.equal(result.mcp_conformance, 'false', `${file} must NOT arm mcp_conformance`);
+  }
+});
+
+test('Epoch live-redaction job (mcp-conformance-re-frame2-pair) is gated on mcp_live (rf2-ribu5a)', () => {
+  // Workflow-shape pin: the job that runs live-re-frame2-pair-redaction.cjs
+  // must be job-level gated on the mcp_live output the classifier now
+  // arms for epoch source changes. If the gate output is renamed, this
+  // and the classifier routing must move together.
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'mcp-conformance-re-frame2-pair');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.mcp_live == 'true'/,
+  );
+});
+
 test('tools/template change still arms template_expensive (regression) (rf2-jdj17.1)', () => {
   const result = classify('tools/template/src/day8/re_frame2_template/hooks.clj');
   assert.equal(result.template_expensive, 'true');

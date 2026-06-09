@@ -226,7 +226,36 @@ else
         adapter_testbed_smokes=true
         story_xray_browser=true
         ;;
-      implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/epoch/*|implementation/security/*|implementation/deps.edn)
+      implementation/epoch/*)
+        # rf2-ribu5a — false-green fix. Epoch is the ONLY per-feature
+        # artefact wired into a LIVE MCP conformance gate: the
+        # re-frame2-pair live fixture
+        # (skills/re-frame2-pair/tests/fixture/deps.edn) resolves
+        # `day8/re-frame2-epoch` as a :local/root, and the hermetic
+        # `mcp-conformance-re-frame2-pair` job's INNER_TESTS include
+        # `live-re-frame2-pair-redaction.cjs` — the egress-protection
+        # regression net for the pull-mode epoch tools (trace-window /
+        # watch-epochs) that asserts a declared-sensitive epoch is
+        # WHOLE-DROPPED gate-OFF / shipped gate-ON across the MCP wire
+        # (rf2-q4o83 / rf2-5613h). That job is gated on mcp_live='true'.
+        # Folded into the generic per-feature bucket below, an
+        # `implementation/epoch/src/...` change set NEITHER mcp_live NOR
+        # mcp_conformance — so a PR that broke the epoch egress/redaction
+        # contract merged GREEN at PR time (a conformance false-green on
+        # a DATA-LEAK guard), surfacing only in the nightly cron. Split
+        # out here so epoch source changes arm the live redaction gate.
+        # All the generic per-feature gates still fire (epoch is not in
+        # the scaffold, so no template_expensive; not baked into the SCI
+        # bundle, so no playground).
+        implementation_jvm=true
+        cljs_node_test=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        mcp_conformance=true
+        mcp_live=true
+        ;;
+      implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/security/*|implementation/deps.edn)
         # rf2-8jz9t — adapter_testbed_smokes NOT fired here. Per-feature
         # artefact changes are covered by their own JVM + CLJS unit
         # suites (implementation_jvm, cljs_browser, cljs_prod) and by
@@ -250,9 +279,10 @@ else
         # template_expensive for an implementation/schemas/* change so
         # jvm-tools-template runs the emitted-app compile at PR time.
         # (The other per-feature artefacts here — machines/routing/flows/
-        # http/ssr/ssr-ring/epoch — are NOT pulled into today's scaffold,
+        # http/ssr/ssr-ring — are NOT pulled into today's scaffold,
         # so they do not arm template_expensive; add them here if a future
-        # scaffold flag wires one in.)
+        # scaffold flag wires one in. epoch has its own case above,
+        # rf2-ribu5a.)
         case "$file" in
           implementation/schemas/*) template_expensive=true ;;
         esac

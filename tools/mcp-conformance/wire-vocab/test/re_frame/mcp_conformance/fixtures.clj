@@ -115,24 +115,46 @@
 ;; others. Centralised here so "the files story-mcp ships" has one home.
 ;; ---------------------------------------------------------------------------
 
+;; rf2-ribu5a — filesystem-derived, NOT hand-maintained. The previous
+;; hand list ran through `recorder.cljc` but silently omitted
+;; `dedup.cljc` (emits the cross-MCP `:rf.mcp/dedup-table` marker) and
+;; `cursor.cljc` (routes the cross-MCP `:rf.mcp/cursor-stale` marker) —
+;; exactly the drift these absence-tripwires exist to prevent,
+;; reproduced inside the gate. A dropped/added tool file could escape
+;; the generic near-miss / uncontracted-marker sweeps because the
+;; inventory was edited by hand and fell behind the directory. Deriving
+;; the set from the directory listing makes "the files story-mcp ships"
+;; literally the files on disk: a new tool file is swept the moment it
+;; lands, with zero list maintenance.
+(def story-mcp-tools-dir
+  "Repo-relative path to story-mcp's `tools/` source directory — the
+  single home of the per-category tool handlers plus the shared
+  registry / wire-pipeline / result / args / egress / cljs-resolve /
+  schemas plumbing. `story-mcp-tool-source-files` is derived from a
+  filesystem listing of `*.cljc` files here."
+  "tools/story-mcp/src/re_frame/story_mcp/tools")
+
 (def story-mcp-tool-source-files
-  "The story-mcp `tools/*.cljc` source files — the per-category tool
-  handlers plus the registry / wire-pipeline / result / args / egress
-  / cljs-resolve / schemas plumbing they share. This is the surface
-  the slot-name and indicator near-miss tripwires grep (the slots
-  live in the tool bodies, not the wire framing)."
-  ["tools/story-mcp/src/re_frame/story_mcp/tools/wire_pipeline.cljc"
-   "tools/story-mcp/src/re_frame/story_mcp/tools/registry.cljc"
-   "tools/story-mcp/src/re_frame/story_mcp/tools/result.cljc"
-   "tools/story-mcp/src/re_frame/story_mcp/tools/args.cljc"
-   "tools/story-mcp/src/re_frame/story_mcp/tools/cljs_resolve.cljc"
-   "tools/story-mcp/src/re_frame/story_mcp/tools/egress.cljc"
-   "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"
-   "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"
-   "tools/story-mcp/src/re_frame/story_mcp/tools/docs.cljc"
-   "tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
-   "tools/story-mcp/src/re_frame/story_mcp/tools/write.cljc"
-   "tools/story-mcp/src/re_frame/story_mcp/tools/recorder.cljc"])
+  "The story-mcp `tools/*.cljc` source files — derived from a
+  filesystem listing of `story-mcp-tools-dir`, NOT a hand-maintained
+  list (rf2-ribu5a). This is the surface the slot-name and indicator
+  near-miss tripwires grep (the slots live in the tool bodies, not the
+  wire framing). Sorted for deterministic iteration order. Fails loudly
+  if the directory is missing or empty — a story-mcp source-tree move
+  must surface here, not silently shrink the sweep to nothing."
+  (let [dir (io/file repo-root story-mcp-tools-dir)
+        files (->> (.listFiles dir)
+                   (filter #(.isFile %))
+                   (map #(.getName %))
+                   (filter #(re-find #"\.cljc$" %))
+                   sort
+                   (mapv #(str story-mcp-tools-dir "/" %)))]
+    (when (empty? files)
+      (throw (ex-info (str "story-mcp tools dir yielded zero *.cljc files — "
+                           "the source tree moved or the path drifted: "
+                           story-mcp-tools-dir)
+                      {:dir (.getAbsolutePath dir)})))
+    files))
 
 (def story-mcp-source-files
   "Every story-mcp source file the cross-MCP-marker absence tripwires
