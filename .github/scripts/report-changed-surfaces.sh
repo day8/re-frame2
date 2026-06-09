@@ -315,6 +315,27 @@ else
         cljs_prod=true
         bundle_isolation=true
         reagent_slim_bundle=true
+        # rf2-6yuzo4 — template npm-pin lockstep. The template's hooks.clj
+        # pins :shadow-version + :react-version, and version_lockstep_test
+        # asserts those emitted pins match implementation/package.json's
+        # react / react-dom / shadow-cljs entries (the source of truth).
+        # The emitted-app smoke (emitted_test_run_test, the ONLY PR-time
+        # gate that compiles + runs the generated project) symlinks
+        # implementation/node_modules — populated from
+        # implementation/package-lock.json — into the scaffold so React
+        # resolves. So a PR that bumps those package.json pins, or the
+        # lockfile the smoke links against, must run jvm-tools-template:
+        # otherwise the template keeps emitting a stale pin (or links a
+        # drifted node_modules) and merges GREEN while breaking the
+        # lockstep contract + the advertised smoke-tested combination.
+        # Scoped to package.json + the lockfile; shadow-cljs.edn and
+        # implementation/scripts/* don't carry the emitted npm pins, so
+        # they stay off template_expensive (the nightly full matrix
+        # covers any build-config drift they can introduce).
+        case "$file" in
+          implementation/package.json|implementation/package-lock.json)
+            template_expensive=true ;;
+        esac
         ;;
       examples/*)
         # rf2-bxdk8 + rf2-cjp0i + rf2-8cevm — examples/** is test-free.

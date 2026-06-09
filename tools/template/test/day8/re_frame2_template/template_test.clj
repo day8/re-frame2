@@ -227,6 +227,67 @@
             (is (.contains readme-text "License-MIT")
                 "README ships a License badge"))
 
+          ;; -- README hot-reload contract accuracy (rf2-8n4s71 #2) --
+          ;; The generated README MUST describe the ACTUAL rf/init!
+          ;; contract (implementation/core/src/re_frame/core.cljc init!;
+          ;; pinned by implementation/core/test/re_frame/boot_test.clj):
+          ;; init! is idempotent — it installs the adapter ONLY when none
+          ;; is seated and ensures :rf/default; a second call does NOT
+          ;; re-install the adapter, snapshot the registrar, or reset
+          ;; app-db. The earlier README overstated this ("each call to
+          ;; init! snapshots the registrar, re-installs the adapter, and
+          ;; resets the frame's app-db"), teaching a false mental model.
+          ;; The reset boundary is the starter's explicit
+          ;; dispatch-sync [:counter/initialise] in core.cljs, not init!.
+          (let [readme-text (slurp (io/file root "README.md"))
+                ;; Scope the false-claim greps to the Hot reload section
+                ;; (from its heading to the next ## heading) so an honest
+                ;; mention elsewhere (e.g. the adapter API discussion)
+                ;; can't trip them.
+                hot-reload-start (.indexOf readme-text "## Hot reload")
+                hot-reload-end   (let [i (.indexOf readme-text "\n## " (inc hot-reload-start))]
+                                   (if (neg? i) (count readme-text) i))
+                hot-reload-sec   (subs readme-text hot-reload-start hot-reload-end)]
+            (is (not (neg? hot-reload-start))
+                "README has a Hot reload section")
+            ;; The actual contract is stated.
+            (is (.contains readme-text "dispatch-sync [:counter/initialise]")
+                "README names the explicit dispatch-sync [:counter/initialise]
+                 as what re-seeds the demo state on reload (the reset
+                 boundary — rf2-8n4s71 #2)")
+            ;; The false claims must be gone — init! by itself does none
+            ;; of these (boot_test.clj pins the second-call no-op).
+            (is (not (.contains hot-reload-sec "snapshots the registrar"))
+                "README Hot reload section must NOT claim rf/init! snapshots
+                 the registrar — boot_test.clj pins the second call as a
+                 no-op (rf2-8n4s71 #2)")
+            (is (not (.contains hot-reload-sec "re-installs the adapter"))
+                "README Hot reload section must NOT claim rf/init! re-installs
+                 the adapter on each call — it installs ONLY when none is
+                 seated (core.cljc init!; rf2-8n4s71 #2)")
+            (is (not (.contains hot-reload-sec "resets the frame's app-db"))
+                "README Hot reload section must NOT claim rf/init! resets
+                 app-db by itself — the explicit dispatch-sync
+                 [:counter/initialise] is the reset boundary (rf2-8n4s71 #2)"))
+
+          ;; -- README Xray host wording — right-side, not left (rf2-8n4s71 #3) --
+          ;; The emitted index.html orders <main id="app"> BEFORE
+          ;; <aside data-rf-xray-host> and app.css documents/implements a
+          ;; RIGHT-side host (pinned by the Xray layout-host audit in
+          ;; template_emission_test.clj; matches
+          ;; tools/xray/spec/011-Launch-Modes.md). The README must agree
+          ;; — it previously said "left layout column", contradicting the
+          ;; emitted layout + the Xray spec.
+          (let [readme-text (slurp (io/file root "README.md"))]
+            (is (not (.contains readme-text "left layout column"))
+                "README must NOT call the Xray host a 'left layout column' —
+                 the emitted index.html/app.css ship a RIGHT-side host
+                 (rf2-8n4s71 #3)")
+            (is (re-find #"right-side layout host" readme-text)
+                "README describes the Xray host as a right-side layout host
+                 (matches the emitted index.html/app.css + Xray spec —
+                 rf2-8n4s71 #3)"))
+
           ;; -- Baseline CI workflow (rf2-k2z79) --
           (let [ci-text (slurp (io/file root ".github/workflows/ci.yml"))]
             (is (.contains ci-text "name: ci")

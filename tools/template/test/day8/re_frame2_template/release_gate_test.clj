@@ -55,6 +55,15 @@
     (when (and start end (< start end))
       (subs yaml start end))))
 
+(defn- github-release-job
+  "The `github-release:` job block — from the job key to end-of-file
+  (it is the last job). Scopes the Release-body assertions to the job
+  that cuts the GitHub Release."
+  [yaml]
+  (let [start (string/index-of yaml "\n  github-release:")]
+    (when start
+      (subs yaml start))))
+
 (deftest release-gate-exists-test
   (testing "the template release workflow is present and tag-triggered"
     (let [yaml (release-workflow-text)]
@@ -102,3 +111,37 @@
         (is (re-find #"clojure -M:test" job)
             "test-template must run `clojure -M:test` from tools/template
              (the suite the env var + node_modules unlock).")))))
+
+(deftest release-body-carries-pre-split-caveat-test
+  (testing "the GitHub Release body warns the pre-split, local-root-only
+            release is NOT a usable public scaffold (rf2-8n4s71 #1)"
+    (let [yaml (release-workflow-text)
+          job  (some-> yaml github-release-job)]
+      (is (some? job)
+          "could not isolate the github-release job block — has it been
+           renamed or removed?")
+      (when job
+        ;; The pre-release gate proves only "generated code compiles
+        ;; after the emitted framework coords are rewritten to monorepo
+        ;; :local/root paths" (emitted_test_run_test.clj). It does NOT
+        ;; prove the emitted :mvn/version coords resolve — they are
+        ;; unpublished and the io.github.day8/re-frame2-template git-coord
+        ;; does not resolve until the repo split. So the cut Release MUST
+        ;; carry a loud caveat: otherwise a `template-v…` tag advertises a
+        ;; usable public scaffold that fails at the first consumer's
+        ;; dependency resolution (the very false-green this guards).
+        (is (re-find #"(?i)not\s+(yet\s+)?a usable public scaffold" job)
+            "the GitHub Release body must state the pre-split release is
+             NOT a usable public scaffold — the emitted coords don't
+             resolve until the template repo split (rf2-8n4s71 #1).")
+        (is (string/includes? job "rf2-8n4s71")
+            "the Release-body caveat must cite rf2-8n4s71 so the
+             provenance of the pre-split warning is traceable.")
+        (is (re-find #"(?i):local/root" job)
+            "the Release-body caveat must name the :local/root rewrite —
+             the reason the gate proves 'compiles' but not 'coords
+             resolve' (rf2-8n4s71 #1).")
+        (is (re-find #"(?i)not\s+published|do(es)?\s+not\s+resolve" job)
+            "the Release-body caveat must say the framework coords are
+             not published / the git-coord does not resolve pre-split
+             (rf2-8n4s71 #1).")))))

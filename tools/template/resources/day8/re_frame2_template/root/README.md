@@ -27,27 +27,38 @@ file save) are fast.
 `shadow-cljs watch` rebuilds on every file save and re-invokes
 `{{namespace}}.core/init` — shadow's `:browser` target re-runs the
 module's `:init-fn` automatically after each hot reload, so no
-`:after-load` hook is needed. The entry fn is **idempotent**:
-re-frame2's
-`rf/init!` accepts being called repeatedly, the registrar
-re-registers in place, and `dispatch-sync [:counter/initialise]`
-re-seeds app-db.
+`:after-load` hook is needed. Two distinct mechanisms combine to give
+you a clean reload:
 
-Under the hood re-frame2 guarantees a **per-frame re-init contract**:
-each call to `init!` on a frame snapshots the registrar, re-installs
-the adapter, and resets the frame's app-db to a known state — your
-handlers and subs come back wired to the new code without leaking
-state from the previous build. Add new `reg-event-db` / `reg-sub` /
-`reg-view` forms and they show up live; rename or remove a handler
-and the next reload drops the old registration.
+1. **Namespace reload re-runs your registrations.** Reloading
+   `events.cljs` / `subs.cljs` / `views.cljs` re-evaluates the
+   `reg-event-db` / `reg-sub` / `reg-view` forms at the top level, so
+   each handler / sub / view re-registers in place against the new
+   code. Add a new `reg-*` form and it shows up live; rename or remove
+   a handler and the next reload drops the old registration.
+
+2. **`rf/init!` is safe to re-call but does NOT reset anything by
+   itself.** It is idempotent: it installs the substrate adapter **only
+   when none is already seated** and ensures the `:rf/default` frame
+   exists. A second call (which every hot reload makes) does **not**
+   re-install the adapter, does **not** snapshot the registrar, and
+   does **not** touch app-db. So `init!` running again is a no-op for
+   your state.
+
+The thing that re-seeds the demo state on reload is the entry fn's own
+explicit `rf/dispatch-sync [:counter/initialise]` call in `core.cljs`
+— not `init!`. That is the reset boundary: the `:counter/initialise`
+event handler writes the starter app-db, so editing it (or removing
+the `dispatch-sync` call) is what changes what a reload re-seeds.
 
 ## In-app devtools (Xray)
 
 `shadow-cljs.edn` wires `day8.re-frame2-xray.preload` into
 `:devtools/preloads` on the `:app` build — the scaffold ships Xray
 **on by default** for development. `resources/public/index.html`
-includes the `[data-rf-xray-host]` left layout column, so Xray
-auto-opens beside your app once `rf/init!` runs. Press
+includes the `[data-rf-xray-host]` right-side layout host (the
+`<aside>` follows `<main id="app">`, so it lays out to the right), so
+Xray auto-opens beside your app once `rf/init!` runs. Press
 **Ctrl+Shift+C** to hide/show it: per-epoch dispatch log, app-db diff,
 causality graph, time-travel scrubber.
 Release builds drop the preload automatically (shadow only runs
