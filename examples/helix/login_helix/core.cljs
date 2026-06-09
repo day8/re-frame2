@@ -144,96 +144,102 @@
 ;; STATE MACHINE
 ;; ============================================================================
 
-(rf/reg-event-fx :auth.login/flow
+;; rf2-wgmipl — the machine + event-vector-schema shape: `reg-machine`'s
+;; event-`:schema` arity carries the event `:schema` (the `:where :event`
+;; boundary on the dispatched outer vector) alongside the machine spec.
+;; `reg-machine` is the single registration home — it stamps the
+;; `:rf/machine?` / `:rf/machine` metadata and (for a machine carrying a
+;; `:data-schema`) bridges its redaction marks, replacing the former
+;; hand-composed `reg-event-fx` + `make-machine-handler` form.
+(rf/reg-machine :auth.login/flow
   {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
    :schema AuthLoginEvent}
-  (rf/make-machine-handler
-    {:initial :idle
-     :data    {:attempts 0 :error nil}
+  {:initial :idle
+   :data    {:attempts 0 :error nil}
 
-     :guards
-     {:under-retry-limit
-      (fn [{data :data}] (< (:attempts data) 3))}
+   :guards
+   {:under-retry-limit
+    (fn [{data :data}] (< (:attempts data) 3))}
 
-     :actions
-     {:clear-error
-      (fn [_] {:data {:error nil}})
+   :actions
+   {:clear-error
+    (fn [_] {:data {:error nil}})
 
-      :issue-request
-      (fn [{[_ creds] :event}]
-        {:fx [[:rf.http/managed
-               {:request    {:method :post
-                             :url    "/api/login"
-                             :body   creds
-                             :request-content-type :json}
-                :decode     :json
-                :on-success [:auth.login/flow [:auth.login/success]]
-                :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
+    :issue-request
+    (fn [{[_ creds] :event}]
+      {:fx [[:rf.http/managed
+             {:request    {:method :post
+                           :url    "/api/login"
+                           :body   creds
+                           :request-content-type :json}
+              :decode     :json
+              :on-success [:auth.login/flow [:auth.login/success]]
+              :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
 
-      :record-error
-      (fn [{data :data [_ {:keys [failure]}] :event}]
-        {:data (-> data
-                   (update :attempts inc)
-                   (assoc :error (or (:message failure) "Login failed.")))})
+    :record-error
+    (fn [{data :data [_ {:keys [failure]}] :event}]
+      {:data (-> data
+                 (update :attempts inc)
+                 (assoc :error (or (:message failure) "Login failed.")))})
 
-      :lock-account
-      ;; Fire-and-forget telemetry beacon (Spec 014 §Reply addressing
-      ;; "Silenced"): the lockout POST wants no reply folded back into the
-      ;; machine. `:on-success nil` / `:on-failure nil` silence both reply
-      ;; branches explicitly — without them the omitted-target default
-      ;; (co-located addressing) would dispatch
-      ;; `[:auth.login/flow {:rf/reply ...}]`, a map in the sub-event slot
-      ;; that `AuthLoginEvent` rejects, stranding noise after lockout.
-      (fn [_]
-        {:fx [[:rf.http/managed
-               {:request    {:method :post :url "/api/auth/lock"}
-                :on-success nil
-                :on-failure nil}]]})
+    :lock-account
+    ;; Fire-and-forget telemetry beacon (Spec 014 §Reply addressing
+    ;; "Silenced"): the lockout POST wants no reply folded back into the
+    ;; machine. `:on-success nil` / `:on-failure nil` silence both reply
+    ;; branches explicitly — without them the omitted-target default
+    ;; (co-located addressing) would dispatch
+    ;; `[:auth.login/flow {:rf/reply ...}]`, a map in the sub-event slot
+    ;; that `AuthLoginEvent` rejects, stranding noise after lockout.
+    (fn [_]
+      {:fx [[:rf.http/managed
+             {:request    {:method :post :url "/api/auth/lock"}
+              :on-success nil
+              :on-failure nil}]]})
 
-      :store-session
-      (fn [{[_ {:keys [value]}] :event}]
-        {:fx [[:auth.session/store {:token (:token value)}]]})}
+    :store-session
+    (fn [{[_ {:keys [value]}] :event}]
+      {:fx [[:auth.session/store {:token (:token value)}]]})}
 
-     :states
-     {:idle
-      {:on {:auth.login/submit {:target :submitting
-                                :action :clear-error}}}
+   :states
+   {:idle
+    {:on {:auth.login/submit {:target :submitting
+                              :action :clear-error}}}
 
-      :submitting
-      ;; :auth/busy tag — views query
-      ;; [:rf/machine-has-tag? :auth.login/flow :auth/busy] to disable
-      ;; inputs and re-label the submit button while the request is in
-      ;; flight.
-      {:tags  #{:auth/busy}
-       :entry :issue-request
-       :on    {:auth.login/success {:target :authed
-                                    :action :store-session}
-               :auth.login/failure [{:target :error-shown
-                                     :guard  :under-retry-limit
-                                     :action :record-error}
-                                    {:target :locked-out
-                                     :action :lock-account}]}}
+    :submitting
+    ;; :auth/busy tag — views query
+    ;; [:rf/machine-has-tag? :auth.login/flow :auth/busy] to disable
+    ;; inputs and re-label the submit button while the request is in
+    ;; flight.
+    {:tags  #{:auth/busy}
+     :entry :issue-request
+     :on    {:auth.login/success {:target :authed
+                                  :action :store-session}
+             :auth.login/failure [{:target :error-shown
+                                   :guard  :under-retry-limit
+                                   :action :record-error}
+                                  {:target :locked-out
+                                   :action :lock-account}]}}
 
-      :error-shown
-      {:on {:auth.login/dismiss {:target :idle}
-            :auth.login/submit  {:target :submitting}}}
+    :error-shown
+    {:on {:auth.login/dismiss {:target :idle}
+          :auth.login/submit  {:target :submitting}}}
 
-      :authed
-      ;; :auth/authenticated tag — the banner swaps to "Welcome!" once
-      ;; the flow reaches this terminal state.
-      {:tags #{:auth/authenticated}
-       :meta {:terminal? true}}
+    :authed
+    ;; :auth/authenticated tag — the banner swaps to "Welcome!" once
+    ;; the flow reaches this terminal state.
+    {:tags #{:auth/authenticated}
+     :meta {:terminal? true}}
 
-      :locked-out
-      ;; :auth/locked tag — after the fourth failed submit the flow lands
-      ;; in this terminal state. Views query
-      ;; [:rf/machine-has-tag? :auth.login/flow :auth/locked] to swap the
-      ;; form for a locked-account panel and refuse further submits — same
-      ;; tag + locked-panel pattern as the state-machines walkthrough. A
-      ;; terminal lockout must be visible and non-interactive, not a live
-      ;; form (rf2-q6bm7d).
-      {:tags #{:auth/locked}
-       :meta {:terminal? true}}}}))
+    :locked-out
+    ;; :auth/locked tag — after the fourth failed submit the flow lands
+    ;; in this terminal state. Views query
+    ;; [:rf/machine-has-tag? :auth.login/flow :auth/locked] to swap the
+    ;; form for a locked-account panel and refuse further submits — same
+    ;; tag + locked-panel pattern as the state-machines walkthrough. A
+    ;; terminal lockout must be visible and non-interactive, not a live
+    ;; form (rf2-q6bm7d).
+    {:tags #{:auth/locked}
+     :meta {:terminal? true}}}})
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

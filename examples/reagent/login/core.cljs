@@ -71,7 +71,7 @@
             [re-frame.schemas]
             ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
-            ;; registers its late-bind hooks so rf/make-machine-handler
+            ;; registers its late-bind hooks so rf/reg-machine
             ;; (called below at ns-load) and the `:rf/machine` framework
             ;; sub resolve.
             [re-frame.machines]
@@ -141,7 +141,7 @@
 ;; the whole `{:state … :data …}` snapshot, and not an app-db path. So
 ;; this schema describes the `:data` map (`:attempts` + `:error`) the
 ;; machine seeds and the actions evolve; it is attached via the machine's
-;; `:data-schema` slot on the `make-machine-handler` spec below and
+;; `:data-schema` slot on the `reg-machine` spec below and
 ;; validates at the `:where :machine-data` boundary.
 (def AuthLoginData
   [:map
@@ -235,10 +235,7 @@
 ;; maps and are referenced by keyword from the transition table; resolution
 ;; is machine-local (no global registry).
 
-;; The login flow's machine spec. Bound to a `def` (rather than inlined into
-;; `reg-event-fx`) so the SAME spec value can be both built into the handler
-;; AND stamped onto the registration metadata as `:rf/machine` — see the
-;; registration note below.
+;; The login flow's machine spec.
 (def auth-login-machine
   ;; Per Spec 005 §Where snapshots live: the spec map does NOT carry :id;
   ;; the machine's id is the surrounding registration id.
@@ -246,9 +243,9 @@
    ;; Spec 010 §Machine data schema — `:data-schema` validates the
    ;; snapshot's `:data` slot (not the whole snapshot) at the
    ;; `:where :machine-data` boundary. The macrostep walker resolves it
-   ;; via `(machine-meta :auth.login/flow)`, so the registration below
-   ;; MUST stamp `:rf/machine?` / `:rf/machine` for this to validate.
-   ;; Malformed `:data` (e.g. a non-string `:error`) fails the run with
+   ;; via `(machine-meta :auth.login/flow)`; the `reg-machine` event-`:schema`
+   ;; arity below stamps the machine metadata that makes it live. Malformed
+   ;; `:data` (e.g. a non-string `:error`) fails the run with
    ;; `:rf.error/schema-validation-failure :where :machine-data`.
    :data-schema AuthLoginData
    :data    {:attempts 0 :error nil}
@@ -350,29 +347,27 @@
 ;; Register the machine as the `:auth.login/flow` event handler.
 ;;
 ;; This machine ALSO validates its dispatched event VECTOR (against
-;; `AuthLoginEvent`), so it can't use the bare `(reg-machine :id spec)`
-;; macro — that surface takes no event `:schema`. Instead we register via
-;; `reg-event-fx` with the machine handler and stamp the SAME metadata
-;; `reg-machine` would (`:rf/machine? true` + `:rf/machine spec`) alongside
-;; the event `:schema`. The `:rf/machine?` / `:rf/machine` keys are what
-;; `(machine-meta :auth.login/flow)` reads, and the `:where :machine-data`
-;; macrostep walker resolves the `:data-schema` THROUGH that metadata — so
-;; without these keys the `:data-schema` above would never validate (it
-;; would be dead documentation). This is the documented "machine + event-
-;; vector schema" idiom (the login / realworld auth shape).
-(rf/reg-event-fx :auth.login/flow
-  {:doc        "Login flow: idle → submitting → authed / error-shown / locked-out."
-   :schema     AuthLoginEvent
-   :rf/machine? true
-   :rf/machine  auth-login-machine}
-  (rf/make-machine-handler auth-login-machine))
+;; `AuthLoginEvent`), so it uses `reg-machine`'s event-`:schema` arity
+;; (rf2-wgmipl): the optional opts map carries the event `:schema` (the
+;; `:where :event` boundary on the dispatched outer vector) alongside the
+;; machine spec. `reg-machine` is the blessed registration home — it stamps
+;; the `:rf/machine?` / `:rf/machine` metadata that `(machine-meta
+;; :auth.login/flow)` reads (so the `:where :machine-data` walker resolves the
+;; `:data-schema` and it VALIDATES) AND bridges the schema's `:sensitive?` /
+;; `:large?` slots into snapshot-egress redaction — both in one place. The
+;; former hand-stamped `reg-event-fx` + `make-machine-handler` composition
+;; (which ran neither side-effect automatically) is gone.
+(rf/reg-machine :auth.login/flow
+  {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
+   :schema AuthLoginEvent}
+  auth-login-machine)
 
 ;; ============================================================================
 ;; EVENTS  (CP-1)
 ;; ============================================================================
 ;;
-;; The machine handler (registered above as :auth.login/flow via reg-event-fx
-;; + make-machine-handler) is self-initialising: its `:initial` state and
+;; The machine handler (registered above as :auth.login/flow via reg-machine)
+;; is self-initialising: its `:initial` state and
 ;; `:data` seed [:rf.runtime/machines :snapshots :auth.login/flow] when the machine first runs.
 ;; No separate :initialise event is required (per [005 §Restore semantics]).
 ;;

@@ -803,11 +803,31 @@ Alongside the underlying `reg-event-fx + make-machine-handler` form (per [§Regi
    :states  { ... }})
 ```
 
-**Surface signature.** Two arities of two forms:
+**Surface signature.** Two forms, each with a bare arity and an **event-`:schema` arity** (rf2-wgmipl):
 
-- `(rf/reg-machine machine-id machine)` — **macro**. Walks the literal spec form at expansion time and CO-LOCATES per-element source onto each guard / action / on-spawn-action entry, plus a reference-site `:source-coords` co-located onto each map node (state-node / transition map) inside the `:states` tree (per [§Source-coord stamping](#source-coord-stamping)). The macro emits `(reg-machine* …)` after stamping; the runtime call site is the plain-fn surface.
-- `(rf/reg-machine* machine-id machine)` — **plain fn**. Equivalent to `(reg-event-fx machine-id (make-machine-handler machine))` plus the registration-metadata stamp. No source-coord walking — the spec is opaque data at the call site.
+- `(rf/reg-machine machine-id machine)` / `(rf/reg-machine machine-id opts machine)` — **macro**. Walks the literal spec form at expansion time and CO-LOCATES per-element source onto each guard / action / on-spawn-action entry, plus a reference-site `:source-coords` co-located onto each map node (state-node / transition map) inside the `:states` tree (per [§Source-coord stamping](#source-coord-stamping)). The macro emits `(reg-machine* …)` after stamping; the runtime call site is the plain-fn surface. The optional `opts` precedes the spec.
+- `(rf/reg-machine* machine-id machine)` / `(rf/reg-machine* machine-id machine opts)` — **plain fn**. Routes through the single registration home (below) — the `:rf/machine?` / `:rf/machine` registration-metadata stamp AND the `:data-schema` redaction-marks bridge. No source-coord walking — the spec is opaque data at the call site. The optional `opts` follows the spec.
 - `(rf/defmachine name [doc] spec)` — **macro** (`def`-shape). Defines a Var holding the spec value with per-element source stamped at the definition site, for the `def`-then-register shape `(defmachine m {…})` / `(reg-machine :id m)`. Does not register. See [§Value-registered machines](#value-registered-machines--defmachine).
+
+**The event-`:schema` arity — machine + event-vector schema (rf2-wgmipl).** `opts` is an optional registration-metadata map. Its `:schema` key is the validator for the dispatched **outer event vector** — the `:where :event` boundary (per [010 §Validation order](010-Schemas.md)) that runs *before* the machine handler. This is the **machine + event-vector-schema shape** (login / realworld auth): a machine that validates BOTH its `:data` (via the spec's top-level `:data-schema`, the `:where :machine-data` boundary) AND its inbound event vector (via the opts `:schema`, the `:where :event` boundary). Any other `opts` keys (`:doc`, `:rf.http/decode-schemas`, …) ride onto the registration metadata verbatim. The framework-owned `:rf/machine?` / `:rf/machine` keys are stamped by the home and MUST NOT appear in `opts` (supplying them raises `:rf.error/machine-reserved-meta-in-opts`).
+
+```clojure
+(rf/reg-machine :auth.login/flow
+  {:schema AuthLoginEvent}            ;; validates the OUTER event vector (:where :event)
+  {:initial     :idle
+   :data-schema AuthLoginData          ;; validates the machine's :data (:where :machine-data)
+   :data        {:attempts 0 :error nil}
+   :states      { ... }})
+```
+
+Before rf2-wgmipl this shape could not be expressed through `reg-machine` (which took only `[machine-id machine]`) — apps hand-composed `(reg-event-fx id {:schema … :rf/machine? true :rf/machine spec} (make-machine-handler spec))`, which (rf2-genufr) silently skipped the `:data-schema`'s validation AND its redaction marks. The event-`:schema` arity replaces that composition.
+
+**The single registration home + auto-stamp + fail-loud guard (rf2-genufr).** Both `reg-machine` / `reg-machine*` (every arity) route through ONE registration home that runs BOTH `:data-schema` side-effects:
+
+1. the `:rf/machine?` / `:rf/machine` registration-metadata stamp — the `:where :machine-data` post-commit walker resolves a machine's `:data-schema` THROUGH `(machine-meta id)`, so without the stamp the schema validates nothing; and
+2. the **redaction-marks bridge** (`register-data-schema-marks!`, per [§Privacy — redacting machine `:data` at trace egress](#privacy--redacting-machine-data-at-trace-egress)) — a `:sensitive?` / `:large?` per-slot marker on the `:data-schema` must redact at snapshot egress, not leak raw to the trace bus / AI-MCP.
+
+The bare `(reg-event-fx id meta (make-machine-handler spec))` composition ran NEITHER automatically — so a `:data-schema` declared on a hand-stamped machine was both **inert** (validated nothing) and a **privacy leak** (a sensitive `:data` slot egressed raw). `make-machine-handler` therefore **fails loud** when handed a `:data-schema`-bearing spec outside the home: it raises `:rf.error/machine-schema-requires-reg-machine`, directing the author to `reg-machine` / `reg-machine*` (and, when the machine also validates its event vector, the event-`:schema` arity). A schema-LESS spec is unaffected — it has nothing inert to leak, so the bare `reg-event-fx` + `make-machine-handler` composition stays legal for it (the lazy spawned-actor materialisation seam relies on it).
 
 Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact, per [Conventions.md](Conventions.md)) and are re-exported under `re-frame.core` for both JVM and CLJS callers. See [API.md §Machines](API.md#machines) for the canonical API table.
 
@@ -829,7 +849,9 @@ The `reg-machine` convenience surface splits along Clojure's `let` / `let*`, `fn
 | Form | Shape | Source-coord stamping | Use case |
 |---|---|---|---|
 | `(rf/reg-machine machine-id machine-spec)` | **macro** | Yes when `machine-spec` is an inline literal — call-site coords on the registry slot, AND co-located per-element source on each guard / action / on-spawn-action entry + reference-site `:source-coords` co-located onto each `:states`-tree map node, walked from the literal spec form (per [§Source-coord stamping](#source-coord-stamping)). When `machine-spec` is a symbol / non-literal, only the call-site coords are stamped (per-element source comes from `defmachine` instead). | Standard form. Inline literal → full capture; value-registered (symbol) → pair with `defmachine` ([§Value-registered machines](#value-registered-machines--defmachine)). |
+| `(rf/reg-machine machine-id opts machine-spec)` | **macro** | Same as the bare macro arity — `opts` is a runtime metadata expression (not walked) carrying the event-vector `:schema`. | The **machine + event-vector-schema shape** (login / realworld auth): a machine that ALSO validates its inbound event vector. |
 | `(rf/reg-machine* machine-id machine-spec)` | plain fn | None — the call-site predates the registration; the spec is opaque data | Code-gen pipelines that produce specs at runtime, REPL exploration, conformance harnesses that synthesise machines from EDN fixtures. |
+| `(rf/reg-machine* machine-id machine-spec opts)` | plain fn | None | Programmatic registration of the machine + event-vector-schema shape (the plain-fn counterpart of the opts macro arity). |
 | `(rf/defmachine name [doc] spec)` | **macro** (`def`-shape) | Yes — walks the inline literal `spec` at the **definition site** and co-locates per-element source + the reference-site `:source-coords` on each `:states`-tree map node onto the def'd value (per [§Value-registered machines](#value-registered-machines--defmachine)). Does not register — pair with `(reg-machine id name)`. | The `def`-then-register shape: `(defmachine m {…})` then `(reg-machine :id m)` so a value-registered machine carries per-element source. |
 
 The `reg-machine` / `defmachine` macros live at the `re-frame.core` boundary; the plain-fn surface lives in `re-frame.machines/reg-machine*` and is exposed publicly under `re-frame.core/reg-machine*` for both JVM and CLJS programmatic callers. The inline `reg-machine` macro emits `(reg-machine* …)` after stamping; the runtime never reaches both surfaces independently.

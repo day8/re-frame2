@@ -326,13 +326,30 @@
      stamping; the `:source-*` slots are dev-only — DCE'd under
      `goog.DEBUG=false`). Implementation ships in `day8/re-frame2-machines`
      (rf2-xbtj / rf2-npvsx / rf2-vqja2). For runtime registration use
-     `reg-machine*`."
-     [machine-id machine]
-     (rm/expand-reg-machine (meta &form)
-                            (symbol (str (ns-name *ns*)))
-                            *file*
-                            machine-id
-                            machine)))
+     `reg-machine*`.
+
+     Per rf2-wgmipl an optional `opts` registration-metadata map may precede
+     the spec — `(reg-machine machine-id opts machine)`. Its `:schema` key
+     validates the dispatched OUTER event vector at the `:where :event`
+     boundary, so a machine that needs BOTH a live `:data-schema` AND an
+     event-vector schema (the login / realworld auth shape) is expressible
+     through this blessed surface — no hand-stamped `reg-event-fx` +
+     `make-machine-handler` composition. The framework-owned `:rf/machine?` /
+     `:rf/machine` keys are stamped by the registration home and MUST NOT
+     appear in `opts`."
+     ([machine-id machine]
+      (rm/expand-reg-machine (meta &form)
+                             (symbol (str (ns-name *ns*)))
+                             *file*
+                             machine-id
+                             machine))
+     ([machine-id opts machine]
+      (rm/expand-reg-machine (meta &form)
+                             (symbol (str (ns-name *ns*)))
+                             *file*
+                             machine-id
+                             machine
+                             opts))))
 
 ;; ---- defmachine (value-registered per-element source capture; rf2-gwj8l) -
 ;;
