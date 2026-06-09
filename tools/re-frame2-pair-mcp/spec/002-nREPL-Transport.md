@@ -86,11 +86,23 @@ transport and registers handlers; the first `tools/call` triggers the
 five-step cascade.
 
 **Per-tool-call port-file re-read.** After the initial discovery, each
-subsequent tool call re-reads `<project-home>/.shadow-cljs/nrepl.port`
-before using the cached socket. If the port has changed (shadow was
-restarted; the dev server picks a fresh ephemeral port on each `watch`
-start), the cached socket is closed and a new one opened transparently.
-If the port file vanished, discovery re-runs from step 1.
+subsequent tool call re-reads **the exact port-file discovery resolved**
+before using the cached socket. Discovery surfaces that file path
+(rf2-ww877w): the explicit `--port-file` returns its own path verbatim;
+the roots walk (step 3) and the shadow HTTP probe (step 4) each surface
+the WINNING candidate (`target/shadow-cljs/nrepl.port`,
+`.shadow-cljs/nrepl.port`, or `.nrepl-port`). The server caches that
+exact path rather than deriving a fixed `<project-home>/.shadow-cljs/
+nrepl.port` — the pre-fix derivation produced a wrong path for an
+explicit `target/shadow-cljs/nrepl.port` (it became
+`target/shadow-cljs/.shadow-cljs/nrepl.port`), which read as missing and
+forced a needless reconnect + per-connection cache reset on every call.
+If the port has changed (shadow was restarted; the dev server picks a
+fresh ephemeral port on each `watch` start), the cached socket is closed
+and a new one opened transparently. If the port file genuinely vanished,
+discovery re-runs from step 1. The cwd-scan last resort (step 5) has no
+`:project-home` anchor and so surfaces no cached file path; that mode
+alone retains the derivation as a defensive backstop.
 
 ### Why `roots/list` is the primary path
 

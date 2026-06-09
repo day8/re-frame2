@@ -77,12 +77,23 @@
 
 (defn- read-port-at-base
   "Resolve `port-file-candidates` against an absolute base directory and
-  return the first hit's parsed port — or nil. Uses `node-path/join` so
-  the candidates are platform-correct on Windows + POSIX without each
-  call site building paths by string-concat."
+  return the first hit as `{:port <int> :port-file <abs-path>}` — or nil
+  when no candidate reads. Uses `node-path/join` so the candidates are
+  platform-correct on Windows + POSIX without each call site building
+  paths by string-concat.
+
+  rf2-ww877w — the result carries the WINNING candidate path, not just
+  the parsed port. The server caches that exact path so the per-tool-call
+  re-read (`ensure-connection!`) checks the file that actually won the
+  candidate scan, instead of server.cljs deriving a fixed
+  `.shadow-cljs/nrepl.port` that may not be the candidate that hit (which
+  then reads as 'file disappeared' and forces a needless reconnect)."
   [base]
   (when (and base (seq base))
-    (some (fn [rel] (read-port-file (node-path/join base rel)))
+    (some (fn [rel]
+            (let [pf (node-path/join base rel)]
+              (when-let [port (read-port-file pf)]
+                {:port port :port-file pf})))
           port-file-candidates)))
 
 (defn read-port-from-fs
@@ -127,11 +138,15 @@
     1. `--port-file <path>`   explicit, cwd-independent override
                               (rf2-3dbwh). Wins outright WHEN READABLE;
                               `:project-home` is the dirname of the port
-                              file. An explicit-but-unreadable / non-
-                              numeric file falls through to steps 2-5
-                              (rf2-olvr5) — mirroring `read-port-from-fs`
-                              — so a stale port file can't strand a live
-                              port reachable via env / roots / HTTP / cwd.
+                              file and `:port-file` is the EXACT path the
+                              caller named (rf2-ww877w — so the server
+                              caches it verbatim rather than deriving a
+                              `.shadow-cljs/nrepl.port` that may not exist).
+                              An explicit-but-unreadable / non-numeric file
+                              falls through to steps 2-5 (rf2-olvr5) —
+                              mirroring `read-port-from-fs` — so a stale
+                              port file can't strand a live port reachable
+                              via env / roots / HTTP / cwd.
     2. `$SHADOW_CLJS_NREPL_PORT` env var. `:project-home` left nil
                               (env-overridden discovery doesn't surface a
                               root); the per-tool-call port-file re-read
@@ -149,10 +164,16 @@
     4. **Shadow HTTP probe** (rf2-umoz2) — `shadow-probe-fn` returns the
                               consumer project's absolute `:project-home`;
                               we then read `port-file-candidates` resolved
-                              against that root. Cwd-robust legacy
-                              fallback for clients without `roots/list`.
+                              against that root. The result surfaces the
+                              WINNING candidate path as `:port-file`
+                              (rf2-ww877w) so the server caches the exact
+                              file that hit, not a derived one. Cwd-robust
+                              legacy fallback for clients without
+                              `roots/list`.
     5. CWD-relative scan of `port-file-candidates` — legacy fallback for
-                              environments without the shadow HTTP API.
+                              environments without the shadow HTTP API. No
+                              `:port-file` is surfaced (no project-home
+                              anchor for a stable absolute path).
 
   ## Why steps 3, 4, and 5 share the same candidate list
 
@@ -189,8 +210,17 @@
     ;; have found a live port (rf2-olvr5 finding 4).
     (and explicit-port-file (seq explicit-port-file)
          (some? (read-port-file explicit-port-file)))
+    ;; rf2-ww877w — return the EXACT explicit port-file path the caller
+    ;; named, so the server caches it verbatim. The pre-fix shape omitted
+    ;; `:port-file`; server.cljs then DERIVED `<project-home>/.shadow-cljs/
+    ;; nrepl.port` (= dirname-of-explicit-file + .shadow-cljs/nrepl.port),
+    ;; which for an explicit `target/shadow-cljs/nrepl.port` resolves to a
+    ;; non-existent `target/shadow-cljs/.shadow-cljs/nrepl.port`. The next
+    ;; ensure-connection! read that derived path as missing and forced a
+    ;; needless reconnect + per-connection cache reset.
     (js/Promise.resolve {:port         (read-port-file explicit-port-file)
-                         :project-home (node-path/dirname explicit-port-file)})
+                         :project-home (node-path/dirname explicit-port-file)
+                         :port-file    explicit-port-file})
 
     ;; Step 2 — $SHADOW_CLJS_NREPL_PORT.
     (some? (read-env-port))
@@ -205,8 +235,14 @@
         (.then
           (fn [r]
             (case (:status r)
+              ;; rf2-ww877w — the roots candidate carries its own
+              ;; `:port-file` (the `.shadow-cljs/nrepl.port` adjacent to
+              ;; the discovered `shadow-cljs.edn`); thread it through so the
+              ;; server caches the exact discovered file rather than
+              ;; re-deriving one.
               :one  (let [c (:candidate r)]
-                      {:port (:port c) :project-home (:project-home c)})
+                      {:port (:port c) :project-home (:project-home c)
+                       :port-file (:port-file c)})
               :many {:port nil :ambiguous (:candidates r)}
               :error
               ;; Roots unavailable or no shadow in roots — try step 4 (HTTP probe).
@@ -214,9 +250,17 @@
                     shadow-discovery/default-host
                     (or http-port shadow-discovery/default-http-port))
                   (.then (fn [project-home]
-                           (if-let [port (read-port-at-base project-home)]
-                             {:port port :project-home project-home}
-                             ;; Step 5 — cwd-relative scan, last resort.
+                           (if-let [{:keys [port port-file]} (read-port-at-base project-home)]
+                             ;; rf2-ww877w — thread the WINNING candidate
+                             ;; file through so the server caches the exact
+                             ;; path that hit (target/shadow-cljs/nrepl.port
+                             ;; vs .shadow-cljs/nrepl.port vs .nrepl-port),
+                             ;; not a derived one.
+                             {:port port :project-home project-home :port-file port-file}
+                             ;; Step 5 — cwd-relative scan, last resort. No
+                             ;; project-home to anchor a stable port-file, so
+                             ;; none is surfaced (the cwd path can't supply an
+                             ;; absolute, restart-stable file path).
                              {:port (some read-port-file port-file-candidates)}))))))))))
 
 (defn discover-port

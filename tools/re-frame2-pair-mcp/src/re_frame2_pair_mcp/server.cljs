@@ -148,6 +148,19 @@
   [conn]
   (swap! session-state assoc :conn conn :discovered? true :discovery-error nil))
 
+(defn set-discovered-for-tests!
+  "Record a FULLY-discovered session (conn + port + the exact cached
+  port-file) and flip `:discovered?`. Exposed so the port-file-stability
+  contract (rf2-ww877w) can be exercised: a second `ensure-connection!`
+  call must stay on the cached conn when the cached port-file still reads
+  the same port — without re-deriving a `.shadow-cljs/nrepl.port` that
+  may not be the file discovery actually resolved."
+  [{:keys [conn port port-file project-home]}]
+  (swap! session-state assoc
+         :conn conn :port port :port-file port-file
+         :project-home project-home
+         :discovered? true :discovery-error nil))
+
 ;; The Server instance is captured here when `build-server` returns it,
 ;; so the discovery flow can reach `listRoots()` and `elicitInput()`
 ;; without threading the server through every handler signature.
@@ -252,6 +265,19 @@
                     conn (new-conn-for-port port)]
                 (swap! session-state assoc
                        :project-home ph
+                       ;; rf2-ww877w — PREFER the exact port-file discovery
+                       ;; resolved (explicit `--port-file`, roots candidate,
+                       ;; or the winning HTTP-probe candidate). Every
+                       ;; discovery mode that yields a `:project-home` now
+                       ;; also yields the `:port-file` that actually read, so
+                       ;; the derived `.shadow-cljs/nrepl.port` below is a
+                       ;; pure defensive backstop — never reached for those
+                       ;; modes. The pre-fix shape DERIVED unconditionally
+                       ;; from `ph`, producing e.g.
+                       ;; `target/shadow-cljs/.shadow-cljs/nrepl.port` for an
+                       ;; explicit `target/shadow-cljs/nrepl.port`; the next
+                       ;; `ensure-connection!` saw that path missing and
+                       ;; forced a needless reconnect + per-conn cache reset.
                        :port-file    (or (:port-file result)
                                          (when ph
                                            (node-path/join ph ".shadow-cljs/nrepl.port")))
