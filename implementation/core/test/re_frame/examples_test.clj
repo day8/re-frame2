@@ -17,7 +17,8 @@
   the `examples/.../test/` source dirs. Each test re-`require`s only the
   production example source (so its ns-load registrations fire against the
   reset registrar) and exercises it directly."
-  (:require [clojure.string]
+  (:require [clojure.set]
+            [clojure.string]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -26,6 +27,9 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.ssr :as ssr]
+            [re-frame.ssr.error-listener :as ssr-error-listener]
+            [re-frame.ssr.request :as ssr-request]
+            [re-frame.ssr.response :as ssr-response]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn- reset-runtime [test-fn]
@@ -61,6 +65,28 @@
   ;; earlier-loaded ns happened to (re-)register `:rf/machine` since the last
   ;; clear-all! — an ordering-dependent flake.
   (require 're-frame.machines :reload)
+  ;; clear-all! also drops the SSR registrations that fire at re-frame.ssr
+  ;; load time — the `:rf/hydrate` event, the `:rf.ssr/check-*` fxs, the six
+  ;; `:rf.server/*` fxs, the `:rf.server/request` cofx — AND the late-bind
+  ;; hooks (`:ssr/on-frame-destroyed`, `:ssr/render-to-string`,
+  ;; `:ssr/render-tree-hash`). The ssr example's client-hydration tests
+  ;; dispatch `:rf/hydrate` and its lifecycle tests rely on `destroy-frame!`
+  ;; firing `:ssr/on-frame-destroyed` to release the per-request request slot;
+  ;; both need these resurrected. Transitive require from the example ns is
+  ;; idempotent (won't re-fire the toplevel forms once loaded), so reload here
+  ;; — mirroring the http / machines reloads above (rf2-kb7zis).
+  (require 're-frame.ssr :reload)
+  ;; Reset the SSR per-frame side-channel atoms (request slots, response
+  ;; accumulators, pending error traces) between tests. These are `defonce`
+  ;; tables keyed by frame-id, OUTSIDE app-db, so neither `clear-all!` nor
+  ;; the `frame/frames` reset touches them. Tests that drive the server flow
+  ;; without destroying the frame (e.g. `ssr-example-runs-end-to-end` sets a
+  ;; request slot and never tears the frame down) leak a slot that would
+  ;; otherwise bleed into the per-request-lifecycle teardown assertions
+  ;; (rf2-kb7zis). Clearing here gives each test a clean side-channel slate.
+  (reset! ssr-request/request-slots {})
+  (reset! ssr-response/response-slots {})
+  (reset! ssr-error-listener/pending-error-traces {})
   ;; Drop any cached require of the example namespaces so each test
   ;; re-evaluates their namespace-level handlers against a fresh registrar.
   (remove-ns 'ssr.core)
@@ -129,6 +155,205 @@
       ;; :rf.ssr/hydration-mismatch trace event on disagreement.
       (is (re-matches #"[0-9a-f]{8}" render-hash))
       (is (clojure.string/includes? html "data-rf-render-hash")))))
+
+;; ============================================================================
+;; ssr — per-request frame lifecycle (rf2-kb7zis). The example's
+;; `handle-request` wraps its render in `try`/`finally` and calls
+;; `rf/destroy-frame!` so a long-running server leaks neither the
+;; generated per-request frame nor its SSR request side-channel slot.
+;; Spec 011 §Per-request frame teardown contract: the destroy step is
+;; load-bearing for memory hygiene. The pre-rf2-kb7zis example skipped it
+;; (`examples_test`'s render-only assertions were a false-green for
+;; lifecycle correctness), so these tests pin teardown on BOTH the success
+;; and throw paths.
+;; ============================================================================
+
+(defn- install-canned-articles-stub!
+  "Register the per-test `:rf.http/managed` redirect the ssr example's
+  `handle-request` routes through `:fx-overrides` — a canned-success stub
+  yielding two articles. Mirrors `ssr-example-runs-end-to-end`."
+  []
+  (rf/reg-fx :ssr.http/canned-articles
+    {:platforms #{:server :client}}
+    (fn [frame-ctx args-map]
+      (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+        (stub frame-ctx
+              (assoc args-map
+                     :value [{:id "a" :title "Article A" :body "Body A"}
+                             {:id "b" :title "Article B" :body "Body B"}]))))))
+
+(deftest ssr-example-handle-request-tears-down-per-request-frame
+  (testing "examples/reagent/ssr — handle-request leaves no per-request frame
+            in the registry and no SSR request slot after it returns
+            (Spec 011 §Per-request frame teardown contract)"
+    (require 'ssr.core :reload)
+    (rf/init! ssr/adapter)
+    (install-canned-articles-stub!)
+    ;; The example's `:rf/server-init` fires `:rf.http/managed`; redirect it
+    ;; to the canned stub via the lexical-scope `with-fx-overrides` so the
+    ;; per-request frame's `:on-create` drain (which runs synchronously
+    ;; inside `reg-frame`, inside this dynamic scope) routes through the stub
+    ;; — no real network traffic. (The same seam the state-machine example
+    ;; test uses; we don't redefine the `reg-frame` macro.)
+    (let [handle-request (resolve 'ssr.core/handle-request)
+          frames-before  (set (keys @frame/frames))
+          resp           (rf/with-fx-overrides
+                           {:rf.http/managed :ssr.http/canned-articles}
+                           (handle-request {:uri "/articles"}))]
+      ;; The request still rendered correctly (state loaded, HTML emitted).
+      (is (= 200 (:status resp)))
+      (is (clojure.string/includes? (:body resp) "Article A"))
+      ;; …and the per-request frame + its request slot are GONE.
+      (let [frames-after (set (keys @frame/frames))
+            new-frames   (clojure.set/difference frames-after frames-before)]
+        (is (empty? new-frames)
+            (str "handle-request must destroy its per-request frame; "
+                 "leaked frames: " (pr-str new-frames)))
+        ;; The request side-channel slot table holds no leftover entry (the
+        ;; :ssr/on-frame-destroyed hook drops the per-frame slot on
+        ;; destroy-frame!). request-slots is keyed by frame-id; an empty
+        ;; table proves the gensym'd per-request slot was released.
+        (is (empty? @ssr-request/request-slots)
+            (str "no request slot survives for the per-request frame; "
+                 "leftover slots: " (pr-str (keys @ssr-request/request-slots))))))))
+
+(deftest ssr-example-handle-request-tears-down-on-throw
+  (testing "examples/reagent/ssr — handle-request destroys the per-request
+            frame even when the render path throws, so a failing request
+            leaks nothing (Spec 011 §Per-request frame teardown contract —
+            cleanup runs on the throw path too)"
+    (require 'ssr.core :reload)
+    (rf/init! ssr/adapter)
+    (install-canned-articles-stub!)
+    (let [handle-request (resolve 'ssr.core/handle-request)
+          frames-before  (set (keys @frame/frames))]
+      (with-redefs [;; Force the render to throw AFTER the frame + request
+                    ;; slot were allocated, exercising the `finally` path.
+                    rf/render-to-string
+                    (fn [& _] (throw (ex-info "boom — render failure" {})))]
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (rf/with-fx-overrides
+                       {:rf.http/managed :ssr.http/canned-articles}
+                       (handle-request {:uri "/articles"})))
+            "the render throw propagates (the example does not swallow it)")
+        (let [frames-after (set (keys @frame/frames))
+              new-frames   (clojure.set/difference frames-after frames-before)]
+          (is (empty? new-frames)
+              (str "the `finally` must destroy the per-request frame on the "
+                   "throw path; leaked frames: " (pr-str new-frames)))
+          (is (empty? @ssr-request/request-slots)
+              (str "the throw-path teardown must release the request slot; "
+                   "leftover slots: " (pr-str (keys @ssr-request/request-slots)))))))))
+
+;; ============================================================================
+;; ssr — client hydration path (rf2-kb7zis). The example now boots the
+;; client via the framework `ssr/hydrate!` helper (it relies on the
+;; framework-registered `:rf/hydrate`, no longer a stale local copy). These
+;; tests pin the contract the example depends on, against the example's own
+;; registrations: a payload carrying `:rf/render-hash` stashes the server
+;; hash under [:rf.runtime/ssr :hydration :server-hash]; a matching client
+;; render-tree-fn is silent; a divergent one emits :rf.ssr/hydration-mismatch;
+;; and a malformed payload does NOT replace app-db (fail-closed). JVM-driven
+;; with an explicit :payload on a :client-platform frame (no DOM to read).
+;; ============================================================================
+
+(defn- capture-traces!
+  "Run f under a trace listener; return the captured event vector."
+  [f]
+  (let [traces (atom [])
+        cb-id  (gensym "::examples-ssr-capture-")]
+    (rf/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
+    (try (f) (finally (rf/unregister-listener! cb-id)))
+    @traces))
+
+(deftest ssr-example-client-hydration-stashes-server-hash-and-seeds-db
+  (testing "examples/reagent/ssr — ssr/hydrate! against the example's
+            framework-owned :rf/hydrate stashes the payload's :rf/render-hash
+            under [:rf.runtime/ssr :hydration :server-hash] and replaces app-db
+            with the :rf/app-db slice"
+    (require 'ssr.core :reload)
+    (rf/init! ssr/adapter)
+    (let [client-frame (rf/make-frame {:doc "ssr-example client frame"
+                                       :platform :client})
+          payload      {:rf/version     1
+                        :rf/render-hash "abc12345"
+                        :rf/app-db      {:articles [{:id "a" :title "A" :body "ba"}]}
+                        :rf/runtime-db  {}}
+          returned     (ssr/hydrate! {:frame client-frame :payload payload})]
+      (is (= payload returned)
+          "hydrate! returns the applied payload")
+      (is (= [{:id "a" :title "A" :body "ba"}]
+             (:articles (rf/app-db-value client-frame)))
+          ":rf/hydrate replaced app-db with the server slice")
+      (is (= "abc12345"
+             (get-in (rf/runtime-db-value client-frame)
+                     [:rf.runtime/ssr :hydration :server-hash]))
+          "the server render-hash is stashed for the verify step"))))
+
+(deftest ssr-example-client-hydration-matching-hash-is-silent
+  (testing "examples/reagent/ssr — a client render-tree whose hash MATCHES the
+            payload's :rf/render-hash emits NO :rf.ssr/hydration-mismatch"
+    (require 'ssr.core :reload)
+    (rf/init! ssr/adapter)
+    (let [client-frame (rf/make-frame {:doc "ssr-example verify-match frame"
+                                       :platform :client
+                                       :ssr {:detect-mismatch? true}})
+          client-tree  [:div.page [:h1 "Recent articles"]]
+          matched-hash (rf/render-tree-hash client-tree)
+          payload      {:rf/version 1 :rf/render-hash matched-hash
+                        :rf/app-db {:articles []} :rf/runtime-db {}}
+          traces       (capture-traces!
+                         (fn []
+                           (ssr/hydrate! {:frame          client-frame
+                                          :payload        payload
+                                          :render-tree-fn (fn [] client-tree)})))]
+      (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
+          (str "matching hashes → no mismatch trace; saw: "
+               (pr-str (mapv :operation traces)))))))
+
+(deftest ssr-example-client-hydration-divergent-hash-fires-mismatch
+  (testing "examples/reagent/ssr — a client render-tree whose hash DIVERGES
+            from the payload's :rf/render-hash emits :rf.ssr/hydration-mismatch
+            (the verify step the example's `run` wires via :render-tree-fn)"
+    (require 'ssr.core :reload)
+    (rf/init! ssr/adapter)
+    (let [client-frame (rf/make-frame {:doc "ssr-example verify-divergent frame"
+                                       :platform :client
+                                       :ssr {:detect-mismatch? true}})
+          payload      {:rf/version 1
+                        :rf/render-hash "server00"   ;; != the client tree hash
+                        :rf/app-db {:articles []} :rf/runtime-db {}}
+          traces       (capture-traces!
+                         (fn []
+                           (ssr/hydrate!
+                             {:frame          client-frame
+                              :payload        payload
+                              :render-tree-fn (fn [] [:div.page [:h1 "Recent articles"]])})))]
+      (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
+          (str "divergent hash → mismatch trace; saw: "
+               (pr-str (mapv :operation traces)))))))
+
+(deftest ssr-example-client-hydration-malformed-payload-does-not-replace-db
+  (testing "examples/reagent/ssr — a MALFORMED payload (a present-but-non-map
+            :rf/app-db slice) is rejected fail-closed: app-db is left
+            unchanged (Spec 011 §The :rf/hydrate event — both partitions
+            validate fail-closed before installation)"
+    (require 'ssr.core :reload)
+    (rf/init! ssr/adapter)
+    (let [client-frame (rf/make-frame {:doc "ssr-example fail-closed frame"
+                                       :platform :client})]
+      ;; Seed a known app-db value first so we can prove it survives.
+      (rf/dispatch-sync [:articles/loaded {:value [{:id "keep" :title "Keep" :body "b"}]}]
+                        {:frame client-frame})
+      (is (= [{:id "keep" :title "Keep" :body "b"}]
+             (:articles (rf/app-db-value client-frame)))
+          "precondition: app-db seeded")
+      ;; A non-map :rf/app-db slice is the malformed shape.
+      (let [bad-payload {:rf/version 1 :rf/app-db "not-a-map"}]
+        (ssr/hydrate! {:frame client-frame :payload bad-payload})
+        (is (= [{:id "keep" :title "Keep" :body "b"}]
+               (:articles (rf/app-db-value client-frame)))
+            "malformed payload rejected — app-db unchanged (fail-closed)")))))
 
 ;; ============================================================================
 ;; ssr_streaming — exercises the server stream (shell render → per-card

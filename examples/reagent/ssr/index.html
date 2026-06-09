@@ -26,9 +26,17 @@
     state.
 
     The data-rf-render-hash attribute would normally be emitted by
-    render-to-string with :emit-hash? true; we omit it from the static page
-    because we don't recompute the FNV-1a hash here. That side of Spec 011
-    is exercised by the JVM-side ssr-example-runs-end-to-end deftest in
+    render-to-string with :emit-hash? true, and the matching :rf/render-hash
+    would ride the payload below; we omit BOTH from this static page because
+    we don't recompute the FNV-1a hash here. The client `run` still calls
+    `ssr/hydrate!` with a `:render-tree-fn`, so the verify step runs — but
+    `verify-hydration!` short-circuits silently when no server hash is
+    present (per Spec 011 §Hydration-mismatch detection), so this stand-in
+    page does NOT emit a spurious :rf.ssr/hydration-mismatch. A real Clojure
+    server stamps the genuine hash (see `handle-request` in core.cljc) and
+    mismatch detection then activates end-to-end. The hash-comparison side
+    of Spec 011 is exercised directly by the JVM-side
+    ssr-example-client-hydration-* deftests in
     implementation/core/test/re_frame/examples_test.clj (and by the
     re-frame.ssr conformance suite).
   -->
@@ -46,8 +54,7 @@
 {:rf/version 1
  :rf/app-db {:articles [{:id "a" :title "Article A" :body "Body A"}
                         {:id "b" :title "Article B" :body "Body B"}]}
- :rf/runtime-db {:rf.runtime/routing {:current {:id :ssr.app/articles :params {}}}}
- :rf/render-hash "deadbeef"}
+ :rf/runtime-db {:rf.runtime/routing {:current {:id :ssr.app/articles :params {}}}}}
   </script>
   <script src="main.js"></script>
 </body>
