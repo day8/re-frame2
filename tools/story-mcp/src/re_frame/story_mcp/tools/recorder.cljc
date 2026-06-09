@@ -33,6 +33,7 @@
   the input-schema property whose wire form disallows it."
   (:require [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
+            [re-frame.story.schemas :as story-schemas]
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.egress :as egress]
@@ -240,11 +241,35 @@
                   {:rf.error :rf.story-mcp/extends-not-registered
                    :tool     "record-as-variant"
                    :extends  (:extends arguments)})
-                (let [target-vid  (cond
+                ;; rf2-tag30h: in the write-back arm the caller mints a
+                ;; FRESH variant id, so validate its `:story.<path>/<name>`
+                ;; grammar on the STRING shape via `fresh-keyword-checked`
+                ;; BEFORE interning. `fresh-keyword` interned first and let
+                ;; `reg-variant*`'s `assert-id!` reject downstream — but the
+                ;; reject ran AFTER the intern AND after a recording window
+                ;; had already been driven, so an invalid id both grew the
+                ;; JVM keyword table and wasted the recording. A nil here
+                ;; (invalid grammar) short-circuits to an error before any
+                ;; recording starts. The non-write-back arm keeps its
+                ;; safe-keyword/default-to-vk resolution (no intern).
+                (let [wb-target   (when (and write-back? (:new-variant-id arguments))
+                                    (args/fresh-keyword-checked
+                                      (:new-variant-id arguments)
+                                      story-schemas/variant-id-shape?))]
+                 (if (and write-back? (:new-variant-id arguments) (nil? wb-target))
+                  (result/error-result
+                    (str ":new-variant-id " (pr-str (:new-variant-id arguments))
+                         " does not match the canonical variant-id grammar "
+                         ":story.<path>/<name>.")
+                    {:rf.error       :rf.error/variant-id-shape
+                     :tool           "record-as-variant"
+                     :new-variant-id (:new-variant-id arguments)})
+                  (let [target-vid  (cond
                                     ;; write-back path: operator-gated
-                                    ;; intern via fresh-keyword.
+                                    ;; intern via the grammar-checked,
+                                    ;; pre-validated id resolved above.
                                     (and write-back? (:new-variant-id arguments))
-                                    (args/fresh-keyword (:new-variant-id arguments))
+                                    wb-target
 
                                     ;; non-write-back: snippet-only,
                                     ;; safe-keyword against the live
@@ -295,7 +320,7 @@
                                    :written-back?        false}]
                   (if-not write-back?
                     (result/edn-result base)
-                    (write-back! base body events target-vid))))))))))
+                    (write-back! base body events target-vid))))))))))))
 
 (def descriptors
   "Registry descriptors for the recorder's MCP surface — the single

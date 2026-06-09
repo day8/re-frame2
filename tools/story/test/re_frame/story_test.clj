@@ -38,6 +38,23 @@
 
 ;; ---- canonical-vocabulary install ---------------------------------------
 
+(deftest variant-id-shape-string-grammar
+  ;; rf2-tag30h — the STRING-level variant-id grammar that the MCP write
+  ;; paths validate against BEFORE interning. `variant-id?` delegates here,
+  ;; so the keyword-level and string-level checks cannot drift.
+  (testing "variant-id-shape? accepts a canonical :story.<path>/<name> decomposition"
+    (is (true? (schemas/variant-id-shape? ["story.button" "primary"])))
+    (is (true? (schemas/variant-id-shape? ["story" "primary"]))))
+  (testing "variant-id-shape? rejects a non-story namespace, a bare name, and an empty name"
+    (is (false? (schemas/variant-id-shape? ["not-story" "primary"])))
+    (is (false? (schemas/variant-id-shape? [nil "primary"])))
+    (is (false? (schemas/variant-id-shape? ["story.button" ""]))))
+  (testing "variant-id? delegates to the string-shape check — they cannot drift"
+    (is (true?  (boolean (schemas/variant-id? :story.button/primary))))
+    (is (false? (boolean (schemas/variant-id? :not-story/primary))))
+    (is (= (schemas/variant-id? :story.button/primary)
+           (schemas/variant-id-shape? ["story.button" "primary"])))))
+
 (deftest canonical-tags-installed
   (testing "the seven canonical inclusion tags + five canonical :state/* magnitude tags are registered after boot"
     (let [expected (into schemas/canonical-tags schemas/canonical-state-tags)]

@@ -64,6 +64,26 @@
              (and (>= (count nm) 6)
                   (= (subs nm 0 6) "story."))))))
 
+(defn variant-id-shape?
+  "True iff the DECOMPOSED `[ns-part name-part]` strings name a canonical
+  variant id `:story.<path>/<variant>` — namespace begins with `story.`
+  (or is exactly `story`) and the variant tail name is non-empty. Either
+  part may be `nil` (a bare name with no namespace, which fails — a
+  variant id is always namespaced).
+
+  Single-sources the variant-id grammar at the STRING level so an MCP
+  write path can validate a caller-supplied id string BEFORE interning a
+  keyword (rf2-tag30h) — the keyword-level `variant-id?` delegates here.
+  Per spec/007 §Canonical id grammar."
+  [[ns-part name-part]]
+  (boolean
+    (and (string? ns-part)
+         (string? name-part)
+         (pos? (count name-part))
+         (or (= ns-part "story")
+             (and (>= (count ns-part) 6)
+                  (= (subs ns-part 0 6) "story."))))))
+
 (defn variant-id?
   "True iff `id` is a keyword whose namespace begins with `story.` and
   whose name is the variant tail. Per spec/007 the canonical shape is
@@ -71,17 +91,14 @@
 
   The framework registrar uses the slash that separates ns and name in
   Clojure keyword syntax — `:story.auth.login-form/empty` parses as
-  `(namespace) = \"story.auth.login-form\"` and `(name) = \"empty\"`."
+  `(namespace) = \"story.auth.login-form\"` and `(name) = \"empty\"`.
+
+  Delegates to `variant-id-shape?` so the keyword-level check and the
+  string-level pre-intern check (used by the MCP write paths, rf2-tag30h)
+  cannot drift."
   [id]
   (and (keyword? id)
-       (let [ns (namespace id)
-             nm (name id)]
-         (and (string? ns)
-              (string? nm)
-              (pos? (count nm))
-              (or (= ns "story")
-                  (and (>= (count ns) 6)
-                       (= (subs ns 0 6) "story.")))))))
+       (variant-id-shape? [(namespace id) (name id)])))
 
 (defn workspace-id?
   "True iff `id` is a keyword `:Workspace.<path>/<name>`."

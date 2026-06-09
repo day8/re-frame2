@@ -16,6 +16,7 @@
   (:require [clojure.edn :as edn]
             [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
+            [re-frame.story.schemas :as story-schemas]
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.result :as result]
@@ -81,6 +82,19 @@
   `edn/read-string`'s walker."
   64)
 
+(def ^:const ^:private max-body-string-keys
+  "Hard ceiling on the TOTAL number of STRING keys across an object-form
+  `:body` tree, checked BEFORE `keywordize-body-keys` interns any of them
+  (rf2-tag30h). The depth cap alone bounds NESTING but not WIDTH: a single
+  shallow object with thousands of distinct unknown string keys would
+  intern a fresh JVM keyword per key before the registrar's schema
+  rejects the body. A legitimate variant body has a handful of top-level
+  slots (`:doc` / `:component` / `:args` / `:tags` / `:script` / …) plus a
+  bounded `:args` / `:db-seed` map; 1024 total string keys is far past any
+  real body and caps the per-call intern cost. Already-keyword keys (the
+  direct-invoke test path) are NOT counted — they do not intern."
+  1024)
+
 (defn- value-depth
   "Recursive max depth of `v`. Maps and sequences count one level per
   layer; scalars are depth 0. Used to reject pathologically nested
@@ -97,6 +111,28 @@
     (if (empty? v)
       0
       (inc (reduce max 0 (map value-depth v))))
+
+    :else 0))
+
+(defn- count-string-keys
+  "Total count of STRING keys across the whole `v` tree — the keys
+  `keywordize-body-keys` would intern (rf2-tag30h). Walks maps (counting
+  string keys and recursing into both keys and vals), vectors / lists /
+  sets / seqs (recursing into elements). Already-keyword keys are not
+  counted — they do not intern. Used to width-cap an object-form body
+  BEFORE any interning runs."
+  [v]
+  (cond
+    (map? v)
+    (reduce-kv (fn [acc k val]
+                 (+ acc
+                    (if (string? k) 1 0)
+                    (count-string-keys k)
+                    (count-string-keys val)))
+               0 v)
+
+    (or (vector? v) (list? v) (set? v) (seq? v))
+    (reduce + 0 (map count-string-keys v))
 
     :else 0))
 
@@ -182,6 +218,11 @@
                     the parsed value violated the size / depth /
                     tagged-literal hardening (rf2-g9fje).
     `::not-a-map` — `:body` parsed (or was passed) but is not a map.
+    `::too-wide`  — an object-form body carries more than
+                    `max-body-string-keys` total STRING keys (rf2-tag30h);
+                    rejected BEFORE `keywordize-body-keys` interns any of
+                    them so a wide unknown-key body cannot grow the JVM
+                    keyword table.
 
   Two input arms:
 
@@ -198,8 +239,16 @@
       which yields keyword-keyed data directly."
   [body]
   (cond
-    (map? body)    (if (> (value-depth body) max-edn-depth)
+    (map? body)    (cond
+                     (> (value-depth body) max-edn-depth)
                      ::edn-error
+                     ;; rf2-tag30h: width cap BEFORE interning. The depth
+                     ;; cap bounds nesting but not the number of distinct
+                     ;; string keys a shallow object can carry; a wide body
+                     ;; would intern a fresh keyword per key here.
+                     (> (count-string-keys body) max-body-string-keys)
+                     ::too-wide
+                     :else
                      (keywordize-body-keys body))
     (string? body) (let [v (read-edn-body body)]
                      (cond
@@ -250,17 +299,35 @@
                 ::not-a-map
                 (result/error-result (str ":body must be a map; got " (some-> body class .getName)))
 
+                ::too-wide
+                (result/error-result
+                  (str ":body carries too many keys (over " max-body-string-keys
+                       "). A variant body has a handful of slots; reject "
+                       "abusive wide objects before keywordising.")
+                  {:rf.error :rf.story-mcp/body-too-wide})
+
                 ;; rf2-lqjbk write-side exception: `register-variant`
                 ;; by definition extends the registry with a fresh
                 ;; keyword id, so `safe-keyword` against an existing
-                ;; bounded set would always reject. `fresh-keyword`
-                ;; (rf2-xxtrz) is the positive-named primitive for this
-                ;; case — the intern here is gate-bounded by
-                ;; `--allow-writes` (operator-only opt-in); the
-                ;; registrar's `assert-id!` enforces the
-                ;; `:story.<path>/<name>` grammar, which constrains the
-                ;; per-id allocation cost.
-                (register-or-error (args/fresh-keyword vid) body-v)))))))
+                ;; bounded set would always reject. The intern here is
+                ;; gate-bounded by `--allow-writes` (operator-only opt-in).
+                ;;
+                ;; rf2-tag30h: validate the `:story.<path>/<name>` grammar
+                ;; on the STRING shape via `fresh-keyword-checked` BEFORE
+                ;; interning. `fresh-keyword` interned first and let the
+                ;; registrar's downstream `assert-id!` reject on grammar —
+                ;; but that reject happened AFTER the intern, so an invalid
+                ;; id (which correctly returns an error) still permanently
+                ;; grew the JVM keyword table. The pre-intern shape check
+                ;; (`variant-id-shape?`, single-sourced with the registrar's
+                ;; keyword-level `variant-id?`) fails closed with no intern.
+                (if-let [vk (args/fresh-keyword-checked vid story-schemas/variant-id-shape?)]
+                  (register-or-error vk body-v)
+                  (result/error-result
+                    (str ":variant-id " (pr-str vid) " does not match the canonical "
+                         "variant-id grammar :story.<path>/<name>.")
+                    {:rf.error   :rf.error/variant-id-shape
+                     :variant-id vid}))))))))
 
 (defn tool-unregister-variant
   "Write: programmatically unregister a variant. Gated behind

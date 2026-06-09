@@ -362,6 +362,107 @@
                         tree
                         (redact-matching tree secrets)))))
 
+(defn- schema-sensitive-prefixes
+  "The `:sensitive?` declaration PATHS for `variant-id`, read STRAIGHT from
+  schema storage — independent of frame allocation (rf2-tag30h). The
+  populated elision registry that `sensitive-values` reads via
+  `rf/elision-sensitive-declarations` is hydrated by
+  `populate-from-schemas!` against an ALLOCATED frame; pre-frame it is
+  empty, so the pre-run `explain-variant` path needs the declarations from
+  the schema entries directly.
+
+  Mirrors `re-frame.elision`'s private `schema-declarations` — the SAME
+  two cross-artefact seams (`:schemas/frame-schema-entries` +
+  `:schemas/extract-sensitive-paths-from-schema`) — but composes them here
+  with no frame dependency: schema entries are keyed by frame id in
+  `schemas-by-frame`, which exists whether or not the frame's runtime-db
+  has been allocated. Returns a vec of path-prefix vectors (the
+  `collect-governed-values!` input shape); `[]` when either seam is absent
+  (no schemas artefact loaded) or the variant declares nothing sensitive."
+  [variant-id]
+  (let [entries-fn (late-bind/get-fn-cached :schemas/frame-schema-entries)
+        extract-fn (late-bind/get-fn-cached :schemas/extract-sensitive-paths-from-schema)]
+    (if (and entries-fn extract-fn)
+      (let [decls (reduce-kv
+                    (fn [acc base-path entry]
+                      (merge acc (extract-fn (:schema entry) base-path)))
+                    {}
+                    (entries-fn variant-id))]
+        (mapv vec (keys decls)))
+      [])))
+
+(defn- plan-sensitive-values
+  "The candidate-secret set derived from a PLAN-side seed source `seed-db`
+  (the explain map's `:db-seed` slot — the authored seed data that BECOMES
+  the variant frame's app-db on the next run) at `variant-id`'s declared-
+  `:sensitive?` paths. The pre-frame fail-closed source for
+  `explain-variant` (rf2-tag30h): the live-app-db reader
+  (`scrub-frame-value` ⇒ `sensitive-values`) yields nothing when the frame
+  has not been allocated, so a secret authored into `:db-seed` (and
+  re-surfaced in `:effective-args` / `:network` / a step payload) would
+  cross RAW with no live source to value-match against.
+
+  The variant frame's declared-sensitive PATHS are available regardless of
+  allocation — `schema-sensitive-prefixes` reads them straight from schema
+  storage (NOT the frame-allocated elision registry, which is empty
+  pre-run). We then walk the plan's OWN seed map at those governed paths —
+  exactly as `sensitive-values` walks the live app-db — to collect the
+  values destined for sensitive positions. Those are the secrets to redact
+  out of the sibling value-bearing slots.
+
+  No public-against-the-wire subtraction here: pre-frame there is no
+  `:app-db` egress shipping the seed values verbatim, so every governed
+  seed value stays in the set (fail-SAFE — over-scrub at worst, never
+  under-scrub). `nil` / boolean leaves are skipped by
+  `collect-governed-values!` for the same reason `sensitive-values` skips
+  them."
+  [seed-db variant-id]
+  (if (nil? seed-db)
+    #{}
+    (let [sensitive-prefixes (schema-sensitive-prefixes variant-id)]
+      (if (empty? sensitive-prefixes)
+        #{}
+        (persistent!
+          (collect-governed-values! (transient #{}) seed-db []
+                                    sensitive-prefixes))))))
+
+(defn scrub-explain-values
+  "Value-redact the runtime/seeded VALUE slots `value-slot-keys` of an
+  `explain` map against `variant-id`'s declared-sensitive values, before
+  the explain payload crosses the AI/off-box boundary (rf2-12f2q,
+  rf2-q8ebq.1, pre-frame hardening rf2-tag30h).
+
+  Candidate secrets come from BOTH sources, unioned:
+
+    - the LIVE variant-frame app-db (via `sensitive-values`) — the source
+      once `run-variant` / `preview-variant` has allocated and seeded the
+      frame; AND
+    - the PLAN's OWN `:db-seed` slot (via `plan-sensitive-values`) — the
+      FAIL-CLOSED pre-frame source. `explain-variant` is a documented
+      no-run path: a caller can read it BEFORE any run allocates the frame.
+      With only the live reader, a secret authored into `:db-seed` and
+      re-surfaced in `:effective-args` / `:network` / a step payload would
+      cross raw (the live app-db is nil ⇒ no candidates). Walking the
+      plan's seed at the frame's declared-sensitive paths recovers those
+      candidates with no live frame.
+
+  `include?` opts out (the `--allow-sensitive-reads` + per-call escape
+  hatch) — when true the raw values cross (the operator signed off)."
+  [explain variant-id value-slot-keys include?]
+  (if (or include? (nil? explain))
+    explain
+    (let [live-secrets (sensitive-values (rf/app-db-value variant-id) variant-id)
+          seed-secrets (plan-sensitive-values (:db-seed explain) variant-id)
+          secrets      (into live-secrets seed-secrets)]
+      (if (empty? secrets)
+        explain
+        (reduce (fn [m k]
+                  (cond-> m
+                    (contains? m k)
+                    (update k redact-matching secrets)))
+                explain
+                value-slot-keys)))))
+
 ;; ---------------------------------------------------------------------------
 ;; Non-live runtime/captured value scrub (rf2-12f2q)
 ;; ---------------------------------------------------------------------------

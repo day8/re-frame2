@@ -1312,6 +1312,83 @@
       (is (error? r))
       (is (re-find #"(?i):body must be a map" (-> r :content first :text))))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-tag30h — write-side no-intern: an INVALID id that correctly returns
+;; an MCP error must leave NO keyword in the JVM keyword table.
+;;
+;; The write paths minted the keyword via `fresh-keyword` (intern FIRST),
+;; then let the registrar's downstream `assert-id!` reject on grammar — so
+;; an invalid `:variant-id` / `:new-variant-id` was REJECTED but already
+;; INTERNED. A hostile/malfunctioning client could grow the never-shrinking
+;; JVM keyword table unboundedly through failed write attempts (a slow-burn
+;; DoS), and a wide object-form body could intern many arbitrary keys before
+;; the registrar normalised them. The fix validates the id grammar on the
+;; STRING shape (`fresh-keyword-checked` + `variant-id-shape?`) and caps the
+;; object-body string-key WIDTH — both BEFORE any intern. `find-keyword`
+;; (JVM, no-intern lookup) is the no-intern oracle.
+;; ---------------------------------------------------------------------------
+
+(deftest register-variant-invalid-id-does-not-intern
+  (testing "an invalid :variant-id is rejected with NO interned keyword (rf2-tag30h)"
+    (config/set-allow-writes! true)
+    ;; precondition: the keyword is not already interned
+    (is (nil? (find-keyword "not-story" "tag30h-invalid-A")))
+    (let [r (invoke "register-variant"
+                    {:variant-id "not-story/tag30h-invalid-A" :body {:args {}}})]
+      (is (error? r) "an invalid-grammar :variant-id is rejected")
+      (is (= :rf.error/variant-id-shape (-> r :structuredContent :rf.error))
+          "the reject carries the structured variant-id-shape error")
+      (is (nil? (find-keyword "not-story" "tag30h-invalid-A"))
+          "the rejected id MUST NOT leave an interned keyword"))))
+
+(deftest record-as-variant-invalid-new-id-does-not-intern
+  (testing "an invalid write-back :new-variant-id is rejected with NO interned keyword (rf2-tag30h)"
+    (config/set-allow-writes! true)
+    (is (nil? (find-keyword "not-story" "tag30h-wb-invalid-B")))
+    (let [r (invoke "record-as-variant"
+                    {:variant-id     "story.button/primary"
+                     :write-back     true
+                     :new-variant-id "not-story/tag30h-wb-invalid-B"
+                     :duration-ms    0})]
+      (is (error? r) "an invalid-grammar :new-variant-id is rejected")
+      (is (= :rf.error/variant-id-shape (-> r :structuredContent :rf.error))
+          "the reject carries the structured variant-id-shape error")
+      (is (nil? (find-keyword "not-story" "tag30h-wb-invalid-B"))
+          "the rejected write-back id MUST NOT leave an interned keyword"))))
+
+(deftest register-variant-wide-object-body-rejected-without-interning
+  (testing "an object-form body with too many string keys is rejected BEFORE keywordising (rf2-tag30h)"
+    (config/set-allow-writes! true)
+    ;; A shallow object with thousands of distinct unknown string keys —
+    ;; under the depth cap but over the width cap. Pick a distinctive key.
+    (let [distinctive "tag30h-wide-DISTINCTIVE-KEY"
+          wide-body   (into {distinctive 1}
+                            (map (fn [i] [(str "k-tag30h-" i) i]))
+                            (range 2000))]
+      (is (nil? (find-keyword distinctive))
+          "precondition: distinctive wide key not interned")
+      (let [r (invoke "register-variant"
+                      {:variant-id "story.button/wide" :body wide-body})]
+        (is (error? r) "a too-wide object body is rejected")
+        (is (= :rf.story-mcp/body-too-wide (-> r :structuredContent :rf.error))
+            "the reject carries the structured body-too-wide error")
+        (is (nil? (find-keyword distinctive))
+            "a too-wide body MUST NOT intern its arbitrary string keys")
+        (is (nil? (story/variant->edn :story.button/wide))
+            "the too-wide body never reaches the registrar")))))
+
+(deftest register-variant-narrow-object-body-still-registers
+  (testing "a normal object-form body (string keys, under the width cap) still registers (rf2-tag30h regression guard)"
+    (config/set-allow-writes! true)
+    (let [r (invoke "register-variant"
+                    {:variant-id "story.button/objform"
+                     :body {"doc" "object-form body" "args" {"label" "Go"}}})]
+      (is (success? r) "a legitimate narrow object body registers")
+      (is (some? (story/variant->edn :story.button/objform))
+          "the variant reached the registry")
+      (is (= "object-form body" (:doc (story/variant->edn :story.button/objform)))
+          "string keys were keywordised into the registered body"))))
+
 (deftest unregister-variant-gated-by-default
   (let [r (invoke "unregister-variant" {:variant-id "story.button/primary"})]
     (is (error? r))
@@ -2830,6 +2907,99 @@
               "and the raw setup-step value crosses too"))))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-tag30h — explain-variant PRE-FRAME egress.
+;;
+;; `explain-variant` is a documented NO-RUN path (spec/API.md §explain-variant:
+;; "Plan-derived data — no run, no live :app-db slice"): a caller can read it
+;; BEFORE any run-variant / preview-variant allocates the variant frame. The
+;; original value-redaction (`scrub-frame-value`) derived candidate secrets
+;; ONLY from the LIVE frame app-db (`rf/app-db-value`), which is nil pre-frame
+;; — so a declared-sensitive value authored into a plan slot (:db-seed seed
+;; data, a stubbed :network reply, a resolved :effective-args / step payload)
+;; crossed the AI/off-box boundary RAW with no live source to value-match.
+;;
+;; The fix collects candidate secrets ALSO from the plan's OWN :db-seed slot
+;; at the variant's declared-sensitive PATHS — read straight from schema
+;; storage (which is keyed by frame id and exists pre-allocation), not the
+;; frame-allocated elision registry. These tests declare a sensitive path
+;; WITHOUT allocating the frame, then assert the secret is redacted by
+;; default and surfaced only via the gated :include-sensitive opt-in. RED
+;; before the fix (the literal crossed verbatim); GREEN after.
+;; ---------------------------------------------------------------------------
+
+(defn- declare-sensitive-no-frame!
+  "Register a `{:sensitive? true}` schema for a slot on the named variant's
+  frame WITHOUT allocating the frame — the pre-run posture
+  `explain-variant` must defend (rf2-tag30h). `reg-app-schema` writes to
+  the schemas-by-frame side-table keyed by frame id, which exists whether
+  or not the frame's runtime-db has been allocated."
+  [variant-id path]
+  (schemas/reg-app-schema path [:any {:sensitive? true}]
+                          {:frame variant-id}))
+
+(deftest explain-variant-redacts-preframe-db-seed-by-default
+  (testing "PRE-FRAME: a declared-sensitive value in the plan :db-seed (and re-surfaced in :effective-args / :network) is redacted with NO live frame (rf2-tag30h)"
+    (with-clean-frame [vid :story.button/primary]
+      ;; The frame is NOT allocated — only the sensitive schema is declared.
+      (is (nil? (frame-container vid))
+          "precondition: the variant frame is unallocated (no run yet)")
+      (declare-sensitive-no-frame! vid [:auth :token])
+      (with-redefs [story/explain
+                    (fn [_vk & _]
+                      {:source-chain   [:story.button/primary]                    ; structure — public
+                       :db-seed        {:auth {:token "DISTINCTIVE-PREFRAME-SECRET"}}
+                       :effective-args {:api-key "DISTINCTIVE-PREFRAME-SECRET"}
+                       :network        {[:get "/api/me"] {:reply {:token "DISTINCTIVE-PREFRAME-SECRET"}}}
+                       :setup-order    [[:dispatch [:auth/login {:token "DISTINCTIVE-PREFRAME-SECRET"}]]]})]
+        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (not (tree-contains? (:explain s) "DISTINCTIVE-PREFRAME-SECRET"))
+              "PRE-FRAME the secret MUST NOT cross in ANY value-bearing slot — no live app-db is no excuse")
+          (is (= :rf/redacted (get-in s [:explain :db-seed :auth :token]))
+              ":db-seed (the candidate source itself) is redacted")
+          (is (= :rf/redacted (get-in s [:explain :effective-args :api-key]))
+              ":effective-args value matching the seeded secret is redacted")
+          (is (= :rf/redacted (get-in s [:explain :network [:get "/api/me"] :reply :token]))
+              ":network reply value matching the seeded secret is redacted")
+          (is (= [[:dispatch [:auth/login {:token :rf/redacted}]]] (get-in s [:explain :setup-order]))
+              ":setup-order value-only redaction preserves the step STRUCTURE")
+          (is (= [:story.button/primary] (get-in s [:explain :source-chain]))
+              "plan-STRUCTURE slots remain author-published discovery metadata — untouched"))))))
+
+(deftest explain-variant-preframe-includes-sensitive-when-opted-in
+  (testing "PRE-FRAME: :include-sensitive true forwards the raw plan value slots (gate open, rf2-tag30h)"
+    (config/set-allow-sensitive-reads! true)
+    (with-clean-frame [vid :story.button/primary]
+      (is (nil? (frame-container vid)))
+      (declare-sensitive-no-frame! vid [:auth :token])
+      (with-redefs [story/explain
+                    (fn [_vk & _]
+                      {:db-seed {:auth {:token "DISTINCTIVE-PREFRAME-SECRET"}}})]
+        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"
+                                           :include-sensitive true})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= "DISTINCTIVE-PREFRAME-SECRET" (get-in s [:explain :db-seed :auth :token]))
+              "the documented opt-in surfaces the raw seed value pre-frame too"))))))
+
+(deftest explain-variant-preframe-gate-closed-ignores-opt-in
+  (testing "PRE-FRAME gate closed: :include-sensitive true is ignored — plan value slots stay redacted (rf2-tag30h)"
+    (is (false? (config/sensitive-reads-allowed?)))
+    (with-clean-frame [vid :story.button/primary]
+      (is (nil? (frame-container vid)))
+      (declare-sensitive-no-frame! vid [:auth :token])
+      (with-redefs [story/explain
+                    (fn [_vk & _]
+                      {:db-seed {:auth {:token "DISTINCTIVE-PREFRAME-SECRET"}}})]
+        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"
+                                           :include-sensitive true})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= :rf/redacted (get-in s [:explain :db-seed :auth :token]))
+              "gate closed: the opt-in cannot exfiltrate the seeded secret pre-frame"))))))
+
+;; ---------------------------------------------------------------------------
 ;; rf2-q8ebq.2 — run-a11y shipped raw axe-core violation nodes (incl. node
 ;; :html outerHTML) with NO egress scrub. A sensitive value rendered into
 ;; the DOM (e.g. `<input value="<token>">`) lands verbatim in node :html and
@@ -3453,29 +3623,34 @@
 (deftest record-as-variant-write-back-failure-surfaces-explain
   (testing "write-back failure surfaces the registrar's ex-data into the result"
     (config/set-allow-writes! true)
-    ;; Drive the write-back into a guaranteed-fail: target a NEW variant id
-    ;; whose body would carry a `:tags` set referencing an unregistered tag
-    ;; — the registrar's variant-shape validator throws with ex-data.
-    ;; We can't mutate the captured body from the recorder, so we instead
-    ;; rely on a different failure mode: a `:new-variant-id` whose name
-    ;; doesn't satisfy the registrar's canonical-id grammar would also throw.
-    ;; The cleanest test: an explicit `:new-variant-id` whose namespace
-    ;; doesn't match any registered story id — the variant-shape validator
-    ;; rejects it.
+    ;; Drive the write-back into a registrar-level failure with a
+    ;; VALID-GRAMMAR `:new-variant-id` (so it passes the rf2-tag30h
+    ;; pre-intern grammar gate and the failure happens DOWNSTREAM in
+    ;; `reg-variant*`). We force the registrar to throw with structured
+    ;; ex-data and assert `write-back!` surfaces it. (The pre-intern
+    ;; grammar reject for a MALFORMED id is covered separately in the
+    ;; no-intern tests below — rf2-tag30h.)
     (drive-events-during-recording [[:counter/inc]])
-    (let [r (invoke "record-as-variant"
-                    {:variant-id     "story.button/primary"
-                     :new-variant-id "garbage-id-no-namespace"  ; not :story.x/y
-                     :duration-ms    50
-                     :write-back     true})]
-      (is (error? r) "write-back against a malformed target id must fail")
-      (is (re-find #"(?i)Write-back failed" (-> r :content first :text))
-          "the error text names the failure surface — agents pattern-match on this")
-      (let [s (:structuredContent r)]
-        (is (false? (:written-back? s))
-            ":written-back? false rides through so callers see the no-op")
-        (is (= :garbage-id-no-namespace (:new-variant-id s))
-            "the failing target id round-trips so the agent can localise")))))
+    (with-redefs [story/reg-variant*
+                  (fn [_id _body]
+                    (throw (ex-info "Registration failed: boom"
+                                    {:rf.error :rf.error/variant-shape
+                                     :explain  {:why :forced-test-failure}})))]
+      (let [r (invoke "record-as-variant"
+                      {:variant-id     "story.button/primary"
+                       :new-variant-id "story.button/recorded"  ; valid grammar
+                       :duration-ms    50
+                       :write-back     true})]
+        (is (error? r) "a registrar write-back failure must surface as an error")
+        (is (re-find #"(?i)Write-back failed" (-> r :content first :text))
+            "the error text names the failure surface — agents pattern-match on this")
+        (let [s (:structuredContent r)]
+          (is (false? (:written-back? s))
+              ":written-back? false rides through so callers see the no-op")
+          (is (= :story.button/recorded (:new-variant-id s))
+              "the failing target id round-trips so the agent can localise")
+          (is (= :rf.error/variant-shape (:rf.error s))
+              "the registrar's structured ex-data is surfaced for localisation"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; record-as-variant unregistered :extends (rf2-ynjts.20)
