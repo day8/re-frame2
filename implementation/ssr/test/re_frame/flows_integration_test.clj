@@ -90,7 +90,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (schemas/reset-schema-validator!)
   (reset! request/request-slots {})
   (reset! response/response-slots {})

@@ -23,7 +23,7 @@
 
   Registrar + frame state — `(registrar/clear-all!)`,
   `(reset! frame/frames {})`, `(flows/reset-flows!)`,
-  `(reset! schemas/schemas-by-frame {})`.
+  `(schemas/clear-schemas-by-frame!)`.
 
   SSR side-channel atoms (Spec 011 §Per-request frame teardown). All
   three slots are keyed by frame-id; stale entries from prior tests
@@ -73,7 +73,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   ;; SSR side-channel atoms — direct refs into the producing sub-ns
   ;; rather than the (private) façade aliases. Same atoms either way;
   ;; this avoids the `(resolve ...)` reflective dance the legacy

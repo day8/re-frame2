@@ -31,7 +31,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
   ;; EP-0002 (rf2-69r7ui): there is no `:rf/default` floor — the runtime
   ;; never synthesises a frame from absence, so a bare dispatch / subscribe

@@ -33,7 +33,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
   ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
   ;; and the managed-HTTP / machine / routing fxs now require a carried

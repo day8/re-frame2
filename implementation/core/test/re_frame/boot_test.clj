@@ -42,7 +42,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   ;; Wipe both the install slot AND the disposed breadcrumb so each test
   ;; starts from a never-installed cold state (rf2-6wxys). A plain
   ;; `dispose-adapter!` would leave the breadcrumb true after the first

@@ -44,7 +44,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (schemas/reset-schema-validator!)
   (flows/reset-last-inputs!)
   (error-emit/clear-error-listeners!)

@@ -21,7 +21,10 @@
   - `(registrar/clear-all!)`
   - `(reset! frame/frames {})`
   - `(flows/reset-flows!)`
-  - `(reset! schemas/schemas-by-frame {})`
+  - `(schemas/clear-schemas-by-frame!)` — resets the per-frame
+    registry AND drops the rf2-naihn1 `frame-reg-locks` companion
+    (the raw `schemas-by-frame` atom is no longer re-exported per the
+    rf2-l5r974 encapsulated-only posture)
   - `(schemas/reset-schema-validator!)` — restores Malli defaults
     per rf2-froe so a test that mutates the pluggable validator
     surface doesn't poison sibling tests.
@@ -74,7 +77,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (schemas/reset-schema-validator!)
   (schemas/clear-validator-unavailable-warned!)
   (schemas/clear-walker-opaque-warned!)

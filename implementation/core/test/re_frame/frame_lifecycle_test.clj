@@ -20,7 +20,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
   ;; Framework events / fx / subs are registered at namespace-load time;

@@ -24,7 +24,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (trace-tooling/clear-listeners!)
   (marks/clear-marks!)
   (marks/clear-sub-output-marks!)

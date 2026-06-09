@@ -124,7 +124,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (flows/reset-last-inputs!)
   ;; Per rf2-bacs4: the error-emit listener registry is a `defonce` atom
   ;; that survives test re-runs. Clear before each test so a listener

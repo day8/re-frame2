@@ -32,7 +32,7 @@
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (flows/reset-flows!)
   (trace/clear-listeners!)
   (event-emit/clear-event-listeners!)

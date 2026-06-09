@@ -36,7 +36,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (flows/reset-flows!)
-  (reset! schemas/schemas-by-frame {})
+  (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
   ;; clear-all! also drops the framework-shipped fxs that register at
   ;; namespace load time (e.g. :rf.http/managed and its canned-stub
