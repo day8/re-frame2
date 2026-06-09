@@ -99,8 +99,8 @@ What does the host pass to `MachineChart` to render a chart?
 ### Options considered
 
 - **Pass an id + a frame.** The chart resolves the registration
-  via `(rf/machine-meta machine-id)` and subscribes to
-  `[:rf/runtime :machines :snapshots machine-id]` within a `:frame-id`
+  via `(rf/machine-meta machine-id)` and subscribes to the runtime-db slot
+  `[:rf.runtime/machines :snapshots machine-id]` within a `:frame-id`
   prop; the host stays thin and the chart owns its data plane. This
   was the original 2026-05-13 pick lifted from Xray 003. **Reversed
   in implementation** — coupling the chart to a frame + a framework
@@ -111,8 +111,8 @@ What does the host pass to `MachineChart` to render a chart?
   share-envelope *payload provenance*, [`API.md`](./API.md)
   §ShareEnvelope — the registered machine's frame at share time, not a
   `MachineChart` prop).
-- **Pass the snapshot directly.** The host derefs
-  `[:rf/runtime :machines :snapshots <id>]` and passes the snapshot to the chart.
+- **Pass the snapshot directly.** The host derefs the runtime-db slot
+  `[:rf.runtime/machines :snapshots <id>]` and passes the snapshot to the chart.
   Rejected — the chart loses access to the topology (states,
   transitions, guards, `:after` rings); it would have to re-derive
   the chart structure from a bare state name.
@@ -723,7 +723,7 @@ from regressing into a full graph recompute?
   (tint + bolder stroke; the pulse was retired 2026-05-20 per
   rf2-2sez0), edge glow, microstep flash, `:after` ring progress,
   `:spawn-all` row state, spawn-tray contents, timer state. Owned
-  by `[:rf/runtime :machines :snapshots <id>]` + the `:rf.machine/*` trace bus.
+  by the runtime-db slot `[:rf.runtime/machines :snapshots <id>]` + the `:rf.machine/*` trace bus.
 
 The runtime-highlight plane MUST NOT participate in any computation
 whose output reaches the topology plane. The two planes share no

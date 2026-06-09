@@ -427,7 +427,7 @@
   consumer sees the payload.
 
   `frame-id` is supplied so the walker resolves the right
-  `[:rf/runtime :elision]` registry."
+  `[:rf.runtime/elision]` registry (in the frame's runtime-db)."
   [v frame-id]
   (if (:allow-raw-state? @raw-state-config)
     v
@@ -2018,8 +2018,8 @@
   substitutes for a declared-sensitive slot. The redaction is keyed to
   the epoch-level `:rf.epoch/sensitive?` rollup rather than per-value
   elision because the trigger-event is not addressed by an app-db path
-  the `[:rf/runtime :elision]` registry can classify — its sensitivity
-  is a property of the epoch, not of a declared-sensitive db slot.
+  the `[:rf.runtime/elision]` registry (in runtime-db) can classify — its
+  sensitivity is a property of the epoch, not of a declared-sensitive db slot.
 
   Raw only on opt-in: when the gate is ON the operator deliberately
   asked for raw reads, so the verbatim trigger-event rides through. A
@@ -3333,7 +3333,7 @@
    leak class `get-path` / `read-sub` / `snapshot` / `list-subscriptions`
    already close via `re-frame.core/elide-wire-value`. This routes the
    value through the SAME walker, server-side (app-side, where the
-   `[:rf/runtime :elision]` registry is reachable).
+   `[:rf.runtime/elision]` registry in runtime-db is reachable).
 
    Gate posture mirrors `maybe-elide-for-tap` + the MCP read surfaces
    (rf2-c2dtu):

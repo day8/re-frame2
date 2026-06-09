@@ -71,7 +71,7 @@ Separately from the add-ons, grep the **app's own source** for the v1 feature su
 | Bare (non-vector) interceptor in a `reg-event-(db\|fx\|ctx)` second-arg slot — `(rf/reg-event-db :id mw/x handler)`; v2 requires that slot to be a `[vector]` and **throws `:rf.error/reg-event-bare-interceptor` at ns-load** (aborts the rest of the ns → app hangs at boot). Compile-invisible — **loud-at-runtime, NOT silent.** Scan the **shape** of every `reg-event-*` second arg; flag *any* bare interceptor (custom / `mw/*` / registered / `rf/unwrap`), not only `rf/unwrap`. A `{:doc … :schema …}` metadata map and an already-`[vector]` slot are fine | **M-70** |
 | top-level `:dispatch` / `:dispatch-n` / `:http` / user-fx keys in effect maps | **M-8** |
 | `(reset! re-frame.db/app-db ...)` top-level seeding | **M-15** |
-| `:initialize-db` / `:bootstrap` / `:app/reset` returning a wholesale `{:db fresh}` (no `:rf/runtime`) — **silent** | **M-15b** |
+| `:initialize-db` / `:bootstrap` / `:app/reset` returning a wholesale `{:db fresh}` that carries a `:rf/runtime` key — **loud hard error** (`:rf.error/legacy-runtime-root`) | **M-15b** |
 | `re-frame.alpha` requires | **M-23** |
 | `re-frame.test` / `day8.re-frame.test` requires | **M-25** |
 | `reg-event-error-handler` | **M-13** |

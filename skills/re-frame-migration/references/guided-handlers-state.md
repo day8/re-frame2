@@ -1,6 +1,6 @@
 # guided-handlers-state
 
-Type B walkthroughs covering event handlers, registration shape, view-under-frame routing, render-count test re-baselining, error handlers, routing fallbacks, top-level db seeding, the full-`app-db`-replace `:rf/runtime`-clobber footgun, machine spawn-id tracking, and the React-19-removed Reagent surfaces. Each section gives the **identification** (how to find the call sites), the **risk explanation** (what to tell the author), and the **decision shape** (what the author must choose between). The agent identifies and explains; the author decides; the agent then applies.
+Type B walkthroughs covering event handlers, registration shape, view-under-frame routing, render-count test re-baselining, error handlers, routing fallbacks, top-level db seeding, the retired `:rf/runtime` app-db root (now a hard error), machine spawn-id tracking, and the React-19-removed Reagent surfaces. Each section gives the **identification** (how to find the call sites), the **risk explanation** (what to tell the author), and the **decision shape** (what the author must choose between). The agent identifies and explains; the author decides; the agent then applies.
 
 For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, see [`guided-interceptors-subs.md`](guided-interceptors-subs.md). For Type A patterns, see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md) and [`auto-cross-cutting.md`](auto-cross-cutting.md). For full rule rationale, see [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md).
 
@@ -14,7 +14,7 @@ For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, s
 - M-13 — `reg-event-error-handler`
 - M-14 — `:rf.route/not-found` requirement (only if adopting Spec 012)
 - M-15 — top-level `app-db` seeding
-- M-15b — full-`app-db`-replace boot drops `:rf/runtime`
+- M-15b — wholesale `app-db` replace + the retired `:rf/runtime` root
 - M-34 — spawn-id tracking moved to runtime-owned slot
 - M-42 — React-19-removed Reagent surfaces (`dom-node` / `force-update-all` half)
 
@@ -158,36 +158,28 @@ Present the seed value and the proposed rewrite; confirm with the author; apply 
 
 ---
 
-## M-15b — Full-`app-db`-replace boot drops `:rf/runtime`
+## M-15b — Wholesale `app-db` replace + the retired `:rf/runtime` root
 
-**Identify**: any event handler that returns a *wholesale* `app-db` value — `(reg-event-db :initialize-db (fn [_ _] fresh-db))`, `{:db fresh-db}` from `:bootstrap` / `:app/reset` / a logout-to-clean-state event — where `fresh-db` is built from scratch rather than threaded from the incoming `db`. The tell: the returned map carries **no `:rf/runtime`** key.
+**Identify**: any event handler that returns a *wholesale* `app-db` value — `(reg-event-db :initialize-db (fn [_ _] fresh-db))`, `{:db fresh-db}` from `:bootstrap` / `:app/reset` / a logout-to-clean-state event — where `fresh-db` is built from scratch rather than threaded from the incoming `db`. Two sub-shapes carry the migration risk: (a) a v1-shaped `fresh-db` that **carries a `:rf/runtime` key** (a hand-rolled runtime stash, or one threaded forward by an older v2-preview rewrite), and (b) any handler that **explicitly writes `:rf/runtime`** into its `:db` return (the old "preserve the runtime" stopgap). The tell for both: the returned `:db` map contains a top-level `:rf/runtime`.
 
-**Risk**: in v1 framework runtime did **not** live in `app-db`, so the ubiquitous full-db-replace boot idiom was safe. In v2 **all** framework runtime lives in `app-db` under the single reserved root `:rf/runtime` — machine snapshots at `[:rf/runtime :machines :snapshots <id>]`, the current route at `[:rf/runtime :routing :current]`, plus elision and SSR state. The same wholesale-replace now **wipes** it. The failure is **silent and runtime-only** (it compiles clean): a boot machine starts (its `:entry` runs), then a beat later the replace commits and its snapshot vanishes — every subsequent `[:machine …]` dispatch is a no-op and the app hangs on its loading spinner with no error. This is one of the canonical [silent-runtime-failure modes](runtime-smoke-test.md#the-silent-runtime-failure-checklist) (checklist #3). The clobber is *intended* — `:rf/runtime` lives in `app-db` precisely so machine/routing/SSR state reverts atomically with `app-db` on `restore-epoch` / `replace-app-db!` / hydration — so the fix is to stop replacing the slot, not to teach `:db` to retain reserved keys.
+**Risk**: in re-frame2 framework runtime no longer lives in `app-db` at all. It sits in a **separate partition — the runtime-db** — addressed by the reserved `:rf.db/runtime` coeffect/effect, with subsystem children under `:rf.runtime/*`: machine snapshots at `[:rf.runtime/machines :snapshots <id>]`, the current route at `[:rf.runtime/routing :current]`, plus elision and SSR state. A handler's `:db` return replaces **only** the app-db partition and **cannot touch the runtime-db** — so the v1-era "wholesale `{:db fresh-map}` boot silently wipes the runtime" footgun is **structurally gone**. There is nothing to preserve and nothing to clobber: a boot machine's snapshot rides in runtime-db, untouched by any app-db replace.
+
+The retired app-db root `:rf/runtime` is now a **hard error**. A `:db` value carrying a top-level `:rf/runtime` key throws `:rf.error/legacy-runtime-root` (the always-on post-commit guard `re-frame.events/reject-legacy-runtime-root!`, per [Conventions §The legacy `:rf/runtime` root](../../../spec/Conventions.md#the-legacy-rfruntime-root-hard-error-in-final-form)). The error is loud and immediate (not a silent runtime hang, not the dev-only advisory). So the migration concern flips: the rewrite is not "preserve the runtime across the replace" — it is "**strip the `:rf/runtime` key**; the runtime is no longer your responsibility to thread."
 
 **Decision shape** (per wholesale-replace handler):
 
-1. **Reorder — replace BEFORE any machine starts (preferred).** Seed the fresh db, then eager-start the boot machine in the same handler's `:fx` so there is no live snapshot to clobber:
+1. **Strip any `:rf/runtime` key from the fresh db (always).** A wholesale reset is now safe by construction — `{:db fresh-db}` replaces app-db and leaves machines / routing / SSR untouched in runtime-db. Just ensure `fresh-db` carries **no** `:rf/runtime` key (it would hard-error). If a v1-shaped `fresh-db` or an older preview rewrite still stashes runtime state there, drop it:
 
    ```clojure
-   (rf/reg-event-fx :app/init
-     (fn [_ _]
-       {:db fresh-db                                          ; wholesale reset — no machine alive yet
-        :fx [[:dispatch [:app/boot [:rf.machine/start]]]]}))  ; THEN bring the boot machine alive
+   (rf/reg-event-db :initialize-db
+     (fn [_ _] fresh-db))   ; fresh-db carries NO :rf/runtime — the runtime-db partition is left alone
    ```
 
-2. **Merge not replace — `assoc` the live `:rf/runtime` across (stopgap).** When reordering isn't practical (a re-bootstrap fired *while* a machine is running), preserve the slot explicitly:
+2. **Genuinely need to write runtime state? Use the `:rf.db/runtime` effect, never an app-db key.** Framework/extension code that must seed or replace runtime-db emits the reserved `:rf.db/runtime` effect (or one of the `replace-runtime-db!` / `replace-frame-state!` mutators), keeping application data under `:db`. App code rarely needs this — boot machines install their own snapshots when they start.
 
-   ```clojure
-   (rf/reg-event-fx :bootstrap
-     (fn [{:keys [db]} _]
-       {:db (assoc fresh-db :rf/runtime (:rf/runtime db))}))
-   ```
+The old `:rf.warning/runtime-state-dropped` containment warning is **retired** — there is no clobber to warn about. Its replacement is the structural `:rf.error/legacy-runtime-root` hard error above, which fires in every build (dev and production) the moment a handler returns a `:rf/runtime`-bearing `:db`.
 
-   Treat (2) as a stopgap — carrying `:rf/runtime` forward across a from-scratch db is exactly the retention that breaks the revertibility invariant if it leaks into a restore path. Reach for (1) wherever the boot structure allows.
-
-In dev, the framework now emits a **loud diagnostic** — `:rf.warning/runtime-state-dropped` (per [Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue)) — naming the dropped subsystem and the offending event, so this no longer has to be diagnosed by hand. It is dev-only (production DCE-elides it), so run the boot smoke-test in a dev build to see it fire.
-
-Present the categorisation and the proposed rewrite; confirm with the author; apply. Full rationale and the canonical before→after: [`MIGRATION.md` §M-15b](../../../migration/from-re-frame-v1/README.md#m-15b-a-full-app-db-replace-boot--initialise-event-silently-drops-rfruntime-kills-live-machines-routing-). The end-to-end boot recipe that gets the ordering right: [`spec/Pattern-Boot.md` §Worked example — the singleton boot machine](../../../spec/Pattern-Boot.md#worked-example--the-singleton-boot-machine-that-survives-the-initial-db-build).
+Present the categorisation and the proposed rewrite; confirm with the author; apply. Full rationale and the canonical before→after: [`MIGRATION.md` §M-15b](../../../migration/from-re-frame-v1/README.md#m-15b-a-full-app-db-replace-boot--initialise-event-silently-drops-rfruntime-kills-live-machines-routing-). The end-to-end boot recipe: [`spec/Pattern-Boot.md` §Worked example — the singleton boot machine](../../../spec/Pattern-Boot.md#worked-example--the-singleton-boot-machine).
 
 ---
 
@@ -196,9 +188,9 @@ Present the categorisation and the proposed rewrite; confirm with the author; ap
 **Identify**: machine specs (Spec 005) that declare a declarative `:spawn` (or hand-emit `[:rf.machine/destroy ...]` from a machine action). Two sub-shapes carry the risk:
 
 1. Specs that declared `:spawn` **without** an `:on-spawn` callback — pre-fix these silently leaked the spawned actor on state-exit (the runtime had no recorded id to destroy).
-2. Tests or `:exit` action bodies that **asserted on the old behaviour**: a stale `[:rf/runtime :machines :snapshots <id>]` entry surviving after exit, or that read the spawned id back out of the parent's `[:data :pending]` slot.
+2. Tests or `:exit` action bodies that **asserted on the old behaviour**: a stale `[:rf.runtime/machines :snapshots <id>]` entry surviving after exit, or that read the spawned id back out of the parent's `[:data :pending]` slot.
 
-**Risk**: the runtime now tracks each spawn-id at the reserved slot `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` instead of reading it from the parent's `:data`. `:on-spawn` becomes purely advisory — apps that omitted it now correctly destroy the child on exit. The **public API is unchanged** (`:on-spawn` signature `(fn [data spawned-id] new-data)` is identical), and the destroy fx's keyword form `[:rf.machine/destroy actor-id]` still works. The hazard is silent for code/tests that depended on the old leak or the old `:data`-slot read: those need triage, not a rewrite.
+**Risk**: the runtime now tracks each spawn-id at the reserved runtime-db slot `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` instead of reading it from the parent's `:data`. `:on-spawn` becomes purely advisory — apps that omitted it now correctly destroy the child on exit. The **public API is unchanged** (`:on-spawn` signature `(fn [data spawned-id] new-data)` is identical), and the destroy fx's keyword form `[:rf.machine/destroy actor-id]` still works. The hazard is silent for code/tests that depended on the old leak or the old `:data`-slot read: those need triage, not a rewrite.
 
 **Decision shape** (per hit site):
 

@@ -183,11 +183,11 @@ When the user mentions a state machine (Spec 005), chain:
 
 1. `list-handlers {kind: "machine"}` — confirm it's registered (the `machine` kind lists every event handler flagged `:rf/machine? true`).
 2. `handler-meta {kind: "machine", id: ":auth"}` — return the spec map (`:initial`, `:states`, `:guards`, `:actions`, source coords).
-3. Current `:rf/machine-snapshot` — read it as a sub or an app-db path:
+3. Current `:rf/machine-snapshot` — read it via the machine sub (snapshots live in the **runtime-db** partition, not app-db):
    ```
    mcp__re-frame2-pair__read-sub {sub: "[:rf/machine :auth]"}
    ```
-   or `get-path {path: "[:rf/runtime :machines :snapshots :auth]"}`. The snapshot shape is `{:state :data :tags? :meta?}` (`:rf/snapshot-version` lives under `:meta`, per Spec 005 §Snapshot shape). (The `machine-state` runtime helper is the eval equivalent.)
+   or eval `(get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots :auth])`. (Note: `get-path` reads app-db, so it will NOT find the snapshot — use the sub or `runtime-db-value`.) The snapshot shape is `{:state :data :tags? :meta?}` (`:rf/snapshot-version` lives under `:meta`, per Spec 005 §Snapshot shape). (The `machine-state` runtime helper is the eval equivalent.)
 4. To watch transitions live: `subscribe {topic: "epoch", filter: {":event-id-prefix": ":auth/"}}` and inspect each emitted epoch's `:trace-events` for `:rf.machine/transition` entries — `(some #(= :rf.machine/transition (:operation %)) (:trace-events e))`. Arbitrary-predicate filtering at the subscribe layer isn't supported; combine `:event-id-prefix` (to narrow by trigger) with caller-side filtering of the streamed epochs.
 5. The canonical machine sub is `[:rf/machine :auth]` — `read-sub {sub: "[:rf/machine :auth]"}` reads its current value (validated + elided).
 
@@ -208,7 +208,7 @@ mcp__re-frame2-pair__dispatch-dry-run {event: "[:exp/probe]"}
 
 The dry-run rolls back, so even a misbehaving probe leaves the live app-db untouched. Tear the registration down (or just leave it — it's ephemeral and gone on full page reload).
 
-> **WARNING — a `reg-event-fx` handler returning `{:db …}` REPLACES app-db wholesale; it does NOT merge.** `{:db <map>}` is the canonical "the new app-db is exactly this map" effect. A throwaway probe handler returning a bare literal — `(fn [_ _] {:db {:exp/x 1}})` — then driven by a **live** `dispatch` (or an `eval-cljs` that runs the real cascade) will nuke the *entire* frame's app-db: boot state, `:rf/runtime`, machine snapshots, all of it — leaving only `{:exp/x 1}`, unrecoverable without `restore-epoch`. This is a foot-gun an agent WILL hit. Two safe paths: **(1) dry-run the probe** (above) — the rollback means even a `{:db …}` handler can't damage the live db; **(2) if you must commit, preserve the existing db** — destructure the `db` cofx (it IS the live app-db) and return `{:db (assoc db :exp/x 1)}`, never a bare literal map. Never test a `{:db …}` handler with a live `dispatch` against a frame whose state you can't afford to lose.
+> **WARNING — a `reg-event-fx` handler returning `{:db …}` REPLACES app-db wholesale; it does NOT merge.** `{:db <map>}` is the canonical "the new app-db is exactly this map" effect. A throwaway probe handler returning a bare literal — `(fn [_ _] {:db {:exp/x 1}})` — then driven by a **live** `dispatch` (or an `eval-cljs` that runs the real cascade) will nuke the *entire* frame's **app-db** (every boot-seeded app slice) — leaving only `{:exp/x 1}`, unrecoverable without `restore-epoch`. (Runtime-db — machine snapshots, routing, elision — is a *separate* partition a `:db` return cannot touch, so it survives; and a `:db` carrying a retired `:rf/runtime` key is a hard error, `:rf.error/legacy-runtime-root`.) This is a foot-gun an agent WILL hit. Two safe paths: **(1) dry-run the probe** (above) — the rollback means even a `{:db …}` handler can't damage the live db; **(2) if you must commit, preserve the existing db** — destructure the `db` cofx (it IS the live app-db) and return `{:db (assoc db :exp/x 1)}`, never a bare literal map. Never test a `{:db …}` handler with a live `dispatch` against a frame whose state you can't afford to lose.
 
 **Why the manual loop works:** the same starting `app-db`, the same event, only the code changes — so any difference in the resulting epoch is attributable to *your edit*, nothing else. That makes it a controlled experiment rather than a fix-and-pray. re-frame2's first-class `restore-epoch` makes the loop fully closed — no adapter caveats.
 
