@@ -77,7 +77,13 @@
                      (or (contains? test-namespaces ns)
                          (contains? test-var-syms (symbol ns name)))))))))
 
-(defn execute-cli [{:keys [test-syms help list] :as _opts}]
+(defn execute-cli [{:keys [test-syms help list unknown-args] :as _opts}]
+  ;; Report any unknown args (the pure `cli/parse-args` collects them but
+  ;; does not print — so it can be unit-pinned without leaking a
+  ;; non-summary line on a green run; rf2-spzkgo).  Tolerated, not fatal:
+  ;; parsing continues and valid flags still take effect.
+  (doseq [arg unknown-args]
+    (println (str "Unknown arg: " arg)))
   (let [test-env (ct/empty-env)]
     (cond
       help

@@ -40,6 +40,7 @@
   ;; `-cli` ns; the console.warn stub it installs is live at runtime
   ;; anyway because shadow-node is the :node-test build's :main.
   (:require [cljs.test :refer-macros [deftest is testing] :refer [successful?]]
+            [clojure.string :as str]
             [re-frame.test-quiet.shadow-node-cli :as cli]))
 
 ;; ----------------------------------------------------------------------
@@ -69,10 +70,20 @@
     (is (= {:test-syms [] :help true} (cli/parse-args ["--help"]))))
   (testing "no args yields the run-all default (empty test-syms, no flags)"
     (is (= {:test-syms []} (cli/parse-args []))))
-  (testing "unknown args are tolerated and do not abort parsing"
-    (is (= {:test-syms '[ok.ns]}
+  (testing "unknown args are collected (not printed) and do not abort parsing"
+    ;; The pure parser must NOT print on an unknown arg — it collects
+    ;; them into `:unknown-args` and the real CLI path reports them. This
+    ;; keeps the green-run contract gate truly silent-on-success: a
+    ;; `(println \"Unknown arg: ...\")` here would leak a non-summary line
+    ;; into every consolidated `npm run test:cljs` run (rf2-spzkgo).
+    (is (= {:test-syms '[ok.ns] :unknown-args ["--bogus"]}
            (cli/parse-args ["--bogus" "--test=ok.ns"]))
-        "an unknown flag is skipped; later valid flags still parse")))
+        "an unknown flag is collected; later valid flags still parse")
+    (is (= {:test-syms '[ok.ns] :unknown-args ["--bogus" "--nope"]}
+           (cli/parse-args ["--bogus" "--test=ok.ns" "--nope"]))
+        "multiple unknown flags accumulate in input order")
+    (is (not (contains? (cli/parse-args ["--test=ok.ns"]) :unknown-args))
+        "a clean arg set carries no :unknown-args key at all")))
 
 ;; ----------------------------------------------------------------------
 ;; Var filtering — simple symbols match by ns, qualified by fully-qualified
@@ -235,3 +246,70 @@
     ;; And it must still accept a bare call without throwing.
     (is (nil? (js/console.warn "stub-smoke"))
         "the silencing stub must accept a bare call without throwing")))
+
+;; ----------------------------------------------------------------------
+;; Process-level quiet-shape regression (rf2-spzkgo).
+;;
+;; The pure-parser pins above lock that `parse-args` no longer PRINTS on
+;; an unknown arg — but the slice's core promise is that the REAL
+;; shadow-node entry point is silent-on-success.  That promise lived only
+;; in the JVM contract test (`re-frame.test-quiet-runner-contract-test`);
+;; the CLJS process path could regress without any test catching it (a
+;; stray `println`, a dropped console.warn stub, a banner leak).
+;;
+;; This regression spawns the SAME built `out/node-test.js` shadow-node
+;; runner this very process is executing, focused on a known-GREEN suite
+;; (`re-frame.test-quiet-green-fixture-cljs-test`, a single `is (= 1 1)`),
+;; captures its stdout, and fails if any green line other than the
+;; allowed canonical summary appears — `Unknown arg`, a `Testing <ns>`
+;; banner, leaked warnings, or any other non-summary text.
+
+(def ^:private node-child-process (js/require "child_process"))
+
+(def ^:private allowed-green-line-re
+  "A non-blank green stdout line must be one of the two canonical summary
+  lines.  `Ran N tests containing M assertions.` / `K failures, J errors.`"
+  #"^(Ran \d+ tests containing \d+ assertions\.|\d+ failures, \d+ errors\.)$")
+
+(deftest real-shadow-node-green-run-is-quiet
+  (testing "the real out/node-test.js entry point emits ONLY the canonical summary on a focused green run (rf2-spzkgo)"
+    ;; `process.argv[1]` is the path to the runner script THIS process is
+    ;; executing (out/node-test.js) — re-running it focused on the green
+    ;; fixture exercises the real CLI path end-to-end.
+    (let [self     (aget js/process.argv 1)
+          green-ns "re-frame.test-quiet-green-fixture-cljs-test"
+          res      (.spawnSync node-child-process
+                               (aget js/process.argv 0) ; the node binary
+                               #js [self (str "--test=" green-ns)]
+                               #js {:encoding "utf8"})
+          status   (.-status res)
+          stdout   (or (.-stdout res) "")
+          stderr   (or (.-stderr res) "")
+          ;; cljs.test spawn errors (e.g. ENOENT) surface on res.error.
+          err      (.-error res)]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (zero? status)
+          (str "the focused green run must exit 0; got " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (let [non-blank (->> (str/split-lines stdout)
+                           (map str/trim)
+                           (remove str/blank?))]
+        ;; The CORE pin: NOT ONE non-summary line. This is what `Unknown
+        ;; arg: --bogus` used to violate before the parser was made pure.
+        (is (every? #(re-matches allowed-green-line-re %) non-blank)
+            (str "a green run must emit ONLY the canonical summary lines —"
+                 " any other stdout line (e.g. `Unknown arg`, a `Testing`"
+                 " banner, a leaked warning) breaks silent-on-success"
+                 " (rf2-spzkgo). Got non-blank lines:\n"
+                 (str/join "\n" non-blank)))
+        (is (not (str/includes? stdout "Unknown arg"))
+            (str "the specific rf2-spzkgo regression: `Unknown arg` must"
+                 " NEVER reach a green run's stdout; got:\n" stdout))
+        (is (not (str/includes? stdout "Testing "))
+            (str "no per-ns banner may leak on green; got:\n" stdout))
+        (is (some #(str/starts-with? % "Ran ") non-blank)
+            (str "the summary `Ran ...` line must still be present; got:\n"
+                 stdout))
+        (is (some #(re-matches #"0 failures, 0 errors\." %) non-blank)
+            (str "the green tally line must be present; got:\n" stdout))))))

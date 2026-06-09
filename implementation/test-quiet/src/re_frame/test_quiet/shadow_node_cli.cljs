@@ -17,14 +17,19 @@
 
 (defn parse-args
   "Parse shadow-node CLI args into
-  `{:test-syms [..] :help? :list?}` (flags present only when set).
+  `{:test-syms [..] :help? :list? :unknown-args [..]}` (flags present
+  only when set; `:unknown-args` present only when an arg was unknown).
 
    - `--help` / `--list` set their boolean flag.
    - `--test=a,b` splits on comma into symbols and accumulates into
      `:test-syms` (repeated `--test=` flags accumulate).  A simple
      symbol selects a whole namespace; a qualified symbol selects a
      single var.
-   - any other arg is reported as unknown and otherwise ignored."
+   - any other arg is collected into `:unknown-args` (in input order)
+     and otherwise ignored.  This parser is PURE — it does not print:
+     the real CLI path (`shadow-node/execute-cli`) reports the
+     unknowns, so a contract test can pin the parse result without
+     leaking a non-summary line on a green run (rf2-spzkgo)."
   [args]
   (reduce
     (fn [opts arg]
@@ -42,8 +47,7 @@
           (update opts :test-syms into test-syms))
 
         :else
-        (do (println (str "Unknown arg: " arg))
-            opts)))
+        (update opts :unknown-args (fnil conj []) arg)))
     {:test-syms []}
     args))
 
