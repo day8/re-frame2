@@ -207,27 +207,53 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 #?(:cljs (defonce react-root (atom nil)))
 
+;; EP-0002 (rf2-9o48ih + rf2-acjknb): the SSR hydration target is CARRIED —
+;; established explicitly by the app and threaded through the streaming
+;; `install!`, `ssr/hydrate!`, AND the root `frame-provider`. The runtime
+;; never synthesises a frame from absence. This example uses `:rf/default`
+;; as its client app-frame id; it MUST be a `:client`-platform frame so the
+;; `:rf.ssr/check-*` compatibility-check fxs the `:rf/hydrate` handler
+;; dispatches actually fire (Spec 011 §The :rf/hydrate event). The static
+;; `index.html` payload carries no `:rf/frame-id` (a real streaming server
+;; stamps it via `handle-request`/`streaming-build-final-payload` above),
+;; which is NOT a hydration-frame-id conflict — the explicit `:frame` stands.
+#?(:cljs (def app-frame :rf/default))
+
 #?(:cljs
    (defn run []
+     ;; `init!` installs the adapter but does NOT create a frame — EP-0002:
+     ;; the app establishes its frame explicitly (below).
      (rf/init! reagent-adapter/adapter)
+     ;; Establish the carried client app-frame BEFORE installing the
+     ;; streaming runtime / hydrating into it. `reg-frame` is a surgical
+     ;; no-op on re-registration (hot-reload Just Works). `:platform :client`
+     ;; makes the hydrate compatibility-check fxs fire.
+     (rf/reg-frame app-frame {:doc      "ssr-streaming-example client app-frame"
+                              :platform :client})
      ;; Install the client-side streaming runtime BEFORE the first render
      ;; so it catches resolved-subtree chunks as they arrive (and sweeps
      ;; any already present). It swaps fallbacks + merges per-subtree
-     ;; deltas progressively, then disconnects on `__rf_payload`.
-     (ssr/streaming-install! {:frame :rf/default})
+     ;; deltas progressively into the carried frame, then disconnects on
+     ;; `__rf_payload`.
+     (ssr/streaming-install! {:frame app-frame})
      ;; Reconcile against the canonical payload: read `__rf_payload` +
-     ;; dispatch `:rf/hydrate` (:replace-app-db). The deltas were
-     ;; speculative; this is the correctness lock. (`:render-tree-fn` is
-     ;; omitted — the static demo shell carries a placeholder render-hash,
-     ;; so hash-mismatch verification would always warn here; a real
-     ;; streaming server stamps the genuine hash and a host then passes
-     ;; `:render-tree-fn` to enable mismatch detection.) Hydrate BEFORE
-     ;; first render so the initial render runs against the seeded app-db.
-     (ssr/hydrate! {:frame :rf/default})
+     ;; dispatch `:rf/hydrate` (:replace-app-db) into the EXPLICIT `:frame`.
+     ;; The deltas were speculative; this is the correctness lock.
+     ;; (`:render-tree-fn` is omitted — the static demo shell carries a
+     ;; placeholder render-hash, so hash-mismatch verification would always
+     ;; warn here; a real streaming server stamps the genuine hash and a host
+     ;; then passes `:render-tree-fn` to enable mismatch detection.) Hydrate
+     ;; BEFORE first render so the initial render runs against the seeded
+     ;; app-db.
+     (ssr/hydrate! {:frame app-frame})
      (when (exists? js/document)
        (when-not @react-root
          (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-       (rdc/render @react-root [(rf/view :dashboard/root)]))))
+       ;; Wrap the mount in the carried frame's `frame-provider` so every
+       ;; in-tree `dispatch`/`subscribe` resolves to the hydrated frame.
+       (rdc/render @react-root
+                   [rf/frame-provider {:frame app-frame}
+                    [(rf/view :dashboard/root)]]))))
 
 ;; The JVM-runnable headless test that exercises the server stream
 ;; (shell → per-card resolved chunks → final payload) lives in
