@@ -4032,6 +4032,215 @@
               "no :rf.epoch/db-replaced success trace"))))))
 
 ;; ============================================================================
+;;  rf2-s93722 — POST-LIVENESS teardown race (the second half of the window)
+;; ============================================================================
+;;
+;; rf2-7i872 closed the validate→write window by re-resolving the container
+;; via `live-container-or-fail` at the write boundary. But that liveness check
+;; closes only HALF the window: a frame destroyed AFTER `live-container-or-
+;; fail` passes (it resolved a LIVE container) but BEFORE the actual
+;; `frame/replace-*` write returns STILL slips through — the liveness check
+;; said "live", yet the physical write lands against a now-destroyed frame and
+;; the choke-point `commit-frame-transition!` returns `nil` (the nil-container
+;; guard). Pre-rf2-s93722 the four perform helpers IGNORED that return, so they
+;; emitted success telemetry, recorded + fanned out a synthetic epoch, and
+;; returned `true` for a write that never happened.
+;;
+;; The fix: capture the `frame/replace-*` return; `nil` is the destroyed-frame
+;; signal (a non-nil — possibly EMPTY — changed-key-set means the write
+;; landed, even a no-op), so surface the canonical `:rf.error/no-such-handler`
+;; (kind :frame) / `false` BEFORE any success telemetry, synthetic epoch, or
+;; listener fanout. Empty-set / no-op writes stay successful.
+;;
+;; The race is reproduced by redefining the boundary `frame/replace-*` write
+;; to DESTROY the frame and then delegate to the real fn — so liveness has
+;; already passed (it ran before the redef'd write) and the real write returns
+;; nil against the now-destroyed frame, exactly the post-liveness window.
+
+(deftest restore-epoch-post-liveness-teardown-returns-false
+  (testing "rf2-s93722 — perform-restore! returns false (NOT a synthetic
+            success), emits :rf.error/no-such-handler (kind :frame), and does
+            NOT emit :rf.epoch/restored when the frame is destroyed AFTER the
+            write-boundary liveness check passes but BEFORE replace-frame-state!
+            returns (the nil-return post-liveness teardown window)."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+    (rf/dispatch-sync [:inc]  {:frame :test/short-lived})
+
+    (let [target-id (-> (rf/epoch-history :test/short-lived) first :epoch-id)
+          {:keys [outcome epoch]} (tool-pair/check-restore-preconditions!
+                                    :test/short-lived target-id)]
+      (is (= :ok outcome) "precondition validation passed against the live frame")
+
+      (let [real-write frame/replace-frame-state!
+            recorded   (record-trace!)
+            ;; The post-liveness window: live-container-or-fail (inside
+            ;; perform-restore!) resolves a LIVE container, THEN this redef'd
+            ;; write destroys the frame and delegates to the real write, which
+            ;; now returns nil against the destroyed frame.
+            result     (with-redefs [frame/replace-frame-state!
+                                     (fn [frame-id fs]
+                                       (rf/destroy-frame! frame-id)
+                                       (real-write frame-id fs))]
+                         (tool-pair/perform-restore! :test/short-lived epoch))]
+        (is (false? result)
+            "perform-restore! reports HONEST failure (false) — the nil write
+             return is checked, not ignored")
+        (is (has-error-op? @recorded :rf.error/no-such-handler)
+            ":rf.error/no-such-handler fired for the post-liveness teardown")
+        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                       @recorded)]
+          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
+          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
+        (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
+            "no :rf.epoch/restored success trace for the post-liveness drop")))))
+
+(deftest replace-app-db-post-liveness-teardown-returns-false
+  (testing "rf2-s93722 — perform-replace-app-db! returns false, emits
+            :rf.error/no-such-handler (kind :frame), and does NOT record a
+            synthetic epoch, emit :rf.epoch/db-replaced, or fan out a record
+            when replace-app-db! returns nil AFTER the liveness check passed."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+
+    (let [fanned   (atom [])]
+      (rf/register-epoch-listener! ::fan-watcher (fn [r] (swap! fanned conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+      (reset! fanned [])
+
+      (let [real-write frame/replace-app-db!
+            recorded   (record-trace!)
+            result     (with-redefs [frame/replace-app-db!
+                                     (fn [frame-id db]
+                                       (rf/destroy-frame! frame-id)
+                                       (real-write frame-id db))]
+                         (#'epoch/perform-replace-app-db! :test/short-lived {:n 999}))]
+        (is (false? result)
+            "perform-replace-app-db! reports HONEST failure (false) for the
+             nil-return post-liveness teardown")
+        (is (has-error-op? @recorded :rf.error/no-such-handler)
+            ":rf.error/no-such-handler fired")
+        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                       @recorded)]
+          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
+          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
+        (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+            "no :rf.epoch/db-replaced success trace")
+        (is (empty? @fanned)
+            "no synthetic epoch fanned out to listeners for the dropped write")
+        (is (= [] (rf/epoch-history :test/short-lived))
+            "no synthetic epoch recorded into the dropped ring")))))
+
+(deftest replace-runtime-db-post-liveness-teardown-returns-false
+  (testing "rf2-s93722 — perform-replace-runtime-db! returns false, emits
+            :rf.error/no-such-handler (kind :frame), and records / fans out NO
+            synthetic epoch when replace-runtime-db! returns nil AFTER the
+            liveness check passed."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+
+    (let [fanned   (atom [])]
+      (rf/register-epoch-listener! ::fan-watcher (fn [r] (swap! fanned conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+      (reset! fanned [])
+
+      (let [real-write frame/replace-runtime-db!
+            recorded   (record-trace!)
+            result     (with-redefs [frame/replace-runtime-db!
+                                     (fn [frame-id rt]
+                                       (rf/destroy-frame! frame-id)
+                                       (real-write frame-id rt))]
+                         (#'epoch/perform-replace-runtime-db!
+                           :test/short-lived {:rf.runtime/routing {:current {:id :home}}}))]
+        (is (false? result)
+            "perform-replace-runtime-db! reports HONEST failure (false) for the
+             nil-return post-liveness teardown")
+        (is (has-error-op? @recorded :rf.error/no-such-handler)
+            ":rf.error/no-such-handler fired")
+        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                       @recorded)]
+          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
+          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
+        (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+            "no :rf.epoch/db-replaced success trace")
+        (is (empty? @fanned)
+            "no synthetic epoch fanned out to listeners for the dropped write")
+        (is (= [] (rf/epoch-history :test/short-lived))
+            "no synthetic epoch recorded into the dropped ring")))))
+
+(deftest replace-frame-state-post-liveness-teardown-returns-false
+  (testing "rf2-s93722 — perform-replace-frame-state! returns false, emits
+            :rf.error/no-such-handler (kind :frame), and records / fans out NO
+            synthetic epoch when replace-frame-state! returns nil AFTER the
+            liveness check passed."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+
+    (let [fanned   (atom [])]
+      (rf/register-epoch-listener! ::fan-watcher (fn [r] (swap! fanned conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+      (reset! fanned [])
+
+      (let [real-write frame/replace-frame-state!
+            recorded   (record-trace!)
+            new-fs     {:rf.db/app {:n 999} :rf.db/runtime {:rf.runtime/routing {:current {:id :home}}}}
+            result     (with-redefs [frame/replace-frame-state!
+                                     (fn [frame-id fs]
+                                       (rf/destroy-frame! frame-id)
+                                       (real-write frame-id fs))]
+                         (#'epoch/perform-replace-frame-state! :test/short-lived new-fs))]
+        (is (false? result)
+            "perform-replace-frame-state! reports HONEST failure (false) for the
+             nil-return post-liveness teardown")
+        (is (has-error-op? @recorded :rf.error/no-such-handler)
+            ":rf.error/no-such-handler fired")
+        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                       @recorded)]
+          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
+          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
+        (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+            "no :rf.epoch/db-replaced success trace")
+        (is (empty? @fanned)
+            "no synthetic epoch fanned out to listeners for the dropped write")
+        (is (= [] (rf/epoch-history :test/short-lived))
+            "no synthetic epoch recorded into the dropped ring")))))
+
+;; rf2-s93722 — guard the OTHER side of the nil/empty-set distinction: a
+;; live-frame NO-OP write (the value `=` the current slice) returns an EMPTY
+;; changed-key-set (non-nil), so it MUST stay a success — NOT be misread as a
+;; destroyed-frame drop.
+(deftest replace-app-db-noop-write-stays-successful
+  (testing "rf2-s93722 — a no-op replace-app-db! (the new value equals the
+            current app-db) returns an EMPTY (non-nil) changed-key-set from the
+            frame write, so the perform helper treats it as success — true
+            return, :rf.epoch/db-replaced emitted, synthetic epoch recorded —
+            NOT a destroyed-frame drop."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [recorded (record-trace!)
+          ;; Inject the IDENTICAL value — a genuine no-op write against a live
+          ;; frame. commit-frame-transition! returns #{} (empty, non-nil).
+          result   (#'epoch/perform-replace-app-db! :test/main {:n 7})]
+      (is (true? result)
+          "a live-frame no-op write stays successful (empty-set ≠ nil)")
+      (is (= {:n 7} (rf/app-db-value :test/main))
+          "app-db is unchanged by the no-op (the equal value)")
+      (is (some #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+          ":rf.epoch/db-replaced success trace IS emitted for the no-op write")
+      (is (not (has-error-op? @recorded :rf.error/no-such-handler))
+          "no destroyed-frame error for a live no-op write")
+      (is (some #(= :rf.epoch/db-replaced (:event-id %))
+                (rf/epoch-history :test/main))
+          "the synthetic epoch IS recorded for the no-op write"))))
+
+;; ============================================================================
 ;;  rf2-7i872 — listener observation bookkeeping race (unregister mid-fan-out)
 ;; ============================================================================
 ;;
