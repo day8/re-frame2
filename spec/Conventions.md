@@ -101,21 +101,34 @@ The reserved set is **fixed-and-additive**: names already in the table cannot be
 
 re-frame2 reserves a small set of fx-ids — the runtime, the machine handler, and the navigation layer recognise them by name. User code MUST NOT register a `reg-fx` handler for these ids; doing so is a collision the registrar warns about.
 
-| Reserved fx-id | Recognised by | Used for | Spec |
-|---|---|---|---|
-| `:dispatch` | runtime `do-fx` | Standard intra-frame dispatch | 002 |
-| `:dispatch-later` | runtime `do-fx` | Delayed dispatch | 002 |
-| `:raise` | machine handler (`make-machine-handler`) | Self-event addressed to the same machine; processed atomically pre-commit. **Outside a machine action's `:fx`, `:raise` is unbound** and `:rf.error/no-such-handler` is the failure mode. | 005 |
-| `:rf.machine/spawn` | `re-frame.machines` (canonical) | Spawn a dynamic actor; record its id into the parent's `:data` via `:on-spawn`. Registered globally so user event handlers (and machine actions) emit it from `:fx` to register a new live actor. Args per `:rf.fx/spawn-args`. | 005 |
-| `:rf.machine/destroy` | `re-frame.machines` (canonical) | Destroy a dynamic actor: runs the actor's `:exit` action, dissociates its snapshot at `[:rf.runtime/machines :snapshots <actor-id>]`, and clears its event handler from the frame-local registry. Symmetric counterpart to `:rf.machine/spawn`. Per [005 §`:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids inside `:fx`](005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx). | 005 |
-| `:rf.machine/dispatch-to-system` | `re-frame.machines` (canonical) | A machine action sends a message to its spawned child actor addressed by `:system-id`. Args are the single 2-element pair `[<system-id> <event-vector>]`; resolves the binding in the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index and dispatches the event to the bound actor (no-op when unbound). The fx counterpart to the `dispatch-to-system` fn (`re-frame.core`). Per [005 §Cross-machine messaging by name](005-StateMachines.md#cross-machine-messaging-by-name). | 005 |
-| `:rf.fx/reg-flow` | runtime `do-fx` | Register a flow at runtime (per [013 §Dynamic toggle via fx](013-Flows.md#dynamic-toggle-via-fx)). Args: a flow map. | 013 |
-| `:rf.fx/clear-flow` | runtime `do-fx` | Clear a registered flow; `dissoc-in` on its `:path`. Args: a flow id. | 013 |
-| `:rf.nav/push-url` | `re-frame.routing` (canonical) | `pushState` for the URL. `:client` platform only. Per [012 §Effects (`reg-fx`)](012-Routing.md#effects-reg-fx). | 012 |
-| `:rf.nav/replace-url` | `re-frame.routing` (canonical) | `replaceState` for the URL. `:client` platform only. Per [012 §Effects (`reg-fx`)](012-Routing.md#effects-reg-fx). | 012 |
-| `:rf.nav/scroll` | `re-frame.routing` (canonical) | Apply a scroll strategy. Args `{:strategy :from :to :saved-pos :fragment}`. `:client` platform only. Per [012 §Scroll restoration](012-Routing.md#scroll-restoration). | 012 |
-| `:rf.nav/capture-scroll` | `re-frame.routing` (canonical) | Capture current scroll position before leaving a route. `:client` platform only. Per [012 §Scroll restoration](012-Routing.md#scroll-restoration). | 012 |
-| `:rf.route/with-nav-token` | `re-frame.routing` (canonical) | Threads `:nav-token` into a downstream dispatch for stale-result suppression. Universal platform. Per [012 §Navigation tokens — stale-result suppression](012-Routing.md#navigation-tokens--stale-result-suppression). | 012 |
+The **Override tier** column records whether a `:fx-overrides` entry targeting the reserved id is honoured (**OVERRIDABLE**) or ignored (**REJECT**), per the state-installation criterion in [§Reserved fx-id override tiering](#reserved-fx-id-override-tiering) below.
+
+| Reserved fx-id | Recognised by | Used for | Override tier | Spec |
+|---|---|---|---|---|
+| `:dispatch` | runtime `do-fx` | Standard intra-frame dispatch | OVERRIDABLE | 002 |
+| `:dispatch-later` | runtime `do-fx` | Delayed dispatch | OVERRIDABLE | 002 |
+| `:raise` | machine handler (`make-machine-handler`) | Self-event addressed to the same machine; processed atomically pre-commit. **Outside a machine action's `:fx`, `:raise` is unbound** and `:rf.error/no-such-handler` is the failure mode. | N/A (machine-internal; never reaches `do-fx`) | 005 |
+| `:rf.machine/spawn` | `re-frame.machines` (canonical) | Spawn a dynamic actor; record its id into the parent's `:data` via `:on-spawn`. Registered globally so user event handlers (and machine actions) emit it from `:fx` to register a new live actor. Args per `:rf.fx/spawn-args`. | REJECT | 005 |
+| `:rf.machine/destroy` | `re-frame.machines` (canonical) | Destroy a dynamic actor: runs the actor's `:exit` action, dissociates its snapshot at `[:rf.runtime/machines :snapshots <actor-id>]`, and clears its event handler from the frame-local registry. Symmetric counterpart to `:rf.machine/spawn`. Per [005 §`:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids inside `:fx`](005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx). | REJECT | 005 |
+| `:rf.machine/dispatch-to-system` | `re-frame.machines` (canonical) | A machine action sends a message to its spawned child actor addressed by `:system-id`. Args are the single 2-element pair `[<system-id> <event-vector>]`; resolves the binding in the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index and dispatches the event to the bound actor (no-op when unbound). The fx counterpart to the `dispatch-to-system` fn (`re-frame.core`). Per [005 §Cross-machine messaging by name](005-StateMachines.md#cross-machine-messaging-by-name). | OVERRIDABLE (pure lookup-then-dispatch; no runtime-db write) | 005 |
+| `:rf.fx/reg-flow` | runtime `do-fx` | Register a flow at runtime (per [013 §Dynamic toggle via fx](013-Flows.md#dynamic-toggle-via-fx)). Args: a flow map. | REJECT | 013 |
+| `:rf.fx/clear-flow` | runtime `do-fx` | Clear a registered flow; `dissoc-in` on its `:path`. Args: a flow id. | REJECT | 013 |
+| `:rf.nav/push-url` | `re-frame.routing` (canonical) | `pushState` for the URL. `:client` platform only. Per [012 §Effects (`reg-fx`)](012-Routing.md#effects-reg-fx). | OVERRIDABLE | 012 |
+| `:rf.nav/replace-url` | `re-frame.routing` (canonical) | `replaceState` for the URL. `:client` platform only. Per [012 §Effects (`reg-fx`)](012-Routing.md#effects-reg-fx). | OVERRIDABLE | 012 |
+| `:rf.nav/scroll` | `re-frame.routing` (canonical) | Apply a scroll strategy. Args `{:strategy :from :to :saved-pos :fragment}`. `:client` platform only. Per [012 §Scroll restoration](012-Routing.md#scroll-restoration). | OVERRIDABLE | 012 |
+| `:rf.nav/capture-scroll` | `re-frame.routing` (canonical) | Capture current scroll position before leaving a route. `:client` platform only. Per [012 §Scroll restoration](012-Routing.md#scroll-restoration). | OVERRIDABLE | 012 |
+| `:rf.route/with-nav-token` | `re-frame.routing` (canonical) | Threads `:nav-token` into a downstream dispatch for stale-result suppression. Universal platform. Per [012 §Navigation tokens — stale-result suppression](012-Routing.md#navigation-tokens--stale-result-suppression). | REJECT (dropping the nav-token silently defeats stale-result suppression) | 012 |
+
+<a id="reserved-fx-id-override-tiering"></a>
+
+### Reserved fx-id override tiering
+
+A `:fx-overrides` map (per [002 §`:fx-overrides`](002-Frames.md#fx-overrides--replace-fx-handlers)) may target a reserved fx-id, and the reserved set is tiered against override by the **state-installation criterion**:
+
+- A reserved fx is **OVERRIDABLE** when its body only *routes* dispatches or *touches host/browser state* WITHOUT writing the frame runtime-db. The override (fn-value or keyword-redirect) is honoured exactly as for a user fx-id — it pre-empts the reserved body. This is the legitimate test/story affordance (capture a dispatch without queueing it; no-op a navigation).
+- A reserved fx is **REJECT** when its body *installs or clears* durable frame-internal runtime state that later framework behaviour depends on (machine snapshots, flow registry entries, the nav-token). An override is **ignored**: the runtime emits [`:rf.error/reserved-fx-override`](009-Instrumentation.md#error-event-catalogue) and runs the real reserved body. In production builds the effective override map is stripped of REJECT keys loudly before the fx walk, and the REJECT keys are excluded from cascade inheritance (a per-call override never propagates into a `[:dispatch …]` child).
+
+Reject-all (refusing fn-value override of `:dispatch` / `:dispatch-later` too) is **not** the rule — that would reverse the standing ruling that those routing-primitive overrides pre-empt the reserved body, which the testing surface depends on.
 
 ### Fx-id namespacing rule — three reserved fx-id sub-namespaces
 

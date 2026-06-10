@@ -1228,7 +1228,21 @@
   [effects frame frame-record fx-overrides envelope]
   (when-let [fx-vec (:fx effects)]
     (let [active-platform (fx/platform-for-frame-record frame-record)
-          event           (:event envelope)]
+          event           (:event envelope)
+          ;; Production prod-strip (rf2-snsup5): in a production build the
+          ;; dev-path per-call reject in `handle-one-fx` DCEs along with the
+          ;; trace surface, so strip the reject-tier reserved-fx overrides
+          ;; from the EFFECTIVE merged map (per-frame ⋈ per-call) up front,
+          ;; LOUDLY (one always-on `:rf.error/reserved-fx-override` per
+          ;; stripped key). This also keeps the rejected keys off the
+          ;; `:fx-overrides` that `child-dispatch-opts` would otherwise
+          ;; inherit onto cascade children. Dev keeps the per-call emit (it
+          ;; carries richer per-fx context); the strip is the prod analogue.
+          ;; `strip-rejected-overrides` is identity (no churn) when no
+          ;; reject-tier key is present — the dominant path.
+          fx-overrides    (if interop/debug-enabled?
+                            fx-overrides
+                            (fx/strip-rejected-overrides fx-overrides frame event))]
       (fx/do-fx frame fx-vec active-platform
                 {:overrides       fx-overrides
                  :origin-event    event

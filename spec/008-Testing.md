@@ -537,19 +537,22 @@ Earlier ranks are cheaper and catch a tighter bug class; later ranks catch view-
 
 ### Asserting on effects (without firing them)
 
-When you want to verify what *would* dispatch without actually running the cascade, stub the dispatch fx:
+When you want to verify what *would* dispatch without actually running the cascade, stub the `:dispatch` fx **per-call** — pass the override in the `dispatch-sync` opts so it is scoped to exactly the one event under assertion:
 
 ```clojure
-(let [dispatched (atom [])
-      f (rf/make-frame
-          {:on-create   [:auth/init-idle]
-           :fx-overrides {:dispatch (fn [_m ev] (swap! dispatched conj ev))}})]
-  (try
-    (rf/dispatch-sync [:auth/login-pressed] {:frame f})
-    (is (= [[:auth/check-credentials]] @dispatched))
-    (finally
-      (rf/destroy-frame! f))))
+(let [dispatched (atom [])]
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
+    (rf/dispatch-sync [:auth/login-pressed]
+                      {:frame        f
+                       :fx-overrides {:dispatch (fn [_m ev] (swap! dispatched conj ev))}})
+    (is (= [[:auth/check-credentials]] @dispatched))))
 ```
+
+`:dispatch` (and `:dispatch-later`) are in the **OVERRIDABLE** tier of the reserved fx-ids (per [Conventions §Reserved fx-id override tiering](Conventions.md#reserved-fx-id-override-tiering)): a fn-value override pre-empts the reserved body, so the captured event vector is recorded and **not** queued — the cascade does not run. This is the canonical "assert what would dispatch" affordance.
+
+**Scope the `:dispatch` override per-call, not per-frame.** A `:dispatch` override placed on a frame's `:fx-overrides` config (via `make-frame` / `reg-frame`) is re-merged into the envelope on **every** dispatch routed to that frame for the frame's whole lifetime — including framework-internal dispatches (machine actor messages, spawned-actor `:start`, router internals, HTTP reply settles). That silently re-routes traffic the test never meant to touch and is a sharp footgun. The per-call form above scopes the stub to the single event you are asserting on.
+
+**State-installing reserved fxs cannot be stubbed.** The `:fx-overrides` map is tiered: the routing primitives (`:dispatch`, `:dispatch-later`, `:rf.machine/dispatch-to-system`) and the navigation primitives (`:rf.nav/*`) are OVERRIDABLE, but the **state-installing** reserved fxs — `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:rf.route/with-nav-token` — are **HARD-REJECTED**. An override targeting one of those is ignored (the runtime emits [`:rf.error/reserved-fx-override`](009-Instrumentation.md#error-event-catalogue) and runs the real reserved body), because stubbing them would leave the frame's runtime-db in an inconsistent state that breaks later behaviour far from the override site (e.g. a spawned actor whose snapshot was never installed → every later actor dispatch is `:rf.error/no-such-handler`). To assert on *those* operations, drive the real fx and read the resulting runtime-db state (machine snapshot, flow registry) directly.
 
 ### Time travel — assertion after rewind
 
