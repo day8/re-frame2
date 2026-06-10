@@ -700,28 +700,30 @@
   shipped chrome-a11y dogfood per rf2-18t6p; a11y dogfooding is
   properly Story's domain. rf2-ga16q — the Machines Canvas tab was
   removed; its spine-INDEPENDENT browse-all canvas relocated to the
-  Static Machines sub-tab.)"
-  [:epoch :app-db :views :trace :machines :routing])
+  Static Machines sub-tab. Resources — Spec 016 §Xray and AI tooling —
+  earns its own L3 tab after Routing per Mike's cohesive-sub-domain
+  ruling.)"
+  [:epoch :app-db :views :trace :machines :routing :resources])
 
 (deftest tab-bar-renders-six-tabs
-  (testing "spec/018 §5 — six tabs (Epoch / App-db / Views / Trace /
-            Machines / Routing — Epoch supersedes the retired
+  (testing "spec/018 §5 — Epoch / App-db / Views / Trace / Machines /
+            Routing / Resources (Epoch supersedes the retired
             Event/Handler tab per rf2-5gl5r; rf2-gbz39 removed the
             Issues tab per Option (c)). rf2-4v67l removed the
             Chrome A11y dogfood in favour of Story's shipped panel;
             rf2-ga16q removed the Machines Canvas tab (relocated to
-            Static)."
+            Static); Resources added per Spec 016."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view)
             tabs (find-all-by-testid-prefix tree "rf-xray-tab-")]
         ;; Need to filter out the L4 detail panel and tab-bar root.
-        (is (= 6 (count (filter (fn [n]
+        (is (= 7 (count (filter (fn [n]
                                   (let [t (:data-testid (second n))]
                                     (some #(= t (str "rf-xray-tab-" (name %)))
                                           expected-tab-ids)))
                                 tabs)))
-            "6 tab buttons render")
+            "7 tab buttons render")
         (doseq [tab-id expected-tab-ids]
           (is (some? (find-by-testid tree (str "rf-xray-tab-" (name tab-id))))
               (str "tab button for " tab-id)))))))

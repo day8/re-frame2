@@ -66,6 +66,7 @@
             [day8.re-frame2-xray.panels.trace]
             [day8.re-frame2-xray.panels.machine-inspector]
             [day8.re-frame2-xray.panels.routing]
+            [day8.re-frame2-xray.panels.resources]
             [day8.re-frame2-xray.static.flows.panel]
             [day8.re-frame2-xray.static.interceptors.panel]
             [day8.re-frame2-xray.static.routes.panel]
@@ -93,6 +94,7 @@
    "day8.re-frame2-xray.panels.trace"                (emit-ns-publics day8.re-frame2-xray.panels.trace)
    "day8.re-frame2-xray.panels.machine-inspector"    (emit-ns-publics day8.re-frame2-xray.panels.machine-inspector)
    "day8.re-frame2-xray.panels.routing"              (emit-ns-publics day8.re-frame2-xray.panels.routing)
+   "day8.re-frame2-xray.panels.resources"            (emit-ns-publics day8.re-frame2-xray.panels.resources)
    "day8.re-frame2-xray.static.flows.panel"          (emit-ns-publics day8.re-frame2-xray.static.flows.panel)
    "day8.re-frame2-xray.static.interceptors.panel"   (emit-ns-publics day8.re-frame2-xray.static.interceptors.panel)
    "day8.re-frame2-xray.static.routes.panel"         (emit-ns-publics day8.re-frame2-xray.static.routes.panel)

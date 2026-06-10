@@ -1687,12 +1687,12 @@ only opt is `:frame`) — the v1.0 host-facing embed contract is the
 > Adding / removing / renaming a panel starts with a one-line edit to
 > the enum; this table follows. See the `panel-enum` ns docstring.
 
-The Xray panel-surface inventory totals **14 surfaces** across five
-tiers — **12 are independently mountable** via a `mount-<panel>!` fn
+The Xray panel-surface inventory totals **15 surfaces** across five
+tiers — **13 are independently mountable** via a `mount-<panel>!` fn
 (the panel-enum set), and **2 are internal sub-components** that render
 under their owning panel and expose no standalone mount fn. The split:
 
-- **Tier 1 — L3 tab panels (6):** one per L3 detail-panel tab.
+- **Tier 1 — L3 tab panels (7):** one per L3 detail-panel tab.
 - **Spine — embeddable event spine (1):** the L2 event list mounted
   standalone (`008-Embedding-Contract.md` §Embeddable event spine).
 - **Tier 2 — overlay / popup surfaces (3):** modal-light surfaces
@@ -1706,20 +1706,24 @@ under their owning panel and expose no standalone mount fn. The split:
   geometry-coupled to `machine-inspector/Panel` (after-rings
   overlay, sim side-rail) — NOT in the panel-enum set.
 
-The 6 + 1 + 3 + 1 + 1 mountable surfaces sum to the **12** entries of
+The 7 + 1 + 3 + 1 + 1 mountable surfaces sum to the **13** entries of
 `panel-enum`; adding Tier 4's 2 internal sub-components reaches the
-**14-surface** total. Modal overlays managed by the shell (Settings
+**15-surface** total. Modal overlays managed by the shell (Settings
 dialog, command palette, share modal) are NOT counted here — they are
 shell chrome, not panel content.
 
-**Tier 1 — L3 tab panels (6):** one per `:rf.xray/selected-tab`
+**Tier 1 — L3 tab panels (7):** one per `:rf.xray/selected-tab`
 value. (Post rf2-5gl5r the Event/Handler tab was retired in favour
 of the Epoch tab; post rf2-gbz39 the Issues tab was removed per Mike's
 Option (c) ruling — issues surface inline in the Epoch panel + the L2
 event-row pink-wash + the always-on issues ribbon signal. The Epoch
 panel renders the focused epoch's full computational timeline as a
 numbered vertical cascade per
-[`021-Dynamic-Panel-Designs.md` §9.1](./021-Dynamic-Panel-Designs.md#91-the-epoch-panel-numbered-cascade--rf2-sc3r1).)
+[`021-Dynamic-Panel-Designs.md` §9.1](./021-Dynamic-Panel-Designs.md#91-the-epoch-panel-numbered-cascade--rf2-sc3r1).
+The Resources tab — the declarative-server-state lens (Spec 016 §Xray
+and AI tooling) — earns its own L3 tab after Routing per Mike's
+cohesive-sub-domain ruling; server-state is a sub-domain, not an
+App-db section.)
 
 | Panel | View | Mount fn |
 |---|---|---|
@@ -1729,6 +1733,7 @@ numbered vertical cascade per
 | Trace tab    | `trace/Panel`            | `mount-trace!` |
 | Machines tab | `machine-inspector/Panel`| `mount-machine-inspector!` |
 | Routing tab  | `routing/Panel`          | `mount-routing!` |
+| Resources tab | `resources/Panel`       | `mount-resources!` |
 
 **Spine — embeddable event spine (1):** the L2 event list mounted
 standalone — the SAME `shell/event-list` reg-view the full shell

@@ -34,6 +34,7 @@
       (mount-trace!            mount-point opts) → unmount-fn
       (mount-machine-inspector! mount-point opts) → unmount-fn
       (mount-routing!          mount-point opts) → unmount-fn
+      (mount-resources!        mount-point opts) → unmount-fn
 
       ;; Spine surface — the L2 event list in isolation (rf2-9k43e).
       ;; The SAME `shell/event-list` reg-view the full 4-layer shell
@@ -110,6 +111,7 @@
   | **trace** | `:rf.xray/trace-feed` (epoch-scoped — projects the focused epoch's `:trace-events` into a flat list of rows, each with a stage column + colour-coded left edge, spec/023 · rf2-aqusw) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/open-in-editor` |
   | **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-cascade` |
   | **routing** | `:rf.xray/registered-routes` · `:rf.xray/current-route-slice` · `:rf.xray/routing-tab-data` | route-simulation events |
+  | **resources** | `:rf.xray/resources-tab-data` (composite over `:rf.xray/registered-resources` · `:rf.xray/resource-entries` · `:rf.xray/resource-work-ledger` · the route registry · the trace buffer) | (read-only — no dispatch; observing pins no resource) |
   | **segment-inspector** | `:rf.xray/segment-inspector-open?` · `:rf.xray/segment-inspector-value` | `:rf.xray/close-segment-inspector` |
   | **cancellation-cascade** (side-panel + popover) | `:rf.xray/cancellation-cascade-for-focused-machine` · `:rf.xray/cancellation-cascade-for-focused-event` · `:rf.xray/cancellation-cascade-popover-open?` · `:rf.xray/modal-positioning` | `:rf.xray/cancellation-cascade-close` |
   | **managed-fx** | `:rf.xray/managed-fx-for-focused-event` | `:rf.xray/focus-event` |
@@ -156,6 +158,7 @@
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.managed-fx-template :as managed-fx]
             [day8.re-frame2-xray.panels.routing :as routing]
+            [day8.re-frame2-xray.panels.resources :as resources]
             [day8.re-frame2-xray.panels.trace :as trace]
             [day8.re-frame2-xray.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-xray.shell :as shell]))
@@ -270,6 +273,15 @@
   the registered-routes lens + simulate-URL surface."
   ([mount-point]      (mount-routing! mount-point nil))
   ([mount-point opts] (render-panel! routing/Panel mount-point opts)))
+
+(defn mount-resources!
+  "Mount Xray's Resources tab in isolation at `mount-point` (Spec 016
+  §Xray and AI tooling). Renders the static resource registry, the live
+  per-frame instance + work-ledger tables, the route/resource graph, the
+  lifecycle timeline, the invalidation graph, the cache-growth view, and
+  the scope audit + lints. Read-only — observing pins no resource."
+  ([mount-point]      (mount-resources! mount-point nil))
+  ([mount-point opts] (render-panel! resources/Panel mount-point opts)))
 
 (defn mount-event-spine!
   "Mount Xray's L2 event spine in isolation at `mount-point` (rf2-9k43e).

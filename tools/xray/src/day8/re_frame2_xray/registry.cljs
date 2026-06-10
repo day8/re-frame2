@@ -83,6 +83,7 @@
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.managed-fx-subs :as managed-fx-subs]
             [day8.re-frame2-xray.panels.routing :as routing]
+            [day8.re-frame2-xray.panels.resources :as resources]
             [day8.re-frame2-xray.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-xray.panels.trace :as trace]))
 
@@ -945,6 +946,17 @@
     ;; order is intentional, though re-frame's `:<-` resolution is
     ;; lazy and the order is purely cosmetic.
     (routing/install!)
+    ;; Resources tab (Spec 016 §Xray and AI tooling) — Dynamic L3 tab
+    ;; for declarative server-state. Installs the registered-resources /
+    ;; resource-entries / resource-work-ledger / resource-sub-reads subs
+    ;; + the `:rf.xray/resources-tab-data` composite + test-only
+    ;; overrides. Reads the static registry via `(rf/registrations
+    ;; :resource)` and the live cache/ledger off
+    ;; `:rf.xray/target-frame-runtime-db` (registered by
+    ;; `app-db-diff/install!` above) — decoupled from the optional
+    ;; resources artefact (Xray does not :require it; bundle isolation).
+    ;; Read-only: no `:rf.resource/*` dispatch (observing pins nothing).
+    (resources/install!)
     ;; Static Routes panel (rf2-o5f5f.3) — Static-surface browse +
     ;; Simulate-URL + per-row inline expand + hermetic Simulate-
     ;; navigation preview. Installs the UI-state slots under

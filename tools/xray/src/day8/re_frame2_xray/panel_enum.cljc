@@ -93,6 +93,7 @@
    {:id :trace             :mount "mount-trace!"            :view "trace/Panel"            :tier :l3-tab}
    {:id :machine-inspector :mount "mount-machine-inspector!" :view "machine-inspector/Panel" :tier :l3-tab}
    {:id :routing           :mount "mount-routing!"          :view "routing/Panel"          :tier :l3-tab}
+   {:id :resources         :mount "mount-resources!"        :view "resources/Panel"        :tier :l3-tab}
    ;; The embeddable L2 event spine (008 §Embeddable event spine).
    {:id :event-spine       :mount "mount-event-spine!"      :view "shell/event-list"       :tier :spine}
    ;; Tier 2 — overlay / popup surfaces.

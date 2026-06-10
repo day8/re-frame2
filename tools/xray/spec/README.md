@@ -105,6 +105,16 @@ main read**.
   colour/visual encoding delegated to Figma (§8). Supersedes
   [021 §5](021-Dynamic-Panel-Designs.md#5-the-trace-panel-per-epoch-raw-ops)
   (v1-shipped layout) as the direction-setter.
+- **[024-Resources-Panel.md](024-Resources-Panel.md)** — The Resources
+  tab: the Xray-side consumer contract for declarative server-state
+  (framework [`spec/016-Resources.md`](../../../spec/016-Resources.md)).
+  The eight panel sections (static registry · live instances · work
+  ledger · route/resource graph · lifecycle timeline · invalidation graph
+  · cache growth · scope audit + lints), the `:rf.resource/*` trace
+  family Xray colours/filters, the five read-only tool accessors, and the
+  privacy posture (params/scopes get the SAME summary + size elision as
+  data; read-only — observing pins no resource). Decoupled from the
+  optional Resources artefact.
 
 ### Reference
 
