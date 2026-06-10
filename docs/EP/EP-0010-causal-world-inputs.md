@@ -60,6 +60,12 @@ clock or RNG in tests reduces flakes, but it does not make the causal record
 complete. The event log still fails to explain why the state value has those
 timestamps, ids, locations, and random choices.
 
+These are not hypothetical. The reference implementation does this today: the
+resource event reducers mint `:loaded-at`, `:stale-at`, and `:invalidated-at`
+from ambient `interop/now-ms` reads inside the transition, and epoch record
+assembly stamps `:committed-at` the same way. Both are durable facts that ride
+restore and replay.
+
 ## Motivation
 
 The payoff for this rule is larger than timestamp hygiene. It protects the
@@ -80,7 +86,8 @@ central re-frame2 promise: application behavior is inspectable as data.
   reads.
 
 This is the same design posture as explicit frame targeting. A missing frame
-stamp used to be repaired from ambient context; EP-0002 made absence loud. A
+stamp used to be repaired from ambient context; EP-0002 made absence loud, and
+its ruling R6 made replay determinism the framework's decisive rationale. A
 missing world fact should follow the same principle: durable state should not be
 repaired by silently asking the host again.
 
@@ -117,6 +124,37 @@ repaired by silently asking the host again.
 - This EP does not standardize every possible browser fact schema. It sets the
   boundary and the recordability rules; concrete subsystems add narrower schemas
   as they graduate.
+
+## Relationships
+
+- **EP-0001 (frame partitions)** defines the coherent frame-state value — the
+  app-db and runtime-db partitions — whose durable writes this rule governs,
+  and the epoch restore semantics this rule keeps honest.
+- **EP-0002 (frame target resolution)** is the precedent. Its dispatch envelope
+  is the causal token this EP extends, and its ruling R6 made replay
+  determinism the framework's decisive rationale. This EP closes the remaining
+  ambient gap in that claim: the frame stamp made *where* explicit; the world
+  inputs make *when* and *what the host said* explicit.
+- **EP-0003 (resource queries)** is the first large consumer: resource entries
+  and work-ledger rows carry durable `:loaded-at` / `:stale-at` /
+  `:started-at` / `:deadline-at` facts. EP-0003's §Restore and Replay defines
+  what restore does to those values (lazy freshness, no refetch storm, dangling
+  rows); this EP removes the root cause that section works around — durable
+  timestamps minted from an ambient clock whose meaning shifts under restore.
+- **EP-0006 (runtime-subsystem contract)** owns the durable / host-transient
+  grading this EP's classes build on, including the rf2-oosjmh ruling that
+  host-side monotonic allocator counters never rewind.
+- **EP-0008 (production observability channels)** defines the two-channel
+  doctrine this EP relies on: the causal channel is data and replayable; the
+  diagnostic channel is ambient by design. Diagnostic timestamps stay ambient
+  under this EP.
+- **EP-0011 (uniform async reply envelope)** defines the reply shape that
+  carries this EP's completion world facts. This EP requires the facts;
+  EP-0011 standardizes the carrier. EP-0011 defers the final spelling of
+  causal time keys to this EP (see Open Issues).
+- **EP-0012 (path optics and canonical forms)** supplies the canonical-form
+  vocabulary world-input maps should reuse wherever fixture equality or
+  projection comparison matters.
 
 ## Definitions
 
@@ -428,7 +466,7 @@ An illustrative reply token:
    :rf.world/inputs {:time-ms 1781078400456}}}]
 ```
 
-The final uniform reply-envelope EP may rename the outer reply keys. This EP's
+EP-0011 standardizes the outer reply shape and may rename its keys. This EP's
 requirement is narrower: completion facts that affect durable state are carried
 on the reply token and are not re-read in the reply handler.
 
@@ -466,8 +504,10 @@ For durable state, a conforming implementation MUST satisfy:
 replay(initial-state, tokens) == replay(initial-state, tokens)
 ```
 
-where equality covers app-db, runtime-db, and replayable epoch projections, and
-excludes diagnostic and host-transient state.
+where the two evaluations may run at different wall-clock times, on different
+hosts, with different ambient clocks and RNGs. Equality covers app-db,
+runtime-db, and replayable epoch projections, and excludes diagnostic and
+host-transient state.
 
 Restore installs a durable frame-state value. It MUST NOT re-read ambient world
 facts to "freshen" that state during install. It may emit diagnostics about
@@ -481,6 +521,14 @@ After restore:
 - non-terminal work rows whose host handles belonged to the prior timeline are
   reconciled as dangling according to the resource/work-ledger contract;
 - host-transient handles are cleared or recomputed on demand;
+- host-side monotonic allocators (generation counters, work-id high-water
+  marks) are not rewound. Per the rf2-oosjmh ruling carried in EP-0006's
+  grading table and EP-0003's §Restore and Replay, an allocator whose
+  identities can be carried by an uncancellable host continuation only ever
+  moves forward. Such allocators are host-transient under this EP's
+  classification: replay does not reproduce them, and restore does not
+  reinstall them, because their job is to fence the live host timeline, not to
+  describe durable state;
 - the next live event or reply carries its own `:rf.world/inputs`, and freshness
   decisions are made lazily from that token plus durable timestamps.
 
@@ -729,7 +777,7 @@ and effect override data. It is the right causal boundary for host facts too.
 Putting world inputs there keeps the fold simple: transitions consume values,
 and effect interpreters produce future values.
 
-This EP deliberately separates the causal and diagnostic channels. A trace
+This EP deliberately follows the two-channel doctrine (EP-0008). A trace
 timestamp answers "when did the runtime observe this?" A durable timestamp
 answers "what value did the application fold?" Those are different facts. The
 runtime can record both, but it must not let diagnostic convenience become
@@ -904,18 +952,42 @@ all durable projections are equal after replay.
 
 ## Open Issues
 
+Each issue carries the author's recommendation; per EP-0009, dispositions are
+recorded before this EP graduates.
+
 - Should `:time-ms` remain a plain epoch-millisecond number, or should a future
   accepted spec replace it with a structured clock value carrying wall-clock and
-  monotonic components?
+  monotonic components? **Recommendation:** keep the plain number. The optional
+  `:monotonic-ms` slot already covers the elapsed-time case, and a structured
+  clock could graduate later without breaking `:time-ms` readers.
 - Which framework-provided recordable coeffects should ship first:
   `:rf.world/uuid`, `:rf.world/random`, `:rf.world/browser-location`,
   `:rf.world/storage`, or only the core time coeffect?
+  **Recommendation:** ship only the core time path first (the envelope stamp
+  plus the compatibility cofx). `:rf.world/uuid` and `:rf.world/random` follow
+  when an example app or conformance fixture needs them; browser and storage
+  inputs stay app-level recipes until a subsystem graduates a schema.
 - Should random support standardize a deterministic seed algorithm, or should
   the framework recommend recording generated choices rather than seeds?
+  **Recommendation:** recommend recording generated choices; treat seeds as the
+  exception reserved for named, stable algorithms. Do not standardize a
+  framework RNG now.
 - How much of `:rf.world/inputs` should appear in production traces after
-  privacy projection?
+  privacy projection? **Recommendation:** `:time-ms` is always safe to surface;
+  every other key follows the same marks/projection rules as event payloads and
+  is redacted by default.
 - Should the migration retain `:dispatched-at` as a diagnostic alias, or retire
-  it once `:rf.world/inputs` is universal?
+  it once `:rf.world/inputs` is universal? **Recommendation:** retire it. Two
+  spellings of "when was this dispatched" violates one-name-per-fact (EP-0007),
+  and the diagnostic need is already covered by the trace event's own `:time`
+  stamp (Spec 009).
+- Key spelling: EP-0011 provisionally spells reply completion keys
+  `:started-at-ms` / `:completed-at-ms` / `:deadline-at-ms` and defers the
+  final spelling to this EP, while Spec 016's ledger rows and resource entries
+  already use `:started-at` / `:deadline-at` / `:loaded-at`.
+  **Recommendation:** adopt the suffixless Spec 016 spellings for durable
+  fields, and have EP-0011 lower its provisional `-ms` names at graduation; the
+  unit is epoch milliseconds either way.
 
 ## Recommendation
 
