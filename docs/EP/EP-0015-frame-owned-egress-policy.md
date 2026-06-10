@@ -39,8 +39,12 @@ Frame configuration owns durable frame policy: app-db sensitive paths, app-db
 large paths, frame-local HTTP carrier names, and frame observability sinks.
 Registration metadata owns transient payload shapes: event args, fx/cofx args,
 sub outputs, flow outputs, machine transition payloads, and other
-registration-owned values. Egress surfaces choose a projection profile; low-level
-boolean knobs remain advanced overrides.
+registration-owned values. Egress calls own trust-boundary profiles and opts.
+Everything else should be internal, advanced, or removed.
+
+Keyword names follow the existing convention: local grammar keys stay bare,
+cross-surface framework policy keys live under `:rf.<area>/*`, and
+user/library-owned ids stay outside the framework namespace.
 
 ## Problem Statement
 
@@ -50,8 +54,31 @@ vector, an HTTP diagnostic, a schema-validation failure, an epoch record, a
 sub-cache value, an MCP response, an Xray/Story artifact, a hosted monitoring
 payload, or an SSR/hydration payload.
 
-re-frame2 should protect those boundaries by default. Today the design asks the
-author to understand too many overlapping mechanisms:
+re-frame2 deliberately makes runtime state highly observable. That is a core
+productivity feature: one runtime story can feed traces, Xray, Story, MCP
+tools, epoch history, recorders, HTTP diagnostics, schema validation reports,
+and SSR or hydration surfaces. The same property creates the privacy problem.
+Ordinary application values can cross framework-mediated observation
+boundaries, and some of those values are credentials, tokens, private user
+data, internal service facts, or other sensitive material.
+
+For this EP, **egress** means a value leaves ordinary in-process application
+execution and becomes part of a framework-created observation product: a trace
+event, an error record, an epoch projection, an MCP response, a recorder/export
+artifact, an SSR/hydration payload, an HTTP diagnostic, a schema-validation
+report, or a tool/UI readback. Not all egress is equal. A trusted local
+developer inspecting their own process may deliberately opt into raw values. A
+third-party/off-box consumer, hosted log sink, AI/model provider, saved
+artifact, or browser-delivered payload should fail closed by default.
+
+re-frame2 should protect those boundaries by default while preserving the
+trusted-local developer model. Handlers, subscriptions, effects, flows,
+machines, and views must continue to see real values so the application can
+work. Redaction belongs at observation and egress boundaries: when the
+framework emits, records, projects, serializes, renders for a tool, or places
+data on an official wire.
+
+Today the design asks the author to understand too many overlapping mechanisms:
 
 ```clojure
 ;; app-db path via schema metadata
@@ -111,6 +138,90 @@ There are four specific design smells.
    the normal choice is a trust-boundary profile: off-box, on-box hidden,
    trusted local raw, SSR hydration, hosted monitoring.
 
+The non-goals are as important as the goal. This is not a malicious-developer
+defense, not deployment security, not application authorization, and not full
+taint tracking. Once a secret has been flattened into an exception message,
+stored under an unrelated `ex-data` key, copied into app-owned localStorage, or
+sent through an app-owned logger outside re-frame2's record shapes, the
+framework cannot generally recover its provenance. The privacy mechanism can be
+strong where the framework still has a path, declared mark, owned record shape,
+or owned egress boundary; outside that, the best it can do is document the
+residual risk and make the safe convention obvious.
+
+### Scope
+
+In scope for this EP:
+
+- framework-emitted trace events, handled-event records, error records, and
+  warning records;
+- production event/error listener substrates that downstream observability code
+  may forward elsewhere;
+- MCP and tool wire surfaces: pair-MCP, Story-MCP, Xray-MCP, direct reads,
+  snapshots, subscription reads, epoch reads, recorder outputs, eval envelopes,
+  and tool-frame state;
+- Xray and Story runtime readbacks where they consume re-frame2 runtime state,
+  traces, epochs, subscriptions, view tags, or recorder data;
+- epoch history and time-travel records at any projection or process boundary;
+- schema-validation failure records produced by re-frame2 validators;
+- managed HTTP request/response data when re-frame2 captures it into traces, fx
+  records, failures, or diagnostics;
+- SSR and hydration payloads emitted or parsed by re-frame2;
+- framework-generated diagnostics around malformed privacy markers, failed
+  projection, or privacy-policy decisions.
+
+Out of scope for this EP:
+
+- application authentication, authorization, session policy, and permission
+  checks;
+- deployment and network controls such as TLS, reverse proxies, CDN rules,
+  CORS policy, certificate policy, and network egress allowlists;
+- secrets before they enter re-frame2-owned data shapes, including environment
+  variables, credential managers, build secrets, operator consoles, shell
+  history, and source-control hygiene;
+- app-authored persistence that bypasses re-frame2 observation boundaries, such
+  as localStorage, sessionStorage, IndexedDB, cookies, files, and direct browser
+  or host APIs;
+- third-party SDKs or loggers that do not consume re-frame2 trace/event/error
+  records or tool output;
+- screenshots, screen sharing, browser devtools copies, issue attachments, and
+  manual copy/paste, except where a re-frame2 feature itself creates the
+  copied/exported artifact;
+- AI vendor retention policy or model-side handling after data has already left
+  re-frame2.
+
+### Where Secrets Live
+
+From re-frame2's point of view, sensitive values can live in:
+
+- **App-db values.** Auth tokens, session ids, passwords, card numbers, medical
+  identifiers, private profile data, uploaded documents, partner credentials,
+  and cached API payloads matter when app-db is traced, validated, snapshotted,
+  read by a tool, sent through SSR/hydration, or projected into an epoch.
+- **Runtime-db values.** Framework-owned state can carry app-sensitive material:
+  machine snapshots, actor `:data`, route state, SSR/hydration state, epoch
+  metadata, and tool/runtime frame state.
+- **Event/coeffect/effect payloads.** Secrets can enter through dispatched event
+  vectors, injected cofx, returned fx arguments, dispatch child events, HTTP
+  request maps, and failure payloads.
+- **HTTP data.** Headers, cookies, URL query params, request bodies, decoded
+  responses, and managed-failure details are concentrated secret carriers when
+  the HTTP artifact captures or reports them.
+- **Derived values.** Subscriptions, flows, machine transitions, schema explain
+  data, SSR props, and view props can copy, aggregate, summarize, or reshape
+  sensitive inputs into new sensitive outputs.
+- **Trace and epoch records.** Observation products carry before/after state,
+  event vectors, fx args, sub runs, renders, errors, and timing context. These
+  records are often more sensitive than a single value because they correlate
+  many facts in one place.
+- **Tool readbacks.** Xray, Story, pair-MCP, Story-MCP, direct `get-path`,
+  `snapshot`, `sub-cache`, `read-sub`, `read-ui`, DOM reads, recorders, and eval
+  result envelopes can all materialize live runtime values outside normal app
+  code.
+- **Exception values in framework records.** Exception messages and `ex-data`
+  are author-built data, but re-frame2 error records can carry or render them.
+  Once a secret has been interpolated into a string or put under an unrelated
+  key, path-based projection can no longer prove where it came from.
+
 ## Motivation
 
 The pre-alpha window is the right time to make this elegant. Backwards
@@ -144,6 +255,7 @@ frames own state, paths are explicit, and boundaries are named.
 - Make production observability sink policy part of frame configuration.
 - Keep registration-owned transient payload classification on registrations.
 - Introduce named egress projection profiles over the low-level elision flags.
+- State the keyword namespacing rule for the proposed API.
 - Define `elide-wire-value` as the low-level value walker, not the whole public
   projection story.
 - Define record-level projection as the required step before any off-box sink.
@@ -236,7 +348,36 @@ The public rule:
 > The framework performs projection.
 > Sinks consume projected records only.
 
-### 2. Frame-Owned Durable Classification
+### 2. Keyword Namespacing Rule
+
+This EP follows the existing configuration convention:
+
+- **Closed local grammar keys stay bare.** A `reg-frame` metadata map is already
+  a framework-owned grammar, so ergonomic frame-local keys such as
+  `:sensitive`, `:large`, `:observability`, `:app-db`, `:http`, `:headers`,
+  `:query-params`, `:handled-events`, and `:errors` stay unqualified. The same
+  applies to registration-local metadata keys such as `:sensitive` and
+  `:large`.
+- **Cross-surface framework policy keys are namespaced.** A key that means the
+  same thing across `project-egress`, sink policy, MCP, SSR, and tool options
+  uses the reserved `:rf.egress/*` namespace. The first proposed member is
+  `:rf.egress/profile`.
+- **Framework-owned discriminator values are namespaced.** Egress profiles are
+  values under `:rf.egress/*`, e.g.
+  `:rf.egress/off-box-observability`. Observation record kinds live under
+  `:rf.observe/*`, e.g. `:rf.observe/handled-event`.
+- **User/library-owned ids are not claimed by the framework.** A Datadog sink
+  id is not `:datadog` and not `:rf.sink/datadog` unless the framework itself
+  ships that sink. The app or integration library owns the id, e.g.
+  `:my-app.sinks/datadog` or `:acme.datadog/main`.
+- **Sink-specific options are isolated.** Vendor-specific fields such as
+  `:service`, `:env`, endpoint URLs, or API-key references live under a local
+  `:opts` map so the framework does not appear to own their vocabulary.
+
+This keeps the common case readable while preserving EP-0007's one-name rule
+for reusable framework facts.
+
+### 3. Frame-Owned Durable Classification
 
 Durable app-db classification belongs on the frame:
 
@@ -285,7 +426,7 @@ Those functions may remain as internal/test/generated-code helpers if the
 implementation benefits from them, but they should not be the normal guide
 surface.
 
-### 3. Registration-Owned Transient Classification
+### 4. Registration-Owned Transient Classification
 
 Transient payloads are owned by the registration that introduces the shape.
 Examples:
@@ -331,7 +472,36 @@ This keeps the ownership rule compact:
 > Frame config classifies frame-owned durable state and frame-owned egress.
 > Registration metadata classifies registration-owned transient payloads.
 
-### 4. Schemas Describe Shape, Not Public Egress Policy
+### 5. `redact-interceptor` Should Not Be The Model
+
+`redact-interceptor` now looks like an older escape hatch. If registration
+metadata can classify event payload paths, and projection happens centrally at
+egress boundaries, then a positional interceptor that "redacts for trace but not
+for the handler" is conceptually odd. It makes privacy depend on interceptor
+placement rather than on the owner of the payload shape.
+
+This EP proposes that `redact-interceptor` should leave the normal API. It may
+remain as an internal implementation helper, a generated migration artifact, or
+an advanced compatibility hook if that proves useful. The guide-level model
+should teach registration metadata:
+
+```clojure
+(rf/reg-event-fx
+  :auth/login
+  {:sensitive [[:password] [:totp-code]]}
+  handler)
+```
+
+not:
+
+```clojure
+(rf/reg-event-fx
+  :auth/login
+  [(rf/redact-interceptor [[:password]])]
+  handler)
+```
+
+### 6. Schemas Describe Shape, Not Public Egress Policy
 
 Schema metadata is currently used as a public classification path:
 
@@ -363,19 +533,21 @@ Machine data is registration-owned process state, not app-db. It may remain
 schema-first if that is the cleanest owner, but the EP must make that a
 deliberate rule rather than an accidental survival of the old schema model.
 
-### 5. Frame-Owned Observability Sink Policy
+### 7. Frame-Owned Observability Sink Policy
 
 Production observability sink policy belongs on the frame:
 
 ```clojure
 (rf/reg-frame :app/main
-  {:observe
-   {:handled-events [{:sink :datadog
-                      :service "checkout-spa"
-                      :env "prod"}]
-    :errors         [{:sink :sentry
-                      :service "checkout-spa"
-                      :env "prod"}]}
+  {:observability
+   {:handled-events [{:sink :my-app.sinks/datadog
+                      :rf.egress/profile :rf.egress/off-box-observability
+                      :opts {:service "checkout-spa"
+                             :env "prod"}}]
+    :errors         [{:sink :my-app.sinks/sentry
+                      :rf.egress/profile :rf.egress/off-box-observability
+                      :opts {:service "checkout-spa"
+                             :env "prod"}}]}
 
    :sensitive
    {:app-db [[:auth :token]]
@@ -420,7 +592,7 @@ Low-level listener registries may still exist internally:
 But they should be advanced integration APIs, not the normal production
 Datadog/Sentry story.
 
-### 6. Projection Profiles
+### 8. Projection Profiles
 
 The low-level walker already needs boolean opts:
 
@@ -438,7 +610,7 @@ prefer named egress profiles:
 ```clojure
 (rf/project-egress record
   {:frame :app/main
-   :profile :rf.egress/off-box-observability})
+   :rf.egress/profile :rf.egress/off-box-observability})
 ```
 
 Candidate profile vocabulary:
@@ -456,7 +628,7 @@ The exact names are open. The important design point is that the public
 question is "which boundary is this?" rather than "which combination of
 booleans did I remember?"
 
-### 7. `elide-wire-value` Remains The Value Primitive
+### 9. `elide-wire-value` Remains The Value Primitive
 
 `rf/elide-wire-value` remains the single low-level value walker for tree-shaped
 values:
@@ -465,7 +637,7 @@ values:
 (rf/elide-wire-value app-db-slice
   {:frame :app/main
    :path [:auth]
-   :profile :rf.egress/off-box-tool})
+   :rf.egress/profile :rf.egress/off-box-tool})
 ```
 
 But sinks and tools should usually call record projection, not manually walk
@@ -477,14 +649,14 @@ fragments. For example:
    :frame :app/main
    :event [:auth/login {:password "secret"}]
    :effects [:db :rf.http/managed]}
-  {:profile :rf.egress/off-box-observability})
+  {:rf.egress/profile :rf.egress/off-box-observability})
 ```
 
 The record projector knows which slots are app-db-shaped, event-shaped,
 exception-shaped, HTTP-shaped, or public-summary-only. It delegates to
 `elide-wire-value` where a slot is tree-shaped and frame-policy applies.
 
-### 8. Observation Streams
+### 10. Observation Streams
 
 This EP distinguishes three streams:
 
@@ -495,12 +667,13 @@ This EP distinguishes three streams:
    time travel and "what just happened?" tools. Production-elided with the
    epoch feature.
 3. **Production observation stream.** Production-survivable handled-event and
-   error records. Bounded, projected, and routed by frame `:observe` policy.
+   error records. Bounded, projected, and routed by frame `:observability`
+   policy.
 
 The production stream is not a replacement for dev trace detail. It is a
 small, safe, hosted-monitoring surface.
 
-### 9. Direct Reads And Fail-Closed Frame Resolution
+### 11. Direct Reads And Fail-Closed Frame Resolution
 
 Direct reads bypass trace protection:
 
@@ -517,13 +690,13 @@ frame known:
 (rf/project-egress value
   {:frame :app/main
    :path [:auth]
-   :profile :rf.egress/off-box-tool})
+   :rf.egress/profile :rf.egress/off-box-tool})
 ```
 
 If a projection needs frame policy and no frame is known, it must fail closed.
 It must not synthesize `:rf/default`.
 
-### 10. SSR And Hydration Are Allowlist-First
+### 12. SSR And Hydration Are Allowlist-First
 
 SSR/hydration is production egress to the browser. It should not primarily ask
 "which leaves are sensitive?" It should ask "which state is allowed to cross
@@ -545,7 +718,7 @@ slice contains a sensitive child, projection redacts it unless the SSR policy
 explicitly permits it. But the main safety property is that unlisted state does
 not cross.
 
-### 11. Epoch Redaction
+### 13. Epoch Redaction
 
 The current epoch hook is powerful:
 
@@ -566,7 +739,7 @@ Proposed posture:
 - a custom record transform, if retained, should be advanced and explicitly
   warn that it may affect restore fidelity.
 
-### 12. Derived Sensitivity
+### 14. Derived Sensitivity
 
 Derived values are the hardest unresolved case. A subscription, flow, resource
 normalizer, or view prop can copy, summarize, hash, concatenate, or otherwise
@@ -584,13 +757,17 @@ Example:
 (rf/reg-sub
   :auth/token-prefix
   {:inputs [[:auth :token]]
-   :sensitive false}       ;; explicit claim: output is safe enough
+   ;; Candidate spelling only: this EP rejects overloading :sensitive false.
+   :rf.egress/output-sensitivity :rf.egress.sensitivity/public}
   (fn [token _]
     (subs token 0 4)))
 ```
 
 This needs more design. It depends on EP-0014's declared dependency graph, and
-it must avoid making ordinary useful derived data invisible in tools.
+it must avoid making ordinary useful derived data invisible in tools. The
+important constraint is that an explicit safe-output declaration should not
+reuse `:sensitive false`, because `:sensitive` already means a collection of
+sensitive paths in registration metadata.
 
 ## Backwards Compatibility
 
@@ -637,30 +814,41 @@ Mechanical upgrade from re-frame v1 remains a secondary goal:
 9. **Derived sensitivity.** Should derived outputs inherit sensitivity from
    sensitive inputs by default? Recommendation: yes for framework-known
    dependency graphs, with explicit safe-output declarations.
-10. **Namespacing.** Which keys are plain frame config keys and which are
-    reserved `:rf.egress/*` or `:rf.size/*` policy keys? EP-0007/0012 should
-    guide this.
+10. **Derived declassification spelling.** What is the exact metadata key and
+    value for declaring a derived output safe? Recommendation: do not overload
+    `:sensitive false`; reserve `:sensitive` for path declarations and use a
+    namespaced egress/sensitivity key for output-level claims.
+11. **Reserved namespaces.** Should the initial reserved policy namespaces be
+    limited to `:rf.egress/*`, `:rf.observe/*`, and existing `:rf.size/*`
+    low-level flags? Recommendation: yes; keep frame-local grammar keys bare
+    and keep user/integration sink ids outside framework namespaces.
+12. **`redact-interceptor` fate.** Should it be removed entirely, kept as an
+    advanced escape hatch, or generated only by migration tooling?
+    Recommendation: remove it from the normal API; registration metadata is the
+    public model.
 
 ## Bead Plan
 
 1. Spec design bead: update `spec/015-Data-Classification.md` with the
    owner-classification rule and frame/registration split.
 2. API bead: remove or demote public `add-marks` / `set-marks` and
-   app-specific `declare-sensitive-*` globals from the guide-level API.
+   app-specific `declare-sensitive-*` globals from the guide-level API, and
+   remove/demote `redact-interceptor` from normal registration guidance.
 3. Frame bead: add frame metadata schema for `:sensitive`, `:large`, and
-   `:observe`.
+   `:observability`.
 4. Projection bead: introduce record-level `project-egress` and profiles over
    `elide-wire-value`.
 5. Observability bead: route production handled-event/error records through
-   frame `:observe` policy.
+   frame `:observability` policy.
 6. HTTP bead: move app-specific HTTP carrier declarations to frame policy and
    design response-body classification.
 7. Schema bead: remove guide-level schema-attached sensitive/large markers or
    lower them into frame policy as migration/import only.
 8. Epoch bead: replace ordinary `:redact-fn` use with frame/profile projection
    and document any retained advanced hook.
-9. Direct-read/tool bead: audit MCP/Xray/Story/direct-read surfaces against
-   `project-egress`.
+9. Direct-read/tool bead: audit MCP, Xray, Story, SSR/hydration, epoch export,
+   Datadog/Sentry, schema failures, HTTP diagnostics, and direct-read surfaces
+   against `project-egress`.
 10. Guide bead: rewrite the privacy/large-things guide around classification,
     projection, and sink policy.
 
