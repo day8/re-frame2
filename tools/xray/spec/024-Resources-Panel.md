@@ -79,13 +79,31 @@ Two elision layers compose:
    `:sensitive?` / `:large?` slots via `elide-wire-value`) keeps its
    sentinel status and renders `[redacted]` / `[large — elided]` with no
    raw preview.
-2. **Off-box egress** (the tool accessors). The raw runtime-db values an
-   accessor surfaces route through the framework `egress-runtime-db-value`
-   / `egress-value` walker on top of the summaries. The resource cache is
-   runtime-db state, so the off-box default REDACTS the partition (Spec
-   011 §Off-box redaction, ruling #14); a trusted-local caller opts in
-   with `:include-runtime-db? true`, and even then per-slot `:sensitive?`
-   / `:large?` declarations still elide.
+2. **Off-box egress** (the tool accessors). Per-slot, NOT per-entry. A
+   resource cache entry mixes **payload-bearing** slots (`:data` /
+   `:error` / `:refresh-error`, and the key's scope/params — the only
+   slots that can carry PII or a large blob) with **metadata** slots
+   (`:status`, `:generation`, `:attempt`, `:request-id`, `:current-work`,
+   `:active-owners`, `:tags`, `:loaded-at` / `:stale-at` /
+   `:invalidated-at`) — non-PII runtime bookkeeping. The accessors project
+   the **metadata BEFORE egress redaction** and route **only the payload
+   values** through the framework `egress-runtime-db-value` walker (the
+   resource cache is runtime-db state, so the off-box default REDACTS those
+   payload values per Spec 011 §Off-box redaction, ruling #14; a
+   trusted-local caller opts in with `:include-runtime-db? true`, and even
+   then per-slot `:sensitive?` / `:large?` declarations still elide, and a
+   value already redacted/elided upstream keeps its sentinel). **A redacted
+   summary therefore STILL exposes the metadata** (the EP-0003 tool
+   contract; Spec 016 §Xray, "Xray sees redacted summaries, not raw
+   values"): the `:status` / `:tag` / `:owner` / `:request-id` filters
+   (which filter the projected rows) work on the default path **without**
+   `:include-runtime-db?`, and the rows are useful even when the payload is
+   redacted. The **raw scoped key is the row identity** (never egressed in
+   place) so two entries whose scope/params redact to the same sentinel
+   cannot collapse into one. `get-resource-state` requires the **full**
+   scoped key (`:resource-id` + `:scope` + `:params`); any missing part
+   fails closed with `:reason :missing-key` (a partial key cannot address
+   an entry).
 
 Resource **history is bounded** (the accessor `:limit`, default 50).
 

@@ -403,12 +403,22 @@
   [entry]
   (empty? (:active-owners entry)))
 
+(defn- entry-has-data?
+  "Derived `:has-data?` (Spec 016 §Status semantics — derived, not stored):
+  the entry currently carries usable last-known-good `:data`. A `nil`
+  `:data` is no-data; a value already redacted/elided UPSTREAM (`:rf/redacted`
+  / `:rf.size/large-elided`) means data WAS present (the sentinel replaced a
+  real value), so it counts as has-data (rf2-tgm1xu — the egress redaction
+  of a payload must not flip the derived `:has-data?` fact)."
+  [data]
+  (some? data))
+
 (defn instance-row
   "Project ONE live cache entry `[scoped-key entry]` into a render-safe
   instance-table row (Spec 016 §Xray and AI tooling — the live
   resource-instance table). PRIVACY: scope + params + data summarized.
 
-      {:scoped-key      <opaque-id-for-react-key>
+      {:scoped-key      <opaque-id-for-react-key>   ; the RAW key (identity)
        :scope           <summary>     ; PII — summarized
        :resource-id     :article/by-slug
        :params          <summary>     ; identity — summarized
@@ -426,41 +436,67 @@
        :active-owners   [<owner> …]   ; owners are tokens, not PII
        :owner-count     1
        :tags            [<tag> …]
-       :gc-eligible?    false}"
-  [[scoped-key entry] now-ms]
-  (let [{:keys [scope resource-id params]} (scoped-key-summary scoped-key)]
-    {:scoped-key     scoped-key
-     :scope          scope
-     :resource-id    (or resource-id (:resource/id entry))
-     :params         params
-     :status         (:status entry)
-     :stale?         (derive-stale? entry now-ms)
-     :has-data?      (some? (:data entry))
-     :data           (summarize (:data entry))
-     :error          (when (:error entry) (summarize (:error entry)))
-     :refresh-error  (when (:refresh-error entry) (summarize (:refresh-error entry)))
-     :loaded-at      (:loaded-at entry)
-     :stale-at       (:stale-at entry)
-     :invalidated-at (:invalidated-at entry)
-     :generation     (:generation entry)
-     :attempt        (:attempt entry)
-     :request-id     (:request-id entry)
-     :current-work   (:current-work entry)
-     :active-owners  (vec (:active-owners entry))
-     :owner-count    (count (:active-owners entry))
-     :tags           (vec (:tags entry))
-     :gc-eligible?   (gc-eligible? entry)}))
+       :gc-eligible?    false}
+
+  Optional `egress-fn` (rf2-tgm1xu): `(fn [value slot-key] -> egressed)`
+  applied to the PAYLOAD-bearing values (the key's scope/params + the
+  entry's `:data`/`:error`/`:refresh-error`) BEFORE `summarize`, so a
+  `:sensitive?` slot summarizes as `[redacted]` and a `:large?` slot as
+  `[large — elided]` on the off-box path. The METADATA (status, owners,
+  tags, request-id, generation, timestamps) is projected from the raw entry
+  and NEVER routed through egress — a redacted summary STILL exposes the
+  metadata. The RAW `scoped-key` is kept verbatim as `:scoped-key` (the
+  identity / react key), so per-row egress can never collapse two entries
+  whose scope/params redact to the same sentinel. A `nil` slot is left as
+  nil (nothing to redact) so the derived `:has-data?` fact survives."
+  ([entry+key now-ms] (instance-row entry+key now-ms nil))
+  ([[scoped-key entry] now-ms egress-fn]
+   (let [egress       (or egress-fn (fn [v _slot] v))
+         eg           (fn [v slot] (when (some? v) (egress v slot)))
+         [raw-scope raw-rid raw-params]
+                      (if (and (vector? scoped-key) (= 3 (count scoped-key)))
+                        scoped-key
+                        [scoped-key nil nil])
+         raw-data     (:data entry)]
+     {:scoped-key     scoped-key
+      :scope          (summarize (eg raw-scope :scope))
+      :resource-id    (or raw-rid (:resource/id entry))
+      :params         (summarize (eg raw-params :params))
+      :status         (:status entry)
+      :stale?         (derive-stale? entry now-ms)
+      :has-data?      (entry-has-data? raw-data)
+      :data           (summarize (eg raw-data :data))
+      :error          (when (:error entry) (summarize (eg (:error entry) :error)))
+      :refresh-error  (when (:refresh-error entry) (summarize (eg (:refresh-error entry) :refresh-error)))
+      :loaded-at      (:loaded-at entry)
+      :stale-at       (:stale-at entry)
+      :invalidated-at (:invalidated-at entry)
+      :generation     (:generation entry)
+      :attempt        (:attempt entry)
+      :request-id     (:request-id entry)
+      :current-work   (:current-work entry)
+      :active-owners  (vec (:active-owners entry))
+      :owner-count    (count (:active-owners entry))
+      :tags           (vec (:tags entry))
+      :gc-eligible?   (gc-eligible? entry)})))
 
 (defn project-instances
   "Project a frame's live resource entries map `{<scoped-key> <entry>}`
   into sorted render-safe instance rows. Sorted by resource-id then
   generation (descending) so the most-recent attempt leads. `now-ms` is
   the freshness clock (the panel passes the current ms; tests pass a
-  fixed clock). Per Spec 016 §Xray and AI tooling."
-  ([entries] (project-instances entries nil))
-  ([entries now-ms]
+  fixed clock). Per Spec 016 §Xray and AI tooling.
+
+  Optional `egress-fn` (rf2-tgm1xu) is threaded to `instance-row` so the
+  off-box accessors redact the payload values (scope/params/data) BEFORE
+  summarization while the metadata projects from the raw entry. The in-panel
+  caller omits it — the in-panel `summarize` is sufficient for human
+  rendering and the runtime-db never leaves the box."
+  ([entries] (project-instances entries nil nil))
+  ([entries now-ms] (project-instances entries now-ms nil))
+  ([entries now-ms egress-fn]
    (->> (or entries {})
-        (mapv #(instance-row % now-ms))
+        (mapv #(instance-row % now-ms egress-fn))
         (sort-by (juxt (comp str :resource-id) (comp - (fnil identity 0) :generation)))
         vec)))
 
@@ -855,6 +891,36 @@
   (into {}
         (filter (fn [[k _]] (scoped-key-matches? k key-filter)))
         (or entries {})))
+
+;; ---------------------------------------------------------------------------
+;; Per-slot value egress contract (rf2-tgm1xu). Spec 016 §Xray, line 314:
+;; "Params, scopes, and data carry :sensitive? / :large? classification
+;; through the shared elide-wire-value walker; Xray sees REDACTED SUMMARIES,
+;; NOT raw values."
+;; ---------------------------------------------------------------------------
+;;
+;; A resource cache entry mixes two kinds of slot:
+;;   - VALUE-bearing slots (`:data` / `:error` / `:refresh-error`) + the
+;;     key's scope/params carry the remote payload, failure envelopes, and
+;;     the caller identity — the only slots that can hold PII or a large
+;;     blob, so the only ones routed through the off-box egress walker
+;;     (a `:sensitive?` slot redacts, a `:large?` slot elides);
+;;   - METADATA slots (`:status`, `:generation`, `:attempt`, `:request-id`,
+;;     `:current-work`, `:active-owners`, `:tags`, `:loaded-at`, `:stale-at`,
+;;     `:invalidated-at`, `:resource/id`) are runtime BOOKKEEPING — non-PII
+;;     facts the operator needs to answer "is it stale, who owns it, what's
+;;     the request id". They ALWAYS project, never routed through egress.
+;;
+;; `instance-row` takes an optional `egress-fn` `(fn [value slot-key])` and
+;; applies it to ONLY the value-bearing slots before `summarize`, keeping
+;; the RAW scoped-key as the row identity. The PRIOR design routed the WHOLE
+;; entry through `egress-runtime-db-value` BEFORE projection: with the
+;; off-box runtime-db default the entry collapsed to the bare `:rf/redacted`
+;; sentinel, so the projection read nil for status/owners/tags/request-id —
+;; the default rows were USELESS and the metadata filters (which filter the
+;; projected rows) could never match. Egressing the KEY ITSELF would also
+;; collapse two entries whose scope/params redact to the same sentinel; the
+;; row keeps the raw key as identity to avoid that.
 
 (defn filter-work-rows
   "Filter projected work-ledger rows by the accessor axes: `:resource-id`,
