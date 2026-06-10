@@ -204,9 +204,10 @@ Plain `get-in` cannot distinguish this from missing; the shared path algebra
 MUST provide or internally use a presence-aware lookup where the distinction
 matters.
 
-**Canonical EDN identity**: A deterministic normalized value or byte/string
-encoding derived from portable EDN such that equal facts produce identical
-identity and unsupported host values fail closed.
+**Canonical EDN identity**: A deterministic normalized value plus a versioned
+byte encoding derived from portable EDN such that equal facts produce identical
+identity and unsupported host values fail closed. This EP names the first
+encoding `CEDN-1`.
 
 **Route data**: The route id plus path params, query params, and optional
 fragment represented as EDN:
@@ -567,11 +568,11 @@ The function may return a normalized value, canonical bytes, or a digest over
 canonical bytes. The contract is the same: equal facts produce the same
 identity across CLJ/CLJS hosts, and unsupported values fail closed.
 
-The canonical EDN domain is:
+The `CEDN-1` canonical EDN domain is:
 
 - `nil`, booleans, strings, keywords, symbols;
-- integers and finite numbers that the host can print and parse
-  unambiguously under the chosen encoder;
+- portable integers in the ECMAScript safe-integer range
+  `[-9007199254740991, 9007199254740991]`;
 - UUIDs and instants when represented as EDN values or explicit tagged data;
 - vectors, lists, maps, and sets whose nested values are canonical EDN values.
 
@@ -581,7 +582,8 @@ The canonicalizer MUST reject by default:
 - atoms, refs, volatile cells, promises, futures;
 - DOM nodes, React elements, AbortControllers, request handles, timers;
 - arbitrary JS objects or host class instances;
-- NaN and infinities unless a future spec explicitly encodes them;
+- floating point values, ratios, arbitrary precision decimals, NaN, and
+  infinities unless a future spec explicitly encodes the numeric class;
 - mutable objects whose identity is by reference rather than value.
 
 APIs that need to carry such values MUST encode them explicitly into portable
@@ -600,13 +602,56 @@ EDN before they reach an identity boundary:
 (rf.identity/canonical {:at #inst "2026-06-10T00:00:00.000-00:00"})
 ```
 
+Raw host dates are rejected for the same reason as other host objects. A route,
+resource, or adapter boundary MAY explicitly coerce an accepted host date into
+an EDN instant before canonicalization; after that coercion the value is an
+instant fact, not a host object fact.
+
+### Canonical Byte Encoding (`CEDN-1`)
+
+`CEDN-1` is the reference byte encoding for canonical identity. It is an
+internal comparison and digest format, not a display format and not a URL
+format. Implementations MAY store a normalized EDN projection or a digest over
+these bytes, but equality-sensitive comparisons MUST be equivalent to comparing
+the `CEDN-1` bytes.
+
+`CEDN-1` encodes a UTF-8 token stream with a type tag before every value:
+
+| EDN value | Canonical token |
+|---|---|
+| `nil` | `n` |
+| Boolean | `b:0` or `b:1` |
+| String | `s:` plus a canonical EDN string literal over Unicode scalar values |
+| Keyword | `k:` plus the canonical EDN keyword token, without auto-resolved `::` shorthand |
+| Symbol | `y:` plus the canonical EDN symbol token |
+| Portable integer | `i:` plus base-10 digits inside the safe-integer range, no leading `+`, no leading zero except `0` |
+| UUID | `u:` plus lower-case RFC 4122 text |
+| Instant | `t:` plus RFC 3339 UTC text with millisecond precision |
+| Vector | `v[` elements in order `]` |
+| List | `l(` elements in order `)` |
+| Set | `q#{` elements sorted by their `CEDN-1` bytes `}` |
+| Map | `m{` key/value pairs sorted by key `CEDN-1` bytes `}` |
+
+Composite encodings separate adjacent element tokens, and each map key token
+from its value token, with a single ASCII space. String, keyword, and symbol
+encoders MUST reject names that cannot be round-tripped through portable EDN
+readers on both CLJ and CLJS. Instant encoding normalizes equivalent instants
+to UTC before printing; timezone text from the source literal is not identity.
+
+The type tag is part of the bytes. That keeps distinct EDN values distinct:
+the string `"42"`, the integer `42`, the keyword `:42`, the vector `[1 2]`,
+and the list `(1 2)` cannot collide. Heterogeneous map keys are therefore
+allowed within the supported domain: the sort key is the complete key byte
+sequence, including the type tag. If a value is outside the supported domain,
+the whole identity fails closed rather than falling back to host comparison.
+
 ### Map Key Canonicalization
 
 Map entries MUST be ordered deterministically by the canonical encoding of
 their keys, not by insertion order, hash-map iteration order, locale, or host
-object identity. The reference rule should match the existing schema digest
-discipline: compare the stable printed/canonical byte representation of the
-canonicalized keys, and then encode entries in that order.
+object identity. The reference rule is direct: compute each key's `CEDN-1`
+bytes, sort lexicographically by those bytes, and then encode entries in that
+order.
 
 Examples:
 
@@ -620,9 +665,10 @@ Examples:
 ;; => true
 ```
 
-Heterogeneous keys are legal only when the canonical encoder defines a total
-order for them. If a port cannot order two key values reproducibly, it MUST
-reject the identity value rather than fall back to host iteration.
+Heterogeneous keys inside the `CEDN-1` domain are legal because their complete
+type-tagged key bytes define the total order. If a key value falls outside that
+domain, the map identity MUST fail closed rather than fall back to host
+iteration or comparison.
 
 Duplicate canonical keys are invalid. A reader or adapter that can produce a
 map with duplicate keys after canonicalization MUST reject it before it becomes
@@ -1335,15 +1381,6 @@ Public/internal conformance:
   **Recommendation:** internal-first. The semantics are normative immediately;
   the public names graduate only after the flows/schemas/routing/resources
   consumers have proven them, per §Internal And Public Helper Surface.
-- What exact canonical byte encoding should be named for UUIDs, instants,
-  bigints, ratios, decimals, and heterogeneous numeric keys across CLJ/CLJS
-  hosts?
-  **Recommendation:** pin it in the Conventions graduation bead, reusing the
-  Spec 010 schema-digest discipline (stable printed bytes, SHA-256) as the
-  base. If a total order for exotic numeric keys proves contentious, restrict
-  v1 canonical map keys to keywords, strings, integers, booleans, and UUIDs
-  and fail closed on the rest — narrowing later is impossible; widening is
-  cheap.
 - Should path templates reserve only `'?name` symbols, or should they use an
   explicit data form such as `[:rf.path/param :invoice-id]` to avoid any chance
   of confusing a literal symbol segment with a template variable?
@@ -1366,13 +1403,6 @@ Public/internal conformance:
   tool/debugging projection (Xray rows stay readable), the digest is the
   storage/lookup key, and the digest is always derived from the normalized
   value — one fact, one identity, two encodings.
-- Spec 016 currently lists "dates" among the host values rejected from
-  resource params, while this EP's canonical domain admits instants as EDN
-  values or tagged data — and in CLJS an `#inst` *is* a `js/Date`.
-  **Recommendation:** reconcile at graduation: raw host date objects are
-  rejected at identity boundaries unless the accepting surface explicitly
-  coerces them to `#inst` tagged EDN, whose canonical encoding is the RFC 3339
-  UTC instant string; Spec 016's wording narrows to "raw host date objects".
 - The flow path validator today restricts segments to
   keyword/string/integer/symbol/boolean — narrower than this EP's segment
   domain (no UUID, instant, or `nil` segments), even though UUID-keyed entity

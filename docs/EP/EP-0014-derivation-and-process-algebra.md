@@ -1305,8 +1305,9 @@ in machine definitions; selectors and view-models become graph-visible facts.
    route-owned resource activation edges.
 6. Map machine definitions, snapshots, spawned actors, and machine selectors
    into process and derivation nodes.
-7. Add a graph-inspection helper for static and live graphs. Xray may consume it
-   first; public API naming can follow after the shape proves stable.
+7. Add an internal graph-inspection helper for static and live graphs. Xray may
+   consume it first; no public authoring primitive or stable graph accessor
+   ships in this first slice.
 8. Add documentation examples that show source forms and algebra views side by
    side.
 9. Add conformance fixtures for lowering, storage/evaluation/lifecycle
@@ -1338,6 +1339,9 @@ A conforming implementation should satisfy these checks:
   resource leases and timers.
 - **Tool redaction:** graph inspection can summarize or redact sensitive
   params, scopes, and values without losing graph structure.
+- **Public API staging:** the first slice does not export a new public
+  authoring primitive or stable graph accessor; any public API requires a later
+  recorded ruling after the internal shape proves stable.
 - **Delta law:** any provided `:step-delta` passes the commuting law against
   whole-value recomputation. Implementations with no delta support still
   conform.
