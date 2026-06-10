@@ -455,7 +455,7 @@ An illustrative reply token:
 
 ```clojure
 [:rf.resource.internal/succeeded
- {:work-id [:rf.work/resource scoped-resource-key 4]
+ {:work/id [:rf.work/resource scoped-resource-key 4]
   :resource-key scoped-resource-key
   :generation 4
   :rf.frame/id frame-id
