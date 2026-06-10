@@ -41,16 +41,14 @@
   http), so an app that loads resources but not those optional artefacts
   carries none of their code. Nothing here `:require`s from `tools/`.
 
-  ## Slice status
+  ## Runtime
 
-  This is the rf2-p10npe artefact SKELETON (EP-0003 slice 2). The public
-  surface, the registrar kind, the late-bind wiring, and the
-  routing/SSR-projection extensions are real and load cleanly; the runtime
-  LOGIC (entry transition function, work-ledger join/dedupe, stale
-  suppression, GC, invalidation, route-plan execution, hydration install)
-  lands in later slices (rf2-afpdkn / rf2-pbxj48 / …). The event handlers
-  are registered but their bodies raise `:rf.error/resource-not-implemented`
-  so a premature call fails loudly."
+  The full runtime ships here (EP-0003 complete): the public surface, the
+  registrar kind, and the late-bind wiring sit alongside the live runtime
+  LOGIC — the entry transition function, work-ledger join/dedupe, stale
+  suppression, GC, invalidation, route-plan execution, and hydration
+  install. The `:rf.resource/*` event handlers carry the behaviour;
+  loading this namespace registers the whole family."
   (:require [re-frame.cofx :as cofx]
             [re-frame.events :as events]
             [re-frame.frame :as frame]

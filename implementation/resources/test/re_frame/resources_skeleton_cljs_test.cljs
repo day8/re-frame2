@@ -1,9 +1,9 @@
 (ns re-frame.resources-skeleton-cljs-test
-  "Skeleton smoke tests for the Resources artefact (rf2-p10npe, Spec 016
-  §EP-0003 slice 2 — the artefact SKELETON).
+  "Surface + wiring smoke tests for the Resources artefact (rf2-p10npe,
+  Spec 016 §EP-0003).
 
-  This slice ships the public surface + the wiring, NOT the runtime logic.
-  These tests lock what the skeleton GUARANTEES:
+  These tests lock the artefact's public surface and registration wiring —
+  the load-time guarantees that the runtime behaviour tests then build on:
 
     1. the artefact ns loads cleanly (the require itself is the smoke);
     2. `reg-resource` registers under the `:resource` registrar kind, and
@@ -16,14 +16,13 @@
        `(rf/feature-loaded? :resources)` is true;
     6. the public-API late-bind hooks are published;
     7. the passive `:rf.resource/*` subs are registered;
-    8. the resource event handlers are registered (their skeleton bodies
-       raise `:rf.error/resource-not-implemented` — a later slice fills
-       them in);
+    8. the `:rf.resource/*` event family is registered (and carries
+       framework-write authority);
     9. the late-bound routing accepted-key extension accepts `:resources`.
 
   Runtime BEHAVIOUR (entry transitions, work ledger, stale suppression,
-  GC, invalidation, hydration) is out of scope here — those land with the
-  runtime slices."
+  GC, invalidation, hydration) is exercised by the sibling runtime tests
+  (`resources_runtime_cljs_test`, `resources_work_ledger_cljs_test`, …)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.features :as features]
             [re-frame.late-bind :as late-bind]

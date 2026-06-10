@@ -24,9 +24,9 @@
   `:rf.http/managed` fx through the ordinary effect path; this namespace
   builds the args map (request-id + reply addressing).
 
-  SKELETON slice (rf2-p10npe): the lowering shape is named; the live
-  request-id minting + work-ledger correlation land with the managed-HTTP
-  + runtime slices."
+  The lowering ships here: `lower` mints the request-id and stamps the
+  work-ledger correlation (`:work-id` / `:resource-key` / `:scope` /
+  `:rf.frame/id` / `:generation`) into the reply addressing."
   (:require [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -148,10 +148,9 @@
   reserved reply keys are rejected (`build-managed-args`)."
   [ensure-ctx]
   ;; Defense-in-depth: surface the managed-HTTP feature presence through
-  ;; the always-published feature probe (consult ≠ static require). The
-  ;; runtime slice will use this to fail-closed with a clear
-  ;; artefact-missing error when an HTTP-backed read is issued without
-  ;; the HTTP artefact on the classpath.
+  ;; the always-published feature probe (consult ≠ static require). This
+  ;; fails closed with a clear artefact-missing error when an HTTP-backed
+  ;; read is issued without the HTTP artefact on the classpath.
   (when-not (late-bind/get-fn :http/abort-on-actor-destroy)
     (throw (ex-info ":rf.error/http-artefact-missing"
                     {:rf.error/id :rf.error/http-artefact-missing
