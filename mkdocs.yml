@@ -19,10 +19,11 @@ site_dir: site
 # pipeline that emits `docs/cljs/playground.{js,css}` + `playground-rf2.js`),
 # NOT publishable markdown. After `npm install` it carries a node_modules/
 # tree full of README.md files that mkdocs would otherwise mistake for docs
-# pages (broken cross-links in third-party READMEs trip --strict). The CI
-# `docs.yml` build runs without `npm install`, so this exclude is primarily a
-# local-build guard, but it is also forward-defence for any future CI flow
-# that does install playground deps before building docs.
+# pages (broken cross-links in third-party READMEs trip --strict). As of
+# rf2-ssxvg1 the CI `docs.yml` build DOES rebuild the playground bundles
+# fresh (npm ci + npm run build) before `mkdocs build`, so this exclude is now
+# load-bearing in CI too — not just for local builds — to keep the installed
+# node_modules/ READMEs out of the published site.
 exclude_docs: |
   tools/playground/
   guide/OUTLINE.md

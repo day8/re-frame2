@@ -111,6 +111,90 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
+      # --- SCI-bundle rebuild-on-publish (rf2-ssxvg1) --------------------------
+      #
+      # The docs' live `cljs-rf2` cells run on docs/cljs/playground-rf2.js — a
+      # shadow-cljs :advanced bundle that bakes in re-frame2 core + reagent-slim
+      # + machines + react@19 (the eval engine for every `cljs-rf2` cell). It is
+      # a committed, vendored binary. Deploying it verbatim let it drift: the
+      # committed snapshot is only as fresh as its last hand-rebuild, so a wave
+      # of `implementation/` changes (e.g. the EP-0003 resources wave) could
+      # leave the LIVE cells running stale re-frame2 while main moved on. The
+      # freshness gate (scripts/check-playground-sci-freshness.sh) only checks
+      # the machine-lifecycle creation marker, so it does not catch that class.
+      #
+      # Fix (the standing anti-drift policy): rebuild the bundle FRESH from the
+      # checked-out main on every docs publish, so the DEPLOYED bundle is always
+      # current — eliminating the committed-stale-binary drift structurally. We
+      # build-in-pipeline (no commit-back): the rebuilt artefact overwrites the
+      # working-tree docs/cljs/playground*.js BEFORE `mkdocs build` stages it
+      # into site/, so the published bundle reflects current main. The committed
+      # snapshot may briefly lag until the next docs build, which is acceptable
+      # under this policy (and the tools-playground job in test.yml still gates
+      # that the committed bundle is a valid, fresh prebuilt on every PR).
+      #
+      # The build needs a JVM + Clojure CLI + Node (the shadow-cljs toolchain),
+      # the same setup the tools-playground job in test.yml uses. The esbuild
+      # bootstrap bundle (playground.js/.css) is byte-deterministic; the
+      # shadow-cljs SCI bundle (playground-rf2.js) is the one that drifts.
+      - name: Set up JDK 21 (SCI bundle build)
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js (SCI bundle build)
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+
+      - name: Set up Clojure CLI (SCI bundle build)
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs (playground SCI bundle deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-playground-${{ hashFiles('docs/tools/playground/sci/deps.edn', 'docs/tools/playground/sci/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent-slim/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-playground-
+            ${{ runner.os }}-cljs-
+
+      # Rebuild both playground bundles from the checked-out main and overwrite
+      # the working-tree docs/cljs/playground*.js. `npm ci` installs from the
+      # committed lockfile (reproducible); `npm run build` runs the esbuild
+      # bootstrap + the sci/ shadow-cljs :advanced re-frame2 bundle (`build:rf2`
+      # runs `npm install` inside sci/ for react/react-dom + shadow-cljs). The
+      # rebuilt files land before the "Stage spec/ + migration/" + "Build site
+      # (strict)" steps below, so MkDocs copies the FRESH bundle into site/.
+      - name: Rebuild playground bundles fresh from main
+        working-directory: docs/tools/playground
+        run: |
+          npm ci
+          npm run build
+
+      # Sanity-check the freshly-built SCI bundle exports its renderLast hook
+      # before it is staged + deployed. A build that "succeeded" but emitted a
+      # wrong/empty artefact would otherwise ship a dead live-cell engine.
+      - name: Verify freshly-built SCI bundle is a valid re-frame2 prebuilt
+        run: |
+          f=docs/cljs/playground-rf2.js
+          if [ ! -s "$f" ]; then
+            echo "::error::$f missing or empty after rebuild — the SCI bundle build failed."
+            exit 1
+          fi
+          if ! grep -q "rf2sci" "$f"; then
+            echo "::error::$f does not export rf2sci after rebuild — wrong/stale artefact."
+            exit 1
+          fi
+          echo "Freshly-built SCI bundle OK ($(wc -c < "$f") bytes)."
+
       # Cairo + Pango system libraries for Material's `social` plugin (rf2-orxjj).
       # The plugin's image backend (CairoSVG, pulled in by material[imaging] in
       # requirements.txt) links against these native libs to rasterise the
