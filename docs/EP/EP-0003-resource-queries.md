@@ -629,9 +629,17 @@ For example:
 
 Rules:
 
-- cache scope must be serializable EDN data;
-- the default scope is `[:rf.scope/global]` for data that is genuinely
-  process-independent;
+- cache scope must be serializable EDN data, and a scope **map** is
+  canonicalized under the **same canonicalization rule as params maps** (key
+  order does not affect identity; nested maps recurse) so two spellings of the
+  same scope hash to one cache key — a `[:rf.scope/session {:tenant-id "acme"
+  :user-id "u-42"}]` and a `[:rf.scope/session {:user-id "u-42" :tenant-id
+  "acme"}]` are the same scope, never two leaking caches;
+- there is **no silent default scope**: every resource declares an explicit
+  scope policy at registration (see [Scope Resolution](#scope-resolution)). A
+  resource that wants the global scope says so — `:scope :rf.scope/global` — as a
+  deliberate, auditable claim; a resource with no declared policy is a loud
+  registration error, never a silent `[:rf.scope/global]` read;
 - user-, tenant-, locale-, permission-, impersonation-, and session-dependent
   reads must use an explicit scope or put those values in params;
 - logout, account switch, tenant switch, and impersonation changes must have a
@@ -651,17 +659,102 @@ Rules:
 
 ### Scope Resolution
 
-Scope resolution must be explicit and deterministic. The precedence should be:
+Scope is the cache's tenant/user/permission/locale/impersonation/SSR leak
+boundary, and a resolved scope can carry PII (user ids, tenant ids,
+impersonation markers). A boundary that critical must **fail closed**: it must
+never silently default to "shared." Every resource therefore declares an
+explicit **scope policy** at registration, and scope resolution is explicit and
+deterministic.
 
-1. `:scope` supplied on the resource event or subscription payload;
-2. route-resource `:scope` resolver;
-3. resource spec `:scope` resolver;
-4. `[:rf.scope/global]`.
+#### Every resource declares a scope policy (fail-closed)
 
-The global default should be treated as a deliberate choice, not a convenient
-place to hide user-specific data. Xray should warn when a resource with no
-scope resolver calls a request that looks session-dependent, such as `/me`,
-`/current-user`, tenant-local URLs, or requests with auth-derived params.
+`:scope` at `reg-resource` is **required**. It declares a *policy*, not
+necessarily a concrete value, drawn from a closed reserved-keyword enum:
+
+- `:scope :rf.scope/global` — the resource is **explicitly global**. This is a
+  *claim*: "the same params produce the same data for every user, tenant,
+  permission-set, locale, and impersonation state." It is an auditable assertion,
+  not a convenience hideaway.
+- `:scope <resolver>` — derive the scope deterministically. The resolver
+  materializes as visible EDN in the resource key (see [Resource Identity Is
+  Data](#resource-identity-is-data)). A resolver may be a route-resource resolver
+  `(fn [route ctx] …)`, a resource-spec resolver, or — for a sub-side resolver —
+  a pure data value / fn-of-nothing (see [Subscription-side scope
+  resolution](#subscription-side-scope-resolution) below).
+- `:scope :rf.scope/from-caller` — the scope is **required from the use site**:
+  every `:rf.resource/ensure`/`:rf.resource/refetch`/`:rf.resource/state` (and
+  sibling) call must supply `:scope` on the payload, or a route-resource resolver
+  must supply it. Enforcement lands where the scope is actually known.
+- **No declared policy** — a loud **registration error**
+  (`:rf.error/resource-missing-scope-policy`). "I forgot this read is
+  user-scoped" is unrepresentable at registration rather than an Xray heuristic
+  about `/me`-looking URLs.
+
+This is the per-resource scope policy ruled fail-closed for EP-0003
+(`rf2-6rrz53`). It composes with the cache-scope-shape rule (scope is explicit
+canonical EDN, the first element of the key): scope is **explicit-in-key** *and*
+its presence is **mandatory-by-policy**.
+
+#### Resolution precedence (for events; no global fallthrough)
+
+For a resource **event** (`:rf.resource/ensure`, `:rf.resource/refetch`, …) the
+runtime resolves the concrete scope in this order:
+
+1. `:scope` supplied on the resource event payload;
+2. the route-resource `:scope` resolver (a `(route, ctx)` function);
+3. the resource-spec `:scope` resolver.
+
+There is **no tier-4 `[:rf.scope/global]` fallthrough.** If none of the above
+yields a scope, resolution fails closed:
+
+- a resource whose policy is `:rf.scope/global` resolves to `[:rf.scope/global]`
+  only because that is its **declared, explicit** policy — not because the
+  precedence ran out of options;
+- a `:rf.scope/from-caller` resource reached with no payload `:scope` and no
+  resolver is a loud **use-time error**
+  (`:rf.error/resource-scope-required-from-caller`), not a silent global read.
+
+#### Subscription-side scope resolution
+
+Subscriptions are **pure** — they cannot run a `(route, ctx)` resolver, because a
+sub has no access to the routing match or the event context. This is exactly the
+seam where a silent leak used to hide: a route ensures a resource under
+`[:rf.scope/session {…}]`, but a view's `[:rf.resource/state {…}]` that omits
+`:scope` would resolve to a *different* scope than the one the data was loaded
+under and read `:idle` forever — a permanent skeleton with no error anywhere.
+That is the silent-wrong-target bug family [EP-0002](EP-0002-frame-target-resolution.md)
+exists to kill, and resource subscriptions must close it the same way:
+
+A subscription resolves its scope from, in order:
+
+1. `:scope` supplied on the **subscription payload**;
+2. the resource spec's `:scope` **only if** that policy is one a pure sub can
+   evaluate without an event context — i.e. an explicit `:rf.scope/global` claim,
+   or a resolver **declared as pure data / fn-of-nothing**. A resource whose
+   scope policy is a `(route, ctx)` resolver or `:rf.scope/from-caller` **cannot**
+   be resolved sub-side from the spec alone.
+
+A subscription that **cannot** resolve a scope is a **loud, structured error**
+(`:rf.error/resource-sub-unresolved-scope`) carrying the resource id and the
+unresolvable policy — **never** a silent `[:rf.scope/global]` read and never a
+silent `:idle`. The fix the error points at is explicit: pass `:scope` on the
+subscription payload (the same scope the owning route/event ensured under), or
+re-declare the resource with a sub-resolvable scope policy. This is the read-side
+counterpart of the write-side fail-closed gate: a read that cannot name its
+principal does not fall through to the shared cache.
+
+#### Xray scope diagnostics are defense-in-depth, not the boundary
+
+Because every resource now carries an explicit policy, the old `/me` /
+`/current-user` heuristic is no longer the boundary — it is downgraded to
+**defense-in-depth**. Xray should warn about *suspicious explicit-global*
+resources (an `:rf.scope/global` claim whose request looks session-dependent —
+`/me`, `/current-user`, tenant-local URLs, or auth-derived params), not
+"compensate for a missing scope" (a missing scope is now a loud error, not a
+heuristic). The **standing audit surface** is structural: sub-topology / Xray
+**enumerate every `:rf.scope/global` resource** as the security-review list — the
+explicit replacement for the heuristic. See [Xray and AI
+Tooling](#xray-and-ai-tooling).
 
 `clear-scope` is a causal operation. It should:
 
@@ -709,6 +802,36 @@ different params, pending work, or SSR request frames.
 Do not use ordinary event ids as durable owners unless the event creates a
 releaseable lease. A manual refresh, a button click, or a one-shot dashboard
 open should usually be a cause, not an owner.
+
+#### Release authority is per owner kind
+
+Every owner kind names *who is authoritative for releasing it* so a lease cannot
+silently outlive the thing it represents (an orphaned owner pins an entry alive
+and keeps it refetching on focus/reconnect — a slow leak). The release authority
+for each kind is:
+
+- **Route owners** (`[:route route-id nav-token]`) — released by **routing on
+  nav-token supersession**: route leave or a superseded navigation releases the
+  owner by its token, even when in-flight abort is unavailable (already specified
+  in [Route Integration](#route-integration); restated here so the table is
+  complete).
+- **Machine owners** (`[:machine machine-id instance-id]`) — released on
+  **actor destroy**: when the owning machine instance is stopped/destroyed
+  ([Spec 005](../../spec/005-StateMachines.md)), its resource leases are released.
+  Machine liveness is a pure function of frame-state, so a destroyed instance can
+  hold no live lease.
+- **SSR owners** (`[:ssr request-id nav-token]`) — released on **request
+  teardown**: an SSR owner belongs to one server render and is released when that
+  request's frame is torn down; it never survives as a live client-side lease (it
+  is reconciled to an orphan on hydration/restore — see [§4 Owners revive or
+  orphan by kind](#4-owners-revive-or-orphan-by-kind)).
+- **Bare app / lease owners** (`[:lease …]`, `[:dashboard/opened …]`, and other
+  app-minted kinds) — the **app is authoritative**: an event that mints such a
+  lease must have a matching `:rf.resource/release-owner` release path. The
+  framework does not auto-release app-minted leases. To catch the forgotten case,
+  Xray surfaces an **orphaned-owner lint**: an `[:lease …]`/app-kind owner whose
+  minting event has no observed release path (or that pins an entry long past its
+  expected lifetime) is flagged as a candidate leak.
 
 ### Causes Explain Why Work Happened
 
@@ -1031,6 +1154,9 @@ Example:
                 :url    (str "/api/articles/" slug)}
       :decode :app/article})
 
+   :scope
+   :rf.scope/global
+
    :transport
    :rf.http/managed
 
@@ -1051,6 +1177,13 @@ Example:
 Required keys:
 
 - `:params-schema` validates and canonicalizes params;
+- `:scope` declares the resource's **scope policy** — one of
+  `:rf.scope/global`, a resolver, or `:rf.scope/from-caller` (see [Scope
+  Resolution](#scope-resolution)). It is **required**: a `reg-resource` with no
+  scope policy is a loud registration error
+  (`:rf.error/resource-missing-scope-policy`), so a user-scoped read can never be
+  silently registered as global. Stating scope intent once, at the registration
+  site, is the loud-failure ethos applied to the cache's leak boundary;
 - for `:transport :rf.http/managed` (the only initial-scope transport),
   `:request` returns a Spec 014 managed-HTTP args map, including the nested
   `:request` child and top-level keys such as `:decode`, `:accept`, `:retry`,
@@ -1068,10 +1201,12 @@ Optional v1 keys:
   built-in; `:rf.graphql/query` is added in the deferred GraphQL phase);
 - `:stale-after-ms`;
 - `:gc-after-ms`;
-- `:scope`, a function or declarative resolver for the cache scope when the
-  caller does not supply one explicitly;
 - `:tags`;
 - `:sensitive?` / `:large?` / schema-based classification.
+
+(`:scope` is **not** optional — it is a required key above. A resource that is
+genuinely process-independent declares `:scope :rf.scope/global` explicitly;
+there is no implicit default.)
 
 Deferred keys:
 
@@ -1916,7 +2051,31 @@ Xray should expose:
   mutation source coordinates;
 - a cache growth view: counts by resource/status/scope/owner/tag, inactive
   entries, entries past GC time, largest elided data summaries, orphaned owners,
-  and retained side-table handles.
+  and retained side-table handles;
+- a **scope audit surface**: the standing enumeration of every
+  `:rf.scope/global` resource (the structural security-review list that replaces
+  the old `/me` heuristic — see [Scope Resolution](#scope-resolution)), plus the
+  suspicious-explicit-global warnings (a global claim whose request looks
+  session-dependent).
+
+A **scope-mismatch lint** is part of this surface and catches the read-side leak
+the instant it happens:
+
+> A cache **entry** exists for resource `R` with params `P` under scope `A`;
+> a **live subscription** is reading the same resource `R` + params `P` under a
+> **different** scope `B` and getting `:idle` (or `:loading` that never
+> resolves).
+
+That pattern is the silent skeleton the [Scope Resolution](#scope-resolution)
+fail-closed rules now make a loud error at registration/use time; the lint is the
+runtime tripwire for the cases that slip through — e.g. an event ensured under
+`[:rf.scope/session {…}]` while a view subscribed under `[:rf.scope/global]`
+(or a stale token). Xray flags the mismatched (entry-scope, sub-scope) pair with
+both resource keys so the divergence is obvious at a glance, rather than the view
+silently rendering a permanent skeleton. The **orphaned-owner lint** (an
+app-minted `[:lease …]` owner with no observed release path — see [Active
+Owners](#active-owners-not-component-observers)) rides the same cache-growth /
+audit surface.
 
 Tool APIs should prefer summaries and metadata over raw values. AIs usually
 need to know "this route owns `:article/by-slug`, it is stale, and the latest
@@ -2564,6 +2723,13 @@ No v1 subscription should fetch. If a future `:rf.resource/live` is added, it
 must be explicitly documented as side-effecting convenience and kept separate
 from the recommended route/event pattern.
 
+Subscriptions resolve scope **purely** — from the payload `:scope`, else from a
+sub-resolvable spec policy (`:rf.scope/global` or a fn-of-nothing/data resolver).
+A sub that cannot resolve a scope raises `:rf.error/resource-sub-unresolved-scope`
+rather than reading `[:rf.scope/global]` or returning a silent `:idle` (see
+[Subscription-side scope resolution](#subscription-side-scope-resolution)). Subs
+do **not** run `(route, ctx)` resolvers — they have no event/route context.
+
 ### 7. Route and SSR Integration
 
 Routing changes:
@@ -2616,6 +2782,15 @@ Initial conformance fixtures should cover:
 - registration and metadata;
 - params schema validation;
 - params canonicalization;
+- scope policy is required: a `reg-resource` with no `:scope` is a loud
+  registration error (`:rf.error/resource-missing-scope-policy`);
+- `:rf.scope/from-caller` resource dispatched/subscribed without a per-call
+  `:scope` is a loud use-time error;
+- a subscription that cannot resolve a scope raises
+  `:rf.error/resource-sub-unresolved-scope` (never a silent global read / `:idle`);
+- scope-mismatch lint fires when an entry under scope A and a live sub under
+  scope B share resource+params;
+- scope map canonicalization: key order does not change cache identity;
 - cache scope validation and clearing;
 - managed HTTP resource requests keep Spec 014 keys such as `:decode`,
   `:accept`, and `:retry` at the top level of the managed-HTTP args map;
@@ -2875,9 +3050,15 @@ re-frame2 runtime process.
    phase once the HTTP core lands, ahead of the generic transport extension
    protocol. See [Deferred: GraphQL (later phase)](#deferred-graphql-later-phase).
 9. What is the cache scope shape?
-   Recommendation: make scope explicit EDN and part of the resource key, with
-   `[:rf.scope/global]` as the default and `clear-scope` for logout/account
-   changes.
+   Recommendation: make scope explicit EDN and the first element of the resource
+   key. **Resolved (`rf2-6rrz53`, fail-closed):** there is no silent default —
+   every resource declares an explicit scope **policy** at registration
+   (`:rf.scope/global` | resolver | `:rf.scope/from-caller`); no policy is a loud
+   registration error, and `:rf.scope/global` is an explicit, auditable claim
+   rather than a framework default. Subscriptions resolve scope from the payload
+   or a sub-resolvable spec policy and raise a loud structured error otherwise,
+   never a silent global read. `clear-scope` remains the causal operation for
+   logout/account changes. See [Scope Resolution](#scope-resolution).
 10. Should owners also represent causes?
     Recommendation: no. Owners are liveness leases; causes are trace metadata.
 11. Should Xray ever become an owner?
