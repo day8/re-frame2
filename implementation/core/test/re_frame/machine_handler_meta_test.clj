@@ -52,14 +52,14 @@
 
 (use-fixtures :each reset-runtime)
 
-;; ---- the registrar kind set is the clean ten -----------------------------
+;; ---- the registrar kind set is the clean set -----------------------------
 
 (deftest registrar-kinds-are-the-clean-ten
   (testing "rf2-ftrcv: `:machine-guard` / `:machine-action` are NOT registrar kinds"
     (is (= #{:event :sub :fx :cofx :view :frame :route :head
-             :error-projector :flow}
+             :error-projector :flow :resource}
            registrar/kinds)
-        "registrar/kinds is the canonical ten — no machine *registration* kinds")
+        "registrar/kinds is the canonical reserved set — no machine *registration* kinds; `:resource` (rf2-p10npe, Spec 016) is the resources artefact's kind")
     (is (not (registrar/valid-kind? :machine-guard))
         "(valid-kind? :machine-guard) = false")
     (is (not (registrar/valid-kind? :machine-action))
@@ -87,7 +87,7 @@
   (testing "rf2-ftrcv acceptance: (rf/handler-meta :machine-guard [mid gid]) returns
   :rf.handler/source in dev — the UNCHANGED surface Xray's GUARDS RUN lens +
   pair-MCP source-jump read. The two machine kinds dispatch to the
-  machine-spec-derived source; the ten registrar kinds fall through to the
+  machine-spec-derived source; the registrar kinds fall through to the
   registrar lookup."
     (rf/reg-machine :rf2-ftrcv/addressing
       {:initial :idle
@@ -100,7 +100,7 @@
           "dev: :machine-guard handler-meta carries :rf.handler/source")
       (is (string? (:rf.handler/source a))
           "dev: :machine-action handler-meta carries :rf.handler/source"))
-    (testing "the ten registrar kinds still fall through to the registrar lookup"
+    (testing "the registrar kinds still fall through to the registrar lookup"
       (rf/reg-event-db :rf2-ftrcv/plain-event (fn [db _] db))
       (is (= (registrar/lookup :event :rf2-ftrcv/plain-event)
              (rf/handler-meta :event :rf2-ftrcv/plain-event))
