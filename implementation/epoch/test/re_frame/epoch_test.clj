@@ -40,16 +40,21 @@
             [re-frame.flows]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
-            ;; rf2-szbzei — the runtime-db schema-validation precondition on
-            ;; replace-runtime-db! / replace-frame-state! routes through the
-            ;; machine-data boundary's `:schemas/validate-with-registered-fn`
-            ;; hook, which in turn consults `:schemas/malli-validate` (published
-            ;; by this .malli adapter ns). Without it the registered-validator
-            ;; soft-passes and the runtime-db-validation-fires test can't drive
-            ;; a real schema failure. Side-effect require — alias unused.
-            ;; (Also transitively loads `re-frame.schemas` so the fixture's
-            ;; ns-load registrar snapshot includes the schemas surface.)
-            [re-frame.schemas.malli]
+            ;; rf2-eig68k — require the schemas FAÇADE, not the `.malli`
+            ;; validator adapter. The dependency runs ONE way:
+            ;; `re-frame.schemas` `:require`s `re-frame.schemas.malli`
+            ;; (publishing the Malli validate/explain hooks) — the reverse
+            ;; is NOT true. `re-frame.schemas.malli` only publishes
+            ;; `:schemas/malli-validate` / `:schemas/malli-explain`; it does
+            ;; NOT publish the `:schemas/reg-app-schema` /
+            ;; `:schemas/app-schemas-digest` / `:schemas/validate-with-
+            ;; registered-fn` registrar+digest hooks (those `set-fn!` forms
+            ;; live in `re-frame.schemas`). Requiring the façade installs
+            ;; BOTH layers: the registrar hooks the `reg-app-schema` tests
+            ;; need AND the Malli validate hook the runtime-db
+            ;; schema-mismatch precondition (rf2-szbzei) drives a real
+            ;; failure through. Side-effect require — alias unused.
+            [re-frame.schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
