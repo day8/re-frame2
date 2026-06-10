@@ -84,6 +84,14 @@
    (cond-> {state/resources-key {:entries entries :tag-index {} :owner-index {}}}
      ledger (assoc state/work-ledger-key ledger))))
 
+(defn- with-live-nav-token
+  "Install a restored routing slice naming `nav-token` as live
+  (`[:rf.runtime/routing :current :nav-token]`) into `runtime-db` — the
+  nav-token restore's owner reconcile compares restored route owners against
+  (Spec 016 §Restore and replay part 4)."
+  [runtime-db nav-token]
+  (assoc-in runtime-db [:rf.runtime/routing :current :nav-token] nav-token))
+
 (def ^:private gkey
   (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"}))
 
@@ -219,22 +227,71 @@
 ;; 3. Owner reconciliation: orphan SSR, keep route (Spec 016 §Restore part 4)
 ;; ===========================================================================
 
-(deftest restore-orphans-ssr-owners-keeps-route-owners
-  (testing "SSR owners orphan on restore (a settled server render); route /
-            machine / lease owners ride through to their own subsystem reconcile"
+(deftest restore-orphans-ssr-owners-keeps-live-nav-route-owners
+  (testing "SSR owners orphan on restore (a settled server render); a route
+            owner the restored routing slice names LIVE rides through (along
+            with machine / lease owners) to its own subsystem reconcile"
     (let [e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
                       :loaded-at 1 :stale-at 9.0e15
                       :owners #{[:ssr "req-9" "nav-1"]
                                 [:route :route/article "nav-1"]
                                 [:machine :checkout/flow "inst-1"]}})
-          out (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
+          ;; the restored routing slice considers nav-1 live — the route owner
+          ;; names the same nav-token, so it revives (Spec 016 §Restore part 4).
+          rdb (with-live-nav-token (runtime-db-with {gkey e}) "nav-1")
+          out (ssr/reconcile-on-restore rdb :app/main)
           owners (get-in out [state/resources-key :entries gkey :active-owners])]
       (is (not (contains? owners [:ssr "req-9" "nav-1"])) "SSR owner orphaned")
-      (is (contains? owners [:route :route/article "nav-1"]) "route owner survives")
+      (is (contains? owners [:route :route/article "nav-1"])
+          "live-nav route owner survives (its nav-token is the one routing names live)")
       (is (contains? owners [:machine :checkout/flow "inst-1"]) "machine owner survives")
       (is (not (contains? (get-in out [state/resources-key :owner-index])
                           [:ssr "req-9" "nav-1"]))
-          "the orphaned SSR owner is absent from the recomputed owner-index"))))
+          "the orphaned SSR owner is absent from the recomputed owner-index")
+      (is (contains? (get-in out [state/resources-key :owner-index])
+                     [:route :route/article "nav-1"])
+          "the live-nav route owner IS in the recomputed owner-index"))))
+
+(deftest restore-orphans-stale-nav-route-owners
+  (testing "a route owner whose nav-token is NOT the one the restored routing
+            slice considers live is released as a stale-nav orphan (Spec 016
+            §Restore part 4) — it must not pin its entry alive forever"
+    (let [stale [:route :route/article "nav-OLD"]
+          live  [:route :route/article "nav-NEW"]
+          e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
+                      :loaded-at 1 :stale-at 9.0e15
+                      :owners #{stale live [:machine :checkout/flow "inst-1"]}})
+          ;; the restored routing slice considers nav-NEW live; nav-OLD is the
+          ;; navigation the timeline has already left.
+          rdb (with-live-nav-token (runtime-db-with {gkey e}) "nav-NEW")
+          out (ssr/reconcile-on-restore rdb :app/main)
+          owners (get-in out [state/resources-key :entries gkey :active-owners])]
+      (is (not (contains? owners stale))
+          "the stale-nav route owner (nav-OLD ≠ live nav-NEW) is orphaned")
+      (is (contains? owners live)
+          "the live-nav route owner (nav-NEW = live) survives")
+      (is (contains? owners [:machine :checkout/flow "inst-1"])
+          "the machine owner is untouched")
+      (is (not (contains? (get-in out [state/resources-key :owner-index]) stale))
+          "the orphaned stale-nav route owner is absent from the recomputed owner-index")
+      (is (contains? (get-in out [state/resources-key :owner-index]) live)
+          "the surviving live-nav route owner is present in the owner-index"))))
+
+(deftest restore-keeps-route-owners-without-routing-slice
+  (testing "with NO restored routing slice (a resources-only app / the SSR-
+            hydration parity case) route owners ride through unchanged — the
+            stale-nav orphan rule needs a live nav-token to compare against"
+    (let [e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
+                      :loaded-at 1 :stale-at 9.0e15
+                      :owners #{[:ssr "req-9" "nav-1"]
+                                [:route :route/article "nav-anything"]}})
+          ;; runtime-db-with carries no :rf.runtime/routing slice → nil live token
+          out (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
+          owners (get-in out [state/resources-key :entries gkey :active-owners])]
+      (is (not (contains? owners [:ssr "req-9" "nav-1"]))
+          "SSR owner still orphans even without routing")
+      (is (contains? owners [:route :route/article "nav-anything"])
+          "route owner rides through when there is no live nav-token to compare against"))))
 
 ;; ===========================================================================
 ;; 4. Indexes recomputed from entries, never trusted (Spec 016 §Restore part 5)
