@@ -57,9 +57,9 @@
 (deftest registrar-kinds-are-the-clean-ten
   (testing "rf2-ftrcv: `:machine-guard` / `:machine-action` are NOT registrar kinds"
     (is (= #{:event :sub :fx :cofx :view :frame :route :head
-             :error-projector :flow :resource}
+             :error-projector :flow :resource :mutation}
            registrar/kinds)
-        "registrar/kinds is the canonical reserved set — no machine *registration* kinds; `:resource` (rf2-p10npe, Spec 016) is the resources artefact's kind")
+        "registrar/kinds is the canonical reserved set — no machine *registration* kinds; `:resource` (rf2-p10npe, Spec 016) is the resources artefact's read kind; `:mutation` (rf2-dwme29, Spec 016 / EP-0003) is its causal-write kind")
     (is (not (registrar/valid-kind? :machine-guard))
         "(valid-kind? :machine-guard) = false")
     (is (not (registrar/valid-kind? :machine-action))

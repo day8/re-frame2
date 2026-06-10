@@ -94,7 +94,7 @@
              [re-frame.core :refer [reg-event-db reg-event-fx reg-event-ctx
                                     reg-sub reg-fx reg-cofx reg-frame
                                     reg-flow reg-route reg-app-schema reg-app-schemas
-                                    reg-resource
+                                    reg-resource reg-mutation
                                     reg-error-projector reg-head
                                     reg-http-interceptor
                                     reg-view reg-machine defmachine
@@ -170,6 +170,16 @@
   `day8/re-frame2-resources`; require `re-frame.resources` at boot. See
   `re-frame.core-resources/reg-resource` and spec/API.md §Registration."}
        reg-resource    rf-resources/reg-resource)
+     (def ^{:doc "Fn-alias of the `reg-mutation` macro for HoF / programmatic
+  registration (no source-coord capture). Register a mutation — a named,
+  causal WRITE to remote state that, on success, invalidates / patches /
+  populates cached resource reads — under `mutation-id`; `mutation-spec`
+  carries the REQUIRED `:request` (a Spec 014 managed-HTTP args map) and
+  `:params-schema` plus optional `:invalidates` / `:patches` / `:populates`
+  / `:scope` / `:invalidate-timing`. Implementation ships in
+  `day8/re-frame2-resources`; require `re-frame.resources` at boot. See
+  `re-frame.core-resources/reg-mutation` and spec/API.md §Registration."}
+       reg-mutation    rf-resources/reg-mutation)
      (def ^{:doc "Fn-alias of the `reg-app-schema` macro for HoF / programmatic
   registration (no source-coord capture). Register a Malli schema at a
   path inside app-db (frame-scoped per Spec 010). Implementation ships
@@ -290,6 +300,20 @@
        boot. See `re-frame.core-resources/reg-resource` for the full
        signature."
        {:arglists '([resource-id resource-spec])})
+
+     (rm/defreg-macro reg-mutation rf-resources/reg-mutation
+       "Register a mutation under `mutation-id` — a named, causal WRITE to
+       remote state that, on success, invalidates / patches / populates
+       cached resource reads (run with `[:rf.mutation/execute …]`).
+       `mutation-spec` carries the REQUIRED `:request` (a Spec 014
+       managed-HTTP args map) and `:params-schema`, plus optional
+       `:invalidates` / `:patches` / `:populates` / `:scope` /
+       `:invalidate-timing` / `:retry`. Captures source-coords (Spec 001)
+       at this call site. Implementation ships in `day8/re-frame2-resources`
+       (rf2-dwme29); apps must add the artefact and require
+       `re-frame.resources` at boot. See
+       `re-frame.core-resources/reg-mutation` for the full signature."
+       {:arglists '([mutation-id mutation-spec])})
 
      (rm/defreg-macro reg-app-schema rf-schemas/reg-app-schema
        "Register a Malli schema at a path inside app-db (frame-scoped
@@ -1302,6 +1326,34 @@
   none is installed (and on the JVM). CLJS-only. Per Spec 016 §Deferred
   slices. Implementation ships in `day8/re-frame2-resources`."}
   remove-revalidation-listeners! rf-resources/remove-revalidation-listeners!)
+
+;; Mutations (rf2-dwme29, EP-0003 §Mutations — first public-beta gate).
+;; `reg-mutation` is a macro (above, for source-coord capture) + a CLJS
+;; fn-alias; the non-registration surface is plain re-exports below.
+
+(def ^{:doc "Remove a registered mutation (a registration-lifecycle
+  operation — NOT a form-error reset; for the causal runtime-instance reset
+  use the `[:rf.mutation/clear …]` event). Per Spec 016 §Deferred slices /
+  EP-0003 §Mutations. Implementation ships in `day8/re-frame2-resources`."}
+  clear-mutation  rf-resources/clear-mutation)
+
+(def ^{:doc "Return the registered mutation's spec map (`:request`,
+  `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:scope`,
+  `:invalidate-timing`, `:transport`, `:doc`), or `nil`. Per EP-0003
+  §Mutations. Implementation ships in `day8/re-frame2-resources`."}
+  mutation-meta   rf-resources/mutation-meta)
+
+(def ^{:doc "Return a mutation INSTANCE's durable runtime row (`{:status
+  :result :error …}`) for an explicit-frame target `{:instance :frame}`, or
+  `nil`. Per EP-0002 the frame is carried explicitly. Per EP-0003
+  §Mutations. Implementation ships in `day8/re-frame2-resources`."}
+  mutation-state  rf-resources/mutation-state)
+
+(def ^{:doc "Return mutation introspection for a frame target `{:frame …}`
+  — the registered mutation ids and the live per-frame mutation-instance
+  table (keyed by instance id). Per EP-0003 §Mutations. Implementation ships
+  in `day8/re-frame2-resources`."}
+  mutations       rf-resources/mutations)
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 

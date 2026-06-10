@@ -96,3 +96,62 @@
   {:hook :resources/remove-revalidation-listeners! :artefact resources-artefact :on-absent :throw
    :ex-data {:frame-id frame-id}}
   ([frame-id] :delegate))
+
+;; ---- Mutations (rf2-dwme29, EP-0003 §Mutations — first public-beta gate) --
+
+(defwrapper reg-mutation
+  "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Register a mutation
+  — a named, causal WRITE to remote state that, on success, invalidates /
+  patches / populates cached resource reads — under `mutation-id` with
+  `mutation-spec`. The spec carries the REQUIRED `:request` (a Spec 014
+  managed-HTTP args map — the write) and `:params-schema`, plus optional
+  `:invalidates` (`(fn [params result] -> #{tag …})`), `:patches` /
+  `:populates` (controlled resource-entry transforms / seeds applied on
+  success), `:scope`, `:invalidate-timing` (`:after-success` (default) |
+  `:before-request` | `:after-failure` | `:after-settle`), `:retry` (write
+  retries are OPT-IN), `:transport`, and `:doc`. Run it with
+  `[:rf.mutation/execute {:mutation … :params … :instance …}]`; observe it
+  through the passive `[:rf.mutation/*]` subs keyed by `:instance` id.
+  Late-bound via `:resources/reg-mutation`."
+  {:hook :resources/reg-mutation :artefact resources-artefact :on-absent :throw
+   :ex-data {:mutation-id mutation-id}}
+  ([mutation-id mutation-spec] :delegate))
+
+(defwrapper clear-mutation
+  "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Remove a registered
+  mutation (a registration-lifecycle operation — NOT a form-error reset;
+  for the causal runtime-instance reset use the `[:rf.mutation/clear …]`
+  event). Late-bound via `:resources/clear-mutation`."
+  {:hook :resources/clear-mutation :artefact resources-artefact :on-absent :throw
+   :ex-data {:mutation-id mutation-id}}
+  ([mutation-id] :delegate))
+
+(defwrapper mutation-meta
+  "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Return the
+  registered mutation's spec map (`:request`, `:params-schema`,
+  `:invalidates`, `:patches`, `:populates`, `:scope`, `:invalidate-timing`,
+  `:transport`, `:doc`, source coords) for `mutation-id`, or nil.
+  Late-bound via `:resources/mutation-meta`."
+  {:hook :resources/mutation-meta :artefact resources-artefact :on-absent :throw
+   :ex-data {:mutation-id mutation-id}}
+  ([mutation-id] :delegate))
+
+(defwrapper mutation-state
+  "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Return a mutation
+  INSTANCE's durable runtime row (`{:status :result :error …}`) for an
+  explicit-frame target `{:instance … :frame …}`, or nil. Per EP-0002 the
+  frame is carried explicitly. Late-bound via `:resources/mutation-state`."
+  {:hook :resources/mutation-state :artefact resources-artefact :on-absent :throw}
+  ([opts] :delegate))
+
+(defwrapper mutations
+  "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Return mutation
+  introspection for a frame target `{:frame …}` — the registered mutation
+  ids and the live per-frame mutation-instance table (keyed by instance id;
+  Xray groups instances under their registered mutation id). Without
+  `:frame` only the static registry is returned. Late-bound via
+  `:resources/mutations`."
+  {:hook :resources/mutations :artefact resources-artefact :on-absent :throw
+   :arglists '([] [opts])}
+  ([]     :delegate)
+  ([opts] :delegate))
