@@ -112,6 +112,20 @@
   (ensure) joins an in-flight request for the SAME generation/scoped-key
   when one exists (dedupe).
 
+  `force-new?` false (ensure) ALSO short-circuits a FRESH-SKIP: an
+  `ensure` of an already-`:loaded` entry that is still fresh-by-policy
+  (`state/entry-stale?` false against `now-ms`) neither dedupes (no
+  in-flight work to join) nor starts a fetch — it serves the cached value,
+  attaches the supplied owner lease, emits `:rf.resource/cache-hit`, and
+  (for a route-owned blocking resource) drains the blocking slot
+  immediately treating the fresh entry as already-`:success`. Per Spec 016
+  §Lifecycle is an FSM (a `:loaded` entry transitions to `:fetching` ONLY
+  on `stale/refetch`; a fresh `ensure` has no transition) / §Restore and
+  replay (a settled entry \"refetches only on the next `ensure` from a live
+  owner … gated by the entry's own stale/fresh policy\"). The in-flight
+  dedupe still WINS when work is in flight; fresh-skip applies only to a
+  SETTLED fresh `:loaded` entry.
+
   Returns the event-fx map `{:rf.db/runtime :fx}`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation}
    {:keys [resource params owner cause keep-previous?] :as payload} {:keys [force-new? where]}]
@@ -125,6 +139,18 @@
                        (state/empty-entry resource))
         prior-work (:current-work entry)
         in-flight? (some? prior-work)
+        ;; FRESH-SKIP gate (Spec 016 §Lifecycle is an FSM / §Restore and
+        ;; replay): an `ensure` (never a `refetch`) of an already-`:loaded`
+        ;; entry that is NOT in flight and is still fresh-by-policy serves
+        ;; the cached value — no new generation, no fetch, no work record.
+        ;; The in-flight dedupe takes precedence (a fresh-but-in-flight
+        ;; entry can't exist — `:fetching`/`:loading` is the in-flight
+        ;; status — but the explicit `(not in-flight?)` guard keeps the two
+        ;; branches disjoint and order-independent).
+        fresh-skip? (and (not force-new?)
+                         (not in-flight?)
+                         (= :loaded (:status entry))
+                         (not (state/entry-stale? entry (now-ms))))
         ;; a NEW owner lease lands on the entry when an owner is supplied and
         ;; was not already in the active-owner set. `:rf.resource/owner-attached`
         ;; marks that liveness change distinctly from work — symmetric with the
@@ -147,12 +173,48 @@
         prev-key   (when (and keep-previous? (not (state/has-data? entry)))
                      (state/prior-loaded-sibling-key
                        (get-in runtime-db (state/entries-path)) scoped-key))]
-    (if (and in-flight? (not force-new?))
+    (cond
+      ;; ----- fresh-skip: serve the cached value (ensure only) -------------
+      ;; A fresh `:loaded` entry needs no work — attach the owner lease,
+      ;; emit `:rf.resource/cache-hit`, drain any blocking route slot
+      ;; immediately (the fresh entry IS already a success), and return
+      ;; WITHOUT a new generation / fetch / work record. Per Spec 016
+      ;; §Lifecycle is an FSM (a fresh `ensure` from `:loaded` has no
+      ;; transition) / §Restore and replay. No `:previous-key` projection is
+      ;; needed (the entry has its own fresh data); arms no timers; supersedes
+      ;; nothing.
+      fresh-skip?
+      (let [hit  (cond-> entry
+                   owner (update :active-owners (fnil conj #{}) owner))
+            rdb' (-> runtime-db
+                     (assoc-in (state/entry-path scoped-key) hit)
+                     (cond->
+                       owner (update-in (state/owner-index-path)
+                                        update owner (fnil conj #{}) scoped-key))
+                     ;; route blocking: a route-owned blocking resource that
+                     ;; is already fresh MUST settle the nav-token blocking
+                     ;; slot NOW (no fetch will ever land a reply to drain
+                     ;; it) — treat the fresh entry as already-`:success` or
+                     ;; the route hangs forever (Spec 016 §Route integration).
+                     ;; No-op for a non-route-owned / non-blocking resource.
+                     (route/drain-blocking scoped-key hit :success))]
+        (trace/emit! :rf.event :rf.resource/cache-hit
+                     {:rf.frame/id frame-id :resource-key scoped-key
+                      :generation (:generation entry) :owner owner :cause cause})
+        ;; the cache-hit attached a new owner lease — record that distinct
+        ;; liveness change (symmetric with the dedupe / fresh-load paths).
+        (when owner-newly-attached?
+          (trace/emit! :rf.event :rf.resource/owner-attached
+                       {:rf.frame/id frame-id :resource-key scoped-key
+                        :generation (:generation entry) :owner owner :cause cause
+                        :work-id nil :joined-in-flight? false}))
+        {:rf.db/runtime rdb'})
       ;; ----- dedupe: join the in-flight request (ensure only) -------------
       ;; Attach any supplied owner to the existing entry + record the cause;
       ;; do NOT start a new generation. Join the SAME work-ledger record
       ;; (attach owner / append cause). Per Spec 016 §Race (ensure while in
       ;; flight joins the existing current work record).
+      (and in-flight? (not force-new?))
       (let [joined (cond-> entry
                      owner (update :active-owners (fnil conj #{}) owner))
             rdb'   (-> runtime-db
@@ -175,6 +237,7 @@
                         :work-id prior-work :joined-in-flight? true}))
         {:rf.db/runtime rdb'})
       ;; ----- start a new load attempt (fresh generation) -----------------
+      :else
       (let [generation (state/next-generation gen-snapshot)
             work-id    (work-ledger/resource-work-id scoped-key generation)
             request-id work-id

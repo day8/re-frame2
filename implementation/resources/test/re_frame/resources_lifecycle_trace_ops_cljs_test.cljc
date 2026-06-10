@@ -19,8 +19,10 @@
   Also pins the reconcile decision: the runtime emits exactly one
   suppression op (`:rf.resource/stale-suppressed`) — the spec/Xray
   `:rf.resource/work-suppressed` op was folded into it and is never
-  emitted. And it pins that `:rf.resource/cache-hit` is NOT emitted (a
-  reserved, not-yet-implemented fresh-skip op).
+  emitted. And it pins that `:rf.resource/cache-hit` IS emitted on a
+  fresh-skip ensure (an `ensure` of an already-`:loaded`, still-fresh
+  entry serves the cached value — no fetch, no in-flight join) — the
+  fresh-skip behaviour (rf2-hsa0sv).
 
   Per Spec 016 §Xray and AI tooling / §Active owners and causes."
   (:require
@@ -258,18 +260,84 @@
         (is (not (contains? (ops traces) :rf.resource/work-suppressed))
             ":rf.resource/work-suppressed is never emitted")))))
 
-(deftest cache-hit-not-emitted
+(deftest cache-hit-emitted-on-fresh-ensure
+  ;; no :stale-after-ms → the entry is always fresh once loaded
+  ;; (entry-stale? false: neither :stale-at nor :invalidated-at set)
   (rf/reg-resource :ch/article (article-spec))
-  (testing "the reserved :rf.resource/cache-hit op is NOT emitted by the v1
-            runtime (the fresh-skip behaviour is not yet implemented — every
-            non-in-flight ensure starts a load)"
-    (let [traces (record-resource-traces!
-                   (fn []
-                     (rf/dispatch-sync
-                       [:rf.resource/ensure {:resource :ch/article :scope :rf.scope/global
-                                             :params {:slug "w"} :owner [:lease :ch 1]}])
-                     (rf/dispatch-sync
-                       [:rf.resource/ensure {:resource :ch/article :scope :rf.scope/global
-                                             :params {:slug "w"} :owner [:lease :ch 1]}])))]
-      (is (not (contains? (ops traces) :rf.resource/cache-hit))
-          ":rf.resource/cache-hit is reserved, not emitted in v1"))))
+  (testing "an ensure of an already-:loaded, still-fresh entry serves the
+            cached value: it emits :rf.resource/cache-hit and starts NO new
+            load (Spec 016 §Lifecycle is an FSM / §Restore — fresh-skip,
+            rf2-hsa0sv)"
+    (let [scoped-key (state/scoped-resource-key :rf.scope/global :ch/article {:slug "w"})]
+      ;; load it once, then settle to :loaded (fresh: stale-after 60s)
+      (rf/dispatch-sync
+        [:rf.resource/ensure {:resource :ch/article :scope :rf.scope/global
+                              :params {:slug "w"} :owner [:lease :ch 1]}])
+      (let [wid (:current-work (entry scoped-key))]
+        (rf/dispatch-sync
+          [:rf.resource.internal/succeeded
+           {:resource-key scoped-key :work-id wid :generation 1 :data {:title "W"}}]))
+      (is (= :loaded (:status (entry scoped-key))) "entry settled :loaded")
+      (let [gen-before (:generation (entry scoped-key))
+            data-before (:data (entry scoped-key))
+            traces (record-resource-traces!
+                     #(rf/dispatch-sync
+                        [:rf.resource/ensure {:resource :ch/article :scope :rf.scope/global
+                                              :params {:slug "w"} :owner [:lease :ch 2]}]))
+            hits   (by-op traces :rf.resource/cache-hit)]
+        (is (= 1 (count hits)) "one :rf.resource/cache-hit on the fresh ensure")
+        (let [tags (:tags (first hits))]
+          (is (= scoped-key (:resource-key tags)) ":resource-key in tags")
+          (is (= [:lease :ch 2] (:owner tags))    "the newly-attached owner in tags"))
+        (testing "fresh-skip starts NO new load: no fetch-started / work-started"
+          (is (not (contains? (ops traces) :rf.resource/fetch-started))
+              "no fetch-started on a cache-hit")
+          (is (not (contains? (ops traces) :rf.resource/work-started))
+              "no work-started on a cache-hit")
+          (is (not (contains? (ops traces) :rf.resource/deduped))
+              "a settled fresh entry is NOT a dedupe (no in-flight work)"))
+        (testing "the entry is unchanged (same generation + data; owner attached)"
+          (let [e (entry scoped-key)]
+            (is (= gen-before (:generation e)) "no new generation")
+            (is (identical? data-before (:data e)) "same data value (cache served)")
+            (is (nil? (:current-work e)) "no in-flight work record")
+            (is (contains? (:active-owners e) [:lease :ch 2]) "new owner attached")))
+        (testing "the new owner lease is recorded as :rf.resource/owner-attached"
+          (let [oa (by-op traces :rf.resource/owner-attached)]
+            (is (= 1 (count oa)) "one owner-attached for the newly-attached owner")
+            (is (false? (:joined-in-flight? (:tags (first oa))))
+                "fresh-skip is not an in-flight join")))))))
+
+(deftest stale-loaded-ensure-still-refetches
+  (rf/reg-resource :ch/stale (article-spec))
+  (testing "a STALE :loaded entry STILL refetches on the next ensure —
+            fresh-skip must NOT swallow a stale refresh (negative case,
+            rf2-hsa0sv)"
+    (let [scoped-key (state/scoped-resource-key :rf.scope/global :ch/stale {:slug "w"})]
+      (rf/dispatch-sync
+        [:rf.resource/ensure {:resource :ch/stale :scope :rf.scope/global
+                              :params {:slug "w"} :owner [:lease :st 1]}])
+      (let [wid (:current-work (entry scoped-key))]
+        (rf/dispatch-sync
+          [:rf.resource.internal/succeeded
+           {:resource-key scoped-key :work-id wid :generation 1 :data {:title "W"}}]))
+      ;; make it stale WITHOUT auto-refetch: release the owner, then invalidate
+      ;; (an inactive matched entry is marked stale but not refetched)
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :st 1]}])
+      (rf/dispatch-sync [:rf.resource/invalidate-tags
+                         {:scope :rf.scope/global :tags #{[:article "w"]}}])
+      (is (some? (:invalidated-at (entry scoped-key))) "entry marked stale")
+      (let [gen-before (:generation (entry scoped-key))
+            traces (record-resource-traces!
+                     #(rf/dispatch-sync
+                        [:rf.resource/ensure {:resource :ch/stale :scope :rf.scope/global
+                                              :params {:slug "w"} :owner [:lease :st 2]}]))]
+        (testing "a stale ensure refetches (fetch/work-started), NOT a cache-hit"
+          (is (not (contains? (ops traces) :rf.resource/cache-hit))
+              "no cache-hit on a stale entry")
+          (is (contains? (ops traces) :rf.resource/work-started)
+              "a stale ensure starts new work"))
+        (is (= (inc gen-before) (:generation (entry scoped-key)))
+            "a new generation was minted (refetch)")
+        (is (= :fetching (:status (entry scoped-key)))
+            "stale-while-revalidate: :fetching with prior data kept")))))
