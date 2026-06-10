@@ -12,13 +12,14 @@
   (distinct from the data-lifecycle `:rf.resource/invalidate-tags` /
   `:rf.resource/remove` / `:rf.resource/clear-scope` events).
 
-  SKELETON slice (rf2-p10npe): registration validation + the registry
-  write/read are real (so an app can register a resource and Xray can
-  enumerate the static registry); the per-frame runtime disposal
-  `clear-resource` performs (owner-index release, host-handle cancel,
-  in-flight abort, late-reply suppression, tag-index prune, trace) lands
-  with the runtime slices (rf2-afpdkn / rf2-pbxj48) — until then it
-  clears the registrar entry only."
+  This namespace owns the registration lifecycle only: validation + the
+  registry write/read (so an app can register a resource and Xray can
+  enumerate the static registry). `clear-resource` removes the registrar
+  entry; the per-frame runtime disposal of cached data (owner-index
+  release, host-handle cancel, in-flight abort, late-reply suppression,
+  tag-index prune, trace) is the app's job via the data-lifecycle events
+  (`:rf.resource/remove` / `:rf.resource/release-owner` /
+  `:rf.resource/clear-scope`), not a side effect of `clear-resource`."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.resources.state :as state]
@@ -184,14 +185,12 @@
   "Remove a registered resource (registration-lifecycle, NOT data
   invalidation). Per Spec 016 §Public API §Registration.
 
-  SKELETON slice (rf2-p10npe): clears the registrar entry. The full
-  contract — also dispose resource-runtime state for the id in each
-  affected frame (release owner indexes, cancel timers / host handles,
-  abort in-flight where possible, suppress late replies by generation,
-  remove tag-index rows, emit a trace) — lands with the runtime slices
-  (rf2-afpdkn / rf2-pbxj48). Application data-lifecycle work uses
-  `:rf.resource/invalidate-tags` / `:rf.resource/remove` /
-  `:rf.resource/clear-scope` instead.
+  Clears the registrar entry. This is registration-lifecycle only: it does
+  NOT dispose the per-frame resource-runtime state for the id (owner
+  indexes, timers / host handles, in-flight requests, cached rows). Cached
+  data is managed through the data-lifecycle events
+  (`:rf.resource/invalidate-tags` / `:rf.resource/remove` /
+  `:rf.resource/clear-scope`) instead.
 
   No-op (returns `resource-id`) when the id is not registered."
   [resource-id]
@@ -211,8 +210,8 @@
 
 (defn resource-ids
   "Return a vector of every registered resource id. The registry-side
-  half of `resources` (the runtime-side per-frame instance table lands
-  with the runtime slice). Per Spec 016 §Xray and AI tooling (the static
+  half of `resources` (the runtime-side per-frame instance table lives in
+  the runtime). Per Spec 016 §Xray and AI tooling (the static
   resource registry)."
   []
   (vec (registrar/ids resource-kind)))

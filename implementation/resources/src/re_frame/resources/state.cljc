@@ -2,14 +2,13 @@
   "Resource runtime-db paths + the durable entry / work-record shapes.
   Per Spec 016 §Cache home and write authority and §Frame work ledger.
 
-  SKELETON slice (rf2-p10npe): this namespace fixes the reserved
-  runtime-db key paths and the canonical durable shapes the runtime
-  reads/writes, plus the framework-write-authority registration-meta
-  stamp every resource event handler carries. The actual swaps over
-  these paths (entry transition function, work-ledger join/dedupe, host
-  side-table bookkeeping) land in the runtime slices (rf2-afpdkn /
-  rf2-pbxj48). The paths and shapes are pinned here so siblings agree on
-  one home.
+  This namespace fixes the reserved runtime-db key paths and the canonical
+  durable shapes the runtime reads/writes, plus the framework-write-
+  authority registration-meta stamp every resource event handler carries.
+  The runtime swaps over these paths (entry transition function, work-
+  ledger join/dedupe, host side-table bookkeeping) live in the sibling
+  runtime / work-ledger namespaces; the paths and shapes are pinned here
+  so every sibling agrees on one home.
 
   Cache lives ONLY at `:rf.runtime/resources` inside the runtime-db
   partition (`:rf.db/runtime`); the work ledger lives at
@@ -93,14 +92,14 @@
 
 ;; ---- durable shapes (documentation-grade defaults) -----------------------
 ;;
-;; These constructors fix the canonical durable shapes the runtime slices
-;; fill in. They allocate plain EDN — no host handles, which live OUTSIDE
+;; These constructors fix the canonical durable shapes the runtime fills
+;; in. They allocate plain EDN — no host handles, which live OUTSIDE
 ;; durable frame-state in side tables keyed by `[frame-id work-id]`.
 
 (def lifecycle-states
   "The five resource lifecycle FSM states (cache-entry status). The
-  transition function over these states lands in the runtime slice
-  (rf2-pbxj48); pinned here so siblings agree on the closed set. Per
+  transition function over these states lives in the runtime; the closed
+  set is pinned here so siblings agree on it. Per
   Spec 016 §Lifecycle is an FSM."
   #{:idle :loading :fetching :loaded :error})
 
@@ -117,9 +116,9 @@
   `:loading?` / `:has-data?` are public derived sub values, computed in
   the subs layer, never stored). Per Spec 016 §Status semantics.
 
-  SKELETON: the runtime slices populate / transition this shape; this
-  constructor pins the canonical key set so an entry written by one
-  sibling reads correctly in another."
+  The runtime populates / transitions this shape; this constructor pins
+  the canonical key set so an entry written by one sibling reads correctly
+  in another."
   [resource-id]
   {:resource/id    resource-id
    :status         :idle

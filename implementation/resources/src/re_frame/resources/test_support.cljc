@@ -21,11 +21,12 @@
     transient generation high-water marks (which are NOT runtime-db
     state, so a runtime/frames reset does not clear them).
 
-  SKELETON slice (rf2-p10npe): the reset helper clears the registrar +
-  host-side generation cache; the canned-transport stub fixtures (the
-  resources analogue of the managed-HTTP canned stubs — for deterministic
-  ensure/refetch replay without a live Fetch) land with the runtime +
-  managed-HTTP slices, behind this same test-support require."
+  The reset helper clears the registrar (resource + mutation kinds), the
+  host-side generation cache, the runtime cache, and the host-side work-
+  ledger handles. Deterministic ensure/refetch replay without a live Fetch
+  rides on the managed-HTTP canned-stub fixtures (`re-frame.http-test-
+  support`), reached through the same managed-HTTP transport the runtime
+  uses."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.resources.mutation-registry :as mutation-registry]

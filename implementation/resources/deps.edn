@@ -12,12 +12,11 @@
 ;; ledger machinery, or any of the `:rf.resource/*` / `:rf.scope/*` /
 ;; `:rf.work/*` trace strings onto the classpath.
 ;;
-;; This is the SKELETON slice (rf2-p10npe): the namespaces + the public
-;; surface compile and load cleanly, but the runtime logic lands in
-;; later slices (rf2-afpdkn work-ledger substrate, rf2-pbxj48 resource
-;; runtime, …). Stub bodies raise `:rf.error/resource-not-implemented`
-;; where the behaviour is a later slice, so a premature call fails
-;; loudly rather than silently no-opping.
+;; The full runtime ships here (EP-0003 complete): the namespaces + the
+;; public surface, the work-ledger substrate, the resource runtime
+;; (entries, scopes, status transitions, dedupe), the managed-HTTP
+;; transport, invalidation / GC / owners, focus/reconnect revalidation,
+;; mutations, and the routing + SSR/hydration integrations.
 ;;
 ;; Consumers add this artefact alongside the core artefact:
 ;;

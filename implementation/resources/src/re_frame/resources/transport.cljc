@@ -11,9 +11,9 @@
   namespace holds that neutral seam; the HTTP lowering itself lives in the
   sibling `re-frame.resources.transport.http`.
 
-  SKELETON slice (rf2-p10npe): the transport dispatch is named; the
-  ensure/refetch → work-ledger-record → managed-HTTP lowering lands with
-  the runtime + managed-HTTP slices."
+  The transport dispatch lives here; the runtime's ensure/refetch →
+  work-ledger-record → managed-HTTP lowering routes through `lower-ensure`
+  into the sibling `re-frame.resources.transport.http`."
   (:require [re-frame.resources.transport.http :as http]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -43,8 +43,8 @@
   + generation before writing (cancellation is an optimization; stale
   suppression is the correctness boundary).
 
-  SKELETON: delegates the shape; the runtime slice supplies the live
-  ensure-context."
+  The runtime supplies the live ensure-context; this fn delegates to the
+  transport's lowering."
   [transport ensure-ctx]
   (let [transport (or transport default-transport)]
     (if (= transport managed-http-transport)
