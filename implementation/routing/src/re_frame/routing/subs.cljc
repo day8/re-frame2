@@ -6,7 +6,7 @@
   on their production-elision bundle (rf2-k682).
 
   The route slice lives at `[:rf.runtime/routing :current]` per
-  Spec-Schemas §`:rf/runtime` — `{:id :params :query :transition :error
+  Spec-Schemas §`:rf/runtime-db` — `{:id :params :query :transition :error
   :fragment :nav-token}`. The only other routing-runtime sub-key is
   `:pending-navigation` (its own `:rf/pending-navigation` sub), a flat
   sibling under `[:rf.runtime/routing ...]`, so the slice carries ONLY the

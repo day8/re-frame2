@@ -862,7 +862,7 @@
     (reg-sensitive-machine!)
     (rf/with-frame :rf/xray
       ;; Seed the live snapshots slot directly (the test override stands
-      ;; in for a populated `[:rf/runtime :machines :snapshots]`); the sub
+      ;; in for a populated `[:rf.runtime/machines :snapshots]` in runtime-db); the sub
       ;; redacts on read.
       (rf/dispatch-sync
         [:rf.xray/set-machine-snapshots-override-for-test nil])

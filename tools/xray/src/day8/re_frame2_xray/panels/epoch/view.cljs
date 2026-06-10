@@ -3700,7 +3700,7 @@
   placeholder is only ever the clean 'returned no :db' wording.
 
   Suppressed for machine handlers — per design §Section 3 §DB DIFF
-  the snapshot IS the db change (at `[:rf/runtime :machines :snapshots <id>]`) so the
+  the snapshot IS the db change (at `[:rf.runtime/machines :snapshots <id>]` in runtime-db) so the
   slot folds into SNAPSHOT DIFF rather than carrying a redundant
   standalone slot."
   [db-post-handler db-write?]

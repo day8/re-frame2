@@ -31,14 +31,14 @@
   panel projects:
 
     - Machines    — live machine snapshots
-                    (`[:rf/runtime :machines :snapshots]` in the target-
-                    frame db); the definition catalogue is global.
+                    (`[:rf.runtime/machines :snapshots]` in the target-
+                    frame runtime-db); the definition catalogue is global.
     - Flows       — the flows registry is per-frame
                     (`{frame-id {flow-id ...}}`, Spec 013).
     - Schemas     — the app-db-schema side-table is per-frame
                     (`schemas-by-frame`); event/sub specs are global.
     - Routes      — the current-route slice
-                    (`[:rf/runtime :routing :current]`) is per-frame;
+                    (`[:rf.runtime/routing :current]` in runtime-db) is per-frame;
                     the route-definition catalogue is global.
     - Interceptors— global (interceptor chains live on globally
                     registered events).

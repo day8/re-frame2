@@ -32,8 +32,8 @@
 
     - `:db-state-after-simulation` and every `:would-fire-effects[*]
       :args` slot are run through `re-frame.core/elide-wire-value`
-      SERVER-SIDE (app-side, where the `[:rf/runtime :elision]`
-      registry is reachable) before the EDN crosses the wire. Large
+      SERVER-SIDE (app-side, where the `[:rf.runtime/elision]`
+      runtime-db registry is reachable) before the EDN crosses the wire. Large
       slots collapse to `:rf.size/large-elided` markers; declared-
       sensitive slots redact to `:rf/redacted`.
     - The walker runs BY DEFAULT. The per-call `:elision false` /
@@ -142,7 +142,7 @@
 
   `frame-edn` is the source for the `:frame` opt (a quoted keyword or
   a runtime `current-frame` call) so the walker resolves the right
-  `[:rf/runtime :elision]` registry; `elision-opts` is the rendered
+  `[:rf.runtime/elision]` runtime-db registry; `elision-opts` is the rendered
   `elision-opts-edn` map threading the `--allow-sensitive-reads` gate
   through `:rf.size/include-sensitive?`."
   [frame-edn elision-opts]

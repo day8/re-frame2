@@ -2042,7 +2042,7 @@ Cross-reference: `:rf/machine-snapshot` (above) is the value type for each entry
 
 <a id="rfelision-registry"></a>
 
-<!-- legacy anchor — points readers at the new :rf/runtime schema above for the elision sub-container. -->
+<!-- legacy anchor — points readers at the new :rf/runtime-db schema above for the elision sub-container. -->
 
 ### `:rf/elision-marker`
 

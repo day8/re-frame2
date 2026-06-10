@@ -28,7 +28,7 @@
 
   The redaction runs SERVER-SIDE inside the eval form the tool ships
   over nREPL — `projected-record` / `elide-wire-value` read the live
-  `[:rf/runtime :elision]` registry, which only exists app-side. A unit
+  `[:rf.runtime/elision]` runtime-db registry, which only exists app-side. A unit
   test can't run them (no live app), so — mirroring the discipline
   `subscribe_test.cljs` uses for `drain-form` — these tests assert the
   FORM-LEVEL contract: with the `--allow-sensitive-reads` gate OFF (the

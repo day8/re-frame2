@@ -159,7 +159,7 @@ copy-paste.
 
 Wire-egress posture: `:app-db` is routed through
 `re-frame.core/elide-wire-value` against the variant frame's
-`[:rf/runtime :elision]` registry; declared-sensitive paths land
+`[:rf.runtime/elision]` runtime-db registry; declared-sensitive paths land
 `:rf/redacted` by default. Pass `:include-sensitive true` to opt
 out — BUT the opt-in is honoured only when the server was started
 with `--allow-sensitive-reads` (rf2-g9fje); when that gate is

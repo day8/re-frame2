@@ -8,8 +8,8 @@
                                           :route)`; test override slot
                                           exists.
     - `:rf.xray/current-route-slice`   — default target-frame's
-                                          `[:rf/runtime :routing
-                                           :current]` slice; test
+                                          `[:rf.runtime/routing
+                                           :current]` runtime-db slice; test
                                           override slot exists.
     - `:rf.xray/cascades`              — drives FROM/TO detection.
     - `:rf.xray/focus`                 — the spine's focused

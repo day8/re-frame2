@@ -201,14 +201,14 @@
 ;; position. An agent asking "what state is :auth in right now" got the
 ;; static definition (e.g. `{:initial :idle :states {...}}`), never the
 ;; live `[:active :authenticating]`. AFTER the fix `:state` is read off
-;; the live snapshot at `[:rf/runtime :machines :snapshots <machine-id>]`
-;; (the runtime-owned slot the framework writes) and the spec is returned
-;; separately under `:spec`.
+;; the live snapshot at `[:rf.runtime/machines :snapshots <machine-id>]`
+;; in runtime-db (the runtime-owned slot the framework writes) and the spec
+;; is returned separately under `:spec`.
 ;;
 ;; The machines RUNTIME artefact (`re-frame.machines` — the lifecycle-fx
 ;; that synthesises snapshots) is NOT on the xray `clojure -M:test`
 ;; classpath (only `machines-viz` is), so we exercise the accessor's two
-;; surfaces directly: seed the live snapshot into app-db (what the
+;; surfaces directly: seed the live snapshot into runtime-db (what the
 ;; runtime would write after transitions) + stub `rf/machine-meta` (the
 ;; registry) so the test is portable across both the xray-deps + shadow
 ;; node-test classpaths without booting the runtime artefact.
@@ -638,10 +638,10 @@
   ;; hydrates the per-frame `:sensitive-declarations` so the wire walker
   ;; substitutes `:rf/redacted` for that path on off-box egress.
   ;;
-  ;; The `:sensitive-declarations` live in app-db at
-  ;; `[:rf/runtime :elision :sensitive-declarations]`, so `populate-…!`
-  ;; MUST run AFTER any whole-db `reg-event-db` reset in a test (a reset
-  ;; that returns a fresh map would otherwise wipe `:rf/runtime`).
+  ;; The `:sensitive-declarations` live in the frame's runtime-db partition
+  ;; at `[:rf.runtime/elision :sensitive-declarations]` (EP-0001), so a
+  ;; whole-db `reg-event-db` reset that returns a fresh map no longer wipes
+  ;; them — a `:db` reset replaces only app-db, never runtime-db.
   (rf/reg-app-schema [:auth]
                      [:map
                       [:username :string]
@@ -860,8 +860,9 @@
   ;; A `{:large? true}` schema slot hydrates the per-frame `:declarations`
   ;; so the wire walker substitutes the `:rf.size/large-elided` marker for
   ;; that path on off-box egress (the size sibling of
-  ;; `seed-sensitive-schema!`). Must run AFTER any whole-db reset so the
-  ;; declaration in `[:rf/runtime :elision :declarations]` survives.
+  ;; `seed-sensitive-schema!`). The declaration lives in runtime-db at
+  ;; `[:rf.runtime/elision :declarations]` (EP-0001), so a whole-db `:db`
+  ;; reset leaves it untouched.
   (rf/reg-app-schema [:blob]
                      [:map
                       [:payload {:large? true} :any]])

@@ -2041,8 +2041,8 @@ structured before→after state object.
 - **Data source** — the transition row's `:before` / `:after` snapshots
   (hoisted off the `:rf.machine/transition` trace's `:before` / `:after`
   tags, which carry the full machine snapshot on either side per Spec
-  005 §Trace events). Equivalently the epoch record's `:db-before` /
-  `:db-after` at `[:rf/runtime :machines :snapshots <machine-id>]`.
+  005 §Trace events). Equivalently the epoch record's frame-state at
+  `[:rf.runtime/machines :snapshots <machine-id>]` in runtime-db.
 - **Parallel machines** — `:state` may be a region→state map; the box
   shows the structured map + the tag-union shift in one object (e.g.
   `{:vehicle :red :pedestrian :dont-walk}` / `#{:vehicle-stop

@@ -15,7 +15,7 @@
   ## Where in the pipeline
 
   Elision runs FIRST — server-side inside the eval form, where the
-  frame's `[:rf/runtime :elision]` registry is reachable. The MCP server gets
+  frame's `[:rf.runtime/elision]` runtime-db registry is reachable. The MCP server gets
   back data that already carries `:rf.size/large-elided` markers in
   place of declared / over-threshold slots. The downstream pipeline
   (path-slicing → diff-encode → dedup → wire-cap) operates on the
@@ -117,7 +117,7 @@
 
   `frame-edn` is the source for the `:frame` opt (a quoted keyword or a
   runtime `current-frame` call) so the walker resolves the right
-  `[:rf/runtime :elision]` registry; `elision-opts` is the rendered
+  `[:rf.runtime/elision]` runtime-db registry; `elision-opts` is the rendered
   `elision-opts-edn` map threading the `--allow-sensitive-reads` gate
   through `:rf.size/include-sensitive?`."
   [frame-edn elision-opts]

@@ -50,9 +50,9 @@ External event ingress to settled view, in one diagram:
                                    │      Level-3 cascade       │  │   │ :registry/handler-...
                                    │      (raise queue + always)│  │   │ :rf.error/...
                                    │   7. commit snapshot at    │  │   └────────┬────────────
-                                   │      [:rf/runtime          │  │            │
-                                   │       :machines :snapshots │  │            │
-                                   │       <id>]                │  │            │
+                                   │      [:rf.runtime/machines │  │            │
+                                   │       :snapshots <id>]     │  │            │
+                                   │       in runtime-db        │  │            │
                                    └─────────┬──────────────────┘  │            ▼
                                              │                     │   listener delivery
                                              │ container.replace!  │   (synchronous, in-order)
@@ -123,7 +123,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 - The `app-db` reactive container is opaque to the core; the [substrate adapter](006-ReactiveSubstrate.md) decides what it is (Reagent ratom in CLJS reference; plain atom for JVM/SSR/headless).
 - The frame's full state is reconstructible from its `app-db` *value* — adapter-internal state (Reagent reactions, React fibers, etc.) is not part of the frame value (load-bearing for [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) per [006 §Revertibility constraints](006-ReactiveSubstrate.md#revertibility-constraints-on-adapters)).
 - Frame identity is **carried, not found** (EP-0002): a dispatch resolves its frame from the scope it runs under, and the runtime never synthesises one from absence. There is **no** always-present `:rf/default`; a frameless dispatch fails with `:rf.error/no-frame-context` ([002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)).
-- The reserved `app-db` root `:rf/runtime` (with its `:machines`, `:routing`, and `:elision` sub-containers) is owned by the runtime ([Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)).
+- Framework durable state lives in the frame's **runtime-db** partition (the `:rf.runtime/machines`, `:rf.runtime/routing`, `:rf.runtime/elision`, and `:rf.runtime/ssr` children), owned by the runtime — NOT under app-db. The retired app-db `:rf/runtime` root is a hard error ([Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)).
 
 ### 3. Router (per-frame FIFO)
 

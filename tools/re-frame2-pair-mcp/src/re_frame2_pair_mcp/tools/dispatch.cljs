@@ -453,7 +453,7 @@
                 ;; (`:trace` / `:settle`) carry raw `:epoch` /
                 ;; `:render-events`; wrap their emitted form so the
                 ;; projection runs APP-SIDE (where the frame's
-                ;; `[:rf/runtime :elision]` registry is reachable, same as
+                ;; `[:rf.runtime/elision]` runtime-db registry is reachable, same as
                 ;; the snapshot / trace-window walkers) before the result
                 ;; crosses the wire. The sync / queued consequence shapes
                 ;; carry no raw app-db, so they emit the bare call.

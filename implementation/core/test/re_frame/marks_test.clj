@@ -393,8 +393,9 @@
 ;; `add-marks` / `set-marks` — rooted at the db root. The marks
 ;; chokepoint routes the slot through `elide-wire-value` so sensitive
 ;; slots elide BEFORE the snapshot reaches any trace listener / epoch
-;; sink. NB: a handler that REPLACES app-db wipes `[:rf/runtime
-;; :elision]`, so we seed, then mark, then write into the marked path
+;; sink. NB: the elision declaration registry lives in the runtime-db
+;; partition (`[:rf.runtime/elision]`, EP-0001), so an app-db replacement no
+;; longer wipes it; we still seed, then mark, then write into the marked path
 ;; (mirrors `sub-auto-propagates-when-app-db-has-sensitive-marks`).
 
 (deftest db-pending-sensitive-app-db-path-redacts
@@ -538,8 +539,9 @@
 
 (deftest sub-auto-propagates-when-app-db-has-sensitive-marks
   ;; Spec 015 conformance fixture #3 (variant — propagation flag set)
-  ;; NB: handlers that REPLACE app-db wipe `[:rf/runtime :elision]`, mirroring the
-  ;; existing schema-driven elision constraint — seed first, then mark.
+  ;; NB: the elision declaration registry lives in the runtime-db partition
+  ;; (`[:rf.runtime/elision]`, EP-0001), so an app-db replacement no longer
+  ;; wipes it; seed first, then mark, as for schema-driven elision.
   (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
   (rf/dispatch-sync [:seed])
   (rf/set-marks :rf/default {[:user :ssn] :sensitive})

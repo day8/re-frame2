@@ -151,9 +151,9 @@
     (let [f (rf/make-frame {:doc "active-route frame" :platform :server})]
       (rf/dispatch-sync
         [::seed-route] {:frame f})
-      ;; The test sub-handler isn't registered; instead seed app-db directly
-      ;; via with-frame and assoc — but the framework's [:rf/runtime
-      ;; :routing :current] slice populates via dispatch-driven routing.
+      ;; The test sub-handler isn't registered; instead seed the runtime-db
+      ;; directly — the framework's [:rf.runtime/routing :current] slice
+      ;; populates via dispatch-driven routing.
       ;; We bypass with a one-shot event below.
       (rf/reg-event-fx ::seed-route
                        (fn [{rt :rf.db/runtime} _]

@@ -636,9 +636,10 @@
 
   EP-0001 (rf2-adwcv6): now writes the app-db partition of the physical
   frame-state container (was a direct `replace-container!` on the old app-db
-  store). The machine / routing / SSR `:rf/runtime`-under-app-db writers that
-  call this keep working unchanged — `:rf/runtime` still lives inside app-db
-  until bead 6 (rf2-vzld77) migrates them to runtime-db."
+  store). Framework durable state — machines, routing, elision, SSR — no
+  longer rides under app-db; those writers use the runtime-db sibling
+  `swap-runtime-db!` to mutate the `:rf.db/runtime` partition (`:rf.runtime/*`
+  children). This surface mutates only the app-db partition."
   [id f & args]
   (when-let [container (frame-state-container id)]
     (let [current (adapter/read-container container)

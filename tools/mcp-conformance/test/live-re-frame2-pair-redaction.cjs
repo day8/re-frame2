@@ -133,8 +133,8 @@ const TRACE_WINDOW_MS = 1_000_000_000_000_000;
 
 // CLJS form (evaluated app-side via eval-cljs) that:
 //   1. declares `[SECRET_KEY]` sensitive in the operating frame's elision
-//      registry — the SAME `[:rf/runtime :elision :sensitive-declarations]`
-//      slot `populate-sensitive-from-schemas!` writes, set directly via
+//      registry — the SAME `[:rf.runtime/elision :sensitive-declarations]`
+//      runtime-db slot `populate-sensitive-from-schemas!` writes, set directly via
 //      the framework's registry helper so the fixture needs no Malli
 //      schema (and no schemas artefact on its classpath);
 //   2. registers + dispatch-syncs an event writing the SENTINEL into that
