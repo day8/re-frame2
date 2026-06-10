@@ -207,6 +207,18 @@
   ;; emission of `:body-end` into the suffix is UNCHANGED — the scan is a
   ;; signal, never a block or rewrite.
   (shell/check-body-end-csp-hosts! body-end csp-script-src-allowlist)
+  ;; rf2-er7qx2 — SSR blocking-resource drain (streaming counterpart of the
+  ;; non-streaming `build-full-response*` drain). AFTER the `:on-create` drain
+  ;; resolved the route + enqueued the route's blocking resource ensures and
+  ;; BEFORE the shell render walk, drain the current nav-token's blocking
+  ;; resources until they settle or the render deadline fires; a never-settling
+  ;; blocking resource is settled to a first-load failure in the frame's
+  ;; runtime-db so the shell render sees a settled `:error`, never a hung
+  ;; `:loading` / skeleton (Spec 016 §SSR and hydration steps 3-4). A no-op
+  ;; when the resources artefact is absent. The streaming SUSPENSE-boundary
+  ;; deferral is a separate axis — blocking ROUTE resources still settle before
+  ;; the shell, exactly as in the non-streaming path.
+  (ssr/drain-blocking-resources! frame-id opts)
   (rf/with-frame frame-id
     (let [hiccup     (lifecycle/resolve-root-view root-view)
           head-bag   (if (:head opts)

@@ -371,6 +371,154 @@
           :limit-ms    deadline-ms
           :error       error}}))))
 
+;; ---- routing slice literals (duplicated, not imported) --------------------
+;;
+;; Two SSR-slice consumers read the routing-runtime subtree:
+;;   - the BLOCKING DRAIN reads the current nav-token's blocking scoped-key
+;;     set the route slice wrote on entry (`route.cljc` §blocking-path), so it
+;;     knows which resources must settle before the render;
+;;   - RESTORE reconciliation compares a restored route owner's nav-token
+;;     against the nav-token the restored routing slice considers live (Spec
+;;     016 §Restore and replay part 4 — `[:rf.runtime/routing :current
+;;     :nav-token]`, present because restore installs both partitions
+;;     wholesale).
+;; We mirror the routing literals here rather than `:require` the route slice —
+;; the same duplication-not-import decoupling `route.cljc` itself uses
+;; (resources never statically depends on routing).
+
+(def ^:private routing-key
+  "The routing-runtime subtree key (`:rf.runtime/routing`). Mirrors the
+  literal routing + `route.cljc` use; duplicated (not imported) so the SSR
+  slice never statically `:require`s routing/route."
+  :rf.runtime/routing)
+
+(def ^:private routing-current-nav-token-path
+  "Runtime-db-relative path to the live route slice's nav-token
+  (`[:rf.runtime/routing :current :nav-token]`). The drain reads which
+  nav-token is live to pick its blocking slot; restore reads it to know which
+  nav-token the restored routing slice considers live."
+  [routing-key :current :nav-token])
+
+(def ^:private routing-resource-blocking-key
+  "The routing-runtime child holding per-nav-token blocking scoped-key sets
+  (`:resource-blocking`). The route slice writes `[:rf.runtime/routing
+  :resource-blocking <nav-token>]` on entry (`route.cljc/blocking-path`);
+  the SSR drain loop reads the CURRENT nav-token's slot."
+  :resource-blocking)
+
+(defn current-blocking-keys
+  "Read the set of blocking scoped resource keys the route slice enqueued for
+  the CURRENT nav-token from `runtime-db` (`[:rf.runtime/routing
+  :resource-blocking <current-nav-token>]`). Returns `#{}` when there is no
+  routing slice, no current nav-token, or no blocking resources for it — a
+  route with no blocking resources never blocks the render. Reads ONLY the
+  current nav-token's slot; a superseded navigation's stale slot never enters
+  the drain (the route slice releases it on leave). PURE. Per Spec 016 §SSR
+  and hydration step 3 / §Route integration."
+  [runtime-db]
+  (let [nav-token (get-in runtime-db routing-current-nav-token-path)]
+    (or (get-in runtime-db [routing-key routing-resource-blocking-key nav-token])
+        #{})))
+
+;; ---- the SSR blocking-drain LOOP (Spec 016 §SSR and hydration steps 3-4) ---
+;;
+;; `blocking-settled?` is the PREDICATE and `settle-blocking-timeout` is the
+;; TIMEOUT POLICY; `drain-blocking-resources!` is the LOOP that fuses them and
+;; INSTALLS the result, so the host render path (Ring / streaming) calls ONE
+;; late-bound entry point instead of re-implementing the wait. The host owns
+;; the event PUMP (it owns the drain pump + the wall clock); it supplies a
+;; `pump!` thunk the loop calls each tick to let the in-flight blocking-resource
+;; replies land, and a `clock-fn` + `deadline-ms` budget. This namespace owns
+;; reading the live blocking set, the settled check, and installing the timeout
+;; settle into the frame's runtime-db — so a never-settling blocking resource
+;; renders a SETTLED first-load failure, never a hung `:loading` / skeleton.
+
+(defn drain-blocking-resources!
+  "DRAIN the current nav-token's blocking resources for an SSR `frame-id`
+  until they settle or a wall-clock deadline fires (Spec 016 §SSR and
+  hydration steps 3-4). The body behind the `:resources/drain-blocking-ssr!`
+  late-bind hook the host render path (Ring / streaming) consults BEFORE it
+  renders, so the render walk always sees a SETTLED resource state — never an
+  unchecked `:loading` / skeleton an in-flight (or never-settling) blocking
+  resource would otherwise leave.
+
+  Opts (host-supplied — the host owns the pump + the clock):
+
+    :pump!       — 1-arity fn `(fn [tick-ms] …)` the loop calls each tick to
+                   advance the event pump so an in-flight blocking-resource
+                   reply lands and its `:rf.resource.internal/succeeded` /
+                   `failed` reply event drains (settling the entry). The arg
+                   is the `:tick-ms` poll-granularity hint (how long the host
+                   may yield this tick); a host that pumps synchronously may
+                   ignore it. For a synchronous / already-settled transport
+                   this is a no-op the loop rarely needs; for a real async
+                   transport it yields (e.g. a short sleep) so the reply
+                   thread makes progress. NIL → the loop re-checks without
+                   pumping (it still respects the deadline, so a never-settling
+                   resource still times out — useful for a sync test stub).
+    :deadline-ms — the wall-clock render-deadline budget in ms (the SSR
+                   blocking timeout). On elapse every still-unsettled blocking
+                   entry is settled to a structured first-load failure
+                   (`settle-blocking-timeout`). REQUIRED — an unbounded drain
+                   would let a never-settling resource hang the request.
+    :clock-fn    — 0-arity epoch-ms clock (defaults to the host platform
+                   clock); injectable so a test drives the deadline
+                   deterministically.
+    :tick-ms     — advisory poll-granularity hint passed as the `pump!` arg
+                   each tick (defaults to 0). The loop itself just re-checks
+                   after each `pump!`; the hint lets a host yield in bounded
+                   slices rather than busy-spinning.
+
+  Returns `{:settled? <bool> :timed-out <#{scoped-key}> :route-blocking-failure
+  <record-or-nil>}`. On a clean settle within budget: `:settled? true`,
+  `:timed-out #{}`, no failure record, and the frame's runtime-db is
+  UNCHANGED. On timeout: the still-unsettled blocking entries are settled to
+  first-load failures IN the frame's runtime-db (via `swap-runtime-db!`),
+  `:settled? false`, and `:route-blocking-failure` carries the record the host
+  hands the route slice / renderer. An empty blocking set (a route with no
+  blocking resources) returns `:settled? true` immediately without pumping.
+
+  PURE w.r.t. routing state — it touches only the resource `:entries` (the
+  route slice owns the route transition; the host hands it the failure
+  record). The drain reads the LIVE frame each tick (`frame-runtime-db-value`)
+  so a reply that lands mid-pump is observed."
+  [frame-id {:keys [pump! deadline-ms clock-fn tick-ms]}]
+  (let [clock-fn (or clock-fn now-ms)
+        rdb0     (frame/frame-runtime-db-value frame-id)
+        blocking (current-blocking-keys rdb0)]
+    (if (empty? blocking)
+      {:settled? true :timed-out #{} :route-blocking-failure nil}
+      (let [start    (clock-fn)
+            deadline (+ start deadline-ms)]
+        (loop []
+          (let [rdb     (frame/frame-runtime-db-value frame-id)
+                entries (get-in rdb [state/resources-key :entries])]
+            (cond
+              ;; every blocking entry settled within budget — render sees the
+              ;; settled state, runtime-db untouched.
+              (blocking-settled? entries blocking)
+              {:settled? true :timed-out #{} :route-blocking-failure nil}
+
+              ;; deadline elapsed — settle every still-unsettled blocking entry
+              ;; to a first-load failure and INSTALL it (the render then sees a
+              ;; structured :error, never a hung :loading).
+              (>= (clock-fn) deadline)
+              (let [{:keys [entries route-blocking-failure]}
+                    (settle-blocking-timeout entries blocking deadline-ms frame-id)]
+                (frame/swap-runtime-db! frame-id assoc-in
+                                        [state/resources-key :entries] entries)
+                {:settled?              false
+                 :timed-out             (unsettled-blocking-keys
+                                          (get-in rdb [state/resources-key :entries])
+                                          blocking)
+                 :route-blocking-failure route-blocking-failure})
+
+              ;; not yet settled, budget remains — pump the host event loop so
+              ;; an in-flight blocking reply lands, then re-check the live frame.
+              :else
+              (do (when pump! (pump! (or tick-ms 0)))
+                  (recur)))))))))
+
 ;; ---- client hydration (Spec 016 §SSR and hydration / §Restore and replay) -
 ;;
 ;; On `:rf/hydrate` the SSR handler installs the payload's `:rf/runtime-db`
@@ -391,29 +539,6 @@
 ;;   4. surface server CLOCK SKEW when a restored `:stale-at` is implausible
 ;;      against the live clock (Spec 016 §SSR and hydration: absolute
 ;;      timestamps; skew surfaced when it makes freshness ambiguous).
-
-;; ---- routing slice literals (duplicated, not imported) --------------------
-;;
-;; Restore reconciliation must compare a restored route owner's nav-token
-;; against the nav-token the restored routing slice currently considers live
-;; (Spec 016 §Restore and replay part 4). The live nav-token sits at
-;; `[:rf.runtime/routing :current :nav-token]` in the same runtime-db restore
-;; installs (both partitions land wholesale, so `:current` IS present). We
-;; mirror the routing literals here rather than `:require` the route slice —
-;; the same duplication-not-import decoupling `route.cljc` itself uses
-;; (resources never statically depends on routing).
-
-(def ^:private routing-key
-  "The routing-runtime subtree key (`:rf.runtime/routing`). Mirrors the
-  literal routing + `route.cljc` use; duplicated (not imported) so the SSR
-  slice never statically `:require`s routing/route."
-  :rf.runtime/routing)
-
-(def ^:private routing-current-nav-token-path
-  "Runtime-db-relative path to the live route slice's nav-token
-  (`[:rf.runtime/routing :current :nav-token]`). Restore reads this to know
-  which nav-token the restored routing slice considers live."
-  [routing-key :current :nav-token])
 
 (defn- ssr-owner?
   "True iff `owner` is an SSR owner token (`[:ssr request-id nav-token]`).
@@ -859,6 +984,11 @@
     - `:ssr/extend-runtime-db-projection` — SSR's `project-runtime-db`
       rides the durable resource `:entries` (per-entry redacted / omitted)
       on the hydration payload;
+    - `:resources/drain-blocking-ssr!` — the SSR render path (Ring /
+      streaming) drains the current nav-token's blocking resources until they
+      settle or the render deadline fires, settling a never-settling blocking
+      resource to a first-load failure so the render never hangs (Spec 016
+      §SSR and hydration steps 3-4);
     - `:resources/hydrate-runtime-db` — the SSR `:rf/hydrate` handler
       reconciles the installed resource subtree (recompute indexes, orphan
       SSR owners, surface clock skew);
@@ -877,6 +1007,7 @@
   []
   (late-bind/set-fns!
     {:ssr/extend-runtime-db-projection project-resources-runtime-db
+     :resources/drain-blocking-ssr!    drain-blocking-resources!
      :resources/hydrate-runtime-db     hydrate-runtime-db
      :resources/reconcile-on-restore   reconcile-on-restore})
   nil)

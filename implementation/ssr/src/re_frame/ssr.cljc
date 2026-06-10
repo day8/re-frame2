@@ -177,6 +177,89 @@
 ;; pages skip it.
 #?(:cljs (def streaming-install!    streaming-client/install!))
 
+;; ---- SSR blocking-resource drain (Spec 016 §SSR and hydration steps 3-4) --
+;;
+;; rf2-er7qx2 — the resources artefact (optional) defines SSR blocking
+;; resources as SETTLED before render or TIMED OUT into a settled first-load
+;; failure. The drain LOOP + timeout POLICY live in the resources artefact
+;; (`re-frame.resources.ssr/drain-blocking-resources!`, published as the
+;; `:resources/drain-blocking-ssr!` late-bind hook); the SSR render path (Ring
+;; / streaming host adapters) consults it BEFORE rendering so the render walk
+;; never sees a hung `:loading` / skeleton an in-flight (or never-settling)
+;; blocking resource would otherwise leave. Late-bound BOTH ways — an SSR app
+;; without resources carries none of this code path (the hook is nil → no-op);
+;; a resources app that never SSRs never reaches it.
+
+(def ^:private default-ssr-blocking-timeout-ms
+  "Default wall-clock render-deadline budget for the SSR blocking-resource
+  drain (`drain-blocking-resources!`) when the host passes no
+  `:ssr-blocking-timeout-ms`. A bounded budget is structurally required — an
+  unbounded drain lets a never-settling blocking resource hang the request
+  (Spec 016 §SSR and hydration: a blocked SSR render MUST NOT hang
+  indefinitely). 5s matches a typical upstream HTTP read timeout; hosts tune
+  it per deployment."
+  5000)
+
+(defn default-blocking-pump!
+  "The default SSR blocking-drain event PUMP — a host-platform yield of
+  `tick-ms` so an in-flight blocking-resource reply (running on the managed-
+  HTTP transport thread) makes progress and dispatches its reply event
+  between the drain loop's re-checks. SSR runs on the JVM, so the yield is a
+  `Thread/sleep`; on CLJS (which never server-renders) it is a no-op. The
+  reply event itself drains synchronously when it lands on the frame's router,
+  so a single bounded yield per tick is enough; the drain loop's wall-clock
+  deadline caps the total wait (Spec 016 §SSR and hydration steps 3-4)."
+  [tick-ms]
+  #?(:clj  (when (and (number? tick-ms) (pos? tick-ms))
+             (Thread/sleep (long tick-ms)))
+     :cljs nil)
+  nil)
+
+(defn drain-blocking-resources!
+  "Drain the current nav-token's BLOCKING resources for SSR `frame-id` until
+  they settle or the render deadline fires, consulting the late-bound
+  `:resources/drain-blocking-ssr!` hook the resources artefact publishes
+  (Spec 016 §SSR and hydration steps 3-4). A no-op returning `{:settled? true}`
+  when the resources artefact is absent (the hook is nil) — an SSR app without
+  resources never blocks on them.
+
+  The host render path (the Ring `build-full-response*` / streaming
+  `render-streaming-shell!`) calls this AFTER frame setup + route resolution
+  and BEFORE the render walk, so the walk sees a SETTLED resource state. The
+  resources drain loop reads the live blocking set, pumps the event loop via
+  the supplied `:pump!` thunk so an in-flight reply lands, and on deadline
+  settles every still-unsettled blocking entry to a first-load failure in the
+  frame's runtime-db (so the render sees a structured `:error`, never a hung
+  `:loading`).
+
+  `opts` keys (all optional):
+    :ssr-blocking-timeout-ms — the wall-clock budget (default
+                               `default-ssr-blocking-timeout-ms`).
+    :pump!                   — the 1-arity `(fn [tick-ms] …)` event-pump
+                               thunk. Defaults to the host platform yield
+                               (`default-blocking-pump!`) so an async
+                               blocking reply thread makes progress between
+                               re-checks; a test may inject a deterministic
+                               pump (or nil to drive a sync stub to timeout).
+    :tick-ms                 — poll-granularity hint passed to `pump!`
+                               (default 5ms).
+
+  Returns the drain result map `{:settled? :timed-out :route-blocking-failure}`
+  (see `re-frame.resources.ssr/drain-blocking-resources!`)."
+  ([frame-id] (drain-blocking-resources! frame-id nil))
+  ([frame-id {:keys [ssr-blocking-timeout-ms tick-ms] :as opts}]
+   (if-let [drain (late-bind/get-fn :resources/drain-blocking-ssr!)]
+     (drain frame-id
+            {:deadline-ms (or ssr-blocking-timeout-ms default-ssr-blocking-timeout-ms)
+             ;; an EXPLICIT `:pump!` (even nil — a sync test stub that drives a
+             ;; never-settling resource straight to the deadline) wins; absence
+             ;; defaults to the host-platform yield so an async reply lands.
+             :pump!       (if (contains? opts :pump!)
+                            (:pump! opts)
+                            default-blocking-pump!)
+             :tick-ms     (or tick-ms 5)})
+     {:settled? true :timed-out #{} :route-blocking-failure nil})))
+
 ;; ---- :rf/hydrate event + :rf.ssr/check-* fxs ------------------------------
 ;;
 ;; Spec 011 §The :rf/hydrate event + §Hydration-mismatch detection +

@@ -33,6 +33,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.frame :as frame]
    [re-frame.late-bind :as late-bind]
    ;; load-bearing side-effecting requires: the façade publishes the SSR
    ;; projection + reconcile hooks + registers the resource registrar kind.
@@ -239,6 +240,144 @@
           (ssr/settle-blocking-timeout {} #{kmiss} 100 :app/main)]
       (is (= :error (:status (get entries kmiss))))
       (is (= #{kmiss} (set (:timed-out route-blocking-failure)))))))
+
+;; ===========================================================================
+;; 2b. SERVER blocking-drain LOOP (rf2-er7qx2 — wired into the render path)
+;; ===========================================================================
+;;
+;; `drain-blocking-resources!` is the LOOP the host render path (Ring /
+;; streaming) calls before rendering: it reads the current nav-token's
+;; blocking set, pumps the event loop until they settle, and on the render
+;; deadline settles every still-unsettled blocking entry to a first-load
+;; failure IN the frame's runtime-db (so the render walk never sees a hung
+;; `:loading` / skeleton). These tests register a live frame and drive the
+;; loop with an injected pump / clock.
+
+(defn- seed-frame-runtime-db!
+  "Register `frame-id` (idempotent) and install `runtime-db` as its runtime-db
+  partition, returning frame-id. Used to stand up a live SSR-like frame the
+  drain loop reads/writes."
+  [frame-id runtime-db]
+  (rf/reg-frame frame-id {:doc "ssr blocking-drain test frame" :platform :server})
+  (frame/replace-runtime-db! frame-id runtime-db)
+  frame-id)
+
+(defn- with-blocking-slot
+  "Add a routing slice naming `nav-token` live + a `:resource-blocking` slot
+  holding `blocking-keys` for it, into `runtime-db` (mirrors what the route
+  slice writes on entry)."
+  [runtime-db nav-token blocking-keys]
+  (-> runtime-db
+      (assoc-in [:rf.runtime/routing :current :nav-token] nav-token)
+      (assoc-in [:rf.runtime/routing :resource-blocking nav-token] (set blocking-keys))))
+
+(deftest current-blocking-keys-reads-current-nav-token-slot
+  (testing "current-blocking-keys reads ONLY the current nav-token's blocking slot"
+    (let [rdb (-> (runtime-db-with {})
+                  (with-blocking-slot "nav-1" #{ka kb})
+                  ;; a superseded nav-token's stale slot must NOT leak in
+                  (assoc-in [:rf.runtime/routing :resource-blocking "nav-OLD"] #{kc}))]
+      (is (= #{ka kb} (ssr/current-blocking-keys rdb))))
+    (testing "no routing slice / no current nav-token → empty (never blocks)"
+      (is (= #{} (ssr/current-blocking-keys (runtime-db-with {}))))
+      (is (= #{} (ssr/current-blocking-keys {}))))))
+
+(deftest drain-noop-when-no-blocking-resources
+  (testing "a route with no blocking resources returns :settled? immediately, no pump"
+    (let [pumped (atom 0)
+          fid    (seed-frame-runtime-db! :ssr/drain-none
+                                         (runtime-db-with {ka (entry {:resource-id :a :status :loaded :data {:x 1}})}))
+          res    (ssr/drain-blocking-resources!
+                   fid {:pump! (fn [_] (swap! pumped inc)) :deadline-ms 1000})]
+      (is (true? (:settled? res)))
+      (is (= #{} (:timed-out res)))
+      (is (nil? (:route-blocking-failure res)))
+      (is (zero? @pumped) "no blocking set → the loop never pumps")
+      (frame/destroy-frame! fid))))
+
+(deftest drain-settles-when-blocking-entries-already-settled
+  (testing "blocking entries already settled → :settled? true, runtime-db untouched, no timeout"
+    (let [rdb (-> (runtime-db-with {ka (entry {:resource-id :a :status :loaded :data {:x 1}})
+                                    kb (entry {:resource-id :b :status :error})})
+                  (with-blocking-slot "nav-1" #{ka kb}))
+          fid (seed-frame-runtime-db! :ssr/drain-settled rdb)
+          res (ssr/drain-blocking-resources! fid {:pump! (fn [_] nil) :deadline-ms 1000})]
+      (is (true? (:settled? res)))
+      (is (nil? (:route-blocking-failure res)))
+      (is (= :loaded (get-in (frame/frame-runtime-db-value fid)
+                             [state/resources-key :entries ka :status]))
+          "the settled entry is untouched")
+      (frame/destroy-frame! fid))))
+
+(deftest drain-pumps-until-a-blocking-reply-lands
+  (testing "the loop pumps until an in-flight blocking entry settles; the pump
+            mutates the live frame so the loop observes the settle and does NOT time out"
+    (let [rdb (-> (runtime-db-with {ka (entry {:resource-id :a :status :loading :data nil})})
+                  (with-blocking-slot "nav-1" #{ka}))
+          fid (seed-frame-runtime-db! :ssr/drain-pump rdb)
+          ;; the pump simulates the async reply landing on the 2nd tick: it
+          ;; flips the blocking entry to :loaded in the live frame's runtime-db.
+          ticks (atom 0)
+          pump! (fn [_]
+                  (when (= 2 (swap! ticks inc))
+                    (frame/swap-runtime-db!
+                      fid assoc-in [state/resources-key :entries ka]
+                      (entry {:resource-id :a :status :loaded :data {:x 1}}))))
+          res   (ssr/drain-blocking-resources! fid {:pump! pump! :deadline-ms 60000})]
+      (is (true? (:settled? res)) "the loop settled once the reply landed")
+      (is (nil? (:route-blocking-failure res)) "no timeout — it settled in time")
+      (is (= {:x 1} (get-in (frame/frame-runtime-db-value fid)
+                            [state/resources-key :entries ka :data])))
+      (frame/destroy-frame! fid))))
+
+(deftest drain-times-out-a-never-settling-blocking-resource
+  (testing "ADVERSARIAL: a never-settling blocking resource is settled to a
+            structured first-load ERROR in the frame's runtime-db (not left a
+            hung :loading / skeleton) once the render deadline fires — the
+            acceptance criterion"
+    (let [rdb (-> (runtime-db-with {ka (entry {:resource-id :a :status :loading :data nil})})
+                  (with-blocking-slot "nav-1" #{ka}))
+          fid (seed-frame-runtime-db! :ssr/drain-timeout rdb)
+          ;; a deterministic clock that jumps past the deadline on the 1st
+          ;; re-check after start, so the test never actually sleeps; pump! is
+          ;; a no-op (the resource never settles).
+          clk (atom 0)
+          clock-fn (fn [] (let [v @clk] (swap! clk + 100) v))]
+      (let [res (ssr/drain-blocking-resources!
+                  fid {:pump! (fn [_] nil) :deadline-ms 50 :clock-fn clock-fn})]
+        (is (false? (:settled? res)) "the loop reported a timeout, not a settle")
+        (is (= #{ka} (:timed-out res)))
+        (let [se (get-in (frame/frame-runtime-db-value fid)
+                         [state/resources-key :entries ka])]
+          (is (= :error (:status se))
+              "the never-settling blocking entry is SETTLED to :error, not left :loading")
+          (is (= :rf.http/timeout (:kind (:error se))))
+          (is (= :ssr-blocking-timeout (:reason (:error se)))))
+        (is (= :rf.error/resource-ssr-blocking-timeout
+               (:rf.error/id (:route-blocking-failure res)))
+            "a route-blocking-failure record is produced for the renderer / route slice"))
+      (frame/destroy-frame! fid))))
+
+(deftest drain-times-out-with-nil-pump-sync-stub
+  (testing "a nil :pump! (a synchronous stub) still respects the deadline — a
+            blocking resource that never settles times out rather than looping forever"
+    (let [rdb (-> (runtime-db-with {ka (entry {:resource-id :a :status :loading :data nil})})
+                  (with-blocking-slot "nav-1" #{ka}))
+          fid (seed-frame-runtime-db! :ssr/drain-nilpump rdb)
+          clk (atom 0)
+          clock-fn (fn [] (let [v @clk] (swap! clk + 100) v))
+          res (ssr/drain-blocking-resources!
+                fid {:pump! nil :deadline-ms 50 :clock-fn clock-fn})]
+      (is (false? (:settled? res)))
+      (is (= :error (get-in (frame/frame-runtime-db-value fid)
+                            [state/resources-key :entries ka :status])))
+      (frame/destroy-frame! fid))))
+
+(deftest drain-hook-published
+  (testing "the :resources/drain-blocking-ssr! late-bind hook is published by the façade"
+    (is (some? (late-bind/get-fn :resources/drain-blocking-ssr!)))
+    (is (= ssr/drain-blocking-resources!
+           (late-bind/get-fn :resources/drain-blocking-ssr!)))))
 
 ;; ===========================================================================
 ;; 3. CLIENT hydration reconcile

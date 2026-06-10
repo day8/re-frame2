@@ -301,6 +301,16 @@
    {:keys [root-view emit-hash? version schema-digest payload
            html-shell content-type]
     :as   opts}]
+  ;; rf2-er7qx2 — SSR blocking-resource drain. AFTER the `:on-create` drain
+  ;; (which resolved the route + enqueued the route's blocking resource
+  ;; ensures) and BEFORE the render walk, drain the current nav-token's
+  ;; blocking resources until they settle or the render deadline fires. A
+  ;; never-settling blocking resource is settled to a structured first-load
+  ;; failure in the frame's runtime-db, so the render walk below sees a
+  ;; settled `:error` rather than an unchecked `:loading` / skeleton (Spec 016
+  ;; §SSR and hydration steps 3-4). A no-op when the resources artefact is
+  ;; absent (the `:resources/drain-blocking-ssr!` hook is nil).
+  (ssr/drain-blocking-resources! frame-id opts)
   (let [;; Single `with-frame` block covers the three frame-aware
         ;; stages: root-view resolution (a 0-arity fn may close over
         ;; subscribe-time reads), the render walk (subs on registered
