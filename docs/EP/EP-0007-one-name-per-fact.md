@@ -11,22 +11,24 @@ Type: process
 
 ## Abstract
 
-re-frame2 keeps re-growing parallel spellings for single facts. Current
-instances: the frame stamp rides event contexts as both `:frame` and
-`:rf.frame/id`; the runtime partition is `:rf.db/runtime` while its children
-are `:rf.runtime/*`; the work-ledger draft carries `:work/id` and `:stale-key`
-as near-duplicate composite identities; the SSR redirect target accepts
-`:location` / `:url` / `:to`; the registration API splits into `reg-*` and
-`register-*` families; and "schema" names four different validators across the
-`reg-*` surface. Each instance is small. The class is permanent, because the
-project has naming *conventions* (reserved namespaces, attribute-shaped keys)
-but no naming *rules* for synonyms, layers, and carriers.
+re-frame2 keeps re-growing parallel spellings for single facts. Recent and
+current instances from this review cycle: the frame stamp rode event contexts
+as both `:frame` and `:rf.frame/id`; the runtime partition is
+`:rf.db/runtime` while its children are `:rf.runtime/*`; the work-ledger draft
+carried `:work/id` and `:stale-key` as near-duplicate composite identities;
+the SSR redirect target accepts `:location` / `:url` / `:to`; the
+registration API splits into `reg-*` and `register-*` families; and "schema"
+names four different validators across the `reg-*` surface. Each instance is
+small. The class is permanent, because the project has naming *conventions*
+(reserved namespaces, attribute-shaped keys) but no naming *rules* for
+synonyms, layers, and carriers.
 
 This EP states the rule once:
 
-> **Every fact has one canonical name per layer. Synonyms are never accepted.
-> Where two layers legitimately use different words for related concepts, the
-> distinction is recorded as a named vocabulary rule, not left as accident.**
+> **Every fact has one canonical name per layer. Stable APIs accept one
+> spelling. Where two layers legitimately use different words for related
+> concepts, the distinction is recorded as a named vocabulary rule, not left
+> as accident.**
 
 …and runs the finite sweep that brings the current surface into compliance.
 
@@ -77,9 +79,12 @@ class that dominated this review cycle.
 1. **One canonical spelling per fact per layer.** A fact appearing in multiple
    places carries the same key everywhere within its layer (the frame id in
    *runtime context* is `:rf.frame/id`, everywhere).
-2. **No accepted synonyms.** APIs accept exactly one spelling; a retired or
-   alternative spelling is a hard error naming the canonical key, never a
-   silently-normalized alias.
+2. **No stable accepted synonyms.** APIs accept exactly one stable spelling.
+   A retired or alternative spelling is a hard error naming the canonical key,
+   never a silently-normalized alias. Temporary migration aliases are allowed
+   only when an explicit bead/EP ruling names the alias, canonical spelling,
+   diagnostic, and sunset trigger; they are migration mechanics, not part of
+   the stable contract.
 3. **Cross-layer distinctions are named rules.** Where layers use different
    words for related concepts, Conventions records the rule. Initial rules:
    - *Public-opt vs runtime-context*: `:frame` is the public dispatch/subscribe
@@ -119,8 +124,8 @@ class that dominated this review cycle.
 ## Backwards Compatibility
 
 Pre-alpha, in-repo only. Sweep item 1 is done (merged); item 4 is a breaking
-narrowing whose timing stays with `rf2-vngir`; 2, 5, 6 are documentation; 3
-lands inside EP-0003's own pre-acceptance amendments.
+narrowing whose temporary alias window stays with `rf2-vngir`; 2, 5, 6 are
+documentation; 3 lands inside EP-0003's own pre-acceptance amendments.
 
 ## Bead Plan
 
