@@ -205,22 +205,23 @@
 
 (deftest update-snapshot-fx-merges-permitted-keys
   (testing "[:rf.machine/update-snapshot {:rf/machine-id id :rf/patch {...}}]
-   merges the spec-permitted keys onto the actor snapshot"
+   merges the spec-permitted keys onto the actor snapshot; user
+   error/status state lives under :data (rf2-gqmrcx fold)"
     (rf/reg-machine :rem/escape
       {:initial :a
        :actions {:patch
                  (fn [_]
                    {:fx [[:rf.machine/update-snapshot
                           {:rf/machine-id :rem/escape
-                           :rf/patch      {:status :degraded
-                                           :errors [:boom]
-                                           :db     {:nope true}}}]]})}
+                           :rf/patch      {:data {:status :degraded
+                                                  :errors [:boom]}
+                                           :db   {:nope true}}}]]})}
        :states  {:a {:on {:go {:target :a :action :patch}}}}})
     (let [evs (record-traces!
                 (fn [] (rf/dispatch-sync [:rem/escape [:go]])))
           snap @(rf/subscribe [:rf/machine :rem/escape])]
-      (is (= :degraded (:status snap)) ":status patched")
-      (is (= [:boom] (:errors snap)) ":errors patched")
+      (is (= :degraded (-> snap :data :status)) ":status patched under :data")
+      (is (= [:boom] (-> snap :data :errors)) ":errors patched under :data")
       ;; :db in the patch is the same hard-disallow.
       (is (= 1 (count (ops evs :rf.error/machine-action-wrote-db)))
           ":db in the patch surfaces the hard-disallow error"))))

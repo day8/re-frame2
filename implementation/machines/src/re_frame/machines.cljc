@@ -257,7 +257,7 @@
   after-cancel-fx)
 
 (fx/reg-fx :rf.machine/update-snapshot
-  {:doc "Snapshot-level escape hatch. Emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:errors ... :status ...}}]` from a callback's `:fx` vector to touch `:state` / `:meta` / `:errors` / `:status` / `:data` atomically. Per Spec 005 §Snapshot-level escape hatch."}
+  {:doc "Snapshot-level escape hatch. Emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` from a callback's `:fx` vector to touch `:state` / `:meta` / `:data` atomically. Per Spec 005 §Snapshot-level escape hatch."}
   update-snapshot/update-snapshot-fx)
 
 (fx/reg-fx :rf.machine/dispatch-to-system
