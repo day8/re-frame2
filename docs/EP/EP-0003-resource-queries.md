@@ -497,11 +497,6 @@ The ledger records the serializable attempt:
  :status         :running
  :owners         #{[:route :route/article nav-token]}
  :causes         [[:route-entry :route/article nav-token]]
- :stale-key      [:resource
-                  [[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
-                   :article/by-slug
-                   {:slug "welcome"}]
-                  4]
  :cancellable?   true
  :started-at     1780752000100
  :deadline-at    1780752005100}
@@ -520,7 +515,7 @@ The durable/resource split is:
 - `:rf.runtime/resources` stores cache entries, tags, resource ownership
   indexes, timestamps, data, errors, and the current work id for each entry;
 - `:rf.runtime/work-ledger` stores serializable work records, status, owners,
-  causes, stale keys, attempts, deadlines, and outcomes;
+  causes, attempts, deadlines, and outcomes;
 - host side tables store non-serializable cancellation and timer handles keyed
   by frame id and work id.
 
@@ -772,7 +767,7 @@ V1 should include:
 - canonical params;
 - stale/fresh policy;
 - a resource-owned slice of the frame work ledger for in-flight attempts,
-  cancellation attempts, stale keys, blocking waits, and tool summaries;
+  cancellation attempts, blocking waits, and tool summaries;
 - in-flight dedupe;
 - stale reply suppression;
 - inactive-entry GC;
@@ -1830,7 +1825,7 @@ Xray should expose:
   tags,
   errors, data summary, and GC eligibility;
 - a live work-ledger table per frame: work id, kind, linked resource key,
-  generation, status, owners, causes, stale key, cancellable?, deadline, retry
+  generation, status, owners, causes, cancellable?, deadline, retry
   attempt, and outcome;
 - a route/resource graph: current route/nav-token, blocking vs non-blocking
   resources, SSR wait points, active work, hydrated/fresh/stale state;
@@ -2391,7 +2386,6 @@ Work records include:
 - status;
 - owners;
 - causes;
-- stale key;
 - cancellable?;
 - timestamps and deadlines;
 - outcome summary.
@@ -2848,7 +2842,7 @@ deferred follow-on phase (see
    feature probes, and `:resource` registrar metadata.
 3. Work-ledger substrate bead: add the resource-owned frame work ledger slice,
    serializable work records, host side tables keyed by work id, owner release
-   rules, cancellation attempts, stale-key suppression, frame-destroy cleanup,
+   rules, cancellation attempts, stale-reply suppression keyed by `:work/id`, frame-destroy cleanup,
    and tool/SSR summaries.
 4. Resource runtime bead: entries, cache scopes, canonical params, status
    transitions, structural sharing, passive subscriptions, and frame-local

@@ -113,8 +113,10 @@ Two derived rules:
 
 `spec/Runtime-Subsystems.md` carries one row per subsystem × clause, citing the
 owning spec section for each cell. Initial instances: machines (005), routing
-(012), elision (015), ssr (011), then resources + work-ledger (EP-0003) at
-graduation. An empty or contested cell is a tracked gap, not prose.
+(012), elision (009, with 015 supplying the privacy-classification inputs —
+Conventions names instrumentation as the reserved-key owner), ssr (011), then
+resources + work-ledger (EP-0003) at graduation. An empty or contested cell is
+a tracked gap, not prose.
 
 ### Conformance
 
@@ -131,9 +133,16 @@ GraphQL/Hasura client cache, a persistence/sync engine, a collaboration
 presence layer, an analytics session model) becomes *a new graded instance of
 this contract*, not a special case. Concretely, a library:
 
-1. **reserves its sub-tree** — `:rf.runtime/<lib>`, where `<lib>` follows the
-   feature-modularity id-prefix convention (the library's own namespace, never
-   bare); collisions with the framework's reserved children are a registration
+1. **reserves its sub-tree** — a runtime-db child keyed by the **library's own
+   qualified keyword** (e.g. `:acme.sync/state`), per the existing rule that
+   library-owned prefixes live *outside* `:rf.*` (Conventions §Reserved
+   namespaces: "Third-party libraries MUST NOT reserve under `:rf.*`"). The
+   `:rf.runtime/*` spelling remains exclusively framework-owned. This amends
+   Conventions §Reserved runtime-db keys — today it says runtime-db's top-level
+   children are "each qualified under `:rf.runtime/*`" — to: *framework
+   children under `:rf.runtime/*`; registered extension children under the
+   library's own qualified namespace; bare/unqualified children are a
+   registration error.* Collisions with any reserved child are a registration
    error;
 2. **mints write authority** for its event handlers through the same
    registration mechanism the framework's own subsystems use (the general
@@ -157,15 +166,22 @@ needs it — see Open Issue 2.
 
 ## Backwards Compatibility
 
-Documentation + tests only; no runtime behavior changes. Pre-alpha: the
-contract constrains future subsystem shapes deliberately — six existing
-instances show the shape is empirical, not speculative.
+For the in-repo subsystems: documentation + tests only; no runtime behavior
+changes. The **extension seam** is not behavior-free and is not claimed to be:
+it specifies future registration-time validation (collision/shape errors for
+extension children) and tool surfaces (Xray/pair subsystem rows for extension
+children), which arrive with the Open-Issue-2 registration API, not with this
+EP's v1 beads. Pre-alpha: the contract constrains future subsystem shapes
+deliberately — six existing instances show the shape is empirical, not
+speculative.
 
 ## Reference Implementation / Bead Plan
 
 1. Spec bead: author `spec/Runtime-Subsystems.md` (contract + table), add the
-   Ownership row, cross-reference from Conventions. *(Hot-zone: Conventions
-   touch is one line.)*
+   Ownership row, cross-reference from Conventions — **including the
+   §Reserved-runtime-db-keys amendment** (framework children `:rf.runtime/*`;
+   extension children under the library's own qualified namespace).
+   *(Hot-zone: Conventions; sequential.)*
 2. Grading bead: fill the four existing rows from the owning specs; file gaps
    found as beads.
 3. Conformance bead: the drift test + the per-subsystem diagnostics sweep.
@@ -184,6 +200,14 @@ instances show the shape is empirical, not speculative.
    mint + declare + teardown-hook in one call) ship in core or in an optional
    extension artefact? Recommendation: decide with that consumer in hand;
    until then the documented four-step seam above is the contract.
+3. Extension-child key placement: this EP recommends **library-own-namespace
+   children** (`:acme.sync/state`), preserving "third parties never reserve
+   under `:rf.*`" with no exception. The alternative — a framework-mediated
+   `:rf.runtime/<lib>` exception, on the model of the canonical-devtools
+   `:rf.xray/*` carve-out in Conventions — keeps all subsystem children under
+   one prefix at the cost of weakening the single-root rule. Recommendation:
+   library-own-namespace; the devtools carve-out rides framework-distance-zero
+   status that third-party libraries by definition lack.
 
 ## Recommendation
 
