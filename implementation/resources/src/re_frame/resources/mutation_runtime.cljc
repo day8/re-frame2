@@ -167,6 +167,57 @@
          :current-work  nil
          :affected-keys affected-keys))
 
+(def dangling-on-restore-error
+  "The structured failure envelope a PENDING mutation instance is terminally
+  settled to on epoch restore (Spec 016 §Restore and replay part 2). A
+  restored `:pending` instance's `:current-work` references an attempt the
+  restored timeline no longer owns — its host handle was never serialized and
+  a late pre-restore reply must be SUPPRESSED. The write's true outcome is
+  unknowable after a timeline rewind (it may have settled server-side, or
+  never been sent), so the instance is settled to a terminal `:error` carrying
+  this `:dangling-on-restore` envelope rather than left stranded `:pending`
+  forever — the app sees an explicit, re-submittable failure (XState-grade:
+  a dangling in-flight identity is surfaced, never silently stuck). Shares the
+  closed `:rf.http/*` failure taxonomy (`:rf.http/aborted` — the in-flight
+  request was effectively abandoned by the rewind)."
+  {:kind    :rf.http/aborted
+   :reason  :dangling-on-restore
+   :message (str "the mutation's in-flight request was abandoned by an epoch "
+                 "restore (the captured snapshot was :pending); its outcome is "
+                 "unknowable after the timeline rewind, so the instance is "
+                 "settled to a terminal :error and any late pre-restore reply is "
+                 "suppressed (Spec 016 §Restore and replay).")})
+
+(defn pending?
+  "True iff `instance` is a non-terminal `:pending` / `:idle` mutation instance
+  (a write still in flight, or created-not-yet-dispatched) — the restore
+  reconcile target. Terminal (`:success` / `:error`) instances ride through a
+  restore unchanged (they already carry a settled outcome). Per EP-0003
+  §Mutations / Spec 016 §Restore and replay part 2."
+  [instance]
+  (contains? #{:pending :idle} (:status instance)))
+
+(defn instance-dangled
+  "Terminally settle a restored PENDING mutation `instance` to `:error` with
+  the `dangling-on-restore-error` envelope and CLEAR its `:current-work`
+  pointer (Spec 016 §Restore and replay part 2). Clearing `:current-work` is
+  the load-bearing half: a late pre-restore reply's `live-instance-for-reply`
+  check (`(= work-id (:current-work inst))`) then fails, so the reply is
+  suppressed and CANNOT patch / populate / invalidate post-restore state — the
+  same work-id + generation stale-suppression gate the resource path uses. The
+  terminal `:error` settle is the visible half (no stuck `:pending`). Pure
+  `(instance, settled-at) -> instance`. A non-pending (already-terminal)
+  instance is returned unchanged."
+  [instance settled-at]
+  (if (pending? instance)
+    (assoc instance
+           :status       :error
+           :error        dangling-on-restore-error
+           :result       nil
+           :settled-at   settled-at
+           :current-work nil)
+    instance))
+
 ;; ---- controlled resource patch / populate (Spec 016 / EP-0003) ------------
 ;;
 ;; A mutation response can PATCH an existing resource entry (transform its

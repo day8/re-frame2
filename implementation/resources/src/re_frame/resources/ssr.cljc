@@ -62,6 +62,7 @@
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
+            [re-frame.resources.mutation-runtime :as mutation-runtime]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.state :as state]
             [re-frame.resources.work-ledger :as work-ledger]
@@ -812,14 +813,57 @@
                runtime-db non-terminal)
        non-terminal])))
 
+(defn dangle-pending-mutations!
+  "Reconcile restored PENDING mutation INSTANCES on epoch restore (rf2-o3d1uf,
+  Spec 016 §Restore and replay part 2). A restored `:pending` (or `:idle`)
+  mutation instance at `:rf.runtime/mutations` retains its `:current-work` +
+  `:generation` — pointing at an attempt the restored timeline no longer owns
+  (the host handle was never serialized). Unlike a resource cache entry (whose
+  reply path checks the ENTRY's `:current-work`), a mutation reply checks the
+  INSTANCE's `:current-work` + `:generation` (`live-instance-for-reply`), so
+  WITHOUT reconciling the instance a late pre-restore mutation success/failure
+  reply would still match the restored instance and PATCH / POPULATE /
+  INVALIDATE post-restore resource state — the exact correctness leak this
+  closes.
+
+  Each restored pending/idle instance is TERMINALLY SETTLED to `:error` with
+  the `:dangling-on-restore` envelope and its `:current-work` is CLEARED
+  (`mutation-runtime/instance-dangled`). Clearing `:current-work` makes the
+  ordinary work-id + generation gate suppress the late reply (the
+  `(= work-id (:current-work inst))` check fails); the generation allocator is
+  host-side + monotonic (part 1), so the dangling work-id can never re-match a
+  live instance anyway — clearing the pointer is belt-and-braces on top of the
+  structural impossibility. Already-terminal (`:success` / `:error`) instances
+  ride through unchanged (a settled write's durable outcome is real).
+
+  Returns `[runtime-db' dangled-instance-ids]`. No-op (returns `[runtime-db
+  []]`) when the snapshot carries no mutation instances (a mutation-free
+  restore). PURE w.r.t. the host side table (the work-ledger host handles are
+  cleared separately — the mutation's work-ledger row is dangled by
+  `dangle-non-terminal-work!`, work-kind `:mutation`)."
+  [runtime-db settled-at]
+  (let [instances (get-in runtime-db (mutation-runtime/instances-path))
+        pending   (into []
+                        (comp (filter (fn [[_ inst]] (mutation-runtime/pending? inst)))
+                              (map key))
+                        instances)]
+    (if (empty? pending)
+      [runtime-db []]
+      [(reduce (fn [rdb instance-id]
+                 (update-in rdb (mutation-runtime/instance-path instance-id)
+                            mutation-runtime/instance-dangled settled-at))
+               runtime-db pending)
+       pending])))
+
 (defn reconcile-on-restore
   "Reconcile a freshly-INSTALLED resource subtree on `restore-epoch` (the body
   behind the `:resources/reconcile-on-restore` hook epoch `perform-restore!`
   consults). `runtime-db` is the runtime-db partition the epoch restore is about
-  to install (the UNPROJECTED captured snapshot, both `:rf.runtime/resources` and
-  `:rf.runtime/work-ledger`). Returns the runtime-db with the resource +
-  work-ledger slices reconciled — or `runtime-db` unchanged when it carries no
-  resource entries AND no work-ledger rows (a no-op for a resource-free restore).
+  to install (the UNPROJECTED captured snapshot — `:rf.runtime/resources`,
+  `:rf.runtime/work-ledger`, AND `:rf.runtime/mutations`). Returns the runtime-db
+  with the resource + work-ledger + mutation slices reconciled — or `runtime-db`
+  unchanged when it carries no resource entries, no work-ledger rows, AND no
+  mutation instances (a no-op for a resource-free restore).
 
   Unlike `hydrate-runtime-db` (which reconciles the SERVER PROJECTION — already
   `:current-work`-stripped on the wire, no non-terminal rows), restore installs
@@ -838,10 +882,18 @@
     3. settle every NON-terminal work-ledger row to terminal `:suppressed` /
        `:dangling` (`dangle-non-terminal-work!`, part 2) so a pre-restore in-flight
        reply is suppressed;
+    3b. settle every restored PENDING MUTATION INSTANCE to terminal `:error` /
+       `:dangling-on-restore` and CLEAR its `:current-work`
+       (`dangle-pending-mutations!`, part 2 — rf2-o3d1uf) so a late pre-restore
+       mutation reply cannot patch / populate / invalidate post-restore state
+       (the mutation reply gate checks the INSTANCE's `:current-work` +
+       `:generation`, not the resource entry's, so the resource-side dangle
+       alone does NOT suppress it);
     4. emit a `:rf.resource/restored` trace summarising reconciled / orphaned /
-       dangled counts, a `:rf.resource/owner-released` row per stale-nav route
-       owner released as an orphan (part 4), and a clock-skew diagnostic when a
-       restored `:stale-at` is implausible against the live clock.
+       dangled (work + mutation) counts, a `:rf.resource/owner-released` row per
+       stale-nav route owner released as an orphan (part 4), and a clock-skew
+       diagnostic when a restored `:stale-at` is implausible against the live
+       clock.
 
   The stale-nav route-owner orphan rule is RESTORE-specific: restore installs
   both partitions wholesale so the live nav-token IS present, whereas SSR
@@ -857,13 +909,14 @@
    (let [resources (get runtime-db state/resources-key)
          entries   (:entries resources)
          ledger    (get runtime-db state/work-ledger-key)
+         mutations (get-in runtime-db (mutation-runtime/instances-path))
          ;; the nav-token the restored routing slice currently considers live
          ;; — restore installs both partitions wholesale, so routing :current
          ;; is present in this same runtime-db (nil when the app carries no
          ;; routing slice). Route owners whose nav-token ≠ this are stale-nav
          ;; orphans (Spec 016 §Restore and replay part 4).
          live-nav-token (get-in runtime-db routing-current-nav-token-path)]
-     (if-not (or (seq entries) (seq ledger))
+     (if-not (or (seq entries) (seq ledger) (seq mutations))
        runtime-db
        (let [clock-ms (now-ms)
              ;; reconcile each entry: orphan SSR owners + STALE-NAV route
@@ -888,13 +941,20 @@
              rdb'      (cond-> runtime-db
                          (seq entries) (assoc state/resources-key subtree'))
              ;; settle the dangling non-terminal work-ledger rows (restore-specific)
-             [rdb'' dangled] (dangle-non-terminal-work! rdb')]
+             [rdb'' dangled] (dangle-non-terminal-work! rdb')
+             ;; settle the dangling PENDING mutation instances + clear their
+             ;; :current-work so a late pre-restore mutation reply is suppressed
+             ;; by the instance work-id + generation gate (rf2-o3d1uf). Runs on
+             ;; the resource-reconciled runtime-db; the mutation work-ledger row
+             ;; was already dangled by `dangle-non-terminal-work!` above.
+             [rdb''' dangled-mutations] (dangle-pending-mutations! rdb'' clock-ms)]
          (trace/emit! :rf.epoch :rf.resource/restored
-                      {:rf.frame/id     frame-id
-                       :reconciled      (count entries')
-                       :orphaned-owners (vec (:orphaned reconciled))
-                       :dangled-work    (vec dangled)
-                       :clock-skews     (:skews reconciled)})
+                      {:rf.frame/id       frame-id
+                       :reconciled        (count entries')
+                       :orphaned-owners   (vec (:orphaned reconciled))
+                       :dangled-work      (vec dangled)
+                       :dangled-mutations (vec dangled-mutations)
+                       :clock-skews       (:skews reconciled)})
          ;; per-owner row for every STALE-NAV route owner released as an orphan
          ;; (Spec 016 §Restore and replay part 4: "orphaned owners are dropped
          ;; with a trace row"). SSR orphans ride the summary above (they belong
@@ -918,7 +978,7 @@
                                             skew "ms ahead of the live clock — clock "
                                             "skew makes freshness ambiguous; the next "
                                             "live-owner ensure will resolve it.")}))
-         rdb'')))))
+         rdb''')))))
 
 ;; ---- client refetch decision (Spec 016 §SSR and hydration) ----------------
 ;;

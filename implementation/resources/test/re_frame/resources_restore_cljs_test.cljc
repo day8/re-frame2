@@ -40,10 +40,13 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [re-frame.core :as rf]
+   [re-frame.frame :as frame]
    [re-frame.late-bind :as late-bind]
    ;; load-bearing side-effecting require: the façade publishes the restore
    ;; reconcile hook + registers the resource registrar kind.
    [re-frame.resources]
+   [re-frame.resources.mutation-runtime :as mstate]
    [re-frame.resources.ssr :as ssr]
    [re-frame.resources.state :as state]
    [re-frame.resources.work-ledger :as work-ledger]
@@ -222,6 +225,121 @@
       (is (= [w1] dangled) "only the non-terminal row is dangled")
       (is (= :suppressed (get-in rdb' [state/work-ledger-key w1 :status])))
       (is (= :completed (get-in rdb' [state/work-ledger-key w2 :status]))))))
+
+;; ===========================================================================
+;; 2b. Dangle PENDING mutation instances on restore (rf2-o3d1uf, part 2)
+;; ===========================================================================
+;;
+;; A restored :pending mutation instance retains :current-work + :generation.
+;; The mutation reply gate (`live-instance-for-reply`) checks the INSTANCE's
+;; :current-work (NOT the resource entry's), so WITHOUT reconciling the
+;; instance a late pre-restore mutation reply would still match and
+;; patch/populate/invalidate post-restore resource state. The reconcile
+;; terminally-settles the pending instance to :error/:dangling-on-restore and
+;; clears :current-work so the gate suppresses the late reply.
+
+(defn- mutation-instance
+  "A durable mutation instance under instance-id, mirroring empty-instance +
+  overrides (defaults to a :pending instance pointing at work-id)."
+  [{:keys [mutation-id instance-id status generation work-id scope params]
+    :or   {mutation-id :comment/add status :pending generation 3}}]
+  (-> (mstate/empty-instance mutation-id instance-id
+        {:scope scope :params params :generation generation
+         :work-id work-id :started-at 1000})
+      (assoc :status status)))
+
+(deftest instance-dangled-settles-pending-and-clears-current-work
+  (testing "instance-dangled: a :pending instance settles terminal :error with
+            the :dangling-on-restore envelope and CLEARS :current-work"
+    (let [inst (mutation-instance {:instance-id :inst-1
+                                   :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
+          out  (mstate/instance-dangled inst 9999)]
+      (is (= :error (:status out)) "pending → terminal :error")
+      (is (= :dangling-on-restore (:reason (:error out))))
+      (is (nil? (:current-work out)) ":current-work cleared (the suppression gate)")
+      (is (mstate/terminal? (:status out)) "the instance is now terminal")))
+  (testing "a TERMINAL instance rides through unchanged"
+    (let [done (mutation-instance {:instance-id :inst-2 :status :success})]
+      (is (= done (mstate/instance-dangled done 9999))))))
+
+(deftest dangle-pending-mutations-settles-and-returns-ids
+  (testing "dangle-pending-mutations! settles every pending instance + clears
+            current-work; terminal instances untouched; returns the dangled ids"
+    (let [pending (mutation-instance {:instance-id :inst-p
+                                      :work-id [:rf.work/resource [:rf.mutation :inst-p 3] 3]})
+          settled (mutation-instance {:instance-id :inst-s :status :success})
+          rdb {mstate/mutations-key {:inst-p pending :inst-s settled}}
+          [rdb' dangled] (ssr/dangle-pending-mutations! rdb 9999)]
+      (is (= [:inst-p] dangled) "only the pending instance is dangled")
+      (is (= :error (get-in rdb' [mstate/mutations-key :inst-p :status])))
+      (is (nil? (get-in rdb' [mstate/mutations-key :inst-p :current-work])))
+      (is (= :success (get-in rdb' [mstate/mutations-key :inst-s :status]))
+          "the terminal instance is untouched")))
+  (testing "no mutation instances → no-op"
+    (is (= [{} []] (ssr/dangle-pending-mutations! {} 9999)))))
+
+(deftest reconcile-on-restore-dangles-pending-mutation-instances
+  (testing "reconcile-on-restore reconciles the :rf.runtime/mutations slice too"
+    (let [pending (mutation-instance {:instance-id :inst-1
+                                      :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
+          rdb {mstate/mutations-key {:inst-1 pending}}
+          out (ssr/reconcile-on-restore rdb :app/main)]
+      (is (= :error (get-in out [mstate/mutations-key :inst-1 :status])))
+      (is (nil? (get-in out [mstate/mutations-key :inst-1 :current-work]))))))
+
+(deftest late-pre-restore-mutation-reply-is-suppressed-end-to-end
+  (rf/reg-resource :article/by-slug
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
+     :tags    (fn [{:keys [slug]} _] #{[:article slug]})})
+  (testing "ADVERSARIAL acceptance (rf2-o3d1uf): a pre-restore mutation success
+            reply that lands AFTER restore is SUPPRESSED — it does NOT patch /
+            populate / invalidate the post-restore resource entry"
+    (let [fid       :restore/mutation-frame
+          ;; a loaded resource entry the (pre-restore) mutation would have patched
+          loaded    (entry {:resource-id :article/by-slug :status :loaded
+                            :data {:title "post-restore"} :loaded-at 1 :stale-at 9.0e15
+                            :generation 9})
+          instance-id [:rf.mutation/instance :article/edit 3]
+          work-id   (work-ledger/resource-work-id [:rf.mutation instance-id] 3)
+          ;; the captured snapshot: a PENDING mutation instance pointing at work-id
+          pending   (mutation-instance {:mutation-id :article/edit
+                                        :instance-id instance-id
+                                        :generation 3 :work-id work-id
+                                        :scope :rf.scope/global :params {:slug "x"}})
+          ;; the runtime-db that restore is about to install (reconciled first)
+          snapshot  (-> (runtime-db-with {gkey loaded})
+                        (assoc mstate/mutations-key {instance-id pending})
+                        (assoc-in (work-ledger/record-path work-id)
+                                  (-> (work-ledger/work-record
+                                        {:work-id work-id :frame-id fid
+                                         :resource-key [:rf.mutation instance-id]
+                                         :generation 3 :transport :rf.http/managed
+                                         :started-at 1000})
+                                      (assoc :work/kind :mutation))))
+          reconciled (ssr/reconcile-on-restore snapshot fid)]
+      (rf/reg-frame fid {:doc "restore mutation suppression frame"})
+      ;; install the reconciled snapshot as the live frame-state
+      (frame/replace-runtime-db! fid reconciled)
+      (testing "post-reconcile the pending instance is terminal + current-work cleared"
+        (is (= :error (get-in reconciled [mstate/mutations-key instance-id :status])))
+        (is (nil? (get-in reconciled [mstate/mutations-key instance-id :current-work]))))
+      ;; NOW the late pre-restore mutation SUCCESS reply lands (carrying the
+      ;; pre-restore work-id + generation that the snapshot instance held).
+      (rf/dispatch-sync
+        [:rf.mutation.internal/succeeded
+         {:instance-id instance-id :mutation-id :article/edit
+          :work-id work-id :generation 3 :scope :rf.scope/global}
+         {:kind :success :value {:title "STALE pre-restore write"}}]
+        {:frame fid})
+      (let [post (frame/frame-runtime-db-value fid)
+            e    (get-in post [state/resources-key :entries gkey])]
+        (is (= {:title "post-restore"} (:data e))
+            "the resource entry is UNCHANGED — the stale reply did not patch/populate it")
+        (is (= :error (get-in post [mstate/mutations-key instance-id :status]))
+            "the dangled instance stays terminal :error — the stale reply did not revive it"))
+      (frame/destroy-frame! fid))))
 
 ;; ===========================================================================
 ;; 3. Owner reconciliation: orphan SSR, keep route (Spec 016 §Restore part 4)
