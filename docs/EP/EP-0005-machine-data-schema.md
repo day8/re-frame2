@@ -4,28 +4,36 @@ Status: final
 
 > **`final` means the decisions are settled.** The five deferred calls were ruled
 > by Mike on 2026-06-08 (see [Resolved Decisions](#resolved-decisions)) and the
-> design is locked. The bulk of the implementation has shipped, but a handful of
-> tracked implementation errata remain open — see
-> [Implementation errata](#implementation-errata). Finalizing the *decisions* does
-> not assert the *implementation* is gap-free.
+> design is locked. The implementation has now also shipped in full: every tracked
+> implementation erratum is closed — see [Implementation errata](#implementation-errata).
+> The EP is implementation-complete. (Finalizing the *decisions* did not, on its own,
+> assert the *implementation* was gap-free; the errata ledger below tracked that
+> separately to its close.)
 
 ## Implementation errata
 
-The EP decisions are final; these are the implementation gaps still open against
-`main` (decision-settled, build-incomplete). They track follow-on work and do not
-reopen any ruling:
-
-- **`rf2-pjv7pz`** — the `:schema` → `:data-schema` rename (decision 1) is complete
-  in machines/spec/guide surfaces, but core probe/integration surfaces
-  (`late_bind/directory.cljc`, `router.cljc`, `elision_probe.cljs`) still carry the
-  old `:schema` spelling.
-- **`rf2-0k5ubx`** *(awaiting Mike ruling)* — Spec 015 §6 + three implementor-skill
-  notes document unimplemented top-level `:sensitive` / `:large` convenience keys on
-  the machine spec; the shipped surface is the per-slot `:data-schema`
-  `:sensitive?` / `:large?` Malli props. Either reword to match the shipped surface
-  or implement the convenience keys.
+The EP decisions are final and the implementation has shipped in full: **every
+tracked erratum below is closed.** This section is kept as a closed record of the
+build-completion work that followed the decision-freeze; none of it reopens any
+ruling. The EP is implementation-complete.
 
 ### Resolved errata
+
+The rename and skill/spec-reconciliation errata below are **fixed**; they are kept
+here as a closed record and no longer reopen any ruling:
+
+- **`rf2-pjv7pz`** *(fixed — PR #3538, 2026-06-08)* — the `:schema` → `:data-schema`
+  rename (decision 1) reached the core probe/integration surfaces that still carried
+  the old `:schema` spelling (`late_bind/directory.cljc`, `elision_probe.cljs`). The
+  rename is now complete across machines/spec/guide and core surfaces alike.
+- **`rf2-0k5ubx`** *(fixed — PR #3560, ruled by Mike 2026-06-09)* — Spec 015 §6 (SS-6)
+  plus three implementor-skill notes documented unimplemented top-level `:sensitive` /
+  `:large` convenience keys on the machine spec. Mike ruled **option a** (reword,
+  firming the schema-first surface): `reg-machine` stays `(machine-id machine-map)`;
+  `:data` sensitivity is expressed **only** via per-slot `:data-schema` props
+  (`:sensitive?` / `:large?`); there is no 3-arity metadata argument and no top-level
+  `:sensitive` / `:large` keys for v1. The docs were reworded to match the shipped
+  per-slot surface accordingly.
 
 The redaction-bridge errata below are **fixed** (the marks-cluster work) and kept
 here as a closed record; they no longer reopen any ruling:
@@ -378,7 +386,12 @@ bridge makes the marker honoured and fail-precise for snapshot-shaped `:data` (t
 per-slot path), while the conservative whole-slot scrub stays correct for the
 non-snapshot-shaped `:exception-data` path (`rf2-zsm03`). All of it lives behind
 `interop/debug-enabled?` and is moot in production builds, where the trace surface is
-elided entirely.
+elided entirely. Note that *production-elidable is not elided-by-default on the JVM*:
+the CLJS `:advanced` build DCEs the surface via `goog.DEBUG=false`, but on the JVM
+`debug-enabled?` defaults **true** unless `-Dre-frame.debug=false` (or
+`RE_FRAME_DEBUG=false`) is set, so a production JVM SSR process that does not set the
+flag runs the dev trace surface — a sensitive `:data` slot is still redacted by the
+bridge, but the trace surface itself is live and must be disabled explicitly.
 
 ## Rejected Ideas
 
@@ -439,6 +452,6 @@ itself already shipped under `rf2-jbbp7`, so this EP corrects the premise that m
 `:data` is un-schema'd and finishes a documented-but-non-functional privacy capability.
 All five deferred calls were ruled by the operator on 2026-06-08 (see
 [Resolved Decisions](#resolved-decisions)) and the design is settled, so this EP is
-**final** — final in its *decisions*. The bulk of the work has shipped; the
-remaining implementation gaps are tracked as open
-[implementation errata](#implementation-errata), not unresolved decisions.
+**final** — final in its *decisions*. The work has now shipped in full; every
+[implementation erratum](#implementation-errata) is closed, so the EP is
+implementation-complete as well.

@@ -6,6 +6,8 @@ EPs are *proposals*, not normative specification. The normative artefact remains
 
 Status lifecycle: **proposal** (under discussion) → **accepted** (approved, graduating into `spec/` + beads) → **final** (graduated; the spec is now authoritative).
 
+`final` asserts the **decisions** are settled — it does **not**, on its own, assert the implementation is build-complete. When a final EP's build is still in flight, it SHOULD carry an **implementation-errata ledger**: a section listing the open implementation gaps by live bead ID (decision-settled, build-incomplete), each erratum moving to a paired **resolved-errata** closed record (with its ruling + PR number) as it lands, until the EP is implementation-complete. This errata-ledger pattern — pioneered by [EP-0005](EP-0005-machine-data-schema.md) — is the standard shape for final EPs whose implementation outlives their decision-freeze, so build status is tracked explicitly rather than left silently implied by the `final` label.
+
 ## Index
 
 | EP       | Title | Status | Summary |
