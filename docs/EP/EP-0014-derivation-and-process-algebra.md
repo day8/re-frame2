@@ -21,9 +21,11 @@ vocabulary for the facts and processes built over it.
 
 This EP proposes a **derivation/process algebra**. A derivation is a declared
 way to compute a fact from inputs. A process is a derivation with state,
-commands, lifecycle, and time. Subscriptions, runtime subscriptions, flows,
-resource reads, route facts, and machine selectors are not the same runtime
-mechanism, but they are all instances of this shape:
+commands, lifecycle, and time. The positive principle: **derive, materialize,
+fetch, and synchronize are storage and evaluation policies over one declared
+dependency graph.** Subscriptions, runtime subscriptions, flows, resource
+reads, route facts, and machine selectors are not the same runtime mechanism,
+but they are all instances of this shape:
 
 ```clojure
 {:id         <stable-id>
@@ -127,6 +129,11 @@ mental model.
 
 - This EP does not replace `reg-sub`, `reg-flow`, `reg-resource`, route
   declarations, or machine declarations with a single public macro.
+- This EP does not mint any new public authoring or accessor primitive in its
+  first slice — no `reg-fact`, no `reg-derivation`, no stable public graph
+  accessor name. The algebra is vocabulary, spec model, and internal metadata
+  until the projection from all four existing mechanisms has proved the shape
+  (project-before-primitive). Future source forms, if any, are separate EPs.
 - This EP does not require every application author to write algebra maps.
 - This EP does not make flows obsolete or make subscriptions durable.
 - This EP does not collapse resources into subscriptions or machines into
@@ -140,23 +147,41 @@ mental model.
 
 ## Relationships
 
+- [EP-0003](EP-0003-resource-queries.md) (graduated, HTTP-only scope) and
+  [Spec 016](../../spec/016-Resources.md) define resource identity, cache
+  scope, owners, the work ledger, and runtime-db storage for server-state
+  processes. Resources are a family member of this algebra; this EP reuses
+  their vocabulary (`[scope resource-id canonical-params]` keys, owners,
+  `:rf.resource/*` read subs) and does not fork it.
 - [EP-0004](EP-0004-subscription-inputs.md) defines the `reg-sub` input
   producer shape that becomes subscription input declaration in this algebra.
 - [EP-0005](EP-0005-machine-data-schema.md) and
   [Spec 005](../../spec/005-StateMachines.md) define the machine snapshot and
   process substrate this EP treats as a process kind.
+- [EP-0006](EP-0006-runtime-subsystem-contract.md) defines the runtime
+  subsystem contract whose per-key projection tiers (durable-serialized /
+  local-subscribable / host-transient) grade the durable storage classes in
+  this EP. The algebra's storage classes name where a value lives; EP-0006's
+  grading table remains the authority on how each runtime-db key is projected,
+  hydrated, and torn down.
+- [EP-0007](EP-0007-one-name-per-fact.md) supplies the one-name-per-fact rule
+  that this EP's fact-identity section applies graph-wide.
 - [Spec 006](../../spec/006-ReactiveSubstrate.md) defines the reactive substrate,
   sub-cache, partition projections, and subscription topology that form the
   first concrete algebra instance.
 - [Spec 012](../../spec/012-Routing.md) defines route match facts and route
   resource activation inputs.
 - [Spec 013](../../spec/013-Flows.md) defines flows as materialized derivations
-  into `app-db`.
-- [Spec 016](../../spec/016-Resources.md) defines resource identity, cache
-  scope, owners, and runtime-db storage for server-state processes.
-- EP-0010, EP-0011, EP-0012, and EP-0013 are companion proposals: causal world
-  inputs, async replies, canonical path/identity forms, and app values/runtime
-  realms make the algebra more precise, but this EP can stand without them.
+  into `app-db`, including the drain-integration sequencing this EP's
+  `:after-event` policy summarizes.
+- EP-0010, EP-0011, and EP-0012 are companion proposals: causal world inputs,
+  async replies, and canonical path/identity forms make the algebra more
+  precise, but this EP can stand without them.
+- [EP-0013](EP-0013-app-values-and-runtime-realms.md) is the natural future
+  home for algebra declarations: the normalized node this EP defines is
+  exactly the per-fact/per-process row an app value would carry, so if
+  EP-0013 is accepted the algebra view moves from registrar-derived metadata
+  to a section of the app value with no shape change.
 
 ## Definitions
 
@@ -195,7 +220,7 @@ of a value.
 ### Source Form
 
 A **source form** is the API shape an author writes: `reg-sub`, `reg-flow`,
-`reg-resource`, `reg-route`, `make-machine-handler`, or a future manifest form.
+`reg-resource`, `reg-route`, `reg-machine`, or a future manifest form.
 Source forms remain optimized for humans and migration.
 
 The **algebra view** is the normalized data view tools and specs use. It may be
@@ -260,6 +285,12 @@ A **storage class** declares where the output or supporting process state lives:
 external; the local cache entry, in-flight row, owner index, and selectors still
 declare their local storage and lifecycle.
 
+Storage classes align with the EP-0006 runtime-subsystem projection tiers
+rather than replacing them: a `:runtime-db` output is still graded
+durable-serialized or local-subscribable per key by its owning subsystem's
+projection policy, and `:host-transient` here is the same tier EP-0006 names.
+`:ephemeral` values have no subsystem row because they are not durable state.
+
 ### Evaluation Policy
 
 An **evaluation policy** declares when the derivation/process runs:
@@ -316,6 +347,12 @@ The proposal has three parts:
    optimization with a conformance law proving it commutes with whole-value
    recomputation.
 
+The staging discipline is deliberate and is the EP's single decision surface:
+**vocabulary now, API later.** The first slice is spec language, registration
+metadata, and an internal inspection helper proved against all four existing
+mechanisms. Minting a public authoring primitive or a stable accessor name is
+a separable later decision that this EP neither makes nor requires.
+
 This gives re-frame2 one answer for "where does this value come from?" while
 letting each mechanism keep the operational differences that make it useful.
 
@@ -347,6 +384,12 @@ this shape:
 
 The exact public accessor name is deferred. The required information is not.
 Tools must be able to recover the same facts from a conforming implementation.
+
+Every `:kind` value classifies as either a derivation or a process. Refined
+kinds used in this EP's examples — `:resource-process`, `:route-fact`,
+`:machine-process`, `:machine-selector` — are informative refinements of those
+two superkinds; specs may add refinements, but a tool that understands only
+`:derivation` and `:process` must still be able to classify every node.
 
 Function values in graph output MAY be represented by symbols, source
 coordinates, registry metadata, or opaque implementation tokens. The graph
@@ -764,10 +807,13 @@ Live algebra view for `[:article/page "welcome"]`:
 ### Runtime Subscription
 
 Framework subs read the `runtime-db` projection through the same cache rules as
-ordinary subscriptions:
+ordinary subscriptions. `reg-runtime-sub` is a framework-internal registration
+surface — routed from the subsystem facades, not a public app-author API — but
+its registrations are ordinary algebra nodes:
 
 ```clojure
-(rf/reg-runtime-sub
+;; framework-internal (subsystem facade code, not app code)
+(subs/reg-runtime-sub
   :rf.route/params
   (fn [runtime-db _query-v]
     (get-in runtime-db [:rf.runtime/routing :current :params])))
@@ -819,9 +865,25 @@ Algebra view:
  :derive #'app.cart/sum-cart}
 ```
 
-The difference between the subscription and the flow is not the mathematical
-function. It is storage, evaluation, and lifecycle: ephemeral/on-demand/cache
-entry versus app-db/after-event/frame.
+This is the same fact expressed twice: `sum-cart` is one whole-value function,
+and the subscription's and the flow's algebra views differ only in output,
+storage, evaluation, and lifecycle — ephemeral/on-demand/cache-entry versus
+app-db/after-event/frame. The difference between the subscription and the flow
+is not the mathematical function; it is policy over the same dependency graph.
+
+**Sequencing.** `:after-event` for an already-registered flow means
+same-commit materialization: per
+[Spec 013 §Drain integration](../../spec/013-Flows.md#drain-integration), the
+flow transform rewrites the pending `:db` effect before the event's single
+atomic install, so a flow's inputs and its materialized output move together
+in one commit — there is no general one-event staleness for registered flows.
+The one sequencing exception is a flow registered mid-event via
+`:rf.fx/reg-flow`, whose initial output appears one drain later
+([Spec 013 §Sequencing — the one-event lag](../../spec/013-Flows.md#sequencing--the-one-event-lag)).
+Whether to close that registration lag (a same-commit re-walk has fixpoint
+character but conflicts with the one-install-per-event invariant) is Spec 013's
+open question, not this EP's; the algebra only requires that the evaluation
+policy and its documented sequencing be declared honestly.
 
 ### Resource Declaration
 
@@ -903,13 +965,15 @@ Route source:
      :blocking? true}]})
 ```
 
-Route fact algebra:
+Route fact algebra — the fact id is `:rf/route`, the consumer-facing name
+Spec 012 already gives the route slice (one name per fact, per EP-0007):
 
 ```clojure
-{:id :rf.route/current
+{:id :rf/route
  :kind :route-fact
  :source-form {:kind :reg-route :id :route/article}
  :inputs [[:event :rf.route/navigate]
+          [:event :rf.route/transitioned]
           [:event :rf.route/handle-url-change]]
  :output [:runtime [:rf.runtime/routing :current]]
  :storage :runtime-db
@@ -948,24 +1012,27 @@ realized resource-state edge; it is not hidden inside the subscription body.
 
 ### Machine Process And Selector
 
-Machine handler source:
+Machine source:
 
 ```clojure
-(rf/reg-event-fx
+(rf/reg-machine
   :upload/main
-  (rf/make-machine-handler
-    {:initial :idle
-     :data {:progress 0}
-     :states
-     {:idle
-      {:on {:upload/start {:target :uploading}}}
-      :uploading
-      {:entry [:start-upload]
-       :on {:upload/progress {:actions [:record-progress]}
-            :upload/succeeded {:target :done}
-            :upload/failed {:target :failed}}}
-      :failed {}
-      :done {}}}))
+  {:initial :idle
+   :data    {:progress 0}
+   :actions {:start-upload    (fn [_ctx]
+                                {:fx [[:rf.http/managed {...}]]})
+             :record-progress (fn [{[_ pct] :event}]
+                                {:data {:progress pct}})}
+   :states
+   {:idle
+    {:on {:upload/start {:target :uploading}}}
+    :uploading
+    {:entry :start-upload
+     :on {:upload/progress  {:action :record-progress}
+          :upload/succeeded {:target :done}
+          :upload/failed    {:target :failed}}}
+    :failed {}
+    :done {}}})
 ```
 
 Machine process algebra:
@@ -973,7 +1040,7 @@ Machine process algebra:
 ```clojure
 {:id :upload/main
  :kind :machine-process
- :source-form {:kind :make-machine-handler :id :upload/main}
+ :source-form {:kind :reg-machine :id :upload/main}
  :inputs [[:event :upload/start]
           [:event :upload/progress]
           [:event :upload/succeeded]
@@ -1277,19 +1344,36 @@ A conforming implementation should satisfy these checks:
 
 ## Open Issues
 
-- What is the public name and exact return shape for graph inspection? Candidate
-  names should be evaluated with Xray and tests before becoming stable API.
+- What is the public name and exact return shape for graph inspection?
+  **Recommendation:** defer public naming; let Xray and conformance tests
+  consume an internal accessor first and stabilize the name only after the
+  shape survives real use (the project-before-primitive discipline this EP
+  applies to source forms applies to accessors too).
 - Should `:remote` remain a storage class, or should the final spec split it
   into `:authority :remote` plus a required local storage class? This EP uses
-  both to keep the distinction visible.
+  both to keep the distinction visible. **Recommendation:** split — the live
+  resource example already carries `:remote {:authority :server}` alongside
+  `:storage :runtime-db`, which shows authority and local storage are two
+  facts; the final spec should make `:storage` always local and `:authority`
+  a separate key, keeping `:remote` only as prose shorthand.
 - How much route/resource graph information should be available statically when
-  route `:resources` params are arbitrary functions?
+  route `:resources` params are arbitrary functions? **Recommendation:** the
+  same rule as parametric subscriptions — report the declaration and mark the
+  edge set `:parametric`; only the live graph shows realized edges.
 - Which machine selector source forms should be standardized beyond ordinary
-  subscriptions over `[:rf/machine ...]`?
+  subscriptions over `[:rf/machine ...]`? **Recommendation:** none in the
+  first slice; ordinary subscriptions over the machine snapshot sub remain
+  the only standardized selector form until a concrete ergonomic gap appears.
 - Where should optional delta contracts live normatively: reactive substrate,
   flows, a new derivation spec, or the graph-inspection spec?
+  **Recommendation:** state the commuting law once in whatever spec home the
+  whole-value derivation vocabulary lands in, with Spec 006 and Spec 013
+  referencing it — the law is about derivation semantics, not about any one
+  mechanism or about inspection.
 - How does the algebra view move from registrar-derived metadata into app
-  values/runtime realms if EP-0013 is accepted?
+  values/runtime realms if EP-0013 is accepted? **Recommendation:** no action
+  until EP-0013 is ruled; the node shape is deliberately the row an app value
+  would carry (see Relationships), so the move is a relocation, not a redesign.
 
 ## Recommendation
 
