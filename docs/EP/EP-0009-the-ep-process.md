@@ -12,9 +12,13 @@ Type: process
 
 re-frame2 EPs follow the Python Enhancement Proposal model: **durable,
 numbered design records** that carry a decision from proposal through ruling
-into the normative spec, and then remain forever as the record of *why* — including
-when the answer was no. The spec (`spec/`) is always the authoritative contract;
-an EP is the design document behind it, never a second normative home.
+into a normative home, and then remain forever as the record of *why* — including
+when the answer was no. The authority rule is **per type**: a standards-track
+EP graduates into `spec/`, which is then the authoritative contract — the EP is
+the design document behind it, never a second normative home. A **process** EP
+graduates into its *named normative home*, which MAY be the active EP itself
+(the PEP-8 precedent: the style guide *is* the PEP). Every active process EP
+names its normative home explicitly so there is exactly one.
 
 ## When an EP is warranted
 
@@ -37,7 +41,7 @@ valuable record.
 | Type | Meaning | Terminal success status |
 |---|---|---|
 | **standards-track** | changes the framework's public contracts or runtime behavior; graduates into `spec/` + implementation beads | `final` |
-| **process** | rules about how the project itself works (conventions, lifecycle, review posture); graduates into its normative home (e.g. `Conventions.md`) but the rules may keep living here | `active` |
+| **process** | rules about how the project itself works (conventions, lifecycle, review posture); on acceptance it **names its normative home** — either an existing spec doc (EP-0007 names `Conventions.md` §Namespacing) or the active EP itself (this EP's home is this EP) — and that one home governs | `active` |
 
 EPs predating this one carry no `Type:` header and are standards-track.
 
@@ -56,13 +60,17 @@ any non-terminal EP may become: superseded-by EP-NNNN (kept)
 - **proposal** — under discussion. Normative-voiced text is permitted (it makes
   graduation a move, not a rewrite) but binds nothing; nothing may implement a
   proposal.
-- **accepted** — ruled by the operator; graduation into `spec/` + beads begins.
-  Implementation may start.
-- **final / active** — graduated. The spec is now authoritative; **where the EP
-  body and the spec differ, the spec governs** (the EP-0002 precedent). A final
-  EP MAY carry an **implementation-errata ledger** (the EP-0005 pattern):
-  *final means the decisions are settled; it does not assert the build is
-  gap-free.* Ledger rows cite live bead ids and are struck as they close.
+- **accepted** — ruled by the operator; graduation into the normative home +
+  beads begins. Implementation may start.
+- **final / active** — graduated. The named normative home is now
+  authoritative: for standards-track that is `spec/`, and **where the EP body
+  and the spec differ, the spec governs** (the EP-0002 precedent); for process
+  EPs it is the home the EP named — possibly the EP itself, in which case the
+  EP's §Specification *is* the rule and the rest of the document remains
+  rationale. A final EP MAY carry an **implementation-errata ledger** (the
+  EP-0005 pattern): *final means the decisions are settled; it does not assert
+  the build is gap-free.* Ledger rows cite live bead ids and are struck as they
+  close.
 - **rejected / withdrawn / deferred / superseded** — terminal or parked, and
   **always kept**: recording why something was not done is half an EP corpus's
   value.
