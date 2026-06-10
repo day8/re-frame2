@@ -1209,6 +1209,35 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:limit-ms  :int]                  ;; the render deadline (ms)
    [:reason    :string]])
 
+(def ResourceRoutePlanTags
+  ;; a route :resources entry could not be PLANNED on route entry — its
+  ;; :scope / :params did not resolve (a fail-closed scope/params throw caught
+  ;; at the route-resource planning boundary). Surfaced on the route slice's
+  ;; :error (visible to the :rf/route sub + Xray) and emitted as an error
+  ;; trace, NEVER a silent cache miss; FIRST-error-wins when several route
+  ;; resources fail to plan. Per Spec 016 §Route integration.
+  [:map
+   [:category    :keyword]
+   [:route-id    :keyword]
+   [:resource-id :keyword]
+   [:nav-token   :any]
+   [:cause       {:optional true} :any]   ;; the underlying canonicalization / validation ex-data
+   [:reason      :string]])
+
+(def ResourceRouteBlockingTags
+  ;; a BLOCKING route resource FAILED its first load — the runtime flips the
+  ;; route transition to :error and populates [:rf.runtime/routing :current
+  ;; :error] with this structured error (mirroring the :on-match error trap),
+  ;; so a failed required server-state read is observable in route state
+  ;; rather than a permanent skeleton. The envelope carries the resource's own
+  ;; first-load failure :error. Per Spec 016 §Route integration.
+  [:map
+   [:category    :keyword]
+   [:resource-id :keyword]
+   [:nav-token   :any]
+   [:error       {:optional true} :any]   ;; the resource's first-load failure envelope
+   [:reason      :string]])
+
 ;; --- runtime: mutation errors (per [016 §Deferred slices] / [EP-0003 §Mutations]) ---
 ;; The mutation slice's fail-closed authoring + use vocabulary (rf2-dwme29,
 ;; the first public-beta gate). A mutation is a causal write keyed by
