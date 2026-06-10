@@ -9,6 +9,12 @@ Type: process
 >
 > Normative home: **this active EP**, specifically its §Specification.
 
+> **Ruling recorded 2026-06-11 (rf2-rjh00f).** The corpus already follows this
+> process de facto, and the first coherence remediation made the process
+> dependency explicit by marking this EP `active`. This note records that
+> activation in the EP itself so the process document follows its own
+> recorded-ruling rule.
+
 ## Abstract
 
 re-frame2 EPs follow the Python Enhancement Proposal model: **durable,
@@ -20,6 +26,20 @@ the design document behind it, never a second normative home. A **process** EP
 graduates into its *named normative home*, which MAY be the active EP itself
 (the PEP-8 precedent: the style guide *is* the PEP). Every active process EP
 names its normative home explicitly so there is exactly one.
+
+## Relationships
+
+- **[README](README.md)** is the index and summary page only. It mirrors
+  statuses and points readers at this EP for process rules; it is not a second
+  normative home.
+- **`scripts/check_ep_status_sync.py`** enforces the mechanical part of this
+  process: README/header status sync, status grammar, and the post-EP-0005
+  `Type:` header rule.
+- **EP-0005 and EP-0006** are the pattern for final EPs that outlive their
+  implementation waves through a closed errata ledger. This EP generalizes
+  that pattern for future standards-track EPs.
+- **EP-0007 (one name per fact)** is the sibling process EP that graduates into
+  `spec/Conventions.md`. This EP remains active as its own process rulebook.
 
 ## Specification
 
@@ -130,13 +150,13 @@ as standards-track. The README remains an index, not a second normative home.
 
 ## Bead Plan
 
-1. README bead: reduce `docs/EP/README.md` to the per-type authority summary,
+1. **Done.** README bead: `docs/EP/README.md` is the per-type authority summary,
    lifecycle vocabulary, and index, pointing here for the full process.
-2. Tooling bead: extend `check_ep_status_sync.py` so the documented status and
-   type grammar is checked, not merely synchronized.
-3. Template/update bead: update any EP authoring template or implementor skill
-   that still treats `Status:` as free text or assumes every successful EP
-   graduates into `spec/`.
+2. **Done.** Tooling bead: `check_ep_status_sync.py` enforces README/header
+   status sync, status grammar, and the post-EP-0005 `Type:` header rule.
+3. **Open — `rf2-lbxhlm`.** Template/update bead: update any EP authoring
+   template or implementor skill that still treats `Status:` as free text or
+   assumes every successful EP graduates into `spec/`.
 
 ## Recommendation
 

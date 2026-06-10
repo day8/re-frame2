@@ -9,7 +9,27 @@ Status: final
 > normative core of the reframed contract lives in
 > [`spec/002-Frames.md` §Frame target resolution](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant).
 > This bead (`rf2-u5o1bo`) lands the **foundation** — decision + normative spec core +
-> chain decomposition; the downstream migration is the serial chain filed below.
+> chain decomposition; the downstream migration was tracked through the
+> implementation ledger below.
+
+## Implementation ledger
+
+EP-0002's decisions froze before the repo-wide migration finished. The build
+history is therefore recorded explicitly, following the final-with-ledger
+pattern now codified by EP-0009.
+
+### Open errata
+
+None known.
+
+### Resolved build records
+
+- **`rf2-u5o1bo`** *(closed — PR #3662, merge commit `b1aa6808d`)* — accepted
+  Option C via the appendix reframing, authored the normative Spec 002 carried
+  invariant, decomposed and executed the downstream serial chain, completed the
+  docs tail (`rf2-mi9ier`), completed the final correctness/completeness review
+  (`rf2-rimcm3`), and closed after the 11/11 chain plus greenup rounds landed
+  fully green.
 
 ## Abstract
 

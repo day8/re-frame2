@@ -67,6 +67,24 @@ hand-waving "moot in production."
   gated on its own privacy work; this EP only governs the error axis that
   already ships.
 
+## Relationships
+
+- **Spec 009 (Errors, Warnings, and Diagnostics)** is the target normative
+  home: this EP adds the channel contract and catalogue classification there.
+- **EP-0002 (frame target resolution)** supplies the fail-closed framing for
+  missing causal identity; this EP applies the same production-honesty standard
+  to observability channels.
+- **EP-0007 (one name per fact)** supplies the vocabulary rule. Causal,
+  diagnostic, and always-on error channels name three different facts and must
+  not collapse into ad hoc "log" terminology.
+- **EP-0009 (EP process)** governs this proposal's status and guide-impact
+  obligations before graduation.
+- **EP-0010 (causal world inputs)** relies on this split: host facts that affect
+  durable state ride the causal channel, while diagnostic timing and performance
+  reads remain ambient.
+- **EP-0015 (frame-owned egress policy)** is the privacy-policy consumer for
+  production-survivable error and trace payloads that leave the frame boundary.
+
 ## Specification
 
 ### The channel contract (new Spec 009 section)

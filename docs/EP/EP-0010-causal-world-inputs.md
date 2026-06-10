@@ -986,6 +986,16 @@ recorded before this EP graduates.
   spellings of "when was this dispatched" violates one-name-per-fact (EP-0007),
   and the diagnostic need is already covered by the trace event's own `:time`
   stamp (Spec 009).
+
+## Guide Impact
+
+On graduation, the implementation bead must update the guide's event/coeffect
+and testing material (currently chapter 07's clock/coeffect guidance) to teach
+causal world inputs instead of ambient clock stubbing as the replay-safe path.
+The guide should show `:rf.world/inputs` on dispatch/reply tokens, fixture
+examples for time/UUID/random values, and the boundary where diagnostic
+timestamps remain ambient under EP-0008.
+
 ## Recommendation
 
 Adopt. Causal world inputs make the frame fold honest: durable state is a

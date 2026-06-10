@@ -249,9 +249,9 @@ vectors need values from the outer query vector.
 
 ### No app-db-dependent topology
 
-This proposal revises the documented signal-function shape. The current
-`spec/008-Testing.md` pseudocode includes `(signal-fn db query-v)`. The v2
-contract becomes `(input-fn query-v)`.
+This proposal revised the documented signal-function shape. Earlier
+`spec/008-Testing.md` pseudocode included `(signal-fn db query-v)`; the
+executed v2 contract is `(input-fn query-v)`.
 
 The objection to `db` is not purity. A `db` value is pure and JVM-computable.
 The problem is reactive-cache stability. A state-dependent edge set means a
@@ -574,11 +574,13 @@ Hasura, and machine view models.
 
 ## Resolved Decisions
 
-The three §Open Issues are all settled — none remains an open question. Two were
-answered **de facto by the shipped implementation**, conservatively, and one is
-**deferred by design** per [§Rejected Ideas](#rejected-ideas). This section is the
-binding record (mirroring the EP-0001 / EP-0002 Resolved Decisions pattern); the
-§Open Issues phrasing above is read as the question each ruling answers.
+The three §Open Issues are all settled — none remains an open question. Mike's
+2026-06-08 finalization accepted the implementation-shaped answers below: two
+were answered **de facto by the shipped implementation**, conservatively, and
+one is **deferred by design** per [§Rejected Ideas](#rejected-ideas). This
+section is the binding record (mirroring the EP-0001 / EP-0002 Resolved
+Decisions pattern); the §Open Issues phrasing above is read as the question each
+ruling answers.
 
 1. **Issue 3 (malformed input-fn return preview) — fail-closed off-box.**
    Decided **by the implementation**, conservatively. The raw offending value

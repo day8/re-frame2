@@ -36,8 +36,9 @@ the decision-freeze (the EP-0005 pattern), and none of it reopens any ruling.
   section specifies a drift test that pins the grading table's subsystem list
   against the reserved-key table in [`spec/Conventions.md`](../../spec/Conventions.md#reserved-runtime-db-keys),
   so a new `:rf.runtime/*` child landed *without* a contract grading row fails CI.
-  The grading table shipped (four shipped subsystems + EP-0003's two graduating
-  rows), and the per-subsystem ownership-diagnostic sweep (`rf2-o4dmp8` shape)
+  The grading table shipped with the then-current runtime-subsystem rows,
+  including the EP-0003 resource/work-ledger rows, and the per-subsystem
+  ownership-diagnostic sweep (`rf2-o4dmp8` shape)
   exists, but the **table-vs-reserved-key drift test itself is not yet wired into a
   gate**. Until it lands, a new subsystem child without a grading row is caught
   only by review, not CI. *(Decision-settled, build-incomplete: the test's shape
@@ -47,10 +48,9 @@ the decision-freeze (the EP-0005 pattern), and none of it reopens any ruling.
 ## Abstract
 
 Every child of the runtime-db partition — `:rf.runtime/machines`,
-`:rf.runtime/routing`, `:rf.runtime/elision`, `:rf.runtime/ssr`, and EP-0003's
-incoming `:rf.runtime/resources` and `:rf.runtime/work-ledger` — independently
-re-implements the same five properties, but the shape is nowhere named. This EP
-names it:
+`:rf.runtime/routing`, `:rf.runtime/elision`, `:rf.runtime/ssr`, and the
+EP-0003 resource/work-ledger rows — independently re-implements the same five
+properties, but the shape is nowhere named. This EP names it:
 
 > A **runtime subsystem** is a reserved runtime-db sub-tree with a declared
 > write authority, a public read API, a projection policy, and a teardown
@@ -95,8 +95,8 @@ without a concrete consumer.
 ## Goals
 
 - Name the five-clause contract once, normatively.
-- Grade the existing four subsystems against it (the table is the deliverable —
-  filling it is most of the audit value).
+- Grade the then-current runtime-subsystem set against it (the table is the
+  deliverable — filling it is most of the audit value).
 - Give EP-0003's two children (`resources`, `work-ledger`) a graduation
   checklist.
 - Make write-authority minting (clause 2) an enumerable, conformance-testable
@@ -196,16 +196,16 @@ subsystem children remain framework-owned `:rf.runtime/*` keys only.
 ## Backwards Compatibility
 
 Documentation + tests only; no runtime behavior changes. Pre-alpha: the
-contract constrains future subsystem shapes deliberately — six existing
-instances show the shape is empirical, not speculative.
+contract constrains future subsystem shapes deliberately — the shipped grading
+table shows the shape is empirical, not speculative.
 
 ## Reference Implementation / Bead Plan
 
 1. Spec bead: author `spec/Runtime-Subsystems.md` (contract + table), add the
    Ownership row, cross-reference from Conventions. *(Hot-zone: Conventions;
    sequential.)*
-2. Grading bead: fill the four existing rows from the owning specs; file gaps
-   found as beads.
+2. Grading bead: fill the initial runtime-subsystem rows from the owning specs;
+   file gaps found as beads.
 3. Conformance bead: the drift test + the per-subsystem diagnostics sweep.
 4. EP-0003 integration: `rf2-pbzds6` (already filed) adds the resources +
    work-ledger rows.
@@ -246,5 +246,5 @@ instances show the shape is empirical, not speculative.
 
 Adopt. The contract is small (one doc, one table, two tests), empirically
 grounded, and its absence is precisely why the routing authority gap shipped
-unnoticed. It converts "five subsystems, five sets of prose" into "one
-contract, six graded instances" — the same move Managed-Effects already proved.
+unnoticed. It converts repeated per-subsystem prose into one contract and one
+grading table — the same move Managed-Effects already proved.

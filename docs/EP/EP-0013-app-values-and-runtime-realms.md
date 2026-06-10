@@ -1528,28 +1528,58 @@ Conformance should be tested at three levels.
 
 ## Open Issues
 
-- What public names should ship: `rf/app`, `rf/module`, `rf/runtime`,
-  `rf/realm`, `rf/install!`, `rf/reinstall!`, or a different vocabulary?
-- What is the exact realm stamp shape carried with frame identity?
-- Are frame ids unique within a realm only, or should public multi-realm APIs
-  require globally unique frame ids during the compatibility window?
-- Is adapter ownership per realm, per render root, or both?
-- Which host-transient subsystem should move behind the realm first?
-- How much of the module ownership map belongs in the first public API?
-- Should explicit app composition return error values, throw ex-info, or support
-  both?
-- How are source coordinates supplied in hosts without macro support?
-- What replacement declaration is sufficient to distinguish hot reload from an
-  accidental collision?
-- How does namespace-load `reg-*` sugar interact with explicit app values when a
-  namespace contains both forms?
-- Which registrar query arities become public at the first realm-aware stage?
-- How should active resources, route transitions, and machines participate in a
-  realm reinstall beyond the existing per-kind hot-reload rules?
-- Does the host-transient subsystem descriptor live here or as an extension row
-  in EP-0006's grading table? Recommendation: EP-0006 owns the contract; this
-  EP contributes realm ownership and lifecycle as the host-transient grading
-  column.
+Each issue carries an author recommendation only; none is a ruling.
+
+1. What public names should ship: `rf/app`, `rf/module`, `rf/runtime`,
+   `rf/realm`, `rf/install!`, `rf/reinstall!`, or a different vocabulary?
+   **Recommendation:** keep the first public slice small: `rf/app`,
+   `rf/module`, `rf/realm`, and `rf/install!`; defer reinstall naming until
+   hot-reload semantics are proven.
+2. What is the exact realm stamp shape carried with frame identity?
+   **Recommendation:** carry `:rf.realm/id` beside `:rf.frame/id` in framework
+   envelopes and records; do not overload frame ids with realm-qualified tuples.
+3. Are frame ids unique within a realm only, or should public multi-realm APIs
+   require globally unique frame ids during the compatibility window?
+   **Recommendation:** frame ids are unique within a realm; APIs that cross a
+   realm boundary require both realm and frame, while single-realm apps keep the
+   current frame-id ergonomics.
+4. Is adapter ownership per realm, per render root, or both?
+   **Recommendation:** realm owns the adapter capability; render roots may bind
+   a narrower concrete root instance, but the capability lookup is realm-owned.
+5. Which host-transient subsystem should move behind the realm first?
+   **Recommendation:** move adapter installation/test reset first, then HTTP
+   in-flight handles, because those two give the fastest hermetic-test payoff.
+6. How much of the module ownership map belongs in the first public API?
+   **Recommendation:** expose descriptor ownership and capability requirements;
+   keep advanced provenance/query metadata internal until tooling needs it.
+7. Should explicit app composition return error values, throw ex-info, or
+   support both?
+   **Recommendation:** validation APIs return data; install/boot APIs throw
+   `ex-info` with the same data when asked to make an invalid app visible.
+8. How are source coordinates supplied in hosts without macro support?
+   **Recommendation:** source coordinates are optional descriptor metadata in
+   non-macro hosts; code generators and language adapters may fill them.
+9. What replacement declaration is sufficient to distinguish hot reload from an
+   accidental collision?
+   **Recommendation:** require an explicit generation/source identity on
+   replacement batches; accidental same-id collisions outside a replacement
+   batch fail loudly.
+10. How does namespace-load `reg-*` sugar interact with explicit app values when
+    a namespace contains both forms?
+    **Recommendation:** namespace-load `reg-*` targets the default realm only;
+    explicit app descriptors are inert values until installed into a realm.
+11. Which registrar query arities become public at the first realm-aware stage?
+    **Recommendation:** expose read-only queries scoped by `{ :realm ... }` and
+    `{ :realm ... :kind ... }`; defer broad process-global queries to tools.
+12. How should active resources, route transitions, and machines participate in
+    a realm reinstall beyond the existing per-kind hot-reload rules?
+    **Recommendation:** first reinstall slice is descriptor-only and refuses
+    when live runtime instances would need migration; later slices add
+    per-subsystem migration hooks through the runtime-subsystem contract.
+13. Does the host-transient subsystem descriptor live here or as an extension row
+    in EP-0006's grading table? **Recommendation:** EP-0006 owns the contract;
+    this EP contributes realm ownership and lifecycle as the host-transient
+    grading column.
 
 ## Recommendation
 

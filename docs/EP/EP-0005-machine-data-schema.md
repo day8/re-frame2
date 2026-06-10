@@ -3,9 +3,11 @@
 Status: final
 
 > **`final` means the decisions are settled.** The five deferred calls were ruled
-> by Mike on 2026-06-08 (see [Resolved Decisions](#resolved-decisions)) and the
-> design is locked. The implementation has now also shipped in full: every tracked
-> implementation erratum is closed — see [Implementation errata](#implementation-errata).
+> by Mike on 2026-06-08 (see [Resolved Decisions](#resolved-decisions)); the later
+> 2026-06-09 `rf2-0k5ubx` errata ruling reaffirmed the same schema-first public
+> surface for `:sensitive?` / `:large?`. The design is locked. The implementation
+> has now also shipped in full: every tracked implementation erratum is closed —
+> see [Implementation errata](#implementation-errata).
 > The EP is implementation-complete. (Finalizing the *decisions* did not, on its own,
 > assert the *implementation* was gap-free; the errata ledger below tracked that
 > separately to its close.)
@@ -415,8 +417,13 @@ map; precision is achievable and preferred. (The whole-slot scrub stays correct 
 
 ## Resolved Decisions
 
-The five calls this EP deferred to the operator were ruled by Mike on 2026-06-08. All
-were taken as recommended above; the rulings below are the final, implemented decisions.
+The five calls this EP deferred to the operator were ruled by Mike on
+2026-06-08. All were taken as recommended above; the rulings below are the
+final, implemented decisions. A follow-up implementation-errata ruling,
+`rf2-0k5ubx` on 2026-06-09, confirmed the same public surface for
+sensitivity/large-data metadata: machine `:data` marks come only from per-slot
+`:data-schema` properties for v1, with no top-level `:sensitive` / `:large`
+keys.
 
 1. **Naming → `:data-schema`.** The key is renamed from `:schema` to `:data-schema`. The
    local-clarity win at the point of maximum ambiguity (a `:data` sibling sitting beside
@@ -450,8 +457,9 @@ sensitive slots are redacted, not only validated; switch machines-viz to
 declared-over-inferred Context shape; and document the XState v5 parity. Validation
 itself already shipped under `rf2-jbbp7`, so this EP corrects the premise that machine
 `:data` is un-schema'd and finishes a documented-but-non-functional privacy capability.
-All five deferred calls were ruled by the operator on 2026-06-08 (see
-[Resolved Decisions](#resolved-decisions)) and the design is settled, so this EP is
+All five deferred calls were ruled by the operator on 2026-06-08, with the
+`rf2-0k5ubx` follow-up ruling recorded on 2026-06-09 (see
+[Resolved Decisions](#resolved-decisions)), and the design is settled, so this EP is
 **final** — final in its *decisions*. The work has now shipped in full; every
 [implementation erratum](#implementation-errata) is closed, so the EP is
 implementation-complete as well.

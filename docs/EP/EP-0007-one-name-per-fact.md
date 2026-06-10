@@ -72,6 +72,28 @@ class that dominated this review cycle.
   `:fx`, the public `:frame` opt) is explicitly sanctioned and untouched.
 - Not blocking other work: each sweep item is independently landable.
 
+## Relationships
+
+- **EP-0002 (frame target resolution)** supplies the frame-stamp precedent:
+  the public opt remains `:frame`, while runtime context uses `:rf.frame/id`.
+  This EP records that as the first named cross-layer vocabulary rule.
+- **EP-0003 / Spec 016 (resource queries)** is the main work-ledger consumer:
+  `:work/id`, scoped resource keys, stale suppression, and resource
+  params/scope canonicalization are the surfaces most likely to regress into
+  parallel names.
+- **EP-0005 (machine `:data` schema)** is the schema-family precedent. It
+  deliberately chose `:data-schema` where a visible sibling made the generic
+  `:schema` name ambiguous.
+- **EP-0008 (production observability channels)** depends on this rule for
+  channel vocabulary: causal, diagnostic, and always-on error are distinct
+  facts, not synonyms for "things we log."
+- **EP-0009 (EP process)** defines this document's process status and
+  graduation path. On acceptance, the rules in this EP move to
+  `spec/Conventions.md`; this EP remains the rationale record.
+- **EP-0011, EP-0012, and EP-0015** are proposal-tier consumers: the uniform
+  reply envelope, canonical-form rules, and frame-owned egress policy all use
+  this EP to avoid duplicate carriers for the same fact.
+
 ## Specification
 
 ### The rules

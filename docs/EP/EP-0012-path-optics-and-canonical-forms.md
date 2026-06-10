@@ -196,8 +196,9 @@ valid segments.
 
 This is the shared upper bound, not a requirement that every subsystem accept
 every segment type. A spec may deliberately narrow the domain for its public
-surface — for example, Spec 016 currently rejects date/instant-like resource
-scope values — as long as it records that narrowing as a policy over the shared
+surface — for example, Spec 016 rejects date-like host values in resource
+params, and resource scope maps inherit the same canonicalization rule as
+params maps — as long as it records that narrowing as a policy over the shared
 definition.
 
 **Focus**: The value selected by a path.

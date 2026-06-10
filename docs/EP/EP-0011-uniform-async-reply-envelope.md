@@ -449,10 +449,11 @@ HTTP abort compatibility may still surface the HTTP category inside `:error`:
                  :reason :actor-destroyed}}
 ```
 
-Stale wins over natural success or failure for delivery purposes. A late
-successful HTTP response for a superseded resource generation is not `:ok`; it
-is `:stale`/`:suppressed` in the ledger and trace stream, and the app target is
-not dispatched unless explicitly opted in for testing or tooling.
+Stale wins over the natural completion status for delivery purposes. A late
+successful, partial, or failed completion for a superseded resource generation
+is not `:ok`, `:partial`, or `:error`; it is `:stale`/`:suppressed` in the
+ledger and trace stream, and the app target is not dispatched unless explicitly
+opted in for testing or tooling.
 
 ### Work Id Correlation
 
@@ -520,6 +521,11 @@ EP-0010 and the graduated Spec 016 ledger row; the values remain causal epoch
 millisecond readings unless a later accepted EP changes the time representation
 for the whole durable timestamp family.
 
+The `:rf.resource.internal/replied` event id in this illustrative ledger row is
+the candidate consolidated resource reply target. Shipped Spec 016 may keep
+separate success/failure/abort internal event ids until that consolidation is
+ruled.
+
 Completion updates that row before, or atomically with, delivery:
 
 ```clojure
@@ -533,11 +539,17 @@ Terminal ledger statuses MAY be more operational than reply statuses:
 
 | Ledger status | Typical reply status |
 |---|---|
-| `:completed` | `:ok` |
+| `:completed` | `:ok` or `:partial` |
 | `:failed` | `:error` |
 | `:timed-out` | `:error` with timeout kind |
 | `:cancelled` | `:cancelled` |
 | `:suppressed` | `:stale` |
+
+A `:partial` reply is still operationally completed: the host work returned a
+current response and the effect family received usable value data. The partial
+condition lives in the reply `:status` and `:error` payload; the work-ledger
+`:status` remains `:completed` unless the effect family also needs a narrower
+ledger outcome under `:outcome`.
 
 The ledger must not store host handles. AbortControllers, timer handles,
 transport promises, and subscriptions remain host-transient side-table entries
@@ -645,7 +657,8 @@ facts rather than private callback facts. At minimum:
 - issuance/start with `:work/id`, frame, owner/cause, and target summary;
 - retry or intermediate transition where applicable;
 - cancellation requested, including reason and whether a host handle existed;
-- completion classified as `:ok`, `:error`, `:cancelled`, or `:stale`;
+- completion classified as `:ok`, `:partial`, `:error`, `:cancelled`, or
+  `:stale`;
 - stale suppression with carried/current correlation facts;
 - delivery to a target, or explicit non-delivery.
 
@@ -887,14 +900,14 @@ and lowers to managed HTTP:
                  :rf.frame/id  :app/main}]}]
 ```
 
-The internal resource reply handler receives one reply map for success,
-failure, cancellation, or stale suppression:
-
 The examples in this section use the candidate consolidated
 `:rf.resource.internal/replied` event. Shipped Spec 016 may keep separate
 success/failure/abort internal event ids until that consolidation is ruled; the
 normative point here is the reply map and `:work/id`, not the exact internal
 event id.
+
+The internal resource reply handler receives one reply map for successful,
+partially successful, failed, cancelled, or stale-suppressed completions:
 
 ```clojure
 [:rf.resource.internal/replied
@@ -1019,6 +1032,11 @@ The handler only sees live replies:
 
       :error
       {:db (assoc-in db [:article/error slug] (:error reply))}
+
+      :partial
+      {:db (-> db
+               (assoc-in [:article/by-slug slug] (:value reply))
+               (assoc-in [:article/warnings slug] (:error reply)))}
 
       ;; :cancelled may be visible for explicit user cancellation.
       :cancelled
@@ -1211,6 +1229,15 @@ remain as sugar. Internally, two target slots make status taxonomy, tracing,
 mapping, and work-ledger completion less uniform. One reply target plus one
 status field is the smaller substrate.
 
+Plain managed HTTP does not emit `:partial`: an HTTP response is decoded as
+`:ok` or projected as `:error`/`:cancelled`/`:stale` under Spec 014's current
+two-slot compatibility surface. `:partial` is reserved for effect families whose
+protocol can return usable data and structured problems in one completion, such
+as the deferred GraphQL transport. A future public transport that can emit
+`:partial` must expose either the uniform `:rf/reply-to` target or an explicit
+partial-delivery rule; it must not silently choose one of HTTP's
+`:on-success`/`:on-failure` slots.
+
 ### Always dispatch stale replies to app code
 
 Dispatching stale replies by default asks app handlers to remember to ignore
@@ -1324,6 +1351,16 @@ Conformance should include fixtures or tests for:
   true` on the descriptor form. **Recommendation:** keep that spelling unless
   graduation review finds a conflict, and restrict it to framework test and
   tool targets.
+
+## Guide Impact
+
+On graduation, the implementation bead must update the guide's async/no-await
+material (the current chapter 10 box) so managed effects are taught as causal
+reply events. The guide update should show `:rf/reply-to`, the uniform reply
+map, the full status set including `:partial`, stale suppression, cancellation,
+and EP-0010 completion timestamps. HTTP compatibility examples may keep
+`:on-success` / `:on-failure`, but they must be presented as lowering sugar
+over the uniform envelope rather than the general async model.
 
 ## Recommendation
 
