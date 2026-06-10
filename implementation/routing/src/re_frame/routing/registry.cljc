@@ -148,6 +148,25 @@
     ;; cross-feature: SSR head selection (Spec 011 §Head/meta contract)
     :head})
 
+(defn- accepted-route-keys
+  "The full set of accepted bare route-metadata keys: the routing-owned
+  `reserved-route-keys` UNIONed with any LATE-BOUND cross-feature
+  extension keys published under `:routing/extra-route-keys`.
+
+  Per Spec 012 §Reserved route-metadata keys, routing rejects unknown
+  bare route-metadata keys at registration. A cross-feature artefact
+  (e.g. the Resources artefact's `:resources` key, Spec 016 §Route
+  integration) extends the accepted set via this late-bound framework
+  extension — exactly as `:head` is a cross-feature key owned by SSR.
+  The hook publishes a SET of extra keys; resources is the first
+  publisher (rf2-p10npe). When no extension artefact is loaded the hook
+  is absent and the set is exactly the routing-owned reserved keys, so an
+  app without resources/SSR sees no behaviour change."
+  []
+  (if-let [extra (late-bind/get-fn :routing/extra-route-keys)]
+    (into reserved-route-keys (extra))
+    reserved-route-keys))
+
 (defn- validate-route-metadata!
   "Authoring-boundary guardrail for `reg-route` (rf2-45b95). Throws
   `:rf.error/invalid-route-metadata` (canonical thrown-error shape, per
@@ -169,10 +188,11 @@
              'rf/reg-route
              (str "route " id "'s metadata must be a map, got " (pr-str (type metadata)))
              {:route-id id :value metadata})))
-  (let [bad (into []
+  (let [accepted (accepted-route-keys)
+        bad (into []
                   (comp (map key)
                         (remove qualified-keyword?)
-                        (remove reserved-route-keys))
+                        (remove accepted))
                   metadata)]
     (when (seq bad)
       (throw (route-error
@@ -183,11 +203,11 @@
                     (str/join ", " (map pr-str bad))
                     " — bare keys outside the reserved set are rejected as likely "
                     "typos (e.g. :on-matched for :on-match). Reserved keys: "
-                    (str/join ", " (map pr-str (sort reserved-route-keys)))
+                    (str/join ", " (map pr-str (sort accepted)))
                     ". Host/app extension keys must be namespaced (e.g. :myapp/analytics-id).")
                {:route-id id
                 :keys     bad
-                :reserved reserved-route-keys})))))
+                :reserved accepted})))))
 
 ;; ---- registration --------------------------------------------------------
 
