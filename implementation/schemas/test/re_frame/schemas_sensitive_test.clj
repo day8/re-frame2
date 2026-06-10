@@ -898,18 +898,21 @@
 ;; the PATH-TARGETED `schema-sensitive-at?` whether THAT slot is sensitive —
 ;; matching the precise model `validate-app-schema!` already used.
 ;;
-;; SCOPE NOTE (rf2-k0ew8n follow-up): path-targeting is exact when the
-;; schema ROOT is a navigable container (`:map` / `:tuple` / index-bearing)
-;; — the cofx / fx-args / sub-return surfaces, whose schemas validate a map
-;; value directly, get the precise behaviour below. EVENT schemas are
-;; `:cat`-rooted (`[:cat [:= :id] PayloadSchema]`); the walker treats `:cat`
-;; as a parent-path-collapsing wrapper (NOT position-bearing like `:tuple`),
-;; so `align-in-path` cannot resolve the `:cat` element index and the check
-;; degrades FAIL-SAFE (conservatively redacts) when any sibling is sensitive
-;; — identical to the app-db path's no-extractable-`:in` fallback. Making
-;; `:cat` / `:catn` position-bearing in the walker (so event payloads also
-;; get exact path-targeting) is a coordinated walker + elision-coordinate
-;; change tracked as a follow-up bead, NOT bundled here.
+;; SCOPE NOTE (rf2-4q681i — the `:cat`-walker follow-up, now DONE):
+;; path-targeting is exact when the schema ROOT is a navigable container
+;; (`:map` / `:tuple` / `:cat` / `:catn` / index-bearing). The cofx /
+;; fx-args / sub-return surfaces validate a map value directly; EVENT
+;; schemas are `:cat`-rooted (`[:cat [:= :id] PayloadSchema]`). As of
+;; rf2-4q681i the walker treats `:cat` / `:catn` as POSITION-bearing
+;; (emitting per-element decl-paths `(conj base i)`, mirroring `:tuple`),
+;; and `align-in-path` KEEPS the integer element index, so the event
+;; surface now gets the SAME exact path-targeting as the map-rooted
+;; surfaces — a sensitive sibling no longer over-redacts a non-sensitive
+;; failing sibling. The elision-coordinate alignment is automatic: the
+;; runtime elision walk descends the event VECTOR through its generic
+;; literal-index fork (`fork-index-paths`, `(conj c i)`), matching the
+;; position-pinned `:cat`/`:catn` declaration exactly (no elision-side
+;; code change — same as the `:tuple` precedent rf2-ss06u.4).
 
 (deftest cofx-validation-sensitive-sibling-non-sensitive-failure-verbatim
   (testing "rf2-k0ew8n — a cofx schema (map-rooted) with a sensitive sibling
@@ -990,34 +993,156 @@
         (is (not= :rf/redacted (-> v :tags :value))
             ":value rides verbatim — the sensitive sibling did not over-redact")))))
 
-(deftest event-validation-cat-root-fails-safe
-  (testing "rf2-k0ew8n SCOPE — an event schema is `:cat`-rooted; the walker
-            does not treat `:cat` as position-bearing, so a non-sensitive
-            failing sibling under a sensitive payload degrades FAIL-SAFE
-            (conservatively redacts) rather than leaking. Documented
-            limitation; exact event-surface path-targeting is the follow-up
-            `:cat`-walker bead. The privacy contract is upheld either way."
-    (rf/reg-event-db :auth/profile
-      {:schema [:cat [:= :auth/profile]
-                [:map
-                 [:password {:sensitive? true} :string]
-                 [:age :int]]]}
-      (fn [db _] db))
-    (let [traces (atom [])]
-      (rf/register-listener! ::prof (fn [ev] (swap! traces conj ev)))
-      ;; :password conforms; :age fails — the failing slot is NON-sensitive,
-      ;; but the `:cat` root blocks path resolution, so fail-safe redaction
-      ;; fires (the sensitive sibling is present).
-      (rf/dispatch-sync [:auth/profile {:password "pw" :age "old"}])
-      (rf/unregister-listener! ::prof)
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                             @traces))]
-        (is (some? v))
-        (is (true? (:sensitive? v))
-            "fail-safe: the `:cat` root blocks exact path-targeting, so a
-             sensitive sibling still triggers conservative redaction")
-        (is (= :rf/redacted (-> v :tags :received))
-            ":received redacted — privacy upheld under the fail-safe path")))))
+(deftest event-validation-cat-root-sensitive-sibling-non-sensitive-failure-verbatim
+  (testing "rf2-4q681i — an event schema is `:cat`-rooted; with `:cat` now
+            POSITION-bearing in the walker, a non-sensitive failing sibling
+            under a sensitive payload rides VERBATIM (exact path-targeting),
+            NOT the prior fail-safe over-redaction. This was the documented
+            `event-validation-cat-root-fails-safe` limitation — now exact.
+            (Privacy is still upheld: the sensitive slot itself, when it
+            fails, still redacts — pinned in the companion test below.)"
+    (let [secret "pw-MUST-NOT-LEAK"]
+      (rf/reg-event-db :auth/profile
+        {:schema [:cat [:= :auth/profile]
+                  [:map
+                   [:password {:sensitive? true} :string]
+                   [:age :int]]]}
+        (fn [db _] db))
+      (let [traces (atom [])]
+        (rf/register-listener! ::prof (fn [ev] (swap! traces conj ev)))
+        ;; :password conforms (a string); :age fails (a string, not int) —
+        ;; the failing slot is NON-sensitive. `:cat` element 1 is now
+        ;; position-bearing, so the failing `:in` `[1 :age]` aligns to the
+        ;; decl-path `[1 :age]` and the sensitive sibling `[1 :password]`
+        ;; does NOT taint it.
+        (rf/dispatch-sync [:auth/profile {:password secret :age "old"}])
+        (rf/unregister-listener! ::prof)
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v))
+          (is (not (true? (:sensitive? v)))
+              "exact path-targeting: the failing slot (:age) is not sensitive,
+               so the sensitive sibling (:password) does NOT over-redact")
+          (is (not= :rf/redacted (-> v :tags :received))
+              ":received rides verbatim — the non-sensitive failure is visible
+               to Xray / Pair / trace debugging")
+          ;; NOTE: the conforming :password value DOES ride verbatim here —
+          ;; that is the correct trade-off the bead specifies (a conforming
+          ;; sensitive sibling is not the failing slot; only the failing slot
+          ;; drives redaction). The privacy contract protects FAILING
+          ;; sensitive slots; see the companion test below.
+          (is (= [:auth/profile {:password secret :age "old"}]
+                 (-> v :tags :received))
+              "the non-sensitive failing payload is reported verbatim"))))))
+
+(deftest event-validation-cat-root-sensitive-slot-failure-still-redacts
+  (testing "rf2-4q681i — no privacy regression: when the SENSITIVE `:cat`
+            payload slot itself fails, the value is still redacted and
+            stamped (the precision fix must not under-redact the declared
+            position)"
+    (let [secret 123456789]                 ;; an int — fails the :string slot
+      (rf/reg-event-db :auth/profile2
+        {:schema [:cat [:= :auth/profile2]
+                  [:map
+                   [:password {:sensitive? true} :string]
+                   [:age :int]]]}
+        (fn [db _] db))
+      (let [traces (atom [])]
+        (rf/register-listener! ::prof2 (fn [ev] (swap! traces conj ev)))
+        ;; :password fails (int, not string) — the FAILING slot IS sensitive.
+        (rf/dispatch-sync [:auth/profile2 {:password secret :age 30}])
+        (rf/unregister-listener! ::prof2)
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v))
+          (is (true? (:sensitive? v))
+              ":sensitive? stamped — the failing slot (:password) is sensitive")
+          (is (= :rf/redacted (-> v :tags :received)) ":received redacted")
+          (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+          (is (not (str/includes? (pr-str (:tags v)) (str secret)))
+              "the raw secret does NOT appear anywhere in the emitted tags"))))))
+
+(deftest event-validation-catn-root-sensitive-sibling-non-sensitive-failure-verbatim
+  (testing "rf2-4q681i — `:catn` (name+position-bearing) gets the same exact
+            path-targeting as `:cat`: Malli reports the integer POSITION (not
+            the name) in `:in`, so a non-sensitive failing sibling under a
+            sensitive `:catn` payload rides verbatim while a sensitive-slot
+            failure still redacts"
+    (let [secret "catn-pw-DO-NOT-LEAK"]
+      (rf/reg-event-db :auth/profile-n
+        {:schema [:catn
+                  [:id [:= :auth/profile-n]]
+                  [:payload [:map
+                             [:password {:sensitive? true} :string]
+                             [:age :int]]]]}
+        (fn [db _] db))
+      (let [traces (atom [])]
+        (rf/register-listener! ::profn (fn [ev] (swap! traces conj ev)))
+        ;; :age fails (non-sensitive); :password conforms.
+        (rf/dispatch-sync [:auth/profile-n {:password secret :age "old"}])
+        (rf/unregister-listener! ::profn)
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v))
+          (is (not (true? (:sensitive? v)))
+              "exact path-targeting through :catn — non-sensitive :age failure
+               is not tainted by the sensitive :password sibling")
+          (is (= [:auth/profile-n {:password secret :age "old"}]
+                 (-> v :tags :received))
+              ":received rides verbatim"))))))
+
+;; ---- walker unit tests for the rf2-4q681i :cat/:catn position-bearing fix --
+
+(deftest extract-cat-emits-position-pinned-paths
+  (testing "rf2-4q681i — the walker emits a :cat element flag at its
+            POSITION-pinned path ((conj base i)), not the index-free :cat
+            base-path; this is what gives the event-payload sibling precision"
+    ;; element 1 (the payload) is a sensitive :string.
+    (is (= {[1] {:sensitive? true :source :schema}}
+           (schemas/extract-sensitive-paths-from-schema
+             [:cat [:= :id] [:string {:sensitive? true}]] [])))
+    ;; per-slot flag inside a :cat payload MAP claims the position + key.
+    (is (= {[1 :tok] {:sensitive? true :source :schema}}
+           (schemas/extract-sensitive-paths-from-schema
+             [:cat [:= :id] [:map [:tok {:sensitive? true} :string] [:age :int]]] [])))
+    ;; base-path threads through.
+    (is (= {[:ev 1] {:sensitive? true :source :schema}}
+           (schemas/extract-sensitive-paths-from-schema
+             [:cat [:= :id] [:string {:sensitive? true}]] [:ev])))))
+
+(deftest extract-catn-emits-position-pinned-paths
+  (testing "rf2-4q681i — `:catn` is position-bearing too; an entry-level OR a
+            schema-level :sensitive? flag claims the element's POSITION-pinned
+            path (the decorative name is NOT a path segment — Malli reports the
+            integer index in :in)"
+    ;; entry-level flag on the :catn entry props.
+    (is (= {[1] {:sensitive? true :source :schema}}
+           (schemas/extract-sensitive-paths-from-schema
+             [:catn [:id [:= :id]] [:tok {:sensitive? true} :string]] [])))
+    ;; per-slot flag inside a :catn payload MAP claims position + key.
+    (is (= {[1 :pw] {:sensitive? true :source :schema}}
+           (schemas/extract-sensitive-paths-from-schema
+             [:catn [:id [:= :id]]
+              [:payload [:map [:pw {:sensitive? true} :string] [:age :int]]]] [])))))
+
+(deftest schema-sensitive-at-cat-position-precise
+  (testing "rf2-4q681i — a :cat element's sensitivity is element-precise: a
+            failure at a NON-sensitive sibling position is NOT redacted, while
+            the declared-sensitive position (and its ancestor/descendant) is —
+            mirrors the :tuple position-precision contract (rf2-ss06u.4)"
+    (let [s [:cat [:= :id] [:map [:pw {:sensitive? true} :string] [:age :int]]]]
+      ;; SELF / DESCENDANT — the sensitive payload slot fails → redact.
+      (is (true?  (schemas/schema-sensitive-at? s [1 :pw])) "exact sensitive slot")
+      (is (true?  (schemas/schema-sensitive-at? s [1]))     "ancestor of the secret")
+      ;; SIBLING — the non-sensitive payload slot fails → must NOT redact.
+      (is (false? (schemas/schema-sensitive-at? s [1 :age]))
+          ":pw sensitive must NOT taint a failure at the non-sensitive :age")
+      ;; the id position (element 0) carries no secret.
+      (is (false? (schemas/schema-sensitive-at? s [0])) "the id position is not sensitive"))
+    ;; whole-element sensitivity: element 1 entirely sensitive.
+    (let [s [:cat [:= :id] [:string {:sensitive? true}]]]
+      (is (true?  (schemas/schema-sensitive-at? s [1])) "the sensitive payload position redacts")
+      (is (false? (schemas/schema-sensitive-at? s [0])) "the non-sensitive id position does not"))))
 
 ;; ---- rf2-a5kzs / rf2-o69h5 — shared validation-failure redaction seam ----
 ;; The production boundary interceptor (`re-frame.spec`) builds its own event-

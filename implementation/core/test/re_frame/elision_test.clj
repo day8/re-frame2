@@ -247,6 +247,26 @@
     (is (= 42 (get-in out [:point 1]))
         "the non-sensitive sibling element 1 rides verbatim — no over-redaction")))
 
+(deftest schema-sensitive-cat-position-precise-redacts
+  ;; rf2-4q681i — a `:cat` element marked {:sensitive? true} declares a
+  ;; POSITION-pinned path (`[:ev 1]`), exactly like the `:tuple` case above.
+  ;; The runtime elision walk descends the value (a vector) through the SAME
+  ;; generic literal-index fork (`fork-index-paths`, `(conj c i)`) and matches
+  ;; that exact position — redacting ONLY the declared element while the
+  ;; non-sensitive sibling rides verbatim. This pins the coordinate-system
+  ;; consistency the bead requires for `:cat`/`:catn`: NO elision-side change
+  ;; was needed (the index fork is schema-agnostic — it walks the runtime
+  ;; value, so `:cat` aligns through the same path as `:tuple`).
+  (rf/reg-app-schema [:ev]
+                     [:cat [:= :id] [:string {:sensitive? true}]])
+  (is (= [[:ev 1]] (rf/populate-sensitive-from-schemas!))
+      "the sensitive :cat element declares its POSITION-pinned path")
+  (let [out (rf/elide-wire-value {:ev [:id "the-secret"]})]
+    (is (= :id (get-in out [:ev 0]))
+        "the non-sensitive id element 0 rides verbatim — no over-redaction")
+    (is (= :rf/redacted (get-in out [:ev 1]))
+        "the declared-sensitive element 1 is redacted at its exact position")))
+
 (deftest sensitive-wins-over-large
   (rf/reg-app-schema [:secret-pdf]
                      [:string {:large? true
