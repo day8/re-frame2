@@ -306,43 +306,38 @@
 ;; re-stating `paths/spawned-path` and structurally walking the registry —
 ;; a hidden dependency on this artefact's private runtime-db shape. The
 ;; ownership decision is now MACHINES-OWNED and published through the
-;; `:machines/owning-actor-id` hook (rf2-ma0wvq), so the structural walk
-;; lives next to the registry shape it depends on. http reaches it via
+;; `:machines/owning-actor-id` hook (rf2-ma0wvq), so the structural read
+;; lives next to the runtime-db shape it depends on. http reaches it via
 ;; `late-bind/get-fn` and falls back to nil when machines is absent.
 ;;
-;; SET SEMANTICS (rf2-ma0wvq step 1): the owning set is REGISTRY
-;; MEMBERSHIP — declarative `:spawn` / `:spawn-all` actors only, set-
-;; identical to the pre-inversion http walk. This is declarative-only BY
-;; DECISION pending a step-2 follow-up (filed separately) that WIDENS the
-;; set to imperatively-spawned actors via the snapshot `:rf/machine-type`
-;; marker; that widening MUST land with its own imperative-spawn destroy-
-;; cancellation test, not ride this behaviour-preserving inversion.
-
-(defn- spawned-membership-actor-id
-  "Return `event-id` if it is currently registered as a spawned actor's
-  address somewhere under `[:rf.runtime/machines :spawned <parent>
-  <invoke-id>]` in `spawned` — either as the leaf value (declarative
-  `:spawn`) or as a value in the `:children` map of a `:spawn-all` join-
-  state record — otherwise nil."
-  [spawned event-id]
-  (when (some (fn [[_parent inner]]
-                (some (fn [[_invoke-id v]]
-                        (or (= v event-id)                   ;; :spawn leaf
-                            (and (map? v)                    ;; :spawn-all join state
-                                 (some (fn [[_cid cid-val]]
-                                         (= cid-val event-id))
-                                       (:children v)))))
-                      inner))
-              spawned)
-    event-id))
+;; SET SEMANTICS (rf2-n877mb, step 2 of rf2-ma0wvq): the owning set is
+;; SNAPSHOT MEMBERSHIP — `event-id` owns a request iff a SPAWNED actor's
+;; snapshot lives at `[:rf.runtime/machines :snapshots <event-id>]`, where
+;; "spawned" is the durable `:rf/machine-type`-at-root discriminator
+;; `install-spawn!` stamps on EVERY spawned actor (declarative `:spawn` /
+;; `:spawn-all` AND imperative `[:rf.machine/spawn ...]`), and a
+;; singleton's snapshot never carries. This WIDENS the step-1 set (which
+;; read the `:spawned` registry — declarative spawns only) to imperatively-
+;; spawned actors. Imperative spawns install a snapshot WITHOUT a `:spawned`
+;; registry slot (the slot is gated on the declarative-desugar
+;; `:rf/parent-id` + `:rf/spawn-id`, per `lifecycle-fx.spawn/spawn-fx`'s
+;; `track?`), so the registry read structurally MISSED them and their
+;; managed HTTP was never aborted on destroy. The destroy side already
+;; fired `:http/abort-on-actor-destroy` for imperative destroys (via
+;; `lifecycle-fx.finalize` / `lifecycle-fx.frame-destroy`, which key on the
+;; SAME `:rf/machine-type` marker); only this RECORDING side excluded them.
+;; This is the SAME discriminator `frame-destroy/spawned-snapshot?` uses,
+;; so recording and teardown agree on exactly which ids are actors.
 
 (defn owning-actor-id
   "Resolve the spawned-actor-id that OWNS `event-id` in `frame-id`, or nil.
 
   Returns `event-id` (a keyword — the spawned actor's machine address)
-  when it is currently registered in the frame's runtime-db spawn
-  registry (`paths/spawned-path`), otherwise nil — meaning the event is
-  NOT owned by a spawned actor (it came from an ordinary event handler).
+  when a SPAWNED actor's snapshot is currently installed at
+  `[:rf.runtime/machines :snapshots <event-id>]`, otherwise nil — meaning
+  the event is NOT owned by a spawned actor (it came from an ordinary
+  event handler, or from a singleton machine whose snapshot carries no
+  `:rf/machine-type` marker).
 
   Published as the `:machines/owning-actor-id` late-bind hook (rf2-ma0wvq)
   so the http artefact can ask machines \"who owns this request's
@@ -350,22 +345,27 @@
   re-stating its private runtime-db shape. When machines is absent the
   hook is unregistered and http's caller falls back to nil.
 
-  Set semantics (rf2-ma0wvq step 1): REGISTRY MEMBERSHIP — declarative
-  `:spawn` / `:spawn-all` actors only, set-identical to the pre-inversion
-  http walk (see the section comment above; step 2 widens to imperative
-  spawns under its own test).
+  Set semantics (rf2-n877mb, step 2): SNAPSHOT MEMBERSHIP via the durable
+  `:rf/machine-type`-at-root discriminator — declarative `:spawn` /
+  `:spawn-all` AND imperative `[:rf.machine/spawn ...]` actors, since
+  `install-spawn!` stamps that marker on every spawned actor's snapshot
+  and a singleton's snapshot never carries it. This is the SAME
+  discriminator the destroy side (`frame-destroy/spawned-snapshot?`) keys
+  on, so recording and teardown classify ids identically (see the section
+  comment above for why step 1's `:spawned`-registry read missed imperative
+  spawns).
 
   PERF: `frame/frame-runtime-db-value` is a substrate `deref` returning the
-  persistent runtime-db map BY REFERENCE (no copy, no scan), so reading the
-  one `:spawned` slot is O(1); the `(seq …)` short-circuit means an app
-  with no live spawns pays one by-reference deref + one path descent + one
-  seq-check before any structural walk."
+  persistent runtime-db map BY REFERENCE (no copy, no scan), so the lookup
+  is a direct `get-in` to the candidate id's snapshot root — O(1), no scan
+  of the snapshot table. An app with no live spawned actors pays one
+  by-reference deref + one path descent that misses."
   [frame-id event-id]
   (let [rt (frame/frame-runtime-db-value frame-id)]
     (when (map? rt)
-      (let [spawned (get-in rt (paths/spawned-path))]
-        (when (seq spawned)
-          (spawned-membership-actor-id spawned event-id))))))
+      (let [snapshot (get-in rt (paths/snapshot-path event-id))]
+        (when (some? (:rf/machine-type snapshot))
+          event-id)))))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
@@ -448,8 +448,9 @@
 ;; abort it). Machines OWNS the registry shape, so the structural walk
 ;; lives here; http reaches it via late-bind and falls back to nil when
 ;; machines is absent (apps without state machines pay nothing). See the
-;; `owning-actor-id` docstring for the set semantics (step-1 registry
-;; membership, declarative `:spawn` / `:spawn-all` only).
+;; `owning-actor-id` docstring for the set semantics (rf2-n877mb step 2:
+;; snapshot `:rf/machine-type` membership — declarative AND imperative
+;; spawns).
 (late-bind/set-fn! :machines/owning-actor-id        owning-actor-id)
 (late-bind/set-fn! :machines/spawn-all-init-fx      spawn-all-init-fx)
 (late-bind/set-fn! :machines/after-schedule-fx      after-schedule-fx)
