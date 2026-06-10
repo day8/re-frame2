@@ -1,0 +1,87 @@
+;; day8/re-frame2-resources — resources artefact (rf2-p10npe, EP-0003
+;; slice 2; per-feature split per rf2-5vjj Strategy B).
+;;
+;; Per Spec 016 §Resources the declarative server-state grammar
+;; (`reg-resource`, `clear-resource`, `resource-meta`, `resource-state`,
+;; `resources`, the `:rf.resource/*` events and passive subs, the
+;; `:resource` registrar kind, the `:rf.runtime/resources` + the
+;; `:rf.runtime/work-ledger` runtime-db slots, managed-HTTP lowering,
+;; route `:resources` metadata, and SSR preload/hydration) ships as a
+;; separate Maven artefact so apps that don't register any resources
+;; don't drag the namespace, the resource lifecycle FSM, the work-
+;; ledger machinery, or any of the `:rf.resource/*` / `:rf.scope/*` /
+;; `:rf.work/*` trace strings onto the classpath.
+;;
+;; This is the SKELETON slice (rf2-p10npe): the namespaces + the public
+;; surface compile and load cleanly, but the runtime logic lands in
+;; later slices (rf2-afpdkn work-ledger substrate, rf2-pbxj48 resource
+;; runtime, …). Stub bodies raise `:rf.error/resource-not-implemented`
+;; where the behaviour is a later slice, so a premature call fails
+;; loudly rather than silently no-opping.
+;;
+;; Consumers add this artefact alongside the core artefact:
+;;
+;;   {:deps {day8/re-frame2           {:mvn/version "..."}
+;;           day8/re-frame2-resources {:mvn/version "..."}}}
+;;
+;; And require `re-frame.resources` in any namespace that calls
+;; `rf/reg-resource` or relies on the `:rf.resource/*` subs / events —
+;; loading the namespace registers its late-bind hooks, the `:resource`
+;; registrar kind, and the `:rf.resource/*` reg-event / reg-sub family.
+;;
+;; Per Spec 006 §Adapter shipping convention (and the rf2-p7va
+;; extension to per-feature splits): this artefact depends on core; core
+;; never depends on this artefact. The cross-references from core to
+;; resources (e.g. `re-frame.core`'s `reg-resource` / `clear-resource`
+;; / `resource-meta` / `resource-state` / `resources` re-exports) flow
+;; through `re-frame.late-bind` exactly as the schemas / machines /
+;; routing / http hooks already do.
+;;
+;; The HTTP transport (`:rf.http/managed`, Spec 014) and the routing /
+;; SSR integrations are LATE-BOUND: resources reaches them through the
+;; same late-bind hook registry rather than a static `:require`, so an
+;; app that loads resources but not routing / ssr / http carries none
+;; of their code. They are therefore test-only deps here.
+{:paths ["src"]
+ :deps  {day8/re-frame2 {:local/root "../core"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {;; rf2-try1x — silent-on-success reporter.
+                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+                       ;; Late-bound integration surfaces — pulled in as
+                       ;; TEST-ONLY deps so the artefact's production
+                       ;; classpath stays routing/ssr/http/schemas-free
+                       ;; (resources reaches them through late-bind, not
+                       ;; a static :require). Mirrors the routing
+                       ;; deps.edn test-extra-deps pattern.
+                       day8/re-frame2-schemas    {:local/root "../schemas"}
+                       day8/re-frame2-routing    {:local/root "../routing"}
+                       day8/re-frame2-ssr        {:local/root "../ssr"}
+                       day8/re-frame2-http       {:local/root "../http"}
+                       io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
+
+  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
+  ;; The release workflow runs `clojure -M:clein deploy` from this
+  ;; artefact's directory, which builds pom + jar and pushes to Clojars.
+  ;;
+  ;; IMPORTANT: when this artefact is published, the `day8/re-frame2`
+  ;; core dep above is replaced by an :mvn/version coordinate — clein
+  ;; reads :deps and writes them into pom.xml, and a :local/root entry
+  ;; would resolve to nothing for downstream consumers. The release
+  ;; workflow swaps :local/root → :mvn/version before invoking clein.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/re-frame2-resources
+   :main     re-frame.resources
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}

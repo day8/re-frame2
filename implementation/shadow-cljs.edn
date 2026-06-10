@@ -103,6 +103,15 @@
                 "ssr-ring/test"
                 "epoch/src"
                 "epoch/test"
+                ;; rf2-p10npe — the optional Resources artefact (Spec 016,
+                ;; EP-0003 slice 2). Source + test paths added so the
+                ;; consolidated :node-test build picks up the resources
+                ;; ns's + any `*-cljs-test` suites under resources/test/.
+                ;; Skeleton slice; runtime logic lands in later slices.
+                ;; Bundle-isolation holds: nothing under tools/ is
+                ;; required, and core never :requires re-frame.resources.
+                "resources/src"
+                "resources/test"
                 ;; rf2-3cfvt — adversarial-property SECURITY tier. A small
                 ;; cross-artefact test tree probing the three security
                 ;; boundaries the pin-and-assert regime missed: SSR escaping

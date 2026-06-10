@@ -46,7 +46,11 @@
          day8/re-frame2-http     {:local/root "http"}
          day8/re-frame2-ssr      {:local/root "ssr"}
          day8/re-frame2-ssr-ring {:local/root "ssr-ring"}
-         day8/re-frame2-epoch    {:local/root "epoch"}}
+         day8/re-frame2-epoch    {:local/root "epoch"}
+         ;; rf2-p10npe — the optional Resources artefact (Spec 016,
+         ;; EP-0003 slice 2). Skeleton slice; runtime logic lands in
+         ;; later slices.
+         day8/re-frame2-resources {:local/root "resources"}}
 
  :aliases
  {;; Combined CLJS-test path: convenient for ad-hoc REPL work that wants
@@ -72,6 +76,8 @@
                  "ssr/test"
                  "ssr-ring/test"
                  "epoch/test"
+                 ;; rf2-p10npe — Resources artefact test tree.
+                 "resources/test"
                  ;; Per rf2-kx74 examples are grouped per substrate. The
                  ;; combined :test alias loads every example tree onto
                  ;; the classpath so JVM tests can `require` the example

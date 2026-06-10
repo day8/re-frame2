@@ -363,7 +363,23 @@
                   (assoc :rf.runtime/elision (:rf.runtime/elision runtime-db))
 
                   (contains? runtime-db :rf.runtime/ssr)
-                  (assoc :rf.runtime/ssr (:rf.runtime/ssr runtime-db)))]
+                  (assoc :rf.runtime/ssr (:rf.runtime/ssr runtime-db)))
+          ;; LATE-BOUND cross-subsystem projection extension. A
+          ;; cross-feature artefact (e.g. Resources, Spec 016 §SSR and
+          ;; hydration) contributes its OWN durable runtime-db slice
+          ;; projection — the allowlist-by-subsystem-child hook the spec
+          ;; names — without SSR statically `:require`ing it. The hook
+          ;; takes the full runtime-db value and returns a `{subsystem-key
+          ;; durable-projection}` map merged into the slice; absent hook
+          ;; (no extension artefact loaded) contributes nothing, so an
+          ;; app without resources sees no behaviour change. Resources is
+          ;; the first publisher (rf2-p10npe): it projects ONLY the
+          ;; durable `:entries` of `:rf.runtime/resources` (the
+          ;; `:tag-index` / `:owner-index` are recomputable-from-entries
+          ;; and need not ride the wire — Spec 016 §Restore and replay).
+          slice (if-let [extend-fn (late-bind/get-fn :ssr/extend-runtime-db-projection)]
+                  (merge slice (extend-fn runtime-db))
+                  slice)]
       (when (seq slice) slice))))
 
 ;; ---- version resolution + payload assembly -------------------------------

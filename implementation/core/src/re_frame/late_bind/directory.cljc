@@ -428,6 +428,45 @@
     :design-bead "rf2-1hncp2"
     :description "Release the destroyed frame's host-side transient routing caches — the scroll-position cache (re-frame.routing.scroll/scroll-positions-cache, rf2-1hncp2) AND the nav-token / pending-nav counter high-water marks (re-frame.routing.nav-counters/nav-counters-cache, rf2-oosjmh). Neither is runtime-db state — they live in module-level atoms (host-derived, ephemeral, off the epoch/SSR egress wire; the counters host-side specifically so an epoch restore cannot rewind + recycle a token), so they need explicit per-frame teardown like the other transient caches. Invoked by frame/destroy-frame! symmetric with the ssr / machines / flows / schemas teardown hooks; no-op when re-frame.routing is absent (the artefact is optional)."}
 
+   ;; ---- re-frame.resources (rf2-p10npe — EP-0003 slice 2) -------------------
+   ;; The optional Resources artefact (Spec 016) publishes its public-API
+   ;; surface here so re-frame.core reaches it without a static :require.
+   ;; The routing / SSR integrations are published as cross-feature
+   ;; extension hooks the host artefacts (routing / ssr) CONSULT —
+   ;; late-bound both ways so neither side carries the other.
+   {:key         :resources/reg-resource
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-p10npe"
+    :description "Register a resource — a named, cached read of remote/external state (Spec 016 §Registration). Doubles as the feature-inspection PROBE key for the :resources feature (re-frame.features)."}
+   {:key         :resources/clear-resource
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-p10npe"
+    :description "Remove a registered resource (registration-lifecycle, NOT data invalidation). Per Spec 016 §Registration."}
+   {:key         :resources/resource-meta
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-p10npe"
+    :description "Return the registered resource's spec map for a resource id, or nil. Per Spec 016 §Introspection."}
+   {:key         :resources/resource-state
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-p10npe"
+    :description "Return a resource instance's runtime state for an explicit-frame target {:resource :scope :params :frame}. Per Spec 016 §Introspection."}
+   {:key         :resources/resources
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-p10npe"
+    :description "Return resource introspection for a frame target — registered resources + the live per-frame resource-instance table. Per Spec 016 §Introspection."}
+   {:key         :resources/reset-resources!
+    :producer-ns 're-frame.resources.test-support
+    :design-bead "rf2-p10npe"
+    :description "Test-isolation reset: clear the :resource-kind registrar entries + the host-side generation high-water marks. Published from re-frame.resources.test-support (kept behind an explicit test-support require, rf2-dbiv8 posture); fired by the shared CLJS make-reset-runtime-fixture reset-hooks table, no-op when test-support is absent."}
+   {:key         :routing/extra-route-keys
+    :producer-ns 're-frame.resources.route
+    :design-bead "rf2-p10npe"
+    :description "Cross-feature LATE-BOUND route-metadata accepted-key extension (Spec 016 §Route integration). Returns a SET of extra bare route-metadata keys routing unions into its accepted set; the Resources artefact publishes #{:resources} so routing accepts the :resources route key (mirrors how :head is a cross-feature key owned by SSR). Resources is the first publisher; consumed by re-frame.routing.registry/accepted-route-keys."}
+   {:key         :ssr/extend-runtime-db-projection
+    :producer-ns 're-frame.resources.ssr
+    :design-bead "rf2-p10npe"
+    :description "Cross-feature LATE-BOUND SSR hydration-payload runtime-db projection extension (Spec 016 §SSR and hydration). Takes the full runtime-db value, returns a {subsystem-key durable-projection} map SSR's project-runtime-db merges into its allowlist-shaped slice; the Resources artefact projects ONLY the durable :entries of :rf.runtime/resources (the reverse indexes are recomputable-from-entries). Resources is the first publisher; consumed by re-frame.ssr.payload-policy/project-runtime-db."}
+
    ;; ---- re-frame.http-managed (rf2-5kpd / rf2-6y3q / rf2-wvkn / rf2-ijm7) ----
    ;; The three stub-family hooks publish from `re-frame.http-test-support`
    ;; per rf2-lwmgw — single discoverable home for HTTP test surfaces.

@@ -62,6 +62,7 @@
             [re-frame.core-routing  :as rf-routing]
             [re-frame.core-schemas  :as rf-schemas]
             [re-frame.core-machines :as rf-machines]
+            [re-frame.core-resources :as rf-resources]
             [re-frame.core-ssr      :as rf-ssr]
             [re-frame.core-epoch    :as rf-epoch]
             [re-frame.core-http     :as rf-http]
@@ -93,6 +94,7 @@
              [re-frame.core :refer [reg-event-db reg-event-fx reg-event-ctx
                                     reg-sub reg-fx reg-cofx reg-frame
                                     reg-flow reg-route reg-app-schema reg-app-schemas
+                                    reg-resource
                                     reg-error-projector reg-head
                                     reg-http-interceptor
                                     reg-view reg-machine defmachine
@@ -160,6 +162,14 @@
   `day8/re-frame2-routing`; require `re-frame.routing` at boot. See
   `re-frame.core-routing/reg-route` and spec/API.md §Registration."}
        reg-route       rf-routing/reg-route)
+     (def ^{:doc "Fn-alias of the `reg-resource` macro for HoF / programmatic
+  registration (no source-coord capture). Register a resource — a named,
+  cached read of remote/external state — under `resource-id`;
+  `resource-spec` carries the REQUIRED fail-closed `:scope` policy plus
+  `:params-schema` / `:request`. Implementation ships in
+  `day8/re-frame2-resources`; require `re-frame.resources` at boot. See
+  `re-frame.core-resources/reg-resource` and spec/API.md §Registration."}
+       reg-resource    rf-resources/reg-resource)
      (def ^{:doc "Fn-alias of the `reg-app-schema` macro for HoF / programmatic
   registration (no source-coord capture). Register a Malli schema at a
   path inside app-db (frame-scoped per Spec 010). Implementation ships
@@ -267,6 +277,19 @@
        boot. See `re-frame.core-routing/reg-route` for the full
        signature."
        {:arglists '([id metadata])})
+
+     (rm/defreg-macro reg-resource rf-resources/reg-resource
+       "Register a resource under `resource-id` — a named, cached read of
+       remote/external state. `resource-spec` carries the REQUIRED
+       fail-closed `:scope` policy (`:rf.scope/global` | resolver |
+       `:rf.scope/from-caller`), `:params-schema`, `:request`, and
+       optional `:data-schema` / `:stale-after-ms` / `:gc-after-ms` /
+       `:tags`. Captures source-coords (Spec 001) at this call site.
+       Implementation ships in `day8/re-frame2-resources` (rf2-p10npe);
+       apps must add the artefact and require `re-frame.resources` at
+       boot. See `re-frame.core-resources/reg-resource` for the full
+       signature."
+       {:arglists '([resource-id resource-spec])})
 
      (rm/defreg-macro reg-app-schema rf-schemas/reg-app-schema
        "Register a Malli schema at a path inside app-db (frame-scoped
@@ -1230,6 +1253,39 @@
   — returns a reaction whose value is `true` iff the current snapshot's
   `:tags` set contains `tag`. Per Spec 005 §State tags."}
   machine-has-tag?               rf-machines/machine-has-tag?)
+
+;; ---- resource helpers (Spec 016) ------------------------------------------
+;;
+;; The optional resources artefact (`day8/re-frame2-resources`). `reg-resource`
+;; is a macro (above, for source-coord capture) + a CLJS fn-alias; the
+;; non-registration surface is plain re-exports below. Each delegates
+;; through the late-bind table and throws `:rf.error/resources-artefact-missing`
+;; when the artefact is absent. Per Spec 016 §Public API.
+
+(def ^{:doc "Remove a registered resource (a registration-lifecycle
+  operation — NOT cache invalidation; for data lifecycle use
+  `:rf.resource/invalidate-tags` / `:rf.resource/remove` /
+  `:rf.resource/clear-scope`). Per Spec 016 §Registration. Implementation
+  ships in `day8/re-frame2-resources`."}
+  clear-resource  rf-resources/clear-resource)
+
+(def ^{:doc "Return the registered resource's spec map (`:params-schema`,
+  `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`,
+  `:gc-after-ms`, `:tags`, `:doc`), or `nil`. Per Spec 016 §Introspection.
+  Implementation ships in `day8/re-frame2-resources`."}
+  resource-meta   rf-resources/resource-meta)
+
+(def ^{:doc "Return a resource instance's runtime state for an
+  explicit-frame target `{:resource :scope :params :frame}`. Per EP-0002
+  the frame is carried explicitly. Per Spec 016 §Introspection.
+  Implementation ships in `day8/re-frame2-resources`."}
+  resource-state  rf-resources/resource-state)
+
+(def ^{:doc "Return resource introspection for a frame target `{:frame …}`
+  — the registered resources and the live per-frame resource-instance
+  table. Per Spec 016 §Introspection. Implementation ships in
+  `day8/re-frame2-resources`."}
+  resources       rf-resources/resources)
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 

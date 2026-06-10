@@ -6,7 +6,7 @@
 
   Reserved kinds (closed v1 set, per Spec 001 §Registry model):
     :event :sub :fx :cofx :view :frame :route :head
-    :error-projector :flow
+    :error-projector :flow :resource
 
   Machine guards and actions are NOT a registrar kind (rf2-ftrcv,
   supersedes rf2-ypu5i / rf2-npvsx). Per Spec 005 the machine spec's
@@ -54,9 +54,15 @@
 
   App-db schemas (rf2-cq1ak) are NOT a registrar kind — they live in the
   schemas artefact's per-frame side-table (`schemas/schemas-by-frame`).
-  Introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at`."
+  Introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at`.
+
+  `:resource` (rf2-p10npe, Spec 016 §Registration) is the resources
+  artefact's registrar kind — `reg-resource` registers a resource spec
+  under it. Deliberately `:resource`, NOT `:query` (which would collide
+  with route query-params + prior-art names). Reserved whether or not the
+  Resources artefact ships."
   #{:event :sub :fx :cofx :view :frame :route :head
-    :error-projector :flow})
+    :error-projector :flow :resource})
 
 (defn valid-kind? [k]
   (contains? kinds k))

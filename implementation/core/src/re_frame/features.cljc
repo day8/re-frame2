@@ -103,7 +103,11 @@
    :epoch    {:maven     "day8/re-frame2-epoch"
               :require   "re-frame.epoch"
               :spec      "Tool-Pair (Time-travel / epoch)"
-              :probe-key :epoch/settle!}})
+              :probe-key :epoch/settle!}
+   :resources {:maven     "day8/re-frame2-resources"
+               :require   "re-frame.resources"
+               :spec      "Spec 016 (Resources)"
+               :probe-key :resources/reg-resource}})
 
 (defn feature-loaded?
   "Return `true` when the optional feature `feature`'s implementation
@@ -118,8 +122,8 @@
   break bundle-isolation). Ships to production — NOT elided.
 
   Known feature keywords are the keys of `feature-registry`: `:schemas`,
-  `:machines`, `:routing`, `:flows`, `:http`, `:ssr`, `:epoch`. Per
-  spec/API.md §Feature inspection."
+  `:machines`, `:routing`, `:flows`, `:http`, `:ssr`, `:epoch`,
+  `:resources`. Per spec/API.md §Feature inspection."
   [feature]
   (if-let [{:keys [probe-key]} (get feature-registry feature)]
     (some? (late-bind/get-fn probe-key))
