@@ -1,6 +1,13 @@
 # EP-0007: One Name Per Fact
 
 Status: proposal
+Type: process
+
+> A process EP (the PEP-8 analogue, per EP-0009): on acceptance, the rules in
+> §Specification graduate into `spec/Conventions.md` §Namespacing — which
+> remains the authoritative home — and this EP stays as the rationale record.
+> The sweep items are independent beads, each separately rulable; accepting the
+> rules does not bulk-accept the sweep.
 
 ## Abstract
 
@@ -94,10 +101,10 @@ class that dominated this review cycle.
 
 | # | Instance | Resolution |
 |---|---|---|
-| 1 | `:frame` coeffect beside `:rf.frame/id` | Drop the `:frame` coeffect; migrate internal consumers (already filed: `rf2-1m6rf1`; this EP is its normative home) |
+| 1 | `:frame` coeffect beside `:rf.frame/id` | **Done** — `rf2-1m6rf1` merged 2026-06-10 (the `:frame` coeffect dropped, internal consumers migrated); retained here as the sweep's precedent row |
 | 2 | `:rf.db/runtime` parent vs `:rf.runtime/*` children | **Keep, as a recorded rule**: `:rf.db/*` names partition *slots* of frame-state (`:rf.db/app`, `:rf.db/runtime`); `:rf.runtime/*` names *subsystem children* inside the runtime partition — globally greppable when detached from context. EP-0001 Appendix A asked for the split to be justified or aligned; this justifies it as a layer rule (rule 3) |
 | 3 | Work-ledger `:work/id` vs `:stale-key` | One identity: stale suppression keys on the work id (or EP-0003 must justify the distinction as transport-facing); the denormalized fields are declared projections (rule 4). Folded into `rf2-uh3pbx`'s notes; resolved at EP-0003 acceptance |
-| 4 | Redirect `:location`/`:url`/`:to` | Prune to `:location` per rule 3's vocabulary rule (subsumes `rf2-vngir`); land with this EP rather than waiting for a separate API-freeze |
+| 4 | Redirect `:location`/`:url`/`:to` | Canonical key is `:location` per rule 3's vocabulary rule. **Timing is `rf2-vngir`'s standing disposition, unchanged by this EP**: a one-line "preferred spelling" docs steer may land any time; the breaking narrowing lands at API-freeze — or earlier only by explicit ruling on that bead |
 | 5 | `reg-*` vs `register-*` families | Audit: `reg-*` = registrar-kind registrations; `register-*` = listener/side-table attachments (`register-listener!`, `register-marks!`, `register-error-listener!`). If the split is principled, record it as a rule; align any stragglers |
 | 6 | The `:schema` family | Record the map: `reg-event-*` `:schema` validates *event args*; machine `:data-schema` validates machine `:data` (EP-0005's rename — the precedent: qualify where a visible sibling creates ambiguity); `reg-app-schema` validates app-db paths; runtime-db schemas are framework-owned. One Conventions table; no renames expected beyond what EP-0005 already did |
 
@@ -111,19 +118,21 @@ class that dominated this review cycle.
 
 ## Backwards Compatibility
 
-Pre-alpha, in-repo only. Sweep items 1 and 4 are breaking narrowings with
-mechanical migrations; 2, 5, 6 are documentation; 3 lands inside EP-0003's own
-pre-acceptance amendments.
+Pre-alpha, in-repo only. Sweep item 1 is done (merged); item 4 is a breaking
+narrowing whose timing stays with `rf2-vngir`; 2, 5, 6 are documentation; 3
+lands inside EP-0003's own pre-acceptance amendments.
 
 ## Bead Plan
 
 1. Conventions bead: add the rules + the vocabulary tables (hot-zone;
-   sequential).
-2. `rf2-1m6rf1` (filed): the frame-stamp completion — becomes this EP's item 1.
-3. Redirect-narrowing bead: schema + impl + Spec 011 + tests to `:location`
-   (subsumes `rf2-vngir`).
+   sequential). This is the graduation bead.
+2. ~~`rf2-1m6rf1`: the frame-stamp completion~~ — **merged** (item 1 done).
+3. `rf2-vngir` (existing, parked): the redirect narrowing, on its own standing
+   timing (API-freeze, or earlier by explicit ruling); the optional
+   preferred-spelling docs steer is dispatchable any time.
 4. `reg-`/`register-` audit bead (doc-only unless stragglers found).
-5. Lint bead: retired-spelling checks for items 1 and 4.
+5. Lint bead: retired-spelling checks for items 1 and 4 (item-1 lint can land
+   now that the rename is merged).
 
 ## Recommendation
 

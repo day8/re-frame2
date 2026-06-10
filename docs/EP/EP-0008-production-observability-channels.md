@@ -1,6 +1,11 @@
 # EP-0008: Production Observability Channels
 
 Status: proposal
+Type: standards-track
+
+> Deliberately short-lived as a proposal: the destination is Spec 009 (the
+> channel section + the catalogue column); on graduation this EP goes `final`
+> and Spec 009 is authoritative.
 
 ## Abstract
 

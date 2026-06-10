@@ -1,6 +1,7 @@
 # EP-0006: Runtime Subsystem Contract
 
 Status: proposal
+Type: standards-track
 
 > Formalizes bead `rf2-6nn8bi` (filed from the 2026-06-10 EP-0001 review). Ruling
 > on this EP supersedes ruling on that bead.
@@ -28,13 +29,15 @@ in prose per subsystem. The contract lives in a new standalone
 
 Three concrete failures this contract would have prevented or will prevent:
 
-1. **The write-authority gap (rf2-3939ig).** Spec 002 names machines, routing,
-   elision, and SSR as legitimate runtime-db writers; the implementation minted
-   framework authority from `:rf/machine?` only — so routing fires
-   `:rf.warning/app-handler-runtime-effect` on every navigation in dev,
-   verified empirically. A contract with an explicit per-subsystem
-   *write-authority* clause makes "who may mint" an enumerable table row that a
-   conformance sweep checks, instead of a fact each subsystem re-implements.
+1. **The write-authority gap (rf2-3939ig, now fixed).** Spec 002 names
+   machines, routing, elision, and SSR as legitimate runtime-db writers; the
+   implementation minted framework authority from `:rf/machine?` only — so
+   routing fired `:rf.warning/app-handler-runtime-effect` on every navigation
+   in dev, verified empirically. The general minting mechanism has since
+   merged, but the *class* remains: nothing makes the next subsystem declare
+   its authority. A contract with an explicit per-subsystem *write-authority*
+   clause makes "who may mint" an enumerable table row that a conformance
+   sweep checks, instead of a fact each subsystem re-implements.
 2. **EP-0003 graduates against prose.** The resources design already satisfies
    four of the five clauses implicitly and is silent on exactly the fifth
    (write authority). Without a named contract, that observation took a manual
@@ -79,9 +82,9 @@ special case requiring fresh policy.
   `:rf.runtime/resources` and `:rf.runtime/work-ledger` should graduate against
   this checklist (EP-0003 amendment bead `rf2-pbzds6` adds the table there).
 - **Sequenced with rf2-3939ig, not coupled to it:** the authority *mechanism*
-  (general `:rf/framework-authority?` registration meta) ships now as a bug
-  fix; this contract is the *policy* layer that cites it. Neither blocks the
-  other; no rework either way.
+  (general framework-authority registration meta) has shipped as a bug fix;
+  this contract is the *policy* layer that cites it as clause 2's
+  implementation. No rework either way.
 
 ## Specification
 
@@ -120,12 +123,37 @@ graduation. An empty or contested cell is a tracked gap, not prose.
 - The `rf2-o4dmp8` sweep shape extends per subsystem: the framework's own
   writers never trigger the ownership diagnostics.
 
-### Extension seam
+### Extension seam — the library-writer contract
 
-A library registers a runtime subsystem by: reserving `:rf.runtime/<lib>`
-(namespaced by the library), minting write authority through the blessed
-registration mechanism, and publishing its five clauses in its own docs. Tools
-treat it identically to built-in subsystems.
+The contract is deliberately also the **extension point**: a third-party
+library that needs durable, frame-local, framework-grade runtime state (a
+GraphQL/Hasura client cache, a persistence/sync engine, a collaboration
+presence layer, an analytics session model) becomes *a new graded instance of
+this contract*, not a special case. Concretely, a library:
+
+1. **reserves its sub-tree** — `:rf.runtime/<lib>`, where `<lib>` follows the
+   feature-modularity id-prefix convention (the library's own namespace, never
+   bare); collisions with the framework's reserved children are a registration
+   error;
+2. **mints write authority** for its event handlers through the same
+   registration mechanism the framework's own subsystems use (the general
+   framework-authority meta shipped under rf2-3939ig) — so its runtime-db
+   writes are first-class, not warned-at;
+3. **publishes its five clauses** in its own documentation, in the same table
+   shape as `spec/Runtime-Subsystems.md` — so an app author (or the AI-Audit)
+   grades a third-party subsystem exactly as they grade machines or routing;
+4. **inherits the ecosystem for free**: its sub-tree rides epoch restore and
+   SSR hydration per its clause-4 projection policy, is redacted off-box by the
+   same runtime-db default, appears in Xray/pair tooling as a subsystem row,
+   and is torn down by frame destroy per its clause-5 contract.
+
+What v1 of this EP deliberately does **not** ship is a dedicated registration
+API (`reg-runtime-subsystem`-shaped): the in-repo subsystems register through
+their own facades today, and inventing the public API before an external
+consumer exists would violate the project's project-before-you-primitive
+discipline. The contract is the extension point's *specification*; the
+convenience API graduates when a real external artefact (the first `<lib>`)
+needs it — see Open Issue 2.
 
 ## Backwards Compatibility
 
@@ -151,6 +179,11 @@ instances show the shape is empirical, not speculative.
    per-writer grants? Recommendation: ledger-owned — writers go through the
    ledger's API, which holds the authority; revisit if a writer needs direct
    row access.
+2. When the first external library subsystem materializes, should the
+   convenience registration API (`reg-runtime-subsystem`-shaped: reserve +
+   mint + declare + teardown-hook in one call) ship in core or in an optional
+   extension artefact? Recommendation: decide with that consumer in hand;
+   until then the documented four-step seam above is the contract.
 
 ## Recommendation
 
