@@ -2159,11 +2159,27 @@ egress and elision rules.
 
 ### Route-Driven Page Load
 
+This article read is **public** — the same article for every user — so it
+makes the explicit `:rf.scope/global` claim (the same `:article/by-slug`
+registration as the [reference above](#resource-registration)). Because
+the scope is a fixed global claim, the route declares **no** scope resolver
+and the view passes **no** `:scope` — all three call sites resolve to the same
+`[:rf.scope/global]` key with nothing to mismatch. (Scope is still
+fail-closed: a session-dependent article would instead declare
+`:scope :rf.scope/from-caller`, the route resolver would supply the concrete
+session scope, and the view would pass that same scope on its
+`[:rf.resource/state …]` — see [Scope Resolution](#scope-resolution). What is
+never coherent is a global registration paired with a session route resolver:
+pick one story.)
+
 ```clojure
 (rf/reg-resource
   :article/by-slug
   {:params-schema [:map [:slug :string]]
    :data-schema   :app/article
+   ;; Public read → the explicit, auditable global claim. Scope is REQUIRED
+   ;; (fail-closed); :rf.scope/global is the claim "same data for every user."
+   :scope         :rf.scope/global
    :request
    (fn [{:keys [slug]} _]
      {:request {:method :get
@@ -2180,19 +2196,17 @@ egress and elision rules.
   {:path "/articles/:slug"
    :params [:map [:slug :string]]
    :resources
+   ;; No :scope resolver — the resource's policy is the fixed global claim.
    [{:resource  :article/by-slug
      :params    (fn [route]
                   {:slug (get-in route [:params :slug])})
-      :scope     (fn [_route ctx]
-                   (:current-session-scope ctx))
      :blocking? true}]})
 
 (rf/reg-view article-page []
   (let [slug  (:slug @(rf/subscribe [:rf.route/params]))
-        scope @(rf/subscribe [:session/resource-scope])
+        ;; No :scope — a pure sub resolves the global claim from the spec.
         state @(rf/subscribe [:rf.resource/state
                               {:resource :article/by-slug
-                               :scope    scope
                                :params   {:slug slug}}])]
     (cond
       (:loading? state)
@@ -2211,7 +2225,8 @@ egress and elision rules.
 ```
 
 The view is passive. The route caused the resource ensure. The runtime owns
-the resource state.
+the resource state. The scope story is coherent end to end: one explicit
+global claim, no session resolver, no per-call scope to mismatch.
 
 (A GraphQL resource example lives in
 [Deferred: GraphQL (later phase)](#deferred-graphql-later-phase).)
@@ -2232,6 +2247,12 @@ the resource state.
 
 ### Manual Refresh
 
+`:article/by-slug` is `:rf.scope/global`, so the refetch resolves the same
+global key as the route ensure — no per-call `:scope` to supply or mismatch.
+(A `:rf.scope/from-caller` resource would instead require `:scope` on the
+refetch payload — the same scope the route ensured under — or fail closed with
+`:rf.error/resource-scope-required-from-caller`.)
+
 ```clojure
 (rf/reg-event-fx
   :article/refresh-clicked
@@ -2244,6 +2265,17 @@ the resource state.
 ```
 
 ### Mutation With Invalidation
+
+The write's success-time invalidation runs against the mutation's **resolved
+scope**. Unlike a resource read, a mutation's scope is **not** fail-closed —
+it resolves payload `:scope` → spec `:scope` → `:rf.scope/global`. The scope
+**MUST match the scope of the resources the write invalidates**: here the
+article comments are public (`:rf.scope/global`), so the mutation's default
+global scope is correct and nothing extra is passed. A write against
+**session/tenant-scoped** entries would instead set `:scope` (statically, or
+on `[:rf.mutation/execute …]` when the principal is only known at the call
+site) to that scope — otherwise its `:invalidates` lands in the global cache
+and silently misses the entries it just changed.
 
 ```clojure
 (rf/reg-mutation
@@ -2260,6 +2292,9 @@ the resource state.
                 :body   {:body body}}
       :decode :app/comment})
 
+   ;; These comments are public (global), so the mutation's default
+   ;; :rf.scope/global invalidation targets the right cache. A session/tenant
+   ;; -scoped comments resource would require :scope here (or on execute).
    :invalidates
    (fn [{:keys [slug]} _]
      #{[:comments slug]})})
