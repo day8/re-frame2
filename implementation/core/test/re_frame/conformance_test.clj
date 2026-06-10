@@ -66,7 +66,16 @@
             ;; the require the hooks are nil, the router's halt paths
             ;; degrade to no-op, and `:epoch-records` fixture assertions
             ;; can't observe the halted-cascade contract.
-            [re-frame.epoch]))
+            [re-frame.epoch]
+            ;; rf2-p10npe — the optional Resources artefact (Spec 016)
+            ;; publishes its public-API + feature-probe late-bind hooks
+            ;; (`:resources/reg-resource`, …) at ns-load time. Required
+            ;; here so the `:resources` feature probe is populated in the
+            ;; JVM core test build — `features-cljs-test` asserts every
+            ;; registry feature is loaded, and (unlike the CLJS node-test
+            ;; build, where the resources `*-cljs-test` suite requires it)
+            ;; nothing else on the JVM test path loads the artefact.
+            [re-frame.resources]))
 
 ;; ---- claimed capability set -----------------------------------------------
 

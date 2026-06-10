@@ -101,6 +101,13 @@
                        day8/re-frame2-http       {:local/root "../http"}
                        day8/re-frame2-ssr        {:local/root "../ssr"}
                        day8/re-frame2-epoch      {:local/root "../epoch"}
+                       ;; rf2-p10npe — the optional Resources artefact
+                       ;; (Spec 016). Pulled in as a TEST-ONLY dep so the
+                       ;; JVM core test build can require re-frame.resources
+                       ;; (conformance_test.clj) and populate the
+                       ;; `:resources` feature probe that features-cljs-test
+                       ;; asserts; the published core jar carries none of it.
+                       day8/re-frame2-resources  {:local/root "../resources"}
                        ;; rf2-try1x — silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        io.github.cognitect-labs/test-runner

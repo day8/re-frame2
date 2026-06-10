@@ -297,6 +297,21 @@
   ["re-frame.core" "reg-head"]            {:tier :advanced    :owner "011" :status "v1"}
   ["re-frame.core" "reg-error-projector"] {:tier :advanced    :owner "011" :status "v1"}
   ["re-frame.core" "reg-http-interceptor"] {:tier :advanced   :owner "014" :status "v1 (optional capability)"}
+  ;; Resources — optional-artefact public-API wrappers (rf2-p10npe, Spec
+  ;; 016, EP-0003 slice 2). The `re-frame.core` façade exports delegate
+  ;; through the late-bind table to `day8/re-frame2-resources`; an app
+  ;; that omits the artefact sees a clean
+  ;; `:rf.error/resources-artefact-missing`. Registration (`reg-resource`)
+  ;; + registration-lifecycle (`clear-resource`) + introspection
+  ;; (`resource-meta` / `resource-state` / `resources`). The producing
+  ;; `re-frame.resources` namespace is not yet introspected by the
+  ;; generator (its runtime surface lands with the later slices); these
+  ;; façade rows govern the public wrappers that ship now.
+  ["re-frame.core" "reg-resource"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.core" "clear-resource"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.core" "resource-meta"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.core" "resource-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.core" "resources"]           {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; Clearing registrations (spec/API.md §Clearing registrations).
   ["re-frame.core" "clear-event"]         {:tier :advanced :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "clear-sub"]           {:tier :advanced :owner "002" :status "v1 (preserved)"}

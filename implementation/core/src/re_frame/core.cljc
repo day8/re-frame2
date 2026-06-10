@@ -1300,8 +1300,8 @@
   source-jump) read to find a (kind, id)'s definition. Per Spec 002 §The
   public registrar query API.
 
-  For the ten registrar kinds (`:event :sub :fx :cofx :view :frame :route
-  :head :error-projector :flow`) this is `registrar/lookup`.
+  For the registrar kinds (`:event :sub :fx :cofx :view :frame :route
+  :head :error-projector :flow :resource`) this is `registrar/lookup`.
 
   The two machine kinds `:machine-guard` / `:machine-action` are NOT
   registrar kinds (rf2-ftrcv, supersedes rf2-ypu5i / rf2-npvsx) — `id` is
