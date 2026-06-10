@@ -2,6 +2,8 @@
 
 Network calls are where naive apps go to die. Not because a single fetch is hard — `fetch('/api/thing')` is one line a child could write — but because a *real* request has eight states, not two, and the seven you didn't think about are the ones that ship. This chapter is about one managed-effect shape that already thought about all eight, so you don't have to re-think them on every screen, in every project, for the rest of your career.
 
+> **Reading the same server-state repeatedly?** This chapter is the *transport* — how one request is issued, decoded, retried, and replied to. If the same remote data is read on several screens and needs caching, staleness, dedupe, and invalidation, that's a **resource** layered over this transport — see [27 - Server-state and resources](27-resources.md) (and [Where should this value live?](where-state-lives.md) for when to reach for one).
+
 ## The fetch you write, and the fetch you wish you'd written
 
 Let me show you the request everyone writes the first time, because it's instructive in exactly how it's wrong.

@@ -357,7 +357,7 @@ The instance-keyed model is load-bearing: **two concurrent submissions of the sa
 
 ### The write→invalidate→refetch loop, end to end
 
-Putting the two halves together — this is the loop the deferred placeholder used to point at:
+Putting the two halves together — this is the write→invalidate→refetch loop, end to end:
 
 ```clojure
 ;; READ: the article detail, tagged by slug.
