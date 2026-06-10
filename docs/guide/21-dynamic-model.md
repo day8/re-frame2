@@ -91,6 +91,8 @@ And for flows you don't write the output at all — you write the *inputs*, and 
 
 ## Flows — derived state that lives in app-db
 
+> **Deciding where a value should live?** The sub-versus-flow choice below is two of the four questions in [Where should this value live?](where-state-lives.md) — the page that sorts any value into a subscription, a flow, a resource, or a machine, and shows a value graduating from a sub to a flow at the exact moment a handler needs to read it.
+
 Subscriptions ([chapter 05](05-subscriptions.md)) are the default tool for derived values, and you should reach for them first — a sub's value lives in the per-frame cache, costs nothing to declare, and is consumed by views. But there's a specific case where you want a derived value to be *part of the application's state* rather than just a view-render input: where downstream event handlers need to read it as plain `app-db` data, where it must survive SSR hydration and time-travel revert, where a registered schema should cover it. That case is a **flow**.
 
 A flow is a registered rule: *"when these `app-db` paths change, run this pure function and write the result to that `app-db` path."*

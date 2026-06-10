@@ -2,6 +2,8 @@
 
 Where does the data actually live? In one place. That's the whole answer, and it's so short you might be tempted to skip past it — don't. This chapter is that one sentence and every consequence that falls out of it, and the consequences are the reason the rest of the framework gets to be as simple as it is.
 
+> **Deciding where a particular value should live?** Not everything belongs *directly* in `app-db` — derived values, server-state caches, and process bookkeeping each have a better home. See [Where should this value live?](where-state-lives.md) for the four questions that sort a value into a subscription, a flow, a resource, or a machine.
+
 ## The one-sentence answer
 
 **Your application's state lives in a single immutable map called `app-db`.**

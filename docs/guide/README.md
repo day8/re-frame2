@@ -18,6 +18,7 @@ Read chapters 01-08 in order if you are new. They teach the core loop: event, ap
 
 After that, use the guide by problem:
 
+- Not sure where a value belongs — a sub, a flow, a resource, or a machine? Read [Where should this value live?](where-state-lives.md).
 - Building real forms? Read [11 - Forms](11-forms.md).
 - Talking to a server? Read [10 - HTTP](10-http.md).
 - Caching server-state (TanStack-Query-style reads)? Read [27 - Server-state and resources](27-resources.md).
