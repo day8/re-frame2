@@ -801,7 +801,9 @@
     (let [captured-fid (atom nil)]
       (rf/reg-event-fx :init/capture-frame-id
         {:platforms #{:server}}
-        (fn [{:keys [frame]} _]
+        ;; The running frame's stamp reaches the event context under
+        ;; :rf.frame/id (rf2-1m6rf1 — the bare :frame coeffect is retired).
+        (fn [{frame :rf.frame/id} _]
           (reset! captured-fid frame)
           {}))
 
@@ -855,7 +857,9 @@
     (let [captured (atom :unset)]
       (rf/reg-event-fx :init/capture-ssr-meta
         {:platforms #{:server}}
-        (fn [{:keys [frame]} _]
+        ;; The running frame's stamp reaches the event context under
+        ;; :rf.frame/id (rf2-1m6rf1 — the bare :frame coeffect is retired).
+        (fn [{frame :rf.frame/id} _]
           (reset! captured (:ssr (rf/frame-meta frame)))
           {}))
 
