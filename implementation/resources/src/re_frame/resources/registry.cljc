@@ -49,25 +49,54 @@
   resource resolver MUST."
   :rf.scope/from-caller)
 
+(def ^:private reserved-scope-ns
+  "The framework-reserved scope namespace (`:rf.scope/*`, per Conventions
+  §Reserved namespaces / the `:rf.<spec-area>/*` scheme). A *bare keyword*
+  in this namespace is a CLOSED reserved enum (`#{:rf.scope/global
+  :rf.scope/from-caller}`); any other `:rf.scope/*` bare keyword is a typo
+  and a loud registration error, NOT a literal scope. Note a scope VALUE
+  like `[:rf.scope/session {…}]` is a vector tuple, not a bare keyword —
+  the reserved namespace governs only the bare-keyword *policy* slot."
+  "rf.scope")
+
+(defn- reserved-scope-namespace?
+  "True when `scope` is a bare keyword in the framework-reserved
+  `:rf.scope/*` namespace — i.e. a candidate for the closed scope-policy
+  enum. A non-keyword (a `[:rf.scope/session …]` tuple, a map, a string)
+  is NOT in the bare-keyword reserved slot."
+  [scope]
+  (and (keyword? scope) (= reserved-scope-ns (namespace scope))))
+
 (defn- valid-scope-policy?
   "A scope policy is one of the reserved enum keywords
-  (`:rf.scope/global`, `:rf.scope/from-caller`) or a resolver (a fn, a
-  pure data value, or a fn-of-nothing). Per Spec 016 §Scope resolution.
-  `nil` / missing is NOT valid — it is a loud registration error."
+  (`:rf.scope/global`, `:rf.scope/from-caller`), a resolver (a fn), or a
+  literal scope value (any non-keyword EDN data value, or an
+  app-namespaced keyword). Per Spec 016 §Scope resolution. `nil` /
+  missing is NOT valid — it is a loud registration error.
+
+  FAIL-CLOSED reserved-namespace gate (rf2-y7lcqy): a bare keyword in the
+  framework-reserved `:rf.scope/*` namespace that is NOT one of the closed
+  enum is a TYPO (e.g. `:rf.scope/glabal`), and a typo in the framework
+  namespace is a registration error — it MUST NOT be silently accepted as
+  a literal scope (which would resolve to `[:rf.scope/glabal]`, a silent
+  wrong scope). App-namespaced keywords (`:my.app/whatever`) and
+  data-value scopes (`[:rf.scope/session {…}]`, maps, strings) remain
+  valid literal scopes."
   [scope]
   (and (some? scope)
-       (or (= scope global-scope-policy)
-           (= scope from-caller-scope-policy)
-           ;; A resolver — a fn (route/spec resolver) or a data value /
-           ;; fn-of-nothing (sub-resolvable). The runtime slice
-           ;; distinguishes route-ctx resolvers from sub-resolvable ones;
-           ;; at registration any non-nil value other than an unknown
-           ;; bare `:rf.scope/*` keyword is accepted as a resolver.
-           (fn? scope)
-           (not (keyword? scope))
-           ;; A namespaced keyword resolver alias is permitted; only a
-           ;; bare `nil` (handled above) fails.
-           (keyword? scope))))
+       (cond
+         ;; the closed reserved enum
+         (= scope global-scope-policy)      true
+         (= scope from-caller-scope-policy) true
+         ;; a bare `:rf.scope/*` keyword outside the enum is a typo —
+         ;; reject (fail closed), do NOT accept as a literal scope.
+         (reserved-scope-namespace? scope)  false
+         ;; a fn resolver (route/spec/fn-of-nothing)
+         (fn? scope)                        true
+         ;; any other value — an app-namespaced keyword or a non-keyword
+         ;; data value — is a legitimate literal scope / data-value
+         ;; resolver.
+         :else                              true)))
 
 (defn- registration-error
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error

@@ -86,6 +86,55 @@
           (resources/reg-resource :test/no-request
                                   (dissoc (valid-spec) :request))))))
 
+(deftest reserved-scope-namespace-typo-rejected-fail-closed
+  ;; rf2-y7lcqy — a bare keyword in the framework-reserved :rf.scope/*
+  ;; namespace that is NOT one of the closed enum (:rf.scope/global,
+  ;; :rf.scope/from-caller) is a TYPO. It MUST be rejected loudly at
+  ;; registration (fail-closed) rather than silently accepted as a literal
+  ;; scope that would resolve to the wrong [:rf.scope/glabal] cache scope.
+  (testing "a :rf.scope/* typo throws :rf.error/resource-missing-scope-policy"
+    (is (thrown-with-msg?
+          js/Error #"resource-missing-scope-policy"
+          (resources/reg-resource :test/typo
+                                  (assoc (valid-spec) :scope :rf.scope/glabal))))
+    (is (thrown-with-msg?
+          js/Error #"resource-missing-scope-policy"
+          (resources/reg-resource :test/typo2
+                                  (assoc (valid-spec) :scope :rf.scope/sesssion)))))
+  ;; The closed enum members stay valid.
+  (testing ":rf.scope/global and :rf.scope/from-caller remain valid"
+    (is (= :test/global
+           (resources/reg-resource :test/global
+                                   (assoc (valid-spec) :scope :rf.scope/global))))
+    (is (= :test/from-caller
+           (resources/reg-resource :test/from-caller
+                                   (assoc (valid-spec) :scope :rf.scope/from-caller)))))
+  ;; An app-namespaced keyword is a legitimate literal scope — NOT in the
+  ;; reserved :rf.scope/* namespace, so it is accepted unchanged.
+  (testing "an app-namespaced keyword scope is accepted as a literal scope"
+    (is (= :test/app-ns
+           (resources/reg-resource :test/app-ns
+                                   (assoc (valid-spec) :scope :my.app/whatever)))))
+  ;; Data-value scopes (the legitimate data-value-resolver feature) stay
+  ;; valid: a [:rf.scope/session {…}] tuple is a value, not a bare keyword,
+  ;; and a map / string scope is likewise a literal data value.
+  (testing "data-value scopes (tuple / map / string) remain valid"
+    (is (= :test/tuple
+           (resources/reg-resource :test/tuple
+                                   (assoc (valid-spec)
+                                          :scope [:rf.scope/session {:user-id "u-1"}]))))
+    (is (= :test/map
+           (resources/reg-resource :test/map
+                                   (assoc (valid-spec) :scope {:tenant-id "acme"}))))
+    (is (= :test/string
+           (resources/reg-resource :test/string
+                                   (assoc (valid-spec) :scope "tenant-acme")))))
+  ;; A fn resolver is valid.
+  (testing "a fn resolver scope is accepted"
+    (is (= :test/fn
+           (resources/reg-resource :test/fn
+                                   (assoc (valid-spec) :scope (fn [] [:rf.scope/global])))))))
+
 (deftest resource-kind-in-closed-set
   (testing ":resource is a valid registrar kind"
     (is (registrar/valid-kind? :resource))
