@@ -593,6 +593,21 @@
   ["re-frame.routing" "reset-scroll-cache!"]    {:tier :internal-public :owner "012" :status "v1"}
   ["re-frame.routing" "default-max-decoded-keys"] {:tier :internal-public :owner "012" :status "v1"}
   ["re-frame.routing" "reset-counters!"]        {:tier :internal-public :owner "012" :status "v1"}
+  ;; rf2-oosjmh: host-side transient nav-counter seams (the sibling of the
+  ;; scroll-cache seams above). The two monotonic allocators (:nav-token-counter
+  ;; + :pending-nav-counter) moved off runtime-db to a module-level
+  ;; per-frame atom (`re-frame.routing.nav-counters`) so an epoch restore
+  ;; cannot rewind + recycle a token. These are the façade-published host
+  ;; wrappers: `counter-snapshot` reads a frame's high-water snapshot for the
+  ;; pure nav handlers (the :rf.route/nav-counters cofx read seam, analogous to
+  ;; `frame-scroll-cache`); `routing-state-classification` is the routing-owned
+  ;; durable/transient classification table (the single source of truth the SSR
+  ;; payload policy + Spec-Schemas consume); `reset-nav-counters!` is the
+  ;; test-fixture reset (sibling of `reset-scroll-cache!`). Internal-public
+  ;; test / tooling / contract seams — not a front-porch user surface.
+  ["re-frame.routing" "counter-snapshot"]       {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "routing-state-classification"] {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "reset-nav-counters!"]    {:tier :internal-public :owner "012" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.flows — optional artefact (day8/re-frame2-flows), §013.
