@@ -86,16 +86,92 @@
 (defonce ^:private machine-id->schema-marks
   (atom {}))
 
+;; ---- malformed-declaration rejection (rf2-y7l5t5) ------------------------
+;;
+;; A `:sensitive` / `:large` declaration is a vector of output-path vectors
+;; (`[[:user :ssn] [:auth :token]]`; `[[]]` marks the whole value). The prior
+;; `coerce-paths` SILENTLY `(filter vector?)`-DROPPED any non-vector entry and
+;; coerced a non-collection whole to `[]`, so a hand-written typo —
+;; `:sensitive :token` (bare keyword), `:sensitive "blob"` (string),
+;; `:sensitive {…}` (map), or `:sensitive [:token]` / `[[:a [:b]]]` (a
+;; non-vector / non-scalar-element entry) — registered with NO error and NO
+;; mark. The author believes a path is redacted and it is NOT: the EP-0005
+;; armed-trap shape on the marks-ingestion side, the worst failure mode for a
+;; safety surface.
+;;
+;; We now REJECT LOUDLY at the ingestion boundary (`register-marks!` /
+;; `union-marks!`, called from the reg-* paths), mirroring the flows-side fix
+;; (rf2-cgk0wb, which rejects malformed `reg-flow` classification metadata with
+;; `:rf.error/flow-bad-marks` before any state mutates). Per the k0ew8n
+;; warn-vs-reject principle: there are ZERO legitimate non-vector entries and a
+;; correct spelling always exists (`[[:token]]`), so REJECT, not warn. The
+;; ex-info carries the canonical thrown-error shape (Spec 009 §The thrown-error
+;; shape) and names the offending key + value/entry so the author can fix it
+;; without a stack-trace dig.
+
+(defn- valid-mark-element?
+  "A mark path element is a scalar map key: keyword / string / integer /
+  symbol / boolean. A collection element is never a valid `get-in` step and
+  signals a caller bug (e.g. a nested-vector path `[[:a [:b]]]`)."
+  [x]
+  (or (keyword? x) (string? x) (integer? x) (symbol? x) (boolean? x)))
+
+(defn- valid-mark-subpath?
+  "A `:sensitive` / `:large` entry is a vector of scalar path elements. Unlike
+  a flow `:inputs` path the EMPTY vector `[]` is legal — it marks the whole
+  value (the `[[]]` convention)."
+  [x]
+  (and (vector? x) (every? valid-mark-element? x)))
+
+(defn- marks-error
+  "Build the malformed-marks ex-info with the canonical thrown-error shape
+  (per Spec 009 §The thrown-error shape). Mirrors `re-frame.flows.registry`'s
+  `flow-error`: `:rf.error/bad-marks` is the message AND the `:rf.error/id`
+  discriminator; `:bad-key` names the offending classification key; `extras`
+  merges the offending-value slot (`:bad-value` for a non-vector whole,
+  `:bad-entries` for malformed entries)."
+  [mark-key reason extras]
+  (ex-info (str :rf.error/bad-marks)
+           (merge {:rf.error/id :rf.error/bad-marks
+                   :where       'rf/reg-marks
+                   :recovery    :fix-registration
+                   :reason      reason
+                   :bad-key     mark-key}
+                  extras)))
+
 (defn- coerce-paths
   "Normalise a `:sensitive` / `:large` declaration value to a vector of
-  path vectors. `nil` becomes `[]`; any non-vector entry is dropped
-  (the declaration is best-effort — we tolerate hand-written maps that
-  passed an empty literal but want to log via `[[]]` for whole-value
-  marks)."
-  [paths]
-  (if (nil? paths)
-    []
-    (vec (filter vector? paths))))
+  path vectors. `nil` becomes `[]`. The whole value must be a vector and
+  every entry a vector of scalar path elements (`[[]]` for whole-value
+  marks); a malformed value or entry is REJECTED with `:rf.error/bad-marks`
+  rather than silently dropped (rf2-y7l5t5 — fail-loud, not fail-open).
+
+  `mark-key` (`:sensitive` / `:large`) names the offending key in the thrown
+  ex-data. The 1-arity form is for internal re-normalisation of already-stored
+  (well-formed) entries during a union; it uses the same validation so a
+  corrupted stored entry can never slip through silently."
+  ([paths] (coerce-paths paths :sensitive))
+  ([paths mark-key]
+   (cond
+     (nil? paths)
+     []
+
+     (not (vector? paths))
+     (throw (marks-error mark-key
+                         (str mark-key ", when present, must be a vector of "
+                              "output paths (each a vector of scalar keys; "
+                              "[] marks the whole value)")
+                         {:bad-value paths}))
+
+     (not (every? valid-mark-subpath? paths))
+     (throw (marks-error mark-key
+                         (str mark-key " entries must each be a vector of "
+                              "scalar keys (keyword / string / integer / "
+                              "symbol / boolean); [] marks the whole value")
+                         {:bad-entries (vec (remove valid-mark-subpath? paths))}))
+
+     :else
+     paths)))
 
 (defn- normalise-marks
   "Extract the mark-relevant subset of a registration meta-map and
@@ -114,8 +190,8 @@
             (contains? meta :sensitive?)
             (contains? meta :large?))
     (cond-> {}
-      (contains? meta :sensitive)  (assoc :sensitive  (coerce-paths (:sensitive meta)))
-      (contains? meta :large)      (assoc :large      (coerce-paths (:large meta)))
+      (contains? meta :sensitive)  (assoc :sensitive  (coerce-paths (:sensitive meta) :sensitive))
+      (contains? meta :large)      (assoc :large      (coerce-paths (:large meta) :large))
       (contains? meta :sensitive?) (assoc :sensitive? (boolean (:sensitive? meta)))
       (contains? meta :large?)     (assoc :large?     (boolean (:large? meta))))))
 
