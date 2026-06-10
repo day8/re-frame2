@@ -3,266 +3,1217 @@
 Status: proposal
 Type: standards-track
 
-> Drafted from the first-principles synthesis. This EP proposes one normalized
-> completion shape for managed asynchronous effects, with existing callback
-> vocabularies lowered onto it.
+> Normative home after acceptance: `spec/Managed-Effects.md`,
+> `spec/014-HTTPRequests.md`, `spec/016-Resources.md`,
+> `spec/005-StateMachines.md`, `spec/012-Routing.md`, and the specs for any
+> future managed asynchronous effect family.
 >
-> Normative home after acceptance: the Managed-Effects spec,
-> `spec/016-Resources.md`, and the specs for machines, routing, HTTP, and any
-> effect family that produces asynchronous causal replies.
+> Plain-language proposal: when framework-managed async work completes, it
+> reports back as one standard reply map delivered to one standard reply target.
+> HTTP callbacks, resource replies, timers, route loaders, and machine
+> completions may keep their public conveniences, but those conveniences lower
+> to the same causal continuation shape.
 
 ## Abstract
 
-re-frame2 uses events as continuations for effects. That is the right shape for
-a deterministic event fold, but each async effect family currently names its
-continuation differently: HTTP success/failure callbacks, resource replies,
-timers, route-settle events, and machine-delivered events all repeat the same
-idea.
+re-frame2 already has the right foundation for large SPAs: event handlers return
+data, effects are interpreted at the boundary, and asynchronous work comes back
+as events rather than hidden callbacks mutating state. The remaining problem is
+that each asynchronous effect family spells the same continuation idea
+differently. Managed HTTP has `:on-success` and `:on-failure`; resources have
+internal success/failure/abort reply events tied to a work ledger; machine
+`:after` timers carry epochs; route loaders carry nav-tokens; spawned actors
+notify parents through machine-specific completion hooks.
 
-This EP defines a **uniform async reply envelope**. A managed async effect
-declares where to send its reply, and the runtime completes that reply with a
-standard outcome map containing status, value/error, correlation, cancellation
-or staleness information, and world inputs such as completion time.
+This EP defines a uniform async reply envelope. A managed async effect declares
+one reply target and one optional work id. The runtime completes that target
+with a standard reply map containing outcome status, value or error, work-ledger
+correlation, causal completion metadata, cancellation/staleness information,
+and tracing metadata. Existing public APIs remain as compatibility sugar that
+lower to the envelope.
 
-Existing `:on-success`/`:on-failure` style APIs can remain as compatibility
-sugar that lowers into the uniform envelope.
+The proposal makes "event replies are causal continuations" a framework-wide
+law instead of an effect-family convention. The payoff is one substrate for
+work id correlation, stale suppression, cancellation, tracing, SSR preload
+waiting, resource hydration, and deterministic replay metadata.
+
+## Problem Statement
+
+Managed asynchronous effects all need the same facts:
+
+- what work was started;
+- which frame and continuation own the completion;
+- how the work correlates with a ledger row or in-flight handle;
+- whether a late completion is still current;
+- whether the work succeeded, failed, was cancelled, or became stale;
+- which causal world inputs, such as completion time, may affect durable state;
+- which trace rows describe issuance, retry, cancellation, suppression, and
+  completion.
+
+Today those facts are distributed across effect-family-specific vocabularies.
+HTTP success/failure callbacks, resource internal replies, route nav-token
+wrappers, machine timer epochs, and actor completion hooks all express "when
+this finishes, dispatch a causal reply", but they do not share a reply map or a
+target descriptor.
+
+That duplication makes the most important runtime concerns harder than they
+should be:
+
+- Stale suppression must be reimplemented for resources, routes, timers, and
+  actor-bound requests.
+- Cancellation is easy to treat as correctness, even though cancellation is only
+  an optimization and stale suppression is the correctness boundary.
+- Work-ledger correlation risks drifting into several near-identical identities
+  such as request id, work id, stale key, generation, actor id, and nav-token.
+- SSR preload and hydration need to know which async work blocks rendering, but
+  each subsystem exposes a different completion surface.
+- Tracing and error promotion need to classify completion status without
+  decoding every effect family's private callback shape.
+- EP-0010 causal world inputs need one place to carry completion facts such as
+  `:started-at-ms`, `:completed-at-ms`, and `:deadline-at-ms`.
+
+Large SPA architecture benefits when the remaining ambient concepts are values
+with laws. The continuation of managed async work is one of those concepts.
 
 ## Motivation
 
-Async work has cross-cutting behavior:
+The core runtime can be read as a fold:
 
-- dedupe;
-- cancellation;
-- stale reply suppression;
-- tracing;
-- work-ledger correlation;
-- frame teardown;
-- route egress;
-- retry;
-- SSR preload/hydration;
-- error promotion.
+```text
+next-frame-state = transition(previous-frame-state, causal-event)
+```
 
-If each async effect family encodes continuation differently, the runtime must
-reimplement those concerns per family. A single reply shape makes them one
-subsystem concern.
+Effects are data emitted by that fold and interpreted by the host. Async
+completion is not a side channel; it is another causal event. That is the
+important re-frame choice to preserve.
 
-The work ledger proposed around resource queries is the natural substrate: a
-ledger row is a reified continuation. This EP generalizes that idea beyond
-resources without forcing every public API to look identical immediately.
+The missing abstraction is the shape of that causal event. If every effect
+family invents its own callback slots, the framework gets N versions of the
+same substrate. A uniform reply envelope turns the continuation into ordinary
+data:
+
+```clojure
+{:rf/reply-to [:article/load-replied {:id 42}]
+ :work/id     [:rf.work/http :article/by-id 42 7]}
+```
+
+and turns completion into an ordinary reply map:
+
+```clojure
+{:status          :ok
+ :value           {:title "Welcome"}
+ :work/id         [:rf.work/http :article/by-id 42 7]
+ :attempt         1
+ :rf.frame/id     :app/main
+ :started-at-ms   1781078400123
+ :completed-at-ms 1781078400456
+ :correlation     {:request-id [:article/by-id 42]
+                   :generation 7}
+ :stale?          false}
+```
+
+The work ledger proposed by Resources is the natural durable substrate: a work
+row is the reified continuation of a managed async effect. This EP generalizes
+that idea beyond resources without forcing every public API to look the same on
+day one.
 
 ## Goals
 
-- Define one reply envelope for managed async completions.
-- Keep events as the continuation mechanism.
-- Allow existing effect APIs to lower onto the envelope.
-- Make work-ledger correlation, stale suppression, and cancellation uniform.
-- Carry causal world inputs from EP-0010 on the reply.
+- Define one reply target shape for managed async effects.
+- Define one reply map shape for async completions.
+- Preserve events as the continuation mechanism.
+- Make `:work/id` the canonical correlation identity for ledger-backed work.
+- Make stale suppression mandatory and cancellation opportunistic.
+- Carry EP-0010 causal completion metadata on async replies.
+- Let HTTP, resources, timers, routing, and machines share tracing and status
+  classification.
+- Preserve existing public HTTP callback APIs as compatibility sugar where
+  useful.
+- Make reply-target mapping law-checkable, so wrappers compose predictably.
+- Give SSR preload, hydration, restore, and Xray one work/reply vocabulary.
 
 ## Non-Goals
 
-- This EP does not introduce promises, callbacks, or monads into the app-facing
-  event model.
-- This EP does not require removing `:on-success` and `:on-failure` from public
-  HTTP APIs.
-- This EP does not define the complete work-ledger schema. It defines the reply
-  surface that ledger-backed work uses.
-- This EP does not require all one-shot synchronous effects to use the envelope.
+- This EP does not introduce promises, monads, async/await, callbacks, or
+  channels into the app-facing event model.
+- This EP does not remove `:on-success` or `:on-failure` from public HTTP APIs.
+- This EP does not define the full `:rf.runtime/work-ledger` schema; it defines
+  the reply surface that ledger-backed work uses.
+- This EP does not make every synchronous effect produce a reply.
+- This EP does not cover streaming or multi-reply protocols. A stream may use
+  the same work id and status taxonomy, but per-chunk delivery is a separate
+  shape.
+- This EP does not make cancellation reliable. Hosts may fail to cancel work
+  already in flight; stale suppression remains the correctness rule.
+- This EP does not settle every EP-0010 timestamp key spelling. It requires
+  causal completion metadata and uses provisional names.
 
-## Relationships
+## Definitions
 
-- `spec/016-Resources.md` needs a work-ledger and resource reply format. This
-  EP defines the reusable continuation part.
-- EP-0010 causal world inputs says completion time must be on the reply if it
-  affects durable state.
-- EP-0008 production observability channels use reply status and error
-  classification to decide which failures survive production.
-- Machines and routing may continue to expose domain-specific source forms, but
-  their async completions should lower to the same internal reply model.
+**Managed async effect**
+
+A managed external effect whose lifecycle crosses event boundaries and whose
+completion is owned by the framework. Examples include managed HTTP requests,
+resource fetches, managed timers, route loader work, spawned actor work, and
+machine delayed transitions.
+
+**Reply target**
+
+Data that tells the runtime where to dispatch a completion. The canonical public
+sugar is an event vector prefix under `:rf/reply-to`.
+
+**Reply envelope / reply map**
+
+The data map delivered when managed async work completes. It contains one
+`:status` plus the value, error, work correlation, causal metadata, and
+suppression/cancellation facts needed by reducers and tools.
+
+**Work id**
+
+A stable, `=`-comparable identity for one attempt of work, carried as
+`:work/id`. When a work-ledger row exists, `:work/id` is the row key and the
+stale-suppression identity. There must not be a second synonym such as
+`:stale-key` for the same attempt.
+
+**Generation**
+
+A monotonic discriminator embedded in or associated with a work id when the same
+logical resource, route, actor, or timer can launch several attempts over time.
+Generation-like values must not be recycled while an out-of-frame continuation
+could still carry the old value.
+
+**Causal completion metadata**
+
+World inputs from EP-0010 captured on the completion token, such as start time,
+completion time, deadline, generated ids, or host status facts that may affect
+durable frame-state.
+
+**Stale reply**
+
+A completion whose correlation no longer matches the live frame-state: for
+example a resource generation was superseded, a route nav-token changed, a
+machine `:after` epoch no longer matches, or a frame was restored past the work.
+A stale reply must not mutate the user-visible target state.
+
+**Cancellation**
+
+A request to stop host work. Cancellation may abort a fetch, clear a timer, or
+destroy an actor, but the runtime must still handle the case where the host
+completion arrives later. Cancellation is an optimization; stale suppression is
+the correctness boundary.
+
+**Public compatibility sugar**
+
+An app-facing source form that remains convenient or migration-friendly but
+lowers to `:rf/reply-to` plus the reply map internally. HTTP `:on-success` and
+`:on-failure` are the main examples.
+
+## Proposed Solution
+
+Add a ninth property to the Managed-Effects contract: every managed async
+effect has a uniform reply envelope. A conforming effect family either exposes
+`:rf/reply-to` directly or lowers its public callback vocabulary to
+`:rf/reply-to` internally.
+
+At issuance time, the runtime records a work id, frame id, target, owner/cause
+metadata, and any suppression gates. At completion time, it builds a reply map,
+checks suppression gates, updates the work ledger if present, emits trace rows,
+and dispatches the reply target only if delivery is still current.
+
+The public source form can stay familiar:
+
+```clojure
+{:fx [[:rf.http/managed
+       {:request    {:method :get :url "/api/articles/42"}
+        :decode     :app/article
+        :on-success [:article/loaded 42]
+        :on-failure [:article/load-failed 42]}]]}
+```
+
+but the internal shape is one continuation:
+
+```clojure
+{:fx [[:rf.http/managed
+       {:request     {:method :get :url "/api/articles/42"}
+        :decode      :app/article
+        :work/id     [:rf.work/http :article/by-id 42 1]
+        :rf/reply-to [:rf.http/compat-reply
+                      {:on-success [:article/loaded 42]
+                       :on-failure [:article/load-failed 42]}]}]]}
+```
+
+The compatibility reply handler then preserves the public HTTP contract while
+the runtime, ledger, trace stream, cancellation paths, and stale-suppression
+paths all see the same reply map.
 
 ## Specification
 
+### Managed-Effects Property 9: Uniform Reply Envelope
+
+`spec/Managed-Effects.md` should add this property:
+
+> A managed async effect MUST complete through the uniform reply envelope. The
+> effect either accepts `:rf/reply-to` directly or defines public sugar that
+> lowers to `:rf/reply-to`. Completion MUST produce a reply map with a single
+> `:status`, value or error data, work correlation, causal completion metadata,
+> and any cancellation/staleness facts. Ledger-backed effects MUST correlate
+> by `:work/id`.
+
+This property applies only to effects with asynchronous completion. A one-shot
+synchronous effect that performs work during the `:fx` walk and has no later
+reply does not need `:rf/reply-to`.
+
 ### Reply Target
 
-A managed async effect SHOULD have one normalized reply target. The spelling is
-an open issue; this draft uses `:rf/reply-to`.
+The canonical public target key is `:rf/reply-to`.
+
+The short form is an event vector prefix:
 
 ```clojure
-{:url "/api/articles/42"
- :method :get
- :rf/reply-to [:article/load-replied {:id 42}]}
+{:rf/reply-to [:article/load-replied {:id 42}]}
 ```
 
-The reply target is an event vector prefix. On completion, the runtime dispatches
-that event with a reply map added in the effect-family's specified position.
-
-Example dispatched event:
+On live completion, the runtime dispatches the target event with the reply map
+appended as the final event argument:
 
 ```clojure
 [:article/load-replied
- {:id 42
-  :rf/reply {:status :ok
-             :value {:title "A title"}
-             :work/id [:http :article/by-id 42]
-             :completed-at-ms 1781078400456
-             :stale? false}}]
+ {:id 42}
+ {:status          :ok
+  :value           {:title "Welcome"}
+  :work/id         [:rf.work/http :article/by-id 42 1]
+  :completed-at-ms 1781078400456}]
 ```
 
-### Reply Map
-
-The reply map SHOULD contain:
+The descriptor form is available for framework internals and future public
+surfaces that need explicit delivery options:
 
 ```clojure
-{:status          :ok                 ;; or :error, :cancelled, :stale
- :value           value               ;; present for successful replies
- :error           error               ;; present for failed replies
- :work/id         work-id             ;; correlation with a work-ledger row
- :started-at-ms   started-at-ms       ;; optional, causal input if durable
- :completed-at-ms completed-at-ms     ;; optional, causal input if durable
- :attempt         attempt-number      ;; optional
- :stale?          boolean             ;; optional, for ignored replies
- :aborted?        boolean             ;; optional
- :meta            effect-family-meta} ;; optional, data only
+{:rf/reply-to {:event    [:article/load-replied {:id 42}]
+               :delivery :append
+               :suppress {:route/nav-token "nav-7"
+                          :generation      1}}}
 ```
 
-Exact keys may be refined during proposal review, but the shape is one map with
-one status field and data-only correlation.
+Descriptor fields:
 
-### Lowering Existing HTTP Callbacks
+| Field | Required | Meaning |
+|---|---:|---|
+| `:event` | yes | Event vector prefix to complete. |
+| `:delivery` | no | `:append` by default. Compatibility adapters may use other delivery internally to preserve old public event shapes. |
+| `:suppress` | no | Data-only gates that must still match before the reply is delivered. |
+| `:dispatch-stale?` | no | `false` by default. Framework tests/tools may opt into receiving stale envelopes; app targets should not. |
 
-Existing source forms remain valid:
+Effect families MAY expose only the short vector form publicly while using the
+descriptor form internally.
+
+### Reply Map Fields
+
+The canonical reply map is data only. It must not contain functions, promises,
+AbortControllers, timer handles, DOM nodes, or other host resources.
 
 ```clojure
-{:http-xhrio {:uri "/api/articles/42"
-              :method :get
-              :on-success [:article/load-ok 42]
-              :on-failure [:article/load-failed 42]}}
+{:status          :ok | :error | :cancelled | :stale
+ :value           value-or-nil
+ :error           error-map-or-nil
+ :work/id         work-id-or-nil
+ :work/kind       :http | :resource | :timer | :route | :machine | ...
+ :work/status     :completed | :failed | :timed-out | :suppressed | :cancelled
+ :attempt         positive-int-or-nil
+ :rf.frame/id     frame-id
+ :started-at-ms   started-at-ms-or-nil
+ :completed-at-ms completed-at-ms-or-nil
+ :deadline-at-ms  deadline-at-ms-or-nil
+ :correlation     data-only-map
+ :stale?          boolean
+ :stale/reason    keyword-or-nil
+ :cancelled?      boolean
+ :cancel/reason   keyword-or-nil
+ :trace           data-only-trace-summary
+ :meta            effect-family-data}
 ```
 
-The runtime may lower this to the uniform representation:
+Required fields:
+
+- `:status` is always required.
+- `:work/id` is required for ledger-backed work and SHOULD be present for every
+  managed async effect that can be correlated.
+- `:rf.frame/id` is required when the effect is frame-scoped.
+- `:value` is present for `:status :ok`.
+- `:error` is present for `:status :error` and MAY also carry compatibility
+  failure data for `:status :cancelled`.
+- `:started-at-ms`, `:completed-at-ms`, and `:deadline-at-ms` are causal
+  metadata when those facts affect durable state. If the effect family does not
+  use a field durably, it may omit it.
+
+Optional fields should be omitted when absent rather than filled with placeholder
+sentinels, except where a schema for a specific spec requires nilable keys.
+
+### Status Taxonomy
+
+The reply `:status` vocabulary is closed:
+
+| Reply status | Meaning | Value/error convention |
+|---|---|---|
+| `:ok` | Work completed successfully and the reply is current. | `:value` present; `:error` absent. |
+| `:error` | Work completed with a failure and the reply is current. | `:error` present with a family-specific `:kind`. |
+| `:cancelled` | Work was intentionally cancelled while still correlated with the target. | `:cancel/reason` present; `:error` MAY carry compatibility failure data. |
+| `:stale` | Work completed or was observed after its correlation became obsolete. | `:stale? true`; `:stale/reason` present; no app-state mutation. |
+
+Timeout is not a top-level reply status. It is an error kind or work status:
 
 ```clojure
-{:rf.http/request
- {:uri "/api/articles/42"
-  :method :get
-  :rf/reply-to [:rf.http/compat-reply
-                {:on-success [:article/load-ok 42]
-                 :on-failure [:article/load-failed 42]}]}}
+{:status      :error
+ :error       {:kind :rf.http/timeout
+               :limit-ms 30000
+               :elapsed-ms 30012}
+ :work/status :timed-out}
 ```
 
-The compatibility reply handler then dispatches the legacy event shape:
+HTTP abort compatibility may still surface the HTTP category inside `:error`:
 
 ```clojure
-[:article/load-ok 42 response]
-[:article/load-failed 42 error]
+{:status        :cancelled
+ :cancelled?    true
+ :cancel/reason :actor-destroyed
+ :error         {:kind :rf.http/aborted
+                 :reason :actor-destroyed}}
 ```
 
-The lowering is an implementation strategy, not a requirement for application
-authors to use the compatibility event.
+Stale wins over natural success or failure for delivery purposes. A late
+successful HTTP response for a superseded resource generation is not `:ok`; it
+is `:stale`/`:suppressed` in the ledger and trace stream, and the app target is
+not dispatched unless explicitly opted in for testing or tooling.
 
-### Resource Query Example
+### Work Id Correlation
 
-A resource fetch can be expressed directly in reply form:
+Ledger-backed async work MUST use `:work/id` as the single attempt identity.
+The work id is:
+
+- stable under `=`;
+- serializable as EDN when it appears in runtime-db or trace data;
+- scoped enough to avoid collision inside a frame;
+- the key used by the work ledger;
+- the key used by stale suppression for that attempt.
+
+Resource work should embed the scoped resource key and generation:
 
 ```clojure
-{:rf.resource/fetch
- {:resource/id :article/by-id
-  :params {:id 42}
-  :cache-key [:article/by-id {:id 42}]
-  :rf/reply-to [:rf.resource/replied
-                {:resource/id :article/by-id
-                 :params {:id 42}}]}}
+[:rf.work/resource scoped-resource-key generation]
 ```
 
-The resource reducer applies the reply map to the cache entry and ledger row:
+Route loader work should embed the route id and nav-token:
 
 ```clojure
-[:rf.resource/replied
- {:resource/id :article/by-id
-  :params {:id 42}
-  :rf/reply {:status :ok
-             :value article
-             :work/id [:resource :article/by-id {:id 42}]
-             :completed-at-ms 1781078400456}}]
+[:rf.work/route route-id nav-token loader-id]
 ```
 
-### Timer Example
-
-Timer effects also complete as replies:
+Timer work should embed the logical timer identity and generation or epoch:
 
 ```clojure
-{:rf.timer/after
- {:ms 250
-  :rf/reply-to [:search/debounce-fired {:query-id query-id}]}}
+[:rf.work/timer :search/debounce query-id generation]
 ```
 
-Completion:
+Machine work should embed the actor id and the work-bearing state or invoke id:
 
 ```clojure
-[:search/debounce-fired
- {:query-id query-id
-  :rf/reply {:status :ok
-             :value nil
-             :work/id [:timer query-id]
-             :completed-at-ms 1781078400300}}]
+[:rf.work/machine actor-id [:authenticating :fetch-profile] generation]
 ```
 
-### Functor-Like Mapping
+The exact tuple shape is owned by each effect family, but the rule is common:
+one attempt has one work id. If another public identity exists, such as an HTTP
+`:request-id`, it is correlation metadata, not a second stale-suppression key.
 
-The runtime SHOULD support pure transformation of reply targets. This can be as
-simple as wrapping the target event vector or as explicit as a helper that maps
-reply payloads.
+### Work Ledger Integration
 
-The conformance law is:
+When a work-ledger row exists, issuance writes or joins a non-terminal row:
+
+```clojure
+{:work/id       [:rf.work/resource scoped-resource-key 4]
+ :work/kind     :resource
+ :work/frame    :app/main
+ :status        :running
+ :owners        #{[:route :route/article "nav-12"]}
+ :causes        [[:route-entry :route/article "nav-12"]]
+ :cancellable?  true
+ :started-at-ms 1781078400123
+ :deadline-at-ms 1781078405123
+ :reply-to      {:event [:rf.resource.internal/replied
+                         {:resource/key scoped-resource-key
+                          :generation   4
+                          :rf.frame/id  :app/main}]}}
+```
+
+Completion updates that row before, or atomically with, delivery:
+
+```clojure
+{:work/id          [:rf.work/resource scoped-resource-key 4]
+ :status           :completed
+ :completed-at-ms  1781078400456
+ :outcome          {:status :ok}}
+```
+
+Terminal ledger statuses MAY be more operational than reply statuses:
+
+| Ledger status | Typical reply status |
+|---|---|
+| `:completed` | `:ok` |
+| `:failed` | `:error` |
+| `:timed-out` | `:error` with timeout kind |
+| `:cancelled` | `:cancelled` |
+| `:suppressed` | `:stale` |
+
+The ledger must not store host handles. AbortControllers, timer handles,
+transport promises, and subscriptions remain host-transient side-table entries
+keyed by `[frame-id work-id]`.
+
+### Causal Completion Metadata
+
+Managed async replies are causal tokens under EP-0010. Any host fact from the
+completion that can affect durable app-db, runtime-db, resource entries,
+machine snapshots, route state, or ledger rows MUST be placed on the reply map
+or supplied as an explicit replayable coeffect derived from it.
+
+Correct:
+
+```clojure
+(rf/reg-event-fx :article/replied
+  (fn [{:keys [db]} [_ {:keys [id]} reply]]
+    (case (:status reply)
+      :ok
+      {:db (assoc-in db [:articles id]
+                     {:data      (:value reply)
+                      :loaded-at (:completed-at-ms reply)})}
+
+      :error
+      {:db (assoc-in db [:articles id :error] (:error reply))}
+
+      {:db db})))
+```
+
+Incorrect:
+
+```clojure
+;; Do not compute durable freshness from a fresh ambient read here.
+{:db (assoc-in db [:articles id :loaded-at] (interop/now-ms))}
+```
+
+The event envelope that dispatches the reply may also carry an enqueue time.
+That time is distinct from `:completed-at-ms` when the host completion happened
+before the runtime enqueued the reply. Specs may decide which timestamp a
+durable field uses, but the value must be causal data.
+
+### Stale Suppression
+
+Every effect family that can be superseded MUST define data-only suppression
+gates and validate them before durable writes. Examples:
+
+- resource `:work/id` plus generation still matches the current resource entry;
+- route `:nav-token` still matches `[:rf.runtime/routing :current :nav-token]`;
+- machine `:after` epoch and declaring path still match the active snapshot;
+- actor id still names a live actor when actor-bound work replies;
+- frame id still names a live frame.
+
+If validation fails:
+
+1. the app reply target MUST NOT run;
+2. the reply outcome becomes `:status :stale`;
+3. the ledger row, if present, reaches `:suppressed`;
+4. the trace stream emits a stale-suppression row with the carried and current
+   correlation facts;
+5. no user-visible app-db or runtime-db mutation may be produced by the stale
+   reply, except the framework-owned ledger/trace bookkeeping.
+
+Cancellation does not weaken this rule. A cancelled fetch may still produce a
+late host completion; it is accepted only if its correlation is still live and
+the effect family intentionally delivers cancellation to the target.
+
+### Cancellation
+
+Cancellation is represented as data, not as the absence of a reply.
+
+Explicit user cancellation that is still live may dispatch:
+
+```clojure
+[:search/replied
+ {:query "abc"}
+ {:status        :cancelled
+  :cancelled?    true
+  :cancel/reason :user
+  :work/id       [:rf.work/http :search "abc" 8]
+  :completed-at-ms 1781078400999}]
+```
+
+Supersession cancellation should usually suppress the old app reply:
+
+```clojure
+{:status        :stale
+ :stale?        true
+ :stale/reason  :request-id-superseded
+ :work/id       [:rf.work/http :search "abc" 7]
+ :work/status   :suppressed}
+```
+
+Actor-destroy cancellation is delivered according to the owning surface. For
+HTTP inside a spawned actor, Spec 005 and Spec 014 already define the abort
+cascade. Under this EP, the abort cascade completes through the same envelope,
+with `:status :cancelled` if the actor-bound target is still meaningful, or
+`:status :stale`/`:suppressed` when the actor teardown makes the target
+obsolete before delivery.
+
+### Tracing
+
+Managed async effect families MUST emit trace rows using the reply envelope
+facts rather than private callback facts. At minimum:
+
+- issuance/start with `:work/id`, frame, owner/cause, and target summary;
+- retry or intermediate transition where applicable;
+- cancellation requested, including reason and whether a host handle existed;
+- completion classified as `:ok`, `:error`, `:cancelled`, or `:stale`;
+- stale suppression with carried/current correlation facts;
+- delivery to a target, or explicit non-delivery.
+
+Trace rows must use the shared elision walker for wire-bearing values. Large or
+sensitive `:value`, `:error`, params, scopes, request bodies, and route params
+must be summarized or redacted by the same privacy/size rules used elsewhere.
+
+### Public Compatibility Sugar
+
+Public APIs may keep ergonomic or migration-friendly forms, provided they lower
+to the uniform envelope.
+
+HTTP `:on-success` and `:on-failure` remain valid:
+
+```clojure
+{:fx [[:rf.http/managed
+       {:request    {:method :post :url "/api/login" :body credentials}
+        :decode     :app/session
+        :on-success [:auth/login-succeeded]
+        :on-failure [:auth/login-failed]}]]}
+```
+
+The owning HTTP implementation lowers them to a single reply target:
+
+```clojure
+{:fx [[:rf.http/managed
+       {:request     {:method :post :url "/api/login" :body credentials}
+        :decode      :app/session
+        :work/id     [:rf.work/http :auth/login login-attempt]
+        :rf/reply-to [:rf.http/compat-reply
+                      {:on-success [:auth/login-succeeded]
+                       :on-failure [:auth/login-failed]}]}]]}
+```
+
+The compatibility handler receives the canonical reply:
+
+```clojure
+[:rf.http/compat-reply
+ {:on-success [:auth/login-succeeded]
+  :on-failure [:auth/login-failed]}
+ {:status          :ok
+  :value           session
+  :work/id         [:rf.work/http :auth/login login-attempt]
+  :completed-at-ms 1781078400456}]
+```
+
+and preserves the public HTTP event shape promised by Spec 014:
+
+```clojure
+[:auth/login-succeeded {:kind :success :value session}]
+```
+
+For migration from re-frame v1-style HTTP libraries, an additional compatibility
+adapter may unwrap further to old positional payload shapes, but that adapter is
+public sugar. It must not become the internal managed-effect contract.
+
+### SSR, Preload, Hydration, And Restore
+
+SSR and preload integrations should observe work ledger rows and reply statuses,
+not effect-family callback slots.
+
+For route resources:
+
+- server route handling enqueues blocking resource work;
+- SSR waits for ledger rows associated with the current route/nav-token to
+  become terminal;
+- successful replies update resource entries with causal `:completed-at-ms`;
+- failures settle as structured resource or route errors;
+- stale or superseded replies are suppressed by work id/generation/nav-token;
+- hydration serializes the allowed resource projection and non-terminal work
+  summaries, not host handles.
+
+Hydration and epoch restore must not revive host work. Non-terminal restored
+rows are reconciled as dangling/superseded unless a spec explicitly defines a
+safe live handoff. A pre-restore host completion that later arrives cannot
+mutate the restored frame because its work id/generation/token cannot match the
+post-restore live correlation.
+
+Timers follow the owning spec's SSR rule. Machine `:after` timers are not
+scheduled on the server. A future general timer surface must either no-op under
+SSR or define an explicit server-safe completion policy; it still uses the
+reply map if it completes.
+
+### Reply Mapping And Functor Law
+
+The runtime SHOULD expose pure helpers for transforming reply targets. The
+helper may be public API or implementation-internal, but the law is normative:
+mapping a target changes only the completed event, not issuance, work id,
+status classification, cancellation, stale checks, or tracing.
+
+In abstract form:
 
 ```text
-complete(map-reply(f, work), result) == map-event(f, complete(work, result))
+complete(map-reply-target(f, target), reply)
+  == f(complete(target, reply))
 ```
 
-In plain terms: mapping the continuation before completion and mapping the event
-after completion should produce equivalent causal events.
+Identity and composition must hold:
+
+```text
+map-reply-target(identity, target) == target
+map-reply-target(comp(f, g), target)
+  == map-reply-target(f, map-reply-target(g, target))
+```
+
+Concrete example:
+
+```clojure
+(def target
+  {:event [:article/replied {:id 42}]
+   :delivery :append})
+
+(def reply
+  {:status :ok
+   :value {:article {:id 42 :title "Welcome"}}
+   :work/id [:rf.work/http :article/by-id 42 1]})
+
+(defn select-article-event [event]
+  (let [reply (peek event)]
+    (conj (pop event) (update reply :value :article))))
+
+(= (rf.reply/complete
+     (rf.reply/map-target select-article-event target)
+     reply)
+   (select-article-event
+     (rf.reply/complete target reply)))
+```
+
+Implementations do not have to store arbitrary functions in effect maps to
+satisfy this law. A helper can rewrite source forms to named adapter events, or
+the law can be exercised in tests over the internal completion function. The
+required property is that reply-target wrappers compose predictably and do not
+create hidden callback semantics.
+
+## Examples
+
+### Managed HTTP Lowering
+
+Public source:
+
+```clojure
+(rf/reg-event-fx :article/load
+  (fn [{:keys [db]} [_ id]]
+    {:db (assoc-in db [:articles id :status] :loading)
+     :fx [[:rf.http/managed
+           {:request    {:method :get
+                         :url    (str "/api/articles/" id)}
+            :decode     :app/article
+            :retry      {:on #{:rf.http/transport :rf.http/http-5xx}
+                         :max-attempts 3}
+            :on-success [:article/load-succeeded id]
+            :on-failure [:article/load-failed id]}]]}))
+```
+
+Internal lowering:
+
+```clojure
+[:rf.http/managed
+ {:request     {:method :get :url "/api/articles/42"}
+  :decode      :app/article
+  :retry       {:on #{:rf.http/transport :rf.http/http-5xx}
+                :max-attempts 3}
+  :request-id  [:article/by-id 42]
+  :work/id     [:rf.work/http :article/by-id 42 1]
+  :rf/reply-to [:rf.http/compat-reply
+                {:on-success [:article/load-succeeded 42]
+                 :on-failure [:article/load-failed 42]}]}]
+```
+
+Canonical completion:
+
+```clojure
+[:rf.http/compat-reply
+ {:on-success [:article/load-succeeded 42]
+  :on-failure [:article/load-failed 42]}
+ {:status          :ok
+  :value           {:id 42 :title "Welcome"}
+  :work/id         [:rf.work/http :article/by-id 42 1]
+  :work/kind       :http
+  :work/status     :completed
+  :attempt         1
+  :rf.frame/id     :app/main
+  :started-at-ms   1781078400123
+  :completed-at-ms 1781078400456
+  :correlation     {:request-id [:article/by-id 42]}}]
+```
+
+Compatibility dispatch:
+
+```clojure
+[:article/load-succeeded
+ 42
+ {:kind :success
+  :value {:id 42 :title "Welcome"}}]
+```
+
+### Resource Reply And Work Ledger
+
+A route-owned resource ensure creates an entry and a work row:
+
+```clojure
+[:rf.resource/ensure
+ {:resource :article/by-slug
+  :scope    [:rf.scope/session {:tenant-id "acme"}]
+  :params   {:slug "welcome"}
+  :owner    [:route :route/article "nav-12"]
+  :cause    [:route-entry :route/article "nav-12"]}]
+```
+
+The resource runtime allocates:
+
+```clojure
+(def scoped-key
+  [:article/by-slug
+   [:rf.scope/session {:tenant-id "acme"}]
+   {:slug "welcome"}])
+
+(def work-id
+  [:rf.work/resource scoped-key 4])
+```
+
+and lowers to managed HTTP:
+
+```clojure
+[:rf.http/managed
+ {:request     {:method :get :url "/api/articles/welcome"}
+  :decode      :app/article
+  :request-id  work-id
+  :work/id     work-id
+  :rf/reply-to [:rf.resource.internal/replied
+                {:resource/key scoped-key
+                 :generation   4
+                 :rf.frame/id  :app/main}]}]
+```
+
+The internal resource reply handler receives one reply map for success,
+failure, cancellation, or stale suppression:
+
+```clojure
+[:rf.resource.internal/replied
+ {:resource/key scoped-key
+  :generation   4
+  :rf.frame/id  :app/main}
+ {:status          :ok
+  :value           {:id 42 :title "Welcome"}
+  :work/id         work-id
+  :work/kind       :resource
+  :work/status     :completed
+  :completed-at-ms 1781078400456
+  :correlation     {:scope      [:rf.scope/session {:tenant-id "acme"}]
+                    :generation 4
+                    :owner      [:route :route/article "nav-12"]}}]
+```
+
+Before writing, the handler verifies:
+
+- frame id matches the target frame;
+- `:work/id` still equals the entry's `:current-work`;
+- generation still equals the entry's generation;
+- route owner token, if present, is still live or intentionally revived.
+
+If verification passes, it updates the resource entry and ledger. If it fails,
+the app resource state is unchanged and the ledger records suppression:
+
+```clojure
+{:status        :stale
+ :stale?        true
+ :stale/reason  :resource/generation-mismatch
+ :work/id       work-id
+ :work/status   :suppressed
+ :correlation   {:carried-generation 4
+                 :current-generation 5}}
+```
+
+### Timer Reply
+
+A future managed timer surface can use the same continuation shape:
+
+```clojure
+(rf/reg-event-fx :search/query-changed
+  (fn [{:keys [db]} [_ query]]
+    (let [generation (inc (get-in db [:search :generation] 0))
+          work-id    [:rf.work/timer :search/debounce generation]]
+      {:db (-> db
+               (assoc-in [:search :query] query)
+               (assoc-in [:search :generation] generation))
+       :fx [[:rf.timer/after
+             {:ms          250
+              :work/id     work-id
+              :rf/reply-to {:event    [:search/debounce-replied
+                                       {:generation generation}]
+                            :suppress {:generation generation}}}]]})))
+```
+
+Live completion:
+
+```clojure
+[:search/debounce-replied
+ {:generation 8}
+ {:status          :ok
+  :value           nil
+  :work/id         [:rf.work/timer :search/debounce 8]
+  :work/kind       :timer
+  :completed-at-ms 1781078400300
+  :correlation     {:generation 8}}]
+```
+
+If generation 9 is current by the time the timer fires, the runtime emits a
+stale trace and does not dispatch `:search/debounce-replied` to app code:
+
+```clojure
+{:status        :stale
+ :stale?        true
+ :stale/reason  :generation-mismatch
+ :work/id       [:rf.work/timer :search/debounce 8]
+ :work/status   :suppressed
+ :correlation   {:carried-generation 8
+                 :current-generation 9}}
+```
+
+Machine `:after` timers are the existing specialized instance of this pattern:
+the machine carries a declaring path and `:rf/after-epoch`, validates them on
+receipt, and drops stale timer events without app mutation.
+
+### Route Loader Completion
+
+Routing already uses nav-tokens for stale suppression. The reply envelope makes
+that an ordinary suppression gate:
+
+```clojure
+(rf/reg-route
+  :route/article
+  {:path "/articles/:slug"
+   :on-match [[:article/route-entered]]})
+
+(rf/reg-event-fx :article/route-entered
+  [(rf/inject-cofx :nav-token)]
+  (fn [{:keys [nav-token rf.db/runtime]} _]
+    (let [slug    (get-in runtime [:rf.runtime/routing :current :params :slug])
+          work-id [:rf.work/route :route/article nav-token :article]]
+      {:fx [[:rf.http/managed
+             {:request     {:method :get :url (str "/api/articles/" slug)}
+              :decode      :app/article
+              :work/id     work-id
+              :rf/reply-to {:event    [:article/route-replied
+                                       {:slug slug :nav-token nav-token}]
+                            :suppress {:route/nav-token nav-token}}}]]})))
+```
+
+The handler only sees live replies:
+
+```clojure
+(rf/reg-event-fx :article/route-replied
+  (fn [{:keys [db]} [_ {:keys [slug]} reply]]
+    (case (:status reply)
+      :ok
+      {:db (assoc-in db [:article/by-slug slug] (:value reply))}
+
+      :error
+      {:db (assoc-in db [:article/error slug] (:error reply))}
+
+      ;; :cancelled may be visible for explicit user cancellation.
+      :cancelled
+      {:db (update db :article dissoc :loading)}
+
+      ;; App handlers should not normally receive :stale; kept for explicit
+      ;; testing/tooling opt-in.
+      :stale
+      {:db db})))
+```
+
+If the user navigates from article A to article B before A completes, the
+nav-token check suppresses A's reply before this handler runs. The trace row
+records `:rf.route.nav-token/stale-suppressed`-equivalent data joined to
+`:work/id`.
+
+### Machine Completion
+
+Machine finality and spawned actor completion can be represented as reply
+completion internally while preserving Spec 005's statechart surface.
+
+```clojure
+(rf/reg-machine
+  :auth/main
+  {:initial :authenticating
+   :states
+   {:authenticating
+    {:spawn {:machine-id :auth/flow
+             :on-done {:target :authenticated}
+             :on-error {:target :failed}}
+     :after {30000 :timed-out}}
+
+    :authenticated {}
+    :failed {}
+    :timed-out {}}})
+```
+
+The spawned child has a work id:
+
+```clojure
+[:rf.work/machine :auth/flow#1 [:authenticating :spawn] 1]
+```
+
+When the child reaches a successful top-level final state, the runtime can form:
+
+```clojure
+{:status          :ok
+ :value           {:user-id "u-42"}
+ :work/id         [:rf.work/machine :auth/flow#1 [:authenticating :spawn] 1]
+ :work/kind       :machine
+ :work/status     :completed
+ :completed-at-ms 1781078400888
+ :correlation     {:actor-id  :auth/flow#1
+                   :parent-id :auth/main
+                   :spawn-id  [:authenticating :spawn]}}
+```
+
+and then drive the existing `:spawn :on-done` transition. If the parent's
+`:after` fires first, the standard exit cascade destroys the child. Any late
+child completion is stale because the actor id or spawn correlation is no
+longer live. If the child fails through an error final, the same envelope uses
+`:status :error` and drives `:spawn :on-error`.
+
+### Stale, Cancelled, And Error Handling
+
+A single reply handler can branch on the common status taxonomy:
+
+```clojure
+(rf/reg-event-fx :upload/replied
+  (fn [{:keys [db]} [_ {:keys [upload-id]} reply]]
+    (case (:status reply)
+      :ok
+      {:db (assoc-in db [:uploads upload-id]
+                     {:status :done
+                      :result (:value reply)
+                      :done-at (:completed-at-ms reply)})}
+
+      :error
+      {:db (assoc-in db [:uploads upload-id]
+                     {:status :failed
+                      :error  (:error reply)})}
+
+      :cancelled
+      {:db (assoc-in db [:uploads upload-id]
+                     {:status :cancelled
+                      :reason (:cancel/reason reply)})}
+
+      :stale
+      {:db db})))
+```
+
+An HTTP timeout:
+
+```clojure
+{:status      :error
+ :work/status :timed-out
+ :error       {:kind :rf.http/timeout
+               :limit-ms 30000
+               :elapsed-ms 30004}}
+```
+
+A user cancel:
+
+```clojure
+{:status        :cancelled
+ :work/status   :cancelled
+ :cancelled?    true
+ :cancel/reason :user}
+```
+
+A stale route result:
+
+```clojure
+{:status       :stale
+ :work/status  :suppressed
+ :stale?       true
+ :stale/reason :route/nav-token-mismatch
+ :correlation  {:carried-token "nav-1"
+                :current-token "nav-2"}}
+```
 
 ## Rationale
 
-The proposal keeps the strongest part of re-frame: async work reports back as
-events, not as hidden callbacks mutating state. The improvement is to avoid
-inventing a new continuation slot for every effect family.
+The proposal keeps the strongest part of re-frame: asynchronous work reports
+back as causal events. It does not smuggle a second callback language into the
+runtime. The improvement is that "where does completion go?" becomes one value
+instead of a family of near-synonyms.
 
-Uniform replies also make production behavior easier to audit. A stale reply, a
-cancelled reply, and a failed reply become statuses in one data shape rather
-than effect-family-specific branches.
+The reply envelope also draws the right line between cancellation and
+correctness. Hosts are allowed to fail at cancellation. A browser fetch may
+complete after abort, a network response may already be queued, and a timer
+callback may arrive after an exit cascade. The runtime remains correct because
+the reply carries data-only correlation and suppression checks run before
+delivery.
 
-## Backwards Compatibility
+Putting EP-0010 completion metadata on the reply makes deterministic replay
+more literal. Durable fields such as `:loaded-at`, `:stale-at`,
+`:completed-at`, and ledger outcomes are derived from the causal reply, not
+from a fresh ambient clock read in a reducer.
 
-This EP is designed for compatibility. Existing public effect maps can lower to
-the reply envelope. Libraries may expose both ergonomic source forms and the
-normalized lower-level form during migration.
+The work ledger becomes more than a resource implementation detail. It is the
+runtime's table of live continuations. Resources are the first writer, but the
+same shape naturally accommodates route loaders, timers, spawned actors,
+machine async work, and future managed background jobs.
 
-No existing application should be required to rewrite `:on-success` and
-`:on-failure` handlers as part of the first implementation.
+## Alternatives Considered
 
-## Bead Plan / Reference Implementation
+### Keep effect-family callback vocabularies
 
-1. Specify the canonical reply map keys and the canonical reply-target key.
-2. Add internal helpers for creating, completing, and tracing replies.
-3. Lower one existing managed async effect family to the envelope behind its
-   current public API.
-4. Integrate the envelope with work-ledger rows for resource queries.
-5. Add stale-suppression and cancellation tests that run through the shared
-   reply path.
-6. Document compatibility lowering for legacy callback APIs.
+This preserves local familiarity but keeps duplicating cross-cutting behavior.
+Every family must re-answer stale suppression, cancellation, tracing, SSR wait
+points, and causal metadata. It is easy to ship two almost-identical concepts
+with different names.
+
+### Replace replies with promises or async/await
+
+Promises are host control flow, not re-frame causal events. They hide ordering
+from the event log and do not naturally carry frame targeting, work ids,
+runtime-db write authority, trace classification, or replay metadata.
+
+### Make every async source a resource
+
+Resources are cached read-model facts. Timers, route settles, machine child
+completion, upload jobs, and actor-bound work may share the work ledger without
+being resources. Collapsing them into resources would overload the resource FSM
+and make non-cache workflows awkward.
+
+### Use cancellation as the primary correctness mechanism
+
+Cancellation cannot be trusted across hosts or races. The correct invariant is
+that stale replies cannot write. Cancellation remains valuable for bandwidth,
+quota, battery, and cleanup, but it is not the safety boundary.
+
+### Keep separate success and failure target slots
+
+Separate public handlers can be ergonomic, especially for HTTP. They should
+remain as sugar. Internally, two target slots make status taxonomy, tracing,
+mapping, and work-ledger completion less uniform. One reply target plus one
+status field is the smaller substrate.
+
+### Always dispatch stale replies to app code
+
+Dispatching stale replies by default asks app handlers to remember to ignore
+them. That repeats the bug class the runtime is supposed to prevent. Stale
+envelopes are useful for ledgers, traces, tests, and tools, but app reply
+targets should receive only live replies unless explicitly opted in.
+
+## Backwards Compatibility and Migration
+
+This proposal is intentionally compatible at public API boundaries.
+
+Existing HTTP `:on-success` and `:on-failure` source forms remain valid. The
+implementation lowers them to `:rf/reply-to` and then reshapes the canonical
+reply back into the event payload promised by Spec 014. Mechanical upgrades from
+re-frame v1 codebases can keep familiar two-handler HTTP shapes while the
+runtime gains uniform internals.
+
+Co-located HTTP handlers that branch on `(:rf/reply msg)` remain valid as
+compatibility sugar. Internally, the default target is just the originating
+event plus a compatibility delivery adapter.
+
+Resource internals may consolidate
+`:rf.resource.internal/succeeded`, `:rf.resource.internal/failed`, and
+`:rf.resource.internal/aborted` into one `:rf.resource.internal/replied`
+handler, or may keep separate event ids that all receive the canonical reply
+map. The normative rule is the reply map and work id, not the exact internal
+event id split.
+
+Machine and routing public APIs do not need immediate surface changes. Their
+existing nav-token, `:after` epoch, `:on-done`, and actor-destroy semantics can
+lower onto reply envelope facts internally and expose the same behavior to
+applications.
+
+The compatibility posture is not "v1 callback names are the design". The design
+is one causal reply envelope. Callback names are migration and ergonomics
+layers over it.
+
+## Reference Implementation / Bead Plan
+
+1. Add the uniform reply envelope property to `spec/Managed-Effects.md`.
+2. Define a small internal reply namespace with helpers for target
+   normalization, completion, mapping, schema validation, and trace summaries.
+3. Lower `:rf.http/managed` `:on-success` / `:on-failure` / co-located reply
+   behavior to the uniform envelope while preserving the public Spec 014 event
+   shapes.
+4. Wire Resources to receive a canonical reply map and update
+   `:rf.runtime/work-ledger` rows by `:work/id`.
+5. Add stale-suppression helpers that take carried/current correlation data and
+   produce `:status :stale` plus trace facts without dispatching app targets.
+6. Adapt route nav-token wrappers and machine `:after` timer handling to share
+   reply-envelope trace/status vocabulary where doing so does not perturb the
+   public API.
+7. Add SSR/preload wait logic that observes ledger rows and terminal reply
+   statuses, not HTTP-specific callback names.
+8. Document public compatibility sugar and migration examples for HTTP and
+   resource-backed route loading.
+
+## Validation / Conformance
+
+Conformance should include fixtures or tests for:
+
+- reply map schema: exactly one valid `:status`, value/error conventions, no
+  host handles in durable reply data;
+- HTTP lowering: `:on-success` and `:on-failure` preserve public event shapes
+  while producing canonical internal replies;
+- co-located HTTP default: originating-event reply still branches on
+  `:rf/reply` through compatibility delivery;
+- work id correlation: ledger-backed completions update exactly one row by
+  `:work/id`;
+- stale suppression: a superseded resource generation, route nav-token, or
+  machine `:after` epoch does not dispatch the app target and records a
+  suppressed ledger/trace outcome;
+- cancellation precedence: explicit abort produces `:status :cancelled`, while
+  superseded or destroyed obsolete work suppresses stale app delivery;
+- EP-0010 metadata: durable timestamps derive from reply metadata in replay
+  tests, not fresh ambient time reads;
+- SSR preload: blocking route resources settle through ledger terminal statuses
+  and hydration serializes only allowed resource/work projections;
+- reply mapping law: identity and composition hold for target mapping, and
+  mapping does not change work id, status, cancellation, stale checks, or trace
+  correlation.
 
 ## Open Issues
 
-- Is the target key `:rf/reply-to`, `:reply-to`, or effect-family-specific with
-  normalized internal lowering?
-- Does the reply map belong as the last event argument, under `:rf/reply` in an
-  options map, or in a fixed envelope event?
-- Which statuses are canonical: `:ok`, `:error`, `:cancelled`, `:stale`, and
-  are `:timeout` or `:aborted` statuses or error categories?
-- Does every reply require a work id, or only ledger-managed replies?
+- EP-0010 owns the final spelling and precision of causal time keys. This EP
+  uses `:started-at-ms`, `:completed-at-ms`, and `:deadline-at-ms`
+  provisionally.
+- `:rf.runtime/work-ledger` is a multi-writer subsystem. Resources can mint
+  authority today; the first non-resource writer must settle the general
+  authority path for timers, route loaders, machine work, and future async
+  surfaces.
+- The descriptor form for `:rf/reply-to` may need additional delivery modes for
+  compatibility adapters. New modes should be justified by public migration
+  needs, not effect-family preference.
+- Streaming and multi-reply effects need a sibling proposal. They may share
+  `:work/id` and status vocabulary, but their per-message continuation shape is
+  different from single completion.
+- The default for stale app delivery should remain non-delivery. Tooling and
+  tests may need an explicit opt-in shape; the exact spelling is open.
 
 ## Recommendation
 
-Adopt directionally. The reply envelope is a small abstraction that removes
-duplicated async control flow and gives the resource work ledger a framework-wide
-meaning.
+Adopt this EP. It is a small abstraction with high leverage: one causal reply
+shape removes duplicated async callback vocabularies, gives the work ledger a
+framework-wide meaning, makes EP-0010 completion metadata practical, and lets
+HTTP, resources, timers, routing, and machines share stale suppression,
+cancellation, tracing, SSR preload, and migration-compatible public sugar.
