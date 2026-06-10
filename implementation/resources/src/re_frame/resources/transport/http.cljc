@@ -46,6 +46,46 @@
   user code MUST NOT dispatch it."
   :rf.resource.internal/failed)
 
+(def reserved-reply-keys
+  "The reply-addressing / request-correlation keys the RUNTIME owns and an
+  app `:request` (the Spec 014 managed-HTTP args map) MUST NOT supply. Per
+  Spec 016 §Transport: the runtime supplies `:request-id` / `:on-success` /
+  `:on-failure` from the scoped resource key and current generation; an app
+  that supplies them itself could bypass stale-suppression (point a reply
+  at an event other than the verifying internal handler, or reuse a
+  request-id the runtime correlates work by). Rejected loudly."
+  #{:request-id :on-success :on-failure})
+
+(defn reject-reserved-reply-keys!
+  "Reject an app `:request` (the Spec 014 managed-HTTP args map) that
+  supplies any runtime-owned reply-addressing key (`reserved-reply-keys`).
+  Throws `:rf.error/resource-reserved-request-key`. Per Spec 016 §Transport
+  (\"an app `:request` that bypasses stale-suppression by supplying
+  `:request-id` / `:on-success` / `:on-failure` is rejected\"). `where`
+  names the dispatch surface; `resource-key` carries the scoped key for the
+  diagnostic. Returns `http-args` unchanged when it conforms."
+  [http-args resource-key where]
+  (let [offending (filter #(contains? http-args %) reserved-reply-keys)]
+    (when (seq offending)
+      (throw (ex-info ":rf.error/resource-reserved-request-key"
+                      {:rf.error/id  :rf.error/resource-reserved-request-key
+                       :where        where
+                       :recovery     :fix-registration
+                       :reason       (str "a resource :request supplied the "
+                                          "runtime-owned reply-addressing key(s) "
+                                          (pr-str (vec offending))
+                                          " — :request-id / :on-success / "
+                                          ":on-failure are supplied by resource "
+                                          "lowering from the scoped resource key "
+                                          "and current generation. An app-supplied "
+                                          "reply target bypasses stale suppression "
+                                          "(the correctness boundary). Remove them "
+                                          "from the :request return. Per Spec 016 "
+                                          "§Transport.")
+                       :keys         (vec offending)
+                       :resource-key resource-key})))
+    http-args))
+
 (defn build-managed-args
   "Build the `:rf.http/managed` args map for a resource ensure/refetch:
   the resource's `:request` (a Spec 014 managed-HTTP args map) with the
@@ -57,12 +97,18 @@
   the ledger record — plus `:work-id`, `:resource-key`, `:scope`, and
   `:generation` so the reply handlers can verify frame + work-id +
   generation before writing (stale suppression is the correctness
-  boundary). An app `:request` that supplies `:request-id` / `:on-success`
-  / `:on-failure` itself is rejected (it would bypass stale suppression).
+  boundary).
 
-  SKELETON: builds the args shape; the live request-id + work correlation
-  are supplied by the runtime slice via `ensure-ctx`."
-  [{:keys [http-args request-id work-id resource-key scope frame-id generation]}]
+  The app's `:request` return (`http-args`) is the Spec 014 managed-HTTP
+  args map — its top-level `:decode` / `:accept` / `:retry` and the nested
+  `:request` envelope pass through UNCHANGED (transport retry belongs to
+  managed HTTP; semantic retry to machines). An app `:request` that
+  supplies the runtime-owned `:request-id` / `:on-success` / `:on-failure`
+  itself is REJECTED here (`reject-reserved-reply-keys!`) — it would bypass
+  stale suppression."
+  [{:keys [http-args request-id work-id resource-key scope frame-id generation where]}]
+  (reject-reserved-reply-keys! http-args resource-key
+                               (or where 're-frame.resources.transport.http/build-managed-args))
   (let [reply-payload {:work-id      work-id
                        :resource-key resource-key
                        :scope        scope
@@ -84,11 +130,12 @@
   resource read gets a structured artefact-missing error rather than an
   opaque no-handler.
 
-  SKELETON slice (rf2-p10npe): returns the fx-pair SHAPE from the
-  ensure-context; the live ensure-context (request-id, work-id, scoped
-  key, generation) is assembled by the runtime slice (rf2-pbxj48). Until
-  the runtime lands, calling this directly with an incomplete ctx is a
-  programming error."
+  `ensure-ctx` is the live ensure-context the runtime slice assembles:
+  `:http-args` (the app `:request` return — a Spec 014 managed-HTTP args
+  map), `:request-id`, `:work-id`, `:resource-key`, `:scope`, `:frame-id`,
+  `:generation`, and `:where` (the dispatch surface for diagnostics). The
+  built args carry the runtime-owned reply addressing; the app `:request`'s
+  reserved reply keys are rejected (`build-managed-args`)."
   [ensure-ctx]
   ;; Defense-in-depth: surface the managed-HTTP feature presence through
   ;; the always-published feature probe (consult ≠ static require). The
