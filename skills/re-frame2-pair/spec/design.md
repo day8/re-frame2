@@ -10,6 +10,8 @@ Help an AI **pair-program with a live, running re-frame2 application**. The app 
 
 Crucially, the skill consumes **re-frame2's own Tool-Pair contract** (per `spec/Tool-Pair.md` and `spec/009-Instrumentation.md`). There is **no re-frame-10x dependency** — time-travel, trace streams, and epoch records are first-class re-frame2 surfaces. The skill is one of the principal downstream consumers of those surfaces.
 
+**Verification posture — agent-executes-against-live-runtime (by design).** Among the skill family, `re-frame2-pair` is the one skill whose posture is *the agent itself executes operations against a live runtime* — it dispatches events, mutates `app-db`, hot-swaps handlers, and reads back the resulting epoch / trace state, all through the Tool-Pair contract. Feedback is immediate and first-class: the agent grounds every claim in a live read (Pillar 4). This is the deliberate counterpart to the per-skill posture spread across the family — `re-frame-migration` runs nothing in the author's env (trust boundary), `re-frame2` authoring emits recipes a human pastes (no runtime the agent drives), and `re-frame2-implementor` runs only a narrow per-EP slice gate against the port's own scripts. Posture follows role; `re-frame2-pair`'s role *is* driving a live runtime, so executing against it is the whole point, not an exception.
+
 ## 2. Pillars (locked)
 
 1. **Correctness — structured ops over `repl/eval`.** Every operation is a named structured call that returns edn (`{:ok? true ...}` / `{:ok? false :reason ...}`). The skill teaches the AI to compose forms and read structured results; the raw `repl/eval` escape hatch exists for probes that don't fit the catalogue.

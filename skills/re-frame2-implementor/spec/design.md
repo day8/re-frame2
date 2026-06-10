@@ -48,7 +48,13 @@ This is the distinction between **generic build mechanics** (not taught — Pill
 
 **Why**: a code-writing skill that walks multi-day runtime changes and leaves the first real feedback to the human or a later full-suite gate is weaker workflow than the rest of the repo's worker discipline. The elegant path for a pre-alpha implementation guide is to teach the intended slice gate without becoming a generic testing tutorial.
 
-**Family-consistency note**: the original L3 cited cross-family consistency with the `re-frame2` and `re-frame-migration` skills (which also lock NO verification module). Those siblings are *not* implementation drivers in the same sense — they author apps / migrate code on an existing reference rather than building the runtime itself, so the per-EP slice gate is specific to this skill's implementation-driver role. Whether the same narrowing should propagate to the siblings is a separate cross-skill decision (filed as a follow-up); this lock revision is scoped to `re-frame2-implementor`.
+**Family-consistency note (resolved: posture follows role; the divergence is by design)**: the original L3 cited cross-family consistency with the `re-frame2` and `re-frame-migration` skills (which also lock NO verification module). Those siblings are *not* implementation drivers in the same sense — they author apps / migrate code on an existing reference rather than building the runtime itself, so the per-EP slice gate is specific to this skill's implementation-driver role. The cross-skill question — whether the slice gate should propagate to the siblings — has been **resolved: it stays strictly scoped to `re-frame2-implementor`, and the divergence is by design, not drift.** Each skill occupies a different role cell, and verification posture follows role:
+
+- **`re-frame-migration`** carries a hard trust boundary (its cardinal rule bars the agent from running build / test / smoke in the author's app environment). Propagating the slice gate would *violate* that boundary.
+- **`re-frame2` authoring** is locked at Pillar 4 / Q14 to emit recipes a human pastes — there is no runtime the agent drives and no EP conformance corpus, so a slice gate is vacuous there (or manufactures the very violation Q14 prevents).
+- **`re-frame2-implementor`** is the only implementation driver whose acceptance criterion *is* spec-conformance, which the per-EP slice gate operationalises.
+
+Uniform wording across the family would buy incoherence of principle: the right invariant is "verification posture follows the skill's role", and under that invariant these postures are correct, not inconsistent.
 
 ### L4 — Substrate-agnostic phrasing throughout
 

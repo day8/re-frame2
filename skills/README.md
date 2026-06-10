@@ -179,6 +179,29 @@ distinction in the **title + body**:
 
 **Labels are optional taxonomy, not a filing precondition.** A `--label` (e.g. `pair-mcp`) is added only after confirming the target repo defines it (detect with `gh label list`); on a repo/fork without that label, `gh issue create --label` fails the whole command, so filing falls back to a no-label `gh issue create` and lands regardless. The operational label/filing rules live in [`re-frame2-pair-retro/SKILL.md` §Filing improvements](./re-frame2-pair-retro/SKILL.md#filing-improvements) — this index points there rather than restating them.
 
+## Verification posture — follows role, by design
+
+Each skill's verification posture (what the agent runs, what gates "done")
+follows from the **role cell** the skill occupies, not from a uniform
+family rule. The postures differ deliberately; uniform wording would buy
+incoherence of principle. The single source for the spread:
+
+| Skill | Role | Who executes | What gates "done" | Why |
+|---|---|---|---|---|
+| `re-frame2-pair` | drive a live runtime | the agent, against the live app | a grounding live read after every change (Pillar 4) | the role *is* driving a runtime — executing against it is the point |
+| `re-frame2-implementor` | implementation driver (build the runtime) | the agent, narrowly | a per-EP slice gate from the **port's own** scripts, before calling an EP landed | acceptance criterion *is* spec-conformance; the slice gate operationalises it |
+| `re-frame-migration` | migrate v1 code on an existing reference | the **author** in their own env | the author's own build / test / smoke | hard trust boundary — the skill bars the agent from running build/test/smoke in the author's app env |
+| `re-frame2` (authoring) | emit authoring recipes | the **human** who pastes the recipe | the human's project gates | Pillar-4 / Q14 lock: no runtime the agent drives, no conformance corpus |
+| `re-frame2-setup` | scaffold greenfield | the **author**, following steps | the counter mounts under `shadow-cljs watch` | greenfield bootstrap; no agent-driven runtime |
+| `re-frame2-improver` | critique existing code | nobody runs; static critique | findings cross-linked to canonical idioms | review-only; proposes `Edit`s, runs no suite |
+| `re-frame2-xray` | read-only tour of the devtools panel | nobody runs; read-only | n/a (read-only tour) | owns the *seeing*, not the *driving* |
+| `re-frame2-pair-retro` | retro on a pair session | nobody runs the app; files issues | a filed GitHub issue (tool- vs framework-shaped) | meta-skill over `re-frame2-pair`; no runtime of its own |
+
+The takeaway: **only `re-frame2-implementor` carries a per-EP slice gate**,
+and that scoping is by design — it is the only implementation driver whose
+acceptance is spec-conformance. The other skills' postures are correct
+under "posture follows role", not inconsistent.
+
 ## Layout convention
 
 Each skill subdir contains, at minimum:
