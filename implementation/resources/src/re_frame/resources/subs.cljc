@@ -86,29 +86,53 @@
 
 ;; ---- the projections (public derived sub values) -------------------------
 
+(defn- previous-projection
+  "Project the `:keep-previous?` previous-data view (Spec 016 §Paginated
+  and previous data) from a `:loading` entry that carries a
+  `:previous-key` projection pointer: `{:previous? true :previous-key …
+  :previous-data …}`. The previous key's data is read from ITS entry — it
+  is NEVER inserted into this entry and NEVER provides this key's tags.
+  Returns `{:previous? false}` when there is nothing to project (no
+  pointer, or this key already has its own data)."
+  [runtime-db e]
+  (let [prev-key (:previous-key e)]
+    (if (and prev-key (nil? (:data e)))
+      (let [prev-entry (get-in runtime-db (state/entry-path prev-key))]
+        {:previous?     true
+         :previous-key  prev-key
+         :previous-data (:data prev-entry)})
+      {:previous? false})))
+
 (defn state-sub-fn
   "Project the public `:rf.resource/state` view-model from a durable
   entry: the stored facts plus the DERIVED booleans (`:loading?` /
-  `:fetching?` / `:stale?` / `:has-data?`) computed here, never stored.
-  Per Spec 016 §Status semantics. Empty-state shape when no entry."
+  `:fetching?` / `:stale?` / `:has-data?`) computed here, never stored,
+  plus the `:keep-previous?` previous-data projection (Spec 016 §Paginated
+  and previous data). Per Spec 016 §Status semantics. Empty-state shape
+  when no entry."
   [runtime-db [_id payload]]
   (let [e (entry-for runtime-db payload)]
     (if (nil? e)
       ;; No entry yet — the documented idle empty-state projection.
       {:status :idle :data nil :error nil :refresh-error nil
-       :loading? false :fetching? false :stale? false :has-data? false}
-      {:status        (:status e)
-       :data          (:data e)
-       :error         (:error e)
-       :refresh-error (:refresh-error e)
-       ;; Derived (Spec 016 §Status semantics): :loading? = first load
-       ;; with no usable data; :fetching? = refresh in flight; :has-data? =
-       ;; usable data present; :stale? = freshness vs :stale-at (runtime
-       ;; slice computes the live clock comparison — pinned shape here).
-       :loading?      (= :loading (:status e))
-       :fetching?     (= :fetching (:status e))
-       :stale?        (stale? e)
-       :has-data?     (some? (:data e))})))
+       :loading? false :fetching? false :stale? false :has-data? false
+       :previous? false}
+      (merge
+        {:status        (:status e)
+         :data          (:data e)
+         :error         (:error e)
+         :refresh-error (:refresh-error e)
+         ;; Derived (Spec 016 §Status semantics): :loading? = first load
+         ;; with no usable data; :fetching? = refresh in flight; :has-data? =
+         ;; usable data present; :stale? = freshness vs :stale-at (runtime
+         ;; slice computes the live clock comparison — pinned shape here).
+         :loading?      (= :loading (:status e))
+         :fetching?     (= :fetching (:status e))
+         :stale?        (stale? e)
+         :has-data?     (some? (:data e))}
+        ;; `:keep-previous?` projection — previous-key data shown while this
+        ;; key first-loads, WITHOUT polluting this entry's cache / tags.
+        (previous-projection runtime-db e)))))
 
 (defn data-sub-fn
   "Project `:rf.resource/data` — the entry's last-known-good `:data` (or
@@ -161,17 +185,15 @@
 
 (defn previous-data-sub-fn
   "Project `:rf.resource/previous-data` — the prior key's data projected
-  while a new page/filter resource first-loads under `:keep-previous?`.
-  NOT inserted into the new entry. Per Spec 016 §Paginated and previous
-  data.
-
-  Returns nil in the read-resource runtime slice (rf2-pbxj48): the
-  prior-key tracking is driven by the route/resource `:keep-previous?`
-  declaration (the route slice), so until a previous key is recorded there
-  is nothing to project. The sub is registered + reads cleanly; the
-  pagination projection lands with the route slice."
-  [_runtime-db [_id _payload]]
-  nil)
+  while a new page/filter resource first-loads under `:keep-previous?`
+  (Spec 016 §Paginated and previous data). Read from the entry's
+  `:previous-key` projection pointer's OWN entry; NOT inserted into the new
+  entry and NOT a source of the new key's tags. nil when this key is not
+  keeping previous data (no pointer, or it already has its own data)."
+  [runtime-db [_id payload]]
+  (let [e (entry-for runtime-db payload)]
+    (when (and (:previous-key e) (nil? (:data e)))
+      (:data (get-in runtime-db (state/entry-path (:previous-key e)))))))
 
 ;; ---- registration helper -------------------------------------------------
 

@@ -134,7 +134,16 @@
    :request-id     nil
    :current-work   nil
    :tags           #{}
-   :active-owners  #{}})
+   :active-owners  #{}
+   ;; `:previous-key` is the prior scoped key whose data is PROJECTED while
+   ;; this (new) key first-loads under `:keep-previous?` (Spec 016
+   ;; §Paginated and previous data). It is a PROJECTION POINTER only — the
+   ;; previous key's data is never inserted into THIS entry's `:data` and
+   ;; never provides THIS key's `:tags`; the sub layer reads it to project
+   ;; `:previous?` / `:previous-key` / `:previous-data`. Cleared once this
+   ;; key becomes `:loaded` (it then has its own data). nil when this entry
+   ;; does not keep previous data.
+   :previous-key   nil})
 
 ;; ---- canonicalization (Spec 016 §Canonicalization rule) -------------------
 ;;
@@ -230,6 +239,26 @@
   params are already validated serializable EDN (`reject-non-edn!`)."
   [scope resource-id params]
   [(canonicalize scope) resource-id (canonicalize params)])
+
+(defn prior-loaded-sibling-key
+  "Find the prior loaded SIBLING key to project under `:keep-previous?`
+  (Spec 016 §Paginated and previous data): among the cache `entries`, the
+  key with the SAME `[scope resource-id]` as `new-key` but DIFFERENT
+  params, that currently has usable `:data`, picking the most recently
+  loaded (`:loaded-at`). Returns the sibling scoped key, or nil when there
+  is no sibling to project (the new key first-loads with no placeholder).
+  A pure selection — the projection pointer it returns never inserts data
+  into the new entry."
+  [entries new-key]
+  (let [[scope rid params] new-key]
+    (->> entries
+         (keep (fn [[k entry]]
+                 (let [[s r p] k]
+                   (when (and (= s scope) (= r rid) (not= p params)
+                              (some? (:data entry)))
+                     [k (:loaded-at entry)]))))
+         (sort-by (fn [[_ loaded-at]] (or loaded-at 0)) >)
+         ffirst)))
 
 ;; ---- compact lifecycle FSM (Spec 016 §Lifecycle is an FSM) ----------------
 ;;
@@ -338,6 +367,9 @@
            :stale-at      stale-at
            :invalidated-at nil
            :current-work  nil
+           ;; the new key now has its OWN data — drop the previous-key
+           ;; projection pointer (Spec 016 §Paginated and previous data).
+           :previous-key  nil
            :tags          (or tags (:tags entry) #{}))))
 
 (defn entry-failed

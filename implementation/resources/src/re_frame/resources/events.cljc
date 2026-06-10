@@ -55,6 +55,7 @@
   next successful transition, retaining a bounded per-key tail for Xray."
   (:require [clojure.set :as set]
             [re-frame.resources.registry :as registry]
+            [re-frame.resources.route :as route]
             [re-frame.resources.state :as state]
             [re-frame.resources.transport :as transport]
             [re-frame.resources.work-ledger :as work-ledger]
@@ -95,7 +96,7 @@
 
   Returns the event-fx map `{:rf.db/runtime :fx}`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation}
-   {:keys [resource params owner cause] :as payload} {:keys [force-new? where]}]
+   {:keys [resource params owner cause keep-previous?] :as payload} {:keys [force-new? where]}]
   (let [runtime-db (or rt {})
         spec       (registry/require-resource-spec! resource where)
         scope      (registry/resolve-scope-for-event
@@ -110,7 +111,16 @@
         ;; HTTP — the only initial-scope transport; the transport seam
         ;; defaults identically). The work record + side-table handle +
         ;; opportunistic-abort fx all key off the concrete transport id.
-        transport-id (or (:transport spec) transport/default-transport)]
+        transport-id (or (:transport spec) transport/default-transport)
+        ;; `:keep-previous?` (Spec 016 §Paginated and previous data): when a
+        ;; new page/filter key FIRST-loads (no usable data of its own), record
+        ;; a PROJECTION POINTER to the prior loaded sibling key so the sub
+        ;; layer can show old data while the new key loads — WITHOUT inserting
+        ;; that data into this entry or borrowing its tags. Only on a genuine
+        ;; first load (an entry that already has data needs no placeholder).
+        prev-key   (when (and keep-previous? (not (state/has-data? entry)))
+                     (state/prior-loaded-sibling-key
+                       (get-in runtime-db (state/entries-path)) scoped-key))]
     (if (and in-flight? (not force-new?))
       ;; ----- dedupe: join the in-flight request (ensure only) -------------
       ;; Attach any supplied owner to the existing entry + record the cause;
@@ -137,9 +147,12 @@
             request-id work-id
             now        (now-ms)
             deadline   (when-let [ms (:timeout-ms spec)] (+ now ms))
-            entry'     (state/entry-start-load
-                         entry {:generation generation :work-id work-id
-                                :request-id request-id :owner owner})
+            entry'     (cond-> (state/entry-start-load
+                                 entry {:generation generation :work-id work-id
+                                        :request-id request-id :owner owner})
+                         ;; `:keep-previous?` projection pointer (a pointer
+                         ;; only — never this key's data / tags).
+                         prev-key (assoc :previous-key prev-key))
             ;; a forced refetch over an in-flight prior attempt SUPERSEDES it:
             ;; mark the old work record :superseded (terminal) and emit a
             ;; best-effort abort (opportunistic; stale suppression already
@@ -518,7 +531,13 @@
                             work-id work-ledger/mark-terminal
                             :completed {:loaded-at loaded-at})
                           (work-ledger/prune-terminal-for-key resource-key)
-                          (update state/resources-key state/recompute-indexes))]
+                          (update state/resources-key state/recompute-indexes)
+                          ;; route blocking: a route-owned blocking resource
+                          ;; settling drops it from the nav-token blocking
+                          ;; slot + lands the route transition when the slot
+                          ;; empties (Spec 016 §Route integration). No-op for
+                          ;; a non-route-owned / non-blocking resource.
+                          (route/drain-blocking resource-key entry' :success))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-completed
                      {:rf.frame/id frame-id :resource-key resource-key
@@ -566,7 +585,14 @@
                        (assoc-in (state/entry-path resource-key) entry')
                        (work-ledger/update-record
                          work-id work-ledger/mark-terminal
-                         :failed {:error error}))]
+                         :failed {:error error})
+                       ;; route blocking: a blocking FIRST-load failure flips
+                       ;; the route transition to :error + populates
+                       ;; :rf.route/error; a background-refresh failure (data
+                       ;; kept, status back to :loaded) settles the slot like
+                       ;; a success. drain-blocking keys on entry' status.
+                       ;; (Spec 016 §Route integration.)
+                       (route/drain-blocking resource-key entry' :failure))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-completed
                      {:rf.frame/id frame-id :resource-key resource-key
