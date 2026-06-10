@@ -90,11 +90,13 @@ An `:inputs` path is read against the pending **frame-state**, which has two par
 
 `reg-flow` returns the flow's `:id` — the primary id under which the flow registers in the `:flow` kind — per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention). The id is carried by the flow-map rather than as a separate positional arg, but the return-value contract is the same as the rest of the `reg-*` family.
 
-`reg-flow` accepts an optional second argument carrying a `:frame` opt — the frame the flow registers against. Default is `(current-frame-id)` (per [002 §How `:frame` gets attached](002-Frames.md#how-frame-gets-attached), usually `:rf/default` unless the call sits inside a `with-frame` form or under a frame-providing context):
+`reg-flow` accepts an optional second argument carrying a `:frame` opt — the frame the flow registers against. The frame is resolved by the EP-0002 carried invariant (per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)): the runtime reads the frame from the carried token — an explicit `{:frame …}` opt (*override*) or a surrounding `with-frame` / `frame-provider` *scope* — and **never synthesises one from absence**. There is no `:rf/default` fall-through. A bare `(reg-flow flow)` outside any scope is the registration-time case and fails with `:rf.error/no-frame-context`:
 
 ```clojure
-(rf/reg-flow flow)                    ;; defaults frame to (current-frame-id)
-(rf/reg-flow flow {:frame :scratch})  ;; explicit frame
+(rf/reg-flow flow)                    ;; raises :rf.error/no-frame-context outside any frame scope
+(rf/with-frame :scratch
+  (rf/reg-flow flow))                 ;; registers against :scratch via the surrounding scope
+(rf/reg-flow flow {:frame :scratch})  ;; explicit frame (override)
 ```
 
 `clear-flow` mirrors the shape:
@@ -122,7 +124,7 @@ Three consequences follow:
 
 This asymmetry is **intentional for v1**: the runtime correctness (each frame's flows compute independently) is the load-bearing property; the registrar metadata is a tooling convenience. A future spec revision MAY introduce a frame-aware query surface (`flow-meta` / `(flows {:frame ...})`) or migrate the registrar slot to a frame-indexed shape, but doing so today would inflate the registrar API surface for a use case (tools enumerating cross-frame flows) that has not surfaced in v1. Apps targeting multi-tenant frames with shared flow ids and per-frame-different definitions should read the runtime registry through the public snapshot accessor `re-frame.flows/flows-snapshot` (returning the `{frame-id {flow-id flow-map}}` shape), **not** the private `@re-frame.flows/flows` atom and **not** the registrar slot, for full per-frame discovery. The `flows-snapshot` accessor is the encapsulation boundary: the per-frame registry atom is private (the facade re-exports only the read accessors `flows-snapshot` / `last-inputs-snapshot` and the reset fns), so consumers depending on the snapshot survive any future change to the atom's internal representation.
 
-Frame defaulting matches the rest of the API: a bare `(reg-flow flow)` resolves the frame via `(current-frame-id)`, picking up `with-frame` bindings or falling through to `:rf/default`. Tests and per-tenant runtimes that need an explicit frame pass `{:frame ...}` as the second arg.
+Frame resolution matches the rest of the API and obeys the EP-0002 carried invariant (per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)): a bare `(reg-flow flow)` resolves the frame only from a surrounding `with-frame` scope or `frame-provider` — there is **no** `:rf/default` fall-through, so a frameless registration outside any scope fails with `:rf.error/no-frame-context`. Tests and per-tenant runtimes pass an explicit `{:frame ...}` as the second arg, or wrap the registration in `with-frame`.
 
 ## Frame-destroy teardown
 
