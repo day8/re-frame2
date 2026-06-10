@@ -2,7 +2,7 @@
 
 > **Type B** (semantic rewrite, ask first). The agent identifies every `defquery` / `ensure-query` / `useQuery`-style site and every hand-rolled server-state cache, surfaces the proposed `reg-resource` + `:rf.resource/*` shape per resource, and asks the operator to approve before applying. The rewrite is a domain re-modelling — query *keys* become a scoped *resource identity*, `invalidateQueries` becomes *tag invalidation*, and *component observers* become *active owners* — not a structural lift. Mechanical translation handles the common cases (a declarative query with a fixed key, a route/event-driven fetch, a passive subscription read, tag invalidation on a mutation); the hard cases — implicit shared cache scope, component-observer-driven GC, subscription-driven fetching, infinite queries, optimistic updates — escalate to a human.
 
-> **Status.** Resources is a **post-v1 optional artefact** (`day8/re-frame2-resources`, [Spec 016](../../spec/016-Resources.md)). The read-resource surface (`reg-resource`, `:rf.resource/ensure` / `:rf.resource/refetch` / `:rf.resource/invalidate-tags` / `:rf.resource/release-owner` / `:rf.resource/clear-scope` / `:rf.resource/remove`, the `:rf.resource/*` subs, route `:resources`, SSR hydration) is the migration target. **Mutations** (`reg-mutation` / `:rf.mutation/execute`) and **focus/reconnect revalidation** land with the next slice; **GraphQL** is a deferred later phase. Where a source app leans on a not-yet-landed surface, the agent flags it and migrates the rest. This note is an opt-in modernisation, not a required rule, for the same reason [O-17](http-fx-to-managed-http.md) is: nothing in re-frame2 *breaks* a query lib, but the re-frame2 idioms (frames, route metadata, SSR, runtime/app-db partitioning, Xray, privacy egress) only reach server-state once it's expressed as resources.
+> **Status.** Resources is a **post-v1 optional artefact** (`day8/re-frame2-resources`, [Spec 016](../../spec/016-Resources.md)). The read-resource surface (`reg-resource`, `:rf.resource/ensure` / `:rf.resource/refetch` / `:rf.resource/invalidate-tags` / `:rf.resource/release-owner` / `:rf.resource/clear-scope` / `:rf.resource/remove`, the `:rf.resource/*` subs, route `:resources`, SSR hydration) is the migration target, and so are **mutations** (`reg-mutation` / `clear-mutation` / `:rf.mutation/execute`, the instance-keyed causal-write counterpart) — both have **landed**. **Optimistic rollback** and **GraphQL** are deferred later phases. Where a source app leans on a not-yet-landed surface, the agent flags it and migrates the rest. This note is an opt-in modernisation, not a required rule, for the same reason [O-17](http-fx-to-managed-http.md) is: nothing in re-frame2 *breaks* a query lib, but the re-frame2 idioms (frames, route metadata, SSR, runtime/app-db partitioning, Xray, privacy egress) only reach server-state once it's expressed as resources.
 
 > **Cross-references.** [O-17 (`http-fx` → managed HTTP)](http-fx-to-managed-http.md) — resources lower onto `:rf.http/managed`, so a query lib built on `http-fx` usually runs O-17 first (or in the same pass). [O-16 (`async-flow-fx` → `reg-machine`)](async-flow-fx-to-reg-machine.md) — a workflow that *owns* a query becomes a machine that owns a resource. Required-rule [M-31 (`day8/re-frame2-http`)](README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) names the transport artefact resources depend on.
 
@@ -58,9 +58,9 @@ Each query / cache slice maps to one `reg-resource`. The agent presents the sour
 | **Polling / `refetch-interval`** | *(deferred)* | Polling/interval revalidation is a deferred slice. Flag polling queries; the interim path is an app-level `:dispatch-later` re-ensure or keeping the lib for those queries until the slice lands. |
 | **Conditional fetching** (`:enabled?` / skip) | **route `:when`** predicate, or an event-side guard | A route resource declares `:when (fn [route ctx] …)`; an event-side ensure simply isn't dispatched when the condition is false. Conditional resources use `:when` rather than sentinel `nil` params. |
 | **Dependent queries** (query B depends on query A's data) | route `:id` + **`:after #{local-id}`** plan, or sequenced events | Dependent route resources are modelled as a route plan: a resource declares a local `:id`, a dependent declares `:after #{that-id}`. Xray shows the dependency and any waterfall. Outside routes, sequence the ensures via the event cascade. |
-| **Mutations** (`defmutation` + `invalidateQueries` on success) | *(deferred — `reg-mutation` / `:rf.mutation/execute`)* | Mutations land with the next slice. **Until then**, express a write as an ordinary `:rf.http/managed` event ([O-17](http-fx-to-managed-http.md)) whose success handler dispatches `[:rf.resource/invalidate-tags …]`. The agent migrates the *invalidation* (tag-based) now and flags the mutation *lifecycle* (optimistic update, rollback, instance state) as deferred. |
+| **Mutations** (`defmutation` + `invalidateQueries` on success) | **`reg-mutation`** + **`[:rf.mutation/execute …]`** (causal write, instance-keyed) | The direct analogue — **landed** ([Spec 016 §Mutations](../../spec/016-Resources.md#mutations-first-public-beta-gate-rf2-dwme29)). A mutation lowers to `(reg-mutation :article/save {:params-schema … :request (fn [params ctx] {:request {…} :decode …}) :invalidates (fn [params result] #{[:article slug]}) :scope …})` — the `:request` follows the resource rule (no `:request-id` / `:on-success` / `:on-failure`; runtime owns reply addressing). `invalidateQueries`-on-success becomes the success-time `:invalidates` tag set (composing with `:rf.resource/invalidate-tags`, scoped); `:patches` / `:populates` transform / seed cached entries *before* invalidation; `:invalidate-timing` is explicit (`:before-request` / `:after-success` (default) / `:after-failure` / `:after-settle`). Run it with `[:rf.mutation/execute {:mutation :params :instance :scope :cause}]` and watch it through the passive instance-keyed `:rf.mutation/*` subs (`:rf.mutation/state` / `status` / `pending?` / `result` / `error`); `[:rf.mutation/clear {:instance …}]` is the causal instance reset (distinct from `clear-mutation`, the registration-lifecycle removal). State is keyed by **mutation instance** id, so concurrent submissions never clobber. **Write retries are OPT-IN** (`:retry` only if the `:request` declares it). Still **deferred**: **optimistic rollback** (forward-only `:patches`/`:populates` for now; the success trace reserves the snapshot/rollback shape). |
 | **Infinite / paginated queries** | ordinary resources + `:keep-previous?` | Infinite queries are deferred; paginated/filtered lists are ordinary resources in v1 — put every filter/sort/page/cursor in params, tag both the list and item identities, and set `:keep-previous?` on the route/resource declaration to keep old data visible while the next page first-loads (projected via `:rf.resource/previous-data`, never inserted into the new entry's cache). |
-| **Optimistic updates / rollback** | *(deferred)* | Optimistic rollback is a later slice. Flag optimistic-update sites; the interim path keeps them app-level or in the lib until the mutation slice ships. |
+| **Optimistic updates / rollback** | *(deferred)* | Optimistic rollback is a later slice — the mutation success trace reserves the snapshot/rollback shape but rollback itself is unimplemented. A landed mutation's `:patches` / `:populates` are **forward-only** (a saved entry appears in the cache before the refetch, but a failure does NOT auto-revert it). Flag optimistic-rollback sites; the interim path keeps the rollback app-level (or in the lib) until the slice ships. |
 | **Process-global cache** | **per-frame runtime cache** | `re-frame-query`'s cache is process-global; re-frame2's lives per frame in runtime-db. This matters for SSR (request-local frames — a process-global cache would leak between users) and for multi-frame apps. The rewrite gets request-local SSR isolation for free. |
 
 ## Before / after — a representative route-driven query
@@ -141,13 +141,27 @@ A typical `re-frame-query`-style article fetch: a query keyed by slug, ensured o
                  (when (:fetching? state)     [refresh-indicator])
                  (when (:refresh-error state) [refresh-warning (:refresh-error state)])])))
 
-;; Saving invalidates by TAG (scoped by default). Until reg-mutation lands,
-;; the save is an ordinary managed-HTTP event whose success invalidates.
-(rf/reg-event-fx :article/saved
-  (fn [_ [_ slug]]
-    {:fx [[:dispatch [:rf.resource/invalidate-tags
-                      {:tags  #{[:article slug]}
-                       :cause [:event :article/saved]}]]]}))
+;; Saving is a mutation: a causal WRITE that invalidates by TAG on success
+;; (scoped by default). `:invalidates` declares the write→invalidate→refetch
+;; loop once — no hand-wired "POST then dispatch invalidate" per form.
+(rf/reg-mutation :article/save
+  {:params-schema [:map [:slug :string]]
+   :request       (fn [{:keys [slug] :as article} _ctx]
+                    {:request {:method :put :url (str "/api/articles/" slug) :body article}
+                     :decode  :json})
+   :scope         :rf.scope/global
+   :invalidates   (fn [{:keys [slug]} _result] #{[:article slug]})})
+
+;; The form fires the write and watches it through instance-keyed subs.
+(rf/reg-view article-form [article]
+  (let [{:keys [pending? error?]} @(rf/subscribe [:rf.mutation/state {:instance :form/article-save}])]
+    [:button {:disabled pending?
+              :on-click #(rf/dispatch [:rf.mutation/execute
+                                       {:mutation :article/save
+                                        :params   article
+                                        :instance :form/article-save
+                                        :cause    [:form-submit :article/save]}])}
+     (if pending? "Saving…" "Save")]))
 ```
 
 What changed, and why it's better:
@@ -156,6 +170,7 @@ What changed, and why it's better:
 - **A scope policy is now explicit.** This article is genuinely global, so it says `:rf.scope/global` — an auditable claim Xray enumerates. A session-dependent read would carry a scope resolver instead, and forgetting would have been a loud registration error.
 - **The view distinguishes first-load failure from a stale-data refresh warning** — `:loading?` / `:error` + `:has-data?` / `:fetching?` / `:refresh-error` — instead of a single blanket error state.
 - **Invalidation is by tag and scoped by default**, and the cache lives in the runtime partition where an ordinary `:db` handler can't corrupt it.
+- **The write is a mutation, not a hand-wired event.** `reg-mutation` declares the write→invalidate→refetch loop once via `:invalidates`; the form fires `[:rf.mutation/execute …]` and watches an instance-keyed `:rf.mutation/*` sub for `:pending?` / `:error?`. Concurrent submissions keep distinct instance rows and never clobber.
 
 ## Migrating a hand-rolled Pattern-RemoteData cache
 
@@ -173,4 +188,5 @@ A hand-rolled cache has *more* to delete than a query lib, because the lib alrea
 - Every resource declares an **explicit `:scope`** policy, and every previously user/tenant/locale-dependent query is scoped (or its scoping values moved into params) — none silently `:rf.scope/global`.
 - Liveness is expressed as **owners** with a matching release path (route nav-token, machine instance, or an app lease + `:rf.resource/release-owner`); no `mark-active`/`mark-inactive` observer survives.
 - Invalidation is **tag-based and scoped**; cross-scope invalidations are explicit.
-- Deferred surfaces (mutations' lifecycle, optimistic rollback, polling, infinite queries, GraphQL) are **flagged in the report**, not silently dropped — each either kept on the source lib for now or sequenced for the relevant slice.
+- Every migrated mutation is a **`reg-mutation`** whose `:request` follows the resource rule (no `:request-id` / `:on-success` / `:on-failure`), whose success-time `invalidateQueries` is expressed as `:invalidates` tags (with `:patches` / `:populates` where a write should update the cache before refetch), and that runs through `[:rf.mutation/execute …]` watched by an **instance-keyed** `:rf.mutation/*` sub — concurrent submissions never clobber, and write retries are opt-in.
+- Deferred surfaces (optimistic rollback, polling, infinite queries, GraphQL) are **flagged in the report**, not silently dropped — each either kept on the source lib for now or sequenced for the relevant slice. (Mutation `:patches` / `:populates` are forward-only until optimistic rollback lands.)
