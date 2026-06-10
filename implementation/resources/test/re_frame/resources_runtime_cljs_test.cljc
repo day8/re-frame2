@@ -363,7 +363,8 @@
     (testing "before any load the state projection is the idle empty-state
               (a sub NEVER fetches — Spec 016 §Subscriptions)"
       (is (= {:status :idle :data nil :error nil :refresh-error nil
-              :loading? false :fetching? false :stale? false :has-data? false}
+              :loading? false :fetching? false :stale? false :has-data? false
+              :previous? false}
              @(rf/subscribe [:rf.resource/state q])))
       (is (nil? (entry scoped-key)) "subscribing did not cause a fetch / entry"))
     (rf/dispatch-sync [:rf.resource/ensure {:resource :sub/article :scope :rf.scope/global

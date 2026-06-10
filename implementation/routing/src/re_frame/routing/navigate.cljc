@@ -491,7 +491,12 @@
                  :fragment   fragment
                  :transition (if (seq on-match-vec) :loading :idle)}
                 on-match-vec
-                {:prev-id      (get-in rdb [:rf.runtime/routing :current :id])
+                {:prev-id        (get-in rdb [:rf.runtime/routing :current :id])
+                 ;; rf2-vdyrls: the prior route's nav-token — the second half
+                 ;; of the previous route owner `[:route prev-id prev-nav-token]`
+                 ;; the resources plan releases on route leave (Spec 016 §Route
+                 ;; integration).
+                 :prev-nav-token (get-in rdb [:rf.runtime/routing :current :nav-token])
                  :capture-fx   capture-fx
                  :scroll-fx    scroll-fx
                  :push-fx      push-fx

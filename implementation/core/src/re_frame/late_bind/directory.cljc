@@ -466,6 +466,14 @@
     :producer-ns 're-frame.resources.route
     :design-bead "rf2-p10npe"
     :description "Cross-feature LATE-BOUND route-metadata accepted-key extension (Spec 016 §Route integration). Returns a SET of extra bare route-metadata keys routing unions into its accepted set; the Resources artefact publishes #{:resources} so routing accepts the :resources route key (mirrors how :head is a cross-feature key owned by SSR). Resources is the first publisher; consumed by re-frame.routing.registry/accepted-route-keys."}
+   {:key         :routing/on-route-entry
+    :producer-ns 're-frame.resources.route
+    :design-bead "rf2-vdyrls"
+    :description "Cross-feature LATE-BOUND route-entry resource plan (Spec 016 §Route integration). Routing's commit-navigation (the shared successful-commit assembler for both the programmatic + URL-driven nav paths) consults it by key with {:route-meta :route-id :params :query :fragment :nav-token :prev-id :prev-nav-token :ctx}; the Resources artefact returns {:fx [...] :blocking #{<scoped-key> …} :plan-error err?} — the :rf.resource/ensure dispatches (owner [:route route-id nav-token], cause [:route-entry route-id nav-token]) + the prior route's :rf.resource/release-owner are spliced into the commit fx; the blocking set is written into [:rf.runtime/routing :resource-blocking nav-token] atomically with the commit; a params/scope PLANNING failure (:plan-error) is recorded on the route slice's :error. No-op (nil) when no Resources artefact / no :resources route metadata + no prior owner. Consumed by re-frame.routing.events/commit-navigation."}
+   {:key         :routing/route-blocking?
+    :producer-ns 're-frame.resources.route
+    :design-bead "rf2-vdyrls"
+    :description "Cross-feature LATE-BOUND blocking-transition predicate (Spec 016 §Route integration). Routing's :rf.route.internal/settle-transition consults it by key with the runtime-db value; the Resources artefact returns true while any BLOCKING route resource for the route slice's current nav-token is still unsettled (the route's SSR wait point), so the settle keeps the transition :loading past the :on-match drain. The resource reply handlers drain the blocking slot + land :idle themselves on the last blocking settle. False (no-op consult) when no Resources artefact is loaded. Consumed by re-frame.routing.events/settle-transition-handler."}
    {:key         :ssr/extend-runtime-db-projection
     :producer-ns 're-frame.resources.ssr
     :design-bead "rf2-p10npe"

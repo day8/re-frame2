@@ -25,7 +25,9 @@
   registration in the facade so a `(require 're-frame.routing :reload)`
   on a fresh registrar (`clear-all!` test fixture) re-runs it. Per the
   rf2-2yabr cohesion split: SHARED-EVENT-HELPERS seam."
-  (:require [re-frame.routing.nav-counters :as nav-counters]
+  (:require [re-frame.late-bind :as late-bind]
+            [re-frame.registrar :as registrar]
+            [re-frame.routing.nav-counters :as nav-counters]
             [re-frame.trace :as trace]))
 
 ;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
@@ -167,20 +169,58 @@
   from it PURELY and the high-water bump rides a `:rf.route/commit-nav-
   counter` fx. Returns the event-fx cofx map `{:rf.db/runtime :fx}`."
   [rdb {:keys [id params query fragment transition]} on-match-vec
-   {:keys [prev-id capture-fx scroll-fx push-fx nav-counters]}]
-  (let [[counter token] (nav-counters/next-nav-token nav-counters)]
+   {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-counters]}]
+  (let [[counter token] (nav-counters/next-nav-token nav-counters)
+        committed (merge-route-slice rdb {:id         id
+                                          :params     params
+                                          :query      query
+                                          :fragment   fragment
+                                          :transition transition
+                                          :nav-token  token})
+        ;; rf2-vdyrls — cross-feature route `:resources` plan (Spec 016 §Route
+        ;; integration). The Resources artefact publishes the LATE-BOUND
+        ;; `:routing/on-route-entry` hook; routing consults it by key (no
+        ;; static dep — resources is optional) and gets back
+        ;; `{:fx [...] :blocking #{<scoped-key> …} :plan-error err?}`. The
+        ;; ensure dispatches + prior-owner release are spliced into the commit
+        ;; fx; the blocking set is written into the nav-token's blocking slot
+        ;; ATOMICALLY with the commit (so it is present before any ensure
+        ;; reply can drain it, keeping the route :loading until blocking
+        ;; resources settle — Spec 016 §Route integration); a planning error
+        ;; (a fail-closed params/scope throw) is recorded on the slice's
+        ;; `:error`, visible to the `:rf/route` sub + Xray. No-op when no
+        ;; Resources artefact / no `:resources` route metadata.
+        route-meta (registrar/lookup :route id)
+        plan       (when-let [on-entry (late-bind/get-fn :routing/on-route-entry)]
+                     (on-entry {:route-meta     route-meta
+                                :route-id       id
+                                :params         params
+                                :query          query
+                                :fragment       fragment
+                                :nav-token      token
+                                :prev-id        prev-id
+                                :prev-nav-token prev-nav-token
+                                :ctx            {}}))
+        committed  (cond-> committed
+                     (seq (:blocking plan))
+                     (-> (assoc-in [:rf.runtime/routing :resource-blocking token]
+                                   (:blocking plan))
+                         ;; a blocking route resource keeps the transition
+                         ;; :loading (its SSR wait point) even when the route
+                         ;; declares no `:on-match` (the caller computed
+                         ;; :transition :idle from on-match absence). Per Spec
+                         ;; 016 §Route integration.
+                         (assoc-in [:rf.runtime/routing :current :transition] :loading))
+                     (:plan-error plan)
+                     (assoc-in [:rf.runtime/routing :current :error]
+                               (:plan-error plan)))]
     (trace/emit! :rf.event :rf.route.nav-token/allocated
                  {:route-id id :nav-token token})
     (emit-activation-traces! prev-id id)
     ;; EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
     ;; state, so `rdb` here is the RUNTIME-DB value and the commit returns
     ;; `:rf.db/runtime`, not `:db`.
-    {:rf.db/runtime (merge-route-slice rdb {:id         id
-                                            :params     params
-                                            :query      query
-                                            :fragment   fragment
-                                            :transition transition
-                                            :nav-token  token})
+    {:rf.db/runtime committed
      :fx (vec (concat ;; rf2-oosjmh: persist the nav-token high-water mark
                       ;; into the host-side counter cache (WRITE half of the
                       ;; pure seam). FIRST so the bump lands before any
@@ -190,11 +230,18 @@
                       (when capture-fx [capture-fx])
                       (when push-fx    [push-fx])
                       (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                      ;; rf2-vdyrls: the resource ensure dispatches + prior-
+                      ;; owner release (Spec 016 §Route integration).
+                      (:fx plan)
                       ;; Per Spec 012 §Per-route data loading §2: settle
                       ;; :loading → :idle after the on-match drain. FIFO
                       ;; order means the settle runs after every on-match
-                      ;; event already queued above.
-                      (when (seq on-match-vec)
+                      ;; event already queued above. rf2-vdyrls: also settle
+                      ;; after a resources plan so a route with `:resources`
+                      ;; but no `:on-match` still lands :idle (the settle is
+                      ;; blocking-aware — it stays :loading while a blocking
+                      ;; resource is pending, draining when the slot empties).
+                      (when (or (seq on-match-vec) (:fx plan))
                         [[:dispatch [:rf.route.internal/settle-transition token]]])
                       (when scroll-fx [scroll-fx])))}))
 
@@ -231,9 +278,23 @@
   handler)."
   [{rt :rf.db/runtime} [_ token]]
   (let [runtime-db (or rt {})
-        current    (get-in runtime-db [:rf.runtime/routing :current :nav-token])]
+        current    (get-in runtime-db [:rf.runtime/routing :current :nav-token])
+        ;; rf2-vdyrls: a BLOCKING route resource keeps the transition
+        ;; :loading past the `:on-match` drain — it is the route's SSR wait
+        ;; point. The Resources artefact publishes the LATE-BOUND
+        ;; `:routing/route-blocking?` predicate (true while any blocking
+        ;; resource for the current nav-token is unsettled); the resource
+        ;; reply handlers drain the slot + land :idle themselves when the
+        ;; last blocking resource settles. So this settle is a no-op while a
+        ;; blocking resource is pending — it would otherwise prematurely flip
+        ;; :loading → :idle ahead of the data. No-op consult (false) when no
+        ;; Resources artefact is loaded. Per Spec 016 §Route integration.
+        blocking?  (boolean
+                     (when-let [pred (late-bind/get-fn :routing/route-blocking?)]
+                       (pred runtime-db)))]
     {:rf.db/runtime
      (if (and (= current token)
+              (not blocking?)
               (= :loading (get-in runtime-db [:rf.runtime/routing :current :transition])))
        (assoc-in runtime-db [:rf.runtime/routing :current :transition] :idle)
        runtime-db)}))
