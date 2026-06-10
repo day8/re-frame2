@@ -16,6 +16,7 @@ Type: standards-track
 
 ## Abstract
 
+Every framework-managed asynchronous effect completes through one envelope.
 re-frame2 already has the right foundation for large SPAs: event handlers return
 data, effects are interpreted at the boundary, and asynchronous work comes back
 as events rather than hidden callbacks mutating state. The remaining problem is
@@ -55,6 +56,21 @@ HTTP success/failure callbacks, resource internal replies, route nav-token
 wrappers, machine timer epochs, and actor completion hooks all express "when
 this finishes, dispatch a causal reply", but they do not share a reply map or a
 target descriptor.
+
+Concretely, the same fact — "when this work finishes, dispatch a causal reply,
+and drop it if it is no longer current" — is spelled four ways today:
+
+| Family | Continuation spelling today | Staleness identity | Source |
+|---|---|---|---|
+| Managed HTTP | `:on-success` / `:on-failure` event vectors, or the co-located `(:rf/reply msg)` merge | `:request-id` (abort correlation only) | [Spec 014](../../spec/014-HTTPRequests.md) |
+| Resources | `:rf.resource.internal/succeeded` / `failed` / `aborted` reply events carrying `:work-id` + `:generation` | `:work/id` embedding the generation | [Spec 016](../../spec/016-Resources.md), EP-0003 |
+| Machine `:after` timers | synthetic timer event validated against the per-path `:rf/after-epoch` counter | declaring path + epoch | [Spec 005](../../spec/005-StateMachines.md) |
+| Route-owned work | downstream dispatch threaded through `:rf.route/with-nav-token`; nav-token-guarded internal settles | `:nav-token` | [Spec 012](../../spec/012-Routing.md) |
+
+Under this proposal all four complete through one shape — a `:rf/reply-to`
+target plus a `:work/id`, completed with one reply map, suppressed by one
+data-only gate check. The per-family spellings survive as sugar; the substrate
+is shared.
 
 That duplication makes the most important runtime concerns harder than they
 should be:
@@ -136,6 +152,11 @@ day one.
 
 - This EP does not introduce promises, monads, async/await, callbacks, or
   channels into the app-facing event model.
+- This EP does not add result binding between effects. The `:fx` vector stays a
+  sequence without data flow between entries; one effect's reply never feeds a
+  sibling effect in the same effect map. The envelope unifies the *continuation
+  slot* — where completion is dispatched and what it carries — and nothing
+  more. The only composition mechanism remains the next causal event.
 - This EP does not remove `:on-success` or `:on-failure` from public HTTP APIs.
 - This EP does not define the full `:rf.runtime/work-ledger` schema; it defines
   the reply surface that ledger-backed work uses.
@@ -147,6 +168,43 @@ day one.
   already in flight; stale suppression remains the correctness rule.
 - This EP does not settle every EP-0010 timestamp key spelling. It requires
   causal completion metadata and uses provisional names.
+
+## Relationships
+
+- **[EP-0003](EP-0003-resource-queries.md) / [Spec 016](../../spec/016-Resources.md)
+  (accepted, graduated).** The frame work ledger is this EP's durable
+  substrate: a ledger row *is* the reified continuation of a managed async
+  effect, and the row's `:reply-to` field is this EP's reply target made
+  durable. This EP rides that design — same `:work/id`, same
+  stale-suppression rule, same host-handle exclusion — and adds the causal
+  reply shape on top. It MUST land with or after the EP-0003 work-ledger
+  slice and MUST NOT introduce a parallel correlation store.
+- **[EP-0010](EP-0010-causal-world-inputs.md) (proposal).** Replies are causal
+  tokens under EP-0010; completion facts that affect durable state ride the
+  reply map. EP-0010 owns the final spelling and precision of the time keys
+  this EP uses provisionally.
+- **[Managed-Effects](../../spec/Managed-Effects.md).** This EP adds the ninth
+  property to the existing eight-property managed-effect checklist; conforming
+  surfaces inherit it the same way they inherit the other eight.
+- **[Spec 014](../../spec/014-HTTPRequests.md), [Spec 005](../../spec/005-StateMachines.md),
+  [Spec 012](../../spec/012-Routing.md).** Their existing continuation
+  vocabularies (`:on-success` / `:on-failure` and the co-located `:rf/reply`
+  merge; `:after` epochs and spawn completion; nav-token threading and
+  settles) become public sugar or internal instances lowering onto the
+  envelope. No user-facing break is required.
+- **[EP-0002](EP-0002-frame-target-resolution.md) (final).** The reply map's
+  `:rf.frame/id` field is the canonical carried frame stamp; this EP adds no
+  second frame spelling.
+- **[EP-0006](EP-0006-runtime-subsystem-contract.md) (proposal).** The
+  multi-writer authority question for `:rf.runtime/work-ledger` (see Open
+  Issues) is the runtime-subsystem contract's to settle.
+- **[EP-0007](EP-0007-one-name-per-fact.md) (proposal).** The one-attempt-one-
+  `:work/id` rule, and the rejection of `:stale-key`-style synonyms, descend
+  directly from the one-name-per-fact rulebook.
+- **[EP-0014](EP-0014-derivation-and-process-algebra.md) (proposal).** Any
+  process-shaped surface that performs managed async work completes through
+  this envelope; the two proposals share the work-ledger generalization
+  rather than each defining its own completion shape.
 
 ## Definitions
 
@@ -444,6 +502,13 @@ When a work-ledger row exists, issuance writes or joins a non-terminal row:
                           :rf.frame/id  :app/main}]}}
 ```
 
+The `:reply-to` field is where the ledger row and the reply envelope visibly
+become one fact: the durable row carries the continuation that this EP's
+completion path consumes. (Timestamp field spellings above follow this EP's
+provisional EP-0010 names; the graduated ledger row in Spec 016 currently
+spells `:started-at` / `:deadline-at` — see Open Issues for the convergence
+rule.)
+
 Completion updates that row before, or atomically with, delivery:
 
 ```clojure
@@ -654,6 +719,12 @@ SSR or define an explicit server-safe completion policy; it still uses the
 reply map if it completes.
 
 ### Reply Mapping And Functor Law
+
+Because the reply target is plain data, wrapping or relocating a continuation
+is a pure data transform — the role `Cmd.map` plays in Elm's command algebra.
+A feature module can take an effect description whose reply lands on a child
+event and re-target it onto a parent event without touching issuance or
+correlation.
 
 The runtime SHOULD expose pure helpers for transforming reply targets. The
 helper may be public API or implementation-internal, but the law is normative:
@@ -906,9 +977,10 @@ that an ordinary suppression gate:
    :on-match [[:article/route-entered]]})
 
 (rf/reg-event-fx :article/route-entered
-  [(rf/inject-cofx :nav-token)]
-  (fn [{:keys [nav-token rf.db/runtime]} _]
-    (let [slug    (get-in runtime [:rf.runtime/routing :current :params :slug])
+  (fn [{runtime :rf.db/runtime} _]
+    (let [{:keys [params nav-token]} (get-in runtime
+                                             [:rf.runtime/routing :current])
+          slug    (:slug params)
           work-id [:rf.work/route :route/article nav-token :article]]
       {:fx [[:rf.http/managed
              {:request     {:method :get :url (str "/api/articles/" slug)}
@@ -958,19 +1030,23 @@ completion internally while preserving Spec 005's statechart surface.
    :states
    {:authenticating
     {:spawn {:machine-id :auth/flow
-             :on-done {:target :authenticated}
+             ;; Spec 005: :on-done is the success hook — a :data callback
+             ;; receiving the child's :output-key result. :on-error is its
+             ;; failure counterpart — a declarative transition.
+             :on-done  (fn [{data :data result :result}]
+                         (assoc data :session result))
              :on-error {:target :failed}}
      :after {30000 :timed-out}}
 
-    :authenticated {}
     :failed {}
     :timed-out {}}})
 ```
 
-The spawned child has a work id:
+The spawned child has a work id (the third element is the spawn-bearing
+node's declaring path, matching Spec 005's `:rf/spawn-id`):
 
 ```clojure
-[:rf.work/machine :auth/flow#1 [:authenticating :spawn] 1]
+[:rf.work/machine :auth/flow#1 [:authenticating] 1]
 ```
 
 When the child reaches a successful top-level final state, the runtime can form:
@@ -978,20 +1054,21 @@ When the child reaches a successful top-level final state, the runtime can form:
 ```clojure
 {:status          :ok
  :value           {:user-id "u-42"}
- :work/id         [:rf.work/machine :auth/flow#1 [:authenticating :spawn] 1]
+ :work/id         [:rf.work/machine :auth/flow#1 [:authenticating] 1]
  :work/kind       :machine
  :work/status     :completed
  :completed-at-ms 1781078400888
  :correlation     {:actor-id  :auth/flow#1
                    :parent-id :auth/main
-                   :spawn-id  [:authenticating :spawn]}}
+                   :spawn-id  [:authenticating]}}
 ```
 
-and then drive the existing `:spawn :on-done` transition. If the parent's
-`:after` fires first, the standard exit cascade destroys the child. Any late
-child completion is stale because the actor id or spawn correlation is no
-longer live. If the child fails through an error final, the same envelope uses
-`:status :error` and drives `:spawn :on-error`.
+and then run the parent's `:spawn :on-done` `:data` callback with the child's
+`:output-key` result as `(:value reply)`. If the parent's `:after` fires
+first, the standard exit cascade destroys the child. Any late child completion
+is stale because the actor id or spawn correlation is no longer live. If the
+child fails through an `:error?` final state or throws, the same envelope uses
+`:status :error` and drives the `:spawn :on-error` transition.
 
 ### Stale, Cancelled, And Error Handling
 
@@ -1136,7 +1213,10 @@ Resource internals may consolidate
 `:rf.resource.internal/aborted` into one `:rf.resource.internal/replied`
 handler, or may keep separate event ids that all receive the canonical reply
 map. The normative rule is the reply map and work id, not the exact internal
-event id split.
+event id split. When that lowering lands, the internal verification-payload
+key Spec 016 currently spells `:work-id` should converge on the qualified
+`:work/id` already used by the ledger row and this EP — one attempt identity,
+one spelling, per EP-0007.
 
 Machine and routing public APIs do not need immediate surface changes. Their
 existing nav-token, `:after` epoch, `:on-done`, and actor-destroy semantics can
@@ -1148,6 +1228,10 @@ is one causal reply envelope. Callback names are migration and ergonomics
 layers over it.
 
 ## Reference Implementation / Bead Plan
+
+Sequencing: the reply substrate lands with the EP-0003 work-ledger slice —
+the ledger row and the reply envelope are the same fact, and they should be
+designed in one moment rather than reconciled later.
 
 1. Add the uniform reply envelope property to `spec/Managed-Effects.md`.
 2. Define a small internal reply namespace with helpers for target
@@ -1196,19 +1280,31 @@ Conformance should include fixtures or tests for:
 
 - EP-0010 owns the final spelling and precision of causal time keys. This EP
   uses `:started-at-ms`, `:completed-at-ms`, and `:deadline-at-ms`
-  provisionally.
+  provisionally, while the graduated ledger row in Spec 016 spells
+  `:started-at` / `:deadline-at` today. **Recommendation:** adopt whatever
+  EP-0010 rules, and converge the reply map and the Spec 016 ledger row in the
+  same graduation bead so two spellings of one timestamp fact never ship.
 - `:rf.runtime/work-ledger` is a multi-writer subsystem. Resources can mint
   authority today; the first non-resource writer must settle the general
   authority path for timers, route loaders, machine work, and future async
-  surfaces.
+  surfaces. **Recommendation:** settle it through the EP-0006
+  runtime-subsystem contract when the first non-resource writer lands; until
+  then resources remain the only minting writer and this EP adds no new
+  authority surface.
 - The descriptor form for `:rf/reply-to` may need additional delivery modes for
-  compatibility adapters. New modes should be justified by public migration
-  needs, not effect-family preference.
+  compatibility adapters. **Recommendation:** ship `:append` as the only
+  public delivery mode; any new mode requires a recorded ruling justified by
+  public migration needs, not effect-family preference.
 - Streaming and multi-reply effects need a sibling proposal. They may share
   `:work/id` and status vocabulary, but their per-message continuation shape is
-  different from single completion.
-- The default for stale app delivery should remain non-delivery. Tooling and
-  tests may need an explicit opt-in shape; the exact spelling is open.
+  different from single completion. **Recommendation:** keep them out of scope
+  here and open the sibling EP only when a concrete streaming surface is
+  proposed.
+- The default for stale app delivery is non-delivery. Tooling and tests need an
+  explicit opt-in shape; this EP provisionally spells it `:dispatch-stale?
+  true` on the descriptor form. **Recommendation:** keep that spelling unless
+  graduation review finds a conflict, and restrict it to framework test and
+  tool targets.
 
 ## Recommendation
 
