@@ -20,6 +20,7 @@ After that, use the guide by problem:
 
 - Building real forms? Read [11 - Forms](11-forms.md).
 - Talking to a server? Read [10 - HTTP](10-http.md).
+- Caching server-state (TanStack-Query-style reads)? Read [27 - Server-state and resources](27-resources.md).
 - Modeling a process? Read [12 - State machines](12-machines.md).
 - Adding tests? Read [13 - Testing](13-testing.md).
 - Fighting routing? Read [19 - Routing](19-routing.md).

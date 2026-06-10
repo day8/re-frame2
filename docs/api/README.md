@@ -34,12 +34,13 @@ The core surfaces live in `re-frame.core`. Per-feature artefacts ship their own 
 | `re-frame.ssr.ring` | `day8/re-frame2-ssr-ring` | Ring host-adapter for SSR. |
 | `re-frame.epoch` | `day8/re-frame2-epoch` | Time-travel surfaces — `epoch-history`, `restore-epoch`, `replace-app-db!`. Re-exported through `re-frame.core` via late-bind. |
 | `re-frame.adapter.uix` / `re-frame.adapter.helix` | `day8/re-frame2-uix` / `-helix` | The per-substrate adapter surfaces and hooks. |
+| `re-frame.resources` | `day8/re-frame2-resources` | Declarative server-state — `reg-resource`, the `:rf.resource/*` events and subs, route `:resources` metadata. Optional, post-v1. |
 
 The dependency direction is one-way: adapters and feature artefacts depend on core; core never depends on them. Apps load whatever subset they need.
 
 ## The chapters
 
-The reference is divided into fifteen chapters. Each is independent — you can land on any of them from a search result and get something useful without reading the others.
+The reference is divided into sixteen chapters. Each is independent — you can land on any of them from a search result and get something useful without reading the others.
 
 The first three are foundational — **Core** (registration, dispatch, subscribe), **Views** (the view registry and the substrate-agnostic ergonomic surface), **Effects and interceptors** (the effect map, the standard interceptors, the context plumbing).
 
@@ -47,7 +48,7 @@ The next six cover feature domains: **State machines**, **Flows**, **Routing**, 
 
 The next four cover the operational surfaces: **Testing**, **Instrumentation** (listeners, tracing, epoch, performance), **Registrar** (the query API tools build against), **Lifecycle** (adapter install / dispose, `configure`).
 
-Then **Adapters** (the per-substrate surfaces — Reagent, UIx, Helix), and a closing **Removed / not shipped** chapter that says what's gone and what to use instead.
+Then **Adapters** (the per-substrate surfaces — Reagent, UIx, Helix), a **Removed / not shipped** chapter that says what's gone and what to use instead, and a closing **Resources** chapter (the optional, post-v1 declarative server-state surface).
 
 Story (variants, workspaces, snapshot identity) is a separate shipped tool with its own top-level [Story API](../story/api/index.md) section — it is not a chapter in this framework reference.
 

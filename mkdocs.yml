@@ -183,6 +183,7 @@ nav:
     - "24 - Configuration and safety": guide/24-config-and-safety.md
     - "25 - From re-frame v1": guide/25-from-re-frame-v1.md
     - "26 - Operating well": guide/26-operating-well.md
+    - "27 - Server-state and resources": guide/27-resources.md
 
   - CLJS:
     - "ClojureScript for non-Clojurians": cljs/index.md
@@ -266,12 +267,14 @@ nav:
     - "13 — Lifecycle": api/13-lifecycle.md
     - "14 — Adapters": api/14-adapters.md
     - "15 — Removed": api/15-removed.md
+    - "16 — Resources": api/16-resources.md
     - "Normative reference": spec/API.md
 
   - Migration:
     - "From re-frame v1": migration/from-re-frame-v1/README.md
     - "async-flow-fx → reg-machine": migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md
     - "http-fx → managed HTTP": migration/from-re-frame-v1/http-fx-to-managed-http.md
+    - "re-frame-query → resources": migration/from-re-frame-v1/re-frame-query-to-resources.md
     - "Observability logging sweep": migration/from-re-frame-v1/observability-logging-sweep.md
     - "clj-new → deps-new template": migration/from-clj-new-template/README.md
 
