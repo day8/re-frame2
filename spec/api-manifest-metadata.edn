@@ -587,6 +587,9 @@
   ["re-frame.machines" "validate-machine-data!"] {:tier :internal-public :owner "005" :status "v1"}
   ["re-frame.machines" "validate-spawn-data!"]  {:tier :internal-public :owner "005" :status "v1"}
   ["re-frame.machines" "reset-timers!"]         {:tier :internal-public :owner "005" :status "v1"}
+  ;; rf2-ma0wvq — spawned-actor ownership resolver, published as the
+  ;; `:machines/owning-actor-id` late-bind hook the http artefact consults.
+  ["re-frame.machines" "owning-actor-id"]       {:tier :internal-public :owner "005" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.routing — optional artefact (day8/re-frame2-routing), §012.
