@@ -12,6 +12,8 @@ Type: standards-track
 
 ## Abstract
 
+The program is a value; the runtime is a container you install it into.
+
 re-frame2 already treats durable state as a value and effects as data. The
 remaining large ambient surface is the program and the runtime environment that
 interprets it: the handler registrar, installed adapter, late-bound function
@@ -41,6 +43,17 @@ one process-global registrar, and the installed reactive adapter is a process
 singleton. Optional artifacts and cyclic namespace edges are connected through a
 global `late_bind` hook table. Several subsystems also hold host-transient
 state in process-level or frame-keyed side tables.
+
+The cost is measurable in the reference implementation today. The registrar is
+one process-wide `kind->id->metadata` atom over a closed kind set; Spec 002
+states the posture as a law ("Frames isolate *state*, not *behaviour*") and
+declares multi-app pages out of scope ("iframes already serve it"). The adapter
+is a process-wide install slot whose second install raises
+`:rf.error/adapter-already-installed`. The late-bind directory inventories
+roughly 175 published hook keys and needs a dedicated drift test to keep the
+table honest. Several hundred test files reach for `clear-all!` or a
+`reset-runtime`-style fixture purely to repair shared program state between
+cases. Each of those mechanisms is interest paid on program-as-mutation.
 
 Those choices are pragmatic. They preserve familiar re-frame v1 ergonomics,
 make small examples terse, and reduce early API surface. They are also the
@@ -126,6 +139,37 @@ inherited v1 ambient behavior.
   subscription, or view code once a frame scope is established.
 - This EP does not finalize all public constructor names. It uses candidate
   names in examples so the proposal is concrete.
+
+## Relationships
+
+- [EP-0002](EP-0002-frame-target-resolution.md) and
+  [Spec 002](../../spec/002-Frames.md) establish the carried invariant: frame
+  identity travels with the causal token; an operation never discovers a frame
+  from the ambient world. This EP extends the same rule to realms — a realm is
+  carried with the token, owned by the frame, or explicit at the call site,
+  never resolved from dynamic scope (see §Rationale). Spec 002's "frames
+  isolate *state*, not *behaviour*" law and its "iframes already serve it"
+  posture for multi-app pages are exactly the clauses this EP proposes to
+  retire.
+- [EP-0006](EP-0006-runtime-subsystem-contract.md) owns the five-clause
+  contract for durable `:rf.runtime/*` subsystems. This EP complements it
+  rather than competing: durable subsystem state stays under runtime-db and
+  EP-0006's contract; host-transient side tables gain realm ownership and
+  lifecycle here. The host-transient descriptor in §Host-Transient Subsystem
+  State should graduate as an extension of EP-0006's grading table, not as a
+  second contract.
+- [Spec 001](../../spec/001-Registration.md) owns the registry kind taxonomy
+  and registration metadata map that this EP's descriptors normalize; the
+  registration *grammar* is unchanged, the registration *semantics* become
+  construction of an app value.
+- [Spec 006](../../spec/006-ReactiveSubstrate.md) owns the adapter contract.
+  This EP changes adapter *ownership* (process → realm/root) but not the
+  adapter contract itself.
+- EP-0010, EP-0011, EP-0012, and EP-0014 are companion proposals. EP-0010's
+  injected world inputs are natural realm capabilities (`:rf.capability/clock`,
+  `:rf.capability/random`); EP-0014's derivation descriptors would live in app
+  values if both are accepted. Each can stand without this EP, and this EP can
+  stand without them.
 
 ## Definitions
 
@@ -216,6 +260,43 @@ inherited v1 ambient behavior.
 The proposal has one central move: make the program and runtime environment
 values, then reinterpret current globals as the default instance of those
 values.
+
+### Three Severable Decisions
+
+This is the largest EP in the current set, and EP-0009's one-decision-surface
+rule applies. The three layers share one vocabulary and are specified in one
+document, but they are deliberately severable so each can be ruled on,
+accepted, deferred, or rejected independently:
+
+- **D1 — the runtime realm (the container).** A realm owns the registrar,
+  adapter, capability map, frame registry, and host-transient subsystem state;
+  the default realm preserves today's ergonomics. D1 stands alone: it is the
+  hermetic-test and tenancy layer, and it can initially hold today's mutable
+  registrar unchanged.
+- **D2 — the app value (the program).** Registrations normalize to descriptors
+  in an immutable app value; `install!`/`reinstall!` replace registrar mutation
+  as the specified contract; hot reload becomes a diff. D2 presumes D1 — an app
+  value needs a container to be installed into — but not D3.
+- **D3 — module manifests (the source form).** Feature slices are declared as
+  composable module values with ownership claims, capability requirements, and
+  collision detection. D3 presumes D2. It is the highest-leverage layer for
+  large multi-team SPAs and the least urgent; deferring it does not invalidate
+  D1/D2.
+
+The §Specification subsections map onto the decisions as follows:
+
+| Decision | Specification sections |
+|---|---|
+| D1 — realm container | Runtime Realms; Frames Reference Realms; Adapter Ownership; Capability Maps; Late-Bind Compatibility; Host-Transient Subsystem State |
+| D2 — app value | App Values; Registration Descriptors; Installation; Default Realm And `reg-*` Sugar; Hot Reload And Reinstall; Source Coordinates |
+| D3 — manifests | Module Values And Feature Ownership; Composition |
+
+§Public API Staging spans all three: stages 1–4 land D1 internally, stages 5
+and 7 land D2, stage 6 spans D2/D3 (the app constructor is D2, the module
+constructor is D3), and stages 8–9 close the realm-targeted query surface and
+D1's multi-adapter conformance.
+
+### The Shape At A Glance
 
 At the source level, an application can be described explicitly:
 
@@ -1071,6 +1152,46 @@ program itself as load-order mutation is the major remaining mismatch.
 An app value lets the same engineering moves apply to the program: compose it,
 validate it, diff it, install it, snapshot its contract, and inspect it.
 
+Two payoffs deserve explicit naming because nothing else in the system can
+deliver them:
+
+- **The contract graph stops being a harvesting project.** Today, answering
+  "what writes this path?" or "which source file declared this contract?"
+  means re-deriving the program from the live registrar — replaying namespace
+  load order. With app values, the app value *is* the contract graph; tools
+  read it and diff it.
+- **Event coverage becomes a static check.** The event space of a composed app
+  is closed. "Every dispatched id is registered" and "every registered handler
+  is reachable" become composition-time and lint-time checks over the app
+  value instead of runtime `no-such-handler` errors.
+
+### Realms Are Carried, Not Ambient
+
+An obvious alternative shape for realm targeting is dynamic scope:
+
+```clojure
+;; REJECTED shape — shown for the record.
+(rf/with-runtime runtime
+  (rf/reg-event-db :cart/add ...)
+  (rf/dispatch [:cart/add item]))
+```
+
+This EP rejects it. Dynamic realm binding is ambient context redux — the exact
+pattern EP-0002 removed for frames. The carried invariant says an operation
+reads its target from the token it is holding; it never discovers one from the
+ambient world. A `with-runtime` block reintroduces "search the ambient world
+for a target" one level up from where it was just deleted, makes registration
+targets depend on call-stack shape instead of data, and breaks for the same
+async reasons frames did: a callback captured inside the block outlives the
+binding.
+
+Instead, realms follow the frame rule verbatim: a realm is **carried** (an
+explicit argument, a dispatch option, a field on the frame that already
+carries identity) or **ambient only inside an established explicit scope** —
+`with-frame` remains valid because the frame it names owns its realm, so the
+scope is carried-then-scoped, not discovered. Absence fails loudly with the
+existing no-frame-context family; it never selects a realm.
+
 ### Default Realm Preserves Ergonomics
 
 The existing `reg-*` style is useful. It is also the migration path for re-frame
@@ -1081,6 +1202,11 @@ This is the same posture EP-0002 takes with frame scope: ambient within an
 explicit scope is ergonomic; absence should not invent a target. Here, the
 default realm is an explicit compatibility realm created by the runtime, not a
 claim that all apps in a process must share behavior forever.
+
+Inside one realm, plurality is invisible: a single-realm app never spells a
+realm, just as a single-frame app never spells a frame outside its root. This
+is the EP-0002 refinement pattern — the plural model exists, and the
+zero-ceremony path stays zero-ceremony.
 
 ### Realms Match Operational Ownership
 
@@ -1116,6 +1242,27 @@ global registrar as a pattern law. This EP deliberately separates source
 compatibility from architecture: v1-shaped calls can continue to work while
 re-frame2 grows an explicit program/runtime model.
 
+### Honest Costs
+
+- **The load-order idiom dies as architecture.** The
+  `(:require [feature.events])`-registers-itself idiom stops being a
+  program-assembly mechanism and survives only as default-realm sugar. That is
+  the point — load order is exactly the temporal implicitness this EP removes —
+  but it is also a deeply ingrained re-frame idiom, and the sugar must remain
+  first-class for the idiom's users.
+- **Circularity needs the existing discipline, mandatorily.** Modules that
+  reference each other must late-bind by id. That is already the norm —
+  everything is keyword-addressed — but explicit module values turn the
+  discipline from idiomatic into required.
+- **Two strictness levels coexist.** During the compatibility window,
+  default-realm re-registration stays lenient (hot-reload replacement with dev
+  warnings) while explicit composition is strict (collisions are errors). One
+  model, two strictness levels, must be taught without it reading as two
+  models.
+- **This is the largest single change proposed in the current EP set.** The
+  decision severability in §Proposed Solution and the internal-first staging
+  in §Public API Staging exist because of that, not despite it.
+
 ## Alternatives Considered
 
 ### Keep The Process-Global Registrar
@@ -1126,6 +1273,18 @@ current model for small apps.
 It fails the large-SPA cases this EP targets. Behavior isolation, hermetic tests,
 multi-tenant shells, explicit hot reload, and feature-module composition remain
 bolted onto a global side effect.
+
+### Bind The Realm Through Dynamic Scope
+
+A `with-runtime`-style block could make registration and dispatch read an
+ambient realm binding, avoiding any explicit realm argument.
+
+Rejected; see §Rationale, Realms Are Carried, Not Ambient. It is the ambient
+fallback pattern EP-0002 already removed for frames, with the same failure
+modes: captured callbacks outlive the binding, targets depend on call-stack
+shape rather than data, and trace/replay determinism loses the carried
+identity. Realm targeting MUST be carried or scoped by an explicitly
+established frame scope; it MUST NOT be resolved from a dynamic binding.
 
 ### Put A Registrar On Every Frame
 
@@ -1307,6 +1466,9 @@ Conformance should be tested at three levels.
 - Ownership overlaps produce diagnostics where the owning spec defines overlap.
 - Capability requirements are preserved and checked at install time.
 - Source coordinates survive lowering from `reg-*` and explicit module forms.
+- The composed event set is enumerable, enabling static dispatch-coverage
+  checks (every dispatched id resolves; unreachable registrations are
+  reportable).
 
 ### Realm Conformance
 
@@ -1365,6 +1527,14 @@ Conformance should be tested at three levels.
 - Which registrar query arities become public at the first realm-aware stage?
 - How should active resources, route transitions, and machines participate in a
   realm reinstall beyond the existing per-kind hot-reload rules?
+- Should D1/D2/D3 graduate as one spec change or be split into separate EPs at
+  ruling time, per EP-0009's one-decision-surface rule? Recommendation: rule
+  them as three decisions inside this EP (the vocabulary is shared and the
+  layering is explicit), splitting only if the rulings diverge.
+- Does the host-transient subsystem descriptor live here or as an extension row
+  in EP-0006's grading table? Recommendation: EP-0006 owns the contract; this
+  EP contributes realm ownership and lifecycle as the host-transient grading
+  column.
 
 ## Recommendation
 
@@ -1372,6 +1542,20 @@ Adopt the direction of this EP: the program is an app value, and runtime
 capabilities live in explicit realms. Keep current `reg-*` APIs as default-realm
 sugar, but stop treating process-global registration, single adapter per
 process, and global late-bind lookup as the long-term architecture.
+
+Rule the three decisions separately:
+
+- **D1 (realm container): adopt.** It is the hermetic-test and tenancy layer,
+  it can be implemented internal-first behind the default realm with no public
+  source break, and it pays for itself even if D2 and D3 never ship.
+- **D2 (app value): adopt, sequenced behind D1.** Begin the descriptor
+  projection once the internal realm record has proven that lifecycle and
+  teardown actually simplify; do not expose public install/reinstall before
+  the diff semantics are validated against the existing hot-reload rules.
+- **D3 (module manifests): adopt the shape, stage the public surface last.**
+  Manifests are the highest-leverage layer for large multi-team SPAs and the
+  least urgent; the composition laws should be settled in tests before any
+  public constructor ships.
 
 The recommended implementation path is internal-first. Move one real singleton
 behind the default realm, prove that tests and teardown improve, then expose the
