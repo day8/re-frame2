@@ -2,11 +2,15 @@
 ;; The dispatch envelope is an open map containing :event, :frame,
 ;; and optional :trace-id, :source, :fx-overrides, :interceptor-overrides.
 ;; Implementations must surface these to handler code via the cofx context.
+;; The frame stamp reaches the cofx context under :rf.frame/id (the
+;; event-context spelling, per Spec 002 §Event context); the bare :frame
+;; spelling is the dispatch OPT, not a cofx key. The runtime-db partition
+;; is threaded as :rf.db/runtime.
 
 {:fixture/id           :dispatch/envelope
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/frame :core/trace}
- :fixture/doc          "An event dispatched with :source :ui surfaces in the cofx context map. Implementations expose :frame, :trace-id, and :source as additional keys on the cofx map for reg-event-fx handlers."
+ :fixture/doc          "An event dispatched with :source :ui surfaces in the cofx context map. Implementations expose :rf.frame/id (the event-context frame stamp), :rf.db/runtime (the runtime-db partition), :trace-id, and :source as additional keys on the cofx map for reg-event-fx handlers. The bare :frame is the dispatch opt, not a cofx key."
 
  :fixture/registry
  {:event {:probe/echo {:doc "Captures envelope keys into app-db for inspection."}}
@@ -25,10 +29,11 @@
 
  :fixture/expect
  {:final-app-db
-  {:envelope {:event    [:probe/echo]
-              :frame    :rf/default
-              :source   :ui
-              :trace-id "t-1"}}
+  {:envelope {:event         [:probe/echo]
+              :rf.db/runtime {}
+              :rf.frame/id   :rf/default
+              :source        :ui
+              :trace-id      "t-1"}}
 
   :trace-emissions
   [{:operation :rf.event/run-start

@@ -70,7 +70,7 @@
   `:rf.route.nav-token/stale-suppressed` (same trace shape as the
   production `:rf.route/with-nav-token` handler, so a single conformance
   assertion covers both paths)."
-  [{:keys [frame] rdb :rf.db/runtime} [_ {:keys [on-success-event carried-nav-token]}]]
+  [{frame :rf.frame/id rdb :rf.db/runtime} [_ {:keys [on-success-event carried-nav-token]}]]
   ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
   (let [current (get-in (or rdb {}) [:rf.runtime/routing :current :nav-token])]
     (cond

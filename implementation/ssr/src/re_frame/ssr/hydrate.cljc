@@ -116,7 +116,7 @@
   `:frame`). Hydration is best-effort by contract (Spec 011 §The
   :rf/hydrate event — degraded-but-running), so a corrupt payload must
   never silently install garbage as the whole app-db."
-  [{:keys [db frame] rt :rf.db/runtime} [_ payload]]
+  [{:keys [db] frame :rf.frame/id rt :rf.db/runtime} [_ payload]]
   (let [new-db (or (:rf/app-db payload) db)]
     (if-let [reason (malformed-hydration-payload! payload)]
       (do

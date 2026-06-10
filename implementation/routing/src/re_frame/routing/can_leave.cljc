@@ -252,7 +252,7 @@
 (defn url-requested-handler
   "`:rf/url-requested` event-fx handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar."
-  [{:keys [frame] rdb :rf.db/runtime}
+  [{frame :rf.frame/id rdb :rf.db/runtime}
    [_ {:keys [url bypass-leave-guard?] :as _request} :as event-vec]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol the
     ;; runtime fires :can-leave for the active route on every
@@ -268,9 +268,9 @@
     ;; escape hatch :rf.route/continue uses to re-issue the original
     ;; navigation request without re-running the leave guard.
     (let [;; EP-0002 carried invariant — `:rf/url-requested` is a cascade
-          ;; event, so the cofx carries the envelope `:frame`; a nil stamp
-          ;; is an invariant failure (`:rf.error/no-frame-context`), never a
-          ;; synthesised `:rf/default`.
+          ;; event, so the cofx carries the frame stamp under `:rf.frame/id`;
+          ;; a nil stamp is an invariant failure
+          ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
           frame     (frame/require-frame-stamp!
                       frame :rf/url-requested
                       {:where 'rf.route/url-requested-handler})

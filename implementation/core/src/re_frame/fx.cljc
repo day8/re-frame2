@@ -770,14 +770,16 @@
   COEFFECTS section shows only user-injected coeffects (mirrors the
   AFTER INTERCEPTORS section's filter-out-framework-defaults posture).
 
-  `:db` + `:event` are populated by `assemble-initial-ctx`; `:frame` ditto.
+  `:db` + `:event` are populated by `assemble-initial-ctx`.
   `:source` + `:trace-id` are envelope keys also surfaced on the cofx
   map by `assemble-initial-ctx` for handler-body convenience.
   `:rf.db/runtime` (the runtime-db partition) + `:rf.frame/id` (the
-  runtime-context frame id) are the EP-0001 partition coeffects, likewise
-  injected by `assemble-initial-ctx` — framework defaults, not user cofx
-  (rf2-bvwoi4)."
-  #{:db :event :frame :source :trace-id :rf.db/runtime :rf.frame/id})
+  runtime-context frame id, the event-context spelling of the frame
+  stamp per Spec 002 §Event context — the retired bare `:frame`
+  coeffect is gone, rf2-1m6rf1) are the EP-0001 partition coeffects,
+  likewise injected by `assemble-initial-ctx` — framework defaults, not
+  user cofx (rf2-bvwoi4)."
+  #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id})
 
 (defn user-injected-coeffects
   "Project the user-injected subset of a coeffects map. Pure data → data.

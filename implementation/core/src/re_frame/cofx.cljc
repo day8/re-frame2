@@ -93,11 +93,11 @@
           ;; key they inject under.
           value    (get (:coeffects ctx) cofx-id)
           ;; rf2-9cm27 — pass the in-flight cascade's frame (seeded as the
-          ;; `:frame` coeffect) so the `:where :cofx` failure trace carries
-          ;; `:frame` and lands in the per-frame epoch `:trace-events`
+          ;; `:rf.frame/id` coeffect) so the `:where :cofx` failure trace
+          ;; carries `:frame` and lands in the per-frame epoch `:trace-events`
           ;; (epoch capture buffers only frame-tagged traces). Mirrors the
           ;; `:where :app-db` / `:where :event` traces.
-          frame    (interceptor/get-coeffect ctx :frame)
+          frame    (interceptor/get-coeffect ctx :rf.frame/id)
           ok?      (try (validate cofx-id event-id value cofx-meta frame)
                         (catch #?(:clj Throwable :cljs :default) _ true))]
       (if ok?
@@ -252,7 +252,7 @@
            ;; `:rf.cofx/skipped-on-platform` (warning, :recovery
            ;; :skipped) mirroring fx.cljc's gate. The handler chain
            ;; continues — the injection is skipped, not the event.
-           (let [frame-id        (interceptor/get-coeffect ctx :frame)
+           (let [frame-id        (interceptor/get-coeffect ctx :rf.frame/id)
                  active-platform (active-platform-for-frame frame-id)]
              (if (cofx-runs-on-platform? meta active-platform)
                ;; Publish the cofx handler's HandlerScope.
@@ -321,12 +321,12 @@
                                      (some-> trace/*handler-scope* :call-site))
              (let [event    (interceptor/get-coeffect ctx :event)
                    ;; rf2-fxlgi — the in-flight cascade's frame, read from
-                   ;; the `:frame` coeffect (same source as the
+                   ;; the `:rf.frame/id` coeffect (same source as the
                    ;; `:rf.cofx/run` / `:skipped-on-platform` siblings'
                    ;; `frame-id`). `frame-id` itself is bound in the
                    ;; cofx-found branch's `let`, out of scope here, so
                    ;; re-read it locally.
-                   frame-id (interceptor/get-coeffect ctx :frame)]
+                   frame-id (interceptor/get-coeffect ctx :rf.frame/id)]
                ;; rf2-fxlgi — stamp `:frame` so this dev-only misconfig
                ;; diagnostic is frame-attributed like its siblings above,
                ;; and so `re-frame.epoch.capture/capture-event!` (which

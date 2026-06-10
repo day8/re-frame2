@@ -470,7 +470,6 @@
         runtime-db  (frame/frame-runtime-db-value frame)]
     {:coeffects (cond-> {:db            db-value
                          :event         event
-                         :frame         frame
                          :rf.db/runtime runtime-db
                          :rf.frame/id   frame}
                   (:source envelope)   (assoc :source (:source envelope))
@@ -980,7 +979,7 @@
     :rf/default? true
     :after
     (fn [ctx]
-      (let [frame       (:frame (:coeffects ctx))
+      (let [frame       (:rf.frame/id (:coeffects ctx))
             effects     (:effects ctx)
             has-db?     (contains? effects :db)
             ;; EP-0001 §535-551 (rf2-4eisfr): a runtime-db write also lands as
@@ -1594,10 +1593,11 @@
 
     `:rf.event/coeffects`    — the USER-INJECTED subset of the
                                 handler's final coeffects map (framework
-                                defaults `:db` `:event` `:frame`
-                                `:source` `:trace-id` filtered out at
-                                this boundary). Absent entirely when
-                                zero user cofx were injected.
+                                defaults `:db` `:event` `:rf.frame/id`
+                                `:source` `:trace-id` `:rf.db/runtime`
+                                filtered out at this boundary). Absent
+                                entirely when zero user cofx were
+                                injected.
     `:rf.event/after-deltas` — vector of per-`:after` interceptor
                                 ctx-delta records `{:rf.icpt/id <id>
                                 :rf.icpt/ctx-delta {...}}` populated by

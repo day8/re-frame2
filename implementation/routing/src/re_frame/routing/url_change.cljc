@@ -245,11 +245,11 @@
   strategy for forward nav is `:top` per Spec 012 §Scroll restoration;
   popstate / initial / SSR routes through `:rf.route/handle-url-change`
   (default `:restore`)."
-  [{:keys [frame] rdb :rf.db/runtime} [_ url opts :as event-vec]]
+  [{frame :rf.frame/id rdb :rf.db/runtime} [_ url opts :as event-vec]]
   (let [;; EP-0002 carried invariant — `:rf.route/transitioned` is a
-        ;; cascade event, so the cofx carries the envelope `:frame`; a nil
-        ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
-        ;; never a synthesised `:rf/default`.
+        ;; cascade event, so the cofx carries the frame stamp under
+        ;; `:rf.frame/id`; a nil stamp is an invariant failure
+        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
         frame   (frame/require-frame-stamp!
                   frame :rf.route/transitioned
                   {:where 'rf.route/transitioned-handler})
@@ -282,11 +282,12 @@
   strategy is `:restore` so the saved position trumps. `:frame` is
   threaded through so the SSR error-projection listener can attribute
   the :no-such-handler trace per-frame."
-  [{:keys [frame] rdb :rf.db/runtime} [_ url opts :as event-vec]]
+  [{frame :rf.frame/id rdb :rf.db/runtime} [_ url opts :as event-vec]]
   (let [;; EP-0002 carried invariant — `:rf.route/handle-url-change` is a
         ;; cascade event (popstate / initial / SSR), so the cofx carries
-        ;; the envelope `:frame`; a nil stamp is an invariant failure
-        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+        ;; the frame stamp under `:rf.frame/id`; a nil stamp is an invariant
+        ;; failure (`:rf.error/no-frame-context`), never a synthesised
+        ;; `:rf/default`.
         frame   (frame/require-frame-stamp!
                   frame :rf.route/handle-url-change
                   {:where 'rf.route/handle-url-change-handler})

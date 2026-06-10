@@ -257,7 +257,9 @@
     (try
       ;; :doc must be a value the schema rejects (schema wants :int). The
       ;; sentinel rides as the offending param value.
-      (navigate/navigate-handler {:db {} :frame :rf/default}
+      ;; The frame stamp reaches the event context under :rf.frame/id
+      ;; (rf2-1m6rf1 — the bare :frame coeffect is retired).
+      (navigate/navigate-handler {:db {} :rf.frame/id :rf/default}
                                  [:rf.route/navigate :sec/route {:doc sentinel}])
       (finally (trace-tooling/unregister-listener! kw)))
     (first (filter #(= :rf.error/schema-validation-failure (:operation %))

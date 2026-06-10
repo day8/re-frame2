@@ -119,7 +119,7 @@
   are durable framework runtime-db state, so the handler reads them from the
   `:rf.db/runtime` coeffect (`rdb`) and `commit-navigation` returns a
   `:rf.db/runtime` effect. The handler never touches user app-db."
-  [{:keys [frame] rdb-raw :rf.db/runtime} [_ target params opts :as event-vec]]
+  [{frame :rf.frame/id rdb-raw :rf.db/runtime} [_ target params opts :as event-vec]]
     ;; Per Spec 012 §Navigation is an event and §Fragments §Programmatic
     ;; navigation with fragments. Fragment may be supplied in opts
     ;; (`{:fragment "x"}`), on the target-map form (`{:url "/x"
@@ -134,8 +134,9 @@
     ;; the programmatic path matches the URL-driven path so async loaders
     ;; have a token to thread through stale-suppression.
     (let [;; EP-0002 carried invariant — `:rf.route/navigate` is a cascade
-          ;; event, so the cofx carries the envelope `:frame`; a nil stamp
-          ;; is an invariant failure (`:rf.error/no-frame-context`), never a
+          ;; event, so the cofx carries the frame stamp under `:rf.frame/id`;
+          ;; a nil stamp is an invariant failure
+          ;; (`:rf.error/no-frame-context`), never a
           ;; synthesised `:rf/default`. Validated once; the trace stamps and
           ;; the leave-guard call below all read this carried value.
           frame (frame/require-frame-stamp!
