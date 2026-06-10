@@ -86,14 +86,21 @@
 ;; The `:rf.resource/*` trace family (Spec 016 §Xray and AI tooling).
 ;; ---------------------------------------------------------------------------
 ;;
-;; The runtime EMITS these `:rf.event`-op-type rows (the emit seams
-;; already exist in `re-frame.resources.events` — `:rf.resource/deduped`,
-;; `:fetch-started`, `:invalidated`, `:owner-released`, `:removed`,
-;; `:succeeded`/`:failed`/`:refresh-failed`, `:stale-suppressed`,
-;; `:gc-fired`/`:gc-skipped`, `:work-abort-requested`, …). Xray DEFINES
-;; the family (its closed operation set, per-op colour class, and a
-;; human label) so the Resources tab + the Trace tab can colour, group,
-;; and filter resource rows without re-deriving the vocabulary.
+;; The runtime EMITS these rows across the resource artefact —
+;; `:rf.resource/registered` (`reg-resource`, frame-agnostic),
+;; `:owner-attached` / `:deduped` / `:fetch-started` / `:work-started`
+;; (`events.cljc` ensure path), `:invalidated`, `:owner-released`,
+;; `:removed`, `:succeeded`/`:failed`/`:refresh-failed`,
+;; `:stale-suppressed`, `:gc-fired`/`:gc-skipped`, `:work-abort-requested`,
+;; `:hydrated` / `:hydrate-refetch` (`ssr.cljc`), … . Xray DEFINES the
+;; family (its closed operation set, per-op colour class, and a human
+;; label) so the Resources tab + the Trace tab can colour, group, and
+;; filter resource rows without re-deriving the vocabulary.
+;;
+;; `:rf.resource/cache-hit` is RESERVED (a fresh-skip ensure) but not yet
+;; emitted by the v1 runtime — see Spec 016 §Xray and AI tooling. It stays
+;; enumerated here so the panel can colour it ahead of the behaviour
+;; landing.
 ;;
 ;; Each op carries, where applicable: frame, work id, scope, resource
 ;; key/id, params summary, generation, request id, owner, cause, status
@@ -124,7 +131,6 @@
    :rf.resource/work-started         {:class :lifecycle    :label "work started"}
    :rf.resource/work-abort-requested {:class :lifecycle    :label "abort requested"}
    :rf.resource/work-completed       {:class :success      :label "work completed"}
-   :rf.resource/work-suppressed      {:class :suppression  :label "work suppressed"}
    :rf.resource/succeeded            {:class :success      :label "succeeded"}
    :rf.resource/failed               {:class :failure      :label "failed"}
    :rf.resource/refresh-failed       {:class :failure      :label "refresh failed"}

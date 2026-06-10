@@ -125,6 +125,14 @@
                        (state/empty-entry resource))
         prior-work (:current-work entry)
         in-flight? (some? prior-work)
+        ;; a NEW owner lease lands on the entry when an owner is supplied and
+        ;; was not already in the active-owner set. `:rf.resource/owner-attached`
+        ;; marks that liveness change distinctly from work — symmetric with the
+        ;; existing `:rf.resource/owner-released` row so the owner-lease lifecycle
+        ;; is a readable pair in the Xray timeline / AI-Audit (Spec 016 §Xray and
+        ;; AI tooling; §Active owners and causes — owners are liveness leases).
+        owner-newly-attached? (and (some? owner)
+                                   (not (contains? (:active-owners entry) owner)))
         ;; default the transport (a spec that declares none gets managed
         ;; HTTP — the only initial-scope transport; the transport seam
         ;; defaults identically). The work record + side-table handle +
@@ -158,6 +166,13 @@
                      {:rf.frame/id frame-id :resource-key scoped-key
                       :generation (:generation entry) :owner owner :cause cause
                       :work-id prior-work})
+        ;; the ensure joined the in-flight work (no new generation) but ALSO
+        ;; attached a new owner lease — record that distinct liveness change.
+        (when owner-newly-attached?
+          (trace/emit! :rf.event :rf.resource/owner-attached
+                       {:rf.frame/id frame-id :resource-key scoped-key
+                        :generation (:generation entry) :owner owner :cause cause
+                        :work-id prior-work :joined-in-flight? true}))
         {:rf.db/runtime rdb'})
       ;; ----- start a new load attempt (fresh generation) -----------------
       (let [generation (state/next-generation gen-snapshot)
@@ -224,6 +239,14 @@
                      {:rf.frame/id frame-id :resource-key scoped-key
                       :generation generation :work-id work-id
                       :status (:status entry') :owner owner :cause cause})
+        ;; a fresh load that also attaches a NEW owner lease — record the
+        ;; liveness change distinctly from the work it kicked off (symmetric
+        ;; with `:rf.resource/owner-released`).
+        (when owner-newly-attached?
+          (trace/emit! :rf.event :rf.resource/owner-attached
+                       {:rf.frame/id frame-id :resource-key scoped-key
+                        :generation generation :owner owner :cause cause
+                        :work-id work-id :joined-in-flight? false}))
         {:rf.db/runtime rdb'
          ;; WRITE half of the host-side generation seam + the transport fx +
          ;; the work-handle side-table record + (when superseding) a

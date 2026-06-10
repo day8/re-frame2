@@ -23,7 +23,8 @@
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.resources.state :as state]
-            [re-frame.source-coords :as source-coords]))
+            [re-frame.source-coords :as source-coords]
+            [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -172,13 +173,30 @@
   ([Conventions §reg-* return-value convention])."
   [resource-id resource-spec]
   (validate-resource-spec! resource-id resource-spec)
-  (registrar/register!
-    resource-kind
-    resource-id
-    (source-coords/merge-coords
-      (merge {:doc (:doc resource-spec)}
-             {:rf/resource resource-spec
-              :handler-fn  (:request resource-spec)})))
+  (let [previous (registrar/lookup resource-kind resource-id)]
+    (registrar/register!
+      resource-kind
+      resource-id
+      (source-coords/merge-coords
+        (merge {:doc (:doc resource-spec)}
+               {:rf/resource resource-spec
+                :handler-fn  (:request resource-spec)})))
+    ;; `:rf.resource/registered` fires on FIRST-TIME registration so tools
+    ;; subscribing to "all resource lifecycle events" (the Xray Resources
+    ;; tab / lifecycle timeline) see one row per fresh resource — the
+    ;; registration anchor of the `:rf.resource/*` trace family (Spec 016
+    ;; §Xray and AI tooling). Re-registration rides the cross-kind
+    ;; `:rf.registry/handler-replaced` trace (emitted by `registrar/register!`
+    ;; per Spec 001 §Hot-reload trace surface); not re-emitted here. Mirrors
+    ;; the `:rf.route/registered` / `:rf.flow/registered` symmetry. The row is
+    ;; frame-agnostic (registration is a load-time act, not a per-frame event).
+    (when (nil? previous)
+      (trace/emit! :rf.event :rf.resource/registered
+                   {:resource-id    resource-id
+                    :scope-policy   (:scope resource-spec)
+                    :transport      (:transport resource-spec)
+                    :stale-after-ms (:stale-after-ms resource-spec)
+                    :gc-after-ms    (:gc-after-ms resource-spec)})))
   resource-id)
 
 (defn clear-resource
