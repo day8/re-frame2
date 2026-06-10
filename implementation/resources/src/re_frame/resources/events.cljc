@@ -54,6 +54,7 @@
   `live-entry-for-reply`). Terminal rows are pruned on the linked entry's
   next successful transition, retaining a bounded per-key tail for Xray."
   (:require [clojure.set :as set]
+            [re-frame.frame :as frame]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.route :as route]
             [re-frame.resources.state :as state]
@@ -80,6 +81,23 @@
   [spec loaded-at]
   (when-let [ms (:stale-after-ms spec)]
     (+ loaded-at ms)))
+
+(defn- positive-or-nil
+  "Return `ms` when it is a positive number, else nil (a non-positive /
+  absent policy never arms a timer). Guards a timer delay derived from an
+  absolute timestamp comparison so a clock-skewed or already-elapsed deadline
+  yields nil rather than a negative wall-clock delay."
+  [ms]
+  (when (and (number? ms) (pos? ms)) ms))
+
+(defn- server-frame?
+  "True iff `frame-id` is an SSR / server frame (its `:config :platform` is
+  `:server`, set by the `:ssr-server` preset). Reads ONLY the FRAME's
+  platform — NOT the host-wide `active-platform` default (which is `:server`
+  on the JVM, so a JVM client-mode unit test must still arm timers). Per Spec
+  016 §Stale and GC scheduling (no wall-clock background timers under SSR)."
+  [frame-id]
+  (= :server (:platform (frame/frame-meta frame-id))))
 
 ;; ---- ensure / refetch — the load-causing events ---------------------------
 
@@ -242,46 +260,95 @@
 
 (defn invalidate-tags-handler
   "`:rf.resource/invalidate-tags` — exact tag invalidation (Spec 016
-  §Invalidation). Scoped by default: marks every entry whose provided tags
-  intersect `:tags` AND whose scope matches `:scope` as stale (sets
-  `:invalidated-at`); active-owner entries are refetched, inactive entries
-  are left stale / GC-eligible. Emits one decision summary + per-entry
-  details. Payload: `{:scope :tags :cause}`.
+  §Invalidation). Payload: `{:scope :tags :cause :cross-scope?}`.
 
-  This slice marks entries stale + records the invalidation, and dispatches
-  a `:rf.resource/refetch` for each active-owner entry. The refetch-vs-
-  leave-stale decision keys on `:active-owners` presence."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [scope tags cause]}]]
+  Algorithm (Spec 016 §Invalidation):
+    1. find entries whose produced `:tags` intersect the invalidated `:tags`;
+    2. mark each matched entry stale (durable `:invalidated-at` fact);
+    3. refetch the matched entries that have ACTIVE OWNERS (a live lease
+       needs fresh data now) — by dispatching `:rf.resource/refetch`;
+    4. leave the matched OWNERLESS entries stale / GC-eligible (their stale?
+       sub derives true from `:invalidated-at`; their GC timer reaps them);
+    5. emit ONE decision summary + per-entry detail (so Xray shows a
+       broad-tag storm without flooding the trace).
+
+  **Scoped by DEFAULT** (Spec 016 §clear-scope is causal / §Invalidation): a
+  match requires the entry's scope to equal `:scope`. A CROSS-SCOPE
+  invalidation (`:cross-scope? true`) opts in explicitly — it ignores the
+  scope filter (matching the tags in every scope) and is loudly Xray-visible
+  (the summary carries `:cross-scope? true` so a broad multi-tenant /
+  multi-user storm is observable + lintable). A cross-scope invalidation with
+  no `:scope` is permitted (it is scope-agnostic by construction).
+
+  **No-match distinction** (Spec 016 §Invalidation): the summary carries
+  `:matched` (the matched keys), `:any-tag-match-other-scope?` (whether the
+  tags match an entry in ANOTHER scope — \"no match HERE\" vs \"no resource
+  provides this tag in any scope\"), so Xray can tell the two apart."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+   [_event-id {:keys [scope tags cause cross-scope?]}]]
   (let [runtime-db (or rt {})
-        cscope     (state/canonicalize scope)
+        cscope     (when (some? scope) (state/canonicalize scope))
+        tag-set    (set tags)
         invalidated-at (now-ms)
         entries    (get-in runtime-db (state/entries-path))
-        ;; matched: scope matches AND tags intersect (exact tag match)
+        tags-hit?  (fn [entry] (seq (set/intersection (set (:tags entry)) tag-set)))
+        in-scope?  (fn [k] (or cross-scope? (= cscope (first k))))
+        ;; matched: tags intersect AND (cross-scope OR scope matches)
         matched    (into {}
-                         (filter (fn [[k entry]]
-                                   (and (= cscope (first k))
-                                        (seq (set/intersection
-                                               (set (:tags entry)) (set tags))))))
+                         (filter (fn [[k entry]] (and (in-scope? k) (tags-hit? entry))))
                          entries)
+        ;; tag matches that fell OUTSIDE the requested scope (the
+        ;; "no match HERE, but the tag exists in another scope" signal — only
+        ;; meaningful for a scoped invalidation)
+        other-scope-hit?
+        (and (not cross-scope?)
+             (boolean
+               (some (fn [[k entry]] (and (not= cscope (first k)) (tags-hit? entry)))
+                     entries)))
         ;; mark each matched entry stale (durable :invalidated-at fact)
         rdb'       (reduce-kv
                      (fn [db k entry]
                        (assoc-in db (state/entry-path k)
                                  (assoc entry :invalidated-at invalidated-at)))
                      runtime-db matched)
-        ;; refetch only the active-owner entries (Spec 016 §Invalidation 3)
+        ;; per-entry decision: active-owner entries refetch (Spec 016
+        ;; §Invalidation 3); ownerless entries are left stale / GC-eligible
+        ;; (§Invalidation 4). Collected once for both the dispatches and the
+        ;; per-entry trace detail.
+        decisions  (mapv (fn [[k entry]]
+                           {:resource-key k
+                            :active? (boolean (seq (:active-owners entry)))
+                            :decision (if (seq (:active-owners entry))
+                                        :refetch :left-stale)
+                            :tags (vec (:tags entry))})
+                         matched)
         refetches  (into []
                          (comp
-                           (filter (fn [[_ entry]] (seq (:active-owners entry))))
-                           (map (fn [[k _]]
+                           (filter :active?)
+                           (map (fn [{k :resource-key}]
                                   (let [[s rid p] k]
                                     [:dispatch [:rf.resource/refetch
                                                 {:resource rid :scope s :params p
                                                  :cause [:invalidate {:tags tags}]}]]))))
-                         matched)]
+                         decisions)]
+    ;; ONE decision summary (broad-tag storms stay readable) ...
     (trace/emit! :rf.event :rf.resource/invalidated
                  {:rf.frame/id frame-id :scope cscope :tags tags :cause cause
-                  :matched (vec (keys matched)) :refetched (count refetches)})
+                  :cross-scope? (boolean cross-scope?)
+                  :matched (mapv :resource-key decisions)
+                  :refetched (count refetches)
+                  :left-stale (count (remove :active? decisions))
+                  ;; no-match distinction: no match in this scope vs no resource
+                  ;; provides this tag in any scope (Spec 016 §Invalidation)
+                  :any-tag-match-other-scope? other-scope-hit?})
+    ;; ... PLUS one per-entry detail trace (the refetch-vs-leave-stale
+    ;; decision per matched key — Spec 016 §Invalidation 5 / the Xray
+    ;; invalidation graph)
+    (doseq [{:keys [resource-key active? decision tags] :as _d} decisions]
+      (trace/emit! :rf.event :rf.resource/refetch-decision
+                   {:rf.frame/id frame-id :resource-key resource-key
+                    :scope (first resource-key) :active? active?
+                    :decision decision :tags tags :cause cause}))
     {:rf.db/runtime rdb'
      :fx refetches}))
 
@@ -382,8 +449,16 @@
                   :removed (vec in-scope) :reason :clear-scope
                   :aborted (mapv first in-flight)})
     {:rf.db/runtime rdb'
-     :fx (into [] (keep (fn [[wid transport]] (work-ledger/abort-fx transport wid)))
-               in-flight)}))
+     ;; best-effort abort of each in-scope in-flight attempt PLUS cancel the
+     ;; cleared entries' advisory stale / GC timers (their durable facts are
+     ;; gone — release the host handles promptly rather than waiting for frame
+     ;; destroy). Stale suppression by work-id + generation remains the
+     ;; correctness boundary; the abort + timer-cancel are the optimisation.
+     :fx (cond-> (into [] (keep (fn [[wid transport]] (work-ledger/abort-fx transport wid)))
+                       in-flight)
+           (seq in-scope)
+           (conj [:rf.resource/cancel-timers
+                  {:frame-id frame-id :resource-keys (vec in-scope)}]))}))
 
 ;; ---- remove — single-instance cache removal --------------------------------
 
@@ -413,8 +488,11 @@
                   :aborted (when wid [wid])})
     {:rf.db/runtime rdb'
      ;; best-effort abort of the removed instance's in-flight attempt
-     ;; (opportunistic; stale suppression protects correctness)
-     :fx (if-let [fx (and wid (work-ledger/abort-fx transport wid))] [fx] [])}))
+     ;; (opportunistic; stale suppression protects correctness) PLUS cancel
+     ;; its advisory stale / GC timers (the entry's durable facts are gone).
+     :fx (conj (if-let [fx (and wid (work-ledger/abort-fx transport wid))] [fx] [])
+               [:rf.resource/cancel-timers
+                {:frame-id frame-id :resource-keys [scoped-key]}])}))
 
 ;; ---- framework-internal reply handlers ------------------------------------
 ;;
@@ -512,6 +590,15 @@
       (let [spec      (registry/resource-meta (:resource/id entry))
             loaded-at (now-ms)
             stale-at  (stale-at-for spec loaded-at)
+            ;; arm the advisory stale / GC timers from the resource's policy
+            ;; (Spec 016 §Stale and GC scheduling). The DELAYS are relative
+            ;; from now (the durable absolute :stale-at / :loaded-at remain the
+            ;; freshness facts the re-check derives against; the timer is only
+            ;; an advisory nudge). A resource declaring no :stale-after-ms /
+            ;; :gc-after-ms arms neither. nil when this resource arms no timers
+            ;; (no schedule-timers fx emitted).
+            stale-delay-ms (positive-or-nil (:stale-after-ms spec))
+            gc-delay-ms    (positive-or-nil (:gc-after-ms spec))
             tags-fn   (:tags spec)
             ;; tags are produced from the params + decoded data; the canonical
             ;; params are the third element of the scoped key
@@ -546,7 +633,23 @@
                      {:rf.frame/id frame-id :resource-key resource-key
                       :work-id work-id :generation generation
                       :status-before (:status entry) :status-after :loaded})
-        {:rf.db/runtime rdb'}))))
+        ;; arm the advisory stale / GC timers (host-side side table) for this
+        ;; freshly-loaded entry — the WRITE rides an fx exactly as the
+        ;; generation high-water bump + work-handle side-table writes do.
+        ;; Cancel-then-arm so a re-load reschedules a single live timer per
+        ;; [key kind]. Skipped under SSR by the fx's `:platforms #{:client}`
+        ;; gate (the re-check handler re-derives freshness from the durable
+        ;; :stale-at, so a never-fired server timer is harmless). Only emitted
+        ;; when the resource declares at least one policy. Per Spec 016 §Stale
+        ;; and GC scheduling.
+        (cond-> {:rf.db/runtime rdb'}
+          (or stale-delay-ms gc-delay-ms)
+          (assoc :fx [[:rf.resource/schedule-timers
+                       {:frame-id       frame-id
+                        :resource-key   resource-key
+                        :stale-delay-ms stale-delay-ms
+                        :gc-delay-ms    gc-delay-ms
+                        :server?        (server-frame? frame-id)}]]))))))
 
 (defn failed-handler
   "`:rf.resource.internal/failed` — a transport read failed. Verifies frame
@@ -622,14 +725,60 @@
                       runtime-db work-id work-ledger/mark-terminal
                       :cancelled {:reason :aborted})}))
 
+(defn stale-fired-handler
+  "`:rf.resource.internal/stale-fired` — a stale timer fired. The timer is
+  ADVISORY: freshness is computed from the entry's DURABLE `:stale-at`
+  (the `:rf.resource/stale?` sub already derives it against the live clock),
+  so this handler does NOT need to flip a stored boolean — it RE-CHECKS the
+  live entry and records the freshness fact for tools, never writing a stale
+  decision. Per Spec 016 §Stale and GC scheduling (\"a stale timer may
+  enqueue a resource event, but the handler MUST re-check the current entry
+  before writing\").
+
+  The re-check (against the LIVE durable facts, not the timer's wake-time
+  assumptions):
+    - the entry is gone (removed / GC'd / cleared) — no-op (a superseded
+      timer);
+    - the entry has been re-loaded to a NEWER generation since the timer
+      armed (its `:loaded-at` moved past the timer's basis) — no-op; a fresh
+      schedule-timers fx already re-armed it;
+    - otherwise the entry IS now stale-by-policy — the durable `:stale-at`
+      already makes the `:stale?` sub true (no write needed); emit a trace so
+      Xray's lifecycle timeline shows the staleness boundary crossed. Refetch
+      is NOT forced on a stale timer — staleness is orthogonal to refetch (a
+      stale entry refreshes on its next live cause; the focus/reconnect
+      active-stale scan is rf2-vtblcq, not this slice)."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+   [_event-id {:keys [resource-key]}]]
+  (let [runtime-db (or rt {})
+        entry      (get-in runtime-db (state/entry-path resource-key))
+        ;; re-derive staleness from the DURABLE :stale-at (the timer is
+        ;; advisory — never trust "the timer fired on time"). An entry
+        ;; re-loaded since the timer armed has a future :stale-at and is not
+        ;; yet stale, so the re-check naturally no-ops. Shared derivation
+        ;; (`state/entry-stale?`) so it never drifts from the subs / SSR view.
+        stale?     (state/entry-stale? entry (now-ms))]
+    (trace/emit! :rf.event :rf.resource/stale-fired
+                 {:rf.frame/id frame-id :resource-key resource-key
+                  :decision (cond (nil? entry) :no-entry
+                                  stale?       :now-stale
+                                  :else        :still-fresh)})
+    ;; durable :stale-at is the freshness fact; no write needed.
+    {:rf.db/runtime runtime-db}))
+
 (defn gc-fired-handler
   "`:rf.resource.internal/gc-fired` — an inactive-GC timer fired. Re-check
   owner sets + entry generation after wake (timers are advisory); remove
   the entry only if still GC-eligible. Per Spec 016 §Stale and GC
-  scheduling.
+  scheduling (\"inactive GC may use host timers, but GC MUST re-check owner
+  sets and entry generation after wake\").
 
-  SKELETON: GC timer scheduling lands in the stale/GC slice; the handler
-  here performs the advisory re-check + removal of a still-inactive entry."
+  GC-eligibility re-check (against the LIVE durable facts):
+    - the entry is gone — no-op (`:no-entry`);
+    - the entry has an active owner — pinned alive, no GC (`:has-owner`);
+    - the entry has work in flight (`:current-work`) — no GC (`:in-flight`);
+    - otherwise the entry is owner-free + idle — REMOVE it (recompute the
+      reverse indexes) and cancel its advisory timers."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
    [_event-id {:keys [resource-key]}]]
   (let [runtime-db (or rt {})
@@ -640,7 +789,12 @@
                      (update state/resources-key state/recompute-indexes))]
         (trace/emit! :rf.event :rf.resource/gc-fired
                      {:rf.frame/id frame-id :resource-key resource-key})
-        {:rf.db/runtime rdb'})
+        {:rf.db/runtime rdb'
+         ;; the entry is gone — cancel its (now orphaned) stale / GC timer
+         ;; handles so they don't leak (the GC timer that fired is already
+         ;; one-shot, but the paired stale timer may still be armed).
+         :fx [[:rf.resource/cancel-timers
+               {:frame-id frame-id :resource-keys [resource-key]}]]})
       (do (trace/emit! :rf.event :rf.resource/gc-skipped
                        {:rf.frame/id frame-id :resource-key resource-key
                         :reason (cond (nil? entry) :no-entry

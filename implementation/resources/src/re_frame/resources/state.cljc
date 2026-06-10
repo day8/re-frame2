@@ -311,6 +311,22 @@
   [entry]
   (some? (:data entry)))
 
+(defn entry-stale?
+  "Derived freshness fact: true iff `entry` is stale against `clock-ms` —
+  it has been explicitly invalidated (`:invalidated-at` set) OR its
+  `:stale-after-ms` window has elapsed (`:stale-at` set and
+  `clock-ms >= :stale-at`). Freshness is computed from the DURABLE absolute
+  timestamps, NOT from trusting a timer fired on time, and is ORTHOGONAL to
+  load status (a `:loaded` entry may be stale). The SINGLE home for the
+  staleness derivation so the subs projection, the SSR projection, and the
+  stale-timer re-check never drift. Per Spec 016 §Status semantics / §Stale
+  and GC scheduling. A computed value, never a stored fact."
+  [entry clock-ms]
+  (boolean
+    (and entry
+         (or (some? (:invalidated-at entry))
+             (when-let [sa (:stale-at entry)] (>= clock-ms sa))))))
+
 ;; ---- entry transitions (Spec 016 §Status semantics / §Structural sharing) -
 ;;
 ;; Pure functions `(entry, …) -> entry`. They transition through

@@ -30,6 +30,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.state :as state]
+            [re-frame.resources.timers :as timers]
             [re-frame.resources.work-ledger :as work-ledger]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -48,6 +49,10 @@
   ;; drop the host-side work-ledger handles too (rf2-afpdkn) — also
   ;; host-side transient state not cleared by the runtime / frames reset.
   (work-ledger/reset-cache!)
+  ;; and the host-side stale / GC timer handles (rf2-nbjewi) — likewise
+  ;; host-side transient state; cancels any armed timers so a leftover timer
+  ;; cannot fire into a later test's frame.
+  (timers/reset-cache!)
   nil)
 
 ;; Publish the reset hook from this test-support ns-load — the shared CLJS

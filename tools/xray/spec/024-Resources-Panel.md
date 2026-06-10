@@ -176,6 +176,7 @@ The operation set + semantic class:
 | `:rf.resource/work-completed` | success | `:rf.resource/gc-skipped` | gc |
 | `:rf.resource/work-suppressed` | suppression | `:rf.resource/removed` | lifecycle |
 | `:rf.resource/stale-suppressed` | suppression | `:rf.resource/hydrated` | hydration |
+| `:rf.resource/stale-scheduled` | gc | `:rf.resource/stale-fired` | gc |
 | `:rf.resource/hydrate-refetch` | hydration | | |
 
 Each row carries, where applicable: frame, work id, scope, resource

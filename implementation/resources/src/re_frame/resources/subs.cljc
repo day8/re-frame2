@@ -77,12 +77,11 @@
   (`:stale-at` set and `now >= :stale-at`). Freshness is ORTHOGONAL to load
   status — a `:loaded` entry may be stale; a `:fetching` entry may be
   refreshing stale data. Per Spec 016 §Status semantics. A computed value,
-  never a stored fact."
+  never a stored fact. Delegates to the single shared `state/entry-stale?`
+  derivation (the same one the SSR projection + the stale-timer re-check
+  use) so freshness never drifts between readers."
   [entry]
-  (boolean
-    (and entry
-         (or (some? (:invalidated-at entry))
-             (when-let [sa (:stale-at entry)] (>= (now-ms) sa))))))
+  (state/entry-stale? entry (now-ms)))
 
 ;; ---- the projections (public derived sub values) -------------------------
 
