@@ -653,12 +653,12 @@
   ;; nil); only the spawn path needs it stamped here.
   (let [base-initial (delay (parallel/build-initial-snapshot
                               machine {:bootstrap-pending? false}))]
-    (fn [{:keys [db frame] rt :rf.db/runtime :as _cofx} event]
+    (fn [{:keys [db] frame :rf.frame/id rt :rf.db/runtime :as _cofx} event]
       ;; EP-0002 carried invariant: a machine handler is invoked inside an
-      ;; event cascade, so the cofx ALWAYS carries the envelope `:frame`
-      ;; (the HELD stamp). A nil stamp is an invariant failure — surface
-      ;; `:rf.error/no-frame-context`, never repair to a synthesised
-      ;; `:rf/default`.
+      ;; event cascade, so the cofx ALWAYS carries the frame stamp under
+      ;; `:rf.frame/id` (the HELD stamp). A nil stamp is an invariant
+      ;; failure — surface `:rf.error/no-frame-context`, never repair to a
+      ;; synthesised `:rf/default`.
       (frame/require-frame-stamp!
         frame :rf.machine/event-received
         {:where 'rf-machines/make-machine-handler :event-id (first event)})

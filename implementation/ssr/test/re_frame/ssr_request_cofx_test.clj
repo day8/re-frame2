@@ -183,7 +183,9 @@
 
       (rf/reg-event-fx :req-test/read-isolated
         [(rf/inject-cofx :rf.server/request)]
-        (fn [{:keys [rf.server/request frame]} _]
+        ;; The running frame's stamp reaches the event context under
+        ;; :rf.frame/id (rf2-1m6rf1 — the bare :frame coeffect is retired).
+        (fn [{:keys [rf.server/request] frame :rf.frame/id} _]
           (cond
             (= frame frame-a) (reset! observed-a request)
             (= frame frame-b) (reset! observed-b request))

@@ -158,7 +158,7 @@
   and conformance harnesses that drive the drain without a host
   adapter)."
   ([ctx]
-   (let [frame-id (get-in ctx [:coeffects :frame])
+   (let [frame-id (get-in ctx [:coeffects :rf.frame/id])
          request  (get-request frame-id)]
      (assoc-in ctx [:coeffects :rf.server/request] request)))
   ([ctx request]

@@ -154,7 +154,7 @@
             (let [event       (interceptor/get-coeffect ctx :event)
                   event-id    (when (vector? event) (first event))
                   ;; rf2-7d30s — the in-flight cascade's frame, seeded as the
-                  ;; `:frame` coeffect (mirrors cofx.cljc / the dev-time
+                  ;; `:rf.frame/id` coeffect (mirrors cofx.cljc / the dev-time
                   ;; `validate-event!` 4-arity). Stamped onto the failure
                   ;; trace below so `re-frame.epoch.capture/capture-event!`
                   ;; (which buffers only frame-tagged traces) attributes the
@@ -162,7 +162,7 @@
                   ;; — and so the SSR error-projection listener can route it
                   ;; per-frame under concurrent server frames without leaning
                   ;; on a single-active-frame guess.
-                  frame       (interceptor/get-coeffect ctx :frame)
+                  frame       (interceptor/get-coeffect ctx :rf.frame/id)
                   handler-meta (when event-id
                                  (registrar/lookup :event event-id))
                   schema      (:schema handler-meta)]

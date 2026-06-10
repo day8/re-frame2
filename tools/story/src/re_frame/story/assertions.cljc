@@ -329,13 +329,14 @@
       nil))
 
 (defn- frame-id-from-cofx
-  "Return the frame the current dispatch targets. Per spec/002 §Routing
-  the cofx map's `:frame` slot is the canonical source (the router lifts
-  the envelope's frame onto cofx as the initial context's `:frame`
-  coeffect). The play-runner additionally stamps `:rf/play-frame` for
-  play-authored assertions that may run outside a `:frame` binding."
+  "Return the frame the current dispatch targets. Per spec/002 §Event
+  context the cofx map's `:rf.frame/id` slot is the canonical source (the
+  router threads the running frame's stamp onto the event context as the
+  `:rf.frame/id` coeffect — the bare `:frame` coeffect was retired,
+  rf2-1m6rf1). The play-runner additionally stamps `:rf/play-frame` for
+  play-authored assertions that may run outside a frame binding."
   [cofx]
-  (or (:frame cofx)
+  (or (:rf.frame/id cofx)
       (:rf/play-frame cofx)
       nil))
 

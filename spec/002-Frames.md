@@ -123,6 +123,15 @@ public spellings users type are unchanged: **`:frame`** is the dispatch/subscrib
 **opt**; **`:rf.frame/id`** is its event-context spelling. Both name the same
 stamp.
 
+The bare `:frame` spelling survives only at **sanctioned** sites: the public
+dispatch/subscribe **opt**, the dispatch **envelope** key, the binary
+**fx-handler ctx** (see [§The binary fx-handler signature](#the-binary-fx-handler-signature))
+and the HTTP-interceptor ctx (per [014-HTTPRequests.md](014-HTTPRequests.md)),
+and **trace / error-record tags**. It is *retired* as an **event-context
+coeffect**: the running frame reaches a handler body under `:rf.frame/id`
+only (see [§Event context threads both partitions](#event-context-threads-both-partitions)) —
+there is no parallel bare `:frame` coeffect.
+
 The genuinely distinct cases are **roles**, not unrelated keys, and they are
 expressed as **qualified** stamps:
 

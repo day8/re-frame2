@@ -98,9 +98,12 @@
             ":rf.db/runtime coeffect equals runtime-db-value")
         (is (= :ctx/partitions (:rf.frame/id cofx))
             ":rf.frame/id is the running frame's id (runtime-context spelling)")
-        ;; The public `:frame` opt remains unchanged + distinct.
-        (is (= :ctx/partitions (:frame cofx))
-            ":frame coeffect still carries the resolved frame")))))
+        ;; rf2-1m6rf1 — the retired bare `:frame` coeffect is GONE. The
+        ;; frame stamp travels under `:rf.frame/id` only in the event
+        ;; context; `:frame` survives solely as the public dispatch/subscribe
+        ;; opt + the dispatch envelope key (per Spec 002 §Event context).
+        (is (not (contains? cofx :frame))
+            "the bare :frame coeffect is no longer injected (one carrier, one name)")))))
 
 ;; ===========================================================================
 ;; 3 — effect-map widening (closed set #{:db :rf.db/runtime :fx})
