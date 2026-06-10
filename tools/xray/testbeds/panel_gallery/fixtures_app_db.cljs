@@ -218,24 +218,25 @@
                   :counter 6}})])
 
 (defn reserved-keys-buffer
-  "Epoch mutating reserved app-db keys (per Spec Conventions §Reserved
-  app-db keys the runtime owns ONE top-level slot, `:rf/runtime`,
-  which nests the per-area sub-paths catalogued by the panel's
-  `runtime-areas` table — `:routing :current`, `:machines :snapshots`,
-  `:machines :spawned`, `:elision`). Panel routes diff triples rooted
-  in `:rf/runtime` into the `[runtime]` group via
+  "Epoch mutating reserved runtime-db keys (per Spec Conventions
+  §Reserved runtime-db keys — the framework's durable subsystem state
+  lives in the `:rf.db/runtime` partition under the `:rf.runtime/*`
+  roots the panel's `runtime-areas` table catalogues — `:rf.runtime/routing
+  :current`, `:rf.runtime/machines :snapshots`, `:rf.runtime/machines
+  :spawned`, `:rf.runtime/elision`). Panel routes diff triples rooted in
+  the reserved `:rf.db/runtime` partition into the `[runtime]` group via
   `app-db-diff-helpers/partition-reserved` — the axis pins that branch."
   []
   [(epoch-record
      {:epoch-id 10
       :event    [:rf/route-change]
-      :db-before {:rf/runtime {:routing  {:current {:path "/home"}}
-                               :machines {:snapshots {}}}
+      :db-before {:rf.db/runtime {:rf.runtime/routing  {:current {:path "/home"}}
+                                  :rf.runtime/machines {:snapshots {}}}
                   :counter 5}
-      :db-after  {:rf/runtime {:routing  {:current {:path "/cart"
-                                                    :query {:tab :items}}}
-                               :machines {:snapshots {:checkout {:state :idle}}
-                                          :spawned   {:worker/sync :alive}}}
+      :db-after  {:rf.db/runtime {:rf.runtime/routing  {:current {:path "/cart"
+                                                                  :query {:tab :items}}}
+                                  :rf.runtime/machines {:snapshots {:checkout {:state :idle}}
+                                                        :spawned   {:worker/sync :alive}}}
                   :counter 6}})])
 
 ;; ---- tab-specific buffer builders --------------------------------------
