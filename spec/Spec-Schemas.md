@@ -2588,9 +2588,7 @@ The HTTP-response accumulator owned by the request frame during SSR. Per [011 §
    [:cookies  {:optional true} [:vector [:ref :rf.server/cookie]]]         ;; structured cookies (per :rf.server/cookie below)
    [:redirect {:optional true} [:maybe [:map
                                         [:status   {:optional true} :int]    ;; default 302
-                                        [:location {:optional true} :string] ;; redirect target (or :url / :to); see RedirectFxArgs — all optional, no-target permitted
-                                        [:url      {:optional true} :string]
-                                        [:to       {:optional true} :string]]]]
+                                        [:location {:optional true} :string]]]] ;; redirect target (canonical key; see RedirectFxArgs — optional, no-target permitted)
    [:content-type {:optional true} :string]])                              ;; convenience accessor; mirrors headers' "content-type"
 ```
 
@@ -2791,23 +2789,24 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
    [:domain {:optional true} :string]])
 
 ;; :rf.server/redirect — set status (default 302) and the redirect target; truncates HTML body.
-;; The target is supplied under any ONE of :location / :url / :to — all three are
-;; documented in [011 §Standard fx](011-SSR.md#standard-fx) and read by
-;; re-frame.ssr.response/redirect-fx (`(or :location :url :to)`, :location winning).
-;; All three are OPTIONAL and a redirect with ZERO target keys is NOT a structural
-;; error: it is the established graceful-degradation path (the fx accepts it — :location
-;; is caller-trusted/optional — and the host adapter emits a warning trace plus a 3xx
-;; with no Location header so the defect is observable rather than silently shipping a
-;; broken redirect). The schema is therefore a pure SHAPE gate (key types only) and does
-;; NOT require at-least-one target; a target-requiring clause would 400 the no-target
-;; redirect before that warn-then-302 path runs. (`:rf.server/safe-redirect` differs —
-;; :location is its validation target and so is REQUIRED there.)
+;; The redirect target is keyed under :location — the canonical (and only) target key, per
+;; rf2-vngir / EP-0007 one-name-per-fact: this fx writes an HTTP `Location` response header,
+;; so it uses header vocabulary (routing/navigation surfaces may use :url / :to). Documented
+;; in [011 §Standard fx](011-SSR.md#standard-fx) and read by re-frame.ssr.response/redirect-fx.
+;; The retired :url / :to spellings are NOT accepted: redirect-fx throws
+;; :rf.error/redirect-retired-target-key naming :location (no back-compat alias).
+;; :location is OPTIONAL and a redirect with NO :location is NOT a structural error: it is
+;; the established graceful-degradation path (the fx accepts it — :location is
+;; caller-trusted/optional — and the host adapter emits a warning trace plus a 3xx with no
+;; Location header so the defect is observable rather than silently shipping a broken
+;; redirect). The schema is therefore a pure SHAPE gate (key types only) and does NOT require
+;; :location; a target-requiring clause would 400 the no-target redirect before that
+;; warn-then-302 path runs. (`:rf.server/safe-redirect` differs — :location is its validation
+;; target and so is REQUIRED there.)
 (def RedirectFxArgs
   [:map
    [:status   {:optional true} :int]                                       ;; default 302
-   [:location {:optional true} :string]                                    ;; redirect target (or :url / :to)
-   [:url      {:optional true} :string]                                    ;; synonym for :location
-   [:to       {:optional true} :string]])                                  ;; synonym for :location
+   [:location {:optional true} :string]])                                  ;; redirect target (canonical key)
 
 ;; :rf.server/safe-redirect — caller-UNtrusted redirect (open-redirect mitigation);
 ;; :location is the validation target and so is REQUIRED here (unlike :rf.server/redirect,

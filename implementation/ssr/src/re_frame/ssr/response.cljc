@@ -485,6 +485,46 @@
       frame
       (fn [r] (update r :cookies (fnil conj []) cookie)))))
 
+;; rf2-vngir / EP-0007 one-name-per-fact. The redirect target key is
+;; canonically `:location` — this fx writes an HTTP `Location` response
+;; header, so it uses header vocabulary (routing/navigation surfaces may
+;; use `:url` / `:to`; HTTP-response redirect surfaces use `:location`).
+;; The pre-alpha synonym set (`:location` / `:url` / `:to`) was pruned to
+;; `:location` only; there is no back-compat alias. A retired spelling
+;; (`:url` / `:to`) must fail with a CLEAR diagnostic naming `:location`
+;; rather than silently fall through to the no-target warning path — that
+;; would hide the API vocabulary error behind a malformed-redirect warning.
+(def ^:private retired-redirect-target-keys
+  "Redirect-target spellings retired in favour of the canonical
+  `:location` (rf2-vngir). Detected on a `:rf.server/redirect` /
+  `:rf.server/safe-redirect` args map so they fail loudly rather than
+  degrade into the malformed-no-target path."
+  [:url :to])
+
+(defn- reject-retired-redirect-keys!
+  "Throw `:rf.error/redirect-retired-target-key` if `redirect-map` carries
+  a retired redirect-target spelling (`:url` / `:to`). The canonical key is
+  `:location` (rf2-vngir / EP-0007). The error NAMES `:location` so the
+  programmer rewrites the spelling rather than seeing the generic
+  no-target warning the host adapter emits for a target-less redirect."
+  [redirect-map]
+  (let [retired (filterv #(contains? redirect-map %) retired-redirect-target-keys)]
+    (when (seq retired)
+      (throw (ex-info ":rf.error/redirect-retired-target-key"
+                      {:rf.error/id :rf.error/redirect-retired-target-key
+                       :where     'rf.ssr/response
+                       :reason    (str "redirect target key(s) " (pr-str retired)
+                                        " are retired — the canonical redirect"
+                                        " target key is :location. The SSR redirect"
+                                        " fx writes an HTTP Location response header,"
+                                        " so it uses header vocabulary; rewrite "
+                                        (pr-str (first retired)) " as :location."
+                                        " (rf2-vngir / EP-0007 one-name-per-fact;"
+                                        " no back-compat alias.)")
+                       :retired-keys retired
+                       :canonical-key :location
+                       :recovery  :no-recovery})))))
+
 (defn redirect-fx
   "Handler fn for `:rf.server/redirect`. Defaults :status to 302 if
   absent. Multiple writes emit `:rf.warning/multiple-redirects`
@@ -496,6 +536,10 @@
   a structural URL-shape check). The structural check is a SHAPE gate only
   — it does not gate the redirect's origin (this fx stays caller-trusted).
 
+  **Canonical redirect target key is `:location`** (rf2-vngir). The
+  retired synonyms `:url` / `:to` throw `:rf.error/redirect-retired-
+  target-key` naming `:location` — there is no back-compat alias.
+
   **Caller-trusted `:location`** — accepts arbitrary URL strings without
   allowlist or relative-only gating. For caller-untrusted location
   strings (e.g. a `?next=` URL param), use `:rf.server/safe-redirect`
@@ -503,10 +547,9 @@
   schemes, and supports `:relative-only?` / `:allow [...]` policies.
   See Spec 011 §HTTP response contract §Standard fx."
   [{:keys [frame]} redirect-map]
-  (let [;; Spec 011 accepts :location, :url, or :to.
-        location  (or (:location redirect-map)
-                      (:url      redirect-map)
-                      (:to       redirect-map))
+  (reject-retired-redirect-keys! redirect-map)
+  (let [;; rf2-vngir: the canonical (and only) redirect target key.
+        location  (:location redirect-map)
         _         (when (some? location)
                     ;; CRLF gate (shared) + structural URL-shape gate
                     ;; (trusted-path only, Spec 011 §CRLF fail-fast,
@@ -690,6 +733,12 @@
   alongside redirect-fx, 2026-05-14)."
   [{:keys [frame]} {:keys [location relative-only? allow status]
                     :as redirect-map}]
+  ;; rf2-vngir: reject the retired `:url` / `:to` spellings with a clear
+  ;; diagnostic naming `:location` before anything else — a safe-redirect
+  ;; keyed on a retired spelling would otherwise present as a missing
+  ;; (nil) `:location` and fail as a generic parse error, hiding the
+  ;; vocabulary mistake.
+  (reject-retired-redirect-keys! redirect-map)
   ;; Run the CR/LF/NUL gate first — same defence-in-depth as the
   ;; caller-trusted redirect-fx (rf2-hbty2). A safe-redirect caller
   ;; passing a CRLF-bearing location is presumably trying both vectors;

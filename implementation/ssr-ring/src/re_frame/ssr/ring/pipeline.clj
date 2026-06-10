@@ -102,8 +102,12 @@
   ([resp body] (ssr-response->ring-response resp body nil))
   ([{:keys [status headers cookies redirect]} body default-content-type]
    (if redirect
-     (let [{:keys [location url to] redirect-status :status} redirect
-           target (or location url to)]
+     (let [{:keys [location] redirect-status :status} redirect
+           ;; rf2-vngir: the canonical (and only) redirect target key is
+           ;; `:location`. The materialiser back-door `(or location url to)`
+           ;; was pruned with the runtime synonyms; a direct / hand-built
+           ;; response map must also key its redirect target on `:location`.
+           target location]
        ;; A redirect with no target is a malformed wire response — a
        ;; 3xx with no `Location` leaves the browser nowhere to go. The
        ;; runtime accepts a target-less `:rf.server/redirect` (the
@@ -117,7 +121,7 @@
                       {:where    :ssr-ring/ssr-response->ring-response
                        :status   (fail-closed-status (or redirect-status status) 302)
                        :reason   (str ":rf.server/redirect set :redirect with no "
-                                      ":location/:url/:to — the response carries a "
+                                      ":location — the response carries a "
                                       "3xx status with no Location header (malformed "
                                       "redirect; the browser has no target)")
                        :recovery :warned-and-emitted-statusonly}))
