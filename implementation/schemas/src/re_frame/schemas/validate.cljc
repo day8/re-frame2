@@ -140,54 +140,139 @@
 (def ^:private value-bearing-slots
   [:value :received :explain :explain-humanized :rf.fx/args :rf.sub/query-v])
 
-(defn- redact-tags
-  "Replace value-bearing slots in a tags map with the `:rf/redacted`
-  sentinel. Per Spec 010 §`:sensitive?` — privacy in schema-validation
-  error traces. Stamps `:sensitive? true` so consumers filter
-  correctly. Idempotent — safe to call on an already-redacted map.
+;; ---- PER-SLOT DECISION SCOPING (rf2-3qam7b / the rf2-me69cb principle) ----
+;;
+;; THE PRINCIPLE: the SCOPE of a slot's `:sensitive?` redaction decision MUST
+;; MATCH the SCOPE of the value that slot actually carries.
+;;
+;;   - A slot that carries a LEAF-NARROWED value (only the failing leaf — e.g.
+;;     `:value` on the app-db path, which is `(get-in reg-slice in-path)`) may
+;;     use the LEAF-PRECISE check `walker/schema-sensitive-at?`: a sensitive
+;;     SIBLING of the failing leaf is genuinely not present in the carried
+;;     value, so it must not force redaction (the rf2-oh4se / rf2-k0ew8n
+;;     precise-narrowing win).
+;;
+;;   - A slot that carries the WHOLE PAYLOAD verbatim (`:explain` /
+;;     `:explain-humanized` / `:received` / `:rf.fx/args` / `:rf.sub/query-v`,
+;;     and `:value` on every surface EXCEPT the app-db leaf) MUST use the
+;;     ROOT / whole-schema check `walker/schema-has-sensitive?`. The whole
+;;     payload carries every CONFORMING sibling too, so a conforming
+;;     `:sensitive?` sibling (e.g. a valid `:jwt` next to a failing `:name`)
+;;     rides INSIDE that slot — a leaf-precise decision keyed on the failing
+;;     `:name` would (wrongly) clear it and the jwt would egress to Xray /
+;;     pair-MCP unredacted. This was the rf2-3qam7b leak: a leaf-precise
+;;     decision was gating whole-payload slots (sibling-blind).
+;;
+;; `schema-sensitive-at?` is a SUBSET of `schema-has-sensitive?` — a sensitive
+;; leaf ancestor/descendant implies the schema declares something sensitive —
+;; so the whole-payload decision (`schema-has-sensitive?`) also governs the
+;; `:sensitive?` top-level stamp (a redaction of ANY value-bearing slot stamps
+;; the trace so Xray routing + the MCP egress gate see it).
+;;
+;; The app-db path is the ONLY surface that narrows a slot (`:value` to the
+;; failing leaf); every meta-bearing surface (event / cofx / fx / sub) carries
+;; the WHOLE checked value in EVERY value-bearing slot, so its whole decision
+;; is the root check. The off-namespace seam `redact-validation-tags` is
+;; already whole-only (the coarse root check; rf2-me69cb=(a)) and is unchanged.
+(def ^:private app-db-narrowed-slots
+  "The value-bearing slots the app-db hot path NARROWS to the failing leaf
+  (`:value` = `(get-in reg-slice in-path)`). These — and ONLY these — use the
+  leaf-precise `schema-sensitive-at?` decision; every other value-bearing slot
+  on that surface carries the whole reg-slice and uses the root check."
+  #{:value})
 
-  The six redacted slots (`:value`, `:received`, `:explain`,
-  `:explain-humanized`, `:rf.fx/args`, `:rf.sub/query-v`) are the
-  canonical set per the Spec 010 §`:sensitive?` redaction-shape list.
-  Three of them are per-surface / conditional names carried only on a
-  subset of emit-sites (`:rf.fx/args` on `:where :fx-args`;
-  `:rf.sub/query-v` on `:where :sub-return`; `:explain-humanized` only
-  when the `:schemas/humanize-explain!` hook is installed); the
-  `contains?` guards make those clauses no-ops on the surfaces whose
-  tag maps don't carry the slot.
-  Per rf2-nijom this replaces the previous fx-only `extra-redact`
-  lambda — the redaction is now symmetric across every value-bearing
-  slot, and the schema lists them canonically.
+(defn- scrub-slots
+  "Replace each slot of `slots` present in `tags` with the `:rf/redacted`
+  sentinel. `contains?`-guarded so a slot a surface doesn't carry is a no-op."
+  [tags slots]
+  (reduce (fn [t slot]
+            (cond-> t (contains? t slot) (assoc slot redacted-sentinel)))
+          tags
+          slots))
+
+(defn- redact-tags
+  "Scrub the value-bearing slots of a tags map to the `:rf/redacted` sentinel
+  under the WHOLE-PAYLOAD (root) decision, stamping `:sensitive? true`. Per
+  Spec 010 §`:sensitive?` — privacy in schema-validation error traces.
+  Idempotent — safe to call on an already-redacted map.
+
+  This is the WHOLE-PAYLOAD redactor: it treats EVERY value-bearing slot as
+  carrying the whole checked value, so it is the correct shape for the
+  meta-bearing surfaces (event / cofx / fx / sub via `run-validation`, where
+  no slot is leaf-narrowed) and for the off-namespace seam
+  `redact-validation-tags` (already coarse + root-checked, rf2-me69cb=(a)). The
+  app-db hot path, which DOES narrow `:value` to the failing leaf, uses
+  `redact-tags-per-slot` below to apply the leaf-precise decision to that one
+  slot while keeping the root decision on the whole-payload slots.
+
+  The six candidate slots (`:value`, `:received`, `:explain`,
+  `:explain-humanized`, `:rf.fx/args`, `:rf.sub/query-v`) are the canonical set
+  per the Spec 010 §`:sensitive?` redaction-shape list. Three are per-surface /
+  conditional names carried only on a subset of emit-sites (`:rf.fx/args` on
+  `:where :fx-args`; `:rf.sub/query-v` on `:where :sub-return`;
+  `:explain-humanized` only when the `:schemas/humanize-explain!` hook is
+  installed); the `contains?` guards make those clauses no-ops on the surfaces
+  whose tag maps don't carry the slot.
 
   Per rf2-adtp2 / rf2-p2adl Q2 — `:rf.sub/query-v` (the caller-supplied
-  subscription query vector on `:where :sub-return` emissions) is
-  the lookup key, not just an id, and on `:sensitive?`-marked subs
-  typically carries the same secret material the registered schema
-  is gating (user ids, auth tokens, document ids). Without
-  redaction the failure trace re-leaks it alongside the failing
-  return value the other clauses just scrubbed.
+  subscription query vector on `:where :sub-return` emissions) is the lookup
+  key, not just an id, and on `:sensitive?`-marked subs typically carries the
+  same secret material the registered schema is gating (user ids, auth tokens,
+  document ids). Without redaction the failure trace re-leaks it alongside the
+  failing return value the other clauses just scrubbed.
 
-  Per rf2-qhq3f — `:explain-humanized` (the operator-readable
-  decomposition of the explainer's output, per Spec 010 §Humanize-hook)
-  is itself value-bearing: Malli's `malli.error/humanize` carries the
-  failing value verbatim under its path-shaped output. Spec 010
-  §Humanize-hook §Composition with `:sensitive?` requires BOTH
-  `:explain` AND `:explain-humanized` to redact symmetrically — a
-  redacted-raw / leaked-humanized split would re-leak the value the
-  `:explain` clause just scrubbed. The slot is built from the
-  pre-redaction explanation at the emit-sites (so it carries the real
-  humanized payload on non-sensitive failures) and this clause scrubs
-  it to the sentinel on sensitive failures — the sentinel is present
-  (not omitted), so the trace shape is symmetric across sensitive and
-  non-sensitive surfaces and Xray's violation block, which prefers
-  `:explain-humanized`, reads `:rf/redacted` rather than falling through
-  to a missing slot."
+  Per rf2-qhq3f — `:explain-humanized` (the operator-readable decomposition of
+  the explainer's output, per Spec 010 §Humanize-hook) is itself value-bearing:
+  Malli's `malli.error/humanize` carries the failing value verbatim under its
+  path-shaped output. Spec 010 §Humanize-hook §Composition with `:sensitive?`
+  requires BOTH `:explain` AND `:explain-humanized` to redact symmetrically — a
+  redacted-raw / leaked-humanized split would re-leak the value the `:explain`
+  clause just scrubbed. The slot is built from the pre-redaction explanation at
+  the emit-sites (so it carries the real humanized payload on non-sensitive
+  failures) and this clause scrubs it to the sentinel on sensitive failures —
+  the sentinel is present (not omitted), so the trace shape is symmetric across
+  sensitive and non-sensitive surfaces and Xray's violation block, which prefers
+  `:explain-humanized`, reads `:rf/redacted` rather than falling through to a
+  missing slot."
   [tags]
-  (-> (reduce (fn [t slot]
-                (cond-> t (contains? t slot) (assoc slot redacted-sentinel)))
-              tags
-              value-bearing-slots)
+  (-> (scrub-slots tags value-bearing-slots)
       (assoc :sensitive? true)))
+
+(defn- redact-tags-per-slot
+  "PER-SLOT DECISION SCOPING (rf2-3qam7b). Scrub value-bearing slots under TWO
+  decisions matched to the scope of the value each slot carries:
+
+    - `whole-sensitive?`    the ROOT / whole-schema decision
+                            (`walker/schema-has-sensitive?`) — governs every
+                            WHOLE-PAYLOAD slot (every value-bearing slot NOT in
+                            `narrowed-slots`) and the `:sensitive?` stamp.
+    - `narrowed-sensitive?` the LEAF-PRECISE decision
+                            (`walker/schema-sensitive-at?` on the failing leaf)
+                            — governs ONLY the slots in `narrowed-slots`, which
+                            the surface has narrowed to that exact leaf.
+
+  A WHOLE-PAYLOAD slot carries every conforming sibling, so a conforming
+  `:sensitive?` sibling rides inside it; gating it on the leaf-precise decision
+  (sibling-blind) leaked the sibling (rf2-3qam7b). A leaf-narrowed slot carries
+  ONLY the failing leaf, so the leaf-precise decision is exact there — keeping
+  the rf2-oh4se no-sibling-taint precision for that one slot.
+
+  Because `schema-sensitive-at?` ⊆ `schema-has-sensitive?` (a sensitive leaf
+  ancestor/descendant implies the schema declares something sensitive),
+  `whole-sensitive?` is the broader condition: whenever a leaf-narrowed slot is
+  scrubbed the whole-payload slots are too, so `:sensitive?` is stamped (under
+  `whole-sensitive?`) and `:explain` / `:received` are never left verbatim
+  beside a redacted `:value`. Idempotent.
+
+  Only the app-db hot path uses this (with `narrowed-slots` =
+  `app-db-narrowed-slots`); the meta-bearing surfaces narrow nothing and use
+  the whole-only `redact-tags`."
+  [tags whole-sensitive? narrowed-sensitive? narrowed-slots]
+  (let [whole-slots (remove narrowed-slots value-bearing-slots)]
+    (cond-> tags
+      whole-sensitive?    (-> (scrub-slots whole-slots)
+                              (assoc :sensitive? true))
+      narrowed-sensitive? (scrub-slots narrowed-slots))))
 
 (defn- common-prefix
   "Return the longest common prefix of two sequential collections (as a
@@ -391,10 +476,18 @@
                      value, sub return value, fx args).
     - `walk-schema?` boolean — when true AND the validator fails,
                      consult the schema's per-slot `:sensitive?` walker
-                     before emitting. Event vectors are not schema-walked
-                     (event vectors aren't `:map`-shaped, so per-slot
-                     `:sensitive?` props don't apply) so wrappers
-                     pass `false`; cofx / fx / sub-return pass `true`.
+                     before emitting. Per rf2-a5kzs (finding 1) all four
+                     meta-bearing surfaces now pass `true`: an event vector
+                     isn't itself `:map`-shaped but its `:cat`/`:catn` payload
+                     commonly is (a login schema marks `:password` sensitive),
+                     and cofx / fx / sub-return validate a map value directly.
+                     Per rf2-3qam7b the decision here is the WHOLE-schema
+                     `schema-has-sensitive?` (NOT the leaf-precise
+                     `schema-sensitive-at?`): every value-bearing slot on these
+                     surfaces carries the WHOLE checked value, so a conforming
+                     sensitive sibling rides inside it and the redaction scope
+                     must match the carried-value scope (see the `:else`
+                     branch's PER-SLOT DECISION SCOPING note).
     - `build-base-tags`  `(fn [schema explanation] -> map)` — produces
                      the per-fn tag map (`:where`, `:reason`, etc.)
                      EXCLUDING any sensitivity stamping. Also the source
@@ -494,19 +587,29 @@
                 ;; `safe-explain` so a throwing explainer can't unwind past
                 ;; this false and become a catch-as-pass at the call-site.
                 explanation (safe-explain schema value)
-                ;; Per rf2-k0ew8n (finding 1) — path-TARGETED sensitivity,
-                ;; matching the precise model `validate-app-schema!` already
-                ;; uses. Derive the failing leaf path from the explainer's
-                ;; `:in` and ask `schema-sensitive-at?` whether THAT slot is
-                ;; sensitive, rather than the coarse `schema-has-sensitive?`
-                ;; which over-redacts a non-sensitive failing sibling whenever
-                ;; ANY unrelated sibling in the schema is sensitive. Fail-SAFE:
-                ;; when the explainer yields no extractable `:in` path,
-                ;; `schema-sensitive-at?` degrades to the whole-schema check
-                ;; (redact if the schema carries sensitivity anywhere).
-                in-path     (failing-in-path explanation)
+                ;; PER-SLOT DECISION SCOPING (rf2-3qam7b). The meta-bearing
+                ;; surfaces (event / cofx / fx / sub) carry the WHOLE checked
+                ;; value in EVERY value-bearing slot — `:value` / `:received` /
+                ;; `:explain` / `:explain-humanized` / `:rf.fx/args` /
+                ;; `:rf.sub/query-v` are all the whole event-vector / cofx /
+                ;; fx-args / sub-return value (nothing here is narrowed to the
+                ;; failing leaf the way the app-db path narrows `:value`). So
+                ;; the redaction decision MUST be scoped to the WHOLE schema
+                ;; (`schema-has-sensitive?`), NOT the leaf-precise
+                ;; `schema-sensitive-at?`. A leaf-precise decision was the
+                ;; rf2-3qam7b leak: a failing NON-sensitive sibling (e.g.
+                ;; `:age`) cleared redaction while a CONFORMING sensitive
+                ;; sibling (e.g. `:password` / `:jwt`) rode unredacted inside
+                ;; every whole-payload slot, egressing to Xray + pair-MCP. The
+                ;; earlier rf2-k0ew8n / rf2-4q681i "don't over-redact a
+                ;; non-sensitive failing sibling" win does NOT apply here
+                ;; precisely because there is no narrowed slot to apply it to —
+                ;; the whole payload carries the sibling. (It DOES still apply
+                ;; to the app-db `:value` slot, which is genuinely leaf-narrowed
+                ;; — see `validate-app-schema!`.) `walk-schema?` stays the knob
+                ;; for whether to consult the walker at all.
                 sensitive?  (and walk-schema?
-                                 (walker/schema-sensitive-at? schema in-path))
+                                 (walker/schema-has-sensitive? schema))
                 ;; Per rf2-qhq3f — humanize from the RAW explanation here,
                 ;; before redaction, and fold the slot into base-tags so
                 ;; `redact-tags` scrubs it symmetrically with `:explain`
@@ -647,14 +750,21 @@
                  ;; regardless of whether path narrowing succeeded.
                  ;;
                  ;; Per Spec 010 §`:sensitive?` — privacy in schema-
-                 ;; validation error traces (rf2-kj51z). The path-
-                 ;; targeted check (`schema-sensitive-at?`) replaces
-                 ;; the coarse whole-schema check: a failure at a
-                 ;; non-sensitive slot in a schema that also declares
-                 ;; a sibling slot sensitive no longer suffers
-                 ;; redaction. Conservative semantics preserved —
-                 ;; ancestor-sensitive OR descendant-sensitive at the
-                 ;; failing path counts.
+                 ;; validation error traces (rf2-kj51z / rf2-3qam7b).
+                 ;; The redaction decision is PER-SLOT-SCOPED (see the
+                 ;; `let` below): the path-targeted check
+                 ;; (`schema-sensitive-at?`) governs only the slots this
+                 ;; surface NARROWS to the failing leaf — `:value`, plus
+                 ;; the `:path` / `:reason` leaf coordinates — so a
+                 ;; failure at a non-sensitive leaf whose SIBLING is
+                 ;; sensitive does not redact THOSE (the precise-narrowing
+                 ;; win; ancestor- OR descendant-sensitive at the leaf
+                 ;; counts). The WHOLE-PAYLOAD slots (`:explain` /
+                 ;; `:explain-humanized`, which carry the whole reg-slice)
+                 ;; stay under the coarse `schema-has-sensitive?` root
+                 ;; check, because a conforming sensitive sibling rides
+                 ;; inside them — gating them on the leaf decision was the
+                 ;; rf2-3qam7b leak.
                  ;;
                  ;; Per rf2-wkxng / rf2-6m0se the trace's tag carries
                  ;; `:rollback? true` (consistent with depth-exceeded;
@@ -677,9 +787,42 @@
                        leaf-value  (if in-path
                                      (get-in reg-slice in-path)
                                      reg-slice)
-                       sensitive?  (if in-path
-                                     (walker/schema-sensitive-at? schema in-path)
-                                     (walker/schema-has-sensitive? schema))
+                       ;; PER-SLOT DECISION SCOPING (rf2-3qam7b). The app-db
+                       ;; hot path is the ONLY surface that NARROWS a slot:
+                       ;; `:value` is `(get-in reg-slice in-path)` — just the
+                       ;; failing leaf. So it carries TWO redaction decisions
+                       ;; scoped to the two value-scopes it ships:
+                       ;;
+                       ;;   - `leaf-sensitive?` — the LEAF-PRECISE check
+                       ;;     (`schema-sensitive-at?` at the failing `:in`;
+                       ;;     whole-schema fallback when no `:in` extractable).
+                       ;;     Per rf2-oh4se / rf2-kj51z a failure at a
+                       ;;     non-sensitive leaf whose SIBLING is sensitive is
+                       ;;     NOT redacted — the leaf value genuinely doesn't
+                       ;;     contain the sibling. This decision governs the
+                       ;;     NARROWED `:value` slot AND the `:path` / `:reason`
+                       ;;     sanitization (both keyed to the failing leaf).
+                       ;;
+                       ;;   - `whole-sensitive?` — the ROOT / whole-schema check
+                       ;;     (`schema-has-sensitive?`). This governs the
+                       ;;     WHOLE-PAYLOAD slots `:explain` /
+                       ;;     `:explain-humanized`, which carry the WHOLE
+                       ;;     `reg-slice` verbatim (Malli's explanation root
+                       ;;     `:value` is the whole input map / the humanized
+                       ;;     decomposition is path-shaped over it). A
+                       ;;     CONFORMING sensitive sibling (the rf2-3qam7b leak:
+                       ;;     `[:name]` fails, `[:jwt {:sensitive?}]` conforms)
+                       ;;     rides inside `:explain`; gating `:explain` on the
+                       ;;     leaf-precise `[:name]` decision (sibling-blind)
+                       ;;     leaked the live jwt to Xray + pair-MCP. The root
+                       ;;     check catches it because the schema declares the
+                       ;;     jwt slot sensitive. `whole-sensitive?` also stamps
+                       ;;     the top-level `:sensitive?` (it is the broader
+                       ;;     decision — `leaf-sensitive?` ⊆ `whole-sensitive?`).
+                       leaf-sensitive?  (if in-path
+                                          (walker/schema-sensitive-at? schema in-path)
+                                          (walker/schema-has-sensitive? schema))
+                       whole-sensitive? (walker/schema-has-sensitive? schema)
                        ;; Per rf2-ss06u.1 / rf2-612mri — some `:in`
                        ;; segments are value-bearing, not structural: a
                        ;; `:set` failure's segment is the failing ELEMENT
@@ -691,13 +834,17 @@
                        ;; `:path` tag would ship those verbatim — defeating
                        ;; the redaction the `:value` / `:explain` slots
                        ;; apply, and re-leaking through `:reason` (built from
-                       ;; the same path). When the slot is sensitive, scrub
-                       ;; the value-bearing segments out of `:path` via
-                       ;; `sanitize-sensitive-path` (navigable `:vector` /
-                       ;; `:tuple` / `:map` segments + NON-sensitive `:map-of`
-                       ;; keys are kept so `:path` stays a useful locator for
-                       ;; those shapes — the bead regression).
-                       path-in     (if (and in-path sensitive?)
+                       ;; the same path). The `:path` / `:reason` sanitization
+                       ;; is keyed to the failing leaf, so it scopes to
+                       ;; `leaf-sensitive?` (the path segments are the failing
+                       ;; leaf's coordinates — a conforming sibling's secret
+                       ;; never appears in THIS leaf's path). When the leaf is
+                       ;; sensitive, scrub the value-bearing segments out of
+                       ;; `:path` via `sanitize-sensitive-path` (navigable
+                       ;; `:vector` / `:tuple` / `:map` segments + NON-sensitive
+                       ;; `:map-of` keys are kept so `:path` stays a useful
+                       ;; locator for those shapes — the bead regression).
+                       path-in     (if (and in-path leaf-sensitive?)
                                      (walker/sanitize-sensitive-path schema in-path)
                                      in-path)
                        leaf-path   (if path-in
@@ -724,7 +871,13 @@
                                             :recovery        :no-recovery}
                                      event-id          (assoc :failing-id event-id)
                                      (some? humanized) (assoc :explain-humanized humanized))
-                       tags        (if sensitive? (redact-tags base-tags) base-tags)]
+                       ;; PER-SLOT DECISION SCOPING: `:value` (narrowed) under
+                       ;; the leaf decision; `:explain` / `:explain-humanized`
+                       ;; (whole reg-slice) under the root decision.
+                       tags        (redact-tags-per-slot base-tags
+                                                         whole-sensitive?
+                                                         leaf-sensitive?
+                                                         app-db-narrowed-slots)]
                    (emit-validation-failure! tags)
                    (recur (next entries) false)))))
            ok?))
