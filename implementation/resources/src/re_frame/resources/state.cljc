@@ -16,7 +16,7 @@
   `:rf.runtime/work-ledger`. Both are reserved runtime-db keys (per
   [Conventions §Reserved runtime-db keys]) — allocated lazily, per-frame
   isolated, never an app-db location."
-  (:require [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.frame :as frame]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -136,7 +136,263 @@
    :tags           #{}
    :active-owners  #{}})
 
-;; ---- host-side transient generation allocator (skeleton) ------------------
+;; ---- canonicalization (Spec 016 §Canonicalization rule) -------------------
+;;
+;; Canonicalization is a pure function over EDN: a map is normalized so
+;; member order is irrelevant to identity and equality; nested maps recurse;
+;; sets and vectors keep their value semantics. The SAME rule applies to
+;; params maps and scope maps, so a scope and a param map spelled two ways
+;; collapse to one cache identity. Host values (functions, promises, dates,
+;; DOM nodes, AbortControllers, JS objects) are rejected loudly here — the
+;; cache key MUST be serializable EDN.
+
+(defn serializable-edn?
+  "True iff `x` is serializable EDN data the cache key may carry — a
+  keyword / symbol / string / number / boolean / nil, or a collection
+  (map / vector / list / set) recursively built from such. Host / opaque
+  values (functions, dates, promises, DOM nodes, AbortControllers, raw JS
+  objects, atoms) are rejected. Per Spec 016 §Resource identity (\"Host
+  values … are rejected\")."
+  [x]
+  (cond
+    (nil? x)     true
+    (keyword? x) true
+    (symbol? x)  true
+    (string? x)  true
+    (boolean? x) true
+    (number? x)  true
+    (map? x)     (every? (fn [[k v]] (and (serializable-edn? k)
+                                          (serializable-edn? v))) x)
+    (set? x)     (every? serializable-edn? x)
+    ;; vectors, lists, seqs
+    (sequential? x) (every? serializable-edn? x)
+    :else        false))
+
+(defn canonicalize
+  "Pure canonicalization of an EDN value for use in a cache key (Spec 016
+  §Canonicalization rule). A map is normalized into a sorted-by-key array
+  map so two spellings (key order) collapse to one identity and `=`; nested
+  maps recurse; sets and vectors keep value semantics (their elements
+  recurse). Reject non-EDN / host values loudly via `reject-non-edn!`
+  upstream — this fn assumes its input is already serializable EDN.
+
+  The sorted-map normalization makes member ORDER irrelevant to BOTH
+  equality and hashing, so `{:a 1 :b 2}` and `{:b 2 :a 1}` produce the
+  identical canonical value (and therefore the identical scoped resource
+  key). Returns the canonical value."
+  [x]
+  (cond
+    (map? x)        (into (sorted-map)
+                          (map (fn [[k v]] [k (canonicalize v)]))
+                          x)
+    (set? x)        (into #{} (map canonicalize) x)
+    (vector? x)     (mapv canonicalize x)
+    (sequential? x) (mapv canonicalize x)
+    :else           x))
+
+(defn reject-non-edn!
+  "Throw `:rf.error/resource-non-edn-params` when `value` (a params or
+  scope map) is not serializable EDN — a host / opaque value (fn, promise,
+  date, DOM node, AbortController, JS object) reached the cache-key
+  boundary. Per Spec 016 §Resource identity (host values are rejected) /
+  §Canonicalization rule. `where` / `kind` (`:params` | `:scope`) name the
+  offending boundary. Returns `value` unchanged when it conforms."
+  [value where kind resource-id]
+  (when-not (serializable-edn? value)
+    (throw (ex-info ":rf.error/resource-non-edn-params"
+                    {:rf.error/id :rf.error/resource-non-edn-params
+                     :where       where
+                     :recovery    :fix-params
+                     :reason      (str "resource " resource-id " " (name kind)
+                                       " is not serializable EDN — host / opaque "
+                                       "values (functions, promises, dates, DOM "
+                                       "nodes, AbortControllers, JS objects) are "
+                                       "rejected at the cache-key boundary. Put "
+                                       "every value that affects remote identity "
+                                       "in params as plain EDN. Per Spec 016 "
+                                       "§Resource identity.")
+                     :resource-id resource-id
+                     :kind        kind
+                     :value       (pr-str value)})))
+  value)
+
+;; ---- scoped resource key (Spec 016 §Resource identity) --------------------
+
+(defn scoped-resource-key
+  "Build the canonical scoped resource key
+  `[canonical-scope resource-id canonical-params]` — the cache key, the
+  request-correlation token payload, and the unit Xray / SSR enumerate.
+
+  Both the scope and the params are canonicalized under the SAME rule
+  (`canonicalize`), so key order in either map never affects identity, and
+  the scope is part of the key (the same params in different scopes can't
+  supersede each other). Per Spec 016 §Resource identity. Assumes scope +
+  params are already validated serializable EDN (`reject-non-edn!`)."
+  [scope resource-id params]
+  [(canonicalize scope) resource-id (canonicalize params)])
+
+;; ---- compact lifecycle FSM (Spec 016 §Lifecycle is an FSM) ----------------
+;;
+;; A PURE transition function over the cache entry, NOT a spawned machine
+;; per entry (Spec 016 §Lifecycle is an FSM: spawning a full machine per
+;; ordinary resource entry is prohibited in v1). The transition function
+;; over the five states answers \"given the current status and an event,
+;; what is the next status?\" — it describes CACHE-ENTRY status, distinct
+;; from the work-ledger attempt lifecycle (rf2-afpdkn).
+;;
+;;   :idle    + :start-load (no data)        -> :loading
+;;   :loading + :success                     -> :loaded
+;;   :loading + :failure                     -> :error
+;;   :loaded  + :start-refresh               -> :fetching
+;;   :fetching+ :success                     -> :loaded
+;;   :fetching+ :failure                     -> :loaded   (:refresh-error; data kept)
+;;   :error   + :start-load                  -> :loading
+;;   <any>    + :start-load (has data)       -> :fetching (refresh, not first load)
+
+(defn next-status
+  "Pure status transition (Spec 016 §Lifecycle is an FSM). Given the
+  current `status`, a transition `signal`
+  (`:start-load` / `:success` / `:failure`), and whether the entry
+  currently `has-data?`, return the next status.
+
+  - `:start-load` with NO usable data -> `:loading` (first load); with
+    usable data -> `:fetching` (refresh / stale-while-revalidate);
+  - `:success` -> `:loaded`;
+  - `:failure` from `:loading` (or `:idle`/`:error` first load) -> `:error`
+    (no usable data because the first load failed);
+  - `:failure` from `:fetching` -> `:loaded` (background-refresh failure:
+    return to `:loaded`, keep prior `:data`, record `:refresh-error`).
+
+  This is the SINGLE home for the cache-entry status semantics; the event
+  handlers and the reply handlers both transition through it so the five
+  states never drift between writers."
+  [status signal has-data?]
+  (case signal
+    :start-load (if has-data? :fetching :loading)
+    :success    :loaded
+    :failure    (if (= :fetching status) :loaded :error)
+    ;; unknown signal — no transition (defensive; callers pass the closed set)
+    status))
+
+(defn has-data?
+  "True iff the entry currently has usable last-known-good `:data`. The
+  fact `:loading?` / `:fetching?` / `:has-data?` derive from. Spec 016
+  §Status semantics — durable entries store facts, derived booleans are
+  computed (here + in subs), never stored."
+  [entry]
+  (some? (:data entry)))
+
+;; ---- entry transitions (Spec 016 §Status semantics / §Structural sharing) -
+;;
+;; Pure functions `(entry, …) -> entry`. They transition through
+;; `next-status` so the five-state semantics stay in one place, write the
+;; durable FACTS (status / data / errors / timestamps / generation /
+;; current-work / tags), and NEVER store the derived booleans. Structural
+;; sharing preserves the old `:data` value when the newly-decoded value
+;; equals the previous (identity-preserving — downstream subs stay quiet on
+;; a background refresh that returns identical EDN).
+
+(defn entry-start-load
+  "Transition an entry to its in-flight status for a fresh load attempt:
+  `:loading` when it has no usable data (first load), `:fetching` when it
+  does (refresh / stale-while-revalidate). Bumps `:generation` and
+  `:attempt`, records the `:current-work` pointer + `:request-id`, and
+  attaches `owner` to `:active-owners`. Clears `:invalidated-at` (the load
+  satisfies any pending invalidation). Per Spec 016 §Status semantics /
+  §Lifecycle is an FSM / §Frame work ledger."
+  [entry {:keys [generation work-id request-id owner]}]
+  (let [had-data? (has-data? entry)]
+    (cond-> (assoc entry
+                   :status       (next-status (:status entry) :start-load had-data?)
+                   :generation   generation
+                   :attempt      (inc (:attempt entry 0))
+                   :current-work work-id
+                   :request-id   request-id
+                   ;; a fresh first load clears a prior first-load error; a
+                   ;; refresh keeps prior data + clears stale refresh-error
+                   ;; lazily on success (Spec 016 §Status semantics)
+                   :error          (if had-data? (:error entry) nil)
+                   :invalidated-at nil)
+      owner (update :active-owners (fnil conj #{}) owner))))
+
+(defn entry-succeeded
+  "Transition an entry to `:loaded` on a successful load/refresh. Applies
+  STRUCTURAL SHARING: preserves the old `:data` value (identity) when the
+  newly-decoded `new-data` is `=` to the previous data, so downstream subs
+  stay quiet. Sets `:loaded-at` / `:stale-at` from the supplied clock +
+  stale policy, clears `:error` / `:refresh-error` / `:current-work`, and
+  records the produced `:tags`. Per Spec 016 §Status semantics /
+  §Structural sharing."
+  [entry {:keys [data loaded-at stale-at tags]}]
+  (let [prev      (:data entry)
+        ;; Structural sharing: keep the OLD value when the decoded value is
+        ;; equal, so `(identical? old new-data)` holds for quiet downstream
+        ;; reactions. Per Spec 016 §Structural sharing.
+        shared    (if (and (some? prev) (= prev data)) prev data)]
+    (assoc entry
+           :status        :loaded
+           :data          shared
+           :error         nil
+           :refresh-error nil
+           :loaded-at     loaded-at
+           :stale-at      stale-at
+           :invalidated-at nil
+           :current-work  nil
+           :tags          (or tags (:tags entry) #{}))))
+
+(defn entry-failed
+  "Transition an entry on a failed load/refresh (Spec 016 §Status
+  semantics). A FIRST-load failure (no usable data) settles `:error` with
+  the failure envelope and no data. A BACKGROUND-refresh failure (entry was
+  `:fetching`, prior data present) returns to `:loaded`, PRESERVES the
+  prior `:data`, and records `:refresh-error`. `next-status` decides which.
+  Clears `:current-work`."
+  [entry {:keys [error]}]
+  (let [had-data?   (has-data? entry)
+        next        (next-status (:status entry) :failure had-data?)]
+    (if (= :loaded next)
+      ;; background-refresh failure — keep data, record refresh-error
+      (assoc entry
+             :status        :loaded
+             :refresh-error error
+             :current-work  nil)
+      ;; first-load failure — no usable data
+      (assoc entry
+             :status        :error
+             :error         error
+             :data          nil
+             :current-work  nil))))
+
+;; ---- reverse-index recompute (Spec 016 §Restore and replay part 5) --------
+;;
+;; `:tag-index` and `:owner-index` are DERIVED projections of the entries'
+;; `:tags` and `:active-owners`. They are recomputable-from-`:entries`: on
+;; restore / SSR-hydration they are rebuilt from the installed `:entries`
+;; rather than trusted from the snapshot, so a stale or partial index can
+;; never outlive the entries it describes. The runtime keeps them in step
+;; incrementally, but `recompute-indexes` is the single authoritative
+;; rebuild both restore and an in-cascade index repair use.
+
+(defn recompute-indexes
+  "Rebuild `:tag-index` (`{<tag> #{<scoped-key> …}}`) and `:owner-index`
+  (`{<owner> #{<scoped-key> …}}`) from the resource subtree's `:entries`.
+  Returns the resource subtree with both indexes replaced. Per Spec 016
+  §Restore and replay part 5 / §Cache home."
+  [resources-subtree]
+  (let [entries (:entries resources-subtree)]
+    (reduce-kv
+      (fn [acc k entry]
+        (-> acc
+            (update :tag-index
+                    (fn [ti] (reduce (fn [ti tag] (update ti tag (fnil conj #{}) k))
+                                     ti (:tags entry))))
+            (update :owner-index
+                    (fn [oi] (reduce (fn [oi owner] (update oi owner (fnil conj #{}) k))
+                                     oi (:active-owners entry))))))
+      (assoc resources-subtree :tag-index {} :owner-index {})
+      entries)))
+
+;; ---- host-side transient generation allocator -----------------------------
 ;;
 ;; Per Spec 016 §Restore and replay part 1: the generation allocator is a
 ;; per-frame, HOST-SIDE monotonic high-water mark — never rewound by epoch
@@ -145,19 +401,46 @@
 ;; is deliberately the OPPOSITE discipline from machine spawn-ids (which
 ;; never escape the frame and so may be snapshot-local).
 ;;
-;; SKELETON: the allocator table + monotone bump land with the runtime
-;; slice (rf2-pbxj48). The host-side home is pinned here (a per-frame
-;; module-level atom, like routing's nav-counter cache) so the runtime and
-;; the frame-destroy teardown agree on where it lives.
+;; The PURE SEAM (handlers stay pure), mirroring routing's nav-counters
+;; (rf2-oosjmh): READ via the `:rf.resource/generation` cofx (injects the
+;; active frame's high-water snapshot); the handler mints the next
+;; generation purely from the snapshot; WRITE via the
+;; `:rf.resource/commit-generation` fx (records the new high-water mark,
+;; monotone). A frame's entry is released on frame destroy.
 
 (defonce
   ^{:doc "Per-frame host-side generation high-water marks
    `{<frame-id> <int>}`. Host-side transient state (NOT runtime-db), so an
    epoch restore cannot rewind it and recycle a generation — the
    anti-recycling correctness boundary (Spec 016 §Restore and replay part
-   1). Populated by the runtime slice (rf2-pbxj48)."}
+   1). Read via the `:rf.resource/generation` cofx, bumped via the
+   `:rf.resource/commit-generation` fx (both monotone)."}
   generation-cache
   (atom {}))
+
+(defn generation-snapshot
+  "Read `frame-id`'s current generation high-water mark from the host
+  `generation-cache` (0 when none). The value the
+  `:rf.resource/generation` cofx threads into the pure resource handlers."
+  [frame-id]
+  (get @generation-cache frame-id 0))
+
+(defn next-generation
+  "Pure: given a high-water `snapshot` int (or nil), return the next
+  monotone generation `(inc snapshot)`. Does NOT mutate — the handler uses
+  the value and emits a `:rf.resource/commit-generation` fx carrying it."
+  [snapshot]
+  (inc (or snapshot 0)))
+
+(defn commit-generation!
+  "Record `n` as `frame-id`'s generation high-water mark in the host
+  `generation-cache`. MONOTONE — never lowers an existing value (a `max`
+  install), so a reordered / replayed commit can never rewind the allocator
+  and recycle a generation. Per Spec 016 §Restore and replay part 1.
+  Returns nil."
+  [frame-id n]
+  (swap! generation-cache update frame-id (fn [cur] (max (or cur 0) n)))
+  nil)
 
 (defn release-frame!
   "Drop the destroyed frame's host-side generation high-water mark.
@@ -177,7 +460,61 @@
   (reset! generation-cache {})
   nil)
 
-;; A no-op consult of late-bind so the require is load-bearing even in the
-;; skeleton (the runtime slice will consult `:router/dispatch!` etc. from
-;; here). Keeps the ns honest about its dependency surface.
-(defn ^:private _late-bind-touch [] (late-bind/get-fn :router/dispatch!))
+;; ---- the :rf.resource/generation cofx + :rf.resource/commit-generation fx -
+;;
+;; The pure read/write seam over the host-side allocator (mirrors routing's
+;; :rf.route/nav-counters cofx + :rf.route/commit-nav-counter fx). The
+;; resource event handlers that mint a generation (ensure / refetch) inject
+;; the cofx; the WRITE half rides the fx, emitted only on the branch that
+;; actually allocates a generation.
+
+(def generation-cofx-meta
+  "Metadata for the `:rf.resource/generation` cofx registration. Injects
+  the active frame's host-side generation high-water mark so the resource
+  handlers mint the next monotone generation purely."
+  {:doc "The active frame's host-side resource-generation high-water mark
+(an int), read from the `re-frame.resources.state` host cache and injected
+under `:coeffects :rf.resource/generation`. The ensure/refetch handlers read
+it to mint the next monotone generation without reaching the host atom
+(handlers stay pure); the actual high-water bump rides the
+`:rf.resource/commit-generation` fx. Per Spec 016 §Restore and replay."})
+
+(defn generation-cofx
+  "Handler fn for the `:rf.resource/generation` cofx. Reads the in-flight
+  cascade's frame from the `:rf.frame/id` coeffect and injects the frame's
+  host-side generation snapshot under `:coeffects :rf.resource/generation`.
+  Pure with respect to the handler — it only reads the host cache (the
+  write is a separate fx). 2-arity accepts an explicit snapshot override
+  for tests."
+  ([ctx]
+   (let [frame-id (get-in ctx [:coeffects :rf.frame/id])]
+     (assoc-in ctx [:coeffects :rf.resource/generation]
+               (generation-snapshot frame-id))))
+  ([ctx snapshot]
+   (assoc-in ctx [:coeffects :rf.resource/generation] snapshot)))
+
+(def commit-generation-meta
+  "Metadata for the `:rf.resource/commit-generation` fx registration. The
+  WRITE half of the host-side generation seam: records a new monotone
+  high-water mark into the host `generation-cache`. Universal platform —
+  the allocator is host-side on both client and server."
+  {:doc "Record a new monotone generation high-water mark into the host-side
+`re-frame.resources.state` cache. Args: `{:value N}`. Emitted by the
+ensure/refetch handlers on the branch that allocates a generation; the WRITE
+counterpart to the `:rf.resource/generation` cofx read. Per Spec 016
+§Restore and replay."})
+
+(defn commit-generation-handler
+  "`:rf.resource/commit-generation` fx handler. Registered by the façade so
+  a `:reload` re-wires it on a fresh registrar. Writes the new monotone
+  high-water mark under the cascade-envelope frame into the host
+  `generation-cache`. The carried-frame invariant (EP-0002): the fx context
+  carries the cascade frame as `:frame`; a nil stamp is an invariant
+  failure (`:rf.error/no-frame-context`), never a synthesised default."
+  [{:keys [frame]} {:keys [value]}]
+  (let [frame-id (frame/require-frame-stamp!
+                   frame :rf.resource/commit-generation
+                   {:where 'rf.resource/commit-generation-handler})]
+    (when (number? value)
+      (commit-generation! frame-id value))
+    nil))

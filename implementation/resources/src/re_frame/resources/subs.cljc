@@ -21,40 +21,68 @@
   durable entry facts, NOT stored on the entry (Spec 016 §Status
   semantics).
 
-  SKELETON slice (rf2-p10npe): the sub registrations are real and the
-  projection shapes are pinned, but scope resolution + params
-  canonicalization (which compute the scoped resource key the entry is
-  looked up under) land with the runtime slice (rf2-pbxj48). Until then
-  `resolve-scoped-key` returns nil and the projections degrade to the
-  documented empty-state shape — the subs compile, load, and read cleanly;
-  they just have no live entry to project yet."
-  (:require [re-frame.resources.state :as state]
+  The sub registrations are real and the projections read the live entry:
+  `resolve-scoped-key` canonicalizes the scope + params and applies the
+  sub-side scope-resolution precedence (payload `:scope`, or a sub-
+  resolvable spec policy), raising `:rf.error/resource-sub-unresolved-scope`
+  fail-closed (NEVER a silent global read or `:idle`)."
+  (:require [re-frame.resources.registry :as registry]
+            [re-frame.resources.state :as state]
             [re-frame.subs :as subs]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- scoped-key resolution (skeleton) ------------------------------------
+;; ---- scoped-key resolution -----------------------------------------------
 
 (defn resolve-scoped-key
   "Resolve the `{:resource :scope :params}` sub payload to the scoped
-  resource key `[cache-scope resource-id canonical-params]` the cache
-  entry is stored under — canonicalizing the scope + params maps (Spec
-  016 §Canonicalization rule) and applying the sub-side scope-resolution
+  resource key `[canonical-scope resource-id canonical-params]` the cache
+  entry is stored under — canonicalizing the scope + params (Spec 016
+  §Canonicalization rule) and applying the sub-side scope-resolution
   precedence (Spec 016 §Subscription-side scope resolution).
 
-  SKELETON: returns nil (no live key resolution yet). The runtime slice
-  (rf2-pbxj48) supplies canonicalization + sub-side scope resolution and
-  the fail-closed `:rf.error/resource-sub-unresolved-scope` raise. With a
-  nil key the projections below return the documented empty-state shape."
-  [_payload]
-  nil)
+  PURE: a sub cannot run a `(route, ctx)` resolver. Resolves scope from the
+  payload `:scope` or a sub-resolvable spec policy (`:rf.scope/global` /
+  pure-data / fn-of-nothing) and raises `:rf.error/resource-sub-unresolved-
+  scope` otherwise. Throws `:rf.error/resource-not-registered` when no
+  resource is registered under `:resource`."
+  [{:keys [resource params] :as payload}]
+  (let [spec    (registry/require-resource-spec! resource 'rf.resource/subscribe)
+        scope   (registry/resolve-scope-for-sub
+                  resource spec (:scope payload) 'rf.resource/subscribe)
+        cparams (registry/validate+canonicalize-params
+                  resource spec params 'rf.resource/subscribe)]
+    (state/scoped-resource-key scope resource cparams)))
 
 (defn- entry-for
-  "Look up the durable cache entry for a sub payload, or nil when no
-  scoped key resolves yet (skeleton) or no entry exists."
+  "Look up the durable cache entry for a sub payload (resolving + validating
+  its scoped key), or nil when no entry exists for that key."
   [runtime-db payload]
-  (when-let [k (resolve-scoped-key payload)]
+  (let [k (resolve-scoped-key payload)]
     (get-in runtime-db (state/entry-path k))))
+
+;; ---- derived freshness (Spec 016 §Status semantics) -----------------------
+
+(defn- now-ms
+  "Current epoch-ms — the live clock the `:stale?` derivation compares
+  `:stale-at` against. Freshness is computed from durable timestamps, not
+  from trusting a timer fired on time (Spec 016 §Stale and GC scheduling)."
+  []
+  #?(:clj  (System/currentTimeMillis)
+     :cljs (.now js/Date)))
+
+(defn- stale?
+  "Derived: an entry is stale iff it has been explicitly invalidated
+  (`:invalidated-at` set) OR its `:stale-after-ms` window has elapsed
+  (`:stale-at` set and `now >= :stale-at`). Freshness is ORTHOGONAL to load
+  status — a `:loaded` entry may be stale; a `:fetching` entry may be
+  refreshing stale data. Per Spec 016 §Status semantics. A computed value,
+  never a stored fact."
+  [entry]
+  (boolean
+    (and entry
+         (or (some? (:invalidated-at entry))
+             (when-let [sa (:stale-at entry)] (>= (now-ms) sa))))))
 
 ;; ---- the projections (public derived sub values) -------------------------
 
@@ -79,7 +107,7 @@
        ;; slice computes the live clock comparison — pinned shape here).
        :loading?      (= :loading (:status e))
        :fetching?     (= :fetching (:status e))
-       :stale?        false
+       :stale?        (stale? e)
        :has-data?     (some? (:data e))})))
 
 (defn data-sub-fn
@@ -108,11 +136,10 @@
 
 (defn stale?-sub-fn
   "Project `:rf.resource/stale?` — freshness orthogonal to load status
-  (a `:loaded` entry may be stale). Per Spec 016 §Status semantics.
-  SKELETON: returns false until the runtime slice computes the live
-  `:stale-at` comparison."
-  [_runtime-db [_id _payload]]
-  false)
+  (a `:loaded` entry may be stale). Computed from the durable
+  `:invalidated-at` / `:stale-at` facts (Spec 016 §Status semantics)."
+  [runtime-db [_id payload]]
+  (stale? (entry-for runtime-db payload)))
 
 (defn error-sub-fn
   "Project `:rf.resource/error` — the first-load error envelope (or nil).
@@ -136,8 +163,13 @@
   "Project `:rf.resource/previous-data` — the prior key's data projected
   while a new page/filter resource first-loads under `:keep-previous?`.
   NOT inserted into the new entry. Per Spec 016 §Paginated and previous
-  data. SKELETON: returns nil until the runtime slice tracks previous
-  keys."
+  data.
+
+  Returns nil in the read-resource runtime slice (rf2-pbxj48): the
+  prior-key tracking is driven by the route/resource `:keep-previous?`
+  declaration (the route slice), so until a previous key is recorded there
+  is nothing to project. The sub is registered + reads cleanly; the
+  pagination projection lands with the route slice."
   [_runtime-db [_id _payload]]
   nil)
 

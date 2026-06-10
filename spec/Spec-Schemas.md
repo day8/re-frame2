@@ -1087,6 +1087,72 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:current-token :any]
    [:event-id      {:optional true} :keyword]])
 
+;; --- runtime: resource errors (per [016](016-Resources.md)) ---
+;; The optional Resources artefact's fail-closed error vocabulary. Scope
+;; policy is REQUIRED and fail-closed (no [:rf.scope/global] fallthrough,
+;; rf2-6rrz53); the cache key is serializable EDN only (host values
+;; rejected); params conform to :params-schema. See [009 §Error event
+;; catalogue](009-Instrumentation.md#error-event-catalogue) for the rows.
+
+(def ResourceMissingScopePolicyTags
+  ;; reg-resource declared no valid :scope policy (REQUIRED, fail-closed).
+  [:map
+   [:category    :keyword]
+   [:resource-id :keyword]
+   [:scope       {:optional true} :any]
+   [:reason      :string]])
+
+(def ResourceScopeRequiredFromCallerTags
+  ;; a :rf.scope/from-caller resource event reached with no payload :scope
+  ;; and no route resolver — a loud use-time error, not a silent global read.
+  [:map
+   [:category    :keyword]
+   [:resource-id :keyword]
+   [:reason      :string]])
+
+(def ResourceSubUnresolvedScopeTags
+  ;; a passive resource subscription could not resolve a scope (no payload
+  ;; :scope, spec policy not sub-resolvable) — never a silent global / :idle.
+  [:map
+   [:category    :keyword]
+   [:resource-id :keyword]
+   [:policy      {:optional true} :any]
+   [:reason      :string]])
+
+(def ResourceNonEdnParamsTags
+  ;; a params / scope map carried a host / opaque value at the cache-key
+  ;; boundary — the scoped resource key MUST be serializable EDN.
+  [:map
+   [:category    :keyword]
+   [:resource-id :keyword]
+   [:kind        :keyword]            ;; :params | :scope
+   [:value       {:optional true} :any]
+   [:reason      :string]])
+
+(def ResourceInvalidParamsTags
+  ;; params failed conformance against the resource's :params-schema.
+  [:map
+   [:category    :keyword]
+   [:resource-id :keyword]
+   [:params      {:optional true} :any]
+   [:error       {:optional true} :any]   ;; the Malli explainer payload
+   [:reason      :string]])
+
+(def ResourceNotRegisteredTags
+  ;; a resource operation referenced an unregistered resource id.
+  [:map
+   [:category    :keyword]
+   [:resource-id :keyword]
+   [:reason      :string]])
+
+(def ResourceUnknownTransportTags
+  ;; a resource declared a :transport other than the only initial-scope
+  ;; built-in (:rf.http/managed).
+  [:map
+   [:category  :keyword]
+   [:transport :any]
+   [:reason    :string]])
+
 ;; --- runtime: schemas / preset / adapter / SSR errors ---
 
 (def BadAppSchemasArgTags
