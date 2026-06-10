@@ -2133,6 +2133,110 @@ A frame owns two durable partitions held as one physical frame-state container (
 
 Cross-reference: `:rf/machine-snapshot` (above) is the value type for each entry under `:machines :snapshots`. `:rf/route-slice` (below) is the shape of `:routing :current`. `:rf/pending-navigation` (below) is the shape of `:routing :pending-navigation`. `:rf/elision-marker` (below) is the wire shape emitted by the walker when an entry in `:elision :declarations` says elide.
 
+> **Two further runtime-db children — `:rf.runtime/resources` and `:rf.runtime/work-ledger` — are added by the OPTIONAL post-v1 Resources artefact** (`day8/re-frame2-resources`, [016-Resources.md](016-Resources.md)), NOT by the v1-required `RuntimeDb` validator above. An app that omits the artefact carries neither child. Their shapes (`:rf/resource-entry`, `:rf/resource-work-record`, `:rf/scoped-resource-key`) are below.
+
+### `:rf/scoped-resource-key`, `:rf/resource-entry`, `:rf/resource-work-record` (Resources, Spec 016)
+
+> **Layer:** Runtime
+> **Owner:** [016-Resources.md](016-Resources.md) (the optional `day8/re-frame2-resources` artefact)
+> **Status:** v1-optional (post-v1 artefact)
+
+The Resources artefact owns two runtime-db children — `:rf.runtime/resources` (the cache: durable read-model entries + reverse indexes) and `:rf.runtime/work-ledger` (the serializable frame work ledger: in-flight attempt facts). Both are serializable EDN: host handles (AbortControllers, timer handles, transport promises) live in **host-side side tables keyed by `[frame-id work-id]`**, NEVER in these runtime-db children, so both ride SSR / hydration / epoch snapshots / Xray projection cleanly (per [016 §Frame work ledger](016-Resources.md#frame-work-ledger) / [Runtime-Subsystems §`:rf.runtime/work-ledger`](Runtime-Subsystems.md)).
+
+```clojure
+(def ScopedResourceKey
+  ;; The cache key, the request-correlation token payload, and the unit Xray
+  ;; and SSR enumerate. `[cache-scope resource-id canonical-params]` — scope
+  ;; first (the tenant/user/locale/impersonation leak boundary), then the
+  ;; resource id, then the canonicalized params. Scope + params are
+  ;; canonicalized under the SAME rule (key order irrelevant). All three
+  ;; elements are serializable EDN — host values are rejected at the boundary
+  ;; (:rf.error/resource-non-edn-params). Per [016 §Resource identity].
+  [:tuple
+   :any        ;; cache-scope — :rf.scope/global or a canonical scope value/map
+   :keyword    ;; resource-id
+   :any])      ;; canonical-params (a canonicalized EDN map)
+
+(def ResourceWorkId
+  ;; The work-ledger record key + the entry's :current-work pointer + (for
+  ;; managed HTTP) the transport request-id. EMBEDS the generation, so stale
+  ;; suppression keys on it — ONE identity per attempt; there is no separate
+  ;; :stale-key synonym (per [016 §Ledger row retention and identity]).
+  [:tuple
+   [:= :rf.work/resource]
+   ScopedResourceKey
+   :int])      ;; generation
+
+(def ResourceEntry
+  ;; A durable cache entry under [:rf.runtime/resources :entries
+  ;; <scoped-resource-key>]. Stores FACTS, not derived booleans (:stale? /
+  ;; :loading? / :fetching? / :has-data? are PUBLIC DERIVED subscription
+  ;; values, computed in the subs layer, NEVER stored). The entry points at
+  ;; its current in-flight attempt via :current-work. Per [016 §Status
+  ;; semantics] / [§Frame work ledger].
+  [:map
+   [:resource/id    :keyword]
+   [:status         [:enum :idle :loading :fetching :loaded :error]]
+   [:data           {:optional true} :any]                   ;; last-known-good or nil
+   [:error          {:optional true} :any]                   ;; first-load error envelope (one of the :rf.http/* failure-map shapes, [014])
+   [:refresh-error  {:optional true} :any]                   ;; background-refresh error envelope (:rf.http/* failure shape)
+   [:loaded-at      {:optional true} [:maybe :int]]          ;; absolute epoch-ms
+   [:stale-at       {:optional true} [:maybe :int]]          ;; absolute epoch-ms
+   [:invalidated-at {:optional true} [:maybe :int]]
+   [:attempt        {:optional true} :int]
+   [:generation     {:optional true} :int]
+   [:request-id     {:optional true} :any]
+   [:current-work   {:optional true} [:maybe ResourceWorkId]] ;; → the live work record's :work/id
+   [:tags           {:optional true} [:set :any]]
+   [:active-owners  {:optional true} [:set :any]]])
+
+(def ResourceWorkRecord
+  ;; A serializable work record under [:rf.runtime/work-ledger <work-id>].
+  ;; The in-flight ATTEMPT lifecycle (queued/running/abort-requested →
+  ;; terminal completed/failed/timed-out/suppressed/cancelled). NO host
+  ;; handles. :owners drive liveness; :causes are trace metadata; :cancellable?
+  ;; is a best-effort hint (abort is opportunistic — correctness rests on
+  ;; work-id + generation stale-suppression, not on the cancel landing).
+  ;; Terminal rows carry an :outcome summary and are pruned on the linked
+  ;; entry's next successful transition (a bounded per-key tail kept for
+  ;; Xray). Per [016 §Frame work ledger] / [§Ledger row retention and identity].
+  [:map
+   [:work/id      ResourceWorkId]
+   [:work/kind    [:= :resource]]                            ;; neutral; later slices add :timer/:stream/:route/:actor
+   [:work/frame   :any]                                      ;; the qualified frame id (matches the reply's :rf.frame/id)
+   [:resource/key ScopedResourceKey]
+   [:generation   :int]
+   [:transport    :keyword]                                  ;; :rf.http/managed (the only initial-scope transport)
+   [:status       [:enum :queued :running :abort-requested   ;; non-terminal
+                         :completed :failed :timed-out :suppressed :cancelled]] ;; terminal
+   [:owners       [:set :any]]
+   [:causes       [:vector :any]]
+   [:cancellable? :boolean]
+   [:started-at   {:optional true} [:maybe :int]]            ;; absolute epoch-ms
+   [:deadline-at  {:optional true} [:maybe :int]]
+   [:outcome      {:optional true} :any]])                   ;; terminal summary (NOT raw data — the Xray/projection boundary)
+
+(def ResourcesRuntime
+  ;; The resource cache runtime-db child. :entries is the durable cache;
+  ;; :tag-index / :owner-index are reverse indexes recomputable-from-:entries
+  ;; (rebuilt on restore / hydration, never trusted from the snapshot — so
+  ;; they need not ride the wire). All allocated lazily.
+  [:map
+   [:entries     {:optional true} [:map-of ScopedResourceKey ResourceEntry]]
+   [:tag-index   {:optional true} [:map-of :any [:set ScopedResourceKey]]]
+   [:owner-index {:optional true} [:map-of :any [:set ScopedResourceKey]]]])
+
+(def WorkLedger
+  ;; The frame work-ledger runtime-db child — serializable work records keyed
+  ;; by :work/id. Named neutrally; resources are its only v1 writer. Bounded:
+  ;; non-terminal rows ride the wire, terminal rows are pruned to a small
+  ;; per-key tail (Xray history), so it never grows unboundedly across SSR /
+  ;; epoch snapshots. Allocated lazily.
+  [:map-of ResourceWorkId ResourceWorkRecord])
+```
+
+`:rf/scoped-resource-key`, `:rf/resource-entry`, and `:rf/resource-work-record` are the schema ids for `ScopedResourceKey`, `ResourceEntry`, and `ResourceWorkRecord`. The `:error` / `:refresh-error` entry envelopes (and a failed work record's `:outcome`) carry the closed `:rf.http/*` failure-map shapes owned by [014-HTTPRequests.md](014-HTTPRequests.md). When the Resources artefact is loaded, `:rf.runtime/resources` (`ResourcesRuntime`) and `:rf.runtime/work-ledger` (`WorkLedger`) are present as additional runtime-db children alongside the four v1 subsystems.
+
 <a id="rfelision-registry"></a>
 
 <!-- legacy anchor — points readers at the new :rf/runtime-db schema above for the elision sub-container. -->
