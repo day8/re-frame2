@@ -1287,6 +1287,22 @@
   `day8/re-frame2-resources`."}
   resources       rf-resources/resources)
 
+(def ^{:doc "Install host `window` focus / network-reconnect listeners that
+  drive active-stale revalidation for `frame-id` — on window focus / tab
+  return and network reconnect the listener dispatches
+  `[:rf.resource/window-focused]` / `[:rf.resource/network-reconnected]` at
+  the frame, whose handlers refetch the frame's active-owner STALE entries in
+  the background (cause `:focus` / `:reconnect`). Idempotent (hot-reload
+  safe). CLJS-only (JVM no-op). Cancelled on frame destroy. Per Spec 016
+  §Deferred slices. Implementation ships in `day8/re-frame2-resources`."}
+  install-revalidation-listeners! rf-resources/install-revalidation-listeners!)
+
+(def ^{:doc "Tear down the `window` focus / online revalidation listeners
+  installed by `install-revalidation-listeners!` for `frame-id`. No-op when
+  none is installed (and on the JVM). CLJS-only. Per Spec 016 §Deferred
+  slices. Implementation ships in `day8/re-frame2-resources`."}
+  remove-revalidation-listeners! rf-resources/remove-revalidation-listeners!)
+
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 
 (def ^{:doc "Return all ids registered under `kind` with their metadata —
