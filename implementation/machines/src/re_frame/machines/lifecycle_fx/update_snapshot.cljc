@@ -1,38 +1,40 @@
 (ns re-frame.machines.lifecycle-fx.update-snapshot
   "The `:rf.machine/update-snapshot` reserved fx — the snapshot-level
   escape hatch. Per Spec 005 §Path conventions §Snapshot-level escape
-  hatch (005:489):
+  hatch:
 
-  > If a callback NEEDS to touch `:state` / `:meta` / `:errors` /
-  > `:status` / `:data` plus something else in one atomic write, emit
+  > If a callback NEEDS to touch `:state` / `:meta` / `:data` plus
+  > something else in one atomic write, emit
   > `[:rf.machine/update-snapshot {...}]` from inside the callback's
   > `:fx` vector — NOT a return-shape hidden contract.
 
   Machine callbacks (`:action` / `:entry` / `:exit` / `:on-spawn`) return
   only a fresh `:data` map (or a `{:data :fx}` effects map); they cannot
-  reach `:state` / `:meta` / `:errors` / `:status` atomically. This fx is
-  the sanctioned, traced, named alternative to a hidden return-shape
-  contract — `apply-on-spawn`'s docstring (`transition.cljc`) directs
-  callers here, so the fx MUST exist.
+  reach `:state` / `:meta` atomically. This fx is the sanctioned, traced,
+  named alternative to a hidden return-shape contract — `apply-on-spawn`'s
+  docstring (`transition.cljc`) directs callers here, so the fx MUST exist.
 
   Args shape: `{:rf/machine-id <id> :rf/patch {<snapshot-keys> ...}}`.
   `:rf/machine-id` names the actor whose snapshot at
   `[:rf.runtime/machines :snapshots <id>]` is patched; `:rf/patch` is the map merged onto
   that snapshot. Only the spec-permitted top-level snapshot keys flow
-  through (`:state` / `:meta` / `:errors` / `:status` / `:data`); any
-  other key is ignored (the escape hatch can't graft arbitrary slots
-  onto a snapshot). A `:db` key in the patch is the same hard-disallow
-  the action-effect path enforces (Spec 005:463), surfaced as
-  `:rf.error/machine-action-wrote-db`."
+  through (`:state` / `:meta` / `:data`); any other key is ignored (the
+  escape hatch can't graft arbitrary slots onto a snapshot). User
+  error/status state is user-domain working memory and lives under
+  `:data` (schema-covered) — not as bare snapshot-root keys. A `:db` key
+  in the patch is the same hard-disallow the action-effect path enforces
+  (Spec 005:463), surfaced as `:rf.error/machine-action-wrote-db`."
   (:require [re-frame.frame :as frame]
             [re-frame.machines.paths :as paths]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; Per Spec 005:489 the escape hatch may touch exactly these snapshot
-;; top-level keys. `:db` is NOT among them (Spec 005:463 hard-disallow).
-(def ^:private permitted-patch-keys #{:state :meta :errors :status :data})
+;; Per Spec 005 §Snapshot-level escape hatch the escape hatch may touch
+;; exactly these snapshot top-level keys. `:db` is NOT among them
+;; (Spec 005:463 hard-disallow). User error/status state belongs under
+;; `:data` (schema-covered), not as bare snapshot-root keys.
+(def ^:private permitted-patch-keys #{:state :meta :data})
 
 (defn update-snapshot-fx
   "fx handler for `:rf.machine/update-snapshot`. Merges the spec-permitted
@@ -65,6 +67,12 @@
         (when (seq clean-patch)
           ;; Machine snapshots are durable runtime-db state (rf2-vzld77):
           ;; the escape-hatch patch is a runtime-db partition write.
+          ;; NOTE (adjacent to rf2-gqmrcx): this `swap-runtime-db!` write
+          ;; bypasses the `:where :machine-data` post-commit `:data`
+          ;; validation (Spec 005 §Schema validation), so a `:data` patch
+          ;; here is NOT schema-checked the way a callback-returned `:data`
+          ;; is. Out of scope for the snapshot-key fold; flagged for a
+          ;; follow-up if escape-hatch `:data` should also validate.
           (frame/swap-runtime-db!
             frame-id
             (fn [runtime-db]
