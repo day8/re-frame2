@@ -30,7 +30,16 @@
    6c. `schedule-backoff-handle!`'s abort-fn cleans an anonymous
        (request-id-less) backoff handle's actor slot when fired by a
        trigger that does NOT pre-clear the actor slot — the sibling of
-       (6b) at the second abort-fn site (rf2-meq28)"
+       (6b) at the second abort-fn site (rf2-meq28)
+   7.  IMPERATIVELY-spawned actor (`[:rf.machine/spawn …]` from an
+       ordinary event handler — NO `:spawned` registry slot) → its managed
+       request is aborted on imperative `[:rf.machine/destroy …]`. This is
+       the rf2-n877mb widening test: step 1's registry-membership
+       `owning-actor-id` classified such a request as unowned (the actor is
+       absent from `[:rf.runtime/machines :spawned]`); step 2 switches
+       ownership to the durable snapshot `:rf/machine-type` marker, so
+       imperative spawns are now owners. Tests 1–6c cover declarative
+       `:spawn` only and cannot catch this widening (rf2-n877mb)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
@@ -560,3 +569,103 @@
           "the backoff abort-fn's handle-passing 2-arg clear-in-flight! removed the anonymous handle from the actor index — no stranded slot")
       (is (empty? (http-managed/in-flight-snapshot))
           "request-id index remains empty"))))
+
+;; ---- (7) IMPERATIVELY-spawned actor (rf2-n877mb) → managed HTTP aborts ----
+;; ----     on imperative destroy. This is the widening test the registry- ---
+;; ----     membership `owning-actor-id` (step 1) could NOT pass: an ---------
+;; ----     imperative `[:rf.machine/spawn …]` from an ordinary event handler -
+;; ----     installs a snapshot WITHOUT a `[:rf.runtime/machines :spawned …]` -
+;; ----     registry slot (that slot is gated on the declarative-desugar ------
+;; ----     `:rf/parent-id` + `:rf/spawn-id`), so the step-1 registry read ----
+;; ----     classified the actor's request as unowned and never aborted it. ---
+;; ----     Step 2 switches ownership to the durable snapshot `:rf/machine- ---
+;; ----     type` marker (the SAME discriminator the destroy side keys on), ---
+;; ----     widening the owning set to imperative spawns. The existing net ----
+;; ----     above (tests 1–6c) covers DECLARATIVE `:spawn` only, so it cannot -
+;; ----     catch this widening — hence this dedicated case.
+
+(deftest imperatively-spawned-actor-request-aborts-on-imperative-destroy
+  (testing "a managed :rf.http/managed request issued from an IMPERATIVELY-spawned actor (no :spawned registry slot) is aborted when the actor is imperatively destroyed — rf2-n877mb widens owning-actor-id to the snapshot :rf/machine-type marker"
+    (let [latch  (CountDownLatch. 1)
+          {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")
+          replies (atom [])
+          traces  (atom [])]
+      (try
+        (trace/register-listener! ::n877mb (fn [ev] (swap! traces conj ev)))
+        (rf/reg-event-fx :reply/recorder
+          (fn [_ [_ payload]] (swap! replies conj payload) {}))
+        ;; Worker machine: on entry to :running its action fires an
+        ;; :rf.http/managed request at the slow server. Spawned IMPERATIVELY
+        ;; below via a hand-emitted [:rf.machine/spawn …] fx (NOT a
+        ;; declarative state-node :spawn) — so it gets a snapshot stamped
+        ;; with :rf/machine-type but NO [:rf.runtime/machines :spawned …]
+        ;; registry slot.
+        (rf/reg-machine :worker/imp
+          {:initial :idle
+           :data    {:port port}
+           :actions {:fire-request
+                     (fn [{data :data}]
+                       {:fx [[:rf.http/managed
+                              {:request    {:url    (str "http://127.0.0.1:" (:port data) "/slow")
+                                            :method :get}
+                               :decode     :json
+                               :request-id [:worker/imp :slow]
+                               :on-failure [:reply/recorder]}]]})}
+           :states  {:idle    {:on {:start :running}}
+                     :running {:entry :fire-request}}})
+        ;; Ordinary event handler emits the IMPERATIVE spawn fx. No parent
+        ;; machine, no declarative :spawn desugar — the canonical
+        ;; XState-`spawn`-equivalent imperative entry-point. The actor's
+        ;; deterministic id is :worker/imp#1 (runtime-db spawn-counter
+        ;; fallback). The :start event drives idle→running → :fire-request.
+        (rf/reg-event-fx :imp/spawn
+          (fn [_ _]
+            {:fx [[:rf.machine/spawn {:machine-id :worker/imp
+                                      :id-prefix  :worker/imp
+                                      :start      [:start]}]]}))
+        ;; Ordinary event handler emits the IMPERATIVE destroy fx — the
+        ;; canonical [:rf.machine/destroy <actor-id>] keyword form (re-frame2's
+        ;; stopChild). This is the destroy trigger that must cascade to the
+        ;; HTTP abort.
+        (rf/reg-event-fx :imp/destroy
+          (fn [_ _]
+            {:fx [[:rf.machine/destroy :worker/imp#1]]}))
+        (rf/dispatch-sync [:imp/spawn])
+        ;; Precondition: the imperatively-spawned actor's snapshot is live,
+        ;; carries the :rf/machine-type marker, and is ABSENT from the
+        ;; :spawned registry — the exact shape step 1 could not classify.
+        (let [rt (rf/runtime-db-value :rf/default)]
+          (is (some? (get-in rt [:rf.runtime/machines :snapshots :worker/imp#1 :rf/machine-type]))
+              "imperatively-spawned actor's snapshot carries the :rf/machine-type marker")
+          (is (nil? (get-in rt [:rf.runtime/machines :spawned]))
+              "imperative spawn installs NO :spawned registry slot — the step-1 registry read would have classified its request as unowned"))
+        ;; The request is in-flight, indexed under the actor's id — proof that
+        ;; the widened owning-actor-id classified the imperative actor as owner.
+        (await-condition! #(seq (http-managed/actor-in-flight-snapshot)))
+        (is (= 1 (count (http-managed/actor-in-flight-snapshot)))
+            "in-flight registry has one actor entry while the imperative actor's request is pending")
+        (is (contains? (http-managed/actor-in-flight-snapshot) :worker/imp#1)
+            "actor index keys on the imperatively-spawned actor's id — the widening this test pins")
+        ;; Imperatively destroy the actor mid-flight.
+        (rf/dispatch-sync [:imp/destroy])
+        (await-condition! #(seq @replies))
+        (let [reply (first @replies)]
+          (is (= :failure (:kind reply))
+              "the abort surfaces as a :failure reply on :on-failure")
+          (is (= :rf.http/aborted (get-in reply [:failure :kind])))
+          (is (= :actor-destroyed (get-in reply [:failure :reason]))
+              "the :reason discriminates actor-destroy from user-abort"))
+        (let [trace-evs (abort-traces @traces)]
+          (is (seq trace-evs)
+              ":rf.http/aborted-on-actor-destroy trace event fired for the imperative actor")
+          (let [tags (:tags (first trace-evs))]
+            (is (= :worker/imp#1 (:actor-id tags))
+                "trace tags carry the destroyed imperatively-spawned actor id")
+            (is (= [:worker/imp :slow] (:request-id tags))
+                "trace tags carry the user-supplied :request-id")))
+        (is (empty? (http-managed/actor-in-flight-snapshot))
+            "actor index is empty after the imperative-destroy abort")
+        (.countDown latch)
+        (finally
+          (trace/unregister-listener! ::n877mb)
+          (stop-server! srv))))))
