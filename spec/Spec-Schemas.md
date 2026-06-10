@@ -1166,6 +1166,20 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:resource-key {:optional true} :any]
    [:reason       :string]])
 
+(def ResourceSsrBlockingTimeoutTags
+  ;; one or more blocking SSR resources for the current nav-token did not
+  ;; settle within the render deadline; each unsettled blocking entry is
+  ;; settled as a structured first-load failure so the request never hangs
+  ;; (Spec 016 §SSR and hydration — blocking timeout policy). A server-side
+  ;; (JVM) trace, not a thrown ex-info — the render continues.
+  [:map
+   [:category  :keyword]
+   [:where     {:optional true} :any]
+   [:frame     {:optional true} :any]
+   [:timed-out [:vector :any]]        ;; the scoped resource keys that timed out
+   [:limit-ms  :int]                  ;; the render deadline (ms)
+   [:reason    :string]])
+
 ;; --- runtime: schemas / preset / adapter / SSR errors ---
 
 (def BadAppSchemasArgTags
