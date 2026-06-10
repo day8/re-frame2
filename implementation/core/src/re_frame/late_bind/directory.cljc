@@ -387,6 +387,10 @@
     :producer-ns 're-frame.machines
     :design-bead "rf2-jbbp7"
     :description "Post-commit walker for the `:where :machine-data` boundary (Spec 005 §Schema validation, Spec 010 §Per-step recovery row 7). Iterates `[:rf.runtime/machines :snapshots]` in the runtime-db partition, validates each snapshot's `:data` against the registered machine's `:data-schema`. Router AND-conjoins with `:schemas/validate-app-schema!` to gate the `:rf.db/runtime` commit; a failure rolls the cascade back exactly like a `:where :app-db` violation."}
+   {:key         :machines/owning-actor-id
+    :producer-ns 're-frame.machines
+    :design-bead "rf2-ma0wvq"
+    :description "Spawned-actor ownership resolver `(fn [frame-id event-id]) -> actor-id|nil` (Spec 014 §Abort on actor destroy). Returns the spawned actor's address that owns `event-id` — i.e. `event-id` itself when it is registered in the frame's runtime-db spawn registry (`re-frame.machines.paths/spawned-path`) — else nil. The INVERSION of the old http→machines coupling (rf2-ma0wvq): the machines artefact OWNS the `:spawned` registry shape, so the structural membership walk lives next to it; re-frame.http-registry consults this hook (instead of re-stating the path + walking it itself) to decide whether a managed request belongs to a spawned actor, and falls back to nil when the machines artefact is absent. Step-1 set semantics = registry membership (declarative `:spawn` / `:spawn-all` only), set-identical to the pre-inversion walk; a separate step-2 bead widens it to imperative spawns under its own destroy-cancellation test."}
 
    ;; ---- re-frame.routing (rf2-k682) -----------------------------------------
    {:key         :routing/reg-route
