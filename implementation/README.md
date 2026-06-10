@@ -141,6 +141,14 @@ implementation/
                                    walker for sub-runs / renders / effects.
     test/re_frame/                 JVM epoch tests.
 
+  resources/                 day8/re-frame2-resources — managed resource queries
+                             (Spec 016, EP-0003, rf2-p10npe).
+    deps.edn                 :local/root dep on ../core.
+    src/re_frame/resources.cljc    reg-resource / clear-resource / resource-meta /
+                                   resource-state / resources, :rf.resource/* events
+                                   + passive subs, :resource registrar kind, work-ledger.
+    test/re_frame/                 CLJS resources skeleton tests.
+
   ssr-ring/                  day8/re-frame2-ssr-ring — Ring host adapter for the SSR pipeline
                              (rf2-ny6v7).
     deps.edn                 :local/root deps on ../core and ../ssr (Ring is test-only).
