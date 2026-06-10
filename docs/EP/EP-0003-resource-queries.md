@@ -1,6 +1,15 @@
 # EP-0003: Resource Queries
 
-Status: proposal
+Status: accepted
+
+> **Graduated (HTTP-only scope).** The accepted HTTP-only scope of this proposal is
+> the normative [`spec/016-Resources.md`](../../spec/016-Resources.md) (slice 1,
+> rf2-8eqf99). Where this EP and the spec differ, the **spec governs**; this EP
+> remains the design record (rationale, prior-art benchmark, slice plan) and the
+> home of the deferred GraphQL phase. Implementation slices (artefact skeleton,
+> work-ledger substrate, runtime, managed-HTTP, invalidation/GC, route, SSR, Xray,
+> focus/reconnect, mutation, docs) are tracked per
+> [§Bead Structure](#bead-structure).
 
 ## Abstract
 
