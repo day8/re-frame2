@@ -37,10 +37,12 @@ This EP proposes the positive model:
 
 Frame configuration owns durable frame policy: app-db sensitive paths, app-db
 large paths, frame-local HTTP carrier names, and frame observability sinks.
-Registration metadata owns transient payload shapes: event args, fx/cofx args,
-sub outputs, flow outputs, machine transition payloads, and other
-registration-owned values. Egress calls own trust-boundary profiles and opts.
-Everything else should be internal, advanced, or removed.
+Machine definitions own durable machine `:data` policy: sensitive paths and
+large paths in machine-local process state. Registration metadata owns
+transient payload shapes: event args, fx/cofx args, sub outputs, flow outputs,
+machine transition payloads, and other registration-owned values. Egress calls
+own trust-boundary profiles and opts. Everything else should be internal,
+advanced, or removed.
 
 Keyword names follow the existing convention: local grammar keys stay bare,
 cross-surface framework policy keys live under `:rf.<area>/*`, and
@@ -250,6 +252,8 @@ frames own state, paths are explicit, and boundaries are named.
 
 - Define one public declaration model for sensitive and large data.
 - Make durable app-db classification a frame creation concern.
+- Make durable machine `:data` classification an explicit machine definition
+  concern.
 - Make frame-local HTTP carrier-name extensions part of frame policy, not
   process-global mutation.
 - Make production observability sink policy part of frame configuration.
@@ -470,9 +474,48 @@ machine transition payloads, and similar records.
 This keeps the ownership rule compact:
 
 > Frame config classifies frame-owned durable state and frame-owned egress.
+> Machine definitions classify machine-owned durable process state.
 > Registration metadata classifies registration-owned transient payloads.
 
-### 5. `redact-interceptor` Should Not Be The Model
+### 5. Machine-Owned Durable Classification
+
+Machine `:data` is durable process state owned by the machine definition. It
+should follow the same explicit-policy posture as frames: schemas describe
+shape; machine metadata declares egress policy.
+
+```clojure
+(rf/reg-machine
+  :checkout/payment
+  {:data-schema
+   [:map
+    [:payment [:map
+               [:token :string]
+               [:receipt-pdf :bytes]]]]
+
+   :sensitive
+   {:data [[:payment :token]]}
+
+   :large
+   {:data [[:payment :receipt-pdf]]}}
+  ...)
+```
+
+Semantics:
+
+- `:sensitive :data` and `:large :data` entries are paths rooted at the
+  machine's `:data` value.
+- Machine transition payloads remain transient payloads and are classified by
+  the transition/registration metadata that introduces them.
+- Machine `:data-schema` does not carry public `:sensitive?` / `:large?`
+  metadata. If migration tooling imports old schema-attached marks, it should
+  lower them into explicit machine metadata.
+- Sensitive wins over large using the same rule as frame-owned app-db policy.
+- Malformed paths and unknown classification keys fail at machine registration.
+
+This keeps machines from becoming a special schema-based exception to the
+owner-declares-policy rule.
+
+### 6. `redact-interceptor` Is Removed From The Public API
 
 `redact-interceptor` now looks like an older escape hatch. If registration
 metadata can classify event payload paths, and projection happens centrally at
@@ -480,10 +523,9 @@ egress boundaries, then a positional interceptor that "redacts for trace but not
 for the handler" is conceptually odd. It makes privacy depend on interceptor
 placement rather than on the owner of the payload shape.
 
-This EP proposes that `redact-interceptor` should leave the normal API. It may
-remain as an internal implementation helper, a generated migration artifact, or
-an advanced compatibility hook if that proves useful. The guide-level model
-should teach registration metadata:
+This EP removes `redact-interceptor` from the public API. Migration tooling
+should generate registration metadata, not interceptor stacks. The guide-level
+model teaches:
 
 ```clojure
 (rf/reg-event-fx
@@ -501,7 +543,7 @@ not:
   handler)
 ```
 
-### 6. Schemas Describe Shape, Not Public Egress Policy
+### 7. Schemas Describe Shape, Not Public Egress Policy
 
 Schema metadata is currently used as a public classification path:
 
@@ -528,12 +570,11 @@ Implementation options:
 The public model should not teach schema metadata and frame policy as two
 equivalent ways to classify the same app-db path.
 
-Machine `:data-schema` is an open issue rather than an automatic exception.
-Machine data is registration-owned process state, not app-db. It may remain
-schema-first if that is the cleanest owner, but the EP must make that a
-deliberate rule rather than an accidental survival of the old schema model.
+Machine `:data-schema` follows the same rule. It describes machine data shape
+and validation. It does not carry public egress classification; explicit
+machine `:sensitive` and `:large` metadata owns that policy.
 
-### 7. Frame-Owned Observability Sink Policy
+### 8. Frame-Owned Observability Sink Policy
 
 Production observability sink policy belongs on the frame:
 
@@ -592,7 +633,7 @@ Low-level listener registries may still exist internally:
 But they should be advanced integration APIs, not the normal production
 Datadog/Sentry story.
 
-### 8. Projection Profiles
+### 9. Projection Profiles
 
 The low-level walker already needs boolean opts:
 
@@ -628,7 +669,7 @@ The exact names are open. The important design point is that the public
 question is "which boundary is this?" rather than "which combination of
 booleans did I remember?"
 
-### 9. `elide-wire-value` Remains The Value Primitive
+### 10. `elide-wire-value` Remains The Value Primitive
 
 `rf/elide-wire-value` remains the single low-level value walker for tree-shaped
 values:
@@ -656,7 +697,7 @@ The record projector knows which slots are app-db-shaped, event-shaped,
 exception-shaped, HTTP-shaped, or public-summary-only. It delegates to
 `elide-wire-value` where a slot is tree-shaped and frame-policy applies.
 
-### 10. Observation Streams
+### 11. Observation Streams
 
 This EP distinguishes three streams:
 
@@ -673,7 +714,7 @@ This EP distinguishes three streams:
 The production stream is not a replacement for dev trace detail. It is a
 small, safe, hosted-monitoring surface.
 
-### 11. Direct Reads And Fail-Closed Frame Resolution
+### 12. Direct Reads And Fail-Closed Frame Resolution
 
 Direct reads bypass trace protection:
 
@@ -696,7 +737,7 @@ frame known:
 If a projection needs frame policy and no frame is known, it must fail closed.
 It must not synthesize `:rf/default`.
 
-### 12. SSR And Hydration Are Allowlist-First
+### 13. SSR And Hydration Are Allowlist-First
 
 SSR/hydration is production egress to the browser. It should not primarily ask
 "which leaves are sensitive?" It should ask "which state is allowed to cross
@@ -718,7 +759,7 @@ slice contains a sensitive child, projection redacts it unless the SSR policy
 explicitly permits it. But the main safety property is that unlisted state does
 not cross.
 
-### 13. Epoch Redaction
+### 14. Epoch Redaction
 
 The current epoch hook is powerful:
 
@@ -739,7 +780,7 @@ Proposed posture:
 - a custom record transform, if retained, should be advanced and explicitly
   warn that it may affect restore fidelity.
 
-### 14. Derived Sensitivity
+### 15. Derived Sensitivity
 
 Derived values are the hardest unresolved case. A subscription, flow, resource
 normalizer, or view prop can copy, summarize, hash, concatenate, or otherwise
@@ -788,44 +829,36 @@ Mechanical upgrade from re-frame v1 remains a secondary goal:
 1. **Exact frame config shape.** Should the keys be `:sensitive` / `:large`, or
    a nested `:egress` / `:classification` map? Recommendation: use
    `:sensitive` / `:large`; they are the words authors think in.
-2. **Machine data.** Should machine `:data-schema` retain schema-attached
-   sensitivity, or should machine data use registration metadata independent of
-   schema? Recommendation: decide deliberately; do not let old schema posture
-   survive by accident.
-3. **Projection API name.** `project-egress`, `project-record`, and
+2. **Projection API name.** `project-egress`, `project-record`, and
    `project-observation` are candidate names. Recommendation: use a general
    `project-egress` for the public boundary primitive and narrower internal
    helpers per record kind.
-4. **Profile names.** The exact `:rf.egress/*` vocabulary should be thrashed
+3. **Profile names.** The exact `:rf.egress/*` vocabulary should be thrashed
    out with examples from MCP, Xray, SSR, and hosted monitoring.
-5. **Handled-event record shape.** What is safe and useful by default? Should
+4. **Handled-event record shape.** What is safe and useful by default? Should
    event args be omitted unless registration metadata declares them safe?
    Recommendation: hosted monitoring defaults to summary-only; tools can opt
    into richer projected payloads.
-6. **HTTP response bodies.** Header/query policy is not enough. Managed HTTP
+5. **HTTP response bodies.** Header/query policy is not enough. Managed HTTP
    needs a response-body classification story for login, refresh, partner API,
    upload URL, and opaque token responses.
-7. **Epoch storage versus projection.** Should `:redact-fn` be removed,
+6. **Epoch storage versus projection.** Should `:redact-fn` be removed,
    demoted, or reframed as a projection hook? Recommendation: demote; projection
    should be the normal answer.
-8. **Cross-tool `show-sensitive?`.** Should on-box visibility be per tool, per
+7. **Cross-tool `show-sensitive?`.** Should on-box visibility be per tool, per
    session, per frame, or all three? Recommendation: no single process-global
    user toggle.
-9. **Derived sensitivity.** Should derived outputs inherit sensitivity from
+8. **Derived sensitivity.** Should derived outputs inherit sensitivity from
    sensitive inputs by default? Recommendation: yes for framework-known
    dependency graphs, with explicit safe-output declarations.
-10. **Derived declassification spelling.** What is the exact metadata key and
+9. **Derived declassification spelling.** What is the exact metadata key and
     value for declaring a derived output safe? Recommendation: do not overload
     `:sensitive false`; reserve `:sensitive` for path declarations and use a
     namespaced egress/sensitivity key for output-level claims.
-11. **Reserved namespaces.** Should the initial reserved policy namespaces be
+10. **Reserved namespaces.** Should the initial reserved policy namespaces be
     limited to `:rf.egress/*`, `:rf.observe/*`, and existing `:rf.size/*`
     low-level flags? Recommendation: yes; keep frame-local grammar keys bare
     and keep user/integration sink ids outside framework namespaces.
-12. **`redact-interceptor` fate.** Should it be removed entirely, kept as an
-    advanced escape hatch, or generated only by migration tooling?
-    Recommendation: remove it from the normal API; registration metadata is the
-    public model.
 
 ## Bead Plan
 
@@ -833,23 +866,25 @@ Mechanical upgrade from re-frame v1 remains a secondary goal:
    owner-classification rule and frame/registration split.
 2. API bead: remove or demote public `add-marks` / `set-marks` and
    app-specific `declare-sensitive-*` globals from the guide-level API, and
-   remove/demote `redact-interceptor` from normal registration guidance.
+   remove `redact-interceptor` from the public API.
 3. Frame bead: add frame metadata schema for `:sensitive`, `:large`, and
    `:observability`.
-4. Projection bead: introduce record-level `project-egress` and profiles over
+4. Machine bead: add machine metadata schema for explicit `:sensitive` and
+   `:large` paths rooted at machine `:data`, independent of `:data-schema`.
+5. Projection bead: introduce record-level `project-egress` and profiles over
    `elide-wire-value`.
-5. Observability bead: route production handled-event/error records through
+6. Observability bead: route production handled-event/error records through
    frame `:observability` policy.
-6. HTTP bead: move app-specific HTTP carrier declarations to frame policy and
+7. HTTP bead: move app-specific HTTP carrier declarations to frame policy and
    design response-body classification.
-7. Schema bead: remove guide-level schema-attached sensitive/large markers or
-   lower them into frame policy as migration/import only.
-8. Epoch bead: replace ordinary `:redact-fn` use with frame/profile projection
+8. Schema bead: remove guide-level schema-attached sensitive/large markers or
+   lower them into explicit owner metadata as migration/import only.
+9. Epoch bead: replace ordinary `:redact-fn` use with frame/profile projection
    and document any retained advanced hook.
-9. Direct-read/tool bead: audit MCP, Xray, Story, SSR/hydration, epoch export,
+10. Direct-read/tool bead: audit MCP, Xray, Story, SSR/hydration, epoch export,
    Datadog/Sentry, schema failures, HTTP diagnostics, and direct-read surfaces
    against `project-egress`.
-10. Guide bead: rewrite the privacy/large-things guide around classification,
+11. Guide bead: rewrite the privacy/large-things guide around classification,
     projection, and sink policy.
 
 ## Guide Impact
