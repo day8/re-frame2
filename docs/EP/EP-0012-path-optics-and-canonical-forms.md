@@ -3,237 +3,1207 @@
 Status: proposal
 Type: standards-track
 
-> Drafted from the first-principles synthesis. This EP proposes one lightweight
-> path and canonical-identity vocabulary for app-db paths, runtime paths,
-> flow dependencies, schema/redaction paths, resource identity, work ids, and
-> route round trips.
+> This EP proposes one small path and canonical-identity algebra for app-db
+> paths, runtime-db paths, flow dependencies and outputs, schema and redaction
+> paths, resource identity, work ids, and routing parse/print round trips.
 >
-> Normative home after acceptance: `spec/Conventions.md`, plus references from
-> routing, schemas, flows, resources, and runtime-subsystem specs.
+> Normative home after acceptance: `spec/Conventions.md`, with cross-references
+> from routing, schemas, flows, resources, runtime-subsystems, and any future
+> derivation/process specification.
 
 ## Abstract
 
-re-frame2 already depends on path-like and canonical-identity concepts across
-many surfaces: `get-in` paths, flow inputs and outputs, schema paths, projection
-policies, redaction paths, route params, resource cache keys, and work-ledger
-ids. Those surfaces repeat rules for root paths, nil versus missing, map key
-ordering, path overlap, and route round trips.
+re-frame2 already relies on the same idea in many places: a stable way to name
+"the value over there" and a stable way to decide "these two identity values
+are the same." Today that idea is repeated as local folklore: `get-in` paths in
+event handlers, schema paths, flow inputs and outputs, route params, resource
+cache keys, redaction declarations, runtime-db projection policies, and work
+ledger ids each carry their own partial rules.
 
-This EP defines a small shared vocabulary:
+This EP defines one shared vocabulary:
 
-- `:rf/path` for data paths treated as lightweight optics;
-- canonical EDN identity for params, scopes, work ids, and cache keys;
-- route patterns as prisms with parse/print round-trip laws.
+- `:rf/path`: plain vector paths treated as lightweight optics over ordinary
+  Clojure data.
+- Canonical EDN identity: deterministic normalization/encoding for params,
+  scopes, path declarations, resource keys, route params, and work ids.
+- Route patterns as prisms: registered route patterns define a lawful partial
+  round trip between URL strings and route data.
 
-The proposal is intentionally modest. It does not require a full optics library.
-It names the laws and helpers the implementation already needs.
+The proposal does not add a heavy optics library or make application authors
+learn optics terminology. It names the algebra the framework already needs,
+states the laws once, and lets every subsystem reuse those laws instead of
+redefining them.
+
+## Problem Statement
+
+Large SPAs accumulate many references to the same facts. A single app-db slot
+may be read by a subscription, written by an event, validated by a schema,
+redacted by trace tooling, materialized by a flow, mentioned in documentation,
+and inspected by an AI tool. A single remote read may be identified by route
+params, resource params, a scope, a cache key, a work id, an HTTP request id,
+and an Xray row.
+
+When each subsystem invents its own rules, small differences become correctness
+bugs:
+
+- Does `[]` mean the root value everywhere?
+- Does a key with value `nil` mean the same thing as an absent key?
+- Do two map spellings with different insertion order produce the same cache
+  key?
+- Are `[:cart]` and `[:cart :items]` overlapping paths?
+- Are route query keys printed in deterministic order?
+- Does `route-url` accept the same params that `match-url` returns?
+- Are JS objects, functions, atoms, promises, DOM nodes, dates, and other host
+  values valid cache identities?
+
+These are not local questions. A resource key that disagrees with route params
+or a redaction path that disagrees with schema paths is a framework-level bug.
+re-frame2 needs one answer.
 
 ## Motivation
 
-Anonymous vectors are productive, but large SPAs eventually need stronger
-refactoring handles. The same app-db path may appear in event handlers,
-subscriptions, flows, schema declarations, privacy marks, tests, and docs.
-Different subsystems should not disagree about whether `[]` means root, whether
-`nil` is the same as absence, or whether two paths overlap.
+The pre-alpha window should be used to make the fundamental contracts elegant
+before compatibility pressure hardens accidental behavior. re-frame v1 made raw
+vector paths productive, and that strength should remain. The missing layer is
+not a new abstraction for every call site; it is a tiny shared algebra behind
+the existing vectors.
 
-Resource identity adds the same problem for params and scopes. If two maps
-describe the same request, the runtime must derive the same cache key and work
-id. Ad hoc stringification is not a sufficient contract.
+From first principles:
+
+- A data path is a lightweight lens: it focuses a value, can put a value back,
+  can update a value in place, and composes with other paths.
+- A route pattern is a lightweight prism: it partially parses URLs into route
+  data and prints valid route data back into URLs.
+- A cache key or work id is a canonical identity: two spellings of the same EDN
+  fact must collapse to one identity, and two different facts must not collapse
+  accidentally.
+
+Naming these concepts pays off without exposing their theory as user-facing
+burden. Users keep writing Clojure data. The implementation, specs, tests, and
+tools gain one place to enforce the rules.
 
 ## Goals
 
-- Define one path vocabulary for data focus and path composition.
-- Define canonical EDN identity rules for maps, params, scopes, and work ids.
-- State route parse/print round-trip laws.
-- Provide a place for property tests that all path consumers inherit.
-- Improve AI/tooling readability by making paths named, owned, and canonical.
+- Define `:rf/path` as the common path vocabulary for app-db and runtime-db
+  focus, schema paths, redaction paths, flow inputs/outputs, projection
+  policies, and future feature-module declarations.
+- Keep plain vector paths valid and mechanically migratable from re-frame v1
+  style code.
+- Define a small set of path operations: `get`, `put`, `over`, `compose`,
+  `prefix?`, and `overlap?`.
+- State path laws, including root path behavior and the distinction between
+  missing and present `nil`.
+- Define canonical EDN identity for params, scopes, resource cache keys, work
+  ids, route params/query maps, path declarations, and tool-facing identity
+  values.
+- Specify deterministic map key ordering and deterministic handling of sets,
+  vectors, and lists in canonical identity.
+- Reject or explicitly encode non-EDN host values instead of relying on host
+  stringification.
+- State route parse/print prism laws and the normalization points where the
+  inverse is intentionally partial.
+- Provide concrete Clojure/ClojureScript examples and property-test targets.
+- Keep public API exposure modest: internal helper semantics are mandatory;
+  public helper names may be exposed only when stable.
 
 ## Non-Goals
 
-- This EP does not introduce a heavy optics dependency.
-- This EP does not require app authors to stop using plain vectors.
-- This EP does not redesign routing.
-- This EP does not make every app-db path globally registered on day one.
+- This EP does not replace `get-in`, `assoc-in`, or ordinary vector paths in
+  application code.
+- This EP does not require all app-db paths to be globally registered.
+- This EP does not introduce a full optics dependency, profunctor API, or new
+  category-theory vocabulary in the public teaching surface.
+- This EP does not redesign the routing subsystem or replace the existing
+  string route-pattern grammar.
+- This EP does not make route data-form path patterns mandatory. A data-form
+  route pattern can be added later as an alternate front end to the same prism
+  laws.
+- This EP does not define a third-party runtime-subsystem extension API. It
+  only supplies shared path/identity semantics used by such subsystems.
+- This EP does not guarantee that every EDN value is a good application-level
+  identity. It defines how portable EDN identity is canonicalized; schemas and
+  subsystem contracts still decide which values are valid for a given slot.
 
-## Relationships
+## Definitions
 
-- `spec/016-Resources.md` requires stable resource identity and work-ledger keys.
-- EP-0006 runtime-subsystem projection policies depend on paths.
-- EP-0007 one-name-per-fact is extended here to one canonical identity per path
-  or params fact.
-- EP-0010 and EP-0011 use canonical work ids and reply identities.
-- EP-0014 derivation declarations use paths for inputs and materialized
-  outputs.
+**Path**: A vector of EDN path segments. A path focuses a value inside an
+ordinary Clojure/EDN value. The empty vector `[]` focuses the root value.
+
+**Concrete path**: A path with no template variables. Runtime reads and writes
+operate on concrete paths.
+
+**Path template**: A declaration-time path that includes named variables, such
+as `'?invoice-id`, and can be instantiated into a concrete path. Path templates
+are metadata for tooling and feature declarations; they are not read by
+`get-in` directly.
+
+**Segment**: One element of a path vector. Concrete segments MUST be portable
+EDN identity values usable as Clojure associative keys or vector indexes.
+Keywords, strings, symbols, integers, booleans, UUIDs, instants, and `nil` are
+valid when the host can represent them as EDN. Functions, atoms, promises, DOM
+nodes, AbortControllers, opaque JS objects, and other host handles are not
+valid segments.
+
+**Focus**: The value selected by a path.
+
+**Missing**: A path is missing when lookup cannot prove there is a value at the
+focus. Missing is different from present with value `nil`.
+
+**Present `nil`**: A map entry or vector slot exists and its value is `nil`.
+Plain `get-in` cannot distinguish this from missing; the shared path algebra
+MUST provide or internally use a presence-aware lookup where the distinction
+matters.
+
+**Canonical EDN identity**: A deterministic normalized value or byte/string
+encoding derived from portable EDN such that equal facts produce identical
+identity and unsupported host values fail closed.
+
+**Route data**: The route id plus path params, query params, and optional
+fragment represented as EDN:
+
+```clojure
+{:route-id :route/article
+ :params   {:slug "welcome"}
+ :query    {:tab "comments" :page 2}
+ :fragment "discussion"}
+```
+
+**Route prism**: The partial isomorphism defined by a registered route pattern:
+`route-url` prints valid route data into a URL, and `match-url` parses URLs in
+the route's domain back into route data.
+
+**Scoped resource key**: The resource cache identity
+`[cache-scope resource-id canonical-params]`, where scope and params are
+canonical EDN values.
+
+**Work id**: A canonical EDN identity for a unit of asynchronous work, such as
+`[:rf.work/resource scoped-resource-key generation]`.
+
+## Proposed Solution
+
+Adopt a shared path and canonical-identity contract in `spec/Conventions.md`.
+Then update the subsystems that already use these concepts to cite the shared
+contract instead of repeating their own local definitions.
+
+The implementation should introduce a small internal namespace, conceptually:
+
+```clojure
+(rf.path/get value path)
+(rf.path/lookup value path)
+(rf.path/put value path x)
+(rf.path/over value path f)
+(rf.path/compose p q)
+(rf.path/prefix? p q)
+(rf.path/overlap? p q)
+
+(rf.identity/canonical value)
+(rf.identity/canonical-bytes value)
+```
+
+The exact namespace and public exposure are a reference-implementation choice
+until this EP is accepted and implementation experience validates the names.
+The semantics are standards-track. All path consumers MUST agree with them,
+even if some helpers remain internal.
+
+Existing public surfaces keep accepting raw vectors:
+
+```clojure
+(rf/reg-app-schema [:cart :items] CartItems)
+
+(rf/reg-flow
+  {:id     :cart/total
+   :inputs [[:cart :items] [:pricing :discounts]]
+   :path   [:cart :total]
+   :output compute-total})
+```
+
+Feature authors may optionally name important paths:
+
+```clojure
+(def invoice-customer-email
+  {:id      :invoice/customer-email
+   :rf/path [:billing :invoices :by-id '?invoice-id :customer :email]
+   :params  [:map [:invoice-id :uuid]]
+   :owner   :billing/invoices
+   :schema  :app/email
+   :privacy #{:sensitive}})
+```
+
+Named paths make refactoring, schema extraction, redaction, flow validation,
+and tool graphs easier, but they are not required for ordinary code.
 
 ## Specification
 
-### `:rf/path`
+### Path Shape
 
-A re-frame2 path is a vector of path segments. The empty vector `[]` focuses the
-root value.
+A concrete `:rf/path` is a vector:
 
 ```clojure
-[:billing :invoices :by-id invoice-id :customer :email]
 []
+[:user]
+[:cart :items 42 :qty]
+[:rf.runtime/routing :current :params :slug]
 ```
 
-Path segments are compared by ClojureScript equality. Keywords, strings,
-numbers, and symbols are allowed as plain segments. Specs may later define
-parameter markers for path templates, but concrete runtime paths are ordinary
-vectors.
+The empty vector `[]` is the root path. It focuses the entire value:
+
+```clojure
+(rf.path/get {:a 1} [])
+;; => {:a 1}
+
+(rf.path/put {:a 1} [] {:b 2})
+;; => {:b 2}
+```
+
+Concrete runtime paths MUST NOT contain functions, atoms, promises, DOM nodes,
+AbortControllers, opaque JS objects, mutable host references, or values that
+cannot be represented as portable EDN identity. Such values are rejected at the
+boundary that accepts the path.
+
+The primary path container is a vector. APIs MAY accept any sequential
+collection for migration ergonomics, but the canonical path form is a vector
+and all stored declarations MUST normalize to a vector.
+
+### Partition-Relative Paths
+
+This EP defines path semantics, not partition ownership. Existing subsystem
+rules still decide what a path is relative to:
+
+- `reg-app-schema` paths are app-db paths.
+- Flow output `:path` values are app-db paths.
+- Flow input paths are app-db paths unless their first segment is
+  `:rf.db/runtime`, in which case that marker selects the runtime-db partition
+  and is stripped before lookup.
+- Runtime-subsystem catalogue paths are paths inside runtime-db.
+- Redaction declarations derived from app-db schemas are app-db-relative paths
+  stored as runtime bookkeeping.
+
+The shared path algebra applies after the owning spec has selected the root
+value.
 
 ### Path Operations
 
-The implementation SHOULD define one small internal namespace with operations
-equivalent to:
+The path algebra contains these logical operations:
 
 ```clojure
-(rf.path/focus value path)      ;; get the value at path
-(rf.path/put value path x)      ;; set the value at path
-(rf.path/over value path f)     ;; update the value at path
-(rf.path/compose p q)           ;; append paths
-(rf.path/prefix? p q)           ;; p is a prefix of q
-(rf.path/overlap? p q)          ;; p and q can affect overlapping values
+(rf.path/get value path)
+;; Return the focused value, or nil when missing.
+
+(rf.path/get value path not-found)
+;; Return not-found when missing.
+
+(rf.path/lookup value path)
+;; Return {:present? true :value v} or {:present? false}.
+
+(rf.path/put value path x)
+;; Return value with x installed at path.
+
+(rf.path/over value path f)
+;; Return value with f applied to the current focused value.
+
+(rf.path/compose p q)
+;; Append two paths.
+
+(rf.path/prefix? p q)
+;; True when p is a prefix of q.
+
+(rf.path/overlap? p q)
+;; True when p and q may affect the same focused value.
 ```
 
-Public exposure is an open issue. The normative requirement is shared semantics,
-not the exact namespace.
+Examples:
+
+```clojure
+(def db {:cart {:items {42 {:qty 2}}}})
+
+(rf.path/get db [:cart :items 42 :qty])
+;; => 2
+
+(rf.path/put db [:cart :items 42 :qty] 3)
+;; => {:cart {:items {42 {:qty 3}}}}
+
+(rf.path/over db [:cart :items 42 :qty] inc)
+;; => {:cart {:items {42 {:qty 3}}}}
+
+(rf.path/compose [:cart :items] [42 :qty])
+;; => [:cart :items 42 :qty]
+```
+
+`over` on a missing path calls `f` with `nil`, matching `update-in` unless a
+surface explicitly provides a not-found-aware operation. A subsystem that needs
+to distinguish missing from present `nil` MUST use `lookup` before deciding
+what to do.
 
 ### Path Laws
 
-For concrete paths, the helpers SHOULD satisfy:
+For concrete paths and EDN values, conforming path helpers MUST satisfy these
+laws, modulo the stated intermediate-container policy:
 
 ```text
-focus(put(s, p, x), p) = x
-put(s, p, focus(s, p)) = s
+lookup(put(s, p, x), p) = {:present? true, :value x}
+
+if lookup(s, p) = {:present? true, :value x}
+then put(s, p, x) = s
+
+put(put(s, p, x), p, y) = put(s, p, y)
+
 compose(p, []) = p
 compose([], p) = p
 compose(compose(p, q), r) = compose(p, compose(q, r))
+
+get(s, compose(p, q), nf) = get(get(s, p), q, nf)
+when lookup(s, p) is present and the focused value supports q.
+
+over(s, p, identity) = s
+when lookup(s, p) is present.
+
+over(s, p, f) = put(s, p, f(get(s, p)))
+for the public nil-on-missing get semantics.
 ```
 
-The second law is subject to the existing Clojure map behavior around absent
-intermediate maps. If the implementation creates intermediate maps, that
-behavior must be stated once and tested once.
+The root path laws are:
+
+```text
+get(s, [], nf) = s
+lookup(s, []) = {:present? true, :value s}
+put(s, [], x) = x
+over(s, [], f) = f(s)
+overlap?([], p) = true
+```
+
+Intermediate container creation MUST be stated once. The CLJS reference should
+follow Clojure's `assoc-in`/`update-in` map-creation behavior for missing map
+paths: missing intermediate values are treated as maps. If a port supports
+vector indexes in `put`, it MUST define out-of-range behavior explicitly and
+test it; it MUST NOT silently diverge from the shared path laws.
+
+### Missing Versus Present Nil
+
+`nil` is a valid EDN value. An absent key and a key present with value `nil` are
+different facts:
+
+```clojure
+(def a {})
+(def b {:page nil})
+
+(rf.path/lookup a [:page])
+;; => {:present? false}
+
+(rf.path/lookup b [:page])
+;; => {:present? true :value nil}
+```
+
+Canonical identity MUST preserve this distinction:
+
+```clojure
+(= (rf.identity/canonical {})
+   (rf.identity/canonical {:page nil}))
+;; => false
+```
+
+Surfaces may intentionally elide `nil` before canonicalization, but that is a
+surface-specific policy, not the canonical identity rule. Routing's query
+printing policy, for example, treats `{:page nil}` as "omit the query key" for
+URL construction; resource params do not get that elision for free. A resource
+param key with `nil` value is a present value unless the resource schema or
+caller explicitly removes it.
+
+### Path Prefix And Overlap
+
+For concrete paths:
+
+```clojure
+(rf.path/prefix? [:cart] [:cart :items 42])
+;; => true
+
+(rf.path/prefix? [:cart :items 42] [:cart])
+;; => false
+
+(rf.path/overlap? [:cart :items] [:cart :items 42 :qty])
+;; => true
+
+(rf.path/overlap? [:cart :items 42 :qty] [:cart :items 42])
+;; => true
+
+(rf.path/overlap? [:cart :items 42] [:cart :items 43])
+;; => false
+
+(rf.path/overlap? [] [:anything])
+;; => true
+```
+
+`overlap?` is true exactly when either path is a prefix of the other. This is
+the rule flows already need for dependency and output-collision checks. Flow
+implementations MUST use the shared rule:
+
+- Flow B depends on flow A when A's output path overlaps one of B's input
+  paths.
+- Two flow output paths in the same frame are invalid when they overlap.
+
+Path templates need a separate `may-overlap?` relation because variables can
+stand for many concrete values. That relation is useful for tooling and named
+path declarations but is not required for concrete runtime flow sorting.
 
 ### Named Path Declarations
 
-Specs and feature modules MAY name important paths:
+Named path declarations are data maps. This EP reserves `:rf/path` as the path
+slot:
+
+```clojure
+{:id      :profile/display-name
+ :rf/path [:profile :display-name]
+ :owner   :profile
+ :schema  :app/display-name
+ :doc     "The name shown in app chrome."}
+```
+
+Path templates MAY use symbols beginning with `?` as variable markers:
 
 ```clojure
 {:id      :invoice/customer-email
  :rf/path [:billing :invoices :by-id '?invoice-id :customer :email]
+ :params  [:map [:invoice-id :uuid]]
  :owner   :billing/invoices
- :schema  :email
- :privacy :sensitive}
+ :schema  :app/email
+ :privacy #{:sensitive}}
 ```
 
-Named paths are optional in ordinary application code but useful for schema,
-privacy, generated tests, refactors, and derivation graphs.
+Instantiation is a pure operation:
+
+```clojure
+(rf.path/instantiate
+  invoice-customer-email
+  {:invoice-id #uuid "11111111-1111-1111-1111-111111111111"})
+;; => [:billing :invoices :by-id
+;;     #uuid "11111111-1111-1111-1111-111111111111"
+;;     :customer :email]
+```
+
+The template marker syntax is declaration-only. A concrete runtime path that
+literally contains the symbol `?invoice-id` is just a symbol segment; it is not
+implicitly substituted unless it is processed as a template declaration.
+
+Named paths are optional for application authors, but specs and tooling SHOULD
+prefer them when a path is important enough to carry ownership, schema,
+privacy, projection, or derivation metadata.
 
 ### Canonical EDN Identity
 
-Canonical identity is a deterministic normalization of EDN values used as
-resource params, scopes, work ids, route params, and cache keys.
+Canonical identity is a pure function over portable EDN values. It is used for
+all equality-sensitive runtime identities:
 
-The canonical form MUST:
+- resource params and scopes;
+- scoped resource keys;
+- work ids;
+- route path/query params after route-specific parsing and normalization;
+- named path declarations and path templates;
+- schema digest path keys;
+- any future derivation/process identity.
 
-- preserve the distinction between absent keys and keys with `nil` values;
-- order map entries deterministically;
-- preserve vector order;
-- treat lists and vectors according to a stated rule rather than host
-  stringification;
-- reject or explicitly encode values that are not portable EDN identities, such
-  as functions, atoms, DOM nodes, or JS objects.
+The function may return a normalized value, canonical bytes, or a digest over
+canonical bytes. The contract is the same: equal facts produce the same
+identity across CLJ/CLJS hosts, and unsupported values fail closed.
 
-Example:
+The canonical EDN domain is:
+
+- `nil`, booleans, strings, keywords, symbols;
+- integers and finite numbers that the host can print and parse
+  unambiguously under the chosen encoder;
+- UUIDs and instants when represented as EDN values or explicit tagged data;
+- vectors, lists, maps, and sets whose nested values are canonical EDN values.
+
+The canonicalizer MUST reject by default:
+
+- functions;
+- atoms, refs, volatile cells, promises, futures;
+- DOM nodes, React elements, AbortControllers, request handles, timers;
+- arbitrary JS objects or host class instances;
+- NaN and infinities unless a future spec explicitly encodes them;
+- mutable objects whose identity is by reference rather than value.
+
+APIs that need to carry such values MUST encode them explicitly into portable
+EDN before they reach an identity boundary:
 
 ```clojure
-(canonical {:page 1 :filter {:tag "cljs" :archived? false}})
-;; equivalent wherever map insertion order differed
+;; Host object rejected:
+(rf.identity/canonical #js {:tenant "acme"})
+;; => throws :rf.error/non-edn-identity
+
+;; Explicit EDN encoding accepted:
+(rf.identity/canonical {:tenant "acme"})
+;; => canonical EDN identity
+
+;; Explicit tagged/value encoding for an instant-like fact:
+(rf.identity/canonical {:at #inst "2026-06-10T00:00:00.000-00:00"})
 ```
 
-This canonical form is the basis for equality-sensitive runtime ids:
+### Map Key Canonicalization
+
+Map entries MUST be ordered deterministically by the canonical encoding of
+their keys, not by insertion order, hash-map iteration order, locale, or host
+object identity. The reference rule should match the existing schema digest
+discipline: compare the stable printed/canonical byte representation of the
+canonicalized keys, and then encode entries in that order.
+
+Examples:
 
 ```clojure
-[:resource :article/list (canonical {:tag "cljs" :page 1})]
-[:work :http (canonical {:method :get :url "/api/articles"})]
+(= (rf.identity/canonical {:page 1 :tag "cljs"})
+   (rf.identity/canonical {:tag "cljs" :page 1}))
+;; => true
+
+(= (rf.identity/canonical {:filter {:archived? false :tag "cljs"}})
+   (rf.identity/canonical {:filter {:tag "cljs" :archived? false}}))
+;; => true
 ```
 
-### Routing Prism Law
+Heterogeneous keys are legal only when the canonical encoder defines a total
+order for them. If a port cannot order two key values reproducibly, it MUST
+reject the identity value rather than fall back to host iteration.
 
-A route pattern is a partial isomorphism between URLs and route data. For every
-route id and valid params value:
+Duplicate canonical keys are invalid. A reader or adapter that can produce a
+map with duplicate keys after canonicalization MUST reject it before it becomes
+a cache key, route identity, or work id.
+
+### Sequence And Set Canonicalization
+
+Vectors preserve vector kind and element order:
+
+```clojure
+(rf.identity/canonical [:a :b])
+;; order is [:a :b], not sorted
+```
+
+Lists preserve list kind and element order. Lists and vectors are distinct EDN
+facts and MUST NOT be silently collapsed unless a surface explicitly coerces
+one to the other before canonicalization.
+
+Sets are unordered EDN values. Canonical encoding MUST sort set elements by
+their canonical element encoding. Sets remain distinct from vectors/lists.
+
+Subsystems should prefer vectors for public identity tuples because vectors
+are idiomatic, order-preserving, and already used for event vectors, resource
+keys, owner tokens, causes, and work ids.
+
+### Resource Identity
+
+A scoped resource key is:
+
+```clojure
+[canonical-scope resource-id canonical-params]
+```
+
+where both scope and params use the shared canonical EDN identity rule:
+
+```clojure
+(def scope-a [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}])
+(def scope-b [:rf.scope/session {:tenant-id "acme" :user-id "u-42"}])
+
+(def params-a {:slug "welcome" :include-comments? true})
+(def params-b {:include-comments? true :slug "welcome"})
+
+(= (rf.identity/canonical scope-a)
+   (rf.identity/canonical scope-b))
+;; => true
+
+(= (rf.identity/canonical params-a)
+   (rf.identity/canonical params-b))
+;; => true
+
+(def resource-key
+  [(rf.identity/canonical scope-a)
+   :article/by-slug
+   (rf.identity/canonical params-a)])
+
+resource-key
+;; => [[:rf.scope/session {:tenant-id "acme" :user-id "u-42"}]
+;;     :article/by-slug
+;;     {:include-comments? true :slug "welcome"}]
+```
+
+The exact printed order of maps in REPL output is not the contract. The
+canonical equality/bytes are the contract. Implementations may store the
+normalized EDN value or a digest over canonical bytes, but Xray and debugging
+tools SHOULD retain a human-readable EDN projection.
+
+Work ids build on the same identity:
+
+```clojure
+(def work-id [:rf.work/resource resource-key 4])
+
+(rf.identity/canonical work-id)
+;; stable stale-suppression identity
+```
+
+One work record MUST have one canonical id. A subsystem MUST NOT carry a second
+near-duplicate stale-suppression key that denotes the same facts under a
+different head keyword unless a spec explicitly justifies the second identity.
+
+### Route Prism Laws
+
+For a registered route, `route-url` and `match-url` form a prism between valid
+route data and URL strings in the route's domain.
+
+For every route id and every valid path params, query params, and fragment:
 
 ```text
-match-url(route-url(route-id, params)) = {:id route-id :params (canonical params)}
+match-url(route-url(route-id, path-params, query-params, fragment))
+=
+{:route-id route-id
+ :params   canonical-route-path-params
+ :query    canonical-route-query-params-after-routing-policy
+ :fragment canonical-fragment
+ :validation-failed? false}
 ```
 
-The inverse only holds for URLs in the route's domain because URL parsing is
-partial and may include redirects, defaults, or normalization.
+The route policy part matters:
+
+- Path params are required. `nil`, absent, and empty string are rejected for
+  required path segments because they cannot round-trip as path components.
+- Query params with `nil` values are elided by `route-url` before the URL is
+  printed. That means they are absent after `match-url`.
+- Query params with `false`, `0`, and `""` are present values and must
+  round-trip.
+- Query defaults are applied by `match-url` according to the route's
+  `:query-defaults`.
+- Route schemas may coerce URL strings into EDN values such as integers,
+  UUIDs, enums, or booleans. Canonical identity applies after that coercion.
+- Fragments are percent-encoded by `route-url`, decoded by `match-url`, and
+  normalized to `nil` when absent.
+
+The inverse law holds only for canonical URLs in the route's domain:
+
+```text
+route-url(match-url(url)) = normalize-url(url)
+```
+
+It does not hold for every possible URL string. URL parsing is partial and
+normalizing. The runtime may remove trailing slashes, decode percent escapes,
+apply query defaults, reorder query keys, reject malformed encodings, route
+unknown URLs to `:rf.route/not-found`, and apply redirect/guard behavior at the
+event layer. Those are not prism-law violations; they are the reason the
+inverse is restricted to the canonical emitted URL domain.
+
+Route query printing MUST be deterministic. Query keys emitted by `route-url`
+MUST be ordered by canonical EDN key order after route-specific coercion and
+nil elision. A hash-map's iteration order MUST NOT leak into URL strings.
 
 Example:
 
 ```clojure
-(route-url :article/show {:id 42 :tab "comments"})
-;; => "/articles/42?tab=comments"
+(rf/reg-route :route/article
+  {:path   "/articles/:slug"
+   :params [:map [:slug :string]]
+   :query  [:map
+            [:tab {:optional true} :string]
+            [:page {:optional true} :int]]})
 
-(match-url "/articles/42?tab=comments")
-;; => {:id :article/show
-;;     :params {:id 42 :tab "comments"}}
+(rf/route-url
+  :route/article
+  {:slug "welcome"}
+  {:page 2 :tab "comments"}
+  "discussion")
+;; => "/articles/welcome?page=2&tab=comments#discussion"
+
+(rf/match-url "/articles/welcome?page=2&tab=comments#discussion")
+;; => {:route-id :route/article
+;;     :params {:slug "welcome"}
+;;     :query {:page 2 :tab "comments"}
+;;     :fragment "discussion"
+;;     :validation-failed? false}
 ```
 
-### Path Overlap Example
+The same route with query params in a different map insertion order prints the
+same URL:
 
-Flow outputs and user writes can use the shared path semantics:
+```clojure
+(= (rf/route-url :route/article {:slug "welcome"}
+                 {:tab "comments" :page 2})
+   (rf/route-url :route/article {:slug "welcome"}
+                 {:page 2 :tab "comments"}))
+;; => true
+```
+
+### Route Params As Canonical Identity
+
+Route path params and query params are identity-bearing data. Route handlers,
+route-owned resources, SSR preload, and Xray route graphs should all see the
+same canonical params:
+
+```clojure
+(let [route (rf/match-url "/articles/welcome?page=2&tab=comments")]
+  {:resource :article/by-slug
+   :params   (select-keys (:params route) [:slug])
+   :scope    [:rf.scope/session {:tenant-id "acme" :user-id "u-42"}]})
+;; route resource planning consumes canonical route data
+```
+
+If a route param value cannot be represented as canonical EDN after schema
+coercion, route matching or URL printing MUST fail closed at the relevant
+boundary. It MUST NOT use host `str`, JS object stringification, or object
+identity to invent a cache or route identity.
+
+### Internal And Public Helper Surface
+
+The shared semantics are mandatory. Public API exposure is deliberately
+smaller:
+
+- The reference implementation MUST have one internal path helper module used
+  by flows, schemas, routing, resources, runtime projection/elision, and tests.
+- The reference implementation MUST have one internal canonical identity module
+  used by resources, routing, work ledger, schema digest, and tests.
+- A public helper surface SHOULD be exposed only after names and edge behavior
+  are stable. If exposed, it SHOULD use simple names equivalent to
+  `rf.path/get`, `rf.path/put`, `rf.path/over`, `rf.path/compose`,
+  `rf.path/prefix?`, `rf.path/overlap?`, and `rf.identity/canonical`.
+- Public helpers MUST obey the same laws as internal helpers; there is no
+  "tool-only" path semantics.
+- Subsystems MUST NOT keep private ad hoc overlap, canonicalization, or route
+  round-trip logic once the shared helpers exist.
+
+## Examples
+
+### Raw Vector Paths
+
+Existing re-frame style remains valid:
+
+```clojure
+(defn rename-customer [db invoice-id email]
+  (assoc-in db
+            [:billing :invoices :by-id invoice-id :customer :email]
+            email))
+
+(defn customer-email [db invoice-id]
+  (get-in db [:billing :invoices :by-id invoice-id :customer :email]))
+```
+
+The same code expressed through the path helpers:
+
+```clojure
+(defn rename-customer [db invoice-id email]
+  (rf.path/put db
+               [:billing :invoices :by-id invoice-id :customer :email]
+               email))
+
+(defn customer-email [db invoice-id]
+  (rf.path/get db
+               [:billing :invoices :by-id invoice-id :customer :email]))
+```
+
+### Named Path Declaration
+
+```clojure
+(def customer-email-path
+  {:id      :invoice/customer-email
+   :rf/path [:billing :invoices :by-id '?invoice-id :customer :email]
+   :params  [:map [:invoice-id :uuid]]
+   :owner   :billing/invoices
+   :schema  :app/email
+   :privacy #{:sensitive}})
+
+(defn customer-email [db invoice-id]
+  (rf.path/get db
+               (rf.path/instantiate customer-email-path
+                 {:invoice-id invoice-id})))
+```
+
+The declaration can feed schema registration and privacy marks:
+
+```clojure
+(rf/reg-app-schema
+  (rf.path/instantiate customer-email-path {:invoice-id invoice-id})
+  :app/email)
+
+;; A future feature manifest can carry the declaration once and let
+;; schema/redaction/tooling consumers derive their own indexes from it.
+```
+
+### Get, Put, Over, Compose
+
+```clojure
+(def base {:cart {:items {42 {:qty 1 :price 10}}}})
+
+(def item-path (rf.path/compose [:cart :items] [42]))
+(def qty-path  (rf.path/compose item-path [:qty]))
+
+(rf.path/get base qty-path)
+;; => 1
+
+(rf.path/put base qty-path 2)
+;; => {:cart {:items {42 {:qty 2 :price 10}}}}
+
+(rf.path/over base qty-path #(+ % 4))
+;; => {:cart {:items {42 {:qty 5 :price 10}}}}
+```
+
+The law is about the resulting value. Implementations may add convenience
+arities, but the unary function form is sufficient.
+
+### Path Overlap Checks
 
 ```clojure
 (rf.path/overlap? [:cart :items] [:cart :items 42 :qty])
 ;; => true
 
-(rf.path/overlap? [:cart :items] [:profile :name])
+(rf.path/overlap? [:cart :items 42 :qty] [:cart :items 42])
+;; => true
+
+(rf.path/overlap? [:cart :items 42] [:cart :items 43])
+;; => false
+
+(rf.path/overlap? [:cart :items] [:profile :display-name])
+;; => false
+
+(rf.path/overlap? [] [:profile :display-name])
+;; => true
+```
+
+Flow registration can use the same helper:
+
+```clojure
+(defn output-collision? [existing-flow new-flow]
+  (rf.path/overlap? (:path existing-flow) (:path new-flow)))
+```
+
+### Canonical Params, Scopes, And Work Ids
+
+```clojure
+(def params-1 {:slug "welcome" :page 1})
+(def params-2 {:page 1 :slug "welcome"})
+
+(= (rf.identity/canonical params-1)
+   (rf.identity/canonical params-2))
+;; => true
+
+(def scope-1 [:rf.scope/session {:tenant-id "acme" :user-id "u-42"}])
+(def scope-2 [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}])
+
+(= (rf.identity/canonical scope-1)
+   (rf.identity/canonical scope-2))
+;; => true
+
+(def resource-key
+  [(rf.identity/canonical scope-1)
+   :article/list
+   (rf.identity/canonical params-1)])
+
+(def work-id [:rf.work/resource resource-key 7])
+
+(rf.identity/canonical work-id)
+;; stable across map insertion order and host map iteration
+```
+
+Present `nil` remains distinct:
+
+```clojure
+(= (rf.identity/canonical {:page nil})
+   (rf.identity/canonical {}))
 ;; => false
 ```
 
-This allows runtime checks to reject or warn on conflicting materialized
-derivations without each subsystem implementing overlap differently.
+Non-EDN values are rejected:
+
+```clojure
+(rf.identity/canonical {:node js/document.body})
+;; => throws :rf.error/non-edn-identity
+```
+
+### Route URL Parse/Print Round Trip
+
+```clojure
+(rf/reg-route :route/search
+  {:path  "/search"
+   :query [:map
+           [:q :string]
+           [:page {:optional true} :int]
+           [:archived? {:optional true} :boolean]]})
+
+(def url
+  (rf/route-url :route/search
+                {}
+                {:archived? false
+                 :q "clojure data"
+                 :page 2}))
+
+url
+;; => "/search?archived%3F=false&page=2&q=clojure%20data"
+
+(rf/match-url url)
+;; => {:route-id :route/search
+;;     :params {}
+;;     :query {:archived? false :page 2 :q "clojure data"}
+;;     :fragment nil
+;;     :validation-failed? false}
+```
+
+The exact query-key encoding is owned by routing, but the ordering is
+deterministic and the parse result is canonical route data.
+
+### Route-Owned Resource Cache Key
+
+```clojure
+(rf/reg-route :route/article
+  {:path "/articles/:slug"
+   :params [:map [:slug :string]]
+   :resources
+   [{:resource  :article/by-slug
+     :params    (fn [route] (select-keys (:params route) [:slug]))
+     :scope     (fn [_route ctx]
+                  [:rf.scope/session
+                   {:tenant-id (:tenant-id ctx)
+                    :user-id   (:user-id ctx)}])
+     :blocking? true}]})
+
+(let [route  (rf/match-url "/articles/welcome")
+      scope  [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+      params (select-keys (:params route) [:slug])]
+  [(rf.identity/canonical scope)
+   :article/by-slug
+   (rf.identity/canonical params)])
+;; => canonical scoped resource key
+```
+
+The route, resource cache, work ledger, SSR preload, and Xray row all point at
+the same canonical fact.
 
 ## Rationale
 
-This EP turns repeated local conventions into one small algebra. The point is
-not to make users think about optics; the point is to make the implementation,
-docs, and tools stop redefining path behavior in several places.
+### Plain Vectors Are Still The Right User Primitive
 
-The route prism law gives routing the same benefit: encoding and decoding drift
-becomes a property-test failure rather than a user-discovered bug.
+Vector paths are idiomatic Clojure, mechanically migratable from re-frame v1,
+easy to print, easy to compare, and already present across the codebase. A
+heavier public optics API would make simple code worse. The right design is to
+keep vectors and give them one precise meaning.
 
-## Backwards Compatibility
+### Lightweight Optics Give The Implementation Laws
 
-Plain vector paths remain valid. Existing APIs can adopt the shared helpers
-internally before exposing any new source form. Named path declarations are
-additive.
+The framework already depends on lens-like behavior. `get-in`, `assoc-in`, the
+`path` interceptor, flow materialization, schema validation, and redaction all
+focus part of a value and reason about updates. Stating path laws makes bugs
+testable. It also gives tools and AI agents a durable contract: a path is not
+just a vector-shaped hint; it is a lawful focus.
 
-Canonicalization may reveal existing ambiguous cache-key or work-id behavior.
-Those fixes should be handled as targeted migration beads.
+### Canonical Identity Is Not Stringification
 
-## Bead Plan / Reference Implementation
+`str`, `pr-str` over unordered host maps, JSON.stringify over JS objects, and
+object identity are not valid framework identity contracts. They differ by
+host, leak insertion order, or depend on object references. Resource caches and
+work ledgers need an identity that survives SSR, hydration, replay, Xray
+inspection, and multi-host conformance.
 
-1. Add a small path helper namespace and property tests for the path laws.
-2. Define canonical EDN identity in `spec/Conventions.md`.
-3. Update routing tests to assert the prism round-trip law.
-4. Replace ad hoc path-overlap checks in flows and projection policies with the
-   shared helper.
-5. Update resource/work-ledger identity docs to cite canonical EDN identity.
+Canonical EDN is the smallest Clojure-native answer. It preserves ordinary data
+as data, rejects host handles at identity boundaries, and gives non-Clojure
+ports a concrete target.
+
+### Routes Are Prisms, Not Just String Helpers
+
+Routing is often where identity drift becomes visible. The app prints a URL,
+the browser or server parses it later, and route-owned resource preloading
+depends on the result. Treating route patterns as prisms makes the round-trip a
+law instead of an aspiration. Encoding, query ordering, defaults, nil policy,
+and schema coercion become property-test inputs.
+
+### One Algebra Beats Repeated Subsystem Folklore
+
+Flows, schemas, routing, resources, runtime projection, redaction, and future
+feature manifests all need the same operations. Local implementations invite
+nearly-identical edge behavior that diverges under pressure. A shared algebra
+is simpler than many small explanations.
+
+## Alternatives Considered
+
+### Leave Paths As Informal Vectors
+
+This preserves maximum short-term familiarity, but it leaves every subsystem to
+rediscover root-path behavior, missing-vs-nil behavior, overlap, and canonical
+ordering. The current specs already show the repetition. Large-SPA correctness
+requires one answer.
+
+### Introduce A Full Optics Library
+
+Rejected for the core contract. A full optics library is more power than the
+framework needs and would leak unnecessary terminology into the user API. The
+implementation needs a tiny lens-like subset: get, put, over, compose, prefix,
+and overlap. Ports can implement that directly.
+
+### Make Named Paths Mandatory
+
+Rejected. Mandatory global path registration would harm migration, small apps,
+and exploratory development. Named paths are valuable when a path is important
+enough to carry ownership, schema, privacy, or feature metadata. Raw vectors
+remain valid.
+
+### Use JSON Canonicalization
+
+Rejected as the primary contract. JSON cannot represent keywords, symbols,
+sets, UUIDs, instants, or EDN lists without additional tagging, and it blurs
+important Clojure distinctions. A port may encode canonical EDN into JSON-like
+bytes internally, but the semantic contract is canonical EDN identity.
+
+### Let Each Subsystem Define Its Own Canonicalization
+
+Rejected. Resources, routing, schemas, and work ids cross-reference each other.
+If they use different canonicalization rules, the framework can produce two
+identities for one fact or one identity for two facts. The whole point of this
+EP is to prevent that.
+
+### Coerce Lists To Vectors
+
+Rejected as a canonical identity default. Lists and vectors are distinct EDN
+values. A surface that wants vectors may coerce before canonicalization, but
+canonical identity should not silently change EDN types.
+
+### Preserve Map Insertion Order In URLs And Cache Keys
+
+Rejected. Insertion order is not identity. Query strings and cache keys must be
+deterministic for the same logical data regardless of how a map was built.
+
+## Backwards Compatibility and Migration
+
+Plain vector paths remain valid. This is the main compatibility property:
+
+```clojure
+[:user :name]
+[:cart :items item-id :qty]
+[]
+```
+
+Existing re-frame v1 and re-frame2 code using `get-in`, `assoc-in`, the `path`
+interceptor, `reg-app-schema` paths, and flow paths can migrate mechanically:
+
+- Leave ordinary vector paths in place.
+- Normalize sequential path inputs to vectors at registration boundaries.
+- Replace private path-overlap checks with the shared helper.
+- Add named path declarations only where ownership, schema, privacy,
+  projection, or feature-manifest metadata needs a durable handle.
+- Convert ad hoc cache-key stringification to canonical EDN identity.
+- Reject or explicitly encode host values that were previously smuggled into
+  params, scopes, or work ids.
+
+Some behavior changes are intentional:
+
+- Maps with different insertion order now produce the same identity.
+- A present `nil` key and an absent key are distinct unless a surface
+  explicitly elides `nil` before canonicalization.
+- Route query string output may become more deterministic and therefore differ
+  in key order from older tests.
+- Non-EDN params/scopes that previously happened to stringify will fail closed.
+
+These are acceptable pre-alpha cleanups. v1 compatibility is desirable where
+it preserves correct design; it must not freeze accidental identity behavior.
+
+Migration tooling should classify issues:
+
+- **Mechanical**: convert sequential paths to vectors, replace private overlap
+  predicates, update route URL tests for deterministic query order.
+- **Review required**: params or scopes containing non-EDN host values; cache
+  keys built from strings; code that relies on missing and present `nil` being
+  indistinguishable.
+- **Optional improvement**: introduce named path declarations for feature-owned
+  state slices and sensitive/large schema paths.
+
+## Reference Implementation / Bead Plan
+
+1. Add an internal path helper namespace with `get`, `lookup`, `put`, `over`,
+   `compose`, `prefix?`, and `overlap?`.
+2. Add an internal canonical identity namespace with canonical EDN normalization
+   and canonical byte/string encoding.
+3. Document `:rf/path` and canonical EDN identity in `spec/Conventions.md`.
+4. Update `spec/012-Routing.md` to cite the route prism laws, deterministic
+   query key ordering, and canonical params identity.
+5. Update `spec/013-Flows.md` to cite shared `overlap?` and `prefix?` for
+   dependency and output-collision checks.
+6. Update `spec/010-Schemas.md` and the elision/redaction specs to cite
+   `:rf/path` for app-db schema paths and derived redaction declarations.
+7. Update `spec/016-Resources.md` to replace local canonicalization prose with
+   the shared canonical EDN identity rule.
+8. Update runtime-subsystem docs to cite shared path semantics for subtree
+   catalogues, projection allowlists, and redaction paths.
+9. Add property tests and cross-host fixtures for path laws, canonical identity,
+   route prism laws, and resource/work-id identity.
+10. Add migration documentation showing how v1 vector paths remain valid and
+    where optional named declarations help.
+
+## Validation / Conformance
+
+Conforming implementations SHOULD validate this EP with property tests and
+small cross-host fixtures.
+
+Path conformance:
+
+- Generate EDN trees and concrete paths.
+- Check root path laws.
+- Check get/put/put-put/over/compose laws.
+- Check missing versus present `nil` via `lookup`.
+- Check `prefix?` and `overlap?` are deterministic, symmetric where
+  appropriate, and treat `[]` as overlapping every path.
+- Check flow output collisions use the same `overlap?` relation.
+
+Canonical identity conformance:
+
+- Generate maps with permuted insertion order and assert equal canonical
+  identity.
+- Generate nested maps, sets, vectors, and lists and assert deterministic
+  canonical bytes.
+- Assert vectors/lists/sets remain distinct where EDN distinguishes them.
+- Assert present `nil` and absent keys are distinct.
+- Assert unsupported host values fail closed with structured errors.
+- Pin fixtures for heterogeneous map keys that the canonical encoder supports.
+
+Route prism conformance:
+
+- For each registered route, generate valid path params/query params from the
+  route schemas and assert `match-url(route-url(...))` returns canonical route
+  data.
+- Assert `false`, `0`, and `""` query values round-trip.
+- Assert `nil`, absent, and empty-string path params fail on print.
+- Assert query `nil` elision is reflected in the parsed route data.
+- Assert query key ordering is deterministic.
+- Assert percent encoding/decoding is symmetric for path params, query values,
+  and fragments.
+- Assert the parse-print inverse only for URLs in the canonical emitted domain;
+  non-canonical inputs may normalize.
+
+Resource/work identity conformance:
+
+- Assert resource keys are invariant under scope and params map insertion
+  order.
+- Assert different scopes with the same params do not collide.
+- Assert work ids embed the canonical scoped resource key and generation.
+- Assert stale suppression keys on the canonical work id, not a second
+  near-duplicate identity.
+
+Public/internal conformance:
+
+- If helpers are public, public helper tests MUST be the same law tests used by
+  internal consumers.
+- If helpers remain internal, subsystem tests MUST still prove they share the
+  same behavior.
 
 ## Open Issues
 
-- Should path helpers be public API or internal support for specs and tooling?
-- What exact canonical ordering is used for heterogeneous map keys?
-- Are path templates part of this EP or deferred until feature-module manifests
-  need them?
-- How strict should canonicalization be for non-EDN JS values?
+- Should `rf.path/*` and `rf.identity/*` be public v1 API, or internal support
+  with only the semantics documented publicly?
+- What exact canonical byte encoding should be named for UUIDs, instants,
+  bigints, ratios, decimals, and heterogeneous numeric keys across CLJ/CLJS
+  hosts?
+- Should path templates reserve only `'?name` symbols, or should they use an
+  explicit data form such as `[:rf.path/param :invoice-id]` to avoid any chance
+  of confusing a literal symbol segment with a template variable?
+- Should named path declarations live in a registrar kind, a future feature
+  manifest, or both?
+- Should route data-form path patterns graduate with this EP or remain a later
+  additive front end to the same route prism laws?
+- Should canonical identity expose stable human-readable strings, digests, or
+  both? Debugging favors readable EDN; storage and lookup may favor bytes or
+  digests.
 
 ## Recommendation
 
-Adopt after review. This is a small standards-track EP because it changes a
-cross-cutting contract, but the implementation is intentionally modest: one
-path vocabulary, one canonical identity rule, and property tests.
+Adopt this EP as a standards-track proposal. It is small in implementation
+surface but high leverage: one path vocabulary, one canonical EDN identity
+rule, and one route prism law replace repeated subsystem-specific conventions.
+
+The design keeps re-frame's practical vector-path ergonomics, remains
+mechanically migratable from v1 codebases, and gives large SPAs the stronger
+contract they need: paths and identities are ordinary values with laws.
