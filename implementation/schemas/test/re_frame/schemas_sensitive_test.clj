@@ -340,24 +340,34 @@
       (is (not= :rf/redacted (-> v :tags :value))
           ":value rides verbatim — alignment didn't spuriously redact"))))
 
-(deftest app-db-validation-collection-sibling-sensitive-not-over-redacted
-  (testing "rf2-g5auo + rf2-oh4se — a failure at a NON-sensitive slot inside
-            a collection element must NOT inherit a sibling slot's
-            sensitivity (the precise-narrowing win still holds through
-            collections)"
-    ;; :secret is sensitive, :age is not; only :age fails (string, not int).
+(deftest app-db-validation-collection-sibling-narrowed-value-verbatim-whole-explain-redacted
+  (testing "rf2-g5auo + rf2-oh4se + rf2-3qam7b — PER-SLOT DECISION SCOPING
+            through a collection. A failure at a NON-sensitive slot (:age)
+            inside a collection element whose CONFORMING sibling (:secret) is
+            sensitive: the LEAF-NARROWED `:value` slot (the failing :age leaf,
+            \"no\") rides verbatim — the precise-narrowing win — but the
+            WHOLE-PAYLOAD `:explain` slot (the whole vector, conforming :secret
+            included) redacts under the root check, else the conforming
+            sensitive sibling egresses"
+    ;; :secret is sensitive AND conforms; :age is non-sensitive AND fails.
     (let [v (app-db-failure-trace
               [:people]
               [:vector [:map
                         [:secret {:sensitive? true} :string]
                         [:age :int]]]
-              {:people [{:secret "ok" :age "no"}]}
+              {:people [{:secret "SECRET-OK-9f3a" :age "no"}]}
               :people/bad)]
       (is (some? v))
-      (is (not (contains? v :sensitive?))
-          "the failing :age slot is not sensitive; its sibling :secret doesn't taint it")
-      (is (not= :rf/redacted (-> v :tags :value))
-          ":value rides verbatim — only the failing :age leaf is in the path"))))
+      ;; Narrowed slot — only the failing :age leaf, verbatim.
+      (is (= "no" (-> v :tags :value))
+          ":value (narrowed to the failing [:people 0 :age] leaf) rides verbatim")
+      ;; Whole-payload slot — carries the conforming :secret; redacts.
+      (is (= :rf/redacted (-> v :tags :explain))
+          ":explain (whole vector) redacted — it carries the conforming sensitive :secret")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present — a whole-payload slot redacted")
+      (is (not (str/includes? (pr-str (:tags v)) "SECRET-OK-9f3a"))
+          "the conforming sensitive sibling does NOT egress anywhere in the tags"))))
 
 ;; ---- :set-element value leaks via the :path tag (rf2-ss06u.1) -------------
 ;; Malli reports a :set failure's :in segment as the failing ELEMENT VALUE
@@ -716,23 +726,30 @@
            (schemas/extract-sensitive-paths-from-schema
              [:tuple [:string {:sensitive? true}] :int] [:pt])))))
 
-(deftest app-db-validation-tuple-sibling-not-over-redacted
-  (testing "rf2-ss06u.4 + rf2-oh4se — END-TO-END: a :tuple with one sensitive
-            and one non-sensitive element, where ONLY the non-sensitive sibling
-            fails, must ride VERBATIM (no :sensitive? stamp, no :rf/redacted) —
-            mirrors the g5auo :vector no-sibling-taint contract"
-    ;; element 0 is {:sensitive?} :string (valid value "ok");
-    ;; element 1 is :int but supplied a string → only element 1 fails.
+(deftest app-db-validation-tuple-sibling-narrowed-value-verbatim-whole-explain-redacted
+  (testing "rf2-ss06u.4 + rf2-oh4se + rf2-3qam7b — PER-SLOT DECISION SCOPING on
+            a :tuple. element 0 is {:sensitive?} :string (CONFORMING \"ok\");
+            element 1 is :int supplied a string → only element 1 fails. The
+            LEAF-NARROWED `:value` slot (the failing element 1, \"not-an-int\")
+            rides verbatim — the position-precise narrowing win — but the
+            WHOLE-PAYLOAD `:explain` slot (the whole tuple, conforming element 0
+            included) redacts under the root check"
     (let [v (app-db-failure-trace
               [:point]
               [:tuple [:string {:sensitive? true}] :int]
-              {:point ["ok" "not-an-int"]}
+              {:point ["SECRET-TUP-ok" "not-an-int"]}
               :point/bad)]
       (is (some? v) "a trace fired")
-      (is (not (contains? v :sensitive?))
-          "the failing element 1 is not sensitive; its sensitive sibling at element 0 doesn't taint it")
-      (is (not= :rf/redacted (-> v :tags :value))
-          ":value rides verbatim — only the non-sensitive element 1 failed"))))
+      ;; Narrowed slot — only the failing element 1, verbatim.
+      (is (= "not-an-int" (-> v :tags :value))
+          ":value (narrowed to the failing element 1) rides verbatim")
+      ;; Whole-payload slot — carries the conforming element 0; redacts.
+      (is (= :rf/redacted (-> v :tags :explain))
+          ":explain (whole tuple) redacted — it carries the conforming sensitive element 0")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present — a whole-payload slot redacted")
+      (is (not (str/includes? (pr-str (:tags v)) "SECRET-TUP-ok"))
+          "the conforming sensitive element does NOT egress anywhere in the tags"))))
 
 (deftest app-db-validation-tuple-sensitive-element-still-redacts
   (testing "rf2-ss06u.4 — no regression: when the SENSITIVE tuple element fails,
@@ -889,44 +906,44 @@
         (is (= [:user/update {:name "bob" :age "old"}] (-> v :tags :received))
             ":received rides verbatim — the walk did not spuriously redact")))))
 
-;; ---- path-targeted sensitivity: sensitive SIBLING, non-sensitive failure --
-;; rf2-k0ew8n (finding 1). BEFORE: the shared run-validation path decided
-;; redaction with the COARSE `schema-has-sensitive?` (true if ANY slot in the
-;; schema is sensitive), so adding one sensitive field to a payload hid an
-;; UNRELATED non-sensitive failure from Xray / Pair / trace debugging. AFTER:
-;; run-validation derives the failing `:in` path from the explainer and asks
-;; the PATH-TARGETED `schema-sensitive-at?` whether THAT slot is sensitive —
-;; matching the precise model `validate-app-schema!` already used.
+;; ---- per-slot scoping: sensitive SIBLING, non-sensitive failure ----------
+;; rf2-k0ew8n / rf2-4q681i / rf2-3qam7b. The shared `run-validation` path
+;; (event / cofx / fx / sub) carries the WHOLE checked value in EVERY
+;; value-bearing slot — `:value` / `:received` / `:explain` / `:rf.fx/args` /
+;; `:rf.sub/query-v` are all the whole event-vector / cofx / fx-args /
+;; sub-return value; NOTHING here is narrowed to the failing leaf (only the
+;; app-db `:value` slot narrows). So a CONFORMING `:sensitive?` SIBLING (a
+;; valid token next to a failing :count) rides INSIDE those whole-payload
+;; slots.
 ;;
-;; SCOPE NOTE (rf2-4q681i — the `:cat`-walker follow-up, now DONE):
-;; path-targeting is exact when the schema ROOT is a navigable container
-;; (`:map` / `:tuple` / `:cat` / `:catn` / index-bearing). The cofx /
-;; fx-args / sub-return surfaces validate a map value directly; EVENT
-;; schemas are `:cat`-rooted (`[:cat [:= :id] PayloadSchema]`). As of
-;; rf2-4q681i the walker treats `:cat` / `:catn` as POSITION-bearing
-;; (emitting per-element decl-paths `(conj base i)`, mirroring `:tuple`),
-;; and `align-in-path` KEEPS the integer element index, so the event
-;; surface now gets the SAME exact path-targeting as the map-rooted
-;; surfaces — a sensitive sibling no longer over-redacts a non-sensitive
-;; failing sibling. The elision-coordinate alignment is automatic: the
-;; runtime elision walk descends the event VECTOR through its generic
-;; literal-index fork (`fork-index-paths`, `(conj c i)`), matching the
-;; position-pinned `:cat`/`:catn` declaration exactly (no elision-side
-;; code change — same as the `:tuple` precedent rf2-ss06u.4).
+;; The earlier rf2-k0ew8n / rf2-4q681i shape decided redaction with the
+;; LEAF-PRECISE `schema-sensitive-at?` (sibling-blind), so a non-sensitive
+;; failing sibling cleared redaction and the CONFORMING sensitive sibling
+;; egressed verbatim to Xray / Pair / off-box — the rf2-3qam7b leak. Per
+;; PER-SLOT DECISION SCOPING (Mike's rf2-me69cb ruling) the redaction scope
+;; MUST match the carried-value scope: a whole-payload slot uses the ROOT
+;; `schema-has-sensitive?` check. So on these surfaces a sensitive sibling
+;; ANYWHERE in the schema redacts the WHOLE value — the price of not
+;; narrowing. (The app-db `:value` slot, which IS narrowed, keeps the
+;; leaf-precise no-sibling-taint win — see `validate-app-schema!`'s tests
+;; above.) These tests assert the conforming sensitive sibling is ABSENT
+;; from every egressed slot.
 
-(deftest cofx-validation-sensitive-sibling-non-sensitive-failure-verbatim
-  (testing "rf2-k0ew8n — a cofx schema (map-rooted) with a sensitive sibling
-            (:token) AND a non-sensitive failing sibling (:count) rides the
-            non-sensitive failure VERBATIM — path-targeting at a navigable
-            root no longer over-redacts the unrelated failure"
+(deftest cofx-validation-conforming-sensitive-sibling-redacted-whole-value
+  (testing "rf2-3qam7b — a cofx schema with a CONFORMING sensitive sibling
+            (:token) AND a non-sensitive failing sibling (:count): every
+            value-bearing slot on this surface carries the WHOLE cofx value
+            (the conforming :token included), so the redaction scopes to the
+            ROOT check and the WHOLE value redacts. The conforming sensitive
+            sibling must be ABSENT from every egressed slot"
     (rf/reg-cofx :auth/ctx
       {:schema [:map
                 [:token {:sensitive? true} :string]
                 [:count :int]]}
-      ;; :token conforms; :count fails (string, not int) — failing slot is
-      ;; the NON-sensitive sibling.
+      ;; :token "SECRET-COFX-tok" CONFORMS (sensitive sibling); :count fails
+      ;; (string, not int) — the failing slot is the NON-sensitive sibling.
       (fn [ctx] (assoc-in ctx [:coeffects :auth/ctx]
-                          {:token "t" :count "not-an-int"})))
+                          {:token "SECRET-COFX-tok" :count "not-an-int"})))
     (rf/reg-event-fx :auth/use-ctx
       [(rf/inject-cofx :auth/ctx)]
       (fn [_ _] {}))
@@ -938,12 +955,12 @@
                                    (= :cofx (-> % :tags :where)))
                              @traces))]
         (is (some? v) "a cofx validation failure was traced")
-        (is (not (true? (:sensitive? v)))
-            "no :sensitive? stamp — the failing slot (:count) is not sensitive")
-        (is (not= :rf/redacted (-> v :tags :value))
-            ":value rides verbatim — the sensitive sibling did not over-redact")
-        (is (= {:token "t" :count "not-an-int"} (-> v :tags :value))
-            "the non-sensitive failing value is reported verbatim for debugging")))))
+        (is (true? (:sensitive? v))
+            ":sensitive? stamped — a whole-payload slot carries the conforming sensitive sibling")
+        (is (= :rf/redacted (-> v :tags :value)) ":value (whole cofx) redacted")
+        (is (= :rf/redacted (-> v :tags :received)) ":received (whole cofx) redacted")
+        (is (not (str/includes? (pr-str (:tags v)) "SECRET-COFX-tok"))
+            "the conforming sensitive sibling :token is ABSENT from every egressed slot")))))
 
 (deftest cofx-validation-sensitive-slot-failure-still-redacts
   (testing "rf2-k0ew8n — the path-targeted check still REDACTS when the
@@ -970,16 +987,18 @@
             ":sensitive? stamped — the failing slot (:token) is sensitive")
         (is (= :rf/redacted (-> v :tags :value)) ":value redacted")))))
 
-(deftest sub-validation-sensitive-sibling-non-sensitive-failure-verbatim
-  (testing "rf2-k0ew8n — a sub-return schema (map-rooted) with a sensitive
-            sibling AND a non-sensitive failing sibling rides the
-            non-sensitive failure verbatim (path-targeting at a navigable
-            root)"
+(deftest sub-validation-conforming-sensitive-sibling-redacted-whole-value
+  (testing "rf2-3qam7b — a sub-return schema with a CONFORMING sensitive
+            sibling (:token) AND a non-sensitive failing sibling (:count):
+            the sub-return surface carries the WHOLE return value in every
+            value-bearing slot, so the redaction scopes to the ROOT check and
+            the WHOLE value redacts; the conforming sensitive sibling must be
+            ABSENT from every egressed slot"
     (rf/reg-sub :auth/view
       {:schema [:map
                 [:token {:sensitive? true} :string]
                 [:count :int]]}
-      (fn [_ _] {:token "t" :count "not-an-int"}))
+      (fn [_ _] {:token "SECRET-SUB-tok" :count "not-an-int"}))
     (let [traces (atom [])]
       (rf/register-listener! ::view (fn [ev] (swap! traces conj ev)))
       @(rf/subscribe [:auth/view])
@@ -988,19 +1007,23 @@
                                    (= :sub-return (-> % :tags :where)))
                              @traces))]
         (is (some? v) "a sub-return validation failure was traced")
-        (is (not (contains? v :sensitive?))
-            "no :sensitive? stamp — the failing slot (:count) is not sensitive")
-        (is (not= :rf/redacted (-> v :tags :value))
-            ":value rides verbatim — the sensitive sibling did not over-redact")))))
+        (is (true? (:sensitive? v))
+            ":sensitive? stamped — a whole-payload slot carries the conforming sensitive sibling")
+        (is (= :rf/redacted (-> v :tags :value)) ":value (whole return) redacted")
+        (is (= :rf/redacted (-> v :tags :received)) ":received (whole return) redacted")
+        (is (not (str/includes? (pr-str (:tags v)) "SECRET-SUB-tok"))
+            "the conforming sensitive sibling :token is ABSENT from every egressed slot")))))
 
-(deftest event-validation-cat-root-sensitive-sibling-non-sensitive-failure-verbatim
-  (testing "rf2-4q681i — an event schema is `:cat`-rooted; with `:cat` now
-            POSITION-bearing in the walker, a non-sensitive failing sibling
-            under a sensitive payload rides VERBATIM (exact path-targeting),
-            NOT the prior fail-safe over-redaction. This was the documented
-            `event-validation-cat-root-fails-safe` limitation — now exact.
-            (Privacy is still upheld: the sensitive slot itself, when it
-            fails, still redacts — pinned in the companion test below.)"
+(deftest event-validation-cat-root-conforming-sensitive-sibling-redacted-whole-received
+  (testing "rf2-4q681i + rf2-3qam7b — an event schema is `:cat`-rooted, and
+            the event surface carries the WHOLE event vector in every
+            value-bearing slot (`:received` / `:value` / `:explain`). When a
+            CONFORMING sensitive payload slot (:password) rides next to a
+            non-sensitive failing slot (:age), the whole-payload slots redact
+            under the ROOT check — the conforming secret rides INSIDE the whole
+            event vector, so the leaf-precise `[1 :age]` decision (sibling-blind)
+            would have leaked it (the rf2-3qam7b leak this fix closes). The
+            conforming sensitive sibling MUST be absent from every egressed slot."
     (let [secret "pw-MUST-NOT-LEAK"]
       (rf/reg-event-db :auth/profile
         {:schema [:cat [:= :auth/profile]
@@ -1010,30 +1033,23 @@
         (fn [db _] db))
       (let [traces (atom [])]
         (rf/register-listener! ::prof (fn [ev] (swap! traces conj ev)))
-        ;; :password conforms (a string); :age fails (a string, not int) —
-        ;; the failing slot is NON-sensitive. `:cat` element 1 is now
-        ;; position-bearing, so the failing `:in` `[1 :age]` aligns to the
-        ;; decl-path `[1 :age]` and the sensitive sibling `[1 :password]`
-        ;; does NOT taint it.
+        ;; :password conforms (a string, the sensitive sibling); :age fails
+        ;; (a string, not int). The failing slot is NON-sensitive, but the
+        ;; whole event vector (carrying the conforming :password) rides every
+        ;; value-bearing slot.
         (rf/dispatch-sync [:auth/profile {:password secret :age "old"}])
         (rf/unregister-listener! ::prof)
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v))
-          (is (not (true? (:sensitive? v)))
-              "exact path-targeting: the failing slot (:age) is not sensitive,
-               so the sensitive sibling (:password) does NOT over-redact")
-          (is (not= :rf/redacted (-> v :tags :received))
-              ":received rides verbatim — the non-sensitive failure is visible
-               to Xray / Pair / trace debugging")
-          ;; NOTE: the conforming :password value DOES ride verbatim here —
-          ;; that is the correct trade-off the bead specifies (a conforming
-          ;; sensitive sibling is not the failing slot; only the failing slot
-          ;; drives redaction). The privacy contract protects FAILING
-          ;; sensitive slots; see the companion test below.
-          (is (= [:auth/profile {:password secret :age "old"}]
-                 (-> v :tags :received))
-              "the non-sensitive failing payload is reported verbatim"))))))
+          (is (true? (:sensitive? v))
+              ":sensitive? stamped — a whole-payload slot carries the conforming sensitive :password")
+          (is (= :rf/redacted (-> v :tags :received))
+              ":received (whole event vector) redacted")
+          (is (= :rf/redacted (-> v :tags :value))
+              ":value (whole event vector) redacted")
+          (is (not (str/includes? (pr-str (:tags v)) secret))
+              "the conforming sensitive :password is ABSENT from every egressed slot"))))))
 
 (deftest event-validation-cat-root-sensitive-slot-failure-still-redacts
   (testing "rf2-4q681i — no privacy regression: when the SENSITIVE `:cat`
@@ -1062,12 +1078,12 @@
           (is (not (str/includes? (pr-str (:tags v)) (str secret)))
               "the raw secret does NOT appear anywhere in the emitted tags"))))))
 
-(deftest event-validation-catn-root-sensitive-sibling-non-sensitive-failure-verbatim
-  (testing "rf2-4q681i — `:catn` (name+position-bearing) gets the same exact
-            path-targeting as `:cat`: Malli reports the integer POSITION (not
-            the name) in `:in`, so a non-sensitive failing sibling under a
-            sensitive `:catn` payload rides verbatim while a sensitive-slot
-            failure still redacts"
+(deftest event-validation-catn-root-conforming-sensitive-sibling-redacted-whole-received
+  (testing "rf2-4q681i + rf2-3qam7b — `:catn` behaves like `:cat`: the whole
+            event vector rides every value-bearing slot, so a CONFORMING
+            sensitive payload slot (:password) next to a non-sensitive failing
+            slot (:age) redacts under the ROOT check; the conforming secret is
+            absent from every egressed slot"
     (let [secret "catn-pw-DO-NOT-LEAK"]
       (rf/reg-event-db :auth/profile-n
         {:schema [:catn
@@ -1078,18 +1094,18 @@
         (fn [db _] db))
       (let [traces (atom [])]
         (rf/register-listener! ::profn (fn [ev] (swap! traces conj ev)))
-        ;; :age fails (non-sensitive); :password conforms.
+        ;; :age fails (non-sensitive); :password conforms (sensitive sibling).
         (rf/dispatch-sync [:auth/profile-n {:password secret :age "old"}])
         (rf/unregister-listener! ::profn)
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v))
-          (is (not (true? (:sensitive? v)))
-              "exact path-targeting through :catn — non-sensitive :age failure
-               is not tainted by the sensitive :password sibling")
-          (is (= [:auth/profile-n {:password secret :age "old"}]
-                 (-> v :tags :received))
-              ":received rides verbatim"))))))
+          (is (true? (:sensitive? v))
+              ":sensitive? stamped — a whole-payload slot carries the conforming sensitive :password")
+          (is (= :rf/redacted (-> v :tags :received))
+              ":received (whole event vector) redacted")
+          (is (not (str/includes? (pr-str (:tags v)) secret))
+              "the conforming sensitive :password is ABSENT from every egressed slot"))))))
 
 ;; ---- walker unit tests for the rf2-4q681i :cat/:catn position-bearing fix --
 

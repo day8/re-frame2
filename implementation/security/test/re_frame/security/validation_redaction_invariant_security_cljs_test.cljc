@@ -170,6 +170,41 @@
   [:auth/login {:password [sentinel]}])
 
 ;; ---------------------------------------------------------------------------
+;; CONFORMING SENSITIVE SIBLING (rf2-3qam7b) — the secret rides at a slot that
+;; CONFORMS, while a DIFFERENT, non-sensitive slot FAILS. The whole-payload
+;; slots (`:value` / `:received` / `:explain`) ship the WHOLE checked value,
+;; so the conforming sensitive sibling rides inside them. A leaf-precise
+;; decision keyed on the (non-sensitive) failing slot is sibling-blind and
+;; leaked the conforming secret — the rf2-3qam7b leak. Per PER-SLOT DECISION
+;; SCOPING the whole-payload slots redact under the ROOT check, so the
+;; conforming sibling must never egress.
+;;   schema: [:map [:jwt {:sensitive? true} :string] [:count :int]]
+;;   value:  {:jwt sentinel :count "not-an-int"}   ;; :jwt conforms, :count fails
+;; ---------------------------------------------------------------------------
+
+(def ^:private sibling-sensitive-map-schema
+  [:map
+   [:jwt   {:sensitive? true} :string]
+   [:count :int]])
+
+(def ^:private failing-sibling-value
+  ;; :jwt CONFORMS (a string) and carries the sentinel; :count FAILS (a string
+  ;; where an :int is required). The failing slot is the NON-sensitive sibling.
+  {:jwt sentinel :count "not-an-int"})
+
+;; An EVENT schema where the `:cat` payload map carries a CONFORMING sensitive
+;; sibling next to a non-sensitive failing one (the bead's event-surface pin).
+(def ^:private sibling-sensitive-event-schema
+  [:cat [:= :auth/profile]
+   [:map
+    [:password {:sensitive? true} :string]
+    [:age      :int]]])
+
+(def ^:private failing-sibling-event
+  ;; :password CONFORMS (carries the sentinel); :age FAILS (string, not int).
+  [:auth/profile {:password sentinel :age "old"}])
+
+;; ---------------------------------------------------------------------------
 ;; PER-KIND CORPUS — drive every framework validation surface that emits
 ;; `:rf.error/schema-validation-failure` and assert no value-bearing slot
 ;; ships the sentinel for the `:sensitive?`-marked schema.
@@ -241,6 +276,98 @@
       (assert-no-leak ":where :machine-data" trace)
       (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
       (is (= :rf/redacted (-> trace :tags :received)) ":received redacted")
+      (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
+
+;; ---------------------------------------------------------------------------
+;; CONFORMING SENSITIVE SIBLING CORPUS (rf2-3qam7b) — for each kind, the
+;; sentinel rides at a CONFORMING sensitive slot while a DIFFERENT non-sensitive
+;; slot fails. Because every kind's whole-payload slots carry the whole checked
+;; value, the conforming sibling rides inside them and must NOT egress. The
+;; leaf-precise (sibling-blind) decision the pre-rf2-3qam7b run-validation /
+;; app-db paths used leaked it; per PER-SLOT DECISION SCOPING the whole-payload
+;; slots redact under the ROOT check. Verify-by-revert: restoring the
+;; leaf-precise `schema-sensitive-at?` decision on `run-validation` /
+;; `validate-app-schema!`'s whole-payload slots makes these RED (the sentinel
+;; surfaces in :received / :explain / :value).
+;; ---------------------------------------------------------------------------
+
+(deftest event-validation-redacts-conforming-sensitive-sibling
+  (testing "rf2-3qam7b — :where :event: a CONFORMING sensitive :password rides
+            next to a non-sensitive failing :age; the whole event vector (every
+            value-bearing slot) redacts under the root check and the conforming
+            sibling never egresses"
+    (let [trace (capture-failure
+                  #(schemas/validate-event!
+                     :auth/profile failing-sibling-event
+                     {:schema sibling-sensitive-event-schema}))]
+      (assert-no-leak ":where :event (conforming sibling)" trace)
+      (is (= :rf/redacted (-> trace :tags :received)) ":received redacted")
+      (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
+
+(deftest cofx-validation-redacts-conforming-sensitive-sibling
+  (testing "rf2-3qam7b — :where :cofx: a CONFORMING sensitive :jwt rides next to
+            a non-sensitive failing :count; the whole cofx value redacts"
+    (let [trace (capture-failure
+                  #(schemas/validate-cofx!
+                     :rf.cofx/ctx :some/event failing-sibling-value
+                     {:schema sibling-sensitive-map-schema}))]
+      (assert-no-leak ":where :cofx (conforming sibling)" trace)
+      (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> trace :tags :received)) ":received redacted"))))
+
+(deftest fx-validation-redacts-conforming-sensitive-sibling
+  (testing "rf2-3qam7b — :where :fx-args: a CONFORMING sensitive :jwt rides next
+            to a non-sensitive failing :count; the whole fx args redact (incl.
+            :rf.fx/args)"
+    (let [trace (capture-failure
+                  #(schemas/validate-fx!
+                     :fx/effect :some/event failing-sibling-value
+                     {:schema sibling-sensitive-map-schema}))]
+      (assert-no-leak ":where :fx-args (conforming sibling)" trace)
+      (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> trace :tags :rf.fx/args)) ":rf.fx/args redacted"))))
+
+(deftest sub-return-validation-redacts-conforming-sensitive-sibling
+  (testing "rf2-3qam7b — :where :sub-return: a CONFORMING sensitive :jwt rides
+            next to a non-sensitive failing :count; the whole return value
+            redacts"
+    (let [trace (capture-failure
+                  #(schemas/validate-sub!
+                     :sub/view [:sub/view] failing-sibling-value
+                     {:schema sibling-sensitive-map-schema}))]
+      (assert-no-leak ":where :sub-return (conforming sibling)" trace)
+      (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> trace :tags :received)) ":received redacted"))))
+
+(deftest app-db-validation-redacts-conforming-sensitive-sibling-whole-explain
+  (testing "rf2-3qam7b — :where :app-db: a CONFORMING sensitive :jwt rides next
+            to a non-sensitive failing :count. The NARROWED `:value` slot (the
+            failing :count leaf) rides verbatim — the precise-narrowing win for
+            the genuinely narrowed slot — but the WHOLE-PAYLOAD `:explain` slot
+            (the whole reg-slice, conforming :jwt included) redacts under the
+            root check, so the conforming sibling never egresses"
+    (rf/reg-app-schema [:root] sibling-sensitive-map-schema)
+    (let [trace (capture-failure
+                  #(schemas/validate-app-schema!
+                     {:root failing-sibling-value} :root/bad))]
+      (assert-no-leak ":where :app-db (conforming sibling)" trace)
+      ;; The narrowed :value is the failing non-sensitive :count leaf, verbatim.
+      (is (= "not-an-int" (-> trace :tags :value))
+          ":value (narrowed to the failing :count leaf) rides verbatim")
+      ;; The whole-payload :explain carries the conforming :jwt — redacted.
+      (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
+
+(deftest machine-data-validation-redacts-conforming-sensitive-sibling
+  (testing "rf2-3qam7b — :where :machine-data: a CONFORMING sensitive :jwt rides
+            next to a non-sensitive failing :count in the :data map; the whole
+            :data redacts via the shared seam (root check)"
+    (let [trace (capture-failure
+                  #(machine-data/validate-snapshot-data!
+                     :my/machine {:data failing-sibling-value}
+                     sibling-sensitive-map-schema :macrostep))]
+      (assert-no-leak ":where :machine-data (conforming sibling)" trace)
+      (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
       (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
 
 ;; ---------------------------------------------------------------------------

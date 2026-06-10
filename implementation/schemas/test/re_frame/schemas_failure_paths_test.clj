@@ -37,7 +37,8 @@
   Backward-compat: `:explain` and the structural slots
   (`:failing-id`, `:where`, `:frame`, `:recovery`, `:reason`) ride
   the trace verbatim under both the precise and fallback paths."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
             [re-frame.schemas.malli]
@@ -118,35 +119,47 @@
 
 ;; ---- sensitivity is path-targeted, not whole-schema ----------------------
 
-(deftest non-sensitive-sibling-failure-not-redacted
-  (testing "rf2-oh4se — a failure at a non-sensitive sibling does NOT
-            trigger redaction merely because another slot in the same
-            schema is :sensitive?. The over-broad redaction was the
-            symptom the bead fix targets."
+(deftest non-sensitive-sibling-failure-narrowed-value-verbatim-whole-explain-redacted
+  (testing "rf2-oh4se + rf2-3qam7b — PER-SLOT DECISION SCOPING on the app-db
+            path. A failure at a non-sensitive leaf (:name) whose CONFORMING
+            sibling (:password) is sensitive: the LEAF-NARROWED `:value` slot
+            (just the failing leaf, 42) rides VERBATIM — the precise-narrowing
+            win the leaf-precise check buys — but the WHOLE-PAYLOAD `:explain`
+            slot (which carries the whole :user map, conforming secret
+            included) MUST redact under the root check, else the live
+            `secret-pw` egresses. This is the bead's repro: [:name] fails,
+            [:password {:sensitive?}] conforms."
     (rf/reg-app-schema [:user]
                        [:map
                         [:name     :string]
                         [:password {:sensitive? true} :string]])
-    ;; :name is the failing leaf (int, not string); :password is
-    ;; correct. The failing leaf [:user :name] is NOT sensitive; the
-    ;; sibling [:user :password] is sensitive but does not appear in
-    ;; the failing value. No redaction.
+    ;; :name is the failing leaf (int, not string); :password "secret-pw"
+    ;; CONFORMS — a sensitive sibling that does NOT appear in the narrowed
+    ;; failing leaf value, but DOES ride inside the whole-map :explain slot.
     (let [traces (capture-trace
                    #(schemas/validate-app-schema!
                       {:user {:name 42 :password "secret-pw"}}
                       :u/bad-name))
           v      (first traces)]
-      (is (not (contains? v :sensitive?))
-          "no top-level :sensitive? stamp — failing leaf is non-sensitive")
-      (is (not (contains? (:tags v) :sensitive?))
-          ":tags :sensitive? also absent")
+      ;; The leaf-narrowed slot is scoped to the failing leaf — verbatim.
       (is (= 42 (-> v :tags :value))
-          ":value rides verbatim — sibling-sensitive does not redact a
-          non-sensitive leaf")
-      (is (= [:user :name] (-> v :tags :path)))
-      (is (some? (-> v :tags :explain))
-          ":explain rides verbatim — the explainer output is the leaf's,
-          not the whole schema's"))))
+          ":value (narrowed to the failing leaf [:user :name]) rides verbatim —
+           the leaf-precise check keeps the precise-narrowing win for the
+           narrowed slot")
+      (is (= [:user :name] (-> v :tags :path))
+          ":path stays the navigable leaf locator (the failing leaf is not
+           sensitive, so no path sanitization)")
+      ;; The whole-payload :explain slot carries the conforming sensitive
+      ;; sibling — it redacts under the ROOT check (rf2-3qam7b).
+      (is (= :rf/redacted (-> v :tags :explain))
+          ":explain (whole reg-slice) redacted — it carries the conforming
+           sensitive :password sibling")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present — a whole-payload slot redacted")
+      ;; The conforming secret never egresses anywhere in the trace.
+      (is (not (str/includes? (pr-str (:tags v)) "secret-pw"))
+          "the conforming sensitive sibling's value does NOT appear anywhere in
+           the emitted tags (the rf2-3qam7b leak this fix closes)"))))
 
 (deftest sensitive-leaf-failure-redacted
   (testing "the failing leaf IS the sensitive slot — redaction fires"
