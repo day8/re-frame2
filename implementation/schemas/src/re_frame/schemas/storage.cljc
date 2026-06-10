@@ -70,6 +70,19 @@
                     {:received opts-or-frame-id
                      :expected "keyword frame-id or opts map"}))))
 
+(defn- best-effort-frame
+  "Resolve the registration frame for an error payload WITHOUT throwing —
+  the explicit `:frame` opt if present, else the carried-invariant scope
+  frame, else `nil` when no scope is established. Used only to enrich the
+  `:rf.error/app-schema-runtime-path` payload (rf2-k0ew8n): the path-gate
+  runs before the registration's own (throwing) frame resolution, so we
+  must not let a missing scope (or a malformed opts shape) mask the
+  runtime-path rejection."
+  [opts-or-frame-id]
+  (try
+    (resolve-frame (coerce-opts opts-or-frame-id))
+    (catch #?(:clj Exception :cljs :default) _ nil)))
+
 ;; ---- registration-time path-shape validation (rf2-sk0ql) ------------------
 ;;
 ;; A `reg-app-schema` `path` is a `get-in`/`assoc-in`-shaped path: a
@@ -115,19 +128,95 @@
   [path]
   (sequential? path))
 
-(defn assert-app-schema-path!
-  "Throw `:rf.error/bad-app-schema-path` (per Spec 009 error catalogue)
-  when `path` is not a valid `reg-app-schema` path shape. Called by
-  `reg-app-schema` / `reg-app-schemas` BEFORE the store mutation so a
-  malformed path never lands in `schemas-by-frame` and can never poison
-  the `validate-app-schema!` hot path (rf2-sk0ql)."
+;; ---- runtime-db first-segment rejection (rf2-k0ew8n) ----------------------
+;;
+;; Per Spec 010 §`app-db` schemas, app schemas validate ONLY app-db: the
+;; `validate-app-schema!` hot path reads `(get-in app-db path)`. After
+;; EP-0001 the durable machine / routing / SSR / elision state moved OUT
+;; of app-db into the SEPARATE runtime-db partition, reached through the
+;; reserved `:rf.runtime/*` namespace (and the now-retired legacy app-db
+;; `:rf/runtime` root). A path whose FIRST segment reaches into runtime-db
+;; is a CATEGORY error for `reg-app-schema`:
+;;
+;;   - a normal `[:map …]` schema registered there validates `(get-in
+;;     app-db [:rf.runtime/… …])`, which is `nil` (the state lives in
+;;     runtime-db, not app-db), so EVERY dev commit fails validation /
+;;     detonates, or
+;;   - the author falsely believes they have installed a guard over
+;;     runtime-db state when nothing of the sort happened.
+;;
+;; Either way there is NOTHING to soft-land: no legitimate caller registers
+;; an app schema against a runtime path. So — unlike the `:rf.db/runtime`
+;; EFFECT seam, where a warning teaches because the misuse still executes
+;; as intended — this is a HARD REJECT at the existing pre-mutation gate
+;; (RULING (b), rf2-k0ew8n). `reg-runtime-schema` is the correct surface
+;; for runtime-db validation, and the error names it. EP-0001 line ~484
+;; said "warn"; that predates the fail-closed hardening campaign
+;; (rf2-sk0ql, rf2-naihn1, the legacy-root hard error) and is the artefact
+;; under repair here, not a constraint.
+
+(defn runtime-app-schema-path?
+  "True when `path`'s FIRST segment reaches into the runtime-db partition
+  — a keyword in the reserved `:rf.runtime/*` namespace (`:rf.runtime/
+  machines`, `:rf.runtime/routing`, `:rf.runtime/elision`, …), the
+  runtime-db CONTAINER root `:rf.db/runtime` (the epoch / restore path
+  prefix), OR the retired legacy app-db `:rf/runtime` root. Such a path is
+  a category error for `reg-app-schema`, which validates ONLY app-db
+  (rf2-k0ew8n).
+
+  Mirrors the canonical runtime-path detection used across the core
+  conformance reader (`(= \"rf.runtime\" (namespace (first path)))`) and
+  also catches the `:rf.db/runtime` container root and the legacy
+  `:rf/runtime` segment. A non-sequential or empty `path` is NOT runtime
+  — `valid-app-schema-path?` owns the shape check and the empty `[]` root
+  is a legitimate whole-app-db schema."
   [path]
-  (when-not (valid-app-schema-path? path)
-    (throw (ex-info ":rf.error/bad-app-schema-path"
-                    {:received path
-                     :expected (str "a sequential get-in path (vector/seq "
-                                    "of keys), or [] for the app-db root")
-                     :rf.error/id :rf.error/bad-app-schema-path}))))
+  (boolean
+    (when (and (sequential? path) (seq path))
+      (let [head (first path)]
+        (and (keyword? head)
+             (or (= "rf.runtime" (namespace head))
+                 (= :rf.db/runtime head)
+                 (= :rf/runtime head)))))))
+
+(defn assert-app-schema-path!
+  "Throw a framework error (per Spec 009 error catalogue) when `path` is
+  not a valid `reg-app-schema` path. Called by `reg-app-schema` /
+  `reg-app-schemas` BEFORE the store mutation so a bad path never lands
+  in `schemas-by-frame`. Two distinct rejections:
+
+    - `:rf.error/bad-app-schema-path` — the SHAPE is wrong (a
+      non-sequential scalar), which would poison the `validate-app-schema!`
+      hot path's `(get-in db path)` (rf2-sk0ql).
+    - `:rf.error/app-schema-runtime-path` — the shape is fine but the
+      FIRST segment reaches into the runtime-db partition (`:rf.runtime/*`
+      or the legacy `:rf/runtime` root). App schemas validate only app-db;
+      `reg-runtime-schema` is the correct surface (rf2-k0ew8n, RULING (b)).
+
+  `frame` (optional) names the resolved registration frame for the
+  runtime-path error payload; callers pass the frame they resolved. It is
+  best-effort context only — the gate runs before the registration's own
+  frame resolution, so a `nil` frame still rejects loudly."
+  ([path] (assert-app-schema-path! path nil))
+  ([path frame]
+   (when-not (valid-app-schema-path? path)
+     (throw (ex-info ":rf.error/bad-app-schema-path"
+                     {:received path
+                      :expected (str "a sequential get-in path (vector/seq "
+                                     "of keys), or [] for the app-db root")
+                      :rf.error/id :rf.error/bad-app-schema-path})))
+   (when (runtime-app-schema-path? path)
+     (throw (ex-info ":rf.error/app-schema-runtime-path"
+                     {:received    path
+                      :frame       frame
+                      :reason      (str "app schemas validate only app-db; a "
+                                        "path whose first segment is a "
+                                        ":rf.runtime/* keyword (or the legacy "
+                                        ":rf/runtime root) reaches into the "
+                                        "runtime-db partition. Use "
+                                        "reg-runtime-schema to validate "
+                                        "runtime-db state.")
+                      :rf.error/id :rf.error/app-schema-runtime-path})))))
 
 ;; ---- bulk first-argument shape validation (rf2-naihn1) --------------------
 ;;
@@ -242,8 +331,10 @@
 ;; cannot introspect. Symmetric with the
 ;; `:rf.warning/schema-validator-unavailable` warn-once-per-process
 ;; pattern above. Cost is one boot-time predicate per `reg-app-schema`
-;; call; the warning is the discoverability nudge for the two workable
-;; fallbacks (vector form, or registration-meta `:sensitive?`).
+;; call; the warning is the discoverability nudge for the one workable
+;; shape — registering the vector form so the walker can introspect the
+;; per-slot flags (the registration-meta `:sensitive?` fallback has been
+;; removed; sensitivity is path-targeted — rf2-k0ew8n).
 ;;
 ;; Keyword schemas DO NOT warn (rf2-ee38b.6 — correctness P2). A bare
 ;; keyword is non-vector but is a valid, idiomatic Malli schema in two
@@ -310,13 +401,14 @@
                      " (used for per-slot `:sensitive?` / `:large?`"
                      " extraction) can only introspect vector-form Malli"
                      " EDN — per-slot flags inside an opaque value are"
-                     " silently skipped. Two workable shapes: (1)"
-                     " register the vector form directly so the walker"
-                     " can introspect it; (2) use registration-level"
-                     " `:sensitive?` metadata on the consuming"
-                     " `reg-event-*` for coarse-grained honour. Per"
-                     " Spec 010 §The `:schema` value is opaque to"
-                     " re-frame.")})))))
+                     " silently skipped. The workable shape: register the"
+                     " vector form directly so the walker can introspect"
+                     " the per-slot flags. (The handler/cofx/sub"
+                     " registration-meta `:sensitive?` fallback has been"
+                     " removed — sensitivity is path-targeted and the"
+                     " redactor consults only per-slot schema"
+                     " declarations.) Per Spec 010 §The `:schema` value"
+                     " is opaque to re-frame.")})))))
 
 (defn- maybe-warn-validator-unavailable!
   "Emit `:rf.warning/schema-validator-unavailable` once per process when
@@ -611,7 +703,11 @@
    ;; `(get-in db path)` throw, which the router silently swallows as a
    ;; validation pass (a correctness- + privacy-relevant bypass). Always-on
    ;; — a malformed registration is a programming error in every build.
-   (assert-app-schema-path! path)
+   ;; Per rf2-k0ew8n — the SAME gate also hard-rejects a runtime-db path
+   ;; (`:rf.runtime/*` / legacy `:rf/runtime` first segment) with the
+   ;; distinct `:rf.error/app-schema-runtime-path`. The frame is resolved
+   ;; best-effort for the payload so a missing scope cannot mask it.
+   (assert-app-schema-path! path (best-effort-frame opts-or-frame-id))
    (let [opts         (coerce-opts opts-or-frame-id)
          frame-id     (resolve-frame opts)
          ;; The per-frame schema-metadata map (the {path → schema-meta}
@@ -766,8 +862,11 @@
    ;; bad key's delegated `reg-app-schema` throws). Reject the whole call
    ;; atomically. (`reg-app-schema` re-asserts per entry — cheap and
    ;; idempotent — but this up-front sweep is what guarantees the
-   ;; all-or-nothing contract.)
-   (run! assert-app-schema-path! (keys path->schema))
+   ;; all-or-nothing contract.) Per rf2-k0ew8n the same sweep also rejects
+   ;; a runtime-db path key (`:rf.error/app-schema-runtime-path`) before
+   ;; any mutation, so a batch with one runtime path lands NOTHING.
+   (let [batch-frame (best-effort-frame opts-or-frame-id)]
+     (run! #(assert-app-schema-path! % batch-frame) (keys path->schema)))
    (let [opts       (coerce-opts opts-or-frame-id)
          frame-id   (resolve-frame opts)
          entry-opts (assoc opts :rf/defer-elision-populate? true)]

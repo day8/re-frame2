@@ -290,6 +290,107 @@
     (is (= [:map]  (rf/app-schema-at [])))
     (is (= :int    (rf/app-schema-at [:cart :qty])))))
 
+;; ---- runtime-db path hard-reject (rf2-k0ew8n) ----------------------------
+;;
+;; RULING (b): `reg-app-schema` / `reg-app-schemas` HARD-REJECT any path
+;; whose FIRST segment reaches into the runtime-db partition — a
+;; `:rf.runtime/*` keyword, the `:rf.db/runtime` container root, or the
+;; retired legacy app-db `:rf/runtime` root — with the DISTINCT id
+;; `:rf.error/app-schema-runtime-path` (not `:rf.error/bad-app-schema-path`).
+;; App schemas validate ONLY app-db: `validate-app-schema!` reads
+;; `(get-in app-db path)`, so a runtime path either detonates every dev
+;; commit (a normal `[:map …]` schema over a `nil` slot) or silently
+;; installs a validator the author falsely believes guards runtime-db.
+;; Nothing to soft-land — unlike the `:rf.db/runtime` EFFECT seam, no
+;; legitimate caller exists, so this is a hard reject at the existing
+;; pre-mutation gate. `reg-runtime-schema` is the correct surface.
+
+(def runtime-paths-rejected
+  "Every shape `runtime-app-schema-path?` must reject as a first segment."
+  [[:rf.runtime/machines :snapshots :m/x]
+   [:rf.runtime/routing :current]
+   [:rf.runtime/elision :decls]
+   [:rf.db/runtime :rf.runtime/machines]   ; runtime-db container root
+   [:rf/runtime :legacy :slice]])          ; retired legacy app-db root
+
+(deftest reg-app-schema-rejects-runtime-path-with-distinct-error
+  (testing "rf2-k0ew8n — a singular reg-app-schema against a runtime-db
+            path throws :rf.error/app-schema-runtime-path (distinct from
+            the shape error), carries :received + :frame + a :reason naming
+            reg-runtime-schema, and stores NOTHING"
+    (doseq [bad-path runtime-paths-rejected]
+      (let [before (schemas/snapshot-schemas-by-frame)
+            thrown (try (rf/reg-app-schema bad-path [:map] {:frame :tenant/rt})
+                        (catch clojure.lang.ExceptionInfo e e))]
+        (is (instance? clojure.lang.ExceptionInfo thrown)
+            (str "runtime path " (pr-str bad-path) " throws ex-info"))
+        (when (instance? clojure.lang.ExceptionInfo thrown)
+          (is (= ":rf.error/app-schema-runtime-path"
+                 (.getMessage ^Exception thrown))
+              "names the DISTINCT runtime-path error category")
+          (let [data (ex-data thrown)]
+            (is (= :rf.error/app-schema-runtime-path (:rf.error/id data))
+                ":rf.error/id is the distinct runtime-path id")
+            (is (= bad-path (:received data))
+                ":received carries the offending path verbatim")
+            (is (= :tenant/rt (:frame data))
+                ":frame carries the resolved registration frame")
+            (is (re-find #"reg-runtime-schema" (:reason data))
+                ":reason names reg-runtime-schema as the correct surface")))
+        (is (= before (schemas/snapshot-schemas-by-frame))
+            (str "store unchanged after rejecting " (pr-str bad-path)))))))
+
+(deftest reg-app-schema-runtime-path-distinct-from-shape-error
+  (testing "rf2-k0ew8n — the runtime-path id is NOT the shape-error id; a
+            runtime path is well-SHAPED (sequential) so it passes the shape
+            gate and is rejected by the SEPARATE namespace gate"
+    (is (storage/valid-app-schema-path? [:rf.runtime/machines])
+        "a runtime path is a valid SHAPE — sequential")
+    (is (storage/runtime-app-schema-path? [:rf.runtime/machines])
+        "but the first-segment runtime check catches it")
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #":rf.error/app-schema-runtime-path"
+                          (rf/reg-app-schema [:rf.runtime/machines] [:map]
+                                             {:frame :tenant/rt})))))
+
+(deftest reg-app-schema-accepts-non-runtime-rf-paths
+  (testing "rf2-k0ew8n — the gate keys on the runtime-db FIRST segment only;
+            an ordinary app-db path with an `:rf*`-ish key that is NOT a
+            runtime root registers fine, and a runtime keyword NOT in head
+            position is allowed"
+    (rf/reg-app-schema [:user] [:map [:id :int]] {:frame :tenant/rt})
+    (is (= [:map [:id :int]] (rf/app-schema-at [:user] :tenant/rt)))
+    ;; A runtime keyword that is NOT the first segment is fine — only the
+    ;; head matters (app-db could legitimately hold such a nested key).
+    (rf/reg-app-schema [:user :rf.runtime/note] :string {:frame :tenant/rt})
+    (is (= :string (rf/app-schema-at [:user :rf.runtime/note] :tenant/rt)))
+    ;; The empty root [] is the whole-app-db schema — never runtime.
+    (is (not (storage/runtime-app-schema-path? [])))
+    (is (not (storage/runtime-app-schema-path? [:rf/something-else])))))
+
+(deftest reg-app-schemas-rejects-batch-with-runtime-path-atomically
+  (testing "rf2-k0ew8n — a bulk batch containing one runtime-db path key is
+            rejected ATOMICALLY with :rf.error/app-schema-runtime-path before
+            any mutation: NO entry lands, not even well-formed app-db siblings"
+    (let [before (schemas/snapshot-schemas-by-frame)
+          thrown (try (rf/reg-app-schemas {[:good]                 :int
+                                           [:rf.runtime/machines]  [:map]
+                                           [:also-good]            :boolean}
+                                          {:frame :tenant/rt})
+                      (catch clojure.lang.ExceptionInfo e e))]
+      (is (instance? clojure.lang.ExceptionInfo thrown)
+          "a batch with a runtime path key throws")
+      (when (instance? clojure.lang.ExceptionInfo thrown)
+        (is (= ":rf.error/app-schema-runtime-path"
+               (.getMessage ^Exception thrown))
+            "names the distinct runtime-path error category")
+        (is (= :rf.error/app-schema-runtime-path
+               (:rf.error/id (ex-data thrown)))))
+      (is (= before (schemas/snapshot-schemas-by-frame))
+          "NO entry from the batch landed — all-or-nothing")
+      (is (nil? (rf/app-schema-at [:good] :tenant/rt))
+          "the well-formed app-db sibling did not half-register"))))
+
 ;; ---- end-to-end bypass invariant (rf2-sk0ql) -----------------------------
 ;;
 ;; The load-bearing regression: BEFORE the fix, registering `:n` then

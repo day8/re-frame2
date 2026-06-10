@@ -889,6 +889,136 @@
         (is (= [:user/update {:name "bob" :age "old"}] (-> v :tags :received))
             ":received rides verbatim — the walk did not spuriously redact")))))
 
+;; ---- path-targeted sensitivity: sensitive SIBLING, non-sensitive failure --
+;; rf2-k0ew8n (finding 1). BEFORE: the shared run-validation path decided
+;; redaction with the COARSE `schema-has-sensitive?` (true if ANY slot in the
+;; schema is sensitive), so adding one sensitive field to a payload hid an
+;; UNRELATED non-sensitive failure from Xray / Pair / trace debugging. AFTER:
+;; run-validation derives the failing `:in` path from the explainer and asks
+;; the PATH-TARGETED `schema-sensitive-at?` whether THAT slot is sensitive —
+;; matching the precise model `validate-app-schema!` already used.
+;;
+;; SCOPE NOTE (rf2-k0ew8n follow-up): path-targeting is exact when the
+;; schema ROOT is a navigable container (`:map` / `:tuple` / index-bearing)
+;; — the cofx / fx-args / sub-return surfaces, whose schemas validate a map
+;; value directly, get the precise behaviour below. EVENT schemas are
+;; `:cat`-rooted (`[:cat [:= :id] PayloadSchema]`); the walker treats `:cat`
+;; as a parent-path-collapsing wrapper (NOT position-bearing like `:tuple`),
+;; so `align-in-path` cannot resolve the `:cat` element index and the check
+;; degrades FAIL-SAFE (conservatively redacts) when any sibling is sensitive
+;; — identical to the app-db path's no-extractable-`:in` fallback. Making
+;; `:cat` / `:catn` position-bearing in the walker (so event payloads also
+;; get exact path-targeting) is a coordinated walker + elision-coordinate
+;; change tracked as a follow-up bead, NOT bundled here.
+
+(deftest cofx-validation-sensitive-sibling-non-sensitive-failure-verbatim
+  (testing "rf2-k0ew8n — a cofx schema (map-rooted) with a sensitive sibling
+            (:token) AND a non-sensitive failing sibling (:count) rides the
+            non-sensitive failure VERBATIM — path-targeting at a navigable
+            root no longer over-redacts the unrelated failure"
+    (rf/reg-cofx :auth/ctx
+      {:schema [:map
+                [:token {:sensitive? true} :string]
+                [:count :int]]}
+      ;; :token conforms; :count fails (string, not int) — failing slot is
+      ;; the NON-sensitive sibling.
+      (fn [ctx] (assoc-in ctx [:coeffects :auth/ctx]
+                          {:token "t" :count "not-an-int"})))
+    (rf/reg-event-fx :auth/use-ctx
+      [(rf/inject-cofx :auth/ctx)]
+      (fn [_ _] {}))
+    (let [traces (atom [])]
+      (rf/register-listener! ::ctx (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:auth/use-ctx])
+      (rf/unregister-listener! ::ctx)
+      (let [v (first (filter #(and (= :rf.error/schema-validation-failure (:operation %))
+                                   (= :cofx (-> % :tags :where)))
+                             @traces))]
+        (is (some? v) "a cofx validation failure was traced")
+        (is (not (true? (:sensitive? v)))
+            "no :sensitive? stamp — the failing slot (:count) is not sensitive")
+        (is (not= :rf/redacted (-> v :tags :value))
+            ":value rides verbatim — the sensitive sibling did not over-redact")
+        (is (= {:token "t" :count "not-an-int"} (-> v :tags :value))
+            "the non-sensitive failing value is reported verbatim for debugging")))))
+
+(deftest cofx-validation-sensitive-slot-failure-still-redacts
+  (testing "rf2-k0ew8n — the path-targeted check still REDACTS when the
+            FAILING slot itself is sensitive (no privacy regression)"
+    (rf/reg-cofx :auth/ctx2
+      {:schema [:map
+                [:token {:sensitive? true} :string]
+                [:count :int]]}
+      ;; :token fails (int, not string) — the FAILING slot IS sensitive.
+      (fn [ctx] (assoc-in ctx [:coeffects :auth/ctx2]
+                          {:token 1234 :count 3})))
+    (rf/reg-event-fx :auth/use-ctx2
+      [(rf/inject-cofx :auth/ctx2)]
+      (fn [_ _] {}))
+    (let [traces (atom [])]
+      (rf/register-listener! ::ctx2 (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:auth/use-ctx2])
+      (rf/unregister-listener! ::ctx2)
+      (let [v (first (filter #(and (= :rf.error/schema-validation-failure (:operation %))
+                                   (= :cofx (-> % :tags :where)))
+                             @traces))]
+        (is (some? v))
+        (is (true? (:sensitive? v))
+            ":sensitive? stamped — the failing slot (:token) is sensitive")
+        (is (= :rf/redacted (-> v :tags :value)) ":value redacted")))))
+
+(deftest sub-validation-sensitive-sibling-non-sensitive-failure-verbatim
+  (testing "rf2-k0ew8n — a sub-return schema (map-rooted) with a sensitive
+            sibling AND a non-sensitive failing sibling rides the
+            non-sensitive failure verbatim (path-targeting at a navigable
+            root)"
+    (rf/reg-sub :auth/view
+      {:schema [:map
+                [:token {:sensitive? true} :string]
+                [:count :int]]}
+      (fn [_ _] {:token "t" :count "not-an-int"}))
+    (let [traces (atom [])]
+      (rf/register-listener! ::view (fn [ev] (swap! traces conj ev)))
+      @(rf/subscribe [:auth/view])
+      (rf/unregister-listener! ::view)
+      (let [v (first (filter #(and (= :rf.error/schema-validation-failure (:operation %))
+                                   (= :sub-return (-> % :tags :where)))
+                             @traces))]
+        (is (some? v) "a sub-return validation failure was traced")
+        (is (not (contains? v :sensitive?))
+            "no :sensitive? stamp — the failing slot (:count) is not sensitive")
+        (is (not= :rf/redacted (-> v :tags :value))
+            ":value rides verbatim — the sensitive sibling did not over-redact")))))
+
+(deftest event-validation-cat-root-fails-safe
+  (testing "rf2-k0ew8n SCOPE — an event schema is `:cat`-rooted; the walker
+            does not treat `:cat` as position-bearing, so a non-sensitive
+            failing sibling under a sensitive payload degrades FAIL-SAFE
+            (conservatively redacts) rather than leaking. Documented
+            limitation; exact event-surface path-targeting is the follow-up
+            `:cat`-walker bead. The privacy contract is upheld either way."
+    (rf/reg-event-db :auth/profile
+      {:schema [:cat [:= :auth/profile]
+                [:map
+                 [:password {:sensitive? true} :string]
+                 [:age :int]]]}
+      (fn [db _] db))
+    (let [traces (atom [])]
+      (rf/register-listener! ::prof (fn [ev] (swap! traces conj ev)))
+      ;; :password conforms; :age fails — the failing slot is NON-sensitive,
+      ;; but the `:cat` root blocks path resolution, so fail-safe redaction
+      ;; fires (the sensitive sibling is present).
+      (rf/dispatch-sync [:auth/profile {:password "pw" :age "old"}])
+      (rf/unregister-listener! ::prof)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v))
+        (is (true? (:sensitive? v))
+            "fail-safe: the `:cat` root blocks exact path-targeting, so a
+             sensitive sibling still triggers conservative redaction")
+        (is (= :rf/redacted (-> v :tags :received))
+            ":received redacted — privacy upheld under the fail-safe path")))))
+
 ;; ---- rf2-a5kzs / rf2-o69h5 — shared validation-failure redaction seam ----
 ;; The production boundary interceptor (`re-frame.spec`) builds its own event-
 ;; failure tags and previously emitted them verbatim. The fix routes them

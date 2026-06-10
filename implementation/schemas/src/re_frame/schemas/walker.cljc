@@ -61,18 +61,24 @@
       false positive to catch a rare registry-ref true positive
       (rf2-ee38b.6); the keyword case is suppressed entirely.
 
-  Two workable shapes when per-slot flags need to apply:
+  The workable shape when per-slot flags need to apply:
 
     1. **Register the vector form, not the compiled one.** Pass the
        raw EDN `[op props? children...]` to `reg-app-schema` — the
-       walker can introspect it.
+       walker can introspect the per-slot `:sensitive?` / `:large?`
+       flags directly.
 
-    2. **Use registration-level metadata for coarse honour.** A
-       handler's `:sensitive?` registration meta still applies to the
-       whole event-handler-shipped value (per Spec 010 §`:sensitive?`)
-       even when the walker cannot reach per-slot flags. This is the
-       fallback when the schema MUST stay opaque (third-party
-       compiled schemas, registry refs that require lazy resolution).
+  > **No registration-meta fallback.** Earlier drafts named a
+  > handler/cofx/sub registration-level `:sensitive?` annotation as a
+  > coarse fallback for opaque schemas. That annotation has been REMOVED
+  > (per Spec 010 §`:sensitive?` and Spec 009 §`:sensitive?` registration
+  > metadata key, rf2-k0ew8n): sensitivity is path-targeted — a property
+  > of the data value at a path, not of the handler that touched it — and
+  > the validation redaction now consults ONLY the per-slot schema
+  > declaration. Registering an opaque value and adding handler-meta
+  > `:sensitive?` does NOT redact; the supported route is registering the
+  > vector form (or the path-mark / data-classification surface where it
+  > applies).
 
   Example — vector form vs registry ref:
 
@@ -84,8 +90,8 @@
 
     ;; Registry ref — walker treats the schema as an opaque leaf;
     ;; the per-slot :sensitive? inside `:my/user-schema` is invisible.
-    ;; Coarse honour via `:sensitive?` on the consuming reg-event-* is
-    ;; still available.
+    ;; The supported route is registering the vector form so the walker
+    ;; can introspect it (handler-meta :sensitive? is NOT a fallback).
     (rf/reg-app-schema [:user] :my/user-schema)
 
   The walker is parameterised on the per-slot flag key (`:large?` /

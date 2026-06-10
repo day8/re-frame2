@@ -481,7 +481,7 @@ re-frame2 should strengthen that rule with diagnostics:
 - warn or fail when a non-framework handler returns `:rf.db/runtime`;
 - warn or fail when ordinary app code registers effects under
   `:rf.db/runtime`;
-- warn when app schemas try to describe runtime-db paths;
+- **hard-reject** when app schemas try to describe runtime-db paths — `reg-app-schema` / `reg-app-schemas` throw `:rf.error/app-schema-runtime-path` at registration when a path's first segment is a `:rf.runtime/*` keyword, the `:rf.db/runtime` container root, or the legacy `:rf/runtime` root (rf2-k0ew8n). This is a **category error**, not a warnable misuse: app schemas validate only app-db, so a runtime path either detonates every dev commit or silently installs a validator over the wrong partition — there is no behaviour to soft-land and no legitimate caller, so it fails closed. (`reg-runtime-schema` is the surface for validating runtime-db state.) The earlier "warn" framing here predates the fail-closed hardening campaign and is superseded;
 - warn when examples or skills teach raw runtime path access;
 - provide explicit extension APIs for code that intentionally participates in
   runtime behavior.
