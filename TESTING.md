@@ -47,6 +47,29 @@ behaviour, not in "this example mounted + clicked." Coverage value
 lives in the framework + feature-matrix gates + per-adapter smoke.
 Don't grow example-level specs.
 
+## Test authoring policy — new tests carry explicit frames
+
+**New tests register and carry an explicit frame.** A new test sets up
+its own frame with `reg-frame` and targets it explicitly — `{:frame …}`
+on dispatch / subscribe, or a `with-frame` scope — per Spec 002
+[§Frame target resolution](spec/002-Frames.md#frame-target-resolution--the-carried-invariant)
+(EP-0002): frame identity is *carried, not found*, so a test must never
+rely on the runtime synthesising a frame from absence. The legacy
+test-only `frame/ensure-default-frame!` fixture, which establishes an
+ambient `:rf/default` scope, is **grandfathered for the existing suites
+that already use it** — it is deliberately retained (and bannered in
+`frame.cljc`) so the ~70 pre-EP-0002 test files keep passing without a
+poor-ROI mechanical rewrite. It is **not** an idiom to copy: do not
+reach for it in new tests, because the spec-is-the-artefact repo teaches
+idioms from its dominant source pattern, and a new test modelling the
+retired ambient-default shape lets the obsolete idiom self-perpetuate.
+**Conformance fixtures must never dispatch framelessly expecting default
+stamping** (per the EP-0002 Audit §SS-11) — a conformance run that
+leans on ambient `:rf/default` is asserting a behaviour the runtime no
+longer guarantees. (A lint that flags `ensure-default-frame!` usage
+outside the grandfathered files is a reasonable future guard, but is not
+required today.)
+
 ## How we manage the cost
 
 The cost-management shape is simple:
