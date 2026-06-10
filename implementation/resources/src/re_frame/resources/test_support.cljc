@@ -29,7 +29,8 @@
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.resources.registry :as registry]
-            [re-frame.resources.state :as state]))
+            [re-frame.resources.state :as state]
+            [re-frame.resources.work-ledger :as work-ledger]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -44,6 +45,9 @@
   []
   (registrar/clear-kind! registry/resource-kind)
   (state/reset-cache!)
+  ;; drop the host-side work-ledger handles too (rf2-afpdkn) — also
+  ;; host-side transient state not cleared by the runtime / frames reset.
+  (work-ledger/reset-cache!)
   nil)
 
 ;; Publish the reset hook from this test-support ns-load — the shared CLJS

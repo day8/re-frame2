@@ -61,7 +61,8 @@
             [re-frame.resources.route :as route]
             [re-frame.resources.ssr :as ssr]
             [re-frame.resources.state :as state]
-            [re-frame.resources.subs :as resource-subs]))
+            [re-frame.resources.subs :as resource-subs]
+            [re-frame.resources.work-ledger :as work-ledger]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -132,6 +133,20 @@
            state/commit-generation-meta
            state/commit-generation-handler)
 
+;; Work-ledger host-handle side-table write fx (rf2-afpdkn). The work-handle
+;; side table is host-side transient state (NOT runtime-db), so its writes
+;; ride fx exactly as the host-side generation high-water bump does. The
+;; runtime emits :rf.resource/record-work-handle alongside the transport
+;; lower and :rf.resource/clear-work-handle when an attempt is superseded /
+;; settled. Per Spec 016 §Frame work ledger. Registered in the façade so a
+;; `:reload` re-wires them.
+(fx/reg-fx :rf.resource/record-work-handle
+           work-ledger/record-work-handle-meta
+           work-ledger/record-work-handle-handler)
+(fx/reg-fx :rf.resource/clear-work-handle
+           work-ledger/clear-work-handle-meta
+           work-ledger/clear-work-handle-handler)
+
 ;; The interceptor injected into the load-causing events (ensure / refetch)
 ;; so their handlers read the host-side generation high-water snapshot under
 ;; `:coeffects :rf.resource/generation` and mint the next monotone
@@ -188,6 +203,30 @@
 ;; both are no-op-effect on an app that never loads the host artefact.
 (route/install-routing-integration!)
 (ssr/install-ssr-integration!)
+
+;; rf2-afpdkn: release the destroyed frame's host-side TRANSIENT resource
+;; caches — the work-ledger host handles (AbortControllers / timer handles,
+;; `re-frame.resources.work-ledger/handle-table`) AND the generation
+;; high-water mark (`re-frame.resources.state/generation-cache`). Neither is
+;; runtime-db state — both live in module-level atoms (host-derived,
+;; ephemeral, off the epoch / SSR egress wire; the generation host-side so an
+;; epoch restore cannot rewind + recycle a generation). `frame/destroy-frame!`
+;; invokes this single hook by key (no static dep on resources — the artefact
+;; is optional). The durable serializable work records + cache entries ride
+;; the frame value and are released atomically when the frame is dropped; this
+;; hook touches ONLY the host side tables. Per Spec 016 [Runtime-Subsystems]
+;; clause 5 / §Stale and GC scheduling. Composed here (one late-bind key →
+;; one fn) mirroring routing's `:routing/on-frame-destroyed!`.
+(defn- release-resources-host-caches!
+  "Release ALL of the destroyed frame's host-side transient resource caches
+  (work-ledger host handles + generation high-water mark). The
+  `:resources/on-frame-destroyed!` teardown body."
+  [frame-id]
+  (work-ledger/on-frame-destroyed! frame-id)
+  (state/release-frame! frame-id)
+  nil)
+
+(late-bind/set-fn! :resources/on-frame-destroyed! release-resources-host-caches!)
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;; `re-frame.core` MUST NOT `:require [re-frame.resources]` — the artefact

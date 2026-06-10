@@ -1251,6 +1251,11 @@
                                               (rf2-1hncp2) + nav-token /
                                               pending-nav counters
                                               (rf2-oosjmh).
+         :resources/on-frame-destroyed!     — release the frame's
+                                              host-side transient resource
+                                              caches — work-ledger host
+                                              handles + generation
+                                              high-water mark (rf2-afpdkn).
     5. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER the
                                       machine cascade.
     6. dissoc-frame!                — remove from the `frames` atom.
@@ -1348,6 +1353,20 @@
         ;; one entry per destroyed frame in each cache. No-op when
         ;; re-frame.routing is absent (the artefact is optional).
         (safe-call-hook! :routing/on-frame-destroyed! id)
+        ;; rf2-afpdkn: release the destroyed frame's host-side transient
+        ;; RESOURCE caches — the work-ledger host handles
+        ;; (re-frame.resources.work-ledger/handle-table, the AbortControllers
+        ;; / timer handles keyed by [frame-id work-id]) AND the resource
+        ;; generation high-water mark (re-frame.resources.state/generation-
+        ;; cache). Neither is runtime-db state — both live in module-level
+        ;; atoms (host-derived, ephemeral, off the epoch/SSR egress wire; the
+        ;; generation host-side so an epoch restore cannot rewind + recycle a
+        ;; generation). The durable serializable work records + cache entries
+        ;; ride the dropped frame value. Without this hook a long-running
+        ;; multi-frame / per-request-frame process leaks one entry per
+        ;; destroyed frame in each host cache. No-op when re-frame.resources
+        ;; is absent (the artefact is optional, post-v1).
+        (safe-call-hook! :resources/on-frame-destroyed! id)
         (emit-frame-destroyed-trace! id)
         ;; Per Spec 009 §Per-frame trace rings (rf2-g1b2m / rf2-8uwce):
         ;; release the destroyed frame's cascade-keyed ring so no

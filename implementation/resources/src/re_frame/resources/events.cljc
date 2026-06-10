@@ -35,14 +35,29 @@
 
   The parallel serializable `:rf.runtime/work-ledger` records, host-side
   side tables (AbortControllers / timer handles), and opportunistic abort
-  are the work-ledger substrate slice (rf2-afpdkn) — out of this slice. GC
+  are the WORK-LEDGER SUBSTRATE slice (rf2-afpdkn) — landed here. GC
   scheduling / timers are the invalidation+GC slice. The HTTP request
   execution is the managed-HTTP slice (rf2-p19360); this slice LOWERS into
-  the existing transport seam (`transport/lower-ensure`)."
+  the existing transport seam (`transport/lower-ensure`).
+
+  ## Work-ledger substrate (rf2-afpdkn)
+
+  Each load-causing attempt now also writes a SERIALIZABLE work record at
+  `[:rf.runtime/work-ledger <work-id>]` (the entry points at it via
+  `:current-work`; the record carries status / owners / causes / deadline /
+  outcome — NO host handles). Host abort handles live in a side table keyed
+  by `[frame-id work-id]` (`work-ledger/handle-table`), recorded via the
+  `:rf.resource/record-work-handle` fx and dropped on terminate / frame
+  destroy. ABORT IS OPPORTUNISTIC (best-effort `:rf.http/managed-abort` on
+  supersession / owner-loss / scope-clear); STALE SUPPRESSION by work-id +
+  generation is the MANDATORY correctness boundary (enforced on the entry by
+  `live-entry-for-reply`). Terminal rows are pruned on the linked entry's
+  next successful transition, retaining a bounded per-key tail for Xray."
   (:require [clojure.set :as set]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.state :as state]
             [re-frame.resources.transport :as transport]
+            [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -56,16 +71,6 @@
   []
   #?(:clj  (System/currentTimeMillis)
      :cljs (.now js/Date)))
-
-(defn- work-id-for
-  "Build the work-id `[:rf.work/resource <scoped-key> <generation>]` that
-  embeds the generation (Spec 016 §Frame work ledger — the work-id embeds
-  the generation; stale suppression keys on `:work/id`). The full
-  serializable work-ledger record is the rf2-afpdkn slice; this slice
-  carries the work-id on the entry's `:current-work` so the reply handlers
-  can verify it."
-  [scoped-key generation]
-  [:rf.work/resource scoped-key generation])
 
 (defn- stale-at-for
   "Compute `:stale-at` from `loaded-at` + the resource's `:stale-after-ms`
@@ -99,32 +104,66 @@
         scoped-key (state/scoped-resource-key scope resource cparams)
         entry      (or (get-in runtime-db (state/entry-path scoped-key))
                        (state/empty-entry resource))
-        in-flight? (some? (:current-work entry))]
+        prior-work (:current-work entry)
+        in-flight? (some? prior-work)
+        ;; default the transport (a spec that declares none gets managed
+        ;; HTTP — the only initial-scope transport; the transport seam
+        ;; defaults identically). The work record + side-table handle +
+        ;; opportunistic-abort fx all key off the concrete transport id.
+        transport-id (or (:transport spec) transport/default-transport)]
     (if (and in-flight? (not force-new?))
       ;; ----- dedupe: join the in-flight request (ensure only) -------------
       ;; Attach any supplied owner to the existing entry + record the cause;
-      ;; do NOT start a new generation. Per Spec 016 §Race (ensure while in
+      ;; do NOT start a new generation. Join the SAME work-ledger record
+      ;; (attach owner / append cause). Per Spec 016 §Race (ensure while in
       ;; flight joins the existing current work record).
       (let [joined (cond-> entry
                      owner (update :active-owners (fnil conj #{}) owner))
             rdb'   (-> runtime-db
                        (assoc-in (state/entry-path scoped-key) joined)
+                       (work-ledger/update-record
+                         prior-work work-ledger/join-owner+cause owner cause)
                        (cond->
                          owner (update-in (state/owner-index-path)
                                           update owner (fnil conj #{}) scoped-key)))]
         (trace/emit! :rf.event :rf.resource/deduped
                      {:rf.frame/id frame-id :resource-key scoped-key
-                      :generation (:generation entry) :owner owner :cause cause})
+                      :generation (:generation entry) :owner owner :cause cause
+                      :work-id prior-work})
         {:rf.db/runtime rdb'})
       ;; ----- start a new load attempt (fresh generation) -----------------
       (let [generation (state/next-generation gen-snapshot)
-            work-id    (work-id-for scoped-key generation)
+            work-id    (work-ledger/resource-work-id scoped-key generation)
             request-id work-id
+            now        (now-ms)
+            deadline   (when-let [ms (:timeout-ms spec)] (+ now ms))
             entry'     (state/entry-start-load
                          entry {:generation generation :work-id work-id
                                 :request-id request-id :owner owner})
+            ;; a forced refetch over an in-flight prior attempt SUPERSEDES it:
+            ;; mark the old work record :superseded (terminal) and emit a
+            ;; best-effort abort (opportunistic; stale suppression already
+            ;; protects the late reply by work-id + generation). Per Spec 016
+            ;; §Race (refetch may force a new generation).
+            superseding? (and in-flight? force-new?)
+            record     (work-ledger/work-record
+                         {:work-id      work-id
+                          :frame-id     frame-id
+                          :resource-key scoped-key
+                          :generation   generation
+                          :transport    transport-id
+                          :owner        owner
+                          :cause        cause
+                          :started-at   now
+                          :deadline-at  deadline})
             rdb'       (-> runtime-db
                            (assoc-in (state/entry-path scoped-key) entry')
+                           (cond->
+                             superseding?
+                             (work-ledger/update-record
+                               prior-work work-ledger/mark-terminal
+                               :suppressed {:reason :superseded :by work-id}))
+                           (work-ledger/put-record work-id record)
                            (cond->
                              owner (update-in (state/owner-index-path)
                                               update owner (fnil conj #{}) scoped-key)))
@@ -136,7 +175,7 @@
             http-args  (let [req-fn (:request spec)]
                          (req-fn cparams nil))
             lower-fx   (transport/lower-ensure
-                         (:transport spec)
+                         transport-id
                          {:http-args    http-args
                           :request-id   request-id
                           :work-id      work-id
@@ -145,14 +184,30 @@
                           :frame-id     frame-id
                           :generation   generation
                           :where        where})]
+        (trace/emit! :rf.event :rf.resource/work-started
+                     {:rf.frame/id frame-id :resource-key scoped-key
+                      :generation generation :work-id work-id
+                      :status :running :owner owner :cause cause
+                      :superseded (when superseding? prior-work)})
         (trace/emit! :rf.event :rf.resource/fetch-started
                      {:rf.frame/id frame-id :resource-key scoped-key
                       :generation generation :work-id work-id
                       :status (:status entry') :owner owner :cause cause})
         {:rf.db/runtime rdb'
-         ;; WRITE half of the host-side generation seam + the transport fx.
-         :fx [[:rf.resource/commit-generation {:value generation}]
-              lower-fx]}))))
+         ;; WRITE half of the host-side generation seam + the transport fx +
+         ;; the work-handle side-table record + (when superseding) a
+         ;; best-effort abort of the prior in-flight attempt (drop its
+         ;; side-table handle + a transport abort — opportunistic).
+         :fx (cond-> [[:rf.resource/commit-generation {:value generation}]
+                      [:rf.resource/record-work-handle
+                       {:frame-id frame-id :work-id work-id
+                        :transport transport-id :request-id request-id}]
+                      lower-fx]
+               superseding?
+               (-> (conj [:rf.resource/clear-work-handle
+                          {:frame-id frame-id :work-id prior-work}])
+                   (cond-> (work-ledger/abort-fx transport-id prior-work)
+                     (conj (work-ledger/abort-fx transport-id prior-work)))))}))))
 
 (defn ensure-handler
   "`:rf.resource/ensure` — ensure a resource instance is loaded (load it
@@ -224,34 +279,64 @@
   from every entry's `:active-owners` + the owner-index). Per Spec 016
   §Active owners and causes. Payload: `{:owner …}`.
 
-  Abort of in-flight work with no remaining owner is the work-ledger
-  substrate slice (rf2-afpdkn); this slice drops the owner from the durable
-  entry + index. Stale suppression by generation already protects any late
-  reply (the entry's generation is unchanged, so a current reply still
-  lands; only an abort-on-no-owner optimisation is deferred)."
+  Per Spec 016 §Race (owner release while a request is in flight aborts
+  ONLY when no remaining owner needs that work record — a shared request is
+  NOT cancelled just because one route / machine / lease went away). This
+  drops the owner from the durable entry + index AND from the linked work
+  record's `:owners`; for any in-flight attempt whose `:owners` are now
+  EMPTY it emits a best-effort `:rf.http/managed-abort` (opportunistic) and
+  marks the work row `:abort-requested`. Stale suppression by work-id +
+  generation remains the correctness boundary — the abort is an
+  optimisation, not relied on."
   [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [owner]}]]
   (let [runtime-db (or rt {})
         owned      (get-in runtime-db (conj (state/owner-index-path) owner))
-        rdb'       (-> (reduce
+        ;; drop the owner from each owned entry + the index
+        rdb1       (-> (reduce
                          (fn [db k]
                            (update-in db (state/entry-path k)
                                       (fn [e] (when e (update e :active-owners disj owner)))))
                          runtime-db (or owned #{}))
-                       (update-in (state/owner-index-path) dissoc owner))]
+                       (update-in (state/owner-index-path) dissoc owner))
+        ;; for each owned entry that is still in flight, drop the owner from
+        ;; the work record; collect the work ids whose owners are now empty
+        ;; (orphaned in-flight attempts → opportunistic abort).
+        {rdb2 :rdb aborts :aborts}
+        (reduce
+          (fn [acc k]
+            (let [db   (:rdb acc)
+                  e    (get-in db (state/entry-path k))
+                  wid  (:current-work e)
+                  rec  (when wid (work-ledger/get-record db wid))]
+              (if (and wid rec)
+                (let [rec' (work-ledger/release-owner-from-record rec owner)
+                      orphaned? (empty? (:owners rec'))
+                      rec'' (if orphaned? (work-ledger/mark-abort-requested rec') rec')]
+                  {:rdb (work-ledger/put-record db wid rec'')
+                   :aborts (cond-> (:aborts acc)
+                             orphaned? (conj [wid (:transport rec'')]))})
+                acc)))
+          {:rdb rdb1 :aborts []}
+          (or owned #{}))]
     (trace/emit! :rf.event :rf.resource/owner-released
-                 {:rf.frame/id frame-id :owner owner :released (vec (or owned #{}))})
-    {:rf.db/runtime rdb'}))
+                 {:rf.frame/id frame-id :owner owner :released (vec (or owned #{}))
+                  :aborted (mapv first aborts)})
+    {:rf.db/runtime rdb2
+     :fx (into [] (keep (fn [[wid transport]]
+                          (work-ledger/abort-fx transport wid)))
+               aborts)}))
 
 ;; ---- clear-scope — the causal logout / tenant-switch boundary --------------
 
 (defn clear-scope-handler
   "`:rf.resource/clear-scope` — causal scope clear (Spec 016 §clear-scope
   is causal). Removes every entry in the scope, releases its owners from
-  the owner-index, and emits an explaining trace. Aborting in-flight
-  requests with no remaining owner outside the scope is the work-ledger
-  slice (rf2-afpdkn); stale suppression by generation already protects a
-  late reply — the entry it would write into is gone, so the reply
-  handler's existence check suppresses it. Payload: `{:scope :cause}`."
+  the owner-index, marks each in-scope in-flight work record terminal
+  `:cancelled`, best-effort aborts those attempts (opportunistic), and
+  emits an explaining trace. Stale suppression by work-id + generation
+  remains the correctness boundary — the entry a late reply would write
+  into is gone, so the reply handler's existence check suppresses it; the
+  abort is the optimisation. Payload: `{:scope :cause}`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [scope cause]}]]
   (let [runtime-db (or rt {})
         cscope     (state/canonicalize scope)
@@ -259,15 +344,33 @@
         in-scope   (into #{} (comp (filter (fn [[k _]] (= cscope (first k))))
                                    (map key))
                          entries)
-        ;; remove the entries, then recompute the indexes from what remains
+        ;; collect the in-flight work ids for the cleared entries (best-effort
+        ;; abort + terminal :cancelled work rows)
+        in-flight  (into []
+                         (keep (fn [k]
+                                 (let [e (get entries k)
+                                       wid (:current-work e)]
+                                   (when wid
+                                     [wid (:transport (work-ledger/get-record runtime-db wid))]))))
+                         in-scope)
+        ;; remove the entries, settle their in-flight work rows :cancelled,
+        ;; then recompute the indexes from what remains
         rdb'       (-> runtime-db
                        (update-in (state/entries-path)
                                   (fn [es] (reduce dissoc es in-scope)))
+                       (as-> db (reduce (fn [d [wid _]]
+                                          (work-ledger/update-record
+                                            d wid work-ledger/mark-terminal
+                                            :cancelled {:reason :clear-scope}))
+                                        db in-flight))
                        (update state/resources-key state/recompute-indexes))]
     (trace/emit! :rf.event :rf.resource/removed
                  {:rf.frame/id frame-id :scope cscope :cause cause
-                  :removed (vec in-scope) :reason :clear-scope})
-    {:rf.db/runtime rdb'}))
+                  :removed (vec in-scope) :reason :clear-scope
+                  :aborted (mapv first in-flight)})
+    {:rf.db/runtime rdb'
+     :fx (into [] (keep (fn [[wid transport]] (work-ledger/abort-fx transport wid)))
+               in-flight)}))
 
 ;; ---- remove — single-instance cache removal --------------------------------
 
@@ -283,12 +386,22 @@
         cparams    (registry/validate+canonicalize-params
                      resource spec params 'rf.resource/remove)
         scoped-key (state/scoped-resource-key scope resource cparams)
+        entry      (get-in runtime-db (state/entry-path scoped-key))
+        wid        (:current-work entry)
+        transport  (when wid (:transport (work-ledger/get-record runtime-db wid)))
         rdb'       (-> runtime-db
                        (update-in (state/entries-path) dissoc scoped-key)
+                       (cond-> wid (work-ledger/update-record
+                                     wid work-ledger/mark-terminal
+                                     :cancelled {:reason :remove}))
                        (update state/resources-key state/recompute-indexes))]
     (trace/emit! :rf.event :rf.resource/removed
-                 {:rf.frame/id frame-id :resource-key scoped-key :reason :remove})
-    {:rf.db/runtime rdb'}))
+                 {:rf.frame/id frame-id :resource-key scoped-key :reason :remove
+                  :aborted (when wid [wid])})
+    {:rf.db/runtime rdb'
+     ;; best-effort abort of the removed instance's in-flight attempt
+     ;; (opportunistic; stale suppression protects correctness)
+     :fx (if-let [fx (and wid (work-ledger/abort-fx transport wid))] [fx] [])}))
 
 ;; ---- framework-internal reply handlers ------------------------------------
 ;;
@@ -371,10 +484,18 @@
         data       (reply-success-data payload http-result)
         entry      (live-entry-for-reply runtime-db payload)]
     (if (nil? entry)
+      ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply never
+      ;; mutates a newer entry. Settle its (already-superseded) work row to a
+      ;; terminal :suppressed outcome if it still exists, and clear the host
+      ;; handle. Per Spec 016 §Cancellation is opportunistic; stale
+      ;; suppression is mandatory.
       (do (trace/emit! :rf.event :rf.resource/stale-suppressed
                        {:rf.frame/id frame-id :resource-key resource-key
                         :work-id work-id :generation generation :outcome :success})
-          {:rf.db/runtime runtime-db})
+          (work-ledger/clear-handle! frame-id work-id)
+          {:rf.db/runtime (work-ledger/update-record
+                            runtime-db work-id work-ledger/mark-terminal
+                            :suppressed {:reason :stale-reply :outcome :success})})
       (let [spec      (registry/resource-meta (:resource/id entry))
             loaded-at (now-ms)
             stale-at  (stale-at-for spec loaded-at)
@@ -387,10 +508,21 @@
                                :stale-at stale-at :tags tags})
             ;; on a successful load the tag index for this key is REPLACED
             ;; with the new tags (old tags removed); recompute is the simple,
-            ;; correct way to keep both indexes consistent.
+            ;; correct way to keep both indexes consistent. The work row
+            ;; settles :completed; terminal rows for this key are then PRUNED
+            ;; (bounded per-key tail kept for Xray) — Spec 016 §Ledger row
+            ;; retention. The host handle is cleared (the attempt settled).
             rdb'      (-> runtime-db
                           (assoc-in (state/entry-path resource-key) entry')
+                          (work-ledger/update-record
+                            work-id work-ledger/mark-terminal
+                            :completed {:loaded-at loaded-at})
+                          (work-ledger/prune-terminal-for-key resource-key)
                           (update state/resources-key state/recompute-indexes))]
+        (work-ledger/clear-handle! frame-id work-id)
+        (trace/emit! :rf.event :rf.resource/work-completed
+                     {:rf.frame/id frame-id :resource-key resource-key
+                      :work-id work-id :generation generation :status :completed})
         (trace/emit! :rf.event :rf.resource/succeeded
                      {:rf.frame/id frame-id :resource-key resource-key
                       :work-id work-id :generation generation
@@ -414,34 +546,55 @@
         error      (reply-failure-error payload http-result)
         entry      (live-entry-for-reply runtime-db payload)]
     (if (nil? entry)
+      ;; STALE SUPPRESSION (mandatory): a superseded / vanished failure
+      ;; reply never mutates a newer entry. Settle its work row terminal +
+      ;; clear the handle.
       (do (trace/emit! :rf.event :rf.resource/stale-suppressed
                        {:rf.frame/id frame-id :resource-key resource-key
                         :work-id work-id :generation generation :outcome :failure})
-          {:rf.db/runtime runtime-db})
+          (work-ledger/clear-handle! frame-id work-id)
+          {:rf.db/runtime (work-ledger/update-record
+                            runtime-db work-id work-ledger/mark-terminal
+                            :suppressed {:reason :stale-reply :outcome :failure})})
       (let [entry' (state/entry-failed entry {:error error})
             op     (if (= :error (:status entry'))
-                     :rf.resource/failed :rf.resource/refresh-failed)]
+                     :rf.resource/failed :rf.resource/refresh-failed)
+            ;; the work row settles :failed (terminal) with the error
+            ;; envelope as its outcome summary (Xray gets the summary). The
+            ;; host handle is cleared (the attempt settled).
+            rdb'   (-> runtime-db
+                       (assoc-in (state/entry-path resource-key) entry')
+                       (work-ledger/update-record
+                         work-id work-ledger/mark-terminal
+                         :failed {:error error}))]
+        (work-ledger/clear-handle! frame-id work-id)
+        (trace/emit! :rf.event :rf.resource/work-completed
+                     {:rf.frame/id frame-id :resource-key resource-key
+                      :work-id work-id :generation generation :status :failed})
         (trace/emit! :rf.event op
                      {:rf.frame/id frame-id :resource-key resource-key
                       :work-id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
-        {:rf.db/runtime (assoc-in runtime-db (state/entry-path resource-key) entry')}))))
+        {:rf.db/runtime rdb'}))))
 
 (defn aborted-handler
-  "`:rf.resource.internal/aborted` — a transport read was aborted. The work
-  row reconciliation + host-handle teardown is the work-ledger substrate
-  slice (rf2-afpdkn); for the cache entry this is a stale reply — the
-  verification gate suppresses it (the entry settles to its last stable
-  status through its own subsequent transitions, never left stranded). This
-  slice no-ops the entry (no durable write) and records the abort.
-
-  SKELETON: full work-ledger reconciliation lands in rf2-afpdkn."
+  "`:rf.resource.internal/aborted` — a transport read was aborted. For the
+  cache ENTRY this is a stale reply — the verification gate suppresses it
+  (the entry settles to its last stable status through its own subsequent
+  transitions, never left stranded), so this handler makes NO durable entry
+  write. For the WORK LEDGER it settles the work row terminal `:cancelled`
+  and clears the host handle. Per Spec 016 §Cancellation is opportunistic;
+  stale suppression is mandatory / §Ledger row retention and identity."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
    [_event-id {:keys [resource-key work-id generation]}]]
-  (trace/emit! :rf.event :rf.resource/work-abort-requested
-               {:rf.frame/id frame-id :resource-key resource-key
-                :work-id work-id :generation generation})
-  {:rf.db/runtime (or rt {})})
+  (let [runtime-db (or rt {})]
+    (work-ledger/clear-handle! frame-id work-id)
+    (trace/emit! :rf.event :rf.resource/work-abort-requested
+                 {:rf.frame/id frame-id :resource-key resource-key
+                  :work-id work-id :generation generation})
+    {:rf.db/runtime (work-ledger/update-record
+                      runtime-db work-id work-ledger/mark-terminal
+                      :cancelled {:reason :aborted})}))
 
 (defn gc-fired-handler
   "`:rf.resource.internal/gc-fired` — an inactive-GC timer fired. Re-check

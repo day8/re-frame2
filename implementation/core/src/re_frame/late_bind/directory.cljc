@@ -457,7 +457,11 @@
    {:key         :resources/reset-resources!
     :producer-ns 're-frame.resources.test-support
     :design-bead "rf2-p10npe"
-    :description "Test-isolation reset: clear the :resource-kind registrar entries + the host-side generation high-water marks. Published from re-frame.resources.test-support (kept behind an explicit test-support require, rf2-dbiv8 posture); fired by the shared CLJS make-reset-runtime-fixture reset-hooks table, no-op when test-support is absent."}
+    :description "Test-isolation reset: clear the :resource-kind registrar entries + the host-side generation high-water marks + the host-side work-ledger handles. Published from re-frame.resources.test-support (kept behind an explicit test-support require, rf2-dbiv8 posture); fired by the shared CLJS make-reset-runtime-fixture reset-hooks table, no-op when test-support is absent."}
+   {:key         :resources/on-frame-destroyed!
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-afpdkn"
+    :description "Release the destroyed frame's host-side TRANSIENT resource caches — the work-ledger host handles (AbortControllers / timer handles keyed by [frame-id work-id], re-frame.resources.work-ledger/handle-table) AND the resource generation high-water mark (re-frame.resources.state/generation-cache). Neither is runtime-db state; both are module-level atoms off the epoch/SSR egress wire (the generation host-side so an epoch restore cannot rewind+recycle it). Invoked by frame/destroy-frame! by key; no-op when re-frame.resources is absent (the artefact is optional, post-v1). Per Spec 016 [Runtime-Subsystems] clause 5."}
    {:key         :routing/extra-route-keys
     :producer-ns 're-frame.resources.route
     :design-bead "rf2-p10npe"
