@@ -1,10 +1,48 @@
 # EP-0006: Runtime Subsystem Contract
 
-Status: proposal
+Status: final
 Type: standards-track
 
 > Formalizes bead `rf2-6nn8bi` (filed from the 2026-06-10 EP-0001 review). Ruling
 > on this EP supersedes ruling on that bead.
+
+> **`final` means the decisions are settled.** Mike ruled on 2026-06-10
+> (rf2-6nn8bi = adopt the contract as a standalone `spec/Runtime-Subsystems.md`,
+> the Managed-Effects precedent; rf2-fhoz1m = graduate this EP proposal → final as
+> the decision-record EP). That ruling *is* the EP-0006 ruling, so "proposal" was a
+> false status. The contract's normative output has shipped in full — the
+> five-clause contract, the grading table, and (under this graduation) the **two
+> derived rules** now live in [`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md);
+> where this EP and the spec differ, the spec governs. The decision surface is
+> closed. One implementation item — the conformance drift test — remains unbuilt
+> and is tracked in [Implementation errata](#implementation-errata) (the EP-0005
+> final-with-errata pattern: decisions-final does not assert build-complete). The
+> single deferred *decision* (the work-ledger multi-writer authority of [Open
+> Issues](#open-issues)) is recorded honestly as a future-EP question on which the
+> shipped `spec/016-Resources.md` currently diverges from this EP's recommendation
+> — it does not block the contract.
+
+## Implementation errata
+
+The EP decisions are final and the contract's normative output has shipped to
+`spec/Runtime-Subsystems.md`. **One tracked erratum remains open** — the
+conformance drift test the [Conformance](#conformance) section specifies was not
+built with the spec doc. The errata ledger tracks build-completion separately from
+the decision-freeze (the EP-0005 pattern), and none of it reopens any ruling.
+
+### Open errata
+
+- **`rf2-fhoz1m-conformance`** *(open — drift test unbuilt)* — the [Conformance](#conformance)
+  section specifies a drift test that pins the grading table's subsystem list
+  against the reserved-key table in [`spec/Conventions.md`](../../spec/Conventions.md#reserved-runtime-db-keys),
+  so a new `:rf.runtime/*` child landed *without* a contract grading row fails CI.
+  The grading table shipped (four shipped subsystems + EP-0003's two graduating
+  rows), and the per-subsystem ownership-diagnostic sweep (`rf2-o4dmp8` shape)
+  exists, but the **table-vs-reserved-key drift test itself is not yet wired into a
+  gate**. Until it lands, a new subsystem child without a grading row is caught
+  only by review, not CI. *(Decision-settled, build-incomplete: the test's shape
+  is fully specified above; only the wiring is outstanding. File a follow-up bead
+  at dispatch if this is not picked up with the next runtime-subsystem change.)*
 
 ## Abstract
 
@@ -113,6 +151,14 @@ Two derived rules:
   (indexes, denormalized owners), the mirror is declared a recomputable
   projection, never a second source of truth.
 
+> **Graduated.** Both derived rules now live as general normative rules in
+> [`spec/Runtime-Subsystems.md` §Two derived rules](../../spec/Runtime-Subsystems.md#two-derived-rules)
+> ([rule 1](../../spec/Runtime-Subsystems.md#derived-rule-1--the-restore-question-is-mandatory-allocators-never-rewind),
+> [rule 2](../../spec/Runtime-Subsystems.md#derived-rule-2--one-authoritative-home-per-fact-mirrors-are-recomputable-projections)).
+> The original spec-authoring bead landed the five-clause contract + grading table
+> blind to this EP, so the rules were ported under this graduation (rf2-fhoz1m).
+> The spec is the normative home; this list is the rationale record.
+
 ### The grading table
 
 `spec/Runtime-Subsystems.md` carries one row per subsystem × clause, citing the
@@ -169,6 +215,30 @@ instances show the shape is empirical, not speculative.
    per-writer grants? Recommendation: ledger-owned — writers go through the
    ledger's API, which holds the authority; revisit if a writer needs direct
    row access.
+
+   **Resolved as deferred (2026-06-10, rf2-fhoz1m), with a divergence to record
+   honestly.** This is a deferred *implementation* question, not a live decision
+   blocking the contract: the v1 work-ledger has exactly one writer (resources),
+   so the multi-writer authority question does not arise until the first
+   non-resource writer joins, at which point the general work-ledger EP settles
+   it. The pointer is [`spec/016-Resources.md` §Work-ledger multi-writer
+   authority](../../spec/016-Resources.md#work-ledger-multi-writer-authority--still-blocking-for-the-multi-writer-slice-post-v1-tracked-for-v1),
+   which classifies it `:still-blocking` for the multi-writer slice and
+   `:post-v1 tracked` for v1.
+
+   **The shipped spec diverges from this EP's recommendation, and the spec
+   governs.** This EP recommended *ledger-owned* minting (writers go through the
+   ledger's API, which holds the authority). The shipped `spec/016-Resources.md`
+   instead leans **per-writer** minting: §790 states each additional writer "MUST
+   be settled per writer at that point — machines imply authority via
+   `:rf/machine? true`; non-machine writers will each need to stamp
+   `:rf/framework-authority? true` at their own registration sites or write
+   through the privileged helpers." That is the per-writer-grants alternative,
+   not the ledger-owned recommendation. The recommendation did **not** win; it
+   stands as one input the future work-ledger EP will weigh against the per-writer
+   default the resources spec currently encodes. Where this EP and the spec
+   differ, the spec governs (per [EP-0009](EP-0009-the-ep-process.md) and the
+   README index note).
 
 ## Recommendation
 
