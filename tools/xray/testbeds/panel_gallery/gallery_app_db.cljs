@@ -157,12 +157,12 @@
 
   ;; ----- 12. reserved keys (panel-specific axis) ---------------------
   (story/reg-variant :story.xray.app-db/reserved-keys
-    {:doc        "Epoch mutating reserved app-db keys — paths under the
-                 single `:rf/runtime` slot covering the routing
-                 current-route slice, machine snapshots, and the
+    {:doc        "Epoch mutating reserved runtime-db keys — paths under the
+                 `:rf.db/runtime` partition's `:rf.runtime/*` roots covering
+                 the routing current-route slice, machine snapshots, and the
                  spawned-actor table. The `[runtime]` group surfaces
                  these separately from user-key slices per Spec
-                 Conventions §Reserved app-db keys."
+                 Conventions §Reserved runtime-db keys."
      :events     [[:rf.xray/sync-epoch-history (fixtures/reserved-keys-buffer)]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})

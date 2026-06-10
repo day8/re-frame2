@@ -235,12 +235,12 @@
             (str "deeply-nested empty " (name kind) " leaf is :removed"))))))
 
 (deftest empty-collection-leaf-epoch2-witness
-  (testing "rf2-bufw2 — the live step-deck epoch-2 :rf/runtime allocation:
+  (testing "rf2-bufw2 — the live step-deck epoch-2 :rf.db/runtime allocation:
             `:messages []` and `:rf/spawn-counter {}` paint :added (green)
             alongside every other leaf under the wholly-added subtree —
             no :same paint anywhere in the cascade."
-    (let [after {:rf/runtime
-                 {:machines
+    (let [after {:rf.db/runtime
+                 {:rf.runtime/machines
                   {:snapshots
                    {:ws/connection
                     {:state :disconnected
@@ -248,14 +248,14 @@
                              :messages    []}
                      :rf/spawn-counter {}}}}}}
           proj (build-projection {} after)
-          messages-path [:rf/runtime :machines :snapshots :ws/connection :data :messages]
-          spawn-path    [:rf/runtime :machines :snapshots :ws/connection :rf/spawn-counter]]
+          messages-path [:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection :data :messages]
+          spawn-path    [:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection :rf/spawn-counter]]
       (is (= :added (engine/op-at proj messages-path))
           "`:messages []` paints :added, not :same")
       (is (= :added (engine/op-at proj spawn-path))
           "`:rf/spawn-counter {}` paints :added, not :same")
-      (is (= :added (engine/op-at proj [:rf/runtime]))
-          "the whole :rf/runtime subtree is wholly-:added"))))
+      (is (= :added (engine/op-at proj [:rf.db/runtime]))
+          "the whole :rf.db/runtime subtree is wholly-:added"))))
 
 (deftest empty-collection-leaf-same-container-does-not-inherit
   (testing "rf2-bufw2 — the mid-tree boundary: an UNCHANGED empty-

@@ -3578,9 +3578,9 @@
 (deftest zoom-trigger-composes-prefix-and-relative-path
   ;; render-container threads the absolute path = (into zoom-path-prefix
   ;; path) into the gesture — so when the operator is already zoomed at
-  ;; `[:rf/runtime :machines :snapshots]` and double-clicks the nested
-  ;; `:ws/connection` container (relative path `[:ws/connection]`), the
-  ;; dispatch carries the FULL absolute path.
+  ;; `[:rf.db/runtime :rf.runtime/machines :snapshots]` and double-clicks
+  ;; the nested `:ws/connection` container (relative path `[:ws/connection]`),
+  ;; the dispatch carries the FULL absolute path.
   (let [v {:ws/connection {:state :open}}
         h (ei/render-node {:value v
                            :panel-id :p
@@ -3589,7 +3589,7 @@
                            :depth 0
                            :expansion-map {}
                            :zoomable? true
-                           :zoom-path-prefix [:rf/runtime :machines :snapshots]
+                           :zoom-path-prefix [:rf.db/runtime :rf.runtime/machines :snapshots]
                            :opts {:default-expanded-depth 8}})
         targets (zoom-target-nodes h)]
     (is (seq targets)
@@ -3597,7 +3597,7 @@
          is non-empty")
     ;; Confirm via the factory directly, mirroring render-container's
     ;; (into zoom-path-prefix path) composition.
-    (let [composed (vec (concat [:rf/runtime :machines :snapshots] [:ws/connection]))
+    (let [composed (vec (concat [:rf.db/runtime :rf.runtime/machines :snapshots] [:ws/connection]))
           {:keys [event]}
           (with-captured-dispatch-spy
             (fn [spy]
@@ -3607,7 +3607,7 @@
                  :mount-id      "m"
                  :absolute-path composed})))]
       (is (= [:rf.xray.edn-inspector/zoom-to :p "m"
-              [:rf/runtime :machines :snapshots :ws/connection]]
+              [:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection]]
              event)
           "the dispatched path is the absolute path = prefix + relative")
       (is (= 4 (count event))

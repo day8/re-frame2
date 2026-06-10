@@ -671,7 +671,7 @@
                            {:armed true}
                            nil
                            nil)
-        (db-changed-ev [[[:rf/runtime :machines :snapshots :ws/connection :state]
+        (db-changed-ev [[[:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection :state]
                          :connecting :open :modified]])
         (do-fx-ev {:db ::placeholder
                    :dispatch [:ws/notify :open]

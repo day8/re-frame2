@@ -32,11 +32,15 @@
             [re-frame.ssr.payload-policy :as payload-policy]))
 
 (def sample-app-db
+  ;; Plain app-db keys only — framework durable state lives in the
+  ;; runtime-db partition (see `sample-runtime-db` below), not in app-db,
+  ;; so this fixture carries no `:rf/*` framework slot. `:app/session`
+  ;; is an ordinary app-owned key exercising the drop-unlisted-keys path.
   {:public/articles  [:a :b :c]
    :public/user-id   "u-42"
    :server-only/auth "SECRET_TOKEN"
    :server-only/flag true
-   :rf/runtime       {:routing {:current {:id :route/home}}}})
+   :app/session      {:route {:id :route/home}}})
 
 ;; ---- apply-policy: allowlist branch (:payload vector) --------------------
 

@@ -66,15 +66,18 @@
         (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
 
 ;; ---------------------------------------------------------------------------
-;; Fixtures — a machine-epochs-shaped app-db with sets at the spots the
-;; framework actually stamps them (`:tags` under each machine snapshot,
-;; per Spec 005). Sets of varying cardinality (1, 2, 3) so the test
-;; covers the odd-element and even-element cases.
+;; Fixtures — a machine-epochs-shaped frame-state value with sets at the
+;; spots the framework actually stamps them (`:tags` under each machine
+;; snapshot, per Spec 005). Machine snapshots are runtime-db state, so the
+;; snapshot subtree sits in the `:rf.db/runtime` partition under
+;; `:rf.runtime/machines` (per EP-0001); the `:counter` is an ordinary
+;; app-db key alongside it. Sets of varying cardinality (1, 2, 3) so the
+;; test covers the odd-element and even-element cases.
 ;; ---------------------------------------------------------------------------
 
 (defn- machine-snapshots [door-tags]
-  {:rf/runtime
-   {:machines
+  {:rf.db/runtime
+   {:rf.runtime/machines
     {:snapshots
      {:door  {:state :locked :tags door-tags        :context {:attempts 0}}
       :alarm {:state :armed  :tags #{:alarm/armed :alarm/loud}}}}}
@@ -125,7 +128,7 @@
           decoded  (mapv diff-encode/decode-db-after restored)]
       (is (= #{:door/locked :door/bolted}
              (get-in (:db-after (second decoded))
-                     [:rf/runtime :machines :snapshots :door :tags]))
+                     [:rf.db/runtime :rf.runtime/machines :snapshots :door :tags]))
           "the modified :tags set survives diff-encode + dedup + decode"))))
 
 ;; ---------------------------------------------------------------------------
@@ -158,7 +161,7 @@
                                (is (= #{:door/locked :door/bolted}
                                       (get-in (:snapshot edn)
                                               [:rf/default :app-db
-                                               :rf/runtime :machines :snapshots :door :tags]))
+                                               :rf.db/runtime :rf.runtime/machines :snapshots :door :tags]))
                                    "the deep :tags set rides through full-mode intact")))))))
             (.then (fn [_] (done))))))))
 
@@ -217,6 +220,6 @@
                                (is (= 2 (:count edn)))
                                (is (= #{:door/locked :door/bolted}
                                       (get-in (:db-after (second decoded))
-                                              [:rf/runtime :machines :snapshots :door :tags]))
+                                              [:rf.db/runtime :rf.runtime/machines :snapshots :door :tags]))
                                    "the modified :tags set survives the trace-window wire path")))))))
             (.then (fn [_] (done))))))))
