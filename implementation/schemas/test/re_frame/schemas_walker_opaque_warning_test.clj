@@ -86,18 +86,28 @@
                                    :rf.warning/schema-walker-opaque)))))))
 
 (deftest warning-carries-actionable-reason
-  (testing ":tags includes a :reason string that names the two workable
-            shapes (vector form OR registration-level :sensitive?
-            metadata)"
+  (testing "rf2-k0ew8n — :tags includes a :reason string that names the
+            ONE supported shape (register the vector form) and does NOT
+            recommend the REMOVED registration-meta `:sensitive?` fallback"
     (let [recorded (record-traces! ::reason)]
       (rf/reg-app-schema [:user] {:malli/schema :user})
-      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)
-            tags  (-> warns first :tags)]
-        (is (string? (:reason tags)))
-        (is (re-find #"vector form" (:reason tags))
-            ":reason names the vector-form fix")
-        (is (re-find #"sensitive\?" (:reason tags))
-            ":reason names the registration-meta fallback")))))
+      (let [warns  (warnings-of recorded :rf.warning/schema-walker-opaque)
+            tags   (-> warns first :tags)
+            reason (:reason tags)]
+        (is (string? reason))
+        (is (re-find #"vector form" reason)
+            ":reason names the vector-form fix (the supported shape)")
+        ;; The stale guidance MUST be gone: the reason must not steer
+        ;; users to USE handler/cofx/sub registration-meta `:sensitive?`
+        ;; as a workaround — that annotation is removed and the redactor
+        ;; deliberately ignores it (sensitivity is path-targeted). It is
+        ;; fine (and intended) for the reason to NAME the fallback only to
+        ;; say it has been removed.
+        (is (re-find #"(?i)removed" reason)
+            ":reason states the registration-meta fallback was removed")
+        (is (not (re-find #"(?i)(use|via) .{0,40}registration[- ]?(level|meta)"
+                          reason))
+            "no positive recommendation to USE the registration-meta fallback")))))
 
 ;; ---- negative paths (no warning) ------------------------------------------
 

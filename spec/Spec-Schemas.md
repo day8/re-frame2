@@ -1206,6 +1206,25 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:received :any]
    [:expected :string]])
 
+(def AppSchemaRuntimePathTags
+  ;; rf2-k0ew8n: `reg-app-schema` / `reg-app-schemas` was called with a
+  ;; well-SHAPED path whose FIRST segment reaches into the runtime-db
+  ;; partition (a `:rf.runtime/*` keyword, the `:rf.db/runtime` container
+  ;; root, or the legacy `:rf/runtime` root). App schemas validate only
+  ;; app-db, so this is a CATEGORY error hard-rejected at the pre-mutation
+  ;; gate — distinct from the SHAPE error `:rf.error/bad-app-schema-path`.
+  ;; `:received` carries the offending path; `:frame` the resolved
+  ;; registration frame (nil when no scope is established); `:reason` names
+  ;; `reg-runtime-schema` as the correct surface. Per Spec 009 §Error
+  ;; catalogue (`:rf.error/app-schema-runtime-path`) + Spec 010 §App
+  ;; schemas validate the app-db partition only.
+  [:map
+   [:category    [:= :rf.error/app-schema-runtime-path]]
+   [:received    :any]
+   [:frame       [:maybe :keyword]]
+   [:reason      :string]
+   [:rf.error/id [:= :rf.error/app-schema-runtime-path]]])
+
 (def UnknownPresetTags
   [:map
    [:category :keyword]

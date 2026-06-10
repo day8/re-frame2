@@ -494,8 +494,19 @@
                 ;; `safe-explain` so a throwing explainer can't unwind past
                 ;; this false and become a catch-as-pass at the call-site.
                 explanation (safe-explain schema value)
+                ;; Per rf2-k0ew8n (finding 1) — path-TARGETED sensitivity,
+                ;; matching the precise model `validate-app-schema!` already
+                ;; uses. Derive the failing leaf path from the explainer's
+                ;; `:in` and ask `schema-sensitive-at?` whether THAT slot is
+                ;; sensitive, rather than the coarse `schema-has-sensitive?`
+                ;; which over-redacts a non-sensitive failing sibling whenever
+                ;; ANY unrelated sibling in the schema is sensitive. Fail-SAFE:
+                ;; when the explainer yields no extractable `:in` path,
+                ;; `schema-sensitive-at?` degrades to the whole-schema check
+                ;; (redact if the schema carries sensitivity anywhere).
+                in-path     (failing-in-path explanation)
                 sensitive?  (and walk-schema?
-                                 (walker/schema-has-sensitive? schema))
+                                 (walker/schema-sensitive-at? schema in-path))
                 ;; Per rf2-qhq3f — humanize from the RAW explanation here,
                 ;; before redaction, and fold the slot into base-tags so
                 ;; `redact-tags` scrubs it symmetrically with `:explain`
