@@ -236,6 +236,24 @@
                                        them; without this a prior test's
                                        counter leaks and the nav-N / pn-N
                                        id assertions drift.
+    :resources/reset-resources!      — reset the resources artefact's
+                                       host-side transient state (Spec 016):
+                                       clear the `:resource` + `:mutation`
+                                       registrar kinds, the generation
+                                       high-water cache
+                                       (re-frame.resources.state/generation-cache),
+                                       and the host work-ledger / timer /
+                                       revalidation-listener handles
+                                       (rf2-afpdkn / rf2-nbjewi / rf2-vtblcq).
+                                       Like the routing nav-counters, the
+                                       generation cache is host-side transient
+                                       state now, so the `frames` reset above
+                                       no longer clears it; without this a
+                                       prior test's generation high-water mark
+                                       leaks across tests. Published from
+                                       `re-frame.resources.test-support`, so the
+                                       row no-ops when that test-support require
+                                       is absent (production builds).
     :http/clear-all-in-flight!       — drop the in-flight managed-request
                                        registry.
     :epoch/clear-history!            — drop the per-frame epoch ring buffer.
@@ -265,6 +283,7 @@
    {:hook :machines/reset-spawn-order!     :phase :post-dispose}
    {:hook :routing/reset-counters!         :phase :post-dispose}
    {:hook :routing/reset-nav-counters!     :phase :post-dispose}
+   {:hook :resources/reset-resources!      :phase :post-dispose}
    {:hook :http/clear-all-in-flight!       :phase :post-dispose}
    {:hook :epoch/clear-history!            :phase :post-dispose}
    {:hook :epoch/clear-epoch-listeners!          :phase :post-dispose}

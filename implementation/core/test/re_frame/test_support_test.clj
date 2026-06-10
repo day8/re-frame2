@@ -226,6 +226,7 @@
    :machines/reset-timers!          1
    :routing/reset-counters!         1
    :routing/reset-nav-counters!     1  ;; rf2-oosjmh — host-side counters
+   :resources/reset-resources!      1  ;; rf2-yuc8o0 — host-side resources state
    :http/clear-all-in-flight!       1
    :epoch/clear-history!            1
    :epoch/clear-epoch-listeners!          1
