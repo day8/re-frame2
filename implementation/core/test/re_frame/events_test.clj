@@ -1,13 +1,20 @@
 (ns re-frame.events-test
-  "Per rf2-bbea — `reg-event-*` warns when `:interceptors` appears inside
-  the metadata-map (where it is silently ignored). The interceptor chain
-  belongs in the third positional slot, not the metadata map.
+  "Per rf2-bpmszk (the rf2-iczn3 resolution, Mike 2026-06-10) — the
+  `reg-event-*` metadata-map carries a RESERVED `:interceptors` key, making
+  the map the ONE superset middle-slot shape. The positional interceptor
+  vector form (`[i1 i2]`) becomes definable SUGAR — `[i1 i2]` ≡
+  `{:interceptors [i1 i2]}` — threaded into the identical position with
+  identical semantics (declaration order; `:before` in order, `:after`
+  reversed). Additive: zero call-site migration; the front-porch
+  `(reg-event-db :id handler)` is unchanged.
 
-  The warning is delivered via the trace stream
-  (`:rf.warning/interceptors-in-metadata-map`, per Conventions §Reserved
-  namespaces — `:rf.warning/*`). Hot-reload tools / 10x consume the
-  warning; this test asserts it fires on the wrong shape and stays
-  silent on the right shape."
+  This SUPERSEDES the former rf2-bbea warning
+  (`:rf.warning/interceptors-in-metadata-map`): `:interceptors` inside the
+  metadata-map is now the documented home, not a typo. Two guard rails keep
+  the superset honest: supplying interceptors via BOTH the map key AND the
+  positional vector is a loud `:rf.error/interceptors-supplied-twice`
+  (one-home-per-fact, EP-0007); a malformed `:interceptors` value is a loud
+  `:rf.error/reg-event-bad-interceptors`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -70,39 +77,190 @@
 
 ;; ---- tests ----------------------------------------------------------------
 
-(deftest interceptors-in-metadata-map-warns
-  (testing "reg-event-db with :interceptors inside the metadata-map fires :rf.warning/interceptors-in-metadata-map"
-    (let [recorded (record-traces! ::db-warn)]
-      (rf/reg-event-db :test.bbea/db-bad
-        {:doc "A wrongly-shaped registration." :interceptors [noop-icpt]}
+(deftest metadata-map-interceptors-is-the-superset-form
+  ;; Per rf2-bpmszk — `:interceptors` inside the metadata-map is now THE
+  ;; superset middle-slot shape: the chain is threaded into the same position
+  ;; the positional vector occupies, and the registrar carries it on the
+  ;; effective `:interceptors` chain (user chain + the framework wrapper).
+  (testing "reg-event-db with metadata-map :interceptors threads the chain (NOT dropped)"
+    (let [recorded (record-traces! ::db-super)]
+      (rf/reg-event-db :test.bpmszk/db-super
+        {:doc "Superset form." :interceptors [noop-icpt]}
         (fn [db _] db))
-      (let [warns (warning-events recorded :rf.warning/interceptors-in-metadata-map)]
-        (is (= 1 (count warns)) (str "expected exactly one warning, got " (count warns)))
-        (let [t (:tags (first warns))]
-          (is (= "reg-event-db" (:reg-fn t)))
-          (is (= :test.bbea/db-bad (:id t)))
-          (is (= [:interceptors] (:offending-keys t)))
-          (is (string? (:reason t)))
-          (is (re-find #"silently ignored" (:reason t))))
-        (is (= :ignored (:recovery (first warns)))))))
+      (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map))
+          "the superset form does NOT fire the retired metadata-misuse warning")
+      (let [meta (rf/handler-meta :event :test.bpmszk/db-super)
+            ids  (mapv :id (:interceptors meta))]
+        (is (= "Superset form." (:doc meta))
+            "the reflection metadata is retained on the registry entry")
+        (is (not (contains? meta :interceptors-as-raw))
+            "the raw key is not duplicated under another name")
+        (is (= [:test/noop :rf/db-handler] ids)
+            "the metadata-map :interceptors chain sits before the runtime wrapper")
+        (is (= :db (:event/kind meta))))))
 
-  (testing "reg-event-fx with :interceptors inside the metadata-map fires the warning"
-    (let [recorded (record-traces! ::fx-warn)]
-      (rf/reg-event-fx :test.bbea/fx-bad
-        {:doc "Wrong shape." :interceptors [noop-icpt]}
-        (fn [_ _] {:db {}}))
-      (let [warns (warning-events recorded :rf.warning/interceptors-in-metadata-map)]
-        (is (= 1 (count warns)))
-        (is (= "reg-event-fx" (:reg-fn (:tags (first warns))))))))
+  (testing "reg-event-fx with metadata-map :interceptors threads the chain"
+    (rf/reg-event-fx :test.bpmszk/fx-super
+      {:interceptors [noop-icpt]}
+      (fn [_ _] {:db {}}))
+    (let [ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk/fx-super)))]
+      (is (= [:test/noop :rf/fx-handler] ids))))
 
-  (testing "reg-event-ctx with :interceptors inside the metadata-map fires the warning"
-    (let [recorded (record-traces! ::ctx-warn)]
-      (rf/reg-event-ctx :test.bbea/ctx-bad
-        {:doc "Wrong shape." :interceptors [noop-icpt]}
-        (fn [ctx] ctx))
-      (let [warns (warning-events recorded :rf.warning/interceptors-in-metadata-map)]
-        (is (= 1 (count warns)))
-        (is (= "reg-event-ctx" (:reg-fn (:tags (first warns)))))))))
+  (testing "reg-event-ctx with metadata-map :interceptors threads the chain"
+    (rf/reg-event-ctx :test.bpmszk/ctx-super
+      {:interceptors [noop-icpt]}
+      (fn [ctx] ctx))
+    (let [ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk/ctx-super)))]
+      (is (= [:test/noop :rf/ctx-handler] ids)))))
+
+(deftest metadata-map-interceptors-runs-the-chain-identically
+  ;; The chain registered via the metadata-map MUST run with identical
+  ;; ordering semantics to the positional vector form: `:before` in
+  ;; declaration order, `:after` in reverse declaration order.
+  (testing "two interceptors via map :interceptors run :before in order, :after reversed"
+    (let [order (atom [])
+          mk    (fn [tag]
+                  {:id     (keyword "test.bpmszk" (str "ord-" (name tag)))
+                   :before (fn [ctx] (swap! order conj [:before tag]) ctx)
+                   :after  (fn [ctx] (swap! order conj [:after tag]) ctx)})]
+      (rf/reg-event-db :test.bpmszk/ordered
+        {:interceptors [(mk :a) (mk :b)]}
+        (fn [db _] (swap! order conj [:handler]) db))
+      (rf/dispatch-sync [:test.bpmszk/ordered])
+      (is (= [[:before :a] [:before :b] [:handler] [:after :b] [:after :a]]
+             @order)
+          ":before runs in declaration order; :after runs reversed — identical to the positional form"))))
+
+(deftest interceptors-supplied-twice-is-rejected-loudly
+  ;; Per rf2-bpmszk both-places guard: interceptors via the map :interceptors
+  ;; AND the positional vector at once is a LOUD :rf.error/interceptors-supplied-twice
+  ;; (never a silent merge; EP-0007 one-home-per-fact).
+  (testing "metadata-map :interceptors + positional vector throws"
+    (let [other {:id :test.bpmszk/other :before identity :after identity}
+          ex    (try (rf/reg-event-db :test.bpmszk/twice
+                       {:doc "both" :interceptors [noop-icpt]}
+                       [other]
+                       (fn [db _] db))
+                     nil
+                     (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "the both-places call throws")
+      (is (= ":rf.error/interceptors-supplied-twice" (ex-message ex)))
+      (let [data (ex-data ex)]
+        (is (= :rf.error/interceptors-supplied-twice (:rf.error/id data)))
+        (is (= "reg-event-db" (:reg-fn data)))
+        (is (= :test.bpmszk/twice (:id data)))
+        (is (= :fix-registration (:recovery data)))
+        (is (string? (:reason data)))
+        (is (re-find #"TWICE" (:reason data)) ":reason names the dual supply")
+        (is (re-find #"metadata-map" (:reason data)) ":reason names the metadata-map source")
+        (is (re-find #"positional" (:reason data)) ":reason names the positional source"))))
+
+  (testing "the both-places rejection happens BEFORE the registry slot is written"
+    (try (rf/reg-event-db :test.bpmszk/twice-no-side-effect
+           {:interceptors [noop-icpt]}
+           [{:id :x :before identity}]
+           (fn [db _] db))
+         (catch clojure.lang.ExceptionInfo _ nil))
+    (is (nil? (registrar/lookup :event :test.bpmszk/twice-no-side-effect))
+        "registry slot is untouched when the both-places guard throws"))
+
+  (testing "the guard covers reg-event-fx and reg-event-ctx"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/interceptors-supplied-twice"
+          (rf/reg-event-fx :test.bpmszk/fx-twice
+            {:interceptors [noop-icpt]}
+            [{:id :y :before identity}]
+            (fn [_ _] {}))))
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/interceptors-supplied-twice"
+          (rf/reg-event-ctx :test.bpmszk/ctx-twice
+            {:interceptors [noop-icpt]}
+            [{:id :z :after identity}]
+            (fn [ctx] ctx)))))
+
+  (testing "a metadata-map :interceptors with an EMPTY positional vector does NOT trip the guard"
+    ;; An empty positional vector contributes no interceptors, so there is no
+    ;; second source — the map form is honoured.
+    (is (= :test.bpmszk/empty-positional
+           (rf/reg-event-db :test.bpmszk/empty-positional
+             {:interceptors [noop-icpt]}
+             []
+             (fn [db _] db))))
+    (let [ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk/empty-positional)))]
+      (is (= [:test/noop :rf/db-handler] ids)))))
+
+(deftest malformed-metadata-map-interceptors-is-rejected-loudly
+  ;; Per rf2-bpmszk malformed-value guard: a non-vector :interceptors value, or
+  ;; a vector carrying a non-interceptor entry, is a LOUD
+  ;; :rf.error/reg-event-bad-interceptors.
+  (testing "a non-vector :interceptors value throws"
+    (let [ex (try (rf/reg-event-db :test.bpmszk/bad-nonvec
+                    {:interceptors noop-icpt}     ;; a bare map, not a vector
+                    (fn [db _] db))
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex))
+      (is (= ":rf.error/reg-event-bad-interceptors" (ex-message ex)))
+      (let [data (ex-data ex)]
+        (is (= :rf.error/reg-event-bad-interceptors (:rf.error/id data)))
+        (is (= "reg-event-db" (:reg-fn data)))
+        (is (= :test.bpmszk/bad-nonvec (:id data)))
+        (is (= :fix-registration (:recovery data)))
+        (is (re-find #"non-vector" (:reason data))))))
+
+  (testing "a vector with a non-interceptor entry (keyword) throws"
+    (let [ex (try (rf/reg-event-db :test.bpmszk/bad-entry
+                    {:interceptors [noop-icpt :not-an-interceptor]}
+                    (fn [db _] db))
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex))
+      (is (= ":rf.error/reg-event-bad-interceptors" (ex-message ex)))
+      (is (re-find #"non-interceptor" (:reason (ex-data ex))))))
+
+  (testing "the malformed rejection happens BEFORE the registry slot is written"
+    (try (rf/reg-event-db :test.bpmszk/bad-no-side-effect
+           {:interceptors :nope}
+           (fn [db _] db))
+         (catch clojure.lang.ExceptionInfo _ nil))
+    (is (nil? (registrar/lookup :event :test.bpmszk/bad-no-side-effect))
+        "registry slot is untouched when the malformed guard throws"))
+
+  (testing "an empty :interceptors vector is legitimate (no chain), not malformed"
+    (is (= :test.bpmszk/empty-ok
+           (rf/reg-event-db :test.bpmszk/empty-ok
+             {:doc "no chain" :interceptors []}
+             (fn [db _] db))))
+    (let [ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk/empty-ok)))]
+      (is (= [:rf/db-handler] ids) "no user interceptors; only the runtime wrapper"))))
+
+(deftest sugar-equivalence-vector-equals-map-interceptors
+  ;; Per rf2-bpmszk item 4: `[i1 i2]` ≡ `{:interceptors [i1 i2]}` — the two
+  ;; middle-slot forms produce identical registrar entries (the raw key is
+  ;; stripped, so there is no "modulo the retained key" delta; the effective
+  ;; `:interceptors` chain is the single introspection surface).
+  (testing "vector form and map form yield identical registrar entries"
+    (let [a {:id :test.bpmszk/sugar-a :before identity :after identity}
+          b {:id :test.bpmszk/sugar-b :before identity}]
+      (rf/reg-event-db :test.bpmszk/via-vector
+        [a b]
+        (fn [db _] db))
+      (rf/reg-event-db :test.bpmszk/via-map
+        {:interceptors [a b]}
+        (fn [db _] db))
+      (let [vec-meta (-> (rf/handler-meta :event :test.bpmszk/via-vector)
+                         (dissoc :handler-fn))   ;; the handler-fn differs by identity only
+            map-meta (-> (rf/handler-meta :event :test.bpmszk/via-map)
+                         (dissoc :handler-fn))]
+        ;; The map form must NOT carry a stray raw :interceptors retain key.
+        (is (= (mapv :id (:interceptors vec-meta))
+               (mapv :id (:interceptors map-meta)))
+            "both forms register the identical effective chain (ids + order)")
+        ;; Neither entry carries any key the other lacks — clean sugar-equivalence.
+        (is (= (set (keys vec-meta)) (set (keys map-meta)))
+            "both registrar entries carry the identical key set (no retained-key delta)")))))
 
 (deftest correct-positional-form-stays-silent
   (testing "reg-event-db with interceptors in the positional slot does NOT warn"
@@ -125,21 +283,7 @@
       (rf/reg-event-db :test.bbea/db-good-3
         {:doc "Plain metadata-only registration."}
         (fn [db _] db))
-      (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map)))))
-
-  (testing "the wrongly-shaped form ALSO loses its interceptor chain (positional slot remains empty)"
-    ;; Confirm the bug the warning describes: the silently-dropped
-    ;; interceptors do NOT end up in the registered :interceptors. The
-    ;; registered chain holds only the runtime's :rf/db-handler wrapper.
-    (let [_recorded (record-traces! ::confirm-drop)
-          marker    {:id :test.bbea/marker :before identity :after identity}]
-      (rf/reg-event-db :test.bbea/dropped
-        {:interceptors [marker]}
-        (fn [db _] db))
-      (let [{:keys [interceptors]} (rf/handler-meta :event :test.bbea/dropped)
-            ids (set (map :id interceptors))]
-        (is (not (contains? ids :test.bbea/marker))
-            "the metadata-map :interceptors entry is dropped (this confirms the bug rf2-bbea documents)")))))
+      (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map))))))
 
 ;; ---- clear-event round-trip (rf2-6z20) -----------------------------------
 ;;
@@ -301,9 +445,11 @@
 ;; (count=3) is the one historically miscounted by audit notes that compared
 ;; the full call-site arity (4) against the case branches (1/2/3). This
 ;; deftest locks in all four shapes: each must register cleanly, retain the
-;; positional interceptors, surface the metadata, and dispatch without
-;; firing the `:rf.warning/interceptors-in-metadata-map` warning that rf2-bbea
-;; introduced.
+;; positional interceptors, surface the metadata, and dispatch cleanly. (The
+;; retired rf2-bbea `:rf.warning/interceptors-in-metadata-map` no longer fires
+;; for any shape — rf2-bpmszk made the metadata-map `:interceptors` the
+;; documented superset home; the empty-warnings assertion below is a guard
+;; against any accidental resurrection.)
 
 (deftest normalise-args-accepts-all-four-documented-shapes
   (let [recorded (record-traces! ::shapes)

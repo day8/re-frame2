@@ -1,18 +1,21 @@
 (ns re-frame.events-cljs-test
-  "Per rf2-bbea — CLJS-side coverage that `reg-event-*` warns when
-  `:interceptors` is mistakenly placed inside the metadata-map.
+  "Per rf2-bpmszk (the rf2-iczn3 resolution) — CLJS-side coverage that the
+  `reg-event-*` metadata-map `:interceptors` superset form threads the chain
+  under the Reagent reactive substrate, and that the both-places guard fires.
 
-  The JVM coverage lives in re-frame.events-test; this companion exists
-  so the warning fires correctly under the Reagent reactive substrate
-  where macro indirection (re-frame.core's `reg-event-db` is a CLJS
-  macro that wraps the runtime fn) might otherwise hide the call site.
+  This SUPERSEDES the former rf2-bbea CLJS coverage (which asserted
+  `:rf.warning/interceptors-in-metadata-map` fired): `:interceptors` inside the
+  metadata-map is now the documented home, not a typo. The JVM coverage lives
+  in re-frame.events-test; this companion exists so the superset form resolves
+  correctly under the Reagent substrate where macro indirection (re-frame.core's
+  `reg-event-db` is a CLJS macro that wraps the runtime fn) might otherwise hide
+  the call site.
 
   ns ends in -cljs-test so shadow-cljs ':node-test' picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support])
-  (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
+            [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -21,51 +24,59 @@
 (def ^:private noop-icpt
   {:id :test/noop :before identity :after identity})
 
-(def ^:private interceptors-warn-pred
-  "Filter predicate shared by the deftests below — matches the
-  metadata-map `:interceptors` warning trace."
-  (fn [ev]
-    (and (= :warning (:op-type ev))
-         (= :rf.warning/interceptors-in-metadata-map (:operation ev)))))
+(deftest reg-event-db-metadata-interceptors-threads-the-chain
+  (testing "metadata-map :interceptors threads the chain under the Reagent adapter"
+    (rf/reg-event-db :test.bpmszk.cljs/db-super
+      {:doc "Superset form." :interceptors [noop-icpt]}
+      (fn [db _] db))
+    (let [meta (rf/handler-meta :event :test.bpmszk.cljs/db-super)
+          ids  (mapv :id (:interceptors meta))]
+      (is (= "Superset form." (:doc meta)))
+      (is (= [:test/noop :rf/db-handler] ids)
+          "the metadata-map :interceptors chain sits before the runtime wrapper"))))
 
-(deftest reg-event-db-warns-on-meta-interceptors
-  (testing "metadata-map :interceptors triggers :rf.warning/interceptors-in-metadata-map under the Reagent adapter"
-    (with-trace-recorder! [warns {:pred interceptors-warn-pred}]
-      (rf/reg-event-db :test.bbea.cljs/db-bad
-        {:doc "Wrongly-shaped." :interceptors [noop-icpt]}
-        (fn [db _] db))
-      (is (= 1 (count @warns)))
-      (let [tags (:tags (first @warns))]
-        (is (= "reg-event-db" (:reg-fn tags)))
-        (is (= :test.bbea.cljs/db-bad (:id tags)))))))
+(deftest reg-event-fx-metadata-interceptors-threads-the-chain
+  (rf/reg-event-fx :test.bpmszk.cljs/fx-super
+    {:interceptors [noop-icpt]}
+    (fn [_ _] {:db {}}))
+  (let [ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk.cljs/fx-super)))]
+    (is (= [:test/noop :rf/fx-handler] ids))))
 
-(deftest reg-event-fx-warns-on-meta-interceptors
-  (with-trace-recorder! [warns {:pred interceptors-warn-pred}]
-    (rf/reg-event-fx :test.bbea.cljs/fx-bad
+(deftest reg-event-ctx-metadata-interceptors-threads-the-chain
+  (rf/reg-event-ctx :test.bpmszk.cljs/ctx-super
+    {:interceptors [noop-icpt]}
+    (fn [ctx] ctx))
+  (let [ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk.cljs/ctx-super)))]
+    (is (= [:test/noop :rf/ctx-handler] ids))))
+
+(deftest both-places-guard-fires-under-reagent
+  (testing "metadata-map :interceptors + positional vector throws :rf.error/interceptors-supplied-twice"
+    (is (thrown-with-msg?
+          cljs.core/ExceptionInfo
+          #":rf\.error/interceptors-supplied-twice"
+          (rf/reg-event-db :test.bpmszk.cljs/twice
+            {:interceptors [noop-icpt]}
+            [{:id :other :before identity}]
+            (fn [db _] db))))))
+
+(deftest malformed-metadata-interceptors-fires-under-reagent
+  (testing "a non-vector :interceptors value throws :rf.error/reg-event-bad-interceptors"
+    (is (thrown-with-msg?
+          cljs.core/ExceptionInfo
+          #":rf\.error/reg-event-bad-interceptors"
+          (rf/reg-event-db :test.bpmszk.cljs/bad
+            {:interceptors noop-icpt}
+            (fn [db _] db))))))
+
+(deftest sugar-equivalence-under-reagent
+  (testing "[i] and {:interceptors [i]} register the identical effective chain"
+    (rf/reg-event-db :test.bpmszk.cljs/via-vector
+      [noop-icpt]
+      (fn [db _] db))
+    (rf/reg-event-db :test.bpmszk.cljs/via-map
       {:interceptors [noop-icpt]}
-      (fn [_ _] {:db {}}))
-    (is (= 1 (count @warns)))
-    (is (= "reg-event-fx" (:reg-fn (:tags (first @warns)))))))
-
-(deftest reg-event-ctx-warns-on-meta-interceptors
-  (with-trace-recorder! [warns {:pred interceptors-warn-pred}]
-    (rf/reg-event-ctx :test.bbea.cljs/ctx-bad
-      {:interceptors [noop-icpt]}
-      (fn [ctx] ctx))
-    (is (= 1 (count @warns)))
-    (is (= "reg-event-ctx" (:reg-fn (:tags (first @warns)))))))
-
-(deftest correct-positional-form-stays-silent-cljs
-  (testing "interceptors in the positional slot do NOT warn"
-    (with-trace-recorder! [warns {:pred interceptors-warn-pred}]
-      (rf/reg-event-db :test.bbea.cljs/quiet-1
-        [noop-icpt]
-        (fn [db _] db))
-      (rf/reg-event-db :test.bbea.cljs/quiet-2
-        {:doc "metadata only"}
-        [noop-icpt]
-        (fn [db _] db))
-      (rf/reg-event-db :test.bbea.cljs/quiet-3
-        {:doc "metadata only, no positional interceptors"}
-        (fn [db _] db))
-      (is (zero? (count @warns))))))
+      (fn [db _] db))
+    (let [vec-ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk.cljs/via-vector)))
+          map-ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk.cljs/via-map)))]
+      (is (= vec-ids map-ids)
+          "both forms register the identical effective chain (ids + order)"))))

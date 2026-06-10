@@ -904,76 +904,60 @@
       (is (= :ran @out-from-fn) "the wrapped fn invokes the user fn"))))
 
 ;; ===========================================================================
-;; reg-event metadata-interceptors warning (rf2-bbea) — port of `*_events`
+;; reg-event metadata-map :interceptors superset form (rf2-bpmszk) — port of
+;; `*_events`. SUPERSEDES the rf2-bbea metadata-misuse warning coverage:
+;; `:interceptors` inside the metadata-map is now the documented superset home
+;; (the rf2-iczn3 resolution), threaded into the same position the positional
+;; vector occupies. These assertions pin that the superset form + both-places
+;; guard behave correctly under the installed React adapter's late-bind stack.
 ;; ===========================================================================
-
-(defn- collect-meta-interceptor-warnings
-  "Listener recording :rf.warning/interceptors-in-metadata-map events."
-  [k]
-  (let [a (atom [])]
-    (trace-tooling/register-listener! k
-      (fn [ev]
-        (when (and (= :warning (:op-type ev))
-                   (= :rf.warning/interceptors-in-metadata-map (:operation ev)))
-          (swap! a conj ev))))
-    a))
 
 (def ^:private noop-icpt
   {:id :test/noop :before identity :after identity})
 
-(defn assert-reg-event-warns-on-meta-interceptors
-  "reg-event-{db,fx,ctx} warn when :interceptors is mistakenly placed
-  inside the metadata map — observed under the installed adapter
-  (rf2-bbea / rf2-ta4b5). Pins the registrar + trace tier compose with
-  the React adapter's late-bind hook stack."
+(defn assert-reg-event-meta-interceptors-threads-the-chain
+  "reg-event-{db,fx,ctx} thread the metadata-map `:interceptors` superset
+  chain into the registrar's effective chain — observed under the installed
+  adapter (rf2-bpmszk, the rf2-iczn3 resolution; supersedes rf2-bbea /
+  rf2-ta4b5). Pins the registrar + trace tier compose with the React
+  adapter's late-bind hook stack."
   [{:keys [substrate-kw name]}]
-  (let [db-id  (mint-kw substrate-kw "events-db-bad")
-        fx-id  (mint-kw substrate-kw "events-fx-bad")
-        ctx-id (mint-kw substrate-kw "events-ctx-bad")]
-    (testing (str name " — reg-event-db warns on metadata-map :interceptors")
-      (let [warns (collect-meta-interceptor-warnings ::db-warn)]
-        (rf/reg-event-db db-id
-          {:doc "Wrongly-shaped." :interceptors [noop-icpt]}
-          (fn [db _] db))
-        (trace-tooling/unregister-listener! ::db-warn)
-        (is (= 1 (count @warns)))
-        (let [t (:tags (first @warns))]
-          (is (= "reg-event-db" (:reg-fn t)))
-          (is (= db-id (:id t))))))
-    (testing (str name " — reg-event-fx warns on metadata-map :interceptors")
-      (let [warns (collect-meta-interceptor-warnings ::fx-warn)]
-        (rf/reg-event-fx fx-id
-          {:interceptors [noop-icpt]}
-          (fn [_ _] {:db {}}))
-        (trace-tooling/unregister-listener! ::fx-warn)
-        (is (= 1 (count @warns)))
-        (is (= "reg-event-fx" (:reg-fn (:tags (first @warns)))))))
-    (testing (str name " — reg-event-ctx warns on metadata-map :interceptors")
-      (let [warns (collect-meta-interceptor-warnings ::ctx-warn)]
-        (rf/reg-event-ctx ctx-id
-          {:interceptors [noop-icpt]}
-          (fn [ctx] ctx))
-        (trace-tooling/unregister-listener! ::ctx-warn)
-        (is (= 1 (count @warns)))
-        (is (= "reg-event-ctx" (:reg-fn (:tags (first @warns)))))))))
+  (let [db-id  (mint-kw substrate-kw "events-db-super")
+        fx-id  (mint-kw substrate-kw "events-fx-super")
+        ctx-id (mint-kw substrate-kw "events-ctx-super")]
+    (testing (str name " — reg-event-db metadata-map :interceptors threads the chain")
+      (rf/reg-event-db db-id
+        {:doc "Superset form." :interceptors [noop-icpt]}
+        (fn [db _] db))
+      (let [meta (rf/handler-meta :event db-id)]
+        (is (= "Superset form." (:doc meta)))
+        (is (= [:test/noop :rf/db-handler] (mapv :id (:interceptors meta))))))
+    (testing (str name " — reg-event-fx metadata-map :interceptors threads the chain")
+      (rf/reg-event-fx fx-id
+        {:interceptors [noop-icpt]}
+        (fn [_ _] {:db {}}))
+      (is (= [:test/noop :rf/fx-handler]
+             (mapv :id (:interceptors (rf/handler-meta :event fx-id))))))
+    (testing (str name " — reg-event-ctx metadata-map :interceptors threads the chain")
+      (rf/reg-event-ctx ctx-id
+        {:interceptors [noop-icpt]}
+        (fn [ctx] ctx))
+      (is (= [:test/noop :rf/ctx-handler]
+             (mapv :id (:interceptors (rf/handler-meta :event ctx-id))))))))
 
-(defn assert-reg-event-positional-interceptors-silent
-  "Interceptors in the positional slot do NOT warn (rf2-bbea)."
+(defn assert-reg-event-both-places-guard-fires
+  "Supplying interceptors via BOTH the metadata-map `:interceptors` AND the
+  positional vector raises `:rf.error/interceptors-supplied-twice` under the
+  installed adapter (rf2-bpmszk both-places guard)."
   [{:keys [substrate-kw name]}]
-  (testing (str name " — positional interceptors stay silent")
-    (let [warns (collect-meta-interceptor-warnings ::quiet)]
-      (rf/reg-event-db (mint-kw substrate-kw "events-quiet-1")
-        [noop-icpt]
-        (fn [db _] db))
-      (rf/reg-event-db (mint-kw substrate-kw "events-quiet-2")
-        {:doc "metadata only"}
-        [noop-icpt]
-        (fn [db _] db))
-      (rf/reg-event-db (mint-kw substrate-kw "events-quiet-3")
-        {:doc "metadata only, no positional interceptors"}
-        (fn [db _] db))
-      (trace-tooling/unregister-listener! ::quiet)
-      (is (zero? (count @warns))))))
+  (testing (str name " — both-places interceptors throw :rf.error/interceptors-supplied-twice")
+    (is (thrown-with-msg?
+          cljs.core/ExceptionInfo
+          #":rf\.error/interceptors-supplied-twice"
+          (rf/reg-event-db (mint-kw substrate-kw "events-twice")
+            {:interceptors [noop-icpt]}
+            [{:id :other :before identity}]
+            (fn [db _] db))))))
 
 ;; ===========================================================================
 ;; render-to-string + late-bind chain wiring (rf2-gc5v9 / rf2-y9spn /
