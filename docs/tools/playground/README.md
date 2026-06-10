@@ -181,9 +181,26 @@ The smoke is gated in CI (`.github/workflows/test.yml`, `tools-playground`
 job, fired by the `playground` changed-surface in
 `.github/scripts/report-changed-surfaces.sh`). The job builds both bundles,
 runs the smoke against them, **and** verifies the committed
-`docs/cljs/playground*.js` + `.css` are byte-identical to a fresh build
-(`git diff --exit-code`) so a stale vendored bundle fails the PR — the deployed
-artefact can never silently drift from source. See the row in `TESTING.md`.
+`docs/cljs/playground.js` + `.css` are byte-identical to a fresh build
+(`git diff --exit-code`), plus that the committed `playground-rf2.js` is a
+valid, fresh re-frame2 prebuilt (structural + freshness checks — see the
+SCI-bundle freshness guard note below) — so a stale vendored bundle fails the
+PR. See the row in `TESTING.md`.
+
+**Rebuild-on-publish (rf2-ssxvg1).** The committed `playground-rf2.js` is still
+a vendored prebuilt for PR gating and local convenience, but it is no longer
+the source of the *deployed* live-cell engine. `.github/workflows/docs.yml`
+now rebuilds **both** bundles fresh from the checked-out `main` (`npm ci` +
+`npm run build`, with a JVM + Clojure + Node toolchain) **before**
+`mkdocs build` stages `site/`, so the **deployed** bundle is always current
+with `main` regardless of how stale the committed snapshot is. This eliminates
+the committed-stale-binary drift class structurally: a wave of
+`implementation/` changes (e.g. the EP-0003 resources wave) can no longer
+leave the live cells running an old re-frame2 just because the committed
+bundle predates them. The build-in-pipeline approach was chosen over a
+commit-back bot push: it keeps the deployed site authoritative without a
+write-back to `main` (the committed snapshot may briefly lag a docs publish,
+which is acceptable since the deploy always rebuilds).
 
 **SCI-bundle freshness guard (rf2-2h1yhk).** `playground-rf2.js` is a Closure
 `:advanced` build whose minified output is **not** cross-machine reproducible,

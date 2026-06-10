@@ -2462,10 +2462,13 @@ jobs:
   # live-cell engine that backs the docs/cljs reading guide and the
   # interactive guide chapters. Its smoke (a real headless-Chromium run of
   # both PRODUCTION bundles) was previously wired to no CI gate, and the
-  # committed, vendored bundles (docs/cljs/playground*.{js,css}) are deployed
-  # verbatim by docs.yml — never rebuilt — so a source change that was not
-  # re-bundled, or a re-bundle that regressed, shipped to the live docs
-  # undetected. This job closes both holes: it rebuilds BOTH bundles and runs
+  # committed, vendored bundles (docs/cljs/playground*.{js,css}) were deployed
+  # verbatim by docs.yml — so a source change that was not re-bundled, or a
+  # re-bundle that regressed, shipped to the live docs undetected. (As of
+  # rf2-ssxvg1, docs.yml now REBUILDS the bundles fresh from main on every
+  # publish, so the deployed artefact is always current; this PR-time job still
+  # gates that the COMMITTED snapshot is a valid, fresh vendored prebuilt.)
+  # This job closes both holes: it rebuilds BOTH bundles and runs
   # the smoke against them, then gates committed-bundle freshness two ways:
   #   - esbuild artefacts (playground.js/.css) are byte-deterministic across
   #     platforms, so a strict `git diff --exit-code` catches un-rebundled

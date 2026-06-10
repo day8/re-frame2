@@ -6,12 +6,15 @@
 # The committed `docs/cljs/playground-rf2.js` is a vendored, prebuilt
 # shadow-cljs `:advanced` bundle that bakes in re-frame2 core + reagent-slim +
 # the machines artefact (it is the eval engine for the docs' live `cljs-rf2`
-# cells). It is deployed verbatim by docs.yml and NEVER rebuilt by the docs
-# build — so an `implementation/` change that alters the bundle's compiled
-# surface (e.g. renaming a reserved keyword) can leave the deployed artefact
-# silently stale. That is exactly what happened with the machine lifecycle
-# creation marker: the source renamed `:rf.machine/bootstrap` -> the current
-# marker, but the committed bundle still carried the retired token.
+# cells). As of rf2-ssxvg1, docs.yml rebuilds it fresh from main on every
+# publish (so the DEPLOYED bundle is always current), but the COMMITTED
+# snapshot is still a vendored prebuilt that PR gating relies on — and a stale
+# committed bundle on an `implementation/` change that alters the compiled
+# surface (e.g. renaming a reserved keyword) is still a real local/PR-time
+# hazard. That is exactly what happened with the machine lifecycle creation
+# marker: the source renamed `:rf.machine/bootstrap` -> the current marker, but
+# the committed bundle still carried the retired token. This guard keeps the
+# COMMITTED snapshot honest about that marker.
 #
 # Why this is a CONTENT check, not a `git diff` rebuild check. The CI
 # bundle-drift gate (tools-playground in .github/workflows/test.yml)
