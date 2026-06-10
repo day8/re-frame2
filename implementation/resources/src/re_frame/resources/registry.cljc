@@ -19,7 +19,9 @@
   in-flight abort, late-reply suppression, tag-index prune, trace) lands
   with the runtime slices (rf2-afpdkn / rf2-pbxj48) — until then it
   clears the registrar entry only."
-  (:require [re-frame.registrar :as registrar]
+  (:require [re-frame.late-bind :as late-bind]
+            [re-frame.registrar :as registrar]
+            [re-frame.resources.state :as state]
             [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -185,3 +187,166 @@
   resource registry)."
   []
   (vec (registrar/ids resource-kind)))
+
+(defn require-resource-spec!
+  "Look the resource spec up by `resource-id`, throwing
+  `:rf.error/resource-not-registered` (the loud, fail-closed boundary) when
+  no `:resource`-kind registrar entry exists. `where` names the call-site
+  public surface. Returns the spec map. Per Spec 016 §Public API."
+  [resource-id where]
+  (or (resource-meta resource-id)
+      (throw (registration-error
+               :rf.error/resource-not-registered
+               where
+               (str "no resource is registered under " resource-id
+                    " — call rf/reg-resource before ensuring / subscribing. "
+                    "Per Spec 016 §Public API.")
+               {:resource-id resource-id}))))
+
+;; ---- params validation + canonicalization (Spec 016 §Resource identity) ---
+
+(defn validate+canonicalize-params
+  "Validate `params` against the resource's REQUIRED `:params-schema`
+  (pluggable late-bound Malli validator, exactly as routing validates route
+  params — `:schemas/validate-with-registered-fn`; no static schemas dep),
+  reject non-EDN / host values loudly (`state/reject-non-edn!`), then return
+  the canonical params (`state/canonicalize`). Throws
+  `:rf.error/resource-invalid-params` on a schema-conformance failure.
+  Per Spec 016 §Resource identity / §Canonicalization rule.
+
+  `nil` vs missing is schema-defined: the `:params-schema` decides whether a
+  key may be absent or nil — this fn does not impose a separate policy, it
+  defers to the schema (Spec 016: \"nil vs missing MUST be schema-defined,
+  not accidental\")."
+  [resource-id spec params where]
+  (let [params (or params {})
+        schema (:params-schema spec)]
+    ;; host / opaque values are rejected at the cache-key boundary
+    (state/reject-non-edn! params where :params resource-id)
+    ;; schema conformance (pluggable; no-op when no validator is registered)
+    (when schema
+      (let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
+        (when (and validate (not (validate schema params)))
+          (let [explain (late-bind/get-fn-cached :schemas/explain-with-registered-fn)]
+            (throw (registration-error
+                     :rf.error/resource-invalid-params
+                     where
+                     (str "resource " resource-id " params do not conform to "
+                          ":params-schema. Per Spec 016 §Resource identity.")
+                     {:resource-id resource-id
+                      :params      params
+                      :error       (when explain (explain schema params))}))))))
+    (state/canonicalize params)))
+
+;; ---- scope resolution (Spec 016 §Scope resolution) ------------------------
+;;
+;; Scope is the cache's tenant / user / permission / locale / impersonation
+;; / SSR leak boundary, and a resolved scope can carry PII. A boundary that
+;; critical MUST fail closed: it never silently defaults to \"shared\".
+;; Resolution differs between EVENTS (which may run a (route, ctx) resolver
+;; and have an event context) and SUBSCRIPTIONS (pure — no routing match,
+;; no event context). There is NO `[:rf.scope/global]` fallthrough on
+;; either path.
+
+(defn- canonical-scope!
+  "Reject a non-EDN scope value (host / opaque) and return the canonical
+  scope. Per Spec 016 §Resource identity (a scope map gets the SAME
+  canonicalization as params)."
+  [resource-id scope where]
+  (state/reject-non-edn! scope where :scope resource-id)
+  (state/canonicalize scope))
+
+(defn resolve-scope-for-event
+  "Resolve the concrete cache scope for a resource EVENT, fail-closed, in
+  Spec 016 §Resolution precedence order — NO `[:rf.scope/global]`
+  fallthrough:
+
+    1. `:scope` supplied on the event payload;
+    2. (route-resource `:scope` resolver — supplied by the route slice,
+       not this runtime slice; threaded in as `route-scope`);
+    3. the resource-spec `:scope` resolver, but ONLY when it resolves to a
+       concrete value without an event context — an explicit
+       `:rf.scope/global` claim, or a pure-data / fn-of-nothing resolver.
+
+  A `:rf.scope/global` policy resolves to `:rf.scope/global` ONLY because
+  that is its declared explicit policy. A `:rf.scope/from-caller` resource
+  reached with no payload `:scope` and no route resolver is a loud
+  use-time error (`:rf.error/resource-scope-required-from-caller`). Returns
+  the canonical scope."
+  [resource-id spec {:keys [payload-scope route-scope]} where]
+  (let [policy (:scope spec)]
+    (cond
+      ;; 1. payload scope (highest precedence)
+      (some? payload-scope) (canonical-scope! resource-id payload-scope where)
+      ;; 2. route-resource resolver result (threaded in by the route slice)
+      (some? route-scope)   (canonical-scope! resource-id route-scope where)
+      ;; 3a. explicit global claim — the resource's declared policy
+      (= policy global-scope-policy) global-scope-policy
+      ;; 3b. from-caller with no payload/route scope — loud use-time error
+      (= policy from-caller-scope-policy)
+      (throw (registration-error
+               :rf.error/resource-scope-required-from-caller
+               where
+               (str "resource " resource-id " declares :scope "
+                    ":rf.scope/from-caller — every ensure / refetch / state "
+                    "call MUST supply :scope on the payload (or a route "
+                    "resolver must). There is no silent global read. Per Spec "
+                    "016 §Scope resolution.")
+               {:resource-id resource-id}))
+      ;; 3c. a fn-of-nothing resolver (pure data resolvable without ctx)
+      (fn? policy)
+      (canonical-scope! resource-id (policy) where)
+      ;; 3d. a pure data-value resolver (a concrete scope value declared
+      ;; directly as the policy)
+      :else (canonical-scope! resource-id policy where))))
+
+(defn resolve-scope-for-sub
+  "Resolve the cache scope for a resource SUBSCRIPTION, fail-closed (Spec
+  016 §Subscription-side scope resolution). A sub is PURE — it cannot run a
+  `(route, ctx)` resolver. Resolution order:
+
+    1. `:scope` supplied on the subscription payload;
+    2. the resource spec's `:scope` ONLY if a pure sub can evaluate it
+       without an event context — an explicit `:rf.scope/global` claim, or
+       a pure-data / fn-of-nothing resolver.
+
+  A sub that CANNOT resolve a scope raises `:rf.error/resource-sub-
+  unresolved-scope` (carrying the resource id + the unresolvable policy) —
+  NEVER a silent `[:rf.scope/global]` read and NEVER a silent `:idle`. A
+  `:rf.scope/from-caller` policy or a multi-arg `(route, ctx)` resolver is
+  not sub-resolvable. Returns the canonical scope."
+  [resource-id spec payload-scope where]
+  (let [policy (:scope spec)]
+    (cond
+      (some? payload-scope) (canonical-scope! resource-id payload-scope where)
+      (= policy global-scope-policy) global-scope-policy
+      ;; a fn resolver is sub-resolvable ONLY when it is a fn-of-nothing
+      ;; (a route (route, ctx) resolver needs an event context a pure sub
+      ;; lacks). We treat a 0-arg-callable fn as sub-resolvable; a fn that
+      ;; throws on 0-args is not sub-resolvable and falls to the loud error.
+      (fn? policy)
+      (let [resolved (try (policy) (catch #?(:clj Throwable :cljs :default) _ ::not-sub-resolvable))]
+        (if (= resolved ::not-sub-resolvable)
+          (throw (registration-error
+                   :rf.error/resource-sub-unresolved-scope
+                   where
+                   (str "resource " resource-id " has a scope policy that a "
+                        "pure subscription cannot resolve (a (route, ctx) "
+                        "resolver or :rf.scope/from-caller). Pass :scope on the "
+                        "subscription payload (the same scope the owning "
+                        "route/event ensured under), or re-declare the resource "
+                        "with a sub-resolvable scope policy. Per Spec 016 "
+                        "§Subscription-side scope resolution.")
+                   {:resource-id resource-id :policy :resolver}))
+          (canonical-scope! resource-id resolved where)))
+      (= policy from-caller-scope-policy)
+      (throw (registration-error
+               :rf.error/resource-sub-unresolved-scope
+               where
+               (str "resource " resource-id " declares :scope "
+                    ":rf.scope/from-caller — a subscription MUST supply :scope "
+                    "on its payload. Per Spec 016 §Subscription-side scope "
+                    "resolution.")
+               {:resource-id resource-id :policy from-caller-scope-policy}))
+      ;; a pure data-value policy is sub-resolvable
+      :else (canonical-scope! resource-id policy where))))

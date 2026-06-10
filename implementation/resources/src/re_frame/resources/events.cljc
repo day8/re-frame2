@@ -1,6 +1,6 @@
 (ns re-frame.resources.events
   "The resource event handlers — the causal write surface over the
-  resource cache + work ledger. Per Spec 016 §Public API §Events.
+  resource cache. Per Spec 016 §Public API §Events.
 
   The public resource events take MAP payloads (not positional argument
   vectors):
@@ -22,138 +22,373 @@
   in the `re-frame.resources` façade so a `(require … :reload)` on a
   fresh registrar re-wires them.
 
-  SKELETON slice (rf2-p10npe): the handler FNS are defined here with
-  their payload contract documented, but their bodies are stubs that
-  raise `:rf.error/resource-not-implemented` — the entry transition
-  function, work-ledger join/dedupe, stale suppression, GC, and
-  invalidation land with the runtime slices (rf2-afpdkn / rf2-pbxj48 /
-  …). A stub fails LOUDLY rather than silently no-opping, so a premature
-  call is obvious. The handler IDS, payload shapes, and authority stamp
-  are pinned now."
-  (:require [re-frame.resources.transport :as transport]))
+  ## Slice boundary (rf2-pbxj48 resource runtime)
+
+  This slice implements the CACHE-ENTRY runtime: canonical params /
+  scopes / scoped-key identity, the compact lifecycle status transition
+  function, structural sharing, the durable entries map (facts not derived
+  booleans), per-frame isolation, owner / tag indexes, exact tag
+  invalidation, scope clear, owner release, and remove. Stale suppression
+  is enforced on the ENTRY (the reply handlers verify generation + work-id
+  against the live entry before writing — Spec 016 §Cancellation is
+  opportunistic; stale suppression is mandatory).
+
+  The parallel serializable `:rf.runtime/work-ledger` records, host-side
+  side tables (AbortControllers / timer handles), and opportunistic abort
+  are the work-ledger substrate slice (rf2-afpdkn) — out of this slice. GC
+  scheduling / timers are the invalidation+GC slice. The HTTP request
+  execution is the managed-HTTP slice (rf2-p19360); this slice LOWERS into
+  the existing transport seam (`transport/lower-ensure`)."
+  (:require [clojure.set :as set]
+            [re-frame.resources.registry :as registry]
+            [re-frame.resources.state :as state]
+            [re-frame.resources.transport :as transport]
+            [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(defn- not-implemented
-  "Raise the canonical not-yet-implemented error for a skeleton handler
-  body (rf2-p10npe). The handler is REGISTERED (so the registry surface,
-  Xray's static view, and the late-bind wiring are real) but its runtime
-  logic lands in a later slice; a premature dispatch fails loudly here."
-  [event-id slice]
-  (throw (ex-info ":rf.error/resource-not-implemented"
-                  {:rf.error/id :rf.error/resource-not-implemented
-                   :where       event-id
-                   :recovery    :no-recovery
-                   :reason      (str event-id " is registered but its runtime "
-                                     "logic lands in a later EP-0003 slice ("
-                                     slice "). This is the rf2-p10npe artefact "
-                                     "skeleton.")
-                   :event-id    event-id
-                   :slice       slice})))
+;; ---- shared clock + work-id -----------------------------------------------
 
-;; ---- public resource events ----------------------------------------------
+(defn- now-ms
+  "Current epoch-ms. Used for `:loaded-at` / `:stale-at` durable
+  timestamps (Spec 016 §Stale and GC scheduling: freshness is computed
+  from durable timestamps). Host-platform clock."
+  []
+  #?(:clj  (System/currentTimeMillis)
+     :cljs (.now js/Date)))
+
+(defn- work-id-for
+  "Build the work-id `[:rf.work/resource <scoped-key> <generation>]` that
+  embeds the generation (Spec 016 §Frame work ledger — the work-id embeds
+  the generation; stale suppression keys on `:work/id`). The full
+  serializable work-ledger record is the rf2-afpdkn slice; this slice
+  carries the work-id on the entry's `:current-work` so the reply handlers
+  can verify it."
+  [scoped-key generation]
+  [:rf.work/resource scoped-key generation])
+
+(defn- stale-at-for
+  "Compute `:stale-at` from `loaded-at` + the resource's `:stale-after-ms`
+  policy, or nil when the resource declares no staleness policy (it never
+  goes stale on a timer). Per Spec 016 §Stale and GC scheduling."
+  [spec loaded-at]
+  (when-let [ms (:stale-after-ms spec)]
+    (+ loaded-at ms)))
+
+;; ---- ensure / refetch — the load-causing events ---------------------------
+
+(defn- ensure-load
+  "Shared ensure/refetch core. Resolves the scope + canonical params into a
+  scoped resource key, mints the next monotone generation (from the cofx
+  snapshot), transitions the entry to its in-flight status
+  (`:loading`/`:fetching`), attaches the owner + records the cause, and
+  lowers into the resource's transport. `force-new?` true (refetch) always
+  starts a new generation even when a request is already in flight (Spec
+  016 §Race: refetch may force a new generation). `force-new?` false
+  (ensure) joins an in-flight request for the SAME generation/scoped-key
+  when one exists (dedupe).
+
+  Returns the event-fx map `{:rf.db/runtime :fx}`."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation}
+   {:keys [resource params owner cause] :as payload} {:keys [force-new? where]}]
+  (let [runtime-db (or rt {})
+        spec       (registry/require-resource-spec! resource where)
+        scope      (registry/resolve-scope-for-event
+                     resource spec {:payload-scope (:scope payload)} where)
+        cparams    (registry/validate+canonicalize-params resource spec params where)
+        scoped-key (state/scoped-resource-key scope resource cparams)
+        entry      (or (get-in runtime-db (state/entry-path scoped-key))
+                       (state/empty-entry resource))
+        in-flight? (some? (:current-work entry))]
+    (if (and in-flight? (not force-new?))
+      ;; ----- dedupe: join the in-flight request (ensure only) -------------
+      ;; Attach any supplied owner to the existing entry + record the cause;
+      ;; do NOT start a new generation. Per Spec 016 §Race (ensure while in
+      ;; flight joins the existing current work record).
+      (let [joined (cond-> entry
+                     owner (update :active-owners (fnil conj #{}) owner))
+            rdb'   (-> runtime-db
+                       (assoc-in (state/entry-path scoped-key) joined)
+                       (cond->
+                         owner (update-in (state/owner-index-path)
+                                          update owner (fnil conj #{}) scoped-key)))]
+        (trace/emit! :rf.event :rf.resource/deduped
+                     {:rf.frame/id frame-id :resource-key scoped-key
+                      :generation (:generation entry) :owner owner :cause cause})
+        {:rf.db/runtime rdb'})
+      ;; ----- start a new load attempt (fresh generation) -----------------
+      (let [generation (state/next-generation gen-snapshot)
+            work-id    (work-id-for scoped-key generation)
+            request-id work-id
+            entry'     (state/entry-start-load
+                         entry {:generation generation :work-id work-id
+                                :request-id request-id :owner owner})
+            rdb'       (-> runtime-db
+                           (assoc-in (state/entry-path scoped-key) entry')
+                           (cond->
+                             owner (update-in (state/owner-index-path)
+                                              update owner (fnil conj #{}) scoped-key)))
+            ;; lower into the resource's transport (the existing seam). The
+            ;; runtime owns reply addressing: the internal reply payloads
+            ;; stamp the qualified :rf.frame/id + :work-id + :resource-key +
+            ;; :scope + :generation so the reply handlers verify before
+            ;; writing (stale suppression is the correctness boundary).
+            http-args  (let [req-fn (:request spec)]
+                         (req-fn cparams nil))
+            lower-fx   (transport/lower-ensure
+                         (:transport spec)
+                         {:http-args    http-args
+                          :request-id   request-id
+                          :work-id      work-id
+                          :resource-key scoped-key
+                          :scope        scope
+                          :frame-id     frame-id
+                          :generation   generation})]
+        (trace/emit! :rf.event :rf.resource/fetch-started
+                     {:rf.frame/id frame-id :resource-key scoped-key
+                      :generation generation :work-id work-id
+                      :status (:status entry') :owner owner :cause cause})
+        {:rf.db/runtime rdb'
+         ;; WRITE half of the host-side generation seam + the transport fx.
+         :fx [[:rf.resource/commit-generation {:value generation}]
+              lower-fx]}))))
 
 (defn ensure-handler
   "`:rf.resource/ensure` — ensure a resource instance is loaded (load it
-  if absent / stale per policy; join the in-flight work record if one
-  exists; attach `:owner` to entry + ledger row; record `:cause`). Per
-  Spec 016 §Events and §Race and in-flight semantics. Payload:
-  `{:resource :scope :params :owner :cause}`.
-
-  SKELETON: runtime lands in rf2-pbxj48 (resource runtime — entries,
-  scopes, canonical params, status transitions, structural sharing)."
-  [_cofx [_event-id _payload]]
-  (not-implemented :rf.resource/ensure "rf2-pbxj48 resource runtime"))
+  if absent; join the in-flight work record if one exists; attach `:owner`
+  to the entry; record `:cause`). Per Spec 016 §Events and §Race and
+  in-flight semantics. Payload: `{:resource :scope :params :owner :cause}`."
+  [cofx [_event-id payload]]
+  (ensure-load cofx payload {:force-new? false :where 'rf.resource/ensure}))
 
 (defn refetch-handler
-  "`:rf.resource/refetch` — force a refresh of a resource instance (may
-  force a new generation; supersede + suppress any in-flight prior
-  request). Per Spec 016 §Events and §Race and in-flight semantics.
-  Payload: `{:resource :scope :params :cause}`.
+  "`:rf.resource/refetch` — force a refresh of a resource instance (forces
+  a new generation; supersede + suppress any in-flight prior request by
+  generation). Per Spec 016 §Events and §Race and in-flight semantics.
+  Payload: `{:resource :scope :params :cause}`."
+  [cofx [_event-id payload]]
+  (ensure-load cofx payload {:force-new? true :where 'rf.resource/refetch}))
 
-  SKELETON: runtime lands in rf2-pbxj48."
-  [_cofx [_event-id _payload]]
-  (not-implemented :rf.resource/refetch "rf2-pbxj48 resource runtime"))
+;; ---- invalidate-tags — exact tag invalidation -----------------------------
 
 (defn invalidate-tags-handler
-  "`:rf.resource/invalidate-tags` — exact tag invalidation (mark matched
-  entries stale; refetch the active-owner ones; leave inactive ones stale
-  / GC-eligible; emit one decision summary + per-entry details). Scoped by
-  default. Per Spec 016 §Invalidation. Payload: `{:scope :tags :cause}`.
+  "`:rf.resource/invalidate-tags` — exact tag invalidation (Spec 016
+  §Invalidation). Scoped by default: marks every entry whose provided tags
+  intersect `:tags` AND whose scope matches `:scope` as stale (sets
+  `:invalidated-at`); active-owner entries are refetched, inactive entries
+  are left stale / GC-eligible. Emits one decision summary + per-entry
+  details. Payload: `{:scope :tags :cause}`.
 
-  SKELETON: runtime lands in rf2-pbxj48 / the invalidation+GC slice."
-  [_cofx [_event-id _payload]]
-  (not-implemented :rf.resource/invalidate-tags "rf2-pbxj48 / invalidation slice"))
+  This slice marks entries stale + records the invalidation, and dispatches
+  a `:rf.resource/refetch` for each active-owner entry. The refetch-vs-
+  leave-stale decision keys on `:active-owners` presence."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [scope tags cause]}]]
+  (let [runtime-db (or rt {})
+        cscope     (state/canonicalize scope)
+        invalidated-at (now-ms)
+        entries    (get-in runtime-db (state/entries-path))
+        ;; matched: scope matches AND tags intersect (exact tag match)
+        matched    (into {}
+                         (filter (fn [[k entry]]
+                                   (and (= cscope (first k))
+                                        (seq (set/intersection
+                                               (set (:tags entry)) (set tags))))))
+                         entries)
+        ;; mark each matched entry stale (durable :invalidated-at fact)
+        rdb'       (reduce-kv
+                     (fn [db k entry]
+                       (assoc-in db (state/entry-path k)
+                                 (assoc entry :invalidated-at invalidated-at)))
+                     runtime-db matched)
+        ;; refetch only the active-owner entries (Spec 016 §Invalidation 3)
+        refetches  (into []
+                         (comp
+                           (filter (fn [[_ entry]] (seq (:active-owners entry))))
+                           (map (fn [[k _]]
+                                  (let [[s rid p] k]
+                                    [:dispatch [:rf.resource/refetch
+                                                {:resource rid :scope s :params p
+                                                 :cause [:invalidate {:tags tags}]}]]))))
+                         matched)]
+    (trace/emit! :rf.event :rf.resource/invalidated
+                 {:rf.frame/id frame-id :scope cscope :tags tags :cause cause
+                  :matched (vec (keys matched)) :refetched (count refetches)})
+    {:rf.db/runtime rdb'
+     :fx refetches}))
+
+;; ---- release-owner --------------------------------------------------------
 
 (defn release-owner-handler
   "`:rf.resource/release-owner` — release a liveness lease (drop the owner
-  from every entry's `:active-owners` + the owner-index; abort in-flight
-  work only when no remaining owner needs it). Per Spec 016 §Active owners
-  and causes and §Race and in-flight semantics. Payload: `{:owner …}`.
+  from every entry's `:active-owners` + the owner-index). Per Spec 016
+  §Active owners and causes. Payload: `{:owner …}`.
 
-  SKELETON: runtime lands in rf2-pbxj48."
-  [_cofx [_event-id _payload]]
-  (not-implemented :rf.resource/release-owner "rf2-pbxj48 resource runtime"))
+  Abort of in-flight work with no remaining owner is the work-ledger
+  substrate slice (rf2-afpdkn); this slice drops the owner from the durable
+  entry + index. Stale suppression by generation already protects any late
+  reply (the entry's generation is unchanged, so a current reply still
+  lands; only an abort-on-no-owner optimisation is deferred)."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [owner]}]]
+  (let [runtime-db (or rt {})
+        owned      (get-in runtime-db (conj (state/owner-index-path) owner))
+        rdb'       (-> (reduce
+                         (fn [db k]
+                           (update-in db (state/entry-path k)
+                                      (fn [e] (when e (update e :active-owners disj owner)))))
+                         runtime-db (or owned #{}))
+                       (update-in (state/owner-index-path) dissoc owner))]
+    (trace/emit! :rf.event :rf.resource/owner-released
+                 {:rf.frame/id frame-id :owner owner :released (vec (or owned #{}))})
+    {:rf.db/runtime rdb'}))
+
+;; ---- clear-scope — the causal logout / tenant-switch boundary --------------
 
 (defn clear-scope-handler
-  "`:rf.resource/clear-scope` — causal scope clear (remove/mark-unusable
-  every entry in the scope; release its owners; abort in-flight requests
-  with no remaining owner outside the scope; suppress late replies by
-  scope + generation; emit explaining trace rows). The logout / account-
-  switch / tenant-switch / impersonation-change boundary. Per Spec 016
-  §clear-scope is causal. Payload: `{:scope :cause}`.
+  "`:rf.resource/clear-scope` — causal scope clear (Spec 016 §clear-scope
+  is causal). Removes every entry in the scope, releases its owners from
+  the owner-index, and emits an explaining trace. Aborting in-flight
+  requests with no remaining owner outside the scope is the work-ledger
+  slice (rf2-afpdkn); stale suppression by generation already protects a
+  late reply — the entry it would write into is gone, so the reply
+  handler's existence check suppresses it. Payload: `{:scope :cause}`."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [scope cause]}]]
+  (let [runtime-db (or rt {})
+        cscope     (state/canonicalize scope)
+        entries    (get-in runtime-db (state/entries-path))
+        in-scope   (into #{} (comp (filter (fn [[k _]] (= cscope (first k))))
+                                   (map key))
+                         entries)
+        ;; remove the entries, then recompute the indexes from what remains
+        rdb'       (-> runtime-db
+                       (update-in (state/entries-path)
+                                  (fn [es] (reduce dissoc es in-scope)))
+                       (update state/resources-key state/recompute-indexes))]
+    (trace/emit! :rf.event :rf.resource/removed
+                 {:rf.frame/id frame-id :scope cscope :cause cause
+                  :removed (vec in-scope) :reason :clear-scope})
+    {:rf.db/runtime rdb'}))
 
-  SKELETON: runtime lands in rf2-pbxj48."
-  [_cofx [_event-id _payload]]
-  (not-implemented :rf.resource/clear-scope "rf2-pbxj48 resource runtime"))
+;; ---- remove — single-instance cache removal --------------------------------
 
 (defn remove-handler
-  "`:rf.resource/remove` — remove a single resource instance from the
-  cache by its scoped key. Per Spec 016 §Events. Payload:
-  `{:resource :scope :params}`.
+  "`:rf.resource/remove` — remove a single resource instance from the cache
+  by its scoped key, and drop its owner/tag-index rows. Per Spec 016
+  §Events. Payload: `{:resource :scope :params}`."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [resource params] :as payload}]]
+  (let [runtime-db (or rt {})
+        spec       (registry/require-resource-spec! resource 'rf.resource/remove)
+        scope      (registry/resolve-scope-for-event
+                     resource spec {:payload-scope (:scope payload)} 'rf.resource/remove)
+        cparams    (registry/validate+canonicalize-params
+                     resource spec params 'rf.resource/remove)
+        scoped-key (state/scoped-resource-key scope resource cparams)
+        rdb'       (-> runtime-db
+                       (update-in (state/entries-path) dissoc scoped-key)
+                       (update state/resources-key state/recompute-indexes))]
+    (trace/emit! :rf.event :rf.resource/removed
+                 {:rf.frame/id frame-id :resource-key scoped-key :reason :remove})
+    {:rf.db/runtime rdb'}))
 
-  SKELETON: runtime lands in rf2-pbxj48."
-  [_cofx [_event-id _payload]]
-  (not-implemented :rf.resource/remove "rf2-pbxj48 resource runtime"))
-
-;; ---- framework-internal reply handlers -----------------------------------
+;; ---- framework-internal reply handlers ------------------------------------
 ;;
 ;; These carry the verification payload and MUST verify frame + work-id +
 ;; generation before writing (Spec 016 §Transport — stale suppression is
 ;; the correctness boundary). User code MUST NOT dispatch them.
 
-(defn succeeded-handler
-  "`:rf.resource.internal/succeeded` — a transport read succeeded. Verify
-  frame + work-id + generation against the live entry; on match, install
-  the decoded data (`:loaded`), preserving the old `:data` value when the
-  new data is `=` (structural sharing); prune the terminal work row. Per
-  Spec 016 §Transport / §Structural sharing / §Ledger row retention.
+(defn- live-entry-for-reply
+  "Look the live entry up for an internal reply and verify it is still the
+  one the reply belongs to: the entry exists AND its `:current-work` equals
+  the reply's `:work-id` AND its `:generation` equals the reply's
+  `:generation`. Returns the entry on a match, nil on a stale / superseded /
+  vanished reply (which MUST be suppressed — Spec 016 §Cancellation is
+  opportunistic; stale suppression is mandatory). The work-id is the single
+  identity (it embeds the generation); the generation check is belt-and-
+  braces for a future transport that reuses a work-id."
+  [runtime-db {:keys [resource-key work-id generation]}]
+  (when-let [entry (get-in runtime-db (state/entry-path resource-key))]
+    (when (and (= work-id (:current-work entry))
+               (= generation (:generation entry)))
+      entry)))
 
-  SKELETON: runtime lands in rf2-pbxj48."
-  [_cofx [_event-id _payload]]
-  (not-implemented :rf.resource.internal/succeeded "rf2-pbxj48 resource runtime"))
+(defn succeeded-handler
+  "`:rf.resource.internal/succeeded` — a transport read succeeded. Verifies
+  frame + work-id + generation against the live entry; on match installs the
+  decoded `:data` (`:loaded`), preserving the old `:data` value when the new
+  data is `=` (structural sharing), and records `:loaded-at` / `:stale-at` /
+  produced `:tags`. A stale / superseded reply is SUPPRESSED (it MUST NEVER
+  mutate a newer entry). Per Spec 016 §Transport / §Structural sharing /
+  §Status semantics. Payload also carries `:data`."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+   [_event-id {:keys [resource-key work-id generation data] :as payload}]]
+  (let [runtime-db (or rt {})
+        entry      (live-entry-for-reply runtime-db payload)]
+    (if (nil? entry)
+      (do (trace/emit! :rf.event :rf.resource/stale-suppressed
+                       {:rf.frame/id frame-id :resource-key resource-key
+                        :work-id work-id :generation generation :outcome :success})
+          {:rf.db/runtime runtime-db})
+      (let [spec      (registry/resource-meta (:resource/id entry))
+            loaded-at (now-ms)
+            stale-at  (stale-at-for spec loaded-at)
+            tags-fn   (:tags spec)
+            ;; tags are produced from the params + decoded data; the canonical
+            ;; params are the third element of the scoped key
+            tags      (when tags-fn (set (tags-fn (nth resource-key 2) data)))
+            entry'    (state/entry-succeeded
+                        entry {:data data :loaded-at loaded-at
+                               :stale-at stale-at :tags tags})
+            ;; on a successful load the tag index for this key is REPLACED
+            ;; with the new tags (old tags removed); recompute is the simple,
+            ;; correct way to keep both indexes consistent.
+            rdb'      (-> runtime-db
+                          (assoc-in (state/entry-path resource-key) entry')
+                          (update state/resources-key state/recompute-indexes))]
+        (trace/emit! :rf.event :rf.resource/succeeded
+                     {:rf.frame/id frame-id :resource-key resource-key
+                      :work-id work-id :generation generation
+                      :status-before (:status entry) :status-after :loaded})
+        {:rf.db/runtime rdb'}))))
 
 (defn failed-handler
-  "`:rf.resource.internal/failed` — a transport read failed. Verify
-  frame + work-id + generation; a first-load failure settles `:error`
-  (no usable data); a background-refresh failure returns to `:loaded`,
-  keeps prior `:data`, and records `:refresh-error`. Per Spec 016 §Status
-  semantics.
-
-  SKELETON: runtime lands in rf2-pbxj48."
-  [_cofx [_event-id _payload]]
-  (not-implemented :rf.resource.internal/failed "rf2-pbxj48 resource runtime"))
+  "`:rf.resource.internal/failed` — a transport read failed. Verifies frame
+  + work-id + generation; a first-load failure settles `:error` (no usable
+  data); a background-refresh failure returns to `:loaded`, keeps prior
+  `:data`, and records `:refresh-error`. A stale / superseded reply is
+  suppressed. Per Spec 016 §Status semantics. Payload also carries
+  `:error`."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+   [_event-id {:keys [resource-key work-id generation error] :as payload}]]
+  (let [runtime-db (or rt {})
+        entry      (live-entry-for-reply runtime-db payload)]
+    (if (nil? entry)
+      (do (trace/emit! :rf.event :rf.resource/stale-suppressed
+                       {:rf.frame/id frame-id :resource-key resource-key
+                        :work-id work-id :generation generation :outcome :failure})
+          {:rf.db/runtime runtime-db})
+      (let [entry' (state/entry-failed entry {:error error})
+            op     (if (= :error (:status entry'))
+                     :rf.resource/failed :rf.resource/refresh-failed)]
+        (trace/emit! :rf.event op
+                     {:rf.frame/id frame-id :resource-key resource-key
+                      :work-id work-id :generation generation
+                      :status-before (:status entry) :status-after (:status entry')})
+        {:rf.db/runtime (assoc-in runtime-db (state/entry-path resource-key) entry')}))))
 
 (defn aborted-handler
-  "`:rf.resource.internal/aborted` — a transport read was aborted (owner
-  exit / scope clear / route supersession / newer generation). Reconcile
-  the work row to `:cancelled`; the entry settles to its last stable
-  status. Per Spec 016 §Cancellation is opportunistic; stale suppression
-  is mandatory.
+  "`:rf.resource.internal/aborted` — a transport read was aborted. The work
+  row reconciliation + host-handle teardown is the work-ledger substrate
+  slice (rf2-afpdkn); for the cache entry this is a stale reply — the
+  verification gate suppresses it (the entry settles to its last stable
+  status through its own subsequent transitions, never left stranded). This
+  slice no-ops the entry (no durable write) and records the abort.
 
-  SKELETON: runtime lands in rf2-afpdkn (work-ledger substrate)."
-  [_cofx [_event-id _payload]]
-  (not-implemented :rf.resource.internal/aborted "rf2-afpdkn work-ledger substrate"))
+  SKELETON: full work-ledger reconciliation lands in rf2-afpdkn."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+   [_event-id {:keys [resource-key work-id generation]}]]
+  (trace/emit! :rf.event :rf.resource/work-abort-requested
+               {:rf.frame/id frame-id :resource-key resource-key
+                :work-id work-id :generation generation})
+  {:rf.db/runtime (or rt {})})
 
 (defn gc-fired-handler
   "`:rf.resource.internal/gc-fired` — an inactive-GC timer fired. Re-check
@@ -161,21 +396,36 @@
   the entry only if still GC-eligible. Per Spec 016 §Stale and GC
   scheduling.
 
-  SKELETON: runtime lands in the stale/GC slice."
-  [_cofx [_event-id _payload]]
-  (not-implemented :rf.resource.internal/gc-fired "stale/GC slice"))
+  SKELETON: GC timer scheduling lands in the stale/GC slice; the handler
+  here performs the advisory re-check + removal of a still-inactive entry."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+   [_event-id {:keys [resource-key]}]]
+  (let [runtime-db (or rt {})
+        entry      (get-in runtime-db (state/entry-path resource-key))]
+    (if (and entry (empty? (:active-owners entry)) (nil? (:current-work entry)))
+      (let [rdb' (-> runtime-db
+                     (update-in (state/entries-path) dissoc resource-key)
+                     (update state/resources-key state/recompute-indexes))]
+        (trace/emit! :rf.event :rf.resource/gc-fired
+                     {:rf.frame/id frame-id :resource-key resource-key})
+        {:rf.db/runtime rdb'})
+      (do (trace/emit! :rf.event :rf.resource/gc-skipped
+                       {:rf.frame/id frame-id :resource-key resource-key
+                        :reason (cond (nil? entry) :no-entry
+                                      (seq (:active-owners entry)) :has-owner
+                                      :else :in-flight)})
+          {:rf.db/runtime runtime-db}))))
 
 (defn stale-suppressed-handler
   "`:rf.resource.internal/stale-suppressed` — a late reply carrying a
   superseded work-id / generation was suppressed (it MUST NEVER mutate a
-  newer entry). Records the suppression in trace / ledger. Per Spec 016
-  §Cancellation is opportunistic; stale suppression is mandatory.
-
-  SKELETON: runtime lands in rf2-afpdkn (work-ledger substrate)."
-  [_cofx [_event-id _payload]]
-  (not-implemented :rf.resource.internal/stale-suppressed "rf2-afpdkn work-ledger substrate"))
-
-;; A load-bearing reference to the transport seam so the require is honest
-;; in the skeleton (the runtime slice's ensure/refetch handlers lower
-;; through `transport/lower-ensure`).
-(def ^:private _transport-seam transport/lower-ensure)
+  newer entry). This is an internal NOTIFICATION the reply handlers already
+  enforce inline (`live-entry-for-reply`); the standalone handler records
+  the suppression in trace for tools. Per Spec 016 §Cancellation is
+  opportunistic; stale suppression is mandatory."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+   [_event-id {:keys [resource-key work-id generation]}]]
+  (trace/emit! :rf.event :rf.resource/stale-suppressed
+               {:rf.frame/id frame-id :resource-key resource-key
+                :work-id work-id :generation generation})
+  {:rf.db/runtime (or rt {})})

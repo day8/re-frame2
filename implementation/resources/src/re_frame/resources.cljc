@@ -51,7 +51,10 @@
   lands in later slices (rf2-afpdkn / rf2-pbxj48 / …). The event handlers
   are registered but their bodies raise `:rf.error/resource-not-implemented`
   so a premature call fails loudly."
-  (:require [re-frame.events :as events]
+  (:require [re-frame.cofx :as cofx]
+            [re-frame.events :as events]
+            [re-frame.frame :as frame]
+            [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
             [re-frame.resources.events :as resource-events]
             [re-frame.resources.registry :as registry]
@@ -74,32 +77,31 @@
 
 (defn resources
   "Return resource introspection for a frame target (Spec 016
-  §Introspection). The static registry half — every registered resource id
-  — is real now; the per-frame live resource-instance table lands with the
-  runtime slice (rf2-pbxj48).
-
-  SKELETON: returns `{:resource-ids [...]}` (the static registry). The
-  `:frame`-scoped live-instance enumeration is filled in by the runtime
-  slice."
-  ([] {:resource-ids (resource-ids)})
-  ([_opts] {:resource-ids (resource-ids)}))
+  §Introspection). Returns `{:resource-ids [...] :entries {…}}` — the
+  static registry (every registered resource id) plus, when `:frame` is
+  supplied, the live per-frame resource-instance entries map
+  (`{<scoped-resource-key> <entry>}`). Without `:frame` only the static
+  registry is returned (no ambient frame fallback, EP-0002)."
+  ([] {:resource-ids (resource-ids) :entries {}})
+  ([{:keys [frame]}]
+   {:resource-ids (resource-ids)
+    :entries      (if frame
+                    (or (get-in (frame/frame-runtime-db-value frame)
+                                (state/entries-path)) {})
+                    {})}))
 
 (defn resource-state
-  "Return a resource instance's runtime state for an explicit `:frame`
-  introspection target `{:resource :scope :params :frame}` (Spec 016
-  §Introspection). Per EP-0002 there is no ambient `:rf/default` fallback.
-
-  SKELETON: the live per-frame entry read lands with the runtime slice
-  (rf2-pbxj48); raises until then so a premature call is obvious."
-  [_opts]
-  (throw (ex-info ":rf.error/resource-not-implemented"
-                  {:rf.error/id :rf.error/resource-not-implemented
-                   :where       'rf/resource-state
-                   :recovery    :no-recovery
-                   :reason      (str "resource-state's live per-frame entry read "
-                                     "lands with the EP-0003 resource runtime "
-                                     "slice (rf2-pbxj48). This is the rf2-p10npe "
-                                     "artefact skeleton.")})))
+  "Return a resource instance's durable runtime ENTRY for an explicit
+  `:frame` introspection target `{:resource :scope :params :frame}` (Spec
+  016 §Introspection), or nil when no entry exists for that scoped key in
+  that frame. Per EP-0002 the frame target is carried explicitly; a
+  frameless call with no resolvable context fails closed. Resolves the
+  scoped key the same way a subscription does (canonical scope + params,
+  sub-side scope precedence, fail-closed)."
+  [{:keys [frame] :as opts}]
+  (let [scoped-key (resource-subs/resolve-scoped-key opts)
+        runtime-db (frame/frame-runtime-db-value frame)]
+    (get-in runtime-db (state/entry-path scoped-key))))
 
 ;; ---- event / sub / hook registrations -------------------------------------
 ;; Keeping the registrations in this façade means a `(require
@@ -115,12 +117,36 @@
 ;; sitting in this façade. (Mirrors routing's framework-authority-meta.)
 (def ^:private framework-authority-meta state/framework-authority-meta)
 
+;; :rf.resource/generation cofx + :rf.resource/commit-generation fx —
+;; Spec 016 §Restore and replay part 1. The host-side generation allocator
+;; (the monotone high-water mark that never rewinds across epoch restore,
+;; so a pre-restore in-flight reply's generation can never match a
+;; post-restore live entry). The cofx injects the active frame's high-water
+;; snapshot; the ensure/refetch handlers mint the next generation purely and
+;; bump the high-water mark via the fx. Mirrors routing's nav-counters seam
+;; (rf2-oosjmh). Registered in the façade so a `:reload` re-wires them.
+(cofx/reg-cofx :rf.resource/generation
+               state/generation-cofx-meta
+               state/generation-cofx)
+(fx/reg-fx :rf.resource/commit-generation
+           state/commit-generation-meta
+           state/commit-generation-handler)
+
+;; The interceptor injected into the load-causing events (ensure / refetch)
+;; so their handlers read the host-side generation high-water snapshot under
+;; `:coeffects :rf.resource/generation` and mint the next monotone
+;; generation purely.
+(def ^:private generation-interceptors
+  [(cofx/inject-cofx :rf.resource/generation)])
+
 ;; Public resource events (map payloads). Per Spec 016 §Events.
 (events/reg-event-fx :rf.resource/ensure
                      framework-authority-meta
+                     generation-interceptors
                      resource-events/ensure-handler)
 (events/reg-event-fx :rf.resource/refetch
                      framework-authority-meta
+                     generation-interceptors
                      resource-events/refetch-handler)
 (events/reg-event-fx :rf.resource/invalidate-tags
                      framework-authority-meta
