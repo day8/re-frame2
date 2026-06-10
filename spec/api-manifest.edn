@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 497,
+ :var-count 498,
  :tier-vocab
  [:front-porch
   :advanced
@@ -264,6 +264,7 @@
   {:namespace "re-frame.machines", :var "machine-transition", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "machines", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "make-machine-handler", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.machines", :var "owning-actor-id", :tier :internal-public, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "reg-machine*", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "reset-timers!", :tier :internal-public, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "spawn-all-init-fx", :tier :internal-public, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
