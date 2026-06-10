@@ -392,6 +392,29 @@
 ;;      against the live clock (Spec 016 §SSR and hydration: absolute
 ;;      timestamps; skew surfaced when it makes freshness ambiguous).
 
+;; ---- routing slice literals (duplicated, not imported) --------------------
+;;
+;; Restore reconciliation must compare a restored route owner's nav-token
+;; against the nav-token the restored routing slice currently considers live
+;; (Spec 016 §Restore and replay part 4). The live nav-token sits at
+;; `[:rf.runtime/routing :current :nav-token]` in the same runtime-db restore
+;; installs (both partitions land wholesale, so `:current` IS present). We
+;; mirror the routing literals here rather than `:require` the route slice —
+;; the same duplication-not-import decoupling `route.cljc` itself uses
+;; (resources never statically depends on routing).
+
+(def ^:private routing-key
+  "The routing-runtime subtree key (`:rf.runtime/routing`). Mirrors the
+  literal routing + `route.cljc` use; duplicated (not imported) so the SSR
+  slice never statically `:require`s routing/route."
+  :rf.runtime/routing)
+
+(def ^:private routing-current-nav-token-path
+  "Runtime-db-relative path to the live route slice's nav-token
+  (`[:rf.runtime/routing :current :nav-token]`). Restore reads this to know
+  which nav-token the restored routing slice considers live."
+  [routing-key :current :nav-token])
+
 (defn- ssr-owner?
   "True iff `owner` is an SSR owner token (`[:ssr request-id nav-token]`).
   SSR owners belong to one server render and never survive as a live
@@ -399,21 +422,58 @@
   [owner]
   (and (vector? owner) (= :ssr (first owner))))
 
+(defn- route-owner?
+  "True iff `owner` is a route owner token (`[:route route-id nav-token]`).
+  A route owner's nav-token sits at index 2. Per Spec 016 §Active owners and
+  causes / §Release authority is per owner kind."
+  [owner]
+  (and (vector? owner) (= :route (first owner))))
+
+(defn- stale-nav-route-owner?
+  "True iff `owner` is a route owner whose nav-token is NOT `live-nav-token`
+  (the nav-token the restored routing slice currently considers live). Such
+  an owner names a navigation the restored timeline has already left, so it
+  must be released as an orphan rather than pin its entry alive forever (Spec
+  016 §Restore and replay part 4). When `live-nav-token` is nil (no routing
+  slice present — the SSR-hydration path has no client routing yet) NO route
+  owner is treated as stale: route liveness is reconciled by routing's own
+  subsystem on the live client, so this returns false for every owner."
+  [live-nav-token owner]
+  (boolean
+    (and (some? live-nav-token)
+         (route-owner? owner)
+         (not= live-nav-token (nth owner 2 nil)))))
+
 (defn- reconcile-entry-owners
-  "Drop SSR owners from a hydrated entry's `:active-owners` (they orphan on
-  hydration — Spec 016 §Restore and replay part 4) and clear the transient
-  `:current-work` pointer (the attempt it pointed at did not cross the wire
-  — part 2). Route / machine / lease owners ride through unchanged (their
-  liveness is reconciled by their own subsystem on the live client). Returns
-  `[entry' dropped-ssr-owners]`."
-  [entry]
+  "Reconcile a restored/hydrated entry's `:active-owners`, returning
+  `[entry' dropped-orphans]`. Drops:
+
+    - SSR owners (`[:ssr …]`) — they belong to one settled server render and
+      never survive as a live client lease (Spec 016 §Restore and replay
+      part 4);
+    - STALE-NAV route owners (`[:route route-id nav-token]` whose nav-token ≠
+      `live-nav-token`) — a route owner the restored routing slice no longer
+      considers live is an orphan that would otherwise pin its entry alive
+      forever + refetch on focus/reconnect (part 4). Only applies on the
+      RESTORE path, where `live-nav-token` is the restored
+      `[:rf.runtime/routing :current :nav-token]`; on SSR hydration
+      `live-nav-token` is nil (no client routing yet) so route owners ride
+      through unchanged.
+
+  Also clears the transient `:current-work` pointer (the attempt it pointed
+  at did not cross the wire / no longer exists — part 2). Machine / lease /
+  live-nav route owners ride through unchanged (their liveness is reconciled
+  by their own subsystem)."
+  [entry live-nav-token]
   (let [owners  (:active-owners entry #{})
-        ssr     (into #{} (filter ssr-owner?) owners)
-        kept    (into #{} (remove ssr-owner?) owners)]
+        orphan? (fn [o] (or (ssr-owner? o)
+                            (stale-nav-route-owner? live-nav-token o)))
+        dropped (into #{} (filter orphan?) owners)
+        kept    (into #{} (remove orphan?) owners)]
     [(-> entry
          (assoc :active-owners kept)
          (assoc :current-work nil))
-     ssr]))
+     dropped]))
 
 (defn clock-skew-ms
   "Compute server→client clock skew evidence for a hydrated `entry` against
@@ -464,14 +524,19 @@
      (if-not (seq entries)
        runtime-db
        (let [clock-ms (now-ms)
-             ;; reconcile each entry: orphan SSR owners + clear current-work
+             ;; reconcile each entry: orphan SSR owners + clear current-work.
+             ;; Hydration passes nil live-nav-token — there is no client
+             ;; routing yet, so route owners ride through unchanged (their
+             ;; liveness is reconciled by routing on the live client). The
+             ;; stale-nav route-owner orphan rule is RESTORE-specific (Spec
+             ;; 016 §Restore and replay part 4); see `reconcile-on-restore`.
              reconciled (reduce-kv
                           (fn [acc k entry]
-                            (let [[entry' ssr] (reconcile-entry-owners entry)
-                                  skew         (clock-skew-ms entry clock-ms)]
+                            (let [[entry' dropped] (reconcile-entry-owners entry nil)
+                                  skew             (clock-skew-ms entry clock-ms)]
                               (-> acc
                                   (assoc-in [:entries k] entry')
-                                  (update :orphaned into (map (fn [o] [k o])) ssr)
+                                  (update :orphaned into (map (fn [o] [k o])) dropped)
                                   (cond-> skew (update :skews assoc k skew)))))
                           {:entries {} :orphaned [] :skews {}}
                           entries)
@@ -513,9 +578,18 @@
 ;;     for those vanished attempts.
 ;;
 ;; So restore needs everything `hydrate-runtime-db` does (recompute indexes —
-;; part 5; orphan SSR + stale-nav route owners — part 4; clear `:current-work`)
-;; AND TWO restore-specific settles the hydration projection had already done on
-;; the wire:
+;; part 5; orphan SSR owners — part 4; clear `:current-work`), PLUS a
+;; restore-specific orphan rule and TWO restore-specific settles the hydration
+;; projection had already done on the wire:
+;;
+;;   0. orphan STALE-NAV route owners — part 4. A `[:route route-id nav-token]`
+;;      owner whose nav-token ≠ the restored `[:rf.runtime/routing :current
+;;      :nav-token]` names a navigation the restored timeline has already left;
+;;      it must be RELEASED as an orphan or it pins its entry alive forever +
+;;      refetches on focus/reconnect. Restore installs both partitions wholesale
+;;      so the live nav-token IS present; SSR hydration has no client routing yet
+;;      (the route owners ride through for routing's own client reconcile), so
+;;      this rule is RESTORE-only.
 ;;
 ;;   1. settle every `:loading` / `:fetching` entry to its last STABLE status
 ;;      (`:loaded` if it has usable `:data`, `:error` if it was a failed first
@@ -604,17 +678,26 @@
   the two settles the wire projection had already done (Spec 016 §Restore and
   replay parts 2/4/5):
 
-    1. for every entry — orphan SSR owners (part 4), clear the transient
-       `:current-work` pointer (part 2), AND settle a `:loading` / `:fetching`
-       entry to its last STABLE status (`settle-entry-to-last-stable`, part 2);
+    1. for every entry — orphan SSR owners AND STALE-NAV route owners (a
+       `[:route route-id nav-token]` owner whose nav-token ≠ the restored
+       `[:rf.runtime/routing :current :nav-token]` — part 4), clear the
+       transient `:current-work` pointer (part 2), AND settle a `:loading` /
+       `:fetching` entry to its last STABLE status
+       (`settle-entry-to-last-stable`, part 2);
     2. recompute `:tag-index` / `:owner-index` from the reconciled `:entries`
        (never trust the snapshot — part 5);
     3. settle every NON-terminal work-ledger row to terminal `:suppressed` /
        `:dangling` (`dangle-non-terminal-work!`, part 2) so a pre-restore in-flight
        reply is suppressed;
     4. emit a `:rf.resource/restored` trace summarising reconciled / orphaned /
-       dangled counts, and a clock-skew diagnostic when a restored `:stale-at` is
-       implausible against the live clock.
+       dangled counts, a `:rf.resource/owner-released` row per stale-nav route
+       owner released as an orphan (part 4), and a clock-skew diagnostic when a
+       restored `:stale-at` is implausible against the live clock.
+
+  The stale-nav route-owner orphan rule is RESTORE-specific: restore installs
+  both partitions wholesale so the live nav-token IS present, whereas SSR
+  hydration has no client routing yet — `hydrate-runtime-db` passes a nil live
+  nav-token, leaving route owners for routing's own client reconcile.
 
   NEVER crosses scopes (it only reconciles entries under their own scoped keys).
   Part 1 (the monotone host-side generation allocator) is restore-safe by
@@ -624,22 +707,29 @@
   ([runtime-db frame-id]
    (let [resources (get runtime-db state/resources-key)
          entries   (:entries resources)
-         ledger    (get runtime-db state/work-ledger-key)]
+         ledger    (get runtime-db state/work-ledger-key)
+         ;; the nav-token the restored routing slice currently considers live
+         ;; — restore installs both partitions wholesale, so routing :current
+         ;; is present in this same runtime-db (nil when the app carries no
+         ;; routing slice). Route owners whose nav-token ≠ this are stale-nav
+         ;; orphans (Spec 016 §Restore and replay part 4).
+         live-nav-token (get-in runtime-db routing-current-nav-token-path)]
      (if-not (or (seq entries) (seq ledger))
        runtime-db
        (let [clock-ms (now-ms)
-             ;; reconcile each entry: orphan SSR owners + clear current-work
-             ;; (hydration parity) + settle a mid-flight status to last-stable
-             ;; (restore-specific — the wire projection never carried an
-             ;; in-flight entry, but the unprojected snapshot can).
+             ;; reconcile each entry: orphan SSR owners + STALE-NAV route
+             ;; owners (part 4) + clear current-work (part 2) + settle a
+             ;; mid-flight status to last-stable (restore-specific — the wire
+             ;; projection never carried an in-flight entry, but the
+             ;; unprojected snapshot can).
              reconciled (reduce-kv
                           (fn [acc k entry]
-                            (let [[entry' ssr] (reconcile-entry-owners entry)
-                                  entry''      (settle-entry-to-last-stable entry')
-                                  skew         (clock-skew-ms entry clock-ms)]
+                            (let [[entry' dropped] (reconcile-entry-owners entry live-nav-token)
+                                  entry''          (settle-entry-to-last-stable entry')
+                                  skew             (clock-skew-ms entry clock-ms)]
                               (-> acc
                                   (assoc-in [:entries k] entry'')
-                                  (update :orphaned into (map (fn [o] [k o])) ssr)
+                                  (update :orphaned into (map (fn [o] [k o])) dropped)
                                   (cond-> skew (update :skews assoc k skew)))))
                           {:entries {} :orphaned [] :skews {}}
                           entries)
@@ -656,6 +746,20 @@
                        :orphaned-owners (vec (:orphaned reconciled))
                        :dangled-work    (vec dangled)
                        :clock-skews     (:skews reconciled)})
+         ;; per-owner row for every STALE-NAV route owner released as an orphan
+         ;; (Spec 016 §Restore and replay part 4: "orphaned owners are dropped
+         ;; with a trace row"). SSR orphans ride the summary above (they belong
+         ;; to a settled server render, not a stale navigation).
+         (doseq [[k owner] (:orphaned reconciled)
+                 :when (route-owner? owner)]
+           (trace/emit! :rf.epoch :rf.resource/owner-released
+                        {:rf.frame/id   frame-id
+                         :resource-key  k
+                         :owner         owner
+                         :nav-token     (nth owner 2 nil)
+                         :live-nav-token live-nav-token
+                         :reason        :stale-nav-orphan
+                         :recovery      :restore-reconcile}))
          (doseq [[k skew] (:skews reconciled)]
            (trace/emit! :warning :rf.resource/restore-clock-skew
                         {:rf.frame/id  frame-id
