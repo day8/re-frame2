@@ -381,6 +381,47 @@
      :rf/redacted)))
 
 ;; ---------------------------------------------------------------------------
+;; Per-slot resource-payload egress (rf2-tgm1xu)
+;; ---------------------------------------------------------------------------
+;;
+;; A resource cache entry is RUNTIME-DB state, but the EP-0003 tool contract
+;; (Spec 016 §Xray, line 314) is that a REDACTED SUMMARY STILL EXPOSES
+;; METADATA: the operator must always see status / owners / tags / request-id
+;; / generation / timestamps to answer "is it stale, who owns it, what's the
+;; request id" — those are non-PII bookkeeping facts. Only the PAYLOAD slots
+;; (`:data` / `:error` / `:refresh-error`) and the key's scope/params carry
+;; PII or a large blob, so ONLY they follow the off-box egress posture.
+;;
+;; `resource-egress-fn` builds the `(fn [value slot-key])` closure
+;; `resources-helpers/project-instances` / `instance-row` call on each
+;; payload value (scope / params / data / error / refresh-error) BEFORE
+;; summarizing. It routes the value through `egress-runtime-db-value` so the
+;; runtime-db PARTITION default holds (ruling #14 — a raw runtime-db payload
+;; does NOT cross off-box unless the trusted-local `:include-runtime-db?
+;; true` opt-in is set), and under the opt-in the value walks through the
+;; per-slot `:sensitive?` / `:large?` posture (a value already redacted/
+;; elided upstream keeps its sentinel). The in-panel
+;; `resources-helpers/summarize` always wraps the result, so even an
+;; opted-in raw payload renders as a bounded summary, never a flood. The
+;; helper threads the slot's relative runtime-db path so a per-slot
+;; declaration (e.g. all `:data` payloads) can match under the opt-in.
+
+(defn- resource-egress-fn
+  "Return the `(fn [value slot-key] -> egressed)` payload-egress closure for
+  the resource accessors (rf2-tgm1xu). Each value routes through
+  `egress-runtime-db-value` with `egress-opts` — the runtime-db partition
+  default (redact unless `:include-runtime-db? true`) composed with the
+  per-slot value posture under the opt-in. The slot's relative runtime-db
+  path (`[:rf.runtime/resources :entries <slot>]`) is threaded so a
+  declaration keyed by that path still matches under the opt-in."
+  [egress-opts]
+  (fn [value slot-key]
+    (egress-runtime-db-value
+      value
+      (assoc egress-opts
+             :path (conj (vec resources-helpers/entries-rel-path) slot-key)))))
+
+;; ---------------------------------------------------------------------------
 ;; Event-level default-suppress gate (rf2-to36uj)
 ;; ---------------------------------------------------------------------------
 ;;
@@ -824,10 +865,22 @@
 
   Reads the cache entries from the frame's RUNTIME-DB partition at
   `[:rf.runtime/resources :entries]` (EP-0001 — resource cache is
-  framework-owned runtime-db state). PRIVACY: scope/params/data are
-  summarized AND the raw entry values route through
-  `egress-runtime-db-value` (default-redacted off-box; opt in with
-  `:include-runtime-db? true`).
+  framework-owned runtime-db state).
+
+  PRIVACY (rf2-tgm1xu — the EP-0003 contract that a redacted summary STILL
+  exposes metadata; Spec 016 §Xray, line 314): the projection algebra
+  always `summarize`s scope/params/data (type + bounded size + a
+  redaction-aware preview, never the raw value). On top of that the
+  PAYLOAD slots — `:data`/`:error`/`:refresh-error` in the entry and the
+  scope/params in the key — route through the off-box `egress-resource-value`
+  walker so a `:sensitive?` declaration egresses them as `:rf/redacted` and
+  a `:large?` slot as `:rf.size/large-elided`. The non-PII metadata
+  (status, generation, attempt, request-id, current-work, active-owners,
+  tags, timestamps) is NEVER redacted — it projects so the status / tag /
+  owner / request-id filters (which filter the PROJECTED rows) work without
+  `:include-runtime-db?`. The trusted-local `:include-runtime-db? true`
+  opt-in lifts even a non-declared payload to its raw value (still capped
+  by the in-panel summary).
 
   Returns `{:ok? true :frame <id> :instances [<row> …] :count N}` or
   `{:ok? false :reason :no-frame-resolved}`."
@@ -845,20 +898,21 @@
              entries     (resources-helpers/select-raw-entries
                            all-entries
                            {:scope scope :resource-id resource-id :params params})
-             rt-egress   {:include-sensitive?  include-sensitive?
+             egress-opts {:include-sensitive?  include-sensitive?
                           :include-large?      include-large?
                           :include-runtime-db? include-runtime-db?}
-             ;; off-box raw-value egress on the runtime-db entries (the
-             ;; summaries the rows carry are belt; this is braces — a
-             ;; :sensitive? data/scope slot egresses redacted)
-             entries*    (into {}
-                               (map (fn [[k entry]]
-                                      [k (egress-runtime-db-value
-                                           entry
-                                           (assoc rt-egress
-                                                  :path (conj resources-helpers/entries-rel-path k)))]))
-                               (or entries {}))
-             rows        (-> (resources-helpers/project-instances entries* (.now js/Date))
+             ;; PER-SLOT egress (rf2-tgm1xu): the projection redacts ONLY the
+             ;; payload values (scope/params/data/error) BEFORE summarizing,
+             ;; while the metadata projects from the raw entry — so the rows
+             ;; are USEFUL and the status/tag/owner/request-id filters (which
+             ;; filter the projected rows) match. The RAW key is kept as the
+             ;; row identity so two entries whose scope/params redact to the
+             ;; same sentinel never collapse. Each value egresses at its
+             ;; ABSOLUTE runtime-db slot path so per-slot :sensitive? /
+             ;; :large? declarations match.
+             rows        (-> (resources-helpers/project-instances
+                               entries (.now js/Date)
+                               (resource-egress-fn egress-opts))
                              (resources-helpers/filter-instance-rows
                                {:resource-id resource-id :status status :stale? stale?
                                 :tag tag :owner owner :request-id request-id}))]
@@ -877,13 +931,24 @@
   EP-0002 the frame target is carried explicitly (`:frame`); a frameless
   call with no resolvable context fails closed.
 
+  Required scoped-key parts: `:resource-id` AND `:scope` AND `:params`.
+  Any missing part fails closed with `:reason :missing-key` (a partial key
+  cannot address an entry — Spec 016 §Introspection: the scoped key is the
+  full `[scope resource-id params]` triple).
+
   Returns `{:ok? true :frame <id> :state <instance-row>}` (the row
   carries the PRIVACY-summarized status/data/error projection — Spec 016
   §Status semantics: `:stale?`/`:has-data?` are derived, not stored) or
   `{:ok? false :reason :no-such-instance ...}` / `:no-frame-resolved` /
-  `:missing-key`. The raw entry routes through `egress-runtime-db-value`
-  before projection (default-redacted off-box; `:include-runtime-db?
-  true` to opt in)."
+  `:missing-key`.
+
+  PRIVACY (rf2-tgm1xu): the projection always `summarize`s scope/params/
+  data; on top, the PAYLOAD slots (`:data`/`:error`/`:refresh-error` + the
+  key's scope/params) route through `egress-resource-value` (runtime-db
+  default-redacted off-box; `:include-runtime-db? true` to opt in to the
+  raw payload). The non-PII metadata (status / owners / tags / request-id /
+  generation / timestamps) is NEVER redacted — a redacted summary STILL
+  exposes the metadata (the EP-0003 contract)."
   [{:keys [frame resource-id scope params
            include-sensitive? include-large? include-runtime-db?]}]
   (let [fid (resolve-frame frame)]
@@ -892,9 +957,12 @@
       {:ok? false :reason :no-frame-resolved
        :hint "Pass :frame :foo or register at least one frame."}
 
-      (nil? resource-id)
+      ;; A scoped key is the full [scope resource-id params] triple — any
+      ;; missing part cannot address an entry (rf2-tgm1xu: missing scope or
+      ;; params reports :missing-key, not a silent nil-key probe).
+      (or (nil? resource-id) (nil? scope) (nil? params))
       {:ok? false :reason :missing-key
-       :hint "Pass :resource-id + :scope + :params (the scoped key)."}
+       :hint "Pass :resource-id + :scope + :params (the full scoped key)."}
 
       :else
       (let [scoped-key  [scope resource-id params]
@@ -904,15 +972,18 @@
         (if (nil? entry)
           {:ok? false :reason :no-such-instance
            :frame fid :resource-id resource-id}
-          (let [entry* (egress-runtime-db-value
-                         entry
-                         {:include-sensitive?  include-sensitive?
-                          :include-large?      include-large?
-                          :include-runtime-db? include-runtime-db?
-                          :path                entry-path})]
+          (let [egress-opts {:include-sensitive?  include-sensitive?
+                             :include-large?      include-large?
+                             :include-runtime-db? include-runtime-db?}]
+            ;; PER-SLOT egress (rf2-tgm1xu): the projection redacts only the
+            ;; payload values (scope/params/data/error) before summarizing;
+            ;; the metadata projects from the raw entry. The RAW scoped-key
+            ;; is the row identity.
             {:ok?   true
              :frame fid
-             :state (resources-helpers/instance-row [scoped-key entry*] (.now js/Date))}))))))
+             :state (resources-helpers/instance-row
+                      [scoped-key entry] (.now js/Date)
+                      (resource-egress-fn egress-opts))}))))))
 
 (defn get-resource-history
   "Tool: `get-resource-history`. The BOUNDED lifecycle history for a

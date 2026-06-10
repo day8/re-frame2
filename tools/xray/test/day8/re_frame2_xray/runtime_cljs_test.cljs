@@ -1086,3 +1086,183 @@
           "the source-coord resolves for the registered handler")
       (is (= "leak-me" (get-in result [:source-coord :auth :password]))
           ":include-sensitive? true ⇒ the raw value passes through"))))
+
+;; ---------------------------------------------------------------------------
+;; (15) Resource accessors expose METADATA on the redacted-summary default
+;;      path; only payload values follow the off-box egress (rf2-tgm1xu).
+;; ---------------------------------------------------------------------------
+;;
+;; BEFORE the fix, `list-resource-instances` / `get-resource-state` routed
+;; the WHOLE runtime-db entry through `egress-runtime-db-value` BEFORE
+;; projection, so the default (no `:include-runtime-db?`) collapsed every
+;; entry to the bare `:rf/redacted` sentinel — the projection then read nil
+;; for status / owners / tags / request-id and the rows were USELESS (and
+;; the status/tag/owner/request-id filters, which filter the projected
+;; rows, could never match). The EP-0003 tool contract (Spec 016 §Xray,
+;; line 314) is that a REDACTED SUMMARY STILL EXPOSES METADATA. AFTER the
+;; fix the metadata always projects; only the payload slots (data / error /
+;; refresh-error + the key's scope/params) follow the runtime-db egress.
+;;
+;; The resources RUNTIME artefact is not on the xray test classpath, so we
+;; seed the live entries directly into the runtime-db partition (the slot
+;; the resources runtime writes) via a framework-authority `:rf/machine?`
+;; event returning the reserved `:rf.db/runtime` effect — the same seeding
+;; idiom the machine-state tests use.
+
+(def ^:private tgm1xu-scope [:rf.scope/session {:user-id "u-42"}])
+(def ^:private tgm1xu-key   [tgm1xu-scope :article/by-slug {:slug "welcome"}])
+(def ^:private tgm1xu-key-2 [tgm1xu-scope :article/by-slug {:slug "old"}])
+
+(def ^:private tgm1xu-entry
+  {:resource/id    :article/by-slug
+   :status         :loaded
+   :data           {:title "Welcome"}
+   :error          nil
+   :generation     4
+   :attempt        2
+   :request-id     [:w 4]
+   :current-work   [:rf.work/resource tgm1xu-key 4]
+   :active-owners  #{[:route :route/article "nav-1"]}
+   :tags           #{[:article "welcome"]}
+   :loaded-at      900000
+   :stale-at       9999999999999})
+
+(def ^:private tgm1xu-entry-2
+  {:resource/id   :article/by-slug
+   :status        :error
+   :data          nil
+   :error         {:message "boom"}
+   :generation    1
+   :request-id    [:w 1]
+   :active-owners #{}
+   :tags          #{[:article "old"]}})
+
+(defn- seed-resource-entries! [entries]
+  (rf/reg-event-fx :test/seed-resources
+    {:rf/machine? true}
+    (fn [_ _]
+      {:rf.db/runtime {:rf.runtime/resources {:entries entries}}}))
+  (rf/dispatch-sync [:test/seed-resources]))
+
+(deftest list-resource-instances-exposes-metadata-on-default-path
+  (testing "rf2-tgm1xu — the DEFAULT (no :include-runtime-db?) list returns
+            USEFUL redacted-summary rows: status / owners / tags / request-id
+            / generation all project (metadata is never redacted), while the
+            payload :data is redacted off-box"
+    (seed-resource-entries! {tgm1xu-key tgm1xu-entry})
+    (let [result (runtime/list-resource-instances)]
+      (is (true? (:ok? result)))
+      (is (= 1 (:count result)))
+      (let [row (first (:instances result))]
+        (is (= :article/by-slug (:resource-id row)) "resource-id projects")
+        (is (= :loaded (:status row)) "status projects (metadata not redacted)")
+        (is (= 4 (:generation row)) "generation projects")
+        (is (= 2 (:attempt row)) "attempt projects")
+        (is (= [:w 4] (:request-id row)) "request-id projects")
+        (is (= [[:route :route/article "nav-1"]] (:active-owners row))
+            "active-owners project")
+        (is (= 1 (:owner-count row)) "owner-count derived from metadata")
+        (is (= [[:article "welcome"]] (:tags row)) "tags project")
+        (is (not (:stale? row)) "derived :stale? works (stale-at in the future)")
+        ;; The PAYLOAD is the only thing redacted off-box by default.
+        (is (:redacted? (:data row))
+            "the payload :data is redacted off-box on the default path")
+        (is (= "[redacted]" (:preview (:data row)))
+            "the redacted payload renders the [redacted] preview, not the raw value")))))
+
+(deftest list-resource-instances-metadata-filters-work-without-runtime-db
+  (testing "rf2-tgm1xu — the status / tag / owner / request-id filters
+            (which filter the PROJECTED rows) match on the default path,
+            because metadata is projected, NOT redacted"
+    (seed-resource-entries! {tgm1xu-key   tgm1xu-entry
+                             tgm1xu-key-2 tgm1xu-entry-2})
+    (testing ":status filter"
+      (is (= 1 (:count (runtime/list-resource-instances {:status :loaded}))))
+      (is (= 1 (:count (runtime/list-resource-instances {:status :error})))))
+    (testing ":tag filter"
+      (is (= 1 (:count (runtime/list-resource-instances
+                         {:tag [:article "welcome"]})))))
+    (testing ":owner filter"
+      (is (= 1 (:count (runtime/list-resource-instances
+                         {:owner [:route :route/article "nav-1"]})))))
+    (testing ":request-id filter"
+      (is (= 1 (:count (runtime/list-resource-instances {:request-id [:w 4]})))))))
+
+(deftest list-resource-instances-opts-into-raw-payload
+  (testing "rf2-tgm1xu — the trusted-local :include-runtime-db? true opt-in
+            lifts the payload redaction; :data then summarizes the raw value
+            (still bounded), while metadata is unchanged"
+    (seed-resource-entries! {tgm1xu-key tgm1xu-entry})
+    (let [row (first (:instances (runtime/list-resource-instances
+                                   {:include-runtime-db? true})))]
+      (is (= :loaded (:status row)) "metadata still projects under the opt-in")
+      (is (not (:redacted? (:data row)))
+          ":include-runtime-db? true ⇒ the payload is not redacted")
+      (is (= "map" (:type (:data row)))
+          "the raw payload is summarized (type surfaced), never flooded raw")
+      (is (= 1 (:size (:data row))) "the payload summary carries the bounded size"))))
+
+(deftest list-resource-instances-preserves-upstream-redacted-payload-metadata-rides
+  (testing "rf2-tgm1xu adversarial — a payload value already redacted upstream
+            (the resources runtime emits the framework :rf/redacted sentinel
+            for a :sensitive? slot via elide-wire-value) keeps its redacted
+            status under :include-runtime-db? true, while the entry's METADATA
+            still rides — the value redacts, the metadata does not"
+    (seed-resource-entries! {tgm1xu-key (assoc tgm1xu-entry :data :rf/redacted)})
+    (let [row (first (:instances (runtime/list-resource-instances
+                                   {:include-runtime-db? true})))]
+      (is (= :loaded (:status row)) "metadata rides while the value redacts")
+      (is (= [:w 4] (:request-id row)) "request-id metadata rides")
+      (is (= [[:article "welcome"]] (:tags row)) "tags metadata rides")
+      (is (:redacted? (:data row))
+          "the upstream-redacted payload keeps its redacted status even under the opt-in")
+      (is (= "[redacted]" (:preview (:data row)))
+          "the redacted payload renders [redacted], not a raw preview"))))
+
+(deftest get-resource-state-exposes-metadata-on-default-path
+  (testing "rf2-tgm1xu — get-resource-state returns a USEFUL redacted summary
+            on the default path: status / owners / tags / request-id project
+            while the payload redacts"
+    (seed-resource-entries! {tgm1xu-key tgm1xu-entry})
+    (let [result (runtime/get-resource-state
+                   {:resource-id :article/by-slug
+                    :scope       tgm1xu-scope
+                    :params      {:slug "welcome"}})]
+      (is (true? (:ok? result)))
+      (let [row (:state result)]
+        (is (= :loaded (:status row)) "status projects")
+        (is (= [:w 4] (:request-id row)) "request-id projects")
+        (is (= [[:route :route/article "nav-1"]] (:active-owners row))
+            "owners project")
+        (is (:redacted? (:data row)) "payload redacted off-box by default")))))
+
+(deftest get-resource-state-missing-key-parts-fail-closed
+  (testing "rf2-tgm1xu — a partial scoped key (missing scope OR params OR
+            resource-id) fails closed with :missing-key — a partial key
+            cannot address an entry"
+    (seed-resource-entries! {tgm1xu-key tgm1xu-entry})
+    (testing "missing :resource-id"
+      (let [r (runtime/get-resource-state {:scope tgm1xu-scope :params {:slug "x"}})]
+        (is (false? (:ok? r)))
+        (is (= :missing-key (:reason r)))))
+    (testing "missing :scope"
+      (let [r (runtime/get-resource-state {:resource-id :article/by-slug
+                                           :params {:slug "x"}})]
+        (is (false? (:ok? r)))
+        (is (= :missing-key (:reason r)))))
+    (testing "missing :params"
+      (let [r (runtime/get-resource-state {:resource-id :article/by-slug
+                                           :scope tgm1xu-scope})]
+        (is (false? (:ok? r)))
+        (is (= :missing-key (:reason r)))))))
+
+(deftest get-resource-state-no-such-instance
+  (testing "rf2-tgm1xu — a full key that does not address a cached entry
+            surfaces :no-such-instance (distinct from :missing-key)"
+    (seed-resource-entries! {tgm1xu-key tgm1xu-entry})
+    (let [r (runtime/get-resource-state
+              {:resource-id :article/by-slug
+               :scope       tgm1xu-scope
+               :params      {:slug "does-not-exist"}})]
+      (is (false? (:ok? r)))
+      (is (= :no-such-instance (:reason r))))))
