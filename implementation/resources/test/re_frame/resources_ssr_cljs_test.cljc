@@ -35,6 +35,7 @@
    [re-frame.core :as rf]
    [re-frame.frame :as frame]
    [re-frame.late-bind :as late-bind]
+   [re-frame.privacy :as privacy]
    ;; load-bearing side-effecting requires: the façade publishes the SSR
    ;; projection + reconcile hooks + registers the resource registrar kind.
    [re-frame.resources]
@@ -475,6 +476,76 @@
     (is (true?  (ssr/entry-needs-refetch?
                   (entry {:resource-id :a :data nil}) 100))
         "no-data (metadata-only) → refetch")))
+
+;; ===========================================================================
+;; 4b. Hydration refetch: redacted sentinel is metadata-only (rf2-fopuj9)
+;; ===========================================================================
+;;
+;; The redaction sentinel (`:rf/redacted`) rides as `:data` on a `:sensitive?`
+;; resource's projected entry — it is METADATA ONLY, NOT usable data. A naive
+;; `(some? (:data entry))` would misclassify it as fresh-with-data → never
+;; refetch, leaving the client rendering the sentinel as if it were the value.
+
+(deftest redacted-sentinel-is-not-usable-data
+  (testing "hydrated-data-usable? excludes the redaction sentinel"
+    (is (true?  (ssr/hydrated-data-usable? (entry {:resource-id :a :data {:x 1}})))
+        "real data is usable")
+    (is (false? (ssr/hydrated-data-usable? (entry {:resource-id :a :data privacy/redacted-sentinel})))
+        "the :rf/redacted sentinel is NOT usable (metadata-only)")
+    (is (false? (ssr/hydrated-data-usable? (entry {:resource-id :a :data nil})))
+        "omitted (nil) is NOT usable")))
+
+(deftest redacted-fresh-entry-still-refetches
+  (testing "ADVERSARIAL: a FRESH (stale-at far ahead) entry whose data is the
+            redaction sentinel still needs a refetch — the sentinel must NOT be
+            mistaken for usable fresh data (rf2-fopuj9)"
+    (let [redacted-fresh (entry {:resource-id :secret/thing
+                                 :data privacy/redacted-sentinel
+                                 :loaded-at 1000 :stale-at 9.0e15 :status :loaded})]
+      (is (true? (ssr/entry-needs-refetch? redacted-fresh 5000))
+          "a fresh redacted entry refetches (the sentinel is metadata-only, not fresh data)"))))
+
+(deftest refetch-plan-classifies-redacted-vs-omitted-vs-stale-vs-fresh
+  (testing "the four hydration dispositions classify correctly (rf2-fopuj9 acceptance)"
+    (let [fresh    (entry {:resource-id :a :data {:x 1} :loaded-at 1000 :stale-at 9.0e15})
+          stale    (entry {:resource-id :b :data {:x 2} :loaded-at 1000 :stale-at 1500})
+          redacted (entry {:resource-id :c :data privacy/redacted-sentinel
+                           :loaded-at 1000 :stale-at 9.0e15 :status :loaded})  ;; sensitive → sentinel
+          omitted  (entry {:resource-id :d :data nil :status :loaded})          ;; large → no data key
+          plan     (->> (ssr/hydrate-refetch-plan (runtime-db-with {ka fresh kb stale kc redacted
+                                                                    (state/scoped-resource-key
+                                                                      :rf.scope/global :d {}) omitted})
+                                                  5000)
+                        (into {} (map (juxt :resource-key identity))))
+          kd       (state/scoped-resource-key :rf.scope/global :d {})]
+      (is (not (contains? plan ka)) "FRESH serialized → absent from the plan (no double-fetch)")
+      (is (= :stale         (:reason (plan kb))) "STALE serialized → background refetch")
+      (is (= :metadata-only (:reason (plan kc)))
+          "REDACTED (sentinel) → metadata-only refetch (NOT misclassified as fresh)")
+      (is (= :no-data       (:reason (plan kd))) "OMITTED (no data key) → no-data refetch"))))
+
+(deftest project-then-hydrate-roundtrip-sensitive-refetches
+  (reg! :secret/thing {:sensitive? true})
+  (testing "END-TO-END: a fresh :sensitive? entry PROJECTS to the redaction
+            sentinel, then on HYDRATION is classified metadata-only and
+            refetches — never rendered as if the sentinel were the real value
+            (rf2-fopuj9)"
+    (let [k    (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})
+          ;; a FRESH sensitive entry on the server (stale-at far ahead)
+          e    (entry {:resource-id :secret/thing :data {:ssn "123-45-6789"}
+                       :loaded-at 1000 :stale-at 9.0e15})
+          ;; SERVER projection redacts the data to the sentinel
+          proj (ssr/project-resources-runtime-db (runtime-db-with {k e}))
+          we   (get-in proj [state/resources-key :entries k])]
+      (is (= privacy/redacted-sentinel (:data we))
+          "projection redacts the sensitive data to the sentinel")
+      ;; CLIENT hydration over the projected slice (a coherent runtime-db)
+      (let [installed {state/resources-key {:entries {k we}}}
+            plan      (->> (ssr/hydrate-refetch-plan installed 5000)
+                           (into {} (map (juxt :resource-key identity))))]
+        (is (contains? plan k)
+            "the redacted (fresh-on-server) entry IS in the refetch plan — the sentinel is not usable data")
+        (is (= :metadata-only (:reason (plan k))))))))
 
 ;; ===========================================================================
 ;; 5. SCOPE isolation

@@ -69,6 +69,11 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+;; `hydrate-runtime-db` (the reconcile) computes the client refetch plan via
+;; `hydrate-refetch-plan` (defined below) on the `:rf/hydrate` install path
+;; (rf2-fopuj9), so the latter is forward-declared.
+(declare hydrate-refetch-plan)
+
 ;; ---- shared clock ---------------------------------------------------------
 
 (defn- now-ms
@@ -636,7 +641,18 @@
        `:entries` (never trust the wire — part 5);
     3. emit a `:rf.resource/hydrated` trace summarising installed / orphaned
        counts, and a clock-skew diagnostic when a restored `:stale-at` is
-       implausible against the live clock.
+       implausible against the live clock;
+    4. COMPUTE the client refetch plan (`hydrate-refetch-plan`) over the
+       reconciled entries (rf2-fopuj9), emitting one `:rf.resource/hydrate-
+       refetch` decision row per entry that is NOT sufficient on its own —
+       stale (background refetch), omitted (`:no-data`), or redacted (the
+       `:rf/redacted` sentinel is metadata-only, NOT usable data, so it is
+       `:metadata-only`). Fresh-with-USABLE-data entries are absent from the
+       plan (no double-fetch). The plan rides the trace channel here; the
+       route slice consults `hydrate-refetch-plan` directly to ISSUE the
+       refetch under a live owner (it owns \"does the route still NEED it?\").
+       Wiring the COMPUTE into the reconcile means the per-entry decision is
+       never lost on the `:rf/hydrate` install path.
 
   NEVER crosses scopes: it only reconciles the entries the server projected
   under their own scoped keys (the scope is the first element of each key);
@@ -684,6 +700,14 @@
                                             skew "ms ahead of the live client clock "
                                             "— server clock skew makes freshness "
                                             "ambiguous; refetch will resolve it.")}))
+         ;; rf2-fopuj9 — COMPUTE the client refetch plan over the reconciled
+         ;; entries on the `:rf/hydrate` install path, emitting the per-entry
+         ;; `:rf.resource/hydrate-refetch` decision rows (stale / no-data /
+         ;; metadata-only). The route slice consults `hydrate-refetch-plan`
+         ;; directly to ISSUE the refetch under a live owner; computing it here
+         ;; ensures the decision (esp. that a REDACTED sentinel entry is
+         ;; metadata-only, not fresh-with-data) is never lost on hydrate.
+         (hydrate-refetch-plan rdb' clock-ms frame-id)
          rdb')))))
 
 ;; ---- epoch-restore reconcile (Spec 016 §Restore and replay parts 2/4/5) ---
@@ -902,33 +926,59 @@
 ;; (fresh serialized) or needs a client refetch. The decision (no double-
 ;; fetch is the load-bearing one):
 ;;
-;;   - FRESH + has data            -> no refetch (the win SSR exists for);
-;;   - STALE + has data            -> background-refetch by event (renders
+;;   - FRESH + has USABLE data     -> no refetch (the win SSR exists for);
+;;   - STALE + has USABLE data     -> background-refetch by event (renders
 ;;                                    stale data immediately, refreshes);
 ;;   - metadata-only (redacted /   -> refetch ONLY if the route still needs
-;;     omitted; no data)              it (a live owner / the route's plan).
+;;     omitted; no usable data)       it (a live owner / the route's plan).
+;;
+;; The load-bearing correctness boundary (rf2-fopuj9): a REDACTED entry rides
+;; the wire with its `:data` REPLACED by the redaction sentinel
+;; (`privacy/redacted-sentinel` = `:rf/redacted`) — it is METADATA ONLY, NOT
+;; usable data. A naive `(some? (:data entry))` would see the sentinel as
+;; present and misclassify a redacted entry as fresh-with-data → NEVER
+;; refetch, leaving the client rendering the `:rf/redacted` sentinel as if it
+;; were the real value. `hydrated-data-usable?` excludes the sentinel so a
+;; redacted entry is correctly treated as metadata-only and refetched.
+
+(defn hydrated-data-usable?
+  "True iff a HYDRATED `entry` carries USABLE last-known-good `:data` — i.e.
+  `:data` is present AND is NOT the redaction sentinel
+  (`privacy/redacted-sentinel`). A `:sensitive?` resource projects its data
+  as the sentinel (`project-entry` `:redact`), so on the wire the entry's
+  `:data` is `:rf/redacted` — metadata only, never usable. An `:large?`
+  resource OMITS the `:data` key entirely (nil — also not usable). This is the
+  hydration-side counterpart of `state/has-data?`, which does NOT know about
+  the wire sentinel because it only ever sees live durable data. Per Spec 016
+  §SSR and hydration (redacted entries hydrate as metadata only)."
+  [entry]
+  (let [d (:data entry)]
+    (and (some? d) (not= privacy/redacted-sentinel d))))
 
 (defn entry-needs-refetch?
   "Decide whether a hydrated `entry` needs a client refetch against
   `clock-ms`. Per Spec 016 §SSR and hydration:
 
-    - a FRESH entry WITH usable data does NOT refetch (avoid the duplicate
+    - a FRESH entry WITH USABLE data does NOT refetch (avoid the duplicate
       immediate fetch — the property SSR exists for);
-    - a STALE entry with usable data background-refetches by policy;
-    - a metadata-only entry (redacted / omitted — no `:data`, or settled to
-      `:error` on the server) refetches if the route still needs it.
+    - a STALE entry with USABLE data background-refetches by policy;
+    - a metadata-only entry (redacted → the `:rf/redacted` sentinel; omitted
+      → no `:data`; or settled to `:error` on the server) refetches if the
+      route still needs it.
 
-  Returns `false` only for the fresh-with-data case; the metadata-only /
-  stale / no-data cases return `true` so the route slice can issue the
+  Returns `false` only for the fresh-with-USABLE-data case; the metadata-only
+  / stale / no-data cases return `true` so the route slice can issue the
   refetch under a live owner (it is the route plan that decides whether the
-  route still NEEDS the entry; this predicate answers \"is the hydrated
-  value sufficient on its own?\")."
+  route still NEEDS the entry; this predicate answers \"is the hydrated value
+  sufficient on its own?\"). A REDACTED entry's sentinel `:data` is NOT usable
+  (`hydrated-data-usable?`), so it is treated as metadata-only — never as
+  fresh-with-data (rf2-fopuj9)."
   [entry clock-ms]
-  (let [has-data? (some? (:data entry))]
+  (let [usable? (hydrated-data-usable? entry)]
     (cond
-      (not has-data?)              true            ;; metadata-only / error
+      (not usable?)                true            ;; metadata-only / redacted / error
       (entry-stale? entry clock-ms) true           ;; stale-while-revalidate
-      :else                         false)))       ;; fresh + data → no dup-fetch
+      :else                         false)))       ;; fresh + usable data → no dup-fetch
 
 (defn hydrate-refetch-plan
   "Build the client refetch plan for a hydrated resource subtree: the
@@ -962,6 +1012,14 @@
                                 {:resource-key k
                                  :resource-id  (nth k 1)
                                  :reason       (cond
+                                                 ;; a REDACTED entry rides the
+                                                 ;; sentinel as `:data` — metadata
+                                                 ;; only, classified distinctly from
+                                                 ;; an OMITTED entry (`:no-data`) so
+                                                 ;; Xray / the route slice can tell a
+                                                 ;; sensitive-redaction refetch from a
+                                                 ;; large-omission one (rf2-fopuj9).
+                                                 (= privacy/redacted-sentinel (:data entry)) :metadata-only
                                                  (nil? (:data entry))         :no-data
                                                  (entry-stale? entry clock-ms) :stale
                                                  :else                         :metadata-only)})))
