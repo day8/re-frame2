@@ -687,6 +687,116 @@
       (is (= {:phase :machine-alive} (rf/app-db-value :test/main))
           "restore also rewound the app-db partition"))))
 
+;; ---- runtime-db subsystem reconcile on restore (rf2-7r5mc2) ----------------
+;;
+;; perform-restore! installs the captured frame-state WHOLESALE — a runtime
+;; subsystem whose durable snapshot is not safe to install verbatim must be
+;; reconciled BEFORE the install, via the late-bound :resources/reconcile-on-
+;; restore hook (Spec 016 §Restore and replay). The epoch artefact has no
+;; static dep on the optional Resources artefact, so these tests stub the hook
+;; (late-bind/set-fn!) and assert the WIRING: the hook is consulted with the
+;; runtime-db partition, its return value is installed, and absence is a clean
+;; verbatim pass-through. The reconcile LOGIC itself (settle-to-last-stable,
+;; dangling-marking, index recompute, owner orphaning) is pinned in the
+;; resources artefact's resources-restore-cljs-test.
+
+(deftest reconcile-runtime-db-on-restore-consults-hook-and-installs-result
+  (testing "rf2-7r5mc2 — reconcile-runtime-db-on-restore passes the runtime-db
+            partition + frame-id to the :resources/reconcile-on-restore hook and
+            returns the frame-state with the hook's reconciled runtime-db installed."
+    (let [hook-key :resources/reconcile-on-restore
+          original (late-bind/get-fn hook-key)
+          seen     (atom nil)]
+      (try
+        ;; Stub a reconcile that records its inputs and rewrites the runtime-db
+        ;; (the resources artefact's real reconcile does the settle/dangling work).
+        (late-bind/set-fn! hook-key
+                           (fn [rdb frame-id]
+                             (reset! seen {:rdb rdb :frame-id frame-id})
+                             (assoc rdb :rf.runtime/reconciled? true)))
+        (let [fs {:rf.db/app     {:n 1}
+                  :rf.db/runtime {:rf.runtime/resources {:entries {}}}}
+              out (tool-pair/reconcile-runtime-db-on-restore :test/x fs)]
+          (is (= {:rf.runtime/resources {:entries {}}} (:rdb @seen))
+              "the hook receives the runtime-db PARTITION value")
+          (is (= :test/x (:frame-id @seen)) "the hook receives the carried frame-id")
+          (is (true? (get-in out [:rf.db/runtime :rf.runtime/reconciled?]))
+              "the hook's reconciled runtime-db is installed back into the frame-state")
+          (is (= {:n 1} (:rf.db/app out)) "the app-db partition is untouched"))
+        (finally
+          (late-bind/set-fn! hook-key original))))))
+
+(deftest reconcile-runtime-db-on-restore-noop-without-hook
+  (testing "rf2-7r5mc2 — absent the :resources/reconcile-on-restore hook (no
+            resources artefact), the frame-state installs verbatim (the
+            pre-rf2-7r5mc2 behaviour)."
+    (let [hook-key :resources/reconcile-on-restore
+          original (late-bind/get-fn hook-key)]
+      (try
+        (late-bind/set-fn! hook-key nil)
+        (let [fs {:rf.db/app {:n 1} :rf.db/runtime {:rf.runtime/resources {:entries {:k :v}}}}]
+          (is (= fs (tool-pair/reconcile-runtime-db-on-restore :test/x fs))
+              "no hook → frame-state passes through unchanged"))
+        (finally
+          (late-bind/set-fn! hook-key original))))))
+
+(deftest reconcile-runtime-db-on-restore-noop-on-app-db-only-record
+  (testing "rf2-7r5mc2 — a legacy / synthetic frame-state with only the app-db
+            partition (no :rf.db/runtime key) passes through unchanged even when
+            the hook is present (nothing to reconcile)."
+    (let [hook-key :resources/reconcile-on-restore
+          original (late-bind/get-fn hook-key)
+          called?  (atom false)]
+      (try
+        (late-bind/set-fn! hook-key (fn [rdb _] (reset! called? true) rdb))
+        (let [fs {:rf.db/app {:n 1}}]
+          (is (= fs (tool-pair/reconcile-runtime-db-on-restore :test/x fs))
+              "app-db-only frame-state is unchanged")
+          (is (false? @called?) "the hook is not consulted when there is no runtime-db partition"))
+        (finally
+          (late-bind/set-fn! hook-key original))))))
+
+(deftest perform-restore!-reconciles-installed-runtime-db
+  (testing "rf2-7r5mc2 — end-to-end: perform-restore! runs the
+            :resources/reconcile-on-restore hook over the runtime-db it is about
+            to install, so the FRAME's restored runtime-db carries the reconciled
+            value (a mid-flight slice never installs verbatim)."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-fx :put-resource
+      (fn [{rt :rf.db/runtime} _]
+        {:db {:phase :mid-flight}
+         :rf.db/runtime (assoc-in (or rt {})
+                                  [:rf.runtime/resources :entries :k]
+                                  {:status :loading :current-work [:w 1]})}))
+    (rf/reg-event-db :clear (fn [_ _] {:phase :cleared}))
+
+    (let [hook-key :resources/reconcile-on-restore
+          original (late-bind/get-fn hook-key)]
+      (try
+        ;; Stub the reconcile: settle the mid-flight entry (loading → loaded-ish)
+        ;; + clear current-work, standing in for the resources artefact's real
+        ;; reconcile so the epoch wiring is exercised without a resources dep.
+        (late-bind/set-fn! hook-key
+                           (fn [rdb _frame-id]
+                             (-> rdb
+                                 (assoc-in [:rf.runtime/resources :entries :k :status] :idle)
+                                 (assoc-in [:rf.runtime/resources :entries :k :current-work] nil)
+                                 (assoc :rf.runtime/restore-reconciled? true))))
+        (rf/dispatch-sync [:put-resource] {:frame :test/main})
+        (let [mid-epoch (:epoch-id (last (rf/epoch-history :test/main)))]
+          (rf/dispatch-sync [:clear] {:frame :test/main})
+          (is (true? (rf/restore-epoch :test/main mid-epoch))
+              "restore to the mid-flight epoch succeeded")
+          (let [rdb (rf/runtime-db-value :test/main)]
+            (is (true? (:rf.runtime/restore-reconciled? rdb))
+                "perform-restore! ran the reconcile hook over the installed runtime-db")
+            (is (= :idle (get-in rdb [:rf.runtime/resources :entries :k :status]))
+                "the mid-flight :loading entry was settled by the reconcile, not installed verbatim")
+            (is (nil? (get-in rdb [:rf.runtime/resources :entries :k :current-work]))
+                "the vanished current-work pointer was cleared during the reconcile")))
+        (finally
+          (late-bind/set-fn! hook-key original))))))
+
 ;; ---- restore failure modes -------------------------------------------------
 
 (deftest restore-failure-unknown-frame
