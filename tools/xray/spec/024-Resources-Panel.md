@@ -168,7 +168,7 @@ The operation set + semantic class:
 | `:rf.resource/registered` | lifecycle | `:rf.resource/refresh-failed` | failure |
 | `:rf.resource/ensure` | lifecycle | `:rf.resource/invalidated` | invalidation |
 | `:rf.resource/owner-attached` | lifecycle | `:rf.resource/refetch-decision` | lifecycle |
-| `:rf.resource/cache-hit` (reserved) | dedupe | `:rf.resource/owner-released` | lifecycle |
+| `:rf.resource/cache-hit` | dedupe | `:rf.resource/owner-released` | lifecycle |
 | `:rf.resource/deduped` | dedupe | `:rf.resource/gc-scheduled` | gc |
 | `:rf.resource/fetch-started` | lifecycle | `:rf.resource/gc-fired` | gc |
 | `:rf.resource/work-started` | lifecycle | `:rf.resource/gc-skipped` | gc |
@@ -181,10 +181,11 @@ The operation set + semantic class:
 `:rf.resource/stale-suppressed` is the single suppression op (entry +
 ledger stale/superseded-reply suppression); an earlier draft also named
 `:rf.resource/work-suppressed`, now folded into it (the runtime never
-emitted a distinct work-suppressed row). `:rf.resource/cache-hit` is
-RESERVED for a fresh-skip ensure — the panel colours it (`:dedupe`) but
-the v1 runtime does not yet emit it (the fresh-skip behaviour is described
-by Spec 016 but not yet implemented); see Spec 016 §Xray and AI tooling.
+emitted a distinct work-suppressed row). `:rf.resource/cache-hit` is a
+FRESH-SKIP ensure — an `ensure` of an already-`:loaded` entry still
+fresh-by-policy serves the cached value (no fetch, no in-flight join),
+which the panel colours `:dedupe`; distinct from `:rf.resource/deduped`
+(joining in-flight work). See Spec 016 §Xray and AI tooling.
 
 Each row carries, where applicable: frame, work id, scope, resource
 key/id, params summary, generation, request id, owner, cause, status

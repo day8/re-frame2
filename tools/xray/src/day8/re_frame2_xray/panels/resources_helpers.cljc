@@ -97,10 +97,10 @@
 ;; label) so the Resources tab + the Trace tab can colour, group, and
 ;; filter resource rows without re-deriving the vocabulary.
 ;;
-;; `:rf.resource/cache-hit` is RESERVED (a fresh-skip ensure) but not yet
-;; emitted by the v1 runtime — see Spec 016 §Xray and AI tooling. It stays
-;; enumerated here so the panel can colour it ahead of the behaviour
-;; landing.
+;; `:rf.resource/cache-hit` is a FRESH-SKIP ensure — an `ensure` of an
+;; already-`:loaded` entry still fresh-by-policy serves the cached value
+;; (no fetch, no in-flight join), distinct from `:deduped`. Emitted by the
+;; runtime (`events.cljc` ensure path) — see Spec 016 §Xray and AI tooling.
 ;;
 ;; Each op carries, where applicable: frame, work id, scope, resource
 ;; key/id, params summary, generation, request id, owner, cause, status

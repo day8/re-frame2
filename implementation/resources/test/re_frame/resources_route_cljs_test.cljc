@@ -185,6 +185,42 @@
       (is (= :loading (:status (entry scoped-key)))
           "the non-blocking resource is still ensured (background fetch)"))))
 
+(deftest blocking-resource-already-fresh-settles-route-immediately
+  ;; rf2-hsa0sv: a fresh ensure no longer fetches (fresh-skip / cache-hit).
+  ;; A route blocked on an already-FRESH resource MUST settle the nav
+  ;; IMMEDIATELY on the cache-hit (no fetch, no reply will ever drain the
+  ;; blocking slot) — otherwise the route hangs forever.
+  ;; no :stale-after-ms → the entry is always fresh once loaded
+  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-route :route/article
+                {:path      "/articles/:slug"
+                 :params    [:map [:slug :string]]
+                 :resources [{:resource  :article/by-slug
+                              :params    (fn [route] {:slug (get-in route [:params :slug])})
+                              :blocking? true}]})
+  (rf/reg-route :route/home {:path "/"})
+  (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
+    ;; first entry: blocking resource fetches, then settles :loaded (fresh)
+    (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
+    (settle-success! scoped-key {:title "Intro"})
+    (is (= :loaded (:status (entry scoped-key))) "entry is fresh + :loaded")
+    ;; leave, then RE-ENTER the same route — the blocking ensure is now a
+    ;; fresh-skip cache-hit, which must drain the new nav-token blocking slot.
+    (rf/dispatch-sync [:rf.route/navigate :route/home])
+    (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
+    (let [nav-token-2 (:nav-token (slice))]
+      (testing "the re-entry ensure was a fresh-skip cache-hit (no new fetch)"
+        (is (= :loaded (:status (entry scoped-key)))
+            "the entry stayed :loaded — no refetch on the fresh re-entry")
+        (is (nil? (:current-work (entry scoped-key)))
+            "no in-flight work record — the cache served the value"))
+      (testing "the route settles :idle IMMEDIATELY (the fresh blocking
+                resource drained its slot on the cache-hit — no hang)"
+        (is (= :idle (:transition (slice)))
+            "a route blocked on a fresh resource lands :idle at once")
+        (is (empty? (blocking-slot nav-token-2))
+            "the new nav-token's blocking slot drained on the cache-hit")))))
+
 ;; ===========================================================================
 ;; 4. blocking FIRST-load failure → route :error
 ;; ===========================================================================
