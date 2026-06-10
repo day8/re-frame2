@@ -98,9 +98,11 @@ class that dominated this review cycle.
 4. **One authoritative home per fact; mirrors are projections.** Denormalized
    copies (indexes, dual-homed owners, derived fields) are declared
    recomputable projections of the authoritative home, never co-equal sources.
-   (Shared with EP-0006 clause 4/5; stated here because it is a *naming*
-   discipline too — the projection should not mint a new key for the same
-   fact.)
+   (The state-ownership half of this rule is [`spec/Runtime-Subsystems.md`
+   §Derived rule 2 — one authoritative home per fact; mirrors are recomputable
+   projections](../../spec/Runtime-Subsystems.md#derived-rule-2--one-authoritative-home-per-fact-mirrors-are-recomputable-projections);
+   stated here because it is a *naming* discipline too — the projection should
+   not mint a new key for the same fact.)
 
 ### The sweep (current instances, each one bead-sized)
 

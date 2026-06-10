@@ -1563,11 +1563,12 @@ must therefore reconcile a freshly-installed *durable snapshot* against the
 *live transient world* (host handles still attached to the pre-restore timeline,
 and network replies already on the wire that the runtime cannot recall).
 
-This section answers, per EP-0006 Clause 5, "what does epoch restore do to every
-value in this sub-tree?" The governing principle is the **anti-recycling rule**
-carried from the [`rf2-oosjmh` routing ruling](EP-0006-runtime-subsystem-contract.md#the-grading-table)
-(generalized into the runtime-subsystem contract, EP-0006 derived rule 1:
-allocator counters "must never rewind"):
+This section answers, per the runtime-subsystem contract's clause 5, "what does
+epoch restore do to every value in this sub-tree?" The governing principle is the
+**anti-recycling rule** carried from the `rf2-oosjmh` routing ruling and
+generalized into [`spec/Runtime-Subsystems.md` §Derived rule 1 — the restore
+question is mandatory; allocators never rewind](../../spec/Runtime-Subsystems.md#derived-rule-1--the-restore-question-is-mandatory-allocators-never-rewind)
+(allocator counters "must never rewind"):
 
 > A restored value must never let a stale generation or work-id be mistaken for
 > a live one. Epoch restore must not resurrect a superseded in-flight identity,
@@ -1734,8 +1735,10 @@ and `:active-owners`. They are declared **recomputable-from-entries**: on restor
 read from the serialized snapshot, so a stale or partial index can never outlive
 the entries it describes (EP-0001 decision 13: runtime-db holds the serializable
 *facts* needed for restore; recomputable derivations are not durable truth, and
-EP-0006 derived rule 2: a mirror is a recomputable projection, never a second
-source of truth). This single rule then also serves SSR hydration: hydration
+[`spec/Runtime-Subsystems.md` §Derived rule 2 — one authoritative home per fact;
+mirrors are recomputable projections](../../spec/Runtime-Subsystems.md#derived-rule-2--one-authoritative-home-per-fact-mirrors-are-recomputable-projections):
+a mirror is a recomputable projection, never a second source of truth). This
+single rule then also serves SSR hydration: hydration
 likewise installs `:entries` and recomputes the indexes, so the durable wire
 payload need not carry them at all.
 
@@ -1762,8 +1765,9 @@ rows, all of which part 2 immediately reconciles to dangling.
 `:stale-key` `[:resource resource-key generation]` that differ only in their head
 keyword while denormalizing the same `resource-key` + `generation` facts. That
 invites drift between two spellings of one identity — the precise one-carrier-one-name
-lesson of [EP-0002](EP-0002-frame-target-resolution.md) R3 and EP-0006 derived
-rule 2. **Stale suppression keys on `:work/id`**; the separate `:stale-key` is
+lesson of [EP-0002](EP-0002-frame-target-resolution.md) R3 and [`spec/Runtime-Subsystems.md`
+§Derived rule 2](../../spec/Runtime-Subsystems.md#derived-rule-2--one-authoritative-home-per-fact-mirrors-are-recomputable-projections).
+**Stale suppression keys on `:work/id`**; the separate `:stale-key` is
 dropped. (If a future transport genuinely needs a transport-facing suppression
 token distinct from the internal work-id, it must be justified in the normative
 spec as a deliberate second identity, not left as an unexplained synonym.) This

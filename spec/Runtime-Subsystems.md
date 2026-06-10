@@ -56,6 +56,24 @@ A subsystem MUST name which of its slots are durable-and-shipped vs transient-an
 
 On `destroy-frame!`, the subsystem distinguishes **durable facts** (which ride frame-state serialization, hydration, restore, and time-travel) from **transient handles** (host handles, in-flight registries, caches — torn down and never serialized), per [002 §Durable vs transient](002-Frames.md#durable-vs-transient). The subsystem hangs its frame-scoped cleanup off the single normative teardown boundary — a published teardown hook the core invokes in the strict order of [002 §Destroy](002-Frames.md#destroy). A subsystem holding frame-scoped state without a teardown hook leaks definitions and cached state on every `destroy-frame!`. A subsystem MUST name its teardown hook and what it releases.
 
+## Two derived rules
+
+The five clauses imply two cross-cutting rules every conformant subsystem MUST satisfy. They are not a sixth clause — they constrain *how* clauses 4 and 5 are answered — but they are normative in their own right, because each names a hazard a subsystem can pass the bare clause checklist and still get wrong.
+
+### Derived rule 1 — the restore question is mandatory; allocators never rewind
+
+Clause 5 (teardown) is incomplete unless it also answers the **epoch-restore** question: *what does an epoch restore do to every value in this sub-tree?* Restore is not destroy — it overwrites the durable slice with its value as of the restored epoch while the live transient world (host handles, in-flight replies already beyond cancellation) keeps running on the post-restore timeline. A subsystem MUST state, per durable slot, what restore does to it.
+
+The load-bearing case is **monotonic allocators**: any counter that mints a fresh identity (a spawn counter, a generation, a work-id sequence, a nav-token) **MUST NOT rewind on restore**. Rewinding an allocator lets a post-restore allocation collide with a pre-restore identity still carried by an uncancellable in-flight reply or an already-emitted side effect — a stale generation mistaken for a live one. The discipline is the **anti-recycling rule** (the `rf2-oosjmh` / `rf2-1hncp2` routing ruling, generalized): the canonical resolution is to hold such allocators **outside the revertible frame-state entirely** (the host-side transient cache, as routing does with its nav-token / pending-nav counters — see the `:rf.runtime/routing` grading row clause 1), so an epoch restore physically cannot rewind them.
+
+A subsystem whose durable slice contains a recycled or rewindable identity is a contract violation even if it names a teardown hook (clause 5) and a projection policy (clause 4): the restore question is the part of clause 5 a bare destroy-only reading misses.
+
+### Derived rule 2 — one authoritative home per fact; mirrors are recomputable projections
+
+Where a subsystem holds a denormalized copy of data whose authoritative home is elsewhere — an index, a denormalized owner set, a derived lookup, a cached cross-reference — the copy is a **recomputable projection of its authoritative home, never a second source of truth**. Such a mirror MUST be declared recomputable-from-source, and on both **restore and SSR hydration** it is rebuilt from the authoritative source rather than trusted from (or carried on) the serialized snapshot. The durable wire payload (clause 4) therefore need not carry the mirror at all, and a stale or partial mirror can never outlive the facts it describes.
+
+This rule constrains clauses 4 and 5 together: clause 4's projection policy declares the mirror *out* of the durable payload (it is re-derived, not shipped), and clause 5's restore answer (derived rule 1) recomputes it rather than installing it. It is the durable-state half of the one-name-per-fact discipline — a mirror MUST NOT become a co-equal home that can drift from its source. (The same discipline appears as a *naming* rule for cross-layer spellings; here it is a *state-ownership* rule for denormalized copies.)
+
 ## Why the contract matters — the routing write-authority worked example
 
 Routing is the worked example of why naming clause 2 (write authority) pays off. Routing's event handlers (`:rf.route/navigate`, `:rf.route/transitioned`, …) read and return the reserved route slice — they are legitimate framework writers. But before the authority key was generalized, the runtime minted event-handler authority from `:rf/machine?` **only**, so every navigation tripped the `:rf.warning/app-handler-runtime-effect` ownership diagnostic in dev — polluting the Xray Issues lens and training users that the warning is noise (the now-fixed rf2-3939ig).
