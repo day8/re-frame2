@@ -12,8 +12,8 @@
   `preview-variant` / `run-variant` (which return the variant frame's
   `:app-db` slice) and `read-failures` (which returns the variant
   frame's `:rf.story/assertions` accumulator). The walker reads the
-  live schema-owned `[:rf/runtime :elision]` registries from the named
-  frame's app-db; the `:frame variant-id` opts slot is load-bearing.
+  live schema-owned `[:rf.runtime/elision]` registries from the named
+  frame's runtime-db partition; the `:frame variant-id` opts slot is load-bearing.
 
   ## Non-live runtime/captured value scrub (`scrub-frame-value`, rf2-12f2q)
 

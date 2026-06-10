@@ -719,7 +719,7 @@ detects the region-map shape on a transition's RAW (un-normalised)
 from the **machine-state change across ALL regions** — NOT from a single
 `(from, to)` pair (and NOT from the cascade db-diff, which can report
 empty changed-paths even though the machine snapshot under
-`[:rf/runtime :machines :snapshots]` changed). For each region whose
+`[:rf.runtime/machines :snapshots]` (runtime-db) changed). For each region whose
 `(from ≠ to)`, it matches the per-region `(from-path, to-path, event)`
 against the projected region edges, disambiguated by the edge's
 **region-scoped `:source`** (`chart.layout/region-scoped-id` of the
@@ -1459,7 +1459,7 @@ The history surface rides the **EVENT HANDLER machine cascade** in the Epoch pan
 
 ### Inspectable `:rf/history` slot
 
-The recorded configuration lives in the snapshot's `:rf/history` slot (`[:rf/runtime :machines :snapshots <id> :rf/history]`), keyed by the compound's region-qualified declaration path. It is an ordinary snapshot slot, so it renders in the **App-db panel** through the standard edn-inspector — a viewer expands the machine's snapshot and reads the recorded config (keyword for shallow, leaf path for deep) the next restore will resolve. No bespoke panel chrome; `:rf/history` is EDN-clean (keywords + vectors-of-keywords) so it round-trips through the inspector like any other slot.
+The recorded configuration lives in the snapshot's `:rf/history` slot (`[:rf.runtime/machines :snapshots <id> :rf/history]` in runtime-db), keyed by the compound's region-qualified declaration path. It is an ordinary snapshot slot, so it renders in the **runtime-db view** through the standard edn-inspector — a viewer expands the machine's snapshot and reads the recorded config (keyword for shallow, leaf path for deep) the next restore will resolve. No bespoke panel chrome; `:rf/history` is EDN-clean (keywords + vectors-of-keywords) so it round-trips through the inspector like any other slot.
 
 ### Data contract
 

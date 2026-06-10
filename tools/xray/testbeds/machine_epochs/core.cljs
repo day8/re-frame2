@@ -24,8 +24,8 @@
     `{:rf.runner/selected <track-id> :rf.runner/cursors {<track-id>
     <last-run-index>}}`. NOT the observed frame.
   - PER-MACHINE frames (`:machine/door`, `:machine/traffic`, …) — each holds
-    ONLY that domain's machine snapshot(s) at `[:rf/runtime :machines
-    :snapshots …]` and owns its own epoch ring. This is what Xray observes.
+    ONLY that domain's machine snapshot(s) at `[:rf.runtime/machines
+    :snapshots …]` in runtime-db and owns its own epoch ring. This is what Xray observes.
 
   ## Event flow
 
@@ -110,7 +110,7 @@
             [re-frame.machines]
             ;; Path constructors for the runtime-owned machines slots — the
             ;; machines artefact's single source of truth for the
-            ;; `[:rf/runtime :machines …]` spelling. `:machine-epochs/finish-login`
+            ;; `[:rf.runtime/machines …]` spelling. `:machine-epochs/finish-login`
             ;; resolves the spawned child id through `machine-paths/spawned-path`
             ;; rather than a literal four-deep vector.
             [re-frame.machines.paths :as machine-paths]

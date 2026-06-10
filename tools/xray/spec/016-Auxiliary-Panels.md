@@ -732,7 +732,7 @@ configurable to "loud" via Settings → Trace → "Security advisories".
 ### App-db tab — current-route slice always-visible
 
 The current-route slice (the `:rf/route` runtime area, at
-`[:rf/runtime :routing :current]`) is structured and small; it pins
+`[:rf.runtime/routing :current]` in runtime-db) is structured and small; it pins
 at the top of the App-db tab under a `[reserved]` group banner,
 always-expanded, with each sub-key on its own line. See
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.2 R.11.
@@ -816,6 +816,6 @@ See [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overla
 - [`spec/012-Routing.md`](../../../spec/012-Routing.md) — the
   framework substrate the Routing tab projects: the registrar
   (`reg-route` + `(rf/registrations :route)`), the current-route
-  slice (at `[:rf/runtime :routing :current]`), and the
+  slice (at `[:rf.runtime/routing :current]` in runtime-db), and the
   `:rf.route.nav-token/allocated` emit the panel scans for the
   FROM/TO marker derivation.

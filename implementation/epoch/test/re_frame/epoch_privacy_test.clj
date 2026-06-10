@@ -228,8 +228,8 @@
               "rollup is strict false on the halted-destroy path — the
                declared-sensitive [:auth :password] path holds no value")
           ;; rf2-9neiq: the record carries the REAL pre-cascade /
-          ;; destroy-time state, NOT nil. Both reflect the app-db the
-          ;; schema-install populated ([:rf/runtime :elision ...]); no
+          ;; destroy-time state, NOT nil. The schema-install populates the
+          ;; elision declarations in runtime-db ([:rf.runtime/elision ...]); no
           ;; password write means the sensitive leaf is absent.
           (is (some? (:db-before halted))
               "halted-destroy carries a real (non-nil) :db-before (rf2-9neiq)")

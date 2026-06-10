@@ -99,7 +99,7 @@
 ;; ---- (removed) rf2-vnjfg handler-meta :sensitive? redaction under prod ---
 ;;
 ;; The handler-meta `:sensitive?` annotation has been removed. Per-path
-;; elision (the per-frame `[:rf/runtime :elision]` registry, populated from app-schema
+;; elision (the per-frame `[:rf.runtime/elision]` runtime-db registry, populated from app-schema
 ;; `:sensitive?` slot meta) is the load-bearing privacy surface on the
 ;; error-emit path under prod.
 

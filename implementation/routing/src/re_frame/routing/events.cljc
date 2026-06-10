@@ -93,7 +93,7 @@
          (= (:query prev)    query)
          (= (:fragment prev) fragment))))
 
-;; Per Spec 012 §The route slice and Spec-Schemas §`:rf/runtime` the
+;; Per Spec 012 §The route slice and Spec-Schemas §`:rf/runtime-db` the
 ;; published slice carries exactly `{:id :params :query :fragment
 ;; :transition :error :nav-token}` under `[:rf.runtime/routing
 ;; :current]`. Both nav entry points (programmatic

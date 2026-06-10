@@ -266,7 +266,7 @@
 ;; didn't pass `--allow-sensitive-reads` can't be talked into shipping raw
 ;; state through a hostile per-call arg.
 ;;
-;; The walker reads the live `[:rf/runtime :elision]` registry, so it has to run
+;; The walker reads the live `[:rf.runtime/elision]` runtime-db registry, so it has to run
 ;; app-side. We compose `drain-subscription!` server-side with mapv over
 ;; whichever slot the drain produced — `:cascades` for cascade-bundle
 ;; topics, `:events` for flat topics. When elision is OFF (operator opted
@@ -295,8 +295,8 @@
   `(re-frame2-pair.runtime/current-frame)` and merge it into the opts —
   the same idiom `elision/elide-sub-value-src` uses for the sub-cache
   walker and `runtime/pair-dispatch!` uses for the dispatch override — so
-  the walker resolves against the frame's `[:rf/runtime :elision]`
-  registry instead of failing closed.
+  the walker resolves against the frame's `[:rf.runtime/elision]`
+  runtime-db registry instead of failing closed.
 
   Public (not `defn-`) so unit tests can pin the form shape directly —
   the form-string is the contract surface between MCP server and the

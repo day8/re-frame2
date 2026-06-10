@@ -27,7 +27,7 @@
   It builds the server-side source that wraps the let-bound page of
   records the tool egresses, routing each record through
   `re-frame.core/projected-record`. The projection runs APP-SIDE inside
-  the eval form (where the frame's `[:rf/runtime :elision]` registry is
+  the eval form (where the frame's `[:rf.runtime/elision]` runtime-db registry is
   reachable, same as the snapshot / get-path / subscribe walkers), so
   the records the MCP server receives already carry `:rf/redacted` /
   `:rf.size/large-elided` markers in their payload slots.
