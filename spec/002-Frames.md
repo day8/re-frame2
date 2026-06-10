@@ -606,7 +606,7 @@ Use case: production single-frame app; multi-instance widgets.
 
 | Expansion key | Value | Why |
 |---|---|---|
-| `:fx-overrides` | `{:rf.http/managed :rf.http/managed-canned-success}` | The canonical Spec 014 HTTP fx is redirected to its canned-success stub so test frames don't reach the network. Test code that needs richer stubbing (navigation no-ops, etc.) supplies its own `:fx-overrides` per-call or per-frame; the framework does not ship `:rf.test/*` fxs in the v1 closed set. |
+| `:fx-overrides` | `{:rf.http/managed :rf.http/managed-canned-success}` | The canonical Spec 014 HTTP fx is redirected to its canned-success stub so test frames don't reach the network. Test code that needs richer stubbing supplies its own `:fx-overrides` per-call or per-frame; the framework does not ship `:rf.test/*` fxs in the v1 closed set. **The reserved navigation primitives `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` / `:rf.nav/capture-scroll` are OVERRIDABLE** (host-API wrappers, no frame runtime-db write — per [§Reserved fx-ids are tiered against override](#reserved-fx-id-override-tier)), so a test stubs them to no-op navigation without touching the host. Note that the *state-installing* reserved fxs (`:rf.machine/spawn`, `:rf.fx/reg-flow`, `:rf.route/with-nav-token`, …) are HARD-REJECTED — a test cannot stub those (the override is ignored and the reserved body runs). |
 | `:drain-depth` | `100` | Explicit value matches the framework default. Surfaced on the expansion so tooling can read "this is a test frame, drain bounded at 100" from `(frame-meta <id>)` without inspecting the global default. |
 
 **Port-omission carve-out.** The `:fx-overrides` entry above redirects a Spec 014 fx-id. Implementations that omit Spec 014 do not register `:rf.http/managed` and therefore cannot redirect it — on such ports the `:test` preset's `:fx-overrides` expansion is `{}` (empty map). The `:drain-depth` entry is unaffected. Conformance: a port that ships Spec 014 MUST expand `:test`'s `:fx-overrides` to the exact pair above; a port that omits Spec 014 MUST expand it to `{}`. Either way, user-supplied metadata wins on conflict per [§Expansion algorithm](#expansion-algorithm).
@@ -1709,7 +1709,7 @@ The pattern-level form is **id-valued** — replace one registered fx with anoth
 ;; per-call — id-valued (canonical, portable)
 (rf/dispatch [:user/login {:email "..."}]
              {:fx-overrides {:my-app/http  :my-app/http.canned-200
-                             :localstorage nil}})                       ;; nil = noop
+                             :localstorage nil}})  ;; nil = NO override — the original :localstorage fx runs
 
 ;; per-frame — id-valued
 (rf/reg-frame :story.auth.login-form/loading
@@ -1739,11 +1739,23 @@ A standard interceptor in re-frame2's default chain reads `:fx-overrides` from t
 (defn- effect-handler [effect-key envelope]
   (let [override (get (:fx-overrides envelope) effect-key)]
     (cond
-      (nil? override)        (get-fx-handler effect-key)              ;; no override
+      (nil? override)        (get-fx-handler effect-key)              ;; no override — the original fx runs
       (keyword? override)    (get-fx-handler override)                ;; id-valued: redirect
       (fn? override)         override                                  ;; CLJS reference: function value
       :else                  (throw (ex-info "Invalid override" {:effect-key effect-key :override override})))))
 ```
+
+<a id="reserved-fx-id-override-tier"></a>
+
+#### Reserved fx-ids are tiered against override
+
+A `:fx-overrides` entry may target a **reserved** fx-id, and the framework tiers the reserved set against override by the **state-installation criterion** (per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)):
+
+- **OVERRIDABLE** — `:dispatch`, `:dispatch-later`, `:rf.machine/dispatch-to-system`, and the navigation primitives `:rf.nav/push-url`, `:rf.nav/replace-url`, `:rf.nav/scroll`, `:rf.nav/capture-scroll`. Their bodies only *route* dispatches or *touch host/browser state* — they do not write the frame runtime-db. An override (fn-value **or** keyword-redirect) of one of these is honoured exactly as for a user fx-id: the override pre-empts the reserved body. This is the legitimate test/story affordance — capture a dispatch without queueing it, no-op a navigation. (The `:dispatch` / `:dispatch-later` fn-value-pre-empts-reserved-body contract is pinned per the rf2-nrpj1 ruling.)
+
+- **HARD-REJECTED** — `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:rf.route/with-nav-token`. Their bodies *install or clear* durable frame runtime state (machine snapshots, flow registry entries) or thread a correctness-critical nav-token; an override that stubs them out would break framework behaviour *far from the override site* (a spawned actor's later dispatches become `:rf.error/no-such-handler`; a dropped nav-token silently defeats stale-result suppression). An override targeting one of these is **ignored** — the runtime emits [`:rf.error/reserved-fx-override`](009-Instrumentation.md#error-event-catalogue) and runs the real reserved body. In production builds the effective override map (per-frame ⋈ per-call) is **stripped** of these keys loudly before the fx walk; the rejected keys are also **excluded from cascade inheritance** so a per-call override never propagates into a `[:dispatch …]` child cascade.
+
+(`:raise` is machine-internal — it never reaches the effect interpreter — so it is not in either tier.)
 
 ### `:interceptor-overrides` — replace interceptors in the chain by id
 

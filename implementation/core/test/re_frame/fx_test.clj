@@ -26,6 +26,7 @@
   §Error contract."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -1143,6 +1144,163 @@
       (let [fallthrough (filter #(= :rf.error/override-fallthrough (:operation %)) @traces)]
         (is (= 1 (count fallthrough))
             "exactly one :rf.error/override-fallthrough trace surfaced the un-registered redirect target")))))
+
+;; ---- 7c. reserved-fx OVERRIDE TIER (rf2-snsup5) ---------------------------
+;;
+;; Mike-ruled 2026-06-10 (option A, STATE-INSTALLATION criterion): a reserved
+;; fx-id stays OVERRIDABLE when its body only routes dispatches / touches
+;; host-browser state (`:dispatch`, `:dispatch-later`,
+;; `:rf.machine/dispatch-to-system`, `:rf.nav/*`); it HARD-REJECTS the
+;; override (emit :rf.error/reserved-fx-override + run the real reserved body)
+;; when its body installs/clears durable frame runtime state
+;; (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`,
+;; `:rf.fx/clear-flow`, `:rf.route/with-nav-token`). Three defence layers:
+;;   (1) dev per-call reject in `handle-one-fx`  — emit + run reserved body
+;;   (2) production prod-strip `strip-rejected-overrides` — drop keys loudly
+;;   (3) cascade-exclusion in `child-dispatch-opts` — never inherit a
+;;       reject-tier override into a `[:dispatch …]` child.
+
+(deftest reject-tier-fn-value-override-ignored-reserved-body-runs
+  (testing "fn-value override of :rf.fx/reg-flow is IGNORED; the flow IS registered"
+    ;; :rf.fx/reg-flow installs durable per-frame flow-registry state (reject
+    ;; tier). A fn-value override that stubs it out would silently leave the
+    ;; flow unregistered; the reject runs the reserved body so the flow lands.
+    (let [traces        (collect-traces! ::reject-reg-flow)
+          stub-fired    (atom 0)
+          flow          {:id     :fx-test.snsup5/a-flow
+                         :inputs [[:fx-test.snsup5 :seed]]
+                         :output (fn [_] 42)
+                         :path   [:fx-test.snsup5 :out]}]
+      (rf/reg-event-fx :fx-test.snsup5/install-flow
+        (fn [_ _] {:fx [[:rf.fx/reg-flow flow]]}))
+      (rf/dispatch-sync
+        [:fx-test.snsup5/install-flow]
+        {:fx-overrides {:rf.fx/reg-flow (fn [_ _] (swap! stub-fired inc))}})
+      (rf/unregister-listener! ::reject-reg-flow)
+      (is (= 0 @stub-fired)
+          "the fn-value override stub MUST NOT fire — the reject pre-empts it")
+      (is (contains? (get (flows/flows-snapshot) :rf/default) :fx-test.snsup5/a-flow)
+          "the reserved :rf.fx/reg-flow body ran — the flow is registered")
+      (let [rejected (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)]
+        (is (= 1 (count rejected))
+            "exactly one :rf.error/reserved-fx-override trace fired")
+        (is (= :rf.fx/reg-flow (get-in (first rejected) [:tags :rf.fx/id]))
+            ":rf.fx/id names the rejected reserved fx-id")
+        (is (= :reserved-body-ran (:recovery (first rejected)))
+            ":recovery is :reserved-body-ran"))))
+
+  (testing "keyword-redirect override of a reject-tier id is ALSO ignored"
+    ;; The reject covers both override shapes — fn-value AND keyword-redirect.
+    (let [traces     (collect-traces! ::reject-redirect)
+          redir-ran  (atom 0)]
+      (rf/reg-fx :fx-test.snsup5/redir-target
+                 {:platforms #{:client :server}}
+                 (fn [_ _] (swap! redir-ran inc)))
+      (rf/reg-event-fx :fx-test.snsup5/install-flow-2
+        (fn [_ _] {:fx [[:rf.fx/reg-flow {:id     :fx-test.snsup5/b-flow
+                                          :inputs [[:fx-test.snsup5 :seed]]
+                                          :output (fn [_] 1)
+                                          :path   [:fx-test.snsup5 :b]}]]}))
+      (rf/dispatch-sync
+        [:fx-test.snsup5/install-flow-2]
+        {:fx-overrides {:rf.fx/reg-flow :fx-test.snsup5/redir-target}})
+      (rf/unregister-listener! ::reject-redirect)
+      (is (= 0 @redir-ran)
+          "the keyword-redirect target MUST NOT fire — the reject pre-empts it")
+      (is (contains? (get (flows/flows-snapshot) :rf/default) :fx-test.snsup5/b-flow)
+          "the reserved :rf.fx/reg-flow body ran despite the redirect")
+      (is (= 1 (count (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)))
+          "one :rf.error/reserved-fx-override trace fired for the redirect form too"))))
+
+(deftest overridable-tier-unaffected-by-reject
+  (testing "OVERRIDABLE reserved fxs (:dispatch) still honour fn-value overrides"
+    ;; Regression guard: the reject must NOT perturb the rf2-nrpj1 contract for
+    ;; the routing-primitive tier. :dispatch is OVERRIDABLE — its fn-value
+    ;; override fires and pre-empts the reserved body.
+    (let [captured   (atom nil)
+          target-ran (atom 0)
+          traces     (collect-traces! ::overridable-no-reject)]
+      (rf/reg-event-db :fx-test.snsup5/target (fn [db _] (swap! target-ran inc) db))
+      (rf/reg-event-fx :fx-test.snsup5/emits-dispatch
+        (fn [_ _] {:fx [[:dispatch [:fx-test.snsup5/target]]]}))
+      (rf/dispatch-sync
+        [:fx-test.snsup5/emits-dispatch]
+        {:fx-overrides {:dispatch (fn [_ ev] (reset! captured ev))}})
+      (rf/unregister-listener! ::overridable-no-reject)
+      (is (= [:fx-test.snsup5/target] @captured)
+          "the :dispatch fn-value override fired (OVERRIDABLE tier — unchanged)")
+      (is (= 0 @target-ran)
+          "the reserved :dispatch body did NOT run — the override pre-empted it")
+      (is (empty? (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces))
+          "NO :rf.error/reserved-fx-override fired for an OVERRIDABLE id"))))
+
+(deftest production-prod-strip-drops-reject-tier-loudly
+  (testing "strip-rejected-overrides removes reject-tier keys + emits one error per key"
+    ;; The production prod-strip is exercised as a unit (it runs only under
+    ;; `(not interop/debug-enabled?)` in the router; the JVM dev fixture leaves
+    ;; the flag true, so the per-call reject fires on the dispatch path). The
+    ;; fn is pure-ish: filter the effective merged override map, emit loudly.
+    (let [traces   (collect-traces! ::prod-strip)
+          stub     (fn [_ _] :stub)
+          stripped (fx/strip-rejected-overrides
+                     {:rf.machine/spawn        stub        ;; reject
+                      :rf.fx/reg-flow          :some-redir  ;; reject (keyword form)
+                      :rf.route/with-nav-token stub        ;; reject
+                      :dispatch                stub        ;; OVERRIDABLE — kept
+                      :my-app/http             stub}       ;; user fx — kept
+                     :rf/default
+                     [:some/event])]
+      (rf/unregister-listener! ::prod-strip)
+      (is (= #{:dispatch :my-app/http} (set (keys stripped)))
+          "every reject-tier key is stripped; OVERRIDABLE + user keys survive")
+      (let [rejected (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)]
+        (is (= 3 (count rejected))
+            "one :rf.error/reserved-fx-override trace per stripped reject-tier key")
+        (is (= #{:rf.machine/spawn :rf.fx/reg-flow :rf.route/with-nav-token}
+               (set (map #(get-in % [:tags :rf.fx/id]) rejected)))
+            "the three rejected ids are named")
+        (is (every? #(= :production-strip (get-in % [:tags :where])) rejected)
+            ":where discriminates the production prod-strip site"))))
+
+  (testing "strip-rejected-overrides is identity when no reject-tier key present"
+    (let [m {:dispatch (fn [_ _]) :my-app/http (fn [_ _])}]
+      (is (identical? m (fx/strip-rejected-overrides m :rf/default [:e]))
+          "no churn: the same map is returned untouched on the dominant path"))))
+
+(deftest cascade-exclusion-reject-tier-not-inherited
+  (testing "a reject-tier override does NOT propagate into a [:dispatch …] child"
+    ;; The cascade-exclusion (child-dispatch-opts) runs unconditionally (dev +
+    ;; prod). A parent envelope carrying a reject-tier :fx-overrides must not
+    ;; leak it onto the child dispatch's inherited overrides. We verify the
+    ;; child's :rf.fx/reg-flow runs its reserved body (flow registered) — the
+    ;; reject-tier override is gone by the time the child cascade resolves.
+    (let [traces      (collect-traces! ::cascade-exclude)
+          child-stub  (atom 0)]
+      (rf/reg-event-fx :fx-test.snsup5/child-installs-flow
+        (fn [_ _] {:fx [[:rf.fx/reg-flow {:id     :fx-test.snsup5/child-flow
+                                          :inputs [[:fx-test.snsup5 :seed]]
+                                          :output (fn [_] 7)
+                                          :path   [:fx-test.snsup5 :child]}]]}))
+      (rf/reg-event-fx :fx-test.snsup5/parent-cascades
+        (fn [_ _] {:fx [[:dispatch [:fx-test.snsup5/child-installs-flow]]]}))
+      ;; The parent carries a reject-tier :rf.fx/reg-flow override. At the
+      ;; parent it is rejected (per-call) AND excluded from the child opts.
+      (rf/dispatch-sync
+        [:fx-test.snsup5/parent-cascades]
+        {:fx-overrides {:rf.fx/reg-flow (fn [_ _] (swap! child-stub inc))}})
+      (rf/unregister-listener! ::cascade-exclude)
+      (is (= 0 @child-stub)
+          "the reject-tier override did not fire in the child cascade either")
+      (is (contains? (get (flows/flows-snapshot) :rf/default) :fx-test.snsup5/child-flow)
+          "the CHILD's :rf.fx/reg-flow ran its reserved body — override not inherited")
+      ;; The PARENT's :rf.fx had no :rf.fx/reg-flow entry of its own, so the
+      ;; only reject site is the parent's per-call neutralisation of the
+      ;; override key on resolution — NOT a second emit in the child cascade
+      ;; (the override was excluded from the child opts, so the child never
+      ;; sees it to reject). The child's :rf.fx/reg-flow resolves with NO
+      ;; override → zero reject emits attributable to the child.
+      (is (zero? (count (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)))
+          "no :rf.error/reserved-fx-override fired — the override was excluded from the child opts (not inherited-then-rejected)"))))
 
 ;; ---- rf2-twt7m Change 2 — :rf.fx/do-fx carries :fx + :db-present? ---------
 ;;

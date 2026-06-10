@@ -781,6 +781,24 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:overrides-map [:map-of :keyword :any]]
    [:looked-up-id  :keyword]])
 
+(def ReservedFxOverrideTags
+  ;; rf2-snsup5: a `:fx-overrides` entry targeted a REJECT-tier reserved
+  ;; fx-id (state-installing lifecycle fx / nav-token threader). The
+  ;; override is ignored and the reserved body runs. `:where` discriminates
+  ;; the dev per-call reject (`:handle-one-fx`) from the production prod-strip
+  ;; (`:production-strip`). `:rf.fx/id` and `:failing-id` both name the
+  ;; rejected reserved fx-id; `:override` carries the offending override value
+  ;; (fn or keyword). Per Spec 009 §Error catalogue (`:rf.error/reserved-fx-
+  ;; override`) + Conventions §Reserved fx-id override tiering.
+  [:map
+   [:category   [:= :rf.error/reserved-fx-override]]
+   [:failing-id :keyword]
+   [:rf.fx/id   :keyword]
+   [:override   :any]
+   [:where      [:enum :handle-one-fx :production-strip]]
+   [:frame      {:optional true} :keyword]
+   [:reason     :string]])
+
 (def UnwrapBadEventShapeTags
   [:map
    [:category :keyword]
