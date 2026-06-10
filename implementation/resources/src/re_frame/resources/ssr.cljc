@@ -815,21 +815,40 @@
   for the entries its route plan still needs — fresh-with-data entries are
   ABSENT from the plan (no double-fetch). Per Spec 016 §SSR and hydration.
 
-  PURE — the route slice / host drives the issuing; this is the decision."
-  ([runtime-db] (hydrate-refetch-plan runtime-db (now-ms)))
-  ([runtime-db clock-ms]
-   (let [entries (get-in runtime-db [state/resources-key :entries])]
-     (into []
-           (comp
-             (filter (fn [[_ entry]] (entry-needs-refetch? entry clock-ms)))
-             (map (fn [[k entry]]
-                    {:resource-key k
-                     :resource-id  (nth k 1)
-                     :reason       (cond
-                                     (nil? (:data entry))         :no-data
-                                     (entry-stale? entry clock-ms) :stale
-                                     :else                         :metadata-only)})))
-           entries))))
+  Emits one `:rf.resource/hydrate-refetch` trace per plan entry (the
+  per-entry hydration refetch DECISION row — distinct from the ordinary
+  `:rf.resource/refetch` traces the route slice's later dispatch emits) so
+  the Xray lifecycle timeline / AI-Audit explains why a hydrated entry was
+  not sufficient on its own (`:reason` `:no-data` / `:stale` /
+  `:metadata-only`). Per Spec 016 §Xray and AI tooling. PURE w.r.t.
+  `runtime-db` (the trace emit self-gates on debug, as `hydrate-runtime-db`'s
+  `:rf.resource/hydrated` does) — the route slice / host drives the issuing.
+
+  `frame-id` (3-arity) is the explicit hydration target the trace rows are
+  tagged with; the 1-/2-arity overloads omit it (a frame-agnostic decision)."
+  ([runtime-db] (hydrate-refetch-plan runtime-db (now-ms) nil))
+  ([runtime-db clock-ms] (hydrate-refetch-plan runtime-db clock-ms nil))
+  ([runtime-db clock-ms frame-id]
+   (let [entries (get-in runtime-db [state/resources-key :entries])
+         plan    (into []
+                       (comp
+                         (filter (fn [[_ entry]] (entry-needs-refetch? entry clock-ms)))
+                         (map (fn [[k entry]]
+                                {:resource-key k
+                                 :resource-id  (nth k 1)
+                                 :reason       (cond
+                                                 (nil? (:data entry))         :no-data
+                                                 (entry-stale? entry clock-ms) :stale
+                                                 :else                         :metadata-only)})))
+                       entries)]
+     (doseq [{:keys [resource-key resource-id reason]} plan]
+       (trace/emit! :rf.event :rf.resource/hydrate-refetch
+                    {:rf.frame/id  frame-id
+                     :resource-key resource-key
+                     :resource-id  resource-id
+                     :reason       reason
+                     :cause        :hydration}))
+     plan)))
 
 ;; ---- install / publish ----------------------------------------------------
 
@@ -879,4 +898,4 @@
   the server projected under their own scoped keys)."
   [frame-id]
   (let [rdb (frame/swap-runtime-db! frame-id hydrate-runtime-db frame-id)]
-    (hydrate-refetch-plan (or rdb {}))))
+    (hydrate-refetch-plan (or rdb {}) (now-ms) frame-id)))

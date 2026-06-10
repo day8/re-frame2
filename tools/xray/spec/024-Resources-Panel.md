@@ -165,19 +165,26 @@ The operation set + semantic class:
 
 | Operation | Class | Operation | Class |
 |---|---|---|---|
-| `:rf.resource/registered` | lifecycle | `:rf.resource/succeeded` | success |
-| `:rf.resource/ensure` | lifecycle | `:rf.resource/failed` | failure |
-| `:rf.resource/owner-attached` | lifecycle | `:rf.resource/refresh-failed` | failure |
-| `:rf.resource/cache-hit` | dedupe | `:rf.resource/invalidated` | invalidation |
-| `:rf.resource/deduped` | dedupe | `:rf.resource/refetch-decision` | lifecycle |
-| `:rf.resource/fetch-started` | lifecycle | `:rf.resource/owner-released` | lifecycle |
-| `:rf.resource/work-started` | lifecycle | `:rf.resource/gc-scheduled` | gc |
-| `:rf.resource/work-abort-requested` | lifecycle | `:rf.resource/gc-fired` | gc |
-| `:rf.resource/work-completed` | success | `:rf.resource/gc-skipped` | gc |
-| `:rf.resource/work-suppressed` | suppression | `:rf.resource/removed` | lifecycle |
-| `:rf.resource/stale-suppressed` | suppression | `:rf.resource/hydrated` | hydration |
-| `:rf.resource/stale-scheduled` | gc | `:rf.resource/stale-fired` | gc |
-| `:rf.resource/hydrate-refetch` | hydration | | |
+| `:rf.resource/registered` | lifecycle | `:rf.resource/refresh-failed` | failure |
+| `:rf.resource/ensure` | lifecycle | `:rf.resource/invalidated` | invalidation |
+| `:rf.resource/owner-attached` | lifecycle | `:rf.resource/refetch-decision` | lifecycle |
+| `:rf.resource/cache-hit` (reserved) | dedupe | `:rf.resource/owner-released` | lifecycle |
+| `:rf.resource/deduped` | dedupe | `:rf.resource/gc-scheduled` | gc |
+| `:rf.resource/fetch-started` | lifecycle | `:rf.resource/gc-fired` | gc |
+| `:rf.resource/work-started` | lifecycle | `:rf.resource/gc-skipped` | gc |
+| `:rf.resource/work-abort-requested` | lifecycle | `:rf.resource/removed` | lifecycle |
+| `:rf.resource/work-completed` | success | `:rf.resource/hydrated` | hydration |
+| `:rf.resource/succeeded` | success | `:rf.resource/hydrate-refetch` | hydration |
+| `:rf.resource/failed` | failure | `:rf.resource/stale-scheduled` | gc |
+| `:rf.resource/stale-suppressed` | suppression | `:rf.resource/stale-fired` | gc |
+
+`:rf.resource/stale-suppressed` is the single suppression op (entry +
+ledger stale/superseded-reply suppression); an earlier draft also named
+`:rf.resource/work-suppressed`, now folded into it (the runtime never
+emitted a distinct work-suppressed row). `:rf.resource/cache-hit` is
+RESERVED for a fresh-skip ensure — the panel colours it (`:dedupe`) but
+the v1 runtime does not yet emit it (the fresh-skip behaviour is described
+by Spec 016 but not yet implemented); see Spec 016 §Xray and AI tooling.
 
 Each row carries, where applicable: frame, work id, scope, resource
 key/id, params summary, generation, request id, owner, cause, status
