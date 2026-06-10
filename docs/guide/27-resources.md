@@ -2,7 +2,7 @@
 
 Server state is the state your app doesn't own. The truth lives on a server, you hold a cache of it, and that cache goes stale the moment you read it. Every SPA grows a private answer to the same questions: where does the cached copy live, how do I know it's stale, who's allowed to refetch it, what happens when two screens want the same data, and how do I stop a logged-out user from seeing the previous user's dashboard. TanStack Query, RTK Query, SWR, and `shipclojure/re-frame-query` are all answers to exactly that. This chapter is re-frame2's answer, and it's re-frame2-shaped: **views read server state passively through subscriptions; route entry, events, and machines *cause* it to fetch; and the cache lives in the framework-owned runtime partition, not in your `app-db`.**
 
-> **Status: optional, post-v1 artefact.** Resources ship in `day8/re-frame2-resources` — an optional capability per the [capability matrix](../../spec/000-Vision.md). An app that doesn't want declarative server-state expresses it with [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) plus managed HTTP ([chapter 10](10-http.md)) directly; that keeps working. The normative contract is [Spec 016 — Resources](../../spec/016-Resources.md); this chapter is the tutorial. **Scope is HTTP-only** — GraphQL is a deferred later phase. The read-resource MVP **and mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart — see [Mutations](#mutations--the-causal-write)) are landed; focus/reconnect revalidation and optimistic rollback are named here but land with later slices (see [Deferred](#whats-deferred)).
+> **Status: optional, post-v1 artefact.** Resources ship in `day8/re-frame2-resources` — an optional capability per the [capability matrix](../../spec/000-Vision.md). An app that doesn't want declarative server-state expresses it with [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) plus managed HTTP ([chapter 10](10-http.md)) directly; that keeps working. The normative contract is [Spec 016 — Resources](../../spec/016-Resources.md); this chapter is the tutorial. **Scope is HTTP-only** — GraphQL is a deferred later phase. The read-resource MVP, **mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart — see [Mutations](#mutations--the-causal-write)), and **focus/reconnect revalidation** (see [Focus and reconnect revalidation](#focus-and-reconnect-revalidation)) are landed — the first public-beta gate is complete. Optimistic rollback is named here but lands with a later slice (see [Deferred](#whats-deferred)).
 
 ## The one-line thesis
 
@@ -437,6 +437,31 @@ On route entry, the runtime resolves the route and nav-token, evaluates `:when` 
 
 Routes aren't required — an app can use resources entirely from events and machines (with explicit owners and a matching release path). It then gets canonical identity, stale/fresh policy, dedupe, invalidation, GC, passive subscriptions, and Xray visibility — just not route ownership, route-leave release, transition blocking, or SSR route preload.
 
+## Focus and reconnect revalidation
+
+The same staleness instinct every query library ships — refetch active stale data when the user returns to the tab or the network comes back — is built in, and it's expressed the re-frame2 way: as **causal events**, not as a subscription that fetches. A hidden tab can delay stale/GC timers without corrupting correctness; on focus or reconnect, a scan refetches the entries that are both *stale* and *still owned*, so the user sees current data when they come back without a refetch storm of things nothing is watching.
+
+You opt in per frame at app boot:
+
+```clojure
+(ns example.app
+  (:require [re-frame.core :as rf]
+            [re-frame.resources]))
+
+;; After the frame exists (e.g. at boot, after mounting the root app):
+(rf/install-revalidation-listeners! frame-id)
+```
+
+That installs host `window` focus / `online` listeners for `frame-id`. On window focus / tab return the listener dispatches `[:rf.resource/window-focused]` at the frame; on network reconnect it dispatches `[:rf.resource/network-reconnected]`. **You never dispatch those events yourself** — they're the host-driven signals, and dispatching them by hand is not a supported surface. Each one scans the frame's **active-owner stale** entries and background-refetches them with cause `:focus` / `:reconnect`:
+
+- It refetches only entries that are **both stale and have a live owner** — a mounted route or machine that's actually displaying the data. Fresh entries and owner-free entries are left alone.
+- The scan is a **cause, never an owner.** It creates no liveness, pins nothing alive, and extends no GC; generation + stale-suppression protect any late replies exactly as for an ordinary refetch.
+- It emits one `:rf.resource/revalidate-scan` summary trace (so a broad tab-return doesn't flood the trace), and the per-entry refetches ride their ordinary refetch traces — Xray surfaces the scan and what it refetched.
+
+`install-revalidation-listeners!` is idempotent (a re-install replaces the frame's listeners, so it's hot-reload safe) and **CLJS-only** — the JVM/SSR arm is a no-op, since there's no DOM to listen on. The listeners are cancelled automatically on frame destroy; `(rf/remove-revalidation-listeners! frame-id)` tears them down explicitly for test isolation or single-page hosts that rotate which frame owns revalidation.
+
+Because revalidation is just a refetch from a cause, nothing else changes: the same stale/fresh policy decides whether a scanned entry is eligible, the same dedupe joins concurrent work, and the same generation rule suppresses replies that arrive after the data moved on.
+
 ## SSR and hydration
 
 SSR uses request-local frames — a process-global resource cache would leak data between users. On the server: resolve the route, compute its resources, enqueue blocking ensures, drain until the blocking resources for the current nav-token settle, render with the settled state, then serialize **only the allowed resource projection** (recording which entries were serialized, redacted, omitted, fresh, stale, or marked refetch-on-client). Blocking SSR resources need a timeout policy — a timeout settles the resource as a structured first-load failure for that frame and lets the renderer choose error markup, a skeleton, or a fallback, rather than hanging the request.
@@ -463,14 +488,13 @@ Resources are a trace/accessor contract, not just panel UI. Xray exposes a stati
 
 ## What's deferred
 
-The read-resource MVP and mutations (the [Mutations](#mutations--the-causal-write) section above) are landed. Some surfaces named in this chapter still land with later slices:
+The read-resource MVP, mutations (the [Mutations](#mutations--the-causal-write) section above), and focus/reconnect revalidation (the [Focus and reconnect revalidation](#focus-and-reconnect-revalidation) section above) are landed — that's the **first public-beta gate, now complete.** Some surfaces named in this chapter still land with later slices:
 
-- **Focus/reconnect revalidation** — automatic background refetch of active stale resources when the window regains focus or the network reconnects. Until it lands, you revalidate with an explicit `:rf.resource/refetch` (or `:rf.resource/invalidate-tags`) from a cause of your own.
 - **Optimistic rollback** — the snapshot / rollback / reconciliation shape is *reserved* in the mutation success trace but not yet implemented. Until it lands, mutation `:patches` / `:populates` are forward-only (no automatic rollback on failure).
 - **GraphQL** — a deferred later phase, out of this contract. `:rf.http/managed` is the single built-in transport for both reads and writes; the lifecycle is kept transport-neutral so a GraphQL transport can plug in later without weakening the core semantics.
 - **Later still** — a generic transport-extension protocol, polling/interval revalidation, infinite resources, normalized entity caches, automatic graph-derived invalidation, subscription-driven fetching, offline persistence, and cross-tab broadcast.
 
-The artefact isn't "complete server-state management" until focus/reconnect revalidation lands — but the read-resource MVP plus mutations is a complete, locked contract on its own.
+The read-resource MVP, mutations, and focus/reconnect revalidation together are the first public-beta gate — a complete, locked contract on its own. The later slices above extend it; they don't change its semantics.
 
 ## What resources actually buy you
 
