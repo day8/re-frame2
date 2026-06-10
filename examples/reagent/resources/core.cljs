@@ -22,17 +22,18 @@
    explicit, auditable `:rf.scope/global` claim (a user/tenant-scoped read
    would carry a scope resolver instead).
 
-   SLICE STATUS (rf2-p10npe). Resources is a POST-V1 optional artefact and
-   ships here at its SKELETON slice: `reg-resource`, the `:rf.resource/*`
-   passive subs, and route `:resources` metadata are real and load cleanly,
-   so this example COMPILES and registers as shown. The causal event
-   bodies (`:rf.resource/ensure` / `:rf.resource/refetch`) are registered
-   but raise `:rf.error/resource-not-implemented` until the runtime slices
-   land (rf2-afpdkn / rf2-pbxj48 / …) — so the SHAPE here is the canonical
-   one a finished app uses, and the live fetch lights up when those slices
-   ship. The example tree is test-free (rf2-8cevm); resource-contract
-   coverage lives in `implementation/resources/test/` and the conformance
-   fixtures."
+   STATUS. Resources is a POST-V1 optional artefact and the read-resource
+   runtime has LANDED (EP-0003): `reg-resource`, the `:rf.resource/*` passive
+   subs, route `:resources` metadata, and the causal `:rf.resource/ensure` /
+   `:rf.resource/refetch` / `:rf.resource/invalidate-tags` /
+   `:rf.resource/release-owner` event bodies are all real and operational, so
+   the four patterns above run live (real fetch, dedupe, status flow). This
+   example covers the READ side only; mutations (`reg-mutation` /
+   `:rf.mutation/execute`) have also landed but live in the guide
+   (docs/guide/27-resources.md §Mutations) and the migration walkthrough.
+   GraphQL is a deferred later phase. The example tree is test-free
+   (rf2-8cevm); resource-contract coverage lives in
+   `implementation/resources/test/` and the conformance fixtures."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]

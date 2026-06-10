@@ -38,30 +38,32 @@ and the same for every user. A user/tenant/locale-scoped read would carry a
 scope resolver instead; a missing scope policy is a loud
 `:rf.error/resource-missing-scope-policy` at registration.
 
-## Slice status
+## Status
 
 Resources is a **post-v1 optional artefact** (`day8/re-frame2-resources`)
-and ships at its **skeleton slice** (rf2-p10npe): `reg-resource`, the
-passive `[:rf.resource/*]` subs, and route `:resources` metadata are real
-and load cleanly, so this example **compiles** and registers exactly as
-shown. The causal event bodies (`:rf.resource/ensure` / `:rf.resource/refetch`)
-are registered but raise `:rf.error/resource-not-implemented` until the
-runtime slices land (rf2-afpdkn / rf2-pbxj48 / …) — so the **shape** here is
-the canonical one a finished app uses, and the live fetch lights up when
-those slices ship. This is the same "worked-scaffold on the current API
-surface" maturity tier as `examples/reagent/realworld/`.
+and the read-resource runtime has **landed** (EP-0003): `reg-resource`, the
+passive `[:rf.resource/*]` subs, route `:resources` metadata, and the causal
+`:rf.resource/ensure` / `:rf.resource/refetch` / `:rf.resource/invalidate-tags`
+/ `:rf.resource/release-owner` event bodies are all real and operational. The
+four patterns above run live: route entry, an event lease, a manual refresh,
+and a machine-owned ensure each cause a real fetch, dedupe in flight, and
+flow through the passive status subs.
+
+## Scope of this example — read patterns only
+
+This example demonstrates the **read** side end to end. **Mutations** —
+causal WRITEs (`reg-mutation` / `[:rf.mutation/execute …]`) that
+invalidate / patch / populate resource entries on success — have also
+**landed**, but are **not** demonstrated here to keep the example focused on
+the read lifecycle. The mutation surface is covered in
+[docs/guide/27-resources.md §Mutations](../../../docs/guide/27-resources.md#mutations--the-causal-write)
+and the migration walkthrough at
+[migration/from-re-frame-v1/re-frame-query-to-resources.md](../../../migration/from-re-frame-v1/re-frame-query-to-resources.md),
+including the **scoped-invalidation** discipline (a write must invalidate
+under the same scope its resources were ensured under).
 
 ## Deferred — not built here
 
-Two surfaces are deliberately **not** demonstrated, because they have not
-landed:
-
-- **Mutation with invalidation** — a write (`reg-mutation` /
-  `:rf.mutation/execute`) that invalidates/patches/refetches resources is
-  the **next** slice (EP-0003 slice 11). A mutation example will ship with
-  that slice. Until then, a write is an ordinary `:rf.http/managed` event
-  whose success dispatches `[:rf.resource/invalidate-tags …]` (tag-based,
-  scoped by default) — see the guide chapter.
 - **GraphQL** — a deferred later phase, out of the read-resource contract.
   `:rf.http/managed` is the single built-in transport; the lifecycle is
   transport-neutral so a GraphQL transport can plug in later. No GraphQL
