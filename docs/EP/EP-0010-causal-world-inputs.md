@@ -150,8 +150,8 @@ repaired by silently asking the host again.
   under this EP.
 - **EP-0011 (uniform async reply envelope)** defines the reply shape that
   carries this EP's completion world facts. This EP requires the facts;
-  EP-0011 standardizes the carrier. EP-0011 defers the final spelling of
-  causal time keys to this EP (see Open Issues).
+  EP-0011 standardizes the carrier and uses this EP's suffixless durable
+  timestamp vocabulary (`:started-at`, `:completed-at`, and `:deadline-at`).
 - **EP-0012 (path optics and canonical forms)** supplies the canonical-form
   vocabulary world-input maps should reuse wherever fixture equality or
   projection comparison matters.
@@ -466,9 +466,10 @@ An illustrative reply token:
    :rf.world/inputs {:time-ms 1781078400456}}}]
 ```
 
-EP-0011 standardizes the outer reply shape and may rename its keys. This EP's
-requirement is narrower: completion facts that affect durable state are carried
-on the reply token and are not re-read in the reply handler.
+EP-0011 standardizes the outer reply shape and uses the same suffixless durable
+timestamp keys. This EP's requirement is narrower: completion facts that affect
+durable state are carried on the reply token and are not re-read in the reply
+handler.
 
 ### Resources And Work-Ledger Timestamps
 
@@ -981,14 +982,6 @@ recorded before this EP graduates.
   spellings of "when was this dispatched" violates one-name-per-fact (EP-0007),
   and the diagnostic need is already covered by the trace event's own `:time`
   stamp (Spec 009).
-- Key spelling: EP-0011 provisionally spells reply completion keys
-  `:started-at-ms` / `:completed-at-ms` / `:deadline-at-ms` and defers the
-  final spelling to this EP, while Spec 016's ledger rows and resource entries
-  already use `:started-at` / `:deadline-at` / `:loaded-at`.
-  **Recommendation:** adopt the suffixless Spec 016 spellings for durable
-  fields, and have EP-0011 lower its provisional `-ms` names at graduation; the
-  unit is epoch milliseconds either way.
-
 ## Recommendation
 
 Adopt. Causal world inputs make the frame fold honest: durable state is a

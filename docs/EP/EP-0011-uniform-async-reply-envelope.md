@@ -86,7 +86,7 @@ should be:
 - Tracing and error promotion need to classify completion status without
   decoding every effect family's private callback shape.
 - EP-0010 causal world inputs need one place to carry completion facts such as
-  `:started-at-ms`, `:completed-at-ms`, and `:deadline-at-ms`.
+  `:started-at`, `:completed-at`, and `:deadline-at`.
 
 Large SPA architecture benefits when the remaining ambient concepts are values
 with laws. The continuation of managed async work is one of those concepts.
@@ -121,8 +121,8 @@ and turns completion into an ordinary reply map:
  :work/id         [:rf.work/http :article/by-id 42 7]
  :attempt         1
  :rf.frame/id     :app/main
- :started-at-ms   1781078400123
- :completed-at-ms 1781078400456
+ :started-at      1781078400123
+ :completed-at    1781078400456
  :correlation     {:request-id [:article/by-id 42]
                    :generation 7}
  :stale?          false}
@@ -166,8 +166,10 @@ day one.
   shape.
 - This EP does not make cancellation reliable. Hosts may fail to cancel work
   already in flight; stale suppression remains the correctness rule.
-- This EP does not settle every EP-0010 timestamp key spelling. It requires
-  causal completion metadata and uses provisional names.
+- This EP does not define a new time representation. `:started-at`,
+  `:completed-at`, and `:deadline-at` carry EP-0010 causal time values; the
+  current recommended representation is epoch milliseconds supplied by the
+  triggering or reply token, not fresh ambient clock reads.
 
 ## Relationships
 
@@ -181,8 +183,8 @@ day one.
   slice and MUST NOT introduce a parallel correlation store.
 - **[EP-0010](EP-0010-causal-world-inputs.md) (proposal).** Replies are causal
   tokens under EP-0010; completion facts that affect durable state ride the
-  reply map. EP-0010 owns the final spelling and precision of the time keys
-  this EP uses provisionally.
+  reply map. This EP uses EP-0010's suffixless durable timestamp vocabulary:
+  `:started-at`, `:completed-at`, and `:deadline-at`.
 - **[Managed-Effects](../../spec/Managed-Effects.md).** This EP adds the ninth
   property to the existing eight-property managed-effect checklist; conforming
   surfaces inherit it the same way they inherit the other eight.
@@ -340,7 +342,7 @@ appended as the final event argument:
  {:status          :ok
   :value           {:title "Welcome"}
   :work/id         [:rf.work/http :article/by-id 42 1]
-  :completed-at-ms 1781078400456}]
+  :completed-at 1781078400456}]
 ```
 
 The descriptor form is available for framework internals and future public
@@ -379,9 +381,9 @@ AbortControllers, timer handles, DOM nodes, or other host resources.
  :work/status     :completed | :failed | :timed-out | :suppressed | :cancelled
  :attempt         positive-int-or-nil
  :rf.frame/id     frame-id
- :started-at-ms   started-at-ms-or-nil
- :completed-at-ms completed-at-ms-or-nil
- :deadline-at-ms  deadline-at-ms-or-nil
+ :started-at      started-at-or-nil
+ :completed-at    completed-at-or-nil
+ :deadline-at     deadline-at-or-nil
  :correlation     data-only-map
  :stale?          boolean
  :stale/reason    keyword-or-nil
@@ -400,7 +402,7 @@ Required fields:
 - `:value` is present for `:status :ok`.
 - `:error` is present for `:status :error` and MAY also carry compatibility
   failure data for `:status :cancelled`.
-- `:started-at-ms`, `:completed-at-ms`, and `:deadline-at-ms` are causal
+- `:started-at`, `:completed-at`, and `:deadline-at` are causal
   metadata when those facts affect durable state. If the effect family does not
   use a field durably, it may omit it.
 
@@ -494,8 +496,8 @@ When a work-ledger row exists, issuance writes or joins a non-terminal row:
  :owners        #{[:route :route/article "nav-12"]}
  :causes        [[:route-entry :route/article "nav-12"]]
  :cancellable?  true
- :started-at-ms 1781078400123
- :deadline-at-ms 1781078405123
+ :started-at    1781078400123
+ :deadline-at   1781078405123
  :reply-to      {:event [:rf.resource.internal/replied
                          {:resource/key scoped-resource-key
                           :generation   4
@@ -504,17 +506,17 @@ When a work-ledger row exists, issuance writes or joins a non-terminal row:
 
 The `:reply-to` field is where the ledger row and the reply envelope visibly
 become one fact: the durable row carries the continuation that this EP's
-completion path consumes. (Timestamp field spellings above follow this EP's
-provisional EP-0010 names; the graduated ledger row in Spec 016 currently
-spells `:started-at` / `:deadline-at` — see Open Issues for the convergence
-rule.)
+completion path consumes. Timestamp field spellings intentionally match
+EP-0010 and the graduated Spec 016 ledger row; the values remain causal epoch
+millisecond readings unless a later accepted EP changes the time representation
+for the whole durable timestamp family.
 
 Completion updates that row before, or atomically with, delivery:
 
 ```clojure
 {:work/id          [:rf.work/resource scoped-resource-key 4]
  :status           :completed
- :completed-at-ms  1781078400456
+ :completed-at     1781078400456
  :outcome          {:status :ok}}
 ```
 
@@ -548,7 +550,7 @@ Correct:
       :ok
       {:db (assoc-in db [:articles id]
                      {:data      (:value reply)
-                      :loaded-at (:completed-at-ms reply)})}
+                      :loaded-at (:completed-at reply)})}
 
       :error
       {:db (assoc-in db [:articles id :error] (:error reply))}
@@ -564,7 +566,7 @@ Incorrect:
 ```
 
 The event envelope that dispatches the reply may also carry an enqueue time.
-That time is distinct from `:completed-at-ms` when the host completion happened
+That time is distinct from `:completed-at` when the host completion happened
 before the runtime enqueued the reply. Specs may decide which timestamp a
 durable field uses, but the value must be causal data.
 
@@ -606,7 +608,7 @@ Explicit user cancellation that is still live may dispatch:
   :cancelled?    true
   :cancel/reason :user
   :work/id       [:rf.work/http :search "abc" 8]
-  :completed-at-ms 1781078400999}]
+  :completed-at 1781078400999}]
 ```
 
 Supersession cancellation should usually suppress the old app reply:
@@ -678,7 +680,7 @@ The compatibility handler receives the canonical reply:
  {:status          :ok
   :value           session
   :work/id         [:rf.work/http :auth/login login-attempt]
-  :completed-at-ms 1781078400456}]
+  :completed-at 1781078400456}]
 ```
 
 and preserves the public HTTP event shape promised by Spec 014:
@@ -701,7 +703,7 @@ For route resources:
 - server route handling enqueues blocking resource work;
 - SSR waits for ledger rows associated with the current route/nav-token to
   become terminal;
-- successful replies update resource entries with causal `:completed-at-ms`;
+- successful replies update resource entries with causal `:completed-at`;
 - failures settle as structured resource or route errors;
 - stale or superseded replies are suppressed by work id/generation/nav-token;
 - hydration serializes the allowed resource projection and non-terminal work
@@ -823,8 +825,8 @@ Canonical completion:
   :work/status     :completed
   :attempt         1
   :rf.frame/id     :app/main
-  :started-at-ms   1781078400123
-  :completed-at-ms 1781078400456
+  :started-at   1781078400123
+  :completed-at 1781078400456
   :correlation     {:request-id [:article/by-id 42]}}]
 ```
 
@@ -889,7 +891,7 @@ failure, cancellation, or stale suppression:
   :work/id         work-id
   :work/kind       :resource
   :work/status     :completed
-  :completed-at-ms 1781078400456
+  :completed-at 1781078400456
   :correlation     {:scope      [:rf.scope/session {:tenant-id "acme"}]
                     :generation 4
                     :owner      [:route :route/article "nav-12"]}}]
@@ -944,7 +946,7 @@ Live completion:
   :value           nil
   :work/id         [:rf.work/timer :search/debounce 8]
   :work/kind       :timer
-  :completed-at-ms 1781078400300
+  :completed-at 1781078400300
   :correlation     {:generation 8}}]
 ```
 
@@ -1057,7 +1059,7 @@ When the child reaches a successful top-level final state, the runtime can form:
  :work/id         [:rf.work/machine :auth/flow#1 [:authenticating] 1]
  :work/kind       :machine
  :work/status     :completed
- :completed-at-ms 1781078400888
+ :completed-at 1781078400888
  :correlation     {:actor-id  :auth/flow#1
                    :parent-id :auth/main
                    :spawn-id  [:authenticating]}}
@@ -1082,7 +1084,7 @@ A single reply handler can branch on the common status taxonomy:
       {:db (assoc-in db [:uploads upload-id]
                      {:status :done
                       :result (:value reply)
-                      :done-at (:completed-at-ms reply)})}
+                      :done-at (:completed-at reply)})}
 
       :error
       {:db (assoc-in db [:uploads upload-id]
@@ -1278,12 +1280,6 @@ Conformance should include fixtures or tests for:
 
 ## Open Issues
 
-- EP-0010 owns the final spelling and precision of causal time keys. This EP
-  uses `:started-at-ms`, `:completed-at-ms`, and `:deadline-at-ms`
-  provisionally, while the graduated ledger row in Spec 016 spells
-  `:started-at` / `:deadline-at` today. **Recommendation:** adopt whatever
-  EP-0010 rules, and converge the reply map and the Spec 016 ledger row in the
-  same graduation bead so two spellings of one timestamp fact never ship.
 - `:rf.runtime/work-ledger` is a multi-writer subsystem. Resources can mint
   authority today; the first non-resource writer must settle the general
   authority path for timers, route loaders, machine work, and future async

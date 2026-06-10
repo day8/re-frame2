@@ -291,6 +291,13 @@ The §Specification subsections map onto the decisions as follows:
 | D2 — app value | App Values; Registration Descriptors; Installation; Default Realm And `reg-*` Sugar; Hot Reload And Reinstall; Source Coordinates |
 | D3 — manifests | Module Values And Feature Ownership; Composition |
 
+A valid ruling on this EP MUST record a disposition for each decision:
+`adopt`, `defer`, or `reject`. Adopting D1 does not adopt D2 or D3; adopting
+D2 does not adopt D3. If a later graduation PR promotes only D1, the remaining
+D2/D3 text stays in this EP as deferred rationale and examples, not as an
+implicitly accepted public surface. If D1 is rejected, D2 and D3 cannot
+graduate from this EP without a replacement container story.
+
 §Public API Staging spans all three: stages 1–4 land D1 internally, stages 5
 and 7 land D2, stage 6 spans D2/D3 (the app constructor is D2, the module
 constructor is D3), and stages 8–9 close the realm-targeted query surface and
@@ -1527,10 +1534,6 @@ Conformance should be tested at three levels.
 - Which registrar query arities become public at the first realm-aware stage?
 - How should active resources, route transitions, and machines participate in a
   realm reinstall beyond the existing per-kind hot-reload rules?
-- Should D1/D2/D3 graduate as one spec change or be split into separate EPs at
-  ruling time, per EP-0009's one-decision-surface rule? Recommendation: rule
-  them as three decisions inside this EP (the vocabulary is shared and the
-  layering is explicit), splitting only if the rulings diverge.
 - Does the host-transient subsystem descriptor live here or as an extension row
   in EP-0006's grading table? Recommendation: EP-0006 owns the contract; this
   EP contributes realm ownership and lifecycle as the host-transient grading
@@ -1543,7 +1546,9 @@ capabilities live in explicit realms. Keep current `reg-*` APIs as default-realm
 sugar, but stop treating process-global registration, single adapter per
 process, and global late-bind lookup as the long-term architecture.
 
-Rule the three decisions separately:
+Rule the three decisions separately. The final disposition should be recorded
+as a small D1/D2/D3 matrix so reviewers can accept the container without
+accidentally accepting the whole public app/module surface:
 
 - **D1 (realm container): adopt.** It is the hermetic-test and tenancy layer,
   it can be implemented internal-first behind the default realm with no public
