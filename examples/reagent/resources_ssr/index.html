@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>re-frame2 example: resources SSR + hydration</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1A1814">
+  <meta name="description" content="re-frame2 worked example — declarative server-state SSR preload + hydration for the modern Clojure framework.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="re-frame2 example: resources SSR + hydration">
+  <meta property="og:description" content="re-frame2 worked example — declarative server-state SSR preload + hydration for the modern Clojure framework.">
+  <meta property="og:image" content="_shared/img/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/svg+xml" href="_shared/img/favicon.svg">
+  <link rel="stylesheet" href="_shared/css/style.css">
+</head>
+<body>
+  <!--
+    The <div id="app"> below was "produced server-side" — this static
+    index.html is the runnable companion to resources_ssr/core.cljc and
+    stands in for what `handle-request` (:clj branch) emits when a real
+    Clojure server is in front. The `<script id="__rf_payload">` block
+    carries the serialised hydration payload.
+
+    The load-bearing detail vs the plain `ssr/` example: the page's
+    server-state rides `:rf/runtime-db` as a RESOURCE projection under
+    `:rf.runtime/resources :entries`, keyed by the scoped resource key
+    `[<scope> <resource-id> <canonical-params>]` — NOT as an app-db value.
+    Only the durable `:entries` are serialized; the `:tag-index` /
+    `:owner-index` are recomputed from `:entries` on install (Spec 016 §SSR
+    / §Restore part 5), and host handles never serialize. On hydration the
+    framework `:rf/hydrate` installs this projection into the client frame's
+    runtime partition; a fresh entry renders immediately and does NOT
+    immediately re-fetch.
+  -->
+  <div id="app">
+    <div class="page">
+      <h1>Recent articles</h1>
+      <ul data-testid="articles-list">
+        <li data-testid="article-welcome">Welcome to re-frame2</li>
+        <li data-testid="article-resources">Server-state as resources</li>
+      </ul>
+    </div>
+  </div>
+  <script id="__rf_payload" type="application/edn">
+{:rf/version 1
+ :rf/app-db {}
+ :rf/runtime-db
+ {:rf.runtime/resources
+  {:entries
+   {[:rf.scope/global :articles/list {}]
+    {:resource/id :articles/list
+     :status      :loaded
+     :data        [{:slug "welcome"   :title "Welcome to re-frame2"}
+                   {:slug "resources" :title "Server-state as resources"}]
+     :error       nil
+     :loaded-at   1780752000000
+     :stale-at    1780752060000
+     :generation  1
+     :tags        #{[:article-list]}}}}}}
+  </script>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -18,6 +18,8 @@ reagent/
   routing/                     <-- CP-7 worked example (Spec 012)
   ssr/                         <-- CP-9 worked example (Spec 011)
   ssr_streaming/               <-- streaming SSR worked example (Spec 011 §Streaming)
+  resources/                   <-- Spec 016 Resources worked example (route/event/machine-owned)
+  resources_ssr/               <-- Spec 016 §SSR resource preload + hydration
   managed_http_counter/        <-- compact Spec 014 demo
   state_machine_walkthrough/   <-- runnable companion to docs/guide/11-machines
   nine_states/                 <-- the nine canonical UI states
