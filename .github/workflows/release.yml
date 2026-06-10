@@ -437,7 +437,8 @@ jobs:
           grep "day8/re-frame2 " deps.edn
 
       # ─────────────────────────────────────────────────────────────
-      # reagent-slim publication-time ns rename (rf2-zvjme).
+      # reagent-slim publication-time ns rename (rf2-zvjme; extracted to
+      # a source-controlled script per rf2-olo8rc).
       #
       # In-tree, the slim adapter ships at `re-frame.adapter.reagent-slim`
       # because the monorepo shadow-cljs build puts BOTH adapter source
@@ -451,40 +452,54 @@ jobs:
       # is `(:require [re-frame.adapter.reagent :as ra])` regardless of
       # which adapter coord their deps.edn pins.
       #
-      # This step performs that rename on the throwaway runner checkout
-      # before clein packages the jar:
-      #   1. mv src/re_frame/adapter/reagent_slim.cljs → reagent.cljs
-      #   2. rewrite `(ns re-frame.adapter.reagent-slim ...` →
-      #      `(ns re-frame.adapter.reagent ...` in that file
-      #
-      # The grep assertions on either side make the step fail loudly if
-      # the in-tree source is ever restructured in a way that breaks the
-      # rename — better a release abort than a published artefact with a
-      # stale ns.
+      # The transform (mv reagent_slim.cljs → reagent.cljs + rewrite the
+      # `(ns …)` form) and its fail-loud invariants now live in
+      # .github/scripts/transform-reagent-slim-ns.sh, unit-tested via
+      # implementation `npm run test:script-policy`
+      # (scripts/_transform-reagent-slim-ns.test.cjs). The script runs on
+      # the throwaway runner checkout before clein packages the jar; it
+      # aborts (non-zero) if the source is missing, the destination
+      # already exists, or the slim ns declaration is absent.
       # ─────────────────────────────────────────────────────────────
       - name: Rename adapter ns at publication (reagent-slim only)
         if: matrix.leaf == 'reagent-slim'
         working-directory: ${{ matrix.directory }}
-        run: |
-          set -euo pipefail
-          src="src/re_frame/adapter/reagent_slim.cljs"
-          dst="src/re_frame/adapter/reagent.cljs"
-          if [ ! -f "$src" ]; then
-            echo "::error::expected source file '$src' not found"
-            exit 1
-          fi
-          if [ -e "$dst" ]; then
-            echo "::error::destination '$dst' already exists — in-tree ns clash detected"
-            exit 1
-          fi
-          if ! grep -qF "(ns re-frame.adapter.reagent-slim" "$src"; then
-            echo "::error::expected '(ns re-frame.adapter.reagent-slim' declaration not found in $src"
-            exit 1
-          fi
-          mv "$src" "$dst"
-          python3 -c 'import pathlib; p = pathlib.Path("src/re_frame/adapter/reagent.cljs"); src = p.read_text(); before = "(ns re-frame.adapter.reagent-slim"; after = "(ns re-frame.adapter.reagent"; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
-          echo "Renamed reagent_slim.cljs → reagent.cljs; ns is now re-frame.adapter.reagent"
-          grep -n "^(ns " "$dst"
+        run: "$GITHUB_WORKSPACE/.github/scripts/transform-reagent-slim-ns.sh"
+
+      # ─────────────────────────────────────────────────────────────
+      # Pre-deploy package preflight (reagent-slim only; rf2-olo8rc).
+      #
+      # The transform above is the ONE release step where the published
+      # artefact diverges from the tested tree — and nothing else verifies
+      # the OUTPUT (jar ns set, pom dep set, consumer compile) before the
+      # `clojure -M:clein deploy` below mutates Clojars, an irreversible
+      # path (Clojars has no yank; recovery is bump-and-supersede).
+      # test:reagent-slim:bundle-isolation runs off the monorepo classpath,
+      # not the generated jar/pom, so it does NOT catch a bad publication
+      # transform.
+      #
+      # This step builds the jar+pom from the renamed source via
+      # `clojure -M:clein jar` (build only — NOT deploy), then asserts:
+      #   - the jar CONTAINS re_frame/adapter/reagent.cljs (the canonical
+      #     ns re-frame.adapter.reagent);
+      #   - the jar does NOT contain reagent_slim (the slim ns is gone);
+      #   - the generated pom has NO DIRECT day8/re-frame2-reagent dep and
+      #     NO slim-owned DIRECT `reagent` dep. DIRECT-dep level ONLY:
+      #     transitive reagent via day8/re-frame2 stays until core drops
+      #     it, so a full-transitive absence assertion would be a false
+      #     invariant today.
+      #
+      # A consumer-compile assertion (resolve [re-frame.adapter.reagent] +
+      # [reagent2.core] from a temp project with day8/re-frame2-reagent
+      # ABSENT) was scoped but the temp-project npm/shadow wiring is gnarly
+      # on the runner; per the rf2-olo8rc fallback this step asserts
+      # jar-content + pom-dep + ns-grep instead, which still catches every
+      # failure the previous input-grep-only step missed.
+      # ─────────────────────────────────────────────────────────────
+      - name: Preflight — verify reagent-slim published package (reagent-slim only)
+        if: matrix.leaf == 'reagent-slim'
+        working-directory: ${{ matrix.directory }}
+        run: "$GITHUB_WORKSPACE/.github/scripts/preflight-reagent-slim-package.sh"
 
       - name: Deploy ${{ matrix.leaf }} (${{ matrix.artefact }})
         working-directory: ${{ matrix.directory }}
