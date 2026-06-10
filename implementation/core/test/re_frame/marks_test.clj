@@ -194,6 +194,131 @@
     (fn [ctx] ctx))
   (is (= [[]] (:sensitive (marks/marks-for :cofx :auth/jwt)))))
 
+;; ---- malformed :sensitive / :large rejection (rf2-y7l5t5) ----------------
+;;
+;; A `:sensitive` / `:large` declaration is a vector of output-path vectors
+;; (`[[:user :ssn]]`; `[[]]` marks the whole value). The prior `coerce-paths`
+;; SILENTLY `(filter vector?)`-DROPPED any non-vector entry and coerced a
+;; non-collection whole to `[]`, so a typo (`:sensitive :token`, `"blob"`, a
+;; map, or a bare-keyword / nested-non-vector entry) registered with NO error
+;; and NO mark — the author believed a path was protected when it was NOT
+;; (EP-0005 armed-trap, marks-ingestion side). It now REJECTS LOUDLY with
+;; `:rf.error/bad-marks` before the marks table mutates — mirroring the
+;; flows-side fix (rf2-cgk0wb / `:rf.error/flow-bad-marks`).
+
+(defn- bad-marks-data
+  "Return the ex-data of the throw from `(register-marks! :event :probe meta)`,
+  or nil if it did not throw. `:probe` is left UNREGISTERED on success so the
+  same probe id can be reused across cases."
+  [meta]
+  (try
+    (marks/register-marks! :event :probe meta)
+    nil
+    (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+(deftest register-marks-rejects-bare-keyword-whole
+  (testing ":sensitive :token (a bare keyword, not a vector-of-paths) is rejected"
+    (let [data (bad-marks-data {:sensitive :token})]
+      (is (some? data) "register-marks! threw")
+      (is (= :rf.error/bad-marks (:rf.error/id data)) ":rf.error/id discriminator")
+      (is (= 'rf/reg-marks (:where data)))
+      (is (= :fix-registration (:recovery data)))
+      (is (= :sensitive (:bad-key data)) ":bad-key names the offending key")
+      (is (= :token (:bad-value data)) ":bad-value names the non-vector whole")
+      (is (nil? (marks/marks-for :event :probe)) "no marks stashed on rejection"))))
+
+(deftest register-marks-rejects-string-whole
+  (testing ":large \"blob\" (a string) is rejected with :bad-value"
+    (let [data (bad-marks-data {:large "blob"})]
+      (is (= :rf.error/bad-marks (:rf.error/id data)))
+      (is (= :large (:bad-key data)))
+      (is (= "blob" (:bad-value data)))
+      (is (nil? (marks/marks-for :event :probe))))))
+
+(deftest register-marks-rejects-map-whole
+  (testing ":sensitive {…} (a map) is rejected with :bad-value"
+    (let [data (bad-marks-data {:sensitive {:user :ssn}})]
+      (is (= :rf.error/bad-marks (:rf.error/id data)))
+      (is (= :sensitive (:bad-key data)))
+      (is (= {:user :ssn} (:bad-value data)))
+      (is (nil? (marks/marks-for :event :probe))))))
+
+(deftest register-marks-rejects-bare-keyword-entry
+  (testing ":sensitive [:token] (a bare-keyword entry, not a subpath vector) is rejected"
+    (let [data (bad-marks-data {:sensitive [:token]})] ; should be [[:token]]
+      (is (= :rf.error/bad-marks (:rf.error/id data)))
+      (is (= :sensitive (:bad-key data)))
+      (is (= [:token] (:bad-entries data)) ":bad-entries names the malformed entry")
+      (is (nil? (marks/marks-for :event :probe))))))
+
+(deftest register-marks-rejects-nested-non-vector-entry
+  (testing ":large [[:a [:b]]] (a non-scalar path element) is rejected"
+    (let [data (bad-marks-data {:large [[:a [:b]]]})]
+      (is (= :rf.error/bad-marks (:rf.error/id data)))
+      (is (= :large (:bad-key data)))
+      (is (= [[:a [:b]]] (:bad-entries data)) ":bad-entries names the malformed entry")
+      (is (nil? (marks/marks-for :event :probe)))))
+  (testing ":large [{}] (a map entry) is rejected"
+    (let [data (bad-marks-data {:large [{}]})]
+      (is (= :rf.error/bad-marks (:rf.error/id data)))
+      (is (= [{}] (:bad-entries data))))))
+
+(deftest register-marks-names-only-the-malformed-entry
+  (testing ":bad-entries carries ONLY the malformed entries, not the well-formed ones"
+    (let [data (bad-marks-data {:sensitive [[:ok] :bad [:also :ok]]})]
+      (is (= :rf.error/bad-marks (:rf.error/id data)))
+      (is (= [:bad] (:bad-entries data))
+          "the two well-formed vector entries are not listed"))))
+
+(deftest reg-event-db-rejects-malformed-marks-no-stash
+  ;; The rejection fires through the PUBLIC reg-* boundary too (register-marks!
+  ;; is called from reg-event-* / reg-sub / reg-fx / reg-cofx).
+  (testing "reg-event-db with a malformed :sensitive throws and stashes nothing"
+    (let [ex (try (rf/reg-event-db :malformed/evt
+                    {:sensitive [:password]} ; should be [[:password]]
+                    (fn [db _] db))
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "reg-event-db threw")
+      (is (= :rf.error/bad-marks (:rf.error/id (ex-data ex))))
+      (is (nil? (marks/marks-for :event :malformed/evt))
+          "no marks entry stashed for the rejected registration"))))
+
+(deftest reg-sub-rejects-malformed-marks
+  (testing "reg-sub with a malformed :large throws"
+    (let [ex (try (rf/reg-sub :malformed/sub
+                    {:large "blob"}
+                    (fn [_ _] {}))
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :rf.error/bad-marks (:rf.error/id (ex-data ex))))
+      (is (nil? (marks/marks-for :sub :malformed/sub))))))
+
+(deftest register-marks-accepts-whole-value-and-empty
+  ;; Regression guard: the tightened validator must NOT reject the legitimate
+  ;; whole-value mark `[[]]`, an empty declaration `[]`, or well-formed paths.
+  (testing "[[]] whole-value, [] empty, and ordinary paths all register cleanly"
+    (marks/register-marks! :event :wv {:sensitive [[]] :large [[:docs :csv]]})
+    (let [m (marks/marks-for :event :wv)]
+      (is (= [[]] (:sensitive m)) "[[]] whole-value mark accepted")
+      (is (= [[:docs :csv]] (:large m)) "ordinary path accepted"))
+    (marks/register-marks! :event :empty {:sensitive []})
+    ;; An empty :sensitive normalises to [] (no paths); the entry is dropped on
+    ;; read because it carries no marks — but it did NOT throw.
+    (is (nil? (:sensitive (marks/marks-for :event :empty)))
+        "an empty :sensitive vector is accepted (no throw, no paths)")))
+
+(deftest union-marks-rejects-malformed
+  (testing "union-marks! shares the coerce-paths chokepoint, so a malformed
+            added declaration is rejected too"
+    (marks/register-marks! :event :um {:sensitive [[:ok]]})
+    (let [ex (try (marks/union-marks! :event :um {:sensitive [:bad]})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :rf.error/bad-marks (:rf.error/id (ex-data ex))))
+      (is (= [[:ok]] (:sensitive (marks/marks-for :event :um)))
+          "the pre-existing well-formed entry is untouched by the rejected union"))))
+
 ;; ---- union-marks! — additive merge (rf2-w46fpt / EP-0005) ----------------
 ;;
 ;; The per-(kind, id) marks-table analogue of `add-marks` merging into the
