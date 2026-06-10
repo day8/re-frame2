@@ -1,6 +1,45 @@
 # EP-0001: Frame App/Runtime Partitions
 
-Status: accepted
+Status: final
+
+> **`final` means the decisions are settled.** The fourteen deferred calls were
+> ruled by Mike on 2026-06-08 (see [Resolved Decisions](#resolved-decisions)),
+> the two design-review premises Appendices A and B left open were closed on
+> 2026-06-10 (Resolved Decisions [15](#resolved-decisions) and the §Partition
+> Keys naming note), and the partition is locked. The two implementation gaps
+> tracked against those settled rulings have now also shipped — see
+> [Implementation errata](#implementation-errata). Finalizing the *decisions*
+> did not, on its own, assert the *implementation* was gap-free; the errata
+> ledger below tracked that separately to its close.
+
+## Implementation errata
+
+The EP decisions are final and the implementation has shipped in full: **every
+tracked erratum below is closed.** This section is kept as a closed record of the
+build-completion work that followed the decision-freeze; none of it reopens any
+ruling. These were implementation gaps against settled rulings, not open
+decisions. The EP is implementation-complete.
+
+### Resolved errata
+
+The two build-gaps-against-settled-rulings below are **fixed**; they are kept here
+as a closed record and no longer reopen any ruling:
+
+- **`rf2-3939ig`** *(fixed — PR #3707)* — framework-authority minting was wired
+  only off `:rf/machine?`, so routing/SSR framework-authority handlers (which
+  legitimately write runtime-db) tripped the `:rf.warning/app-handler-runtime-effect`
+  ownership diagnostic on every navigation. The fix generalized minting to a
+  reserved `:rf/framework-authority?` registration-meta key that the routing and
+  SSR facades stamp, honouring Resolved Decision 4's convention-plus-diagnostics
+  stance (the diagnostic now fires only on genuine app-handler runtime writes).
+- **`rf2-1m6rf1`** *(fixed — PR #3714)* — the EP-0002 R3 frame-stamp rename folded
+  into this partition (`:frame` → `:rf.frame/id` for runtime context) had landed
+  additively: `assemble-initial-ctx` injected the bare `:frame` coeffect alongside
+  `:rf.frame/id`, and internal consumers still read the retired spelling. The fix
+  dropped the bare `:frame` coeffect, migrated the internal consumers to
+  `:rf.frame/id`, and pinned the exact coeffect key set with a conformance test
+  (the sanctioned `:frame` survivors — public dispatch/subscribe opt, fx-handler
+  ctx, trace tags — are kept, per §Namespacing).
 
 ## Abstract
 
@@ -184,6 +223,14 @@ The full-frame projection uses:
 `:rf.db/app` is not the ordinary app handler key. Ordinary handlers continue to
 use `:db`. `:rf.db/app` exists so full-frame snapshots can name both
 partitions without overloading `:db`.
+
+Naming note: this table trades CLARITY's one-concept-one-name principle — app-db
+now has two spellings, `:db` in handler context and `:rf.db/app` in the
+frame-state projection — for reserved-namespace discipline (the frame-state
+projection is a new framework-owned structure, so its keys are qualified). The
+cost is real and accepted; the surviving asymmetry (`:db` unqualified,
+`:rf.db/runtime` qualified) deliberately mirrors the ownership asymmetry the
+partition is built on.
 
 ### Namespacing
 
@@ -1210,6 +1257,15 @@ ruling here is the binding form.
     **redacted or omitted off-box by default**. A **trusted-local** caller may request
     richer diagnostics explicitly. This is the fail-closed default in §Security And
     Privacy Considerations and §6.
+
+15. **Handler contract — whole-db return retained, knowingly.** Appendix B asked for
+    the scoped/change-describing handler-contract question to be settled before the
+    partition locked. Ruled: re-frame2 keeps `reg-event-db`'s whole-db return. The
+    re-frame mental model is the product; the general clobber-co-located-owners hazard
+    *inside* app-db is accepted as the price of `(fn [db event] …)`, and this partition
+    fences only the framework's slice. This is a decision, not a default — a future
+    `scoped-event-handlers` EP may reopen it, but the partition was built knowing what
+    it does not fix.
 
 ## Bead Plan
 
