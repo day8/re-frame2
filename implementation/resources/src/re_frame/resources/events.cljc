@@ -143,7 +143,8 @@
                           :resource-key scoped-key
                           :scope        scope
                           :frame-id     frame-id
-                          :generation   generation})]
+                          :generation   generation
+                          :where        where})]
         (trace/emit! :rf.event :rf.resource/fetch-started
                      {:rf.frame/id frame-id :resource-key scoped-key
                       :generation generation :work-id work-id
@@ -310,6 +311,47 @@
                (= generation (:generation entry)))
       entry)))
 
+;; ---- transport reply payload extraction -----------------------------------
+;;
+;; The managed-HTTP transport (Spec 014 §Reply addressing) APPENDS its
+;; result to the runtime-supplied `:on-success` / `:on-failure` internal
+;; reply event vector as the LAST arg, so a live reply lands as a 3-element
+;; event:
+;;
+;;   [:rf.resource.internal/succeeded <verification-payload> {:kind :success :value <decoded-data>}]
+;;   [:rf.resource.internal/failed    <verification-payload> {:kind :failure :failure <:rf.http/* envelope>}]
+;;
+;; `<verification-payload>` (arg 2) is the `{:work-id :resource-key :scope
+;; :generation :rf.frame/id}` map resource lowering supplied (the stale-
+;; suppression identity, the boundary the runtime OWNS). `<http-result>`
+;; (arg 3) is the transport's outcome. The runtime reads the verification
+;; identity from arg 2 and the data / error from arg 3. A test that feeds an
+;; internal reply directly may inline `:data` / `:error` in arg 2 (no
+;; transport in the loop); the reader below falls back to that shape so the
+;; runtime-slice tests keep exercising the entry semantics deterministically.
+
+(defn- reply-success-data
+  "Extract the decoded success data from a managed-HTTP success reply. The
+  transport appends `{:kind :success :value <decoded-data>}` as `http-result`
+  (arg 3); read its `:value`. Falls back to an inline `:data` on the
+  verification payload (the direct-dispatch test shape)."
+  [verification-payload http-result]
+  (if (contains? http-result :value)
+    (:value http-result)
+    (:data verification-payload)))
+
+(defn- reply-failure-error
+  "Extract the failure envelope from a managed-HTTP failure reply. The
+  transport appends `{:kind :failure :failure <:rf.http/* envelope>}` as
+  `http-result` (arg 3); read its `:failure` (the closed `:rf.http/*`
+  failure shape, the same envelope `:error` / `:refresh-error` carry — Spec
+  016 §Status semantics). Falls back to an inline `:error` on the
+  verification payload (the direct-dispatch test shape)."
+  [verification-payload http-result]
+  (if (contains? http-result :failure)
+    (:failure http-result)
+    (:error verification-payload)))
+
 (defn succeeded-handler
   "`:rf.resource.internal/succeeded` — a transport read succeeded. Verifies
   frame + work-id + generation against the live entry; on match installs the
@@ -317,10 +359,16 @@
   data is `=` (structural sharing), and records `:loaded-at` / `:stale-at` /
   produced `:tags`. A stale / superseded reply is SUPPRESSED (it MUST NEVER
   mutate a newer entry). Per Spec 016 §Transport / §Structural sharing /
-  §Status semantics. Payload also carries `:data`."
+  §Status semantics.
+
+  Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
+  transport appends `{:kind :success :value <decoded-data>}` as the last arg
+  (Spec 014 §Reply addressing); the decoded data is read from there
+  (`reply-success-data`)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {:keys [resource-key work-id generation data] :as payload}]]
+   [_event-id {:keys [resource-key work-id generation] :as payload} http-result]]
   (let [runtime-db (or rt {})
+        data       (reply-success-data payload http-result)
         entry      (live-entry-for-reply runtime-db payload)]
     (if (nil? entry)
       (do (trace/emit! :rf.event :rf.resource/stale-suppressed
@@ -354,11 +402,16 @@
   + work-id + generation; a first-load failure settles `:error` (no usable
   data); a background-refresh failure returns to `:loaded`, keeps prior
   `:data`, and records `:refresh-error`. A stale / superseded reply is
-  suppressed. Per Spec 016 §Status semantics. Payload also carries
-  `:error`."
+  suppressed. Per Spec 016 §Status semantics.
+
+  Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
+  transport appends `{:kind :failure :failure <:rf.http/* envelope>}` as the
+  last arg (Spec 014 §Reply addressing); the failure envelope is read from
+  there (`reply-failure-error`)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {:keys [resource-key work-id generation error] :as payload}]]
+   [_event-id {:keys [resource-key work-id generation] :as payload} http-result]]
   (let [runtime-db (or rt {})
+        error      (reply-failure-error payload http-result)
         entry      (live-entry-for-reply runtime-db payload)]
     (if (nil? entry)
       (do (trace/emit! :rf.event :rf.resource/stale-suppressed

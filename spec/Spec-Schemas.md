@@ -1153,6 +1153,19 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:transport :any]
    [:reason    :string]])
 
+(def ResourceReservedRequestKeyTags
+  ;; a resource's :request (the Spec 014 managed-HTTP args map) supplied one
+  ;; of the runtime-owned reply-addressing keys (:request-id / :on-success /
+  ;; :on-failure). The runtime OWNS reply addressing (from the scoped key +
+  ;; generation) so the internal reply verifies frame + work-id + generation;
+  ;; an app-supplied reply target would bypass stale suppression. Rejected at
+  ;; the managed-HTTP lower seam; the request is NOT lowered.
+  [:map
+   [:category     :keyword]
+   [:keys         [:vector :keyword]]   ;; the rejected reserved key(s)
+   [:resource-key {:optional true} :any]
+   [:reason       :string]])
+
 ;; --- runtime: schemas / preset / adapter / SSR errors ---
 
 (def BadAppSchemasArgTags
