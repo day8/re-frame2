@@ -160,6 +160,40 @@ Reagent re-runs the body. `@(subscribe [:counter/value])` now returns `6`. The n
 
 One event, six dominoes, the app stays consistent the whole way. That's the machine. Every event your app ever sees walks this exact path.
 
+## The ledger view
+
+Here's a way of seeing app-db that, once it clicks, reorganises how you think about the whole app. The reflex picture of state is a *whiteboard*: there's a current drawing, an event walks up and erases part of it and draws something new, and the old drawing is gone forever. That picture is wrong, and it's wrong in a way that costs you. The right picture is a **ledger**.
+
+A ledger doesn't get erased. Each line is an entry — a debit, a credit — appended to the ones before it, and the balance you read at the bottom is simply *what you get by adding every line up, in order*. Your app works exactly like that. Every event you dispatch is a ledger line. The app-db you see at any moment is not a thing that was edited in place; it's the **running total** — the result of starting from your initial state and applying every event since, one after another, in the order they happened. Domino 2 isn't "erase and redraw." It's "add the next line and re-total."
+
+That reframing comes with a promise precise enough to test:
+
+> **Two fresh apps, fed the same sequence of events, finish in identical states.** Start two copies from the same initial app-db, replay the same event log into each, and they land on the same value — byte for byte. The events *are* the state; the current app-db carries no information the log didn't put there.
+
+(That promise has one precondition, and it's important enough to be the subject of its own section in the next chapter: the handlers have to be honest about their inputs. A handler that secretly reads the clock or a random id smuggles in a value the ledger never recorded, and then replaying the ledger no longer reproduces the state. [Chapter 07 — Why handlers never read the clock](07-effects-and-coeffects.md#why-handlers-never-read-the-clock) is how you keep the promise true.)
+
+Once you see app-db as the sum of a ledger rather than the current whiteboard, a cluster of features stops looking like separate clever tricks and starts looking like one consequence stated three ways:
+
+- **Time-travel is just re-totalling fewer lines.** "Go back five events" isn't an undo command that has to reverse five mutations — there were no mutations to reverse. It's "re-total the ledger up to line *n−5*." The earlier state was always recoverable because the earlier state is just a shorter sum.
+- **A bug report is a ledger excerpt.** "It broke after I did these things" stops being a vague prose paragraph and becomes the literal list of events that produced the bad state. Hand that excerpt to a fresh app and you get the bug back, on demand. ([Chapter 13](13-testing.md#replay-is-a-test) turns exactly this into a regression test.)
+- **The Xray timeline *is* the ledger, drawn.** When a tool shows you "here's every event that fired, in order, and here's the app-db after each," it isn't inventing a new view of your app — it's just rendering the ledger you've been accumulating all along. ([Chapter 16](16-observability.md#epochs-as-state-over-time) is the surface that records it; [chapter 17](17-tooling.md#xray-answers-what-happened) is the tool that draws it.)
+
+None of these needed a special subsystem bolted on. They fell out, for free, the moment state became "the sum of an event log" instead of "the current contents of a box."
+
+<details markdown="1">
+<summary>For the categorically curious</summary>
+
+The whole app is a **left fold** (a `reduce`) over the event stream: a *step function* — `state' = step(state, event)` — applied once per event, threading the new state into the next call. Your handlers are that step function; the runtime is the `reduce`. In three lines:
+
+```clojure
+(defn step  [state event] (apply-handler state event))   ;; one domino-2 transition
+(defn app-state-at [initial events]
+  (reduce step initial events))                            ;; the whole app, summed
+```
+
+A machine of this exact shape — output a function of *current state and current input only* — is a **Moore machine**; "the state is the fold of the inputs" is the same statement said two ways.
+</details>
+
 ## The cascade, made visible
 
 The dominoes are easy to *say* and easy to nod along to. They land harder when you watch them fire. So here's a counter that keeps a running **log of its own cascade** in app-db — every event appends a row recording what it did — and a view that prints the log underneath the buttons. There's no special trace API in play here; this is just the chapter's own point turned into code: because every state change goes through a handler, and every handler is pure, you can record the cascade *as ordinary app-db state* and read it back like anything else.

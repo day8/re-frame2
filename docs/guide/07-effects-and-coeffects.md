@@ -238,6 +238,43 @@ This is the payoff that makes the ceremony worth it. A handler that injects `:no
 
 The stubs aren't mocks — they live in the *same registry* as the production handlers, addressed by the *same keyword id*, and `inject-cofx` finds the re-registered version with no special test-mode flag. `with-fresh-registrar` snapshots the registrar around the body and restores on exit, so production `:now` is intact for the next test (skip it and you've got the classic "passes alone, fails together" bug). And the handler-under-test never knew it was being tested — same shape in production and in the test, only the injected value changed. [Chapter 13](13-testing.md) walks the full testing surface; this is the shape it's built on.
 
+### Why handlers never read the clock
+
+You now know the *mechanism* — `reg-cofx` quarantines an impure read, `inject-cofx` delivers its value. What's worth pinning down is the *reason*, because it's bigger than "purity is nice," and it reaches back into [chapter 04](04-events-and-the-cascade.md#the-ledger-view).
+
+That chapter made a promise: app-db is the running total of an event ledger, and **two fresh apps fed the same event log finish in identical states.** Re-read that and notice what it quietly requires. For the same log to reproduce the same state, *the only thing a handler is allowed to consult is its inputs* — the db and the event that the ledger recorded. The moment a handler calls `(js/Date.now)` in its body, it has consulted something the ledger *never wrote down*. The state it produces now depends on the wall clock, which isn't in the log. Replay the log tomorrow and you get a different answer. **The handler smuggled in an input the ledger never recorded, and so replaying the ledger lies.** The clock is the most common smuggler — random ids and `localStorage` reads are the same crime in a different coat.
+
+The fix is the cofx you already learned, seen now through the ledger lens: the clock stops being something the handler *reaches out and grabs* and becomes a **declared input** — a value the runtime puts on the way in, exactly as if it had ridden the event. Here is the same handler before and after, read for honesty rather than for testability:
+
+```clojure
+;; ❌ BROKEN REPLAY — the clock is an ambient read the ledger never recorded.
+;;    Replay this event tomorrow and :created-at is tomorrow's date. The log lies.
+(rf/reg-event-db :todo/add
+  (fn [db [_ title]]
+    (assoc-in db [:todos] {:title title :created-at (js/Date.)})))
+
+;; ✅ HONEST REPLAY — the clock is a declared input the runtime delivers.
+;;    Replay re-presents the same :now, so the same log reproduces the same state.
+(rf/reg-cofx :now
+  (fn [ctx] (assoc-in ctx [:coeffects :now] (js/Date.))))
+
+(rf/reg-event-fx :todo/add
+  [(rf/inject-cofx :now)]
+  (fn [{:keys [db now]} [_ title]]
+    {:db (assoc-in db [:todos] {:title title :created-at now})}))
+```
+
+The difference isn't style. The broken version *cannot* be replayed, restored, or reliably tested; the honest version can, because every fact it used to compute its output is a fact the runtime can re-supply. Two concrete things this buys, one each side of the seam:
+
+- **Time-travel actually travels.** Restore the app to an earlier point ([chapter 16](16-observability.md#epochs-as-state-over-time)) and re-run the log forward, and a handler that read the *ambient* clock makes a decision keyed to whatever `now` happened to be the first time — a decision the restored run can't reproduce, because that instant is gone. The cofx handler re-runs against the *same* injected `now` and lands in the *same* state. Restore stops being a best-effort approximation and becomes exact.
+- **The 23:59:59 test stops flaking.** A handler that reads `(js/Date.)` to decide "is this due today?" is green every afternoon you run it and red the one time CI happens to run it as the date rolls over at midnight — a failure nobody can reproduce because it depends on the second the suite ran. Inject the clock and the test *supplies* it; "due today" is computed against a fixed `now` you chose, and the test means the same thing at 14:00 and at 23:59:59. ([Chapter 13 — Replay is a test](13-testing.md#replay-is-a-test) tells that war story in full.)
+
+<details markdown="1">
+<summary>For the categorically curious</summary>
+
+A handler is a **pure function of an explicit world**: every input it depends on is a named argument it was handed, never a value it reached out and read. The clock is part of that world *value* — it arrives as a field the runtime supplies — never an *ambient* the function dips into behind the caller's back. "Ambient" is the word for a value read from outside the argument list; the whole cofx discipline is the rule that the world has no ambients, only declared inputs.
+</details>
+
 ### When the ceremony isn't worth it — the inline escape hatch
 
 `reg-cofx` + `inject-cofx` is the canonical path, and most of the time it's right. But it isn't the *only* legal way to put a value in the coeffects map. `inject-cofx` is just an interceptor, and the interceptor primitive ([chapter 09](09-interceptors.md)) is open — any map of the shape `{:id <id> :before (fn [ctx] ...)}` is a legal participant in an event's interceptor vector, and if its `:before` happens to `assoc-in` something under `[:coeffects k]`, the handler reads it identically.

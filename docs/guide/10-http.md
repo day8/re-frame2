@@ -52,6 +52,20 @@ Two lines of fx and not one of them mentions the network. No decode (the default
 
 That co-location — request and reply living in one handler — is the reason `:rf.http/managed` exists at all instead of "register your own `:http` fx and invent your own conventions like everyone always did." It makes the shape *uniform across every app that uses it*. And uniformity, it turns out, is the entire point. Hold that thought; I'm going to earn it.
 
+> ### Why there is no `await`
+>
+> You may have noticed something missing. There is no `await` here, no resumed coroutine, no point where execution *pauses mid-handler* until the server answers and then picks up where it left off. That's not an oversight — it's the design, and it's worth one paragraph of *why*, because it explains the whole reply-as-event shape you just saw.
+>
+> In re-frame2 **a reply is an event, not a resumed stack frame.** An `await` would suspend the handler and hand it back the server's value *inside the same call* — and that value would arrive through the call stack, a place nothing else in your app can see. But [chapter 04](04-events-and-the-cascade.md#the-ledger-view) was firm that app-db is the sum of an event ledger, and the ledger has to contain *everything that ever influenced state*. An awaited value bypasses the ledger entirely: it slips into the handler through the stack, leaving no line. A **reply event lands in the ledger** like any other event — so it shows up in traces, it survives being serialized and shipped, it routes to the right frame, and replaying the log reproduces it.
+>
+> Read today's idiom through that lens and it stops looking like ceremony. The `:on-success` / `:on-failure` vectors (and the default co-located `:rf/reply`) are *the continuation expressed as data* — "when this finishes, dispatch this." Because the continuation is a value rather than a paused stack, it's visible on the trace stream, it can be recorded and replayed, and it carries its own frame. This is the same choice [Elm](https://elm-lang.org) makes with `Cmd msg`: the result of an effect comes back as a *message you handle*, never as a value you `await`. The continuation being data is exactly what lets the rest of this chapter's machinery — abort, retry, frame-aware reply addressing, stale-suppression — see and manage the in-flight work at all.
+>
+> <details markdown="1">
+> <summary>For the categorically curious</summary>
+>
+> Effects here are a **description the runtime interprets**, not commands the handler runs — your handler returns a value that *names* the work, and a separate interpreter performs it. Such effects **sequence but never bind**: you can ask for several in order (the `:fx` vector), but a handler can never write "do this effect, *then* feed its result into the next expression" — that would be monadic *binding*, the awaited-value shape. The result instead comes back as the next event. Continuations are events; binding is forbidden on purpose, and that's why there's no `await`.
+> </details>
+
 ## Why this exists at all (a short history of everybody reinventing the same thing)
 
 Here's the embarrassing part: we kept *rewriting this*. Every re-frame v1 app anyone shipped, every consulting codebase anyone audited, every open-source app anyone cribbed from — same five lines of homemade `:http` fx, registered fresh in every project, with subtly different opinions quietly baked in. [Chapter 07 sketches](07-effects-and-coeffects.md) how you'd register your own fx that calls `fetch` and dispatches a follow-up event. That works! It's a fine exercise! It is also the exact thing every single team reinvented, and every team's version drifted in a *slightly* different direction on the same handful of questions:

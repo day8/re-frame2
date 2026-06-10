@@ -219,6 +219,43 @@ Two things are quietly doing the heavy lifting.
 
 `:fx-overrides` **redirects an effect for the length of one dispatch.** And here's the subtle, important part: it is a *redirect*, not a mock. The exact same dispatch shape that the real `:rf.http/managed` would produce lands in your override fn. You're not faking the HTTP layer; you're intercepting the one effect that would have touched the network and answering it inline. No JSDOM, no fake fetch, no service-worker theatre. The seam, used exactly as designed.
 
+## Replay is a test
+
+There's a mental model hiding in everything above, and naming it makes a whole class of tests obvious. [Chapter 04](04-events-and-the-cascade.md#the-ledger-view) taught that app-db is the running total of an event ledger, and that *two fresh apps fed the same event log finish in identical states*. A test is just the second of those two apps. You start a fresh frame, you feed it a sequence of events, and you assert on the total. **Driving events through `dispatch-sync` and asserting on the result isn't merely *one way* to test — it's replaying the ledger and checking the sum.** That's why the dispatch-driven tests above feel so natural: they're the framework's own definition of state, run on demand.
+
+Two payoffs fall straight out of seeing it this way.
+
+**The flaky test that couldn't flake.** Here's the war story, and you've probably lived a version of it. A handler decides "is this item due?" by reading the ambient clock — `(js/Date.)` straight in the body. The test is green every afternoon for months. Then one night CI runs as the date rolls past midnight, the clock the handler read is now *tomorrow*, the "due today" branch flips, and the suite goes red — once, irreproducibly, in a way nobody can pin down because it depended on the wall-clock second the test happened to run. The fix is the cofx version from [chapter 07](07-effects-and-coeffects.md#why-handlers-never-read-the-clock): inject `:now` so the clock is a *declared input*, and then the test **supplies** it. The cofx version literally cannot flake on time, because there's no ambient time left to read — the test handed the handler a fixed `now`, and a fixed input gives a fixed answer at 14:00 and at 23:59:59 alike:
+
+```clojure
+(deftest due-today-is-deterministic
+  (ts/with-fresh-registrar
+    (rf/reg-cofx :now
+      (fn [ctx] (assoc-in ctx [:coeffects :now] #inst "2026-06-15T09:00:00.000Z")))
+    (rf/with-new-frame [f (rf/make-frame {})]
+      (rf/dispatch-sync [:item/add {:title "ship it" :due #inst "2026-06-15T17:00:00.000Z"}])
+      (rf/dispatch-sync [:item/recompute-due])
+      (is (true? (-> (rf/app-db-value f) :items first val :due-today?))))))
+```
+
+**The bug report that became the regression test.** A user reports a wrong state and tells you what they did: added two items, marked one done, undid it, filtered. That description *is* an event log — `[[:item/add ...] [:item/add ...] [:item/done 1] [:item/undo] [:filter/set :active]]`. To turn the report into a test you don't need a "capture API" or any special machinery: you write those event vectors into a fresh frame, dispatch them in order, and assert the final state is the *correct* one. The replay reproduces the bug today; once you fix the handler, the same replay reproduces the *fix*, and the report has become a permanent regression guard:
+
+```clojure
+(deftest issue-412-undo-leaves-stale-filter
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:app/init]})]
+    (ts/dispatch-sequence [[:item/add {:id 1 :title "a"}]
+                           [:item/add {:id 2 :title "b"}]
+                           [:item/done 1]
+                           [:item/undo]
+                           [:filter/set :active]]
+                          {:frame f})
+    ;; the bug: undo left the count stale. Assert the value it SHOULD be.
+    (is (= 2 (count (:items (rf/app-db-value f)))))
+    (is (= :active (:filter (rf/app-db-value f))))))
+```
+
+That's the whole technique, and it uses nothing you haven't already met: event vectors (the ledger lines), `dispatch-sync` / `dispatch-sequence` (the replay), and a `get-in` against the resulting app-db (the sum). A bug report is a ledger excerpt; a regression test is that excerpt replayed with the right answer pinned. The ledger view from chapter 04 wasn't a metaphor — it's the test you just wrote.
+
 ## The other seam: state-correct but view-broken
 
 Everything so far drove events and read `app-db`. That's the bulk of what you test, and it's where the bulk of the bugs are. But two species of bug live in the gap *between* a correct `app-db` and the screen, and no amount of state-assertion will catch them:
