@@ -60,10 +60,12 @@
   ;; the production façade).
   (require 're-frame.routing.test-support :reload)
   (routing/reset-counters!)
-  ;; rf2-1hncp2: the scroll-position cache is a module-level host atom (not
-  ;; runtime-db), so `clear-all!` / frame reset does not touch it — drop it
-  ;; explicitly so a saved position never leaks across tests.
+  ;; rf2-1hncp2 / rf2-oosjmh: the scroll-position cache AND the nav-counter
+  ;; high-water marks are module-level host atoms (not runtime-db), so
+  ;; `clear-all!` / frame reset does not touch them — drop them explicitly so
+  ;; a saved position / counter value never leaks across tests.
   (routing/reset-scroll-cache!)
+  (routing/reset-nav-counters!)
   (rf/with-frame :rf/default
     (test-fn)))
 

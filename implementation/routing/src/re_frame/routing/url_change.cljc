@@ -48,11 +48,13 @@
       capture-fx (assoc :fx [capture-fx]))))
 
 (defn- url-change-fx
-  "Pure helper: given db + url + default scroll strategy (+ optional
-  `:frame` to carry on the no-such-handler trace), return the cofx map
-  `{:db :fx}` for a URL-driven full slice rewrite. Performs the match-url
-  lookup, allocates a fresh nav-token, computes the scroll fx entry, and
-  emits the trace events (:rf.warning/no-not-found-route,
+  "Pure helper: given runtime-db + url + default scroll strategy (+ the
+  `frame` to carry on the no-such-handler trace + the host-side
+  `nav-counters` snapshot), return the cofx map `{:rf.db/runtime :fx}` for
+  a URL-driven full slice rewrite. Performs the match-url lookup, mints a
+  fresh nav-token from `nav-counters` (rf2-oosjmh — the high-water bump
+  rides a `:rf.route/commit-nav-counter` fx), computes the scroll fx
+  entry, and emits the trace events (:rf.warning/no-not-found-route,
   :rf.warning/malformed-url, :rf.error/no-such-handler,
   :rf.route.nav-token/allocated).
 
@@ -71,7 +73,7 @@
      URL's path captures, query keys/values, or `#fragment` failed to
      %-decode. The `:reason` discriminator lets per-route error UIs
      and SSR projections branch on the cause."
-  [rdb url default-scroll frame]
+  [rdb url default-scroll frame nav-counters]
   (let [rdb (or rdb {})
         ;; rf2-6t1xb: `match-url` THROWS on the keyword-interning DoS
         ;; guard (`:rf.error/route-too-many-keys`, rf2-3k3o7) — and the
@@ -230,9 +232,12 @@
            :fragment   fragment
            :transition transition}
           on-match-vec
-          {:prev-id    (get-in rdb [:rf.runtime/routing :current :id])
-           :capture-fx capture-fx
-           :scroll-fx  scroll-fx})))))
+          {:prev-id      (get-in rdb [:rf.runtime/routing :current :id])
+           :capture-fx   capture-fx
+           :scroll-fx    scroll-fx
+           ;; rf2-oosjmh: host-side counter snapshot threaded through so
+           ;; the nav-token is minted purely + the bump rides an fx.
+           :nav-counters nav-counters})))))
 
 (defn transitioned-handler
   "`:rf.route/transitioned` event-fx handler. Registered by the façade
@@ -245,7 +250,8 @@
   strategy for forward nav is `:top` per Spec 012 §Scroll restoration;
   popstate / initial / SSR routes through `:rf.route/handle-url-change`
   (default `:restore`)."
-  [{frame :rf.frame/id rdb :rf.db/runtime} [_ url opts :as event-vec]]
+  [{frame :rf.frame/id rdb :rf.db/runtime nav-counters :rf.route/nav-counters}
+   [_ url opts :as event-vec]]
   (let [;; EP-0002 carried invariant — `:rf.route/transitioned` is a
         ;; cascade event, so the cofx carries the frame stamp under
         ;; `:rf.frame/id`; a nil stamp is an invariant failure
@@ -258,7 +264,8 @@
         blocked (can-leave/maybe-block-navigation
                   rdb frame
                   event-vec url
-                  (:bypass-leave-guard? opts))]
+                  (:bypass-leave-guard? opts)
+                  nav-counters)]
     (or blocked
         ;; rf2-w3qgc: thread the active `frame` into `url-change-fx` so the
         ;; forward-nav route-miss / malformed-url / too-many-keys trace sites
@@ -269,7 +276,7 @@
         ;; `:rf.warning/no-not-found-route`. The carried `:frame` (the
         ;; cascade cofx supplies it) tags those traces. EP-0001 (rf2-vzld77):
         ;; the route slice is durable routing runtime-db state.
-        (url-change-fx rdb url :top frame))))
+        (url-change-fx rdb url :top frame nav-counters))))
 
 (defn handle-url-change-handler
   "`:rf.route/handle-url-change` event-fx handler. Registered by the
@@ -282,7 +289,8 @@
   strategy is `:restore` so the saved position trumps. `:frame` is
   threaded through so the SSR error-projection listener can attribute
   the :no-such-handler trace per-frame."
-  [{frame :rf.frame/id rdb :rf.db/runtime} [_ url opts :as event-vec]]
+  [{frame :rf.frame/id rdb :rf.db/runtime nav-counters :rf.route/nav-counters}
+   [_ url opts :as event-vec]]
   (let [;; EP-0002 carried invariant — `:rf.route/handle-url-change` is a
         ;; cascade event (popstate / initial / SSR), so the cofx carries
         ;; the frame stamp under `:rf.frame/id`; a nil stamp is an invariant
@@ -296,7 +304,8 @@
         blocked (can-leave/maybe-block-navigation
                   rdb frame
                   event-vec url
-                  (:bypass-leave-guard? opts))]
+                  (:bypass-leave-guard? opts)
+                  nav-counters)]
     (or blocked
         ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-        (url-change-fx rdb url :restore frame))))
+        (url-change-fx rdb url :restore frame nav-counters))))

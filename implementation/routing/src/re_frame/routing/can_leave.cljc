@@ -26,7 +26,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
-            [re-frame.routing.events :as routing-events]
+            [re-frame.routing.nav-counters :as nav-counters]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.url :as url]
             [re-frame.trace :as trace]))
@@ -142,14 +142,19 @@
   destination). On such a block this emits a `:rf.nav/replace-url` that
   restores the address bar to the current route slice's URL — no new
   history entry, URL and slice agree again (rf2-ede1h.3). `:rf.route/
-  cancel` / `:rf.route/continue` then operate from a consistent state."
-  [rdb frame-id event-vec requested-url bypass-leave-guard?]
+  cancel` / `:rf.route/continue` then operate from a consistent state.
+
+  rf2-oosjmh: `nav-counters` is the host-side counter snapshot injected by
+  the `:rf.route/nav-counters` cofx — the pending-nav id is minted from it
+  PURELY (the handler never reaches the host atom) and the high-water bump
+  rides a `:rf.route/commit-nav-counter` fx in the returned `:fx` vector."
+  [rdb frame-id event-vec requested-url bypass-leave-guard? nav-counters]
   (let [current-route (get-in rdb [:rf.runtime/routing :current])
         current-meta  (registrar/lookup :route (:id current-route))
         ok?           (or bypass-leave-guard?
                           (can-leave? frame-id (:id current-route) current-meta))]
     (when-not ok?
-      (let [[db' pn-id] (routing-events/alloc-pending-nav-id rdb)
+      (let [[pn-counter pn-id] (nav-counters/next-pending-nav-id nav-counters)
             guard-id    (can-leave-guard-id current-meta)
             ;; rf2-ede1h.3: a blocked popstate (Back/Forward) has already
             ;; moved the address bar; restore it to the slice's URL so URL
@@ -198,10 +203,18 @@
         ;; as its single arg so a handler reads it without a separate
         ;; subscription. A default no-op handler (registered below) keeps
         ;; the dispatch resolving cleanly when the app declares none.
-        ;; EP-0001 (rf2-vzld77): the pending-navigation slot + nav-token
-        ;; counter are durable routing runtime-db state — write runtime-db.
-        {:rf.db/runtime (assoc-in db' [:rf.runtime/routing :pending-navigation] pending-nav)
-         :fx (cond-> []
+        ;; EP-0001 (rf2-vzld77): the pending-navigation slot is durable
+        ;; routing runtime-db state — write runtime-db. rf2-oosjmh: the
+        ;; pending-nav COUNTER is host-side transient state — its high-water
+        ;; bump rides the `:rf.route/commit-nav-counter` fx below (not
+        ;; runtime-db), so `rdb` (not a counter-bumped db') is written here.
+        {:rf.db/runtime (assoc-in rdb [:rf.runtime/routing :pending-navigation] pending-nav)
+         :fx (cond-> [;; rf2-oosjmh: persist the pending-nav high-water mark
+                      ;; into the host-side counter cache (WRITE half of the
+                      ;; pure seam). FIRST so the bump lands before the
+                      ;; blocked-event dispatch.
+                      [:rf.route/commit-nav-counter
+                       {:counter-key :pending-nav-counter :value pn-counter}]]
                ;; Restore the address bar FIRST (before the user event)
                ;; so a confirm-dialog handler that reads `current-url`
                ;; sees the restored value. No-op on JVM/SSR
@@ -252,7 +265,7 @@
 (defn url-requested-handler
   "`:rf/url-requested` event-fx handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar."
-  [{frame :rf.frame/id rdb :rf.db/runtime}
+  [{frame :rf.frame/id rdb :rf.db/runtime nav-counters :rf.route/nav-counters}
    [_ {:keys [url bypass-leave-guard?] :as _request} :as event-vec]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol the
     ;; runtime fires :can-leave for the active route on every
@@ -278,7 +291,8 @@
           app-url   (url/request-url->app-url url)
           blocked   (when-not external?
                       (maybe-block-navigation (or rdb {}) frame
-                                              event-vec app-url bypass-leave-guard?))]
+                                              event-vec app-url bypass-leave-guard?
+                                              nav-counters))]
       (cond
         external?
         (do

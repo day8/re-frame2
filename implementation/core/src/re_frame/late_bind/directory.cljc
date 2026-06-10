@@ -404,6 +404,10 @@
    {:key         :routing/reset-counters!
     :producer-ns 're-frame.routing
     :description "Reset the route-registration counter (test isolation)."}
+   {:key         :routing/reset-nav-counters!
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-oosjmh"
+    :description "Reset the host-side nav-token / pending-nav counter high-water marks (re-frame.routing.nav-counters/nav-counters-cache). They are host-side transient state (not runtime-db), so a runtime/frames reset does not clear them; the shared CLJS make-reset-runtime-fixture reset-hooks table fires this per test so \"nav-1\" / \"pn-1\" assertions stay deterministic (test isolation)."}
    {:key         :routing/route-sub-fn
     :producer-ns 're-frame.routing
     :description "Subscription fn returning the currently-matched route."}
@@ -422,7 +426,7 @@
    {:key         :routing/on-frame-destroyed!
     :producer-ns 're-frame.routing
     :design-bead "rf2-1hncp2"
-    :description "Release the destroyed frame's host-side transient scroll-position cache entry (re-frame.routing.scroll/scroll-positions-cache). Scroll positions are NOT runtime-db state — they live in a module-level atom (host-derived, ephemeral, off the epoch/SSR egress wire), so they need explicit per-frame teardown like the other transient caches. Invoked by frame/destroy-frame! symmetric with the ssr / machines / flows / schemas teardown hooks; no-op when re-frame.routing is absent (the artefact is optional)."}
+    :description "Release the destroyed frame's host-side transient routing caches — the scroll-position cache (re-frame.routing.scroll/scroll-positions-cache, rf2-1hncp2) AND the nav-token / pending-nav counter high-water marks (re-frame.routing.nav-counters/nav-counters-cache, rf2-oosjmh). Neither is runtime-db state — they live in module-level atoms (host-derived, ephemeral, off the epoch/SSR egress wire; the counters host-side specifically so an epoch restore cannot rewind + recycle a token), so they need explicit per-frame teardown like the other transient caches. Invoked by frame/destroy-frame! symmetric with the ssr / machines / flows / schemas teardown hooks; no-op when re-frame.routing is absent (the artefact is optional)."}
 
    ;; ---- re-frame.http-managed (rf2-5kpd / rf2-6y3q / rf2-wvkn / rf2-ijm7) ----
    ;; The three stub-family hooks publish from `re-frame.http-test-support`

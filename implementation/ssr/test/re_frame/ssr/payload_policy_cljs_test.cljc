@@ -300,28 +300,36 @@
 
 (def sample-runtime-db
   {:rf.runtime/machines {:snapshots {:auth.session/abc {:state :authenticated}}}
-   :rf.runtime/routing  {:current          {:id :route/home}
-                         ;; transient client-local caches — must NOT ride the wire
-                         :scroll-positions {"/" {:x 0 :y 240}}
-                         :nav-token-counter 7}
+   :rf.runtime/routing  {:current            {:id :route/home}
+                         ;; :pending-navigation is a local-subscribable
+                         ;; runtime-db key but MUST NOT ride the SSR wire
+                         ;; (fail-closed allowlist ships only :current).
+                         :pending-navigation {:id "pn-1" :reason :can-leave}
+                         ;; rf2-oosjmh: the nav-token / pending-nav counters
+                         ;; are NOT runtime-db keys any more (host-side
+                         ;; transient cache). A stale v1-shaped snapshot might
+                         ;; still carry one — the fail-closed allowlist strips
+                         ;; it regardless, which this sample proves.
+                         :nav-token-counter  7}
    :rf.runtime/elision  {:declarations {[:auth :token] {:sensitive? true}}}
    :rf.runtime/ssr      {:hydration {:server-hash "h1"}}})
 
 (deftest project-runtime-db-ships-durable-omits-transient
   (testing "project-runtime-db ships machines / route :current / elision / ssr
-            and drops the transient scroll / nav-token routing caches"
+            and drops the non-durable routing keys (:pending-navigation +
+            any stale counter)"
     (let [slice (payload-policy/project-runtime-db sample-runtime-db)]
       (is (= {:snapshots {:auth.session/abc {:state :authenticated}}}
              (:rf.runtime/machines slice))
           "machine snapshots ride the wire whole")
       (is (= {:current {:id :route/home}} (:rf.runtime/routing slice))
-          "only the durable :current route slice rides; scroll / nav-token caches are dropped")
+          "only the durable :current route slice rides; :pending-navigation + any counter are dropped")
       (is (= {:declarations {[:auth :token] {:sensitive? true}}}
              (:rf.runtime/elision slice))
           "elision declarations ride the wire")
       (is (= {:hydration {:server-hash "h1"}} (:rf.runtime/ssr slice))
           "SSR hydration metadata rides the wire")
-      (is (not (contains? (:rf.runtime/routing slice) :scroll-positions)))
+      (is (not (contains? (:rf.runtime/routing slice) :pending-navigation)))
       (is (not (contains? (:rf.runtime/routing slice) :nav-token-counter))))))
 
 (deftest project-runtime-db-nil-and-empty

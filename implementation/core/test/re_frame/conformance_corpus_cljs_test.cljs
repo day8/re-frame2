@@ -277,6 +277,11 @@
   ;; 3. Reset id-allocators so the routing / machine fixtures see
   ;;    deterministic counters.
   (routing/reset-counters!)
+  ;; rf2-oosjmh — the nav-token / pending-nav counters are host-side
+  ;; transient state now (not runtime-db), so the `frames` reset above no
+  ;; longer clears them; reset the host cache explicitly to keep the
+  ;; nav-N / pn-N id assertions deterministic across fixtures.
+  (routing/reset-nav-counters!)
   (machines/reset-timers!)
   ;; 4. Drop the in-flight HTTP request registry between fixtures.
   (http-managed/clear-all-in-flight!)

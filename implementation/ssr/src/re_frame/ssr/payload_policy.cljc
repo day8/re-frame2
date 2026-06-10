@@ -300,25 +300,35 @@
 ;; runtime state MUST NOT ride the wire: server-only request/response
 ;; accumulators, head snapshots, streaming continuation registries,
 ;; pending-error buffers, in-flight HTTP handles, host handles, and the
-;; client-local scroll-position / nav-token caches (per [002 §Durable vs
-;; transient]).
+;; client-local scroll-position cache (per [002 §Durable vs transient]).
 ;;
 ;; The projection is an ALLOWLIST by subsystem child — symmetric to the
 ;; `:rf/app-db` policy's fail-closed allowlist posture (a new transient
 ;; sub-key under a shipped subsystem does NOT silently leak). Routing ships
-;; only the durable `:current` slice; the scroll-position / nav-counter
-;; siblings stay client-local. Absent / nil runtime-db projects to nil (the
-;; client-only / no-server-runtime fallback) so `build-payload` omits the
-;; optional key.
+;; only the durable `:current` slice; `:pending-navigation` (a
+;; local-subscribable runtime-db key) stays client-local. Absent / nil
+;; runtime-db projects to nil (the client-only / no-server-runtime fallback)
+;; so `build-payload` omits the optional key.
 
-(def ^:private durable-routing-keys
+(def durable-routing-keys
   "The durable routing-runtime keys that ride the hydration payload. Only
   `:current` (the active route slice) is durable + needed client-side; the
-  `:nav-token-counter` / `:pending-nav-counter` / `:pending-navigation`
-  siblings are transient client-local caches (per [002 §Durable vs
-  transient]) and stay off the wire. (Saved scroll positions are not a
-  runtime-db key at all — they live in a host-side transient cache per
-  rf2-1hncp2 — but the fail-closed allowlist would strip them regardless.)"
+  `:pending-navigation` sibling is a local-subscribable runtime-db key
+  (per [002 §Durable vs transient]) and stays off the wire (fail-closed).
+
+  rf2-oosjmh — ONE source of truth: this list MUST equal the routing-owned
+  `re-frame.routing.nav-counters/durable-runtime-db-routing-keys` (the
+  `:durable-runtime-db` tier of `routing-state-classification`). It is held
+  as a literal here rather than `:require`-d so production SSR builds do NOT
+  drag the routing artefact onto the classpath (SSR depends on core only;
+  routing is a test-only dep). A cross-artefact conformance test asserts
+  the two agree so storage / SSR / docs can never silently drift — see
+  `re-frame.ssr.payload-policy-cljs-test`.
+
+  The nav-token / pending-nav COUNTERS are no longer runtime-db keys at all
+  — they live in a host-side transient cache per rf2-oosjmh (as do saved
+  scroll positions, rf2-1hncp2) — but the fail-closed allowlist would strip
+  them regardless."
   [:current])
 
 (defn project-runtime-db
@@ -329,7 +339,9 @@
     - `:rf.runtime/machines` — shipped whole (snapshots + spawn registry are
       durable serializable facts the client re-materialises actors from);
     - `:rf.runtime/routing`  — only the durable `:current` route slice
-      (scroll / nav-token caches are transient client-local state);
+      (`:pending-navigation` is local-subscribable client state; the
+      scroll / nav-token / pending-nav caches are host-side transient
+      state, not runtime-db at all — rf2-1hncp2 / rf2-oosjmh);
     - `:rf.runtime/elision`  — the wire-elision declaration registry;
     - `:rf.runtime/ssr`       — the SSR hydration metadata.
 

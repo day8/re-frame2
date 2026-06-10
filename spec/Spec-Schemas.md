@@ -1962,17 +1962,17 @@ A frame owns two durable partitions held as one physical frame-state container (
    [:spec      :map]])                                                        ;; back-reference for the join intercept
 
 (def Routing
-  ;; The routing runtime's per-frame state. :current is the live route slice;
-  ;; :pending-navigation is the can-leave pending-nav slot; the two flat counter
-  ;; slots are the routing-internal monotonic counters. All sub-keys are
-  ;; allocated lazily. Saved scroll positions are NOT runtime-db state — they
-  ;; live in a host-side transient cache (rf2-1hncp2, 012 §Scroll restoration),
-  ;; so they do not appear here.
+  ;; The routing runtime's per-frame runtime-db state. :current is the live
+  ;; route slice; :pending-navigation is the can-leave pending-nav slot. Both
+  ;; sub-keys are allocated lazily. The nav-token / pending-nav monotonic
+  ;; COUNTERS and the saved scroll positions are NOT runtime-db state — they
+  ;; live in host-side transient caches (rf2-oosjmh / rf2-1hncp2, 012
+  ;; §Navigation tokens + §Scroll restoration; held outside the frame value
+  ;; so an epoch restore cannot rewind + recycle a token), so they do not
+  ;; appear here.
   [:map
    [:current                {:optional true} :rf/route-slice]
-   [:pending-navigation     {:optional true} :rf/pending-navigation]
-   [:nav-token-counter      {:optional true} :int]
-   [:pending-nav-counter    {:optional true} :int]])
+   [:pending-navigation     {:optional true} :rf/pending-navigation]])
 
 (def ElisionDeclaration
   [:map

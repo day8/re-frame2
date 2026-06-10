@@ -1245,9 +1245,11 @@
                                               registrar slots
                                               (rf2-wbtjn).
          :routing/on-frame-destroyed!       — release the frame's
-                                              host-side transient
-                                              scroll-position cache entry
-                                              (rf2-1hncp2).
+                                              host-side transient routing
+                                              caches — scroll positions
+                                              (rf2-1hncp2) + nav-token /
+                                              pending-nav counters
+                                              (rf2-oosjmh).
     5. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER the
                                       machine cascade.
     6. dissoc-frame!                — remove from the `frames` atom.
@@ -1334,13 +1336,16 @@
         ;; No-op when re-frame.flows is absent (the artefact is optional
         ;; per rf2-tfw3).
         (safe-call-hook! :flows/teardown-on-frame-destroy! id)
-        ;; rf2-1hncp2: release the destroyed frame's host-side transient
-        ;; scroll-position cache entry. Scroll positions are NOT runtime-db
-        ;; state — they live in a module-level atom in re-frame.routing.scroll
-        ;; (host-derived, ephemeral, off the epoch/SSR egress wire). Without
-        ;; this hook a long-running multi-frame / per-request-frame process
-        ;; leaks one cache entry per destroyed frame. No-op when re-frame.routing
-        ;; is absent (the artefact is optional).
+        ;; rf2-1hncp2 + rf2-oosjmh: release the destroyed frame's host-side
+        ;; transient routing caches — scroll positions
+        ;; (re-frame.routing.scroll) AND the nav-token / pending-nav counter
+        ;; high-water marks (re-frame.routing.nav-counters). Neither is
+        ;; runtime-db state — they live in module-level atoms (host-derived,
+        ;; ephemeral, off the epoch/SSR egress wire; the counters host-side
+        ;; so an epoch restore cannot rewind + recycle a token). Without this
+        ;; hook a long-running multi-frame / per-request-frame process leaks
+        ;; one entry per destroyed frame in each cache. No-op when
+        ;; re-frame.routing is absent (the artefact is optional).
         (safe-call-hook! :routing/on-frame-destroyed! id)
         (emit-frame-destroyed-trace! id)
         ;; Per Spec 009 §Per-frame trace rings (rf2-g1b2m / rf2-8uwce):

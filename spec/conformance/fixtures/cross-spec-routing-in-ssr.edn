@@ -65,9 +65,9 @@
               :params {:id "intro"}}}}
 
   ;; Per rf2-xak8u (Option-A): the :rf/route layer-1 sub projects the
-  ;; slice keys only. Internal routing-runtime sub-keys
-  ;; (:nav-token-counter etc.) live under :rf/route in app-db but do
-  ;; not surface through the sub.
+  ;; slice keys only. The nav-token / pending-nav counters are NOT
+  ;; runtime-db state — they live in a host-side transient cache
+  ;; (rf2-oosjmh) — so they never surface through the sub.
   :sub-values
   {[:rf/route] {:id         :route/article-detail
                 :params     {:id "intro"}
