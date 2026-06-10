@@ -474,20 +474,54 @@
         traces :rf.error/redirect-invalid-location
         "redirect with CRLF in :location")))
 
-  (testing "rf2-hbty2 — same gate covers :url and :to alternate slot names"
-    (rf/reg-event-fx :redirect/url-crlf
+  (testing "rf2-vngir — the retired :url / :to redirect-target spellings are
+            REJECTED with :rf.error/redirect-retired-target-key (naming the
+            canonical :location), not accepted as alternate target keys. The
+            error fires BEFORE the no-target warning path so the vocabulary
+            mistake is loud, not hidden behind a malformed-redirect warning.
+            (Pre-alpha EP-0007 one-name-per-fact prune — no back-compat alias.)"
+    (rf/reg-event-fx :redirect/via-url
       (fn [_ _]
-        {:fx [[:rf.server/redirect {:url "/ok\r\nbad"}]]}))
-    (rf/reg-event-fx :redirect/to-crlf
+        {:fx [[:rf.server/redirect {:url "/ok"}]]}))
+    (rf/reg-event-fx :redirect/via-to
       (fn [_ _]
-        {:fx [[:rf.server/redirect {:to "/ok\nbad"}]]}))
-    (doseq [ev [:redirect/url-crlf :redirect/to-crlf]]
+        {:fx [[:rf.server/redirect {:to "/ok"}]]}))
+    (doseq [ev [:redirect/via-url :redirect/via-to]]
       (let [f      (rf/make-frame {:platform :server})
             traces (capture-fx-traces!
                      (fn [] (rf/dispatch-sync [ev] {:frame f})))]
         (expect-fx-error-keyword!
-          traces :rf.error/redirect-invalid-location
-          (str ev " redirect via " ev " alias"))))))
+          traces :rf.error/redirect-retired-target-key
+          (str ev " — retired redirect-target spelling rejected, names :location"))))))
+
+(deftest ssr-redirect-retired-spelling-diagnostic-names-location
+  (testing "rf2-vngir — the retired-spelling diagnostic NAMES the canonical
+            :location key (ex-data :canonical-key + a :reason mentioning
+            :location). This is the failure-mode lock: the error must point
+            the programmer at the right spelling, and must be DISTINCT from
+            the generic no-target/malformed-redirect warning path."
+    (rf/reg-event-fx :redirect/retired-spelling
+      (fn [_ _]
+        {:fx [[:rf.server/redirect {:url "/login"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:redirect/retired-spelling] {:frame f})))
+          ex     (some (fn [ev]
+                         (let [e (-> ev :tags :exception)]
+                           (when (and e (str/includes? (str (.getMessage ^Throwable e))
+                                                        ":rf.error/redirect-retired-target-key"))
+                             e)))
+                       traces)
+          data   (ex-data ex)]
+      (is (some? ex) "a redirect-retired-target-key exception was captured")
+      (is (= :rf.error/redirect-retired-target-key (:rf.error/id data))
+          "the ex-data carries the retired-target-key error id")
+      (is (= :location (:canonical-key data))
+          "the diagnostic names :location as the canonical key")
+      (is (= [:url] (:retired-keys data))
+          "the diagnostic names the offending retired spelling(s)")
+      (is (str/includes? (str (:reason data)) ":location")
+          "the :reason text names :location so the programmer rewrites the spelling"))))
 
 (deftest ssr-redirect-rejects-structurally-malformed-location
   (testing "rf2-kjf3m.4 — :rf.server/redirect with a structurally-malformed
@@ -1166,40 +1200,51 @@
               "ex-data carries a human :reason"))))))
 
 ;; ===========================================================================
-;; rf2-ooj41 — redirect alias normalisation (:url and :to → :location)
+;; rf2-vngir (was rf2-ooj41) — retired redirect-target spellings (:url / :to)
+;; are REJECTED, not normalised onto :location
 ;; ===========================================================================
 ;;
-;; Spec 011 §Redirect contract: `:rf.server/redirect` accepts `:location`,
-;; `:url`, or `:to` for the destination key. The current suite only
-;; exercises `:location`; the alias forms in `redirect-fx`
-;; (`response.cljc:218-221`) had no test coverage. Pin both aliases so a
-;; refactor that drops one fails loudly.
+;; Spec 011 §Redirect contract: `:rf.server/redirect`'s redirect target is
+;; keyed under `:location` — the canonical (and only) key, per EP-0007
+;; one-name-per-fact (this fx writes an HTTP `Location` response header, so
+;; it uses header vocabulary). The pre-alpha `:url` / `:to` synonyms were
+;; pruned; `redirect-fx` now throws `:rf.error/redirect-retired-target-key`
+;; naming `:location` rather than silently normalising. There is no
+;; back-compat alias. These tests pin the rejection (formerly the alias
+;; normalisation, rf2-ooj41) AND that the resolved redirect slot is NOT
+;; populated when a retired spelling is the only target key.
 
-(deftest redirect-alias-url-normalises-to-location
-  (testing "{:url \"...\"} is normalised to {:location \"...\" :status 302}"
-    (rf/reg-event-fx :alias/url-redirect
+(deftest redirect-retired-url-spelling-is-rejected
+  (testing "rf2-vngir: {:url \"...\"} is rejected with
+            :rf.error/redirect-retired-target-key (naming :location); it is
+            NOT normalised onto :location, and the :redirect slot stays unset"
+    (rf/reg-event-fx :retired/url-redirect
       (fn [_ _]
         {:fx [[:rf.server/redirect {:url "/dashboard"}]]}))
-    (let [f (rf/make-frame {:platform  :server
-                            :on-create [:alias/url-redirect]})
-          redirect (-> (get-response f) :redirect)]
-      (is (= "/dashboard" (:location redirect))
-          ":url alias is normalised onto :location in the resolved redirect")
-      (is (= 302 (:status redirect))
-          "default status flows through when no explicit :status supplied"))))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:retired/url-redirect] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/redirect-retired-target-key
+        ":url redirect-target spelling rejected")
+      (is (nil? (:redirect (get-response f)))
+          "the rejected redirect did NOT populate the :redirect slot"))))
 
-(deftest redirect-alias-to-normalises-to-location
-  (testing "{:to \"...\"} is normalised to {:location \"...\" :status 302}"
-    (rf/reg-event-fx :alias/to-redirect
+(deftest redirect-retired-to-spelling-is-rejected
+  (testing "rf2-vngir: {:to \"...\"} is rejected with
+            :rf.error/redirect-retired-target-key, even with an explicit
+            :status — the retired-key check fires before the status path"
+    (rf/reg-event-fx :retired/to-redirect
       (fn [_ _]
         {:fx [[:rf.server/redirect {:to "/welcome" :status 301}]]}))
-    (let [f (rf/make-frame {:platform  :server
-                            :on-create [:alias/to-redirect]})
-          redirect (-> (get-response f) :redirect)]
-      (is (= "/welcome" (:location redirect))
-          ":to alias is normalised onto :location")
-      (is (= 301 (:status redirect))
-          "caller-supplied :status wins over the 302 default"))))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:retired/to-redirect] {:frame f})))]
+      (expect-fx-error-keyword!
+        traces :rf.error/redirect-retired-target-key
+        ":to redirect-target spelling rejected")
+      (is (nil? (:redirect (get-response f)))
+          "the rejected redirect did NOT populate the :redirect slot"))))
 
 ;; ===========================================================================
 ;; rf2-hyk9j TC-6 — redirect short-circuits projector status overwrite

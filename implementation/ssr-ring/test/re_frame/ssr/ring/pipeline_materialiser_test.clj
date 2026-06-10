@@ -8,14 +8,17 @@
   whole handler. They do NOT pin the small public materialiser fns in
   isolation, so several documented branches were untested:
 
-    1. `ssr-response->ring-response` redirect-target precedence — the fn
-       independently resolves `(or location url to)`. The RUNTIME's
-       `redirect-fx` normalises `:url` / `:to` into `:location` before
-       the accumulator is read, so the only surface that ever feeds the
-       adapter a non-normalised `:url` / `:to` is a direct call (a future
-       alt-host, a hand-built response). Those two alias arms therefore
-       had zero coverage end-to-end — a regression dropping one would
-       pass every existing test. Pinned here directly.
+    1. `ssr-response->ring-response` redirect-target resolution — the fn
+       reads the canonical `:location` key only (rf2-vngir pruned the
+       `(or location url to)` back-door). A redirect map keyed on `:location`
+       emits the `Location` header; a map carrying ONLY a retired `:url` /
+       `:to` spelling has no `:location`, so the materialiser treats it as a
+       target-less redirect (no `Location` header, the no-target warning
+       trace fires). The runtime `redirect-fx` is the loud gate — it throws
+       `:rf.error/redirect-retired-target-key` before such a map ever reaches
+       the accumulator — but the adapter is the last line for a hand-built /
+       alt-host response, so it must NOT silently honour the retired keys.
+       Pinned here directly.
 
     2. `headers->ring-map+default-content-type` POSITIVE paths — the
        suppression path (a caller Content-Type in any casing suppresses
@@ -49,13 +52,15 @@
 (use-fixtures :each tf/reset-runtime)
 
 ;; ===========================================================================
-;; ssr-response->ring-response — redirect target precedence (:location / :url / :to)
+;; ssr-response->ring-response — redirect target resolution (:location only)
 ;;
-;; Spec 011 accepts `:location`, `:url`, or `:to` as the redirect target
-;; key. The adapter materialiser resolves them with `(or location url to)`
-;; INDEPENDENTLY of the runtime (the runtime normalises to :location, but
-;; the adapter is the last line for any host / hand-built response that
-;; didn't). Pin all three keys + the precedence order.
+;; rf2-vngir: the canonical (and only) redirect target key is `:location`.
+;; The `(or location url to)` back-door was pruned along with the runtime
+;; synonyms (EP-0007 one-name-per-fact). The materialiser reads `:location`
+;; only; a redirect carrying ONLY a retired `:url` / `:to` spelling has no
+;; target as far as the adapter is concerned (the no-target path fires). The
+;; runtime is the loud gate (throws `:rf.error/redirect-retired-target-key`);
+;; the adapter must simply NOT silently honour the retired keys.
 ;; ===========================================================================
 
 (deftest redirect-resolves-location-key
@@ -66,42 +71,38 @@
       (is (= "/by-location" (get (:headers ring) "Location")))
       (is (= "" (:body ring)) "redirect has no body"))))
 
-(deftest redirect-resolves-url-alias
-  (testing "rf2-ynjts.14: a redirect map keyed by :url (NOT :location) still
-            emits the Location header — the adapter resolves the alias the
-            runtime would normalise, covering hosts/responses that didn't"
+(deftest redirect-ignores-retired-url-spelling-no-location-header
+  (testing "rf2-vngir: a redirect map carrying ONLY the retired :url spelling
+            (NOT :location) is treated as target-less by the materialiser —
+            the canonical key was pruned, so no Location header is emitted.
+            The runtime rejects :url loudly before this point; the adapter's
+            last-line behaviour must NOT silently resolve the retired key."
     (let [resp {:redirect {:status 303 :url "/by-url"}}
           ring (pipeline/ssr-response->ring-response resp nil)]
-      (is (= 303 (:status ring)) "the redirect map's :status rides through")
-      (is (= "/by-url" (get (:headers ring) "Location"))
-          ":url is resolved as the Location target"))))
+      (is (= 303 (:status ring)) "the redirect map's :status still rides through")
+      (is (nil? (get (:headers ring) "Location"))
+          ":url is NOT resolved as the Location target — retired spelling"))))
 
-(deftest redirect-resolves-to-alias
-  (testing "rf2-ynjts.14: a redirect map keyed by :to (NOT :location / :url)
-            still emits the Location header"
+(deftest redirect-ignores-retired-to-spelling-no-location-header
+  (testing "rf2-vngir: a redirect map carrying ONLY the retired :to spelling
+            (NOT :location) likewise emits no Location header"
     (let [resp {:redirect {:status 307 :to "/by-to"}}
           ring (pipeline/ssr-response->ring-response resp nil)]
       (is (= 307 (:status ring)))
-      (is (= "/by-to" (get (:headers ring) "Location"))
-          ":to is resolved as the Location target"))))
+      (is (nil? (get (:headers ring) "Location"))
+          ":to is NOT resolved as the Location target — retired spelling"))))
 
-(deftest redirect-target-precedence-location-wins
-  (testing "rf2-ynjts.14: when more than one target key is present the
-            precedence is :location > :url > :to (the `(or location url to)`
-            order in the materialiser)"
+(deftest redirect-location-only-resolution-ignores-retired-co-keys
+  (testing "rf2-vngir: when :location is present alongside retired :url / :to
+            keys, ONLY :location is resolved (the retired keys are inert at
+            the materialiser — :location is the canonical target)"
     (is (= "/loc"
            (get (:headers (pipeline/ssr-response->ring-response
                             {:redirect {:status 302
                                         :location "/loc" :url "/url" :to "/to"}}
                             nil))
                 "Location"))
-        ":location wins over :url and :to")
-    (is (= "/url"
-           (get (:headers (pipeline/ssr-response->ring-response
-                            {:redirect {:status 302 :url "/url" :to "/to"}}
-                            nil))
-                "Location"))
-        ":url wins over :to when :location absent")))
+        ":location is resolved; the co-present retired keys are ignored")))
 
 (deftest redirect-default-status-302-when-absent
   (testing "rf2-ynjts.14: a redirect map with a target but no :status
