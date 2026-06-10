@@ -61,10 +61,10 @@
   second `use-fixtures :each` would REPLACE, not accumulate)."
   [f]
   (reset! last-managed-args nil)
-  ;; the resources reset hook is not yet in the core reset-hook-table, so
-  ;; clear the host-side generation high-water marks here for per-test
-  ;; isolation (otherwise generations leak across tests).
-  (state/reset-cache!)
+  ;; rf2-yuc8o0: the shared `make-reset-runtime-fixture` reset-hook-table now
+  ;; fires `:resources/reset-resources!` (which clears the host-side
+  ;; generation high-water marks) in its `:post-dispose` phase before each
+  ;; test body, so no per-suite generation-cache reset is needed here.
   ;; fx handlers are BINARY `(fn [ctx args] …)` (Spec 002 §binary
   ;; fx-handler signature) — capture the args (second arg).
   (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
