@@ -32,7 +32,11 @@
   - **a hidden tab can delay timers without corrupting correctness** — the
     timer is advisory; the re-check against durable timestamps makes a late /
     coalesced / never-fired timer harmless. The focus/reconnect active-stale
-    scan (rf2-vtblcq) is the public-beta belt-and-braces, not this slice.
+    scan (rf2-vtblcq, `re-frame.resources.revalidate-listeners` +
+    `re-frame.resources.events/window-focused-handler` /
+    `network-reconnected-handler`) is the public-beta belt-and-braces — a
+    separate slice composed off the SAME `:resources/on-frame-destroyed!`
+    teardown hook this timer side table uses.
 
   ## Two halves (mirrors the work-ledger split)
 

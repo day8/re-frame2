@@ -29,6 +29,7 @@
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.resources.registry :as registry]
+            [re-frame.resources.revalidate-listeners :as revalidate-listeners]
             [re-frame.resources.state :as state]
             [re-frame.resources.timers :as timers]
             [re-frame.resources.work-ledger :as work-ledger]))
@@ -53,6 +54,10 @@
   ;; host-side transient state; cancels any armed timers so a leftover timer
   ;; cannot fire into a later test's frame.
   (timers/reset-cache!)
+  ;; and the host-side focus/reconnect revalidation listeners (rf2-vtblcq) —
+  ;; likewise host-side transient state; detaches any installed window
+  ;; listeners so a leftover listener cannot dispatch into a later test's frame.
+  (revalidate-listeners/reset-cache!)
   nil)
 
 ;; Publish the reset hook from this test-support ns-load — the shared CLJS

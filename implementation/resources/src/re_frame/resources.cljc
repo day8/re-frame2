@@ -58,6 +58,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.resources.events :as resource-events]
             [re-frame.resources.registry :as registry]
+            [re-frame.resources.revalidate-listeners :as revalidate-listeners]
             [re-frame.resources.route :as route]
             [re-frame.resources.ssr :as ssr]
             [re-frame.resources.state :as state]
@@ -76,6 +77,17 @@
 (def clear-resource  registry/clear-resource)
 (def resource-meta   registry/resource-meta)
 (def resource-ids    registry/resource-ids)
+
+;; Focus / reconnect revalidation host-listener install (rf2-vtblcq, Spec 016
+;; §Deferred slices). An app calls `install-revalidation-listeners!` for each
+;; frame that wants window-focus / network-reconnect active-stale
+;; revalidation; the listeners dispatch `:rf.resource/window-focused` /
+;; `:rf.resource/network-reconnected` at that frame and are cancelled on
+;; frame destroy via the single `:resources/on-frame-destroyed!` hook.
+;; CLJS-only host listeners; the JVM arm is a no-op (mirrors routing's
+;; install-history-listener!).
+(def install-revalidation-listeners! revalidate-listeners/install-revalidation-listeners!)
+(def remove-revalidation-listeners!  revalidate-listeners/remove-revalidation-listeners!)
 
 (defn resources
   "Return resource introspection for a frame target (Spec 016
@@ -195,6 +207,23 @@
                      framework-authority-meta
                      resource-events/remove-handler)
 
+;; Focus / reconnect revalidation events (rf2-vtblcq, Spec 016 §Stale and GC
+;; scheduling / §Deferred slices). The host focus / online listeners
+;; (`re-frame.resources.revalidate-listeners`) dispatch these; each scans the
+;; frame's active-owner STALE entries and refetches them in the background
+;; with cause `:focus` / `:reconnect` (a CAUSE, never an owner — the refetch
+;; attaches no owner, so it never creates liveness; generation +
+;; stale-suppression protect late replies). They make no durable write
+;; themselves (only `:rf.resource/refetch` dispatches), but carry the
+;; framework-authority stamp for family uniformity. User code MUST NOT
+;; dispatch them directly.
+(events/reg-event-fx :rf.resource/window-focused
+                     framework-authority-meta
+                     resource-events/window-focused-handler)
+(events/reg-event-fx :rf.resource/network-reconnected
+                     framework-authority-meta
+                     resource-events/network-reconnected-handler)
+
 ;; Framework-internal reply handlers. Per Spec 016 §Events / §Transport.
 ;; User code MUST NOT dispatch these.
 (events/reg-event-fx :rf.resource.internal/succeeded
@@ -244,11 +273,13 @@
 (defn- release-resources-host-caches!
   "Release ALL of the destroyed frame's host-side transient resource caches
   (work-ledger host handles + stale / GC timer handles + generation
-  high-water mark). The `:resources/on-frame-destroyed!` teardown body — one
-  composed hook, no second teardown path."
+  high-water mark + focus/reconnect revalidation listeners — rf2-vtblcq).
+  The `:resources/on-frame-destroyed!` teardown body — one composed hook, no
+  second teardown path."
   [frame-id]
   (work-ledger/on-frame-destroyed! frame-id)
   (timers/on-frame-destroyed! frame-id)
+  (revalidate-listeners/on-frame-destroyed! frame-id)
   (state/release-frame! frame-id)
   nil)
 
@@ -275,4 +306,10 @@
    :resources/clear-resource clear-resource
    :resources/resource-meta  resource-meta
    :resources/resource-state resource-state
-   :resources/resources      resources})
+   :resources/resources      resources
+   ;; rf2-vtblcq: the focus/reconnect revalidation host-listener install
+   ;; surface (CLJS-only host listeners; JVM no-op). Published so re-frame.core
+   ;; can reach it without a static :require, mirroring routing's
+   ;; :routing/install-history-listener!.
+   :resources/install-revalidation-listeners! install-revalidation-listeners!
+   :resources/remove-revalidation-listeners!  remove-revalidation-listeners!})

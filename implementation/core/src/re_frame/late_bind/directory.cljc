@@ -461,7 +461,15 @@
    {:key         :resources/on-frame-destroyed!
     :producer-ns 're-frame.resources
     :design-bead "rf2-afpdkn"
-    :description "Release the destroyed frame's host-side TRANSIENT resource caches — the work-ledger host handles (AbortControllers / timer handles keyed by [frame-id work-id], re-frame.resources.work-ledger/handle-table) AND the resource generation high-water mark (re-frame.resources.state/generation-cache). Neither is runtime-db state; both are module-level atoms off the epoch/SSR egress wire (the generation host-side so an epoch restore cannot rewind+recycle it). Invoked by frame/destroy-frame! by key; no-op when re-frame.resources is absent (the artefact is optional, post-v1). Per Spec 016 [Runtime-Subsystems] clause 5."}
+    :description "Release the destroyed frame's host-side TRANSIENT resource caches — the work-ledger host handles (AbortControllers / timer handles keyed by [frame-id work-id], re-frame.resources.work-ledger/handle-table), the stale/GC timer handles (re-frame.resources.timers/timer-table, rf2-nbjewi), the focus/reconnect revalidation window listeners (re-frame.resources.revalidate-listeners/listener-table, rf2-vtblcq), AND the resource generation high-water mark (re-frame.resources.state/generation-cache). None is runtime-db state; all are module-level atoms off the epoch/SSR egress wire (the generation host-side so an epoch restore cannot rewind+recycle it). Invoked by frame/destroy-frame! by key; no-op when re-frame.resources is absent (the artefact is optional, post-v1). Per Spec 016 [Runtime-Subsystems] clause 5."}
+   {:key         :resources/install-revalidation-listeners!
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-vtblcq"
+    :description "Install host window focus / network-reconnect listeners that drive active-stale revalidation for a frame (Spec 016 §Deferred slices). The listeners dispatch [:rf.resource/window-focused] / [:rf.resource/network-reconnected] at the named frame; the event handlers scan the frame's active-owner STALE entries and refetch them in the background with cause :focus / :reconnect (a cause, never an owner — generation + stale-suppression protect late replies). CLJS-only host listeners (window focus/visibilitychange + online); the JVM arm is a no-op (no DOM under SSR/JVM). Listeners are cancelled on frame destroy via the single :resources/on-frame-destroyed! hook. Published so re-frame.core can reach it without a static :require, mirroring routing's :routing/install-history-listener!."}
+   {:key         :resources/remove-revalidation-listeners!
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-vtblcq"
+    :description "Tear down the window focus / online revalidation listeners installed by :resources/install-revalidation-listeners! for a frame. No-op when none is installed (and on the JVM). For test isolation and single-page hosts that rotate which frame owns revalidation. CLJS-only host detach; both arms drop the side-table slot."}
    {:key         :routing/extra-route-keys
     :producer-ns 're-frame.resources.route
     :design-bead "rf2-p10npe"

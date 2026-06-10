@@ -256,6 +256,132 @@
   [cofx [_event-id payload]]
   (ensure-load cofx payload {:force-new? true :where 'rf.resource/refetch}))
 
+;; ---- focus / reconnect revalidation (rf2-vtblcq) --------------------------
+;;
+;; The first public-beta gate item (Spec 016 §Stale and GC scheduling: "on
+;; focus or reconnect, the first public-beta revalidation slice scans active
+;; stale entries and refetches by event"; §Deferred slices:
+;; `:rf.resource/window-focused` / `:rf.resource/network-reconnected`
+;; expressed as resource EVENTS, NOT subscription-driven fetching).
+;;
+;; The host focus / online listeners (`re-frame.resources.revalidate-listeners`,
+;; CLJS-only, registered per-frame, cancelled on frame-destroy via the existing
+;; `:resources/on-frame-destroyed!` hook) dispatch these events; the algorithm
+;; reuses the landed v1 primitives wholesale:
+;;
+;;   - ACTIVE OWNERS decide WHICH entries are worth refetching — only an entry
+;;     with a live lease (`:active-owners` non-empty) is scanned (an inactive
+;;     entry is GC fodder, not a revalidation target);
+;;   - DURABLE stale/fresh timestamps decide WHETHER — `state/entry-stale?`
+;;     (the single shared freshness derivation the subs / SSR / stale-timer
+;;     re-check all use) against the live clock; a fresh entry is LEFT ALONE;
+;;   - GENERATION CHECKS suppress stale replies — the refetch lowers through
+;;     the ordinary `ensure-load` path (force-new generation), so a
+;;     focus-triggered refetch is just another CAUSE; it attaches NO owner, so
+;;     it NEVER creates liveness (Spec 016 §Active owners and causes: `:focus`
+;;     / `:reconnect` are causes, not owners), and the work-id + generation
+;;     stale-suppression boundary protects late replies exactly as for any
+;;     refetch;
+;;   - the TRANSPORT adapter owns retry / abort (unchanged);
+;;   - TRACE rows explain the decision (one scan summary + the per-entry
+;;     refetch decisions ride the ordinary refetch traces).
+;;
+;; Background, NON-blocking: the scan dispatches `:rf.resource/refetch` per
+;; eligible entry (each a normal background refresh — prior data stays visible
+;; in `:fetching`), never blocking a route transition or the UI.
+
+(def focus-cause
+  "The revalidation cause recorded on a window-focus-triggered refetch
+  (`:focus`). A CAUSE, never an owner — it explains why the work happened
+  without changing liveness / GC / polling (Spec 016 §Active owners and
+  causes). User code MUST NOT dispatch the focus event directly; the host
+  focus listener does."
+  :focus)
+
+(def reconnect-cause
+  "The revalidation cause recorded on a network-reconnect-triggered refetch
+  (`:reconnect`). A CAUSE, never an owner (Spec 016 §Active owners and
+  causes)."
+  :reconnect)
+
+(defn- active-stale-scan
+  "Pure scan: given the frame's `runtime-db` value and the live `clock-ms`,
+  return the vector of `{:resource-key :scope :resource :params}` for every
+  cache entry that is BOTH active (has at least one `:active-owner` — a live
+  lease worth refetching) AND stale-by-policy (`state/entry-stale?` against
+  the durable timestamps). Fresh entries and owner-free entries are excluded.
+  Per Spec 016 §Stale and GC scheduling / §Deferred slices (focus/reconnect
+  active-stale scan). A pure selection — it never mutates; the caller turns
+  the selection into background `:rf.resource/refetch` dispatches."
+  [runtime-db clock-ms]
+  (let [entries (get-in runtime-db (state/entries-path))]
+    (into []
+          (keep (fn [[scoped-key entry]]
+                  (when (and (seq (:active-owners entry))
+                             (state/entry-stale? entry clock-ms))
+                    (let [[scope resource-id params] scoped-key]
+                      {:resource-key scoped-key
+                       :scope        scope
+                       :resource     resource-id
+                       :params       params}))))
+          entries)))
+
+(defn- revalidate-handler
+  "Shared focus / reconnect active-stale revalidation core (Spec 016
+  §Stale and GC scheduling / §Deferred slices). Scans the frame's
+  active-owner entries that are stale-by-policy and dispatches a background
+  `:rf.resource/refetch` per eligible entry, carrying `cause` (`:focus` /
+  `:reconnect`) — a CAUSE, never an owner (the refetch attaches no owner, so
+  it never creates liveness; generation + stale-suppression protect late
+  replies exactly as for any refetch). Fresh entries and owner-free entries
+  are left untouched. Emits one `:rf.resource/refetch-decision` scan-summary
+  trace (the broad-tab-return storm stays readable) plus the per-entry
+  refetch ride their ordinary refetch traces. Returns the event-fx map
+  (`:fx` only — the scan itself makes NO durable write; the refetch
+  dispatches do).
+
+  `signal` is the revalidation op (`:rf.resource/window-focused` /
+  `:rf.resource/network-reconnected`) for the trace; `cause` is the cause
+  keyword recorded on each refetch."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id} signal cause]
+  (let [runtime-db (or rt {})
+        eligible   (active-stale-scan runtime-db (now-ms))
+        refetches  (mapv (fn [{:keys [resource scope params]}]
+                           [:dispatch [:rf.resource/refetch
+                                       {:resource resource :scope scope
+                                        :params   params :cause cause}]])
+                         eligible)]
+    ;; ONE scan summary (a tab-return / reconnect can touch many entries — keep
+    ;; the trace readable). The per-entry refetch decisions ride the ordinary
+    ;; `:rf.resource/work-started` / `fetch-started` traces each refetch emits.
+    (trace/emit! :rf.event :rf.resource/revalidate-scan
+                 {:rf.frame/id frame-id :signal signal :cause cause
+                  :scanned    (count (get-in runtime-db (state/entries-path)))
+                  :refetched  (count eligible)
+                  :keys       (mapv :resource-key eligible)})
+    {:fx refetches}))
+
+(defn window-focused-handler
+  "`:rf.resource/window-focused` — the window-focus revalidation signal
+  (Spec 016 §Deferred slices: focus/reconnect revalidation as resource
+  EVENTS, not subscription-driven fetching). Scans the frame's active-owner
+  stale entries and refetches them in the background with cause `:focus`
+  (a cause, never an owner). Dispatched by the host focus / visibilitychange
+  listener (`re-frame.resources.revalidate-listeners`); user code MUST NOT
+  dispatch it directly. Per Spec 016 §Stale and GC scheduling."
+  [cofx [_event-id]]
+  (revalidate-handler cofx :rf.resource/window-focused focus-cause))
+
+(defn network-reconnected-handler
+  "`:rf.resource/network-reconnected` — the network-reconnect revalidation
+  signal (Spec 016 §Deferred slices). Scans the frame's active-owner stale
+  entries and refetches them in the background with cause `:reconnect` (a
+  cause, never an owner). Dispatched by the host `online` listener
+  (`re-frame.resources.revalidate-listeners`); user code MUST NOT dispatch
+  it directly. Per Spec 016 §Stale and GC scheduling."
+  [cofx [_event-id]]
+  (revalidate-handler cofx :rf.resource/network-reconnected reconnect-cause))
+
 ;; ---- invalidate-tags — exact tag invalidation -----------------------------
 
 (defn invalidate-tags-handler
@@ -746,8 +872,9 @@
       already makes the `:stale?` sub true (no write needed); emit a trace so
       Xray's lifecycle timeline shows the staleness boundary crossed. Refetch
       is NOT forced on a stale timer — staleness is orthogonal to refetch (a
-      stale entry refreshes on its next live cause; the focus/reconnect
-      active-stale scan is rf2-vtblcq, not this slice)."
+      stale entry refreshes on its next live cause: route re-entry, an
+      explicit event, or the focus/reconnect active-stale scan
+      `revalidate-handler`, rf2-vtblcq)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
    [_event-id {:keys [resource-key]}]]
   (let [runtime-db (or rt {})
