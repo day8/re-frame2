@@ -314,6 +314,11 @@
   ["re-frame.core" "resource-meta"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "resource-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "resources"]           {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ;; Focus/reconnect revalidation listener seam (spec/016 §Stale and GC
+  ;; scheduling); lifecycle install/remove fns mirroring routing's
+  ;; install-history-listener! / remove-history-listener!.
+  ["re-frame.core" "install-revalidation-listeners!"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.core" "remove-revalidation-listeners!"]  {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; Clearing registrations (spec/API.md §Clearing registrations).
   ["re-frame.core" "clear-event"]         {:tier :advanced :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "clear-sub"]           {:tier :advanced :owner "002" :status "v1 (preserved)"}

@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 495,
+ :var-count 497,
  :tier-vocab
  [:front-porch
   :advanced
@@ -133,6 +133,7 @@
   {:namespace "re-frame.core", :var "install-adapter!", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "install-history-listener!", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "install-managed-request-stubs!", :tier :testing, :kind :fn, :owner "014", :status "v1 (optional capability, dev/test)", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "install-revalidation-listeners!", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "machine-by-system-id", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "machine-has-tag?", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "machine-meta", :tier :tooling, :kind :fn, :owner "005", :status "v1", :facade? true, :runtime-verified? true}
@@ -174,6 +175,7 @@
   {:namespace "re-frame.core", :var "register-listener!", :tier :tooling, :kind :fn, :owner "009", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "registrations", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "remove-history-listener!", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "remove-revalidation-listeners!", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "render-head", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "render-to-string", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "render-tree-hash", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
