@@ -460,7 +460,7 @@ An illustrative reply token:
   :generation 4
   :rf.frame/id frame-id
   :reply
-  {:outcome :ok
+  {:status :ok
    :value article
    :completed-at 1781078400456}}]
 ```

@@ -1033,11 +1033,6 @@ The handler only sees live replies:
       :error
       {:db (assoc-in db [:article/error slug] (:error reply))}
 
-      :partial
-      {:db (-> db
-               (assoc-in [:article/by-slug slug] (:value reply))
-               (assoc-in [:article/warnings slug] (:error reply)))}
-
       ;; :cancelled may be visible for explicit user cancellation.
       :cancelled
       {:db (update db :article dissoc :loading)}
