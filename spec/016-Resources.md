@@ -493,6 +493,54 @@ The internal replies — `:rf.resource.internal/succeeded` / `:rf.resource.inter
 
 Do **not** add a TanStack-style `:select` key in v1. In re-frame2, projections are ordinary subscriptions layered over `[:rf.resource/data …]` ([EP-0004](../docs/EP/EP-0004-subscription-inputs.md) parametric inputs). That is not a missing feature; it is a structural advantage of the subscription graph.
 
+### Mutations (first public-beta gate, rf2-dwme29)
+
+A **mutation** is a named, causal WRITE to remote state that, on success, invalidates / patches / populates cached resource reads — the write counterpart of the read-resource grammar. The full normative contract lives in [EP-0003 §Mutations](../docs/EP/EP-0003-resource-queries.md#mutations); this section names the landed surface.
+
+```clojure
+(rf/reg-mutation
+  :article/save
+  {:params-schema :app/article          ;; REQUIRED — validates + canonicalizes params
+   :request                             ;; REQUIRED — the Spec 014 managed-HTTP write
+   (fn [{:keys [slug] :as article} _ctx]
+     {:request {:method :put :url (str "/api/articles/" slug) :body article}
+      :decode  :app/article})
+   :invalidates  (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})
+   :patches      (fn [params result] {scoped-key (fn [old result] (merge old result))})
+   :populates    (fn [params result] {scoped-key result})
+   :scope        :rf.scope/global       ;; the cache scope invalidation/patch defaults to
+   :invalidate-timing :after-success})  ;; | :before-request | :after-failure | :after-settle
+
+(rf/clear-mutation :article/save)        ;; registration-lifecycle removal (NOT a form-error reset)
+```
+
+Run a mutation with the `:rf.mutation/execute` event and observe it through the passive `:rf.mutation/*` subs, keyed by an **instance** id:
+
+```clojure
+[:rf.mutation/execute
+ {:mutation :article/save
+  :params   article
+  :instance :form/save-1        ;; caller-supplied (or generated) instance id
+  :scope    [:rf.scope/session {:user-id "u-42"}]
+  :cause    [:form-submit :article/save]}]
+
+[:rf.mutation/clear {:instance :form/save-1}]   ;; the causal instance reset
+
+[:rf.mutation/state    {:instance :form/save-1}]   ;; {:status :result :error :pending? :success? :error? :settled?}
+[:rf.mutation/status   {:instance :form/save-1}]
+[:rf.mutation/pending? {:instance :form/save-1}]
+[:rf.mutation/result   {:instance :form/save-1}]
+[:rf.mutation/error    {:instance :form/save-1}]
+```
+
+A `:mutation` registrar kind is added (the causal-write counterpart of `:resource`). The load-bearing invariants (MUST):
+
+- **Runtime state is keyed by mutation INSTANCE id, not mutation id** — two concurrent submissions of `:comment/add` keep distinct `:pending` / `:success` / `:error` rows and never clobber each other ([EP-0003 §Mutations](../docs/EP/EP-0003-resource-queries.md#mutations)). The instance id is caller-supplied or generated (the generated id closes over the monotone generation, so concurrent generated submissions differ).
+- **The write lowers through the SAME managed-HTTP transport as resources** — the runtime owns reply addressing (`:request-id` / `:on-success` / `:on-failure` are supplied from the instance + generation; an app `:request` that supplies them is rejected). Generation + work-id **stale suppression** is the correctness boundary exactly as for resources: a superseded reply (a re-execute under the same instance, or an `:rf.mutation/clear`) NEVER overwrites a newer instance. Abort+retry are inherited from the transport; **write retries are OPT-IN** (a mutation arms `:retry` only when its `:request` declares it).
+- **Success patches/populates resource entries, then invalidates tags** — the controlled `:patches` / `:populates` transform / seed resource entries (through the same durable entry shape + structural sharing the read path uses) BEFORE the success-time invalidation; `:invalidates` then composes with the landed `:rf.resource/invalidate-tags` (scoped). **Invalidation timing** is explicit (`:before-request` / `:after-success` (default) / `:after-failure` / `:after-settle`).
+- **Failure settles `:error`** (no `:refresh-error` analogue — a write has no last-known-good to keep); `:rf.mutation/clear` is the causal reset that clears the runtime instance (and best-effort aborts in-flight work).
+- **Trace-visible instance ids** — the `:rf.mutation/*` trace family (`started` / `succeeded` / `failed` / `cleared` / `stale-suppressed`) carries the instance id; the success trace reserves the optimistic-rollback shape (affected keys, patch summary; snapshot/rollback/reconciliation slots) — **optimistic rollback itself is DEFERRED**.
+
 ## Transport
 
 The initial scope ships a **single built-in transport**:
@@ -771,7 +819,7 @@ The machine remains the semantic workflow; the resource runtime handles cached r
 
 The following are named here but their full contract lands with their slice (per [EP-0003 §Acceptance Criteria And Rollout](../docs/EP/EP-0003-resource-queries.md#acceptance-criteria-and-rollout)) and is **out of the read-resource MVP contract**:
 
-- **First public-beta gate:** `reg-mutation` / `clear-mutation` / `:rf.mutation/execute` (causal writes that invalidate/patch/refetch resources, keyed by mutation **instance** id); ~~focus/reconnect revalidation for active stale resources (`:rf.resource/window-focused`, `:rf.resource/network-reconnected`) expressed as resource events, not subscription-driven fetching~~ — **focus/reconnect revalidation has LANDED** (rf2-vtblcq): the `:rf.resource/window-focused` / `:rf.resource/network-reconnected` events scan the frame's active-owner stale entries and refetch them by policy (cause `:focus` / `:reconnect`, never an owner; generation + stale-suppression respected); the host `window` focus / online listeners are installed per-frame by `install-revalidation-listeners!` and cancelled on frame destroy via the `:resources/on-frame-destroyed!` hook (Spec 016 §Stale and GC scheduling). Mutations remain the pending first-public-beta item.
+- **First public-beta gate (LANDED):** ~~`reg-mutation` / `clear-mutation` / `:rf.mutation/execute` (causal writes that invalidate/patch/refetch resources, keyed by mutation **instance** id)~~ — **mutations have LANDED** (rf2-dwme29): `reg-mutation` / `clear-mutation` register a causal write under the `:mutation` registrar kind; `:rf.mutation/execute` mints a per-submission instance row at `:rf.runtime/mutations` (keyed by instance id, so concurrent submissions don't clobber), creates a `:rf.runtime/work-ledger` record (work-kind `:mutation`), and lowers the write through the SAME managed-HTTP transport (runtime-owned reply addressing; generation + work-id stale suppression as for resources); on success it patches/populates resource entries then invalidates the `:invalidates` tags (explicit `:before-request` / `:after-success` / `:after-failure` / `:after-settle` timing); `:rf.mutation/clear` is the causal instance reset; the `:rf.mutation/*` passive subs project the instance view-model. Write retries are OPT-IN; optimistic rollback is DEFERRED (the success trace reserves its shape). See [§Mutations (first public-beta gate)](#mutations-first-public-beta-gate-rf2-dwme29). ~~focus/reconnect revalidation for active stale resources (`:rf.resource/window-focused`, `:rf.resource/network-reconnected`) expressed as resource events, not subscription-driven fetching~~ — **focus/reconnect revalidation has LANDED** (rf2-vtblcq): the `:rf.resource/window-focused` / `:rf.resource/network-reconnected` events scan the frame's active-owner stale entries and refetch them by policy (cause `:focus` / `:reconnect`, never an owner; generation + stale-suppression respected); the host `window` focus / online listeners are installed per-frame by `install-revalidation-listeners!` and cancelled on frame destroy via the `:resources/on-frame-destroyed!` hook (Spec 016 §Stale and GC scheduling). The first public-beta gate is now complete.
 - **Later slices:** GraphQL read/mutation transport (`:rf.graphql/query`, the first transport-extension proof — see [EP-0003 §Deferred: GraphQL](../docs/EP/EP-0003-resource-queries.md#deferred-graphql-later-phase)); optimistic rollback; generic transport extension protocol; polling/interval revalidation; infinite resources; normalized entity caches; automatic graph-derived invalidation; subscription-driven fetching; offline persistence; cross-tab broadcast.
 
 Mutations are the second slice, not the MVP, but the artefact is not "complete resource management" until minimal mutation invalidation and active-stale revalidation land.

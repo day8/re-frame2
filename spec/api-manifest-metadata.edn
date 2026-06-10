@@ -314,6 +314,18 @@
   ["re-frame.core" "resource-meta"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "resource-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "resources"]           {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ;; Mutations — the causal-write counterpart of the resource registration
+  ;; surface (rf2-dwme29, Spec 016 §Deferred slices / EP-0003 §Mutations, the
+  ;; first public-beta gate). Same optional-artefact wrapper posture as
+  ;; reg-resource (delegate through the late-bind table; clean
+  ;; :rf.error/resources-artefact-missing when the artefact is absent).
+  ;; Registration (`reg-mutation`) + registration-lifecycle (`clear-mutation`)
+  ;; + introspection (`mutation-meta` / `mutation-state` / `mutations`).
+  ["re-frame.core" "reg-mutation"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.core" "clear-mutation"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.core" "mutation-meta"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.core" "mutation-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.core" "mutations"]           {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; Focus/reconnect revalidation listener seam (spec/016 §Stale and GC
   ;; scheduling); lifecycle install/remove fns mirroring routing's
   ;; install-history-listener! / remove-history-listener!.

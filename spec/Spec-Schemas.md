@@ -1198,6 +1198,38 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:limit-ms  :int]                  ;; the render deadline (ms)
    [:reason    :string]])
 
+;; --- runtime: mutation errors (per [016 §Deferred slices] / [EP-0003 §Mutations]) ---
+;; The mutation slice's fail-closed authoring + use vocabulary (rf2-dwme29,
+;; the first public-beta gate). A mutation is a causal write keyed by
+;; mutation INSTANCE id; :request + :params-schema are REQUIRED at
+;; reg-mutation. See [009 §Error event catalogue] for the rows.
+
+(def InvalidMutationSpecTags
+  ;; reg-mutation omitted a REQUIRED key (:request / :params-schema) or the
+  ;; spec was not a map. Registration-time, dev+prod (a caller bug).
+  [:map
+   [:category    :keyword]
+   [:mutation-id :keyword]
+   [:value       {:optional true} :any]   ;; present when the spec was not a map
+   [:reason      :string]])
+
+(def MutationNotRegisteredTags
+  ;; :rf.mutation/execute referenced an unregistered mutation id.
+  [:map
+   [:category    :keyword]
+   [:mutation-id :keyword]
+   [:reason      :string]])
+
+(def MutationInvalidParamsTags
+  ;; a mutation's params failed conformance against its :params-schema (the
+  ;; pluggable late-bound Malli validator). nil vs missing is schema-defined.
+  [:map
+   [:category    :keyword]
+   [:mutation-id :keyword]
+   [:params      {:optional true} :any]
+   [:error       {:optional true} :any]   ;; the Malli explainer payload
+   [:reason      :string]])
+
 ;; --- runtime: schemas / preset / adapter / SSR errors ---
 
 (def BadAppSchemasArgTags
@@ -2170,7 +2202,7 @@ A frame owns two durable partitions held as one physical frame-state container (
 
 Cross-reference: `:rf/machine-snapshot` (above) is the value type for each entry under `:machines :snapshots`. `:rf/route-slice` (below) is the shape of `:routing :current`. `:rf/pending-navigation` (below) is the shape of `:routing :pending-navigation`. `:rf/elision-marker` (below) is the wire shape emitted by the walker when an entry in `:elision :declarations` says elide.
 
-> **Two further runtime-db children — `:rf.runtime/resources` and `:rf.runtime/work-ledger` — are added by the OPTIONAL post-v1 Resources artefact** (`day8/re-frame2-resources`, [016-Resources.md](016-Resources.md)), NOT by the v1-required `RuntimeDb` validator above. An app that omits the artefact carries neither child. Their shapes (`:rf/resource-entry`, `:rf/resource-work-record`, `:rf/scoped-resource-key`) are below.
+> **Further runtime-db children — `:rf.runtime/resources`, `:rf.runtime/work-ledger`, and (with the mutation slice) `:rf.runtime/mutations` — are added by the OPTIONAL post-v1 Resources artefact** (`day8/re-frame2-resources`, [016-Resources.md](016-Resources.md)), NOT by the v1-required `RuntimeDb` validator above. An app that omits the artefact carries none of them; `:rf.runtime/mutations` is present only once the app registers a mutation. Their shapes (`:rf/resource-entry`, `:rf/resource-work-record`, `:rf/scoped-resource-key`, and the `MutationInstance` row) are below.
 
 ### `:rf/scoped-resource-key`, `:rf/resource-entry`, `:rf/resource-work-record` (Resources, Spec 016)
 
@@ -2265,14 +2297,47 @@ The Resources artefact owns two runtime-db children — `:rf.runtime/resources` 
 
 (def WorkLedger
   ;; The frame work-ledger runtime-db child — serializable work records keyed
-  ;; by :work/id. Named neutrally; resources are its only v1 writer. Bounded:
-  ;; non-terminal rows ride the wire, terminal rows are pruned to a small
-  ;; per-key tail (Xray history), so it never grows unboundedly across SSR /
-  ;; epoch snapshots. Allocated lazily.
+  ;; by :work/id. Named neutrally; resources + mutations are its v1 writers
+  ;; (work-kind :resource / :mutation). Bounded: non-terminal rows ride the
+  ;; wire, terminal rows are pruned to a small per-key tail (Xray history), so
+  ;; it never grows unboundedly across SSR / epoch snapshots. Allocated lazily.
   [:map-of ResourceWorkId ResourceWorkRecord])
+
+(def MutationInstance
+  ;; A durable mutation INSTANCE row under [:rf.runtime/mutations <instance-id>]
+  ;; (rf2-dwme29, the first public-beta gate). Stores FACTS, not derived
+  ;; booleans (:pending? / :success? / :settled? are public derived sub
+  ;; values, computed in the subs layer). Keyed by instance id (NOT mutation
+  ;; id) so concurrent submissions of the same mutation never clobber each
+  ;; other. The in-flight attempt rides :rf.runtime/work-ledger via
+  ;; :current-work; host handles live in side tables. :affected-keys /
+  ;; :patch-summary reserve the optimistic-rollback trace shape (optimistic
+  ;; itself DEFERRED). The :error envelope is the closed :rf.http/* shape.
+  ;; Per [016 §Deferred slices] / [EP-0003 §Mutations].
+  [:map
+   [:mutation/id   :keyword]
+   [:instance/id   :any]
+   [:status        [:enum :idle :pending :success :error]]
+   [:result        {:optional true} :any]
+   [:error         {:optional true} :any]   ;; the closed :rf.http/* failure shape
+   [:scope         {:optional true} :any]
+   [:params        {:optional true} :any]
+   [:cause         {:optional true} :any]
+   [:generation    :int]
+   [:current-work  {:optional true} [:maybe ResourceWorkId]]
+   [:started-at    {:optional true} [:maybe :int]]
+   [:settled-at    {:optional true} [:maybe :int]]
+   [:affected-keys {:optional true} [:maybe [:vector :any]]]
+   [:patch-summary {:optional true} [:maybe :any]]])
+
+(def MutationsRuntime
+  ;; The mutation-instance runtime-db child — instances keyed by instance id.
+  ;; Allocated lazily by the optional Resources artefact; absent in an app
+  ;; that registers no mutations. Per [016 §Deferred slices] / [EP-0003 §Mutations].
+  [:map-of :any MutationInstance])
 ```
 
-`:rf/scoped-resource-key`, `:rf/resource-entry`, and `:rf/resource-work-record` are the schema ids for `ScopedResourceKey`, `ResourceEntry`, and `ResourceWorkRecord`. The `:error` / `:refresh-error` entry envelopes (and a failed work record's `:outcome`) carry the closed `:rf.http/*` failure-map shapes owned by [014-HTTPRequests.md](014-HTTPRequests.md). When the Resources artefact is loaded, `:rf.runtime/resources` (`ResourcesRuntime`) and `:rf.runtime/work-ledger` (`WorkLedger`) are present as additional runtime-db children alongside the four v1 subsystems.
+`:rf/scoped-resource-key`, `:rf/resource-entry`, and `:rf/resource-work-record` are the schema ids for `ScopedResourceKey`, `ResourceEntry`, and `ResourceWorkRecord`. The `:error` / `:refresh-error` entry envelopes (and a failed work record's `:outcome`) carry the closed `:rf.http/*` failure-map shapes owned by [014-HTTPRequests.md](014-HTTPRequests.md). When the Resources artefact is loaded, `:rf.runtime/resources` (`ResourcesRuntime`) and `:rf.runtime/work-ledger` (`WorkLedger`) are present as additional runtime-db children alongside the four v1 subsystems; when the app also registers a mutation, `:rf.runtime/mutations` (`MutationsRuntime`, the mutation-instance rows, rf2-dwme29) joins them.
 
 <a id="rfelision-registry"></a>
 

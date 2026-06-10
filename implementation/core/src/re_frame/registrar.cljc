@@ -60,9 +60,15 @@
   artefact's registrar kind — `reg-resource` registers a resource spec
   under it. Deliberately `:resource`, NOT `:query` (which would collide
   with route query-params + prior-art names). Reserved whether or not the
+  Resources artefact ships.
+
+  `:mutation` (rf2-dwme29, Spec 016 §Deferred slices / EP-0003 §Mutations,
+  the first public-beta gate) is the resources artefact's mutation
+  registrar kind — `reg-mutation` registers a mutation spec under it (the
+  causal-write counterpart of `:resource`). Reserved whether or not the
   Resources artefact ships."
   #{:event :sub :fx :cofx :view :frame :route :head
-    :error-projector :flow :resource})
+    :error-projector :flow :resource :mutation})
 
 (defn valid-kind? [k]
   (contains? kinds k))

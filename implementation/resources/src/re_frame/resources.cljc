@@ -57,6 +57,10 @@
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
             [re-frame.resources.events :as resource-events]
+            [re-frame.resources.mutation-events :as mutation-events]
+            [re-frame.resources.mutation-registry :as mutation-registry]
+            [re-frame.resources.mutation-runtime :as mstate]
+            [re-frame.resources.mutation-subs :as mutation-subs]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.revalidate-listeners :as revalidate-listeners]
             [re-frame.resources.route :as route]
@@ -77,6 +81,16 @@
 (def clear-resource  registry/clear-resource)
 (def resource-meta   registry/resource-meta)
 (def resource-ids    registry/resource-ids)
+
+;; Mutations (rf2-dwme29, Spec 016 §Deferred slices / EP-0003 §Mutations —
+;; the first public-beta gate). `reg-mutation` registers a causal-write
+;; mutation; `:rf.mutation/execute` runs it over the SAME managed-HTTP
+;; transport the resources use, with success-time resource invalidation /
+;; patch / populate; `clear-mutation` is the registration-lifecycle removal.
+(def reg-mutation    mutation-registry/reg-mutation)
+(def clear-mutation  mutation-registry/clear-mutation)
+(def mutation-meta   mutation-registry/mutation-meta)
+(def mutation-ids    mutation-registry/mutation-ids)
 
 ;; Focus / reconnect revalidation host-listener install (rf2-vtblcq, Spec 016
 ;; §Deferred slices). An app calls `install-revalidation-listeners!` for each
@@ -116,6 +130,32 @@
   (let [scoped-key (resource-subs/resolve-scoped-key opts)
         runtime-db (frame/frame-runtime-db-value frame)]
     (get-in runtime-db (state/entry-path scoped-key))))
+
+(defn mutations
+  "Return mutation introspection for a frame target (EP-0003 §Mutations /
+  Xray). Returns `{:mutation-ids [...] :instances {…}}` — the static
+  registry (every registered mutation id) plus, when `:frame` is supplied,
+  the live per-frame mutation-INSTANCE map (`{<instance-id> <instance>}`).
+  Xray groups instances under their registered `:mutation/id` while showing
+  each separately. Without `:frame` only the static registry is returned
+  (no ambient frame fallback, EP-0002)."
+  ([] {:mutation-ids (mutation-ids) :instances {}})
+  ([{:keys [frame]}]
+   {:mutation-ids (mutation-ids)
+    :instances    (if frame
+                    (or (get-in (frame/frame-runtime-db-value frame)
+                                (mstate/instances-path)) {})
+                    {})}))
+
+(defn mutation-state
+  "Return a mutation INSTANCE's durable runtime row for an explicit
+  `:frame` introspection target `{:instance :frame}` (EP-0003 §Mutations),
+  or nil when no instance exists under that instance id in that frame. Per
+  EP-0002 the frame target is carried explicitly; a frameless call with no
+  resolvable context fails closed."
+  [{:keys [instance frame]}]
+  (let [runtime-db (frame/frame-runtime-db-value frame)]
+    (get-in runtime-db (mstate/instance-path instance))))
 
 ;; ---- event / sub / hook registrations -------------------------------------
 ;; Keeping the registrations in this façade means a `(require
@@ -248,6 +288,34 @@
 ;; Passive resource subs. Per Spec 016 §Subscriptions.
 (resource-subs/register-subs!)
 
+;; Mutations (rf2-dwme29, Spec 016 §Deferred slices / EP-0003 §Mutations —
+;; the first public-beta gate). The causal-write counterpart of the resource
+;; events: `:rf.mutation/execute` mints an instance + work-ledger record and
+;; lowers the write through the SAME managed-HTTP transport; on success it
+;; patches / populates resource entries then invalidates tags (composing with
+;; the landed `:rf.resource/invalidate-tags`); `:rf.mutation/clear` is the
+;; causal instance reset. `:rf.mutation/execute` mints a generation (the same
+;; host-side monotone allocator the resources use, for stale suppression), so
+;; it injects the `:rf.resource/generation` cofx. The internal replies carry
+;; the verification payload (instance id + work-id + generation). User code
+;; MUST NOT dispatch the internal replies.
+(events/reg-event-fx :rf.mutation/execute
+                     framework-authority-meta
+                     generation-interceptors
+                     mutation-events/execute-handler)
+(events/reg-event-fx :rf.mutation/clear
+                     framework-authority-meta
+                     mutation-events/clear-handler)
+(events/reg-event-fx :rf.mutation.internal/succeeded
+                     framework-authority-meta
+                     mutation-events/succeeded-handler)
+(events/reg-event-fx :rf.mutation.internal/failed
+                     framework-authority-meta
+                     mutation-events/failed-handler)
+
+;; Passive mutation subs. Per EP-0003 §Mutations.
+(mutation-subs/register-subs!)
+
 ;; LATE-BOUND cross-feature integrations (Spec 016 §Route integration /
 ;; §SSR and hydration). Wired here so they re-install on a `:reload`. Each
 ;; publishes a late-bind hook the host artefact (routing / ssr) CONSULTS;
@@ -312,4 +380,14 @@
    ;; can reach it without a static :require, mirroring routing's
    ;; :routing/install-history-listener!.
    :resources/install-revalidation-listeners! install-revalidation-listeners!
-   :resources/remove-revalidation-listeners!  remove-revalidation-listeners!})
+   :resources/remove-revalidation-listeners!  remove-revalidation-listeners!
+   ;; rf2-dwme29 (EP-0003 §Mutations, first public-beta gate): the mutation
+   ;; registration + introspection surface, published through the same
+   ;; late-bind table so `re-frame.core`'s `reg-mutation` / `clear-mutation`
+   ;; / `mutation-meta` / `mutation-state` / `mutations` wrappers reach the
+   ;; producing impl without a static :require.
+   :resources/reg-mutation   reg-mutation
+   :resources/clear-mutation clear-mutation
+   :resources/mutation-meta  mutation-meta
+   :resources/mutation-state mutation-state
+   :resources/mutations      mutations})

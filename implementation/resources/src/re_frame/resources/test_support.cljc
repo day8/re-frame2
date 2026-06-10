@@ -28,6 +28,7 @@
   managed-HTTP slices, behind this same test-support require."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
+            [re-frame.resources.mutation-registry :as mutation-registry]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.revalidate-listeners :as revalidate-listeners]
             [re-frame.resources.state :as state]
@@ -46,6 +47,9 @@
   Spec 016 (test isolation)."
   []
   (registrar/clear-kind! registry/resource-kind)
+  ;; clear the :mutation registrar kind too (rf2-dwme29) — the mutation
+  ;; registry is the causal-write counterpart of the resource registry.
+  (registrar/clear-kind! mutation-registry/mutation-kind)
   (state/reset-cache!)
   ;; drop the host-side work-ledger handles too (rf2-afpdkn) — also
   ;; host-side transient state not cleared by the runtime / frames reset.

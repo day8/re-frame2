@@ -458,10 +458,32 @@
     :producer-ns 're-frame.resources
     :design-bead "rf2-p10npe"
     :description "Return resource introspection for a frame target — registered resources + the live per-frame resource-instance table. Per Spec 016 §Introspection."}
+   ;; ---- mutations (rf2-dwme29 — EP-0003 §Mutations, first public-beta gate) -
+   ;; The causal-write counterpart of the resource registration surface.
+   {:key         :resources/reg-mutation
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-dwme29"
+    :description "Register a mutation — a named, causal WRITE to remote state that, on success, invalidates / patches / populates cached resource reads (Spec 016 §Deferred slices / EP-0003 §Mutations). Run with [:rf.mutation/execute …]; observe via the passive [:rf.mutation/*] subs keyed by instance id."}
+   {:key         :resources/clear-mutation
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-dwme29"
+    :description "Remove a registered mutation (registration-lifecycle, NOT a form-error reset; the causal runtime-instance reset is the [:rf.mutation/clear …] event). Per EP-0003 §Mutations."}
+   {:key         :resources/mutation-meta
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-dwme29"
+    :description "Return the registered mutation's spec map for a mutation id, or nil. Per EP-0003 §Mutations."}
+   {:key         :resources/mutation-state
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-dwme29"
+    :description "Return a mutation INSTANCE's durable runtime row for an explicit-frame target {:instance :frame}, or nil. Per EP-0003 §Mutations."}
+   {:key         :resources/mutations
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-dwme29"
+    :description "Return mutation introspection for a frame target — registered mutation ids + the live per-frame mutation-instance table (keyed by instance id). Per EP-0003 §Mutations."}
    {:key         :resources/reset-resources!
     :producer-ns 're-frame.resources.test-support
     :design-bead "rf2-p10npe"
-    :description "Test-isolation reset: clear the :resource-kind registrar entries + the host-side generation high-water marks + the host-side work-ledger handles. Published from re-frame.resources.test-support (kept behind an explicit test-support require, rf2-dbiv8 posture); fired by the shared CLJS make-reset-runtime-fixture reset-hooks table, no-op when test-support is absent."}
+    :description "Test-isolation reset: clear the :resource-kind + :mutation-kind registrar entries + the host-side generation high-water marks + the host-side work-ledger / timer / revalidation handles. Published from re-frame.resources.test-support (kept behind an explicit test-support require, rf2-dbiv8 posture); fired by the shared CLJS make-reset-runtime-fixture reset-hooks table, no-op when test-support is absent."}
    {:key         :resources/on-frame-destroyed!
     :producer-ns 're-frame.resources
     :design-bead "rf2-afpdkn"
