@@ -453,6 +453,52 @@ rf2-lq0ef (audit verdict B).
 | `:rf.xray/set-registered-routes-override-for-test` | `[_ ov]` | Test-only override hook. |
 | `:rf.xray/set-current-route-slice-override-for-test` | `[_ ov]` | Test-only slice override. |
 
+## Resources panel
+
+Spec: [`024-Resources-Panel.md`](./024-Resources-Panel.md) (Xray-side
+lens) + [`spec/016-Resources.md`](../../../spec/016-Resources.md)
+(framework substrate). Declarative-server-state lens: the static resource
+registry, the live per-frame instance + work-ledger tables, the
+route/resource graph, the lifecycle timeline, the invalidation graph, the
+cache-growth view, and the scope audit + lints. Read-only — the panel
+registers NO `:rf.resource/*` event (observing pins no resource, Spec 016
+§Active owners and causes). Decoupled from the optional Resources artefact
+(reads `(rf/registrations :resource)` + the runtime-db slice; Xray never
+`:require`s `re-frame.resources`).
+
+### Subscriptions
+
+| Sub | Returns |
+|---|---|
+| `:rf.xray/registered-resources` | `(rf/registrations :resource)` — the static registry. Test override via `:registered-resources-override`. |
+| `:rf.xray/registered-resources-override` | Test override slot. |
+| `:rf.xray/resource-entries` | The live cache entries map from the target frame's runtime-db at `[:rf.runtime/resources :entries]`. Test override. |
+| `:rf.xray/resource-entries-override` | Test override slot. |
+| `:rf.xray/resource-work-ledger` | The live work-ledger map at `[:rf.runtime/work-ledger]`. Test override. |
+| `:rf.xray/resource-work-ledger-override` | Test override slot. |
+| `:rf.xray/resource-sub-reads` | Observed live subscription reads (`[{:resource-id :params :scope} …]`) backing the scope-mismatch lint. Empty by default. Test override. |
+| `:rf.xray/resource-sub-reads-override` | Test override slot. |
+| `:rf.xray/resources-tab-data` | View-facing composite — `{:silent? :registry :instances :work :route-graph :timeline :invalidations :cache-growth :audit}` over the registry + entries + ledger + route registry + trace buffer. PRIVACY: every param/scope/data/cause/outcome value is summarized (never raw). |
+
+### Events
+
+| Event | Vector shape | Behaviour |
+|---|---|---|
+| `:rf.xray/set-registered-resources-override-for-test` | `[_ ov]` | Test-only override hook. `nil` clears. |
+| `:rf.xray/set-resource-entries-override-for-test` | `[_ ov]` | Test-only override hook. `nil` clears. |
+| `:rf.xray/set-resource-work-ledger-override-for-test` | `[_ ov]` | Test-only override hook. `nil` clears. |
+| `:rf.xray/set-resource-sub-reads-override-for-test` | `[_ ov]` | Test-only override hook. `nil` clears. |
+
+### Tool accessors (the AI / MCP read API)
+
+Five read-only accessors on `day8.re-frame2-xray.runtime` (the Xray↔MCP
+read seam), per [`024-Resources-Panel.md` §Tool accessors](./024-Resources-Panel.md):
+`list-resources`, `list-resource-instances`, `get-resource-state`,
+`get-resource-history`, `list-resource-invalidations` — filterable by
+frame / scope / resource-id / params / tag / owner / status / stale? /
+request-id / nav-token, with bounded history and the two-layer privacy
+elision (in-panel summary + off-box `egress-*` walker).
+
 ## Machine inspector
 
 Spec: [`003-Machine-Inspector.md`](./003-Machine-Inspector.md). Reads

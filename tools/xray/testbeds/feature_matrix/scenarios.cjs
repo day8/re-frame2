@@ -34,6 +34,12 @@ const PANEL_HANDOFFS = [
   // rf2-lq0ef) is the focused-event navigation lens. Its root view
   // renders the `rf-xray-routing` testid (panels/routing.cljs).
   ['routing', 'rf-xray-routing'],
+  // The :resources tab (Spec 016 §Xray and AI tooling) is the
+  // declarative-server-state lens. Its root view renders the
+  // `rf-xray-resources` testid (panels/resources.cljs). On the counter
+  // testbed no resources are registered, so the panel renders its
+  // silent-by-default state under the same `rf-xray-resources` root.
+  ['resources', 'rf-xray-resources'],
   // rf2-gbz39 — the Issues tab was removed (Mike RULED Option (c));
   // issues surface inline in the Epoch panel + the L2 event-row pink-
   // wash + the always-on issues ribbon signal (the auto-open-on-error
@@ -188,11 +194,11 @@ async function openXray(page) {
 }
 
 // Post rf2-xy4yb: the L3 tab bar replaces the legacy sidebar. Tabs
-// expose `data-testid="rf-xray-tab-<id>"` for the 6 surviving panels
-// (epoch / app-db / views / trace / machines / routing —
+// expose `data-testid="rf-xray-tab-<id>"` for the 7 panels
+// (epoch / app-db / views / trace / machines / routing / resources —
 // spec/018 §5; rf2-5gl5r retired the Event/Handler tab in favour of
 // the Epoch panel; rf2-gbz39 removed the Issues tab per Mike's Option
-// (c) ruling).
+// (c) ruling; Resources added per Spec 016 §Xray and AI tooling).
 async function clickTab(page, id, canvasTestId) {
   await page.locator(`[data-testid="rf-xray-tab-${id}"]`).click();
   await expectVisible(page.locator(`[data-testid="${canvasTestId}"]`), 5000);

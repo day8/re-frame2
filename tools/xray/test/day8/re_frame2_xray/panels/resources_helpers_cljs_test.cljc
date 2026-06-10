@@ -1,0 +1,377 @@
+(ns day8.re-frame2-xray.panels.resources-helpers-cljs-test
+  "Pure-data tests for Xray's Resources tab helpers (Spec 016 §Xray and
+  AI tooling).
+
+  Dual-target naming (`.cljc` + `_cljs_test`):
+    - Cognitect's test-runner (CLJ) picks it up via the default
+      `.*-test$` regex on the ns name.
+    - Shadow's `:node-test` build picks it up via the `cljs-test$`
+      regex on the ns name.
+
+  ## What's under test
+
+    1. **trace family** — `resource-trace-op?` / `op-class` / `op-label`
+       over the closed `:rf.resource/*` enum + an in-namespace op not yet
+       enumerated; non-family ops reject.
+    2. **summarize (PRIVACY)** — type + bounded size + redaction-aware
+       preview; the framework sentinels (`:rf/redacted` /
+       `:rf.size/large-elided`) keep their status and render no raw
+       preview; a large value is bounded with `:elided?`. Params, scopes,
+       AND data go through the SAME fn.
+    3. **project-registry** — registrar map → sorted rows; scope policy
+       described; declaring-routes joined from the route registry;
+       schemas summarized.
+    4. **project-instances** — entries map → rows; derived `:stale?` /
+       `:gc-eligible?`; scope/params/data summarized (never raw).
+    5. **project-work-ledger** — ledger map → rows; terminal split; host
+       handles structurally absent.
+    6. **project-route-graph** — routes with `:resources` → graph nodes;
+       blocking = SSR wait point.
+    7. **lifecycle-timeline / invalidation-graph / cache-growth**.
+    8. **lints** — global-scope audit, suspicious-global, scope-mismatch,
+       orphaned-owner.
+    9. **filters** — instance / work / history filter axes; bounded
+       history."
+  (:require [clojure.test :refer [deftest is testing]]
+            [day8.re-frame2-xray.panels.resources-helpers :as h]))
+
+;; ---- fixtures -----------------------------------------------------------
+
+(def ^:private global-scope :rf.scope/global)
+(def ^:private session-scope [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}])
+
+(def ^:private registrations
+  "A `(rf/registrations :resource)` shape — `{<id> <meta>}` where meta
+  carries the registration spec under `:rf/resource` + source coords."
+  {:article/by-slug
+   {:doc  "Article detail by slug."
+    :file "app/articles.cljs" :line 12
+    :rf/resource {:doc "Article detail by slug."
+                  :params-schema [:map [:slug :string]]
+                  :data-schema   :app/article
+                  :scope         :rf.scope/global
+                  :transport     :rf.http/managed
+                  :stale-after-ms 60000
+                  :gc-after-ms    300000
+                  :tags          (fn [_ _] #{})
+                  :request       (fn [_ _] {})}}
+   :me/profile
+   {:doc "The current user's profile."
+    :rf/resource {:doc "The current user's profile."
+                  :params-schema [:map]
+                  :scope         :rf.scope/global  ; suspicious — /me-ish
+                  :request       (fn [_ _] {})}}
+   :dashboard/summary
+   {:rf/resource {:params-schema [:map [:user-id :string]]
+                  :scope         :rf.scope/from-caller
+                  :request       (fn [_ _] {})}}})
+
+(def ^:private routes-map
+  {:route/article
+   {:path "/articles/:slug"
+    :resources [{:resource :article/by-slug :blocking? true
+                 :params (fn [_] {}) :scope (fn [_ _] nil)}
+                {:resource :comments/list :blocking? false :keep-previous? true}]}
+   :route/home {:path "/"}})
+
+;; ---- (1) trace family ---------------------------------------------------
+
+(deftest trace-family
+  (testing "enumerated ops are family members with class + label"
+    (is (h/resource-trace-op? :rf.resource/fetch-started))
+    (is (= :success (h/op-class :rf.resource/succeeded)))
+    (is (= :failure (h/op-class :rf.resource/failed)))
+    (is (= :suppression (h/op-class :rf.resource/stale-suppressed)))
+    (is (= :invalidation (h/op-class :rf.resource/invalidated)))
+    (is (= :gc (h/op-class :rf.resource/gc-fired)))
+    (is (= :dedupe (h/op-class :rf.resource/deduped)))
+    (is (= :hydration (h/op-class :rf.resource/hydrated)))
+    (is (= "fetch started" (h/op-label :rf.resource/fetch-started))))
+  (testing "an in-namespace op not yet enumerated is still a family member"
+    (is (h/resource-trace-op? :rf.resource/some-future-op))
+    (is (= :lifecycle (h/op-class :rf.resource/some-future-op)))
+    (is (= "some-future-op" (h/op-label :rf.resource/some-future-op))))
+  (testing "non-family ops reject"
+    (is (not (h/resource-trace-op? :rf.event/dispatched)))
+    (is (not (h/resource-trace-op? :rf.route/navigate)))
+    (is (nil? (h/op-class :rf.event/dispatched)))))
+
+;; ---- (2) summarize (PRIVACY) -------------------------------------------
+
+(deftest summarize-privacy
+  (testing "a map value summarizes to type + size + preview, never raw"
+    (let [s (h/summarize {:slug "welcome"})]
+      (is (= "map" (:type s)))
+      (is (= 1 (:size s)))
+      (is (not (:redacted? s)))
+      (is (not (:large? s)))))
+  (testing "scopes go through the SAME fn as data (scope carries PII)"
+    (let [s (h/summarize session-scope)]
+      (is (= "vector" (:type s)))
+      ;; the preview is bounded text, NOT a structured leak of the raw value
+      (is (string? (:preview s)))))
+  (testing "the framework redaction sentinel keeps redacted status, no raw preview"
+    (let [s (h/summarize :rf/redacted)]
+      (is (:redacted? s))
+      (is (= "[redacted]" (:preview s)))))
+  (testing "the framework large-elision sentinel keeps large status"
+    (let [s (h/summarize :rf.size/large-elided)]
+      (is (:large? s))
+      (is (= "[large — elided]" (:preview s)))))
+  (testing "a large value is bounded with :elided?"
+    (let [big (apply str (repeat 500 "x"))
+          s   (h/summarize big {:budget 20})]
+      (is (:elided? s))
+      (is (<= (count (:preview s)) 21))   ; budget + the … glyph
+      (is (not (:redacted? s)))))
+  (testing "scoped-key-summary summarizes scope + params, plain resource-id"
+    (let [s (h/scoped-key-summary [session-scope :article/by-slug {:slug "x"}])]
+      (is (= :article/by-slug (:resource-id s)))
+      (is (= "vector" (get-in s [:scope :type])))
+      (is (= "map" (get-in s [:params :type]))))))
+
+;; ---- (3) project-registry ----------------------------------------------
+
+(deftest project-registry-test
+  (let [rows (h/project-registry registrations routes-map)]
+    (testing "one row per registered resource, sorted by id"
+      (is (= 3 (count rows)))
+      (is (= [:article/by-slug :dashboard/summary :me/profile]
+             (mapv :resource-id rows))))
+    (testing "scope policy is described; global flagged"
+      (let [article (first (filter #(= :article/by-slug (:resource-id %)) rows))
+            dash    (first (filter #(= :dashboard/summary (:resource-id %)) rows))]
+        (is (= :global (get-in article [:scope :policy])))
+        (is (get-in article [:scope :global?]))
+        (is (= :from-caller (get-in dash [:scope :policy])))
+        (is (not (get-in dash [:scope :global?])))))
+    (testing "schemas summarized (never raw), policy/timestamps surfaced"
+      (let [article (first (filter #(= :article/by-slug (:resource-id %)) rows))]
+        (is (map? (:params-schema article)))   ; a summary map, not the raw schema
+        (is (= 60000 (:stale-after-ms article)))
+        (is (= 300000 (:gc-after-ms article)))
+        (is (:tags? article))
+        (is (= :rf.http/managed (get-in article [:request :transport])))
+        (is (= {:file "app/articles.cljs" :line 12} (:source-coord article)))))
+    (testing "declaring-routes joined from the route registry"
+      (let [article (first (filter #(= :article/by-slug (:resource-id %)) rows))]
+        (is (= [:route/article] (:declaring-routes article)))))))
+
+;; ---- (4) project-instances ---------------------------------------------
+
+(def ^:private now 1000000)
+
+(def ^:private entries
+  {[session-scope :article/by-slug {:slug "welcome"}]
+   {:resource/id :article/by-slug :status :loaded
+    :data {:title "Welcome"} :generation 4 :attempt 2
+    :loaded-at (- now 1000) :stale-at (+ now 50000)
+    :active-owners #{[:route :route/article "nav-1"]}
+    :tags #{[:article "welcome"]} :request-id [:w 4]}
+   [session-scope :article/by-slug {:slug "old"}]
+   {:resource/id :article/by-slug :status :loaded
+    :data {:title "Old"} :generation 2
+    :loaded-at (- now 99999) :stale-at (- now 1)   ; past stale-at → stale
+    :active-owners #{}                              ; no owner → gc-eligible
+    :tags #{[:article "old"]}}})
+
+(deftest project-instances-test
+  (let [rows (h/project-instances entries now)]
+    (testing "one row per entry; sorted by id then generation desc"
+      (is (= 2 (count rows)))
+      (is (= [4 2] (mapv :generation rows))))
+    (testing "scope/params/data summarized — NEVER raw"
+      (let [r (first rows)]
+        (is (= "vector" (get-in r [:scope :type])))   ; a summary, not the raw scope
+        (is (= "map" (get-in r [:params :type])))
+        (is (= "map" (get-in r [:data :type])))
+        (is (:has-data? r))))
+    (testing "derived :stale? (invalidated OR past stale-at) — not a stored fact"
+      (let [fresh (first (filter #(= 4 (:generation %)) rows))
+            stale (first (filter #(= 2 (:generation %)) rows))]
+        (is (not (:stale? fresh)) "loaded + stale-at in the future = fresh")
+        (is (:stale? stale) "past stale-at = stale")))
+    (testing "derived :gc-eligible? = no active owners"
+      (let [owned (first (filter #(= 4 (:generation %)) rows))
+            orphan (first (filter #(= 2 (:generation %)) rows))]
+        (is (not (:gc-eligible? owned)))
+        (is (:gc-eligible? orphan))
+        (is (= 1 (:owner-count owned)))))))
+
+;; ---- (5) project-work-ledger -------------------------------------------
+
+(def ^:private ledger
+  {[:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
+   {:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
+    :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "welcome"}]
+    :generation 4 :transport :rf.http/managed :status :running
+    :owners #{[:route :route/article "nav-1"]}
+    :causes [[:route-entry :route/article "nav-1"]]
+    :cancellable? true :started-at 100 :deadline-at 5100}
+   [:rf.work/resource [session-scope :article/by-slug {:slug "old"}] 1]
+   {:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "old"}] 1]
+    :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "old"}]
+    :generation 1 :status :completed :outcome {:ok true}}})
+
+(deftest project-work-ledger-test
+  (let [rows (h/project-work-ledger ledger)]
+    (testing "one row per work record; non-terminal (live) first"
+      (is (= 2 (count rows)))
+      (is (= [:running :completed] (mapv :status rows)))
+      (is (= [false true] (mapv :terminal? rows))))
+    (testing "host handles are structurally absent — only serializable facts"
+      (let [r (first rows)]
+        (is (= :resource (:kind r)))
+        (is (:cancellable? r))
+        (is (= 5100 (:deadline-at r)))
+        ;; resource-key scope/params summarized
+        (is (= "vector" (get-in r [:resource-key :scope :type])))
+        ;; one identity per record — stale-key = work-id (Spec 016)
+        (is (= (:work-id r) (:stale-key r)))))
+    (testing "causes summarized (may carry data)"
+      (is (vector? (:causes (first rows)))))))
+
+;; ---- (6) project-route-graph -------------------------------------------
+
+(deftest project-route-graph-test
+  (let [nodes (h/project-route-graph routes-map)]
+    (testing "only routes with :resources appear"
+      (is (= 1 (count nodes)))
+      (is (= :route/article (:route-id (first nodes)))))
+    (testing "blocking = SSR wait point; non-blocking split"
+      (let [n (first nodes)]
+        (is (= [:article/by-slug] (:blocking n)))
+        (is (= [:comments/list] (:non-blocking n)))
+        (is (:ssr-wait? n))))
+    (testing "resource nodes record declared resolvers without invoking them"
+      (let [res (first (:resources (first nodes)))]
+        (is (:blocking? res))
+        (is (:params-fn? res))
+        (is (:scope-resolver? res))))))
+
+;; ---- (7) timeline / invalidation / cache-growth ------------------------
+
+(def ^:private trace-buffer
+  [{:id 1 :operation :rf.event/dispatched :tags {}}
+   {:id 2 :operation :rf.resource/fetch-started
+    :tags {:resource-key [session-scope :article/by-slug {:slug "welcome"}]
+           :generation 4 :status :loading
+           :owner [:route :route/article "nav-1"]}}
+   {:id 3 :operation :rf.resource/succeeded
+    :tags {:resource-key [session-scope :article/by-slug {:slug "welcome"}]
+           :generation 4 :status-after :loaded}}
+   {:id 4 :operation :rf.resource/invalidated
+    :tags {:scope session-scope :tags #{[:article "welcome"]}
+           :cause [:mutation :article/save "m-1"]
+           :matched [[session-scope :article/by-slug {:slug "welcome"}]]
+           :refetched 1}}
+   {:id 5 :operation :rf.resource/owner-released
+    :tags {:owner [:lease :dashboard/opened "u-42"]}}])
+
+(deftest lifecycle-timeline-test
+  (let [rows (h/lifecycle-timeline trace-buffer)]
+    (testing "only resource-family rows, in buffer order"
+      (is (= [:rf.resource/fetch-started :rf.resource/succeeded
+              :rf.resource/invalidated :rf.resource/owner-released]
+             (mapv :operation rows))))
+    (testing "resource-id derived; key summarized; class set"
+      (let [fs (first rows)]
+        (is (= :article/by-slug (:resource-id fs)))
+        (is (= :lifecycle (:class fs)))
+        (is (= "vector" (get-in fs [:resource-key :scope :type])))))))
+
+(deftest invalidation-graph-test
+  (let [rows (h/invalidation-graph trace-buffer)]
+    (testing "one row per invalidation; scope summarized, tags + counts surfaced"
+      (is (= 1 (count rows)))
+      (let [r (first rows)]
+        (is (= "vector" (get-in r [:scope :type])))   ; scope summarized
+        (is (= [[:article "welcome"]] (:tags r)))
+        (is (= 1 (:match-count r)))
+        (is (= 1 (:refetched r)))
+        (is (map? (:cause r)))))))                      ; cause summarized
+
+(deftest cache-growth-test
+  (let [instance-rows (h/project-instances entries now)
+        work-rows     (h/project-work-ledger ledger)
+        g             (h/cache-growth instance-rows work-rows)]
+    (testing "aggregates per-resource entry/owned/gc counts + live work"
+      (is (= 2 (:total-entries g)))
+      (is (= 1 (:total-gc-eligible g)))
+      (is (= 1 (:live-work g)))               ; one non-terminal ledger row
+      (let [article (first (filter #(= :article/by-slug (:resource-id %))
+                                   (:by-resource g)))]
+        (is (= 2 (:entry-count article)))
+        (is (= 1 (:owned-count article)))
+        (is (= 1 (:gc-eligible article)))))))
+
+;; ---- (8) lints ----------------------------------------------------------
+
+(deftest scope-audit+lints
+  (let [registry-rows (h/project-registry registrations routes-map)
+        instance-rows (h/project-instances entries now)]
+    (testing "global-scope audit enumerates every :rf.scope/global resource"
+      (let [audit (h/global-scope-audit registry-rows)]
+        (is (= #{:article/by-slug :me/profile}
+               (set (map :resource-id audit))))))
+    (testing "suspicious-global flags a /me-ish explicit-global"
+      (let [warns (h/suspicious-global-warnings registry-rows)]
+        (is (= [:me/profile] (mapv :resource-id warns)))))
+    (testing "scope-mismatch lint flags a sub reading a different scope"
+      ;; a sub reads :article/by-slug {:slug "welcome"} under GLOBAL scope
+      ;; while the entry is cached under the SESSION scope → mismatch.
+      (let [mismatches (h/scope-mismatch-lint
+                         instance-rows
+                         [{:resource-id :article/by-slug
+                           :params {:slug "welcome"}
+                           :scope  global-scope}])]
+        (is (= 1 (count mismatches)))
+        (is (= :article/by-slug (:resource-id (first mismatches))))
+        ;; surfaced scopes are summarized (PRIVACY)
+        (is (map? (:sub-scope (first mismatches)))))
+      ;; a sub reading the SAME scope as the entry → no mismatch
+      (is (empty? (h/scope-mismatch-lint
+                    instance-rows
+                    [{:resource-id :article/by-slug
+                      :params {:slug "welcome"} :scope session-scope}]))))
+    (testing "orphaned-owner lint flags an app-kind owner with no release"
+      ;; add an entry pinned by an app-minted [:lease …] owner with no
+      ;; owner-released event in the trace
+      (let [pinned (assoc entries
+                          [session-scope :dashboard/summary {:user-id "u-99"}]
+                          {:resource/id :dashboard/summary :status :loaded
+                           :data {} :active-owners #{[:lease :dashboard/opened "u-99"]}})
+            rows   (h/project-instances pinned now)
+            ;; trace has a release only for u-42, not u-99
+            orphans (h/orphaned-owner-lint rows trace-buffer)]
+        (is (= [[:lease :dashboard/opened "u-99"]] (mapv :owner orphans))))
+      (testing "a route/machine/ssr owner is framework-released — not linted"
+        (is (empty? (h/orphaned-owner-lint instance-rows trace-buffer))
+            "the route-owned fresh entry is not an app-kind owner")))))
+
+;; ---- (9) filters --------------------------------------------------------
+
+(deftest filters-test
+  (let [instance-rows (h/project-instances entries now)
+        work-rows     (h/project-work-ledger ledger)
+        timeline-rows (h/lifecycle-timeline trace-buffer)]
+    (testing "instance filter axes: resource-id / status / stale? / tag / owner"
+      (is (= 2 (count (h/filter-instance-rows instance-rows {:resource-id :article/by-slug}))))
+      (is (= 2 (count (h/filter-instance-rows instance-rows {:status :loaded}))))
+      (is (= 1 (count (h/filter-instance-rows instance-rows {:stale? true}))))
+      (is (= 1 (count (h/filter-instance-rows instance-rows {:stale? false}))))
+      (is (= 1 (count (h/filter-instance-rows instance-rows {:tag [:article "welcome"]}))))
+      (is (= 1 (count (h/filter-instance-rows instance-rows
+                        {:owner [:route :route/article "nav-1"]})))))
+    (testing "select-raw-entries key-axis filter (scope/resource-id/params)"
+      (is (= 2 (count (h/select-raw-entries entries {:resource-id :article/by-slug}))))
+      (is (= 1 (count (h/select-raw-entries entries {:params {:slug "welcome"}}))))
+      (is (= 2 (count (h/select-raw-entries entries {:scope session-scope})))))
+    (testing "work filter axes incl. nav-token (matches an owner carrying it)"
+      (is (= 1 (count (h/filter-work-rows work-rows {:status :running}))))
+      (is (= 1 (count (h/filter-work-rows work-rows {:nav-token "nav-1"})))))
+    (testing "history filter is BOUNDED by :limit"
+      (is (= 4 (count (h/filter-history-rows timeline-rows {}))))
+      (is (= 2 (count (h/filter-history-rows timeline-rows {:limit 2}))))
+      (is (= 1 (count (h/filter-history-rows timeline-rows
+                        {:resource-id :article/by-slug :limit 1})))))))

@@ -264,6 +264,19 @@
    :rf.xray/current-route-slice
    :rf.xray/current-route-slice-override
    :rf.xray/routing-tab-data
+   ;; Spec 016 §Xray and AI tooling — Resources tab (8th L3 tab) sub
+   ;; family. The static registry + the live runtime-db cache/ledger
+   ;; slices + the view-facing composite + the scope-mismatch-lint
+   ;; sub-reads slot, each with a test-only override.
+   :rf.xray/registered-resources
+   :rf.xray/registered-resources-override
+   :rf.xray/resource-entries
+   :rf.xray/resource-entries-override
+   :rf.xray/resource-work-ledger
+   :rf.xray/resource-work-ledger-override
+   :rf.xray/resource-sub-reads
+   :rf.xray/resource-sub-reads-override
+   :rf.xray/resources-tab-data
    ;; rf2-o5f5f.3 — Routes browse + Simulate-URL state lives under
    ;; the Static Routes panel (promoted from `:rf.xray.routing/*` per
    ;; the two-verbs-two-homes split). The Dynamic Routing lens narrows
@@ -632,6 +645,14 @@
    ;; rf2-nrbs9 — Routes tab test-only override events.
    :rf.xray/set-current-route-slice-override-for-test
    :rf.xray/set-registered-routes-override-for-test
+   ;; Spec 016 §Xray and AI tooling — Resources tab test-only override
+   ;; events (registry / entries / work-ledger / sub-reads). The panel
+   ;; registers NO :rf.resource/* event — it is read-only (observing
+   ;; pins no resource).
+   :rf.xray/set-registered-resources-override-for-test
+   :rf.xray/set-resource-entries-override-for-test
+   :rf.xray/set-resource-work-ledger-override-for-test
+   :rf.xray/set-resource-sub-reads-override-for-test
    ;; rf2-o5f5f.3 — Static Routes UI-state events (search input,
    ;; Simulate-URL input, expand-row toggle, hermetic Simulate-nav
    ;; toggle, cross-link to Dynamic Routing). Promoted from the

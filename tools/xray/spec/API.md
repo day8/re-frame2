@@ -294,9 +294,12 @@ day8.re-frame2-xray.panels.reactive-panel/Panel
 day8.re-frame2-xray.panels.trace/Panel
 day8.re-frame2-xray.panels.machine-inspector/Panel
 day8.re-frame2-xray.panels.routing/Panel
+day8.re-frame2-xray.panels.resources/Panel
 ;; (rf2-gbz39 — issues-ribbon/Panel removed with the Issues tab per
 ;; Mike's Option (c) ruling; issues surface inline in the Epoch panel +
 ;; the L2 event-row pink-wash + the always-on issues ribbon signal.)
+;; (Resources/Panel — the declarative-server-state lens, Spec 016 §Xray
+;; and AI tooling — is the Dynamic L3 tab after Routing; read-only.)
 ```
 
 (rf2-qy0nu — the 8-panel dead-code sweep removed `causality-graph`,

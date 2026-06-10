@@ -110,6 +110,7 @@
   {:namespace "day8.re-frame2-xray.panels" :var "mount-machine-inspector!"             :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-managed-fx!"                     :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-reactive-panel!"                 :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels" :var "mount-resources!"                      :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-routing!"                        :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-segment-inspector!"             :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-shell!"                          :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
@@ -124,6 +125,7 @@
   {:namespace "day8.re-frame2-xray.panels.epoch-panel"          :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels.machine-inspector"    :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels.reactive-panel"       :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.resources"            :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels.routing"              :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels.trace"                :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.static.flows.panel"          :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}

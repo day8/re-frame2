@@ -87,7 +87,16 @@
             ;; get-app-db-diff to project the changed-paths slice diff its
             ;; docstring promises ({:added :removed :changed}) instead of
             ;; egressing two whole app-db snapshots.
-            [day8.re-frame2-xray.diff.engine :as diff-engine]))
+            [day8.re-frame2-xray.diff.engine :as diff-engine]
+            ;; Spec 016 §Xray and AI tooling — the resource-accessor
+            ;; projection algebra (registry rows, instance/work-ledger
+            ;; rows, lifecycle timeline, invalidation graph, and the
+            ;; filter axes). Pure-data + JVM-portable; carries the
+            ;; in-panel privacy summaries. The off-box egress here adds
+            ;; the framework `egress-value` walker on top. Decoupled from
+            ;; the optional resources artefact (reads via the registrar +
+            ;; runtime-db slice; Xray never :requires re-frame.resources).
+            [day8.re-frame2-xray.panels.resources-helpers :as resources-helpers]))
 
 ;; ---------------------------------------------------------------------------
 ;; Session sentinel
@@ -748,6 +757,217 @@
                                                  :include-large?     include-large?})]))
                       ids)
       :count    (count ids)})))
+
+;; ---------------------------------------------------------------------------
+;; Resource accessors (Spec 016 §Xray and AI tooling — 5 tool accessors)
+;; ---------------------------------------------------------------------------
+;;
+;; list-resources / list-resource-instances / get-resource-state /
+;; get-resource-history / list-resource-invalidations. Filter axes:
+;; frame / scope / resource-id / tag / owner / status / stale? /
+;; request-id / nav-token (Spec 016).
+;;
+;; PRIVACY (Spec 016, load-bearing): tool surfaces PREFER SUMMARIES over
+;; raw values; params + scopes get the SAME privacy + size elision as
+;; data (scopes carry user/tenant/locale/impersonation ids); history is
+;; BOUNDED. Two elision layers compose:
+;;   1. the in-panel `resources-helpers/summarize` shape (always applied
+;;      — type + bounded size + a redaction-aware preview, never raw);
+;;   2. the framework off-box `egress-runtime-db-value` / `egress-value`
+;;      walker on the raw runtime-db values an accessor surfaces, so a
+;;      `:sensitive?` data/scope slot egresses as `:rf/redacted` and a
+;;      `:large?` slot as `:rf.size/large-elided` on the off-box default
+;;      path. The resource cache is RUNTIME-DB state, so the raw-value
+;;      egress default-redacts the partition (ruling #14) — a trusted-
+;;      local caller opts in with `:include-runtime-db? true`.
+;;
+;; READ-ONLY (Spec 016 §Active owners and causes): an accessor NEVER
+;; dispatches `:rf.resource/ensure`, attaches an owner, refetches, or
+;; extends GC. Inspection has zero side effects on resource liveness —
+;; Xray (and the AI/MCP boundary it serves) MUST NOT become an owner by
+;; observing.
+
+(def ^:private resource-kind
+  "The `:resource` registrar kind (Spec 016 §Registration). A duplicated
+  literal — the runtime does not :require the optional resources artefact
+  (bundle isolation), reading the static registry process-globally via
+  `(rf/registrations :resource)`."
+  :resource)
+
+(defn list-resources
+  "Tool: `list-resources`. The STATIC resource registry (Spec 016 §Xray
+  and AI tooling — the static resource registry): id, source coords,
+  params/data schemas (summarized), request summary, stale/GC policy, tag
+  producer, scope policy, sensitivity/large class, and declaring routes.
+  Filter axis: `:resource-id` (a single id) — nil lists all.
+
+  Returns `{:ok? true :resources [<registry-row> …] :count N}`. The rows
+  carry only static REGISTRY facts (no live values), so they egress
+  freely; param/data schemas are summarized in case they are large."
+  ([] (list-resources nil))
+  ([{:keys [resource-id]}]
+   (let [registrations (rf/registrations resource-kind)
+         routes-map    (rf/registrations :route)
+         rows          (cond->> (resources-helpers/project-registry registrations routes-map)
+                         (some? resource-id) (filter #(= resource-id (:resource-id %))))]
+     {:ok?       true
+      :resources (vec rows)
+      :count     (count rows)})))
+
+(defn list-resource-instances
+  "Tool: `list-resource-instances`. The LIVE per-frame resource-instance
+  table (Spec 016 §Xray and AI tooling): resource key, scope, status,
+  timestamps, generation, request id, attempt, active owners, tags, data
+  summary, GC eligibility. Filter axes: `:frame`, `:scope`,
+  `:resource-id`, `:params`, `:status`, `:stale?`, `:tag`, `:owner`,
+  `:request-id`.
+
+  Reads the cache entries from the frame's RUNTIME-DB partition at
+  `[:rf.runtime/resources :entries]` (EP-0001 — resource cache is
+  framework-owned runtime-db state). PRIVACY: scope/params/data are
+  summarized AND the raw entry values route through
+  `egress-runtime-db-value` (default-redacted off-box; opt in with
+  `:include-runtime-db? true`).
+
+  Returns `{:ok? true :frame <id> :instances [<row> …] :count N}` or
+  `{:ok? false :reason :no-frame-resolved}`."
+  ([] (list-resource-instances nil))
+  ([{:keys [frame scope resource-id params status stale? tag owner request-id
+            include-sensitive? include-large? include-runtime-db?] :as _opts}]
+   (let [fid (resolve-frame frame)]
+     (if (nil? fid)
+       {:ok? false :reason :no-frame-resolved
+        :hint "Pass :frame :foo or register at least one frame."}
+       (let [runtime-db  (rf/runtime-db-value fid)
+             all-entries (get-in runtime-db resources-helpers/entries-rel-path)
+             ;; upstream key-filter BEFORE projection (scope/resource-id/params
+             ;; against the raw cache key)
+             entries     (resources-helpers/select-raw-entries
+                           all-entries
+                           {:scope scope :resource-id resource-id :params params})
+             rt-egress   {:include-sensitive?  include-sensitive?
+                          :include-large?      include-large?
+                          :include-runtime-db? include-runtime-db?}
+             ;; off-box raw-value egress on the runtime-db entries (the
+             ;; summaries the rows carry are belt; this is braces — a
+             ;; :sensitive? data/scope slot egresses redacted)
+             entries*    (into {}
+                               (map (fn [[k entry]]
+                                      [k (egress-runtime-db-value
+                                           entry
+                                           (assoc rt-egress
+                                                  :path (conj resources-helpers/entries-rel-path k)))]))
+                               (or entries {}))
+             rows        (-> (resources-helpers/project-instances entries* (.now js/Date))
+                             (resources-helpers/filter-instance-rows
+                               {:resource-id resource-id :status status :stale? stale?
+                                :tag tag :owner owner :request-id request-id}))]
+         {:ok?       true
+          :frame     fid
+          :instances rows
+          :count     (count rows)})))))
+
+(defn get-resource-state
+  "Tool: `get-resource-state`. The LIVE durable state of ONE resource
+  instance addressed by its scoped key (Spec 016 §Introspection /
+  §Status semantics). Resolves the entry at `[:rf.runtime/resources
+  :entries [scope resource-id params]]` in the frame's runtime-db.
+
+  Required: `:resource-id` + `:scope` + `:params` (the scoped key). Per
+  EP-0002 the frame target is carried explicitly (`:frame`); a frameless
+  call with no resolvable context fails closed.
+
+  Returns `{:ok? true :frame <id> :state <instance-row>}` (the row
+  carries the PRIVACY-summarized status/data/error projection — Spec 016
+  §Status semantics: `:stale?`/`:has-data?` are derived, not stored) or
+  `{:ok? false :reason :no-such-instance ...}` / `:no-frame-resolved` /
+  `:missing-key`. The raw entry routes through `egress-runtime-db-value`
+  before projection (default-redacted off-box; `:include-runtime-db?
+  true` to opt in)."
+  [{:keys [frame resource-id scope params
+           include-sensitive? include-large? include-runtime-db?]}]
+  (let [fid (resolve-frame frame)]
+    (cond
+      (nil? fid)
+      {:ok? false :reason :no-frame-resolved
+       :hint "Pass :frame :foo or register at least one frame."}
+
+      (nil? resource-id)
+      {:ok? false :reason :missing-key
+       :hint "Pass :resource-id + :scope + :params (the scoped key)."}
+
+      :else
+      (let [scoped-key  [scope resource-id params]
+            runtime-db  (rf/runtime-db-value fid)
+            entry-path  (conj (vec resources-helpers/entries-rel-path) scoped-key)
+            entry       (get-in runtime-db entry-path)]
+        (if (nil? entry)
+          {:ok? false :reason :no-such-instance
+           :frame fid :resource-id resource-id}
+          (let [entry* (egress-runtime-db-value
+                         entry
+                         {:include-sensitive?  include-sensitive?
+                          :include-large?      include-large?
+                          :include-runtime-db? include-runtime-db?
+                          :path                entry-path})]
+            {:ok?   true
+             :frame fid
+             :state (resources-helpers/instance-row [scoped-key entry*] (.now js/Date))}))))))
+
+(defn get-resource-history
+  "Tool: `get-resource-history`. The BOUNDED lifecycle history for a
+  resource (Spec 016 §Xray and AI tooling — the lifecycle timeline;
+  history MUST be bounded). Projects the `:rf.resource/*` trace family
+  out of the frame's trace ring into ordered lifecycle rows. Filter axes:
+  `:resource-id`, `:nav-token`, `:limit` (default 50 — the bound).
+
+  Returns `{:ok? true :frame <id> :history [<timeline-row> …] :count N}`
+  or `{:ok? false :reason :no-frame-resolved}`. The rows carry the
+  PRIVACY-summarized scope/params/cause projection (a cause may carry
+  data); whole `:sensitive? true` trace events are default-suppressed at
+  the off-box seam."
+  ([] (get-resource-history nil))
+  ([{:keys [frame resource-id nav-token limit include-sensitive?]
+     :or   {limit 50} :as _opts}]
+   (let [fid (resolve-frame frame)]
+     (if (nil? fid)
+       {:ok? false :reason :no-frame-resolved
+        :hint "Pass :frame :foo or register at least one frame."}
+       (let [events  (-> (trace-tooling/trace-buffer fid {:flat true})
+                         (drop-sensitive-events include-sensitive?))
+             rows    (-> (resources-helpers/lifecycle-timeline events)
+                         (resources-helpers/filter-history-rows
+                           {:resource-id resource-id :nav-token nav-token :limit limit}))]
+         {:ok?     true
+          :frame   fid
+          :history (vec rows)
+          :count   (count rows)})))))
+
+(defn list-resource-invalidations
+  "Tool: `list-resource-invalidations`. The invalidation / mutation graph
+  (Spec 016 §Invalidation / §Xray and AI tooling). Projects the
+  `:rf.resource/invalidated` trace rows — each carrying the scope
+  (summarized), the invalidated tags, the cause (summarized), the matched
+  scoped keys, and the refetch count. Distinguishes a broad-tag storm
+  (high `:match-count`) and a zero-match invalidation (`:match-count 0`).
+  Filter axis: `:tag` (only invalidations touching the tag).
+
+  Returns `{:ok? true :frame <id> :invalidations [<row> …] :count N}` or
+  `{:ok? false :reason :no-frame-resolved}`."
+  ([] (list-resource-invalidations nil))
+  ([{:keys [frame tag include-sensitive?] :as _opts}]
+   (let [fid (resolve-frame frame)]
+     (if (nil? fid)
+       {:ok? false :reason :no-frame-resolved
+        :hint "Pass :frame :foo or register at least one frame."}
+       (let [events (-> (trace-tooling/trace-buffer fid {:flat true})
+                        (drop-sensitive-events include-sensitive?))
+             rows   (cond->> (resources-helpers/invalidation-graph events)
+                      (some? tag) (filter #(some #{tag} (:tags %))))]
+         {:ok?           true
+          :frame         fid
+          :invalidations (vec rows)
+          :count         (count rows)})))))
 
 (defn get-issues
   "Tool: `get-issues`. Recent errors / warnings / schema violations /
