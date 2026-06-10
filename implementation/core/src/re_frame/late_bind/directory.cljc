@@ -465,7 +465,11 @@
    {:key         :ssr/extend-runtime-db-projection
     :producer-ns 're-frame.resources.ssr
     :design-bead "rf2-p10npe"
-    :description "Cross-feature LATE-BOUND SSR hydration-payload runtime-db projection extension (Spec 016 §SSR and hydration). Takes the full runtime-db value, returns a {subsystem-key durable-projection} map SSR's project-runtime-db merges into its allowlist-shaped slice; the Resources artefact projects ONLY the durable :entries of :rf.runtime/resources (the reverse indexes are recomputable-from-entries). Resources is the first publisher; consumed by re-frame.ssr.payload-policy/project-runtime-db."}
+    :description "Cross-feature LATE-BOUND SSR hydration-payload runtime-db projection extension (Spec 016 §SSR and hydration). Takes the full runtime-db value, returns a {subsystem-key durable-projection} map SSR's project-runtime-db merges into its allowlist-shaped slice; the Resources artefact projects ONLY the durable :entries of :rf.runtime/resources (per-entry redacted/omitted by the resource's :sensitive?/:large? classification; the reverse indexes are recomputable-from-entries). Resources is the first publisher; consumed by re-frame.ssr.payload-policy/project-runtime-db."}
+   {:key         :resources/hydrate-runtime-db
+    :producer-ns 're-frame.resources.ssr
+    :design-bead "rf2-ctk2av"
+    :description "Cross-feature LATE-BOUND SSR hydration RECONCILE hook (Spec 016 §SSR and hydration / §Restore and replay) — the client-side counterpart of :ssr/extend-runtime-db-projection. Takes the runtime-db the :rf/hydrate handler is about to install (+ the carried frame id) and returns it with the :rf.runtime/resources subtree reconciled: reverse indexes recomputed from entries (never trusted from the wire), SSR owners orphaned, transient :current-work cleared, server clock skew surfaced. Resources is the first consumer; consulted by re-frame.ssr.hydrate/hydrate-event-handler*. Absent hook (no resources artefact) leaves the runtime-db unchanged."}
 
    ;; ---- re-frame.http-managed (rf2-5kpd / rf2-6y3q / rf2-wvkn / rf2-ijm7) ----
    ;; The three stub-family hooks publish from `re-frame.http-test-support`

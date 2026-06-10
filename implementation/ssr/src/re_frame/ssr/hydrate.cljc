@@ -140,6 +140,11 @@
   app-db slice — the client-only fallback). `runtime-db` is the
   `:rf.db/runtime` coeffect — EP-0001 (rf2-vzld77): the hydration metadata
   is durable runtime-db state, written under `[:rf.runtime/ssr :hydration]`."
+  ;; A cross-feature artefact may reconcile its OWN installed runtime-db
+  ;; subtree via the late-bound `:resources/hydrate-runtime-db` hook (Spec
+  ;; 016 §SSR and hydration — Resources recomputes its reverse indexes from
+  ;; entries, orphans SSR owners, surfaces clock skew). Absent hook leaves
+  ;; the runtime-db unchanged (no resources artefact loaded).
   [db runtime-db frame payload new-db]
   (let [version       (:rf/version payload)
         schema-digest (:rf/schema-digest payload)
@@ -206,9 +211,23 @@
       ;; sit alongside the hydrated machine snapshots / route slice).
       (or payload-rt (seq metadata))
       (assoc :rf.db/runtime
-             (if (seq metadata)
-               (assoc-in runtime-base [:rf.runtime/ssr :hydration] metadata)
-               runtime-base)))))
+             (let [base (if (seq metadata)
+                          (assoc-in runtime-base [:rf.runtime/ssr :hydration] metadata)
+                          runtime-base)]
+               ;; LATE-BOUND cross-subsystem hydration RECONCILE. A cross-feature
+               ;; artefact (Resources, Spec 016 §SSR and hydration) reconciles its
+               ;; OWN durable runtime-db subtree once installed — recompute reverse
+               ;; indexes from entries (never trust the wire), orphan SSR owners,
+               ;; clear transient host pointers, surface server clock skew — without
+               ;; SSR statically `:require`ing it. Absent hook (no resources
+               ;; artefact) leaves `base` unchanged, so an SSR app without resources
+               ;; sees no behaviour change. Resources is the first consumer
+               ;; (rf2-ctk2av): it reconciles `:rf.runtime/resources`. The
+               ;; symmetric COUNTERPART of `:ssr/extend-runtime-db-projection`
+               ;; (the server projection hook in `project-runtime-db`).
+               (if-let [reconcile (late-bind/get-fn :resources/hydrate-runtime-db)]
+                 (reconcile base frame)
+                 base))))))
 
 ;; ---- :rf.ssr/check-version + :rf.ssr/check-schema-digest fxs --------------
 ;;
