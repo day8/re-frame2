@@ -104,14 +104,16 @@ off-box surfaces.
 not widen that substrate to warnings. A `:rf.warning/*` category that meets the
 criterion was therefore **misclassified as a warning**: promotion includes
 recategorization to `:rf.error/*` with a typed per-category default `:recovery`
-(e.g. `:reported`), per the existing error-contract shape. Skipped teardown is
-an error the process cannot locally observe — not an advisory.
+from the existing recovery vocabulary. For teardown failures the recovery is
+still `:ignored` — teardown continues best-effort — but the event now rides the
+always-on error axis. Skipped teardown is an error the process cannot locally
+observe, not an advisory.
 
 ### The audit (initial known rows)
 
 | Category | Today | Under the criterion |
 |---|---|---|
-| `:rf.warning/teardown-hook-exception` | diagnostic (DCE'd) | **Promote + recategorize** → `:rf.error/teardown-hook-exception`, default `:recovery :reported` (teardown continues best-effort; the failure ships) — production-possible, resource-leakage class, compounds in long-lived processes. The known C4 fix |
+| `:rf.warning/teardown-hook-exception` | diagnostic (DCE'd) | **Promote + recategorize** → `:rf.error/teardown-hook-exception`, default `:recovery :ignored` (teardown continues best-effort; the failure ships through the always-on axis) — production-possible, resource-leakage class, compounds in long-lived processes. The known C4 fix |
 | `:rf.error/sub-input-fn-exception` / `-bad-return` | always-on | Correct as-is (the precedent rows) |
 | `:rf.error/no-frame-context` | always-on | Correct (frameless errors need the frameless axis — EP-0002 R6) |
 | `:rf.warning/app-handler-runtime-effect` | diagnostic | Correct — dev-time teaching diagnostic; leg 2 fails (the write applies; nothing leaks) |
@@ -126,18 +128,20 @@ one test (so promotion is real, not documentary).
 
 ## Backwards Compatibility
 
-Additive: promotions add production emissions that did not exist; nothing is
-removed from the diagnostic channel. Apps with error shippers may see new
-(correct) reports after promotion — release-notes material, pre-alpha.
+Mostly additive, but not a pure no-op for diagnostic consumers: the teardown
+failure category is recategorized from `:rf.warning/teardown-hook-exception` to
+`:rf.error/teardown-hook-exception`. Pre-alpha, the correct stable category
+wins over retaining a long-lived alias. Apps with error shippers may see new
+(correct) reports after promotion — release-notes material.
 
 ## Bead Plan
 
 1. Spec bead: the channel section + criterion + catalogue column (hot-zone
    Spec 009; sequential).
 2. Teardown bead: recategorize `:rf.warning/teardown-hook-exception` →
-   `:rf.error/teardown-hook-exception` (catalogue row, `:recovery :reported`)
-   and route `safe-call-hook!` failures through the always-on axis (keep the
-   dev trace breadcrumb), plus a teardown-report test.
+   `:rf.error/teardown-hook-exception` (catalogue row, `:recovery :ignored`)
+   and route `safe-call-hook!` failures through the always-on axis (keep dev
+   trace visibility under the new error category), plus a teardown-report test.
 3. Audit bead: grade the full catalogue; file promotion fixes found.
 4. Conformance bead: the catalogue/channel pin test.
 

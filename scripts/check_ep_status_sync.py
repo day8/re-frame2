@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
-"""Freshness check: docs/EP/README.md index statuses match each EP's Status: line.
+"""Freshness check: docs/EP/README.md index statuses match EP metadata.
 
 Each Enhancement Proposal under docs/EP/ carries a single source-of-truth
 `Status:` line in its front-matter (e.g. `Status: accepted`).  The
 docs/EP/README.md `## Index` table restates that status in its `Status`
-column.  The two drift apart by hand — rf2-8cw3m7 caught EP-0001 sitting at
-`Status: accepted` in the EP while the README index still listed it as
-`proposal`.
+column.  The two drift apart by hand, so the guard keeps the README as an
+index rather than a second source of truth.
 
-This guard re-derives the README index status for every EP from the
-per-EP `Status:` line and fails when they disagree, when an EP file has no
-index row, or when an index row points at a missing EP file.  Wire it into a
-doc gate so the drift fails before it ships.
+This guard re-derives the README index status for every EP from the per-EP
+`Status:` line and validates EP-0009's process metadata grammar: statuses are a
+closed set (plus `superseded-by EP-NNNN`) and new EPs carry a `Type:` line.
+Wire it into a doc gate so drift fails before it ships.
 
 What is checked:
     * STATUS MISMATCH  — README index status column != the EP file's Status: line.
+    * INVALID STATUS   — Status is outside EP-0009's vocabulary.
+    * INVALID TYPE     — Type is outside EP-0009's vocabulary.
+    * NO TYPE          — A post-EP-0005 file has no Type: line.
     * MISSING ROW      — an EP-NNNN-*.md file has no matching README index row.
     * ORPHAN ROW       — a README index row links a file that does not exist.
 
 Exit code:
-    0  index in sync with every EP's Status: line
-    1  at least one mismatch / missing row / orphan row
+    0  index and EP metadata are valid
+    1  at least one mismatch / metadata defect / missing row / orphan row
     2  invocation / setup error
 
 The script is dependency-light — Python stdlib only.
@@ -39,8 +41,28 @@ from pathlib import Path
 _EP_FILE_RE = re.compile(r"^EP-(\d{4})-.+\.md$")
 
 # The per-EP front-matter status line: `Status: accepted` (leading whitespace
-# tolerated, value is a single token up to end-of-line, trimmed).
+# tolerated, value runs to end-of-line, trimmed).  `superseded-by EP-NNNN`
+# deliberately contains a space.
 _STATUS_LINE_RE = re.compile(r"^\s*Status:\s*(\S.*?)\s*$", re.MULTILINE)
+
+_TYPE_LINE_RE = re.compile(r"^\s*Type:\s*(\S.*?)\s*$", re.MULTILINE)
+
+_ALLOWED_STATUSES = {
+    "proposal",
+    "accepted",
+    "final",
+    "active",
+    "rejected",
+    "withdrawn",
+    "deferred",
+}
+_SUPERSEDED_STATUS_RE = re.compile(r"^superseded-by EP-\d{4}$")
+_ALLOWED_TYPES = {"standards-track", "process"}
+
+# EP-0001..EP-0005 predate EP-0009's Type: header.  EP-0006 and later must
+# carry Type explicitly so the process can distinguish standards-track/final
+# from process/active.
+_TYPE_REQUIRED_FROM_EP = 6
 
 # A README `## Index` table body row.  The table is:
 #   | EP | Title | Status | Summary |
@@ -64,6 +86,17 @@ def _read_ep_status(path: Path) -> str | None:
     text = path.read_text(encoding="utf-8", errors="replace")
     m = _STATUS_LINE_RE.search(text)
     return m.group(1).strip() if m else None
+
+
+def _read_ep_type(path: Path) -> str | None:
+    """Return the EP file's declared Type: token, or None if absent."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    m = _TYPE_LINE_RE.search(text)
+    return m.group(1).strip() if m else None
+
+
+def _valid_status(status: str) -> bool:
+    return status in _ALLOWED_STATUSES or bool(_SUPERSEDED_STATUS_RE.match(status))
 
 
 def _read_index_rows(readme: Path) -> dict[str, tuple[str, str, int]]:
@@ -114,6 +147,7 @@ def check(repo_root: Path, verbose: bool = False) -> int:
         )
 
     mismatches: list[str] = []
+    metadata_defects: list[str] = []
     missing_rows: list[str] = []
     orphan_rows: list[str] = []
 
@@ -121,11 +155,39 @@ def check(repo_root: Path, verbose: bool = False) -> int:
     ep_filenames = {p.name for p in ep_files}
 
     for ep in ep_files:
+        ep_match = _EP_FILE_RE.match(ep.name)
+        assert ep_match is not None
+        ep_number = int(ep_match.group(1))
+
         declared = _read_ep_status(ep)
         if declared is None:
             mismatches.append(
                 f"  NO STATUS: {ep.relative_to(repo_root)} has no `Status:` line"
             )
+        elif not _valid_status(declared):
+            metadata_defects.append(
+                f"  INVALID STATUS: {ep.relative_to(repo_root)} declares "
+                f"`Status: {declared}`; expected one of "
+                "`proposal`, `accepted`, `final`, `active`, `rejected`, "
+                "`withdrawn`, `deferred`, or `superseded-by EP-NNNN`"
+            )
+
+        declared_type = _read_ep_type(ep)
+        if declared_type is None:
+            if ep_number >= _TYPE_REQUIRED_FROM_EP:
+                metadata_defects.append(
+                    f"  NO TYPE: {ep.relative_to(repo_root)} has no `Type:` "
+                    "line; EP-0006 and later must declare `standards-track` "
+                    "or `process`"
+                )
+        elif declared_type not in _ALLOWED_TYPES:
+            metadata_defects.append(
+                f"  INVALID TYPE: {ep.relative_to(repo_root)} declares "
+                f"`Type: {declared_type}`; expected `standards-track` or "
+                "`process`"
+            )
+
+        if declared is None:
             continue
         row = index_rows.get(ep.name)
         if row is None:
@@ -148,7 +210,7 @@ def check(repo_root: Path, verbose: bool = False) -> int:
             "but no such EP file exists"
         )
 
-    defects = mismatches + missing_rows + orphan_rows
+    defects = mismatches + metadata_defects + missing_rows + orphan_rows
     if defects:
         sys.stderr.write(
             f"\n{len(defects)} EP status-sync defect(s) found:\n\n"
@@ -158,7 +220,8 @@ def check(repo_root: Path, verbose: bool = False) -> int:
         sys.stderr.write(
             "\nFix: update the docs/EP/README.md `## Index` Status column to "
             "match each EP's `Status:` line (the per-EP line is the source of "
-            "truth), or add/remove the index row.\n"
+            "truth), add/remove the index row, or correct the EP front-matter "
+            "to match EP-0009's status/type grammar.\n"
         )
     elif verbose:
         sys.stderr.write("EP index statuses are in sync.\n")
@@ -190,8 +253,9 @@ def _write_fixture(root: Path, ep_files: dict[str, str], readme: str) -> None:
 def _build_self_test_fixtures(base: Path) -> None:
     """Generate the fixtures under base so the self-tests are hermetic."""
 
-    def ep(num: str, status: str) -> str:
-        return f"# EP-{num}: Fixture\n\nStatus: {status}\n\n## Abstract\n\nx\n"
+    def ep(num: str, status: str, ep_type: str | None = None) -> str:
+        type_line = f"Type: {ep_type}\n" if ep_type is not None else ""
+        return f"# EP-{num}: Fixture\n\nStatus: {status}\n{type_line}\n## Abstract\n\nx\n"
 
     def index(*rows: str) -> str:
         head = (
@@ -209,11 +273,18 @@ def _build_self_test_fixtures(base: Path) -> None:
     _write_fixture(
         base / "in_sync",
         {"EP-0001-fixture.md": ep("0001", "accepted"),
-         "EP-0002-fixture.md": ep("0002", "proposal")},
-        index(row("0001", "accepted"), row("0002", "proposal")),
+         "EP-0002-fixture.md": ep("0002", "proposal"),
+         "EP-0006-fixture.md": ep("0006", "proposal", "standards-track"),
+         "EP-0007-fixture.md": ep("0007", "superseded-by EP-0008", "process")},
+        index(
+            row("0001", "accepted"),
+            row("0002", "proposal"),
+            row("0006", "proposal"),
+            row("0007", "superseded-by EP-0008"),
+        ),
     )
 
-    # status_mismatch: EP says accepted, index says proposal (the rf2-8cw3m7 shape).
+    # status_mismatch: EP says accepted, index says proposal.
     _write_fixture(
         base / "status_mismatch",
         {"EP-0001-fixture.md": ep("0001", "accepted")},
@@ -235,6 +306,27 @@ def _build_self_test_fixtures(base: Path) -> None:
         index(row("0001", "accepted"), row("0002", "final")),
     )
 
+    # invalid_status: README matches the invalid value, but EP-0009 rejects it.
+    _write_fixture(
+        base / "invalid_status",
+        {"EP-0006-fixture.md": ep("0006", "done", "standards-track")},
+        index(row("0006", "done")),
+    )
+
+    # missing_type_new_ep: EP-0006+ must carry a Type: line.
+    _write_fixture(
+        base / "missing_type_new_ep",
+        {"EP-0006-fixture.md": ep("0006", "proposal")},
+        index(row("0006", "proposal")),
+    )
+
+    # invalid_type: Type is a closed EP-0009 vocabulary.
+    _write_fixture(
+        base / "invalid_type",
+        {"EP-0006-fixture.md": ep("0006", "proposal", "banana")},
+        index(row("0006", "proposal")),
+    )
+
 
 def _run_self_tests(verbose: bool = False) -> int:
     cases: list[tuple[str, int]] = [
@@ -242,6 +334,9 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("status_mismatch", 1),
         ("missing_row", 1),
         ("orphan_row", 1),
+        ("invalid_status", 1),
+        ("missing_type_new_ep", 1),
+        ("invalid_type", 1),
     ]
     failures = 0
     with tempfile.TemporaryDirectory(prefix="ep_status_sync_selftest_") as tmp:
@@ -283,8 +378,7 @@ class _DevNull:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Check docs/EP/README.md index statuses match each EP's "
-            "Status: line (rf2-8cw3m7)."
+            "Check docs/EP/README.md index statuses and EP metadata grammar."
         ),
     )
     parser.add_argument(

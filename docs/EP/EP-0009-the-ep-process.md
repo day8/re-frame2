@@ -7,6 +7,9 @@ Type: process
 > type and status vocabulary, and the durability rules. On acceptance it
 > becomes **active** (process EPs stay active rather than graduating to final)
 > and `docs/EP/README.md` becomes a thin index pointing here.
+>
+> Normative home after acceptance: **this active EP**, specifically its
+> §Specification.
 
 ## Abstract
 
@@ -20,7 +23,9 @@ graduates into its *named normative home*, which MAY be the active EP itself
 (the PEP-8 precedent: the style guide *is* the PEP). Every active process EP
 names its normative home explicitly so there is exactly one.
 
-## When an EP is warranted
+## Specification
+
+### When an EP is warranted
 
 An EP is for:
 
@@ -36,7 +41,7 @@ conversation fits in a bead description, it is a bead.* When in doubt, the
 operator (Mike) decides; EPs are cheap to reject and rejection is itself a
 valuable record.
 
-## Types
+### Types
 
 | Type | Meaning | Terminal success status |
 |---|---|---|
@@ -45,7 +50,7 @@ valuable record.
 
 EPs predating this one carry no `Type:` header and are standards-track.
 
-## Statuses
+### Statuses
 
 ```text
 proposal ──► accepted ──► final            (standards-track)
@@ -56,6 +61,10 @@ proposal ──► accepted ──► final            (standards-track)
 
 any non-terminal EP may become: superseded-by EP-NNNN (kept)
 ```
+
+The `Status:` line is machine-readable. Its value MUST be one of:
+`proposal`, `accepted`, `final`, `active`, `rejected`, `withdrawn`,
+`deferred`, or `superseded-by EP-NNNN`.
 
 - **proposal** — under discussion. Normative-voiced text is permitted (it makes
   graduation a move, not a rewrite) but binds nothing; nothing may implement a
@@ -75,7 +84,7 @@ any non-terminal EP may become: superseded-by EP-NNNN (kept)
   **always kept**: recording why something was not done is half an EP corpus's
   value.
 
-## Durability rules
+### Durability rules
 
 1. **EPs are never deleted.** Numbers are stable and never reused.
 2. **Resolved Decisions live in the EP.** Operator rulings on an EP's open
@@ -90,16 +99,36 @@ any non-terminal EP may become: superseded-by EP-NNNN (kept)
 4. **One EP, one decision surface.** Bundling independent decisions invites
    all-or-nothing rulings; prefer narrow EPs and cross-references.
 
-## Document conventions
+### Document conventions
 
 - Filename `EP-NNNN-slug.md`; preamble lines `Status:` and `Type:`; standard
   sections (Abstract, Motivation, Goals/Non-Goals, Relationships,
   Specification, Rationale, Backwards Compatibility, Bead Plan /
   Reference Implementation, Open Issues, Recommendation) as applicable.
+- New EPs carry `Type: standards-track` or `Type: process`. EPs predating this
+  process may omit `Type:` and are treated as standards-track.
 - State the positive principle first; subtractive framing is migration
   mechanics, not the rule (the EP-0002 lesson).
 - Dependencies live in `Relationships`; the index row in `docs/EP/README.md`
-  carries status + one-line summary, enforced by `check_ep_status_sync.py`.
+  carries status + one-line summary. `check_ep_status_sync.py` enforces README
+  status sync, the status grammar, and the `Type:` header rule for post-EP-0005
+  EPs.
+
+## Backwards Compatibility
+
+This codifies the process the EP corpus is already converging on. Existing
+EP-0001..EP-0005 files may continue without `Type:` headers; they are treated
+as standards-track. The README remains an index, not a second normative home.
+
+## Bead Plan
+
+1. README bead: reduce `docs/EP/README.md` to the per-type authority summary,
+   lifecycle vocabulary, and index, pointing here for the full process.
+2. Tooling bead: extend `check_ep_status_sync.py` so the documented status and
+   type grammar is checked, not merely synchronized.
+3. Template/update bead: update any EP authoring template or implementor skill
+   that still treats `Status:` as free text or assumes every successful EP
+   graduates into `spec/`.
 
 ## Recommendation
 

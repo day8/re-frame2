@@ -49,9 +49,10 @@ Three concrete failures this contract would have prevented or will prevent:
    for it. Resources and the work-ledger need the same table; they should fill
    in a form, not rediscover the form.
 
-The extension seam gets a principled home for free: a third-party library
-owning `:rf.runtime/<lib>` is "a new graded instance of the contract," not a
-special case requiring fresh policy.
+That is the whole v1 surface. External library-owned runtime-db children may
+eventually need a similar contract, but they are not required to solve the
+current write-authority/projection/restore gap and should not be standardized
+without a concrete consumer.
 
 ## Goals
 
@@ -73,6 +74,9 @@ special case requiring fresh policy.
   enforcement posture remains EP-0001 ruling #4 (convention + diagnostics).
 - Not a new runtime mechanism: the contract is spec + grading table +
   conformance tests over machinery that already exists.
+- Not a third-party runtime-subsystem registration API. A future external
+  library may justify one, but that design would need its own EP because it
+  changes the runtime-db namespace/schema/tooling contract.
 
 ## Relationships
 
@@ -94,7 +98,7 @@ A runtime subsystem MUST declare, in its owning spec:
 
 | # | Clause | The question it answers |
 |---|---|---|
-| 1 | **Reserved sub-tree** | Which `:rf.runtime/<name>` key does it own? (Registered in Conventions' reserved-key table.) |
+| 1 | **Reserved sub-tree** | Which reserved runtime-db child key does it own? For this EP, that is a framework-owned `:rf.runtime/<name>` key registered in Conventions' reserved-key table. |
 | 2 | **Write authority** | Which registration sites mint framework-authority handlers for its writes? Multi-writer subsystems enumerate every writer. |
 | 3 | **Read API** | Which public subscriptions/accessors read it? Raw paths are never the public surface. |
 | 4 | **Projection policy** | Per key: durable-serialized / local-subscribable / host-transient — consumed by SSR hydration, epoch egress, and off-box redaction. (The routing classification table is the canonical shape.) |
@@ -125,63 +129,33 @@ a tracked gap, not prose.
 - The `rf2-o4dmp8` sweep shape extends per subsystem: the framework's own
   writers never trigger the ownership diagnostics.
 
-### Extension seam — the library-writer contract
+### Deferred: external runtime subsystems
 
-The contract is deliberately also the **extension point**: a third-party
-library that needs durable, frame-local, framework-grade runtime state (a
-GraphQL/Hasura client cache, a persistence/sync engine, a collaboration
-presence layer, an analytics session model) becomes *a new graded instance of
-this contract*, not a special case. Concretely, a library:
+A third-party library that wants durable, frame-local, framework-grade runtime
+state (for example a GraphQL client cache or sync engine) is a real future
+design pressure, but it is deliberately outside this EP. Blessing library-owned
+runtime-db children would change more than this checklist: it would need a
+registration API, namespace rules, runtime-db schema shape, write-authority
+minting, projection defaults, teardown hooks, and tool rows. That is a separate
+public extension contract, not a free consequence of naming the framework's
+existing subsystems.
 
-1. **reserves its sub-tree** — a runtime-db child keyed by the **library's own
-   qualified keyword** (e.g. `:acme.sync/state`), per the existing rule that
-   library-owned prefixes live *outside* `:rf.*` (Conventions §Reserved
-   namespaces: "Third-party libraries MUST NOT reserve under `:rf.*`"). The
-   `:rf.runtime/*` spelling remains exclusively framework-owned. This amends
-   Conventions §Reserved runtime-db keys — today it says runtime-db's top-level
-   children are "each qualified under `:rf.runtime/*`" — to: *framework
-   children under `:rf.runtime/*`; registered extension children under the
-   library's own qualified namespace; bare/unqualified children are a
-   registration error.* Collisions with any reserved child are a registration
-   error;
-2. **mints write authority** for its event handlers through the same
-   registration mechanism the framework's own subsystems use (the general
-   framework-authority meta shipped under rf2-3939ig) — so its runtime-db
-   writes are first-class, not warned-at;
-3. **publishes its five clauses** in its own documentation, in the same table
-   shape as `spec/Runtime-Subsystems.md` — so an app author (or the AI-Audit)
-   grades a third-party subsystem exactly as they grade machines or routing;
-4. **inherits the ecosystem for free**: its sub-tree rides epoch restore and
-   SSR hydration per its clause-4 projection policy, is redacted off-box by the
-   same runtime-db default, appears in Xray/pair tooling as a subsystem row,
-   and is torn down by frame destroy per its clause-5 contract.
-
-What v1 of this EP deliberately does **not** ship is a dedicated registration
-API (`reg-runtime-subsystem`-shaped): the in-repo subsystems register through
-their own facades today, and inventing the public API before an external
-consumer exists would violate the project's project-before-you-primitive
-discipline. The contract is the extension point's *specification*; the
-convenience API graduates when a real external artefact (the first `<lib>`)
-needs it — see Open Issue 2.
+The future EP should start from a concrete external consumer and decide whether
+extension children live under a framework-mediated `:rf.runtime/<lib>` key or
+under the library's own qualified namespace. Until then, runtime-db's named
+subsystem children remain framework-owned `:rf.runtime/*` keys only.
 
 ## Backwards Compatibility
 
-For the in-repo subsystems: documentation + tests only; no runtime behavior
-changes. The **extension seam** is not behavior-free and is not claimed to be:
-it specifies future registration-time validation (collision/shape errors for
-extension children) and tool surfaces (Xray/pair subsystem rows for extension
-children), which arrive with the Open-Issue-2 registration API, not with this
-EP's v1 beads. Pre-alpha: the contract constrains future subsystem shapes
-deliberately — six existing instances show the shape is empirical, not
-speculative.
+Documentation + tests only; no runtime behavior changes. Pre-alpha: the
+contract constrains future subsystem shapes deliberately — six existing
+instances show the shape is empirical, not speculative.
 
 ## Reference Implementation / Bead Plan
 
 1. Spec bead: author `spec/Runtime-Subsystems.md` (contract + table), add the
-   Ownership row, cross-reference from Conventions — **including the
-   §Reserved-runtime-db-keys amendment** (framework children `:rf.runtime/*`;
-   extension children under the library's own qualified namespace).
-   *(Hot-zone: Conventions; sequential.)*
+   Ownership row, cross-reference from Conventions. *(Hot-zone: Conventions;
+   sequential.)*
 2. Grading bead: fill the four existing rows from the owning specs; file gaps
    found as beads.
 3. Conformance bead: the drift test + the per-subsystem diagnostics sweep.
@@ -195,19 +169,6 @@ speculative.
    per-writer grants? Recommendation: ledger-owned — writers go through the
    ledger's API, which holds the authority; revisit if a writer needs direct
    row access.
-2. When the first external library subsystem materializes, should the
-   convenience registration API (`reg-runtime-subsystem`-shaped: reserve +
-   mint + declare + teardown-hook in one call) ship in core or in an optional
-   extension artefact? Recommendation: decide with that consumer in hand;
-   until then the documented four-step seam above is the contract.
-3. Extension-child key placement: this EP recommends **library-own-namespace
-   children** (`:acme.sync/state`), preserving "third parties never reserve
-   under `:rf.*`" with no exception. The alternative — a framework-mediated
-   `:rf.runtime/<lib>` exception, on the model of the canonical-devtools
-   `:rf.xray/*` carve-out in Conventions — keeps all subsystem children under
-   one prefix at the cost of weakening the single-root rule. Recommendation:
-   library-own-namespace; the devtools carve-out rides framework-distance-zero
-   status that third-party libraries by definition lack.
 
 ## Recommendation
 
