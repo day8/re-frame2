@@ -64,6 +64,7 @@
             [re-frame.privacy :as privacy]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.state :as state]
+            [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -495,6 +496,177 @@
                                             "ambiguous; refetch will resolve it.")}))
          rdb')))))
 
+;; ---- epoch-restore reconcile (Spec 016 §Restore and replay parts 2/4/5) ---
+;;
+;; Restore (the EP-0001 epoch restore / time travel) shares the SSR-hydration
+;; install path, but with ONE load-bearing asymmetry: SSR hydration installs
+;; the SERVER PROJECTION (the wire shape `project-entry` already produced — it
+;; STRIPPED `:current-work` on the wire and never ships non-terminal work-ledger
+;; rows), whereas epoch restore installs the UNPROJECTED captured snapshot —
+;; the live frame-state value as of the restored epoch. That snapshot still
+;; carries:
+;;
+;;   - entries left mid-flight in `:loading` / `:fetching` whose `:current-work`
+;;     points at an attempt the restored timeline no longer owns (the host
+;;     handle was never serialized — Spec 016 §Restore and replay part 2), and
+;;   - non-terminal work-ledger rows (`:queued` / `:running` / `:abort-requested`)
+;;     for those vanished attempts.
+;;
+;; So restore needs everything `hydrate-runtime-db` does (recompute indexes —
+;; part 5; orphan SSR + stale-nav route owners — part 4; clear `:current-work`)
+;; AND TWO restore-specific settles the hydration projection had already done on
+;; the wire:
+;;
+;;   1. settle every `:loading` / `:fetching` entry to its last STABLE status
+;;      (`:loaded` if it has usable `:data`, `:error` if it was a failed first
+;;      load with no data, `:idle` if it never loaded) — never left stranded
+;;      pointing at a vanished attempt (part 2);
+;;   2. record every restored NON-terminal work-ledger row as DANGLING — settle
+;;      it to the terminal `:suppressed` status with a `:dangling` outcome so a
+;;      pre-restore in-flight reply that lands post-restore is suppressed by the
+;;      ordinary work-id + generation check (the entry no longer points at it and
+;;      its row is terminal). The generation allocator is host-side + monotonic
+;;      (part 1, `state/generation-cache`), so the dangling `:work/id` can never
+;;      re-match a live entry — collision is structurally impossible.
+;;
+;; Whether a settled entry then re-fetches is a freshness decision (part 3) — it
+;; refetches only on the next live-owner `ensure`; restore never eagerly continues
+;; old work.
+
+(defn settle-entry-to-last-stable
+  "Settle one restored cache `entry` to its last STABLE status (Spec 016
+  §Restore and replay part 2). A `:loading` / `:fetching` entry references an
+  attempt the restored timeline no longer owns, so it MUST NOT stay stranded
+  in an in-flight status pointing at a vanished `:current-work`:
+
+    - `:loaded`  when it has usable `:data`  (a refresh was in flight — keep the
+      last-known-good data; a refetch is a later freshness decision);
+    - `:error`   when it has a first-load `:error` envelope and no data;
+    - `:idle`    when it never loaded (no data, no error).
+
+  A `:loaded` / `:error` / `:idle` entry is ALREADY stable — returned unchanged
+  (besides the `:current-work` clear the caller applies). PURE."
+  [entry]
+  (if (contains? #{:loading :fetching} (:status entry))
+    (let [next (cond
+                 (state/has-data? entry) :loaded
+                 (some? (:error entry))  :error
+                 :else                   :idle)]
+      (assoc entry :status next))
+    entry))
+
+(defn dangle-non-terminal-work!
+  "Settle every NON-terminal work-ledger row in `runtime-db` to the terminal
+  `:suppressed` status with a `:dangling` outcome (Spec 016 §Restore and replay
+  part 2). A restored non-terminal row (`:queued` / `:running` /
+  `:abort-requested`) names a request the restored timeline no longer owns —
+  its host handle was never serialized. Marking it terminal-suppressed means a
+  pre-restore in-flight reply carrying its `:work/id` lands against a row that is
+  no longer live and an entry that no longer points at it, so the ordinary
+  work-id + generation check suppresses it (`live-entry-for-reply` — no stale
+  reply may mutate a post-restore entry).
+
+  Returns `[runtime-db' dangled-work-ids]`. Terminal rows ride through unchanged
+  (they already carry an outcome). PURE w.r.t. the host side table — host
+  handles are dropped by the resources frame-destroy / restore teardown, not
+  here (this only moves the durable serializable row forward)."
+  [runtime-db]
+  (let [ledger (get runtime-db state/work-ledger-key)
+        non-terminal (into []
+                           (comp (filter (fn [[_ r]]
+                                           (contains? work-ledger/non-terminal-statuses
+                                                      (:status r))))
+                                 (map key))
+                           ledger)]
+    (if (empty? non-terminal)
+      [runtime-db []]
+      [(reduce (fn [rdb work-id]
+                 (work-ledger/update-record rdb work-id
+                                            work-ledger/mark-terminal
+                                            :suppressed
+                                            {:reason :dangling
+                                             :recovery :restore-reconcile}))
+               runtime-db non-terminal)
+       non-terminal])))
+
+(defn reconcile-on-restore
+  "Reconcile a freshly-INSTALLED resource subtree on `restore-epoch` (the body
+  behind the `:resources/reconcile-on-restore` hook epoch `perform-restore!`
+  consults). `runtime-db` is the runtime-db partition the epoch restore is about
+  to install (the UNPROJECTED captured snapshot, both `:rf.runtime/resources` and
+  `:rf.runtime/work-ledger`). Returns the runtime-db with the resource +
+  work-ledger slices reconciled — or `runtime-db` unchanged when it carries no
+  resource entries AND no work-ledger rows (a no-op for a resource-free restore).
+
+  Unlike `hydrate-runtime-db` (which reconciles the SERVER PROJECTION — already
+  `:current-work`-stripped on the wire, no non-terminal rows), restore installs
+  the UNPROJECTED snapshot, so reconciliation does everything hydration does PLUS
+  the two settles the wire projection had already done (Spec 016 §Restore and
+  replay parts 2/4/5):
+
+    1. for every entry — orphan SSR owners (part 4), clear the transient
+       `:current-work` pointer (part 2), AND settle a `:loading` / `:fetching`
+       entry to its last STABLE status (`settle-entry-to-last-stable`, part 2);
+    2. recompute `:tag-index` / `:owner-index` from the reconciled `:entries`
+       (never trust the snapshot — part 5);
+    3. settle every NON-terminal work-ledger row to terminal `:suppressed` /
+       `:dangling` (`dangle-non-terminal-work!`, part 2) so a pre-restore in-flight
+       reply is suppressed;
+    4. emit a `:rf.resource/restored` trace summarising reconciled / orphaned /
+       dangled counts, and a clock-skew diagnostic when a restored `:stale-at` is
+       implausible against the live clock.
+
+  NEVER crosses scopes (it only reconciles entries under their own scoped keys).
+  Part 1 (the monotone host-side generation allocator) is restore-safe by
+  construction — it is NOT frame-state, so restore cannot rewind it; nothing here
+  touches it."
+  ([runtime-db] (reconcile-on-restore runtime-db nil))
+  ([runtime-db frame-id]
+   (let [resources (get runtime-db state/resources-key)
+         entries   (:entries resources)
+         ledger    (get runtime-db state/work-ledger-key)]
+     (if-not (or (seq entries) (seq ledger))
+       runtime-db
+       (let [clock-ms (now-ms)
+             ;; reconcile each entry: orphan SSR owners + clear current-work
+             ;; (hydration parity) + settle a mid-flight status to last-stable
+             ;; (restore-specific — the wire projection never carried an
+             ;; in-flight entry, but the unprojected snapshot can).
+             reconciled (reduce-kv
+                          (fn [acc k entry]
+                            (let [[entry' ssr] (reconcile-entry-owners entry)
+                                  entry''      (settle-entry-to-last-stable entry')
+                                  skew         (clock-skew-ms entry clock-ms)]
+                              (-> acc
+                                  (assoc-in [:entries k] entry'')
+                                  (update :orphaned into (map (fn [o] [k o])) ssr)
+                                  (cond-> skew (update :skews assoc k skew)))))
+                          {:entries {} :orphaned [] :skews {}}
+                          entries)
+             entries'  (:entries reconciled)
+             subtree'  (state/recompute-indexes
+                         (assoc resources :entries entries'))
+             rdb'      (cond-> runtime-db
+                         (seq entries) (assoc state/resources-key subtree'))
+             ;; settle the dangling non-terminal work-ledger rows (restore-specific)
+             [rdb'' dangled] (dangle-non-terminal-work! rdb')]
+         (trace/emit! :rf.epoch :rf.resource/restored
+                      {:rf.frame/id     frame-id
+                       :reconciled      (count entries')
+                       :orphaned-owners (vec (:orphaned reconciled))
+                       :dangled-work    (vec dangled)
+                       :clock-skews     (:skews reconciled)})
+         (doseq [[k skew] (:skews reconciled)]
+           (trace/emit! :warning :rf.resource/restore-clock-skew
+                        {:rf.frame/id  frame-id
+                         :resource-key k
+                         :skew-ms      skew
+                         :reason       (str "restored entry's absolute :stale-at is "
+                                            skew "ms ahead of the live clock — clock "
+                                            "skew makes freshness ambiguous; the next "
+                                            "live-owner ensure will resolve it.")}))
+         rdb'')))))
+
 ;; ---- client refetch decision (Spec 016 §SSR and hydration) ----------------
 ;;
 ;; After install, a hydrated entry either renders its data immediately
@@ -566,17 +738,24 @@
       on the hydration payload;
     - `:resources/hydrate-runtime-db` — the SSR `:rf/hydrate` handler
       reconciles the installed resource subtree (recompute indexes, orphan
-      SSR owners, surface clock skew).
+      SSR owners, surface clock skew);
+    - `:resources/reconcile-on-restore` — epoch `restore-epoch`'s
+      `perform-restore!` reconciles the UNPROJECTED captured snapshot it is
+      about to install (everything the hydrate reconcile does PLUS settling
+      mid-flight `:loading` / `:fetching` entries to last-stable and recording
+      restored non-terminal work-ledger rows as dangling so a pre-restore reply
+      is suppressed — Spec 016 §Restore and replay parts 2/4/5).
 
-  No-op effect on an app that never SSRs — the hooks simply sit unread.
-  Both are no-op on an SSR app WITHOUT resources (the projection contributes
-  nothing for an empty entries map; the reconcile is a no-op for a
-  resource-free runtime-db). Published from the `re-frame.resources` façade
-  so a `:reload` re-wires them."
+  No-op effect on an app that never SSRs / time-travels — the hooks simply sit
+  unread. All are no-op on an app WITHOUT resources (the projection contributes
+  nothing for an empty entries map; the reconciles are no-ops for a resource-free
+  runtime-db). Published from the `re-frame.resources` façade so a `:reload`
+  re-wires them."
   []
   (late-bind/set-fns!
     {:ssr/extend-runtime-db-projection project-resources-runtime-db
-     :resources/hydrate-runtime-db     hydrate-runtime-db})
+     :resources/hydrate-runtime-db     hydrate-runtime-db
+     :resources/reconcile-on-restore   reconcile-on-restore})
   nil)
 
 (defn hydrate-resources!

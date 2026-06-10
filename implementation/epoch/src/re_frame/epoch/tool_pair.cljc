@@ -535,6 +535,44 @@
      :tags    {:kind  :frame
                :frame frame-id}}))
 
+;; ---- runtime-db subsystem reconcile on restore (rf2-7r5mc2) ---------------
+;;
+;; Epoch restore installs the captured frame-state WHOLESALE — it does not run
+;; ordinary `:db`-effect semantics, so a runtime SUBSYSTEM whose durable
+;; snapshot is not safe to install verbatim (its transient host world has moved
+;; on) must be reconciled against the live world BEFORE the atomic install.
+;; This is the SAME install path SSR hydration uses (Spec 016 §Restore and
+;; replay): hydration reconciles the SERVER PROJECTION via the
+;; `:resources/hydrate-runtime-db` hook; restore reconciles the UNPROJECTED
+;; captured snapshot via the `:resources/reconcile-on-restore` hook (which
+;; ALSO settles mid-flight entries to last-stable + marks restored non-terminal
+;; work-ledger rows dangling — the two settles the wire projection had already
+;; done but the unprojected snapshot still carries).
+;;
+;; Late-bound so epoch never statically depends on the optional Resources
+;; artefact — absent the artefact the hook is nil and the runtime-db installs
+;; verbatim (the pre-rf2-7r5mc2 behaviour, correct for an app with no resources).
+
+(defn reconcile-runtime-db-on-restore
+  "Reconcile the runtime-db partition of a `frame-state` value about to be
+  installed by `perform-restore!`, consulting the late-bound
+  `:resources/reconcile-on-restore` hook (Spec 016 §Restore and replay). Returns
+  the frame-state with its `:rf.db/runtime` partition reconciled — or
+  `frame-state` unchanged when no resources artefact is loaded (the hook is nil),
+  or when the frame-state carries no runtime-db partition (a legacy / app-db-only
+  record). The runtime-db value is passed with the carried `frame-id` so the
+  reconcile can stamp its trace. Other runtime subsystems (machines, routing)
+  reconcile their own snapshots through their own contracts; this seam is the
+  resources-first extension point, mirroring SSR hydration's single
+  `:resources/hydrate-runtime-db` consult."
+  [frame-id frame-state]
+  (if-let [reconcile (late-bind/get-fn :resources/reconcile-on-restore)]
+    (if (contains? frame-state frame/runtime-partition-key)
+      (update frame-state frame/runtime-partition-key
+              (fn [rdb] (when (some? rdb) (reconcile rdb frame-id))))
+      frame-state)
+    frame-state))
+
 (defn perform-restore!
   "Carry out the actual frame-state rewind once preconditions have passed.
   Replaces the frame's whole frame-state with `epoch`'s `:frame-state-after`
@@ -566,7 +604,19 @@
   (a non-nil — possibly EMPTY — changed-key-set for a live frame, even a
   no-op write), so we check that return: a `nil` return is the destroyed-
   frame signal, surfaced as the same `:rf.error/no-such-handler` (kind
-  `:frame`) failure / `false` return BEFORE any success telemetry."
+  `:frame`) failure / `false` return BEFORE any success telemetry.
+
+  Per rf2-7r5mc2 (resources runtime-db reconcile on restore): a runtime-db
+  partition carrying a runtime SUBSYSTEM whose durable snapshot is not safe to
+  install verbatim must be reconciled against the live transient world BEFORE
+  the install (Spec 016 §Restore and replay — restore shares the SSR-hydration
+  install path). Resources is the first such subsystem: `reconcile-runtime-db-on-
+  restore` consults the late-bound `:resources/reconcile-on-restore` hook, which
+  settles mid-flight `:loading` / `:fetching` entries to last-stable, clears each
+  entry's vanished `:current-work`, orphans SSR / stale-nav owners, recomputes
+  the reverse indexes from `:entries`, and records restored non-terminal
+  work-ledger rows as dangling so a pre-restore in-flight reply is suppressed.
+  No-op (passes the runtime-db through) when no resources artefact is loaded."
   [frame-id epoch]
   (let [{:keys [outcome op tags]} (live-container-or-fail frame-id)]
     (if (= :fail outcome)
@@ -577,6 +627,14 @@
                 ;; Legacy / synthetic record with only the app-db projection:
                 ;; install it as the app-db partition; runtime-db installs nil.
                 {frame/app-partition-key (:db-after epoch)})
+            ;; rf2-7r5mc2: reconcile the runtime-db partition's runtime
+            ;; subsystems (Resources, first writer) BEFORE the atomic install,
+            ;; the same way SSR hydration reconciles its installed slice — so a
+            ;; mid-flight captured snapshot does not install stranded
+            ;; `:loading` / `:fetching` entries pointing at vanished attempts,
+            ;; and a pre-restore reply cannot write stale data into a restored
+            ;; entry.
+            frame-state-target (reconcile-runtime-db-on-restore frame-id frame-state-target)
             ;; EP-0001 (rf2-3aizt1): write the WHOLE frame-state — both
             ;; partitions in ONE atomic install through the one physical
             ;; frame-state container. `frame/app-db-container` /

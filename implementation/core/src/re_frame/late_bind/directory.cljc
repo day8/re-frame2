@@ -516,6 +516,10 @@
     :producer-ns 're-frame.resources.ssr
     :design-bead "rf2-ctk2av"
     :description "Cross-feature LATE-BOUND SSR hydration RECONCILE hook (Spec 016 §SSR and hydration / §Restore and replay) — the client-side counterpart of :ssr/extend-runtime-db-projection. Takes the runtime-db the :rf/hydrate handler is about to install (+ the carried frame id) and returns it with the :rf.runtime/resources subtree reconciled: reverse indexes recomputed from entries (never trusted from the wire), SSR owners orphaned, transient :current-work cleared, server clock skew surfaced. Resources is the first consumer; consulted by re-frame.ssr.hydrate/hydrate-event-handler*. Absent hook (no resources artefact) leaves the runtime-db unchanged."}
+   {:key         :resources/reconcile-on-restore
+    :producer-ns 're-frame.resources.ssr
+    :design-bead "rf2-7r5mc2"
+    :description "Cross-feature LATE-BOUND epoch-restore RECONCILE hook (Spec 016 §Restore and replay parts 2/4/5) — the time-travel counterpart of :resources/hydrate-runtime-db. Epoch restore installs the UNPROJECTED captured snapshot (still carrying :current-work + non-terminal work-ledger rows), so this does everything the hydration reconcile does (recompute reverse indexes from entries, orphan SSR / stale-nav owners, clear transient :current-work) PLUS two restore-specific settles the SSR wire projection had already applied: it settles every mid-flight :loading/:fetching entry to its last STABLE status (:loaded if data, :error if a failed first load, :idle if never loaded) and records every restored NON-terminal work-ledger row as DANGLING (terminal :suppressed / :dangling) so a pre-restore in-flight reply is suppressed by the work-id + generation check. Resources is the first consumer; consulted by re-frame.epoch.tool-pair/reconcile-runtime-db-on-restore inside perform-restore!. Absent hook (no resources artefact) installs the runtime-db verbatim (the pre-rf2-7r5mc2 behaviour)."}
 
    ;; ---- re-frame.http-managed (rf2-5kpd / rf2-6y3q / rf2-wvkn / rf2-ijm7) ----
    ;; The three stub-family hooks publish from `re-frame.http-test-support`
