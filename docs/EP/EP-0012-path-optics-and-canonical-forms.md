@@ -13,6 +13,9 @@ Type: standards-track
 
 ## Abstract
 
+The principle: **one path algebra and one canonical-identity rule, stated once,
+with laws that every consumer inherits.**
+
 re-frame2 already relies on the same idea in many places: a stable way to name
 "the value over there" and a stable way to decide "these two identity values
 are the same." Today that idea is repeated as local folklore: `get-in` paths in
@@ -59,6 +62,24 @@ bugs:
 These are not local questions. A resource key that disagrees with route params
 or a redaction path that disagrees with schema paths is a framework-level bug.
 re-frame2 needs one answer.
+
+The divergence is already observable in the CLJS reference. Four registration
+surfaces accept "a path" today with four different grammars and three different
+failure behaviors:
+
+| Surface | Accepts | On a malformed path |
+|---|---|---|
+| `path` interceptor (`re-frame.std-interceptors`) | varargs segments, coerced with `vec` | nothing rejected |
+| `reg-app-schema` (`re-frame.schemas.storage`) | any `sequential?` | throws `:rf.error/bad-app-schema-path` |
+| marks `:sensitive` / `:large` (`re-frame.marks`) | vectors only | silently drops non-vector entries |
+| flow `:inputs` / `:path` (`re-frame.flows.registry`) | non-empty vector of keyword/string/integer/symbol/boolean segments | throws a stable flow-validation error |
+
+Even `[]` already means three things: the flow `:path` validator rejects it
+(an empty output path would overlap every flow), the marks whole-value
+convention requires it (`[[]]` marks the whole output, Spec 015), and raw
+`assoc-in` mishandles it (see the lens-law example below). Each behavior is
+locally defensible; the point is that no shared definition exists for them to
+be policies *of*.
 
 ## Motivation
 
@@ -123,6 +144,35 @@ tools gain one place to enforce the rules.
 - This EP does not guarantee that every EDN value is a good application-level
   identity. It defines how portable EDN identity is canonicalized; schemas and
   subsystem contracts still decide which values are valid for a given slot.
+
+## Relationships
+
+- **EP-0007 (One Name Per Fact).** This EP is EP-0007's mechanism-level
+  sibling. EP-0007 rules that every fact has one canonical *name*; this EP
+  rules that every path-shaped and identity-shaped fact has one canonical
+  *form* — one path algebra per fact, not one per subsystem, and one identity
+  per work record (the `:work/id`-vs-`:stale-key` near-duplicate in EP-0007's
+  sweep item 3 is exactly the class the canonical-identity rule forbids).
+- **EP-0006 (Runtime Subsystem Contract).** Clause-4 projection/elision
+  policies and the SSR allowlist-by-subsystem-child projector consume paths;
+  they cite this EP's path semantics instead of restating them.
+- **EP-0003 (Resource Queries) / Spec 016.** EP-0003 states canonicalization
+  for resource params and gestures at scopes. This EP supplies the single
+  shared definition; Spec 016's scoped resource key
+  `[cache-scope resource-id canonical-params]` becomes a citation of it.
+- **EP-0011 (Uniform Async Reply Envelope).** Reply correlation and stale
+  suppression key on work ids, which are canonical EDN identities under this
+  EP.
+- **EP-0013 (App Values) / EP-0014 (Derivation Algebra).** Named path
+  declarations are the durable handles feature manifests and derivation
+  declarations would carry; both consume this EP's vocabulary without
+  requiring it to change.
+- **Spec homes.** `spec/Conventions.md` is the normative home after
+  acceptance; `spec/012-Routing.md` (prism laws), `spec/013-Flows.md`
+  (overlap), `spec/010-Schemas.md` (schema paths and digest ordering),
+  `spec/015-Data-Classification.md` (marks paths), `spec/011-SSR.md`
+  (hydration allowlists), and `spec/Runtime-Subsystems.md` (projection
+  catalogues) cross-reference it.
 
 ## Definitions
 
@@ -277,9 +327,22 @@ rules still decide what a path is relative to:
 - Runtime-subsystem catalogue paths are paths inside runtime-db.
 - Redaction declarations derived from app-db schemas are app-db-relative paths
   stored as runtime bookkeeping.
+- Marks paths declared on events, subs, flows, and cofx are relative to the
+  declaring surface's value — the event arg-map, the sub or flow output, the
+  injected cofx value — per Spec 015, with `[]` (the `[[]]` form) marking the
+  whole value.
+- Machine-body paths are `:data`-relative: per Spec 005 §Path conventions in
+  machine bodies, user code never names snapshot-absolute `[:data ...]` paths;
+  a body-level path operates on the destructured `:data` value.
+- The SSR hydration `:payload` allowlist (Spec 011) is a vector of top-level
+  app-db keys — single-segment app-db paths; the runtime-db side ships per
+  the Runtime-Subsystems clause-4 allowlist-by-subsystem-child.
 
 The shared path algebra applies after the owning spec has selected the root
-value.
+value. Owning specs MAY also restrict which paths are valid for their slot
+(flows reject the empty output path; SSR allowlists are single-segment), but a
+restriction is a stated policy over the shared definition, never a private
+re-definition of what a path means.
 
 ### Path Operations
 
@@ -638,6 +701,9 @@ Work ids build on the same identity:
 One work record MUST have one canonical id. A subsystem MUST NOT carry a second
 near-duplicate stale-suppression key that denotes the same facts under a
 different head keyword unless a spec explicitly justifies the second identity.
+This is EP-0007's one-name-per-fact rule applied to identity values; the
+`:work/id`-versus-`:stale-key` near-duplicate (EP-0007 sweep item 3) is the
+motivating instance.
 
 ### Route Prism Laws
 
@@ -763,6 +829,48 @@ smaller:
 
 ## Examples
 
+### One Logical Path, Four Surfaces Today
+
+The same logical fact — "the invoices slice of app-db" — is named by a schema
+registration, a flow input, and a path interceptor, while a marks declaration
+focuses inside the values it produces. Four surfaces, four subtly different
+path semantics:
+
+```clojure
+;; 1. Schema registration: any sequential? accepted, throws
+;;    :rf.error/bad-app-schema-path otherwise.
+(rf/reg-app-schema [:billing :invoices] Invoices)
+
+;; 2. Marks declaration (output-relative): vectors only; a non-vector
+;;    entry is silently dropped, so this one-bracket typo registers
+;;    cleanly and redacts nothing:
+(rf/reg-sub :billing/invoice
+  {:sensitive [:customer :email]}       ;; meant [[:customer :email]]
+  (fn [db [_ id]] (get-in db [:billing :invoices :by-id id])))
+
+;; 3. Flow output: non-empty vector of scalar keys; [] rejected,
+;;    overlap checked against sibling flows with a private prefix test.
+(rf/reg-flow
+  {:id     :billing/invoice-count
+   :inputs [[:billing :invoices]]
+   :path   [:billing :invoice-count]
+   :output (fn [{:keys [invoices]}] (count invoices))})
+
+;; 4. Path interceptor: varargs segments, not a vector.
+(rf/reg-event-db :invoice/clear
+  [(path :billing :invoices)]
+  (fn [_ _] {}))
+```
+
+Under this EP the four surfaces keep their call shapes, but all four mean the
+same thing by "path": each registration boundary normalizes to a canonical
+`:rf/path` vector, malformed paths fail loudly with one error vocabulary
+(the marks typo above becomes a registration error instead of a silent
+redaction no-op), and the flow overlap check is the shared `overlap?`
+relation rather than a private one. Root selection stays with the owning
+surface (app-db for the schema/flow/interceptor, the sub's output for the
+marks declaration) per §Partition-Relative Paths.
+
 ### Raw Vector Paths
 
 Existing re-frame style remains valid:
@@ -838,6 +946,39 @@ The declaration can feed schema registration and privacy marks:
 
 The law is about the resulting value. Implementations may add convenience
 arities, but the unary function form is sufficient.
+
+### What The Path Laws Catch
+
+The laws are not decorative; obvious implementations violate them. Clojure's
+raw `assoc-in` fails the root-path law — with an empty path it assoc's under
+the key `nil` instead of replacing the root:
+
+```clojure
+(assoc-in {:a 1} [] {:b 2})
+;; => {:a 1, nil {:b 2}}     ; not {:b 2}
+
+(get-in (assoc-in {:a 1} [] {:b 2}) [])
+;; => {:a 1, nil {:b 2}}     ; put-get violated at p = []
+```
+
+A `rf.path/put` that simply delegates to `assoc-in` is therefore
+non-conforming, and the generative law test
+`lookup(put(s, p, x), p) = {:present? true, :value x}` finds it as soon as
+the path generator emits `[]`. The required behavior is
+`put(s, [], x) = x`.
+
+A second realistic violation: an implementation that "optimizes" by scrubbing
+`nil` writes (`dissoc` instead of storing `nil`) breaks the same law at
+`x = nil`:
+
+```clojure
+;; non-conforming put that drops nil writes:
+(lookup (put {:page 1} [:page] nil) [:page])
+;; => {:present? false}      ; law requires {:present? true :value nil}
+```
+
+That is exactly the missing-versus-present-`nil` ambiguity from the problem
+statement, caught structurally instead of in a debugging session.
 
 ### Path Overlap Checks
 
@@ -1010,6 +1151,11 @@ feature manifests all need the same operations. Local implementations invite
 nearly-identical edge behavior that diverges under pressure. A shared algebra
 is simpler than many small explanations.
 
+This is EP-0007 carried from the vocabulary level to the mechanism level.
+EP-0007 forbids a second spelling for one fact; this EP forbids a second
+semantics for one mechanism. Both make the defect class a named violation
+instead of a per-review judgment call.
+
 ## Alternatives Considered
 
 ### Leave Paths As Informal Vectors
@@ -1113,12 +1259,14 @@ Migration tooling should classify issues:
    query key ordering, and canonical params identity.
 5. Update `spec/013-Flows.md` to cite shared `overlap?` and `prefix?` for
    dependency and output-collision checks.
-6. Update `spec/010-Schemas.md` and the elision/redaction specs to cite
-   `:rf/path` for app-db schema paths and derived redaction declarations.
+6. Update `spec/010-Schemas.md` and `spec/015-Data-Classification.md` to cite
+   `:rf/path` for app-db schema paths, marks declarations, and derived
+   redaction declarations — including normalizing the marks surface's
+   silent-drop path coercion to the shared loud-failure rule.
 7. Update `spec/016-Resources.md` to replace local canonicalization prose with
    the shared canonical EDN identity rule.
-8. Update runtime-subsystem docs to cite shared path semantics for subtree
-   catalogues, projection allowlists, and redaction paths.
+8. Update `spec/Runtime-Subsystems.md` to cite shared path semantics for
+   subtree catalogues, projection allowlists, and redaction paths.
 9. Add property tests and cross-host fixtures for path laws, canonical identity,
    route prism laws, and resource/work-id identity.
 10. Add migration documentation showing how v1 vector paths remain valid and
@@ -1184,19 +1332,55 @@ Public/internal conformance:
 
 - Should `rf.path/*` and `rf.identity/*` be public v1 API, or internal support
   with only the semantics documented publicly?
+  **Recommendation:** internal-first. The semantics are normative immediately;
+  the public names graduate only after the flows/schemas/routing/resources
+  consumers have proven them, per §Internal And Public Helper Surface.
 - What exact canonical byte encoding should be named for UUIDs, instants,
   bigints, ratios, decimals, and heterogeneous numeric keys across CLJ/CLJS
   hosts?
+  **Recommendation:** pin it in the Conventions graduation bead, reusing the
+  Spec 010 schema-digest discipline (stable printed bytes, SHA-256) as the
+  base. If a total order for exotic numeric keys proves contentious, restrict
+  v1 canonical map keys to keywords, strings, integers, booleans, and UUIDs
+  and fail closed on the rest — narrowing later is impossible; widening is
+  cheap.
 - Should path templates reserve only `'?name` symbols, or should they use an
   explicit data form such as `[:rf.path/param :invoice-id]` to avoid any chance
   of confusing a literal symbol segment with a template variable?
+  **Recommendation:** make the explicit data form the canonical stored shape
+  and treat `'?name` as declaration-boundary sugar normalized into it. That
+  removes the literal-symbol ambiguity this EP itself has to caveat.
 - Should named path declarations live in a registrar kind, a future feature
   manifest, or both?
+  **Recommendation:** defer the registrar kind. Reserve the declaration shape
+  now; let EP-0013/EP-0014 decide the home when a consumer needs runtime
+  lookup. A registrar kind minted before its consumer is speculative surface.
 - Should route data-form path patterns graduate with this EP or remain a later
   additive front end to the same route prism laws?
+  **Recommendation:** remain later, per Non-Goals. The prism laws are
+  front-end-agnostic by construction.
 - Should canonical identity expose stable human-readable strings, digests, or
   both? Debugging favors readable EDN; storage and lookup may favor bytes or
   digests.
+  **Recommendation:** both, with roles fixed: the normalized EDN value is the
+  tool/debugging projection (Xray rows stay readable), the digest is the
+  storage/lookup key, and the digest is always derived from the normalized
+  value — one fact, one identity, two encodings.
+- Spec 016 currently lists "dates" among the host values rejected from
+  resource params, while this EP's canonical domain admits instants as EDN
+  values or tagged data — and in CLJS an `#inst` *is* a `js/Date`.
+  **Recommendation:** reconcile at graduation: raw host date objects are
+  rejected at identity boundaries unless the accepting surface explicitly
+  coerces them to `#inst` tagged EDN, whose canonical encoding is the RFC 3339
+  UTC instant string; Spec 016's wording narrows to "raw host date objects".
+- The flow path validator today restricts segments to
+  keyword/string/integer/symbol/boolean — narrower than this EP's segment
+  domain (no UUID, instant, or `nil` segments), even though UUID-keyed entity
+  paths are a natural concrete shape.
+  **Recommendation:** keep subsystem narrowing legal but explicit: Spec 013
+  either widens flow segments to the shared domain or records its restriction
+  as a stated policy over the shared definition (per §Partition-Relative
+  Paths), so the divergence is a documented decision rather than residue.
 
 ## Recommendation
 
