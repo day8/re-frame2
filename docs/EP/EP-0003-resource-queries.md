@@ -449,6 +449,85 @@ Resource cache lives only at `:rf.runtime/resources` inside the `:rf.db/runtime`
 partition, so ordinary `:db` event handlers cannot accidentally wipe resource
 state.
 
+### Write Authority
+
+`:rf.runtime/resources` and `:rf.runtime/work-ledger` are framework-owned
+runtime-db children, so resource writes must mint **framework-write authority**;
+ordinary app authority is not enough. The resource event handlers that return a
+`:rf.db/runtime` effect — `:rf.resource/ensure`, `:rf.resource/refetch`,
+`:rf.resource/invalidate-tags`, `:rf.resource/release-owner`,
+`:rf.resource/clear-scope`, `:rf.resource/remove`, and the internal replies
+`:rf.resource.internal/succeeded` / `:rf.resource.internal/failed` /
+`:rf.resource.internal/aborted` / `:rf.resource.internal/gc-fired` /
+`:rf.resource.internal/stale-suppressed` — are all framework writers of the
+runtime partition.
+
+The resources artifact therefore mints write authority through the
+**generalized event-handler authority mechanism shipped under rf2-3939ig**: every
+resource `reg-event-fx` registration site stamps the reserved registration-meta
+key `:rf/framework-authority? true` (per
+[`spec/002-Frames.md` §Minting framework-write authority](../../spec/002-Frames.md#minting-framework-write-authority)
+and [`spec/Conventions.md` §Reserved registration metadata](../../spec/Conventions.md#reserved-registration-metadata-framework-owned)).
+The runtime reads that stamp when assembling the event context, so a returned
+`:rf.db/runtime` effect from a resource handler is in-bounds. Resource handlers
+**never** write runtime-db through ordinary app authority. Without this stamp,
+resources would be the *second* framework subsystem after routing to trip the
+`:rf.warning/app-handler-runtime-effect` ownership diagnostic on every fetch in
+dev — the exact class of gap the generalized mechanism (and the
+runtime-subsystem contract that names it as clause 2) exists to close.
+
+`:rf/framework-authority?` is a diagnostic-governing convention, not a capability
+gate: the effect applies either way, and the flag governs only whether the
+ownership diagnostic fires (Spec 002 Mike ruling #4). Stale/GC and host-handle
+bookkeeping that the resource runtime performs **outside** the event-handler path
+(privileged frame-state mutators) follows the privileged-helper authority path
+instead, exactly as elision and SSR's non-event writes do.
+
+### Runtime-Subsystem Graduation
+
+`:rf.runtime/resources` and `:rf.runtime/work-ledger` are new children of the
+runtime-db partition, so each must **graduate against the runtime-subsystem
+contract** — the five-clause checklist every framework-owned durable-state
+sub-tree inherits, defined normatively in
+[`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md) (the
+durable-state analogue of `Managed-Effects.md`). The contract names five clauses
+every conformant subsystem answers: (1) **subtree**, (2) **write authority**,
+(3) **read API**, (4) **projection / elision**, and (5) **teardown**. A sub-tree
+that answers fewer is ad-hoc runtime state, outside the contract that tools, SSR
+projection, and the AI-Audit assume.
+
+`:rf.runtime/resources` is the contract's **first graduating instance and
+proof-case** outside the four shipped subsystems (machines, routing, elision,
+SSR). It already satisfies four clauses implicitly; clause 2 is the one the
+[Write Authority](#write-authority) section above fills.
+
+#### `:rf.runtime/resources` — resource cache ([`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md))
+
+| Clause | Grade |
+|---|---|
+| **1 Subtree** | ✅ `:rf.runtime/resources` with the closed slot set `:entries` / `:tag-index` / `:owner-index` (reserved in [`spec/Conventions.md` §Reserved runtime-db keys](../../spec/Conventions.md#reserved-runtime-db-keys)). Allocated lazily — absent until the first resource write — and per-frame isolated. |
+| **2 Write authority** | ✅ Event-handler path — every resource `reg-event-fx` stamps `:rf/framework-authority? true` (the generalized rf2-3939ig mechanism); the internal reply handlers carry it too. Stale/GC side-table writes go through privileged frame-state helpers. See [Write Authority](#write-authority) above. **This is the clause the EP previously left implicit; naming it is the point of this graduation.** |
+| **3 Read API** | ✅ The `:rf.resource/*` sub family (`:rf.resource/state`, `:rf.resource/data`, `:rf.resource/status`, `:rf.resource/loading?`, `:rf.resource/fetching?`, `:rf.resource/stale?`, `:rf.resource/error`, `:rf.resource/refresh-error`) plus tool accessors (`resource-state`, `resources`, the `list-resource-instances` / `get-resource-state` family). App code never reads raw `[:rf.runtime/resources …]` paths. |
+| **4 Projection / elision** | ✅ Allowlist-shaped — only the durable resource projection rides the `:rf/hydration-payload` `:rf/runtime-db` slice via the explicit projection hook ([§SSR and Hydration](#ssr-and-hydration)); `:tag-index` / `:owner-index` are recomputable-from-`:entries` and need not ride the wire. Params, scopes, and data carry `:sensitive?` / `:large?` classification through the shared `rf/elide-wire-value` walker; Xray sees redacted summaries, not raw values. |
+| **5 Teardown** | ✅ Side tables are keyed by frame id and work id; frame destroy cancels all resource timers and clears host handles for that frame ([§Stale And GC Scheduling](#stale-and-gc-scheduling), [§Restore and Replay](#restore-and-replay)). **Durable kept:** `:entries` (cache facts ride restore/SSR). **Transient dropped:** AbortControllers, stale/GC timers, transport promises (never serialized); `:tag-index` / `:owner-index` are recomputed from `:entries` on install. |
+
+#### `:rf.runtime/work-ledger` — frame work ledger ([`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md))
+
+| Clause | Grade |
+|---|---|
+| **1 Subtree** | ✅ `:rf.runtime/work-ledger` with serializable work records keyed by `:work/id` (reserved in [`spec/Conventions.md` §Reserved runtime-db keys](../../spec/Conventions.md#reserved-runtime-db-keys)). Allocated lazily; per-frame isolated. Named **neutrally** by design — resources are its first writer, but later slices extend it to timers, streams, route loaders, spawned actors, and machine async work. |
+| **2 Write authority** | ⚠️ **OPEN multi-writer question.** In the initial scope the ledger is written only through the resource event handlers (which already stamp `:rf/framework-authority? true`), so clause 2 is satisfied *for the resource writer*. But the ledger is deliberately designed as a **multi-writer subsystem**: when timers, streams, route loaders, spawned actors, and machine async work join as writers in later slices, **who mints authority for each additional writer is an open clause to resolve per writer**. Machines already imply authority via `:rf/machine? true`; non-machine future writers (timers, streams, route loaders) will each need to stamp `:rf/framework-authority? true` at their own registration sites or write through the privileged helpers. This EP names the ledger neutrally and flags the multi-writer authority question as explicitly **unresolved**, to be settled when the first non-resource writer lands. |
+| **3 Read API** | ✅ Read by framework code and tools only — Xray's live work-ledger table per frame (`list-resource-instances` / the work-ledger accessor family), SSR's blocking-drain wait point, and the resource runtime's join/dedupe logic. **No app-facing read sub by design** — app code observes work indirectly through `:rf.resource/*` subs (`:rf.resource/fetching?` etc.), never the ledger directly. |
+| **4 Projection / elision** | ✅ Allowlist-shaped — only **non-terminal rows' summaries** ride the hydration/epoch wire; terminal rows are pruned to a bounded local Xray tail and are not durable wire payload ([§Restore and Replay](#ledger-row-retention-and-identity)). Causes, owners, and deadlines carry the same privacy/size elision as resource metadata through `rf/elide-wire-value`. |
+| **5 Teardown** | ✅ Host handles (AbortControllers, timeout/poll handles, promises) live in side tables keyed by `[frame-id work-id]`, cleared on frame destroy. **Durable kept:** the bounded set of non-terminal serializable records. **Transient dropped:** host handles; restored non-terminal rows are immediately reconciled to **dangling** (their `:work/id` can never re-match a live entry, because the generation allocator is monotonic and host-side — [§1 The generation allocator is monotonic](#1-the-generation-allocator-is-monotonic-and-host-side-it-does-not-rewind)). |
+
+> The five-clause vocabulary, the grading-table shape, and the "first graduating
+> instance" framing follow the four shipped subsystems' rows in
+> [`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md). The detailed
+> per-value restore behaviour each clause references (allocator monotonicity,
+> dangling-row reconciliation, index recomputation, owner reconciliation) is
+> specified in [§Restore and Replay](#restore-and-replay) below.
+
 ### Frame Work Ledger Is The Async Substrate
 
 Resource entries are cached read-model facts. In-flight attempts are work facts.
@@ -2869,6 +2948,31 @@ deferred follow-on phase (see
 12. Docs/examples bead: guide chapter, API docs, migration notes from
     `shipclojure/re-frame-query`, route-driven example, SSR example, and HTTP and
     machine-owned resource examples.
+
+**Upstream sequencing (both now satisfied).** Two framework prerequisites gate
+the runtime beads above, and both have **landed on main**:
+
+- **rf2-3939ig — generalized framework-write authority (✅ satisfied).** The
+  work-ledger bead (3) and resource runtime bead (4) write the `:rf.db/runtime`
+  effect, so they depend on the generalized `:rf/framework-authority? true`
+  registration-meta mechanism that lets a non-machine subsystem mint
+  event-handler authority. That mechanism shipped under rf2-3939ig (it had to,
+  because routing was already tripping `:rf.warning/app-handler-runtime-effect`
+  on every navigation). The resource registration sites stamp the key per the
+  [Write Authority](#write-authority) section; **no rework is required** — the
+  beads build on a landed mechanism.
+- **rf2-6nn8bi — runtime-subsystem contract (✅ satisfied).** The graduation of
+  `:rf.runtime/resources` and `:rf.runtime/work-ledger` (the
+  [Runtime-Subsystem Graduation](#runtime-subsystem-graduation) tables) grades
+  against the five-clause contract that landed normatively at
+  [`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md) under
+  rf2-6nn8bi. Acceptance review of the runtime beads should treat both clause
+  conformance and the still-open clause-2 multi-writer authority question for
+  `:rf.runtime/work-ledger` as gated by that contract.
+
+Acceptance review should therefore see this coupling as **already resolved on
+main**: this amendment cites both landed prerequisites rather than waiting on
+them.
 
 Deferred GraphQL-phase beads (after the HTTP core lands):
 
