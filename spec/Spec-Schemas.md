@@ -1120,6 +1120,16 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:scope       {:optional true} :any]
    [:reason      :string]])
 
+(def InvalidResourceSpecTags
+  ;; reg-resource omitted a REQUIRED key (:params-schema / :request) or the
+  ;; spec was not a map. (:scope is validated first + separately, raising
+  ;; ResourceMissingScopePolicyTags.) Registration-time, dev+prod (a caller bug).
+  [:map
+   [:category    :keyword]
+   [:resource-id :keyword]
+   [:value       {:optional true} :any]   ;; present when the spec was not a map
+   [:reason      :string]])
+
 (def ResourceScopeRequiredFromCallerTags
   ;; a :rf.scope/from-caller resource event reached with no payload :scope
   ;; and no route resolver — a loud use-time error, not a silent global read.
@@ -1356,20 +1366,23 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 ;; --- runtime: artefact-missing errors (per MIGRATION §M-31) ---
 
 (def ArtefactMissingTags
-  ;; Shared shape for the seven artefact-missing categories: flows, ssr,
-  ;; routing, schemas, machines, http, epoch. Each surfaces as a thrown
-  ;; ex-info with this payload; not a trace event.
+  ;; Shared shape for the eight artefact-missing categories: flows, ssr,
+  ;; routing, schemas, machines, http, epoch, resources. Each surfaces as a
+  ;; thrown ex-info with this payload; not a trace event.
   [:map
    [:category :keyword]
    [:where    [:or :symbol :string]]
    [:reason   :string]
    ;; per-artefact optional context keys
-   [:flow-id    {:optional true} :keyword]
-   [:route-id   {:optional true} :keyword]
-   [:machine-id {:optional true} :keyword]
-   [:path       {:optional true} [:vector :any]]
-   [:id         {:optional true} :keyword]
-   [:frame      {:optional true} :keyword]])
+   [:flow-id     {:optional true} :keyword]
+   [:route-id    {:optional true} :keyword]
+   [:machine-id  {:optional true} :keyword]
+   [:resource-id {:optional true} :keyword]   ;; resources reg/clear/meta surfaces
+   [:mutation-id {:optional true} :keyword]   ;; resources mutation surfaces
+   [:frame-id    {:optional true} :keyword]   ;; resources revalidation-listener surfaces
+   [:path        {:optional true} [:vector :any]]
+   [:id          {:optional true} :keyword]
+   [:frame       {:optional true} :keyword]])
 
 ;; --- runtime: epoch restore errors (per [Tool-Pair §Time-travel]) ---
 
