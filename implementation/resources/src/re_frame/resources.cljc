@@ -62,6 +62,7 @@
             [re-frame.resources.ssr :as ssr]
             [re-frame.resources.state :as state]
             [re-frame.resources.subs :as resource-subs]
+            [re-frame.resources.timers :as timers]
             [re-frame.resources.work-ledger :as work-ledger]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -147,6 +148,24 @@
            work-ledger/clear-work-handle-meta
            work-ledger/clear-work-handle-handler)
 
+;; Stale / GC timer side-table write fx (rf2-nbjewi). The stale / GC timer
+;; handles are host-side transient state (NOT runtime-db), so their writes
+;; ride fx exactly as the generation high-water bump + work-handle side-table
+;; writes do. The success reply handler emits :rf.resource/schedule-timers
+;; once an entry settles :loaded (arming the advisory stale / GC timers from
+;; the durable :loaded-at + policy); remove / clear-scope / a fired GC emit
+;; :rf.resource/cancel-timers. Both are `:platforms #{:client}` — the runtime
+;; platform gate skips them under SSR (which uses the blocking-drain wait
+;; point + lazy client revalidation, never wall-clock background timers). Per
+;; Spec 016 §Stale and GC scheduling. Registered in the façade so a `:reload`
+;; re-wires them.
+(fx/reg-fx :rf.resource/schedule-timers
+           timers/schedule-timers-meta
+           timers/schedule-timers-handler)
+(fx/reg-fx :rf.resource/cancel-timers
+           timers/cancel-timers-meta
+           timers/cancel-timers-handler)
+
 ;; The interceptor injected into the load-causing events (ensure / refetch)
 ;; so their handlers read the host-side generation high-water snapshot under
 ;; `:coeffects :rf.resource/generation` and mint the next monotone
@@ -187,6 +206,9 @@
 (events/reg-event-fx :rf.resource.internal/aborted
                      framework-authority-meta
                      resource-events/aborted-handler)
+(events/reg-event-fx :rf.resource.internal/stale-fired
+                     framework-authority-meta
+                     resource-events/stale-fired-handler)
 (events/reg-event-fx :rf.resource.internal/gc-fired
                      framework-authority-meta
                      resource-events/gc-fired-handler)
@@ -204,25 +226,29 @@
 (route/install-routing-integration!)
 (ssr/install-ssr-integration!)
 
-;; rf2-afpdkn: release the destroyed frame's host-side TRANSIENT resource
-;; caches — the work-ledger host handles (AbortControllers / timer handles,
-;; `re-frame.resources.work-ledger/handle-table`) AND the generation
-;; high-water mark (`re-frame.resources.state/generation-cache`). Neither is
-;; runtime-db state — both live in module-level atoms (host-derived,
+;; rf2-afpdkn / rf2-nbjewi: release the destroyed frame's host-side TRANSIENT
+;; resource caches — the work-ledger host handles (AbortControllers,
+;; `re-frame.resources.work-ledger/handle-table`), the stale / GC timer
+;; handles (`re-frame.resources.timers/timer-table`, rf2-nbjewi), AND the
+;; generation high-water mark (`re-frame.resources.state/generation-cache`).
+;; None is runtime-db state — all live in module-level atoms (host-derived,
 ;; ephemeral, off the epoch / SSR egress wire; the generation host-side so an
 ;; epoch restore cannot rewind + recycle a generation). `frame/destroy-frame!`
-;; invokes this single hook by key (no static dep on resources — the artefact
-;; is optional). The durable serializable work records + cache entries ride
-;; the frame value and are released atomically when the frame is dropped; this
-;; hook touches ONLY the host side tables. Per Spec 016 [Runtime-Subsystems]
-;; clause 5 / §Stale and GC scheduling. Composed here (one late-bind key →
-;; one fn) mirroring routing's `:routing/on-frame-destroyed!`.
+;; invokes this SINGLE hook by key (no static dep on resources — the artefact
+;; is optional; ONE teardown path, not three). The durable serializable work
+;; records + cache entries ride the frame value and are released atomically
+;; when the frame is dropped; this hook touches ONLY the host side tables. Per
+;; Spec 016 [Runtime-Subsystems] clause 5 / §Stale and GC scheduling (frame
+;; destroy cancels all resource timers for that frame). Composed here (one
+;; late-bind key → one fn) mirroring routing's `:routing/on-frame-destroyed!`.
 (defn- release-resources-host-caches!
   "Release ALL of the destroyed frame's host-side transient resource caches
-  (work-ledger host handles + generation high-water mark). The
-  `:resources/on-frame-destroyed!` teardown body."
+  (work-ledger host handles + stale / GC timer handles + generation
+  high-water mark). The `:resources/on-frame-destroyed!` teardown body — one
+  composed hook, no second teardown path."
   [frame-id]
   (work-ledger/on-frame-destroyed! frame-id)
+  (timers/on-frame-destroyed! frame-id)
   (state/release-frame! frame-id)
   nil)
 

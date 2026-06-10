@@ -131,6 +131,8 @@
    :rf.resource/invalidated          {:class :invalidation :label "invalidated"}
    :rf.resource/refetch-decision     {:class :lifecycle    :label "refetch decision"}
    :rf.resource/owner-released       {:class :lifecycle    :label "owner released"}
+   :rf.resource/stale-scheduled      {:class :gc           :label "stale scheduled"}
+   :rf.resource/stale-fired          {:class :gc           :label "stale fired"}
    :rf.resource/gc-scheduled         {:class :gc           :label "gc scheduled"}
    :rf.resource/gc-fired             {:class :gc           :label "gc fired"}
    :rf.resource/gc-skipped           {:class :gc           :label "gc skipped"}
