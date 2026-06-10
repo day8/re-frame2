@@ -26,9 +26,9 @@
   shape wrapper) because the operation is atomic state — it walks
   both atoms and mutates them under one `swap!` per slot. Keeping it
   next to the atoms makes the invariant local."
-  (:require [re-frame.frame        :as frame]
-            [re-frame.http-privacy :as privacy]
+  (:require [re-frame.http-privacy :as privacy]
             [re-frame.interop      :as interop]
+            [re-frame.late-bind    :as late-bind]
             [re-frame.trace        :as trace]))
 
 ;; ---- in-flight request registry -------------------------------------------
@@ -279,102 +279,45 @@
           (catch #?(:clj Throwable :cljs :default) _ nil)))))
   nil)
 
-;; ---- spawned-actor detection ----------------------------------------------
+;; ---- spawned-actor detection (rf2-ma0wvq inversion) -----------------------
 ;;
 ;; Per Spec 014 §Abort on actor destroy: a managed request "belongs to"
 ;; spawned actor `<spawned-id>` iff its originating event vector's first
-;; element is `<spawned-id>` AND that id appears as a value somewhere
-;; under [:rf.runtime/machines :spawned ...] in the frame's app-db (the runtime-owned
-;; spawn registry per Spec 005 §Declarative :spawn (sugar over spawn)).
-;; Detection is structural: walk the registry, look for the originating
-;; id as either a leaf value (declarative :spawn) or as a value under
-;; :children (declarative :spawn-all).
-
-(def ^:private spawned-registry-path
-  "The runtime-owned spawn-registry slot in a frame's **runtime-db** partition,
-  per Spec 005 §Declarative :spawn (mirrors `re-frame.machines.paths/spawned-path`
-  — the authoritative owner). Pinned here as a single named constant so the
-  structural coupling to the machines runtime's runtime-db layout has ONE site
-  rather than being inlined at each reader (rf2-b7h0q).
-
-  EP-0001 (rf2-vzld77): machine spawn-registry state is durable runtime-db
-  state, so the slot is `[:rf.runtime/machines :spawned]` in the runtime-db
-  partition (was the app-db `:rf/runtime` root).
-
-  NOTE on the late-bind boundary: the http artefact does not (and must not)
-  statically `:require` `re-frame.machines`, so it cannot reference
-  `machines.paths/spawned-path` directly — it re-states the path here. The
-  cleaner long-term shape is to invert the existing
-  `:http/abort-on-actor-destroy` hook direction and have machines PUBLISH a
-  `:machines/spawned-actor-id?` membership test (so the structural walk
-  lives next to the registry shape it depends on); that inversion is a
-  cross-artefact change tracked separately and out of scope for this
-  http-only fix."
-  [:rf.runtime/machines :spawned])
-
-(defn- read-spawned-registry
-  "Read ONLY the runtime-owned spawn-registry slot from `frame-id`'s
-  **runtime-db** — `(get-in runtime-db spawned-registry-path)` — without
-  retaining the whole map.
-
-  PERF (rf2-b7h0q): `frame/frame-runtime-db-value` is a substrate `deref` that
-  returns the persistent runtime-db map BY REFERENCE (no structural copy, no
-  scan), so the read is genuinely O(1) regardless of size; the `get-in` that
-  follows is a fixed two-key descent. This is the load-bearing assumption that
-  makes calling this once per managed request (`compute-actor-id`) cheap. Apps
-  with no state machines carry no `:rf.runtime/machines` slot, so this returns
-  nil and the caller's `(seq …)` test short-circuits before any structural walk.
-
-  EP-0001 (rf2-vzld77): machine snapshots / spawn-registry moved to the
-  runtime-db partition, so this reads the runtime-db value.
-
-  Returns the spawned registry map, or nil when the frame is unregistered /
-  carries no machines runtime."
-  [frame-id]
-  (let [rt (frame/frame-runtime-db-value frame-id)]
-    (when (map? rt)
-      (get-in rt spawned-registry-path))))
-
-(defn- spawned-actor-id?
-  "Return true if `event-id` is currently bound somewhere under
-  `[:rf.runtime/machines :spawned <parent> <invoke-id>]` in `spawned`
-  — either as the leaf value (declarative `:spawn`) or as a value in
-  the `:children` map of the join-state record (declarative
-  `:spawn-all`)."
-  [spawned event-id]
-  (some (fn [[_parent inner]]
-          (some (fn [[_invoke-id v]]
-                  (or (= v event-id)                      ;; :spawn leaf
-                      (and (map? v)                       ;; :spawn-all join state
-                           (some (fn [[_cid cid-val]]
-                                   (= cid-val event-id))
-                                 (:children v)))))
-                inner))
-        spawned))
+;; element is `<spawned-id>` AND that id is registered as a spawned actor
+;; in the frame's runtime-db spawn registry (per Spec 005 §Declarative
+;; :spawn). That ownership decision is MACHINES-OWNED: machines knows the
+;; registry shape, so it publishes the `:machines/owning-actor-id` late-
+;; bind hook `(fn [frame-id event-id]) -> actor-id|nil`. http no longer
+;; re-states the registry path or walks the registry itself — it asks
+;; machines through the hook and treats a nil/absent hook (no machines
+;; artefact on the classpath) as "not owned by any actor". This keeps the
+;; structural dependency on the `:spawned` runtime-db layout entirely
+;; inside the machines artefact that owns it (rf2-ma0wvq inverts the old
+;; coupling, where http peeked inside machines state to classify ownership
+;; while machines already called http through `:http/abort-on-actor-destroy`
+;; for the destroy side).
 
 (defn compute-actor-id
   "Resolve the spawned-actor-id for the request at hand, given the frame
   id and the originating event vector. Returns the actor-id (a keyword,
   the spawned actor's machine address) when the originating event-id is
-  currently registered in the frame's `[:rf.runtime/machines :spawned ...]` slot, otherwise
-  nil — meaning the request is NOT subject to actor-destroy cancellation
-  (it was dispatched from an ordinary event handler, not from inside a
-  spawned actor).
+  owned by a spawned actor, otherwise nil — meaning the request is NOT
+  subject to actor-destroy cancellation (it was dispatched from an
+  ordinary event handler, not from inside a spawned actor).
 
-  Per rf2-hzn1a — fast path for the common case (no spawned actors).
-  Apps that don't use state machines never carry a populated `:spawned`
-  registry; we read only that slot via `read-spawned-registry` (an O(1)
-  by-reference db deref + a fixed three-key descent — see that fn's PERF
-  note, rf2-b7h0q) and the `(seq …)` test short-circuits before the
-  O(parents × invokes) structural walk. This keeps the cost on the
-  no-machines hot path at one by-reference deref + one path lookup + one
-  seq-check, rather than a full structural walk against the (always
-  empty) registry."
+  Ownership is decided by the machines artefact via the
+  `:machines/owning-actor-id` late-bind hook (rf2-ma0wvq): http asks
+  machines whether the originating event-id belongs to a spawned actor
+  rather than re-stating the registry path and walking it itself. When
+  the machines artefact is absent the hook is unregistered, this returns
+  nil, and apps that don't use state machines pay nothing.
+
+  The `:rf.http/managed` guard short-circuits before the hook call: the
+  framework-stamped fx event-id is never an actor address, so there is no
+  point asking machines about it."
   [frame-id origin-event]
   (let [event-id (when (vector? origin-event) (first origin-event))]
     (when (and event-id
                (not= event-id :rf.http/managed))
-      (let [spawned (read-spawned-registry frame-id)]
-        (when (seq spawned)
-          (when (spawned-actor-id? spawned event-id)
-            event-id))))))
+      (when-let [owning-actor-id (late-bind/get-fn :machines/owning-actor-id)]
+        (owning-actor-id frame-id event-id)))))

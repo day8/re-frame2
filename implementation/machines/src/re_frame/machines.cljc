@@ -298,6 +298,75 @@
   (fn [runtime-db [_ machine-id tag]]
     (contains? (get-in runtime-db (paths/snapshot-path machine-id :tags)) tag)))
 
+;; ---- spawned-actor ownership (rf2-ma0wvq) ---------------------------------
+;;
+;; Per Spec 014 §Abort on actor destroy: a managed `:rf.http/managed`
+;; request "belongs to" a spawned actor when its originating event-id is
+;; that actor's address. The http artefact USED to decide this itself by
+;; re-stating `paths/spawned-path` and structurally walking the registry —
+;; a hidden dependency on this artefact's private runtime-db shape. The
+;; ownership decision is now MACHINES-OWNED and published through the
+;; `:machines/owning-actor-id` hook (rf2-ma0wvq), so the structural walk
+;; lives next to the registry shape it depends on. http reaches it via
+;; `late-bind/get-fn` and falls back to nil when machines is absent.
+;;
+;; SET SEMANTICS (rf2-ma0wvq step 1): the owning set is REGISTRY
+;; MEMBERSHIP — declarative `:spawn` / `:spawn-all` actors only, set-
+;; identical to the pre-inversion http walk. This is declarative-only BY
+;; DECISION pending a step-2 follow-up (filed separately) that WIDENS the
+;; set to imperatively-spawned actors via the snapshot `:rf/machine-type`
+;; marker; that widening MUST land with its own imperative-spawn destroy-
+;; cancellation test, not ride this behaviour-preserving inversion.
+
+(defn- spawned-membership-actor-id
+  "Return `event-id` if it is currently registered as a spawned actor's
+  address somewhere under `[:rf.runtime/machines :spawned <parent>
+  <invoke-id>]` in `spawned` — either as the leaf value (declarative
+  `:spawn`) or as a value in the `:children` map of a `:spawn-all` join-
+  state record — otherwise nil."
+  [spawned event-id]
+  (when (some (fn [[_parent inner]]
+                (some (fn [[_invoke-id v]]
+                        (or (= v event-id)                   ;; :spawn leaf
+                            (and (map? v)                    ;; :spawn-all join state
+                                 (some (fn [[_cid cid-val]]
+                                         (= cid-val event-id))
+                                       (:children v)))))
+                      inner))
+              spawned)
+    event-id))
+
+(defn owning-actor-id
+  "Resolve the spawned-actor-id that OWNS `event-id` in `frame-id`, or nil.
+
+  Returns `event-id` (a keyword — the spawned actor's machine address)
+  when it is currently registered in the frame's runtime-db spawn
+  registry (`paths/spawned-path`), otherwise nil — meaning the event is
+  NOT owned by a spawned actor (it came from an ordinary event handler).
+
+  Published as the `:machines/owning-actor-id` late-bind hook (rf2-ma0wvq)
+  so the http artefact can ask machines \"who owns this request's
+  originating event?\" without statically `:require`ing this artefact or
+  re-stating its private runtime-db shape. When machines is absent the
+  hook is unregistered and http's caller falls back to nil.
+
+  Set semantics (rf2-ma0wvq step 1): REGISTRY MEMBERSHIP — declarative
+  `:spawn` / `:spawn-all` actors only, set-identical to the pre-inversion
+  http walk (see the section comment above; step 2 widens to imperative
+  spawns under its own test).
+
+  PERF: `frame/frame-runtime-db-value` is a substrate `deref` returning the
+  persistent runtime-db map BY REFERENCE (no copy, no scan), so reading the
+  one `:spawned` slot is O(1); the `(seq …)` short-circuit means an app
+  with no live spawns pays one by-reference deref + one path descent + one
+  seq-check before any structural walk."
+  [frame-id event-id]
+  (let [rt (frame/frame-runtime-db-value frame-id)]
+    (when (map? rt)
+      (let [spawned (get-in rt (paths/spawned-path))]
+        (when (seq spawned)
+          (spawned-membership-actor-id spawned event-id))))))
+
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; Per rf2-xbtj the machines surface ships in
@@ -373,6 +442,15 @@
 ;; `:where :machine-data` boundary (Spec 005 §Schema validation, Spec
 ;; 010 §Per-step recovery row 7).
 (late-bind/set-fn! :machines/validate-machine-data! validate-machine-data!)
+;; Per rf2-ma0wvq — spawned-actor ownership resolver. The http artefact
+;; consults this to classify whether a managed request's originating
+;; event-id belongs to a spawned actor (so an actor-destroy cascade can
+;; abort it). Machines OWNS the registry shape, so the structural walk
+;; lives here; http reaches it via late-bind and falls back to nil when
+;; machines is absent (apps without state machines pay nothing). See the
+;; `owning-actor-id` docstring for the set semantics (step-1 registry
+;; membership, declarative `:spawn` / `:spawn-all` only).
+(late-bind/set-fn! :machines/owning-actor-id        owning-actor-id)
 (late-bind/set-fn! :machines/spawn-all-init-fx      spawn-all-init-fx)
 (late-bind/set-fn! :machines/after-schedule-fx      after-schedule-fx)
 (late-bind/set-fn! :machines/after-cancel-fx        after-cancel-fx)
