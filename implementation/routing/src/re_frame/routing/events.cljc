@@ -3,8 +3,6 @@
   `:rf.route.internal/settle-transition` event for re-frame2 routing.
 
   Owns:
-    - `alloc-nav-token` / `alloc-pending-nav-id` — per-frame counter
-      allocators (pure: db → [db' id-str]);
     - `emit-activation-traces!` — the `:rf.route/activated` /
       `:rf.route/deactivated` lifecycle pair (Spec 012 §Trace events,
       rf2-dn26r);
@@ -27,48 +25,30 @@
   registration in the facade so a `(require 're-frame.routing :reload)`
   on a fresh registrar (`clear-all!` test fixture) re-runs it. Per the
   rf2-2yabr cohesion split: SHARED-EVENT-HELPERS seam."
-  (:require [re-frame.trace :as trace]))
+  (:require [re-frame.routing.nav-counters :as nav-counters]
+            [re-frame.trace :as trace]))
 
 ;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
-;; counters are per-frame. Pure allocators: take db, return [db' id-str].
-;; Both share one increment-and-stringify shape over a per-frame counter
-;; key under `[:rf.runtime/routing ...]`; the only per-allocator
-;; variation is the counter key and the id prefix.
-;;
-;; The counters are INTENTIONALLY monotone and unbounded — see Spec 012
+;; counters are per-frame, monotone, and unbounded — see Spec 012
 ;; §Navigation tokens, step 1. A token need only be unique within the
 ;; lifetime of any in-flight async continuation (equality against the
 ;; current slice token is the only operation on it), which a monotone
-;; counter satisfies without ever wrapping. Unlike a bounded RETAINED
-;; collection (e.g. the route-registry decoded-key cap, or the host-side
-;; scroll-position LRU cache — the latter NOT runtime-db state per
-;; rf2-1hncp2), each counter is a single scalar that retains nothing and
-;; is GC'd whole on frame-destroy.
-;; Overflow is a non-concern: CLJS f64 (exact to 2^53), JVM `long`
-;; (2^63). DO NOT wrap/recycle — a recycled value could collide with a
-;; token still carried by a slow in-flight continuation, silently
-;; re-validating a stale result.
-
-(defn- alloc-counter
-  "Pure per-frame counter allocator. Increments the counter at
-  `[:rf.runtime/routing counter-key]` and returns
-  `[db' (str prefix n)]`."
-  [db counter-key prefix]
-  (let [n (inc (or (get-in db [:rf.runtime/routing counter-key]) 0))]
-    [(assoc-in db [:rf.runtime/routing counter-key] n)
-     (str prefix n)]))
-
-(defn alloc-nav-token
-  "Pure allocator: returns [db' \"nav-N\"]. Increments the per-frame
-  counter at [:rf.runtime/routing :nav-token-counter]."
-  [db]
-  (alloc-counter db :nav-token-counter "nav-"))
-
-(defn alloc-pending-nav-id
-  "Pure allocator: returns [db' \"pn-N\"]. Increments the per-frame
-  counter at [:rf.runtime/routing :pending-nav-counter]."
-  [db]
-  (alloc-counter db :pending-nav-counter "pn-"))
+;; counter satisfies without ever wrapping. Overflow is a non-concern:
+;; CLJS f64 (exact to 2^53), JVM `long` (2^63). DO NOT wrap/recycle — a
+;; recycled value could collide with a token still carried by a slow
+;; in-flight continuation, silently re-validating a stale result.
+;;
+;; rf2-oosjmh: the two ALLOCATORS (the monotone high-water counters) are
+;; HOST-SIDE TRANSIENT state, not runtime-db — they live in
+;; `re-frame.routing.nav-counters`'s host cache so an epoch restore (which
+;; replaces the runtime-db partition WHOLESALE) cannot rewind them and
+;; recycle a token (the invariant above is the whole point of the move).
+;; The handlers stay PURE: they allocate the next id from the injected
+;; `:rf.route/nav-counters` cofx snapshot (READ) and emit a
+;; `:rf.route/commit-nav-counter` fx (WRITE). `commit-navigation` below
+;; threads the snapshot in and assembles the bump fx — the same
+;; thread-an-explicit-arg / write-via-fx shape rf2-1hncp2's scroll cache
+;; uses (read via `:scroll-cache` arg, write via `:rf.nav/capture-scroll`).
 
 (defn emit-activation-traces!
   "Per Spec 012 §Trace events: emit `:rf.route/deactivated`
@@ -126,10 +106,11 @@
 ;; (`re-frame.routing.on-match-error`) sets it independently.
 ;;
 ;; The merge is targeted at `:current` (not at `:routing`), so the
-;; sibling routing-runtime keys under `[:rf.runtime/routing ...]`
-;; (`:nav-token-counter` / `:pending-nav-counter` / `:pending-navigation`)
-;; are untouched. (Scroll positions are NOT runtime-db siblings — they
-;; live in a host-side transient cache per rf2-1hncp2.)
+;; sibling routing-runtime key under `[:rf.runtime/routing ...]`
+;; (`:pending-navigation` — the only remaining runtime-db sibling) is
+;; untouched. The nav-token / pending-nav counters are NOT runtime-db
+;; siblings — they live in a host-side transient cache per rf2-oosjmh
+;; (mirroring the scroll-position cache, rf2-1hncp2).
 (defn merge-route-slice
   "Pure slice-publish: merges the new slice fields over the existing
   `:current` map at `[:rf.runtime/routing :current]`. Returns the
@@ -154,16 +135,20 @@
 ;; (programmatic `:rf.route/navigate` and URL-driven `:rf.route/
 ;; transitioned` / `:rf.route/handle-url-change`) once the target slice
 ;; fields have been resolved. Both:
-;;   1. allocate a fresh per-frame nav-token (the cascade-begin marker);
+;;   1. allocate a fresh per-frame nav-token (the cascade-begin marker)
+;;      from the injected host-side counter snapshot — PURE: read the
+;;      next id, publish it, and emit the high-water bump as an fx
+;;      (rf2-oosjmh);
 ;;   2. emit `:rf.route.nav-token/allocated`, then `emit-activation-
 ;;      traces!` — IN THAT ORDER so trace consumers see
 ;;      {allocated → deactivated? → activated?} (rf2-dn26r);
 ;;   3. publish the seven-key slice via `merge-route-slice`;
-;;   4. assemble the fx vector: capture-scroll (the leaving route's
-;;      position) → [push-fx, when the programmatic path must drive the
-;;      browser URL] → the `:on-match` dispatches → the FIFO
-;;      `settle-transition` (only when an `:on-match` drain exists,
-;;      Spec 012 §Per-route data loading §2) → the scroll fx.
+;;   4. assemble the fx vector: the nav-counter bump (`:rf.route/commit-
+;;      nav-counter`) → capture-scroll (the leaving route's position) →
+;;      [push-fx, when the programmatic path must drive the browser URL]
+;;      → the `:on-match` dispatches → the FIFO `settle-transition` (only
+;;      when an `:on-match` drain exists, Spec 012 §Per-route data loading
+;;      §2) → the scroll fx.
 ;; The URL-driven path passes no `push-fx` (the browser URL already
 ;; changed); the programmatic path passes `[:rf.nav/push-url ...]` /
 ;; `[:rf.nav/replace-url ...]`. Holding the commit shape in ONE place
@@ -171,29 +156,38 @@
 ;; from drifting between the two callers.
 (defn commit-navigation
   "Pure navigation-commit assembler shared by the programmatic-nav and
-  URL-driven paths. `db` is the pre-token-allocation db. `slice` carries
-  `{:id :params :query :fragment :transition}` (the published fields
-  minus `:nav-token`, which this fn allocates). `on-match-vec` is the
-  resolved `:on-match` event vector (possibly empty). `capture-fx` /
+  URL-driven paths. `rdb` is the pre-commit runtime-db value. `slice`
+  carries `{:id :params :query :fragment :transition}` (the published
+  fields minus `:nav-token`, which this fn allocates). `on-match-vec` is
+  the resolved `:on-match` event vector (possibly empty). `capture-fx` /
   `scroll-fx` are the pre-built fx entries (or nil) and `push-fx` is the
   optional history-mutation fx entry (nil on the URL-driven path).
-  Returns the event-fx cofx map `{:db :fx}`."
-  [db {:keys [id params query fragment transition]} on-match-vec
-   {:keys [prev-id capture-fx scroll-fx push-fx]}]
-  (let [[db' token] (alloc-nav-token db)]
+  `nav-counters` is the host-side counter snapshot injected by the
+  `:rf.route/nav-counters` cofx (rf2-oosjmh) — the nav-token is minted
+  from it PURELY and the high-water bump rides a `:rf.route/commit-nav-
+  counter` fx. Returns the event-fx cofx map `{:rf.db/runtime :fx}`."
+  [rdb {:keys [id params query fragment transition]} on-match-vec
+   {:keys [prev-id capture-fx scroll-fx push-fx nav-counters]}]
+  (let [[counter token] (nav-counters/next-nav-token nav-counters)]
     (trace/emit! :rf.event :rf.route.nav-token/allocated
                  {:route-id id :nav-token token})
     (emit-activation-traces! prev-id id)
     ;; EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
-    ;; state, so `db`/`db'` here is the RUNTIME-DB value and the commit
-    ;; returns `:rf.db/runtime`, not `:db`.
-    {:rf.db/runtime (merge-route-slice db' {:id         id
+    ;; state, so `rdb` here is the RUNTIME-DB value and the commit returns
+    ;; `:rf.db/runtime`, not `:db`.
+    {:rf.db/runtime (merge-route-slice rdb {:id         id
                                             :params     params
                                             :query      query
                                             :fragment   fragment
                                             :transition transition
                                             :nav-token  token})
-     :fx (vec (concat (when capture-fx [capture-fx])
+     :fx (vec (concat ;; rf2-oosjmh: persist the nav-token high-water mark
+                      ;; into the host-side counter cache (WRITE half of the
+                      ;; pure seam). FIRST so the bump lands before any
+                      ;; on-match continuation reads the snapshot.
+                      [[:rf.route/commit-nav-counter
+                        {:counter-key :nav-token-counter :value counter}]]
+                      (when capture-fx [capture-fx])
                       (when push-fx    [push-fx])
                       (mapv (fn [ev] [:dispatch ev]) on-match-vec)
                       ;; Per Spec 012 §Per-route data loading §2: settle

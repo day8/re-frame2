@@ -225,6 +225,7 @@
    :schemas/clear-by-frame!         1
    :machines/reset-timers!          1
    :routing/reset-counters!         1
+   :routing/reset-nav-counters!     1  ;; rf2-oosjmh — host-side counters
    :http/clear-all-in-flight!       1
    :epoch/clear-history!            1
    :epoch/clear-epoch-listeners!          1

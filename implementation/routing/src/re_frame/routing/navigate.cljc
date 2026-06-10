@@ -115,11 +115,18 @@
   "`:rf.route/navigate` event-fx handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar.
 
-  EP-0001 (rf2-vzld77): the route slice + scroll caches + nav-token counter
-  are durable framework runtime-db state, so the handler reads them from the
-  `:rf.db/runtime` coeffect (`rdb`) and `commit-navigation` returns a
-  `:rf.db/runtime` effect. The handler never touches user app-db."
-  [{frame :rf.frame/id rdb-raw :rf.db/runtime} [_ target params opts :as event-vec]]
+  EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
+  state, so the handler reads it from the `:rf.db/runtime` coeffect (`rdb`)
+  and `commit-navigation` returns a `:rf.db/runtime` effect. The handler
+  never touches user app-db. rf2-oosjmh: the nav-token / pending-nav
+  counters are host-side transient state — read via the
+  `:rf.route/nav-counters` cofx (`nav-counters`), written via fx — so the
+  handler stays pure (it never reaches the host atom directly). Scroll
+  positions are likewise a host-side cache (rf2-1hncp2)."
+  [{frame        :rf.frame/id
+    rdb-raw      :rf.db/runtime
+    nav-counters :rf.route/nav-counters}
+   [_ target params opts :as event-vec]]
     ;; Per Spec 012 §Navigation is an event and §Fragments §Programmatic
     ;; navigation with fragments. Fragment may be supplied in opts
     ;; (`{:fragment "x"}`), on the target-map form (`{:url "/x"
@@ -413,7 +420,8 @@
         (if-let [blocked (can-leave/maybe-block-navigation
                            rdb frame
                            event-vec url
-                           (:bypass-leave-guard? opts))]
+                           (:bypass-leave-guard? opts)
+                           nav-counters)]
           blocked
           (if identical-nav?
             ;; Spec 012 §Per-route data loading rule 3: nothing relevant
@@ -483,7 +491,11 @@
                  :fragment   fragment
                  :transition (if (seq on-match-vec) :loading :idle)}
                 on-match-vec
-                {:prev-id    (get-in rdb [:rf.runtime/routing :current :id])
-                 :capture-fx capture-fx
-                 :scroll-fx  scroll-fx
-                 :push-fx    push-fx})))))))
+                {:prev-id      (get-in rdb [:rf.runtime/routing :current :id])
+                 :capture-fx   capture-fx
+                 :scroll-fx    scroll-fx
+                 :push-fx      push-fx
+                 ;; rf2-oosjmh: host-side counter snapshot injected by the
+                 ;; `:rf.route/nav-counters` cofx — `commit-navigation`
+                 ;; mints the nav-token from it purely + emits the bump fx.
+                 :nav-counters nav-counters})))))))

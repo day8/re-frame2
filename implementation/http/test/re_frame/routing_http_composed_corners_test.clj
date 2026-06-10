@@ -57,6 +57,10 @@
   (require 're-frame.http-managed :reload)
   (require 're-frame.http-test-support :reload)
   (routing/reset-counters!)
+  ;; rf2-oosjmh — nav-token / pending-nav counters are host-side now; the
+  ;; `frames` reset above no longer clears them, so reset the host cache
+  ;; explicitly to keep "nav-1" / "nav-2" stable across tests.
+  (routing/reset-nav-counters!)
   (http-managed/clear-all-in-flight!)
   (rf/with-frame :rf/default
     (t)))

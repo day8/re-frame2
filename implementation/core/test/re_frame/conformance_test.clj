@@ -286,6 +286,11 @@
   ;; are stable across runs (the routing/machine fixtures assert against
   ;; literal "nav-1" / "nav-2" / ":http/post#1" strings).
   ((requiring-resolve 're-frame.routing/reset-counters!))
+  ;; rf2-oosjmh — the nav-token / pending-nav counters are now host-side
+  ;; transient state (not runtime-db), so the `frames` reset above no longer
+  ;; clears them; reset the host cache explicitly so "nav-1" / "pn-1" stay
+  ;; stable across fixtures.
+  ((requiring-resolve 're-frame.routing/reset-nav-counters!))
   ((requiring-resolve 're-frame.machines/reset-timers!))
   ;; Spec 014 — drop the in-flight request registry between fixtures.
   ((requiring-resolve 're-frame.http-managed/clear-all-in-flight!))

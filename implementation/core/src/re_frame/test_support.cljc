@@ -228,6 +228,14 @@
     :routing/reset-counters!         — reset the route-registration counter
                                        so reg-index is deterministic across
                                        fixture runs.
+    :routing/reset-nav-counters!     — reset the host-side nav-token /
+                                       pending-nav counter high-water marks
+                                       (rf2-oosjmh). They are host-side
+                                       transient state now, so the
+                                       `frames` reset above no longer clears
+                                       them; without this a prior test's
+                                       counter leaks and the nav-N / pn-N
+                                       id assertions drift.
     :http/clear-all-in-flight!       — drop the in-flight managed-request
                                        registry.
     :epoch/clear-history!            — drop the per-frame epoch ring buffer.
@@ -256,6 +264,7 @@
    {:hook :machines/reset-timers!          :phase :post-dispose}
    {:hook :machines/reset-spawn-order!     :phase :post-dispose}
    {:hook :routing/reset-counters!         :phase :post-dispose}
+   {:hook :routing/reset-nav-counters!     :phase :post-dispose}
    {:hook :http/clear-all-in-flight!       :phase :post-dispose}
    {:hook :epoch/clear-history!            :phase :post-dispose}
    {:hook :epoch/clear-epoch-listeners!          :phase :post-dispose}
