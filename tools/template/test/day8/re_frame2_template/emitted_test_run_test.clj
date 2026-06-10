@@ -46,7 +46,38 @@
    When the env var is unset, every `deftest` below `is`-asserts the
    gate is observable (a single `is true` with an explanatory message)
    and exits — preserves green on local fast-loop runs without
-   pretending the smoke ran."
+   pretending the smoke ran.
+
+   ## The MANUAL setup-skill scaffold fixture (rf2-ae98go)
+
+   The four substrate variants above materialise the GENERATOR template.
+   The setup skill (`skills/re-frame2-setup/`) teaches a SECOND,
+   genuinely different greenfield scaffold — a single-file Reagent
+   counter wired with `:app/main` + `:on-create` + a bare
+   `frame-provider`, where the template compiles `:rf/default` +
+   `with-frame` + `dispatch-sync` across split events/subs/views/schema
+   files. Because the skill boot ceremony diverges from the template's,
+   no equivalence assertion can prove the skill path compiles — only a
+   real materialise + compile can.
+
+   `setup-skill-scaffold-compiles-test` (below) closes that gap: it
+   extracts the load-bearing fenced code blocks STRAIGHT FROM the skill
+   markdown (`references/first-counter.md` → `src/your_app/core.cljs`;
+   `references/shadow-cljs.md` → `shadow-cljs.edn` + `index.html` +
+   `css/app.css`), synthesises the framework `deps.edn` the skill
+   documents as `:git/sha`/`:local/root` (the skill deliberately ships
+   no copy-complete deps.edn — the coords branch on publication state),
+   rewrites the framework coords to `:local/root` via
+   `rewrite-deps-for-local-run!`, links node_modules, and compiles the
+   `:app` build. It asserts the build wires the Xray preload and the
+   index.html ships the `[data-rf-xray-host]` host column.
+
+   This is a SEMANTIC-DRIFT NET — it proves the skill's own snippets
+   compile against the in-repo monorepo source, NOT that a published
+   coordinate resolves. Per rf2-ae98go's ruling the per-PR
+   published-coordinate buildability gate stays DEFERRED to publication;
+   this fixture is the interim real-compile cover, riding the same
+   `RF2_TEMPLATE_RUN_EMITTED_TESTS` gate as the template variants above."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
@@ -500,3 +531,225 @@
               "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
           (when (and @clojure-cli-available? @node-available?)
             (compile-and-run-emitted-test! :reagent true {:release? true}))))))
+
+;; ===========================================================================
+;; MANUAL setup-skill scaffold fixture (rf2-ae98go)
+;; ===========================================================================
+;;
+;; A second materialise+compile fixture that proves the `re-frame2-setup`
+;; SKILL's hand-written greenfield scaffold compiles against the in-repo
+;; source tree. The skill teaches a genuinely different boot ceremony from
+;; the generator template (single-file `your-app.core` with `:app/main` +
+;; `:on-create` + a bare `frame-provider` + `reg-view`, vs. the template's
+;; split files with `:rf/default` + `with-frame` + `dispatch-sync` + a
+;; schema), so no equivalence assertion against the template can prove the
+;; skill path compiles — only a real compile can. This is a semantic-drift
+;; NET (in-repo source compile), NOT a published-coordinate proof.
+
+;; --- fenced-block extraction -----------------------------------------------
+
+(def ^:private skill-setup-refs
+  "Absolute dir of the re-frame2-setup skill's reference snippets."
+  (delay (io/file (repo-root) "skills/re-frame2-setup/references")))
+
+(defn- fenced-blocks
+  "Every fenced code block in `md-text` tagged exactly `lang` (e.g.
+  \"clojure\" / \"html\" / \"css\"), in document order. CRLF-tolerant —
+  the skill reference files ship Windows line endings. Returns the block
+  bodies (the text BETWEEN the fences), each with trailing CRLF/CR
+  normalised to LF so the emitted scaffold file is clean regardless of
+  the markdown's line-ending style."
+  [md-text lang]
+  (->> (re-seq (re-pattern (str "(?s)```" lang "\\r?\\n(.*?)```")) md-text)
+       (map (fn [[_ body]] (-> body
+                               (string/replace "\r\n" "\n")
+                               (string/replace "\r" "\n"))))))
+
+(defn- single-fenced-block
+  "The unique fenced `lang` block in `md-text`, or the first block for
+  which `pred` (optional) is truthy. Throws loudly if zero match — a
+  skill-doc edit that renames the fence or moves the snippet must fail
+  the fixture, not silently emit an empty scaffold file."
+  ([md-text lang where] (single-fenced-block md-text lang where (constantly true)))
+  ([md-text lang where pred]
+   (let [blocks (filter pred (fenced-blocks md-text lang))]
+     (when (empty? blocks)
+       (throw (ex-info (str "setup-skill fixture: found no ```" lang
+                            " fenced block " where
+                            " — the skill snippet anchors moved; update the "
+                            "fixture extractor (rf2-ae98go).")
+                       {:lang lang :where where})))
+     (first blocks))))
+
+;; --- deps.edn synthesis (skill ships only the :git/sha / :local/root shape) -
+
+(defn- harvest-template-pins
+  "The setup skill documents its framework `deps.edn` as a `:git/sha` /
+  `:local/root` shape with `<SHA>` / `<shadow-version>` placeholders
+  (`references/deps-versions.md`) — it ships no copy-complete deps.edn,
+  by design, because the coords branch on publication state. So we
+  SYNTHESISE the deps.edn the skill describes, harvesting the
+  substrate-invariant version pins (reagent + clojure + clojurescript +
+  the `:shadow` alias's shadow-cljs/tools.namespace) from a one-shot
+  generator emission. This keeps the fixture lockstep-drift-free: the
+  pins always match what the template (and thus the skill, which mirrors
+  it) currently ships — there is nothing to hand-maintain here.
+
+  Returns {:reagent .. :clojure .. :clojurescript .. :shadow-alias ..}."
+  []
+  (let [tmp (tmp-dir "rf2-skill-pins-")]
+    (try
+      (let [proj (run-template! tmp "acme/my-app" :reagent)
+            deps (edn/read-string (slurp (io/file proj "deps.edn")))]
+        {:reagent       (get-in deps [:deps 'reagent/reagent :mvn/version])
+         :clojure       (get-in deps [:deps 'org.clojure/clojure :mvn/version])
+         :clojurescript (get-in deps [:deps 'org.clojure/clojurescript :mvn/version])
+         :shadow-alias  (get-in deps [:aliases :shadow])})
+      (finally
+        (delete-recursively tmp)))))
+
+(defn- skill-deps-edn
+  "The synthesised greenfield `deps.edn` for the setup-skill scaffold,
+  matching `references/deps-versions.md`'s documented shape: core +
+  Reagent adapter + Xray (the day-one coords the skill counter actually
+  needs — no schemas artefact, because the skill counter registers no
+  app-db schema) + an explicit `reagent/reagent` pin + the required
+  `:shadow` alias. The framework `day8/re-frame2*` coords carry a
+  placeholder `:mvn/version`; `rewrite-deps-for-local-run!` swaps them
+  for `:local/root` paths into the monorepo before the compile, so the
+  placeholder version is never resolved."
+  [{:keys [reagent clojure clojurescript shadow-alias]}]
+  {:paths ["src"]
+   :deps  {'org.clojure/clojure       {:mvn/version clojure}
+           'org.clojure/clojurescript {:mvn/version clojurescript}
+           'day8/re-frame2            {:mvn/version "PLACEHOLDER"}
+           'day8/re-frame2-reagent    {:mvn/version "PLACEHOLDER"}
+           'day8/re-frame2-xray       {:mvn/version "PLACEHOLDER"}
+           'reagent/reagent           {:mvn/version reagent}}
+   :aliases {:shadow shadow-alias}})
+
+;; --- materialisation -------------------------------------------------------
+
+(defn- materialise-skill-scaffold!
+  "Write the setup-skill scaffold into `proj-dir` from the skill's own
+  markdown fenced blocks (the load-bearing surfaces) plus a synthesised
+  framework `deps.edn`. Returns proj-dir.
+
+  Emitted tree:
+    deps.edn                        (synthesised — see skill-deps-edn)
+    shadow-cljs.edn                 (shadow-cljs.md day-one :builds block)
+    src/your_app/core.cljs          (first-counter.md whole-file block)
+    resources/public/index.html     (shadow-cljs.md html block)
+    resources/public/css/app.css    (shadow-cljs.md css block)"
+  [^java.io.File proj-dir pins]
+  (let [refs            @skill-setup-refs
+        first-counter   (slurp (io/file refs "first-counter.md"))
+        shadow-md       (slurp (io/file refs "shadow-cljs.md"))
+        ;; The whole-file Reagent counter — the only ```clojure block in
+        ;; first-counter.md. ns is `your-app.core` → src/your_app/core.cljs.
+        core-cljs       (single-fenced-block first-counter "clojure"
+                                             "in first-counter.md")
+        ;; The day-one shadow-cljs.edn build — the FIRST ```clojure block
+        ;; in shadow-cljs.md that carries a `:builds` map (later clojure
+        ;; blocks are the deps.edn :shadow alias fragment + the
+        ;; ^:dev/after-load hook snippet).
+        shadow-edn      (single-fenced-block shadow-md "clojure"
+                                             "in shadow-cljs.md (the :builds block)"
+                                             #(string/includes? % ":builds"))
+        index-html      (single-fenced-block shadow-md "html" "in shadow-cljs.md")
+        app-css         (single-fenced-block shadow-md "css" "in shadow-cljs.md")]
+    (.mkdirs (io/file proj-dir "src/your_app"))
+    (.mkdirs (io/file proj-dir "resources/public/css"))
+    (spit (io/file proj-dir "deps.edn")
+          (with-out-str (pprint/pprint (skill-deps-edn pins))))
+    (spit (io/file proj-dir "shadow-cljs.edn") shadow-edn)
+    (spit (io/file proj-dir "src/your_app/core.cljs") core-cljs)
+    (spit (io/file proj-dir "resources/public/index.html") index-html)
+    (spit (io/file proj-dir "resources/public/css/app.css") app-css)
+    proj-dir))
+
+;; --- the fixture -----------------------------------------------------------
+
+(defn- compile-skill-scaffold! []
+  (let [root (repo-root)
+        pins (harvest-template-pins)
+        tmp  (tmp-dir "rf2-skill-scaffold-")]
+    (try
+      (let [proj (io/file (.toString tmp) "my-app")]
+        (.mkdirs proj)
+        (materialise-skill-scaffold! proj pins)
+        ;; The synthesised deps.edn carries placeholder :mvn/version
+        ;; framework coords; rewrite them to :local/root against the
+        ;; monorepo — same path the generator-template variants take.
+        (rewrite-deps-for-local-run! root proj :reagent)
+        (let [linked?   (link-node-modules! root proj)
+              node-path (.getCanonicalPath (io/file root "implementation/node_modules"))
+              env       {"NODE_PATH" node-path}]
+          (is linked?
+              (str "project-local node_modules must resolve for the setup-skill "
+                   "scaffold's `:app` (:browser) compile — it ignores NODE_PATH. "
+                   "Symlink/junction into " (.getPath proj) " failed; ensure "
+                   "implementation/node_modules exists (`npm install` in "
+                   "implementation/) and the OS allows a symlink or `mklink /J` "
+                   "junction."))
+
+          ;; --- assert the scaffold wires the day-one Xray contract BEFORE
+          ;; compiling (cheap structural locks on the extracted snippets) ----
+          (testing "setup-skill scaffold wires the day-one Xray preload + host column"
+            (let [shadow-text (slurp (io/file proj "shadow-cljs.edn"))
+                  html-text   (slurp (io/file proj "resources/public/index.html"))]
+              (is (string/includes? shadow-text "day8.re-frame2-xray.preload")
+                  (str "the skill's day-one shadow-cljs.edn block "
+                       "(references/shadow-cljs.md) no longer wires "
+                       "`:devtools {:preloads [day8.re-frame2-xray.preload]}`. "
+                       "Xray is a day-one dep and index.html ships the host "
+                       "column — the canonical block must wire the preload that "
+                       "fills it (rf2-ae98go)."))
+              (is (string/includes? html-text "data-rf-xray-host")
+                  (str "the skill's index.html block (references/shadow-cljs.md) "
+                       "no longer carries the `[data-rf-xray-host]` Xray layout "
+                       "host column (rf2-ae98go)."))))
+
+          ;; --- compile the :app build -------------------------------------
+          (testing "setup-skill scaffold — clojure -M:shadow compile app"
+            (let [{:keys [exit out]}
+                  (run-process! ["clojure" "-M:shadow" "compile" "app"] proj env)]
+              (is (zero? exit)
+                  (str "`clojure -M:shadow compile app` exited " exit
+                       " for the MANUAL setup-skill scaffold. The skill's "
+                       "hand-written greenfield counter "
+                       "(skills/re-frame2-setup/references/first-counter.md + "
+                       "shadow-cljs.md) no longer compiles against the in-repo "
+                       "re-frame2 source — its boot ceremony (`:app/main` + "
+                       "`:on-create` + bare `frame-provider` + `reg-view`) "
+                       "diverges from the generator template, so the template "
+                       "variants above can't catch this (rf2-ae98go). Output:\n"
+                       out))
+              ;; A zero-exit with no emitted bundle would false-green.
+              (let [bundle (io/file proj "resources/public/js/main.js")]
+                (is (and (.isFile bundle) (pos? (.length bundle)))
+                    (str "`compile app` must emit a non-empty "
+                         "resources/public/js/main.js for the setup-skill "
+                         "scaffold. Bundle: "
+                         (if (.isFile bundle)
+                           (str (.length bundle) " bytes")
+                           "absent"))))))))
+      (finally
+        (delete-recursively tmp)))))
+
+(deftest setup-skill-scaffold-compiles-test
+  ;; rf2-ae98go — the interim real-compile cover for the MANUAL setup-skill
+  ;; scaffold (the per-PR published-coordinate buildability gate stays
+  ;; deferred to publication). Semantic-drift net: proves the skill's own
+  ;; fenced snippets compile against the monorepo source, NOT that a
+  ;; published coord resolves. Same `RF2_TEMPLATE_RUN_EMITTED_TESTS` gate
+  ;; as the template variants above; `:app`-only compile (the skill's
+  ;; day-one block ships a single `:app` build, no `:test` build).
+  (testing "the re-frame2-setup skill's hand-written greenfield scaffold
+            compiles against the in-repo source (Xray preload + host column wired)"
+    (if-not @enabled?
+      (skip-if-disabled! "setup-skill-scaffold")
+      (do (is @clojure-cli-available?
+              "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
+          (when @clojure-cli-available?
+            (compile-skill-scaffold!))))))
