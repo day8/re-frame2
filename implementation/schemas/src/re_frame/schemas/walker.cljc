@@ -113,8 +113,41 @@
 (def ^:private dispatch-bearing-ops
   "Schema ops whose children carry dispatch-value branches (the first
   element of a child entry is a dispatch value, not an app-db path
-  segment)."
-  #{:multi :orn :catn :altn})
+  segment).
+
+  `:catn` is NOT here (rf2-4q681i): although its children carry NAME
+  slots like `:orn`/`:altn`, Malli reports a `:catn` failure's `:in`
+  segment as the element's INTEGER POSITION (`[1 :age]`), not the name —
+  identical to `:cat`. So `:catn` is position-bearing (see
+  `position-bearing-ops`), and its name slot is decorative for the
+  decl-path coordinate system."
+  #{:multi :orn :altn})
+
+(def ^:private position-bearing-ops
+  "Schema ops whose children are POSITION-bearing — each element `i` has
+  its OWN heterogeneous schema and Malli reports a failure's `:in` segment
+  as the integer index `i`. The walker descends element `i` at
+  `(conj base-path i)` (the positional analogue of a `:map` key), giving
+  per-element sibling precision: a per-position flag claims that exact
+  index, not the shared base-path.
+
+    - `:tuple` (rf2-ss06u.4) — element `i` is `children[i]`, a bare schema.
+    - `:cat` / `:catn` (rf2-4q681i) — the regex sequence combinators that
+      root event schemas (`[:cat [:= :id] PayloadSchema]`). `:cat`
+      elements are bare schemas (`children[i]`); `:catn` elements are
+      NAME-bearing entries (`[name props? schema]`) but Malli still
+      reports the integer position in `:in`, so the name is decorative and
+      the position drives the coordinate. Both descend the element schema
+      at `(conj base-path i)`.
+
+  The position-pinned decl-path is matching-safe against the core-elision
+  coordinate system: the runtime elision walk descends a tuple / event-
+  vector value (a vector) through its literal-index fork (`fork-index-paths`
+  — `(conj c i)` in `re-frame.elision`), which matches a position-pinned
+  declaration exactly. No elision-side change is required — the index fork
+  is schema-agnostic (it walks the runtime value), so `:cat`/`:catn`/`:tuple`
+  all align through the same generic path."
+  #{:tuple :cat :catn})
 
 (defn- props-of
   "Return the per-slot props map of a Malli vector form, or nil. Convention:
@@ -161,12 +194,13 @@
       OR the child schema's own props (also claims `(conj base k)`, since
       the path is the same).
 
-    - `:multi` / `:orn` / `:catn` / `:altn` children are dispatch-bearing —
+    - `:multi` / `:orn` / `:altn` children are dispatch-bearing —
       `[v schema]` / `[v {props} schema]` — and the flag on a branch's
       slot props claims the parent path (the op's `base-path`), not a
       child path; dispatch values aren't path segments.
 
-    - `:tuple` children are POSITION-bearing (rf2-ss06u.4) — each element
+    - `:tuple` / `:cat` / `:catn` children are POSITION-bearing
+      (`:tuple` rf2-ss06u.4; `:cat`/`:catn` rf2-4q681i) — each element
       has its OWN heterogeneous schema, so element `i` descends at
       `(conj base-path i)`, the integer index being the discriminating
       segment (the positional analogue of a `:map` key). A `:sensitive?`
@@ -174,17 +208,23 @@
       `(conj base 0)`, NOT `base` — so it does not taint the sibling at
       `(conj base 1)`. This is the index-bearing element-precision the
       `:vector` / `:map-of` paths already have via their map-key
-      discriminator; for `:tuple` the discriminator IS the index. The
-      position-pinned decl-path is matching-safe against the core-elision
-      coordinate system: the runtime elision walk descends a tuple value
-      (a vector) through its literal-index fork (`fork-index-paths` —
-      `(conj c i)`), which matches a position-pinned declaration exactly.
+      discriminator; for these ops the discriminator IS the index.
+      `:cat` elements are bare schemas (`children[i]`); `:catn` elements
+      are NAME-bearing entries (`[name props? schema]`) — the flag may
+      live in the entry's own props OR the element schema's props, both
+      claiming `(conj base i)` — but Malli reports the integer POSITION
+      (not the name) in a `:catn` failure's `:in`, so the position drives
+      the coordinate. The position-pinned decl-path is matching-safe
+      against the core-elision coordinate system: the runtime elision walk
+      descends a tuple / event-vector value (a vector) through its
+      literal-index fork (`fork-index-paths` — `(conj c i)`), which matches
+      a position-pinned declaration exactly.
 
     - Other positional / nameless container ops (`:vector`, `:set`,
-      `:sequential`, `:maybe`, `:and`, `:or`, `:not`, `:cat`, …) descend
-      into each child at the SAME `base-path` — these ops are homogeneous
-      (one shared element schema) or their index is not a declarable
-      app-db slot, so they don't introduce a new path segment.
+      `:sequential`, `:maybe`, `:and`, `:or`, `:not`, …) descend into each
+      child at the SAME `base-path` — these ops are homogeneous (one
+      shared element schema) or their index is not a declarable app-db
+      slot, so they don't introduce a new path segment.
 
     - Container-level props on the schema itself (the schema's OWN props,
       not a parent slot's) claim `base-path`. Covers
@@ -249,18 +289,45 @@
            acc'
            children)
 
-         ;; `:tuple` — position-bearing (rf2-ss06u.4). Each element has its
+         ;; `:tuple` / `:cat` / `:catn` — position-bearing (`:tuple`
+         ;; rf2-ss06u.4; `:cat`/`:catn` rf2-4q681i). Each element has its
          ;; OWN schema; element `i` descends at `(conj base-path i)` so a
          ;; per-position `:sensitive?` / `:large?` flag claims that exact
-         ;; index, NOT the shared tuple base-path. Mirrors the `:map`
-         ;; name-bearing descent with integer position keys, giving the
-         ;; sibling precision the index-free `:else` descent destroys.
-         (= op :tuple)
+         ;; index, NOT the shared base-path. Mirrors the `:map` name-bearing
+         ;; descent with integer position keys, giving the sibling precision
+         ;; the index-free `:else` descent destroys.
+         ;;
+         ;; `:tuple` / `:cat` elements are bare schemas (`children[i]`);
+         ;; `:catn` elements are NAME-bearing entries (`[name props? schema]`)
+         ;; — the flag may live in the entry's own props OR the element
+         ;; schema's props, both claiming `(conj base i)`. Either shape
+         ;; descends the element schema at the position-pinned path.
+         (contains? position-bearing-ops op)
          (first
            (reduce
              (fn [[acc i] child]
-               [(walk-flagged-schema flag-key child (conj base-path i) acc)
-                (inc i)])
+               (let [slot-path (conj base-path i)
+                     ;; `:catn` entry `[name props? schema]` — strip the
+                     ;; decorative name (and optional props) to reach the
+                     ;; element schema; an entry-level flag claims slot-path.
+                     ;; `:tuple`/`:cat` entry is the bare schema itself.
+                     [elem-schema entry-decl]
+                     (if (= op :catn)
+                       (if (and (vector? child) (>= (count child) 2))
+                         (let [maybe-prop (nth child 1)
+                               has-prop?  (map? maybe-prop)
+                               schema     (if has-prop?
+                                            (when (>= (count child) 3) (nth child 2))
+                                            maybe-prop)]
+                           [schema (and has-prop?
+                                        (decl-from-props flag-key maybe-prop))])
+                         [nil nil])
+                       [child nil])
+                     acc (if entry-decl (assoc acc slot-path entry-decl) acc)]
+                 [(if (some? elem-schema)
+                    (walk-flagged-schema flag-key elem-schema slot-path acc)
+                    acc)
+                  (inc i)]))
              [acc' 0]
              children))
 
@@ -380,15 +447,18 @@
 ;; — without this alignment a `:sensitive?` slot nested in a collection
 ;; leaks verbatim.
 ;;
-;; `:tuple` is the membership outlier (rf2-ss06u.4): it is kept in this
-;; set so `sanitize-sensitive-path` treats its integer index as a
-;; navigable locator (KEEP, not scrub), but `align-in-path` handles
-;; `:tuple` in its OWN position-KEEPING branch ABOVE the generic
-;; index-drop branch — a tuple element is heterogeneous (per-position
-;; schema), so the index IS a discriminating segment and must NOT be
-;; dropped, else sibling positions collapse and over-redact.
+;; `:tuple` / `:cat` / `:catn` are the membership outliers (`:tuple`
+;; rf2-ss06u.4; `:cat`/`:catn` rf2-4q681i): they are kept in this set so
+;; `sanitize-sensitive-path` treats their integer index as a navigable
+;; locator (KEEP, not scrub), but `align-in-path` handles them in their
+;; OWN position-KEEPING branch ABOVE the generic index-drop branch — each
+;; element is heterogeneous (per-position schema), so the index IS a
+;; discriminating segment and must NOT be dropped, else sibling positions
+;; collapse and over-redact. (`align-in-path` never reaches the generic
+;; index-drop branch below for these three; their `position-bearing-ops`
+;; branch fires first.)
 (def ^:private index-bearing-ops
-  #{:vector :sequential :set :tuple :map-of})
+  #{:vector :sequential :set :tuple :cat :catn :map-of})
 
 (defn- align-in-path
   "Translate Malli's value-relative `:in` path (carrying collection
@@ -452,20 +522,36 @@
               ;; Key not found in the schema (shape drift) — fail-SAFE.
               [:fallback schema aligned])
 
-            ;; `:tuple` — POSITION-bearing (rf2-ss06u.4). Unlike the
-            ;; homogeneous index-bearing ops below, each tuple element has
-            ;; its OWN schema, so the integer index IS a discriminating
-            ;; segment (the positional analogue of a `:map` key). KEEP the
-            ;; index in `aligned` — the walker emits per-position decl-paths
+            ;; `:tuple` / `:cat` / `:catn` — POSITION-bearing (`:tuple`
+            ;; rf2-ss06u.4; `:cat`/`:catn` rf2-4q681i). Unlike the
+            ;; homogeneous index-bearing ops below, each element has its OWN
+            ;; schema, so the integer index IS a discriminating segment (the
+            ;; positional analogue of a `:map` key). Malli reports the
+            ;; integer position in `:in` for ALL THREE (a `:catn` failure
+            ;; reports `[1 :age]`, the position not the name). KEEP the index
+            ;; in `aligned` — the walker emits per-position decl-paths
             ;; (`(conj base i)`), so a failure at element `i` aligns to that
             ;; same `[… i]` and prefix-matches ONLY that position's
-            ;; declaration. Dropping it (the prior behaviour) collapsed all
-            ;; elements onto the tuple base-path, so marking one element
-            ;; `:sensitive?` over-redacted every sibling failure.
-            (= op :tuple)
+            ;; declaration. Dropping it (the prior `:cat` behaviour, which
+            ;; collapsed every element onto the shared base-path) made a
+            ;; sensitive sibling over-redact an unrelated non-sensitive
+            ;; failure — the rf2-4q681i fix. `:tuple`/`:cat` element `seg` is
+            ;; `children[seg]` (bare schema); `:catn` element `seg` is a
+            ;; NAME-bearing entry (`[name props? schema]`) so we descend into
+            ;; its schema part.
+            (contains? position-bearing-ops op)
             (if-let [child (when (and (int? seg) (< seg (count children)))
                              (nth children seg))]
-              (recur child (subvec in 1) (conj aligned seg))
+              (let [elem-schema (if (= op :catn)
+                                  (if (and (vector? child) (>= (count child) 2))
+                                    (if (map? (nth child 1))
+                                      (when (>= (count child) 3) (nth child 2))
+                                      (nth child 1))
+                                    nil)
+                                  child)]
+                (if (some? elem-schema)
+                  (recur elem-schema (subvec in 1) (conj aligned seg))
+                  [:fallback schema aligned]))
               [:fallback schema aligned])
 
             ;; Homogeneous index-bearing container — drop the index/key
@@ -529,9 +615,9 @@
       under a sensitive key would otherwise ship the secret in `:path` /
       `:reason` despite `:value` / `:explain` being redacted. When the key
       schema declares sensitivity, the key segment is scrubbed.
-    - `:map` keys, `:vector` / `:sequential` / `:tuple` integer indices —
-      navigable scalar locators; KEEP them so `:path` stays a useful
-      `get-in` locator for those shapes (the bead's regression
+    - `:map` keys, `:vector` / `:sequential` / `:tuple` / `:cat` / `:catn`
+      integer indices — navigable scalar locators; KEEP them so `:path`
+      stays a useful `get-in` locator for those shapes (the bead's regression
       requirement).
     - Transparent wrappers (`:maybe` / `:and` / `:or` / `:multi` / `:orn`)
       contribute NO `:in` segment — descend without consuming. For the
@@ -622,12 +708,28 @@
                 (recur val-schema (subvec in 1) (conj out seg-out)))
 
               ;; Other index-bearing ops — the segment is a navigable index
-              ;; (`:vector` / `:sequential` / `:tuple`); keep it and descend
-              ;; into the element schema (`:tuple` indexes per-position).
+              ;; (`:vector` / `:sequential` / `:tuple` / `:cat` / `:catn`);
+              ;; keep it and descend into the element schema. The
+              ;; per-position ops (`:tuple` / `:cat` / `:catn`, rf2-ss06u.4 /
+              ;; rf2-4q681i) index `children[seg]`; `:catn` then strips the
+              ;; decorative name (`[name props? schema]`) to reach the
+              ;; element schema. The homogeneous ones (`:vector` /
+              ;; `:sequential`) share one element schema (child 0).
               (contains? index-bearing-ops op)
-              (let [child (if (= op :tuple)
+              (let [child (cond
+                            (#{:tuple :cat} op)
                             (when (and (int? seg) (< seg (count children)))
                               (nth children seg))
+
+                            (= op :catn)
+                            (when (and (int? seg) (< seg (count children)))
+                              (let [entry (nth children seg)]
+                                (when (and (vector? entry) (>= (count entry) 2))
+                                  (if (map? (nth entry 1))
+                                    (when (>= (count entry) 3) (nth entry 2))
+                                    (nth entry 1)))))
+
+                            :else
                             (nth children 0 nil))]
                 (recur child (subvec in 1) (conj out seg)))
 

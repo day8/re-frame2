@@ -6,10 +6,11 @@
   Existing slice-local tests pin `:map`, `:vector`, `:maybe`, `:or`,
   `:tuple`, and `:multi` directly. The walker also claims (per its
   docstring) to handle the remaining dispatch-bearing combinators
-  `:orn` / `:catn` / `:altn` and the positional containers `:set` /
-  `:sequential` / `:cat` / `:and` / `:not`. The audit (rf2-yv62u)
-  flagged the absence of operator-family pins for these — refactor
-  drift could silently break the un-tested branches.
+  `:orn` / `:altn`, the POSITION-bearing combinators `:cat` / `:catn`
+  (rf2-4q681i — each element descends at `(conj base i)`), and the
+  positional containers `:set` / `:sequential` / `:and` / `:not`. The
+  audit (rf2-yv62u) flagged the absence of operator-family pins for these
+  — refactor drift could silently break the un-tested branches.
 
   This file pins one example per claimed operator family for the
   `:sensitive?` flag (the parameterised walker serves both flags so
@@ -19,9 +20,14 @@
 
 ;; ---- dispatch-bearing combinators ----------------------------------------
 ;;
-;; :multi / :orn / :catn / :altn — children carry dispatch-value
-;; branches; the branch's slot-props claim the PARENT path (the op's
-;; base-path), not a child path; dispatch values aren't path segments.
+;; :multi / :orn / :altn — children carry dispatch-value branches; the
+;; branch's slot-props claim the PARENT path (the op's base-path), not a
+;; child path; dispatch values aren't path segments.
+;;
+;; :catn is NOT dispatch-bearing (rf2-4q681i): although its children carry
+;; name slots, Malli reports a :catn failure's :in segment as the integer
+;; POSITION, not the name — so :catn is POSITION-bearing alongside :cat /
+;; :tuple (see the position-bearing section below).
 
 (deftest orn-branch-slot-claims-parent-path
   (testing ":orn — a branch's :sensitive? on its slot-props claims the
@@ -44,16 +50,6 @@
               [:anon   [:map [:guest :string]]]]
              [:value])))))
 
-(deftest catn-branch-slot-claims-parent-path
-  (testing ":catn — same dispatch-bearing semantics; the branch's
-            slot-props claim the parent path"
-    (is (= {[:row] {:sensitive? true :source :schema}}
-           (schemas/extract-sensitive-paths-from-schema
-             [:catn
-              [:head {:sensitive? true} :string]
-              [:tail :string]]
-             [:row])))))
-
 (deftest altn-branch-inner-descends-at-parent-path
   (testing ":altn — a :sensitive? slot inside an alt branch descends at
             the parent path"
@@ -66,9 +62,14 @@
 
 ;; ---- positional / nameless containers ------------------------------------
 ;;
-;; :vector / :set / :sequential / :maybe / :and / :or / :not / :tuple /
-;; :cat — children descend at the SAME base-path; these ops don't
-;; introduce a new app-db path segment.
+;; :vector / :set / :sequential / :maybe / :and / :or / :not — children
+;; descend at the SAME base-path; these ops are homogeneous (one shared
+;; element schema) or their index is not a declarable app-db slot, so they
+;; don't introduce a new path segment.
+;;
+;; :tuple / :cat / :catn are POSITION-bearing (:tuple rf2-ss06u.4;
+;; :cat/:catn rf2-4q681i) — element `i` descends at `(conj base i)`; see
+;; the position-bearing section below.
 
 (deftest set-descends-at-parent-path
   (testing ":set — inner :sensitive? slot claims the :set's path"
@@ -85,13 +86,34 @@
              [:sequential [:string {:sensitive? true}]]
              [:audit-log])))))
 
-(deftest cat-descends-at-parent-path
-  (testing ":cat — positional combinator; inner sensitive descends at
-            the parent path"
-    (is (= {[:tuple-slot] {:sensitive? true :source :schema}}
+;; ---- position-bearing combinators ----------------------------------------
+;;
+;; :tuple / :cat / :catn — each element has its OWN schema; element `i`
+;; descends at `(conj base i)`, the integer index being the discriminating
+;; segment. Malli reports the integer POSITION in :in for all three.
+;; (:tuple already pinned in the slice-local tests; :cat/:catn added by
+;; rf2-4q681i.)
+
+(deftest cat-element-is-position-bearing
+  (testing ":cat — POSITION-bearing (rf2-4q681i); element `i`'s inner
+            sensitive claims `(conj base i)`, NOT the shared base-path"
+    ;; element 1 is the sensitive :string → claims [:ev 1], not [:ev].
+    (is (= {[:ev 1] {:sensitive? true :source :schema}}
            (schemas/extract-sensitive-paths-from-schema
              [:cat :string [:string {:sensitive? true}]]
-             [:tuple-slot])))))
+             [:ev])))))
+
+(deftest catn-element-is-position-bearing
+  (testing ":catn — POSITION-bearing (rf2-4q681i); the entry name is
+            decorative (Malli reports the integer position in :in), so an
+            entry-level sensitive claims `(conj base i)`, not base"
+    ;; entry 0 (:head) is sensitive → claims [:row 0], not [:row].
+    (is (= {[:row 0] {:sensitive? true :source :schema}}
+           (schemas/extract-sensitive-paths-from-schema
+             [:catn
+              [:head {:sensitive? true} :string]
+              [:tail :string]]
+             [:row])))))
 
 (deftest and-descends-at-parent-path
   (testing ":and — every child descends at the parent path"
