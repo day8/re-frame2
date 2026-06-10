@@ -37,6 +37,7 @@
    [re-frame.resources.state :as state]
    [re-frame.resources.mutation-runtime :as mstate]
    [re-frame.resources.mutation-registry :as mreg]
+   [re-frame.resources.timers :as timers]
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch is overridden by the capturing reply stub below.
@@ -49,12 +50,20 @@
 ;; ---- capturing transport that REPLAYS the real reply-append shape ----------
 
 (def ^:private last-managed-args (atom nil))
+(def ^:private scheduled-timers (atom []))
 
 (defn- capturing-transport-fixture
   [f]
   (reset! last-managed-args nil)
+  (reset! scheduled-timers [])
   (state/reset-cache!)
+  (timers/reset-cache!)
   (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  ;; capture the host-side stale / GC timer arming so the success handler's
+  ;; emission is asserted deterministically WITHOUT a real wall-clock timer
+  ;; firing (the timer-table primitive is tested directly in the
+  ;; invalidation/GC suite).
+  (rf/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
   (f))
 
 (use-fixtures :each
@@ -278,6 +287,95 @@
         (is (= :loaded (:status e)))
         (is (= {:slug "w" :title "Fresh"} (:data e)))
         (is (= #{[:article "w"]} (:tags e)))))))
+
+(deftest success-populate-arms-stale-and-gc-timers
+  ;; rf2-h4cv5e — a mutation :populates seeds a fresh, OWNERLESS :loaded entry
+  ;; with a durable :stale-at / :gc-after-ms policy. The success handler MUST
+  ;; arm the advisory stale / GC timers for it (mirroring the resource read
+  ;; path) — otherwise the populated entry would carry a GC policy but NO armed
+  ;; reaper, lingering past :gc-after-ms (a cache-growth completeness gap).
+  (rf/reg-resource :r/article
+                   {:scope :rf.scope/global
+                    :params-schema [:map [:slug :string]]
+                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})
+                    :stale-after-ms 60000
+                    :gc-after-ms    300000})
+  (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    (rf/reg-mutation :m/save
+                     {:params-schema [:map [:slug :string]]
+                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+                      :populates (fn [_params result] {rkey result})})
+    (reset! scheduled-timers [])
+    ;; no prior ensure — the populate SEEDS an ownerless entry
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pgc1}])
+    (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
+    (testing "the populated entry is ownerless (no liveness lease)"
+      (is (empty? (:active-owners (entry rkey)))))
+    (testing "rf2-h4cv5e — the success handler armed the advisory stale / GC
+              timers for the populated key, mirroring the resource read path's
+              :rf.resource/schedule-timers emission"
+      (is (= 1 (count @scheduled-timers)))
+      (let [args (first @scheduled-timers)]
+        (is (= rkey (:resource-key args)))
+        (is (= :rf/default (:frame-id args)))
+        (is (= 60000 (:stale-delay-ms args)))
+        (is (= 300000 (:gc-delay-ms args)) "a GC timer is armed for the populated entry")
+        (is (false? (:server? args)) "client frame — not SSR-gated")))
+    (testing "rf2-h4cv5e — the populated ownerless entry is GC-eligible: a
+              fired GC timer (re-checking owners + generation) removes it"
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key rkey}])
+      (is (nil? (entry rkey)) "GC removed the inactive populated entry"))))
+
+(deftest success-patch-arms-timers-for-policy-keys
+  ;; rf2-h4cv5e — a :patches refresh of an existing entry re-arms its advisory
+  ;; timers from the resource policy too (the patch moved :loaded-at /
+  ;; :stale-at forward, so the prior timer's basis is stale).
+  (rf/reg-resource :r/article
+                   {:scope :rf.scope/global
+                    :params-schema [:map [:slug :string]]
+                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})
+                    :stale-after-ms 60000
+                    :gc-after-ms    300000})
+  (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    (rf/reg-mutation :m/patch
+                     {:params-schema [:map [:slug :string]]
+                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+                      :patches (fn [_params result]
+                                 {rkey (fn [old _result] (merge old result))})})
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :r/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:view :a]}])
+    (reply-success! @last-managed-args {:title "old" :views 1})
+    (reset! scheduled-timers [])
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/patch :params {:slug "w"} :instance :pat-gc1}])
+    (reply-success! @last-managed-args {:title "new"})
+    (testing "rf2-h4cv5e — the patch re-armed the entry's stale / GC timers"
+      (is (= 1 (count @scheduled-timers)))
+      (let [args (first @scheduled-timers)]
+        (is (= rkey (:resource-key args)))
+        (is (= 60000 (:stale-delay-ms args)))
+        (is (= 300000 (:gc-delay-ms args)))))))
+
+(deftest success-populate-no-policy-arms-no-timers
+  ;; rf2-h4cv5e — a populate of a resource declaring NO stale / GC policy arms
+  ;; NO timers (no schedule-timers fx) — exactly as the read path.
+  (rf/reg-resource :r/article
+                   {:scope :rf.scope/global
+                    :params-schema [:map [:slug :string]]
+                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+  (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    (rf/reg-mutation :m/save
+                     {:params-schema [:map [:slug :string]]
+                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+                      :populates (fn [_params result] {rkey result})})
+    (reset! scheduled-timers [])
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pnp1}])
+    (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
+    (testing "no policy → no schedule-timers fx"
+      (is (= [] @scheduled-timers)))))
 
 ;; ===========================================================================
 ;; 5. Failure settles :error

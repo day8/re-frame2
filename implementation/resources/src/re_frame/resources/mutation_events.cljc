@@ -55,6 +55,7 @@
   refetches\") so the later optimistic slice fills the symmetric rollback
   half without a shape change."
   (:require [clojure.set :as set]
+            [re-frame.frame :as frame]
             [re-frame.resources.mutation-registry :as mreg]
             [re-frame.resources.mutation-runtime :as mstate]
             [re-frame.resources.registry :as registry]
@@ -81,6 +82,35 @@
   [resource-spec loaded-at]
   (when-let [ms (:stale-after-ms resource-spec)]
     (+ loaded-at ms)))
+
+(defn- positive-or-nil
+  "Return `ms` when it is a positive number, else nil (a non-positive /
+  absent policy never arms a timer). Mirrors `events/positive-or-nil` so a
+  patched / populated entry arms exactly the timers a fetched one would."
+  [ms]
+  (when (and (number? ms) (pos? ms)) ms))
+
+(defn- server-frame?
+  "True iff `frame-id` is an SSR / server frame (its `:config :platform` is
+  `:server`). Reads ONLY the FRAME's platform — NOT the host-wide
+  `active-platform` default (which is `:server` on the JVM, so a JVM
+  client-mode unit test must still arm timers). Mirrors
+  `events/server-frame?`. Per Spec 016 §Stale and GC scheduling (no
+  wall-clock background timers under SSR)."
+  [frame-id]
+  (= :server (:platform (frame/frame-meta frame-id))))
+
+(defn- timer-delays
+  "The advisory stale / GC timer delays for a patched / populated entry from
+  the resource spec's `:stale-after-ms` / `:gc-after-ms` policy, or nil when
+  the resource declares neither (so no `:rf.resource/schedule-timers` fx is
+  emitted for that key). Mirrors the read path's
+  `positive-or-nil`-guarded delay derivation."
+  [resource-spec]
+  (let [stale-delay-ms (positive-or-nil (:stale-after-ms resource-spec))
+        gc-delay-ms    (positive-or-nil (:gc-after-ms resource-spec))]
+    (when (or stale-delay-ms gc-delay-ms)
+      {:stale-delay-ms stale-delay-ms :gc-delay-ms gc-delay-ms})))
 
 ;; ---- instance-id minting --------------------------------------------------
 
@@ -110,18 +140,21 @@
   [runtime-db patches-fn params result clock-ms]
   (if-let [patches (when patches-fn (patches-fn params result))]
     (reduce-kv
-      (fn [[db ks] scoped-key patch-fn]
+      (fn [[db ks policies] scoped-key patch-fn]
         (let [entry (get-in db (state/entry-path scoped-key))]
           (if (and entry (state/has-data? entry))
             (let [rspec    (registry/resource-meta (:resource/id entry))
                   stale-at (stale-at-for rspec clock-ms)
                   entry'   (mstate/patch-entry entry patch-fn result
-                                               {:clock-ms clock-ms :stale-at stale-at})]
-              [(assoc-in db (state/entry-path scoped-key) entry') (conj ks scoped-key)])
-            [db ks])))
-      [runtime-db #{}]
+                                               {:clock-ms clock-ms :stale-at stale-at})
+                  delays   (timer-delays rspec)]
+              [(assoc-in db (state/entry-path scoped-key) entry')
+               (conj ks scoped-key)
+               (cond-> policies delays (assoc scoped-key delays))])
+            [db ks policies])))
+      [runtime-db #{} {}]
       patches)
-    [runtime-db #{}]))
+    [runtime-db #{} {}]))
 
 (defn- apply-populates
   "Apply the mutation spec's `:populates` to the resource cache.
@@ -134,7 +167,7 @@
   [runtime-db populates-fn params result clock-ms]
   (if-let [populates (when populates-fn (populates-fn params result))]
     (reduce-kv
-      (fn [[db ks] scoped-key value]
+      (fn [[db ks policies] scoped-key value]
         (let [[_scope resource-id rparams] scoped-key
               rspec    (registry/resource-meta resource-id)
               stale-at (stale-at-for rspec clock-ms)
@@ -142,11 +175,14 @@
               tags     (when tags-fn (set (tags-fn rparams value)))
               entry    (get-in db (state/entry-path scoped-key))
               entry'   (mstate/populate-entry entry resource-id value
-                                              {:clock-ms clock-ms :stale-at stale-at :tags tags})]
-          [(assoc-in db (state/entry-path scoped-key) entry') (conj ks scoped-key)]))
-      [runtime-db #{}]
+                                              {:clock-ms clock-ms :stale-at stale-at :tags tags})
+              delays   (timer-delays rspec)]
+          [(assoc-in db (state/entry-path scoped-key) entry')
+           (conj ks scoped-key)
+           (cond-> policies delays (assoc scoped-key delays))]))
+      [runtime-db #{} {}]
       populates)
-    [runtime-db #{}]))
+    [runtime-db #{} {}]))
 
 (defn- invalidation-fx
   "Build the `:rf.resource/invalidate-tags` dispatch fx (or nil) for the
@@ -391,10 +427,17 @@
             params      (:params inst)
             timing      (or (:invalidate-timing spec) :after-success)
             clock-ms    (now-ms)
-            ;; 1. controlled patch / populate (BEFORE invalidation)
-            [rdb1 patched-ks]   (apply-patches runtime-db (:patches spec) params result clock-ms)
-            [rdb2 populated-ks] (apply-populates rdb1 (:populates spec) params result clock-ms)
+            ;; 1. controlled patch / populate (BEFORE invalidation). Each
+            ;; arm also returns the per-key advisory stale / GC timer policy
+            ;; (the third value) so this handler arms timers exactly as the
+            ;; resource read path does (a populate seeds a fresh, ownerless
+            ;; entry that otherwise has a durable :stale-at / :gc-after-ms
+            ;; policy but NO armed reaper). populate wins on a key written by
+            ;; both (it ran last, so its entry — and policy — is current).
+            [rdb1 patched-ks patch-policies]     (apply-patches runtime-db (:patches spec) params result clock-ms)
+            [rdb2 populated-ks populate-policies] (apply-populates rdb1 (:populates spec) params result clock-ms)
             patch-affected      (set/union patched-ks populated-ks)
+            timer-policies      (merge patch-policies populate-policies)
             ;; the success-time invalidation tags (scoped). The patch already
             ;; freshened the keys it touched; the invalidation reaches the
             ;; OTHER tagged entries (lists, siblings) the patch did not seed.
@@ -420,14 +463,33 @@
                               :completed {:settled-at clock-ms})
                             ;; recompute indexes — patch/populate may have
                             ;; changed entries' tags / created entries.
-                            (update state/resources-key state/recompute-indexes))]
+                            (update state/resources-key state/recompute-indexes))
+            ;; arm the advisory stale / GC timers (host-side side table) for
+            ;; every patched / populated key carrying a policy — one
+            ;; `:rf.resource/schedule-timers` fx per key, mirroring the
+            ;; resource read path's emission (cancel-then-arm; SSR-gated by
+            ;; the carried `:server?` flag; the re-check handlers re-derive
+            ;; freshness / GC-eligibility from the durable facts, so a
+            ;; never-fired server timer is harmless). Without this, a
+            ;; populated ownerless entry would carry a durable :stale-at /
+            ;; :gc-after-ms policy but NO armed reaper. Per Spec 016 §Stale
+            ;; and GC scheduling.
+            server?     (server-frame? frame-id)
+            timer-fx    (mapv (fn [[scoped-key {:keys [stale-delay-ms gc-delay-ms]}]]
+                                [:rf.resource/schedule-timers
+                                 {:frame-id       frame-id
+                                  :resource-key   scoped-key
+                                  :stale-delay-ms stale-delay-ms
+                                  :gc-delay-ms    gc-delay-ms
+                                  :server?        server?}])
+                              timer-policies)]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.mutation/succeeded
                      {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
                       :work-id work-id :generation generation
                       :affected-keys affected :patch-summary patch-summary})
         {:rf.db/runtime rdb'
-         :fx (cond-> [] inv-fx (conj inv-fx))}))))
+         :fx (cond-> (vec timer-fx) inv-fx (conj inv-fx))}))))
 
 (defn failed-handler
   "`:rf.mutation.internal/failed` — a mutation write failed. Verifies frame
