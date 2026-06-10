@@ -135,11 +135,11 @@
    {:test 'parity-wrap-view-callable
     :fn   'assert-wrap-view-callable-dispatches-to-user-fn}
 
-   {:section "reg-event metadata-interceptor warnings (rf2-bbea / *_events)"}
-   {:test 'events-warns-on-meta-interceptors
-    :fn   'assert-reg-event-warns-on-meta-interceptors}
-   {:test 'events-positional-stays-silent
-    :fn   'assert-reg-event-positional-interceptors-silent}
+   {:section "reg-event metadata-map :interceptors superset (rf2-bpmszk / *_events)"}
+   {:test 'events-meta-interceptors-threads-chain
+    :fn   'assert-reg-event-meta-interceptors-threads-the-chain}
+   {:test 'events-both-places-guard-fires
+    :fn   'assert-reg-event-both-places-guard-fires}
 
    {:section "render-to-string + late-bind chain (*_render_to_string)"}
    {:test 'rts-throws-with-no-emitter

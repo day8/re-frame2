@@ -22,10 +22,11 @@ Verified in `implementation/core/src/re_frame/events.cljc` (`reg-event-db` / `re
 
 - `(reg-event-db :id handler)`
 - `(reg-event-db :id {:doc "..." :schema ...} handler)`
-- `(reg-event-db :id [icpt1 icpt2] handler)`
+- `(reg-event-db :id {:doc "..." :interceptors [icpt1 icpt2]} handler)`  ← the superset form
+- `(reg-event-db :id [icpt1 icpt2] handler)`  ← sugar for `{:interceptors [icpt1 icpt2]}`
 - `(reg-event-db :id {:doc "..."} [icpt1 icpt2] handler)`
 
-The **metadata-map** is reflective-only (`:doc`, `:schema`, `:tags`, `:platforms`, ...). The **interceptors vector** is positional. Putting `:interceptors` inside the metadata-map silently drops the chain — the runtime emits `:rf.warning/interceptors-in-metadata-map` to flag it (see `warn-interceptors-in-metadata-map!` in `events.cljc`).
+The **metadata-map** is the one superset middle slot: reflection keys (`:doc`, `:schema`, `:tags`, `:platforms`, ...) **plus** a reserved `:interceptors` key. The positional **interceptors vector** is sugar for `{:interceptors [...]}` (`[i1 i2]` ≡ `{:interceptors [i1 i2]}`, identical semantics). Supplying interceptors in **both** slots at once is a loud `:rf.error/interceptors-supplied-twice` (one home per fact); a malformed `:interceptors` value is `:rf.error/reg-event-bad-interceptors`.
 
 ## Event vector shape
 

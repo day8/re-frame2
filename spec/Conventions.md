@@ -434,30 +434,31 @@ Tool authors writing new devtool surfaces should default to the synchronous shap
 
 See [002 §`frame-handle`](002-Frames.md#frame-handle--the-keystone-affordance-cljs-reference) and [002 §`frame-bound-fn` / `frame-bound-fn*`](002-Frames.md#frame-bound-fn--frame-bound-fn--frame-capturing-closures-cljs-reference) for the primitives and [006 §Lazy-seq deref tracking](006-ReactiveSubstrate.md#lazy-seq-deref-tracking-reagent-adapter) for the adjacent-but-distinct Reagent bug class.
 
-## `:interceptors` is positional, not metadata (`reg-event-*`)
+## `:interceptors` in the metadata-map — the superset middle slot (`reg-event-*`)
 
-For `reg-event-db` / `reg-event-fx` / `reg-event-ctx`, the **interceptor chain lives in the positional middle slot**, not inside the metadata-map. The metadata-map is reserved for *reflection* (`:doc`, `:schema`, `:tags`, `:platforms`, `:ns`, `:line`, `:file`) — keys tooling reads back from the registrar to describe what was registered.
+For `reg-event-db` / `reg-event-fx` / `reg-event-ctx`, the metadata-map is the **one superset middle-slot shape**: it carries *reflection* keys (`:doc`, `:schema`, `:tags`, `:platforms`, `:ns`, `:line`, `:file`) **and** a reserved **`:interceptors`** key (a vector of interceptor maps). The historical positional interceptor **vector** is definable **sugar** for the same — `[i1 i2]` ≡ `{:interceptors [i1 i2]}`, threaded into the identical position with identical semantics (`:before` in declaration order, `:after` reversed). This is the rf2-iczn3 resolution (Mike, 2026-06-10): additive, zero call-site migration, closing the gap that a registration could not carry *both* reflection metadata *and* an interceptor chain in one map. EP-0013's app-as-value descriptor format inherits this exact shape — its descriptor map *is* this metadata-map.
 
 ```clojure
-;; correct — metadata-map for reflection, interceptors in the third positional slot
+;; the superset form — reflection metadata AND the chain, in one map
 (rf/reg-event-db :cart.item/add
-  {:doc "Add an item to the cart." :schema CartItemAddEvent}
-  [undoable schema/validate-at-boundary-interceptor]
+  {:doc          "Add an item to the cart."
+   :schema       CartItemAddEvent
+   :interceptors [undoable schema/validate-at-boundary-interceptor]}
   (fn [db [_ item]] (update db :items conj item)))
 
-;; correct — no metadata, just the legacy 2-arg `[interceptors] handler` form
+;; sugar — the positional vector is equivalent to {:interceptors [...]}
 (rf/reg-event-db :cart.item/add
   [undoable]
   (fn [db [_ item]] (update db :items conj item)))
 
-;; WRONG — `:interceptors` inside the metadata-map is silently ignored.
-;; The runtime emits :rf.warning/interceptors-in-metadata-map at registration.
+;; also accepted — metadata-map (no :interceptors) + positional vector
 (rf/reg-event-db :cart.item/add
-  {:doc "Add an item." :interceptors [undoable]}    ;; <- chain dropped
+  {:doc "Add an item to the cart." :schema CartItemAddEvent}
+  [undoable schema/validate-at-boundary-interceptor]
   (fn [db [_ item]] (update db :items conj item)))
 ```
 
-The runtime warns at registration time when `:interceptors` appears inside the metadata-map (`:rf.warning/interceptors-in-metadata-map`, per [§Reserved namespaces](#reserved-namespaces-framework-owned) — `:rf.warning/*`). Hot-reload tools and 10x surface the warning so the typo doesn't reach production.
+**The both-places rule (one home per fact).** Supplying interceptors via the metadata-map `:interceptors` key **and** the positional vector slot at once is a **loud registration error** — `:rf.error/interceptors-supplied-twice`, naming both sources. The two are never silently merged; this is an application of [§No silent swallow](#no-silent-swallow--recognised-input-must-signal) and the one-home-per-fact discipline. A malformed `:interceptors` value (a non-vector, or a vector carrying a non-interceptor entry) is likewise a loud `:rf.error/reg-event-bad-interceptors` (consistent with the existing `reg-event` arg policing). This **supersedes** the former `:rf.warning/interceptors-in-metadata-map` (rf2-bbea): `:interceptors` in the metadata-map is now the documented home, not a typo — the silent-drop footgun is structurally gone (the chain is honoured, not dropped).
 
 **A *bare* interceptor (one not wrapped in the positional vector) is rejected loudly, not silently dropped.** Because an interceptor is a *map* (`{:id … :before … :after …}`), `(rf/reg-event-db :id mw/some-interceptor (fn …))` — a bare interceptor where the positional `[vector]` was required — used to be read as the metadata-map and the chain never ran (field-confirmed via the rf8 migration). The runtime now throws `:rf.error/reg-event-bare-interceptor` at registration (an ERROR — the chain cannot be honoured and there is no safe continue): a map carrying `:before` / `:after` in the middle slot, or any non-vector in the positional interceptors slot, is the tell. The chain is **not** coerced `bare → [bare]`; the caller wraps it — `(rf/reg-event-db :id [mw/some-interceptor] (fn …))`. (rf2-3ut12; the loud-failure sibling of the warning above, per [§No silent swallow](#no-silent-swallow--recognised-input-must-signal).)
 
@@ -467,7 +468,7 @@ This rule is `reg-event-*`-specific. `reg-frame`'s metadata-map *does* recognise
 
 ## No silent swallow — recognised input MUST signal
 
-This is the repo-level honest-signal rule the [§`:interceptors` is positional](#interceptors-is-positional-not-metadata-reg-event-) warning above is one instance of. It is the normative realisation of [Principles §No silent swallow](Principles.md#no-silent-swallow) — that principle names the *why*; this section is the MUST.
+This is the repo-level honest-signal rule the [§`:interceptors` in the metadata-map](#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) both-places error above is one instance of. It is the normative realisation of [Principles §No silent swallow](Principles.md#no-silent-swallow) — that principle names the *why*; this section is the MUST.
 
 > **Rule.** A user-supplied value that is **recognised as input** but **cannot be honoured** MUST produce a structured warning or error. Silent ignore is allowed **only** for explicitly namespaced extension keys in an extension map.
 
@@ -475,7 +476,7 @@ This is the repo-level honest-signal rule the [§`:interceptors` is positional](
 
 ### The extension-key carve-out is load-bearing
 
-The single exception — silent ignore of **explicitly namespaced extension keys in an open extension map** — is what makes the rule compatible with [§Reserved namespaces](#reserved-namespaces-framework-owned)' open-map accretion and [Principles §Spec-ulation](Principles.md#spec-ulation). An open map (registration metadata, a machine snapshot's `:data`, a spawn-spec, a frame config) tolerates user-namespaced keys it does not recognise *by design* — that is how a producer adds vocabulary without a coordinated breaking change. Those keys are **not "recognised input the runtime declined to honour"**; they are foreign keys the runtime was never asked to interpret. The discriminator is recognition: a key in the framework's known set that the runtime drops is a silent swallow (banned); a user-namespaced key in an explicitly open map that the runtime never claims to read is accretion (allowed). A *bare* or *framework-namespaced* key the runtime does not recognise is on the wrong side of the line — it reads as a typo of a real key and MUST warn (the `:rf.warning/interceptors-in-metadata-map` and `:rf.warning/unknown-dispatch-opt` cases).
+The single exception — silent ignore of **explicitly namespaced extension keys in an open extension map** — is what makes the rule compatible with [§Reserved namespaces](#reserved-namespaces-framework-owned)' open-map accretion and [Principles §Spec-ulation](Principles.md#spec-ulation). An open map (registration metadata, a machine snapshot's `:data`, a spawn-spec, a frame config) tolerates user-namespaced keys it does not recognise *by design* — that is how a producer adds vocabulary without a coordinated breaking change. Those keys are **not "recognised input the runtime declined to honour"**; they are foreign keys the runtime was never asked to interpret. The discriminator is recognition: a key in the framework's known set that the runtime drops is a silent swallow (banned); a user-namespaced key in an explicitly open map that the runtime never claims to read is accretion (allowed). A *bare* or *framework-namespaced* key the runtime does not recognise is on the wrong side of the line — it reads as a typo of a real key and MUST signal (the `:rf.warning/unknown-dispatch-opt` case; and for a duplicated-or-malformed `reg-event-*` interceptor chain, the loud `:rf.error/interceptors-supplied-twice` / `:rf.error/reg-event-bad-interceptors`).
 
 ### Pre-alpha is the window to be strict
 
@@ -495,6 +496,7 @@ The rule is cross-cutting; each surface applies it in its own spec and registrar
 | pair-mcp | `:unknown-tool` error envelope that dead-ended an agent with no `:hint` / `tools/list` pointer | rf2-tkmik |
 | Schemas | `reg-app-schema` silently accepting a bare keyword as opts and registering against the default frame | rf2-52dfy |
 | Core registration | `reg-event-*` silently dropping a BARE interceptor (a map handed where the positional `[vector]` was required — an interceptor is a map, so it read as the metadata-map and the chain never ran); now rejected loudly with `:rf.error/reg-event-bare-interceptor` (ERROR — the chain cannot be honoured, no `:allow-unknown?` carve-out applies, and the call is not coerced `bare → [bare]`) | rf2-3ut12 |
+| Core registration | `reg-event-*` interceptors supplied via BOTH the metadata-map `:interceptors` key AND the positional vector — never silently merged; rejected loudly with `:rf.error/interceptors-supplied-twice` (ERROR — one home per fact; the reason names both sources). The companion malformed-value rejection is `:rf.error/reg-event-bad-interceptors` | rf2-bpmszk |
 
 New surfaces apply the rule by mechanism: if a recognised input cannot be honoured, signal it — and reach for the extension-key carve-out only when the dropped key is a user-namespaced key in an explicitly open map. A surface that seems to *need* silent-ignore of a recognised input is evidence of a missing warning, not an exception to the rule — file a bead against the owning spec rather than swallowing.
 
@@ -776,7 +778,7 @@ The discriminator is mechanical, not stylistic. Every public surface that *looks
 
 ### Class 1 — Interceptor values (Vars holding maps · **NOT callable**)
 
-A Var bound to a pre-built interceptor map ([§Standard interceptors](API.md#standard-interceptors), [§`reg-event-*` interceptor chain](#interceptors-is-positional-not-metadata-reg-event-)). The consumer drops the Var into a positional `:interceptors` vector; the framework treats it as a value, never invokes it as a fn. Calling such a Var as a fn (`(rf/validate-at-boundary-interceptor ...)`) raises `ArityException`.
+A Var bound to a pre-built interceptor map ([§Standard interceptors](API.md#standard-interceptors), [§`reg-event-*` interceptor chain](#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-)). The consumer drops the Var into a positional `:interceptors` vector; the framework treats it as a value, never invokes it as a fn. Calling such a Var as a fn (`(rf/validate-at-boundary-interceptor ...)`) raises `ArityException`.
 
 Current Class-1 surfaces in [API.md](API.md): `validate-at-boundary-interceptor` (Spec 010 — production-boundary schema validation), `unwrap` (Spec 004 — `[id payload-map]` unwrapping sugar). The factory `(rf/redact-interceptor paths)` (Spec 009 — payload-key redaction on the trace surface) is a *fn that returns* a Class-1 value; the **returned interceptor value** is the Class-1 artefact, and it inherits the rule below.
 

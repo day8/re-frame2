@@ -118,15 +118,23 @@ Three things to read here, because they're the three things that bite first-time
 
 **Both slots return the context.** Even the `:after`, which only really wants to `console.log`, ends in `ctx`. This is the most common interceptor bug there is: forget the trailing `ctx`, the slot returns `nil`, the runtime reads that as "no change" — which works *by accident* in a slot that only side-effects, right up until you also `assoc` something on the way in, at which point the accident becomes a heisenbug. Always return the context. Make it muscle memory.
 
-Wiring it on is one vector in the positional middle slot of the registration:
+Wiring it on is the metadata-map's `:interceptors` key — the one superset middle slot that also carries `:doc`, `:schema`, and the rest:
 
 ```clojure
 (rf/reg-event-db :counter/inc
-  [logger]                       ;; ← the interceptors slot
+  {:interceptors [logger]}       ;; ← the interceptors live in the metadata-map
   (fn [db _] (update db :count inc)))
 ```
 
-Fire `:counter/inc` and you get the inbound log, the handler runs, the outbound log with timing. The handler has no idea any of that happened.
+The bare positional vector is sugar for the same — `[logger]` ≡ `{:interceptors [logger]}` — so you'll also see the shorter form when an event needs no other metadata:
+
+```clojure
+(rf/reg-event-db :counter/inc
+  [logger]                       ;; sugar for {:interceptors [logger]}
+  (fn [db _] (update db :count inc)))
+```
+
+Fire `:counter/inc` and you get the inbound log, the handler runs, the outbound log with timing. The handler has no idea any of that happened. (Don't supply interceptors in *both* slots at once — that's a registration error.)
 
 ## An event recorder, for tests
 

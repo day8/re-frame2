@@ -15,9 +15,16 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-event-db id ?metadata-or-interceptors handler)
+  (reg-event-db id ?metadata handler)
   ```
 - **Description**: "When this event arrives, transform `app-db` and return the new one." The simplest handler shape — pure `(fn [db event-vec] new-db)`. Use it for the 80% of handlers that just update state.
+- **Metadata-map — the extended form**: the optional middle slot is a metadata-map carrying reflection keys (`:doc`, `:schema`, `:tags`, …) **and** a reserved `:interceptors` vector — one superset shape for everything a registration declares:
+  ```clojure
+  (rf/reg-event-db :cart/add
+    {:doc "Add an item." :interceptors [undoable]}
+    (fn [db [_ item]] (update db :items conj item)))
+  ```
+  > **Legacy note.** A bare interceptor vector in the middle slot — `(reg-event-db :id [undoable] handler)` — is still accepted as **sugar** for `{:interceptors [undoable]}` (identical semantics). Supplying interceptors in *both* the map key and the positional vector at once is a registration error (`:rf.error/interceptors-supplied-twice`).
 - **Example**:
   ```clojure
   (rf/reg-event-db :counter/inc
@@ -30,9 +37,10 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-event-fx id ?metadata-or-interceptors handler)
+  (reg-event-fx id ?metadata handler)
   ```
 - **Description**: "When this event arrives, return an effect map." The richer shape — `(fn [cofx event-vec] {:db ... :fx [...]})`. Use it when you need to dispatch follow-up events, fire HTTP, navigate, or read cofx.
+- **Metadata-map — the extended form**: same superset middle slot as `reg-event-db` — reflection keys plus the reserved `:interceptors` vector (e.g. `{:schema ... :interceptors [rf/validate-at-boundary-interceptor]}`). The bare positional vector remains accepted as sugar for `{:interceptors [...]}`.
 - **Example**:
   ```clojure
   (rf/reg-event-fx :counter/load
@@ -49,9 +57,10 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-event-ctx id ?metadata-or-interceptors handler)
+  (reg-event-ctx id ?metadata handler)
   ```
 - **Description**: The escape hatch — you get the raw interceptor context and return a modified context. Almost no app needs this; reach for it when you're writing infrastructure.
+- **Metadata-map — the extended form**: same superset middle slot — reflection keys plus the reserved `:interceptors` vector; the bare positional vector remains accepted as sugar.
 
 ### `reg-sub`
 
