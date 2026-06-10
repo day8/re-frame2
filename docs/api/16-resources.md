@@ -4,7 +4,7 @@ A resource is a named, cached read of remote state — re-frame2's answer to Tan
 
 Resources are an **optional, post-v1 capability** — they ship in `day8/re-frame2-resources` (`re-frame.resources`), require `day8/re-frame2-http` for the transport, and are wired by one `(:require [re-frame.resources])` at app boot. An app that omits the artefact sees the `reg-resource` wrapper throw a clean `:rf.error/resources-artefact-missing`. This chapter covers the registration shape, the events, the subs, and introspection. The tutorial is [Guide ch.27 — Server-state and resources](../guide/27-resources.md); the normative source is [016-Resources.md](../../spec/016-Resources.md).
 
-> **Scope is HTTP-only; mutations and GraphQL are deferred.** `reg-mutation` / `:rf.mutation/execute` and focus/reconnect revalidation land with the next slice; GraphQL is a later phase. See [Guide ch.27 §What's deferred](../guide/27-resources.md#whats-deferred).
+> **Scope is HTTP-only.** The read-resource MVP **and mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart — see [Mutations](#mutations)) are landed. Focus/reconnect revalidation, optimistic rollback, and GraphQL are deferred to later slices. See [Guide ch.27 §What's deferred](../guide/27-resources.md#whats-deferred).
 
 ## Registration
 
@@ -153,6 +153,92 @@ The `:rf.resource/state` view-model — facts plus **derived** booleans:
 
 Status invariants: `:loading` = first load, no usable data; `:fetching` = refresh in flight while prior data stays visible; `:error` = first load failed, no usable data; a failed *background* refresh stays `:loaded`, keeps prior `:data`, records `:refresh-error`. `:stale?` / `:loading?` / `:fetching?` / `:has-data?` are derived sub values, never stored. See [Guide ch.27 §Status](../guide/27-resources.md#status--facts-not-derived-booleans).
 
+## Mutations
+
+A **mutation** is the causal-WRITE counterpart of a resource: a named write to remote state that, on success, invalidates / patches / populates cached resource reads. The write lowers through the **same** `:rf.http/managed` transport as resources, and the runtime owns reply addressing + stale-suppression (work-id + generation) exactly as for reads. Runtime state is keyed by mutation **instance** id, so concurrent submissions of the same mutation never clobber each other. The tutorial is [Guide ch.27 §Mutations](../guide/27-resources.md#mutations--the-causal-write); the normative source is [016-Resources.md §Mutations](../../spec/016-Resources.md#mutations-first-public-beta-gate-rf2-dwme29).
+
+### `reg-mutation`
+
+- **Kind**: macro (post-v1 lib)
+- **Signature**:
+  ```clojure
+  (reg-mutation mutation-id mutation-spec)
+  ```
+- **Description**: Register a mutation as data under `mutation-id`. Validates the spec and writes a `:mutation`-kind registrar entry (the causal-write counterpart of `:resource`). Returns `mutation-id`. An app that omits the resources artefact sees the wrapper throw `:rf.error/resources-artefact-missing`.
+
+```clojure
+(rf/reg-mutation :article/save
+  {:params-schema :app/article          ;; REQUIRED — validates + canonicalizes params
+   :request                             ;; REQUIRED — a Spec 014 managed-HTTP write
+   (fn [{:keys [slug] :as article} _ctx]
+     {:request {:method :put :url (str "/api/articles/" slug) :body article}
+      :decode  :app/article})
+   :invalidates  (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})
+   :patches      (fn [params result] {scoped-key (fn [old result] (merge old result))})
+   :populates    (fn [params result] {scoped-key result})
+   :scope        :rf.scope/global       ;; the cache scope invalidation/patch defaults to
+   :invalidate-timing :after-success})  ;; | :before-request | :after-failure | :after-settle
+```
+
+**Required keys**:
+
+| Key | Notes |
+|---|---|
+| `:params-schema` | Validates and canonicalizes the write's params. |
+| `:request` | Returns a [Spec 014](../../spec/014-HTTPRequests.md) managed-HTTP args map (the write). MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the instance + generation (rejected if present). **Write retries are OPT-IN** — `:retry` arms only when the `:request` declares it. |
+
+**Optional keys**: `:invalidates` (`(fn [params result] → #{tag …})` — the tags made stale on success, composed with `:rf.resource/invalidate-tags`, scoped), `:patches` / `:populates` (controlled resource-entry transforms / seeds applied on success **before** invalidation, keyed by scoped key, via the same durable entry shape + structural sharing the read path uses), `:scope` (the cache scope invalidation/patch defaults to), `:invalidate-timing` (`:after-success` (default) | `:before-request` | `:after-failure` | `:after-settle`), `:retry`, `:transport`, `:doc`.
+
+**Reserved / deferred**: `:optimistic` / `:rollback` — optimistic rollback's snapshot/rollback/reconciliation shape is *reserved* in the success trace but not yet implemented.
+
+### `clear-mutation`
+
+- **Kind**: function (post-v1 lib)
+- **Signature**:
+  ```clojure
+  (clear-mutation mutation-id)
+  ```
+- **Description**: Remove a registered mutation — a **registration-lifecycle** operation, NOT a form-error reset. For the causal runtime-instance reset use the `[:rf.mutation/clear …]` event. Returns `mutation-id`.
+
+### Events (map payloads)
+
+#### `[:rf.mutation/execute {…}]`
+
+- **Kind**: event
+- **Payload**: `{:mutation :params :instance :scope :cause}`
+- **Description**: Run a mutation. `:instance` is the caller-supplied (or generated) **instance** id all runtime state is keyed by — two concurrent submissions keep distinct rows. On success the runtime patches/populates resource entries then invalidates tags (per `:invalidate-timing`). A superseded reply (a re-execute under the same instance, or an `:rf.mutation/clear`) never overwrites a newer instance (work-id + generation suppression).
+
+```clojure
+[:rf.mutation/execute
+ {:mutation :article/save
+  :params   article
+  :instance :form/save-1
+  :scope    [:rf.scope/session {:user-id "u-42"}]
+  :cause    [:form-submit :article/save]}]
+```
+
+#### `[:rf.mutation/clear {…}]`
+
+- **Kind**: event
+- **Payload**: `{:instance …}`
+- **Description**: The **causal** reset of a runtime mutation instance — clears its row and best-effort aborts in-flight work. Distinct from `clear-mutation` (which removes the *registration*).
+
+### Subscriptions (passive)
+
+A `:rf.mutation/*` subscription is a pure passive read keyed by **instance** id — it never executes a write.
+
+```clojure
+[:rf.mutation/state    {:instance :form/save-1}]   ;; {:status :result :error :pending? :success? :error? :settled?}
+[:rf.mutation/status   {:instance :form/save-1}]
+[:rf.mutation/pending? {:instance :form/save-1}]
+[:rf.mutation/result   {:instance :form/save-1}]
+[:rf.mutation/error    {:instance :form/save-1}]
+```
+
+A failure settles `:error` — there is **no `:refresh-error` analogue** (a write has no last-known-good to keep).
+
+> **Internal replies — do not dispatch.** The `:rf.mutation.internal/*` replies (and the `:rf.mutation/*` trace family — `started` / `succeeded` / `failed` / `cleared` / `stale-suppressed`, carrying the instance id) are framework-internal; user code MUST NOT dispatch them.
+
 ## Introspection
 
 `:frame` is an explicit, app-registered frame id ([EP-0002](../EP/EP-0002-frame-target-resolution.md) — no ambient `:rf/default` fallback; a frameless call with no resolvable context fails closed).
@@ -184,6 +270,34 @@ Status invariants: `:loading` = first load, no usable data; `:fetching` = refres
   (resources {:frame …}) → {:resource-ids [...] :entries {<scoped-key> <entry>}}
   ```
 - **Description**: Resource introspection for a frame target — the static registry (every registered id) plus, with `:frame`, the live per-frame resource-instance entries.
+
+### `mutation-meta`
+
+- **Kind**: function (post-v1 lib)
+- **Signature**:
+  ```clojure
+  (mutation-meta mutation-id) → spec-map or nil
+  ```
+- **Description**: The registered mutation's spec map (`:request`, `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:scope`, `:invalidate-timing`, `:transport`, `:doc`, source coords), or nil.
+
+### `mutation-state`
+
+- **Kind**: function (post-v1 lib)
+- **Signature**:
+  ```clojure
+  (mutation-state {:instance … :frame …}) → row or nil
+  ```
+- **Description**: A mutation **instance**'s durable runtime row (`{:status :result :error …}`) for an explicit-frame target, or nil. Per [EP-0002](../EP/EP-0002-frame-target-resolution.md) the frame is carried explicitly.
+
+### `mutations`
+
+- **Kind**: function (post-v1 lib)
+- **Signature**:
+  ```clojure
+  (mutations)            → {:mutation-ids [...] :instances {}}
+  (mutations {:frame …}) → {:mutation-ids [...] :instances {<instance-id> <row>}}
+  ```
+- **Description**: Mutation introspection for a frame target — the registered mutation ids plus, with `:frame`, the live per-frame mutation-instance table (Xray groups instances under their registered mutation id).
 
 Xray exposes the same shapes plus the tool accessors (`list-resources`, `list-resource-instances`, `get-resource-state`, `get-resource-history`, `list-resource-invalidations`), the route/resource graph, the work-ledger table, and the **scope audit surface** (the standing enumeration of every `:rf.scope/global` resource). Tool accessors prefer summaries over raw values; params/scopes get the same privacy/size elision as data.
 

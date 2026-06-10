@@ -2,7 +2,7 @@
 
 Server state is the state your app doesn't own. The truth lives on a server, you hold a cache of it, and that cache goes stale the moment you read it. Every SPA grows a private answer to the same questions: where does the cached copy live, how do I know it's stale, who's allowed to refetch it, what happens when two screens want the same data, and how do I stop a logged-out user from seeing the previous user's dashboard. TanStack Query, RTK Query, SWR, and `shipclojure/re-frame-query` are all answers to exactly that. This chapter is re-frame2's answer, and it's re-frame2-shaped: **views read server state passively through subscriptions; route entry, events, and machines *cause* it to fetch; and the cache lives in the framework-owned runtime partition, not in your `app-db`.**
 
-> **Status: optional, post-v1 artefact.** Resources ship in `day8/re-frame2-resources` — an optional capability per the [capability matrix](../../spec/000-Vision.md). An app that doesn't want declarative server-state expresses it with [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) plus managed HTTP ([chapter 10](10-http.md)) directly; that keeps working. The normative contract is [Spec 016 — Resources](../../spec/016-Resources.md); this chapter is the tutorial. **Scope is HTTP-only** — GraphQL is a deferred later phase. Mutations (`reg-mutation`) and focus/reconnect revalidation are named here but land with the next slice (see [Deferred](#whats-deferred)).
+> **Status: optional, post-v1 artefact.** Resources ship in `day8/re-frame2-resources` — an optional capability per the [capability matrix](../../spec/000-Vision.md). An app that doesn't want declarative server-state expresses it with [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) plus managed HTTP ([chapter 10](10-http.md)) directly; that keeps working. The normative contract is [Spec 016 — Resources](../../spec/016-Resources.md); this chapter is the tutorial. **Scope is HTTP-only** — GraphQL is a deferred later phase. The read-resource MVP **and mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart — see [Mutations](#mutations--the-causal-write)) are landed; focus/reconnect revalidation and optimistic rollback are named here but land with later slices (see [Deferred](#whats-deferred)).
 
 ## The one-line thesis
 
@@ -282,7 +282,8 @@ Resources tag their data, and invalidation is by tag:
 (rf/reg-resource :article/by-slug
   {... :tags (fn [{:keys [slug]} _data] #{[:article slug]})})
 
-;; A cause (today, an explicit dispatch; with the mutation slice, a mutation) invalidates them:
+;; A cause invalidates them — an explicit dispatch, or (more commonly) a mutation's
+;; success-time :invalidates (see the Mutations section below):
 [:rf.resource/invalidate-tags
  {:scope [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :tags  #{[:article "welcome"] [:article-list]}
@@ -292,6 +293,122 @@ Resources tag their data, and invalidation is by tag:
 The algorithm: find entries whose tags intersect; mark them stale; refetch entries with active owners; leave inactive entries stale or GC-eligible; emit a decision summary plus per-entry detail (so a broad-tag storm shows in Xray without flooding the trace). On a successful load the entry's tag index is *replaced* with the new data's tags, so stale list/detail relationships don't keep receiving invalidations after the data changed.
 
 **Scoped invalidation is the default** — a cross-scope invalidation must opt in explicitly and is visible in Xray, because it can refetch or stale data across multiple users, tenants, or SSR requests.
+
+## Mutations — the causal write
+
+Reads are half the story. A real app also *writes* — save the article, add the comment, toggle the favourite — and a write almost always means "and now the cached read of that thing is wrong." A **mutation** is the causal-write counterpart of a resource: a named write to remote state that, on success, invalidates (or patches, or populates) the cached resource reads it affected. You stop hand-wiring "POST, then on success dispatch an invalidate" on every form; you declare the write→invalidate→refetch loop once.
+
+If a resource is "a sub you read and a cause you fire," a mutation is "**a cause you fire and an instance you watch**."
+
+### Register the write, declare what it invalidates
+
+```clojure
+(rf/reg-mutation :article/save
+  {:params-schema :app/article                ;; REQUIRED — validates + canonicalizes params
+   :request                                    ;; REQUIRED — a Spec 014 managed-HTTP write
+   (fn [{:keys [slug] :as article} _ctx]
+     {:request {:method :put :url (str "/api/articles/" slug) :body article}
+      :decode  :app/article})
+   :scope        :rf.scope/global              ;; the cache scope invalidation/patch defaults to
+   :invalidates  (fn [{:keys [slug]} _result]  ;; the tags the write makes stale on success
+                   #{[:article slug] [:article-list]})})
+```
+
+`:invalidates` is the heart of it: on success the runtime invalidates those tags through the *same* `:rf.resource/invalidate-tags` machinery the previous section described — scoped by default, owner-aware (entries with active owners refetch; inactive ones go stale or GC-eligible). The detail and list views re-render with fresh data with no further wiring. The same `:tags` your resource produced from its data are the join key — that's why tagging is set up before mutations.
+
+The `:request` follows the resource rule exactly: it returns a [Spec 014](../../spec/014-HTTPRequests.md) args map and **must not** supply `:request-id` / `:on-success` / `:on-failure` — the runtime owns reply addressing from the mutation instance + generation, which is how stale-suppression is wired. Note the **reads-retry / writes-don't** discipline carries over: write retries are **opt-in** — a mutation arms `:retry` only when its `:request` declares it ([chapter 10](10-http.md#retry-backoff-and-the-discipline-of-not-retrying)). Re-submitting a `PUT` because a reply was merely slow is exactly the double-charge bug you don't want.
+
+### Fire the write, watch the instance
+
+Run a mutation with `:rf.mutation/execute`, and observe it through passive `:rf.mutation/*` subs keyed by an **instance** id — *not* the mutation id:
+
+```clojure
+;; The submit handler (or the view) fires the write:
+(rf/dispatch [:rf.mutation/execute
+              {:mutation :article/save
+               :params   article
+               :instance :form/save-1          ;; caller-supplied (or generated) instance id
+               :cause    [:form-submit :article/save]}])
+
+;; The form watches that instance passively — no execution in a sub:
+(rf/reg-view save-button [article]
+  (let [{:keys [pending? error?]} @(rf/subscribe [:rf.mutation/state {:instance :form/save-1}])]
+    [:button {:disabled pending?
+              :on-click #(rf/dispatch [:rf.mutation/execute
+                                       {:mutation :article/save :params article
+                                        :instance :form/save-1
+                                        :cause [:form-submit :article/save]}])}
+     (cond pending? "Saving…" error? "Retry save" :else "Save")]))
+```
+
+The full instance view-model and sub family:
+
+```clojure
+[:rf.mutation/state    {:instance :form/save-1}]   ;; {:status :result :error :pending? :success? :error? :settled?}
+[:rf.mutation/status   {:instance :form/save-1}]
+[:rf.mutation/pending? {:instance :form/save-1}]
+[:rf.mutation/result   {:instance :form/save-1}]
+[:rf.mutation/error    {:instance :form/save-1}]
+
+[:rf.mutation/clear    {:instance :form/save-1}]   ;; the causal instance reset (NOT clear-mutation)
+```
+
+The instance-keyed model is load-bearing: **two concurrent submissions of the same mutation never clobber each other.** Fire `:comment/add` twice (instances `:c-1` and `:c-2`) and each keeps its own `:pending` / `:success` / `:error` row. A caller-supplied instance id makes the relationship between a form and its submission explicit; an omitted instance id is generated (and closes over the monotone generation, so concurrent generated submissions still differ). `:rf.mutation/clear` is the **causal** reset of a runtime instance (best-effort aborting in-flight work) — distinct from `clear-mutation`, which is the registration-lifecycle removal of the mutation definition itself, not a form reset.
+
+### The write→invalidate→refetch loop, end to end
+
+Putting the two halves together — this is the loop the deferred placeholder used to point at:
+
+```clojure
+;; READ: the article detail, tagged by slug.
+(rf/reg-resource :article/by-slug
+  {:params-schema [:map [:slug :string]]
+   :scope         :rf.scope/global
+   :request (fn [{:keys [slug]} _ctx]
+              {:request {:method :get :url (str "/api/articles/" slug)} :decode :app/article})
+   :tags    (fn [{:keys [slug]} _data] #{[:article slug]})})
+
+;; READ: the article list, tagged so a save can stale it too.
+(rf/reg-resource :article/list
+  {:params-schema [:map]
+   :scope         :rf.scope/global
+   :request (fn [_ _ctx] {:request {:method :get :url "/api/articles"} :decode :app/article-list})
+   :tags    (fn [_ articles] (into #{[:article-list]} (map (fn [a] [:article (:slug a)]) articles)))})
+
+;; WRITE: saving invalidates both the edited article AND the list, by tag.
+(rf/reg-mutation :article/save
+  {:params-schema :app/article
+   :request (fn [{:keys [slug] :as article} _ctx]
+              {:request {:method :put :url (str "/api/articles/" slug) :body article} :decode :app/article})
+   :invalidates (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})})
+
+;; The view: read passively, fire the write, watch the instance.
+(rf/reg-view article-editor [article]
+  (let [save @(rf/subscribe [:rf.mutation/state {:instance :form/article-save}])]
+    [:<>
+     [editor-fields article]
+     [:button {:disabled (:pending? save)
+               :on-click #(rf/dispatch [:rf.mutation/execute
+                                        {:mutation :article/save :params article
+                                         :instance :form/article-save
+                                         :cause [:form-submit :article/save]}])}
+      (if (:pending? save) "Saving…" "Save")]
+     (when (:error? save) [save-error (:error save)])]))
+```
+
+When the save succeeds, the runtime invalidates `#{[:article slug] [:article-list]}`. Any mounted detail view (owned by its route) and the list (if a route still owns it) refetch automatically; inactive entries are simply marked stale and refetch the next time something ensures them. The form never touches `app-db`, never dispatches a manual invalidate, and never re-implements "which reads did this write break?" — the mutation declared that once.
+
+### What a mutation refines beyond a plain managed-HTTP write
+
+You *can* write with an ordinary `:rf.http/managed` event whose success handler dispatches `:rf.resource/invalidate-tags` (that was the only path before mutations landed). A mutation adds, on top of that:
+
+- **Instance-keyed lifecycle** — `:pending?` / `:success?` / `:error?` / `:settled?` per submission, concurrency-safe, with no `app-db` slice to maintain. (A write has no last-known-good, so there's no `:refresh-error` analogue — failure simply settles `:error`.)
+- **Stale-suppression on writes** — a superseded reply (a re-execute under the same instance, or an `:rf.mutation/clear`) can never overwrite a newer instance, by the same work-id + generation check resources use.
+- **Patch / populate before invalidate** — `:patches` and `:populates` (controlled transforms / seeds keyed by scoped key) update resource entries *before* the success-time invalidation, so a saved article can appear in the cache immediately without waiting for the refetch round-trip.
+- **Invalidation timing** — `:invalidate-timing` is explicit: `:after-success` (default), `:before-request`, `:after-failure`, or `:after-settle`.
+- **Trace-visible instance ids** — the `:rf.mutation/*` trace family (`started` / `succeeded` / `failed` / `cleared` / `stale-suppressed`) carries the instance id, so Xray groups submissions under their mutation and shows the write→invalidate→refetch causality.
+
+(Optimistic rollback — the snapshot/rollback/reconciliation shape — is reserved in the success trace but **deferred**; until it lands, patch/populate are forward-only.)
 
 ## Route-driven loading
 
@@ -346,13 +463,14 @@ Resources are a trace/accessor contract, not just panel UI. Xray exposes a stati
 
 ## What's deferred
 
-Some surfaces are named in this chapter but land with later slices:
+The read-resource MVP and mutations (the [Mutations](#mutations--the-causal-write) section above) are landed. Some surfaces named in this chapter still land with later slices:
 
-- **Mutations** — `reg-mutation` / `:rf.mutation/execute` (causal writes that invalidate/patch/refetch resources, keyed by mutation *instance* id), plus focus/reconnect revalidation for active stale resources. These are the next slice; until they land, you invalidate explicitly with `:rf.resource/invalidate-tags`. *(A mutation-with-invalidation example will ship with that slice.)*
-- **GraphQL** — a deferred later phase, out of this contract. `:rf.http/managed` is the single built-in read transport; the lifecycle is kept transport-neutral so a GraphQL transport can plug in later without weakening the core semantics.
-- **Later still** — optimistic rollback, a generic transport-extension protocol, polling/interval revalidation, infinite resources, normalized entity caches, automatic graph-derived invalidation, subscription-driven fetching, offline persistence, and cross-tab broadcast.
+- **Focus/reconnect revalidation** — automatic background refetch of active stale resources when the window regains focus or the network reconnects. Until it lands, you revalidate with an explicit `:rf.resource/refetch` (or `:rf.resource/invalidate-tags`) from a cause of your own.
+- **Optimistic rollback** — the snapshot / rollback / reconciliation shape is *reserved* in the mutation success trace but not yet implemented. Until it lands, mutation `:patches` / `:populates` are forward-only (no automatic rollback on failure).
+- **GraphQL** — a deferred later phase, out of this contract. `:rf.http/managed` is the single built-in transport for both reads and writes; the lifecycle is kept transport-neutral so a GraphQL transport can plug in later without weakening the core semantics.
+- **Later still** — a generic transport-extension protocol, polling/interval revalidation, infinite resources, normalized entity caches, automatic graph-derived invalidation, subscription-driven fetching, offline persistence, and cross-tab broadcast.
 
-The artefact isn't "complete server-state management" until mutation invalidation and active-stale revalidation land — but the read-resource MVP is a complete, locked contract on its own.
+The artefact isn't "complete server-state management" until focus/reconnect revalidation lands — but the read-resource MVP plus mutations is a complete, locked contract on its own.
 
 ## What resources actually buy you
 
