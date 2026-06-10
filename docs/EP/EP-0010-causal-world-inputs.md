@@ -462,14 +462,18 @@ An illustrative reply token:
   :reply
   {:outcome :ok
    :value article
-   :completed-at 1781078400456
-   :rf.world/inputs {:time-ms 1781078400456}}}]
+   :completed-at 1781078400456}}]
 ```
 
 EP-0011 standardizes the outer reply shape and uses the same suffixless durable
 timestamp keys. This EP's requirement is narrower: completion facts that affect
 durable state are carried on the reply token and are not re-read in the reply
 handler.
+
+The completion token may be stamped from `:rf.world/inputs` at the host boundary,
+but the standardized reply map exposes the completed-time fact as
+`:completed-at`. It should not also expose the same fact as
+`[:rf.world/inputs :time-ms]` inside the reply map.
 
 ### Resources And Work-Ledger Timestamps
 
@@ -726,7 +730,7 @@ Correct:
   :rf.resource.internal/succeeded
   (fn [{runtime :rf.db/runtime}
        [_ {:keys [work-id resource-key value reply]}]]
-    (let [completed-at (get-in reply [:rf.world/inputs :time-ms])
+    (let [completed-at (:completed-at reply)
           stale-at     (+ completed-at (* 5 60 1000))]
       {:rf.db/runtime
        (-> runtime

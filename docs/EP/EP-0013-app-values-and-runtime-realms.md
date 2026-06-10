@@ -142,6 +142,10 @@ inherited v1 ambient behavior.
 
 ## Relationships
 
+- [EP-0001](EP-0001-frame-partitions.md) defines the coherent frame-state value
+  realms install and frames own. This EP changes how programs and host
+  capabilities are assembled; it does not move app-db or runtime-db out of the
+  frame-state partition model.
 - [EP-0002](EP-0002-frame-target-resolution.md) and
   [Spec 002](../../spec/002-Frames.md) establish the carried invariant: frame
   identity travels with the causal token; an operation never discovers a frame
@@ -165,6 +169,10 @@ inherited v1 ambient behavior.
 - [Spec 006](../../spec/006-ReactiveSubstrate.md) owns the adapter contract.
   This EP changes adapter *ownership* (process → realm/root) but not the
   adapter contract itself.
+- [EP-0009](EP-0009-the-ep-process.md) owns the EP process constraints this
+  proposal relies on: one decision surface, explicit relationships, and the
+  proposal/accepted/final lifecycle. App values may eventually deserve a
+  sequence of narrower follow-on EPs rather than one large graduation.
 - EP-0010, EP-0011, EP-0012, and EP-0014 are companion proposals. EP-0010's
   injected world inputs are natural realm capabilities (`:rf.capability/clock`,
   `:rf.capability/random`); EP-0014's derivation descriptors would live in app
@@ -611,8 +619,11 @@ default realm. Multi-realm code MUST carry enough context to identify both the
 realm and frame.
 
 The default realm is created by the runtime. Existing one-argument and
-ambient-looking APIs resolve through it unless an explicit realm is supplied or
-a frame scope already carries a realm.
+ambient-looking registration APIs resolve through it unless an explicit realm
+is supplied. That is registrar/app-value compatibility, not a frame-target
+fallback: `dispatch`, `subscribe`, and other frame-scoped operations still need
+an explicit frame, a carried frame, or an established frame scope and still fail
+per EP-0002 when no frame is known.
 
 ### Installation
 
@@ -1100,7 +1111,8 @@ implemented.
                      {:rf.capability/http fake-http
                       :rf.capability/clock fixed-clock}})
                   (rf/install! cart-test-app))]
-    (rf/with-frame (rf/make-frame :cart/test {:realm realm})
+    (rf/reg-frame :cart/test {:realm realm})
+    (rf/with-frame :cart/test
       (rf/dispatch-sync [:cart/add {:sku "A-1"}])
       (is (= [{:sku "A-1"}]
              @(rf/subscribe [:cart/items]))))))

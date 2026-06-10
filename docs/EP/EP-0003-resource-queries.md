@@ -2,13 +2,18 @@
 
 Status: accepted
 
-> **Graduated (HTTP-only scope).** The accepted HTTP-only scope of this proposal is
-> the normative [`spec/016-Resources.md`](../../spec/016-Resources.md) (slice 1,
-> rf2-8eqf99). Where this EP and the spec differ, the **spec governs**; this EP
-> remains the design record (rationale, prior-art benchmark, slice plan) and the
-> home of the deferred GraphQL phase. Implementation slices (artefact skeleton,
-> work-ledger substrate, runtime, managed-HTTP, invalidation/GC, route, SSR, Xray,
-> focus/reconnect, mutation, docs) are tracked per
+> **Accepted; HTTP-only spec graduated.** The accepted HTTP-only scope of this
+> proposal has a normative home in
+> [`spec/016-Resources.md`](../../spec/016-Resources.md) (slice 1, rf2-8eqf99).
+> Where this EP and the spec differ, the **spec governs**; this EP remains the
+> design record (rationale, prior-art benchmark, slice plan) and the home of the
+> deferred GraphQL phase. The EP itself remains `accepted`, not `final`, while
+> the fresh-skip/cache-hit graduation hold (`rf2-hsa0sv`) is unresolved.
+> Sections that describe fresh entries as no-op/cache-hit behavior are the
+> accepted target shape and must be reconciled with the implementation or
+> demoted before final graduation. Implementation slices (artefact skeleton,
+> work-ledger substrate, runtime, managed-HTTP, invalidation/GC, route, SSR,
+> Xray, focus/reconnect, mutation, docs) are tracked per
 > [§Bead Structure](#bead-structure).
 
 ## Abstract
@@ -3110,7 +3115,9 @@ The initial HTTP-only scope is the bead sequence below. GraphQL beads are a
 deferred follow-on phase (see
 [Deferred: GraphQL (later phase)](#deferred-graphql-later-phase)).
 
-1. EP/spec bead: turn this proposal into a normative spec.
+1. EP/spec bead: landed for the HTTP-only scope; Spec 016 is the normative
+   home for that scope, while this EP remains the accepted design record until
+   final graduation.
 2. Artifact skeleton bead: create `day8/re-frame2-resources`, facade wrappers,
    feature probes, and `:resource` registrar metadata.
 3. Work-ledger substrate bead: add the resource-owned frame work ledger slice,

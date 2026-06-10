@@ -32,7 +32,7 @@ the decision-freeze (the EP-0005 pattern), and none of it reopens any ruling.
 
 ### Open errata
 
-- **`rf2-fhoz1m-conformance`** *(open — drift test unbuilt)* — the [Conformance](#conformance)
+- **`rf2-ba5acq`** *(open — drift test unbuilt)* — the [Conformance](#conformance)
   section specifies a drift test that pins the grading table's subsystem list
   against the reserved-key table in [`spec/Conventions.md`](../../spec/Conventions.md#reserved-runtime-db-keys),
   so a new `:rf.runtime/*` child landed *without* a contract grading row fails CI.
@@ -120,9 +120,11 @@ without a concrete consumer.
 
 - **Builds on EP-0001** (the partition that created the children) and adopts
   its Appendix A item 5, which the fourteen rulings never addressed.
-- **Gates EP-0003 acceptance** (by recommendation, not hard dependency):
-  `:rf.runtime/resources` and `:rf.runtime/work-ledger` should graduate against
-  this checklist (EP-0003 amendment bead `rf2-pbzds6` adds the table there).
+- **Informs EP-0003 graduation** (by recommendation, not hard dependency):
+  `:rf.runtime/resources` and `:rf.runtime/work-ledger` graduate against this
+  checklist. EP-0003 is already accepted and its HTTP-only Spec 016 scope has
+  graduated; this relationship is now conformance/status hygiene, not an
+  acceptance gate.
 - **Sequenced with rf2-3939ig, not coupled to it:** the authority *mechanism*
   (general framework-authority registration meta) has shipped as a bug fix;
   this contract is the *policy* layer that cites it as clause 2's

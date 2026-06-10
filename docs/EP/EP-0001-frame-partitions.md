@@ -10,7 +10,11 @@ Status: final
 > tracked against those settled rulings have now also shipped — see
 > [Implementation errata](#implementation-errata). Finalizing the *decisions*
 > did not, on its own, assert the *implementation* was gap-free; the errata
-> ledger below tracked that separately to its close.
+> ledger below tracked that separately to its close. Historical proposal
+> sections below still preserve rejected alternatives such as `:db-before` /
+> `:db-after` and multi-container representations; the Resolved Decisions and
+> the graduated specs are authoritative where they conflict with earlier
+> proposal voice.
 
 ## Implementation errata
 
@@ -1186,10 +1190,11 @@ ruling here is the binding form.
 
 3. **Representation — one physical container plus projection reactions.** A frame
    holds **one** physical frame-state container; app-db and runtime-db are derived as
-   **projection reactions** over it. This resolves Open-Issue 3 and Open-Issue 7
-   together (see Decision 7): the "two coherent containers" and "explicit dirty flags"
-   alternatives in §Subscriptions And Flows are not used. This is the single-container
-   model Appendix A §3 recommends.
+   **projection reactions** over it. This resolves the representation and
+   invalidation alternatives together (see Decision 7): the "two coherent
+   containers" and "explicit dirty flags" alternatives in §Subscriptions And
+   Flows are not used. This is the single-container model Appendix A §3
+   recommends.
 
 4. **`:rf.db/runtime` reserved by convention, not a security boundary.**
    `:rf.db/runtime` is reserved **by convention**, not enforced as a capability
@@ -1394,7 +1399,7 @@ Pin it, and pin it at the cleanest altitude: **authority is conferred at registr
 - `:rf.db/runtime` need not be a freely-writable key in the app-facing effect map at all (it widens the closed effect set only for framework-authority handlers);
 - the "user land / kernel space" analogy becomes a real capability boundary rather than a convention with diagnostics bolted on.
 
-This also resolves the question §5's plugin work raises: **a library (e.g. Hasura owning `:rf.runtime/resources`) gets runtime-write authority by registering through a framework-blessed registrar** — not by namespace luck. Authority-at-registration is the one mechanism that makes both the guarantee and the extension story principled.
+This also resolves the question §5's extension work raises: **a library owning a future `:rf.runtime/<lib>` child gets runtime-write authority by registering through a framework-blessed registrar** — not by namespace luck. Authority-at-registration is the one mechanism that makes both the guarantee and the extension story principled.
 
 It is also the more on-ethos posture in two further ways. **Loud-failure / reject-misuse:** the EP hedges "warn *or* fail" (§Guardrails, §7), but pre-alpha re-frame2 rejects misuse rather than tolerating it — authority-at-registration lets these be hard `:rf.error/*` rejections, not warnings (the warning posture is a back-compat reflex the project has disowned elsewhere). **AI-legibility:** authority conferred by registrar is *enumerable registration metadata* — an agent or the AI-Audit can ask "is this handler app- or framework-authority?" exactly as it queries registrar kind today — rather than an opaque runtime check. It extends the registrar-kind model (`:event`, `:resource`, `:mutation`, machine handlers) that already exists, instead of inventing a parallel notion of trust.
 
@@ -1430,11 +1435,11 @@ The EP treats runtime-db's children as an ad-hoc list (`:rf.runtime/machines`, `
 4. a serialization / elision / projection policy (what hydrates, what redacts);
 5. a teardown contract (durable facts vs transient handles).
 
-That recurring shape is a **runtime-subsystem contract**, and naming it is the deepest available altitude. The payoff is threefold: it turns the ad-hoc list into *instances of one contract* (de-duplicating §4/§6/Test-Plan — see #4); it gives the §5 plugin seam and the Resource/Hasura work a **principled home** (a Hasura library registering `:rf.runtime/hasura` is "a new runtime subsystem", first-class, not a special case); and it makes the per-subsystem serialization/elision/teardown rules a single conformance checklist instead of prose repeated five times.
+That recurring shape is a **runtime-subsystem contract**, and naming it is the deepest available altitude. The payoff is threefold: it turns the ad-hoc list into *instances of one contract* (de-duplicating §4/§6/Test-Plan — see #4); it gives the §5 plugin seam and future resource/integration work a **principled home** (a library registering a new runtime child is "a new runtime subsystem", first-class, not a special case); and it makes the per-subsystem serialization/elision/teardown rules a single conformance checklist instead of prose repeated five times.
 
 Crucially this is **not** the "generic N-partition database" the EP rightly rejects: that was *user-facing arbitrary top-level partitions*. This is an *internal organizing contract for runtime-db's own children* plus a blessed-extension seam — the same distinction as "the framework has subsystems" vs "users get arbitrary partitions." The EP rejected the wrong neighbour; this is the one worth adopting.
 
-And it is not an imported abstraction — it is **re-frame2's own organising habit**. `Managed-Effects.md` already names a recurring shape (the eight properties) so new *effect* surfaces grade against one checklist; `Ownership.md` already maps every contract surface to its owning spec. A runtime-subsystem contract is the **durable-state analogue of Managed-Effects** — the identical "name the shape once, grade instances against it" move, applied to runtime-db's children instead of to effects. Because the AI-Audit already grades surfaces against the Managed-Effects checklist, this contract slots straight into existing tooling: machines / routing / resources / Hasura become enumerable, audit-gradeable instances rather than prose. That is spec-is-the-artefact doing what it is for.
+And it is not an imported abstraction — it is **re-frame2's own organising habit**. `Managed-Effects.md` already names a recurring shape (the eight properties) so new *effect* surfaces grade against one checklist; `Ownership.md` already maps every contract surface to its owning spec. A runtime-subsystem contract is the **durable-state analogue of Managed-Effects** — the identical "name the shape once, grade instances against it" move, applied to runtime-db's children instead of to effects. Because the AI-Audit already grades surfaces against the Managed-Effects checklist, this contract slots straight into existing tooling: machines / routing / resources / future integrations become enumerable, audit-gradeable instances rather than prose. That is spec-is-the-artefact doing what it is for.
 
 ### Minor notes
 
@@ -1451,7 +1456,7 @@ And it is not an imported abstraction — it is **re-frame2's own organising hab
 
 ### Net
 
-The EP lands on the right design (the findings' "A2 → frame-state split"). The four pushes that would make it more elegant / simpler / more rigorous / more sophisticated, in priority order: **(2)** pin authority-at-registration so "structurally impossible" is earned; **(1)** give app-db one name (`:db` in the projection too); **(3)** commit to single-container frame-state and get partition invalidation from projection-equality; **(5)** name the runtime-subsystem contract — which also unblocks the extension/plugin and Resource/Hasura work cleanly. (3) and (5) interlock with the EP-0003 Resource Queries and Hasura EPs; landing the authority model (2) is the prerequisite that makes all of them honest.
+The EP lands on the right design (the findings' "A2 → frame-state split"). The four pushes that would make it more elegant / simpler / more rigorous / more sophisticated, in priority order: **(2)** pin authority-at-registration so "structurally impossible" is earned; **(1)** give app-db one name (`:db` in the projection too); **(3)** commit to single-container frame-state and get partition invalidation from projection-equality; **(5)** name the runtime-subsystem contract — which also unblocks extension/plugin and resource work cleanly. (3) and (5) interlock with EP-0003 Resource Queries and future runtime-subsystem extensions; landing the authority model (2) is the prerequisite that makes all of them honest.
 
 None of these are imports. Each argues *from* re-frame2's own values — loud-failure (2), name-the-recurring-contract (5), the value-oriented equality substrate (3), and spec-as-artefact / AI-legibility (3, 4, 5, and the partition itself). The single genuine *ethos-internal* tension is (1) — CLARITY vs namespace discipline — and the right resolution there is not for this review to crown a winner but for the EP to **name the value it trades and why**, which is the move the rest of the document already models well.
 

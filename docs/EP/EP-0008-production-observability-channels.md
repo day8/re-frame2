@@ -144,6 +144,18 @@ wins over retaining a long-lived alias. Apps with error shippers may see new
    trace visibility under the new error category), plus a teardown-report test.
 3. Audit bead: grade the full catalogue; file promotion fixes found.
 4. Conformance bead: the catalogue/channel pin test.
+5. Guide/docs bead: extend the production observability material with the
+   three-channel model, the JVM debug gate note, and the always-on promotion
+   criterion.
+
+## Guide Impact
+
+On graduation this EP updates the observability/production guide material with:
+
+- the causal / diagnostic / always-on error channel distinction;
+- the JVM `re-frame.debug` default-on caveat for production SSR/tool hosts;
+- the criterion for promoting a failure category onto the always-on axis;
+- the teardown-failure example as the first concrete promotion.
 
 ## Open Issues
 

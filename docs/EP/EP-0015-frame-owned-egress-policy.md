@@ -291,6 +291,20 @@ frames own state, paths are explicit, and boundaries are named.
   and therefore inherits the no-default-frame rule. If a projection needs frame
   policy and no frame is known, it fails closed rather than borrowing
   `:rf/default`.
+- **EP-0001 (Frame App/Runtime Partitions).** Egress policy projects a coherent
+  frame-state value: app-db, runtime-db, epoch records, and runtime-subsystem
+  children are distinguished at the frame boundary instead of through
+  process-global privacy state.
+- **EP-0003 (Resource Queries) / Spec 016.** Resource entries, work-ledger rows,
+  scopes, params, owner/cause summaries, and SSR/hydration payloads are egress
+  records under this EP's projection model. This EP must preserve Spec 016's
+  fail-closed scope and resource redaction rules.
+- **EP-0005 (Machine `:data` Schema).** EP-0005 is final and currently governs
+  machine `:data` sensitivity: v1 expresses machine data sensitivity only via
+  per-slot `:data-schema` `:sensitive?` / `:large?` properties. This proposal
+  deliberately reopens that public-model question by moving durable machine
+  `:data` egress policy to explicit machine metadata. Until EP-0015 is accepted
+  and the named specs are changed, EP-0005 and Spec 005 govern.
 - **EP-0006 (Runtime Subsystem Contract).** Runtime subsystems need projection
   policies. This EP supplies the data-classification and egress-profile model
   those policies should cite.
@@ -478,6 +492,12 @@ This keeps the ownership rule compact:
 > Registration metadata classifies registration-owned transient payloads.
 
 ### 5. Machine-Owned Durable Classification
+
+This section is a proposed replacement for EP-0005's v1 public policy surface,
+not a description of the current final contract. Today, EP-0005 and Spec 005
+own the shipped rule: machine `:data` sensitivity is expressed through
+`:data-schema` slot metadata. EP-0015 may supersede that rule only by explicit
+ruling.
 
 Machine `:data` is durable process state owned by the machine definition. It
 should follow the same explicit-policy posture as frames: schemas describe
@@ -859,6 +879,11 @@ Mechanical upgrade from re-frame v1 remains a secondary goal:
     limited to `:rf.egress/*`, `:rf.observe/*`, and existing `:rf.size/*`
     low-level flags? Recommendation: yes; keep frame-local grammar keys bare
     and keep user/integration sink ids outside framework namespaces.
+11. **EP-0005 supersession.** Should EP-0015 replace EP-0005's final machine
+    `:data-schema` sensitivity surface with explicit machine `:sensitive` /
+    `:large` metadata, or should machines keep EP-0005's schema-first v1 rule
+    while frames move to owner-owned policy? Recommendation: decide this at
+    EP-0015 acceptance, because the proposal intentionally crosses a final EP.
 
 ## Bead Plan
 
@@ -870,7 +895,8 @@ Mechanical upgrade from re-frame v1 remains a secondary goal:
 3. Frame bead: add frame metadata schema for `:sensitive`, `:large`, and
    `:observability`.
 4. Machine bead: add machine metadata schema for explicit `:sensitive` and
-   `:large` paths rooted at machine `:data`, independent of `:data-schema`.
+   `:large` paths rooted at machine `:data`, independent of `:data-schema`, if
+   the EP-0005 supersession ruling accepts that move.
 5. Projection bead: introduce record-level `project-egress` and profiles over
    `elide-wire-value`.
 6. Observability bead: route production handled-event/error records through

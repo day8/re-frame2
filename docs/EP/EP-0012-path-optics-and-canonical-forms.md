@@ -156,10 +156,10 @@ tools gain one place to enforce the rules.
 - **EP-0006 (Runtime Subsystem Contract).** Clause-4 projection/elision
   policies and the SSR allowlist-by-subsystem-child projector consume paths;
   they cite this EP's path semantics instead of restating them.
-- **EP-0003 (Resource Queries) / Spec 016.** EP-0003 states canonicalization
-  for resource params and gestures at scopes. This EP supplies the single
-  shared definition; Spec 016's scoped resource key
-  `[cache-scope resource-id canonical-params]` becomes a citation of it.
+- **EP-0003 (Resource Queries) / Spec 016.** Spec 016 specifies canonical
+  params and scope canonicalization for the HTTP resource scope. This EP
+  supplies the shared path/identity definition that later resource transports
+  and non-resource subsystems should cite instead of restating.
 - **EP-0011 (Uniform Async Reply Envelope).** Reply correlation and stale
   suppression key on work ids, which are canonical EDN identities under this
   EP.
@@ -193,6 +193,12 @@ Keywords, strings, symbols, integers, booleans, UUIDs, instants, and `nil` are
 valid when the host can represent them as EDN. Functions, atoms, promises, DOM
 nodes, AbortControllers, opaque JS objects, and other host handles are not
 valid segments.
+
+This is the shared upper bound, not a requirement that every subsystem accept
+every segment type. A spec may deliberately narrow the domain for its public
+surface — for example, Spec 016 currently rejects date/instant-like resource
+scope values — as long as it records that narrowing as a policy over the shared
+definition.
 
 **Focus**: The value selected by a path.
 
@@ -575,6 +581,10 @@ The `CEDN-1` canonical EDN domain is:
   `[-9007199254740991, 9007199254740991]`;
 - UUIDs and instants when represented as EDN values or explicit tagged data;
 - vectors, lists, maps, and sets whose nested values are canonical EDN values.
+
+As with path segments, `CEDN-1` is the shared canonicalization domain. A
+subsystem can choose a smaller input domain for public safety or portability;
+that restriction must be explicit and is not a fork of the canonical encoding.
 
 The canonicalizer MUST reject by default:
 

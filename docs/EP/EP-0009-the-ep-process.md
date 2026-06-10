@@ -1,15 +1,13 @@
 # EP-0009: The EP Process
 
-Status: proposal
+Status: active
 Type: process
 
-> The PEP-1 analogue: this EP defines what EPs are, when one is warranted, the
-> type and status vocabulary, and the durability rules. On acceptance it
-> becomes **active** (process EPs stay active rather than graduating to final)
-> and `docs/EP/README.md` becomes a thin index pointing here.
+> The PEP-1 analogue: this active process EP defines what EPs are, when one is
+> warranted, the type and status vocabulary, and the durability rules.
+> `docs/EP/README.md` is the index; this EP is the process rule.
 >
-> Normative home after acceptance: **this active EP**, specifically its
-> §Specification.
+> Normative home: **this active EP**, specifically its §Specification.
 
 ## Abstract
 
@@ -48,7 +46,9 @@ valuable record.
 | **standards-track** | changes the framework's public contracts or runtime behavior; graduates into `spec/` + implementation beads | `final` |
 | **process** | rules about how the project itself works (conventions, lifecycle, review posture); on acceptance it **names its normative home** — either an existing spec doc (EP-0007 names `Conventions.md` §Namespacing) or the active EP itself (this EP's home is this EP) — and that one home governs | `active` |
 
-EPs predating this one carry no `Type:` header and are standards-track.
+EP-0001 through EP-0005 may omit the `Type:` header and are treated as
+standards-track. EPs numbered EP-0006 and later carry an explicit `Type:`
+header.
 
 ### Statuses
 
@@ -140,7 +140,7 @@ as standards-track. The README remains an index, not a second normative home.
 
 ## Recommendation
 
-Adopt, marking this EP `active`. It codifies the model the corpus already
-de-facto follows (stable numbers, graduation into spec, resolved-decision
-records, the errata ledger) and adds the missing pieces: the worthiness bar,
-the type split, the terminal statuses, and the never-delete rule.
+Keep this EP `active`. It codifies the model the corpus already de-facto
+follows (stable numbers, graduation into spec, resolved-decision records, the
+errata ledger) and adds the missing pieces: the worthiness bar, the type split,
+the terminal statuses, and the never-delete rule.

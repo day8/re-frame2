@@ -28,10 +28,10 @@ notify parents through machine-specific completion hooks.
 
 This EP defines a uniform async reply envelope. A managed async effect declares
 one reply target and one optional work id. The runtime completes that target
-with a standard reply map containing outcome status, value or error, work-ledger
-correlation, causal completion metadata, cancellation/staleness information,
-and tracing metadata. Existing public APIs remain as compatibility sugar that
-lower to the envelope.
+with a standard reply map containing outcome status, value and/or error data,
+work-ledger correlation, causal completion metadata,
+cancellation/staleness information, and tracing metadata. Existing public APIs
+remain as compatibility sugar that lower to the envelope.
 
 The proposal makes "event replies are causal continuations" a framework-wide
 law instead of an effect-family convention. The payoff is one substrate for
@@ -174,7 +174,7 @@ day one.
 ## Relationships
 
 - **[EP-0003](EP-0003-resource-queries.md) / [Spec 016](../../spec/016-Resources.md)
-  (accepted, graduated).** The frame work ledger is this EP's durable
+  (accepted; HTTP-only spec graduated).** The frame work ledger is this EP's durable
   substrate: a ledger row *is* the reified continuation of a managed async
   effect, and the row's `:reply-to` field is this EP's reply target made
   durable. This EP rides that design — same `:work/id`, same
@@ -197,7 +197,7 @@ day one.
 - **[EP-0002](EP-0002-frame-target-resolution.md) (final).** The reply map's
   `:rf.frame/id` field is the canonical carried frame stamp; this EP adds no
   second frame spelling.
-- **[EP-0006](EP-0006-runtime-subsystem-contract.md) (proposal).** The
+- **[EP-0006](EP-0006-runtime-subsystem-contract.md) (final).** The
   multi-writer authority question for `:rf.runtime/work-ledger` (see Open
   Issues) is the runtime-subsystem contract's to settle.
 - **[EP-0007](EP-0007-one-name-per-fact.md) (proposal).** The one-attempt-one-
@@ -315,7 +315,7 @@ paths all see the same reply map.
 > A managed async effect MUST complete through the uniform reply envelope. The
 > effect either accepts `:rf/reply-to` directly or defines public sugar that
 > lowers to `:rf/reply-to`. Completion MUST produce a reply map with a single
-> `:status`, value or error data, work correlation, causal completion metadata,
+> `:status`, value and/or error data, work correlation, causal completion metadata,
 > and any cancellation/staleness facts. Ledger-backed effects MUST correlate
 > by `:work/id`.
 
@@ -373,7 +373,7 @@ The canonical reply map is data only. It must not contain functions, promises,
 AbortControllers, timer handles, DOM nodes, or other host resources.
 
 ```clojure
-{:status          :ok | :error | :cancelled | :stale
+{:status          :ok | :partial | :error | :cancelled | :stale
  :value           value-or-nil
  :error           error-map-or-nil
  :work/id         work-id-or-nil
@@ -399,9 +399,10 @@ Required fields:
 - `:work/id` is required for ledger-backed work and SHOULD be present for every
   managed async effect that can be correlated.
 - `:rf.frame/id` is required when the effect is frame-scoped.
-- `:value` is present for `:status :ok`.
-- `:error` is present for `:status :error` and MAY also carry compatibility
-  failure data for `:status :cancelled`.
+- `:value` is present for `:status :ok` and `:status :partial`.
+- `:error` is present for `:status :error`, present with structured partial
+  diagnostics for `:status :partial`, and MAY also carry compatibility failure
+  data for `:status :cancelled`.
 - `:started-at`, `:completed-at`, and `:deadline-at` are causal
   metadata when those facts affect durable state. If the effect family does not
   use a field durably, it may omit it.
@@ -416,9 +417,17 @@ The reply `:status` vocabulary is closed:
 | Reply status | Meaning | Value/error convention |
 |---|---|---|
 | `:ok` | Work completed successfully and the reply is current. | `:value` present; `:error` absent. |
+| `:partial` | Work completed with usable value data and structured family-specific problems. The reply is current, but the effect family must decide how partial data is installed. | `:value` present; `:error` present with a family-specific `:kind` such as `:rf.graphql/partial-success`. |
 | `:error` | Work completed with a failure and the reply is current. | `:error` present with a family-specific `:kind`. |
 | `:cancelled` | Work was intentionally cancelled while still correlated with the target. | `:cancel/reason` present; `:error` MAY carry compatibility failure data. |
 | `:stale` | Work completed or was observed after its correlation became obsolete. | `:stale? true`; `:stale/reason` present; no app-state mutation. |
+
+`:partial` exists to keep this envelope transport-neutral. GraphQL responses can
+legitimately contain both `data` and `errors`; a future GraphQL resource
+transport must not be forced to pretend that shape is plain `:ok` or plain
+`:error`. A resource policy may lower a partial reply into loaded data,
+`:refresh-error`, or first-load `:error` according to EP-0003's deferred
+GraphQL rules, but the reply envelope itself can represent value-and-errors.
 
 Timeout is not a top-level reply status. It is an error kind or work status:
 
@@ -881,6 +890,12 @@ and lowers to managed HTTP:
 The internal resource reply handler receives one reply map for success,
 failure, cancellation, or stale suppression:
 
+The examples in this section use the candidate consolidated
+`:rf.resource.internal/replied` event. Shipped Spec 016 may keep separate
+success/failure/abort internal event ids until that consolidation is ruled; the
+normative point here is the reply map and `:work/id`, not the exact internal
+event id.
+
 ```clojure
 [:rf.resource.internal/replied
  {:resource/key scoped-key
@@ -1091,6 +1106,13 @@ A single reply handler can branch on the common status taxonomy:
                      {:status :failed
                       :error  (:error reply)})}
 
+      :partial
+      {:db (assoc-in db [:uploads upload-id]
+                     {:status :partial
+                      :result (:value reply)
+                      :error  (:error reply)
+                      :done-at (:completed-at reply)})}
+
       :cancelled
       {:db (assoc-in db [:uploads upload-id]
                      {:status :cancelled
@@ -1257,7 +1279,8 @@ designed in one moment rather than reconciled later.
 
 Conformance should include fixtures or tests for:
 
-- reply map schema: exactly one valid `:status`, value/error conventions, no
+- reply map schema: exactly one valid `:status`, value/error conventions
+  including `:partial` with both usable value and structured error data, and no
   host handles in durable reply data;
 - HTTP lowering: `:on-success` and `:on-failure` preserve public event shapes
   while producing canonical internal replies;
