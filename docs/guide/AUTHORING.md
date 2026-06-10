@@ -64,6 +64,49 @@ the explanation in chapter prose. Future chapter authors who skip this
 policy will reintroduce the same drift — keep the tutorial track
 self-sufficient.
 
+## The "for the categorically curious" callout
+
+re-frame2's design is grounded in functional and category-theoretic ideas
+(folds, lattices, lenses, derivation algebras). Those ideas are real and they
+earn the framework its shape — but they are *design tools*, not *teaching
+vocabulary*. The guide's rule is **translate, don't transplant**: the chapter
+body explains an idea in plain language, framed as a payoff for the reader; the
+category-theory vocabulary appears *only* inside an optional, collapsible
+callout for the reader who enjoys the deeper unifying frame.
+
+The device is an mkdocs-material collapsible admonition (the `pymdownx.details`
+extension, already enabled), titled **"For the categorically curious"**:
+
+```markdown
+<details markdown="1">
+<summary>For the categorically curious</summary>
+
+All four homes are the same thing seen four ways: a node in one dependency
+graph, distinguished by its storage policy and its evaluation policy. ...
+</details>
+```
+
+The rules — non-negotiable, so the device stays a treat and never a tax:
+
+- **Always collapsible and always skippable.** Use the `<details>`/`<summary>`
+  form (collapsed by default), never a plain `> **Note:**` block or an
+  always-expanded admonition. A reader who never opens it must lose nothing.
+- **The surrounding prose must stand alone.** The chapter has to make complete
+  sense to a reader who skips every callout. The callout *adds* a frame; it
+  never *carries* a load-bearing fact. If the body can't be understood without
+  it, the body is incomplete — fix the body, don't lean on the box.
+- **At most one per concept.** One callout illuminating one idea. A page with
+  three of them has turned the treat into the meal.
+- **Max ~6 lines.** It's a glimpse, not a lecture. No proofs, no derivations,
+  no chains of definitions.
+- **Every symbol gets a plain-English gloss.** If you write "catamorphism" or
+  "lens," say in the same breath what it means here. A term the reader can't
+  decode is noise, not insight.
+
+First user: [Where Should This Value Live?](where-state-lives.md), whose body
+teaches the sub/flow/resource/machine decision in plain language and offers one
+callout framing the four as storage-and-evaluation policies over one graph.
+
 ## No bead references in chapter prose
 
 User-facing docs state the **current truth** of the framework, not the

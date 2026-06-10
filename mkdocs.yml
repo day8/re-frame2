@@ -184,6 +184,7 @@ nav:
     - "25 - From re-frame v1": guide/25-from-re-frame-v1.md
     - "26 - Operating well": guide/26-operating-well.md
     - "27 - Server-state and resources": guide/27-resources.md
+    - "Where should this value live?": guide/where-state-lives.md
 
   - CLJS:
     - "ClojureScript for non-Clojurians": cljs/index.md

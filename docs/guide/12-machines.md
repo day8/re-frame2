@@ -2,6 +2,8 @@
 
 Some flows in your app aren't "set a flag." They're "what state are we even *in*?" A login that can be idle, submitting, authed, error-shown, or locked-out. A wizard with five steps and rules about which one can follow which. A websocket that's connecting, connected, dropped, reconnecting. For those, the load-bearing question isn't what's in app-db — it's which of a fixed set of named states you're sitting in, and which events move you to which other state. That shape has a name, and the moment you notice you're writing one, your scattered `cond` clauses stop being the natural way to express the flow and start being a way of *hiding* it.
 
+> **Deciding where a value should live?** A machine is the right home when a value has a *lifecycle* — named states, timers, retries, cancellation — rather than just a value you read. See [Where should this value live?](where-state-lives.md) for the four questions that distinguish a machine from a subscription, a flow, or a resource.
+
 ## You've been writing these the whole time
 
 Here's the uncomfortable bit: you already write state machines. You just call them other things. The `cond` at the top of your login handler that branches on `(:auth/state db)`. The `case` in your video player deciding what `:pause` means depending on whether you're `:loading` or `:playing` or `:buffering`. The `if-let` that checks "are we already submitting? then swallow this click." The keyword you stuffed into app-db two years ago — `:idle`, `:submitting`, `:authed`, `:error-shown`, `:locked-out` — and have been quietly growing ever since, along with a set of *unwritten rules in your head* about which of those states can legally follow which.

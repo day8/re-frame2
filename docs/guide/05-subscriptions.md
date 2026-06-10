@@ -2,6 +2,8 @@
 
 Your view needs to read state. But it must *not* know where in `app-db` that state lives, and it must *not* recompute its slice every time some unrelated corner of the map twitches. A subscription is the answer to both demands at once — a named derivation that views ask for by id — and the graph those derivations form, quietly, behind your back, is where almost all of re-frame2's performance comes from. This chapter is that graph. The next chapter, [06 — Views](06-views.md), is the boring render functions that sit on top of it; this one is the machinery underneath that makes them cheap.
 
+> **Deciding where a value should live?** A subscription is the cheapest home and the one to reach for first — see [Where should this value live?](where-state-lives.md) for the four questions that sort a value into a sub, a flow, a resource, or a machine.
+
 ## The problem nobody tells you is a problem
 
 Let's start, as is tradition, with a complaint.
