@@ -50,6 +50,8 @@ Examples:
 - a resource reply handler calls `now-ms` while writing `:loaded-at`;
 - a work-ledger writer calls `now-ms` while writing `:started-at` and
   `:deadline-at`;
+- a mutation handler calls `now-ms` while writing `:started-at` or
+  `:settled-at` on a mutation instance;
 - a route handler reads `js/location` while writing routing state;
 - a boot handler reads `localStorage` while writing session state;
 - a machine action calls `rand-nth` while choosing a durable branch.
@@ -62,9 +64,10 @@ timestamps, ids, locations, and random choices.
 
 These are not hypothetical. The reference implementation does this today: the
 resource event reducers mint `:loaded-at`, `:stale-at`, and `:invalidated-at`
-from ambient `interop/now-ms` reads inside the transition, and epoch record
-assembly stamps `:committed-at` the same way. Both are durable facts that ride
-restore and replay.
+from ambient host-clock reads inside the transition; mutation event reducers
+stamp `:started-at`, `:settled-at`, and patch/populate resource `:loaded-at`
+the same way; and epoch record assembly stamps `:committed-at` from
+`interop/now-ms`. All are durable facts that ride restore and replay.
 
 ## Motivation
 
@@ -77,8 +80,9 @@ central re-frame2 promise: application behavior is inspectable as data.
   timestamps against a new ambient clock.
 - SSR and hydration: server-stamped cache freshness is explicit data, and clock
   skew is a diagnostic, not a hidden state mutation.
-- Resources and work ledgers: `:started-at`, `:deadline-at`, `:loaded-at`,
-  `:stale-at`, and `:invalidated-at` come from named causal times.
+- Resources, mutations, and work ledgers: `:started-at`, `:deadline-at`,
+  `:loaded-at`, `:stale-at`, `:invalidated-at`, and `:settled-at` come from
+  named causal times.
 - Tests and stories: fixtures supply the exact host facts they need, without
   monkey-patching process-global host functions.
 - Tooling: Xray, pair tools, conformance fixtures, and AI agents can explain
@@ -135,12 +139,13 @@ repaired by silently asking the host again.
   determinism the framework's decisive rationale. This EP closes the remaining
   ambient gap in that claim: the frame stamp made *where* explicit; the world
   inputs make *when* and *what the host said* explicit.
-- **EP-0003 (resource queries)** is the first large consumer: resource entries
-  and work-ledger rows carry durable `:loaded-at` / `:stale-at` /
-  `:started-at` / `:deadline-at` facts. EP-0003's §Restore and Replay defines
-  what restore does to those values (lazy freshness, no refetch storm, dangling
-  rows); this EP removes the root cause that section works around — durable
-  timestamps minted from an ambient clock whose meaning shifts under restore.
+- **EP-0003 (resource queries)** is the first large consumer: resource entries,
+  mutation instance rows, and work-ledger rows carry durable `:loaded-at` /
+  `:stale-at` / `:started-at` / `:deadline-at` / `:settled-at` facts.
+  EP-0003's §Restore and Replay defines what restore does to those values (lazy
+  freshness, no refetch storm, dangling rows); this EP removes the root cause
+  that section works around — durable timestamps minted from an ambient clock
+  whose meaning shifts under restore.
 - **EP-0006 (runtime-subsystem contract)** owns the durable / host-transient
   grading this EP's classes build on, including the rf2-oosjmh ruling that
   host-side monotonic allocator counters never rewind.
@@ -169,7 +174,8 @@ repaired by silently asking the host again.
 **Durable state** is any value that rides in frame-state, epoch records, SSR or
 hydration projection, replay logs, or restore snapshots. It includes app-db,
 runtime-db, resource entries, work-ledger rows, durable routing state, machine
-snapshots, epoch records, and future replayable partitions.
+snapshots, mutation instance rows, epoch records, and future replayable
+partitions.
 
 **Diagnostic state** is observational data whose absence or variation does not
 change the durable frame-state. Examples include dev-only trace timestamps,
@@ -380,6 +386,7 @@ Use `:time-ms` for durable fields such as:
 - app entity `:created-at` / `:updated-at`;
 - resource `:loaded-at`, `:stale-at`, `:invalidated-at`;
 - work-ledger `:started-at`, `:deadline-at`, `:completed-at`;
+- mutation instance `:started-at` and `:settled-at`;
 - durable routing timestamps;
 - machine snapshot timestamps;
 - epoch record causal time.
@@ -476,10 +483,10 @@ but the standardized reply map exposes the completed-time fact as
 `:completed-at`. It should not also expose the same fact as
 `[:rf.world/inputs :time-ms]` inside the reply map.
 
-### Resources And Work-Ledger Timestamps
+### Resources, Mutations, And Work-Ledger Timestamps
 
-Resource and work-ledger timestamps are durable runtime-db facts. They MUST come
-from causal world inputs.
+Resource, mutation, and work-ledger timestamps are durable runtime-db facts.
+They MUST come from causal world inputs.
 
 On ensure/refetch:
 
@@ -496,6 +503,12 @@ On success/failure:
 - resource `:stale-at` is computed from `:loaded-at` plus `:stale-after-ms`;
 - terminal work-ledger outcome timestamps come from the same reply completion
   metadata.
+
+Mutation instance rows follow the same rule. `:rf.mutation/execute` writes
+`:started-at` from the triggering token's `:time-ms`; terminal mutation replies
+write `:settled-at` from the reply completion time; and any resource
+patch/populate timestamp produced by the mutation uses that same causal
+completion time.
 
 Stale and GC timers are advisory host transients. Timer wake-up handlers MUST
 re-read the durable entry and generation, and any durable write they perform
@@ -829,11 +842,11 @@ to the causal token that is being folded.
 
 ### Derive Freshness From The Live Clock On Read
 
-Resource subscriptions could compare `:stale-at` to the live host clock during
-read. That makes passive reads time-dependent and view-driven, weakening the
-"events cause, views read" rule. Freshness transitions should be caused by
-events; reads may project whether a durable timestamp is stale relative to a
-supplied causal check.
+Current Spec 016 resource subscriptions compare `:stale-at` to the live host
+clock during read. Keeping that as the long-term freshness contract would make
+passive reads time-dependent and view-driven, weakening the "events cause,
+views read" rule. Freshness transitions should be caused by events; reads may
+project whether a durable timestamp is stale relative to a supplied causal check.
 
 ### Forbid All Ambient Reads
 
@@ -901,9 +914,11 @@ boundary read while consumers are updated.
 4. Update `:dispatch`, `:dispatch-later`, machine timers, routing, HTTP replies,
    SSR hydration, and tool dispatch helpers so every causal token has world
    inputs.
-5. Audit durable writes in app handler examples, resources, work-ledger rows,
-   routing, machines, restore, hydration, epochs, and conformance fixtures.
-6. Convert resource and work-ledger timestamps to token/reply world inputs.
+5. Audit durable writes in app handler examples, resources, mutations,
+   work-ledger rows, routing, machines, restore, hydration, epochs, and
+   conformance fixtures.
+6. Convert resource, mutation, and work-ledger timestamps to token/reply world
+   inputs.
 7. Add recordable-coeffect guidance and initial helpers for common time,
    UUID/random, browser, and storage inputs.
 8. Add replay fixtures that supply times, UUIDs, random choices, browser facts,
@@ -925,7 +940,7 @@ durable frame-state:
 - direct `js/location`, `navigator`, `localStorage`, `sessionStorage`, and
   media-query reads;
 - ambient reads inside resource reducers, work-ledger writers, reply handlers,
-  restore/hydration installers, and machine snapshot writers.
+  mutation handlers, restore/hydration installers, and machine snapshot writers.
 
 The lint may be conservative. It should allowlist:
 
@@ -939,8 +954,10 @@ Conformance fixtures should cover:
 
 - replaying the same event log with supplied `:time-ms` values produces equal
   app-db and runtime-db;
-- resource `:started-at`, `:deadline-at`, `:loaded-at`, and `:stale-at` are
-  preserved across replay;
+- resource and work-ledger timestamps (`:started-at`, `:deadline-at`,
+  `:loaded-at`, `:stale-at`, and `:invalidated-at`) are preserved across
+  replay;
+- mutation instance `:started-at` and `:settled-at` are preserved across replay;
 - reply handlers use completion metadata from reply tokens;
 - restored resource entries do not re-read the live clock during install;
 - ambient diagnostic timestamps may differ without changing durable state;
