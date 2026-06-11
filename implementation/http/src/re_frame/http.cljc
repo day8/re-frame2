@@ -20,42 +20,23 @@
   alongside the fx they reference (rather than failing at dispatch
   time with `:rf.error/no-such-fx`). `get` collides with
   `clojure.core/get`; we `:refer-clojure :exclude [get]` — users alias
-  the ns (`[re-frame.http :as rf.http]`)."
-  (:refer-clojure :exclude [get])
-  (:require [re-frame.http-privacy-headers :as privacy-headers]
-            [re-frame.http-url             :as http-url]))
+  the ns (`[re-frame.http :as rf.http]`).
 
-;; Privacy surface — Spec 014 §Privacy (rf2-bma05). Re-exported here so
-;; users who alias `re-frame.http :as rf.http` get a uniform call site
-;; for all the HTTP-side facilities (verbs + privacy helpers).
-(def declare-sensitive-header!
-  "Spec 014 §Privacy — extend the header-denylist with an app-specific
-  sensitive header. Names stored lower-cased; matching is case-insensitive.
-  See `re-frame.http-privacy-headers/declare-sensitive-header!`."
-  privacy-headers/declare-sensitive-header!)
+  ## Privacy — app-specific carriers are FRAME policy (EP-0015 §3, rf2-ppkh3v)
 
-(def clear-sensitive-headers!
-  "Spec 014 §Privacy — reset the app-extended header-denylist (defaults
-  remain). Test-only; production code should not need this.
-  See `re-frame.http-privacy-headers/clear-sensitive-headers!`."
-  privacy-headers/clear-sensitive-headers!)
+  This façade no longer re-exports `declare-sensitive-header!` /
+  `declare-sensitive-query-param!` (and their `clear-*!` siblings). An app
+  declares its sensitive HTTP carrier names on the FRAME, not through a
+  process-global mutation:
 
-(def declare-sensitive-query-param!
-  "Spec 014 §Privacy (rf2-2p8wr) — extend the query-string-param denylist
-  with an app-specific sensitive parameter name. Names stored lower-
-  cased; matching is case-insensitive. URLs carrying a denylisted param
-  have the *value* redacted (preserving param name + position) in every
-  `:rf.http/*` trace event regardless of the originating handler's
-  `:sensitive?` flag.
-  See `re-frame.http-url/declare-sensitive-query-param!`."
-  http-url/declare-sensitive-query-param!)
+      (rf/reg-frame :app/main
+        {:sensitive {:http {:headers      [\"X-Honeycomb-Team\"]
+                            :query-params [\"shop_token\"]}}})
 
-(def clear-sensitive-query-params!
-  "Spec 014 §Privacy (rf2-2p8wr) — reset the app-extended query-param
-  denylist (defaults remain). Test-only; production code should not
-  need this.
-  See `re-frame.http-url/clear-sensitive-query-params!`."
-  http-url/clear-sensitive-query-params!)
+  The immutable built-in header / query-param denylists still apply
+  unconditionally; the frame extension set UNIONS onto them for the
+  emitting frame. See Spec 014 §Privacy and `re-frame.frame-classification`."
+  (:refer-clojure :exclude [get]))
 
 (defn- build
   "Build a `[:rf.http/managed args-map]` fx vector for the given verb,

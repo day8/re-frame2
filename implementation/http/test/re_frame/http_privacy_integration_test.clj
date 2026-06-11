@@ -14,8 +14,6 @@
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
             [re-frame.http-managed :as http-managed]
-            [re-frame.http-privacy-headers :as privacy-headers]
-            [re-frame.http-url :as http-url]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
@@ -42,8 +40,9 @@
   (require 're-frame.http-managed :reload)
   ((requiring-resolve 're-frame.machines/reset-timers!))
   (http-managed/clear-all-in-flight!)
-  (privacy-headers/clear-sensitive-headers!)
-  (http-url/clear-sensitive-query-params!)
+  ;; rf2-ppkh3v — app-specific carriers are FRAME policy now (EP-0015 §3);
+  ;; the process-global clear-* fixtures are gone. Frame-extension cases
+  ;; reg-frame their carriers and registrar/clear-all! resets between tests.
   (trace/clear-listeners!)
   (rf/with-frame :rf/default
     (t)))
@@ -208,11 +207,16 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 5. App-extended denylist applies --------------------------------------
+;; ---- 5. Frame-local carrier denylist applies (EP-0015 §3) ------------------
 
-(deftest app-extended-denylist-redacts-custom-header
-  (testing "declare-sensitive-header! extends redaction to app-defined names"
-    (privacy-headers/declare-sensitive-header! "X-Honeycomb-Team")
+(deftest frame-carrier-redacts-custom-header
+  (testing "a frame-local :sensitive {:http {:headers [..]}} carrier (EP-0015 §3)
+            extends header redaction to app-defined names"
+    ;; rf2-ppkh3v — re-register the operating frame with the frame-local
+    ;; header carrier; the redactor unions it onto the immutable defaults
+    ;; for emits from this frame.
+    (rf/reg-frame :rf/default
+      {:sensitive {:http {:headers ["X-Honeycomb-Team"]}}})
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (-> ex .getResponseHeaders (.set "X-Honeycomb-Team" "hc-token"))
@@ -324,11 +328,15 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 8. App-extended query-param denylist applies on failure URL (rf2-2p8wr) -----
+;; ---- 8. Frame-local query-param carrier applies on failure URL (EP-0015 §3) -----
 
-(deftest app-extended-query-param-denylist-redacts-failure-url
-  (testing "declare-sensitive-query-param! extends URL redaction to app-defined params"
-    (http-url/declare-sensitive-query-param! "shop_token")
+(deftest frame-carrier-query-param-redacts-failure-url
+  (testing "a frame-local :sensitive {:http {:query-params [..]}} carrier
+            (EP-0015 §3) extends URL redaction to app-defined params"
+    ;; rf2-ppkh3v — re-register the operating frame with the frame-local
+    ;; query-param carrier.
+    (rf/reg-frame :rf/default
+      {:sensitive {:http {:query-params ["shop_token"]}}})
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (write-response! ex 500 "text/plain" "boom")))
@@ -358,5 +366,79 @@
               "app-declared sensitive query-param was redacted")
           (is (str/includes? url "page=2")
               "non-denylisted page param preserved"))
+        (finally
+          (stop-server! srv))))))
+
+;; ---- 9. Response-body classification via the :decode schema (EP-0015 §8) ---
+
+(deftest response-body-decode-schema-sensitive-slot-redacted-in-replied-trace
+  (testing "rf2-ppkh3v — a 2xx response body's :decode-schema-marked sensitive
+            slot is redacted in the :rf.http/replied trace value EVEN when the
+            request is NOT declared per-call :sensitive? (the login/token case)"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 200 "application/json"
+                                   "{\"token\":\"bearer-secret\",\"user-id\":42}")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        ;; The :decode schema is the owner's declaration: [:token] is
+        ;; sensitive, [:user-id] is not. No per-call :sensitive? flag.
+        (rf/reg-event-fx :auth/login
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request {:method :get
+                              :url    (str "http://127.0.0.1:" port "/login")}
+                    :decode  [:map
+                              [:token {:sensitive? true} :string]
+                              [:user-id :int]]
+                    :on-success [:auth/ok]}]]}))
+        (rf/reg-event-fx :auth/ok (fn [_ _] {}))
+
+        (rf/dispatch-sync [:auth/login])
+
+        (let [_  (wait-for!
+                   (fn [] (some #(= :rf.http/replied (:operation %)) @captured))
+                   3000)
+              ev (first (filter #(= :rf.http/replied (:operation %)) @captured))
+              v  (get-in ev [:tags :value])]
+          (is (some? v) "the replied trace carries the decoded value")
+          (is (= :rf/redacted (:token v))
+              "schema-:sensitive? body slot redacted (no per-call flag needed)")
+          (is (= 42 (:user-id v))
+              "non-sensitive body slot rides verbatim"))
+        (finally
+          (stop-server! srv))))))
+
+(deftest response-body-whole-body-sensitive-decode-schema-redacts-all
+  (testing "rf2-ppkh3v — a root-level :sensitive? :decode schema (opaque-token
+            response) redacts the WHOLE body in the replied trace"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 200 "application/json" "\"opaque-token-value\"")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        (rf/reg-event-fx :auth/refresh
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request {:method :get
+                              :url    (str "http://127.0.0.1:" port "/refresh")}
+                    :decode  [:string {:sensitive? true}]
+                    :on-success [:auth/ok]}]]}))
+        (rf/reg-event-fx :auth/ok (fn [_ _] {}))
+
+        (rf/dispatch-sync [:auth/refresh])
+
+        (let [_  (wait-for!
+                   (fn [] (some #(= :rf.http/replied (:operation %)) @captured))
+                   3000)
+              ev (first (filter #(= :rf.http/replied (:operation %)) @captured))
+              v  (get-in ev [:tags :value])]
+          (is (= :rf/redacted v) "whole opaque-token body redacted"))
         (finally
           (stop-server! srv))))))

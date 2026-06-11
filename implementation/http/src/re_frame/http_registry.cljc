@@ -273,7 +273,11 @@
                          {:request-id (:request-id handle)
                           :actor-id   actor-id
                           :url        (:url handle)}
-                         (true? (:sensitive? handle)))))
+                         (true? (:sensitive? handle))
+                         ;; rf2-ppkh3v — the handle carries its originating
+                         ;; frame so the URL redaction here consults that
+                         ;; frame's frame-local HTTP carriers (EP-0015 §3).
+                         {:frame (:frame handle)})))
         (try
           ((:abort-fn handle) :actor-destroyed)
           (catch #?(:clj Throwable :cljs :default) _ nil)))))

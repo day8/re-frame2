@@ -12,9 +12,24 @@
 
   `default-query-param-denylist` covers the canonical query-string-auth
   surface (api_key, apikey, access_token, auth, token, key, secret,
-  password, session, signature, sig). Apps extend via
-  `(declare-sensitive-query-param! \"my_token\")` — names are
-  case-insensitive; the registry stores lower-cased.
+  password, session, signature, sig). These built-in names are an
+  **immutable framework default** — no frame can remove one.
+
+  ## App-specific carriers are frame policy (EP-0015 §3, rf2-ppkh3v)
+
+  An app extends the denylist with its own sensitive query-param names
+  (e.g. `shop_token`, webhook `signature` variants) on the FRAME, not
+  through a process-global mutation:
+
+      (rf/reg-frame :app/main
+        {:sensitive {:http {:query-params [\"shop_token\"]}}})
+
+  The frame slice retains the names on the frame's `:config`;
+  `re-frame.frame-classification/http-carriers` lowers them to a
+  lower-cased extension set, which the redactors UNION onto the immutable
+  built-in defaults for the emitting frame. The old process-global
+  `declare-sensitive-query-param!` / `clear-sensitive-query-params!`
+  surface is removed — frame policy owns app-specific carriers.
 
   ## Redaction shape
 
@@ -29,11 +44,8 @@
 
   Like the rest of the privacy machinery, redact / stamp helpers gate
   on `interop/debug-enabled?` at their call sites (same gate as
-  `trace/emit!`). The denylist atom itself ships in production
-  (app-readable state — `declare-sensitive-query-param!` writes
-  through), but no walker runs without the trace surface."
-  (:require [clojure.set :as set]
-            [clojure.string :as str]
+  `trace/emit!`); no walker runs without the trace surface."
+  (:require [clojure.string :as str]
             [re-frame.privacy :as privacy])
   #?(:clj (:import [java.net URLDecoder])))
 
@@ -69,9 +81,10 @@
   denylist contract).
 
   Drawn from common API-key / bearer-token idioms in older REST APIs,
-  webhook receivers, and signed-URL schemes. Apps extend at boot via
-  `declare-sensitive-query-param!` for app-specific param names (e.g.
-  `\"shop_token\"`, `\"hmac\"`)."
+  webhook receivers, and signed-URL schemes. An **immutable framework
+  default** — no frame can remove one. Apps extend with their own carrier
+  names on the FRAME via `:sensitive {:http {:query-params [\"shop_token\"]}}`
+  (EP-0015 §3); the frame extension set UNIONS onto these defaults."
   #{"api_key"
     "apikey"
     "api-key"
@@ -92,45 +105,27 @@
     "sig"
     "hmac"})
 
-(defonce
-  ^{:doc "App-extended query-param denylist. Augments
-  `default-query-param-denylist`. Names stored lower-cased. Cleared by
-  `clear-sensitive-query-params!` for test ergonomics."}
-  extra-query-params
-  (atom #{}))
-
-(defn declare-sensitive-query-param!
-  "Declare a query-string parameter name as sensitive. Stored lower-
-  cased; matching is case-insensitive when the redactor consults the
-  merged set. Returns the new merged set (defaults ∪ extras)."
-  [param-name]
-  (when (string? param-name)
-    (swap! extra-query-params conj (str/lower-case param-name)))
-  (set/union default-query-param-denylist @extra-query-params))
-
-(defn clear-sensitive-query-params!
-  "Reset the app-extended query-param denylist to empty (default
-  denylist remains). Test-only — invoked by reset fixtures alongside
-  `clear-sensitive-headers!`."
-  []
-  (reset! extra-query-params #{})
-  nil)
-
 (defn sensitive-query-param?
-  "Predicate: is `param-name` in the merged query-param denylist?
-  Case-insensitive.
+  "Predicate: is `param-name` in the merged query-param denylist (built-in
+  defaults ∪ the emitting frame's `frame-extras`)? Case-insensitive.
 
-  Per rf2-ydp66 — short-circuits via two `contains?` lookups on the
-  source sets rather than building a fresh `(set/union default @extras)`
-  per call. The URL redactor calls this once per query-string param;
-  the previous shape rebuilt the merged set N times per URL. Two
-  `contains?` ops on small sets are O(1) and allocate nothing."
-  [param-name]
-  (boolean
-    (when (string? param-name)
-      (let [lowered (str/lower-case param-name)]
-        (or (contains? default-query-param-denylist lowered)
-            (contains? @extra-query-params lowered))))))
+  `frame-extras` is the frame-local carrier extension set — a set of
+  lower-cased param names resolved from the emitting frame's
+  `:sensitive {:http {:query-params [..]}}` policy (EP-0015 §3), or `nil`
+  when the frame declares none. The built-in defaults always apply; the
+  frame set EXTENDS them.
+
+  Per rf2-ydp66 — short-circuits via `contains?` lookups on the source
+  sets rather than building a fresh union per call. The URL redactor calls
+  this once per query-string param; two `contains?` ops on small sets are
+  O(1) and allocate nothing."
+  ([param-name] (sensitive-query-param? param-name nil))
+  ([param-name frame-extras]
+   (boolean
+     (when (string? param-name)
+       (let [lowered (str/lower-case param-name)]
+         (or (contains? default-query-param-denylist lowered)
+             (and frame-extras (contains? frame-extras lowered))))))))
 
 (defn- percent-decode-name
   "rf2-065xo — percent-decode a query-param NAME for denylist comparison
@@ -164,19 +159,23 @@
   via `sensitive-query-param?`).
 
   Closes the gap where a percent-encoded denylisted name —
-  `api%5Fkey` (= `api_key`), `%61ccess_token` (= `access_token`), an
-  app-declared `shop%5Ftoken` — read as a non-sensitive raw string and
+  `api%5Fkey` (= `api_key`), `%61ccess_token` (= `access_token`), a
+  frame-declared `shop%5Ftoken` — read as a non-sensitive raw string and
   leaked its value into trace events unless the whole request was marked
   sensitive. The redactor consults the decoded form so an encoded auth
   token is denied just like its plain spelling.
 
+  `frame-extras` is the emitting frame's frame-local query-param carrier
+  extension set (EP-0015 §3), or `nil` for defaults-only.
+
   Decode is comparison-only and total: a malformed escape decodes to
   `nil`, so matching falls back to the raw name and never throws."
-  [param-name]
-  (boolean
-    (or (sensitive-query-param? param-name)
-        (when-let [decoded (percent-decode-name param-name)]
-          (sensitive-query-param? decoded)))))
+  ([param-name] (sensitive-query-param-name? param-name nil))
+  ([param-name frame-extras]
+   (boolean
+     (or (sensitive-query-param? param-name frame-extras)
+         (when-let [decoded (percent-decode-name param-name)]
+           (sensitive-query-param? decoded frame-extras))))))
 
 ;; ---- URL query-string redaction (rf2-2p8wr) -------------------------------
 
@@ -224,16 +223,19 @@
 
   rf2-065xo — the denylist check is `sensitive-query-param-name?`, which
   compares both the RAW and percent-DECODED name, so an encoded
-  denylisted name (`api%5Fkey`, `%61ccess_token`, app-declared
+  denylisted name (`api%5Fkey`, `%61ccess_token`, frame-declared
   `shop%5Ftoken`) is redacted. The original raw `pname` is preserved
   verbatim in the rebuilt pair — only the value is replaced (decoding is
-  comparison-only)."
-  [pair force-all?]
+  comparison-only).
+
+  `frame-extras` is the emitting frame's frame-local query-param carrier
+  extension set (EP-0015 §3), or `nil` for defaults-only."
+  [pair force-all? frame-extras]
   (let [eq-idx (str/index-of pair "=")
         [pname _pvalue] (if eq-idx
                           [(subs pair 0 eq-idx) (subs pair (inc eq-idx))]
                           [pair nil])]
-    (if (or force-all? (sensitive-query-param-name? pname))
+    (if (or force-all? (sensitive-query-param-name? pname frame-extras))
       (str pname "=" redacted-url-token)
       pair)))
 
@@ -250,37 +252,43 @@
   (e.g. `?api_key=SECRET&page=2` → `?api_key=:rf/redacted&page=2`).
   Fragment portion (`#…`) preserved verbatim.
 
+  `frame-extras` is the emitting frame's frame-local query-param carrier
+  extension set (EP-0015 §3), or `nil` for defaults-only — it UNIONS onto
+  the immutable built-in denylist for the always-on (`sensitive?` false)
+  redaction.
+
   Returns `[redacted-url any-redacted?]` where `any-redacted?` is true
   iff at least one param value was redacted (the caller uses this to
   decide whether to stamp `:sensitive?` per the denylist-is-signal
   rule). Nil / non-string / no-query inputs return `[url-str false]`."
-  [url-str sensitive?]
-  (cond
-    (not (string? url-str))
-    [url-str false]
+  ([url-str sensitive?] (redact-url-query-string url-str sensitive? nil))
+  ([url-str sensitive? frame-extras]
+   (cond
+     (not (string? url-str))
+     [url-str false]
 
-    :else
-    (let [[base query-and-fragment] (split-url-on-query url-str)
-          [query fragment]          (split-query-on-fragment query-and-fragment)]
-      (if (str/blank? query)
-        [url-str false]
-        ;; rf2-dqchf — single pass: thread a volatile changed? flag
-        ;; through the mapv so the redactor and the change-detection
-        ;; share one walk over the pairs. Previously the change
-        ;; detection ran a second `(map not= pairs redacted)` walk and
-        ;; allocated a lazy seq of N booleans for the `some true?` test
-        ;; despite the rf2-02vzz claim of fusion.
-        (let [force-all? (true? sensitive?)
-              changed?   (volatile! false)
-              pairs      (str/split query #"&")
-              redacted   (mapv (fn [p]
-                                 (let [out (redact-query-param p force-all?)]
-                                   (when-not (identical? out p)
-                                     (vreset! changed? true))
-                                   out))
-                               pairs)
-              rebuilt    (str base "?" (str/join "&" redacted) (or fragment ""))]
-          [rebuilt @changed?])))))
+     :else
+     (let [[base query-and-fragment] (split-url-on-query url-str)
+           [query fragment]          (split-query-on-fragment query-and-fragment)]
+       (if (str/blank? query)
+         [url-str false]
+         ;; rf2-dqchf — single pass: thread a volatile changed? flag
+         ;; through the mapv so the redactor and the change-detection
+         ;; share one walk over the pairs. Previously the change
+         ;; detection ran a second `(map not= pairs redacted)` walk and
+         ;; allocated a lazy seq of N booleans for the `some true?` test
+         ;; despite the rf2-02vzz claim of fusion.
+         (let [force-all? (true? sensitive?)
+               changed?   (volatile! false)
+               pairs      (str/split query #"&")
+               redacted   (mapv (fn [p]
+                                  (let [out (redact-query-param p force-all? frame-extras)]
+                                    (when-not (identical? out p)
+                                      (vreset! changed? true))
+                                    out))
+                                pairs)
+               rebuilt    (str base "?" (str/join "&" redacted) (or fragment ""))]
+           [rebuilt @changed?]))))))
 
 (defn redact-url
   "Convenience wrapper around `redact-url-query-string` that returns only
@@ -291,5 +299,6 @@
   URL redaction via `re-frame.http-privacy`'s `prepare-emit-*` composers
   (which use `redact-url-query-string` directly for the flag). No
   production caller invokes this single-value wrapper."
-  [url-str sensitive?]
-  (first (redact-url-query-string url-str sensitive?)))
+  ([url-str sensitive?] (first (redact-url-query-string url-str sensitive? nil)))
+  ([url-str sensitive? frame-extras]
+   (first (redact-url-query-string url-str sensitive? frame-extras))))

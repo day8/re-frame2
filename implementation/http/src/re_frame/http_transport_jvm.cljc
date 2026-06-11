@@ -131,7 +131,7 @@
      than sinking the whole request — rf2-9lun0). `sensitive?` is carried
      only so that warning's `:url` can be routed through the privacy
      composer (rf2-1jcpm)."
-     [{:keys [method url headers body timeout-ms sensitive?]}]
+     [{:keys [method url headers body timeout-ms sensitive? frame]}]
      (let [b (HttpRequest/newBuilder (URI/create url))
            publisher (cond
                        (nil? body) (HttpRequest$BodyPublishers/noBody)
@@ -181,7 +181,8 @@
                                  {:url     url
                                   :header  k
                                   :cause   (.getMessage t)}
-                                 (true? sensitive?)))))))
+                                 (true? sensitive?)
+                                 {:frame frame}))))))
        (.build b))))
 
 #?(:clj
@@ -348,19 +349,25 @@
 ;; ---- per-row CLJS-only-key tracing on JVM ---------------------------------
 
 #?(:clj
-   (defn- emit-cljs-only-skipped! [k url sensitive?]
+   (defn- emit-cljs-only-skipped! [k url sensitive? frame]
      (when interop/debug-enabled?
        ;; rf2-1jcpm — route through the privacy composer so a denylisted
        ;; query param in the URL is scrubbed and `:sensitive?` is stamped
        ;; on the warning event when the originating handler / request is
        ;; sensitive. Previously the raw URL rode the trace surface.
+       ;; rf2-ppkh3v — the originating frame is threaded so the URL
+       ;; redaction also honours the frame's frame-local query-param
+       ;; carriers (EP-0015 §3).
        (trace/emit! :warning :rf.http/cljs-only-key-ignored-on-jvm
                     (privacy/prepare-emit-tags
                       {:key k :url url}
-                      (true? sensitive?))))))
+                      (true? sensitive?)
+                      {:frame frame})))))
 
 #?(:clj
-   (defn check-cljs-only-keys! [{:keys [request abort-signal decode]} sensitive?]
+   (defn check-cljs-only-keys!
+     ([args sensitive?] (check-cljs-only-keys! args sensitive? nil))
+     ([{:keys [request abort-signal decode]} sensitive? frame]
      (let [url (:url request)]
        ;; rf2-ee38b.7 — `:credentials` joins the JVM-degraded set. Unlike
        ;; `:redirect` (now honoured on JVM via the redirect-policy client),
@@ -374,9 +381,9 @@
        ;; shipped behaviour agree.
        (doseq [k [:mode :cache :referrer :integrity :credentials]]
          (when (contains? request k)
-           (emit-cljs-only-skipped! k url sensitive?)))
+           (emit-cljs-only-skipped! k url sensitive? frame)))
        (when abort-signal
-         (emit-cljs-only-skipped! :abort-signal url sensitive?))
+         (emit-cljs-only-skipped! :abort-signal url sensitive? frame))
        ;; rf2-a3wxe — binary decode SHAPE-degradation notice on JVM.
        ;; A `:blob` / `:array-buffer` / `:form-data` decode is now HONOURED
        ;; on the JVM (jvm-fetch reads `ofByteArray` and rides the raw bytes
@@ -395,11 +402,14 @@
          (trace/emit! :warning :rf.http/binary-decode-degraded-on-jvm
                       (privacy/prepare-emit-tags
                         {:decode decode :url url}
-                        (true? sensitive?)))))))
+                        (true? sensitive?)
+                        {:frame frame})))))))
 
 ;; A JVM-only no-op stub on CLJS so callers can reach
 ;; `check-cljs-only-keys!` unconditionally without needing their own
 ;; reader-conditional. The CLJS body does nothing — by definition
 ;; CLJS-only keys are always honoured on CLJS.
 #?(:cljs
-   (defn check-cljs-only-keys! [_args _sensitive?] nil))
+   (defn check-cljs-only-keys!
+     ([_args _sensitive?] nil)
+     ([_args _sensitive? _frame] nil)))

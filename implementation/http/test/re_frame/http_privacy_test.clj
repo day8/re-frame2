@@ -19,6 +19,7 @@
   redacted trace events end-to-end) is covered in
   `re-frame.http-privacy-integration-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
             [re-frame.http-privacy :as privacy]
             [re-frame.http-privacy-headers :as headers]
             [re-frame.http-url :as url]
@@ -26,8 +27,6 @@
 
 (defn- reset-runtime [t]
   (registrar/clear-all!)
-  (headers/clear-sensitive-headers!)
-  (url/clear-sensitive-query-params!)
   (t))
 
 (use-fixtures :each reset-runtime)
@@ -59,17 +58,18 @@
     (is (not (headers/sensitive-header? "User-Agent")))
     (is (not (headers/sensitive-header? "X-Request-Id")))))
 
-(deftest declare-sensitive-header-extends-denylist
-  (testing "app-extended denylist composes with defaults"
-    (headers/declare-sensitive-header! "X-Honeycomb-Team")
-    (is (headers/sensitive-header? "X-Honeycomb-Team"))
-    (is (headers/sensitive-header? "x-honeycomb-team"))
-    ;; defaults still apply
-    (is (headers/sensitive-header? "Authorization"))
-    (headers/clear-sensitive-headers!)
-    (is (not (headers/sensitive-header? "X-Honeycomb-Team")))
-    ;; defaults survive the clear
-    (is (headers/sensitive-header? "Authorization"))))
+(deftest frame-extras-extend-header-denylist
+  (testing "frame-local header carriers (EP-0015 §3) compose with defaults"
+    (let [extras #{"x-honeycomb-team"}]
+      (is (headers/sensitive-header? "X-Honeycomb-Team" extras))
+      (is (headers/sensitive-header? "x-honeycomb-team" extras))
+      ;; defaults still apply with extras present
+      (is (headers/sensitive-header? "Authorization" extras))
+      ;; absent frame-extras → only the built-in defaults apply
+      (is (not (headers/sensitive-header? "X-Honeycomb-Team")))
+      (is (not (headers/sensitive-header? "X-Honeycomb-Team" nil)))
+      ;; defaults are immutable — they apply regardless of extras
+      (is (headers/sensitive-header? "Authorization")))))
 
 (deftest sensitive-header-tolerates-non-string
   (testing "nil / non-string is not sensitive"
@@ -329,17 +329,18 @@
     (is (not (url/sensitive-query-param? "id")))
     (is (not (url/sensitive-query-param? "user_id")))))
 
-(deftest declare-sensitive-query-param-extends-denylist
-  (testing "app-extended denylist composes with defaults"
-    (url/declare-sensitive-query-param! "shop_token")
-    (is (url/sensitive-query-param? "shop_token"))
-    (is (url/sensitive-query-param? "SHOP_TOKEN"))
-    ;; defaults still apply
-    (is (url/sensitive-query-param? "api_key"))
-    (url/clear-sensitive-query-params!)
-    (is (not (url/sensitive-query-param? "shop_token")))
-    ;; defaults survive the clear
-    (is (url/sensitive-query-param? "api_key"))))
+(deftest frame-extras-extend-query-param-denylist
+  (testing "frame-local query-param carriers (EP-0015 §3) compose with defaults"
+    (let [extras #{"shop_token"}]
+      (is (url/sensitive-query-param? "shop_token" extras))
+      (is (url/sensitive-query-param? "SHOP_TOKEN" extras))
+      ;; defaults still apply with extras present
+      (is (url/sensitive-query-param? "api_key" extras))
+      ;; absent frame-extras → only the built-in defaults apply
+      (is (not (url/sensitive-query-param? "shop_token")))
+      (is (not (url/sensitive-query-param? "shop_token" nil)))
+      ;; defaults are immutable — they apply regardless of extras
+      (is (url/sensitive-query-param? "api_key")))))
 
 (deftest sensitive-query-param-tolerates-non-string
   (testing "nil / non-string is not sensitive"
@@ -406,12 +407,16 @@
              url))
       (is (true? any?)))))
 
-(deftest redact-url-app-extended-denylist
-  (testing "app-extended denylist applies on URL redaction"
-    (url/declare-sensitive-query-param! "shop_token")
+(deftest redact-url-frame-extras-denylist
+  (testing "frame-local query-param carriers (EP-0015 §3) apply on URL redaction"
+    (let [extras #{"shop_token"}
+          [url _] (url/redact-url-query-string
+                    "https://api.example.com/x?shop_token=abc&page=2" false extras)]
+      (is (= "https://api.example.com/x?shop_token=:rf/redacted&page=2" url)))
+    ;; absent frame-extras → only the built-in defaults redact
     (let [[url _] (url/redact-url-query-string
                     "https://api.example.com/x?shop_token=abc&page=2" false)]
-      (is (= "https://api.example.com/x?shop_token=:rf/redacted&page=2" url)))))
+      (is (= "https://api.example.com/x?shop_token=abc&page=2" url)))))
 
 (deftest redact-url-tolerates-non-string
   (is (= [nil false] (url/redact-url-query-string nil false)))
@@ -605,3 +610,62 @@
       ;; non-secret locators are still useful for debugging — kept.
       (is (= :auth/check (:interceptor-id r)))
       (is (= :app (:frame r))))))
+
+;; ---- frame-local HTTP carriers (EP-0015 §3, rf2-ppkh3v) -------------------
+;;
+;; The `prepare-emit-*` composers resolve the EMITTING frame's frame-local
+;; carrier extension sets (from `:sensitive {:http {...}}` frame policy) and
+;; thread them to the header / URL redactors so app-specific carriers redact
+;; alongside the built-in defaults.
+
+(deftest frame-http-carriers-resolves-frame-policy
+  (testing "frame-http-carriers reads the frame's :sensitive {:http {...}}"
+    (rf/reg-frame :app/carriers
+      {:sensitive {:http {:headers      ["X-Honeycomb-Team"]
+                          :query-params ["shop_token"]}}})
+    (let [carriers (privacy/frame-http-carriers :app/carriers)]
+      ;; names lower-cased for the case-insensitive wire match.
+      (is (= #{"x-honeycomb-team"} (:headers carriers)))
+      (is (= #{"shop_token"} (:query-params carriers))))
+    (testing "a frame with no :sensitive :http block resolves to nil"
+      (rf/reg-frame :app/plain {})
+      (is (nil? (privacy/frame-http-carriers :app/plain))))
+    (testing "a nil / unregistered frame resolves to nil"
+      (is (nil? (privacy/frame-http-carriers nil)))
+      (is (nil? (privacy/frame-http-carriers :app/never-registered))))))
+
+(deftest prepare-emit-tags-honours-frame-header-carrier
+  (testing "a frame-local header carrier redacts on a non-sensitive request"
+    (rf/reg-frame :app/hc {:sensitive {:http {:headers ["X-Honeycomb-Team"]}}})
+    (let [tags {:url     "https://api.example.com/x"
+                :headers {"X-Honeycomb-Team" "hc-secret"
+                          "Authorization"    "Bearer abc"
+                          "Content-Type"     "application/json"}}
+          out  (privacy/prepare-emit-tags tags false {:frame :app/hc})]
+      (is (= :rf/redacted (get-in out [:headers "X-Honeycomb-Team"]))
+          "frame-declared carrier redacted")
+      (is (= :rf/redacted (get-in out [:headers "Authorization"]))
+          "built-in default still redacted")
+      (is (= "application/json" (get-in out [:headers "Content-Type"]))
+          "ordinary header preserved"))
+    (testing "without the frame, only the built-in defaults redact"
+      (let [tags {:headers {"X-Honeycomb-Team" "hc-secret"
+                            "Authorization"    "Bearer abc"}}
+            out  (privacy/prepare-emit-tags tags false)]
+        (is (= "hc-secret" (get-in out [:headers "X-Honeycomb-Team"]))
+            "no frame → frame carrier not consulted")
+        (is (= :rf/redacted (get-in out [:headers "Authorization"]))
+            "built-in default always applies")))))
+
+(deftest prepare-emit-tags-honours-frame-query-param-carrier
+  (testing "a frame-local query-param carrier redacts the URL value + stamps sensitive"
+    (rf/reg-frame :app/qp {:sensitive {:http {:query-params ["shop_token"]}}})
+    (let [tags {:url "https://api.example.com/x?shop_token=abc&page=2"}
+          out  (privacy/prepare-emit-tags tags false {:frame :app/qp})]
+      (is (= "https://api.example.com/x?shop_token=:rf/redacted&page=2" (:url out)))
+      (is (true? (:sensitive? out))
+          "a frame-carrier query-param hit stamps :sensitive? (the name is the signal)"))
+    (testing "without the frame the same param rides unredacted (built-in only)"
+      (let [tags {:url "https://api.example.com/x?shop_token=abc&page=2"}
+            out  (privacy/prepare-emit-tags tags false)]
+        (is (= "https://api.example.com/x?shop_token=abc&page=2" (:url out)))))))

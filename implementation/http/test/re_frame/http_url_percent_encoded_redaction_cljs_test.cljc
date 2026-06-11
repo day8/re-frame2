@@ -28,11 +28,10 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.http-url :as url]))
 
-(use-fixtures :each
-  (fn [t]
-    (url/clear-sensitive-query-params!)
-    (t)
-    (url/clear-sensitive-query-params!)))
+;; rf2-ppkh3v — app-specific carriers moved to FRAME policy (EP-0015 §3);
+;; the process-global `clear-sensitive-query-params!` fixture is gone. The
+;; frame-extension cases below pass the carrier set explicitly as the
+;; `frame-extras` arg, so no per-test cleanup is needed.
 
 ;; ---------------------------------------------------------------------------
 ;; sensitive-query-param-name? — raw + percent-decoded comparison
@@ -49,17 +48,17 @@
     (is (url/sensitive-query-param-name? "api_key"))
     (is (url/sensitive-query-param-name? "access_token"))))
 
-(deftest encoded-app-extended-denylist-name-matches
-  (testing "rf2-065xo — an app-declared denylist name matches when percent-encoded"
-    (url/declare-sensitive-query-param! "shop_token")
-    ;; shop%5Ftoken decodes to shop_token.
-    (is (url/sensitive-query-param-name? "shop%5Ftoken"))
-    (is (url/sensitive-query-param-name? "shop_token"))
-    (url/clear-sensitive-query-params!)
-    (is (not (url/sensitive-query-param-name? "shop%5Ftoken"))
-        "cleared app-extension no longer matches (decoded or raw)")
-    ;; defaults survive the clear.
-    (is (url/sensitive-query-param-name? "api%5Fkey"))))
+(deftest encoded-frame-extra-denylist-name-matches
+  (testing "rf2-065xo / rf2-ppkh3v — a frame-declared carrier name matches when percent-encoded"
+    (let [extras #{"shop_token"}]
+      ;; shop%5Ftoken decodes to shop_token.
+      (is (url/sensitive-query-param-name? "shop%5Ftoken" extras))
+      (is (url/sensitive-query-param-name? "shop_token" extras))
+      ;; absent frame-extras → the frame carrier no longer matches (decoded or raw)
+      (is (not (url/sensitive-query-param-name? "shop%5Ftoken"))
+          "without frame-extras the frame carrier does not match")
+      ;; defaults are immutable — they match regardless of frame-extras.
+      (is (url/sensitive-query-param-name? "api%5Fkey")))))
 
 (deftest non-sensitive-encoded-name-does-not-match
   (testing "rf2-065xo — an encoded NON-denylisted name stays non-sensitive"
@@ -111,12 +110,12 @@
       (is (= "https://api.example.com/x?%61ccess_token=:rf/redacted&q=hi" redacted))
       (is (true? any?)))))
 
-(deftest redact-url-encoded-app-extended-name-value-redacted
-  (testing "rf2-065xo — an app-declared denylist name, percent-encoded, has its value redacted"
-    (url/declare-sensitive-query-param! "shop_token")
-    (let [[redacted any?] (url/redact-url-query-string
+(deftest redact-url-encoded-frame-extra-name-value-redacted
+  (testing "rf2-065xo / rf2-ppkh3v — a frame-declared carrier name, percent-encoded, has its value redacted"
+    (let [extras #{"shop_token"}
+          [redacted any?] (url/redact-url-query-string
                             "https://api.example.com/x?shop%5Ftoken=SECRET&page=2"
-                            false)]
+                            false extras)]
       (is (= "https://api.example.com/x?shop%5Ftoken=:rf/redacted&page=2" redacted))
       (is (true? any?)))))
 

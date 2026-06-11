@@ -54,16 +54,30 @@
   — the presence of a denylisted query param is itself a signal that
   the request carries an auth secret.
 
+  ## Frame-local carriers (EP-0015 §3, rf2-ppkh3v)
+
+  Beyond the immutable built-in header / query-param denylists, the
+  EMITTING FRAME may extend each with its own app-specific carrier names
+  via `:sensitive {:http {:headers [..] :query-params [..]}}` frame policy.
+  The composers resolve the emitting frame's extension sets ONCE per emit
+  (`frame-http-carriers`, via the `:frame-classification/http-carriers`
+  late-bind hook) and thread them to the header / URL redactors, which
+  union them onto the built-in defaults. The frame id rides in the emit
+  opts map (`:frame`); when absent — a completion fired outside any frame
+  scope, or core absent — only the built-in defaults apply. The old
+  process-global `declare-sensitive-*!` surface is removed: app-specific
+  carriers are frame policy now.
+
   ## Production elision
 
   The redact / stamp helpers all gate on `interop/debug-enabled?` at
   their call sites (the same gate as `trace/emit!`). In production
   builds the trace surface elides entirely; the privacy machinery is
-  moot. The denylist atoms themselves ship in production (they're
-  app-readable state — `declare-sensitive-*!` writes through), but no
-  walker runs against them without the trace surface."
+  moot, and no walker runs against the denylists without the trace
+  surface."
   (:require [re-frame.http-privacy-headers :as headers]
-            [re-frame.http-url :as url]))
+            [re-frame.http-url :as url]
+            [re-frame.late-bind :as late-bind]))
 
 (def redacted-sentinel
   "The framework-reserved redaction sentinel per Spec 009 §Privacy. Sits
@@ -77,6 +91,23 @@
   public `re-frame.http-privacy/redacted-sentinel` surface."
   url/redacted-sentinel)
 
+;; ---- frame-local carrier resolution (EP-0015 §3, rf2-ppkh3v) ---------------
+
+(defn frame-http-carriers
+  "Resolve the emitting frame's frame-local HTTP carrier extension sets
+  `{:headers #{..} :query-params #{..}}` (lower-cased), or `nil`. Reaches
+  `re-frame.frame-classification/http-carriers` through the
+  `:frame-classification/http-carriers` late-bind hook (HTTP sits below
+  core in load order — a static require would cycle and would not resolve
+  when the http artefact loads before any frame is registered). Returns
+  `nil` when `frame-id` is nil, the hook is unbound (frame-classification
+  absent), or the frame declares no `:sensitive :http` block — the common
+  case, so a defaults-only emit allocates nothing."
+  [frame-id]
+  (when frame-id
+    (when-let [resolve (late-bind/get-fn-cached :frame-classification/http-carriers)]
+      (resolve frame-id))))
+
 ;; ---- trace-event redaction helpers ----------------------------------------
 
 (defn- redact-url-in
@@ -86,33 +117,40 @@
   on the trace event (a denylisted param name is itself a signal that
   the request carries a secret) without re-walking the URL.
 
+  `param-extras` is the emitting frame's frame-local query-param carrier
+  extension set (EP-0015 §3), or `nil` for defaults-only.
+
   Per rf2-02vzz — fuses the redact + denylist-hit lookups so the URL's
   query string is parsed exactly once per trace emit."
-  [m sensitive?]
+  [m sensitive? param-extras]
   (if (string? (:url m))
-    (let [[redacted any?] (url/redact-url-query-string (:url m) sensitive?)]
+    (let [[redacted any?] (url/redact-url-query-string (:url m) sensitive? param-extras)]
       [(assoc m :url redacted) any?])
     [m false]))
 
 (defn redact-request-tags-with-flag
   "Like `redact-request-tags` but returns `[tags url-redacted?]` so
   callers (`prepare-emit-tags`) can decide whether to stamp
-  `:sensitive?` without re-walking the URL. Per rf2-02vzz."
-  [tags sensitive?]
-  (let [[tags url-hit?] (redact-url-in tags sensitive?)
-        tags' (cond-> tags
-                ;; Always-on header redaction (denylist).
-                (map? (:headers tags))
-                (update :headers headers/redact-headers)
+  `:sensitive?` without re-walking the URL. Per rf2-02vzz.
 
-                ;; Sensitive-request redaction — body becomes the sentinel.
-                (and sensitive? (contains? tags :body))
-                (assoc :body redacted-sentinel)
+  `carriers` is the emitting frame's frame-local carrier extension map
+  `{:headers #{..} :query-params #{..}}` (EP-0015 §3), or `nil`."
+  ([tags sensitive?] (redact-request-tags-with-flag tags sensitive? nil))
+  ([tags sensitive? carriers]
+   (let [[tags url-hit?] (redact-url-in tags sensitive? (:query-params carriers))
+         tags' (cond-> tags
+                 ;; Always-on header redaction (built-in defaults ∪ frame extras).
+                 (map? (:headers tags))
+                 (update :headers headers/redact-headers (:headers carriers))
 
-                ;; Sensitive-request redaction — params (URL query string) too.
-                (and sensitive? (contains? tags :params))
-                (assoc :params redacted-sentinel))]
-    [tags' url-hit?]))
+                 ;; Sensitive-request redaction — body becomes the sentinel.
+                 (and sensitive? (contains? tags :body))
+                 (assoc :body redacted-sentinel)
+
+                 ;; Sensitive-request redaction — params (URL query string) too.
+                 (and sensitive? (contains? tags :params))
+                 (assoc :params redacted-sentinel))]
+     [tags' url-hit?])))
 
 (defn redact-request-tags
   "Given a tags map about to ride a `:rf.http/*` trace event, redact
@@ -127,47 +165,52 @@
   rf2-ee38b.7 — public for direct test assertion only; production reaches
   redaction via the `prepare-emit-*` composers (which use the `*-with-flag`
   forms). No production caller invokes this non-flag wrapper."
-  [tags sensitive?]
-  (first (redact-request-tags-with-flag tags sensitive?)))
+  ([tags sensitive?] (first (redact-request-tags-with-flag tags sensitive? nil)))
+  ([tags sensitive? carriers]
+   (first (redact-request-tags-with-flag tags sensitive? carriers))))
 
 (defn redact-failure-with-flag
   "Like `redact-failure` but returns `[failure url-redacted?]` so callers
   (`prepare-emit-failure`, `prepare-emit-tags`) can decide whether to
-  stamp `:sensitive?` without re-walking the URL. Per rf2-02vzz."
-  [failure sensitive?]
-  (when failure
-    (let [[failure url-hit?] (redact-url-in failure sensitive?)
-          failure' (cond-> failure
-                     (map? (:headers failure))
-                     (update :headers headers/redact-headers)
+  stamp `:sensitive?` without re-walking the URL. Per rf2-02vzz.
 
-                     (and sensitive? (contains? failure :body))
-                     (assoc :body redacted-sentinel)
+  `carriers` is the emitting frame's frame-local carrier extension map
+  (EP-0015 §3), or `nil`."
+  ([failure sensitive?] (redact-failure-with-flag failure sensitive? nil))
+  ([failure sensitive? carriers]
+   (when failure
+     (let [[failure url-hit?] (redact-url-in failure sensitive? (:query-params carriers))
+           failure' (cond-> failure
+                      (map? (:headers failure))
+                      (update :headers headers/redact-headers (:headers carriers))
 
-                     (and sensitive? (contains? failure :body-text))
-                     (assoc :body-text redacted-sentinel)
+                      (and sensitive? (contains? failure :body))
+                      (assoc :body redacted-sentinel)
 
-                     (and sensitive? (contains? failure :decoded))
-                     (assoc :decoded redacted-sentinel)
+                      (and sensitive? (contains? failure :body-text))
+                      (assoc :body-text redacted-sentinel)
 
-                     ;; Accept-failure carries the user's domain failure-map at :detail
-                     ;; — opaque to us; redact wholesale when sensitive.
-                     (and sensitive? (contains? failure :detail))
-                     (assoc :detail redacted-sentinel)
+                      (and sensitive? (contains? failure :decoded))
+                      (assoc :decoded redacted-sentinel)
 
-                     ;; rf2-eusm1 — a string `:cause` is the free-text throw
-                     ;; message from the interceptor/transport path. It is
-                     ;; author-controlled and can echo a secret the
-                     ;; interceptor was handling (e.g. a token-validation
-                     ;; message embedding the token), so it rides the same
-                     ;; sensitive redaction as the response-side slots. The
-                     ;; `string?` guard preserves keyword `:cause`
-                     ;; discriminators (e.g. decode-failure's
-                     ;; `:cause :too-many-keys`) — those are security-relevant
-                     ;; signals, not secret payload (http-decode §too-many-keys).
-                     (and sensitive? (string? (:cause failure)))
-                     (assoc :cause redacted-sentinel))]
-      [failure' url-hit?])))
+                      ;; Accept-failure carries the user's domain failure-map at :detail
+                      ;; — opaque to us; redact wholesale when sensitive.
+                      (and sensitive? (contains? failure :detail))
+                      (assoc :detail redacted-sentinel)
+
+                      ;; rf2-eusm1 — a string `:cause` is the free-text throw
+                      ;; message from the interceptor/transport path. It is
+                      ;; author-controlled and can echo a secret the
+                      ;; interceptor was handling (e.g. a token-validation
+                      ;; message embedding the token), so it rides the same
+                      ;; sensitive redaction as the response-side slots. The
+                      ;; `string?` guard preserves keyword `:cause`
+                      ;; discriminators (e.g. decode-failure's
+                      ;; `:cause :too-many-keys`) — those are security-relevant
+                      ;; signals, not secret payload (http-decode §too-many-keys).
+                      (and sensitive? (string? (:cause failure)))
+                      (assoc :cause redacted-sentinel))]
+       [failure' url-hit?]))))
 
 (defn redact-failure
   "Given a failure map (per Spec 014 §Failure categories) about to ride
@@ -179,9 +222,10 @@
   rf2-ee38b.7 — public for direct test assertion only; production reaches
   redaction via `prepare-emit-failure` (which uses the `*-with-flag`
   form). No production caller invokes this non-flag wrapper."
-  [failure sensitive?]
-  (when failure
-    (first (redact-failure-with-flag failure sensitive?))))
+  ([failure sensitive?] (redact-failure failure sensitive? nil))
+  ([failure sensitive? carriers]
+   (when failure
+     (first (redact-failure-with-flag failure sensitive? carriers)))))
 
 (defn stamp-sensitive
   "Stamp the `:sensitive?` flag onto a tags map when `sensitive?` is true.
@@ -250,16 +294,25 @@
   walk: `redact-request-tags-with-flag` and `redact-failure-with-flag`
   return the redacted shape paired with a flag telling us whether any
   query-string value was scrubbed. Earlier the helpers ran two walks
-  per trace emit (denylist-hit then redact)."
-  [tags sensitive?]
-  (let [s?                          (true? sensitive?)
-        [tags' tag-url-hit?]        (redact-request-tags-with-flag tags s?)
-        [tags'' fail-url-hit?]      (if (contains? tags :failure)
-                                      (let [[f' h?] (redact-failure-with-flag (:failure tags) s?)]
-                                        [(assoc tags' :failure f') h?])
-                                      [tags' false])
-        stamp?                      (or s? tag-url-hit? fail-url-hit?)]
-    (stamp-sensitive tags'' stamp?)))
+  per trace emit (denylist-hit then redact).
+
+  Per rf2-ppkh3v (EP-0015 §3) the optional `opts` map carries `:frame` —
+  the emitting frame id. The frame's frame-local carrier extension sets
+  (`:sensitive {:http {...}}`) are resolved ONCE here and threaded to the
+  header / URL redactors so app-specific carriers redact alongside the
+  built-in defaults. Absent `:frame` (a completion outside any frame
+  scope) → built-in defaults only."
+  ([tags sensitive?] (prepare-emit-tags tags sensitive? nil))
+  ([tags sensitive? {:keys [frame]}]
+   (let [s?                          (true? sensitive?)
+         carriers                    (frame-http-carriers frame)
+         [tags' tag-url-hit?]        (redact-request-tags-with-flag tags s? carriers)
+         [tags'' fail-url-hit?]      (if (contains? tags :failure)
+                                       (let [[f' h?] (redact-failure-with-flag (:failure tags) s? carriers)]
+                                         [(assoc tags' :failure f') h?])
+                                       [tags' false])
+         stamp?                      (or s? tag-url-hit? fail-url-hit?)]
+     (stamp-sensitive tags'' stamp?))))
 
 (defn prepare-emit-failure
   "Compose `redact-failure` + `stamp-sensitive` for an error-side trace
@@ -272,10 +325,17 @@
   failure's `:url`.
 
   Per rf2-02vzz the URL walk happens once: `redact-failure-with-flag`
-  returns `[failure url-hit?]` so we don't re-parse the query string."
-  [failure sensitive?]
-  (let [s?                  (true? sensitive?)
-        [failure' url-hit?] (redact-failure-with-flag failure s?)
-        stamp?              (or s? url-hit?)]
-    (when failure'
-      (stamp-sensitive failure' stamp?))))
+  returns `[failure url-hit?]` so we don't re-parse the query string.
+
+  Per rf2-ppkh3v (EP-0015 §3) the optional `opts` map carries `:frame`;
+  the emitting frame's frame-local carrier extension sets are resolved
+  once and threaded to the header / URL redactors. Absent `:frame` →
+  built-in defaults only."
+  ([failure sensitive?] (prepare-emit-failure failure sensitive? nil))
+  ([failure sensitive? {:keys [frame]}]
+   (let [s?                  (true? sensitive?)
+         carriers            (frame-http-carriers frame)
+         [failure' url-hit?] (redact-failure-with-flag failure s? carriers)
+         stamp?              (or s? url-hit?)]
+     (when failure'
+       (stamp-sensitive failure' stamp?)))))
