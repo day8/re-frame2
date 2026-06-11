@@ -36,9 +36,9 @@ the decision-freeze (the EP-0005 pattern), and none of it reopens any ruling.
   section specifies a drift test that pins the grading table's subsystem list
   against the reserved-key table in [`spec/Conventions.md`](../../spec/Conventions.md#reserved-runtime-db-keys),
   so a new `:rf.runtime/*` child landed *without* a contract grading row fails CI.
-  The grading table shipped with the then-current runtime-subsystem rows,
-  including the EP-0003 resource/work-ledger rows, and the per-subsystem
-  ownership-diagnostic sweep (`rf2-o4dmp8` shape)
+  The grading table now covers the runtime-subsystem rows, including the
+  EP-0003 resource trio (`resources`, `work-ledger`, `mutations`), and the
+  per-subsystem ownership-diagnostic sweep (`rf2-o4dmp8` shape)
   exists, but the **table-vs-reserved-key drift test itself is not yet wired into a
   gate**. Until it lands, a new subsystem child without a grading row is caught
   only by review, not CI. *(Decision-settled, build-incomplete: the test's shape
@@ -49,8 +49,9 @@ the decision-freeze (the EP-0005 pattern), and none of it reopens any ruling.
 
 Every child of the runtime-db partition — `:rf.runtime/machines`,
 `:rf.runtime/routing`, `:rf.runtime/elision`, `:rf.runtime/ssr`, and the
-EP-0003 resource/work-ledger rows — independently re-implements the same five
-properties, but the shape is nowhere named. This EP names it:
+EP-0003 resource trio (`:rf.runtime/resources`, `:rf.runtime/work-ledger`,
+`:rf.runtime/mutations`) — independently re-implements the same five
+properties, but the shape was nowhere named. This EP names it:
 
 > A **runtime subsystem** is a reserved runtime-db sub-tree with a declared
 > write authority, a public read API, a projection policy, and a teardown
@@ -84,21 +85,21 @@ Three concrete failures this contract would have prevented or will prevent:
    classification table (the rf2-oosjmh ruling: durable-serialized /
    local-subscribable / host-transient, per key) is the right shape — and it is
    exactly clause 4 of this contract, invented ad hoc because no contract asked
-   for it. Resources and the work-ledger need the same table; they should fill
-   in a form, not rediscover the form.
+   for it. Resources, the work-ledger, and mutations need the same table; they
+   should fill in a form, not rediscover the form.
 
-That is the whole v1 surface. External library-owned runtime-db children may
-eventually need a similar contract, but they are not required to solve the
-current write-authority/projection/restore gap and should not be standardized
-without a concrete consumer.
+That is the whole shipped framework-owned surface. The normative spec now also
+names the checklist a runtime extension must satisfy to become a graded
+instance; this EP still does not define a fully general public
+third-party-registration API.
 
 ## Goals
 
 - Name the five-clause contract once, normatively.
 - Grade the then-current runtime-subsystem set against it (the table is the
   deliverable — filling it is most of the audit value).
-- Give EP-0003's two children (`resources`, `work-ledger`) a graduation
-  checklist.
+- Give EP-0003's runtime children (`resources`, `work-ledger`, `mutations`) a
+  graduation checklist.
 - Make write-authority minting (clause 2) an enumerable, conformance-testable
   fact per subsystem, implemented by the general registration-meta mechanism
   `rf2-3939ig` introduces.
@@ -112,19 +113,20 @@ without a concrete consumer.
   enforcement posture remains EP-0001 ruling #4 (convention + diagnostics).
 - Not a new runtime mechanism: the contract is spec + grading table +
   conformance tests over machinery that already exists.
-- Not a third-party runtime-subsystem registration API. A future external
-  library may justify one, but that design would need its own EP because it
-  changes the runtime-db namespace/schema/tooling contract.
+- Not a fully general third-party runtime-subsystem registration API. The
+  normative spec defines the grading checklist a runtime-extension child must
+  satisfy; a public library-facing registrar, namespace allocation rules, and
+  default tooling hooks remain future design work.
 
 ## Relationships
 
 - **Builds on EP-0001** (the partition that created the children) and adopts
   its Appendix A item 5, which the fourteen rulings never addressed.
 - **Informs EP-0003 graduation** (by recommendation, not hard dependency):
-  `:rf.runtime/resources` and `:rf.runtime/work-ledger` graduate against this
-  checklist. EP-0003 is already accepted and its HTTP-only Spec 016 scope has
-  graduated; this relationship is now conformance/status hygiene, not an
-  acceptance gate.
+  `:rf.runtime/resources`, `:rf.runtime/work-ledger`, and
+  `:rf.runtime/mutations` graduate against this checklist. EP-0003 is already
+  accepted and its HTTP-only Spec 016 scope has graduated; this relationship is
+  now conformance/status hygiene, not an acceptance gate.
 - **Sequenced with rf2-3939ig, not coupled to it:** the authority *mechanism*
   (general framework-authority registration meta) has shipped as a bug fix;
   this contract is the *policy* layer that cites it as clause 2's
@@ -167,8 +169,8 @@ Two derived rules:
 owning spec section for each cell. Initial instances: machines (005), routing
 (012), elision (009, with 015 supplying the privacy-classification inputs —
 Conventions names instrumentation as the reserved-key owner), ssr (011), then
-resources + work-ledger (EP-0003) at graduation. An empty or contested cell is
-a tracked gap, not prose.
+the EP-0003 resource trio (`resources`, `work-ledger`, `mutations`) at
+graduation. An empty or contested cell is a tracked gap, not prose.
 
 ### Conformance
 
@@ -177,21 +179,22 @@ a tracked gap, not prose.
 - The `rf2-o4dmp8` sweep shape extends per subsystem: the framework's own
   writers never trigger the ownership diagnostics.
 
-### Deferred: external runtime subsystems
+### Runtime-extension seam and deferred public API
 
-A third-party library that wants durable, frame-local, framework-grade runtime
-state (for example a GraphQL client cache or sync engine) is a real future
-design pressure, but it is deliberately outside this EP. Blessing library-owned
-runtime-db children would change more than this checklist: it would need a
-registration API, namespace rules, runtime-db schema shape, write-authority
-minting, projection defaults, teardown hooks, and tool rows. That is a separate
-public extension contract, not a free consequence of naming the framework's
-existing subsystems.
+A third-party or optional framework-adjacent library that wants durable,
+frame-local, framework-grade runtime state (for example a GraphQL client cache
+or sync engine) is a real design pressure. The graduated
+[`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md) contract now
+answers the checklist question for such a child: reserve a runtime-db subtree,
+declare write authority, public reads, projection/elision, and teardown.
 
-The future EP should start from a concrete external consumer and decide whether
-extension children live under a framework-mediated `:rf.runtime/<lib>` key or
-under the library's own qualified namespace. Until then, runtime-db's named
-subsystem children remain framework-owned `:rf.runtime/*` keys only.
+That checklist is not a complete public registration API. A future EP should
+start from a concrete external consumer and settle the library-facing mechanics:
+how a non-core producer obtains a `:rf.runtime/<name>` reservation under the
+framework-owned namespace, which registrar publishes the authority stamp, which
+default projection and teardown hooks exist, and which tool rows are required.
+Until then, new runtime children are still admitted by Spec/Conventions change
+and a grading row, not by an arbitrary user-space claim under `:rf.*`.
 
 ## Backwards Compatibility
 
@@ -207,8 +210,9 @@ table shows the shape is empirical, not speculative.
 2. Grading bead: fill the initial runtime-subsystem rows from the owning specs;
    file gaps found as beads.
 3. Conformance bead: the drift test + the per-subsystem diagnostics sweep.
-4. EP-0003 integration: `rf2-pbzds6` (already filed) adds the resources +
-   work-ledger rows.
+4. EP-0003 integration: `rf2-pbzds6` added the initial resources +
+   work-ledger rows; later resource-trio syncs added the mutation row as the
+   mutation slice landed.
 
 ## Open Issues
 
@@ -220,10 +224,11 @@ table shows the shape is empirical, not speculative.
 
    **Resolved as deferred (2026-06-10, rf2-fhoz1m), with a divergence to record
    honestly.** This is a deferred *implementation* question, not a live decision
-   blocking the contract: the v1 work-ledger has exactly one writer (resources),
-   so the multi-writer authority question does not arise until the first
-   non-resource writer joins, at which point the general work-ledger EP settles
-   it. The pointer is [`spec/016-Resources.md` §Work-ledger multi-writer
+   blocking the contract: the shipped Resources artefact writers stamp
+   framework authority, so the unresolved question is the first writer outside
+   that artefact (timers, streams, route loaders, spawned actors, or machine
+   async work). At that point the general work-ledger EP settles it. The pointer
+   is [`spec/016-Resources.md` §Work-ledger multi-writer
    authority](../../spec/016-Resources.md#work-ledger-multi-writer-authority--still-blocking-for-the-multi-writer-slice-post-v1-tracked-for-v1),
    which classifies it `:still-blocking` for the multi-writer slice and
    `:post-v1 tracked` for v1.
@@ -231,16 +236,16 @@ table shows the shape is empirical, not speculative.
    **The shipped spec diverges from this EP's recommendation, and the spec
    governs.** This EP recommended *ledger-owned* minting (writers go through the
    ledger's API, which holds the authority). The shipped `spec/016-Resources.md`
-   instead leans **per-writer** minting: §790 states each additional writer "MUST
-   be settled per writer at that point — machines imply authority via
-   `:rf/machine? true`; non-machine writers will each need to stamp
-   `:rf/framework-authority? true` at their own registration sites or write
-   through the privileged helpers." That is the per-writer-grants alternative,
-   not the ledger-owned recommendation. The recommendation did **not** win; it
-   stands as one input the future work-ledger EP will weigh against the per-writer
-   default the resources spec currently encodes. Where this EP and the spec
-   differ, the spec governs (per [EP-0009](EP-0009-the-ep-process.md) and the
-   README index note).
+   instead leans **per-writer** minting: the linked section states each
+   additional writer "MUST be settled per writer at that point — machines imply
+   authority via `:rf/machine? true`; non-machine writers will each need to
+   stamp `:rf/framework-authority? true` at their own registration sites or
+   write through the privileged helpers." That is the per-writer-grants
+   alternative, not the ledger-owned recommendation. The recommendation did
+   **not** win; it stands as one input the future work-ledger EP will weigh
+   against the per-writer default the resources spec currently encodes. Where
+   this EP and the spec differ, the spec governs (per
+   [EP-0009](EP-0009-the-ep-process.md) and the README index note).
 
 ## Recommendation
 
