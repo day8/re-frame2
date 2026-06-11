@@ -19,6 +19,7 @@
     :rf.frame/<gensym>       — anonymous instances from make-frame"
   (:require [clojure.string]
             [re-frame.registrar :as registrar]
+            [re-frame.realm :as realm]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -31,6 +32,15 @@
 ;;
 ;; Per Spec 002 §What lives in a frame, a frame is a map with:
 ;;   :id          the keyword identity
+;;   :realm       the id of the runtime realm the frame belongs to for its
+;;                lifetime (EP-0013 D1, Spec 002 §Frames reference realms).
+;;                A frame REFERENCES its realm internally; the registrar,
+;;                adapter, and capabilities are the realm's, not the frame's.
+;;                In a single-realm app this is `realm/default-realm-id` —
+;;                a single-frame/single-realm app never spells a realm
+;;                (the EP-0002 refinement pattern). The reference is the
+;;                realm-id keyword (not the realm map) so the frame record
+;;                stays a plain value the (realm, frame) address is built on.
 ;;   :frame-state the ONE physical durable container (opaque; through adapter)
 ;;                — holds BOTH partitions as a frame-state value
 ;;                `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`.
@@ -75,6 +85,35 @@
   ^{:doc "Map of frame-id → frame-record. Per-process (one global frame registry)."}
   frames
   (atom {}))
+
+;; ---- realm-owned frame-registry view (EP-0013 D1, rf2-gkddyq) -------------
+;;
+;; The frame registry is realm-owned (Spec 002 §Frames reference realms). In
+;; D1 the frame RECORDS live here in `frames`; the realm owns the MEMBERSHIP
+;; VIEW, derived live from this atom by grouping on each frame's `:realm`
+;; slot. Deriving (rather than maintaining a separate per-realm set) keeps
+;; ONE source of truth and means the many `(reset! frame/frames {})` test
+;; fixtures reset membership for free. `re-frame.realm` reads this through
+;; the `:realm/frames-by-realm` late-bind hook (a static back-require would
+;; cycle — frame requires realm for the record's default realm-id).
+
+(defn frames-by-realm
+  "Return `realm-id → #{frame-id …}` over the live, non-destroyed frames —
+  the realm-owned membership view (EP-0013 D1). A frame contributes to its
+  `:realm` slot's set (default realm when the slot is absent). INTERNAL —
+  the realm-membership reader; published as `:realm/frames-by-realm`."
+  []
+  (persistent!
+    (reduce-kv
+      (fn [acc fid f]
+        (if (-> f :lifecycle :destroyed?)
+          acc
+          (let [rid (or (:realm f) realm/default-realm-id)]
+            (assoc! acc rid (conj (get acc rid #{}) fid)))))
+      (transient {})
+      @frames)))
+
+(late-bind/set-fn! :realm/frames-by-realm frames-by-realm)
 
 ;; ---- destroy-in-flight guard (rf2-r1ciy) ---------------------------------
 ;;
@@ -368,6 +407,17 @@
     ;; while a pass is already in flight, so the latter case cannot
     ;; arise from that seam.
     true))
+
+(defn frame-realm
+  "Return the id of the runtime realm `id` belongs to (EP-0013 D1,
+  Spec 002 §Frames reference realms), or nil for an unknown / destroyed
+  frame. A frame references its realm internally; the registrar, adapter,
+  and capabilities are the realm's. In a single-realm app this is
+  `realm/default-realm-id` for every frame. INTERNAL — D1 ships no public
+  realm-targeted API."
+  [id]
+  (when-let [f (frame id)]
+    (or (:realm f) realm/default-realm-id)))
 
 (defn frame-meta
   "Per Spec 002 §The public registrar query API and Spec-Schemas
@@ -809,6 +859,13 @@
   (let [frame-state (adapter/make-state-container {app-partition-key     {}
                                                    runtime-partition-key {}})]
    {:id          id
+    ;; EP-0013 D1 (rf2-gkddyq): the frame REFERENCES the runtime realm it
+    ;; belongs to for its lifetime (Spec 002 §Frames reference realms). D1
+    ;; ships no public realm-targeted `reg-frame` arity, so every frame
+    ;; belongs to the default realm — a single-realm app never spells a
+    ;; realm. The stored value is the realm-id keyword (the carried (realm,
+    ;; frame) address dimension), not the realm map.
+    :realm       realm/default-realm-id
     :frame-state frame-state
     ;; app-db / runtime-db are READ-ONLY projection reactions over the one
     ;; physical container — `make-derived-value` memoises on `=`, so a
@@ -1321,6 +1378,10 @@
 
 (defn- dissoc-frame!
   [id]
+  ;; EP-0013 D1 (rf2-gkddyq): realm membership is a VIEW derived from this
+  ;; atom (filtered on each frame's `:realm` slot — see `frames-by-realm`),
+  ;; so removing the frame record here drops it from its realm's membership
+  ;; with no separate retraction step and no desync.
   (swap! frames dissoc id))
 
 (defn- unregister-frame!
