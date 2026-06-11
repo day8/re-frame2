@@ -418,6 +418,77 @@
       (->> (sort-by (comp str :resource-id)) vec)))
 
 ;; ---------------------------------------------------------------------------
+;; Named resource-scope resolver registry projection (rf2-hls77w, EP-0016 D3 /
+;; Spec 016 §Named resource-scope resolvers). The `:resource-scope` registrar
+;; kind carries each resolver's canonical spec under `:rf/resource-scope`
+;; (`{:inputs {name [:db rf-path]} :whole-db? :resolve …}`). The panel reads
+;; it decoupled via `(rf/registrations :resource-scope)` — no require on the
+;; resources artefact, exactly like the resource/route registries above.
+;; ---------------------------------------------------------------------------
+
+(defn- input-descriptor-summary
+  "A render-safe summary of one declared resolver input source descriptor
+  `[:db <rf-path>]`. The source HEAD (`:db`) is a plain keyword (not PII).
+  The rf-path NAMES which app-db location decides the scope identity — a
+  structural fact tooling shows so an operator can explain the derivation
+  (EP-0015 disposition 8: declared inputs make the resolver a member of the
+  derived-sensitivity graph). The path is `summarize`d (bounded) for safety,
+  never the VALUE at it (the value is PII and surfaces only via the
+  egress-projected `:rf.resource/scope-resolved` trace at resolution time)."
+  [descriptor]
+  (if (and (vector? descriptor) (= 2 (count descriptor)))
+    (let [[source rf-path] descriptor]
+      {:source source
+       :path   (summarize rf-path)})
+    {:source nil
+     :path   (summarize descriptor)}))
+
+(defn scope-resolver-row
+  "Project ONE `(rf/registrations :resource-scope)` entry `[scope-id meta]`
+  (whose `:rf/resource-scope` slot carries the canonical resolver spec) into
+  a render-safe row. Per Spec 016 §Named resource-scope resolvers / §Xray and
+  AI tooling:
+
+      {:scope-id     :realworld/session
+       :doc          \"…\"
+       :inputs       [{:name :username
+                       :source :db
+                       :path   {:type \"vector\" :size 3 :preview …}}]
+       :whole-db?    false          ; true for the explicit-cost fn sugar
+       :source-coord {:file … :line …}}
+
+  Surfaces the resolver id + its DECLARED inputs (names + `[:db path]`
+  sources, paths summarized) + the whole-db-sugar cost flag — the static
+  facts tooling reads to explain which app facts decide a resource identity
+  and to mark the whole-db cost. NEVER renders an input VALUE or a resolved
+  scope (those are PII surfaced only via the egress-projected
+  `:rf.resource/scope-resolved` trace at resolution time)."
+  [[scope-id meta]]
+  (let [spec (:rf/resource-scope meta)]
+    {:scope-id     scope-id
+     :doc          (or (:doc spec) (:doc meta))
+     :inputs       (->> (:inputs spec)
+                        (mapv (fn [[input-name descriptor]]
+                                (assoc (input-descriptor-summary descriptor)
+                                       :name input-name)))
+                        (sort-by (comp str :name))
+                        vec)
+     :whole-db?    (boolean (:whole-db? spec))
+     :source-coord (when (or (:file meta) (:line meta))
+                     {:file (:file meta) :line (:line meta)})}))
+
+(defn project-scope-resolvers
+  "Project the full static resource-scope resolver registry into sorted
+  render-safe rows. `registrations` is `(rf/registrations :resource-scope)`
+  (`{<scope-id> <meta>}`). Per Spec 016 §Named resource-scope resolvers /
+  §Xray and AI tooling."
+  [registrations]
+  (->> (or registrations {})
+       (mapv scope-resolver-row)
+       (sort-by (comp str :scope-id))
+       vec))
+
+;; ---------------------------------------------------------------------------
 ;; Live instance table projection (Spec 016 §Xray and AI tooling).
 ;; ---------------------------------------------------------------------------
 

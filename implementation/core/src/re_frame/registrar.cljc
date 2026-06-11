@@ -66,9 +66,17 @@
   the first public-beta gate) is the resources artefact's mutation
   registrar kind — `reg-mutation` registers a mutation spec under it (the
   causal-write counterpart of `:resource`). Reserved whether or not the
+  Resources artefact ships.
+
+  `:resource-scope` (rf2-hls77w, Spec 016 §Named resource-scope resolvers /
+  EP-0016 D3) is the resources artefact's THIRD kind — `reg-resource-scope`
+  registers a pure named scope resolver under it (the one scope-resolution
+  currency reused by resource registration, route resources, ensure /
+  subscriptions, invalidation descriptors, and clear-scope). Deliberately a
+  distinct kind, not folded into `:resource`. Reserved whether or not the
   Resources artefact ships."
   #{:event :sub :fx :cofx :view :frame :route :head
-    :error-projector :flow :resource :mutation})
+    :error-projector :flow :resource :mutation :resource-scope})
 
 (defn valid-kind? [k]
   (contains? kinds k))

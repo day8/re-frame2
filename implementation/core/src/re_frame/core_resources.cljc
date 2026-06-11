@@ -155,3 +155,47 @@
    :arglists '([] [opts])}
   ([]     :delegate)
   ([opts] :delegate))
+
+;; ---- Named resource-scope resolvers (rf2-hls77w, EP-0016 D3 slice 2) ------
+
+(defwrapper reg-resource-scope
+  "Per Spec 016 §Named resource-scope resolvers (`reg-resource-scope`) /
+  EP-0016 Decision 3. Register a PURE named scope resolver under `scope-id`
+  — the one scope-resolution currency reused by resource registration,
+  route resources, event-side ensure, subscriptions, invalidation
+  descriptors, populate/patch/remove targets, and `clear-scope`. `resolver`
+  is the primary declared-inputs map `{:inputs {name [:db <rf-path>]}
+  :resolve (fn [inputs ctx] -> scope|nil)}` or the whole-db fn sugar
+  `(fn [db ctx] -> scope|nil)` (an explicit, tooling-marked whole-db
+  dependency). The shipped input source is `[:db <rf-path>]`; `[:runtime …]`
+  is reserved and rejected loudly. A `nil` resolve result is FAIL-CLOSED at
+  every scope-requiring site (never an implicit global). Referenced via
+  `{:from-db <scope-id>}`. Late-bound via `:resources/reg-resource-scope`."
+  {:hook :resources/reg-resource-scope :artefact resources-artefact :on-absent :throw
+   :ex-data {:scope-id scope-id}}
+  ([scope-id resolver] :delegate))
+
+(defwrapper clear-resource-scope
+  "Per Spec 016 §Named resource-scope resolvers. Remove a registered
+  resource-scope resolver (a registration-lifecycle removal — the `clear-`
+  decrement counterpart of `reg-resource-scope`). A resolver holds no
+  per-frame runtime state of its own, so nothing beyond the registrar entry
+  is disposed. Late-bound via `:resources/clear-resource-scope`."
+  {:hook :resources/clear-resource-scope :artefact resources-artefact :on-absent :throw
+   :ex-data {:scope-id scope-id}}
+  ([scope-id] :delegate))
+
+(defwrapper resolve-resource-scope
+  "Per Spec 016 §Named resource-scope resolvers / §`clear-scope` resolves
+  the concrete scope from the coeffect db (EP-0016 issue 7). PURE helper:
+  resolve the named resolver `scope-id` against the supplied `db` value,
+  returning a canonical concrete scope or nil — a plain function over the
+  resolver registry, NOT an effect. Canonical use is the logout idiom:
+  resolve the concrete old scope from the handler's coeffect db
+  (pre-transition by definition) and pass it to `:rf.resource/clear-scope`
+  concretely. Throws when no resolver is registered under `scope-id` (the
+  loud fail-closed boundary). Late-bound via
+  `:resources/resolve-resource-scope`."
+  {:hook :resources/resolve-resource-scope :artefact resources-artefact :on-absent :throw
+   :ex-data {:scope-id scope-id}}
+  ([db scope-id] :delegate))

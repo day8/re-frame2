@@ -270,6 +270,10 @@
    ;; sub-reads slot, each with a test-only override.
    :rf.xray/registered-resources
    :rf.xray/registered-resources-override
+   ;; rf2-hls77w (EP-0016 D3) — named resource-scope resolver registry +
+   ;; its test-only override (the third resources kind).
+   :rf.xray/registered-scope-resolvers
+   :rf.xray/registered-scope-resolvers-override
    :rf.xray/resource-entries
    :rf.xray/resource-entries-override
    :rf.xray/resource-work-ledger
@@ -653,6 +657,9 @@
    ;; registers NO :rf.resource/* event — it is read-only (observing
    ;; pins no resource).
    :rf.xray/set-registered-resources-override-for-test
+   ;; rf2-hls77w (EP-0016 D3) — named resource-scope resolver registry
+   ;; override (the third resources kind).
+   :rf.xray/set-registered-scope-resolvers-override-for-test
    :rf.xray/set-resource-entries-override-for-test
    :rf.xray/set-resource-work-ledger-override-for-test
    :rf.xray/set-resource-sub-reads-override-for-test
