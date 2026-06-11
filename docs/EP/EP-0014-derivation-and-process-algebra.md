@@ -132,7 +132,7 @@ mental model.
 - This EP does not mint any new public authoring or accessor primitive in its
   first slice — no `reg-fact`, no `reg-derivation`, no stable public graph
   accessor name. The algebra is vocabulary, spec model, and internal metadata
-  until the projection from all four existing mechanisms has proved the shape
+  until the projection from the existing source forms has proved the shape
   (project-before-primitive). Future source forms, if any, are separate EPs.
 - This EP does not require every application author to write algebra maps.
 - This EP does not make flows obsolete or make subscriptions durable.
@@ -151,7 +151,7 @@ mental model.
   [Spec 016](../../spec/016-Resources.md) define resource identity, cache
   scope, owners, the work ledger, and runtime-db storage for server-state
   processes. Resources are a family member of this algebra; this EP reuses
-  their vocabulary (`[scope resource-id canonical-params]` keys, owners,
+  their vocabulary (`[cache-scope resource-id canonical-params]` keys, owners,
   `:rf.resource/*` read subs) and does not fork it.
 - [EP-0004](EP-0004-subscription-inputs.md) defines the `reg-sub` input
   producer shape that becomes subscription input declaration in this algebra.
@@ -349,7 +349,7 @@ The proposal has three parts:
 
 The staging discipline is deliberate and is the EP's single decision surface:
 **vocabulary now, API later.** The first slice is spec language, registration
-metadata, and an internal inspection helper proved against all four existing
+metadata, and an internal inspection helper proved against the existing
 mechanisms. Minting a public authoring primitive or a stable accessor name is
 a separable later decision that this EP neither makes nor requires.
 
@@ -405,7 +405,7 @@ Fact identity MUST be stable enough for tools, tests, and docs:
 - a flow fact is identified by its flow id and output path;
 - a route fact is identified by the route slice or projection, such as
   `:rf.route/params`;
-- a resource fact is identified by `[scope resource-id canonical-params]` when
+- a resource fact is identified by `[cache-scope resource-id canonical-params]` when
   concrete and by resource id when static;
 - a machine fact is identified by machine id or instance id plus snapshot or
   selector identity.
@@ -677,7 +677,7 @@ Tools SHOULD be able to request a graph view equivalent to:
   [:resource [[:rf.scope/global] :article/by-slug {:slug "welcome"}]]
   {:kind :process
    :storage :runtime-db
-   :evaluation #{:on-demand :on-route :on-reply :manual}
+   :evaluation #{:on-route :on-reply :scheduled :manual}
    :lifecycle :resource-key
    :output [:runtime [:rf.runtime/resources :entries
                       [[:rf.scope/global] :article/by-slug
@@ -865,6 +865,11 @@ Algebra view:
  :derive #'app.cart/sum-cart}
 ```
 
+A source-form flow input rooted at `:rf.db/runtime` lowers to `[:runtime ...]`
+in the algebra view. The output still lowers to `[:db path]`: per
+[Spec 013 §Input partition](../../spec/013-Flows.md#input-partition--bare--app-db-rfdbruntime---runtime-db),
+flows may read runtime-db explicitly, but they never write runtime-db.
+
 This is the same fact expressed twice: `sum-cart` is one whole-value function,
 and the subscription's and the flow's algebra views differ only in output,
 storage, evaluation, and lifecycle — ephemeral/on-demand/cache-entry versus
@@ -915,15 +920,27 @@ Static algebra view:
  :storage :runtime-db
  :remote {:authority :server
           :transport :rf.http/managed}
- :evaluation #{:on-demand :on-route :on-reply :manual}
+ :evaluation #{:on-route :on-reply :scheduled :manual}
  :lifecycle :resource-key
  :commands [{:effect :rf.http/managed
-             :reply-to :rf.resource/replied}]
+             :replies {:success :rf.resource.internal/succeeded
+                       :failure :rf.resource.internal/failed}}]
  :selectors [:rf.resource/state
              :rf.resource/data
+             :rf.resource/status
              :rf.resource/loading?
-             :rf.resource/error]}
+             :rf.resource/fetching?
+             :rf.resource/stale?
+             :rf.resource/error
+             :rf.resource/refresh-error
+             :rf.resource/has-data?
+             :rf.resource/previous-data]}
 ```
+
+The process node describes fetch, cache, freshness, GC, and reply lifecycle.
+The public `:rf.resource/*` read subscriptions listed in `:selectors` are
+separate on-demand derivations over the runtime-db entry; reading them does not
+start resource work.
 
 Live algebra view for one scoped key:
 
@@ -940,7 +957,7 @@ Live algebra view for one scoped key:
                      {:slug "welcome"}]]]
  :storage :runtime-db
  :remote {:authority :server}
- :evaluation #{:on-demand :on-reply :manual}
+ :evaluation #{:on-route :on-reply :scheduled :manual}
  :lifecycle {:kind :resource-key
              :owners #{[:route :route/article 17]}}
  :host-transient [[:rf.http/in-flight :work/id-123]]}
