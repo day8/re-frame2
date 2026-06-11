@@ -8,7 +8,7 @@
    - Post/delete flows are optimistic and roll back via ordinary events."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [realworld.markdown :as md]
+            [realworld-shared.markdown :as md]
             [realworld.schema :as schema]
             [realworld.http :as rh])
   (:require-macros [re-frame.core :refer [reg-view]]))
