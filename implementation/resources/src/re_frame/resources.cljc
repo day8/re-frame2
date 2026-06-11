@@ -67,7 +67,19 @@
             [re-frame.resources.state :as state]
             [re-frame.resources.subs :as resource-subs]
             [re-frame.resources.timers :as timers]
-            [re-frame.resources.work-ledger :as work-ledger]))
+            [re-frame.resources.work-ledger :as work-ledger]
+            ;; EP-0014 slice-4 (rf2-gn9juw): the JVM-only require of the
+            ;; resources tooling sibling that backs the `resource-algebra-view`
+            ;; / `resource-cache-algebra-view` aliases at the foot of this ns.
+            ;; CLJS deliberately OMITS this require so a CLJS app that loads the
+            ;; resources artefact but never attaches a tool DCEs the tooling
+            ;; body wholesale — the facade never reaches it. JVM has no bundle
+            ;; to protect; the alias gives JVM tools / conformance fixtures the
+            ;; ergonomic `re-frame.resources/<name>` shape. Mirrors the
+            ;; `re-frame.flows` → `re-frame.flows.tooling` JVM-only require
+            ;; (rf2-s8w3nw slice-3) and `re-frame.subs` → `re-frame.subs.tooling`
+            ;; (rf2-bmzq0 slice-2).
+            #?@(:clj [[re-frame.resources.tooling :as resources-tooling]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -80,6 +92,24 @@
 (def clear-resource  registry/clear-resource)
 (def resource-meta   registry/resource-meta)
 (def resource-ids    registry/resource-ids)
+
+;; EP-0014 slice-4 (rf2-gn9juw): the derivation/process algebra view of
+;; registered resources (`resource-algebra-view`, static) and of a frame's
+;; live cache entries (`resource-cache-algebra-view`, live). A resource is the
+;; canonical PROCESS member of the algebra (Derivations §Process). The static
+;; view is JVM-runnable (the resource registry is partition-agnostic metadata),
+;; so JVM convenience aliases let tools / conformance fixtures reach it as
+;; `re-frame.resources/<name>` without naming the sibling. The bodies live in
+;; `re-frame.resources.tooling` so a CLJS app that loads the resources artefact
+;; but attaches no tool DCEs them (the CLJS facade never `:require`s the tooling
+;; sibling — the require above is `#?@(:clj ...)`-gated). CLJS consumers (Xray +
+;; conformance) call `re-frame.resources.tooling/<name>` directly. No
+;; `re-frame.core` facade export (EP-0014 issue-1 disposition). Mirrors the
+;; `re-frame.flows/flow-algebra-view` JVM alias (slice-3).
+#?(:clj
+   (do
+     (def resource-algebra-view       resources-tooling/resource-algebra-view)
+     (def resource-cache-algebra-view resources-tooling/resource-cache-algebra-view)))
 
 ;; Mutations (rf2-dwme29, Spec 016 §Deferred slices / EP-0003 §Mutations —
 ;; the first public-beta gate). `reg-mutation` registers a causal-write

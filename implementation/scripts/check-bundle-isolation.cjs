@@ -338,6 +338,31 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
+  // re-frame.resources.tooling (rf2-gn9juw — EP-0014 slice-4
+  // `resource-algebra-view` / `resource-cache-algebra-view` split off from
+  // the resources artefact for production DCE). The whole resources artefact
+  // is ALREADY bundle-isolated from counter (counter never `:require`s
+  // `re-frame.resources`), so this sibling can never reach a no-resources
+  // app's bundle; this entry is the belt-and-braces guard the tooling-sibling
+  // pattern standardises (it also fires if a resources-using CLJS app's facade
+  // ever `:require`s the tooling sibling — the `re-frame.resources` →
+  // `re-frame.resources.tooling` require is `#?@(:clj ...)`-gated so the body
+  // stays out of CLJS). Sentinel mirrors the flows-tooling / subs-tooling /
+  // trace-tooling shape: a unique string planted at the bottom of the
+  // namespace body, surviving `:advanced` (string literals are not renamed)
+  // and outside any DCE gate.
+  {
+    name: 'resources-tooling',
+    internalSentinels: [
+      // resources/tooling.cljc — explicit sentinel planted at the bottom
+      // of the namespace body (`bundle-isolation-sentinel`).
+      { source: 're-frame.resources.tooling (bundle-isolation-sentinel)',
+        sentinel: 'rf.resources.tooling/sentinel:rf2-gn9juw-2026-06-12:do-not-rename' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
+
   // re-frame.trace.cascade (rf2-931pm — focused-event-only cascade-DAG
   // aggregator). Same posture as `trace.tooling`: the namespace is
   // autoloaded from `re-frame.core` only via the JVM-only conditional
