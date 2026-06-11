@@ -915,3 +915,250 @@
           (is (= :success (:status (instance fa :form/save-1))) "frame A settled")
           (is (= :pending (:status (instance fb :form/save-1)))
               "frame B's instance still pending — untouched by frame A's reply"))))))
+
+;; ===========================================================================
+;; 14. rf2-6bff0q / EP-0016 D1 — mutation completion continuation (:reply-to)
+;;
+;; A `:rf.mutation/execute` may carry a call-site `:reply-to` event target. On
+;; an ACCEPTED terminal reply the runtime dispatches that target with the
+;; canonical uniform reply map appended (the shared reply substrate, NOT a
+;; family-private callback), AFTER cache consequences + instance settlement
+;; (phase 6). A STALE / superseded reply never fires the continuation.
+;; ===========================================================================
+
+(def ^:private replied (atom []))
+
+(defn- reg-capture-continuation!
+  "Register an app event that records the reply map the continuation appends
+  (the LAST arg) plus the full event vector (so static-arg preservation is
+  observable)."
+  []
+  (reset! replied [])
+  (rf/reg-event-fx :test/save-replied
+                   (fn [_ event] (swap! replied conj event) {})))
+
+(deftest reply-to-fires-on-accepted-success-and-carries-the-reply-map
+  ;; Validation rule 2 + 5: the continuation fires exactly once for an accepted
+  ;; reply and carries mutation id, params, instance, scope, status, value,
+  ;; affected keys, work id, frame id, completion time, and cause.
+  (reg-capture-continuation!)
+  (rf/reg-resource :r/article (article-resource-spec))
+  (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})
+        completed-at 1781078400777]
+    (rf/reg-mutation :m/save
+                     {:params-schema [:map [:slug :string]]
+                      :request   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+                      :populates (fn [_params result] {rkey result})})
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/save :params {:slug "w"} :instance :rc1
+                        :reply-to [:test/save-replied]}])
+    (reply-success! @last-managed-args {:slug "w" :title "Fresh"}
+                    {:rf.world/inputs {:time-ms completed-at}})
+    (testing "the continuation fired exactly once"
+      (is (= 1 (count @replied))))
+    (testing "EP-0016 — the appended reply map carries the full continuation contract"
+      (let [[ev-id reply] (first @replied)]
+        (is (= :test/save-replied ev-id))
+        (is (= :ok (:status reply)))
+        (is (= :m/save (:mutation reply)))
+        (is (= {:slug "w"} (:params reply)))
+        (is (= :rc1 (:instance reply)))
+        (is (= :rf.scope/global (:scope reply)))
+        (is (= {:slug "w" :title "Fresh"} (:value reply)) "decoded result rides as :value")
+        (is (= :mutation (:work/kind reply)))
+        (is (some? (:work/id reply)))
+        (is (= :rf/default (:rf.frame/id reply)))
+        (is (= completed-at (:completed-at reply)) "EP-0010 causal completion time")
+        (is (= [:mutation :m/save :rc1] (:cause reply)))
+        (is (contains? (:affected-keys reply) rkey)
+            "the populated key is in :affected-keys")))))
+
+(deftest reply-to-reconciles-the-list-on-settle
+  ;; SCOPE: the continuation runs on settle + the mutation reconciles the
+  ;; affected list. Here the mutation invalidates the list tag (cache
+  ;; consequence), and the continuation observes the post-reconcile state.
+  (reg-capture-continuation!)
+  (rf/reg-resource :r/article
+                   {:scope :rf.scope/global
+                    :params-schema [:map [:slug :string]]
+                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})})
+  (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    (rf/reg-mutation :m/save (save-article-spec))
+    ;; own + load the list-tagged article so the invalidation refetches it
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :r/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:view :a]}])
+    (reply-success! @last-managed-args {:title "old"})
+    (reset! last-managed-args nil)
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/save :params {:slug "w"} :instance :lc1
+                        :reply-to [:test/save-replied]}])
+    (reply-success! @last-managed-args {:title "new"})
+    (testing "the list reconciled — the active-owner entry refetched (back in flight)"
+      (is (contains? #{:loading :fetching} (:status (entry rkey)))))
+    (testing "the continuation fired after the reconcile (phase 6)"
+      (is (= 1 (count @replied)))
+      (is (= :ok (:status (second (first @replied))))))))
+
+(deftest reply-to-preserves-static-call-site-args
+  ;; Spec 016 §Mutation completion continuations — `:reply-to [:e {:kind :x}]`
+  ;; dispatches `[:e {:kind :x} reply]` (the reply appended AFTER static args).
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :sc1
+                      :reply-to [:test/save-replied {:kind :article} 7]}])
+  (reply-success! @last-managed-args {:ok true})
+  (testing "static call-site args are preserved; the reply is the FINAL arg"
+    (let [ev (first @replied)]
+      (is (= 4 (count ev)) "event-id + 2 static args + reply")
+      (is (= [:test/save-replied {:kind :article} 7] (subvec ev 0 3)))
+      (is (map? (last ev)))
+      (is (= :ok (:status (last ev)))))))
+
+(deftest reply-to-observes-settled-instance-and-cache-consequences
+  ;; Validation rule 3: the continuation fires AFTER cache consequences and
+  ;; mutation instance settlement — a handler reached by `:reply-to` sees both
+  ;; already settled for the accepted reply.
+  (let [seen (atom nil)]
+    (reset! replied [])
+    (rf/reg-resource :r/article
+                     {:scope :rf.scope/global
+                      :params-schema [:map [:slug :string]]
+                      :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
+                      :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+    (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+      (rf/reg-mutation :m/save
+                       {:params-schema [:map [:slug :string]]
+                        :request   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+                        :populates (fn [_params result] {rkey result})})
+      ;; the continuation handler reads the runtime-db AT continuation time:
+      ;; both the instance settle AND the populated entry must already be in.
+      (rf/reg-event-fx :test/save-replied
+                       (fn [_ [_ reply]]
+                         (reset! seen {:instance-status (:status (instance :pc1))
+                                       :entry-status    (:status (entry rkey))
+                                       :entry-data      (:data (entry rkey))
+                                       :reply-status    (:status reply)})
+                         {}))
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :m/save :params {:slug "w"} :instance :pc1
+                          :reply-to [:test/save-replied]}])
+      (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
+      (testing "the continuation observed the instance ALREADY settled :success"
+        (is (= :success (:instance-status @seen))))
+      (testing "and the populate cache consequence ALREADY applied"
+        (is (= :loaded (:entry-status @seen)))
+        (is (= {:slug "w" :title "Fresh"} (:entry-data @seen))))
+      (testing "the reply status is :ok"
+        (is (= :ok (:reply-status @seen)))))))
+
+(deftest reply-to-fires-on-accepted-error
+  ;; D1 delivery rule: keyed on ACCEPTANCE, not a status enumeration — an
+  ;; accepted `:error` reply fires the continuation too (the handler folds
+  ;; validation errors / form state off the reply `:status`).
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :ec1
+                      :reply-to [:test/save-replied]}])
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
+  (testing "the continuation fired for the accepted error reply"
+    (is (= 1 (count @replied)))
+    (let [reply (second (first @replied))]
+      (is (= :error (:status reply)))
+      (is (= {:kind :rf.http/http-5xx :status 503} (:error reply)))
+      (is (= :m/save (:mutation reply)))
+      (is (= :ec1 (:instance reply)))
+      (is (= #{} (:affected-keys reply)) "a failed write touches no exact key")
+      (is (= [:mutation :m/save :ec1] (:cause reply))))))
+
+(deftest reply-to-fires-on-accepted-cancellation
+  ;; D1 delivery rule — an accepted TERMINAL cancellation (an `:rf.http/aborted`
+  ;; envelope, which the reply substrate lowers to `:status :cancelled`) is an
+  ;; accepted terminal reply, so it fires the continuation.
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :cc1
+                      :reply-to [:test/save-replied]}])
+  (reply-failure! @last-managed-args {:kind :rf.http/aborted :reason :user-abort})
+  (testing "the accepted terminal cancellation fired the continuation"
+    (is (= 1 (count @replied)))
+    (is (= :cancelled (:status (second (first @replied)))))))
+
+(deftest stale-reply-does-not-fire-the-continuation
+  ;; Validation rule 4: a STALE / superseded mutation reply fires NO
+  ;; continuation — the mandatory stale-suppression boundary the reply envelope
+  ;; enforces is inherited for free.
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec))
+  ;; two executes under the SAME instance id → the gen-1 reply is now stale.
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :i
+                      :reply-to [:test/save-replied]}])
+  (let [gen1-args @last-managed-args]
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/save :params {:slug "w"} :instance :i
+                        :reply-to [:test/save-replied]}])
+    (is (= 2 (:generation (instance :i))))
+    (testing "the STALE gen-1 reply does NOT fire the continuation"
+      (reply-success! gen1-args {:stale "result"})
+      (is (= 0 (count @replied)) "no continuation for the superseded reply"))
+    (testing "the CURRENT gen-2 reply DOES fire the continuation exactly once"
+      (reply-success! @last-managed-args {:fresh "result"})
+      (is (= 1 (count @replied)))
+      (is (= {:fresh "result"} (:value (second (first @replied))))))))
+
+(deftest cleared-instance-reply-does-not-fire-the-continuation
+  ;; A `:rf.mutation/clear` removes the instance row; a late reply for the
+  ;; cleared instance is stale-suppressed (no live instance), so it fires no
+  ;; continuation — the same suppression gate, via the clear path.
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :clr1
+                      :reply-to [:test/save-replied]}])
+  (let [args @last-managed-args]
+    (rf/dispatch-sync [:rf.mutation/clear {:instance :clr1}])
+    (is (nil? (instance :clr1)))
+    (testing "a reply for the cleared instance fires no continuation"
+      (reply-success! args {:late "result"})
+      (is (= 0 (count @replied))))))
+
+(deftest no-reply-to-fires-no-continuation
+  ;; Backwards compatibility — an execute WITHOUT `:reply-to` behaves exactly
+  ;; as before (no continuation dispatched).
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :nc1}])
+  (reply-success! @last-managed-args {:ok true})
+  (testing "no :reply-to → no continuation, instance settles normally"
+    (is (= 0 (count @replied)))
+    (is (= :success (:status (instance :nc1))))))
+
+(deftest reply-to-fires-after-failure-invalidation
+  ;; phase-6 ordering on the failure path: the continuation composes AFTER the
+  ;; optional failure-time invalidation (it is dispatched last).
+  (reg-capture-continuation!)
+  (rf/reg-resource :r/article
+                   {:scope :rf.scope/global
+                    :params-schema [:map [:slug :string]]
+                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+  (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}))
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
+    (reply-success! @last-managed-args {:title "x"})
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/save :params {:slug "w"} :instance :fi1
+                        :reply-to [:test/save-replied]}])
+    (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
+    (testing "the failure-time invalidation marked the tag stale"
+      (is (some? (:invalidated-at (entry rkey)))))
+    (testing "AND the continuation fired for the accepted error reply"
+      (is (= 1 (count @replied)))
+      (is (= :error (:status (second (first @replied))))))))

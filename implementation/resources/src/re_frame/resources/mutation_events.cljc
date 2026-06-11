@@ -61,6 +61,7 @@
   half without a shape change."
   (:require [clojure.set :as set]
             [re-frame.frame :as frame]
+            [re-frame.reply :as reply]
             [re-frame.resources.mutation-registry :as mreg]
             [re-frame.resources.mutation-runtime :as mstate]
             [re-frame.resources.registry :as registry]
@@ -224,6 +225,75 @@
                  :tags  tags
                  :cause [:mutation mutation-id instance-id]}]]))
 
+;; ---- mutation completion continuation — call-site :reply-to (D1) -----------
+;;
+;; EP-0016 Decision 1 / Spec 016 §Mutation completion continuations. A
+;; `:rf.mutation/execute` MAY carry an optional `:reply-to` event target. When
+;; the runtime ACCEPTS a reply as current (the live-instance gate matched —
+;; frame + work-id + generation), the runtime dispatches that target with one
+;; CANONICAL reply map appended as the final argument (the `:rf/reply-target`
+;; `:append` delivery — the shared `re-frame.reply/complete`, NOT a
+;; family-private callback contract). A STALE / superseded reply never fires
+;; the continuation (the mandatory stale-suppression boundary the reply
+;; envelope already enforces, inherited for free).
+;;
+;; The continuation is a CAUSAL EVENT TARGET, not a callback (First Principles
+;; §A verified mutation reply is a causal token): the accepted reply drives
+;; durable app state only by dispatching an ordinary event through the event
+;; tape / interceptor chain / replay. The reply target is DATA-ONLY (a public
+;; event-vector prefix or descriptor — `re-frame.reply` rejects host handles),
+;; so it rides the verification reply-payload safely through durable reply
+;; addressing.
+
+(defn- continuation-reply
+  "Augment the canonical uniform reply map (`re-frame.resources.reply`,
+  `:work/kind :mutation`) with the mutation-specific facts a `:reply-to`
+  continuation needs (Spec 016 §Mutation completion continuations, the reply
+  table). The canonical reply already carries `:status`, `:value` / `:error`,
+  `:work/id`, `:work/kind`, `:work/status`, `:rf.frame/id`, `:completed-at`,
+  and `:correlation`; this layers on the TOP-LEVEL mutation facts the
+  continuation handler reads directly:
+
+  - `:mutation`      — the mutation id;
+  - `:params`        — the canonical params used for the accepted attempt;
+  - `:instance`      — the mutation instance id;
+  - `:scope`         — the resolved (execution) mutation scope;
+  - `:affected-keys` — the resource keys the accepted reply populated /
+                       patched / invalidated (a `:rf/scoped-resource-key`
+                       set — empty when the reply touched no cache);
+  - `:cause`         — `[:mutation <mutation-id> <instance-id>]`, the data
+                       explaining what caused the continuation.
+
+  Pure — no clock, no dispatch. The reply map is data-only (the egress policy
+  walks it on the way to the trace bus / dispatch)."
+  [reply {:keys [mutation-id params instance-id scope affected-keys]}]
+  (assoc reply
+         :mutation      mutation-id
+         :params        params
+         :instance      instance-id
+         :scope         scope
+         :affected-keys (set affected-keys)
+         :cause         [:mutation mutation-id instance-id]))
+
+(defn- continuation-fx
+  "Build the `[:dispatch <completed-event>]` fx that delivers the continuation
+  reply to the call-site `:reply-to` target, or nil when no target was
+  supplied. Uses the shared `re-frame.reply/complete` to append the reply map
+  as the final argument (the `:append` delivery — static call-site args are
+  preserved, the reply lands after them), so the continuation rides the SAME
+  reply substrate every managed-async family uses (NOT a family-private
+  callback contract). A nil / blank target yields nil (no continuation).
+  Emits the `:rf.mutation/replied` trace evidence as a side effect when a
+  continuation is dispatched (D1; never on a stale/suppressed reply — that
+  path does not call this)."
+  [reply-to reply {:keys [frame-id mutation-id instance-id work-id status]}]
+  (when-let [completed (reply/complete reply-to reply)]
+    (trace/emit! :rf.event :rf.mutation/replied
+                 {:rf.frame/id frame-id :mutation mutation-id :instance instance-id
+                  :work-id work-id :status status :target reply-to
+                  :cause [:mutation mutation-id instance-id]})
+    [:dispatch completed]))
+
 ;; ---- :rf.mutation/execute -------------------------------------------------
 
 (defn execute-handler
@@ -246,7 +316,7 @@
   Returns the event-fx map (`:rf.db/runtime` + `:fx`)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation
     world :rf.world/inputs}
-   [_event-id {:keys [mutation params instance scope cause] :as _payload}]]
+   [_event-id {:keys [mutation params instance scope cause reply-to] :as _payload}]]
   (let [where      'rf.mutation/execute
         runtime-db (or rt {})
         spec       (mreg/require-mutation-spec! mutation where)
@@ -317,11 +387,20 @@
                       ;; EP-0007: the verification work identity is `:work/id`
                       ;; (the ledger / instance `:current-work` / reply-
                       ;; envelope spelling), one attempt one name.
-                      :reply-payload {:instance-id instance-id
-                                      :mutation-id mutation
-                                      :work/id     work-id
-                                      :scope       cscope
-                                      :generation  generation}
+                      ;; the verification payload also CARRIES the optional
+                      ;; call-site `:reply-to` continuation target (D1): it
+                      ;; rides the internal reply event to the success/failure
+                      ;; handler, which delivers it (via the shared reply
+                      ;; substrate) ONLY for an accepted reply. The target is
+                      ;; data-only (a public event-vector prefix / descriptor),
+                      ;; so it is durable-reply-addressing safe. Omitted when
+                      ;; the caller supplied none.
+                      :reply-payload (cond-> {:instance-id instance-id
+                                              :mutation-id mutation
+                                              :work/id     work-id
+                                              :scope       cscope
+                                              :generation  generation}
+                                       (some? reply-to) (assoc :reply-to reply-to))
                       :work-id      work-id
                       :resource-key [:rf.mutation instance-id]
                       :scope        cscope
@@ -477,7 +556,7 @@
 
   Event shape: `[_ <verification-payload> <http-result>]`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs}
-   [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope] :as payload} http-result]]
+   [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope reply-to] :as payload} http-result]]
   (let [runtime-db (or rt {})
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
         ;; And Work-Ledger Timestamps: the reply is a CAUSAL TOKEN; the host
@@ -569,14 +648,33 @@
                                   :stale-delay-ms stale-delay-ms
                                   :gc-delay-ms    gc-delay-ms
                                   :server?        server?}])
-                              timer-policies)]
+                              timer-policies)
+            ;; PHASE 6 (Spec 016 §Phase order) — the mutation completion
+            ;; continuation. The instance + work-ledger row are now settled
+            ;; (`inst'` / `rdb'`) and the cache consequences are computed, so a
+            ;; handler reached by `:reply-to` observes both already-settled for
+            ;; this ACCEPTED reply. The continuation reply is the canonical
+            ;; uniform reply map plus the mutation-specific facts; it is
+            ;; dispatched LAST (after the cache-consequence fx) so the
+            ;; continuation runs after the invalidation it composes with.
+            cont-fx     (continuation-fx
+                          reply-to
+                          (continuation-reply
+                            reply {:mutation-id mutation-id :params params
+                                   :instance-id instance-id :scope scope
+                                   :affected-keys patch-affected})
+                          {:frame-id frame-id :mutation-id mutation-id
+                           :instance-id instance-id :work-id work-id
+                           :status (:status reply)})]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.mutation/succeeded
                      {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
                       :work-id work-id :generation generation
                       :affected-keys affected :patch-summary patch-summary})
         {:rf.db/runtime rdb'
-         :fx (cond-> (vec timer-fx) inv-fx (conj inv-fx))}))))
+         :fx (cond-> (vec timer-fx)
+               inv-fx  (conj inv-fx)
+               cont-fx (conj cont-fx))}))))
 
 (defn failed-handler
   "`:rf.mutation.internal/failed` — a mutation write failed. Verifies frame
@@ -596,7 +694,7 @@
 
   Event shape: `[_ <verification-payload> <http-result>]`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs}
-   [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope] :as payload} http-result]]
+   [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope reply-to] :as payload} http-result]]
   (let [runtime-db (or rt {})
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
         ;; And Work-Ledger Timestamps: a terminal mutation reply writes
@@ -643,11 +741,31 @@
                          (assoc-in (mstate/instance-path instance-id) inst')
                          (work-ledger/update-record
                            work-id work-ledger/mark-terminal
-                           :failed {:error error}))]
+                           :failed {:error error}))
+            ;; PHASE 6 — the continuation fires for ANY accepted terminal reply
+            ;; (D1 delivery rule: keyed on acceptance, not a status
+            ;; enumeration), so an accepted `:error` (and an accepted terminal
+            ;; `:cancelled`) reply dispatches `:reply-to` too — the handler folds
+            ;; validation errors / form state / notifications off the reply
+            ;; `:status`. A failed write touches no EXACT cache key, so
+            ;; `:affected-keys` is empty (the invalidate-on-failure timing marks
+            ;; TAGS stale, not exact keys). Dispatched LAST, after the optional
+            ;; failure-time invalidation it composes with.
+            cont-fx  (continuation-fx
+                       reply-to
+                       (continuation-reply
+                         reply {:mutation-id mutation-id :params params
+                                :instance-id instance-id :scope scope
+                                :affected-keys #{}})
+                       {:frame-id frame-id :mutation-id mutation-id
+                        :instance-id instance-id :work-id work-id
+                        :status (:status reply)})]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.mutation/failed
                      {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
                       :work-id work-id :generation generation :error error
                       :invalidated-tags (vec (or inv-tags #{}))})
         {:rf.db/runtime rdb'
-         :fx (cond-> [] inv-fx (conj inv-fx))}))))
+         :fx (cond-> []
+               inv-fx  (conj inv-fx)
+               cont-fx (conj cont-fx))}))))
