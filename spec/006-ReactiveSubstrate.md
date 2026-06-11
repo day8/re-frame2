@@ -1398,3 +1398,4 @@ Re-installing an adapter after frames exist is rejected (per [Adapter selection]
 - [008-Testing.md](008-Testing.md) — the headless-test path uses the plain-atom adapter.
 - [002-Frames.md](002-Frames.md) — frames are the core's primary structure; the adapter holds their `app-db` containers.
 - [004-Views.md](004-Views.md) — view rendering is the adapter's job.
+- [Derivations.md](Derivations.md) — the derivation/process algebra: subscriptions (and runtime subscriptions) are the first concrete **derivation** instance (`:storage :ephemeral`, `:evaluation :on-demand`, `:lifecycle :subscription-cache-entry`). The whole-value law every derivation obeys — memoization / equality-pruning / dirty-checks are optimizations that must not change the observable value — is owned there and cited by this substrate.

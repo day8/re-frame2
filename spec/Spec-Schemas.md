@@ -2549,6 +2549,139 @@ The EP-0016 action-wave **public input forms** — named scope resolvers (D3), p
 
 `:rf/scope-policy`, `:rf/resource-scope-resolver`, `:rf/invalidation-descriptor`, and `:rf/exact-target` are the schema ids for `ScopePolicy`, `ResourceScopeResolver`, `InvalidationDescriptor`, and `ExactTarget`. The mutation **`:reply-to` continuation** reuses the `:rf/reply-map` shape below (one closed `:status` referencing the EP-0011 enum) plus the mutation-specific facts (`:mutation`, `:instance`, `:scope`, `:affected-keys`, `:cause [:mutation <id> <instance>]`) enumerated in [016 §Mutation completion continuations](016-Resources.md#mutation-completion-continuations--call-site-reply-to) — it is **not** a separate reply-map schema, only the `:rf/reply-map` with family facts added additively.
 
+### `:rf/derivation-node`, `:rf/fact`, `:rf/derivation-edge`, `:rf/storage-class`, `:rf/evaluation-policy`, `:rf/lifecycle` (the derivation/process algebra, EP-0014)
+
+> **Layer:** Runtime
+> **Owner:** [Derivations.md](Derivations.md) (graduated from [EP-0014](../docs/EP/EP-0014-derivation-and-process-algebra.md))
+> **Status:** v1-required (vocabulary + internal registration metadata; **no public authoring or accessor primitive ships in slice-1** — the accessor name is deferred per the EP-0014 issue-1 disposition)
+
+The normalized **algebra view** every declared fact / process lowers to — the common shape behind subscriptions, runtime subscriptions, flows, resources, route facts, and machine selectors ([Derivations.md](Derivations.md) owns the semantics; this is the projected shape). Slice-1 is the *registrar-derived* metadata + the *internal graph-inspection* shape Xray and the conformance fixtures consume; it does **not** ship a public accessor. The five classification enums (`:rf/storage-class`, `:rf/evaluation-policy`, `:rf/lifecycle`, plus the two superkinds) are closed sets; the node and edge maps are open (additive). `:remote` is **not** a storage class — external authority is the separate `:authority` axis ([Derivations §Authority](Derivations.md#authority--the-remote-axis), EP-0014 issue-2 split).
+
+```clojure
+(def DerivationKind
+  ;; The two superkinds every node classifies as. The refined kinds
+  ;; (:resource-process / :route-fact / :machine-process / :machine-selector)
+  ;; are informative refinements — a tool that knows only the two superkinds
+  ;; MUST still classify every node. Refinements appear in :source-form / the
+  ;; per-owner specs, not as a third superkind.
+  [:enum :derivation :process])
+
+(def StorageClass
+  ;; Where the LOCAL representation lives. Always one of these four — the
+  ;; remote axis is :authority, never a storage class (EP-0014 issue-2).
+  [:enum :ephemeral :app-db :runtime-db :host-transient])
+
+(def EvaluationPolicy
+  ;; When the node evaluates. A node carries a single policy OR a set of
+  ;; policies (a process with >1 trigger — e.g. a resource).
+  [:enum :on-demand :after-event :on-reply :on-route :on-transition :scheduled :manual])
+
+(def EvaluationSpec
+  [:or EvaluationPolicy [:set EvaluationPolicy]])
+
+(def Lifecycle
+  ;; Who keeps the fact/process alive; the owner/release boundary in prose
+  ;; per [Derivations §Lifecycle and owner].
+  [:enum :subscription-cache-entry :frame :route :resource-key :machine-instance :host-root])
+
+(def DeclaredInput
+  ;; A data description of one dependency — the normative input vocabulary
+  ;; ([Derivations §Declared input]). The upper bound; specs MAY narrow with
+  ;; aliases that lower to these forms. Each form is a vector whose head is a
+  ;; closed tag keyword.
+  [:or
+   [:tuple [:= :db] :any]                 ;; [:db path]            — app-db read (:rf/path)
+   [:tuple [:= :runtime] :any]            ;; [:runtime path]       — runtime-db read (:rf/path)
+   [:tuple [:= :frame-state] :any]        ;; [:frame-state path]   — framework-internal cross-partition
+   [:tuple [:= :sub] [:vector :any]]      ;; [:sub query-vector]
+   [:tuple [:= :param] :any]              ;; [:param key]
+   [:tuple [:= :scope] :any]              ;; [:scope scope-id-or-expr]  (a {:from-db <id>} map is a named resolver)
+   [:tuple [:= :route] :any]              ;; [:route projection]
+   [:tuple [:= :resource] :any]           ;; [:resource resource-ref]
+   [:tuple [:= :machine] :any :any]       ;; [:machine machine-ref projection]
+   [:tuple [:= :fact] :any]               ;; [:fact fact-id]
+   [:tuple [:= :event] :any]              ;; [:event event-id]    — process trigger
+   [:tuple [:= :reply] :any]              ;; [:reply reply-kind]  — process trigger
+   [:tuple [:= :timer] :any]])            ;; [:timer timer-id]    — process trigger
+
+(def Output
+  ;; The fact / address a node produces. An ephemeral output is [:fact id];
+  ;; a materialized output is a durable [:db path] / [:runtime path]; a
+  ;; host-transient handle is [:host-transient path].
+  [:or
+   [:tuple [:= :fact] :any]
+   [:tuple [:= :db] :any]
+   [:tuple [:= :runtime] :any]
+   [:tuple [:= :host-transient] :any]])
+
+(def Authority
+  ;; The remote axis — present ONLY when the fact's source of truth is
+  ;; external (EP-0014 issue-2 split). :transport is a PROJECTION of the
+  ;; Spec 016 registration fact (a recomputable mirror), never a second
+  ;; authoritative home.
+  [:map
+   [:kind      [:= :remote]]
+   [:system    {:optional true} :any]     ;; e.g. :server
+   [:transport {:optional true} :keyword]]) ;; e.g. :rf.http/managed — mirror of the registered transport
+
+(def DerivationNode
+  ;; The normalized algebra view of one declared fact / process. Open map:
+  ;; producers add keys additively. :inputs is the declared-input vector OR
+  ;; the :parametric marker (static graph for a parametric source form, never
+  ;; speculatively executed — the don't-execute rule). Function values
+  ;; (:derive, :input-producer) are opaque tokens — symbol / source-coord /
+  ;; registry meta — never serialized executables. The :realm/id / :app/id /
+  ;; :module/id fields are RESERVED for the EP-0013 relocation (issue-6
+  ;; disposition) and are NEVER required in slice-1.
+  [:map
+   [:id           :any]
+   [:kind         DerivationKind]
+   [:source-form  {:optional true} [:map [:kind :keyword] [:id {:optional true} :any]]]
+   [:inputs       [:or [:vector DeclaredInput] [:= :parametric]]]
+   [:input-producer {:optional true} :any]   ;; opaque fn token — present when :inputs is :parametric
+   [:output       {:optional true} Output]
+   [:storage      StorageClass]
+   [:authority    {:optional true} Authority]
+   [:evaluation   EvaluationSpec]
+   [:lifecycle    [:or Lifecycle [:map [:kind Lifecycle] [:owners {:optional true} [:set :any]]]]]
+   [:owner        {:optional true} :any]      ;; explicit owner id, distinct from :cause
+   [:materialized? {:optional true} :boolean]
+   [:derive       {:optional true} :any]      ;; opaque fn token
+   [:selectors    {:optional true} [:vector :any]]  ;; process read-fact ids (e.g. resource :rf.resource/*)
+   [:commands     {:optional true} [:vector :any]]  ;; process command descriptors (commands are NOT facts)
+   [:scope-resolver {:optional true} :any]    ;; named-resolver enrichment (id + declared inputs), EP-0014 issue-3
+   [:schema       {:optional true} :any]
+   [:source       {:optional true} :rf/source-coord-meta]
+   [:step-delta   {:optional true} :any]      ;; opaque fn token — reserved; the delta LAW is semantic-only in slice-1
+   ;; Reserved for the EP-0013 relocation — never required in slice-1:
+   [:realm/id     {:optional true} :any]
+   [:app/id       {:optional true} :any]
+   [:module/id    {:optional true} :any]])
+
+(def DerivationEdge
+  ;; One explicit dependency edge in the graph view. :role names why the edge
+  ;; exists (the input vocabulary collapsed to edge roles).
+  [:map
+   [:from :any]                            ;; a node id
+   [:to   :any]                            ;; a node id
+   [:role [:enum :input :param :selector :scope :command :reply]]])
+
+(def DerivationGraph
+  ;; The internal graph-inspection shape (EP-0014 issue-1 disposition) — a
+  ;; STRUCTURED internal accessor, not Xray-private; the public accessor name
+  ;; is deferred. :mode distinguishes the registration-derived static graph
+  ;; from the frame-derived live graph. Payloads carry source coords + value
+  ;; summaries — egress-bearing, so they compose through rf/elide-wire-value
+  ;; before leaving the box (EP-0015). Redaction must not lose graph structure.
+  [:map
+   [:mode  [:enum :static :live]]
+   [:frame {:optional true} :any]
+   [:nodes [:map-of :any DerivationNode]]  ;; keyed by canonical node id (EP-0012 identity)
+   [:edges [:vector DerivationEdge]]])
+```
+
+`:rf/derivation-node` (`DerivationNode`), `:rf/fact` (the `:id` of any node — a canonical fact identity per [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md)), `:rf/derivation-edge` (`DerivationEdge`), `:rf/storage-class` (`StorageClass`), `:rf/evaluation-policy` (`EvaluationSpec`), and `:rf/lifecycle` (`Lifecycle`) are the schema ids. The `DerivationGraph` is the shape the internal inspection helper returns; `Authority` is the remote axis, separate from `StorageClass` per the EP-0014 issue-2 split. All shapes are slice-1 *vocabulary + internal metadata* — **no public authoring primitive or stable accessor name ships** until a consumer beyond Xray + conformance needs it (EP-0014 issue-1). The `:rf/path`-shaped `path` arguments above are the shared [`:rf/path`](#rfpath-rfpath-template-the-path-algebra-ep-0012) algebra; resource node ids reuse [`:rf/scoped-resource-key`](#rfscoped-resource-key-rfresource-entry-rfresource-work-record-resources-spec-016).
+
 ### `:rf/reply-map`, `:rf/reply-target` (uniform reply envelope, EP-0011)
 
 > **Layer:** Runtime
