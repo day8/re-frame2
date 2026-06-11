@@ -143,6 +143,74 @@
       (is (contains? (:capabilities r) :rf.capability/http)
           "the capability map rides the realm"))))
 
+(deftest dispose-realm-walks-adapter-and-host-transient-teardown
+  (testing "dispose-realm! TEARS DOWN the realm's operational resources — it
+            runs the seated adapter's own :dispose-adapter! fn + clears the
+            adapter slot, walks the host-transient inventory running each
+            descriptor's :teardown token + drops the inventory, THEN drops the
+            registry entry. A bare dissoc would orphan both (rf2-kq0yfb)."
+    (let [adapter-disposed?   (atom false)
+          torn-down-subsystems (atom #{})
+          ;; An adapter SELECTION carrying its own teardown fn, exactly the
+          ;; shape substrate.adapter/dispose-adapter! runs for the default realm.
+          adapter {:kind            :rf.adapter/conformance-teardown
+                   :dispose-adapter! (fn [] (reset! adapter-disposed? true))}
+          r       (rf/realm {:id :conf/teardown :adapter adapter})]
+      ;; Seat a host-transient inventory of two subsystems, each with a
+      ;; :teardown token the realm-dispose walk must run (one :frame-scoped,
+      ;; one :realm-scoped) — Spec-Schemas §:rf/host-transient-descriptor.
+      (realm/register-host-transient! :conf/teardown
+        {:id            :rf.test/in-flight
+         :storage-class :host-transient :scope :frame :durability :none
+         :teardown      (fn [_rid] (swap! torn-down-subsystems conj :rf.test/in-flight))})
+      (realm/register-host-transient! :conf/teardown
+        {:id            :rf.test/timers
+         :storage-class :host-transient :scope :realm :durability :none
+         :teardown      (fn [_rid] (swap! torn-down-subsystems conj :rf.test/timers))})
+      ;; Pre-conditions: the realm owns a seated adapter + a 2-entry inventory.
+      (is (= adapter (realm/realm-adapter :conf/teardown))
+          "the adapter selection is seated on the realm before dispose")
+      (is (= #{:rf.test/in-flight :rf.test/timers}
+             (set (keys (realm/host-transient :conf/teardown))))
+          "the host-transient inventory carries both subsystems before dispose")
+      ;; Dispose: the teardown seams fire.
+      (rf/dispose-realm! :conf/teardown)
+      (is (true? @adapter-disposed?)
+          "dispose-realm! ran the seated adapter's own :dispose-adapter! fn")
+      (is (= #{:rf.test/in-flight :rf.test/timers} @torn-down-subsystems)
+          "dispose-realm! ran every host-transient descriptor's :teardown token")
+      ;; Post-conditions: nothing orphaned — the realm is gone from the registry,
+      ;; so its adapter slot + host-transient inventory are unreachable.
+      (is (nil? (realm/realm :conf/teardown))
+          "the realm is dropped from the registry after teardown")
+      (is (nil? (realm/realm-adapter :conf/teardown))
+          "the adapter slot is not reachable on a disposed realm (no orphan)")
+      (is (nil? (realm/host-transient :conf/teardown))
+          "the host-transient inventory is not reachable on a disposed realm"))))
+
+(deftest dispose-realm-default-realm-teardown-is-a-no-op
+  (testing "disposing the default realm never tears down its adapter or
+            host-transient state — the default realm backs the byte-identical
+            single-realm path and is never disposed (rf2-kq0yfb)"
+    ;; The fixture seated plain-atom into the default realm; register a
+    ;; host-transient descriptor with a :teardown that would fire if the
+    ;; default-realm dispose were NOT a no-op.
+    (let [default-torn-down? (atom false)]
+      (realm/register-host-transient! realm/default-realm-id
+        {:id            :rf.test/default-guard
+         :storage-class :host-transient :scope :realm :durability :none
+         :teardown      (fn [_rid] (reset! default-torn-down? true))})
+      (rf/dispose-realm! realm/default-realm-id)
+      (rf/dispose-realm! nil)
+      (is (false? @default-torn-down?)
+          "the default realm's host-transient teardown never ran (dispose is a no-op)")
+      (is (some? (realm/realm-adapter realm/default-realm-id))
+          "the default realm's seated adapter is untouched by a dispose call")
+      (is (some? (realm/default-realm))
+          "the default realm survives the dispose call")
+      ;; Clean up the guard descriptor so it does not leak into a sibling test.
+      (realm/clear-host-transient! realm/default-realm-id))))
+
 ;; ---------------------------------------------------------------------------
 ;; (2) ISOLATION — install! seats ONLY into the target realm's registrar
 ;; ---------------------------------------------------------------------------

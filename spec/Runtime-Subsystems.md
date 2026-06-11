@@ -202,7 +202,7 @@ A subtree that answers fewer than five is ad-hoc runtime state, not a runtime su
 
 ## Runtime realms — the container
 
-> **EP-0013 D1, accepted 2026-06-11 (Mike, ruling [rf2-1vj3b6](https://github.com/day8/re-frame2/issues/rf2-1vj3b6); D1 = adopt, stands alone).** This section graduates the **realm-container model** from [EP-0013 §D1](../docs/EP/EP-0013-app-values-and-runtime-realms.md). It is **internal**: D1 ships **no public API surface** and no public source break — the four constructor names (`rf/app`, `rf/module`, `rf/realm`, `rf/install!`) are *reserved vocabulary*, not exposed (public exposure is D2/D3, staged later per the EP's `≥2-consumer` graduation criterion). What graduates here is the **shape and the ownership boundary**, so the rest of the corpus can name the container without inventing one per feature.
+> **EP-0013, accepted 2026-06-11 (Mike, ruling [rf2-1vj3b6](https://github.com/day8/re-frame2/issues/rf2-1vj3b6); D1 = adopt, stands alone).** This section graduates the **realm-container model** from [EP-0013 §D1](../docs/EP/EP-0013-app-values-and-runtime-realms.md). D1 shipped the **shape and the ownership boundary** as an internal record (no public source break), so the rest of the corpus could name the container without inventing one per feature. The reserved-vocabulary constructor names then graduated to **public API** through the staged D2/D3 rollout: `rf/module` / `rf/app` (stage 6), `rf/install!` / `rf/reinstall!` (stage 7), and `rf/realm` / `rf/dispose-realm!` (stage 9) all ship from `re-frame.core`. A single-realm app still never spells a realm — the default realm carries the program implicitly (the byte-identical single-realm path).
 
 The five-clause contract above organises the **durable** runtime-db partition: the `:rf.runtime/*` children of `:rf.db/runtime`, which ride frame-state serialization, restore, and SSR hydration. But a running app also holds a second framework-owned layer that is **not** durable frame-state — the registrar it dispatches against, the reactive adapter it renders through, the capability map its features depend on, and the **host-transient** side tables (HTTP abort handles, timers, nav counters, scroll caches, flow last-input caches, machine timer handles). Today these are mostly process-global. The **runtime realm** is the value that owns them.
 
@@ -238,7 +238,7 @@ A runtime realm MUST own:
 
 These resources share one lifecycle question — who owns them, and when are they disposed? — and the realm is the smallest useful answer. Putting them on each frame would duplicate behaviour across the common many-frames-one-app case; keeping them process-global blocks multi-tenant and multi-root operation. The realm sits between: many frames share one installed program; one process can host more than one program. The realm-record shape is [`:rf/realm`](Spec-Schemas.md#rfrealm-runtime-realm-ep-0013) in [Spec-Schemas](Spec-Schemas.md).
 
-The `:rf.realm/id` slot was reserved early ([rf2-n92kjm](https://github.com/day8/re-frame2/issues/rf2-n92kjm)) on the [dispatch-envelope](002-Frames.md#routing-the-dispatch-envelope) and the reply-map / continuation record shapes, so the later stamp is non-breaking. Adding the `:rf.realm/*` (and `:rf.capability/*`, §Capability maps) rows to the [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) table is a sequential hot-zone follow-up (Conventions is owned by a separate bead in this wave; [rf2-n92kjm](https://github.com/day8/re-frame2/issues/rf2-n92kjm) reserved the record-shape *slots*, not the namespace-table rows).
+The `:rf.realm/id` slot was reserved early ([rf2-n92kjm](https://github.com/day8/re-frame2/issues/rf2-n92kjm)) on the [dispatch-envelope](002-Frames.md#routing-the-dispatch-envelope) and the reply-map / continuation record shapes, so the later stamp is non-breaking. The `:rf.realm/*` (and `:rf.capability/*`, §Capability maps) rows are reserved in the [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) table ([rf2-n92kjm](https://github.com/day8/re-frame2/issues/rf2-n92kjm) reserved the record-shape *slots*; the namespace-table rows landed separately).
 
 ### Adapter ownership
 
@@ -277,7 +277,7 @@ A realm's **capability map** is the explicit dependency surface for runtime serv
 
 A feature (a D3 module, when manifests graduate) declares the capabilities it `:requires`; installation fails before the program becomes visible if a required capability is absent (`:rf.error/missing-capability`, with `:realm` / `:capability` / `:recovery`). Capabilities make test doubles, SSR services, tenant-specific HTTP clients, schema validators, and routing hosts explicit and injectable, rather than process-global state discovered by namespace load order.
 
-The `:rf.capability/*` capability-key namespace reservation rides the same Conventions follow-up as `:rf.realm/*` (see §What a realm owns above).
+The `:rf.capability/*` capability-key namespace is reserved in the [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) table alongside `:rf.realm/*` (see §What a realm owns above).
 
 ### Late-bind compatibility
 
@@ -349,5 +349,5 @@ Stage 8 (D1) ships the **realm-targeted public registrar query surface**: the re
 - [EP-0006](../docs/EP/EP-0006-runtime-subsystem-contract.md) — owns the durable five-clause contract; §The host-transient grading column is the EP-0013 realm-ownership amendment, not a second contract.
 - [002 §Frames reference realms](002-Frames.md#frames-reference-realms) — a frame belongs to exactly one realm; frame ids are unique within a realm.
 - [Spec-Schemas §`:rf/realm`](Spec-Schemas.md#rfrealm-runtime-realm-ep-0013) / [§`:rf/host-transient-descriptor`](Spec-Schemas.md#rfhost-transient-descriptor-ep-0013) — the realm-record and host-transient-descriptor shapes.
-- [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the framework-owned `:rf.*` reserved-namespace table (the `:rf.realm/*` + `:rf.capability/*` rows are a sequential hot-zone follow-up; the `:rf.realm/id` record-shape slot is already reserved per [rf2-n92kjm](https://github.com/day8/re-frame2/issues/rf2-n92kjm)).
+- [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the framework-owned `:rf.*` reserved-namespace table (the `:rf.realm/*` + `:rf.capability/*` rows are reserved here; the `:rf.realm/id` record-shape slot was reserved earlier per [rf2-n92kjm](https://github.com/day8/re-frame2/issues/rf2-n92kjm)).
 - [Ownership](Ownership.md) — the contract-surface → owning-Spec map; consult before naming a new runtime subsystem.

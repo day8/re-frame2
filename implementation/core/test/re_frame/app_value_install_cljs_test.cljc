@@ -139,6 +139,65 @@
       (is (nil? (registrar/lookup :event :cart/add))
           "no descriptor was seated — the failure was atomic (pre-mutation)"))))
 
+(deftest install-seating-loop-is-atomic-mid-stream-throw-rolls-back
+  (testing "install!'s seating loop is ALL-OR-NOTHING — when a descriptor throws
+            PART-WAY through (after kinds 1..N-1 already seated), the realm's
+            registrar is rolled back to its pre-install state AND no partial
+            :app is recorded; the realm's registrar + :app slot never disagree
+            (rf2-9swh84, EP-0013 §Installation step 4 'attach atomically')"
+    ;; A hermetic constructed realm so its OWN registrar is cleanly inspectable
+    ;; (empty before install; rollback must return it to empty).
+    (let [r (rf/realm {:id :atomic/r})]
+      (try
+        (is (= {} @(realm/registrar r))
+            "the hermetic realm's registrar starts empty")
+        (is (nil? (:app (realm/realm :atomic/r)))
+            "no :app stored before install")
+        ;; A 3-descriptor app — the seating loop seats them one at a time. We
+        ;; force a throw on the SECOND register! so the first descriptor has
+        ;; ALREADY landed in the realm's registrar when the loop blows up — the
+        ;; exact partial-install edge: registrar half-populated, :app not yet set.
+        (let [a (rf/app {:id :atomic/app :modules
+                         [(rf/module {:id :m
+                                      :events {:atomic/e1 {:handler cart-add}
+                                               :atomic/e2 {:handler cart-add}
+                                               :atomic/e3 {:handler cart-add}}})]})
+              calls (atom 0)
+              real-register! registrar/register!
+              ;; Redef the ACTUAL lowering target so we hit the real
+              ;; install! → seat-into-realm! → register-descriptor! → register!
+              ;; path (not a routed-around stub): seat the first descriptor for
+              ;; real, then throw mid-loop.
+              ed (with-redefs [registrar/register!
+                               (fn [kind id metadata]
+                                 (if (= 2 (swap! calls inc))
+                                   (throw (ex-info "boom: malformed descriptor mid-loop"
+                                                   {:error/id :atomic.test/boom :kind kind :id id}))
+                                   (real-register! kind id metadata)))]
+                   (try (rf/install! r a)
+                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                          (ex-data e))))]
+          (is (= :atomic.test/boom (:error/id ed))
+              "the mid-loop throw propagated out of install! (not swallowed)")
+          (is (>= @calls 2)
+              "the loop got at least two descriptors deep before the throw")
+          ;; ROLLBACK: the realm's registrar is back to its pre-install state —
+          ;; the first descriptor that DID land was rolled back, none leaked.
+          (is (= {} @(realm/registrar r))
+              "the realm's registrar is rolled back to empty — no half-populated table")
+          (is (nil? (get-in @(realm/registrar r) [:event :atomic/e1]))
+              "the descriptor that landed before the throw did not leak")
+          ;; ATOMIC :app: set-installed-app! runs only after a clean seating, so
+          ;; the failed install recorded no :app — the registrar + :app agree.
+          (is (nil? (:app (realm/realm :atomic/r)))
+              "no partial :app was recorded — set-installed-app! never ran")
+          ;; installed-app falls back to the recomputable projection when no
+          ;; :app is stored; after the rollback that projection is the EMPTY
+          ;; program (the rolled-back registrar), confirming no leak.
+          (is (= {} (:registrations (realm/installed-app r)))
+              "the realm's installed-app projects an empty program after rollback"))
+        (finally (rf/dispose-realm! :atomic/r))))))
+
 (deftest install-succeeds-when-the-realm-satisfies-requires
   (testing "install! succeeds once the realm provides the required capability"
     (with-default-realm-capabilities! {:rf.capability/http {:request! identity}})

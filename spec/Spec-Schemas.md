@@ -3406,28 +3406,28 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
 
 > **Layer:** Runtime
 > **Owner:** [Runtime-Subsystems §Runtime realms](Runtime-Subsystems.md#runtime-realms--the-container)
-> **Status:** post-v1 (EP-0013 D1 — internal record; no public constructor ships)
+> **Status:** post-v1 (EP-0013 — shipped through stage 9; the public `rf/realm` constructor + `rf/install!` / `rf/reinstall!` / `rf/dispose-realm!` + the map-shaped realm queries all ship)
 
-The runtime-realm record ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) D1, accepted 2026-06-11). A realm owns the **non-durable operational layer** an app runs in — the registrar it dispatches against, the installed adapter selection, the capability map, the frame registry, and the host-transient subsystem state — distinct from the *durable* `:rf.runtime/*` subsystems which live inside the frames the realm owns ([`:rf/runtime-db`](#rfframe-state-the-two-partition-projection-and-rfruntime-db-the-runtime-partition)). **The realm record shape is internal — no public `rf/realm` constructor ships yet** (the name is reserved vocabulary; the constructor graduates with the stage-9 multi-adapter conformance slice, EP-0013 issue 1). What DOES ship (D1 stage 8) is the **realm-targeted public registrar query** — the map-shaped `(rf/registrations {:realm r :kind k})` / `(rf/handler-meta {:realm r :kind k :id id})` forms that read only the specified realm's registrar (issue 11), the realm being addressed by id keyword or by the realm map. The process creates one **default realm** (`:rf.realm/id` = `:rf.realm/default`) that backs existing `reg-*` / adapter-install / registrar-query call shapes; absence of an explicit realm means the default realm, an explicit documented rule.
+The runtime-realm record ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md), accepted 2026-06-11). A realm owns the **non-durable operational layer** an app runs in — the registrar it dispatches against, the installed adapter selection, the capability map, the frame registry, and the host-transient subsystem state — distinct from the *durable* `:rf.runtime/*` subsystems which live inside the frames the realm owns ([`:rf/runtime-db`](#rfframe-state-the-two-partition-projection-and-rfruntime-db-the-runtime-partition)). As of EP-0013 **stage 9** the realm has a **public constructor** — `rf/realm` (`construct-realm`, re-exported from `re-frame.core`; the name is reserved vocabulary, ruled `rf/realm` and never `rf/runtime`, EP-0013 issue 1) — that stands up a hermetic, registered realm to `rf/install!` an app value into and target the realm-scoped queries against; `rf/dispose-realm!` is its teardown counterpart (it tears down the realm's adapter + host-transient state, then drops it from the registry — the default realm is never disposed). The **realm-targeted public registrar query** (D1 stage 8) — the map-shaped `(rf/registrations {:realm r :kind k})` / `(rf/handler-meta {:realm r :kind k :id id})` forms that read only the specified realm's registrar (issue 11), the realm being addressed by id keyword or by the realm map — ships alongside. The process creates one **default realm** (`:rf.realm/id` = `:rf.realm/default`) that backs existing `reg-*` / adapter-install / registrar-query call shapes; absence of an explicit realm means the default realm, an explicit documented rule (a single-realm app never spells a realm — the byte-identical single-realm path).
 
 ```clojure
 (def Realm
   ;; Open map; an implementation MAY represent it as a record for host
-  ;; efficiency, but MUST expose this data projection for tooling. None of
-  ;; these fields is a public read surface in D1 — the projection is for
-  ;; conformance and the eventual (D2/D3) tooling.
+  ;; efficiency, but MUST expose this data projection for tooling /
+  ;; conformance (the realm-scoped registrar queries + the installed-app
+  ;; read surface project over it).
   [:map
    [:rf.realm/id   :keyword]                                ;; stable, process-unique; the default realm is :rf.realm/default
    [:adapter       {:optional true} :any]                   ;; the realm's adapter SELECTION (capability) — render roots own concrete instances. CLJS reference: a keyword id (:reagent / :uix / :helix / :plain-atom) or the adapter value
-   [:capabilities  {:optional true} [:map-of :keyword :any]] ;; :rf.capability/* → service map/record (http, clock, random, schemas, routes, ssr, test doubles)
+   [:capabilities  {:optional true} [:map-of :keyword :any]] ;; :rf.capability/* → service map/record (http, clock, random, schemas, routes, ssr, test doubles). Checked by install! against the app's :requires
    [:frames        {:optional true} [:set :keyword]]        ;; frame ids registered in this realm — unique WITHIN the realm (not globally)
    [:host-transient {:optional true} [:map-of :keyword #'HostTransientDescriptor]] ;; subsystem-id → descriptor for the realm-owned non-durable side tables
-   ;; --- D2/D3, RESERVED here, never required in D1 (the container only) ---
-   [:app           {:optional true} :any]                   ;; the installed app VALUE (D2) — immutable descriptor projection
-   [:lifecycle     {:optional true} [:map [:disposed? {:optional true} :boolean]]]])
+   ;; --- the installed app value (shipped, stage 7); :lifecycle still D3-reserved ---
+   [:app           {:optional true} :any]                   ;; the installed app VALUE — the immutable descriptor program install!/reinstall! seat at the realm boundary
+   [:lifecycle     {:optional true} [:map [:disposed? {:optional true} :boolean]]]]) ;; D3-RESERVED, never required (dispose-realm! drops the registry entry rather than stamping a slot)
 ```
 
-The `:app` slot is reserved for the D2 app-value (registrations as immutable descriptors); D1 may hold today's mutable registrar behind the realm unchanged and leaves `:app` absent. The `:rf.realm/id` record-shape slot is already reserved ([rf2-n92kjm](https://github.com/day8/re-frame2/issues/rf2-n92kjm)); adding the `:rf.realm/*` + `:rf.capability/*` rows to the [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) table is a sequential hot-zone follow-up.
+The `:app` slot holds the **installed app value** (registrations as immutable descriptors): `rf/install!` lowers an app value into the realm's registrar and records the seated value here, so `rf/reinstall!` can diff against it and `installed-app` returns it in preference to the recomputable projection. A realm booted purely through the `reg-*` sugar path leaves `:app` absent and projects its program over the registrar instead — the slot is populated only by an explicit `install!`. The `:rf.realm/id` record-shape slot was reserved early ([rf2-n92kjm](https://github.com/day8/re-frame2/issues/rf2-n92kjm)); the `:rf.realm/*` + `:rf.capability/*` namespace rows are now reserved in the [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) table.
 
 ### `:rf/host-transient-descriptor` (EP-0013)
 
