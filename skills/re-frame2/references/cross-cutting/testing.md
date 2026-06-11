@@ -65,6 +65,28 @@ Capture intermediate states with `:after-each`:
 
 Target a non-default frame with `{:frame :feature/frame-id}` in the trailing opts map.
 
+## Pinning world inputs: `:rf.world/inputs` in dispatch opts
+
+A handler that writes a durable timestamp / generated id reads it from the EP-0010 causal world-input coeffect `:rf.world/inputs` (`:time-ms`, `:uuid`, `:random`, …), not from an ambient `js/Date` / `random-uuid` call. That makes the handler a pure function of its inputs — and a test pins those inputs by passing `:rf.world/inputs` in the dispatch opts. The runtime preserves a supplied map verbatim (filling only `:time-ms` when absent), so the durable write becomes deterministic:
+
+```clojure
+;; Handler under test reads :time-ms off the world-input coeffect:
+;; (rf/reg-event-fx :todo/create
+;;   (fn [{:keys [db] :rf.world/keys [inputs]} [_ text]]
+;;     {:db (assoc-in db [:todos :t1] {:text text :created-at (:time-ms inputs)})}))
+
+(rf/dispatch-sync [:todo/create "write spec"]
+  {:rf.world/inputs {:time-ms 1700000000000}})        ;; pin the durable clock
+(ts/assert-path-equals [:todos :t1 :created-at] 1700000000000)
+
+;; Pin generated ids / random choices the same way:
+(rf/dispatch-sync [:todo/create "write spec"]
+  {:rf.world/inputs {:time-ms 1700000000000
+                     :uuid    {:todo/id #uuid "00000000-0000-0000-0000-000000000001"}}})
+```
+
+`ts/dispatch-sequence`'s trailing opts and per-frame `reg-frame` config accept the same `:rf.world/inputs` key, so a multi-event scenario can pin a fixed clock across the sequence. If you omit it, the runtime stamps `:time-ms` itself (the wall clock at dispatch) — fine for a non-durable assertion, but pin it whenever a durable timestamp/id is what the test asserts, so the assertion can't drift with the clock. (A durable host fact behind a *recordable* cofx is pinned by stubbing that cofx — see [§HTTP and other side-effecting fx](#http-and-other-side-effecting-fx) for the cofx-override shape; a plain ambient cofx for a diagnostic read needs no pinning.)
+
 ## Pinning a frame: `with-frame`
 
 `with-frame` binds the active frame inside the body. Two shapes:

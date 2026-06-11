@@ -32,13 +32,35 @@ Verified in `implementation/core/src/re_frame/cofx.cljc` (the `reg-cofx` and `in
 
 ```clojure
 (rf/reg-event-fx :id
-  [(rf/inject-cofx :now) (rf/inject-cofx :random-id)]   ;; interceptors slot
-  (fn [{:keys [db now random-id]} [_ payload]] ...))
+  [(rf/inject-cofx :browser-locale) (rf/inject-cofx :feature/new-checkout?)]   ;; interceptors slot
+  (fn [{:keys [db browser-locale] :feature/keys [new-checkout?]} [_ payload]] ...))
 ```
+
+> For durable *time* and durable *ids*, prefer `:rf.world/inputs` (`:time-ms`, `:uuid`, `:random`) over a hand-rolled `:now` / `:random-id` cofx — see [§`:rf.world/inputs` for durable host facts](#rfworldinputs-for-durable-host-facts--read-the-token-dont-register-a-clock-cofx). Plain cofx are for non-durable / diagnostic inputs like the ones above.
 
 ## Standard cofx
 
-The runtime ships `:db` and `:event` — both are already populated on the context before the chain runs (the standard `:db` / `:event` cofx in `cofx.cljc`), so explicitly injecting them is a no-op. They exist for symmetry with v1. Everything else (current time, browser language, localStorage values, ids) is user-registered.
+The runtime ships `:db`, `:event`, and `:rf.world/inputs` — all populated on the context before the chain runs (the standard cofx in `cofx.cljc`), so explicitly injecting them is a no-op. `:db` / `:event` exist for symmetry with v1; `:rf.world/inputs` is the EP-0010 causal world-input map (see below). Everything else (browser language, localStorage values, custom inputs) is user-registered.
+
+## `:rf.world/inputs` for durable host facts — read the token, don't register a clock cofx
+
+Before you register a cofx for current time / a generated id / a browser fact, ask **where the value lands**. re-frame2's durable-write rule (Spec 002 §Causal world inputs, graduated from EP-0010): *a host fact that decides a durable write — anything written to app-db, runtime-db, a resource, a machine snapshot, a work-ledger row, or a hydration payload — MUST come from the causal token or a recordable coeffect, never an ambient host read at the write site.* Otherwise the same event replays to a different value (epoch restore / SSR hydration / time-travel all diverge).
+
+The framework already carries those facts on every dispatch envelope as the `:rf.world/inputs` coeffect:
+
+- **Durable wall-clock time → `:rf.world/inputs` `:time-ms`.** This is the canonical durable timestamp — `:created-at` / `:updated-at`, resource `:loaded-at`, ledger `:started-at` / `:completed-at`, etc. It is stamped once at the causal boundary, pinnable by tests/replay, and replayed from the token on restore. **Do not register a `:now` cofx that reads `js/Date` for a durable timestamp** — read `:time-ms` off the world-input coeffect instead.
+
+```clojure
+(rf/reg-event-fx :todo/create
+  (fn [{:keys [db] :rf.world/keys [inputs]} [_ {:keys [text]}]]
+    {:db (assoc-in db [:todos (random-uuid)]                 ;; (id also a world-input candidate — see below)
+                   {:text text :created-at (:time-ms inputs)})}))  ;; durable time from the token
+```
+
+- **Generated ids / random choices / durable host facts** (a localStorage value, a browser fact that *becomes durable state*) ride `:rf.world/inputs` subsystem keys (`:uuid`, `:random`, `:storage`, `:browser/*`) **or** a **recordable** `reg-cofx` — a cofx whose value is EDN-serializable, captured in the replay record, and returned from the record on replay rather than re-read from the host. Declare `:schema` on such a cofx so the recorded value is validated.
+- **Ambient `reg-cofx` is for diagnostics / host-transient reads only** — a value used in a dev log, a perf span, or a host-transient side-table that decides **no** durable write. There an ordinary unrecorded cofx (or the inline-interceptor escape hatch) is correct.
+
+The rule is "no hidden host facts in durable writes," not "no cofx for host reads": a custom input that never lands in durable state stays a plain cofx. The `:rf.world/keys [inputs]` destructuring above pulls the world-input map out of the coeffect context like any other coeffect.
 
 ## Canonical mini-example
 
@@ -86,39 +108,47 @@ But many cofxes never claim those benefits. A handler that needs a current-milli
 - never stubbed in tests
 - the cofx body is trivial (a single `assoc-in` typically)
 
-Default to `reg-cofx` for anything that names a generally-useful input (`:now`, `:new-id`, `:local-store`, browser locale, anything cross-cutting). Reach for the inline form only when the registry indirection visibly buys nothing.
+Default to `reg-cofx` for anything that names a generally-useful input (`:new-id`, `:local-store`, browser locale, anything cross-cutting). Reach for the inline form only when the registry indirection visibly buys nothing. (For durable *time*, neither form: read `:rf.world/inputs` `:time-ms` — see above. The cofx-vs-inline trade below is illustrated with a **non-durable** host read, a localStorage feature flag that gates a runtime decision and never lands in durable app-db state.)
 
 ### Worked example — both forms
 
+A localStorage feature flag read to *decide which branch runs* — the read powers a runtime gate, not a durable write, so it is a legitimate ambient cofx either way:
+
 ```clojure
 ;; Registry path (preferred when reuse / stubbing / enumeration matter):
-(rf/reg-cofx :now
-  {:doc "Inject the current wall-clock time into coeffects under :now."}
-  (fn [ctx] (assoc-in ctx [:coeffects :now] (.getTime (js/Date.)))))
+(rf/reg-cofx :feature/new-checkout?
+  {:doc "Inject the local 'new-checkout' feature flag from localStorage."}
+  (fn [ctx]
+    (assoc-in ctx [:coeffects :feature/new-checkout?]
+              (= "on" (some-> (.-localStorage js/globalThis)
+                              (.getItem "ff:new-checkout"))))))
 
-(rf/reg-event-fx :ping
-  [(rf/inject-cofx :now)]
-  (fn [{:keys [db now]} _]
-    {:db (assoc db :last-ping now)}))
+(rf/reg-event-fx :checkout/begin
+  [(rf/inject-cofx :feature/new-checkout?)]
+  (fn [{:keys [db] :feature/keys [new-checkout?]} _]
+    {:fx [[:dispatch (if new-checkout? [:checkout/v2-start] [:checkout/v1-start])]]}))
 
 ;; Inline-interceptor path (preferred when ceremony outweighs benefit):
-(def ^:private inject-now
-  {:id     ::inject-now
-   :before (fn [ctx] (assoc-in ctx [:coeffects :now] (.getTime (js/Date.))))})
+(def ^:private inject-new-checkout-flag
+  {:id     ::inject-new-checkout-flag
+   :before (fn [ctx]
+             (assoc-in ctx [:coeffects :feature/new-checkout?]
+                       (= "on" (some-> (.-localStorage js/globalThis)
+                                       (.getItem "ff:new-checkout")))))})
 
-(rf/reg-event-fx :ping
-  [inject-now]
-  (fn [{:keys [db now]} _]
-    {:db (assoc db :last-ping now)}))
+(rf/reg-event-fx :checkout/begin
+  [inject-new-checkout-flag]
+  (fn [{:keys [db] :feature/keys [new-checkout?]} _]
+    {:fx [[:dispatch (if new-checkout? [:checkout/v2-start] [:checkout/v1-start])]]}))
 ```
 
-Both produce identical runtime behaviour for this event. The trade is per the rubric above — the inline form trades registry-id-addressability (and everything that flows from it) for one fewer indirection.
+Both produce identical runtime behaviour for this event. The trade is per the rubric above — the inline form trades registry-id-addressability (and everything that flows from it) for one fewer indirection. Note the flag value decides only *which event dispatches*; it is never written into app-db, so an ambient read is correct. If the flag's value were instead *persisted* into app-db (a durable write), it would need a recordable cofx (or to ride `:rf.world/inputs` `:storage`) so a replay reproduces the recorded flag rather than re-reading localStorage.
 
 The narrative treatment for humans is at [`docs/guide/07-effects-and-coeffects.md`](../../../../docs/guide/07-effects-and-coeffects.md) §When `reg-cofx` is overkill.
 
 ## Why coeffects instead of `(.-localStorage ...)` in the handler?
 
-Pure handlers are testable, replayable (for re-frame2-pair epoch restore), and serialisable (for SSR snapshots). A handler that reads `Date.now()` directly is non-deterministic; the same handler that destructures `now` from coeffects is a pure function of its inputs.
+Pure handlers are testable, replayable (for re-frame2-pair epoch restore), and serialisable (for SSR snapshots). A handler that reads `localStorage` (or `Date.now()`, `Math.random`) directly is non-deterministic; the same handler that destructures the value off its coeffect map (or, for durable time/ids, off `:rf.world/inputs`) is a pure function of its inputs. For durable host facts the coeffect must additionally be **recordable** (or carried on `:rf.world/inputs`) so replay returns the captured value rather than re-reading the host — see [§`:rf.world/inputs` for durable host facts](#rfworldinputs-for-durable-host-facts--read-the-token-dont-register-a-clock-cofx) above. For a diagnostic / host-transient read an ordinary ambient cofx is enough.
 
 ## Reading a sub from a handler — `subscribe-once`, preferably wrapped as a cofx
 
@@ -170,6 +200,7 @@ Narrative treatment of the same pattern (for humans): [`docs/guide/07-effects-an
 - **The injected key convention is the cofx-id itself.** Stash under `[:coeffects :my/cofx-id]` so destructuring with `{:my/keys [...]}` works cleanly. If `:schema` validation is declared on the cofx metadata, the validator looks up under the cofx-id key (`maybe-validate-cofx!` in `cofx.cljc`).
 - **Order matters.** Interceptors run in vector order; a cofx that depends on another cofx's value must come after it.
 - **Two-arg form is for parameterised injection.** Use `(inject-cofx :random-int max-value)` when the same cofx-id needs a different value per attachment.
+- **A cofx that feeds a durable write must be recordable — or use `:rf.world/inputs`.** A plain ambient cofx re-reads the host on replay, so a value it writes into app-db (a timestamp, a generated id, a persisted host fact) replays to a *different* value. For durable time/ids prefer `:rf.world/inputs` (`:time-ms` / `:uuid` / `:random`); for other durable host facts make the cofx recordable (stable id, EDN value captured in the replay record, returned from the record on replay). Diagnostic / host-transient reads (a value that decides no durable write) may stay ambient. See [§`:rf.world/inputs` for durable host facts](#rfworldinputs-for-durable-host-facts--read-the-token-dont-register-a-clock-cofx).
 - **Missing registration is a structured error trace, not a throw.** `inject-cofx` of an unregistered id emits `:rf.error/no-such-cofx` (carrying `:cofx-id`, `:event-id`, and the optional 2-arity `:cofx-value`) and lets the ctx flow through unchanged (`cofx.cljc:~78,88`). Subscribe via `register-listener!` (or watch through Xray / re-frame2-pair) to surface these.
 - **`:platforms #{:client}` makes the cofx skip silently under an SSR-server frame.** A `:rf.cofx/skipped-on-platform` warning trace fires (carrying `:cofx-id`, `:frame`, `:platform`, `:registered-platforms`, and on the 2-arity form `:cofx-value`); the event handler still runs but reads `nil` for the injected key. Active platform comes from the frame's `:config :platform` (set by the `:ssr-server` preset) falling back to the host-wide marker `(interop/active-platform)` (settable at boot via `(rf/init-platform :server|:client)`). Check this first if a cofx mysteriously doesn't fire under SSR. Spec: `spec/011-SSR.md` §Effect handling on the server.
 
