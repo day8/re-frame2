@@ -26,7 +26,8 @@
    STATUS. Resources is a POST-V1 optional artefact and the read-resource
    runtime + mutations have LANDED (EP-0003, final on main 2026-06-11), so all
    of this runs live. The example tree is test-free (rf2-8cevm)."
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string]
+            [re-frame.core :as rf]
             ;; Managed HTTP ships in day8/re-frame2-http — the single built-in
             ;; resource/mutation transport (Spec 016 §Transport). Loading the
             ;; ns registers the `:rf.http/managed` fx the runtime lowers each
@@ -53,6 +54,44 @@
    inactive (Spec 016 §Stale and GC scheduling)."
   (* 5 60 1000))
 
+;; ============================================================================
+;; PAGINATION — every server-visible list parameter lives in `:params`
+;; ============================================================================
+;;
+;; The Conduit list endpoints page with `limit` / `offset`; the UI is
+;; 1-indexed and the page size is fixed (Spec 016 §Paginated and previous
+;; data). The headline this exercises: pagination is DECLARATIVE on resources.
+;; The `:page` is just another `:params` key, so page N and page N+1 are
+;; DISTINCT cache entries (canonical-params identity) — back-navigating to a
+;; previously-loaded page is a cache-hit (no fetch), and `:keep-previous?` on
+;; the route entry keeps the prior page visible while the next first-loads
+;; (no flicker). No `:status` / `:loading?` app-db field, no manual page-cache
+;; map — the framework owns it.
+
+(def page-size
+  "The fixed Conduit list page size (the official client's value). The demo
+   stub synthesises enough articles that several pages exist (see
+   realworld-resources.http)."
+  10)
+
+(defn page->limit-offset
+  "Map a 1-indexed `:page` (nil → page 1) to the Conduit `limit` / `offset`
+   query pair. Pure — a page is just another canonical-params key, so this is
+   the only place page math lives."
+  [page]
+  (let [p (max 1 (or page 1))]
+    {:limit  page-size
+     :offset (* (dec p) page-size)}))
+
+(defn- with-pagination
+  "Append the `limit` / `offset` query pair derived from `:page` to a list URL
+   that already carries (or lacks) a query string. Keeps the resource
+   `:request` fns terse while every page stays a distinct cache key."
+  [url page]
+  (let [{:keys [limit offset]} (page->limit-offset page)
+        sep (if (clojure.string/includes? url "?") "&" "?")]
+    (str url sep "limit=" limit "&offset=" offset)))
+
 ;; Reads retry / writes don't (Spec 014). Each read's `:request` returns the
 ;; shared `rh/data-fetch-retry` policy in its managed-HTTP args; `:retry`
 ;; passes through the resource lowering UNCHANGED (Spec 016 §Transport), so a
@@ -71,18 +110,26 @@
 ;; security-review list.
 
 (rf/reg-resource :realworld/articles
-  {:doc            "The global article list, optionally filtered by `:tag`.
-                    Every server-visible option (the tag) is in params, so a
-                    tag-filtered list and the unfiltered list are DISTINCT
-                    cache entries (Spec 016 §Paginated and previous data)."
-   :params-schema  [:map [:tag {:optional true} [:maybe :string]]]
+  {:doc            "The global article list, optionally filtered by `:tag` and
+                    paginated by `:page` (1-indexed). EVERY server-visible
+                    option (the tag AND the page) is in params, so a
+                    tag-filtered list, the unfiltered list, and each page are
+                    DISTINCT cache entries (Spec 016 §Paginated and previous
+                    data). Back-navigating to a previously-loaded page is a
+                    cache-hit; the route's `:keep-previous?` keeps the prior
+                    page visible while the next first-loads."
+   :params-schema  [:map
+                    [:tag  {:optional true} [:maybe :string]]
+                    [:page {:optional true} [:maybe :int]]]
    :data-schema    schema/ArticlesResponse
    :scope          :rf.scope/global
-   :request        (fn [{:keys [tag]} _ctx]
+   :request        (fn [{:keys [tag page]} _ctx]
                      {:request {:method :get
-                                :url    (rh/full-url (if tag
-                                                       (str "/articles?tag=" tag)
-                                                       "/articles"))}
+                                :url    (-> (if tag
+                                              (str "/articles?tag=" tag)
+                                              "/articles")
+                                            rh/full-url
+                                            (with-pagination page))}
                       :decode  schema/ArticlesResponse
                       :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
@@ -138,18 +185,51 @@
    :tags           (fn [{:keys [username]} _data] #{[:profile username]})})
 
 (rf/reg-resource :realworld/author-articles
-  {:doc            "Articles authored by a profile (public)."
-   :params-schema  [:map [:username :string]]
+  {:doc            "Articles authored by a profile (public). Paginated by
+                    `:page` — each page is a distinct cache entry."
+   :params-schema  [:map
+                    [:username :string]
+                    [:page {:optional true} [:maybe :int]]]
    :data-schema    schema/ArticlesResponse
    :scope          :rf.scope/global
-   :request        (fn [{:keys [username]} _ctx]
-                     {:request {:method :get :url (rh/full-url (str "/articles?author=" username))}
+   :request        (fn [{:keys [username page]} _ctx]
+                     {:request {:method :get
+                                :url    (-> (str "/articles?author=" username)
+                                            rh/full-url
+                                            (with-pagination page))}
                       :decode  schema/ArticlesResponse
                       :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [{:keys [username]} data]
                      (into #{[:author-articles username]}
+                           (map (fn [a] [:article (:slug a)]) (:articles data))))})
+
+(rf/reg-resource :realworld/favorited-articles
+  {:doc            "Articles a profile has FAVORITED (public). GET
+                    `/articles?favorited=:username` — the backing read for the
+                    profile's Favorited-Articles tab. Paginated by `:page`.
+                    Tags both its own list identity AND every article it
+                    contains, so the existing favorite / unfavorite mutations
+                    (which stale `[:article slug]`) refetch this list with no
+                    extra wiring — favoriting from the tab drops the article
+                    out of it on the next refetch."
+   :params-schema  [:map
+                    [:username :string]
+                    [:page {:optional true} [:maybe :int]]]
+   :data-schema    schema/ArticlesResponse
+   :scope          :rf.scope/global
+   :request        (fn [{:keys [username page]} _ctx]
+                     {:request {:method :get
+                                :url    (-> (str "/articles?favorited=" username)
+                                            rh/full-url
+                                            (with-pagination page))}
+                      :decode  schema/ArticlesResponse
+                      :retry   rh/data-fetch-retry})
+   :stale-after-ms stale-after-ms
+   :gc-after-ms    gc-after-ms
+   :tags           (fn [{:keys [username]} data]
+                     (into #{[:favorited-articles username]}
                            (map (fn [a] [:article (:slug a)]) (:articles data))))})
 
 (rf/reg-resource :realworld/tags
@@ -181,12 +261,16 @@
 (rf/reg-resource :realworld/feed
   {:doc            "The authenticated user's feed (`/articles/feed`). Session-
                     scoped: a logged-out user must never see a prior user's
-                    feed from cache."
-   :params-schema  [:map]
+                    feed from cache. Paginated by `:page` — the page rides the
+                    params on top of the session scope, so each (scope, page)
+                    is a distinct cache entry."
+   :params-schema  [:map [:page {:optional true} [:maybe :int]]]
    :data-schema    schema/ArticlesResponse
    :scope          :rf.scope/from-caller
-   :request        (fn [_params _ctx]
-                     {:request {:method :get :url (rh/full-url "/articles/feed")}
+   :request        (fn [{:keys [page]} _ctx]
+                     {:request {:method :get
+                                :url    (-> (rh/full-url "/articles/feed")
+                                            (with-pagination page))}
                       :decode  schema/ArticlesResponse
                       :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms

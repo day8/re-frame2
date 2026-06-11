@@ -24,7 +24,8 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.resources]
-            [realworld-resources.http :as rh])
+            [realworld-resources.http :as rh]
+            [realworld-resources.resources :as resources])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -46,17 +47,26 @@
 (rf/reg-event-fx :home/on-match
   {:doc "Home route entry: ensure the authenticated user's feed (session-
          scoped) under a releaseable lease. A no-op for a logged-out visitor —
-         no scope, no fetch (the feed never leaks across users)."}
-  (fn [{:keys [db]} _]
+         no scope, no fetch (the feed never leaks across users). The `?page=`
+         flows into the feed's `:params` (it rides the params, not the route
+         plan, for a session-scoped read), so each page is a distinct (scope,
+         page) cache entry just like the public lists."}
+  (fn [{:keys [db] rt :rf.db/runtime} _]
     (if-let [user (get-in db [:auth :user])]
-      (let [scope    [:rf.scope/session {:username (:username user)}]]
+      (let [scope [:rf.scope/session {:username (:username user)}]
+            page  (get-in rt [:rf.runtime/routing :current :query :page])]
         {:fx [[:dispatch [:rf.resource/ensure
                           {:resource :realworld/feed
                            :scope    scope
-                           :params   {}
+                           :params   {:page page}
                            :owner    [:lease :realworld/your-feed (:username user)]
                            :cause    [:route-entry :realworld/home]}]]]})
       {})))
+
+;; Switching feed / tab / tag RESETS pagination to page 1 (a new filter is a
+;; fresh list); paging KEEPS the current feed + tag and only changes `?page=`.
+;; The page lives in the route query, so it flows straight into the resource
+;; params — no page-cache map, no `:status` field.
 
 (rf/reg-event-fx :home/show-global-feed
   (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {}}]]]}))
@@ -70,9 +80,23 @@
 (rf/reg-event-fx :home/clear-tag
   (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {}}]]]}))
 
+;; Page navigation preserves the active feed + tag (read off the live route
+;; query) and swaps only `?page=` — so page N and N+1 share filter but are
+;; distinct cache keys. Page 1 drops the param entirely (the canonical
+;; first-page URL).
+(rf/reg-event-fx :home/go-to-page
+  (fn [{rt :rf.db/runtime} [_ page]]
+    (let [{:keys [tag feed]} (get-in rt [:rf.runtime/routing :current :query])
+          query (cond-> {}
+                  tag         (assoc :tag tag)
+                  feed        (assoc :feed feed)
+                  (> page 1)  (assoc :page page))]
+      {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query query}]]]})))
+
 (rf/reg-sub :home/query :<- [:rf.route/query] (fn [q _] (or q {})))
 (rf/reg-sub :home/selected-tag :<- [:home/query] (fn [q _] (:tag q)))
 (rf/reg-sub :home/your-feed?   :<- [:home/query] (fn [q _] (= "your" (:feed q))))
+(rf/reg-sub :home/page         :<- [:home/query] (fn [q _] (or (:page q) 1)))
 
 ;; ============================================================================
 ;; FAVORITE / FOLLOW — fire a mutation, watch its instance
@@ -162,24 +186,73 @@
       [:span "Read more..."]
       (into [:ul.tag-list] (for [tag tagList] ^{:key tag} [:li.tag-default.tag-pill.tag-outline tag]))]]))
 
+;; ----------------------------------------------------------------------------
+;; PAGINATION CONTROL — official Conduit shape (numbered 1-indexed pages)
+;; ----------------------------------------------------------------------------
+;;
+;; Page count is derived from the server's `articlesCount` and the fixed
+;; `page-size` — the view never tracks "how many pages" in app-db; it's a pure
+;; function of the loaded data. Each page link is a navigation that swaps only
+;; `?page=`, so paging is declarative: the route plan re-ensures the list under
+;; the new page key (a distinct cache entry).
+
+(reg-view ^{:doc "Official-style numbered pagination. `:articles-count` is the
+                  server total (from the resource's `articlesCount`);
+                  `:current-page` is 1-indexed; `:on-page` is called with a page
+                  number to navigate. Renders nothing for a single page."}
+          pagination [{:keys [articles-count current-page on-page]}]
+  (let [total-pages (max 1 (js/Math.ceil (/ (or articles-count 0) resources/page-size)))]
+    (when (> total-pages 1)
+      (into [:nav [:ul.pagination {:data-testid "pagination"}]]
+            (for [p (range 1 (inc total-pages))]
+              ^{:key p}
+              [:li.page-item {:class (when (= p current-page) "active")}
+               [:a.page-link {:href "#" :data-testid (str "page-" p)
+                              :on-click #(do (.preventDefault %) (on-page p))}
+                p]])))))
+
 (reg-view ^{:doc "Render a list-resource state: skeleton / error / list, with a
-                  background-refresh indicator + warning."}
-          article-list [{:keys [state empty-msg]}]
+                  background-refresh indicator + warning, the keep-previous
+                  placeholder, and (when `:articles-count` + `:on-page` are
+                  given) numbered pagination.
+
+                  `:keep-previous?` projection: while a NEW page/filter key
+                  first-loads, the resource state carries `:previous? true` +
+                  `:previous-data` (the prior key's articles). We render those
+                  PLUS a placeholder indicator so the user sees the old page,
+                  not a skeleton, until the new page settles — no flicker
+                  (Spec 016 §Paginated and previous data)."}
+          article-list [{:keys [state empty-msg current-page on-page]}]
   (cond
-    (:loading? state) [:div.article-preview {:data-testid "list-skeleton"} "Loading articles…"]
-    (and (:error state) (not (:has-data? state)))
+    ;; First-ever load with no usable data AND no previous page to show.
+    (and (:loading? state) (not (:previous? state)))
+    [:div.article-preview {:data-testid "list-skeleton"} "Loading articles…"]
+
+    (and (:error state) (not (:has-data? state)) (not (:previous? state)))
     [:div.article-preview.error {:data-testid "list-error"}
      (str "Couldn't load articles: " (rh/failure->message (:error state)))]
+
     :else
-    (let [articles (:articles (:data state))]
+    ;; Prefer this key's own data; fall back to the kept-previous projection
+    ;; while the new page first-loads (no skeleton flash on page change).
+    (let [data           (or (:data state) (:previous-data state))
+          articles       (:articles data)
+          articles-count (:articlesCount data)]
       [:<>
+       (when (:previous? state)
+         [:div.refresh-indicator {:data-testid "list-keeping-previous"}
+          "Loading next page…"])
        (when (:fetching? state) [:div.refresh-indicator {:data-testid "list-refreshing"} "Refreshing…"])
        (when (:refresh-error state)
          [:div.refresh-warn {:data-testid "list-refresh-warn"} "Refresh failed; showing last-known data."])
        (if (seq articles)
          (into [:div {:data-testid "article-list"}]
                (for [a articles] ^{:key (:slug a)} [article-preview {:article a}]))
-         [:div.article-preview {:data-testid "list-empty"} (or empty-msg "No articles are here… yet.")])])))
+         [:div.article-preview {:data-testid "list-empty"} (or empty-msg "No articles are here… yet.")])
+       (when (and on-page articles-count)
+         [pagination {:articles-count articles-count
+                      :current-page   (or current-page 1)
+                      :on-page        on-page}])])))
 
 ;; ============================================================================
 ;; HOME PAGE
@@ -189,17 +262,21 @@
   (let [authed?      @(subscribe [:auth/authenticated?])
         your-feed?   @(subscribe [:home/your-feed?])
         selected-tag @(subscribe [:home/selected-tag])
+        page         @(subscribe [:home/page])
         session-scope @(subscribe [:session/scope])
         tags-state   @(subscribe [:rf.resource/state {:resource :realworld/tags :params {}}])
-        ;; The global list is keyed by the active `:tag` (nil when unfiltered).
+        ;; The global list is keyed by the active `:tag` AND `:page` — the SAME
+        ;; params the route ensured under, so the sub reads the right cache key
+        ;; (Spec 016 §Paginated and previous data).
         list-state   @(subscribe [:rf.resource/state {:resource :realworld/articles
-                                                       :params  {:tag selected-tag}}])
-        ;; The personalised feed reads under the SAME session scope the route
-        ;; ensured it under — passed explicitly so it isn't a silent
+                                                       :params  {:tag selected-tag :page page}}])
+        ;; The personalised feed reads under the SAME session scope AND page the
+        ;; route ensured it under — passed explicitly so it isn't a silent
         ;; cross-scope `:idle` (Spec 016 §Subscription-side scope resolution).
         feed-state   (when (and authed? session-scope)
                        @(subscribe [:rf.resource/state {:resource :realworld/feed
-                                                        :scope   session-scope :params {}}]))]
+                                                        :scope   session-scope
+                                                        :params  {:page page}}]))]
     [:div.home-page
      [:div.banner [:div.container [:h1.logo-font "conduit"] [:p "A place to share your knowledge."]]]
      [:div.container.page
@@ -224,8 +301,10 @@
                                   :on-click #(do (.preventDefault %) (dispatch [:home/clear-tag]))}
               [:i.ion-pound] " " selected-tag]])]]
         (if (and authed? your-feed?)
-          [article-list {:state feed-state :empty-msg "Your feed is empty — follow some authors."}]
-          [article-list {:state list-state}])]
+          [article-list {:state feed-state :empty-msg "Your feed is empty — follow some authors."
+                         :current-page page :on-page #(dispatch [:home/go-to-page %])}]
+          [article-list {:state list-state
+                         :current-page page :on-page #(dispatch [:home/go-to-page %])}])]
        [:div.col-md-3
         [:div.sidebar
          [:p "Popular Tags"]
@@ -327,14 +406,42 @@
      [:p [rf/route-link {:to :realworld/home :data-testid "back-home"} "← Back to feed"]]]))
 
 ;; ============================================================================
-;; PROFILE
+;; PROFILE  —  two official tabs: My Articles / Favorited Articles
 ;; ============================================================================
+;;
+;; The two tabs are two ROUTES (`:realworld.profile/show` for authored,
+;; `:realworld.profile/favorites` for favorited), each declaring its list read
+;; as route `:resources`. The active tab is just the current route id — no tab
+;; state in app-db. The view reads the route id to pick which list resource to
+;; subscribe to, and the page off the route query.
+
+(rf/reg-sub :profile/favorites-tab? :<- [:rf.route/id]
+  (fn [id _] (= id :realworld.profile/favorites)))
+(rf/reg-sub :profile/page :<- [:rf.route/query]
+  (fn [q _] (or (:page q) 1)))
+
+;; Page navigation on a profile tab preserves the current route + username and
+;; swaps only `?page=`. Page 1 drops the param (the canonical first-page URL).
+(rf/reg-event-fx :profile/go-to-page
+  (fn [{rt :rf.db/runtime} [_ page]]
+    (let [{:keys [current]} (get rt :rf.runtime/routing)
+          {:keys [id params]} current
+          query (cond-> {} (> page 1) (assoc :page page))]
+      {:fx [[:dispatch [:rf.route/navigate id params {:query query}]]]})))
 
 (reg-view profile-page []
   (let [username       (:username @(subscribe [:rf.route/params]))
+        favorites?     @(subscribe [:profile/favorites-tab?])
+        page           @(subscribe [:profile/page])
         current-user   @(subscribe [:auth/user])
         profile-state  @(subscribe [:rf.resource/state {:resource :realworld/profile :params {:username username}}])
-        articles-state @(subscribe [:rf.resource/state {:resource :realworld/author-articles :params {:username username}}])]
+        ;; The active tab picks which list resource (+ params) to read — the
+        ;; SAME (resource, params) the matching route ensured under.
+        list-state     (if favorites?
+                         @(subscribe [:rf.resource/state {:resource :realworld/favorited-articles
+                                                          :params  {:username username :page page}}])
+                         @(subscribe [:rf.resource/state {:resource :realworld/author-articles
+                                                          :params  {:username username :page page}}]))]
     [:div.profile-page
      (cond
        (:loading? profile-state)
@@ -365,4 +472,23 @@
           [:div.container
            [:div.row
             [:div.col-xs-12.col-md-10.offset-md-1
-             [article-list {:state articles-state :empty-msg "No articles here yet."}]]]]]))]))
+             ;; The two official profile tabs — each a route-link, the active
+             ;; one chosen by the current route id (no app-db tab state).
+             [:div.articles-toggle
+              [:ul.nav.nav-pills.outline-active
+               [:li.nav-item
+                [rf/route-link {:to :realworld.profile/show :params {:username username}
+                                :class (str "nav-link" (when-not favorites? " active"))
+                                :data-testid "profile-tab-authored"}
+                 "My Articles"]]
+               [:li.nav-item
+                [rf/route-link {:to :realworld.profile/favorites :params {:username username}
+                                :class (str "nav-link" (when favorites? " active"))
+                                :data-testid "profile-tab-favorited"}
+                 "Favorited Articles"]]]]
+             [article-list {:state list-state
+                            :empty-msg (if favorites?
+                                         "No favorited articles are here… yet."
+                                         "No articles here yet.")
+                            :current-page page
+                            :on-page #(dispatch [:profile/go-to-page %])}]]]]]))]))

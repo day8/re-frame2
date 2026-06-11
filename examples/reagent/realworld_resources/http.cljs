@@ -102,28 +102,45 @@
    production value."
   20)
 
+;; A SYNTHESISED article set large enough that the official-size pagination
+;; (`page-size` = 10) spans several pages — so the paginated-resource +
+;; keep-previous dogfood is actually demonstrable in the browser. The first
+;; two carry the original stable slugs (referenced by the article-detail /
+;; mutation paths); the rest are generated. `demo-favorited` is a SUBSET so the
+;; profile Favorited-Articles tab differs from My Articles, and unfavoriting
+;; from the tab visibly drops the article on the next refetch.
+(def ^:private demo-article-count 23)
+
+(defn- gen-article [i]
+  (let [stable [{:slug "hello-conduit"
+                 :title "Hello, Conduit"
+                 :description "A short greeting from the realworld-resources stub."
+                 :body "This article is served by the demo :rf.http/managed override that
+                        resources + mutations lower onto."
+                 :tagList ["intro" "demo"]}
+                {:slug "second-article"
+                 :title "Second article"
+                 :description "A second short article."
+                 :body "More canned demo content."
+                 :tagList ["demo"]}]]
+    (merge {:slug           (str "article-" i)
+            :title          (str "Article " i)
+            :description    (str "Synthetic demo article #" i " (pagination set).")
+            :body           (str "Canned demo content for article " i ".")
+            :tagList        (if (even? i) ["demo" "clojure"] ["demo" "re-frame"])
+            :createdAt      "2026-01-01T00:00:00Z"
+            :updatedAt      "2026-01-01T00:00:00Z"
+            :favorited      false
+            :favoritesCount 0
+            :author         {:username "stub-bot" :bio "A friendly stub." :image "" :following false}}
+           (get stable i))))
+
 (def ^:private demo-articles
-  [{:slug "hello-conduit"
-    :title "Hello, Conduit"
-    :description "A short greeting from the realworld-resources stub."
-    :body "This article is served by the demo :rf.http/managed override that
-           resources + mutations lower onto."
-    :tagList ["intro" "demo"]
-    :createdAt "2026-01-01T00:00:00Z"
-    :updatedAt "2026-01-01T00:00:00Z"
-    :favorited false
-    :favoritesCount 0
-    :author {:username "stub-bot" :bio "A friendly stub." :image "" :following false}}
-   {:slug "second-article"
-    :title "Second article"
-    :description "A second short article."
-    :body "More canned demo content."
-    :tagList ["demo"]
-    :createdAt "2026-02-01T00:00:00Z"
-    :updatedAt "2026-02-01T00:00:00Z"
-    :favorited false
-    :favoritesCount 0
-    :author {:username "stub-bot" :bio "A friendly stub." :image "" :following false}}])
+  (mapv gen-article (range demo-article-count)))
+
+(def ^:private demo-favorited
+  "The favorited subset (every third article) — the profile Favorited tab read."
+  (vec (take-nth 3 demo-articles)))
 
 (def ^:private demo-tags ["intro" "demo" "clojure" "re-frame"])
 
@@ -136,6 +153,27 @@
 (defn- demo-article-by-slug [slug]
   (or (some #(when (= slug (:slug %)) %) demo-articles)
       (first demo-articles)))
+
+;; --- pagination ---
+;; The Conduit list endpoints page with `limit` / `offset` query params. The
+;; stub honours them so each page is a genuinely distinct slice of the article
+;; set, and always reports the FULL total in `articlesCount` (the pagination
+;; control derives the page count from it). This is what makes the
+;; paginated-resource identity + keep-previous behaviour real in the browser:
+;; page N and page N+1 return different data under distinct cache keys.
+
+(defn- query-int [u k]
+  (when-let [m (re-find (re-pattern (str "[?&]" k "=([0-9]+)")) u)]
+    (js/parseInt (second m) 10)))
+
+(defn- paged-response
+  "Slice `all` by the `limit` / `offset` in the URL `u` (defaults: whole list),
+   wrapped in the Conduit `{:articles … :articlesCount <full-total>}` envelope."
+  [u all]
+  (let [limit  (or (query-int u "limit") (count all))
+        offset (or (query-int u "offset") 0)]
+    {:articles      (vec (take limit (drop offset all)))
+     :articlesCount (count all)}))
 
 (defn- canned-comment [body]
   (let [id (+ 1000 (rand-int 100000))]
@@ -210,13 +248,19 @@
         {:profile {:username username :bio "" :image "" :following (= method :post)}})
 
       ;; --- resource reads --------------------------------------------------
+      ;; The feed is empty in the demo (no followed authors), but still a
+      ;; well-formed paged Conduit envelope.
       (str/includes? u "/articles/feed")        {:articles [] :articlesCount 0}
       (re-find #"/articles/[^/]+/comments" u)    {:comments []}
       (re-find #"/articles/[^/?]+$" u)           {:article (demo-article-by-slug
                                                             (second (re-find #"/articles/([^/?]+)" u)))}
+      ;; The profile Favorited-Articles tab — a DISTINCT subset so the tab
+      ;; differs from My Articles and unfavoriting visibly drops an item.
+      (re-find #"[?&]favorited=" u)              (paged-response u demo-favorited)
+      ;; All other list reads (global list, tag-filtered, author) page the full
+      ;; set; `limit` / `offset` make each page a genuinely different slice.
       (or (str/ends-with? u "/articles")
-          (str/includes? u "/articles?"))        {:articles demo-articles
-                                                   :articlesCount (count demo-articles)}
+          (str/includes? u "/articles?"))        (paged-response u demo-articles)
       (str/includes? u "/tags")                  {:tags demo-tags}
       (str/includes? u "/profiles/")             {:profile {:username "stub-bot" :bio ""
                                                             :image "" :following false}}
