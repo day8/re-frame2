@@ -64,6 +64,26 @@
                           EP-0014 bead-plan item 10 (semantic-only in
                           slice-1); a conforming implementation with NO
                           delta support still conforms.
+    (e) LIFECYCLE       — the §Conformance 'Lifecycle' bullet's RELEASE
+                          axis (rf2-pomhpf): destroying a frame releases
+                          frame-owned graph nodes; route exit / supersession
+                          releases the prior route owner; machine destroy
+                          (here, final-state auto-destroy) releases the
+                          machine-owned snapshot node. The per-family suites
+                          and the (c) live arm only ever read a PRESENT
+                          owner; this arm drives the teardown TRANSITION and
+                          asserts the node / owner has LEFT the live graph —
+                          the axis the lifecycle classification exists for.
+    (f) EVALUATION      — the §Conformance 'Evaluation policy' bullet's
+                          on-demand-no-write law (rf2-qdxvkb; §Evaluation
+                          policy rule 1): reading an `:on-demand` node (a
+                          subscription, or a resource `:rf.resource/*`
+                          selector) causes NO durable write — neither app-db
+                          nor runtime-db (so no work-ledger record, no cache
+                          mutation) changes merely because a reader read it.
+                          The (d) laws prove the MATERIALIZED path's value;
+                          this proves the ephemeral/on-demand path's negative
+                          no-write property.
 
   Drives the merged tooling siblings + the graph composer
   (`re-frame.derivation.graph`) — it consumes them, never edits them. The
@@ -91,6 +111,7 @@
             [re-frame.resources]
             [re-frame.resources.tooling :as resources-tooling]
             [re-frame.machines.tooling :as machines-tooling]
+            [re-frame.machines.paths :as machine-paths]
             [re-frame.subs.tooling :as subs-tooling]
             [re-frame.flows.tooling :as flows-tooling]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -576,3 +597,176 @@
     (doseq [[node-id node] nodes]
       (is (not (contains? node :step-delta))
           (str node-id " carries a :step-delta — slice-1 ships no delta protocol")))))
+
+;; ===========================================================================
+;; (e) LIFECYCLE — the §Conformance 'Lifecycle' bullet's RELEASE axis
+;;     (rf2-pomhpf). Every prior arm (the per-family suites + the (c) live
+;;     arm) only ever reads a PRESENT owner — positive presence. The lifecycle
+;;     classification exists for the RELEASE boundary: "destroying a frame
+;;     releases frame-owned graph nodes …; route exit releases route owners;
+;;     machine destroy releases machine-owned leases and timers" (§Lifecycle
+;;     and owner). These tests drive the teardown TRANSITION and assert the
+;;     node / owner has LEFT the live graph — the strongest adversarial arm,
+;;     a frame/route/machine teardown vacating the graph.
+;; ===========================================================================
+
+(deftest e-destroying-a-frame-releases-its-frame-owned-graph-nodes
+  ;; §Conformance Lifecycle, clause 1 ("destroying a frame releases
+  ;; frame-owned graph nodes and host-transient state") + §Lifecycle and
+  ;; owner (`:frame` lifecycle — `destroy-frame!` releases it). Materialize a
+  ;; route slice (a `:frame`-lifecycle process owned by the frame) AND a live
+  ;; machine snapshot in a dedicated frame, confirm BOTH are present in that
+  ;; frame's live graph, then `destroy-frame!` and assert the frame's live
+  ;; graph is empty — every frame-owned node released.
+  (register-one-of-each!)
+  (rf/reg-frame :checkout/frame {:doc "a frame to destroy"})
+  ;; Materialize frame-owned facts: a committed route slice + a live singleton
+  ;; machine snapshot, both in :checkout/frame.
+  (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}]
+                    {:frame :checkout/frame})
+  (rf/dispatch-sync [:upload/main [:upload/start]] {:frame :checkout/frame})
+  (let [g-before (graph/live-derivation-graph :checkout/frame all-contributors)
+        nodes    (:nodes g-before)]
+    ;; The arm is meaningful only WHEN the frame-owned facts materialized
+    ;; (the same materialized-only discipline the (c) live arm uses — a
+    ;; substrate that settles a transition across more than one drain is not
+    ;; a conformance failure). Where they did, the release MUST vacate them.
+    (when (and (contains? nodes :rf/route)
+               (contains? nodes [:machine :upload/main]))
+      (testing "the route slice (a :frame-lifecycle node) is owned by the frame"
+        (let [slice (get nodes :rf/route)]
+          (is (= :frame (:lifecycle slice)))
+          (is (= [:route :route/article (:nav-token slice)] (:owner slice)))))
+      (frame/destroy-frame! :checkout/frame)
+      (let [g-after (graph/live-derivation-graph :checkout/frame all-contributors)]
+        (testing "destroy-frame! releases EVERY frame-owned graph node"
+          (is (= :live (:mode g-after)) "the live graph shape survives a destroyed frame")
+          (is (= {} (:nodes g-after))
+              "no node survives the frame teardown — the route slice + machine snapshot are gone")
+          (is (= [] (:edges g-after)) "and no edge survives")
+          (is (nil? (get (:nodes g-after) :rf/route))
+              "the route owner is released (its frame is gone)")
+          (is (nil? (get (:nodes g-after) [:machine :upload/main]))
+              "the machine snapshot node is released (its frame is gone)"))))))
+
+(deftest e-route-exit-supersession-releases-the-prior-route-owner
+  ;; §Conformance Lifecycle, clause 3 ("route exit releases route owners") +
+  ;; §Lifecycle and owner (`:route` lifecycle — "route exit or supersession
+  ;; releases it"). Navigate to route A (the live slice owner is
+  ;; `[:route :route/article nav-token-A]`), then navigate to route B. The
+  ;; ONE materialized route slice is superseded: its owner is now route B
+  ;; under a FRESH nav-token, and the route-A owner identity is no longer the
+  ;; live owner (released by supersession).
+  (register-one-of-each!)
+  (rf/reg-route :route/about {:path "/about"})
+  (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}])
+  (let [g-a   (graph/live-derivation-graph :rf/default all-contributors)
+        slice (get (:nodes g-a) :rf/route)]
+    ;; Materialized-only discipline (mirrors the (c) live arm).
+    (when (some? slice)
+      (let [owner-a     (:owner slice)
+            nav-token-a (:nav-token slice)]
+        (testing "before supersession the live owner is route A under nav-token-A"
+          (is (= :route/article (:route-id slice)))
+          (is (= [:route :route/article nav-token-a] owner-a)))
+        ;; Supersede: a second navigation commits a new slice.
+        (rf/dispatch-sync [:rf.route/navigate :route/about {}])
+        (let [g-b      (graph/live-derivation-graph :rf/default all-contributors)
+              slice-b  (get (:nodes g-b) :rf/route)]
+          (when (some? slice-b)
+            (testing "the superseding navigation releases the prior route owner"
+              (is (= :route/about (:route-id slice-b))
+                  "the live slice now reports route B (the prior route fact is exited)")
+              (is (not= owner-a (:owner slice-b))
+                  "the route-A owner identity is no longer the live owner — released by supersession")
+              (is (not= nav-token-a (:nav-token slice-b))
+                  "a fresh nav-token owns the new route — the prior token's lease is gone")
+              (is (= [:route :route/about (:nav-token slice-b)] (:owner slice-b))
+                  "the live owner is now [:route route-B fresh-nav-token]"))))))))
+
+(deftest e-machine-destroy-releases-the-machine-owned-snapshot-node
+  ;; §Conformance Lifecycle, clause 4 ("machine destroy releases
+  ;; machine-owned leases and timers") + §Lifecycle and owner
+  ;; (`:machine-instance` lifecycle — "machine destroy releases it"). A
+  ;; machine that transitions into a `:final?` state auto-destroys (Spec 005
+  ;; §Final state — the XState-aligned actor-done boundary). Materialize the
+  ;; instance (its `:machine-instance`-owned snapshot node is live in the
+  ;; graph), drive it to its final state, and assert the snapshot node has
+  ;; left the live graph — the machine-owned node released.
+  (register-one-of-each!)
+  ;; A machine with a :final? terminal state (the singleton lifecycle's
+  ;; release boundary). Distinct id from :upload/main so the existing arms are
+  ;; untouched.
+  (rf/reg-machine :job/runner
+                  {:initial :running
+                   :data    {}
+                   :states  {:running {:on {:job/finish :done}}
+                             :done    {:final? true}}})
+  ;; Materialize the live singleton snapshot.
+  (rf/dispatch-sync [:job/runner [:job/finish-noop]]) ;; no-op event: stays :running, installs snapshot
+  (rf/dispatch-sync [:job/runner [:job/finish]])      ;; → :done (:final?) → auto-destroy
+  (let [g-after (graph/live-derivation-graph :rf/default all-contributors)
+        node    (get (:nodes g-after) [:machine :job/runner])
+        rt      (frame/frame-runtime-db-value :rf/default)]
+    (testing "the machine instance node is released from the live graph on destroy"
+      (is (nil? node)
+          "the :machine-instance-owned snapshot node is gone after final-state auto-destroy")
+      (is (nil? (get-in rt (machine-paths/snapshot-path :job/runner)))
+          "the machine-owned snapshot is released from runtime-db (machine destroy releases its leases)"))))
+
+;; ===========================================================================
+;; (f) EVALUATION POLICY — the §Conformance 'Evaluation policy' bullet's
+;;     on-demand-no-write law (rf2-qdxvkb; §Evaluation policy rule 1:
+;;     "`:on-demand` derivations MUST NOT cause durable state changes merely
+;;     because a view read them. (Reading a resource selector does not start
+;;     resource work.)"). The (d) laws prove the MATERIALIZED path's whole
+;;     value; this proves the EPHEMERAL/on-demand path's NEGATIVE no-write
+;;     property — neither app-db nor runtime-db (so no work-ledger record, no
+;;     cache mutation) changes because a reader read an `:on-demand` node.
+;; ===========================================================================
+
+(deftest f-reading-an-on-demand-node-causes-no-durable-write
+  ;; The on-demand-no-write invariant proven over BOTH `:on-demand` algebra
+  ;; node forms: an ordinary subscription (a `:derivation`/`:ephemeral`/
+  ;; `:on-demand`/`:subscription-cache-entry` node) AND a resource
+  ;; `:rf.resource/state` selector (the read-fact projection of a `:process`
+  ;; node — "reading a selector does not start resource work"). Snapshot the
+  ;; durable frame-state (app-db + runtime-db) before and after reading them;
+  ;; the two partitions MUST be unchanged. The work-ledger lives at
+  ;; `[:rf.runtime/work-ledger …]` in runtime-db, so an unchanged runtime-db
+  ;; subsumes "no work record was created."
+  (register-one-of-each!)
+  ;; First, pin the algebra classification the read is exercising: the sub is
+  ;; the canonical :on-demand node; the resource selectors are the
+  ;; read-fact surface of an :on-demand-readable process.
+  (let [nodes (:nodes (graph/derivation-graph all-contributors))
+        sub   (node-by-family nodes :subs      :cart/items)
+        res   (node-by-family nodes :resources :article/by-slug)]
+    (is (= :on-demand (:evaluation sub))
+        "the subscription is the canonical :on-demand node whose read must be write-free")
+    (is (contains? (set (:selectors res)) :rf.resource/state)
+        "the resource exposes the :rf.resource/state read selector"))
+  ;; Snapshot BOTH durable partitions, read the on-demand nodes, re-snapshot.
+  (let [app-before (frame/frame-app-db-value :rf/default)
+        rt-before  (frame/frame-runtime-db-value :rf/default)
+        ;; Read the ordinary subscription.
+        sub-val    @(rf/subscribe [:cart/items])
+        ;; Read the resource selector for an UNMATERIALIZED key — the idle
+        ;; empty-state projection. Reading it MUST NOT start work or write a
+        ;; cache entry / work-ledger record.
+        sel-val    @(rf/subscribe [:rf.resource/state
+                                   {:resource :article/by-slug :params {:slug "welcome"}}])
+        app-after  (frame/frame-app-db-value :rf/default)
+        rt-after   (frame/frame-runtime-db-value :rf/default)]
+    (testing "the reads return values (the reads actually happened)"
+      ;; sub-val may be nil (no cart seeded) — the point is the read ran.
+      (is (= :idle (:status sel-val))
+          "reading the selector for an unmaterialized key yields the idle empty-state"))
+    (testing "neither durable partition changed merely because a reader read"
+      (is (= app-before app-after)
+          "app-db is byte-for-byte unchanged after on-demand reads (rule 1)")
+      (is (= rt-before rt-after)
+          "runtime-db is byte-for-byte unchanged — no cache entry, no work-ledger record"))
+    (testing "specifically, no work-ledger record was created by the selector read"
+      (is (= (:rf.runtime/work-ledger rt-before) (:rf.runtime/work-ledger rt-after))
+          "reading a resource selector starts no resource work (§Evaluation policy rule 1)"))))
