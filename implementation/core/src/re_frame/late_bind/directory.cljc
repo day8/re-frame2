@@ -963,6 +963,10 @@
     :producer-ns 're-frame.frame
     :design-bead "rf2-gkddyq"
     :description "EP-0013 D1 realm-owned frame-registry view. Returns `realm-id → #{frame-id …}` over the live (non-destroyed) frames, grouped by each frame record's `:realm` slot. `re-frame.realm/realm-frames` consults it to answer the realm-owned membership query — `re-frame.frame` requires `re-frame.realm` for the frame record's default realm-id, so the back-read is late-bound to avoid a require cycle. Membership is DERIVED from `re-frame.frame/frames` (single source of truth; no separately-stored set), so the `(reset! frame/frames {})` test fixtures reset it for free."}
+   {:key         :app-value/project
+    :producer-ns 're-frame.app-value
+    :design-bead "rf2-yozjzo"
+    :description "EP-0013 D2 stage-5 app-value projection. Returns the immutable, recomputable app VALUE projected over a realm's registrar — `realm-id → {:rf.app/id … :registrations {kind {id descriptor}} :requires #{}}`. `re-frame.realm/installed-app` consults it to answer the realm-side installed-app read seam — `re-frame.app-value` requires `re-frame.realm` (it projects over the realm's registrar), so the back-read is late-bound to avoid a require cycle. The projection is RECOMPUTABLE over the registrar (the single source of truth), so the ordinary `reg-*` sugar path keeps it current with no invalidation step. INTERNAL — no public app constructor / installed-app read surface ships in stage 5 (EP-0013 issue 1)."}
 
    ;; ---- re-frame.trace.cascade (rf2-931pm — focused-event-only cascade-DAG aggregator) ----
    ;;
