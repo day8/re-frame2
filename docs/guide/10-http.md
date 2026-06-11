@@ -54,18 +54,69 @@ Two lines of fx and not one of them mentions the network. No decode (the default
 
 That co-location — request and reply living in one handler — is the reason `:rf.http/managed` exists at all instead of "register your own `:http` fx and invent your own conventions like everyone always did." It makes the shape *uniform across every app that uses it*. And uniformity, it turns out, is the entire point. Hold that thought; I'm going to earn it.
 
-> ### Why there is no `await`
+> ### Why there is no `await` — and the one shape every async effect replies through
 >
-> You may have noticed something missing. There is no `await` here, no resumed coroutine, no point where execution *pauses mid-handler* until the server answers and then picks up where it left off. That's not an oversight — it's the design, and it's worth one paragraph of *why*, because it explains the whole reply-as-event shape you just saw.
+> You may have noticed something missing. There is no `await` here, no resumed coroutine, no point where execution *pauses mid-handler* until the server answers and then picks up where it left off. That's not an oversight — it's the design, and it's worth a few paragraphs of *why*, because the same shape governs every managed async effect in re-frame2, not just HTTP.
 >
-> In re-frame2 **a reply is an event, not a resumed stack frame.** An `await` would suspend the handler and hand it back the server's value *inside the same call* — and that value would arrive through the call stack, a place nothing else in your app can see. But [chapter 04](04-events-and-the-cascade.md#the-ledger-view) was firm that app-db is the sum of an event ledger, and the ledger has to contain *everything that ever influenced state*. An awaited value bypasses the ledger entirely: it slips into the handler through the stack, leaving no line. A **reply event lands in the ledger** like any other event — so it shows up in traces, it survives being serialized and shipped, it routes to the right frame, and replaying the log reproduces it.
+> In re-frame2 **a reply is an event, not a resumed stack frame.** An `await` would suspend the handler and hand it back the server's value *inside the same call* — and that value would arrive through the call stack, a place nothing else in your app can see. But [chapter 04](04-events-and-the-cascade.md#the-ledger-view) was firm that app-db is the sum of an event ledger, and the ledger has to contain *everything that ever influenced state*. An awaited value bypasses the ledger entirely: it slips into the handler through the stack, leaving no line. A **reply event lands in the ledger** like any other event — so it shows up in traces, it survives being serialized and shipped, it routes to the right frame, and replaying the log reproduces it. This is the same choice [Elm](https://elm-lang.org) makes with `Cmd msg`: the result of an effect comes back as a *message you handle*, never as a value you `await`.
 >
-> Read today's idiom through that lens and it stops looking like ceremony. The `:on-success` / `:on-failure` vectors (and the default co-located `:rf/reply`) are *the continuation expressed as data* — "when this finishes, dispatch this." Because the continuation is a value rather than a paused stack, it's visible on the trace stream, it can be recorded and replayed, and it carries its own frame. This is the same choice [Elm](https://elm-lang.org) makes with `Cmd msg`: the result of an effect comes back as a *message you handle*, never as a value you `await`. The continuation being data is exactly what lets the rest of this chapter's machinery — abort, retry, frame-aware reply addressing, stale-suppression — see and manage the in-flight work at all.
+> #### The uniform reply envelope
+>
+> That "reply is an event" idea is not an HTTP convenience — it's a single, framework-wide contract called the **uniform reply envelope**, and *every* managed async surface completes through it: HTTP, [resources and mutations](27-resources.md), [state-machine async work](12-machines.md), and [route loaders](19-routing.md). Learn the envelope once and you have learned how async completion works everywhere in the framework. The normative home of this contract is [`spec/Managed-Effects.md` §The uniform reply envelope](../../spec/Managed-Effects.md#the-uniform-reply-envelope); the rest of this box is the guided tour.
+>
+> The envelope has two pieces: a **reply target** (where the completion is dispatched) and a **reply map** (what it carries). The public reply-target key is **`:rf/reply-to`**, and its short form is just an event-vector prefix:
+>
+> ```clojure
+> {:rf.http/managed
+>  {:request    {:url "/api/articles/42"}
+>   :rf/reply-to [:article/load-replied {:id 42}]}}
+> ```
+>
+> On completion the runtime dispatches that event with the **reply map appended as the final argument** — the continuation, expressed as data:
+>
+> ```clojure
+> [:article/load-replied
+>  {:id 42}                                       ;; your carried context
+>  {:status       :ok                             ;; the reply map
+>   :value        {:title "Welcome"}
+>   :work/id      [:rf.work/http :article/by-id 42 1]
+>   :completed-at 1781078400456}]
+> ```
+>
+> #### The closed status set
+>
+> The reply map's `:status` is drawn from a **closed** set — five outcomes, and there will never quietly be a sixth:
+>
+> | `:status` | Meaning |
+> |---|---|
+> | `:ok` | Completed successfully; reply is current. `:value` present. |
+> | `:partial` | Completed with usable data **and** structured problems; reply is current. `:value` present *and* `:error` present (the motivating case is GraphQL, which can return data and errors in one response). Plain HTTP never emits `:partial`. |
+> | `:error` | Completed with a failure; reply is current. `:error` present with a family `:kind` (for HTTP, one of the `:rf.http/*` categories below). |
+> | `:cancelled` | Intentionally cancelled while still correlated with the target. `:cancel/reason` present. |
+> | `:stale` | Completed or observed *after* its correlation became obsolete. **No app-state mutation happens** — the app target isn't even dispatched. |
+>
+> Note that **timeout is not a status** — it is `:status :error` with `:work/status :timed-out` and an `:error` of `:kind :rf.http/timeout`. One fact, named once.
+>
+> #### Stale suppression is the correctness boundary
+>
+> That `:stale` row is the load-bearing one, and it is **mandatory** for every surface that can be superseded. When a newer request supersedes an older one (the search-box race from the top of the chapter), the old completion is *not* delivered to your app as `:ok` — it is classified `:stale`/`:suppressed`, the app target is skipped, and the ledger and trace record the carried-versus-current correlation. Your reducer never sees a stale answer, so it can never overwrite fresh data with old data. **Cancellation is only an optimization** (a cancelled fetch may still produce a late host completion); *stale suppression* is the thing that actually keeps state correct. Each family keys suppression on its `:work/id` plus a generation — HTTP on `[:rf.work/http logical-id args… generation]`, resources/mutations on a resource work id, routes on the nav-token — but the *rule* is uniform: validate the carried correlation against the live one before any durable write, and suppress if it no longer matches.
+>
+> #### Cancellation is data
+>
+> Cancellation is represented as **data, not as the absence of a reply.** A live user-cancellation may dispatch a `:status :cancelled` reply carrying `:cancel/reason`; a supersession usually suppresses the old reply as `:stale` instead. Either way you get a *value* describing what happened, on the trace stream and (for ledger-backed work) in the work ledger — never a silently-dropped continuation you have to reason about by its absence.
+>
+> #### Completion timestamps ride the reply
+>
+> A managed reply is a **causal token** ([EP-0010](../../spec/Managed-Effects.md#causal-completion-metadata)). Any host fact from the completion that can affect durable state — most commonly *when it completed* — rides the reply map under suffixless durable timestamps: `:started-at`, `:completed-at`, `:deadline-at`. A reducer reached by a reply derives a durable timestamp from `(:completed-at reply)`, **never** from a fresh `(js/Date.now)` read inside the handler. That keeps the handler pure and keeps replay faithful: re-running the ledger reproduces the same timestamps, because they were carried as data rather than re-sampled from the wall clock.
+>
+> #### `:on-success` / `:on-failure` / co-located `:rf/reply` are lowering sugar
+>
+> So where do the `:on-success` / `:on-failure` vectors and the default co-located `:rf/reply` shape — the forms the rest of this chapter uses — fit? They are **compatibility sugar that lowers onto the uniform envelope**, not a second, parallel async model. `:on-success [:counter/loaded]` is a familiar spelling that the HTTP fx rewrites into a `:rf/reply-to` target completed with a `:status :ok` reply map; `:on-failure` is the `:status :error`/`:cancelled` path; and the default co-located `:rf/reply` branch is the same target pointed back at the originating handler. They're convenient and they migrate cleanly from re-frame v1 ([chapter 25](25-from-re-frame-v1.md)), so they're staying — but the *general* async model, the one resources, mutations, routing, and machines all share, is the `:rf/reply-to` envelope above. When you reach a surface that doesn't ship the HTTP sugar, the envelope is what you'll be writing directly.
 >
 > <details markdown="1">
 > <summary>For the categorically curious</summary>
 >
-> Effects here are a **description the runtime interprets**, not commands the handler runs — your handler returns a value that *names* the work, and a separate interpreter performs it. Such effects **sequence but never bind**: you can ask for several in order (the `:fx` vector), but a handler can never write "do this effect, *then* feed its result into the next expression" — that would be monadic *binding*, the awaited-value shape. The result instead comes back as the next event. Continuations are events; binding is forbidden on purpose, and that's why there's no `await`.
+> Effects here are a **description the runtime interprets**, not commands the handler runs — your handler returns a value that *names* the work, and a separate interpreter performs it. Such effects **sequence but never bind**: you can ask for several in order (the `:fx` vector), but a handler can never write "do this effect, *then* feed its result into the next expression" — that would be monadic *binding*, the awaited-value shape. The result instead comes back as the next event. Continuations are events; binding is forbidden on purpose, and that's why there's no `await`. The envelope unifies only the *continuation slot* — where completion is dispatched and what it carries — and relocating a reply target is a pure data transform (the role `Cmd.map` plays in Elm's command algebra), never a hidden callback. One effect's reply never feeds another effect in the same `:fx` map; the only composition mechanism is the next causal event.
 > </details>
 
 ## Why this exists at all (a short history of everybody reinventing the same thing)
