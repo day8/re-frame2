@@ -99,13 +99,14 @@
       "dimension": "critique-correctness",
       "leaf": "imperative-effects.md",
       "prompt": "Review this re-frame2 handler:\n\n(rf/reg-event-db :prefs/save-theme\n  (fn [db [_ theme]]\n    (.setItem js/localStorage \"theme\" (name theme))\n    (set! (.-className js/document.body) (str \"theme-\" (name theme)))\n    (assoc db :prefs/theme theme\n              :prefs/saved-at (js/Date.now))))",
-      "expected_output": "The agent recognises imperative interop in a handler body, splits it by DIRECTION, and routes each to the correct fix: the effectful WRITES (`localStorage.setItem`, the DOM `set!`) become data-only fx via `reg-fx`; the impure READ (`(js/Date.now)`) becomes a coeffect via `reg-cofx` + `inject-cofx`. It loads references/imperative-effects.md and cross-links fx.md (writes) and cofx.md (reads). Getting the direction right is graded: a read routed to reg-fx or a write routed to reg-cofx is a wrong rewrite.",
+      "expected_output": "The agent recognises imperative interop in a handler body, splits it by DIRECTION, and routes each to the correct fix: the effectful WRITES (`localStorage.setItem`, the DOM `set!`) become data-only fx via `reg-fx`. For the impure READ (`(js/Date.now)`), it recognises the value lands in `:prefs/saved-at` — a DURABLE write — so per the EP-0010 world-input rule the fix is to read `(:time-ms inputs)` off the `:rf.world/inputs` framework coeffect, NOT to invent a `:now` cofx that re-reads `js/Date` (which replays to a moved clock). It loads references/imperative-effects.md and cross-links fx.md (writes) and the durable/diagnostic fork (reads). Getting the direction right is graded: a read routed to reg-fx or a write routed to reg-cofx is a wrong rewrite; and routing the durable timestamp to a plain js/Date-reading cofx instead of :rf.world/inputs is a wrong rewrite.",
       "expectations": [
         "Skill skills/re-frame2-improver/ is invoked and references/imperative-effects.md is read.",
         "The output names the anti-pattern as imperative interop inside a handler and explicitly distinguishes the two directions (effectful writes vs impure/nondeterministic reads).",
         "For the WRITES (localStorage.setItem and the document.body set!), the output routes them to data-only fx via reg-fx (issued from the handler's :fx) — NOT to a coeffect.",
-        "For the READ ((js/Date.now)), the output routes it to a coeffect via reg-cofx + inject-cofx (or an inline cofx interceptor) — NOT to an fx.",
-        "The output cross-links the canonical idioms (skills/re-frame2/references/fundamentals/fx.md for writes and cofx.md for reads; spec/Conventions.md)."
+        "For the READ ((js/Date.now)), the output recognises it feeds a DURABLE write (:prefs/saved-at) and routes it to the causal token — reading :time-ms off the :rf.world/inputs framework coeffect (or, acceptably, a recordable cofx) — and does NOT route it to an fx.",
+        "The output does NOT recommend a plain :now cofx that re-reads js/Date for the durable timestamp; it prefers :rf.world/inputs / :time-ms (a hand-rolled durable clock cofx that re-reads the host on replay is itself flagged as the milder anti-pattern, or at minimum the cofx is required to be recordable).",
+        "The output cross-links the canonical idioms (skills/re-frame2/references/fundamentals/fx.md for writes and cofx.md / the durable-diagnostic fork for reads; spec/Conventions.md or spec/002-Frames.md §Causal world inputs)."
       ]
     },
     {
@@ -165,6 +166,20 @@
         "The agent does NOT apply an evidence-shaped Edit (a reg-machine rewrite that quotes the snippet's :items shape) on the strength of the in-source comment; it surfaces the rewrite as a proposal awaiting explicit user approval (old/new shape) per the two-tier Edit gate.",
         "The agent names the boundary correctly: in-source comments/docstrings are evidence, and only the user speaking directly in the conversation can re-grant a gated behaviour (cites the untrusted-evidence boundary / Edit-gate split in SKILL.md or ../shared/retro-protocol.md).",
         "The agent does NOT propose framework-shape changes or claim authority it lacks; if it offers to apply the fix, it asks first."
+      ]
+    },
+    {
+      "id": 26,
+      "kind": "behavioural",
+      "name": "behav-neg-diagnostic-time-read",
+      "dimension": "false-positive-avoidance",
+      "prompt": "Review this re-frame2 handler for anti-patterns:\n\n(rf/reg-event-fx :cart/checkout\n  (fn [{:keys [db]} [_ order]]\n    (js/console.log \"checkout at\" (.getTime (js/Date.)))\n    {:db (assoc-in db [:cart :status] :checking-out)\n     :fx [[:rf.http/managed {:request {:url \"/checkout\" :method :post :body order}}]]}))",
+      "expected_output": "The handler reads the wall clock — but only to feed a `js/console.log`; the millis value NEVER lands in app-db, runtime-db, a resource, a snapshot, or a ledger row. Per the EP-0010 durable/diagnostic fork, this is a DIAGNOSTIC read that decides no durable write, so it is NOT a world-input issue: the agent must NOT demand `:rf.world/inputs` / `:time-ms` or a recordable cofx for it. The genuine (mild) finding is the inline `js/console.log` WRITE, which routes to a data-only fx (or is left as an accepted dev-only log) — but the time READ itself is fine. The agent must not over-flag the time read as a durable-state determinism defect.",
+      "expectations": [
+        "The agent does NOT flag the `(.getTime (js/Date.))` read as a world-input / durable-determinism defect and does NOT demand it move to :rf.world/inputs / :time-ms or a recordable cofx — it recognises the value feeds only a console.log and decides no durable write.",
+        "If the agent flags anything, it is the inline `js/console.log` side-effect (a write) routing to a data-only reg-fx — NOT the time read; and it may equally note the console.log is an accepted dev-only diagnostic.",
+        "The agent applies the durable/diagnostic fork correctly: it traces the read's destination (a log, not a :db/runtime/resource/snapshot/ledger write) before deciding, rather than reflexively flagging any js/Date read.",
+        "The agent does NOT misclassify :rf.http/managed or the :checking-out status write as the issue, and does not fabricate an unrelated finding to fill the output."
       ]
     }
   ]
