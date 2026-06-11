@@ -6,7 +6,7 @@ Type: standards-track
 > This EP defines one public model for sensitive/large classification,
 > trust-boundary projection, and observability sink policy.
 >
-> **Ruling recorded 2026-06-11 (Mike, in-session; bead `rf2-mh84yw`).**
+> **Ruling recorded 2026-06-11 (Mike, in-session; bead `rf2-9ghh7u`).**
 > Accepted. All twelve open issues are dispositioned in
 > [§Open Issues](#open-issues) — nine as recommended (with sharpenings from the
 > three-analysis convergence), and three previously-open calls resolved:
@@ -913,7 +913,7 @@ Mechanical upgrade from re-frame v1 remains a secondary goal:
 ## Open Issues
 
 **All twelve issues were ruled 2026-06-11 (Mike, in-session; bead
-`rf2-mh84yw`).** Original recommendations are kept verbatim as the record of
+`rf2-9ghh7u`).** Original recommendations are kept verbatim as the record of
 what was ruled; dispositions and riders are inline.
 
 1. **Exact frame config shape.** Should the keys be `:sensitive` / `:large`, or
