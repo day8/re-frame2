@@ -434,11 +434,13 @@
      path, which always produces a `:middleware-ctx` via
      `run-request-chain` and therefore always runs the `:after` chain.
 
-  `opts` carries `:frame`, `:middleware-ctx`, and the three keys
+  `opts` carries `:frame`, `:middleware-ctx`, the three keys
   `dispatch-reply-via-late-bind!` consumes (`:origin-event`,
-  `:explicit-on`, `:kind`). No-op when the router is absent / the reply
-  is silenced (delegated to `dispatch-reply-via-late-bind!`)."
-  [{:keys [frame middleware-ctx origin-event explicit-on reply-payload kind]}]
+  `:explicit-on`, `:kind`), and the EP-0010 `:completed-at` causal
+  completion time threaded onto the reply dispatch's `:rf.world/inputs`
+  (rf2-n1rh0f). No-op when the router is absent / the reply is silenced
+  (delegated to `dispatch-reply-via-late-bind!`)."
+  [{:keys [frame middleware-ctx origin-event explicit-on reply-payload kind completed-at]}]
   (let [final-payload (if middleware-ctx
                         (run-after-chain! frame middleware-ctx reply-payload)
                         reply-payload)]
@@ -446,5 +448,6 @@
       {:origin-event  origin-event
        :explicit-on   explicit-on
        :reply-payload final-payload
-       :kind          kind}
+       :kind          kind
+       :completed-at  completed-at}
       frame)))

@@ -108,10 +108,26 @@
 
 ;; ---- clock ----------------------------------------------------------------
 
-(defn now-ms []
+(defn now-ms
+  "Monotonic-ish high-resolution clock for ELAPSED measurement (trace / perf
+  timing spans, machines timer relative delays). On CLJS this is
+  `performance.now()` when available — a high-resolution timestamp relative
+  to the page/worker origin, NOT epoch wall-clock. Do NOT use it for durable
+  wall-clock facts; use `epoch-now-ms` (rf2-n1rh0f / EP-0010 §Time)."
+  []
   (if (and (exists? js/performance) (exists? js/performance.now))
     (js/performance.now)
     (js/Date.now)))
+
+(defn epoch-now-ms
+  "Wall-clock epoch milliseconds. The canonical source for EP-0010 durable
+  causal time (`:rf.world/inputs` `:time-ms`, EP-0010 §Time — \"wall-clock
+  epoch milliseconds\"). DISTINCT from `now-ms`: that is `performance.now()`
+  (origin-relative, for elapsed measurement) on CLJS, which is NOT comparable
+  with `js/Date`-based freshness checks. A durable timestamp folded from this
+  value is wall-clock-meaningful and serializable across hosts."
+  []
+  (js/Date.now))
 
 ;; ---- queue primitives -----------------------------------------------------
 

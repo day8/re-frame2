@@ -257,12 +257,25 @@
   discriminate HTTP-completion cascades from user-origin events.
   Per rf2-1ve9h (Mike-approved 2026-05-28) the prior parallel
   `:rf/dispatch-origin :http` was collapsed — `:source :http` is now
-  the single axis."
+  the single axis.
+
+  EP-0010 (rf2-n1rh0f / rf2-40dqi6 / rf2-r65m41): the reply is a CAUSAL
+  TOKEN, and the host completion time (`:completed-at`, read ONCE at
+  finalisation in `reply-ctx`) is carried as the reply dispatch's
+  `:rf.world/inputs` `:time-ms`. The router PRESERVES a supplied
+  `:rf.world/inputs` that already carries `:time-ms` (it only fills a
+  missing one), so a reply reducer deriving a durable timestamp reads it
+  off the reply event's world inputs — the causal completion fact, never
+  a fresh ambient clock read in the handler. When `completed-at` is absent
+  (a synthetic / canned reply with no host clock read), the router stamps
+  the dispatch time as usual."
   [args frame]
   (when-let [ev (build-reply-event args)]
     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
       (dispatch! ev (cond-> {:source :http}
-                      frame (assoc :frame frame))))))
+                      frame                  (assoc :frame frame)
+                      (:completed-at args)   (assoc :rf.world/inputs
+                                                    {:time-ms (:completed-at args)}))))))
 
 (defn build-reply-event
   "Per Spec 014 §Reply addressing. Returns the event vector to dispatch,

@@ -993,16 +993,26 @@
   transport appends `{:kind :success :value <decoded-data>}` as the last arg
   (Spec 014 §Reply addressing); the decoded data is read from there
   (`reply-success-data`) and re-lifted into the canonical `:value`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs}
    [_event-id {work-id :work/id :keys [resource-key generation] :as payload} http-result]]
   (let [runtime-db (or rt {})
         value      (reply-success-data payload http-result)
+        ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
+        ;; And Work-Ledger Timestamps: the reply is a CAUSAL TOKEN. The host
+        ;; completion time (`:completed-at`, read ONCE at the transport
+        ;; finalisation boundary) rides the reply event's `:rf.world/inputs`
+        ;; `:time-ms` — the reply handler MUST NOT re-read the clock. It is
+        ;; carried onto the canonical reply map as `:completed-at` (the
+        ;; uniform-reply spelling) and is the source of the durable
+        ;; `:loaded-at`.
+        completed-at (:time-ms world)
         ;; the ONE canonical reply map every managed-async family produces
         ;; (Managed-Effects §The uniform reply envelope). The internal
         ;; resource reply target receives it DIRECTLY (no public `{:kind …}`
         ;; reshape). The decoded result is `:value` (EP-0007 / kh9jz6).
         reply      (rreply/success-reply payload value
-                                         {:work-kind rreply/work-kind-resource})
+                                         {:work-kind rreply/work-kind-resource
+                                          :completed-at completed-at})
         entry      (live-entry-for-reply runtime-db frame-id payload)]
     (if (nil? entry)
       ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply never
@@ -1022,7 +1032,12 @@
             ;; `:data` (the entry layer's spelling of the same fact — the
             ;; reply-map spelling is `:value`, kh9jz6 / EP-0007).
             data      (:value reply)
-            loaded-at (now-ms)
+            ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
+            ;; resource `:loaded-at` IS the successful reply's completion time
+            ;; (`(:completed-at reply)`, carried on the reply token), and
+            ;; `:stale-at` is computed from it + the resource's
+            ;; `:stale-after-ms` policy — never an ambient clock read here.
+            loaded-at (:completed-at reply)
             stale-at  (stale-at-for spec loaded-at)
             ;; arm the advisory stale / GC timers from the resource's policy
             ;; (Spec 016 §Stale and GC scheduling). The DELAYS are relative

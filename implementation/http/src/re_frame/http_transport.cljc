@@ -63,7 +63,7 @@
   unchanged — the chain's contract is to see the `:before`'s ctx, not a
   synthesised one."
   [{:keys [origin-event explicit-on-success explicit-on-failure
-           kind reply-payload frame middleware-ctx]}]
+           kind reply-payload frame middleware-ctx completed-at]}]
   (let [explicit (case kind
                    :success explicit-on-success
                    :failure explicit-on-failure)]
@@ -78,7 +78,11 @@
        :origin-event   origin-event
        :explicit-on    explicit
        :reply-payload  reply-payload
-       :kind           kind})))
+       :kind           kind
+       ;; EP-0010 (rf2-n1rh0f): the host completion time rides the reply
+       ;; dispatch's `:rf.world/inputs` `:time-ms` so a reply reducer reads
+       ;; it as causal data, never a fresh clock.
+       :completed-at   completed-at})))
 
 ;; rf2-zqefg3.2 — the canonical-reply lowering seam (EP-0011 §Managed HTTP
 ;; Lowering). Every completion (success / failure / abort) now flows through
@@ -211,7 +215,8 @@
     (emit-reply-trace! ctx reply)
     (dispatch-reply! (assoc ctx
                             :kind          :failure
-                            :reply-payload (http-reply/reply->public-payload reply)))))
+                            :reply-payload (http-reply/reply->public-payload reply)
+                            :completed-at  (:completed-at reply)))))
 
 (defn- dispatch-success!
   "Dispatch a `:success` reply carrying `value` as its `:value` slot.
@@ -227,7 +232,8 @@
     (emit-reply-trace! ctx reply)
     (dispatch-reply! (assoc ctx
                             :kind          :success
-                            :reply-payload (http-reply/reply->public-payload reply)))))
+                            :reply-payload (http-reply/reply->public-payload reply)
+                            :completed-at  (:completed-at reply)))))
 
 (defn- dispatch-aborted!
   "Emit the `:rf.http/aborted` trace + dispatch the abort reply for a

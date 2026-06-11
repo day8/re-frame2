@@ -95,11 +95,16 @@
   ([frame-id scoped-key]
    (get-in (runtime-db frame-id) (state/entry-path scoped-key))))
 
-(defn- reply-success! [args result]
-  (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result})))
+(defn- reply-success!
+  ([args result] (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result})))
+  ;; EP-0010: a fixture may script the reply token's :rf.world/inputs to pin
+  ;; the host :completed-at (the managed transport stamps it on the reply
+  ;; dispatch in live code).
+  ([args result opts] (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result}) opts)))
 
-(defn- reply-failure! [args failure]
-  (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure})))
+(defn- reply-failure!
+  ([args failure] (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure})))
+  ([args failure opts] (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure}) opts)))
 
 (defn- save-article-spec
   ([] (save-article-spec {}))
@@ -316,6 +321,51 @@
         (is (nil? (:invalidated-at e)) "patch freshened the entry")))
     (testing "the affected-keys trace reservation records the patched key"
       (is (= [rkey] (:affected-keys (instance :p1)))))))
+
+(deftest success-settled-at-and-populate-loaded-at-from-reply-completed-at
+  ;; rf2-40dqi6 / EP-0010 §Resources, Mutations: a terminal mutation success
+  ;; reply writes the instance :settled-at from the reply completion time,
+  ;; and ANY resource patch/populate :loaded-at the mutation produces uses
+  ;; that SAME causal completion time (off the reply token, never an ambient
+  ;; read in the handler). The host :completed-at rides the reply event's
+  ;; :rf.world/inputs :time-ms; scripting it pins both.
+  (rf/reg-resource :r/article
+                   {:scope :rf.scope/global
+                    :params-schema [:map [:slug :string]]
+                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})
+                    :stale-after-ms 60000})
+  (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})
+        completed-at 1781078400456]
+    (rf/reg-mutation :m/save
+                     {:params-schema [:map [:slug :string]]
+                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+                      :populates (fn [_params result] {rkey result})})
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ms1}])
+    (reply-success! @last-managed-args {:title "seed"} {:rf.world/inputs {:time-ms completed-at}})
+    (testing "the instance :settled-at is EXACTLY the reply completion time"
+      (is (= completed-at (:settled-at (instance :ms1)))))
+    (testing "the populated entry's :loaded-at is the SAME causal completion
+              time, and :stale-at = :loaded-at + :stale-after-ms"
+      (let [e (entry rkey)]
+        (is (= completed-at (:loaded-at e)))
+        (is (= (+ completed-at 60000) (:stale-at e)))))))
+
+(deftest failure-settled-at-from-reply-completed-at
+  ;; rf2-r65m41 / EP-0010 §Resources, Mutations + §Managed Effects: a terminal
+  ;; mutation FAILURE reply writes :settled-at from the reply completion time
+  ;; carried on the failure reply token — the handler MUST NOT re-read the
+  ;; clock. The host :completed-at rides the reply event's :rf.world/inputs
+  ;; :time-ms; scripting it pins :settled-at (replay-stable).
+  (rf/reg-mutation :m/save (save-article-spec))
+  (let [completed-at 1781078999999]
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :mf1}])
+    (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}
+                    {:rf.world/inputs {:time-ms completed-at}})
+    (testing "the instance settles :error with :settled-at = the reply
+              completion time (not now)"
+      (is (= :error (:status (instance :mf1))))
+      (is (= completed-at (:settled-at (instance :mf1)))))))
 
 (deftest success-populates-resource-entry
   (rf/reg-resource :r/article

@@ -132,8 +132,9 @@
     :rf.world/inputs    EP-0010 causal world-input map (Spec 002 §The
                         World-Input Rule). The router ensures it exists
                         and carries `:time-ms` (epoch-ms wall clock)
-                        stamped from `interop/now-ms` HERE — the causal
-                        boundary — UNLESS the caller supplied a map, in
+                        stamped from `interop/epoch-now-ms` HERE — the
+                        causal boundary — UNLESS the caller supplied a map,
+                        in
                         which case it is preserved and only the missing
                         framework-required `:time-ms` is filled. This is
                         the durable causal-time contract: the read happens
@@ -187,13 +188,21 @@
         ;; Unlike `:dispatch-id` / the retired `:dispatched-at`, this is
         ;; NOT dev-gated: world inputs are DURABLE causal data, not a
         ;; diagnostic, so `:time-ms` must be present in production too
-        ;; (durable writes depend on it). The cost is one `now-ms` read +
-        ;; a small map on the dispatch path — the price of a deterministic
+        ;; (durable writes depend on it). The cost is one `epoch-now-ms` read
+        ;; + a small map on the dispatch path — the price of a deterministic
         ;; fold.
+        ;;
+        ;; rf2-n1rh0f: `:time-ms` is WALL-CLOCK EPOCH ms (EP-0010 §Time), so
+        ;; it is read from `interop/epoch-now-ms`, NOT `interop/now-ms`. On
+        ;; CLJS `now-ms` is `performance.now()` (origin-relative, for elapsed
+        ;; measurement) — a durable timestamp folded from it would be
+        ;; incomparable with `js/Date`-based freshness checks (resource
+        ;; `:stale-at`, invalidation, etc.). `epoch-now-ms` is `js/Date.now()`
+        ;; / `System/currentTimeMillis`, wall-clock-meaningful on both hosts.
         supplied-world     (:rf.world/inputs opts)
         world-inputs       (if (contains? supplied-world :time-ms)
                              supplied-world
-                             (assoc supplied-world :time-ms (interop/now-ms)))
+                             (assoc supplied-world :time-ms (interop/epoch-now-ms)))
         ;; Per rf2-jbzhj: surface unrecognised opts keys (typically a typo'd
         ;; opt like `:fram` for `:frame`) rather than silently swallowing
         ;; them. Emitted HERE — BEFORE the frame resolution below — so a
