@@ -182,6 +182,55 @@
       (is (= (fp/content-hash once) (fp/content-hash once))))))
 
 ;; ===========================================================================
+;; WORLD-INPUT :time-ms STRUCTURAL STRIP (rf2-jt854w — EP-0010)
+;; ===========================================================================
+;;
+;; The router dev-stamps the envelope's `:rf.world/inputs` causal map onto the
+;; `:rf.event/dispatched` enqueue trace under `[:tags :rf.world/inputs]` so
+;; Xray's Event lens can render the WORLD INPUTS surface. That map's
+;; framework-filled `:time-ms` is epoch-ms WALL-CLOCK (filled fresh per
+;; dispatch), so two semantically-equal fresh-frame replays stamp DIFFERENT
+;; values — `canonicalize` must strip it (one level deeper than the other
+;; trace-tag stamps) or the determinism gate / semantic-diff / `:run-hash`
+;; false-drift. The semantic caller-supplied facts (`:uuid` / `:random`) MUST
+;; survive so a real causal-token difference still perturbs the hash.
+
+(defn- dispatched-trace-event
+  "A minimal `:rf.event/dispatched` trace event carrying a `:rf.world/inputs`
+  tag — the carrier `strip-trace-tags` recognises via `:operation` +
+  `:op-type`."
+  [world-inputs]
+  {:operation :rf.event/dispatched
+   :op-type   :rf.event
+   :tags      {:rf.event/v       [:some/event]
+               :rf.world/inputs  world-inputs}})
+
+(deftest world-input-time-ms-is-stripped-from-the-dispatched-trace
+  (testing "two dispatched trace events differing ONLY in the framework
+            wall-clock :rf.world/inputs :time-ms canonicalize = and hash equal"
+    (let [a (dispatched-trace-event {:time-ms 1000 :uuid :u :random 0.5})
+          b (dispatched-trace-event {:time-ms 9999 :uuid :u :random 0.5})]
+      (is (= (fp/canonicalize a) (fp/canonicalize b))
+          "differing only in :time-ms must canonicalize =")
+      (is (= (fp/canonical-hash a) (fp/canonical-hash b))
+          "differing only in :time-ms must hash equal")))
+  (testing "the semantic caller-supplied facts survive the strip — a :uuid /
+            :random difference still perturbs the canonical value + hash"
+    (let [base   (dispatched-trace-event {:time-ms 1000 :uuid :u :random 0.5})
+          uuid'  (dispatched-trace-event {:time-ms 1000 :uuid :v :random 0.5})
+          rand'  (dispatched-trace-event {:time-ms 1000 :uuid :u :random 0.9})]
+      (is (not= (fp/canonicalize base) (fp/canonicalize uuid'))
+          "a :uuid difference must perturb the canonical value")
+      (is (not= (fp/canonical-hash base) (fp/canonical-hash rand'))
+          "a :random difference must perturb the hash")))
+  (testing "the strip only fires on the world-input carrier — a plain app-db
+            map keying on :time-ms is NOT stripped (structural, not recursive)"
+    (let [a {:app-db {:time-ms 1}}
+          b {:app-db {:time-ms 2}}]
+      (is (not= (fp/canonicalize a) (fp/canonicalize b))
+          ":time-ms outside a :rf.world/inputs trace tag is semantic app data"))))
+
+;; ===========================================================================
 ;; STRUCTURAL TYPE TAGS — map / set / vector / seq are distinguishable (rf2-lvrqa)
 ;; ===========================================================================
 ;;

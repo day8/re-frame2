@@ -3009,7 +3009,17 @@ bookkeeping. `canonicalize` MUST strip / normalize these before comparison
 so the gate is not blinded by them:
 
 - **wall-clock timestamps** — `:committed-at` (epoch record), `:time`
-  (trace event), `:elapsed-ms` (run / assertion record);
+  (trace event), `:elapsed-ms` (run / assertion record), and the
+  framework-stamped `:time-ms` nested inside the `:rf.world/inputs` causal
+  map that rides a `:rf.event/dispatched` trace event's `:tags` (rf2-jt854w —
+  EP-0010 dev-stamps the envelope's world-input map onto the enqueue trace).
+  The `:rf.world/inputs` map itself is **semantic** (caller-supplied `:uuid` /
+  `:random` / browser-or-storage facts are the deterministic causal token a
+  scripted / replayed run pins, and a real difference in them MUST perturb the
+  hash), but its framework-filled `:time-ms` is epoch-ms wall-clock filled
+  fresh per dispatch, so two semantically-equal fresh-frame replays stamp
+  different values — it is stripped one level deeper, like `:committed-at`;
+
 - **elapsed durations** — `:elapsed-ms`, and the dev-only handler
   wall-clock trace tags `:rf.event/elapsed-ms` (event run),
   `:rf.fx/elapsed-ms` (fx handler), and `:rf.cofx/elapsed-ms` (cofx
@@ -3032,7 +3042,8 @@ The strip is split by SAFETY: reserved / framework-specific keys
 `:schema-digest`, plus `:elapsed-ms` / `:source` / `:runner` already in the
 volatile set) are stripped **recursively** by the projection; the
 genuinely-common keys a trace event / epoch record also carries (`:id`,
-`:time`, `:frame`, and the volatile `:tags` keys) are stripped
+`:time`, `:frame`, the volatile `:tags` keys, and the nested
+`[:tags :rf.world/inputs] :time-ms`) are stripped
 **structurally** — only on their trace-event (`:operation` + `:op-type`) or
 epoch-record (`:epoch-id` + a record slot) carrier — so an app-db value
 that legitimately keys on `:id` / `:time` / `:frame` survives and a real
