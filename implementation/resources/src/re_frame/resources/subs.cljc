@@ -26,9 +26,11 @@
   sub-side scope-resolution precedence (payload `:scope`, or a sub-
   resolvable spec policy), raising `:rf.error/resource-sub-unresolved-scope`
   fail-closed (NEVER a silent global read or `:idle`)."
-  (:require [re-frame.resources.registry :as registry]
+  (:require [re-frame.interop :as interop]
+            [re-frame.resources.registry :as registry]
             [re-frame.resources.state :as state]
-            [re-frame.subs :as subs]))
+            [re-frame.subs :as subs]
+            [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -54,12 +56,150 @@
                   resource spec params 'rf.resource/subscribe)]
     (state/scoped-resource-key scope resource cparams)))
 
+;; ---- dev-mode scope-mismatch warning (Spec 016 §Subscription-side scope
+;; ---- resolution — likely-mismatch dev warning) ----------------------------
+;;
+;; The session-scoped (`:rf.scope/from-caller`) pattern's sharpest footgun
+;; (rf2-rsmiru, from the EP-0003 dogfooding audit): a route ensures a
+;; resource under scope X (e.g. `[:rf.scope/session {:user u}]`), but a view
+;; subscribes with a DIFFERENT / absent scope. The sub resolves a DIFFERENT
+;; cache entry — one with no owner ever attached — and reads `:idle` FOREVER:
+;; a silent permanent skeleton with no error. Fail-closed is correct (the
+;; sub never reads a wrong-principal entry); the ergonomics are the issue.
+;;
+;; This is the READ/SUB-side complement to the existing Xray write-side
+;; scope-mismatch lint (`day8.re-frame2-xray.panels.resources-helpers/
+;; scope-mismatch-lint`): an in-framework, dev-only heuristic that fires at
+;; the moment of the mismatched read so the footgun surfaces in the trace
+;; stream without the developer having to open Xray.
+;;
+;; HEURISTIC (the bead's, verbatim): a `:rf.scope/from-caller` resource is
+;; SUBSCRIBED at a scope key with ZERO active owners, while a DIFFERENT scope
+;; key for the SAME resource id IS active (has ≥1 active owner). The
+;; from-caller policy is the only one this can happen under — `:rf.scope/
+;; global` and pure-data / fn-of-nothing resolvers resolve the SAME concrete
+;; scope sub-side and ensure-side, so a sub can never land on a different key
+;; than the ensure did. (A genuine empty cache — nothing active anywhere —
+;; does NOT fire: there is no "right" entry being missed, only an un-ensured
+;; resource, which the empty `:idle` projection already documents.)
+;;
+;; DEV-ONLY + production-elided: gated by `interop/debug-enabled?` and
+;; emitted through `trace/emit!` (which is itself behind the same gate), so
+;; Closure DCE strips the whole path at `:advanced` + `goog.DEBUG=false`,
+;; exactly like the rest of the framework's dev warnings (e.g.
+;; `:rf.warning/large-value-unschema'd`). One-shot idempotent per distinct
+;; `[resource-id sub-scope active-scope]` triple so a reactive sub that
+;; re-runs every render warns ONCE per genuine mismatch, never floods.
+
+(defonce ^:private
+  ^{:doc "One-shot dedupe set of `[resource-id sub-scope active-scope]`
+   triples already warned about, so a reactively re-running sub emits the
+   scope-mismatch dev warning ONCE per genuine mismatch rather than on
+   every reaction. Host-side transient dev state (NOT runtime-db); cleared
+   per-test by the resources reset hook (`re-frame.resources.test-support`)."}
+  warned-scope-mismatch
+  (atom #{}))
+
+(defn reset-scope-mismatch-warnings!
+  "Drop every recorded scope-mismatch warning dedupe key (test isolation).
+  Published as a reset hook so the shared CLJS reset-runtime fixture clears
+  it per test — it is host-side transient dev state, not runtime-db, so the
+  runtime/frames reset does not touch it. Returns nil."
+  []
+  (reset! warned-scope-mismatch #{})
+  nil)
+
+(defn- entry-active?
+  "True iff a durable cache `entry` currently holds ≥1 active owner (a
+  liveness lease). An entry with an empty / absent `:active-owners` is NOT
+  active — it is a bare cache key no route / event / machine is keeping
+  alive, and so a sub landing on it reads `:idle`/stale forever (Spec 016
+  §Active owners and causes)."
+  [entry]
+  (boolean (seq (:active-owners entry))))
+
+(defn- active-mismatch-scope
+  "The scope of a DIFFERENT active entry for `resource-id` — the heuristic's
+  evidence that the subscribed `sub-key` is a LIKELY scope mismatch. Scans
+  the cache `entries` for a key `[scope resource-id _params]` whose
+  `resource-id` matches `sub-key`'s but whose SCOPE differs, and whose entry
+  is active (`entry-active?`). Returns the first such scope, or nil when no
+  other scope for this resource is active. Pure."
+  [entries sub-key]
+  (let [[sub-scope rid _params] sub-key]
+    (some (fn [[k entry]]
+            (let [[scope r _p] k]
+              (when (and (= r rid)
+                         (not= scope sub-scope)
+                         (entry-active? entry))
+                scope)))
+          entries)))
+
+(defn maybe-warn-scope-mismatch!
+  "Emit the dev-only likely-scope-mismatch warning (rf2-rsmiru) when a
+  `:rf.scope/from-caller` resource is subscribed at a scope key with ZERO
+  active owners while a DIFFERENT scope key for the SAME resource id IS
+  active — the read-side complement of the Xray write-side scope-mismatch
+  lint, and the sub-side tripwire for the silent-permanent-skeleton footgun
+  the fail-closed scope rules cannot catch (the sub DID resolve a scope; it
+  resolved the WRONG one).
+
+  DEV-ONLY: the whole body is behind `interop/debug-enabled?` so Closure DCE
+  elides it in production (`:advanced` + `goog.DEBUG=false`), and the emit
+  rides `trace/emit!` (same gate). One-shot idempotent per distinct
+  `[resource-id sub-scope active-scope]` so a reactive re-run warns once.
+
+  Only `:rf.scope/from-caller` resources are checked: every other policy
+  (`:rf.scope/global`, a pure-data / fn-of-nothing resolver) resolves the
+  SAME concrete scope sub-side and ensure-side, so a sub cannot land on a
+  different key than the ensure did. Returns nil."
+  [runtime-db payload sub-key sub-entry]
+  (when interop/debug-enabled?
+    (let [resource-id (:resource payload)
+          spec        (registry/resource-meta resource-id)]
+      ;; only the from-caller footgun — see docstring
+      (when (and (= :rf.scope/from-caller (:scope spec))
+                 ;; the subscribed entry has no active owner (or no entry) …
+                 (not (entry-active? sub-entry)))
+        (let [entries       (get-in runtime-db (state/entries-path))
+              [sub-scope]   sub-key
+              active-scope  (active-mismatch-scope entries sub-key)]
+          ;; … while a DIFFERENT scope for the same resource IS active.
+          (when (some? active-scope)
+            (let [dedupe-key [resource-id sub-scope active-scope]]
+              (when-not (contains? @warned-scope-mismatch dedupe-key)
+                (swap! warned-scope-mismatch conj dedupe-key)
+                (trace/emit! :warning :rf.warning/resource-sub-scope-mismatch
+                             {:resource-id  resource-id
+                              :sub-scope    sub-scope
+                              :active-scope active-scope
+                              :recovery     :fix-scope
+                              :hint         (str "subscription to resource "
+                                                 resource-id " resolved scope "
+                                                 (pr-str sub-scope)
+                                                 " which has no active owner, while a "
+                                                 "DIFFERENT scope "
+                                                 (pr-str active-scope)
+                                                 " for the same resource IS active — "
+                                                 "this sub will read :idle forever (a "
+                                                 "silent permanent skeleton). Pass the "
+                                                 "SAME :scope the owning route/event "
+                                                 "ensured under on the subscription "
+                                                 "payload. Per Spec 016 "
+                                                 "§Subscription-side scope "
+                                                 "resolution.")}))))))))
+  nil)
+
 (defn- entry-for
   "Look up the durable cache entry for a sub payload (resolving + validating
-  its scoped key), or nil when no entry exists for that key."
+  its scoped key), or nil when no entry exists for that key. On the dev
+  build also fires the likely-scope-mismatch warning (rf2-rsmiru,
+  `maybe-warn-scope-mismatch!`) — production-elided."
   [runtime-db payload]
-  (let [k (resolve-scoped-key payload)]
-    (get-in runtime-db (state/entry-path k))))
+  (let [k (resolve-scoped-key payload)
+        e (get-in runtime-db (state/entry-path k))]
+    (maybe-warn-scope-mismatch! runtime-db payload k e)
+    e))
 
 ;; ---- derived freshness (Spec 016 §Status semantics) -----------------------
 

@@ -52,6 +52,7 @@
    [re-frame.http-managed]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
+   [re-frame.trace.tooling :as trace-tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
@@ -741,3 +742,124 @@
           "stale/GC timer table cleared (timer cancelled)")
       (is (not (contains? @revalidate-listeners/listener-table :rf/default))
           "revalidation-listener side table cleared"))))
+
+;; ===========================================================================
+;; 20. Sub-side dev-warning for a session-scope subscription mismatch
+;;     (rf2-rsmiru) — the read-side complement of the Xray write-side
+;;     scope-mismatch lint. A `:rf.scope/from-caller` resource subscribed at
+;;     a scope with ZERO active owners while a DIFFERENT scope for the SAME
+;;     resource IS active is the silent-permanent-skeleton footgun; dev-mode
+;;     warns. DEV-only + production-elided (Closure DCE on debug-enabled?).
+;; ===========================================================================
+
+(defn- record-scope-mismatch-warnings!
+  "Run `body-fn` with a trace listener installed; return the vector of every
+  `:rf.warning/resource-sub-scope-mismatch` event emitted during it (in
+  capture order). The listener is unregistered in a `finally`."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::scope-mismatch-recorder]
+    (trace-tooling/register-listener!
+      k (fn [ev]
+          (when (= :rf.warning/resource-sub-scope-mismatch (:operation ev))
+            (swap! seen conj ev))))
+    (try (body-fn)
+         (finally (trace-tooling/unregister-listener! k)))
+    @seen))
+
+(defn- load-under!
+  "Ensure + settle a `:sm/article` resource under `scope` with an active
+  owner so its entry is :loaded and ACTIVE (≥1 active owner)."
+  [scope owner]
+  (let [k (state/scoped-resource-key scope :sm/article {:slug "w"})]
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :sm/article :scope scope
+                                            :params {:slug "w"} :owner owner}])
+    (let [wid (:current-work (entry k))]
+      (rf/dispatch-sync [:rf.resource.internal/succeeded
+                         {:resource-key k :work-id wid :generation 1
+                          :data {:title "W"}}]))
+    k))
+
+(deftest scope-mismatch-warning-fires-on-genuine-mismatch
+  (rf/reg-resource :sm/article (article-spec {:scope :rf.scope/from-caller}))
+  (testing "rf2-rsmiru — a from-caller sub at a scope with ZERO active owners,
+            while a DIFFERENT scope for the same resource IS active, emits the
+            dev-only :rf.warning/resource-sub-scope-mismatch warning"
+    ;; scope A is ensured + active (a real route lease); the view mistakenly
+    ;; subscribes under scope B (no owner ever attached) — the footgun.
+    (load-under! {:user "a"} [:route :r 1])
+    (let [warns (record-scope-mismatch-warnings!
+                  (fn []
+                    (subs/state-sub-fn (runtime-db)
+                                       [:rf.resource/state
+                                        {:resource :sm/article :scope {:user "b"}
+                                         :params {:slug "w"}}])))]
+      (is (= 1 (count warns)) "exactly one warning fired")
+      (let [w (first warns)]
+        (is (= :rf.warning/resource-sub-scope-mismatch (:operation w)))
+        (is (= :sm/article  (-> w :tags :resource-id)))
+        (is (= {:user "b"}  (-> w :tags :sub-scope)) "the mismatched sub scope")
+        (is (= {:user "a"}  (-> w :tags :active-scope)) "the active scope it likely meant"))))
+  (testing "rf2-rsmiru — the warning is ONE-SHOT (a reactively re-running sub
+            warns once per genuine mismatch, never floods)"
+    (let [warns (record-scope-mismatch-warnings!
+                  (fn []
+                    (dotimes [_ 5]
+                      (subs/state-sub-fn (runtime-db)
+                                         [:rf.resource/state
+                                          {:resource :sm/article :scope {:user "b"}
+                                           :params {:slug "w"}}]))))]
+      (is (zero? (count warns)) "already-warned mismatch is not re-emitted")))
+  (testing "rf2-rsmiru — the sub STILL reads the documented :idle empty-state
+            projection (fail-closed is preserved; the warning is advisory)"
+    (is (= :idle (:status (subs/state-sub-fn (runtime-db)
+                                             [:rf.resource/state
+                                              {:resource :sm/article :scope {:user "b"}
+                                               :params {:slug "w"}}]))))))
+
+(deftest scope-mismatch-warning-does-not-fire-when-scopes-match
+  (rf/reg-resource :sm/article (article-spec {:scope :rf.scope/from-caller}))
+  (testing "rf2-rsmiru — NO warning when the sub scope MATCHES the active
+            ensure scope (the correct, ergonomic case)"
+    (load-under! {:user "a"} [:route :r 1])
+    (let [warns (record-scope-mismatch-warnings!
+                  (fn []
+                    (subs/state-sub-fn (runtime-db)
+                                       [:rf.resource/state
+                                        {:resource :sm/article :scope {:user "a"}
+                                         :params {:slug "w"}}])))]
+      (is (zero? (count warns)) "matching scope reads the live entry — no warning")))
+  (testing "rf2-rsmiru — NO warning when only a SINGLE scope is active and the
+            sub reads it (a bare un-ensured resource is not a mismatch)"
+    ;; release the only owner so NO scope is active for the resource …
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:route :r 1]}])
+    (let [warns (record-scope-mismatch-warnings!
+                  (fn []
+                    ;; a sub under a never-ensured scope C: no DIFFERENT scope
+                    ;; is active, so this is an un-ensured resource (the empty
+                    ;; :idle projection), not a likely mismatch.
+                    (subs/state-sub-fn (runtime-db)
+                                       [:rf.resource/state
+                                        {:resource :sm/article :scope {:user "c"}
+                                         :params {:slug "w"}}])))]
+      (is (zero? (count warns))
+          "no OTHER active scope → not a mismatch (just an un-ensured read)"))))
+
+(deftest scope-mismatch-warning-does-not-fire-for-non-from-caller-policies
+  (testing "rf2-rsmiru — a :rf.scope/global resource never trips the heuristic
+            (global resolves the SAME scope sub-side and ensure-side, so a sub
+            cannot land on a different key than the ensure did)"
+    (rf/reg-resource :smg/article (article-spec)) ; :rf.scope/global
+    (let [k (state/scoped-resource-key :rf.scope/global :smg/article {:slug "w"})]
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :smg/article :scope :rf.scope/global
+                                              :params {:slug "w"} :owner [:route :g 1]}])
+      (let [wid (:current-work (entry k))]
+        (rf/dispatch-sync [:rf.resource.internal/succeeded
+                           {:resource-key k :work-id wid :generation 1 :data {:title "W"}}])))
+    (let [warns (record-scope-mismatch-warnings!
+                  (fn []
+                    (subs/state-sub-fn (runtime-db)
+                                       [:rf.resource/state
+                                        {:resource :smg/article :scope :rf.scope/global
+                                         :params {:slug "w"}}])))]
+      (is (zero? (count warns)) "global-scope resources are out of scope for the heuristic"))))
