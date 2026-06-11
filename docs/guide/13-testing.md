@@ -494,7 +494,7 @@ After a test run, `@recorded` holds the events in order — handy for asserting 
 
 ### Freezing the clock with world inputs
 
-The clock is the most common impurity a test needs to pin down, and the way you pin it follows from [chapter 07](07-effects-and-coeffects.md#causal-world-inputs-where-the-clock-and-fresh-ids-come-from): a handler that writes a durable timestamp reads it from `:rf.world/inputs`, never from `(js/Date.)`. So a test fixes the clock by *supplying* the world input on the dispatch — there's no cofx to stub and no `js/Date` to monkey-patch, because the clock was never an ambient read:
+The clock is the most common impurity a test needs to pin down, and the way you pin it follows from [chapter 07](07-effects-and-coeffects.md#causal-world-inputs--where-the-clock-and-fresh-ids-come-from): a handler that writes a durable timestamp reads it from `:rf.world/inputs`, never from `(js/Date.)`. So a test fixes the clock by *supplying* the world input on the dispatch — there's no cofx to stub and no `js/Date` to monkey-patch, because the clock was never an ambient read:
 
 ```clojure
 (deftest todo-add-stamps-created-at
