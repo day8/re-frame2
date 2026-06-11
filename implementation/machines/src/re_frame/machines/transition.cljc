@@ -51,6 +51,7 @@
             [clojure.string :as str]
             [re-frame.machines.grammar :as grammar]
             [re-frame.machines.path-walk :as path-walk]
+            [re-frame.machines.reply :as m-reply]
             [re-frame.machines.result :as result
              #?@(:cljs [:include-macros true])]
             [re-frame.trace :as trace]))
@@ -835,9 +836,16 @@
           ;; scheduled a fresh timer) → this in-flight timer is stale.
           ;; Likewise when the node has been exited (no longer on the
           ;; active path) → stale.
+          ;;
+          ;; Per EP-0011 §Timer Reply / Managed-Effects §Stale suppression,
+          ;; the declaring path + per-path epoch ARE the data-only
+          ;; suppression gate. Carry `:decl-path` so the lifecycle's
+          ;; `:rf.machine.timer/stale-after` trace can express the
+          ;; carried/current gate the reply-envelope way (m-reply).
           :else
           {:stale?          true
            :state           (last decl-path)
+           :decl-path       decl-path
            :delay           delay-key
            :scheduled-epoch carried-epoch
            :current-epoch   cur-epoch}))
@@ -854,6 +862,7 @@
                       (resolve-hit prefix t)
                       {:stale?          true
                        :state           (last prefix)
+                       :decl-path       (vec prefix)
                        :delay           delay-key
                        :scheduled-epoch carried-epoch
                        :current-epoch   cur-epoch})))))]
@@ -862,9 +871,13 @@
           ;; No `:after` table matched along any level of the path — the
           ;; timer carried in from a state the machine has since exited.
           ;; Surface it as stale so the lifecycle emits
-          ;; `:rf.machine.timer/stale-after`.
+          ;; `:rf.machine.timer/stale-after`. No `:after` table matched
+          ;; along any level, so there is no live declaring node — the
+          ;; carried path is the timer's only address (`:current-epoch`
+          ;; nil signals the absent live counterpart).
           :else  {:stale?          true
                   :state           (last path)
+                  :decl-path       carried-decl-path
                   :delay           delay-key
                   :scheduled-epoch carried-epoch
                   :current-epoch   nil})))))
@@ -3238,13 +3251,39 @@
   [frame-id match]
   (when match
     (when (:stale? match)
-      (trace/emit! :rf.machine :rf.machine.timer/stale-after
-                   {:state           (:state match)
-                    :delay           (:delay match)
-                    :scheduled-epoch (:scheduled-epoch match)
-                    :current-epoch   (:current-epoch match)
-                    :frame           frame-id
-                    :recovery        :replaced-with-default}))
+      ;; Per EP-0011 §Timer Reply / Managed-Effects §Stale suppression:
+      ;; the machine `:after` timer is the existing specialized stale-gated
+      ;; instance of the uniform reply envelope. Express the existing
+      ;; epoch-mismatch drop in the shared reply vocabulary — the declaring
+      ;; path + per-path epoch ARE the data-only suppression gate — and ride
+      ;; the reply-shaped facts (`:rf.reply/status :stale`,
+      ;; `:rf.reply/work-status :suppressed`, the carried/current gate)
+      ;; ADDITIVELY on the trace, preserving its public shape (`:state` /
+      ;; `:delay` / `:scheduled-epoch` / `:current-epoch` / `:recovery`)
+      ;; while the trace stream now classifies the drop the same way HTTP /
+      ;; resources / routing do (m-reply). The behaviour is unchanged: the
+      ;; timer's transition still does not fire.
+      (let [stale-reply (m-reply/after-stale-reply
+                          {:machine-id      (:machine-id match)
+                           :state           (:state match)
+                           :delay           (:delay match)
+                           :decl-path       (:decl-path match)
+                           :scheduled-epoch (:scheduled-epoch match)
+                           :current-epoch   (:current-epoch match)
+                           :frame           frame-id})
+            summary     (m-reply/trace-reply stale-reply {:frame frame-id})]
+        (trace/emit! :rf.machine :rf.machine.timer/stale-after
+                     {:state              (:state match)
+                      :delay              (:delay match)
+                      :scheduled-epoch    (:scheduled-epoch match)
+                      :current-epoch      (:current-epoch match)
+                      :frame              frame-id
+                      :recovery           :replaced-with-default
+                      ;; reply-envelope vocabulary (Managed-Effects §9)
+                      :rf.reply/status      (:status summary)
+                      :rf.reply/work-status (:work/status summary)
+                      :rf.reply/stale-reason (:stale/reason summary)
+                      :rf.reply/correlation (:correlation summary)})))
     (when (:guard-suppressed? match)
       (trace/emit! :rf.machine :rf.machine.timer/fired
                    {:state  (:state match)

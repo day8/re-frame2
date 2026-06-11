@@ -6,7 +6,7 @@
 >
 > For where Levels 1–4 sit in relation to the rest of the runtime (registrar, frame container, sub-cache, substrate adapter, trace bus), see [Runtime-Architecture](Runtime-Architecture.md).
 >
-> `:spawn` and `:spawn-all` (state-machine actors) are **managed external effects** — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the eight properties (effect-as-data, framework-owned actor lifecycle, structured failure taxonomy under `:rf.machine/*`, trace-bus observability, `:sensitive?` / `:large?` composition, built-in retry / abort / teardown via `:after` / `:always` / state-exit, in-flight actor registry, per-frame interceptor scoping).
+> `:spawn` and `:spawn-all` (state-machine actors) are **managed external effects** — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the nine properties (effect-as-data, framework-owned actor lifecycle, structured failure taxonomy under `:rf.machine/*`, trace-bus observability, `:sensitive?` / `:large?` composition, built-in retry / abort / teardown via `:after` / `:always` / state-exit, in-flight actor registry, per-frame interceptor scoping, and — for the machine's *async* completions — the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope)). The machine's two async completions (a spawned actor finishing on a `:final?` leaf; a fired-or-stale `:after` timer) lower onto that envelope **internally**; the public statechart API (`:on-done` / `:on-error` / `:after` / actor-destroy) is preserved exactly. See [§Async completions share the uniform reply envelope](#async-completions-share-the-uniform-reply-envelope) for the lowering and its work-id / status / stale-suppression vocabulary.
 
 ## Abstract
 
@@ -2141,6 +2141,8 @@ The `:after` slot is **independent** of the `:spawn` slot — neither requires t
 ### Epoch-based stale detection
 
 > **Cross-cutting pattern.** This is one instance of the **stale-detection pattern** re-frame2 uses for any async-shaped feature where the receiving state's identity matters. See [Pattern-StaleDetection.md](Pattern-StaleDetection.md) for the meta-pattern; the same idiom is used by [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression) and is the recommended default for future async-shaped substrates. Trace events follow the `<feature>/stale-<reason>` convention.
+>
+> **Uniform reply envelope (EP-0011 §Timer Reply).** This epoch gate **is** the [uniform reply envelope's stale-suppression gate](Managed-Effects.md#the-uniform-reply-envelope) for the machine `:after` timer — the declaring path + per-path epoch are the data-only suppression gate, and the `:rf.machine.timer/stale-after` trace carries the reply vocabulary additively. See [§Async completions share the uniform reply envelope](#async-completions-share-the-uniform-reply-envelope). Internal lowering only — the staleness behaviour described here is unchanged.
 
 Re-frame2 does **not** introduce a `:cancel-dispatch-later` fx. Cancellation is unnecessary because every scheduled timer carries an **epoch** captured at scheduling time, and the receiving handler validates the epoch before firing.
 
@@ -3027,7 +3029,7 @@ Existing observers that filter `:rf.machine/destroyed` on `:tags` see the new `:
 - [Spec 009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) — `:rf.machine/done` registration (the actor-finality trace; the in-machine `[:rf.machine/done <path>]` raise rides the standard `:raise` queue, not a separate trace family).
 - Conformance fixtures: `final-state-singleton-auto-destroys.edn`, `final-state-child-fires-on-done.edn`.
 - [§Destroy is silent-idempotent](#destroy-is-silent-idempotent) — D4's auto-destroy is followed at most ONCE by an observable `:rf.machine/destroyed` trace; subsequent explicit `[:rf.machine/destroy <id>]` calls on the same finished actor are silent no-ops (aligned with XState convention).
--.
+- [§Async completions share the uniform reply envelope](#async-completions-share-the-uniform-reply-envelope) — how this success / error completion lowers onto the framework-wide [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) **internally** (work id `[:rf.work/machine …]`, `:status :ok` / `:error`, late-completion staleness) while preserving the public `:on-done` / `:on-error` semantics described here (EP-0011 §Machine Completion).
 
 ## History states (`:type :history` — shallow / deep / default-target)
 
@@ -3489,6 +3491,31 @@ A common partial-success idiom is to declare `:after` for the phase-level timeou
 - `:rf.error/machine-spawn-all-with-spawn` — a state node declares both `:spawn` and `:spawn-all`; the combination is rejected.
 
 Cross-references: [§Spawning](#spawning--dynamic-actors) for the imperative-spawn surface; [§Declarative `:spawn`](#declarative-spawn) for the per-child sugar that `:spawn-all` extends; [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) for the schema; [Pattern-Boot](Pattern-Boot.md) for boot-flow worked examples leveraging `:spawn-all` for hydrate-as-spawn-and-join.
+
+## Async completions share the uniform reply envelope
+
+> **EP-0011 §Machine Completion / §Timer Reply.** Machines have **two** asynchronous completions: a spawned-actor child finishing on a `:final?` leaf, and a fired-or-stale `:after` timer. Both are **managed async effects** ([Managed-Effects §9](Managed-Effects.md#9-uniform-reply-envelope-async-completions)), so both lower onto the framework-wide [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) — the same envelope HTTP ([014](014-HTTPRequests.md)), resources / mutations ([016](016-Resources.md)), and route loaders ([012](012-Routing.md)) complete through. **This is internal lowering only.** The public statechart API documented above — the `:on-done` `:data` callback, the `:on-error` parent transition, the `:after` epoch-gated stale-drop, and actor-destroy teardown — is **preserved exactly**. What the lowering shares is the *vocabulary*: one `:work/id`, one closed `:status`, and reply-envelope-shaped trace facts, so the trace stream and any future work-ledger correlate machine completions the same way they correlate every other managed async family.
+
+### Spawned-actor completion
+
+When a `:spawn`-spawned child reaches a `:final?` leaf, the runtime forms a canonical [reply map](Managed-Effects.md#the-reply-map) internally before driving the parent's spawn hook:
+
+- **Work id.** `[:rf.work/machine actor-id work-bearing-path generation]` ([Managed-Effects §Work-id correlation](Managed-Effects.md#work-id-correlation)). `actor-id` is the finishing actor's id; `work-bearing-path` is the `:spawn`-bearing node's declaring path (the child's stamped `:rf/spawn-id`); `generation` is the spawn discriminator (the `<type>#<n>` instance suffix `n`, or `1` for an explicit `:spawn-id`). One attempt has one work id (EP-0007).
+- **Status.** A plain `:final?` leaf is `:status :ok` with the child's `:output-key` result under `:value`; an `:error?` error terminal (per [§`:on-error`](#on-error--child-failure-control-flow)) is `:status :error`. The **public `:on-done` callback** is then driven with `(:value reply)` as its `:result` (the value flows through the one canonical reply); the **public `:on-error` transition** still receives the **raw** error payload on its `:event` (`(nth ev 2)`) — the reply map's family-`:kind`-wrapped `:error` slot is internal vocabulary, not what the parent transition observes.
+- **Stale suppression — the correctness boundary** ([Managed-Effects §Stale suppression](Managed-Effects.md#stale-suppression)). A **late** child completion whose `actor-id` / spawn correlation no longer names a live actor (the actor was already destroyed, or the spawn slot was reused) is `:status :stale` / `:work/status :suppressed`; its app target (the `:on-done` / `:on-error` routing) MUST NOT run and it produces no `:data` / snapshot mutation. Cancellation (actor-destroy) remains an optimisation; staleness is the safety rule.
+- **Trace.** The `:rf.machine/done` trace carries the reply-envelope facts (`:rf.reply/status`, `:rf.reply/work-id`, `:rf.reply/work-status`) **additively** alongside its preserved public `:output` / `:parent-id` / `:error?` shape; wire-bearing slots route through the shared `rf/elide-wire-value` walker.
+
+### `:after` timers — the existing specialized stale-gated instance
+
+The machine `:after` timer is the **existing** stale-gated instance of the reply pattern (EP-0011 §Timer Reply). Its [epoch-based stale detection](#epoch-based-stale-detection) — the synthetic timer-elapsed event validated against the scheduling node's declaring path + per-path `:rf/after-epoch` — **is** the envelope's [stale-suppression gate](Managed-Effects.md#stale-suppression): the **declaring path + epoch are the data-only suppression gate**. A timer is *live* iff its declaring path is still active **and** its carried epoch equals the node's current per-path epoch; otherwise it is *stale*, its transition does **not** fire, and the `:rf.machine.timer/stale-after` trace carries the reply vocabulary (`:rf.reply/status :stale`, `:rf.reply/work-status :suppressed`, `:work/kind :timer`, and the carried-vs-current `{:path … :rf/after-epoch …}` gate) **additively** on its preserved public shape. No behaviour changes — this names the existing epoch-mismatch drop in the shared vocabulary.
+
+### Cross-references
+
+- [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) — the canonical normative home (reply map, reply target, closed status taxonomy, work-id correlation, mandatory stale suppression, the reply-mapping functor law).
+- [EP-0011 §Machine Completion / §Timer Reply](../docs/EP/EP-0011-uniform-async-reply-envelope.md) — the rationale record for lowering the two machine async completions.
+- [§Final states](#final-states-final--on-done--output-key) / [§`:on-error`](#on-error--child-failure-control-flow) — the **public** spawned-actor completion contract this lowers (`:on-done` / `:on-error` semantics preserved).
+- [§Epoch-based stale detection](#epoch-based-stale-detection) — the **public** `:after` staleness contract whose epoch + declaring path are the suppression gate.
+- [014 §HTTP lowering](014-HTTPRequests.md) — the sibling family completing through the same envelope (`:on-success` / `:on-failure` lowering).
 
 ## Cross-spec interactions
 
