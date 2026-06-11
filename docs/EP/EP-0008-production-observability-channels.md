@@ -1,11 +1,49 @@
 # EP-0008: Production Observability Channels
 
-Status: proposal
+Status: final
 Type: standards-track
 
-> Deliberately short-lived as a proposal: the destination is Spec 009 (the
-> channel section + the catalogue column); on graduation this EP goes `final`
-> and Spec 009 is authoritative.
+> **`final` means the decisions are settled.** The one deferred call — Open
+> Issue 1, whether frame-destroy emits a single always-on teardown *report* or
+> per-hook always-on emissions — was ruled by Mike on 2026-06-11 (see
+> [Resolved Decisions](#resolved-decisions)): a single bounded teardown report,
+> `:rf.error/frame-teardown-failed` carrying `:hook-failures`, finally-shaped
+> emit-safe. The three-channel contract, the promotion criterion, the JVM gate
+> caveat, and the catalogue channel column have graduated into
+> [`spec/009-Instrumentation.md`](../../spec/009-Instrumentation.md), which is now
+> authoritative. The design is locked.
+>
+> `final` does **not**, on its own, assert the *implementation* is gap-free: the
+> teardown-report code, the audit sweep, the conformance pin, the guide material,
+> and the wave review are tracked separately in the
+> [Implementation errata](#implementation-errata) ledger below (the EP-0005
+> pattern, per [EP-0009 §Statuses](EP-0009-the-ep-process.md#statuses)).
+
+## Implementation errata
+
+The EP decisions are final (Spec 009 carries the graduated normative text). The
+build that follows the decision-freeze is tracked here; **these rows are open**
+and are struck as they close. None of them reopens any ruling.
+
+- **`rf2-ini4wr`** *(open — impl)* — the frame-teardown report: a single always-on
+  `:rf.error/frame-teardown-failed` record carrying a `:hook-failures` vector,
+  emitted from `destroy-frame!` through a **finally-shaped** boundary so a
+  partial teardown (abort after hook 3 of 7) still flushes the collected entries.
+  The dev-only per-hook diagnostic (`:rf.warning/teardown-hook-exception`) stays
+  at its causal positions inside `safe-call-hook!` and DCE-elides in production.
+- **`rf2-iq51qu`** *(open — audit)* — grade the full `:rf.error/*` / `:rf.warning/*`
+  catalogue against the promotion criterion; file promotion-fix beads for any
+  gaps the sweep finds. Teardown was the known first row (now resolved by the
+  report shape, above); the audit covers the rest.
+- **`rf2-sgz1zq`** *(open — conformance)* — the catalogue/channel pin: every
+  emitted category appears in the Spec 009 catalogue with a channel, and every
+  always-on category is exercised through the error-emit listener in at least one
+  test (so promotion is real, not documentary).
+- **`rf2-6jpqkq`** *(open — docs/guide)* — extend the production-observability
+  guide material with the three-channel model, the JVM `re-frame.debug`
+  default-on caveat, the promotion criterion, and the teardown-report example.
+- **`rf2-8k9vk2`** *(open — review)* — correctness + completeness review of the
+  whole EP-0008 wave against this EP and Mike's ruling; file follow-ups.
 
 ## Abstract
 
@@ -129,23 +167,42 @@ off-box surfaces.
 **Category kind follows the channel.** The always-on axis is contractually
 `:rf.error/*`-only (Ownership: "one tight record per production-reachable
 `:rf.error/*`"; Spec 009 §What is available in production builds). This EP does
-not widen that substrate to warnings. A `:rf.warning/*` category that meets the
-criterion was therefore **misclassified as a warning**: promotion includes
-recategorization to `:rf.error/*` with a typed per-category default `:recovery`
-from the existing recovery vocabulary. For teardown failures the recovery is
-still `:ignored` — teardown continues best-effort — but the event now rides the
+not widen that substrate to warnings. A failure fact that meets the criterion
+but is surfaced only as a `:rf.warning/*` diagnostic is therefore **on the wrong
+channel**: promotion names the production-survivable fact as a new `:rf.error/*`
+category with a typed per-category default `:recovery` from the existing recovery
+vocabulary. For frame-teardown the recovery is still `:ignored` — teardown
+continues best-effort — but the production-survivable fact now rides the
 always-on error axis. Skipped teardown is an error the process cannot locally
 observe, not an advisory.
 
+Promotion is **not a blind rename of the per-hook warning to a per-hook error.**
+Where a single always-on emission would fan out one record per hook (the
+frame-destroy case), the criterion is satisfied by a **single bounded report**
+naming the destroy-as-fact, with the per-hook detail as `:hook-failures` rows
+(Open Issue 1, ruled — see [Resolved Decisions](#resolved-decisions)). The
+per-hook diagnostic stays on the diagnostic channel; only the always-on fact
+collapses to one report. (R2: the "instead of per-hook emissions" scope is the
+always-on axis only — dev per-hook trace rows at their causal positions are
+unchanged.)
+
 ### The audit (initial known rows)
+
+The teardown row is **resolved to the report-fact shape** (Mike's Open Issue 1
+ruling — see [Resolved Decisions](#resolved-decisions)): one always-on
+`:rf.error/frame-teardown-failed` record carrying a `:hook-failures` vector, NOT
+a per-hook recategorization of `:rf.warning/teardown-hook-exception`. The
+per-hook diagnostic stays on the **diagnostic** channel at its causal positions
+(dev, DCE-elided in production) — per-hook visibility does not disappear; only
+the *always-on* emission is a single report.
 
 | Category | Today | Under the criterion |
 |---|---|---|
-| `:rf.warning/teardown-hook-exception` | diagnostic (DCE'd) | **Promote + recategorize** → `:rf.error/teardown-hook-exception`, default `:recovery :ignored` (teardown continues best-effort; the failure ships through the always-on axis) — production-possible, resource-leakage class, compounds in long-lived processes. The known C4 fix |
+| frame-teardown hook failures | per-hook `:rf.warning/teardown-hook-exception`, diagnostic (DCE'd) | **Promote to a single always-on report** → `:rf.error/frame-teardown-failed`, default `:recovery :ignored` (teardown continues best-effort; the one bounded record ships through the always-on axis carrying `:hook-failures`), finally-shaped so a partial teardown still flushes. The per-hook `:rf.warning/teardown-hook-exception` **stays diagnostic** (dev, at causal positions inside `safe-call-hook!`). The known C4 fix |
 | `:rf.error/sub-input-fn-exception` / `-bad-return` | always-on | Correct as-is (the precedent rows) |
 | `:rf.error/no-frame-context` | always-on | Correct (frameless errors need the frameless axis — EP-0002 R6) |
 | `:rf.warning/app-handler-runtime-effect` | diagnostic | Correct — dev-time teaching diagnostic; leg 2 fails (the write applies; nothing leaks) |
-| remaining `:rf.error/*` / `:rf.warning/*` catalogue | mixed | The audit bead grades every row; gaps become fixes |
+| remaining `:rf.error/*` / `:rf.warning/*` catalogue | mixed | The audit bead (`rf2-iq51qu`) grades every row; gaps become fixes |
 
 ### Conformance
 
@@ -156,25 +213,35 @@ one test (so promotion is real, not documentary).
 
 ## Backwards Compatibility
 
-Mostly additive, but not a pure no-op for diagnostic consumers: the teardown
-failure category is recategorized from `:rf.warning/teardown-hook-exception` to
-`:rf.error/teardown-hook-exception`. Pre-alpha, the correct stable category
-wins over retaining a long-lived alias. Apps with error shippers may see new
-(correct) reports after promotion — release-notes material.
+Mostly additive, but not a pure no-op for production error-shipper consumers: a
+new always-on `:rf.error/frame-teardown-failed` report fires on frame destroys
+that had a hook failure (previously these were dev-trace-only
+`:rf.warning/teardown-hook-exception` warnings that DCE'd out of production). The
+per-hook diagnostic warning is unchanged on the diagnostic channel. Pre-alpha,
+naming the production-survivable fact correctly wins over leaving it silent. Apps
+with error shippers may see new (correct) reports after the impl bead lands —
+release-notes material.
 
 ## Bead Plan
 
-1. Spec bead: the channel section + criterion + catalogue column (hot-zone
-   Spec 009; sequential).
-2. Teardown bead: recategorize `:rf.warning/teardown-hook-exception` →
-   `:rf.error/teardown-hook-exception` (catalogue row, `:recovery :ignored`)
-   and route `safe-call-hook!` failures through the always-on axis (keep dev
-   trace visibility under the new error category), plus a teardown-report test.
-3. Audit bead: grade the full catalogue; file promotion fixes found.
-4. Conformance bead: the catalogue/channel pin test.
-5. Guide/docs bead: extend the production observability material with the
-   three-channel model, the JVM debug gate note, and the always-on promotion
-   criterion.
+1. Spec bead (`rf2-smovax`, this graduation): the channel section + criterion +
+   catalogue channel column + the `:rf.error/frame-teardown-failed` report row
+   (hot-zone Spec 009; sequential). Records the Open Issue 1 ruling and flips this
+   EP `final`. **Done** — Spec 009 is authoritative.
+2. Teardown bead (`rf2-ini4wr`): emit a **single** always-on
+   `:rf.error/frame-teardown-failed` record carrying a `:hook-failures` vector
+   from `destroy-frame!`, through a **finally-shaped** boundary so a partial
+   teardown still flushes the collected entries (R1). Keep the per-hook
+   `:rf.warning/teardown-hook-exception` dev diagnostic at its causal positions
+   inside `safe-call-hook!` (R2 — diagnostic channel, DCE'd in production). Plus a
+   teardown-report test.
+3. Audit bead (`rf2-iq51qu`): grade the full catalogue; file promotion fixes found.
+4. Conformance bead (`rf2-sgz1zq`): the catalogue/channel pin test.
+5. Guide/docs bead (`rf2-6jpqkq`): extend the production observability material
+   with the three-channel model, the JVM debug gate note, the always-on promotion
+   criterion, and the teardown-report example.
+6. Review bead (`rf2-8k9vk2`): correctness + completeness review of the whole
+   wave vs this EP and the ruling.
 
 ## Guide Impact
 
@@ -187,10 +254,63 @@ On graduation this EP updates the observability/production guide material with:
 
 ## Open Issues
 
-1. Should frame-destroy emit a single always-on *teardown report* (one event
-   summarizing all hook failures) instead of per-hook emissions?
-   Recommendation: yes — one bounded report per destroy, carrying per-hook
-   entries; avoids burst noise from a cascading teardown failure.
+*(None open — Open Issue 1 was ruled YES with refinements; see
+[Resolved Decisions](#resolved-decisions).)*
+
+1. ~~Should frame-destroy emit a single always-on *teardown report* (one event
+   summarizing all hook failures) instead of per-hook emissions?~~ **RESOLVED
+   (Mike, 2026-06-11): yes — a single bounded report,
+   `:rf.error/frame-teardown-failed` carrying a `:hook-failures` vector,
+   finally-shaped emit-safe (R1), with the per-hook diagnostic kept on the
+   diagnostic channel (R2). Full ruling + rationale in
+   [Resolved Decisions](#resolved-decisions).**
+
+## Resolved Decisions
+
+**Open Issue 1 — single teardown report vs per-hook always-on emissions** was
+ruled by Mike on 2026-06-11: **YES — a single always-on teardown report**, with
+two refinements (neither changes the answer). The ruling, rationale, and
+refinements are recorded here verbatim; the normative shape lives in
+[`spec/009-Instrumentation.md`](../../spec/009-Instrumentation.md) (the
+`:rf.error/frame-teardown-failed` catalogue row + the channel contract).
+
+### The ruling
+
+Frame-destroy emits a **single always-on teardown report** — one bounded event
+summarizing all hook failures — NOT per-hook always-on emissions. The always-on
+category is named for the report-fact: `:rf.error/frame-teardown-failed`,
+`:recovery :ignored` (teardown stays best-effort), carrying a `:hook-failures`
+vector (one entry per failed hook). It is **not** the per-hook-shaped
+`:rf.error/teardown-hook-exception` reused for a multi-hook record —
+one-name-per-fact applies to the fact actually emitted (EP-0007).
+
+### Rationale
+
+1. **SSR is the quantitative killer.** Per-request frame destroys × M req/s under
+   per-hook emission floods the production error shipper; one report caps it at
+   1 × M — the difference between a diagnosable signal and a pipeline flood, in
+   the exact deployment the EP protects.
+2. **The destroy IS the fact; hooks are detail rows.** One record preserves the
+   which-hooks-failed-together correlation that external shippers will not
+   reliably re-group, and gives cleaner alert rates than a count that scales with
+   how many hooks an app registers.
+3. **The corpus already uses this idiom.** The Spec 016 trace family settled the
+   same fan-out with single summary rows (`:rf.resource/route-plan`,
+   `:rf.resource/revalidate-scan`) plus per-item detail on ordinary diagnostic
+   traces.
+
+### Refinements
+
+- **R1 — emit-safe on partial teardown.** The report MUST be emit-safe on a
+  PARTIAL teardown: a **finally-shaped emission boundary**, so that if teardown
+  aborts after hook 3 of 7 the collected entries still flush. This neutralizes
+  the one genuine advantage per-hook emission had (incremental delivery surviving
+  a mid-teardown collapse). The contract is stated in Spec 009.
+- **R2 — axis scope.** "Instead of per-hook emissions" is scoped to the
+  **always-on axis only**. In dev, the per-hook diagnostic trace rows
+  (`:rf.warning/teardown-hook-exception`) at their causal positions inside
+  `safe-call-hook!` STAY (more useful there; DCE'd in production). Per-hook
+  visibility does not disappear — only the always-on emission is a single report.
 
 ## Recommendation
 
