@@ -124,10 +124,13 @@
 
   - **`:invalidates`** — `(fn [params result] -> #{tag …})` — the resource
     tags this mutation's success (and optionally failure) invalidates;
-  - **`:patches`** — `(fn [params result] -> {scoped-key-or-spec patch-fn})`
-    — controlled resource-entry patches applied on success;
-  - **`:populates`** — `(fn [params result] -> {resource-spec value})` —
-    controlled resource-entry seeds applied on success;
+  - **`:patches`** — `(fn [params result] -> {target patch-fn})` — controlled
+    resource-entry patches applied on success; each KEY is a map-form exact
+    target `{:resource :params :scope}` (EP-0016 Rider 2 — the only public
+    input form);
+  - **`:populates`** — `(fn [params result] -> {target value})` — controlled
+    resource-entry seeds applied on success (an AUTHORITATIVE load, Rider 1);
+    each KEY is the same map-form exact target;
   - **`:scope`** — the cache scope the invalidation / patch defaults to
     (same scope rules as resources; OPTIONAL — defaults from the execute
     payload, else `:rf.scope/global`);

@@ -107,6 +107,15 @@
   ([args failure] (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure})))
   ([args failure opts] (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure}) opts)))
 
+(defn- art-target
+  "The map-form exact target (EP-0016 Rider 2 — the only public input form for
+  `:populates` / `:patches`) for the `:r/article {:slug \"w\"}` global key the
+  patch/populate tests use. Its canonical STORAGE key is
+  `(state/scoped-resource-key :rf.scope/global :r/article {:slug \"w\"})`, the
+  `rkey` the entry-lookup assertions read."
+  ([] (art-target "w"))
+  ([slug] {:resource :r/article :params {:slug slug} :scope :rf.scope/global}))
+
 (defn- record-mutation-traces!
   "Run `body-fn` with a trace listener installed; return the vector of every
   `:rf.mutation/*`-operation trace event emitted during it (capture order)."
@@ -321,7 +330,7 @@
                      {:params-schema [:map [:slug :string]]
                       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
                       :patches (fn [_params result]
-                                 {rkey (fn [old _result] (merge old result))})})
+                                 {(art-target) (fn [old _result] (merge old result))})})
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:view :a]}])
@@ -356,7 +365,7 @@
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
                       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                      :populates (fn [_params result] {rkey result})})
+                      :populates (fn [_params result] {(art-target) result})})
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ms1}])
     (reply-success! @last-managed-args {:title "seed"} {:rf.world/inputs {:time-ms completed-at}})
     (testing "the instance :settled-at is EXACTLY the reply completion time"
@@ -393,7 +402,7 @@
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
                       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                      :populates (fn [_params result] {rkey result})})
+                      :populates (fn [_params result] {(art-target) result})})
     ;; no prior ensure — the populate SEEDS the entry from the mutation result
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pop1}])
     (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
@@ -421,7 +430,7 @@
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
                       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                      :populates (fn [_params result] {rkey result})})
+                      :populates (fn [_params result] {(art-target) result})})
     (reset! scheduled-timers [])
     ;; no prior ensure — the populate SEEDS an ownerless entry
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pgc1}])
@@ -459,7 +468,7 @@
                      {:params-schema [:map [:slug :string]]
                       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
                       :patches (fn [_params result]
-                                 {rkey (fn [old _result] (merge old result))})})
+                                 {(art-target) (fn [old _result] (merge old result))})})
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:view :a]}])
@@ -486,7 +495,7 @@
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
                       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                      :populates (fn [_params result] {rkey result})})
+                      :populates (fn [_params result] {(art-target) result})})
     (reset! scheduled-timers [])
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pnp1}])
     (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
@@ -747,6 +756,11 @@
 ;; `mutation-registry-rejects-non-edn-params` does, and proves the
 ;; dispatch-path fail-closed behavior by OBSERVING no partial cache mutation).
 
+;; The map-form exact target is the only public input form (EP-0016 Rider 2 /
+;; slice 6). The events layer RESOLVES each target map's :scope to a concrete
+;; value first, then `validate-target-key!` validates the [resolved-scope
+;; resource params] identity. These unit tests pass the resolved scope directly.
+
 (deftest validate-target-key-rejects-unregistered-resource
   ;; rf2-3yyaur — a controlled patch / populate targeting an UNREGISTERED
   ;; resource fails CLOSED (the patched / seeded entry would be unreachable by
@@ -755,36 +769,48 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
           (mstate/validate-target-key!
-            [:rf.scope/global :r/never-registered {:slug "w"}]
-            (fn [_] false) 'test :patches)))))
+            {:resource :r/never-registered :params {:slug "w"}}
+            :rf.scope/global (fn [_] false) 'test :patches)))))
 
-(deftest validate-target-key-rejects-malformed-key
-  ;; rf2-3yyaur — a target that is not a 3-element scoped key is rejected.
-  (testing "a 1-element key is malformed"
+(deftest validate-target-key-rejects-malformed-target
+  ;; EP-0016 Rider 2 — the public input is the map form {:resource :params
+  ;; :scope}; a non-map (a bare tuple, a keyword) is rejected loudly.
+  (testing "a tuple (the internal storage form) is NOT a public input"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (mstate/validate-target-key! [:r/article] (constantly true) 'test :populates))))
-  (testing "a non-vector target is malformed"
+          (mstate/validate-target-key!
+            [:rf.scope/global :r/article {:slug "w"}] :rf.scope/global
+            (constantly true) 'test :populates))))
+  (testing "a non-map target is rejected"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (mstate/validate-target-key! :r/article (constantly true) 'test :patches))))
-  (testing "a non-keyword resource id is rejected"
+          (mstate/validate-target-key! :r/article :rf.scope/global (constantly true) 'test :patches))))
+  (testing "a map missing :resource is rejected"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (mstate/validate-target-key! [:rf.scope/global "article" {}] (constantly true) 'test :patches)))))
+          (mstate/validate-target-key! {:params {}} :rf.scope/global (constantly true) 'test :patches))))
+  (testing "a non-keyword :resource is rejected"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+          (mstate/validate-target-key! {:resource "article" :params {}} :rf.scope/global
+                                       (constantly true) 'test :patches)))))
 
 (deftest validate-target-key-rejects-reserved-scope-typo
   ;; rf2-3yyaur — a bare framework-reserved :rf.scope/* keyword outside the
   ;; closed enum (a typo) would silently write under a wrong scope — rejected.
+  ;; The events layer resolves the map :scope first; a typo'd literal resolves
+  ;; to itself and is caught here.
   (testing ":rf.scope/glabal (a typo) is rejected"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
           (mstate/validate-target-key!
-            [:rf.scope/glabal :r/article {:slug "w"}] (constantly true) 'test :patches))))
+            {:resource :r/article :params {:slug "w"}} :rf.scope/glabal
+            (constantly true) 'test :patches))))
   (testing "the closed reserved policy :rf.scope/global is a legitimate literal scope"
     (is (= [:rf.scope/global :r/article {:slug "w"}]
            (mstate/validate-target-key!
-             [:rf.scope/global :r/article {:slug "w"}] (constantly true) 'test :patches)))))
+             {:resource :r/article :params {:slug "w"}} :rf.scope/global
+             (constantly true) 'test :patches)))))
 
 (deftest validate-target-key-rejects-non-edn-params
   ;; rf2-3yyaur — a host value in the target's params / scope reaches the
@@ -794,31 +820,48 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
           (mstate/validate-target-key!
-            [:rf.scope/global :r/article {:slug "w" :cb (fn [])}] (constantly true) 'test :patches))))
+            {:resource :r/article :params {:slug "w" :cb (fn [])}} :rf.scope/global
+            (constantly true) 'test :patches))))
   (testing "non-EDN scope rejected"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
           (mstate/validate-target-key!
-            [(fn []) :r/article {:slug "w"}] (constantly true) 'test :patches)))))
+            {:resource :r/article :params {:slug "w"}} (fn [])
+            (constantly true) 'test :patches)))))
 
 (deftest validate-target-map-canonicalizes-and-rejects-whole-map
-  ;; rf2-3yyaur — one bad target rejects the WHOLE arm (no partial write), and
-  ;; valid targets are re-keyed by the canonical scoped key.
-  (testing "a single bad target rejects the whole map"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (mstate/validate-target-map!
-            {[:rf.scope/global :r/article {:slug "w"}] :ok
-             [:rf.scope/glabal :r/article {:slug "x"}] :bad}
-            (constantly true) :patches 'test))))
-  (testing "an all-valid map is re-keyed by the canonical scoped key"
-    (is (= {[:rf.scope/global :r/article {:slug "w"}] :v}
-           (mstate/validate-target-map!
-             {[:rf.scope/global :r/article {:slug "w"}] :v}
-             (constantly true) :populates 'test))))
-  (testing "an empty / nil map returns nil (no-op arm)"
-    (is (nil? (mstate/validate-target-map! {} (constantly true) :patches 'test)))
-    (is (nil? (mstate/validate-target-map! nil (constantly true) :patches 'test)))))
+  ;; rf2-3yyaur / EP-0016 Rider 2 — one bad target rejects the WHOLE arm (no
+  ;; partial write), valid targets are re-keyed by the canonical STORAGE key,
+  ;; and a {:from-db …} target whose scope resolves nil is FAIL-CLOSED (dropped,
+  ;; recorded in the returned nil-resolved ids — never an implicit global).
+  ;; The injected `resolve-target-scope` resolves :rf.scope/same (here the
+  ;; supplied mut-scope) and a fake {:from-db :nope} reference to nil.
+  (let [resolve-scope (fn [{:keys [scope]}]
+                        (cond
+                          (nil? scope)                 [:resolved :rf.scope/global]
+                          (= scope {:from-db :nope})   [:nil-resolved :nope]
+                          :else                        [:resolved scope]))]
+    (testing "a single bad target (typo scope) rejects the whole map"
+      (is (thrown-with-msg?
+            #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+            (mstate/validate-target-map!
+              {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :ok
+               {:resource :r/article :params {:slug "x"} :scope :rf.scope/glabal} :bad}
+              resolve-scope (constantly true) :patches 'test))))
+    (testing "an all-valid map is re-keyed by the canonical STORAGE key (and no nils)"
+      (is (= [{[:rf.scope/global :r/article {:slug "w"}] :v} []]
+             (mstate/validate-target-map!
+               {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} :v}
+               resolve-scope (constantly true) :populates 'test))))
+    (testing "a {:from-db …} target that resolves nil is FAIL-CLOSED — dropped,
+              its resolver id recorded as nil-resolved (never an implicit global)"
+      (is (= [{} [:nope]]
+             (mstate/validate-target-map!
+               {{:resource :r/article :params {:slug "w"} :scope {:from-db :nope}} :v}
+               resolve-scope (constantly true) :populates 'test))))
+    (testing "an empty / nil map returns [nil []] (no-op arm)"
+      (is (= [nil []] (mstate/validate-target-map! {} resolve-scope (constantly true) :patches 'test)))
+      (is (= [nil []] (mstate/validate-target-map! nil resolve-scope (constantly true) :patches 'test))))))
 
 (deftest bad-patch-target-fails-closed-no-partial-cache-mutation
   ;; rf2-3yyaur — end-to-end: a mutation whose :patches targets an unregistered
@@ -832,8 +875,10 @@
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
                       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                      :patches (fn [_p _r] {good-key (fn [old r] (merge old r))
-                                            bad-key  (fn [old _] old)})})
+                      :patches (fn [_p _r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global}
+                                            (fn [old r] (merge old r))
+                                            {:resource :r/never-registered :params {:slug "w"} :scope :rf.scope/global}
+                                            (fn [old _] old)})})
     ;; seed the good entry so a (wrongly) partial patch would be observable
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
@@ -858,7 +903,7 @@
                       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
                       ;; target params spelled in a different key order — must
                       ;; canonicalize to the same identity the read path stored.
-                      :patches (fn [_p _r] {[:rf.scope/global :r/article {:slug "w"}]
+                      :patches (fn [_p _r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global}
                                             (fn [old result] (merge old result))})})
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
@@ -1048,7 +1093,7 @@
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
                       :request   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                      :populates (fn [_params result] {rkey result})})
+                      :populates (fn [_params result] {(art-target) result})})
     (rf/dispatch-sync [:rf.mutation/execute
                        {:mutation :m/save :params {:slug "w"} :instance :rc1
                         :reply-to [:test/save-replied]}])
@@ -1132,7 +1177,7 @@
       (rf/reg-mutation :m/save
                        {:params-schema [:map [:slug :string]]
                         :request   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                        :populates (fn [_params result] {rkey result})})
+                        :populates (fn [_params result] {(art-target) result})})
       ;; the continuation handler reads the runtime-db AT continuation time:
       ;; both the instance settle AND the populated entry must already be in.
       (rf/reg-event-fx :test/save-replied

@@ -594,9 +594,20 @@
   **No-match distinction** (Spec 016 §Invalidation): the summary carries
   `:matched` (the matched keys), `:any-tag-match-other-scope?` (whether the
   tags match an entry in ANOTHER scope — \"no match HERE\" vs \"no resource
-  provides this tag in any scope\"), so Xray can tell the two apart."
+  provides this tag in any scope\"), so Xray can tell the two apart.
+
+  **Populate exemption** (EP-0016 Rider 1, Spec 016 §Populate is an
+  authoritative load): `:exempt-keys` is an optional set of EXACT scoped keys
+  EXEMPT from this pass — a key a same-mutation `:populates` just seeded
+  AUTHORITATIVELY is fresh for the mutation result, so this same mutation's
+  invalidation pass must NOT re-stale or refetch it (unless the descriptor
+  opted into `:refetch-populated? true`, in which case the mutation passes no
+  exempt set). An exempt key is removed from the matched set BEFORE the
+  stale-mark / refetch decision, so it keeps its fresh populated value and arms
+  no refetch. The summary carries `:exempt` (the exempt keys that actually
+  matched the tags, so Xray can show what the populate spared)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs}
-   [_event-id {:keys [scope tags cause cross-scope?]}]]
+   [_event-id {:keys [scope tags cause cross-scope? exempt-keys]}]]
   (let [runtime-db (or rt {})
         ;; FAIL CLOSED (rf2-pvdae1): a scoped (default) invalidation MUST
         ;; carry an explicit :scope — a missing scope would otherwise match
@@ -634,11 +645,26 @@
         ;; rewrites the SAME `:invalidated-at`.
         invalidated-at (:time-ms world)
         entries    (get-in runtime-db (state/entries-path))
+        ;; EP-0016 Rider 1 — keys this same mutation just POPULATED
+        ;; authoritatively are EXEMPT from this pass (kept fresh, never
+        ;; re-staled / refetched). The set is canonicalized at the producer
+        ;; (the populate path re-keys by the canonical scoped key), so a plain
+        ;; set membership test is identity-correct.
+        exempt     (set exempt-keys)
         tags-hit?  (fn [entry] (seq (set/intersection (set (:tags entry)) tag-set)))
         in-scope?  (fn [k] (or cross-scope? (= cscope (first k))))
-        ;; matched: tags intersect AND (cross-scope OR scope matches)
+        ;; matched: tags intersect AND (cross-scope OR scope matches) AND NOT
+        ;; exempt (a populated key the same mutation kept authoritative)
         matched    (into {}
-                         (filter (fn [[k entry]] (and (in-scope? k) (tags-hit? entry))))
+                         (filter (fn [[k entry]] (and (not (contains? exempt k))
+                                                      (in-scope? k) (tags-hit? entry))))
+                         entries)
+        ;; the exempt keys that WOULD have matched (for the trace — what the
+        ;; populate spared from this same-mutation refetch)
+        exempt-hit (into []
+                         (comp (filter (fn [[k entry]] (and (contains? exempt k)
+                                                            (in-scope? k) (tags-hit? entry))))
+                               (map key))
                          entries)
         ;; tag matches that fell OUTSIDE the requested scope (the
         ;; "no match HERE, but the tag exists in another scope" signal — only
@@ -681,6 +707,9 @@
                   :matched (mapv :resource-key decisions)
                   :refetched (count refetches)
                   :left-stale (count (remove :active? decisions))
+                  ;; EP-0016 Rider 1: keys a same-mutation populate kept
+                  ;; authoritative and spared from this pass (would have matched)
+                  :exempt exempt-hit
                   ;; no-match distinction: no match in this scope vs no resource
                   ;; provides this tag in any scope (Spec 016 §Invalidation)
                   :any-tag-match-other-scope? other-scope-hit?})
