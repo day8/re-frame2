@@ -178,6 +178,20 @@ if [ "$markdown_changed" = "true" ]; then
   run "EP status-sync" "python scripts/check_ep_status_sync.py" \
     python "$repo_root/scripts/check_ep_status_sync.py"
 
+  # Runtime-subsystem grading drift guard (rf2-ba5acq, EP-0006): every reserved
+  # `:rf.runtime/*` key (spec/Conventions.md §Reserved runtime-db keys) MUST
+  # have a complete five-clause grading subsection in spec/Runtime-Subsystems.md
+  # §Grading table.  The two surfaces drift by hand (PR #3817 had to hand-add
+  # the `:rf.runtime/mutations` row after it was reserved without a grading
+  # subsection).  Self-test first (proves the guard fires on missing-row /
+  # extra-row / missing-clause / ungraded-clause / clause-order), then the live
+  # scan.  See scripts/check_runtime_subsystem_grading.py.
+  run "runtime-subsystem grading self-test" "python scripts/check_runtime_subsystem_grading.py --self-test" \
+    python "$repo_root/scripts/check_runtime_subsystem_grading.py" --self-test
+
+  run "runtime-subsystem grading drift" "python scripts/check_runtime_subsystem_grading.py" \
+    python "$repo_root/scripts/check_runtime_subsystem_grading.py"
+
   run_soft "mkdocs --strict build" "mkdocs build --strict" mkdocs \
     bash -lc "cd '$repo_root' && mkdocs build --strict"
 else
