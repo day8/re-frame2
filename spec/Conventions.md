@@ -221,6 +221,8 @@ The former single reserved app-db root `:rf/runtime` is **retired**. Framework d
 
 Runtime-db is a map whose top-level children are **framework-owned subsystem sub-trees**, each qualified under `:rf.runtime/*`. The runtime owns them; user code MUST NOT write under them directly — it reaches subsystem state only through public framework subscriptions (`sub-machine`, `[:rf.route/*]`) and tool/full-frame APIs (per [002 §Subscriptions read the partition they belong to](002-Frames.md#subscriptions-read-the-partition-they-belong-to)). The reserved set is **fixed-and-additive**: existing children cannot be repurposed; new ones (e.g. the post-v1 `:rf.runtime/resources`) are added by Spec change.
 
+This table is the **canonical home for the reserved `:rf.runtime/*` key set** — [Runtime-Subsystems.md](Runtime-Subsystems.md), which names the five-clause contract every one of these children satisfies, references this table for clause 1 (subtree) rather than duplicating it. Each child also carries a grading row there (and, for the resource trio, in [016 §Runtime-subsystem graduation](016-Resources.md#runtime-subsystem-graduation)).
+
 | Reserved runtime-db key | Owner | Used for | Spec |
 |---|---|---|---|
 | `:rf.runtime/machines` | machine runtime | The machine runtime — `:snapshots`, `:system-ids`, `:spawned`, `:spawn-counter`. | 005 |
@@ -228,13 +230,14 @@ Runtime-db is a map whose top-level children are **framework-owned subsystem sub
 | `:rf.runtime/elision` | instrumentation | The wire-elision declaration registry — `:declarations`, `:sensitive-declarations`. | 009 |
 | `:rf.runtime/ssr` | SSR | The SSR hydration metadata — `:hydration`. | 011 |
 | `:rf.runtime/resources` | Resources artefact | The resource cache (post-v1 Resources artefact, [016-Resources](016-Resources.md)) — closed slot set `:entries` / `:tag-index` / `:owner-index`. Allocated lazily — absent until the first resource write. `:tag-index` / `:owner-index` are recomputable-from-`:entries` (rebuilt on restore/hydration, never trusted from the snapshot). | 016 |
-| `:rf.runtime/work-ledger` | Resources artefact (initial writer) | The frame work ledger (post-v1 Resources artefact, [016-Resources](016-Resources.md)) — serializable in-flight work records keyed by `:work/id`. Named **neutrally**: resources are its first writer, but later slices extend it to timers, streams, route loaders, spawned actors, and machine async work. Host handles (AbortControllers, timeout/poll handles, promises) live in side tables keyed by `[frame-id work-id]`, **not** runtime-db. | 016 |
+| `:rf.runtime/work-ledger` | Resources artefact (resource + mutation writers) | The frame work ledger (post-v1 Resources artefact, [016-Resources](016-Resources.md)) — serializable in-flight work records keyed by `:work/id`. Named **neutrally**: its two landed writers are resources (`:work/kind :resource`) and mutations (`:work/kind :mutation`); later slices extend it to timers, streams, route loaders, spawned actors, and machine async work. Host handles (AbortControllers, timeout/poll handles, promises) live in side tables keyed by `[frame-id work-id]`, **not** runtime-db. | 016 |
+| `:rf.runtime/mutations` | Resources artefact | The mutation-instance runtime (post-v1 Resources artefact, [016-Resources](016-Resources.md), rf2-dwme29) — serializable mutation **instance** rows keyed by mutation instance id. Allocated lazily — **absent until the app registers a mutation**. The in-flight attempt rides the neutral `:rf.runtime/work-ledger` (work-kind `:mutation`) rather than minting its own work subtree; host handles live in the shared `[frame-id work-id]` side tables. | 016 |
 
 The full runtime-db value shape is pinned at [Spec-Schemas §`:rf/runtime-db`](Spec-Schemas.md#rfruntime-db). Each child is allocated lazily — absent until the first subsystem write — and per-frame isolation is automatic (each frame owns its own runtime-db). Locating framework runtime state in the **runtime-db partition** (rather than in the app-db root, where it was) is the named mechanism by which machine / routing / elision / ssr state inherits [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility): runtime-db is part of the one frame-state container, so every subsystem's durable state walks back atomically with app-db on a frame revert.
 
 ### Runtime-db sub-container catalogue
 
-The four subsystem children and their per-frame absolute paths inside runtime-db:
+The subsystem children and their per-frame absolute paths inside runtime-db (the four v1 subsystems, plus the post-v1 Resources-artefact trio — resources / work-ledger / mutations):
 
 | Subsystem | Path (inside runtime-db) | Contents | Owning Spec |
 |---|---|---|---|
