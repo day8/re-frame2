@@ -1,19 +1,19 @@
 # Managed External Effects
 
 > **Type:** Reference
-> The unifying conceptual frame for every framework-owned, lifecycle-aware effect surface in re-frame2 — HTTP requests, state-machine actors, SSR per-request fxs, and managed flows (the internal-effect cousin). Names the eight properties every conformant managed-effect surface inherits, so new surfaces (managed timers, managed background jobs, managed IndexedDB transactions) can be evaluated against a single checklist instead of re-deriving the shape each time. The same checklist also grades **app- and library-built** surfaces — re-frame2 does not ship a managed WebSocket, but [Pattern-WebSocket](Pattern-WebSocket.md) shows how an app or library builds one that satisfies all eight.
+> The unifying conceptual frame for every framework-owned, lifecycle-aware effect surface in re-frame2 — HTTP requests, state-machine actors, SSR per-request fxs, and managed flows (the internal-effect cousin). Names the nine properties every conformant managed-effect surface inherits, so new surfaces (managed timers, managed background jobs, managed IndexedDB transactions) can be evaluated against a single checklist instead of re-deriving the shape each time. The same checklist also grades **app- and library-built** surfaces — re-frame2 does not ship a managed WebSocket, but [Pattern-WebSocket](Pattern-WebSocket.md) shows how an app or library builds one that satisfies all of them.
 
 ## Why this doc exists
 
-A pattern is visible in re-frame2 across four shipped capability surfaces: [`:rf.http/managed`](014-HTTPRequests.md), state-machine [`:spawn` / `:spawn-all`](005-StateMachines.md), [`:rf.server/*`](011-SSR.md), and [`:rf.flow/*`](013-Flows.md). Each Spec describes its own surface in detail; this doc names the **shared shape** so the architectural concept stops living implicitly in four places and starts being citeable as a single concept with a single anchor. The same shape also describes app- and library-built surfaces — most notably the [WebSocket connection pattern](Pattern-WebSocket.md), which re-frame2 deliberately does **not** ship but whose recommended shape satisfies the eight properties.
+A pattern is visible in re-frame2 across four shipped capability surfaces: [`:rf.http/managed`](014-HTTPRequests.md), state-machine [`:spawn` / `:spawn-all`](005-StateMachines.md), [`:rf.server/*`](011-SSR.md), and [`:rf.flow/*`](013-Flows.md). Each Spec describes its own surface in detail; this doc names the **shared shape** so the architectural concept stops living implicitly in four places and starts being citeable as a single concept with a single anchor. The same shape also describes app- and library-built surfaces — most notably the [WebSocket connection pattern](Pattern-WebSocket.md), which re-frame2 deliberately does **not** ship but whose recommended shape satisfies the properties.
 
 **A managed external effect is an effect whose entire interaction lifecycle — issuance, observability, failure classification, retry, abort, teardown, and reply addressing — is owned by the framework, not by the calling event handler.** The handler returns *data* describing what it wants; the framework owns *how* the interaction unfolds across time.
 
-This is the architectural contract that lets pair tools, `:fx-overrides`, error projectors, and the trace bus compose uniformly across surfaces. New surfaces inherit the contract by adopting the eight properties below; the AI-Audit grades surfaces against this checklist.
+This is the architectural contract that lets pair tools, `:fx-overrides`, error projectors, and the trace bus compose uniformly across surfaces. New surfaces inherit the contract by adopting the nine properties below; the AI-Audit grades surfaces against this checklist.
 
-## The eight properties
+## The nine properties
 
-Every managed-effect surface MUST satisfy these eight properties. A surface that satisfies fewer is an "ad-hoc fx" — useful, but outside the contract pair tools and the conformance corpus assume.
+Every managed-effect surface MUST satisfy these properties. A surface that satisfies fewer is an "ad-hoc fx" — useful, but outside the contract pair tools and the conformance corpus assume. Properties 1–8 govern issuance, observability, failure, retry/abort/teardown, the in-flight registry, and per-frame scoping; **property 9** governs how a *managed async* effect reports its completion back — the uniform reply envelope ([EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) is the rationale record). Property 9 applies only to surfaces with asynchronous completion (HTTP, resources, mutations, machine async work, route loaders, timers); a one-shot synchronous effect that finishes inside the `:fx` walk has no later reply and is exempt.
 
 ### 1. Effect-as-data, not callbacks
 
@@ -69,9 +69,189 @@ Each surface maintains a framework-private registry of currently-in-flight inter
 
 Managed effects MUST honour the dispatching frame's `:fx-overrides`, `:interceptor-overrides`, and `:platforms` filters (per [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides) and [011 §`:platforms`](011-SSR.md)). Tests stub `:rf.http/managed` to a canned reply via `:fx-overrides`; SSR builds short-circuit `:rf.machine/spawn` for actors that aren't `:platforms #{:client}`; stories install per-story `:interceptor-overrides`. The override seam is id-based — overrides cite the registered fx-id, not a function value, so they round-trip through the wire.
 
+### 9. Uniform reply envelope (async completions)
+
+A managed effect whose completion crosses an event boundary MUST report that completion through **one** uniform reply envelope: one standard **reply map** delivered to one standard **reply target**. The effect either accepts `:rf/reply-to` directly or defines public sugar (HTTP `:on-success` / `:on-failure`, the resource/mutation internal replies, machine `:on-done`, nav-token threading) that **lowers** to `:rf/reply-to` internally. Completion MUST produce a reply map with a single `:status`, value and/or error data, work correlation, causal completion metadata, and any cancellation/staleness facts. Ledger-backed effects MUST correlate by `:work/id`.
+
+This is the property that makes "an event reply is a causal continuation" a framework-wide law rather than a per-family convention. It is faithful to [EP-0011 §Specification](../docs/EP/EP-0011-uniform-async-reply-envelope.md#specification); where this section and that EP differ, this section governs (the EP is the rationale record). The contract is defined in full immediately below ([§The uniform reply envelope](#the-uniform-reply-envelope)); each async surface's spec adds the family-specific work-id tuple and suppression gates and a back-reference to here when it lowers.
+
+## The uniform reply envelope
+
+Property 9 above is the checklist line; this section is its canonical normative home. Every managed *async* surface — HTTP ([014](014-HTTPRequests.md)), resources and mutations ([016](016-Resources.md)), machine async work ([005](005-StateMachines.md)), route loaders ([012](012-Routing.md)), and any future managed timer or background-job surface — completes through the shape defined here. The per-family specs own their work-id tuple shape and their suppression gates; this section owns the reply map, the reply target, the closed status taxonomy, the work-id correlation rule, mandatory stale suppression, and the reply-mapping functor law.
+
+Nothing in this contract introduces promises, monads, callbacks, async/await, or channels into the app-facing model, and it does **not** add result-binding between sibling `:fx` entries: one effect's reply never feeds another effect in the same effect map. The envelope unifies only the *continuation slot* — where completion is dispatched and what it carries. The only composition mechanism remains the next causal event.
+
+### The reply target
+
+The canonical public target key is `:rf/reply-to`. The short form is an event-vector prefix:
+
+```clojure
+{:rf/reply-to [:article/load-replied {:id 42}]}
+```
+
+On **live** completion the runtime dispatches the target event with the reply map appended as the final argument:
+
+```clojure
+[:article/load-replied
+ {:id 42}
+ {:status       :ok
+  :value        {:title "Welcome"}
+  :work/id      [:rf.work/http :article/by-id 42 1]
+  :completed-at 1781078400456}]
+```
+
+A descriptor form is available for framework internals and future public surfaces that need explicit delivery options:
+
+```clojure
+{:rf/reply-to {:event    [:article/load-replied {:id 42}]
+               :delivery :append
+               :suppress {:route/nav-token "nav-7"
+                          :generation      1}}}
+```
+
+| Descriptor field | Required | Meaning |
+|---|---:|---|
+| `:event` | yes | Event-vector prefix to complete. |
+| `:delivery` | no | `:append` by default — the reply map is appended as the final argument. Compatibility adapters may use other delivery internally to preserve an older public event shape. `:append` is the only public delivery mode; a new mode requires a recorded ruling justified by public migration need, not effect-family preference. |
+| `:suppress` | no | Data-only gates that MUST still match before the reply is delivered ([§Stale suppression](#stale-suppression)). |
+| `:dispatch-stale?` | no | `false` by default. Framework tests/tools MAY opt into receiving stale envelopes; app targets MUST NOT. Restricted to framework test and tool targets. |
+
+A family MAY expose only the short vector form publicly while using the descriptor form internally.
+
+### The reply map
+
+The reply map is **data only**. It MUST NOT contain functions, promises, `AbortController`s, timer handles, DOM nodes, or any other host resource (those live in a host-transient side-table keyed by `[frame-id work-id]`, never in durable reply data).
+
+```clojure
+{:status       :ok | :partial | :error | :cancelled | :stale
+ :value        value-or-nil
+ :error        error-map-or-nil
+ :work/id      work-id-or-nil
+ :work/kind    :http | :resource | :mutation | :timer | :route | :machine | ...
+ :work/status  :completed | :failed | :timed-out | :suppressed | :cancelled
+ :attempt      positive-int-or-nil
+ :rf.frame/id  frame-id
+ :started-at   started-at-or-nil
+ :completed-at completed-at-or-nil
+ :deadline-at  deadline-at-or-nil
+ :correlation  data-only-map
+ :stale?       boolean
+ :stale/reason keyword-or-nil
+ :cancelled?   boolean
+ :cancel/reason keyword-or-nil
+ :trace        data-only-trace-summary
+ :meta         effect-family-data}
+```
+
+Required / conditional fields:
+
+- `:status` is **always** required.
+- `:value` carries the decoded successful result for `:status :ok` and `:status :partial`. **One-name-per-fact note ([EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)):** the decoded result on the *reply map* is `:value` everywhere, across every family (HTTP, resource, mutation, machine, timer, route) — there is no per-family synonym for it. A *mutation-instance state* sub may store that same decoded result under a different key (`:result`) as a deliberately distinct fact: the instance sub is a durable, queryable status record (`{:pending? :success? :error? :settled? :result :error}`), not the transient causal reply, so the two spellings name two facts living in two layers. Spec 016 reconciles that pairing on its own surface; the reply-map spelling is `:value`, full stop.
+- `:work/id` is required for ledger-backed work and SHOULD be present for any managed async effect that can be correlated.
+- `:rf.frame/id` is required when the effect is frame-scoped. This is the canonical carried frame stamp ([EP-0002](../docs/EP/EP-0002-frame-target-resolution.md)); there is no second frame spelling.
+- `:error` is present for `:status :error`; present with structured partial diagnostics for `:status :partial`; and MAY carry compatibility failure data for `:status :cancelled`.
+- `:started-at`, `:completed-at`, and `:deadline-at` are causal completion metadata ([EP-0010](../docs/EP/EP-0010-causal-world-inputs.md) — suffixless durable timestamps; the values are causal epoch-millisecond readings supplied by the triggering or reply token, **not** fresh ambient clock reads). Carry them when the fact affects durable state; omit a field a family does not durably use.
+
+Optional fields SHOULD be omitted when absent rather than filled with placeholder sentinels, except where a per-spec schema requires nilable keys.
+
+### Status taxonomy
+
+The reply `:status` vocabulary is **closed**:
+
+| Reply status | Meaning | Value / error convention |
+|---|---|---|
+| `:ok` | Work completed successfully and the reply is current. | `:value` present; `:error` absent. |
+| `:partial` | Work completed with usable value data **and** structured family-specific problems; the reply is current and the family decides how partial data installs. | `:value` present; `:error` present with a family `:kind` (e.g. `:rf.graphql/partial-success`). |
+| `:error` | Work completed with a failure and the reply is current. | `:error` present with a family `:kind`. |
+| `:cancelled` | Work was intentionally cancelled while still correlated with the target. | `:cancel/reason` present; `:error` MAY carry compatibility failure data. |
+| `:stale` | Work completed or was observed after its correlation became obsolete. | `:stale? true`; `:stale/reason` present; **no app-state mutation**. |
+
+`:partial` keeps the envelope transport-neutral: a protocol that can return both data and errors in one completion (GraphQL is the motivating case) must not be forced to pretend it is plain `:ok` or plain `:error`. Plain managed HTTP does not emit `:partial` — an HTTP response is decoded as `:ok` or projected as `:error`/`:cancelled`/`:stale`.
+
+**Timeout is not a top-level status.** It is an error kind plus a work status:
+
+```clojure
+{:status :error :work/status :timed-out
+ :error  {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012}}
+```
+
+**Stale wins over the natural completion status for delivery purposes.** A late successful, partial, or failed completion for a superseded attempt is not `:ok`/`:partial`/`:error`; it is `:stale`/`:suppressed` in the ledger and trace, and the app target is not dispatched unless `:dispatch-stale?` is explicitly set for a test/tool target.
+
+### Work-id correlation
+
+Ledger-backed async work MUST use `:work/id` as the single attempt identity. A work id is `=`-comparable, EDN-serializable when it appears in runtime-db or trace data, frame-scoped enough to avoid intra-frame collision, the key used by the work ledger, and the key used by stale suppression for that attempt. **One attempt has one work id.** Any other public identity (an HTTP `:request-id`, a route `:nav-token`) is correlation metadata under `:correlation`, never a second stale-suppression key ([EP-0007](../docs/EP/EP-0007-one-name-per-fact.md): no `:stale-key`-style synonym).
+
+The tuple head is owned by each family, but the heads in use are:
+
+| Family | Work-id tuple | Owning spec |
+|---|---|---|
+| HTTP | `[:rf.work/http logical-id args... generation]` | [014](014-HTTPRequests.md) |
+| Resource | `[:rf.work/resource scoped-resource-key generation]` | [016](016-Resources.md) |
+| Mutation | `[:rf.work/resource [:rf.mutation instance-id] generation]` — mutation work reuses the resource head with a mutation-instance key; the ledger row distinguishes the writer with `:work/kind :mutation` | [016](016-Resources.md) |
+| Route loader | `[:rf.work/route route-id nav-token loader-id]` | [012](012-Routing.md) |
+| Timer | `[:rf.work/timer logical-timer-id generation]` | future timer surface |
+| Machine | `[:rf.work/machine actor-id work-bearing-path generation]` | [005](005-StateMachines.md) |
+
+Because the frame-local work id carries no frame id, it is **not** a safe process-global transport correlation token; the landed Spec 016 lowers a frame-qualified transport request-id `[:rf.req frame-id work-id]` as the one sanctioned second identity for transport-level in-flight correlation (registry keying, supersede-on-lower, opportunistic abort). Intra-frame stale suppression still keys on `:work/id` + generation. See [016 §Ledger row retention and identity](016-Resources.md#ledger-row-retention-and-identity).
+
+### Work-ledger integration
+
+When a work-ledger row exists ([016](016-Resources.md) is the durable substrate — a ledger row *is* the reified continuation, and its `:reply-to` field is this section's reply target made durable), issuance writes or joins a non-terminal row carrying `:work/id`, `:work/kind`, `:work/frame`, `:status :running`, `:owners`, `:causes`, `:cancellable?`, `:started-at`, `:deadline-at`, and `:reply-to`. Completion updates that row before, or atomically with, delivery. The ledger MUST NOT store host handles. Terminal ledger statuses MAY be more operational than reply statuses:
+
+| Ledger status | Typical reply status |
+|---|---|
+| `:completed` | `:ok` or `:partial` |
+| `:failed` | `:error` |
+| `:timed-out` | `:error` with timeout kind |
+| `:cancelled` | `:cancelled` |
+| `:suppressed` | `:stale` |
+
+This EP defines the reply surface ledger-backed work uses; it does **not** define the full `:rf.runtime/work-ledger` schema. The multi-writer authority question for the ledger (the first writer outside the Resources artefact) is the [Runtime Subsystem Contract](Runtime-Subsystems.md)'s to settle ([EP-0006](../docs/EP/EP-0006-runtime-subsystem-contract.md)).
+
+### Stale suppression
+
+Stale suppression is the **correctness boundary**; cancellation is only an optimization (a cancelled fetch may still produce a late host completion). Every family that can be superseded MUST define **data-only** suppression gates and validate them before any durable write. Examples: resource/mutation `:work/id` + generation still matches the current entry/instance `:current-work`; route `:nav-token` still matches `[:rf.runtime/routing :current :nav-token]`; machine `:after` epoch and declaring path still match the active snapshot; the actor id still names a live actor; the frame id still names a live frame.
+
+If validation fails:
+
+1. the app reply target MUST NOT run;
+2. the reply outcome becomes `:status :stale`;
+3. the ledger row, if present, reaches `:suppressed`;
+4. the trace stream emits a stale-suppression row carrying the **carried** and **current** correlation facts;
+5. the stale reply MUST NOT produce any user-visible app-db or runtime-db mutation, except framework-owned ledger/trace bookkeeping.
+
+### Cancellation
+
+Cancellation is represented as **data**, not as the absence of a reply. Explicit user cancellation that is still live MAY dispatch a `:status :cancelled` reply (with `:cancelled? true` and `:cancel/reason`); supersession cancellation should usually suppress the old app reply as `:status :stale`/`:suppressed`. Actor-destroy cancellation is delivered by the owning surface and completes through this same envelope: `:status :cancelled` when the actor-bound target is still meaningful, `:status :stale`/`:suppressed` when teardown made the target obsolete before delivery.
+
+### Causal completion metadata
+
+Managed async replies are causal tokens ([EP-0010](../docs/EP/EP-0010-causal-world-inputs.md)). Any host fact from the completion that can affect durable app-db, runtime-db, resource entries, machine snapshots, route state, or ledger rows MUST ride the reply map (or be supplied as an explicit replayable coeffect derived from it). A reducer reached by a reply derives a durable timestamp from `(:completed-at reply)`, never from a fresh ambient clock read. The enqueue time of the dispatching event envelope is distinct from `:completed-at` when the host completion happened before the runtime enqueued the reply; a spec may choose which a durable field uses, but the value must be causal data.
+
+### Tracing
+
+Managed async families MUST emit trace rows from the reply-envelope facts, not from private callback facts: issuance/start (with `:work/id`, frame, owner/cause, target summary), retries/intermediate transitions, cancellation-requested (reason + whether a host handle existed), completion classified as one of the five statuses, stale suppression (carried/current correlation), and delivery-or-explicit-non-delivery. Every wire-bearing value (`:value`, `:error`, params, scopes, request bodies, route params) routes through the shared `rf/elide-wire-value` walker (property 5), never a family-private elider.
+
+### Reply mapping and the functor law
+
+Because the reply target is plain data, relocating or wrapping a continuation is a pure data transform — the role `Cmd.map` plays in Elm's command algebra. The runtime SHOULD expose pure helpers for transforming reply targets (public or implementation-internal), but the law is normative: **mapping a target changes only the completed event — not issuance, work id, status classification, cancellation, stale checks, or tracing.**
+
+```text
+complete(map-target(f, target), reply) == f(complete(target, reply))
+
+map-target(identity, target)      == target
+map-target(comp(f, g), target)    == map-target(f, map-target(g, target))
+```
+
+Implementations need not store arbitrary functions in effect maps to satisfy this: a helper may rewrite source forms to named adapter events, or the law may be exercised in tests over the internal completion function. The required property is that reply-target wrappers compose predictably and create no hidden callback semantics.
+
+### SSR, preload, hydration, and restore
+
+SSR and preload integrations observe **work-ledger rows and reply statuses**, not effect-family callback slots: the server enqueues blocking resource work; SSR waits for ledger rows on the current route/nav-token to become terminal; successful replies update entries with causal `:completed-at`; stale/superseded replies are suppressed by work id/generation/nav-token; hydration serializes the allowed projection and non-terminal work *summaries*, never host handles. Hydration and epoch restore MUST NOT revive host work — a pre-restore host completion that arrives later cannot mutate the restored frame because its work id/generation/token cannot match the post-restore live correlation. See [016 §SSR and hydration](016-Resources.md#ssr-and-hydration) for the landed projection.
+
 ## Instances today
 
-The four shipped surfaces in the v1 corpus that satisfy the eight properties. Each Spec owns its own contract surface in detail; this section is informational — the spec text below points back to each canonical home. (For an app/library-built surface graded against the same eight properties, see the [WebSocket note](#websocket--an-applibrary-built-surface-not-shipped) below.)
+The four shipped surfaces in the v1 corpus that satisfy the contract. Each Spec owns its own contract surface in detail; this section is informational — the spec text below points back to each canonical home. (Property 9 applies to the async surfaces among them — HTTP, machine async work — and is the lowering target of the slices that wire each onto the [uniform reply envelope](#the-uniform-reply-envelope). For an app/library-built surface graded against the same checklist, see the [WebSocket note](#websocket--an-applibrary-built-surface-not-shipped) below.)
 
 ### `:rf.http/managed` — HTTP requests ([Spec 014](014-HTTPRequests.md))
 
@@ -97,7 +277,7 @@ The internal-effect cousin. The "external system" is the framework's own schedul
 
 ## How new managed-effect surfaces inherit the contract
 
-A future surface — managed timers, managed IndexedDB transactions, managed background jobs, managed WebAuthn flows — becomes a "managed effect" by adopting all eight properties above. Concretely, a new surface SHOULD:
+A future surface — managed timers, managed IndexedDB transactions, managed background jobs, managed WebAuthn flows — becomes a "managed effect" by adopting all of the properties above. Concretely, a new surface SHOULD:
 
 1. Register a single fx-id under a new reserved sub-namespace `:rf.<surface>/*` ([Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) MUST be amended to add the namespace).
 2. Define a closed args-map shape with a registered schema in [Spec-Schemas](Spec-Schemas.md).
@@ -107,12 +287,13 @@ A future surface — managed timers, managed IndexedDB transactions, managed bac
 6. Ship retry / abort / teardown as data on the args map (not as caller code).
 7. Maintain a framework-private in-flight registry keyed by an addressable id; expose via the registrar query API.
 8. Honour the dispatching frame's `:fx-overrides`, `:interceptor-overrides`, and `:platforms` filters.
+9. **If the surface has asynchronous completion**, report it through the [uniform reply envelope](#the-uniform-reply-envelope): accept `:rf/reply-to` (or define sugar that lowers to it), complete with a reply map carrying one closed `:status`, correlate ledger-backed work by `:work/id`, and make stale suppression the correctness boundary. A purely synchronous surface (no completion after the `:fx` walk) is exempt from property 9 only.
 
-A surface that satisfies fewer than eight remains useful but does **not** carry the "managed external effect" label; pair tools, the conformance corpus, and the AI-Audit treat it as out-of-contract.
+A surface that satisfies fewer than these remains useful but does **not** carry the "managed external effect" label; pair tools, the conformance corpus, and the AI-Audit treat it as out-of-contract.
 
 ## What this concept replaces
 
-Before naming this concept, each downstream Spec independently described its own slice of the shape. The risk was drift — two Specs answering "how do we elide a sensitive request body?" with subtly different mechanisms; a new Spec inventing a new failure-vocabulary scheme. Naming the concept makes the contract a **single point of accretion**: future surfaces are graded against the same eight properties, and the shared infrastructure (the trace bus, `rf/elide-wire-value`, the registrar's in-flight queries, the `:fx-overrides` seam) is the single point of implementation for all of them.
+Before naming this concept, each downstream Spec independently described its own slice of the shape. The risk was drift — two Specs answering "how do we elide a sensitive request body?" with subtly different mechanisms; a new Spec inventing a new failure-vocabulary scheme; each async family spelling its completion continuation differently. Naming the concept makes the contract a **single point of accretion**: future surfaces are graded against the same checklist, and the shared infrastructure (the trace bus, `rf/elide-wire-value`, the registrar's in-flight queries, the `:fx-overrides` seam, and the [uniform reply envelope](#the-uniform-reply-envelope)) is the single point of implementation for all of them.
 
 ## Cross-references
 
@@ -122,3 +303,7 @@ Before naming this concept, each downstream Spec independently described its own
 - [API §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker) — the wire-boundary walker public surface.
 - [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the `:rf.<surface>/*` namespace policy new surfaces extend.
 - [Ownership](Ownership.md) — the contract-surface → owning-Spec map; consult before naming a new managed-effect surface.
+- [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) — the rationale record for property 9 / [the uniform reply envelope](#the-uniform-reply-envelope): why one envelope beats N effect-family callback vocabularies, the alternatives considered, and the cross-family motivation.
+- [EP-0010](../docs/EP/EP-0010-causal-world-inputs.md) — causal world inputs; reply maps are causal tokens and carry the `:started-at` / `:completed-at` / `:deadline-at` durable timestamps.
+- [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md) — the one-name-per-fact rule behind one-attempt-one-`:work/id` and the `:value`-everywhere reply-result spelling.
+- [016 §Frame work ledger](016-Resources.md#frame-work-ledger) — the durable substrate for ledger-backed reply envelopes (resources + mutations are the landed writers).

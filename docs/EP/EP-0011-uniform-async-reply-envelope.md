@@ -1,14 +1,30 @@
 # EP-0011: Uniform Async Reply Envelope
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
-> Normative home after acceptance: `spec/Managed-Effects.md`,
-> `spec/014-HTTPRequests.md`, `spec/016-Resources.md`,
-> `spec/005-StateMachines.md`, `spec/012-Routing.md`, and the specs for any
-> future managed asynchronous effect family.
+> **`accepted` means the design is adopted; the rules graduate into their
+> normative homes.** Mike green-lit actioning this EP on 2026-06-11. The
+> canonical contract — the uniform reply map shape, the reply target, the
+> closed status taxonomy, work-id correlation, mandatory stale suppression, and
+> the reply-mapping functor law — now lives in its primary normative home,
+> [`spec/Managed-Effects.md` §Property 9](../../spec/Managed-Effects.md#9-uniform-reply-envelope-async-completions),
+> as the ninth managed-effect property. Where this EP and the spec differ, the
+> spec governs. This EP remains the durable **rationale record**: why one
+> envelope beats N effect-family callback vocabularies, the alternatives
+> considered, and the cross-family motivation.
 >
-> Plain-language proposal: when framework-managed async work completes, it
+> **What remains is implementation, not decision.** The envelope is *defined*
+> here and in Managed-Effects; *lowering* each managed async family onto it
+> (HTTP/014, resources+mutations/016, machines/005, routing/012, timers, the
+> managed-effect substrate, plus tooling and docs) is a tracked serial chain of
+> implementation-alignment slices. Each slice adds its own cross-references into
+> its owning spec when it lands, so the per-family normative homes
+> (`spec/014-HTTPRequests.md`, `spec/016-Resources.md`,
+> `spec/005-StateMachines.md`, `spec/012-Routing.md`) accrue the envelope
+> reference incrementally rather than in one hot-zone sweep.
+>
+> Plain-language summary: when framework-managed async work completes, it
 > reports back as one standard reply map delivered to one standard reply target.
 > HTTP callbacks, resource replies, timers, route loaders, and machine
 > completions may keep their public conveniences, but those conveniences lower
@@ -313,9 +329,18 @@ paths all see the same reply map.
 
 ## Specification
 
+> **Graduated (2026-06-11).** This section's normative content now lives in
+> [`spec/Managed-Effects.md` §Property 9](../../spec/Managed-Effects.md#9-uniform-reply-envelope-async-completions)
+> and the [§The uniform reply envelope](../../spec/Managed-Effects.md#the-uniform-reply-envelope)
+> section beneath it — the reply map, reply target, closed status taxonomy,
+> work-id correlation, mandatory stale suppression, work-ledger integration,
+> causal completion metadata, tracing, the reply-mapping functor law, and the
+> SSR/restore rule. Where this EP and the spec differ, the spec governs. The
+> text below is retained as the **rationale record** that motivated each clause.
+
 ### Managed-Effects Property 9: Uniform Reply Envelope
 
-`spec/Managed-Effects.md` should add this property:
+`spec/Managed-Effects.md` adds this property (graduated; the spec wording governs):
 
 > A managed async effect MUST complete through the uniform reply envelope. The
 > effect either accepts `:rf/reply-to` directly or defines public sugar that
