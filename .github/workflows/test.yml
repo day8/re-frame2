@@ -267,6 +267,40 @@ jobs:
       - name: Verify framework source carries no retired spelling (EP-0007)
         run: python scripts/check_retired_spellings.py --verbose
 
+      # EP-0010 §Validation/Conformance ambient-durable-read gate (rf2-f2t151).
+      # EP-0010 (Causal World Inputs) makes the frame fold honest: a
+      # transition's DURABLE result must be a function of prior frame-state
+      # plus explicit causal tokens, never of a host fact read ambiently at
+      # the durable write site. The EP's §Validation/Conformance (step 9 of
+      # the errata ledger) asks a conforming impl to ship a STATIC LINT that
+      # flags direct ambient reads (clock — interop/now-ms, js/Date.now;
+      # RNG — rand/random-uuid/getRandomValues; browser facts — location,
+      # navigator, localStorage/sessionStorage, media-query) in code paths
+      # that can write durable frame-state (resource reducers, work-ledger
+      # writers, reply handlers, mutation handlers, restore/hydration
+      # installers, machine snapshot writers). Wave 1 relied on a MANUAL
+      # stray-read sweep (review rf2-h273u8) that does not regression-protect
+      # future code; this gate is the standing replacement. Like the
+      # retired-spelling gate it is conservative — it scopes to the exact
+      # violating SHAPE (a durable-state field key whose VALUE is a direct
+      # ambient read, inside one of the enumerated durable-write namespaces),
+      # NOT the bare symbol (which fires on 100+ sanctioned sites: trace
+      # stamps, perf probes, timer deadlines, freshness DECISION reads, the
+      # transport-boundary causal read). It allowlists trace/perf code,
+      # effect interpreters before they dispatch a reply token, timer
+      # scheduling, host-transient side tables, diagnostics, and effect-side
+      # crypto (Open-Issue 3 rider c). Pure Python stdlib. Self-test first
+      # (proves the gate FLAGS each planted ambient durable read + PASSES
+      # every sanctioned counterpart), then the live scan asserts the
+      # durable-write namespaces are clean. Hosted in this always-on PR-spine
+      # python job so an ambient durable read blocks the merge regardless of
+      # which surface a PR touches. See scripts/check_ambient_durable_reads.py.
+      - name: Self-test the EP-0010 ambient-durable-read gate
+        run: python scripts/check_ambient_durable_reads.py --self-test --verbose
+
+      - name: Verify durable-write namespaces carry no ambient world read (EP-0010)
+        run: python scripts/check_ambient_durable_reads.py --verbose
+
   # PR-time gate for README link drift (rf2-br5u7). Source: the
   # rf2-oavap README sweep used a local `ai/link-sweep-v2.py` audit
   # that flagged 5 issues — 3 real, 2 false-positives caused by GitHub

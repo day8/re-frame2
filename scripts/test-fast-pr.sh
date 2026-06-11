@@ -166,6 +166,25 @@ run "retired-spelling gate self-test" "python scripts/check_retired_spellings.py
 run "retired-spelling gate (EP-0007)" "python scripts/check_retired_spellings.py --verbose" \
   python "$repo_root/scripts/check_retired_spellings.py" --verbose
 
+# EP-0010 §Validation/Conformance ambient-durable-read gate (rf2-f2t151): a
+# direct ambient host read (clock / RNG / browser fact) written into a DURABLE
+# frame-state field inside a durable-write namespace (resource reducers,
+# work-ledger writers, reply handlers, mutation handlers, restore/hydration
+# installers, machine snapshot writers) is a CI failure — durable state must be
+# a function of prior frame-state plus explicit causal tokens (EP-0010).  Scoped
+# precisely to the violating SHAPE (a durable field key whose value is an
+# ambient read) so it never fires on the sanctioned sites: trace/perf code,
+# effect interpreters before they dispatch a reply token, timer scheduling,
+# host-transient side tables, diagnostics, and effect-side crypto.  Self-test
+# first (proves it FLAGS each planted ambient durable read + PASSES every
+# sanctioned counterpart), then the live scan asserts the durable-write
+# namespaces are clean.  See scripts/check_ambient_durable_reads.py.
+run "ambient-durable-read gate self-test" "python scripts/check_ambient_durable_reads.py --self-test" \
+  python "$repo_root/scripts/check_ambient_durable_reads.py" --self-test
+
+run "ambient-durable-read gate (EP-0010)" "python scripts/check_ambient_durable_reads.py --verbose" \
+  python "$repo_root/scripts/check_ambient_durable_reads.py" --verbose
+
 run "core JVM" "cd implementation/core && clojure -M:test" \
   bash -lc "cd '$repo_root/implementation/core' && clojure -M:test"
 
