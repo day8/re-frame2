@@ -141,6 +141,32 @@
       (and (= method :put) (str/ends-with? u "/user"))  {:user demo-user}
 
       ;; --- write mutations -------------------------------------------------
+      ;; POST /articles — create-article. Echo a full Article built from the
+      ;; submitted body so the editor's save reaction can navigate to its slug.
+      (and (= method :post) (str/ends-with? u "/articles"))
+      (let [a (some-> req :body :article)]
+        {:article (merge (first demo-articles)
+                         {:slug (or (some-> (:title a) str/lower-case
+                                            (str/replace #"[^a-z0-9]+" "-")
+                                            (str/replace #"(^-+|-+$)" ""))
+                                    "new-article")
+                          :title (:title a) :description (:description a)
+                          :body (:body a) :tagList (vec (:tagList a))})})
+
+      ;; PUT /articles/:slug — update-article. Echo the updated Article keyed by
+      ;; the URL slug, merged with the submitted body.
+      (and (= method :put) (re-find #"/articles/([^/?]+)$" u))
+      (let [slug (second (re-find #"/articles/([^/?]+)$" u))
+            a    (some-> req :body :article)]
+        {:article (merge (demo-article-by-slug slug)
+                         {:slug slug :title (:title a) :description (:description a)
+                          :body (:body a) :tagList (vec (:tagList a))})})
+
+      ;; DELETE /articles/:slug — delete-article. No body (the delete mutation
+      ;; decodes `:auto`, which tolerates 204/empty).
+      (and (= method :delete) (re-find #"/articles/([^/?]+)$" u))
+      {}
+
       ;; POST /articles/:slug/comments — the post-comment mutation.
       (and (= method :post) (re-find #"/articles/[^/]+/comments$" u))
       (canned-comment (some-> req :body :comment :body))

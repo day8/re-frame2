@@ -77,6 +77,27 @@
    :path "/settings"
    :tags #{:requires-auth}})
 
+(rf/reg-route :realworld.editor/new
+  {:doc       "Create a new article (requires auth). `:on-match` resets the
+               editor slice + registers the can-submit flow; `:can-leave` blocks
+               a navigate-away while the draft is dirty (Spec 012 §Redirects and
+               guards). No route `:resources` — create starts from a blank draft."
+   :path      "/editor"
+   :tags      #{:requires-auth}
+   :on-match  [[:editor/initialise]]
+   :can-leave [:editor/can-leave?]})
+
+(rf/reg-route :realworld.editor/edit
+  {:doc       "Edit an existing article (requires auth). `:on-match` seeds the
+               editor from the article read under a releaseable lease (the
+               editor page's load reaction copies the settled data into the
+               draft + baseline); `:can-leave` blocks a dirty navigate-away."
+   :path      "/editor/:slug"
+   :params    [:map [:slug :string]]
+   :tags      #{:requires-auth}
+   :on-match  [[:editor/load-article]]
+   :can-leave [:editor/can-leave?]})
+
 (rf/reg-route :realworld.article/show
   {:doc    "Article detail + its comments. Both load on entry; the comments
             are a sub-resource keyed by the same slug."

@@ -54,12 +54,24 @@ Every RealWorld write is a `reg-mutation` whose `:invalidates` (and, where usefu
 | `:realworld/follow` / `:realworld/unfollow` | POST/DELETE `/profiles/:username/follow` | `:populates` the profile banner; `:invalidates` `[:profile username]` |
 | `:realworld/post-comment` | POST `/articles/:slug/comments` | `:invalidates` `[:comments slug]` (the mounted page's comments refetch) |
 | `:realworld/delete-comment` | DELETE `/articles/:slug/comments/:id` | `:invalidates` `[:comments slug]` |
+| `:realworld/save-article` | POST `/articles` (create) / PUT `/articles/:slug` (edit) | `:invalidates` `[:article-list] [:feed]` (and `[:article slug]` on edit) |
+| `:realworld/delete-article` | DELETE `/articles/:slug` | `:invalidates` `[:article slug] [:article-list] [:feed]` |
 | `:realworld/update-settings` | PUT `/user` | `:invalidates` `[:profile username]`; the saved User rides the instance result into the auth slice |
 
 - **Instance-keyed lifecycle.** Runtime state is keyed by mutation **instance** id (not mutation id), so two concurrent favourite toggles on different articles never clobber each other. Each view watches its instance through `[:rf.mutation/state {:instance …}]` (`:pending?` / `:success?` / `:error?` / `:result` / `:error`) — no `app-db` submission-status slice.
 - **Same transport, runtime-owned reply addressing.** Mutations lower through the **same** managed HTTP as resources; the app `:request` never supplies `:request-id` / `:on-success` / `:on-failure`. Generation + work-id **stale suppression** is the correctness boundary, exactly as for reads.
 - **Writes don't retry.** None of these arm `:retry` — re-submitting a write because a reply was merely slow is the double-charge bug. (Reads carry retry policy in the transport; writes opt in only deliberately.)
 - **Optimistic rollback is deferred** (Spec 016 §Deferred slices) — the `:populates` here are forward-only seeds, not optimistic-then-rollback. The managed-HTTP sibling's hand-rolled optimistic+rollback paths are the counterpart to compare.
+
+### The article editor: a mutation + a Spec 013 flow + a `:can-leave` guard (`article_editor.cljs`)
+
+The create/edit-article page is the variant's most form-heavy surface, and it composes three contracts:
+
+- **The write is the `:realworld/save-article` mutation** — one mutation for both create (POST `/articles`) and edit (PUT `/articles/:slug`), switching on whether the draft carries a `:slug`. Its `:invalidates` stales the lists + feed (and, on edit, the article's own detail entry), so navigating to the saved article reads fresh data with no further wiring. Delete is the sibling `:realworld/delete-article` mutation.
+- **The can-submit gate is a Spec 013 FLOW** — `:editor/can-submit?` materialises "the draft is valid **AND** dirty (differs from the loaded baseline)" into app-db at `[:editor :can-submit?]`. The `:editor/submit` handler reads it as **plain app-db data** to gate the submit (the "other event handlers read the value" criterion — Spec 013 §When to use a flow); the submit button reads the same value through a plain sub over the flow's `:path`. The flow is registered per-frame from `:editor/initialise` via `:rf.fx/reg-flow`, so it binds to whatever frame the app booted on.
+- **A `:can-leave` navigation guard** — the editor routes declare `:can-leave [:editor/can-leave?]`; a dirty draft blocks a navigate-away and the app shell renders a confirm dialog off the `:rf/pending-navigation` sub (Spec 012 §Redirects and guards). Saving re-seeds the baseline so the just-saved navigate isn't blocked.
+
+The save-success continuation (navigate to the saved article) is **off the render path**: a mutation has no reply-side `:on-success` hook, so a Form-3 mount-time `reagent.ratom/run!` reaction watches the save instance and dispatches `:editor/saved` once it first settles success. The render bodies are pure functions of subs and never dispatch — the same idiom `settings.cljs` uses.
 
 ### Auth is a command + machine, not a cached read (`auth.cljs`)
 
@@ -75,7 +87,8 @@ Login / register / session-restore / logout are a Spec 005 state machine issuing
 | `scope.cljs` | The fail-closed session cache scope + the `:session/scope` sub the view passes on session-scoped reads. |
 | `routing.cljs` | Routes with `:resources` metadata + the `auth-guard` interceptor; the home `:on-match` ensures the session feed. |
 | `auth.cljs` | The `:auth/flow` auth machine (login / register / restore / logout-with-clear-scope) + the login/register forms. |
-| `settings.cljs` | The settings page as a mutation instance (`:rf.mutation/state`). |
+| `settings.cljs` | The settings page as a mutation instance (`:rf.mutation/state`); the save-success continuation is off the render path (Form-3 settle reaction). |
+| `article_editor.cljs` | Create / edit / delete an article: the `:realworld/save-article` + `:realworld/delete-article` mutations, the `:editor/can-submit?` Spec 013 flow, the `:editor/can-leave?` guard, and the Form-3 settle reactions (seed-on-load + save/delete continuation). |
 | `views.cljs` | Passive pages (home / article / profile) + the small UI event glue (favourite / follow / comment). |
 | `schema.cljs` | Malli wire shapes + the small app-db schemas (auth + form drafts only — the reads live in runtime-db). |
 | `http.cljs` | The demo backend stub (resources + mutations lower onto `:rf.http/managed`, so one stub serves the whole API) + the `:rf.http/*` failure projection. |

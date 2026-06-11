@@ -55,6 +55,7 @@
             [realworld-resources.routing :as routing]
             [realworld-resources.auth :as auth]
             [realworld-resources.settings :as settings]
+            [realworld-resources.article-editor :as editor]
             [realworld-resources.views :as views])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -86,6 +87,8 @@
        [:li.nav-item [rf/route-link {:to :realworld/home :class "nav-link"} "Home"]]
        (if authed?
          [:<>
+          [:li.nav-item [rf/route-link {:to :realworld.editor/new :class "nav-link" :data-testid "nav-new-article"}
+                         [:i.ion-compose] " New Article"]]
           [:li.nav-item [rf/route-link {:to :realworld.user/settings :class "nav-link" :data-testid "nav-settings"}
                          [:i.ion-gear-a] " Settings"]]
           [:li.nav-item [rf/route-link {:to :realworld.profile/show :params {:username (:username user)}
@@ -109,17 +112,37 @@
   (let [_ (dispatch [:settings/load])]
     [settings/settings-page]))
 
+(reg-view ^{:doc "Confirm dialog shown when a `:can-leave` guard blocks a
+                   navigation (e.g. the editor with a dirty draft). Reads the
+                   blocked navigation off the `:rf/pending-navigation` sub
+                   (Spec 012 §Redirects and guards); the buttons continue or
+                   cancel the pending nav."}
+          pending-nav-dialog []
+  (when-let [pending @(subscribe [:rf/pending-navigation])]
+    [:div.pending-nav-overlay {:data-testid "pending-nav-dialog"}
+     [:div.pending-nav-dialog
+      [:p (or (:reason pending) "You have unsaved changes. Leave anyway?")]
+      [:button {:data-testid "pending-nav-discard"
+                :on-click #(dispatch [:rf.route/continue (:id pending)])}
+       "Discard changes"]
+      [:button {:data-testid "pending-nav-stay"
+                :on-click #(dispatch [:rf.route/cancel (:id pending)])}
+       "Stay"]]]))
+
 (reg-view not-found-page []
   [:div.not-found-page [:h1 "Page not found"] [rf/route-link {:to :realworld/home} "Home"]])
 
 (reg-view root-view []
   [:div.app
    [header]
+   [pending-nav-dialog]
    (case @(subscribe [:rf.route/id])
      :realworld/home          [views/home-page]
      :realworld.auth/login    [auth/login-page]
      :realworld.auth/register [auth/register-page]
      :realworld.article/show  [views/article-page]
+     :realworld.editor/new    [editor/editor-page]
+     :realworld.editor/edit   [editor/editor-page]
      :realworld.profile/show  [views/profile-page]
      :realworld.user/settings [settings-mount]
      [not-found-page])
