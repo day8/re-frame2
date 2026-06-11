@@ -426,10 +426,10 @@ The sibling slot lives under the shared `[:rf.runtime/elision]` runtime-db child
 
 ## Per-frame schemas
 
-`reg-app-schema` is per-frame — registered against the active frame at registration time. The public lookup APIs (`app-schemas`, `app-schema-at`) take an optional `frame-id` and default to the active frame (or `:rf/default`).
+`reg-app-schema` is per-frame — registered against the active frame at registration time. The public lookup APIs (`app-schemas`, `app-schema-at`) take an optional `frame-id`; without one they resolve the carried active frame and raise `:rf.error/no-frame-context` outside any established scope (EP-0002).
 
 ```clojure
-;; Registers against the active frame (or :rf/default when no active frame).
+;; Registers against the carried active frame; raises outside any frame scope.
 (rf/reg-app-schema [:user] UserSchema)
 
 ;; Registers explicitly against a named frame.

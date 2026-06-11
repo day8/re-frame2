@@ -40,7 +40,7 @@ The `reg-event-*` metadata-map is the one **superset** middle slot — reflectio
 | `rf/frame-handle` | `()` / `(frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — operation bundle captured at creation; survives async |
 | `rf/frame-bound-fn` | `([args] body+)` — macro: fn that re-binds the captured frame in its body (async callbacks) |
 | `rf/frame-bound-fn*` | `(f)` / `(frame-id f)` — `*`-twin of the macro; wraps an existing fn value |
-| `rf/current-frame-id` | `()` — active frame id; `:rf/default` outside any binding |
+| `rf/current-frame-id` | `()` — active frame id; raises `:rf.error/no-frame-context` outside any frame scope |
 | `rf/app-db-value` | `(frame-id)` — value-form **app-db** partition read (plain map, no deref) |
 | `rf/runtime-db-value` | `(frame-id)` — value-form **runtime-db** partition read (framework state; tools / privileged runtime) |
 | `rf/frame-state-value` | `(frame-id)` → `{:rf.db/app … :rf.db/runtime …}` — the whole frame (SSR / epoch / tools) |
@@ -144,7 +144,7 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 | `rf/get-coeffect` / `rf/assoc-coeffect` / `rf/get-effect` / `rf/assoc-effect` | inside an interceptor |
 | `rf/inject-cofx` | `(id)` / `(id value)` — cofx injector; `value` is the per-call arg passed to the cofx handler's 2-arity form |
 | `rf/path` / `rf/unwrap-interceptor` | std interceptors |
-| `rf/init!` | `(adapter-map)` — install adapter + ensure `:rf/default`. No registry. |
+| `rf/init!` | `(adapter-map)` — install adapter/runtime capabilities; creates no frame. No registry. |
 | `rf/install-adapter!` / `rf/destroy-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |
 | `rf/clear-event` / `rf/clear-sub` / `rf/clear-fx` / `rf/clear-flow` / `rf/clear-sub-cache!` | targeted deregistration |
 | `rf/configure!` | `(:epoch-history\|:trace-buffer\|:elision opts)` — runtime knobs (`:elision` opts `{:rf.size/threshold-bytes N}`) |
