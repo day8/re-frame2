@@ -1,11 +1,12 @@
 (ns re-frame.app-value
-  "The app value — the program-as-a-value (EP-0013 D2 stage 5, accepted
-  2026-06-11; sequenced behind the merged D1 `re-frame.realm`).
+  "The app value — the program-as-a-value (EP-0013 D2; stage 5 projection
+  accepted 2026-06-11, stage 6 public constructors + composition added on top
+  of it; sequenced behind the merged D1 `re-frame.realm`).
 
   > The program is a value; the runtime is a container you install it into.
 
   Per [EP-0013](docs/EP/EP-0013-app-values-and-runtime-realms.md) §D2 (the
-  app value) + §Public API Staging stage 5, the app value is the immutable
+  app value) + §Public API Staging stages 5-6, the app value is the immutable
   description of a program: its registration descriptors grouped by registry
   kind, its capability requirements, and the source coordinates that declared
   each contract surface. Where D1 made registrar *ownership* explicit (a realm
@@ -14,18 +15,38 @@
   only through the live registrar — they are an enumerable, recomputable
   VALUE projected over that registrar.
 
-  ## Stage 5 is INTERNAL — no public surface, no facade, no manifest
+  ## Two ways to obtain an app value: PROJECT a live realm, or CONSTRUCT one
 
-  This is EP-0013 staging step 5: an internal app-value descriptor format +
-  the projection seam, for the registrations that ALREADY exist in the
-  default realm's registrar. **No public `rf/app` / `rf/module` constructor
-  (stage 6), no public `rf/install!` / `rf/reinstall!` (stage 7), no
-  `re-frame.core` facade export, and no api-manifest change ship here** —
-  those names are reserved vocabulary and exposure graduates internal-first
-  (EP-0013 issue 1). Everything here is reached only by `re-frame.realm` and
-  the conformance tests. The headline is **zero ergonomic regression**: the
-  ordinary namespace-load `reg-*` sugar path is byte-identical; nothing on
-  the registration hot path changes.
+  There are two complementary origins for an app value, both producing the
+  same descriptor-grouped shape:
+
+    * the **projection** (stage 5, `app-value`): read the program a realm is
+      already running by re-grouping its registrar — the read direction over
+      the load-order `reg-*` sugar path (see §The projection seam below);
+    * the **construction** (stage 6, `module` + `app`): build an app value as
+      INERT data from explicit module descriptors, BEFORE any realm — the
+      surface large-SPA code uses to compose + inspect a program before it is
+      installed (see §Public construction + composition below).
+
+  ## Stage 5 (projection) is INTERNAL; stage 6 (construction) is PUBLIC
+
+  Stage 5 shipped an internal app-value descriptor format + the projection
+  seam, for the registrations that ALREADY exist in the default realm's
+  registrar — INTERNAL, reached only by `re-frame.realm` and the conformance
+  tests, with **zero ergonomic regression** (the ordinary namespace-load
+  `reg-*` sugar path is byte-identical; nothing on the registration hot path
+  changes).
+
+  Stage 6 graduates the PUBLIC construction half: `module` + `app` (and the
+  inspectors `app-registrations` / `app-owns` / `app-requires`), re-exported
+  from `re-frame.core` as `rf/module` / `rf/app` / `rf/app-registrations` /
+  `rf/app-owns` / `rf/app-requires`. These are the reserved-vocabulary names
+  ruled in EP-0013 issue 1; `rf/realm` + `rf/install!` / `rf/reinstall!`
+  (stage 7 — seating an app value into a realm) are NOT shipped here.
+  Construction is PURE: a `module` / `app` call has no registration side
+  effect (no realm, no registrar touch — the value is inert data per EP-0013
+  issue 10's \"inert is load-bearing\" rule); the projection seam (stage 5)
+  is untouched.
 
   ## The app value is a RECOMPUTABLE PROJECTION, not a mirror
 
@@ -74,26 +95,48 @@
 ;; ---- the app-value top-level shape ----------------------------------------
 ;;
 ;; Per EP-0013 §App Values + the draft normalized shape (Spec-Schemas), an
-;; app value contains (directly or through its modules, which stage 6 adds):
+;; app value contains (directly or through its modules):
 ;;
-;;   :rf.app/id     the app's id. In stage 5 the only app is the one the
-;;                  default realm carries (the process-load registrations),
-;;                  so the id is the realm's id (`:rf.realm/default`). Stage 6
-;;                  gives an explicitly-constructed app value its own id.
+;;   :rf.app/id     the app's id. A PROJECTED app (stage 5) carries the
+;;                  realm's id (`:rf.realm/default` for the default realm —
+;;                  the program the realm carries). A CONSTRUCTED app (stage
+;;                  6) carries the `:id` its `app` call declared.
 ;;   :registrations the normalized registration descriptors, grouped by
-;;                  registry kind: `kind → id → descriptor`. This is the
-;;                  re-grouping of the realm's registrar into the descriptor
-;;                  shape (below).
+;;                  registry kind: `kind → id → descriptor`. For a projected
+;;                  app this is the re-grouping of the realm's registrar; for
+;;                  a constructed app it is the composition of its modules'
+;;                  descriptors (collision-checked, owner-stamped).
 ;;   :requires      the set of `:rf.capability/*` requirements the program
-;;                  declares. In stage 5 this is empty — capability
-;;                  requirements are declared on MODULE values (stage 6/D3);
-;;                  the default realm's load-order registrations carry none.
-;;                  The slot is present (always `#{}` here) so the shape is
-;;                  stable across the stage-6 graduation.
+;;                  declares. EMPTY for a projected app (capability
+;;                  requirements are declared on MODULE values — the
+;;                  default realm's load-order registrations carry none). For
+;;                  a constructed app it is the union of its modules'
+;;                  `:requires`. The slot is always present.
+;;   :modules       (CONSTRUCTED apps only) the module map keyed by module id:
+;;                  `module-id → module value`. A projected app carries no
+;;                  modules (the load-order registrar has no module grouping),
+;;                  so the slot is absent there. An app constructed from zero
+;;                  modules carries an empty `:modules` map.
 ;;
-;; D2/D3-RESERVED, never produced in stage 5: :modules (the module map — D3),
-;; :diagnostics (composition diagnostics — stage 6's compose step). Left
-;; absent here; an empty :registrations app is still a valid app value.
+;; A module value (stage 6, `module`) is a composable app-value FRAGMENT — the
+;; same descriptor-grouped shape, plus a module id, the `:owns` ownership
+;; declarations, and the `:requires` capability set:
+;;
+;;   :rf.module/id  the module's id (stamped onto each descriptor's :owner).
+;;   :registrations the module's own descriptors grouped by kind.
+;;   :owns          the ownership declarations (`{:app-db [...] :routes [...]
+;;                  :resources [...] ...}`) — not merely documentation;
+;;                  composition surfaces them for tooling (overlap validation
+;;                  beyond same-(kind,id) collision is a later slice).
+;;   :requires      the module's `:rf.capability/*` requirements (empty set
+;;                  when none declared).
+;;   :source        the module's own source-coordinate envelope, when the
+;;                  caller supplies one (absent otherwise — issue 8: absence
+;;                  never changes behaviour).
+;;
+;; D3-RESERVED, never produced here: :diagnostics as a SUCCESS-path slot —
+;; composition reports collisions by THROWING (issue 7: data is the primitive,
+;; the ex-data IS the diagnostic), so a returned app value is always valid.
 
 ;; ---- the registration descriptor ------------------------------------------
 ;;
@@ -211,6 +254,282 @@
      {:rf.app/id     rid
       :registrations (registrations->descriptors snapshot)
       :requires      #{}})))
+
+;; ---- public construction + composition (EP-0013 D2 stage 6) ---------------
+;;
+;; The CONSTRUCTION half: build an app value as INERT data from explicit
+;; module descriptors, before any realm. `module` lowers a module-descriptor
+;; map into a module value (the same descriptor-grouped shape the projection
+;; produces, owner-stamped); `app` composes a vector of module values into an
+;; app value. Both are PURE — no realm, no registrar, no side effect (a
+;; `module` / `app` call is data, not registration — EP-0013 issue 10's
+;; "inert is load-bearing").
+;;
+;; The construction descriptor shape MATCHES the projection's (`descriptor`
+;; above), so a constructed app's `:registrations` and a projected app's are
+;; the SAME shape — one app-value vocabulary, two origins. The only addition
+;; is `:owner` (the module id), which the projection never carries (load-order
+;; registrations have no module). The module-section input shape is the EP's
+;; (`{:doc … :schema … :handler …}` per entry — a handler-and-metadata map),
+;; not the registrar's flat `:handler-fn` metadata, so construction has its
+;; own normalizer (`module-descriptor`) rather than reusing `descriptor`.
+
+(def ^:private module-section->kind
+  "The module-descriptor section keys (plural, per the EP module form) mapped
+  to their Spec 001 registry kind (singular). A `module` map carries its
+  registrations under these section keys (`:events {…}`, `:subs {…}`, …); each
+  section lowers to descriptors under the corresponding registry kind. The set
+  is the Spec 001 `registrar/kinds` taxonomy — adding a registry kind that a
+  module can carry is a one-row addition here (kept in lockstep with the
+  closed `registrar/kinds` set)."
+  {:events          :event
+   :subs            :sub
+   :fx              :fx
+   :cofx            :cofx
+   :views           :view
+   :frames          :frame
+   :routes          :route
+   :heads           :head
+   :error-projectors :error-projector
+   :flows           :flow
+   :resources       :resource
+   :mutations       :mutation
+   :resource-scopes :resource-scope})
+
+(def ^:private module-source-coord-keys
+  "Reserved top-level module keys that are NOT registration sections — lifted
+  out before the section scan so a module's own `:id` / `:owns` / `:requires`
+  / `:source` are never mistaken for a registration kind."
+  #{:id :owns :requires :source})
+
+(defn- module-descriptor
+  "Normalize one module registration entry into an app-value registration
+  descriptor (EP-0013 §Registration Descriptors), stamped with its owning
+  module id. Pure: a function of `kind`, `id`, the module id, and the entry
+  map only.
+
+  The entry map is the EP's module-form shape (`{:doc … :schema … :handler …
+  :source …}` — a handler-and-metadata map), NOT the registrar's flat
+  `:handler-fn` metadata. The handler is lifted out of `:handler`, the source
+  coords out of `:source` (an explicit envelope a non-macro/code-gen host may
+  supply — issue 8), and the rest of the entry kept under `:metadata` (with
+  the lifted slots removed so each fact is carried once). INTERNAL."
+  [kind id owner entry]
+  (let [source    (:source entry)
+        rest-meta (dissoc entry :handler :source)]
+    (cond-> {:kind  kind
+             :id    id
+             :owner owner}
+      (contains? entry :handler) (assoc :handler (:handler entry))
+      (seq source)               (assoc :source source)
+      (seq rest-meta)            (assoc :metadata rest-meta))))
+
+(defn module
+  "Construct a MODULE value — a composable app-value fragment (EP-0013 §Module
+  Values And Feature Ownership), as INERT data. PUBLIC (`rf/module`).
+
+  `descriptor-map` carries:
+
+    :id        the module id (required) — stamped onto every descriptor's
+               `:owner` so composition can name the colliding source.
+    :owns      ownership declarations (`{:app-db [[:cart]] :routes […]
+               :resources […] …}`) — the feature surfaces the module owns.
+               Carried through to the app value for tooling (overlap
+               validation beyond same-(kind,id) collision is a later slice).
+    :requires  the set of `:rf.capability/*` requirements (defaults to `#{}`).
+    :source    the module's own source-coordinate envelope, when the host
+               supplies one (optional — issue 8: absence never changes
+               behaviour).
+    <sections> registration sections keyed by the plural section name
+               (`:events {id entry} :subs {…} :routes {…} …`, per the EP
+               module form); each `entry` is a `{:doc … :schema … :handler …
+               :source …}` handler-and-metadata map. The section→kind map is
+               the Spec 001 registry taxonomy.
+
+  Returns a module value:
+
+    {:rf.module/id  <id>
+     :registrations {kind {id descriptor}}  ;; descriptors, :owner-stamped
+     :owns          <owns or {}>
+     :requires      <requires set>
+     :source        <source>}               ;; present only when supplied
+
+  PURE — no realm, no registrar, no side effect. Throws `:rf.error/invalid-module`
+  (an ex-info whose ex-data IS the diagnostic) when `:id` is missing — the one
+  construction-time precondition (issue 7: data is the primitive)."
+  [descriptor-map]
+  (let [id (:id descriptor-map)]
+    (when (nil? id)
+      (throw (ex-info "rf/module requires an :id"
+                      {:error/id :rf.error/invalid-module
+                       :descriptor descriptor-map
+                       :recovery :supply-a-module-id})))
+    (let [registrations
+          (reduce-kv
+            (fn [acc section entries]
+              (if-let [kind (module-section->kind section)]
+                (assoc acc kind
+                       (reduce-kv (fn [m eid entry]
+                                    (assoc m eid (module-descriptor kind eid id entry)))
+                                  {}
+                                  entries))
+                ;; A non-section, non-reserved top-level key is a malformed
+                ;; module — fail loudly rather than silently dropping it.
+                (if (contains? module-source-coord-keys section)
+                  acc
+                  (throw (ex-info (str "rf/module: unknown section key " section)
+                                  {:error/id :rf.error/invalid-module
+                                   :module id
+                                   :unknown-section section
+                                   :recovery :remove-or-correct-the-section-key})))))
+            {}
+            descriptor-map)]
+      (cond-> {:rf.module/id  id
+               :registrations registrations
+               :owns          (get descriptor-map :owns {})
+               :requires      (set (get descriptor-map :requires #{}))}
+        (seq (:source descriptor-map)) (assoc :source (:source descriptor-map))))))
+
+;; ---- composition: modules → an app value ----------------------------------
+;;
+;; Composition is DETERMINISTIC and ORDER-STABLE (EP-0013 §Composition): given
+;; the same module values it produces the same app value or the same ordered
+;; diagnostic, regardless of namespace load timing or how the modules were
+;; grouped. It MUST NOT silently use last-writer-wins for same-(kind,id)
+;; conflicts — a collision THROWS `:rf.error/app-composition-collision`,
+;; enumerating EVERY colliding source available (issue 7: the ex-data IS the
+;; validation result; the family is a boot-time-reachable install failure, so
+;; it routes through the EP-0008 promotion criterion at stage 7).
+;;
+;; The composition laws (EP-0013 §Composition + §Validation/Conformance) the
+;; tests pin: composing with an empty module is identity; grouping modules
+;; differently does not change the resulting app value; successful composition
+;; preserves every input descriptor exactly once; failed composition reports
+;; every colliding source.
+
+(defn- merge-module-registrations
+  "Fold one module's `:registrations` (`kind → id → descriptor`) into the
+  accumulating app registrations, detecting same-(kind,id) collisions. On a
+  collision throws `:rf.error/app-composition-collision` carrying BOTH the
+  already-present descriptor's owner+source and the incoming one's, so the
+  host can name every colliding source (EP-0013 §Composition). INTERNAL."
+  [acc module-regs]
+  (reduce-kv
+    (fn [acc kind id->desc]
+      (reduce-kv
+        (fn [acc id desc]
+          (if-let [existing (get-in acc [kind id])]
+            (throw (ex-info (str "app composition collision: two modules register "
+                                 kind " " id)
+                            {:error/id :rf.error/app-composition-collision
+                             :kind     kind
+                             :id       id
+                             :sources  [(cond-> {:module (:owner existing)}
+                                          (:source existing) (assoc :source (:source existing)))
+                                        (cond-> {:module (:owner desc)}
+                                          (:source desc) (assoc :source (:source desc)))]
+                             :recovery :rename-or-explicitly-replace}))
+            (assoc-in acc [kind id] desc)))
+        acc
+        id->desc))
+    acc
+    module-regs))
+
+(defn app
+  "Construct an APP value by composing module values (EP-0013 §App Values +
+  §Composition), as INERT data. PUBLIC (`rf/app`).
+
+  `app-map` carries:
+
+    :id      the app id (required) — the constructed app's `:rf.app/id`.
+    :modules a vector (or seq) of module values (from `module`). Defaults to
+             empty — an app of zero modules is a valid, empty app value.
+
+  Returns an app value:
+
+    {:rf.app/id     <id>
+     :modules       {module-id module}        ;; the composed modules by id
+     :registrations {kind {id descriptor}}    ;; every module's descriptors,
+                                               ;; collision-checked + owner-stamped
+     :requires      #{:rf.capability/* …}}     ;; union of module :requires
+
+  DETERMINISTIC + ORDER-STABLE: the same modules compose to the same app value
+  regardless of order, and a same-(kind,id) collision across modules THROWS
+  `:rf.error/app-composition-collision` (the ex-data names every colliding
+  source) rather than silently picking a winner — there is no last-writer-wins
+  (EP-0013 §Composition; issue 7). PURE — no realm, no registrar, no side
+  effect; an app value is inert until a stage-7 `install!` seats it.
+
+  Throws `:rf.error/invalid-app` when `:id` is missing, or when a `:modules`
+  entry is not a module value (a `module`-constructed map carrying
+  `:rf.module/id`)."
+  [app-map]
+  (let [id      (:id app-map)
+        modules (vec (get app-map :modules []))]
+    (when (nil? id)
+      (throw (ex-info "rf/app requires an :id"
+                      {:error/id :rf.error/invalid-app
+                       :app app-map
+                       :recovery :supply-an-app-id})))
+    (doseq [m modules]
+      (when-not (and (map? m) (contains? m :rf.module/id))
+        (throw (ex-info "rf/app :modules entries must be module values (from rf/module)"
+                        {:error/id :rf.error/invalid-app
+                         :app id
+                         :bad-module m
+                         :recovery :wrap-the-descriptor-in-rf-module}))))
+    {:rf.app/id     id
+     :modules       (into {} (map (juxt :rf.module/id identity)) modules)
+     :registrations (reduce (fn [acc m]
+                              (merge-module-registrations acc (:registrations m)))
+                            {}
+                            modules)
+     :requires      (reduce (fn [acc m] (into acc (:requires m)))
+                            #{}
+                            modules)}))
+
+;; ---- public inspection over an app value (EP-0013 §Examples) --------------
+;;
+;; The three inspectors the EP's "A Whole App As Data" example shows — read an
+;; app value WITHOUT installing it: enumerate its registrations by kind, find
+;; the module that owns an app-db path, read its capability requirements. Pure
+;; readers over the app-value data; no realm, no registrar. PUBLIC.
+
+(defn app-registrations
+  "Return the registration descriptors an app value carries for `kind`
+  (`kind → {id descriptor}` for that one kind), or `nil` when the app declares
+  none of that kind. The enumerable registration view that makes static
+  dispatch-coverage checks possible WITHOUT installing the app (EP-0013
+  §Validation/Conformance). PUBLIC (`rf/app-registrations`).
+
+  Works over both constructed apps (`app`) and projected apps (`app-value`) —
+  the `:registrations` shape is the same for both. Pure."
+  [app-value kind]
+  (get-in app-value [:registrations kind]))
+
+(defn app-requires
+  "Return the set of `:rf.capability/*` requirements an app value declares —
+  the union of its modules' `:requires` (EP-0013 §Capability Maps). The
+  explicit dependency surface a realm must satisfy before a stage-7 `install!`
+  succeeds. PUBLIC (`rf/app-requires`). Pure — returns `#{}` for a projected
+  app (load-order registrations declare no requirements)."
+  [app-value]
+  (get app-value :requires #{}))
+
+(defn app-owns
+  "Return the module id that owns app-db `path` in an app value, or `nil` when
+  no module declares it (EP-0013 §Module Values And Feature Ownership /
+  §Examples `(rf/app-owns app [:cart])`). PUBLIC (`rf/app-owns`).
+
+  Resolves against the modules' `:owns {:app-db [...]}` declarations: returns
+  the id of the module whose `:owns :app-db` vector contains exactly `path`.
+  Pure; returns `nil` for a projected app (no modules, hence no ownership
+  declarations)."
+  [app-value path]
+  (some (fn [[mid m]]
+          (when (some #(= % path) (get-in m [:owns :app-db]))
+            mid))
+        (:modules app-value)))
 
 ;; ---- the realm-side installed-app seam (the late-bind bridge) --------------
 ;;
