@@ -33,6 +33,7 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.frame :as frame]
+   [re-frame.late-bind :as late-bind]
    [re-frame.registrar :as registrar]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + subs + the generation cofx/fx these tests
@@ -42,7 +43,10 @@
    [re-frame.resources.mutation-registry :as mreg]
    [re-frame.resources.state :as state]
    [re-frame.resources.subs :as subs]
-   [re-frame.resources.test-support]
+   [re-frame.resources.test-support :as resources-test-support]
+   [re-frame.resources.timers :as timers]
+   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.resources.revalidate-listeners :as revalidate-listeners]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch is overridden by the capturing no-op below.
    [re-frame.http-managed]
@@ -681,3 +685,59 @@
   (testing "rf2-ptz7z8 — a scoped key built from mixed-key params is stable"
     (is (= (state/scoped-resource-key :rf.scope/global :r/x {:a 1 "b" 2})
            (state/scoped-resource-key :rf.scope/global :r/x {"b" 2 :a 1})))))
+
+;; ===========================================================================
+;; 19. Shared reset contract (rf2-784223) — `make-reset-runtime-fixture` plus
+;;     `re-frame.resources.test-support` clears the resource + mutation
+;;     registrars AND every resources host-side side table.
+;; ===========================================================================
+
+(deftest reset-resources-clears-registrars-and-host-side-tables
+  ;; This is the contract the per-suite fixtures now RELY on (rf2-784223):
+  ;; instead of each fixture redundantly re-resetting these caches, the
+  ;; shared `make-reset-runtime-fixture` fires `:resources/reset-resources!`
+  ;; (published at `re-frame.resources.test-support` ns-load). Prove that one
+  ;; thunk clears the whole surface, so the redundant per-suite resets were
+  ;; safe to remove.
+  (testing "the late-bind reset hook IS published (the fixture's mechanism)"
+    (is (some? (late-bind/get-fn :resources/reset-resources!))
+        ":resources/reset-resources! hook published at test-support ns-load")
+    (is (identical? resources-test-support/reset-resources!
+                    (late-bind/get-fn :resources/reset-resources!))
+        "the published hook IS test-support/reset-resources!"))
+  ;; Seed every surface the reset must clear.
+  (rf/reg-resource :rst/article (article-spec))
+  (rf/reg-mutation :rst/save
+                   {:params-schema [:map [:slug :string]]
+                    :request (fn [{:keys [slug]} _ctx]
+                               {:request {:method :post :url (str "/api/articles/" slug)}})})
+  (state/commit-generation! :rf/default 7)
+  (let [k       (state/scoped-resource-key :rf.scope/global :rst/article {:slug "w"})
+        work-id (work-ledger/resource-work-id k 1)]
+    (work-ledger/put-handle! :rf/default work-id {:abort-fn (fn [] nil)})
+    (timers/schedule! :rf/default k timers/gc-kind 1000000)
+    (swap! revalidate-listeners/listener-table assoc :rf/default
+           {:focus :h :visibility :h :online :h})
+    ;; precondition: everything is populated
+    (is (contains? (registrar/registrations registry/resource-kind) :rst/article))
+    (is (contains? (registrar/registrations mreg/mutation-kind) :rst/save))
+    (is (= 7 (state/generation-snapshot :rf/default)))
+    (is (some? (work-ledger/get-handle :rf/default work-id)))
+    (is (contains? @timers/timer-table [:rf/default k timers/gc-kind]))
+    (is (contains? @revalidate-listeners/listener-table :rf/default))
+    (testing "rf2-784223 — `reset-resources!` clears the resource + mutation
+              registrars AND the generation / work-ledger-handle / timer /
+              revalidate-listener host side tables in ONE call"
+      (resources-test-support/reset-resources!)
+      (is (empty? (registrar/registrations registry/resource-kind))
+          "resource registrar cleared")
+      (is (empty? (registrar/registrations mreg/mutation-kind))
+          "mutation registrar cleared")
+      (is (= 0 (state/generation-snapshot :rf/default))
+          "generation high-water cache cleared")
+      (is (nil? (work-ledger/get-handle :rf/default work-id))
+          "work-ledger host handle table cleared")
+      (is (not (contains? @timers/timer-table [:rf/default k timers/gc-kind]))
+          "stale/GC timer table cleared (timer cancelled)")
+      (is (not (contains? @revalidate-listeners/listener-table :rf/default))
+          "revalidation-listener side table cleared"))))

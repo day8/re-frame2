@@ -165,18 +165,41 @@
       (is (some? (registrar/lookup :sub sub-id))
           (str sub-id " sub should be registered")))))
 
+(def ^:private resource-event-family
+  "The CURRENT, complete `:rf.resource/*` + `:rf.resource.internal/*` event
+  family the façade registers (re-frame.resources `reg-event-fx` calls). Kept
+  in lock-step with the façade registrations — when a resource event is
+  added/removed there, this list moves with it so the smoke is never stale
+  (rf2-l1a0s7). The `:rf.mutation/*` causal-write family is a SEPARATE
+  surface (covered by the mutation suite), deliberately not enumerated here."
+  [;; public, user-causable events
+   :rf.resource/ensure
+   :rf.resource/refetch
+   :rf.resource/invalidate-tags
+   :rf.resource/release-owner
+   :rf.resource/clear-scope
+   :rf.resource/remove
+   ;; focus / reconnect revalidation events (host listeners dispatch these;
+   ;; user code MUST NOT) — landed events the prior smoke omitted
+   :rf.resource/window-focused
+   :rf.resource/network-reconnected
+   ;; framework-internal reply handlers (user code MUST NOT dispatch)
+   :rf.resource.internal/succeeded
+   :rf.resource.internal/failed
+   :rf.resource.internal/aborted
+   :rf.resource.internal/stale-fired      ;; landed; prior smoke omitted
+   :rf.resource.internal/gc-fired
+   :rf.resource.internal/stale-suppressed])
+
 (deftest resource-events-registered
-  (testing "the :rf.resource/* event family is registered"
-    (doseq [event-id [:rf.resource/ensure :rf.resource/refetch
-                      :rf.resource/invalidate-tags :rf.resource/release-owner
-                      :rf.resource/clear-scope :rf.resource/remove
-                      :rf.resource.internal/succeeded :rf.resource.internal/failed
-                      :rf.resource.internal/aborted :rf.resource.internal/gc-fired
-                      :rf.resource.internal/stale-suppressed]]
-      (is (some? (registrar/lookup :event event-id))
-          (str event-id " event should be registered"))))
-  (testing "every resource handler carries framework-write authority"
-    (is (true? (:rf/framework-authority? (registrar/lookup :event :rf.resource/ensure))))))
+  (testing "the CURRENT :rf.resource/* event family is registered AND every
+            member carries framework-write authority (rf2-l1a0s7)"
+    (doseq [event-id resource-event-family]
+      (let [handler (registrar/lookup :event event-id)]
+        (is (some? handler)
+            (str event-id " event should be registered"))
+        (is (true? (:rf/framework-authority? handler))
+            (str event-id " should carry framework-write authority"))))))
 
 (deftest late-bound-routing-accepts-resources-key
   (testing "the :routing/extra-route-keys hook publishes #{:resources}"

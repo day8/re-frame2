@@ -51,15 +51,21 @@
 
 (defn- init!
   "Per-test setup (runs after adapter install, registrar live): re-register
-  `:rf/default` as the URL-owning app frame, reset the routing counters +
-  the resources host-side generation cache, re-publish the late-bound
-  routing integration, and stub the managed-HTTP + push-url fx so ensure +
-  navigation are deterministic without a fetch / browser."
+  `:rf/default` as the URL-owning app frame, reset the routing counters,
+  re-publish the late-bound routing integration, and stub the managed-HTTP +
+  push-url fx so ensure + navigation are deterministic without a fetch /
+  browser.
+
+  rf2-784223: the resources host-side caches (state / work-ledger / timers /
+  revalidate-listeners) are cleared by the shared `make-reset-runtime-
+  fixture`'s `:resources/reset-resources!` post-dispose hook, which runs
+  BEFORE this `:init-fn` — so no `state/reset-cache!` is repeated here. The
+  routing counter reset + late-bound integration re-publication stay (they
+  are routing-suite setup, not resource cache hygiene)."
   []
   (rf/reg-frame :rf/default {:url-bound? true
                              :doc "Route-resource suite default app frame."})
   (routing/reset-counters!)
-  (state/reset-cache!)
   (route/install-routing-integration!)
   (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))

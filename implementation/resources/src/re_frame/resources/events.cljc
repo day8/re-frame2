@@ -426,21 +426,55 @@
   causes)."
   :reconnect)
 
+(defn- entry-revalidation-in-flight?
+  "True iff `entry` already has a LIVE refetch in flight — its
+  `:current-work` points at a work-ledger record whose status is
+  non-terminal AND not `:abort-requested` (i.e. `:queued` / `:running`: work
+  that will produce a usable reply). Such an entry needs no new revalidation
+  refetch — one is already running. A `:current-work` pointer alone is NOT
+  proof of live work: the linked record may be terminal (a settled attempt
+  whose entry write has not yet cleared the pointer) or `:abort-requested`
+  (a doomed, owner-released attempt) — both fall through as NOT in-flight, so
+  revalidation can legitimately start fresh work. Mirrors the `joinable?`
+  gate in `ensure-load` (rf2-v4ygg5): only a genuinely live attempt blocks a
+  new generation. Per Spec 016 §Race / §Deferred slices (rf2-wankrd:
+  coalesce focus + visibility revalidation for in-flight stale entries)."
+  [runtime-db entry]
+  (when-let [work-id (:current-work entry)]
+    (let [status (:status (work-ledger/get-record runtime-db work-id))]
+      (and (some? status)
+           (not (work-ledger/terminal? status))
+           (not= :abort-requested status)))))
+
 (defn- active-stale-scan
   "Pure scan: given the frame's `runtime-db` value and the live `clock-ms`,
   return the vector of `{:resource-key :scope :resource :params}` for every
-  cache entry that is BOTH active (has at least one `:active-owner` — a live
-  lease worth refetching) AND stale-by-policy (`state/entry-stale?` against
-  the durable timestamps). Fresh entries and owner-free entries are excluded.
+  cache entry that is active (has at least one `:active-owner` — a live lease
+  worth refetching), stale-by-policy (`state/entry-stale?` against the
+  durable timestamps), AND not already mid-revalidation (no LIVE in-flight
+  refetch — `entry-revalidation-in-flight?`). Fresh entries, owner-free
+  entries, and entries with a live refetch already running are excluded.
+
+  COALESCING (rf2-wankrd): a tab-return commonly fires BOTH `focus` (on
+  `window`) and `visibilitychange` (on `document`), each dispatching
+  `:rf.resource/window-focused`. Without the in-flight gate, the first scan
+  starts a refetch (setting `:current-work` to a `:running` record) and the
+  second scan would force a SECOND new generation over it — superseding +
+  aborting the first (abort churn) for no benefit. Skipping entries with live
+  in-flight work makes back-to-back focus / focus+visibility signals
+  idempotent: one active-stale key yields at most one new generation.
+
   Per Spec 016 §Stale and GC scheduling / §Deferred slices (focus/reconnect
-  active-stale scan). A pure selection — it never mutates; the caller turns
-  the selection into background `:rf.resource/refetch` dispatches."
+  active-stale scan) / §Race (refetch may force a new generation). A pure
+  selection — it never mutates; the caller turns the selection into
+  background `:rf.resource/refetch` dispatches."
   [runtime-db clock-ms]
   (let [entries (get-in runtime-db (state/entries-path))]
     (into []
           (keep (fn [[scoped-key entry]]
                   (when (and (seq (:active-owners entry))
-                             (state/entry-stale? entry clock-ms))
+                             (state/entry-stale? entry clock-ms)
+                             (not (entry-revalidation-in-flight? runtime-db entry)))
                     (let [[scope resource-id params] scoped-key]
                       {:resource-key scoped-key
                        :scope        scope
