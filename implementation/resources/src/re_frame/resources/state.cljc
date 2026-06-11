@@ -176,21 +176,63 @@
     (sequential? x) (every? serializable-edn? x)
     :else        false))
 
+(defn- type-rank
+  "Total type ordering used by `total-edn-compare` so a map with MIXED key
+  types (e.g. a keyword key and a string key) sorts deterministically rather
+  than throwing a raw `ClassCastException` (rf2-ptz7z8). The rank groups
+  values by their EDN kind; WITHIN a kind the natural / string ordering
+  breaks ties. Covers exactly the serializable-EDN kinds the cache key may
+  carry (`serializable-edn?`)."
+  [x]
+  (cond
+    (nil? x)        0
+    (boolean? x)    1
+    (number? x)     2
+    (string? x)     3
+    (keyword? x)    4
+    (symbol? x)     5
+    :else           6))
+
+(defn- total-edn-compare
+  "A TOTAL comparator over the serializable-EDN key shapes a canonical map
+  may carry (rf2-ptz7z8). Orders first by `type-rank` (so mixed
+  keyword/string/number/nil keys are orderable instead of throwing), then
+  WITHIN a kind by the kind's natural order — numbers numerically, strings /
+  keywords / symbols by their printed form. A deterministic total order is
+  all canonicalization needs: it only has to be stable + order-independent,
+  not semantically meaningful across kinds. Returns a negative / zero /
+  positive int."
+  [a b]
+  (let [ra (type-rank a) rb (type-rank b)]
+    (if (not= ra rb)
+      (compare ra rb)
+      ;; same kind — compare within it. numbers compare numerically; every
+      ;; other comparable kind compares by its printed form (keywords /
+      ;; symbols carry namespace + name; strings are themselves), which is a
+      ;; total order within the kind.
+      (if (number? a)
+        (compare a b)
+        (compare (str a) (str b))))))
+
 (defn canonicalize
   "Pure canonicalization of an EDN value for use in a cache key (Spec 016
-  §Canonicalization rule). A map is normalized into a sorted-by-key array
-  map so two spellings (key order) collapse to one identity and `=`; nested
-  maps recurse; sets and vectors keep value semantics (their elements
-  recurse). Reject non-EDN / host values loudly via `reject-non-edn!`
+  §Canonicalization rule). A map is normalized into a sorted-by-key map under
+  a TOTAL comparator so two spellings (key order) collapse to one identity
+  and `=`; nested maps recurse; sets and vectors keep value semantics (their
+  elements recurse). Reject non-EDN / host values loudly via `reject-non-edn!`
   upstream — this fn assumes its input is already serializable EDN.
 
   The sorted-map normalization makes member ORDER irrelevant to BOTH
   equality and hashing, so `{:a 1 :b 2}` and `{:b 2 :a 1}` produce the
   identical canonical value (and therefore the identical scoped resource
-  key). Returns the canonical value."
+  key). The comparator is TOTAL over the accepted EDN key shapes
+  (rf2-ptz7z8): a map mixing keyword and string keys canonicalizes
+  deterministically (ordered by `total-edn-compare`) instead of throwing a
+  raw `ClassCastException` from the default sorted-map comparator. Returns
+  the canonical value."
   [x]
   (cond
-    (map? x)        (into (sorted-map)
+    (map? x)        (into (sorted-map-by total-edn-compare)
                           (map (fn [[k v]] [k (canonicalize v)]))
                           x)
     (set? x)        (into #{} (map canonicalize) x)
@@ -223,6 +265,126 @@
                      :kind        kind
                      :value       (pr-str value)})))
   value)
+
+;; ---- concrete-scope validation (Spec 016 §Scope resolution) ---------------
+;;
+;; The SINGLE shared validation path for a CONCRETE scope value — the value
+;; a resolved scope actually carries into the cache key (a payload `:scope`,
+;; a route-resolver result, a fn-of-nothing result, a pure-data policy, or a
+;; mutation invalidation default). Distinct from the registration-time scope
+;; POLICY gate (`registry/valid-scope-policy?`), which validates the
+;; declared policy slot. Every scope-bearing operation — event resolution,
+;; sub resolution, route planning, mutation invalidation default — routes
+;; its concrete scope through `canonicalize-scope` so the same three
+;; guarantees hold everywhere (rf2-lzv9xc):
+;;
+;;   1. host / opaque scope values are rejected (`reject-non-edn!`);
+;;   2. a BARE unknown `:rf.scope/*` keyword (a reserved-namespace typo such
+;;      as `:rf.scope/glabal`) is rejected fail-closed (rf2-pd7akw) — it can
+;;      NEVER become a silent wrong cache scope;
+;;   3. the singleton-vector `[:rf.scope/global]` global-scope spelling is
+;;      normalized to the canonical bare `:rf.scope/global` (rf2-vv87xz) so a
+;;      payload copied from historical prose cannot create a SECOND, distinct
+;;      global cache key.
+
+(def reserved-scope-ns
+  "The framework-reserved scope namespace (`:rf.scope/*`, per Conventions
+  §Reserved namespaces / the `:rf.<spec-area>/*` scheme). A *bare keyword*
+  in this namespace is a CLOSED reserved enum (`#{:rf.scope/global
+  :rf.scope/from-caller}`); any other `:rf.scope/*` bare keyword is a typo,
+  NOT a literal scope. Note a scope VALUE like `[:rf.scope/session {…}]` is a
+  vector tuple, not a bare keyword — the reserved namespace governs only the
+  bare-keyword slot."
+  "rf.scope")
+
+(def reserved-concrete-scopes
+  "The closed set of bare `:rf.scope/*` keywords that are VALID as a concrete
+  resolved scope. Only `:rf.scope/global` is a concrete cache scope —
+  `:rf.scope/from-caller` is a registration POLICY (it never resolves to a
+  concrete value; the use site supplies one) and so is NOT a valid concrete
+  scope. Any other `:rf.scope/*` bare keyword is a typo. Per Spec 016 §Scope
+  resolution."
+  #{:rf.scope/global})
+
+(defn reserved-scope-typo?
+  "True when `scope` is a BARE keyword in the framework-reserved
+  `:rf.scope/*` namespace that is NOT a valid concrete scope (rf2-pd7akw) —
+  i.e. a misspelled reserved scope like `:rf.scope/glabal`, or the
+  policy-only `:rf.scope/from-caller` reaching a concrete boundary. A
+  non-keyword scope (a `[:rf.scope/session …]` tuple, a map, a string) is
+  NOT in the bare-keyword reserved slot and is never a typo here."
+  [scope]
+  (and (keyword? scope)
+       (= reserved-scope-ns (namespace scope))
+       (not (contains? reserved-concrete-scopes scope))))
+
+(def ^:private global-scope
+  "The canonical CONCRETE global cache scope — the bare keyword the
+  implementation stores as the first element of a scoped key for an explicit
+  global resource (rf2-vv87xz). The historical singleton-vector spelling
+  `[:rf.scope/global]` normalizes to this."
+  :rf.scope/global)
+
+(defn- normalize-global-scope
+  "Normalize the historical singleton-vector global spelling
+  `[:rf.scope/global]` to the canonical concrete `:rf.scope/global` bare
+  keyword (rf2-vv87xz), so a payload that copied the singleton-vector form
+  from older prose collapses to the SAME global cache key the implementation
+  resolves an explicit-global policy to — it can never silently create a
+  second, distinct global key. Every other value passes through unchanged."
+  [scope]
+  (if (= scope [global-scope]) global-scope scope))
+
+(defn reject-reserved-scope-typo!
+  "Throw `:rf.error/resource-invalid-scope` when `scope` is a reserved-
+  namespace typo (`reserved-scope-typo?`) reaching a CONCRETE scope boundary
+  (rf2-pd7akw). A bare `:rf.scope/*` keyword outside the concrete enum is a
+  framework-namespace typo, never a literal app scope — accepting it would
+  resolve to a silent WRONG cache scope (a tenant / user / permission leak),
+  exactly the failure the fail-closed scope contract exists to prevent.
+  `where` / `resource-id` name the offending boundary. Returns `scope`
+  unchanged when it conforms."
+  [scope where resource-id]
+  (when (reserved-scope-typo? scope)
+    (throw (ex-info ":rf.error/resource-invalid-scope"
+                    {:rf.error/id :rf.error/resource-invalid-scope
+                     :where       where
+                     :recovery    :fix-scope
+                     :reason      (str "resource " resource-id " was reached with a "
+                                       "scope " (pr-str scope) " in the framework-"
+                                       "reserved :rf.scope/* namespace that is not a "
+                                       "valid concrete scope. The only concrete "
+                                       "reserved scope is :rf.scope/global; "
+                                       ":rf.scope/from-caller is a registration "
+                                       "policy (the use site supplies the concrete "
+                                       "scope), and any other :rf.scope/* keyword is "
+                                       "a typo. A framework-namespace typo MUST fail "
+                                       "closed rather than become a silent wrong "
+                                       "cache scope. Per Spec 016 §Scope resolution.")
+                     :resource-id resource-id
+                     :scope       scope})))
+  scope)
+
+(defn canonicalize-scope
+  "The SINGLE shared concrete-scope validation + canonicalization path
+  (rf2-lzv9xc). Given a CONCRETE resolved scope value, in order:
+
+    1. reject a reserved-namespace typo fail-closed
+       (`reject-reserved-scope-typo!`, rf2-pd7akw);
+    2. reject a host / opaque value (`reject-non-edn!`);
+    3. normalize the historical `[:rf.scope/global]` singleton-vector
+       spelling to the canonical bare `:rf.scope/global` (rf2-vv87xz);
+    4. canonicalize the EDN (`canonicalize`).
+
+  Every scope-bearing operation routes its concrete scope through this fn so
+  the typo / host / global-spelling guarantees hold uniformly across event
+  resolution, sub resolution, route planning, and mutation invalidation
+  defaults. `where` / `resource-id` name the boundary for the structured
+  errors. Returns the canonical scope."
+  [scope where resource-id]
+  (reject-reserved-scope-typo! scope where resource-id)
+  (reject-non-edn! scope where :scope resource-id)
+  (canonicalize (normalize-global-scope scope)))
 
 ;; ---- scoped resource key (Spec 016 §Resource identity) --------------------
 

@@ -214,8 +214,17 @@
   scope requirement (it is a causal write, not a cached read with a leak
   boundary) — the invalidation it triggers is scoped, so the scope just
   decides which cache scope the success-time `:invalidate-tags` /
-  patch / populate target. Returns the canonical scope. Per EP-0003
-  §Mutations (scoped execution, same cache-scope rules as resources)."
-  [_mutation-id spec payload-scope]
+  patch / populate target.
+
+  Routes the resolved concrete scope through the SAME shared validation
+  path resources use (`state/canonicalize-scope`, rf2-lzv9xc): a host /
+  opaque scope value is rejected, a misspelled reserved `:rf.scope/*`
+  keyword is rejected fail-closed (rf2-pd7akw), and the historical
+  `[:rf.scope/global]` singleton-vector spelling normalizes to bare
+  `:rf.scope/global` (rf2-vv87xz) — so a mutation can never invalidate /
+  patch a silent WRONG (or second, distinct global) cache scope. Returns
+  the canonical scope. Per EP-0003 §Mutations (scoped execution, same
+  cache-scope rules as resources)."
+  [mutation-id spec payload-scope]
   (let [scope (or payload-scope (:scope spec) :rf.scope/global)]
-    (state/canonicalize scope)))
+    (state/canonicalize-scope scope 'rf.mutation/execute mutation-id)))

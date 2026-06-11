@@ -121,10 +121,32 @@
   `:frame` introspection target `{:resource :scope :params :frame}` (Spec
   016 §Introspection), or nil when no entry exists for that scoped key in
   that frame. Per EP-0002 the frame target is carried explicitly; a
-  frameless call with no resolvable context fails closed. Resolves the
-  scoped key the same way a subscription does (canonical scope + params,
-  sub-side scope precedence, fail-closed)."
+  frameless call FAILS CLOSED (rf2-c8lgy3): an absent / nil `:frame` raises
+  the structured `:rf.error/no-frame-context` rather than passing nil through
+  to a runtime-db lookup that returns nil — a nil that is INDISTINGUISHABLE
+  from a genuinely absent entry. Resolves the scoped key the same way a
+  subscription does (canonical scope + params, sub-side scope precedence,
+  fail-closed).
+
+  Frame existence is NOT a precondition: an explicit but unknown / destroyed
+  `:frame` reads as `nil` runtime-db and returns `nil` (no entry) — the same
+  result as a live frame with no entry for the key. The fail-closed boundary
+  is the MISSING explicit target, not a vanished one; a valid explicit frame
+  lookup returns `nil` only for a genuinely absent entry."
   [{:keys [frame] :as opts}]
+  (when (nil? frame)
+    (throw (ex-info ":rf.error/no-frame-context"
+                    {:rf.error/id :rf.error/no-frame-context
+                     :where       'rf/resource-state
+                     :recovery    :pass-frame
+                     :reason      (str "resource-state requires an explicit :frame "
+                                       "introspection target. A frameless call would "
+                                       "pass nil through to the runtime-db lookup and "
+                                       "return nil — indistinguishable from a genuinely "
+                                       "absent entry. Pass {:resource … :scope … "
+                                       ":params … :frame <frame-id>}. Per Spec 016 "
+                                       "§Introspection / EP-0002.")
+                     :opts        (dissoc opts :frame)})))
   (let [scoped-key (resource-subs/resolve-scoped-key opts)
         runtime-db (frame/frame-runtime-db-value frame)]
     (get-in runtime-db (state/entry-path scoped-key))))
