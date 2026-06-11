@@ -183,7 +183,7 @@
                                             :params {:slug "w"} :owner [:lease :sc 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource-key scoped-key :work-id wid :generation 1
+                         {:resource-key scoped-key :work/id wid :generation 1
                           :data {:title "W"}}])
       (testing "Spec 016 §Ledger row retention — a terminal :completed row is
                 pruned on the linked entry's successful transition (bounded
@@ -204,7 +204,7 @@
                                                :params {:slug "w"}}])
       (let [wid (:current-work (entry scoped-key))]
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key scoped-key :work-id wid
+                           {:resource-key scoped-key :work/id wid
                             :generation (:generation (entry scoped-key))
                             :data {:n (rand)}}])))
     (testing "Spec 016 §Ledger row retention and identity — terminal rows are
@@ -226,7 +226,7 @@
                                             :params {:slug "w"} :owner [:lease :fa 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/failed
-                         {:resource-key scoped-key :work-id wid :generation 1
+                         {:resource-key scoped-key :work/id wid :generation 1
                           :error {:kind :rf.http/http-5xx :status 503}}])
       (testing "a failed first load settles the work row terminal :failed with
                 the error envelope as its outcome (Xray summary)"
@@ -242,7 +242,7 @@
                                             :params {:slug "w"} :owner [:lease :ab 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/aborted
-                         {:resource-key scoped-key :work-id wid :generation 1}])
+                         {:resource-key scoped-key :work/id wid :generation 1}])
       (testing "an aborted attempt settles the work row terminal :cancelled +
                 clears the handle (entry untouched — the verification gate
                 handles its settle)"
@@ -271,7 +271,7 @@
       (testing "Spec 016 §stale suppression (mandatory) — the OLD-generation
                 reply never mutates the newer entry"
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key scoped-key :work-id wid1 :generation 1
+                           {:resource-key scoped-key :work/id wid1 :generation 1
                             :data {:stale "data"}}])
         (let [e (entry scoped-key)]
           (is (not= {:stale "data"} (:data e)) "stale reply did not write")
@@ -452,7 +452,7 @@
         (testing "frame A settling does NOT disturb frame B (independent
                   settlement — no stranded pending entry)"
           (rf/dispatch-sync [:rf.resource.internal/succeeded
-                             {:resource-key scoped-key :work-id wid-a :generation 1
+                             {:resource-key scoped-key :work/id wid-a :generation 1
                               :rf.frame/id fa :data {:title "A"}}]
                             {:frame fa})
           (is (= {:title "A"} (:data (entry fa scoped-key))) "frame A loaded")

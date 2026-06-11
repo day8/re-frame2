@@ -119,7 +119,7 @@
   [scoped-key data]
   (let [e (entry scoped-key)]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource-key scoped-key :work-id (:current-work e)
+                       {:resource-key scoped-key :work/id (:current-work e)
                         :generation (:generation e) :data data}])))
 
 ;; ===========================================================================
@@ -398,7 +398,7 @@
       ;; a direct internal aborted settle marks the work TERMINAL :cancelled
       ;; (the aborted-handler makes no entry write — the pointer dangles).
       (rf/dispatch-sync [:rf.resource.internal/aborted
-                         {:resource-key k :work-id wid1 :generation gen1}])
+                         {:resource-key k :work/id wid1 :generation gen1}])
       (is (= :cancelled (:status (work-ledger/get-record (runtime-db) wid1)))
           "the directly-aborted work row is terminal :cancelled")
       (testing "rf2-v4ygg5 — a subsequent ensure does NOT join the terminal
@@ -424,7 +424,7 @@
                 work-id is SUPPRESSED (the entry it would write into is gone;
                 the generation/work-id check finds no live entry)"
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key k :work-id stale-wid :generation 1
+                           {:resource-key k :work/id stale-wid :generation 1
                             :data {:title "Late"}}])
         (is (nil? (entry k)) "late reply did NOT resurrect / write the entry"))
       (testing "a recreated entry in the same scope gets a HIGHER generation
@@ -433,7 +433,7 @@
         (ensure! :clr/article scope "w" [:lease :c 2])
         (is (= 2 (:generation (entry k))) "recreated entry on a fresh generation")
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key k :work-id stale-wid :generation 1
+                           {:resource-key k :work/id stale-wid :generation 1
                             :data {:title "ZombieLate"}}])
         (is (not= {:title "ZombieLate"} (:data (entry k)))
             "the pre-clear reply never writes the recreated entry")))))
@@ -590,7 +590,7 @@
       ;; owner-free + idle (GC-eligible)
       (let [wid (:current-work (entry k))]
         (rf/dispatch-sync [:rf.resource.internal/failed
-                           {:resource-key k :work-id wid
+                           {:resource-key k :work/id wid
                             :generation (:generation (entry k))
                             :rf.frame/id :rf/default}
                            {:kind :failure :failure {:kind :rf.http/aborted :reason :user}}]))

@@ -332,7 +332,7 @@
       (rf/dispatch-sync
         [:rf.mutation.internal/succeeded
          {:instance-id instance-id :mutation-id :article/edit
-          :work-id work-id :generation 3 :scope :rf.scope/global}
+          :work/id work-id :generation 3 :scope :rf.scope/global}
          {:kind :success :value {:title "STALE pre-restore write"}}]
         {:frame fid})
       (let [post (frame/frame-runtime-db-value fid)

@@ -12,7 +12,24 @@
   submission of the same mutation. The derived booleans (`:pending?` /
   `:success?` / `:error?` / `:settled?`) are PUBLIC DERIVED SUB VALUES
   computed here from the durable instance facts, NOT stored on the instance
-  (Spec 016 §Status semantics, the same posture as resource subs)."
+  (Spec 016 §Status semantics, the same posture as resource subs).
+
+  ## `:result` is the instance-layer spelling of the decoded result (kh9jz6)
+
+  The mutation INSTANCE stores the decoded write result under `:result` —
+  the durable, queryable status-record spelling. The transient causal reply
+  map (the uniform reply envelope, Managed-Effects §The reply map) carries
+  the SAME decoded result under `:value` — the reply-map spelling, which is
+  `:value` for EVERY managed-async family with no per-family synonym
+  (EP-0007 one-name-per-fact). These are two NAMES for two FACTS in two
+  LAYERS: `:value` is the transient continuation; `:result` is the durable
+  instance status record (`{:pending? :success? :error? :settled? :result
+  :error}`) a view subscribes to long after the reply was consumed. The
+  events layer reads `(:value reply)` from the canonical reply and installs
+  it under the instance's `:result` (mirroring the resource read path, which
+  installs `(:value reply)` under the entry's `:data`). They are kept
+  distinct deliberately — the instance sub answers \"what is the durable
+  state of this write?\", not \"what did the continuation carry?\"."
   (:require [re-frame.resources.mutation-runtime :as mstate]
             [re-frame.subs :as subs]))
 
@@ -57,8 +74,10 @@
   (= :pending (:status (instance-for runtime-db sub-v))))
 
 (defn result-sub-fn
-  "Project `:rf.mutation/result` — the decoded success result (or nil). Per
-  EP-0003 §Mutations."
+  "Project `:rf.mutation/result` — the decoded success result (or nil). The
+  durable instance-layer spelling of the decoded write result; the transient
+  reply envelope carries the same fact as `:value` (kh9jz6 / EP-0007 — see
+  the ns docstring). Per EP-0003 §Mutations."
   [runtime-db sub-v]
   (:result (instance-for runtime-db sub-v)))
 

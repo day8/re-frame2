@@ -11,9 +11,14 @@
     [:rf.mutation/clear   {:instance …}]   ;; causal instance reset (NOT a form-error reset)
 
   Plus the framework-INTERNAL replies (`:rf.mutation.internal/*`) that
-  carry the verification payload (`:instance-id` / `:work-id` /
+  carry the verification payload (`:instance-id` / `:work/id` /
   `:mutation-id` / `:scope` / `:generation` / `:rf.frame/id`) — user code
-  MUST NOT dispatch them.
+  MUST NOT dispatch them. The internal replies RECEIVE the canonical uniform
+  reply map (Managed-Effects §The uniform reply envelope) — built by
+  `re-frame.resources.reply` with `:work/kind :mutation` from the
+  transport's public payload + the verification payload, so a mutation write
+  settles through the SAME one-status reply shape resources + every other
+  managed-async family produce (EP-0011 §Mutation Reply).
 
   ## What this slice does
 
@@ -40,7 +45,7 @@
   ## Stale suppression (the correctness boundary, as for resources)
 
   The internal reply payloads stamp the qualified `:rf.frame/id` +
-  `:work-id` + `:instance-id` + `:generation`; the reply handlers verify
+  `:work/id` + `:instance-id` + `:generation`; the reply handlers verify
   the live instance's `:current-work` + `:generation` before writing. A
   superseded / vanished reply (a re-execute under the same instance id, or
   a `:rf.mutation/clear`) is suppressed — it MUST NEVER mutate a newer
@@ -59,6 +64,7 @@
             [re-frame.resources.mutation-registry :as mreg]
             [re-frame.resources.mutation-runtime :as mstate]
             [re-frame.resources.registry :as registry]
+            [re-frame.resources.reply :as rreply]
             [re-frame.resources.state :as state]
             [re-frame.resources.transport :as transport]
             [re-frame.resources.work-ledger :as work-ledger]
@@ -299,9 +305,12 @@
                       ;; carries the instance id, not a resource scoped key.
                       :on-success-id :rf.mutation.internal/succeeded
                       :on-failure-id :rf.mutation.internal/failed
+                      ;; EP-0007: the verification work identity is `:work/id`
+                      ;; (the ledger / instance `:current-work` / reply-
+                      ;; envelope spelling), one attempt one name.
                       :reply-payload {:instance-id instance-id
                                       :mutation-id mutation
-                                      :work-id     work-id
+                                      :work/id     work-id
                                       :scope       cscope
                                       :generation  generation}
                       :work-id      work-id
@@ -391,22 +400,30 @@
 (defn- live-instance-for-reply
   "Look the live mutation instance up for an internal reply and verify it is
   still the one the reply belongs to: the instance exists AND its
-  `:current-work` equals the reply's `:work-id` AND its `:generation`
+  `:current-work` equals the reply's `:work/id` AND its `:generation`
   equals the reply's `:generation`. Returns the instance on a match, nil on
   a stale / superseded / cleared reply (which MUST be suppressed). Mirrors
-  the resource `live-entry-for-reply`."
-  [runtime-db {:keys [instance-id work-id generation]}]
+  the resource `live-entry-for-reply`. The verification work identity is
+  `:work/id` (EP-0007 — one attempt, one work id, one name)."
+  [runtime-db {work-id :work/id :keys [instance-id generation]}]
   (when-let [inst (get-in runtime-db (mstate/instance-path instance-id))]
     (when (and (= work-id (:current-work inst))
                (= generation (:generation inst)))
       inst)))
 
-;; The managed-HTTP transport APPENDS its result as the LAST arg of the
-;; internal reply event (Spec 014 §Reply addressing), exactly as for
-;; resources — so a live reply lands as a 3-element event:
+;; The managed-HTTP transport APPENDS its PUBLIC reply payload as the LAST
+;; arg of the internal reply event (Spec 014 §Reply addressing), exactly as
+;; for resources — so a live reply lands as a 3-element event:
 ;;   [:rf.mutation.internal/succeeded <verification-payload> {:kind :success :value <data>}]
 ;;   [:rf.mutation.internal/failed    <verification-payload> {:kind :failure :failure <envelope>}]
-;; A direct-dispatch test may inline :result / :error on arg 2.
+;; The reply handlers RE-LIFT (arg 2 + arg 3) into the ONE canonical reply
+;; map (`re-frame.resources.reply`, `:work/kind :mutation`) — `{:status
+;; :value/:error :work/id :work/kind :mutation :work/status :rf.frame/id
+;; :completed-at :correlation}` (Managed-Effects §The uniform reply envelope
+;; / EP-0011 §Mutation Reply). The mutation instance then stores the canonical
+;; reply's `:value` under its durable `:result` (the instance layer's spelling
+;; of the same decoded result — the reply-map spelling is `:value`, kh9jz6 /
+;; EP-0007). A direct-dispatch test may inline :result / :error on arg 2.
 
 (defn- reply-success-result
   "Extract the decoded mutation result from a managed-HTTP success reply
@@ -442,13 +459,23 @@
        patch-summary trace reservation.
 
   A stale / superseded / cleared reply is SUPPRESSED. Per EP-0003
-  §Mutations.
+  §Mutations; EP-0011 §Mutation Reply.
+
+  The reply is re-lifted into the canonical reply map (`rreply/success-reply`
+  with `:work/kind :mutation`); the decoded result rides as `:value` (the
+  reply-map spelling) and is stored under the instance's durable `:result`
+  (the instance-layer spelling — kh9jz6 / EP-0007).
 
   Event shape: `[_ <verification-payload> <http-result>]`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {:keys [instance-id mutation-id work-id generation scope] :as payload} http-result]]
+   [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope] :as payload} http-result]]
   (let [runtime-db (or rt {})
-        result     (reply-success-result payload http-result)
+        ;; the ONE canonical reply map (Managed-Effects §The uniform reply
+        ;; envelope), `:work/kind :mutation`. The internal mutation reply
+        ;; target receives it directly; the decoded result is `:value`.
+        reply      (rreply/success-reply payload (reply-success-result payload http-result)
+                                         {:work-kind rreply/work-kind-mutation})
+        result     (:value reply)
         inst       (live-instance-for-reply runtime-db payload)]
     (if (nil? inst)
       ;; STALE SUPPRESSION (mandatory): a superseded / cleared reply never
@@ -536,13 +563,25 @@
   (`:after-failure` / `:after-settle` timing, when useful). A mutation
   failure has no `:refresh-error` analogue — a write has no last-known-good
   to keep, so `:error` is terminal until a causal `:rf.mutation/clear`. A
-  stale / superseded / cleared reply is suppressed. Per EP-0003 §Mutations.
+  stale / superseded / cleared reply is suppressed. Per EP-0003 §Mutations;
+  EP-0011 §Mutation Reply.
+
+  The failure is re-lifted into the canonical reply map
+  (`rreply/failure-reply` with `:work/kind :mutation` — `:status :error`
+  carrying the `:rf.http/*` envelope under `:error`, or `:status :cancelled`
+  for an abort). The `:error` envelope (the same closed shape the instance
+  `:error` stores) is read back from the canonical reply.
 
   Event shape: `[_ <verification-payload> <http-result>]`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {:keys [instance-id mutation-id work-id generation scope] :as payload} http-result]]
+   [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope] :as payload} http-result]]
   (let [runtime-db (or rt {})
-        error      (reply-failure-error payload http-result)
+        ;; the ONE canonical reply map (Managed-Effects §The uniform reply
+        ;; envelope), `:work/kind :mutation`. `:error` carries the closed
+        ;; `:rf.http/*` envelope the instance `:error` also stores.
+        reply      (rreply/failure-reply payload (reply-failure-error payload http-result)
+                                         {:work-kind rreply/work-kind-mutation})
+        error      (:error reply)
         inst       (live-instance-for-reply runtime-db payload)]
     (if (nil? inst)
       (do (trace/emit! :rf.event :rf.mutation/stale-suppressed
