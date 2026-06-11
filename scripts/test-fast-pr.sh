@@ -149,6 +149,23 @@ run "re-frame2 eval-docs match evals.json" "python scripts/check_skill_eval_docs
 run "README inventory ratchet" "python scripts/check_readme_inventories.py" \
   python "$repo_root/scripts/check_readme_inventories.py"
 
+# EP-0007 §Enforcement retired-spelling gate (rf2-ziak6w): a retired spelling
+# reappearing in framework source is a CI failure, not a doc note.  Catches
+# the bare `:frame` event-context coeffect read (retired by rf2-1m6rf1 for
+# `:rf.frame/id`) and the `:url` / `:to` redirect-target key on an SSR
+# redirect fx (retired by rf2-vngir for `:location`).  Scoped precisely to
+# the retired SHAPES so it never fires on the sanctioned public `:frame` opt,
+# the trace `:frame` tag, the fx-handler ctx `:frame`, or client-navigation
+# `:url`.  Runs unconditionally (the surface is implementation/ source, not
+# markdown).  Self-test first (proves the gate fires on each retired shape and
+# stays green on every sanctioned counterpart), then the live scan asserts
+# framework source is clean.  See scripts/check_retired_spellings.py.
+run "retired-spelling gate self-test" "python scripts/check_retired_spellings.py --self-test" \
+  python "$repo_root/scripts/check_retired_spellings.py" --self-test
+
+run "retired-spelling gate (EP-0007)" "python scripts/check_retired_spellings.py --verbose" \
+  python "$repo_root/scripts/check_retired_spellings.py" --verbose
+
 run "core JVM" "cd implementation/core && clojure -M:test" \
   bash -lc "cd '$repo_root/implementation/core' && clojure -M:test"
 
