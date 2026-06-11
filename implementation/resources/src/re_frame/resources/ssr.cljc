@@ -560,20 +560,58 @@
   [owner]
   (and (vector? owner) (= :route (first owner))))
 
-(defn- stale-nav-route-owner?
-  "True iff `owner` is a route owner whose nav-token is NOT `live-nav-token`
-  (the nav-token the restored routing slice currently considers live). Such
-  an owner names a navigation the restored timeline has already left, so it
-  must be released as an orphan rather than pin its entry alive forever (Spec
-  016 §Restore and replay part 4). When `live-nav-token` is nil (no routing
-  slice present — the SSR-hydration path has no client routing yet) NO route
-  owner is treated as stale: route liveness is reconciled by routing's own
-  subsystem on the live client, so this returns false for every owner."
-  [live-nav-token owner]
-  (boolean
-    (and (some? live-nav-token)
-         (route-owner? owner)
-         (not= live-nav-token (nth owner 2 nil)))))
+;; ---- route-owner reconcile POLICY (the hydration↔restore split, rf2-64bdnk) -
+;;
+;; A nil live nav-token means TWO different things, so the route-owner orphan
+;; rule MUST distinguish the caller:
+;;
+;;   - HYDRATION (`:ride-through`): there is no client routing slice yet (the
+;;     server projection carries no `:current`), so route owners ride through
+;;     UNCHANGED — routing's own client subsystem reconciles their liveness
+;;     once it boots. A nil token here is "no comparison possible yet", NOT
+;;     "no owner is live".
+;;   - RESTORE (`{:restore-live-nav-token <token-or-nil>}`): epoch restore
+;;     installs BOTH partitions wholesale, so the restored routing slice's
+;;     `:current` nav-token IS present (or genuinely absent/nil). Per Spec 016
+;;     §Restore part 4 a route owner revives ONLY IF the restored routing
+;;     names the SAME live nav-token; ANY other token — including the case
+;;     where the restored routing has NO live nav-token at all (absent routing
+;;     slice / no `:current` / nil nav-token) — means NO route owner is live,
+;;     so EVERY route owner orphans (a nil live token here is "nothing is
+;;     live", the opposite of hydration's "can't compare yet").
+
+(def ^:private hydration-route-owner-policy
+  "The route-owner reconcile policy for the SSR-hydration path: route owners
+  ride through unchanged (routing's client subsystem owns their liveness; the
+  server projection carries no `:current` to compare against). Per Spec 016
+  §Restore and replay part 4 (the hydration no-comparison-yet case)."
+  :ride-through)
+
+(defn- restore-route-owner-policy
+  "The route-owner reconcile policy for the epoch-RESTORE path: a route owner
+  revives only if its nav-token EQUALS `live-nav-token` (the restored
+  `[:rf.runtime/routing :current :nav-token]`). A nil `live-nav-token` (absent
+  routing slice / no `:current` / nil nav-token) means NO route owner is live
+  → every route owner orphans (rf2-64bdnk). Per Spec 016 §Restore part 4."
+  [live-nav-token]
+  {:restore-live-nav-token live-nav-token})
+
+(defn- route-owner-orphan?
+  "True iff a route `owner` must be RELEASED as an orphan under
+  `route-owner-policy`:
+
+    - `:ride-through` (hydration) → false for every route owner (they ride
+      through; routing's client subsystem reconciles them);
+    - `{:restore-live-nav-token <t>}` (restore) → true iff the owner's
+      nav-token ≠ `<t>`. When `<t>` is nil (the restored routing names no live
+      nav-token) EVERY route owner orphans, because no owner's token can equal
+      nil (a real nav-token is never nil). Per Spec 016 §Restore part 4
+      (rf2-64bdnk)."
+  [route-owner-policy owner]
+  (and (route-owner? owner)
+       (not (identical? :ride-through route-owner-policy))
+       (not= (:restore-live-nav-token route-owner-policy)
+             (nth owner 2 nil))))
 
 (defn- reconcile-entry-owners
   "Reconcile a restored/hydrated entry's `:active-owners`, returning
@@ -582,23 +620,23 @@
     - SSR owners (`[:ssr …]`) — they belong to one settled server render and
       never survive as a live client lease (Spec 016 §Restore and replay
       part 4);
-    - STALE-NAV route owners (`[:route route-id nav-token]` whose nav-token ≠
-      `live-nav-token`) — a route owner the restored routing slice no longer
-      considers live is an orphan that would otherwise pin its entry alive
-      forever + refetch on focus/reconnect (part 4). Only applies on the
-      RESTORE path, where `live-nav-token` is the restored
-      `[:rf.runtime/routing :current :nav-token]`; on SSR hydration
-      `live-nav-token` is nil (no client routing yet) so route owners ride
-      through unchanged.
+    - ORPHANED route owners (`[:route route-id nav-token]`) per
+      `route-owner-policy` (`route-owner-orphan?`): on HYDRATION
+      (`:ride-through`) NONE — route owners ride through for routing's own
+      client reconcile; on RESTORE (`{:restore-live-nav-token <t>}`) every
+      route owner whose nav-token ≠ the restored live token, INCLUDING all of
+      them when the restored routing names no live token at all (rf2-64bdnk) —
+      such an owner would otherwise pin its entry alive forever + refetch on
+      focus/reconnect (part 4).
 
   Also clears the transient `:current-work` pointer (the attempt it pointed
   at did not cross the wire / no longer exists — part 2). Machine / lease /
   live-nav route owners ride through unchanged (their liveness is reconciled
   by their own subsystem)."
-  [entry live-nav-token]
+  [entry route-owner-policy]
   (let [owners  (:active-owners entry #{})
         orphan? (fn [o] (or (ssr-owner? o)
-                            (stale-nav-route-owner? live-nav-token o)))
+                            (route-owner-orphan? route-owner-policy o)))
         dropped (into #{} (filter orphan?) owners)
         kept    (into #{} (remove orphan?) owners)]
     [(-> entry
@@ -674,7 +712,8 @@
              ;; 016 §Restore and replay part 4); see `reconcile-on-restore`.
              reconciled (reduce-kv
                           (fn [acc k entry]
-                            (let [[entry' dropped] (reconcile-entry-owners entry nil)
+                            (let [[entry' dropped] (reconcile-entry-owners
+                                                     entry hydration-route-owner-policy)
                                   skew             (clock-skew-ms entry clock-ms)]
                               (-> acc
                                   (assoc-in [:entries k] entry')
@@ -924,9 +963,10 @@
              ;; mid-flight status to last-stable (restore-specific — the wire
              ;; projection never carried an in-flight entry, but the
              ;; unprojected snapshot can).
+             route-owner-policy (restore-route-owner-policy live-nav-token)
              reconciled (reduce-kv
                           (fn [acc k entry]
-                            (let [[entry' dropped] (reconcile-entry-owners entry live-nav-token)
+                            (let [[entry' dropped] (reconcile-entry-owners entry route-owner-policy)
                                   entry''          (settle-entry-to-last-stable entry')
                                   skew             (clock-skew-ms entry clock-ms)]
                               (-> acc

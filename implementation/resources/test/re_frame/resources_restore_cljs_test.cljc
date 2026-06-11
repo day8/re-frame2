@@ -51,6 +51,7 @@
    [re-frame.resources.state :as state]
    [re-frame.resources.work-ledger :as work-ledger]
    [re-frame.test-support :as core-test-support]
+   [re-frame.trace.tooling :as trace-tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
@@ -395,21 +396,74 @@
       (is (contains? (get-in out [state/resources-key :owner-index]) live)
           "the surviving live-nav route owner is present in the owner-index"))))
 
-(deftest restore-keeps-route-owners-without-routing-slice
-  (testing "with NO restored routing slice (a resources-only app / the SSR-
-            hydration parity case) route owners ride through unchanged — the
-            stale-nav orphan rule needs a live nav-token to compare against"
-    (let [e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
+;; rf2-64bdnk — on RESTORE, a missing/nil live nav-token means NO route owner
+;; is live (the OPPOSITE of hydration, where a nil token is "can't compare
+;; yet"). Spec 016 §Restore part 4: route owners revive ONLY IF the restored
+;; routing names the same live nav-token; absent routing slice / no :current /
+;; nil nav-token → every route owner orphans.
+
+(deftest restore-orphans-route-owners-when-no-live-nav-token
+  (testing "rf2-64bdnk — restore with no live nav-token orphans ALL route
+            owners across the three absent-token shapes; machine/lease owners
+            survive; the owner-index is recomputed without the orphans"
+    (doseq [[label rdb-fn]
+            [["absent routing slice"
+              (fn [rdb] rdb)] ;; runtime-db-with carries no :rf.runtime/routing
+             ["routing slice without :current"
+              (fn [rdb] (assoc rdb :rf.runtime/routing {:pending-navigation {:x 1}}))]
+             ["routing :current with nil nav-token"
+              (fn [rdb] (assoc-in rdb [:rf.runtime/routing :current :nav-token] nil))]]]
+      (testing label
+        (let [route-owner [:route :route/article "nav-anything"]
+              e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
+                          :loaded-at 1 :stale-at 9.0e15
+                          :owners #{[:ssr "req-9" "nav-1"]
+                                    route-owner
+                                    [:machine :checkout/flow "inst-1"]
+                                    [:lease :dashboard 7]}})
+              out (ssr/reconcile-on-restore (rdb-fn (runtime-db-with {gkey e})) :app/main)
+              owners (get-in out [state/resources-key :entries gkey :active-owners])]
+          (is (not (contains? owners route-owner))
+              "the route owner is ORPHANED (no live nav-token names it live)")
+          (is (not (contains? owners [:ssr "req-9" "nav-1"])) "SSR owner orphaned")
+          (is (contains? owners [:machine :checkout/flow "inst-1"]) "machine owner survives")
+          (is (contains? owners [:lease :dashboard 7]) "lease owner survives")
+          (is (not (contains? (get-in out [state/resources-key :owner-index]) route-owner))
+              "the orphaned route owner is absent from the recomputed owner-index"))))))
+
+(deftest restore-no-live-token-emits-owner-release-trace
+  (testing "rf2-64bdnk — a route owner released because no live nav-token names
+            it emits a :rf.resource/owner-released trace row (Spec 016 part 4)"
+    (let [route-owner [:route :route/article "nav-X"]
+          e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
+                      :loaded-at 1 :stale-at 9.0e15 :owners #{route-owner}})
+          seen (atom [])
+          k    ::owner-release-recorder]
+      (trace-tooling/register-listener!
+        k (fn [ev] (when (= :rf.resource/owner-released (:operation ev))
+                     (swap! seen conj ev))))
+      (try
+        (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
+        (finally (trace-tooling/unregister-listener! k)))
+      (is (some #(= route-owner (:owner (:tags %))) @seen)
+          "an owner-released row names the orphaned route owner")
+      (is (some #(= :stale-nav-orphan (:reason (:tags %))) @seen)
+          "the release reason is the stale-nav/no-live-token orphan"))))
+
+(deftest hydration-parity-route-owners-ride-through-without-routing
+  (testing "rf2-64bdnk parity — HYDRATION (the no-comparison-yet case) still
+            rides route owners through unchanged when there is no client routing
+            slice (the split: nil-token-on-hydrate ≠ nil-token-on-restore)"
+    (let [route-owner [:route :route/article "nav-anything"]
+          e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
                       :loaded-at 1 :stale-at 9.0e15
-                      :owners #{[:ssr "req-9" "nav-1"]
-                                [:route :route/article "nav-anything"]}})
-          ;; runtime-db-with carries no :rf.runtime/routing slice → nil live token
-          out (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
+                      :owners #{[:ssr "req-9" "nav-1"] route-owner}})
+          out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
           owners (get-in out [state/resources-key :entries gkey :active-owners])]
       (is (not (contains? owners [:ssr "req-9" "nav-1"]))
-          "SSR owner still orphans even without routing")
-      (is (contains? owners [:route :route/article "nav-anything"])
-          "route owner rides through when there is no live nav-token to compare against"))))
+          "SSR owner still orphans on hydration")
+      (is (contains? owners route-owner)
+          "route owner RIDES THROUGH on hydration (routing's client subsystem reconciles it)"))))
 
 ;; ===========================================================================
 ;; 4. Indexes recomputed from entries, never trusted (Spec 016 §Restore part 5)
@@ -422,9 +476,13 @@
                       :loaded-at 1 :stale-at 9.0e15
                       :tags #{[:article "x"]}
                       :owners #{[:route :route/article "nav-1"]}})
-          rdb {state/resources-key {:entries     {gkey e}
-                                    :tag-index   {[:bogus] #{:nope}}
-                                    :owner-index {[:bogus] #{:nope}}}}
+          ;; name nav-1 live so the route owner SURVIVES (rf2-64bdnk) — this
+          ;; test pins the index RECOMPUTE, not owner orphaning; without a live
+          ;; token the route owner would now correctly orphan.
+          rdb (-> {state/resources-key {:entries     {gkey e}
+                                        :tag-index   {[:bogus] #{:nope}}
+                                        :owner-index {[:bogus] #{:nope}}}}
+                  (with-live-nav-token "nav-1"))
           out (ssr/reconcile-on-restore rdb :app/main)
           sub (get out state/resources-key)]
       (is (= {[:article "x"] #{gkey}} (:tag-index sub))
