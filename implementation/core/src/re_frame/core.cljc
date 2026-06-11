@@ -1770,6 +1770,39 @@
   later slice. Per spec/API.md §App values and composition (EP-0013)."}
   reinstall! app-value/reinstall!)
 
+;; ---- the public realm constructor (EP-0013 D1 stage 9) -------------------
+;;
+;; The LAST EP-0013 impl slice graduates the reserved `rf/realm` vocabulary
+;; (EP-0013 issue 1; ruled `rf/realm`, NEVER `rf/runtime`). A constructed realm
+;; is HERMETIC by default (its OWN registrar atom) and REGISTERED by id, so a
+;; caller installs an app value into it and targets the stage-8 `{:realm …}`
+;; queries against it — parallel apps, multi-tenant, or hermetic tests that
+;; install exactly the program they need without clearing a process-global
+;; registrar. The implicit default realm is unchanged + byte-identical.
+
+(def ^{:doc "Construct + register an explicit runtime realm — `(realm {:id …
+  :adapter … :capabilities {…}})`. A realm is the container a caller installs an
+  app value into (`install!`) and targets registrar queries against (the
+  `{:realm …}` query forms). HERMETIC by default: it gets its OWN `(kind, id) →
+  metadata` registrar atom, so an app installed into it is isolated from every
+  other realm — two realms can hold different handlers for the same id without
+  collision, and a hermetic test installs exactly its program without clearing a
+  process-global registrar. May carry its own `:adapter` SELECTION + capability
+  map (so N realms can run N substrate roots). Realm ids are unique within a
+  process — a duplicate `:id` THROWS `:rf.error/realm-id-conflict`. Returns the
+  realm map (composes: `(-> (rf/realm {:id …}) (rf/install! app))`). The
+  reserved-vocabulary `rf/realm` constructor (ruled `rf/realm`, never
+  `rf/runtime`). Per spec/API.md §App values and composition (EP-0013)."}
+  realm realm/construct-realm)
+
+(def ^{:doc "Dispose a constructed realm — `(dispose-realm! realm-or-id)` drops
+  it from the process realm registry, releasing its own registrar (and
+  adapter/host-transient inventory) for GC. The default realm is never disposed
+  (a no-op). The teardown counterpart of `rf/realm` for hermetic-test cleanup +
+  multi-tenant realm lifecycle. Per spec/API.md §App values and composition
+  (EP-0013)."}
+  dispose-realm! realm/dispose-realm!)
+
 ;; ---- interceptors --------------------------------------------------------
 
 (def ^{:doc "Fn-form of `->interceptor` (HoF / programmatic / REPL
