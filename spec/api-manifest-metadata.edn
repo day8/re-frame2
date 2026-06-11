@@ -650,6 +650,18 @@
   ;; rf2-ma0wvq — spawned-actor ownership resolver, published as the
   ;; `:machines/owning-actor-id` late-bind hook the http artefact consults.
   ["re-frame.machines" "owning-actor-id"]       {:tier :internal-public :owner "005" :status "v1"}
+  ;; EP-0014 slice-6 (rf2-2axssk): the derivation/process algebra views of
+  ;; registered machines, their live instances / spawned actors, and the
+  ;; machine-selector recognizer. JVM convenience aliases; the bodies live in
+  ;; the bundle-isolated `re-frame.machines.tooling` sibling (the CLJS facade
+  ;; never `:require`s it — the require is `#?@(:clj ...)`-gated — so prod CLJS
+  ;; bundles DCE them). `:tooling`, no `re-frame.core` facade export (EP-0014
+  ;; issue-1 disposition). Owner 005 = machines host spec (the flow=013 /
+  ;; routing=012 host-namespace precedent). Mirror of `flow-algebra-view`
+  ;; (slice-3) / `sub-algebra-view` (slice-2).
+  ["re-frame.machines" "machine-algebra-view"]          {:tier :tooling :owner "005" :status "v1"}
+  ["re-frame.machines" "machine-instance-algebra-view"] {:tier :tooling :owner "005" :status "v1"}
+  ["re-frame.machines" "machine-selector?"]             {:tier :tooling :owner "005" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.routing — optional artefact (day8/re-frame2-routing), §012.
