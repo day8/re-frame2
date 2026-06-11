@@ -1084,9 +1084,9 @@
   substrate sits above frame in the load order — a static require closes a
   cycle), so the always-on emission rides the published
   `:error-emit/dispatch-on-error` late-bind hook (the same hook
-  `emit-no-frame-context!` uses at `:262`). The producer always loads at
-  boot, so the lookup never misses in production. The dev trace below keeps
-  the in-process tooling surface (DCE'd in production)."
+  `emit-no-frame-context!` uses). The producer always loads at boot, so the
+  lookup never misses in production. The dev trace below keeps the in-process
+  tooling surface (DCE'd in production)."
   [id on-destroy exception extra-tags]
   ;; Always-on listener registry (survives prod elision). Default
   ;; `:recovery :ignored` — teardown continues best-effort.
