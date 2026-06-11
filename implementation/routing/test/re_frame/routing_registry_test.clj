@@ -382,20 +382,38 @@
 ;; ---- route-url query-string emission -------------------------------------
 ;;
 ;; Per Spec 012 §Bidirectional URL ↔ params. The qs builder
-;; (routing.cljc:725-731) joins `(name k)=url-encode(v)` pairs with `&`.
+;; (registry.cljc) joins `(name k)=url-encode(v)` pairs with `&`.
 ;; Coverage elsewhere only hits the single-pair `{:lang "en"}` case
 ;; (route-url-4-arity-appends-fragment:918), which can't observe pair
 ;; ORDERING or query-VALUE percent-encoding. These are the two behaviours
 ;; the multi-pair `&`-join + per-value `url-encode` exist for.
+;;
+;; rf2-wgutc2 (EP-0012 correctness review item 2): query keys are emitted
+;; in DETERMINISTIC CANONICAL ORDER (by CEDN-1 key bytes), NOT the caller's
+;; insertion order — so the same query map spelled in different key orders
+;; builds the BYTE-IDENTICAL URL (Conventions §The `:rf/path` algebra: "query
+;; keys are emitted in deterministic canonical order").
 (deftest route-url-query-string-emission
-  (testing "multi-pair query: pairs joined with `&` in insertion order"
+  (testing "multi-pair query: pairs joined with `&` in CANONICAL key order
+            (construction-order independent)"
     (rf/reg-route :route/list {:path "/list"})
+    ;; both spellings of {:a … :b …} build the same URL — canonical order,
+    ;; not insertion order.
     (is (= "/list?a=1&b=2"
            (routing/route-url :route/list {} (array-map :a "1" :b "2")))
-        "two query pairs join with `&`, preserving insertion order")
+        "two query pairs join with `&` in canonical key order")
+    (is (= "/list?a=1&b=2"
+           (routing/route-url :route/list {} (array-map :b "2" :a "1")))
+        "the SAME URL regardless of caller insertion order (a before b)")
     (is (= "/list?x=1&y=2&z=3"
            (routing/route-url :route/list {} (array-map :x "1" :y "2" :z "3")))
-        "three query pairs join with `&` in insertion order"))
+        "three query pairs join with `&` in canonical key order")
+    (is (= "/list?x=1&y=2&z=3"
+           (routing/route-url :route/list {} (array-map :z "3" :x "1" :y "2")))
+        "three pairs: canonical order is construction-order independent")
+    (is (= (routing/route-url :route/list {} (array-map :z "3" :y "2" :x "1"))
+           (routing/route-url :route/list {} (array-map :x "1" :y "2" :z "3")))
+        "any two permutations of one query map build the byte-identical URL"))
 
   (testing "query VALUES are percent-encoded (encodeURIComponent semantics)"
     (rf/reg-route :route/search {:path "/search"})

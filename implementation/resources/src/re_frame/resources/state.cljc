@@ -15,7 +15,8 @@
   `:rf.runtime/work-ledger`. Both are reserved runtime-db keys (per
   [Conventions §Reserved runtime-db keys]) — allocated lazily, per-frame
   isolated, never an app-db location."
-  (:require [re-frame.frame :as frame]))
+  (:require [re-frame.frame :as frame]
+            [re-frame.identity :as identity]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -146,107 +147,78 @@
 
 ;; ---- canonicalization (Spec 016 §Canonicalization rule) -------------------
 ;;
-;; Canonicalization is a pure function over EDN: a map is normalized so
-;; member order is irrelevant to identity and equality; nested maps recurse;
-;; sets and vectors keep their value semantics. The SAME rule applies to
-;; params maps and scope maps, so a scope and a param map spelled two ways
-;; collapse to one cache identity. Host values (functions, promises, dates,
-;; DOM nodes, AbortControllers, JS objects) are rejected loudly here — the
-;; cache key MUST be serializable EDN.
+;; Resource params + scopes are EP-0012 canonical-EDN identities: the SAME
+;; CEDN-1 rule the work ledger, route params, and epoch/replay records use,
+;; via the shared `re-frame.identity` algebra (Conventions §Canonical EDN
+;; identity). There is no resource-local identity dialect — a thin wrapper
+;; preserves the public resource error categories but delegates the actual
+;; canonicalization / domain validation to `identity/canonical` (rf2-wgutc2,
+;; EP-0012 correctness review item 1).
+;;
+;; This closes three divergences the prior resource-local canonicalizer
+;; carried against CEDN-1:
+;;   - it accepted broad `number?` values (floats, ratios, decimals,
+;;     out-of-safe-range integers) — CEDN-1 admits only portable integers in
+;;     the ECMAScript safe range, and rejects the rest fail-closed;
+;;   - it collapsed lists to vectors (`(sequential? x) (mapv …)`), erasing
+;;     the list-vs-vector EDN distinction CEDN-1 preserves (Conventions
+;;     §Sequences and sets: "Vectors and lists … are distinct EDN facts");
+;;   - it sorted map keys under a bespoke `total-edn-compare`, a second
+;;     ordering definition the shared CEDN-1 byte order subsumes.
+;;
+;; `identity/canonical` also fails closed on DUPLICATE canonical map keys
+;; (two distinct host keys whose CEDN-1 bytes collide), so a colliding cache
+;; key can never silently collapse two identity-distinct param maps.
 
 (defn serializable-edn?
-  "True iff `x` is serializable EDN data the cache key may carry — a
-  keyword / symbol / string / number / boolean / nil, or a collection
+  "True iff `x` is a portable CEDN-1 EDN identity value the cache key may
+  carry — encodable by the shared `re-frame.identity` algebra without
+  failing closed. A keyword / symbol / string / boolean / nil, a portable
+  integer in the ECMAScript safe range, a UUID, an instant, or a collection
   (map / vector / list / set) recursively built from such. Host / opaque
-  values (functions, dates, promises, DOM nodes, AbortControllers, raw JS
-  objects, atoms) are rejected. Per Spec 016 §Resource identity (\"Host
-  values … are rejected\")."
+  values (functions, dates beyond instants, promises, DOM nodes,
+  AbortControllers, raw JS objects, atoms) AND non-portable numbers (floats,
+  ratios, decimals, NaN / infinities, integers outside the safe range) are
+  rejected — exactly the CEDN-1 domain (Conventions §Canonical EDN
+  identity). Per Spec 016 §Resource identity (\"Host values … are rejected\")."
   [x]
-  (cond
-    (nil? x)     true
-    (keyword? x) true
-    (symbol? x)  true
-    (string? x)  true
-    (boolean? x) true
-    (number? x)  true
-    (map? x)     (every? (fn [[k v]] (and (serializable-edn? k)
-                                          (serializable-edn? v))) x)
-    (set? x)     (every? serializable-edn? x)
-    ;; vectors, lists, seqs
-    (sequential? x) (every? serializable-edn? x)
-    :else        false))
-
-(defn- type-rank
-  "Total type ordering used by `total-edn-compare` so a map with MIXED key
-  types (e.g. a keyword key and a string key) sorts deterministically rather
-  than throwing a raw `ClassCastException` (rf2-ptz7z8). The rank groups
-  values by their EDN kind; WITHIN a kind the natural / string ordering
-  breaks ties. Covers exactly the serializable-EDN kinds the cache key may
-  carry (`serializable-edn?`)."
-  [x]
-  (cond
-    (nil? x)        0
-    (boolean? x)    1
-    (number? x)     2
-    (string? x)     3
-    (keyword? x)    4
-    (symbol? x)     5
-    :else           6))
-
-(defn- total-edn-compare
-  "A TOTAL comparator over the serializable-EDN key shapes a canonical map
-  may carry (rf2-ptz7z8). Orders first by `type-rank` (so mixed
-  keyword/string/number/nil keys are orderable instead of throwing), then
-  WITHIN a kind by the kind's natural order — numbers numerically, strings /
-  keywords / symbols by their printed form. A deterministic total order is
-  all canonicalization needs: it only has to be stable + order-independent,
-  not semantically meaningful across kinds. Returns a negative / zero /
-  positive int."
-  [a b]
-  (let [ra (type-rank a) rb (type-rank b)]
-    (if (not= ra rb)
-      (compare ra rb)
-      ;; same kind — compare within it. numbers compare numerically; every
-      ;; other comparable kind compares by its printed form (keywords /
-      ;; symbols carry namespace + name; strings are themselves), which is a
-      ;; total order within the kind.
-      (if (number? a)
-        (compare a b)
-        (compare (str a) (str b))))))
+  (try
+    (identity/canonical-bytes x)
+    true
+    (catch #?(:clj Throwable :cljs :default) _
+      false)))
 
 (defn canonicalize
-  "Pure canonicalization of an EDN value for use in a cache key (Spec 016
-  §Canonicalization rule). A map is normalized into a sorted-by-key map under
-  a TOTAL comparator so two spellings (key order) collapse to one identity
-  and `=`; nested maps recurse; sets and vectors keep value semantics (their
-  elements recurse). Reject non-EDN / host values loudly via `reject-non-edn!`
-  upstream — this fn assumes its input is already serializable EDN.
+  "Pure canonicalization of an EDN value for use in a cache key — delegates
+  to the shared CEDN-1 `re-frame.identity/canonical` (Spec 016
+  §Canonicalization rule / Conventions §Canonical EDN identity). Map entries
+  and set elements are reordered into CEDN-1 canonical order so two spellings
+  (key/element order) collapse to one identity and `=`; nested values recurse;
+  vectors and LISTS preserve their kind and order (distinct EDN facts, not
+  collapsed). Two map spellings differing only in insertion order return an
+  `=` canonical value (and therefore the identical scoped resource key).
 
-  The sorted-map normalization makes member ORDER irrelevant to BOTH
-  equality and hashing, so `{:a 1 :b 2}` and `{:b 2 :a 1}` produce the
-  identical canonical value (and therefore the identical scoped resource
-  key). The comparator is TOTAL over the accepted EDN key shapes
-  (rf2-ptz7z8): a map mixing keyword and string keys canonicalizes
-  deterministically (ordered by `total-edn-compare`) instead of throwing a
-  raw `ClassCastException` from the default sorted-map comparator. Returns
-  the canonical value."
+  Fails closed with `:rf.error/non-edn-identity` for any out-of-domain value
+  (a host handle, a float / ratio / out-of-safe-range integer) and for a map
+  carrying DUPLICATE canonical keys. Callers route the value through
+  `reject-non-edn!` first to surface the public resource error category."
   [x]
-  (cond
-    (map? x)        (into (sorted-map-by total-edn-compare)
-                          (map (fn [[k v]] [k (canonicalize v)]))
-                          x)
-    (set? x)        (into #{} (map canonicalize) x)
-    (vector? x)     (mapv canonicalize x)
-    (sequential? x) (mapv canonicalize x)
-    :else           x))
+  (identity/canonical x))
 
 (defn reject-non-edn!
   "Throw `:rf.error/resource-non-edn-params` when `value` (a params or
-  scope map) is not serializable EDN — a host / opaque value (fn, promise,
-  date, DOM node, AbortController, JS object) reached the cache-key
-  boundary. Per Spec 016 §Resource identity (host values are rejected) /
-  §Canonicalization rule. `where` / `kind` (`:params` | `:scope`) name the
-  offending boundary. Returns `value` unchanged when it conforms."
+  scope map) is not a portable CEDN-1 identity — a host / opaque value (fn,
+  promise, date, DOM node, AbortController, JS object) OR a non-portable
+  number (float, ratio, decimal, NaN / infinity, out-of-safe-range integer)
+  reached the cache-key boundary. Per Spec 016 §Resource identity (host
+  values are rejected) / §Canonicalization rule / Conventions §Canonical EDN
+  identity. `where` / `kind` (`:params` | `:scope`) name the offending
+  boundary. Returns `value` unchanged when it conforms.
+
+  Preserves the public resource error category (`:rf.error/resource-non-edn-
+  params`) while delegating the domain decision to the shared CEDN-1 rule
+  (`serializable-edn?` → `identity/canonical-bytes`); the underlying
+  `:rf.error/non-edn-identity` cause rides `:rf.error/cause` for diagnosis."
   [value where kind resource-id]
   (when-not (serializable-edn? value)
     (throw (ex-info ":rf.error/resource-non-edn-params"
@@ -254,13 +226,16 @@
                      :where       where
                      :recovery    :fix-params
                      :reason      (str "resource " resource-id " " (name kind)
-                                       " is not serializable EDN — host / opaque "
-                                       "values (functions, promises, dates, DOM "
-                                       "nodes, AbortControllers, JS objects) are "
-                                       "rejected at the cache-key boundary. Put "
-                                       "every value that affects remote identity "
-                                       "in params as plain EDN. Per Spec 016 "
-                                       "§Resource identity.")
+                                       " is not a portable CEDN-1 EDN identity — "
+                                       "host / opaque values (functions, promises, "
+                                       "dates, DOM nodes, AbortControllers, JS "
+                                       "objects) and non-portable numbers (floats, "
+                                       "ratios, decimals, NaN/infinities, integers "
+                                       "outside the safe range) are rejected at the "
+                                       "cache-key boundary. Put every value that "
+                                       "affects remote identity in params as plain "
+                                       "portable EDN. Per Spec 016 §Resource "
+                                       "identity / Conventions §Canonical EDN identity.")
                      :resource-id resource-id
                      :kind        kind
                      :value       (pr-str value)})))

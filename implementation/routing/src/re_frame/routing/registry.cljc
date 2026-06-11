@@ -17,6 +17,7 @@
   facade's re-exports. Per the rf2-2yabr cohesion split: REGISTRY +
   MATCH/EMIT seam."
   (:require [clojure.string :as str]
+            [re-frame.identity :as identity]
             [re-frame.registrar :as registrar]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing.match :as match]
@@ -1020,9 +1021,26 @@
          ;; (`false`, `0`, `""`) is a legitimate value and is preserved —
          ;; only `nil` is elided — so non-nil invalid values STILL fail
          ;; validation against the elided map.
+         ;;
+         ;; rf2-wgutc2 (EP-0012 correctness review item 2): after nil
+         ;; elision the surviving entries are sorted into DETERMINISTIC
+         ;; CANONICAL KEY ORDER by their keys' shared CEDN-1 bytes
+         ;; (`re-frame.identity/canonical-bytes`), NOT the caller's
+         ;; insertion order. Per Conventions §The `:rf/path` algebra
+         ;; (route-url/match-url prism): "query keys are emitted in
+         ;; deterministic canonical order". Two callers that pass the same
+         ;; query map spelled in different key orders now build the
+         ;; BYTE-IDENTICAL URL — a stable href for caching / dedupe /
+         ;; identical-route-target? no-op detection / SSR-hydration parity,
+         ;; rather than a URL that varies with map literal order. The sort
+         ;; is by the key's canonical EDN identity (the same order the
+         ;; CEDN-1 map encoding uses), so it is total over the mixed-kind
+         ;; query keys a route may carry. An array-map preserves this sorted
+         ;; order downstream through validation and emission.
          emitted-query (into (array-map)
-                             (remove (fn [[_ v]] (nil? v)))
-                             query-params)
+                             (sort-by (comp identity/canonical-bytes key)
+                                      (remove (fn [[_ v]] (nil? v))
+                                              query-params)))
          route-meta   (registrar/lookup :route route-id)
          pattern      (:path route-meta)]
      (when (nil? pattern)
