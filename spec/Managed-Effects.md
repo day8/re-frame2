@@ -131,6 +131,7 @@ The reply map is **data only**. It MUST NOT contain functions, promises, `AbortC
  :work/status  :completed | :failed | :timed-out | :suppressed | :cancelled
  :attempt      positive-int-or-nil
  :rf.frame/id  frame-id
+ ;; :rf.realm/id :rf.realm/default  ;; RESERVED (EP-0013) — not emitted in v1; absent = the default realm
  :started-at   started-at-or-nil
  :completed-at completed-at-or-nil
  :deadline-at  deadline-at-or-nil
@@ -149,6 +150,7 @@ Required / conditional fields:
 - `:value` carries the decoded successful result for `:status :ok` and `:status :partial`. **One-name-per-fact note ([EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)):** the decoded result on the *reply map* is `:value` everywhere, across every family (HTTP, resource, mutation, machine, timer, route) — there is no per-family synonym for it. A *mutation-instance state* sub may store that same decoded result under a different key (`:result`) as a deliberately distinct fact: the instance sub is a durable, queryable status record (`{:pending? :success? :error? :settled? :result :error}`), not the transient causal reply, so the two spellings name two facts living in two layers. Spec 016 reconciles that pairing on its own surface; the reply-map spelling is `:value`, full stop.
 - `:work/id` is required for ledger-backed work and SHOULD be present for any managed async effect that can be correlated.
 - `:rf.frame/id` is required when the effect is frame-scoped. This is the canonical carried frame stamp ([EP-0002](../docs/EP/EP-0002-frame-target-resolution.md)); there is no second frame spelling.
+- `:rf.realm/id` is **reserved, not yet emitted** ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md), accepted — ruling [rf2-1vj3b6](https://github.com/day8/re-frame2/issues/rf2-1vj3b6)). The realm stamp is carried **beside** `:rf.frame/id`, never as a realm-qualified frame tuple. The slot is reserved on the reply map now (it likewise rides EP-0011 reply maps and EP-0016 continuation payloads, which cite this shape) so its later addition is non-breaking — the `:rf.timer/*` precedent of reserving where the surface will land. v1 reply maps do **not** carry it; **its absence is the default realm**, an explicit documented rule. A future multi-realm runtime always stamps `:rf.realm/id`.
 - `:error` is present for `:status :error`; present with structured partial diagnostics for `:status :partial`; and MAY carry compatibility failure data for `:status :cancelled`.
 - `:started-at`, `:completed-at`, and `:deadline-at` are causal completion metadata ([EP-0010](../docs/EP/EP-0010-causal-world-inputs.md) — suffixless durable timestamps; the values are causal epoch-millisecond readings supplied by the triggering or reply token, **not** fresh ambient clock reads). Carry them when the fact affects durable state; omit a field a family does not durably use.
 

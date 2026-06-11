@@ -730,8 +730,12 @@ The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe t
  :trace-id     "..."                   ;; tooling/agent fields
  :source       :ui                     ;; trigger kind — the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :repl :ssr-hydration :test :unknown :other`); defaults to `:unknown` per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d) (previously `:ui`); substrate-internal dispatch sites stamp the matching value (`:after-timer`, `:machine-spawn`, `:machine-action`, `:fx-dispatch`, `:fx-dispatch-later`) per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd) + [rf2-c3990](https://github.com/day8/re-frame2/issues/rf2-c3990)
  :origin       :pair                   ;; actor identity — open vocabulary, defaults to `:app`; e.g. `:pair`, `:claude`, `:story`, `:test`
- :rf.world/inputs {:time-ms 1781078400123}} ;; EP-0010 causal world inputs — see §The World-Input Rule
+ :rf.world/inputs {:time-ms 1781078400123} ;; EP-0010 causal world inputs — see §The World-Input Rule
+ ;; :rf.realm/id :rf.realm/default     ;; RESERVED (EP-0013) — not stamped in v1; absent = the default realm
+ }
 ```
+
+> **`:rf.realm/id` is reserved, not yet stamped (EP-0013).** [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) (accepted, ruling [rf2-1vj3b6](https://github.com/day8/re-frame2/issues/rf2-1vj3b6)) rules the realm stamp as `:rf.realm/id`, carried **beside** `:rf.frame/id` — never a realm-qualified frame tuple. The slot is reserved on the envelope now so its later addition is non-breaking (the `:rf.timer/*` precedent — reserve where the surface will land). v1 does **not** stamp it and the runtime exhibits no realm behaviour; **its absence is the default realm**, an explicit documented rule. A future multi-realm runtime always stamps `:rf.realm/id`.
 
 The envelope is just a map. Any field can be set by:
 
