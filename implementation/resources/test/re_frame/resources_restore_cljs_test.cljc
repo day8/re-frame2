@@ -451,6 +451,97 @@
       (is (some #(= :stale-nav-orphan (:reason (:tags %))) @seen)
           "the release reason is the stale-nav/no-live-token orphan"))))
 
+;; ===========================================================================
+;; 3c. Defer restore trace rows until install succeeds (rf2-obi8rr)
+;; ===========================================================================
+;;
+;; `reconcile-on-restore` runs INSIDE perform-restore! BEFORE the atomic
+;; install, which can still fail (a destroyed-frame install returns nil). So
+;; under `:defer-traces? true` the reconcile must NOT emit its
+;; :rf.resource/restored / :rf.resource/owner-released success rows inline —
+;; they ride back as metadata and are emitted by commit-restore-reconcile-
+;; traces! only after the install succeeds. The inline (2-arity) path keeps
+;; emitting (the pure unit path has no install to gate against). The
+;; end-to-end "failed install emits nothing" assertion lives in the epoch
+;; artefact's epoch_test.clj (it needs a real destroyed-frame restore).
+
+(defn- restore-trace-recorder
+  "Register a trace listener recording every :rf.resource/restored +
+  :rf.resource/owner-released op, returning [seen-atom unregister-fn]."
+  []
+  (let [seen (atom [])
+        k    ::restore-trace-recorder]
+    (trace-tooling/register-listener!
+      k (fn [ev] (when (contains? #{:rf.resource/restored :rf.resource/owner-released}
+                                  (:operation ev))
+                   (swap! seen conj ev))))
+    [seen (fn [] (trace-tooling/unregister-listener! k))]))
+
+(deftest defer-traces-does-not-emit-inline
+  (testing "rf2-obi8rr — reconcile-on-restore with :defer-traces? true emits NO
+            :rf.resource/restored / :rf.resource/owner-released rows inline; they
+            ride back as metadata for the post-install commit"
+    (let [stale [:route :route/article "nav-OLD"]
+          e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
+                      :loaded-at 1 :stale-at 9.0e15 :owners #{stale}})
+          rdb (with-live-nav-token (runtime-db-with {gkey e}) "nav-NEW")
+          [seen unregister!] (restore-trace-recorder)
+          out (try (ssr/reconcile-on-restore rdb :app/main {:defer-traces? true})
+                   (finally (unregister!)))]
+      (is (empty? @seen)
+          "no restore/owner-released trace fired inline under :defer-traces? true")
+      (is (seq (-> out meta (get :re-frame.resources.ssr/deferred-trace-intents)))
+          "the trace intents ride back as metadata on the reconciled runtime-db")
+      ;; the reconcile work still happened (the stale owner was orphaned)
+      (is (not (contains? (get-in out [state/resources-key :entries gkey :active-owners]) stale))
+          "the stale-nav owner is still reconciled (only the TRACE is deferred)"))))
+
+(deftest commit-restore-reconcile-traces-emits-deferred-rows
+  (testing "rf2-obi8rr — commit-restore-reconcile-traces! emits the deferred
+            :rf.resource/restored + :rf.resource/owner-released rows from the
+            reconciled runtime-db's metadata"
+    (let [stale [:route :route/article "nav-OLD"]
+          e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
+                      :loaded-at 1 :stale-at 9.0e15 :owners #{stale}})
+          rdb (with-live-nav-token (runtime-db-with {gkey e}) "nav-NEW")
+          out (ssr/reconcile-on-restore rdb :app/main {:defer-traces? true})
+          [seen unregister!] (restore-trace-recorder)]
+      (try (ssr/commit-restore-reconcile-traces! out)
+           (finally (unregister!)))
+      (is (some #(= :rf.resource/restored (:operation %)) @seen)
+          "the deferred :rf.resource/restored summary row is emitted on commit")
+      (is (some #(and (= :rf.resource/owner-released (:operation %))
+                      (= stale (:owner (:tags %)))) @seen)
+          "the deferred per-owner :rf.resource/owner-released row is emitted on commit"))))
+
+(deftest commit-restore-reconcile-traces-noop-without-intents
+  (testing "rf2-obi8rr — commit-restore-reconcile-traces! is a no-op on a value
+            carrying no deferred intents (an inline reconcile, or resource-free)"
+    (let [[seen unregister!] (restore-trace-recorder)]
+      (try
+        ;; a plain runtime-db (no deferred-intents metadata) → nothing emitted
+        (ssr/commit-restore-reconcile-traces! (runtime-db-with {}))
+        (ssr/commit-restore-reconcile-traces! nil)
+        (finally (unregister!)))
+      (is (empty? @seen) "no intents → no trace rows"))))
+
+(deftest inline-reconcile-still-emits-restored-trace
+  (testing "rf2-obi8rr — the 1-/2-arity (direct unit) path still emits inline:
+            no install to gate against"
+    (let [e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
+                      :loaded-at 1 :stale-at 9.0e15})
+          [seen unregister!] (restore-trace-recorder)]
+      (try (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
+           (finally (unregister!)))
+      (is (some #(= :rf.resource/restored (:operation %)) @seen)
+          "the inline path emits the :rf.resource/restored summary immediately"))))
+
+(deftest commit-hook-published
+  (testing "rf2-obi8rr — the :resources/commit-restore-reconcile! hook is published"
+    (is (some? (late-bind/get-fn :resources/commit-restore-reconcile!)))
+    (is (= ssr/commit-restore-reconcile-traces!
+           (late-bind/get-fn :resources/commit-restore-reconcile!)))))
+
 (deftest hydration-parity-route-owners-ride-through-without-routing
   (testing "rf2-64bdnk parity — HYDRATION (the no-comparison-yet case) still
             rides route owners through unchanged when there is no client routing

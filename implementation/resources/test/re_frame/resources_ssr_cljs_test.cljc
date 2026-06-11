@@ -528,6 +528,94 @@
     (let [rdb {:rf.runtime/machines {:snapshots {}}}]
       (is (= rdb (ssr/hydrate-runtime-db rdb :app/main))))))
 
+;; ===========================================================================
+;; 3b. Hydrated NON-TERMINAL entries settle to last-stable (rf2-bg6qah)
+;; ===========================================================================
+;;
+;; The server projection (`project-entry`) STRIPS `:current-work` on the wire
+;; but keeps the entry's `:status`, so a hydrated entry can arrive `:loading`
+;; / `:fetching` with no live work behind it. Left as-is it dangles — a
+;; `:fetching`-with-fresh-data entry is skipped by the refetch planner (no
+;; double-fetch) yet has no fetch in flight, so it would render `:fetching`
+;; forever. `hydrate-runtime-db` settles each entry to its last STABLE status
+;; (the same `settle-entry-to-last-stable` the restore reconcile applies), so
+;; the planner then classifies it correctly. The four acceptance cases:
+;; loading-no-data, fetching-fresh-data, fetching-stale-data, fresh-loaded.
+
+(deftest hydrate-settles-loading-no-data-to-idle-then-refetches
+  (testing "rf2-bg6qah — a hydrated :loading entry with NO data settles to :idle
+            (never stranded :loading), and the refetch plan then refetches it"
+    (let [e   (entry {:resource-id :article/by-slug :status :loading :data nil})
+          out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
+          se  (get-in out [state/resources-key :entries gkey])]
+      (is (= :idle (:status se)) "loading-with-no-data → :idle, never a dangling :loading")
+      (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
+                      (into {} (map (juxt :resource-key identity))))]
+        (is (contains? plan gkey) "the settled :idle entry (no data) is refetched")
+        (is (= :no-data (:reason (plan gkey))))))))
+
+(deftest hydrate-settles-fetching-fresh-data-to-loaded-no-double-fetch
+  (testing "rf2-bg6qah — a hydrated :fetching entry with FRESH data settles to
+            :loaded and is NOT refetched (the dangling-fetching no-double-fetch
+            case the bead calls out)"
+    (let [e   (entry {:resource-id :article/by-slug :status :fetching
+                      :data {:t "fresh"} :loaded-at 1000 :stale-at 9.0e15})
+          out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
+          se  (get-in out [state/resources-key :entries gkey])]
+      (is (= :loaded (:status se)) "fetching-with-fresh-data → :loaded (keep last-known-good)")
+      (is (= {:t "fresh"} (:data se)) "the data is preserved")
+      (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
+                      (into {} (map (juxt :resource-key identity))))]
+        (is (not (contains? plan gkey))
+            "the settled fresh-with-data entry is NOT refetched (no double-fetch — the SSR win)")))))
+
+(deftest hydrate-settles-fetching-stale-data-to-loaded-background-refetch
+  (testing "rf2-bg6qah — a hydrated :fetching entry with STALE data settles to
+            :loaded (keep last-known-good) and background-refetches"
+    (let [e   (entry {:resource-id :article/by-slug :status :fetching
+                      :data {:t "stale"} :loaded-at 1000 :stale-at 1500})  ;; stale vs 5000
+          out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
+          se  (get-in out [state/resources-key :entries gkey])]
+      (is (= :loaded (:status se)) "fetching-with-stale-data → :loaded")
+      (is (= {:t "stale"} (:data se)) "the stale last-known-good data is preserved")
+      (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
+                      (into {} (map (juxt :resource-key identity))))]
+        (is (= :stale (:reason (plan gkey)))
+            "the settled stale entry background-refetches (stale-while-revalidate)")))))
+
+(deftest hydrate-fresh-loaded-data-rides-through-no-double-fetch
+  (testing "rf2-bg6qah — a NORMAL fresh :loaded entry rides through unchanged
+            (already stable) and is NOT refetched"
+    (let [e   (entry {:resource-id :article/by-slug :status :loaded
+                      :data {:t "kept"} :loaded-at 1000 :stale-at 9.0e15})
+          out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
+          se  (get-in out [state/resources-key :entries gkey])]
+      (is (= :loaded (:status se)) "a :loaded entry stays :loaded")
+      (is (= {:t "kept"} (:data se)))
+      (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
+                      (into {} (map (juxt :resource-key identity))))]
+        (is (not (contains? plan gkey)) "fresh-loaded → no refetch (no double-fetch)")))))
+
+(deftest hydrate-end-to-end-project-then-hydrate-fetching-entry-settles
+  (reg! :article/by-slug)
+  (testing "rf2-bg6qah ADVERSARIAL end-to-end: a server-side :fetching entry
+            PROJECTS (stripping :current-work, keeping :status :fetching) and on
+            HYDRATION settles to a stable status — never installed as a dangling
+            :fetching with no work"
+    (let [e    (entry {:resource-id :article/by-slug :status :fetching
+                       :data {:t "x"} :loaded-at 1000 :stale-at 9.0e15
+                       :current-work [:rf.work/resource gkey 7]})
+          proj (ssr/project-resources-runtime-db (runtime-db-with {gkey e}))
+          [wk we] (only-wire-entry proj)]
+      (is (= :fetching (:status we)) "the projection keeps the entry's :fetching status on the wire")
+      (is (not (contains? we :current-work)) "the projection strips :current-work on the wire")
+      (let [installed {state/resources-key {:entries {wk we}}}
+            out (ssr/hydrate-runtime-db installed :app/main)
+            se  (get-in out [state/resources-key :entries wk])]
+        (is (= :loaded (:status se))
+            "hydration settles the dangling :fetching entry to :loaded — not installed verbatim")
+        (is (nil? (:current-work se)) "current-work stays cleared")))))
+
 (deftest clock-skew-surfaced-when-stale-at-implausible
   (testing "clock-skew-ms returns positive skew when :stale-at lies implausibly ahead of the live clock"
     ;; window = stale-at - loaded-at = 1000; stale-at 100000 is far beyond

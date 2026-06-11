@@ -18,17 +18,25 @@
      payload (`:rf/runtime-db`); host handles + the tag/owner indexes are
      never serialized (the indexes recompute from `:entries` on install).
    - On the client the framework `:rf/hydrate` installs the projection into
-     the target frame's `:rf.runtime/resources` slice; a fresh hydrated
-     entry renders immediately and does NOT immediately re-fetch.
+     the target frame's `:rf.runtime/resources` slice; the hydration reconcile
+     orphans the SSR owner, recomputes the reverse indexes from `:entries`,
+     and settles a wire-stripped in-flight entry to a stable status; a fresh
+     hydrated entry renders immediately and does NOT immediately re-fetch
+     (stale / redacted / omitted entries refetch by the hydration plan).
 
-   SLICE STATUS (rf2-p10npe). Resources ships here at its SKELETON slice:
-   `reg-resource`, the passive `[:rf.resource/*]` subs, and the SSR
-   projection hook are real and load cleanly, so this example COMPILES and
-   the SSR shape is the canonical one. The blocking-drain + hydration-install
-   RUNTIME lands in later slices (rf2-ctk2av / rf2-pbxj48); the static
-   `index.html` next to this file carries a pre-baked payload illustrating
-   the serialized projection, exactly as the sibling `examples/reagent/ssr/`
-   does for plain SSR. The example tree is test-free (rf2-8cevm).
+   LANDED BEHAVIOUR (EP-0003). The SSR blocking-drain (rf2-er7qx2), the
+   per-entry projection with redaction / omission / scoped-key privacy /
+   index omission (rf2-otms75 / rf2-fopuj9), and the client hydration
+   reconcile + refetch plan (rf2-ctk2av) are all RUNTIME-real. So this
+   example drives the actual server path: it DRAINS the blocking page
+   resource before render (`ssr/drain-blocking-resources!`) and serializes
+   only the ALLOWED runtime-db projection (`payload-policy/project-runtime-db`)
+   into `:rf/runtime-db` — NEVER the full runtime-db. The `:rf/app-db` slice is
+   projected through the explicit fail-closed allowlist (`apply-policy`) the
+   real Ring host uses. The example tree is test-free (rf2-8cevm); the static
+   `index.html` next to this file carries a pre-baked payload for the runnable
+   browser-side `run` (no Clojure server ships with the example), exactly as
+   the sibling `examples/reagent/ssr/` does for plain SSR.
 
    Compare with `examples/reagent/ssr/` (plain SSR with a managed-HTTP fetch
    written into app-db): here the same data is a runtime-managed RESOURCE, so
@@ -46,6 +54,13 @@
             ;; resources artefact late-binds its runtime-db projection into
             ;; the SSR `project-runtime-db` allowlist (Spec 016 §SSR).
             [re-frame.ssr :as ssr]
+            ;; The hydration-payload assembly the real Ring host uses: the
+            ;; fail-closed app-db allowlist (`apply-policy`) + the SSR
+            ;; runtime-db projection (`project-runtime-db`) that rides ONLY the
+            ;; allowed resource `:entries` onto `:rf/runtime-db` (redacted /
+            ;; omitted per the resource's classification; indexes recompute on
+            ;; install). Server-side only — `handle-request` (`:clj`) uses it.
+            #?(:clj [re-frame.ssr.payload-policy :as payload-policy])
             #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
@@ -104,7 +119,10 @@
 ;; the SSR/CLJS parity Spec 011 promises, now over a resource.
 
 (rf/reg-view ^{:rf/id :pages/articles} articles-page []
-  (let [state @(subscribe [:rf.resource/state {:resource :articles/list :params {}}])]
+  (let [state @(rf/subscribe [:rf.resource/state
+                              {:resource :articles/list
+                               :scope    :rf.scope/global
+                               :params   {}}])]
     [:div.page
      [:h1 "Recent articles"]
      (cond
@@ -128,12 +146,23 @@
 ;; ============================================================================
 ;;
 ;; Mirrors examples/reagent/ssr/ — a per-request frame whose `:on-create`
-;; dispatches `:rf/server-init`, a drain to settle the blocking resource, a
-;; render to string, and a hydration payload carrying the serialized
-;; resource projection in `:rf/runtime-db`. The per-request frame is torn
-;; down in a `finally` on every exit path (memory hygiene). When the
-;; resource runtime's blocking-drain lands (rf2-ctk2av) the drain settles
-;; the `[:ssr …]`-owned ensure before render.
+;; dispatches `:rf/server-init`, a DRAIN to settle the blocking page resource,
+;; a render to string, and a hydration payload carrying the ALLOWED resource
+;; projection in `:rf/runtime-db`. The per-request frame is torn down in a
+;; `finally` on every exit path (memory hygiene).
+;;
+;; Two landed steps make this the canonical server path (EP-0003):
+;;
+;;   1. `ssr/drain-blocking-resources!` settles the `[:ssr …]`-owned blocking
+;;      ensure (or times it out into a structured first-load failure) BEFORE
+;;      the render walk, so the render never sees a hung `:loading` skeleton.
+;;   2. `payload-policy/project-runtime-db` projects the runtime-db to the
+;;      SERIALIZABLE allowlist — only the durable `:rf.runtime/resources`
+;;      `:entries`, per-entry redacted (`:sensitive?`) / omitted (`:large?`),
+;;      with the reverse indexes EXCLUDED (recomputed on install). The example
+;;      NEVER serializes the full runtime-db. The app-db slice rides the
+;;      explicit fail-closed allowlist via `apply-policy` (here an empty
+;;      allowlist — the page state is the RESOURCE, not app-db).
 
 #?(:clj
    (defn handle-request [request]
@@ -145,20 +174,28 @@
                   :on-create [:rf/server-init]})]
        (try
          (rf/with-frame f
+           ;; (1) settle the blocking page resource before rendering — the
+           ;; `[:ssr …]`-owned ensure dispatched by `:rf/server-init` must reach
+           ;; a terminal status (:loaded / :error) or time out into a settled
+           ;; first-load failure, so the render walk sees real data.
+           (ssr/drain-blocking-resources! f)
            (let [final-db      (rf/app-db-value f)
                  final-runtime (rf/runtime-db-value f)   ;; carries :rf.runtime/resources
                  hiccup        ((rf/view :app/root))
                  html          (rf/render-to-string hiccup {:doctype? true :emit-hash? true})
                  render-hash   (rf/render-tree-hash hiccup)
-                 payload       {:rf/version     1
-                                :rf/frame-id    f
-                                :rf/app-db      final-db
-                                ;; The serializable runtime-db projection —
-                                ;; the SSR allowlist includes only the durable
-                                ;; resource `:entries`; indexes recompute on
-                                ;; install, host handles never serialize.
-                                :rf/runtime-db  final-runtime
-                                :rf/render-hash render-hash}]
+                 ;; (2) build the canonical payload the way the Ring host does:
+                 ;; the app-db slice through the fail-closed allowlist (empty
+                 ;; here — no app-db state to ship), and the runtime-db through
+                 ;; the SSR projection (only the allowed resource `:entries`).
+                 policy-opts   {:payload []}
+                 payload       (payload-policy/build-payload
+                                 f
+                                 (payload-policy/apply-policy final-db policy-opts)
+                                 render-hash
+                                 (assoc policy-opts
+                                        :runtime-db (payload-policy/project-runtime-db
+                                                      final-runtime)))]
              {:status  200
               :headers {"Content-Type" "text/html"}
               :body
