@@ -130,8 +130,25 @@
   (let [stable [{:slug "hello-conduit"
                  :title "Hello, Conduit"
                  :description "A short greeting from the realworld-resources stub."
-                 :body "This article is served by the demo :rf.http/managed override that
-                        resources + mutations lower onto."
+                 ;; A markdown body so the article-detail page exercises the
+                 ;; sanitized markdown renderer (realworld-resources.markdown/
+                 ;; render): headings, bold/italic, inline + fenced code, a safe
+                 ;; link, and lists. The renderer emits hiccup (never raw HTML),
+                 ;; so this is rendered as real markup while any injected
+                 ;; `<script>` / `javascript:` link in user content would
+                 ;; degrade to inert escaped text.
+                 :body (str "# Hello, Conduit\n\n"
+                            "This article is served by the demo `:rf.http/managed` "
+                            "override that **resources + mutations** lower onto, "
+                            "rendered as *markdown*.\n\n"
+                            "See the [RealWorld spec](https://github.com/gothinkster/realworld) "
+                            "for the reference behaviour.\n\n"
+                            "## Highlights\n\n"
+                            "- Sanitized by construction (hiccup, never raw HTML)\n"
+                            "- Headings, lists, code, links\n"
+                            "- Zero new dependencies\n\n"
+                            "```clojure\n(rf/reg-resource :realworld/article ...)\n```\n\n"
+                            "> A blockquote, for good measure.")
                  :tagList ["intro" "demo"]}
                 {:slug "second-article"
                  :title "Second article"
