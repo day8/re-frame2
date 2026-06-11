@@ -1,13 +1,21 @@
 # EP-0007: One Name Per Fact
 
-Status: proposal
+Status: accepted
 Type: process
 
-> A process EP (the PEP-8 analogue, per EP-0009): on acceptance, the rules in
-> §Specification graduate into `spec/Conventions.md` §Namespacing — which
-> remains the authoritative home — and this EP stays as the rationale record.
-> The sweep items are independent beads, each separately rulable; accepting the
-> rules does not bulk-accept the sweep.
+> A process EP (the PEP-8 analogue, per EP-0009). **Accepted 2026-06-11.** The
+> rules in §Specification have graduated into
+> [`spec/Conventions.md` §Reserved namespaces → The naming rules (one name per
+> fact)](../../spec/Conventions.md#the-naming-rules-one-name-per-fact) — which is
+> now the authoritative home. This EP remains the **rationale record**: read it
+> for *why* the rules exist (the review-cycle defect class they close) and read
+> Conventions for *what the rules are*. Where this EP and Conventions differ on
+> the rule text, Conventions governs.
+>
+> Acceptance graduated the **rulebook only**. The sweep items below are
+> independent beads, each separately rulable; accepting the rules did **not**
+> bulk-accept the sweep. Sweep state (done / kept-as-rule / deferred) is tracked
+> in §The sweep, unchanged by this acceptance.
 
 ## Abstract
 
