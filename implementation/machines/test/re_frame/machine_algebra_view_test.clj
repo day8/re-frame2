@@ -6,7 +6,8 @@
 
   `re-frame.machines.tooling/machine-algebra-view` lowers every registered
   machine into the normalized algebra node every declared fact/process
-  shares: the canonical `:process` member — a `:machine-process` whose
+  shares: the canonical `:process` member — a `:process` (refinement
+  `:machine-process`) whose
   snapshot MATERIALIZES into runtime-db, evaluated `:on-transition` (plus
   `:scheduled` / `:on-reply` when the spec declares timers / spawns), owned by
   its `:machine-instance` lifecycle. `…/machine-instance-algebra-view` is the
@@ -38,11 +39,15 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; The four fixed classifications EVERY machine-process node carries
-;; (Derivations §Machines expose algebra views — the machine column: the
-;; canonical runtime-db / machine-instance MATERIALIZED process member).
+;; The fixed classifications EVERY machine-process node carries (Derivations
+;; §Machines expose algebra views — the machine column: the canonical
+;; runtime-db / machine-instance MATERIALIZED process member). `:kind` is the
+;; CLOSED superkind `:process` (Spec-Schemas DerivationKind); the informative
+;; `:machine-process` refinement rides on `:refinement` (matching the routes
+;; `:route-fact` convention), never in `:kind`.
 (def fixed-classifications
-  {:kind          :machine-process
+  {:kind          :process
+   :refinement    :machine-process
    :storage       :runtime-db
    :lifecycle     :machine-instance
    :materialized? true})

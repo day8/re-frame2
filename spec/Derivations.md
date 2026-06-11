@@ -244,7 +244,7 @@ Every derivation/process SHOULD be describable by an algebra view equivalent to:
  :source      {:ns "app.cart" :file "src/app/cart.cljs" :line 42}}
 ```
 
-**Two superkinds, refinable.** Every `:kind` classifies as either `:derivation` or `:process`. The refined kinds in the examples below — `:resource-process`, `:route-fact`, `:machine-process`, `:machine-selector` — are *informative refinements*; specs MAY add refinements, but a tool that understands only the two superkinds MUST still be able to classify every node.
+**Two superkinds, refinable.** Every `:kind` is one of exactly two closed superkinds: `:derivation` or `:process` (the closed `DerivationKind` enum — [Spec-Schemas §`:rf/derivation-node`](Spec-Schemas.md#rfderivation-node-rffact-rfderivation-edge-rfstorage-class-rfevaluation-policy-rflifecycle-the-derivationprocess-algebra-ep-0014)). The refined kinds — `:resource-process`, `:route-fact`, `:machine-process`, `:machine-selector` — are *informative refinements*, carried on the separate **`:refinement`** axis, **never in `:kind`**: specs MAY add refinements, but a tool that understands only the two superkinds MUST still be able to classify every node by reading `:kind` alone. A refinement always refines its node's superkind (`:resource-process` / `:route-fact` / `:machine-process` refine `:process`; `:machine-selector` refines `:derivation`).
 
 **Functions are opaque.** Function values (`:derive`, an input-producer) MAY be represented by symbols, source coordinates, registry metadata, or opaque implementation tokens. The graph contract is about dependencies, storage, evaluation, and ownership — it does **not** require serializing executable functions.
 
@@ -298,7 +298,8 @@ A **named resolver** turns part of a parametric declaration into a *static fact*
 
 ```clojure
 {:id :article/by-slug
- :kind :resource-process
+ :kind :process                                          ;; the closed superkind
+ :refinement :resource-process                           ;; the informative refinement
  :inputs [[:param :slug]
           [:scope {:from-db :session/current-tenant}]]   ;; named resolver — static!
  :scope-resolver {:id :session/current-tenant
@@ -568,7 +569,8 @@ The subscription's exact policy twin — same whole-value function, materialized
 ```clojure
 ;; STATIC ALGEBRA VIEW
 {:id          :article/by-slug
- :kind        :process                       ;; refinement :resource-process
+ :kind        :process                       ;; the closed superkind
+ :refinement  :resource-process              ;; the informative refinement
  :source-form {:kind :reg-resource :id :article/by-slug}
  :inputs      [[:param :slug]
                [:scope :rf.scope/from-caller]]
@@ -614,7 +616,8 @@ The split the [§Authority](#authority--the-remote-axis) section names is visibl
 ```clojure
 ;; ALGEBRA VIEW
 {:id          :rf/route                       ;; the one slice name; every route shares it
- :kind        :process                        ;; refinement :route-fact
+ :kind        :process                        ;; the closed superkind
+ :refinement  :route-fact                     ;; the informative refinement
  :source-form {:kind :reg-route :id :route/article}
  :inputs      [[:event :rf.route/navigate]
                [:event :rf.route/transitioned]
@@ -652,16 +655,17 @@ Every route materializes the *same* slice fact `:rf/route`; the per-route id is 
 ```clojure
 ;; MACHINE PROCESS VIEW                      ;; SELECTOR (a reg-sub over [:rf/machine …])
 {:id          :upload/main                   (rf/reg-sub :upload/progress
- :kind        :machine-process                 :<- [:rf/machine :upload/main]
- :source-form {:kind :reg-machine              (fn [snapshot _]
-               :id   :upload/main}               (get-in snapshot [:data :progress] 0)))
- :inputs      [[:event :upload/start]
-               [:event :upload/progress]     ;; SELECTOR ALGEBRA VIEW
-               [:event :upload/succeeded]    {:id      :upload/progress
-               [:event :upload/failed]]       :kind    :machine-selector   ;; a :derivation refinement
- :output  [:runtime [:rf.runtime/machines     :inputs  [[:machine :upload/main [:data :progress]]]
-           :snapshots :upload/main]]          :output  [:fact :upload/progress]
- :storage :runtime-db                         :storage :ephemeral
+ :kind        :process                         :<- [:rf/machine :upload/main]
+ :refinement  :machine-process                 (fn [snapshot _]
+ :source-form {:kind :reg-machine                (get-in snapshot [:data :progress] 0)))
+               :id   :upload/main}
+ :inputs      [[:event :upload/start]        ;; SELECTOR ALGEBRA VIEW
+               [:event :upload/progress]     {:id         :upload/progress
+               [:event :upload/succeeded]     :kind       :derivation
+               [:event :upload/failed]]       :refinement :machine-selector  ;; a :derivation refinement
+ :output  [:runtime [:rf.runtime/machines     :inputs     [[:machine :upload/main [:data :progress]]]
+           :snapshots :upload/main]]          :output     [:fact :upload/progress]
+ :storage :runtime-db                         :storage    :ephemeral
  :evaluation #{:on-transition}                :evaluation :on-demand
  :lifecycle  :machine-instance                :lifecycle  :subscription-cache-entry
  :materialized? true}                         :derive     #'app.upload/progress}
@@ -730,11 +734,12 @@ Resources are the third concrete algebra member to expose its view, and the **fi
 
 A single resource declaration lowers to **more than one** algebra node ([§Source form and algebra view](#source-form-and-algebra-view)): a `:process` node for the cache entry, **plus** the derived read facts (state, data, loading flag, error projection) over that entry. The read facts are the `:rf.resource/*` passive subscriptions ([016 §Subscriptions](016-Resources.md)); they are ordinary on-demand derivations (already covered by the [subscription view](#subscriptions-expose-algebra-views)), so the resource process node lists them under `:selectors` rather than re-minting them — and reading a selector does **not** start resource work ([§Evaluation policy](#evaluation-policy) rule 1).
 
-A resource is always a **`:process`** (refined `:resource-process`), and every resource node carries the same fixed classifications, because a resource is the canonical *runtime-db / remote-authority* member of the algebra:
+A resource's superkind is always **`:process`**; its informative refinement is **`:resource-process`**, carried under `:refinement` ([§Two superkinds, refinable](#the-node-shape): the `:kind` is the closed superkind enum, so a tool that understands only the two superkinds classifies the node by `:kind` alone). Every resource node carries the same fixed classifications, because a resource is the canonical *runtime-db / remote-authority* member of the algebra:
 
 | Axis | Value | Why |
 |---|---|---|
-| `:kind` | `:process` | a derivation with state, lifecycle, and commands over time ([§Process](#process)) |
+| `:kind` | `:process` | a derivation with state, lifecycle, and commands over time ([§Process](#process)); refinement `:resource-process` under `:refinement` |
+| `:refinement` | `:resource-process` | the informative refinement of `:process` ([§The node shape](#the-node-shape)) — never a third superkind in `:kind` |
 | `:storage` | `:runtime-db` | the **local** cache entry lives in the framework-owned runtime-db partition ([016 §Cache home](016-Resources.md)) — storage always names the local home |
 | `:authority` | `{:kind :remote :system :server :transport <id>}` | the source of truth is **external** ([§Authority](#authority--the-remote-axis)); `:transport` mirrors the registered transport (a recomputable projection, never a second home) |
 | `:evaluation` | `#{:on-route :on-reply :scheduled :manual}` | a multi-trigger process — route activation, async reply, scheduled stale/GC timers, and manual refresh/ensure ([§Evaluation policy](#evaluation-policy)) |
@@ -796,13 +801,14 @@ This exposure is *internal registration metadata*, consistent with the slice sco
 
 ## Machines expose algebra views
 
-Machines are the algebra's canonical **`:process`** member — the surface that motivates the [§Process](#process) superkind at all. Where subscriptions and flows are **derivations** (a pure whole-value function with no durable private state beyond its output), a machine is a *derivation WITH state, lifecycle, and commands over time*: it materializes a snapshot, reacts to events and replies and timers, spawns and destroys child actors, and is kept alive by an instance owner until machine destroy releases it. Every `reg-machine` registration projects to the [node shape](#the-node-shape) with the refined kind **`:machine-process`** (an *informative refinement* of `:process` — [§Two superkinds](#fact-identity); a tool that knows only `:derivation` / `:process` still classifies it correctly). The projection is **registrar-derived** (see [§The EP-0013 relocation seam](#the-ep-0013-relocation-seam)): [005](005-StateMachines.md) keeps the transition engine, the snapshot shape, the spawn/destroy lifecycle, and the timer table; the algebra view is assembled from the machine spec metadata that already exists, never from running a transition.
+Machines are the algebra's canonical **`:process`** member — the surface that motivates the [§Process](#process) superkind at all. Where subscriptions and flows are **derivations** (a pure whole-value function with no durable private state beyond its output), a machine is a *derivation WITH state, lifecycle, and commands over time*: it materializes a snapshot, reacts to events and replies and timers, spawns and destroys child actors, and is kept alive by an instance owner until machine destroy releases it. A machine's superkind is **`:process`**; its informative refinement is **`:machine-process`**, carried under `:refinement` ([§Two superkinds, refinable](#the-node-shape): the `:kind` is the closed superkind enum, so a tool that understands only the two superkinds classifies the node by `:kind` alone). Every `reg-machine` registration projects to the [node shape](#the-node-shape). The projection is **registrar-derived** (see [§The EP-0013 relocation seam](#the-ep-0013-relocation-seam)): [005](005-StateMachines.md) keeps the transition engine, the snapshot shape, the spawn/destroy lifecycle, and the timer table; the algebra view is assembled from the machine spec metadata that already exists, never from running a transition.
 
-Every machine-process node carries the same four fixed classifications, because a machine is the canonical *runtime-db process* of the algebra:
+Every machine-process node carries the same fixed classifications, because a machine is the canonical *runtime-db process* of the algebra:
 
 | Axis | Value | Why |
 |---|---|---|
-| `:kind` | `:machine-process` | a process — a derivation with state, lifecycle, and commands over time ([§Process](#process)) |
+| `:kind` | `:process` | a process — a derivation with state, lifecycle, and commands over time ([§Process](#process)); refinement `:machine-process` under `:refinement` |
+| `:refinement` | `:machine-process` | the informative refinement of `:process` ([§The node shape](#the-node-shape)) — never a third superkind in `:kind` |
 | `:storage` | `:runtime-db` | the snapshot is materialized into the framework-owned runtime-db partition (machine snapshots are durable runtime-db state — [EP-0001](../docs/EP/EP-0001-frame-partitions.md); [005 §Reserved snapshot-internal keys](005-StateMachines.md)) |
 | `:lifecycle` | `:machine-instance` | a singleton or spawned-actor snapshot owns it; machine destroy (and frame teardown) releases it |
 | `:materialized?` | `true` | the snapshot has a durable runtime-db address, not just a fact identity |

@@ -64,9 +64,13 @@
 
 ;; The fixed classifications EVERY resource algebra node carries
 ;; (Derivations §Resources expose process nodes: the canonical runtime-db /
-;; remote-authority PROCESS member of the algebra).
+;; remote-authority PROCESS member of the algebra). `:kind` is the CLOSED
+;; superkind `:process` (Spec-Schemas DerivationKind); the informative
+;; `:resource-process` refinement rides on `:refinement` (matching the routes
+;; `:route-fact` convention), never in `:kind`.
 (def fixed-classifications
   {:kind          :process
+   :refinement    :resource-process
    :storage       :runtime-db
    :evaluation    #{:on-route :on-reply :scheduled :manual}
    :lifecycle     :resource-key

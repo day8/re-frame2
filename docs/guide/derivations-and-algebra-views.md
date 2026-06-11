@@ -156,7 +156,8 @@ A resource is the first **process** — a derivation *with state, lifecycle, and
 ```clojure
 ;; STATIC ALGEBRA VIEW
 {:id          :article/by-slug
- :kind        :process                       ;; refinement :resource-process
+ :kind        :process                       ;; the closed superkind
+ :refinement  :resource-process              ;; the informative refinement
  :source-form {:kind :reg-resource :id :article/by-slug}
  :inputs      [[:param :slug]
                [:scope :rf.scope/from-caller]]
@@ -208,7 +209,8 @@ A route transition materializes the route slice and can own resource activation.
 ```clojure
 ;; ALGEBRA VIEW
 {:id          :rf/route                       ;; the one name for the slice (every route shares it)
- :kind        :process                        ;; refinement :route-fact
+ :kind        :process                        ;; the closed superkind
+ :refinement  :route-fact                     ;; the informative refinement
  :source-form {:kind :reg-route :id :route/article}
  :inputs      [[:event :rf.route/navigate]    ;; the on-route causal triggers
                [:event :rf.route/transitioned]
@@ -248,7 +250,8 @@ A machine is the algebra's canonical process — the surface that motivates the 
 ```clojure
 ;; MACHINE PROCESS VIEW
 {:id          :upload/main
- :kind        :machine-process               ;; refinement of :process
+ :kind        :process                       ;; the closed superkind
+ :refinement  :machine-process               ;; the informative refinement
  :source-form {:kind :reg-machine :id :upload/main}
  :inputs      [[:event :upload/start] [:event :upload/progress]   ;; every :on key, deduped
                [:event :upload/succeeded] [:event :upload/failed]]
@@ -261,11 +264,12 @@ A machine is the algebra's canonical process — the surface that motivates the 
 
 ```clojure
 ;; SELECTOR SOURCE FORM                      ;; SELECTOR ALGEBRA VIEW
-(rf/reg-sub :upload/progress                  {:id      :upload/progress
-  :<- [:rf/machine :upload/main]               :kind    :machine-selector   ;; a :derivation refinement
-  (fn [snapshot _]                             :inputs  [[:machine :upload/main [:data :progress]]]
-    (get-in snapshot [:data :progress] 0)))    :output  [:fact :upload/progress]
-                                               :storage :ephemeral
+(rf/reg-sub :upload/progress                  {:id         :upload/progress
+  :<- [:rf/machine :upload/main]               :kind       :derivation
+  (fn [snapshot _]                             :refinement :machine-selector  ;; a :derivation refinement
+    (get-in snapshot [:data :progress] 0)))    :inputs     [[:machine :upload/main [:data :progress]]]
+                                               :output     [:fact :upload/progress]
+                                               :storage    :ephemeral
                                                :evaluation :on-demand
                                                :lifecycle  :subscription-cache-entry
                                                :derive     #'app.upload/progress}

@@ -163,7 +163,12 @@
       (is (= :derivation (get-in nodes [[:flow :cart/materialized-total] :kind])))
       (is (= :process    (get-in nodes [[:resource :article/by-slug] :kind])))
       (is (= :process    (get-in nodes [[:rf/route :route/article] :kind])))
-      (is (= :machine-process (get-in nodes [[:machine :upload/main] :kind]))))))
+      (is (= :process    (get-in nodes [[:machine :upload/main] :kind])))
+      ;; The informative refinement rides on :refinement, never :kind — the
+      ;; three :process families share one closed superkind (rf2-7wwp1z).
+      (is (= :resource-process (get-in nodes [[:resource :article/by-slug] :refinement])))
+      (is (= :route-fact       (get-in nodes [[:rf/route :route/article] :refinement])))
+      (is (= :machine-process  (get-in nodes [[:machine :upload/main] :refinement]))))))
 
 (deftest static-graph-edges-span-input-param-and-selector-roles
   (testing "the assembled edges carry :input, :param, and :selector roles"
