@@ -1,231 +1,278 @@
 # 23 - Privacy and large things
 
-Your auth token must not end up in a Datadog log, and a 40MB PDF must not end up in the trace buffer. Both problems have the same root cause — re-frame2's killer feature is that one trace stream feeds every tool — and, satisfyingly, both have the same shape of answer: one flag on one schema slot, opt-in, composable, honoured by every consumer downstream. This chapter is the elision story, and it's two verbs on one machine.
+Your auth token must not end up in a Datadog log, and a 40MB PDF must not end up in the trace buffer. Both problems have the same root cause — re-frame2's killer feature is that one runtime story feeds every tool and every off-box shipper — and, satisfyingly, both have the same shape of answer. There is **one law**: the owner of a piece of data declares what it is, the framework projects it at the trust boundary, and every sink downstream receives an already-safe record. You declare; the framework projects; sinks consume. This chapter is that law, and the small vocabulary you use to write the declarations.
 
 ## The firehose is also the leak
 
 Let me restate the thing chapter 16 sold you on, because the whole of this chapter is the bill arriving for it.
 
-re-frame2's third pillar is a single trace surface that every *dev* tool reads. The Xray cascade graph reads it. The re-frame2-pair-mcp AI surface reads it. The Story playground recorder reads it. Every event a user dispatches, every `:tags :event` payload, every `app-db` snapshot, every `:rf.http/*` request and response — they all ride the one dev bus. That uniformity is *the* reason the tooling is any good: several tools telling consistent stories about your running app, because there is one story to tell. The production shippers from [chapter 16](16-observability.md) — the Datadog event forwarder, the Sentry error monitor — are a *separate* surface: the always-on event-emit and error-emit listeners, which deliver tight per-event records that survive `goog.DEBUG=false` (the dev trace bus does not). But they share the same leak exposure, because the same `:event` payloads ride them — which is why elision must hold across *both* surfaces, not just the dev one.
+re-frame2 deliberately makes runtime state highly observable. That is a core productivity feature: one runtime story can feed traces, the Xray cascade graph, the Story playground recorder, the re-frame2-pair-mcp AI surface, epoch history, recorders, HTTP diagnostics, schema-validation reports, and SSR/hydration payloads. Every event a user dispatches, every `app-db` snapshot, every `:rf.http/*` request and response can ride one of those surfaces. That uniformity is *the* reason the tooling is any good — several tools telling consistent stories about your running app, because there is one story to tell. The production shippers from [chapter 16](16-observability.md) — the Datadog event forwarder, the Sentry error monitor — are a *separate*, narrow surface that survives `goog.DEBUG=false`, but they carry the same kinds of records, which is why the leak boundary has to hold across *all* of them, not just the dev ones.
 
-Now turn it over. A firehose makes a magnificent debugger and a catastrophic auth-token logger. The first sign-in form on your app puts `{:password "hunter2"}` on the bus, and absent any defence that password is now visible to every dev who attaches a trace listener, every Datadog dashboard, every Sentry queue, every MCP pair-server an agent connected to. You did nothing wrong. You wrote a normal login handler. The architecture's greatest strength is, unmodified, a security incident with your customer's name on it.
+Now turn it over. A firehose makes a magnificent debugger and a catastrophic auth-token logger. The first sign-in form on your app puts `{:password "hunter2"}` into an event vector, and absent any defence that password is now reachable by every dev who attaches a trace listener, every Datadog dashboard, every Sentry queue, every MCP server an agent connected to. You did nothing wrong. You wrote a normal login handler. The architecture's greatest strength is, unmodified, a security incident with your customer's name on it.
 
-And there's a second, quieter version of the same problem that isn't about secrets at all. Suppose a slice of `app-db` is *huge* — a 5MB base64-encoded scanned passport, a 100K-row audit log, an image-preview blob. The bus assumes every payload can ride the wire. The instant one slice is megabytes, that assumption snaps: off-box shippers refuse the upload, on-box panels choke trying to render a 100K-row table, and an AI agent attached to your app blows its context window trying to read a `:db-after` payload that's mostly base64. Not a leak — a denial of service against your own observability.
+And there's a second, quieter version of the same problem that isn't about secrets at all. Suppose a slice of `app-db` is *huge* — a 5MB base64-encoded scanned passport, a 100K-row audit log, an image-preview blob. The observability surfaces assume every payload can ride the wire. The instant one slice is megabytes, that assumption snaps: off-box shippers refuse the upload, on-box panels choke trying to render a 100K-row table, and an AI agent attached to your app blows its context window trying to read a `:db-after` payload that's mostly base64. Not a leak — a denial of service against your own observability.
 
-Two failure modes, one cause: data goes on the bus that shouldn't go on the bus *in that form*. The framework's answer to both is **elision** — substitute something small and safe at the wire boundary before the value egresses — and it's the same machinery for both, with one flag per failure mode.
+Two failure modes, one cause: data crosses a framework-mediated observation boundary that it shouldn't cross *in that form*. The framework's answer to both is the same: **classify** the data at its owner, **project** it at the boundary, and let every **sink** consume the projected result.
 
-## The framework's stance: declare the truth, the walker enforces it
+## The one law: classify, project, consume
 
 There's an obvious-looking wrong answer here, and it's worth naming so we can rule it out: *filter at the consumer.* Tell every tool "drop the password before you ship." This fails, and it fails for a structural reason. Consumers are written by humans who forget, by AI agents who don't know which slot is sensitive unless told, and by ops engineers wiring up a published integration they didn't read the source of. Asking N consumers to each independently get the redaction right is asking for the one that doesn't to leak everything.
 
-So the framework inverts it: **the registration declares the truth, the walker enforces it at the boundary, every consumer reads the already-safe result.** Three pieces, and exactly one of them is yours to write — the declaration. You put a flag on a schema slot; the framework's wire-boundary walker substitutes a sentinel everywhere that slot's path appears in anything that egresses; every consumer, without doing anything, sees the redacted shape. One declaration, every consumer honours it, no per-tool plumbing.
+So the framework splits the problem into three layers and assigns each to exactly one actor:
 
-This is the same move re-frame2 makes everywhere: push the decision to the one site where it has a stable, authoritative answer, then let the platform carry it to all the places that need it. You've seen it with schemas as the source of truth for app-db shape; privacy and size are just two more facts about a slot, declared on the same surface, in the same vocabulary.
+> **Classification** names facts — *this path is sensitive, this slot is large.*
+> **Projection** applies those facts at a boundary — the framework operation that takes a record and returns one safe to cross a specific trust boundary.
+> **Sink policy** routes the projected records — Datadog, Sentry, Xray, MCP, the SSR response.
+>
+> **App authors declare classification and sink policy. The framework performs projection. Sinks consume already-projected records only.**
 
-## The canonical place you declare it
+Everything you write is a *declaration* (what is sensitive/large, and where observations should go). Everything the framework runs is *projection*. Everything a sink does is *consume a record that is already safe*. A sink never hand-rolls redaction, and neither do you — you classify once, at the owner, and the framework carries that classification to every boundary it owns.
 
-Both flags live on the same surface: a Malli slot's per-slot props map, the one you met in [chapter 08 — Schemas](08-schemas.md). One keyword, one map, and the whole trace-consuming world honours it. This is the *canonical* place — the place to declare a slot's privacy and size by default, because it's where the truth lives next to the type. There is one explicit runtime complement for the cases the schema can't reach, and we'll meet it below; reach for it as the exception, not the habit.
+This is the same move re-frame2 makes everywhere: push the decision to the one site where it has a stable, authoritative answer, then let the platform carry it to all the places that need it. The only question that changes from boundary to boundary is *which boundary is this?* — and you answer that with a named profile, not a remembered combination of booleans.
 
-```clojure
-(rf/reg-app-schema
-  [:user]
-  [:map
-   [:profile      [:map [:name :string] [:email :string]]]
-   [:credit-card  {:sensitive? true}                           :string]      ;; redacted in traces
-   [:audit-log    {:large?     true :hint "Audit log entries"} [:vector :map]]]) ;; elided in traces
-```
+A note on the posture before we go further. This contract is a **leak-prevention overlay on observability**, not a security boundary. Your app still owns its own auth, authorisation, encryption-at-rest, and transport security. What this machinery buys you is that the framework's *own* observability surfaces cannot accidentally exfiltrate a user's secrets or stuff a record with multi-megabyte blobs. And the default everywhere it can't be sure is **fail-closed**: an unknown frame, an unschematized HTTP body, a derived value with a sensitive input — all redact rather than leak.
 
-That's the declaration. No companion interceptor, no handler annotation to cross-reference, no per-tool plumbing — the flag on the slot is the whole of it. `:sensitive?` says *secret*; `:large?` says *too big to ship raw*. Same map, two verbs. (There *is* one runtime augmentation call — `rf/add-marks` / `rf/set-marks` — for slots a schema can't reach; it's the deliberate escape hatch covered under [§Declaring marks at runtime](#declaring-marks-at-runtime), not a co-equal second home for the everyday case.)
+## Who owns the declaration: the three-owner table
 
-What makes this the right surface — and not, say, a handler annotation or a runtime registration — is that it's where an AI agent or a human reading the schema *already is.* The schema is the AI-first surface for app shape (per chapter 08); declaring the privacy claim and the size claim on the same line as the type means an agent reading `[:credit-card {:sensitive? true} :string]` sees the whole truth about the slot in one glance, in the same vocabulary as everything else. There's no separate handler-side declaration to cross-reference, no interceptor to grep for, no runtime side effect to chase. The fact lives where the type lives.
+Classification is attached to **whoever owns the data shape**. That is the single rule that tells you where to put a `:sensitive` declaration, and it has three answers depending on the *kind* of data:
 
-Mechanically: at boot the runtime walks every registered schema and writes the per-slot `:sensitive?` / `:large?` verdicts into a reserved registry under `[:rf.runtime/elision :declarations]` — in runtime-db, the framework's partition (chapter 02), not in your app-db. At every wire-boundary emit, the walker consults that registry once per visited path. You never see this machinery from where you sit — you write the flag, the platform does the wiring — but it's worth knowing it's a boot-time extraction plus a per-emit lookup, not a runtime scan of your data on the hot path.
+| The data is… | Owner | You declare it on… | Shape |
+|---|---|---|---|
+| Durable, frame-wide `app-db` state (auth tokens, partner keys, big uploads); frame-local HTTP carrier names | The **frame** | `reg-frame` / `make-frame` `:sensitive` / `:large` path maps | a path map: `{:app-db [[:auth :token]]}` |
+| Owner-local schema'd data — machine `:data`, resource data/params, HTTP response bodies | The **schema** that already validates it | per-slot `:sensitive?` / `:large?` Malli props on that `:data-schema` / `:params-schema` / `:decode` schema | a boolean prop on one slot: `[:token {:sensitive? true} :string]` |
+| Transient payloads — event args, fx/cofx args, sub outputs, flow outputs, machine transition payloads | The **registration** that introduces the shape | `reg-event` / `reg-sub` / `reg-fx` / `reg-flow` `:sensitive` / `:large` metadata | a vector of paths into that payload: `[[:password]]` |
 
-## `:sensitive?` — keeping secrets off the wire
+The one-line summary to hold in your head: *durable frame-wide facts → frame config path maps; owner-local schema'd data → per-slot schema props; transient payloads → registration metadata.* Three owners, three surfaces, no overlap. Each piece of data has exactly one place its classification lives, which is the whole point — there is never a question of "did I declare this on the frame *and* the schema?", because for any given datum only one of those owners applies.
 
-`:sensitive? true` means: this value never appears in any trace, off-box ship, dev-panel render, or schema-validation error. At every wire emit the slot's value is substituted with the `:rf/redacted` sentinel, and the trace event gets `:sensitive? true` stamped at its top level so off-box listeners can drop the whole event with one boolean check.
+### The `:sensitive` / `:sensitive?` distinction is deliberate
 
-The part people expect to be hard and isn't: **you do not write an interceptor.** The framework auto-installs the scrub for any handler that reads or writes a `:sensitive?` slot. Watch the whole surface for a credit card:
+You'll notice two spellings: `:sensitive` (no `?`) on frame config and registrations, `:sensitive?` (with `?`) on schema slots. That is not an accident or an inconsistency — it's a named cross-layer distinction, and the `?` carries real meaning:
 
-```clojure
-;; 1. Declare the schema slot. This is the entire privacy declaration.
-(rf/reg-app-schema
-  [:user/account]
-  [:map
-   [:username    :string]
-   [:credit-card {:sensitive? true} :string]])
+- **`:sensitive`** names a *collection of paths* — `{:app-db [[:auth :token]]}` or `[[:password]]`. It's a set, so it's plural and bare.
+- **`:sensitive?`** answers a *yes/no question about one slot* — "is the value at this slot secret?" It's a boolean, so it takes the predicate `?`, following the same convention as `:show?` or `:closed?` everywhere else in the framework.
 
-;; 2. The handler that writes it. No metadata. No interceptor. Plain.
-(rf/reg-event-db :user.account/update-card
-  (fn [db [_ new-card-number]]
-    (assoc-in db [:user/account :credit-card] new-card-number)))
-```
+The same distinction applies to `:large` / `:large?`. Because `:sensitive` already means "a collection of paths," you must never reuse `:sensitive false` to mean "this derived value is safe" — that's a different fact with its own key, which we'll meet under [derived sensitivity](#derived-values-inherit-by-default) below.
 
-That's all you write. Notice the asymmetry that makes this safe *and* usable: the handler body sees `new-card-number` verbatim — handlers need the real value to do their work, obviously, you can't tokenise a card you can't read. But the `:event/dispatched` trace event for the handler, and the `:event/db-changed` event that follows, both ship with `:credit-card` substituted by `:rf/redacted`. The real value flows through your code; only the *observable shadow* of it on the trace bus gets scrubbed. You did not write a `redact-interceptor`. You did not stamp the handler. The schema is the single source of truth and the framework installs the scrub.
+## Frame-owned classification: durable app-db state
 
-### The one escape hatch
-
-Schemas answer data-shape questions: "is the value at *this path* secret?" That's a fact about a *kind of thing*, stable across every handler that ever touches the path. But occasionally the unit of sensitivity isn't a slot — it's a whole *operation*.
-
-The motivating case: a GDPR export handler. The user clicks "download all my data," and your handler assembles their profile, order history, support tickets, and preferences into one bundle and POSTs it to a destination URL the user nominated. None of the individual slots is sensitive — profile fields are public-by-design, order history is normal state, preferences are feature toggles. But *the bundle*, sent to a user-supplied destination, is a different animal: the destination URL is itself attack surface (an attacker who controls the account names their own server), and the assembled bundle cross-references enough fields to identify the person in ways no single slot does. The sensitivity is a property of *this handler's behaviour*, and no slot's schema can carry it.
-
-For exactly that case — and only that case — there's handler-meta `:sensitive?`:
+Durable app-db classification, frame-local HTTP carrier names, and frame observability sink policy all live on the frame, declared once at frame creation:
 
 ```clojure
-(rf/reg-event-fx :gdpr/export-bundle
-  {:doc        "POST the user's GDPR bundle to their nominated destination URL."
-   :sensitive? true}                                ;; ← the whole handler scope is sensitive
-  (fn [{:keys [db]} [_ destination-url]]
-    {:fx [[:rf.http/managed
-           {:request {:method :post
-                      :url    destination-url
-                      :body   (gdpr-bundle db)}}]]}))
+(rf/reg-frame :app/main
+  {:sensitive
+   {:app-db [[:auth :token]
+             [:auth :refresh-token]
+             [:tenant :partner-api-key]]
+    :http    {:headers      ["X-Honeycomb-Team"]
+              :query-params ["shop_token"]}}
+
+   :large
+   {:app-db [[:documents :csv-upload]
+             [:reports :raw-export]]}
+
+   :on-create [:app/init]})
 ```
 
-The flag does three things the schema-slot version can't. It hoists `:sensitive? true` to the **top level** of every trace event emitted while the handler is in scope (alongside `:source` / `:recovery`, not nested under `:tags`, so off-box listeners route on it directly). It **propagates through the cascade** — every `:rf.http/*` trace event the handler triggers inherits the flag, so the destination URL, the request body, and the response all redact as one. And it drops the whole cascade from off-box shippers' default policy.
+That's the declaration. No companion interceptor, no per-tool plumbing — the path on the frame is the whole of it. A few semantics worth knowing:
 
-The asymmetry between the two sites is intentional and it tracks the underlying semantics: **data-shape facts live on the schema; behaviour-scoped facts live on the handler.** When a single slot is the secret — a card number, a session token, a medical record number — put the flag on the schema. Reach for handler-meta only when no single slot's schema can carry the truth. Picking one site and one site only is the discipline that keeps the privacy story small enough to hold in your head. Note also the deliberate restraint here: there's exactly one primary site and exactly one escape hatch. An earlier life of this design had *three* declaration sites plus a "belt and braces" recommendation to use two of them at once — which was just a confession that no single site was sufficient. Three sites for one decision is three chances to disagree with yourself. One-and-one is the whole vocabulary now.
+- Frame classification is installed **atomically as part of frame creation**, before `:on-create` runs. The frame is never live for a moment without its policy.
+- Re-registering a frame **replaces** its classification wholesale — the declaration *is* the frame's policy, so there's no additive-merge surprise to reason about.
+- `:sensitive :app-db` and `:large :app-db` entries are ordinary `:rf/path` values — the same path vocabulary you use everywhere else (chapter 12's path optics), not a fourth ad-hoc notation.
+- **Sensitive wins over large.** A path declared both sensitive and large redacts as sensitive and emits *no* large marker — because the large marker itself carries `:path` and `:bytes`, and for a secret slot even "there's a 5MB blob here" is too much to leak.
+- Malformed paths, unknown classification keys, and non-string HTTP carrier names **fail loudly at frame registration** — fail-fast, not silent-ignore. A typo in a sensitive path is a bug you want to hear about at boot, not discover in a leaked log.
 
-## `:large?` — keeping the wire small
+What makes the frame the right owner for *durable app-db* policy — rather than, say, a schema or a runtime call — is that the frame is where durable, cross-frame-distinct state lives. A multi-frame app can route different frames' `app-db` to different sensitivity policies and different sinks, and the declaration sits next to `:on-create` and the rest of the frame's identity. There is **no** schema-attached or imperative-mark route to classify the same app-db path; the frame owns it, full stop.
 
-`:large? true` is the same surface, different problem. The value is replaced at every wire emit with the `:rf.size/large-elided` marker — a small map that stands in for the big value while preserving everything a consumer needs to know *about* it:
+## Schema-owned classification: machine, resource, and HTTP-body data
+
+Some data's natural home *is* a schema — a machine's `:data` already has a `:data-schema` that validates it; a resource has a `:data-schema` / `:params-schema`; a managed HTTP request has a `:decode` schema for its response body. For those owners, the per-slot Malli prop *is* the owner declaring policy, and it is the **one and only** route for that owner's data.
 
 ```clojure
-{:rf.size/large-elided
-  {:path   [:user :uploaded-pdf]                     ;; where the value lived
-   :bytes  5242880                                   ;; how big it was (pr-str byte count)
-   :type   :string                                   ;; :map / :vector / :set / :scalar / :string
-   :reason :schema                                   ;; only :schema today
-   :hint   "Upload preview blob"                      ;; the slot's :hint, copied verbatim
-   :handle [:rf.elision/at [:user :uploaded-pdf]]}}  ;; opt-in fetch path
+(rf/reg-machine :checkout/payment
+  {:data-schema
+   [:map
+    [:payment [:map
+               [:token       {:sensitive? true} :string]
+               [:receipt-pdf {:large? true}     :bytes]]]]
+   :initial :collecting
+   :states  {:collecting {:on {:submit :charging}}
+             :charging    {:spawn {:src :checkout/charge :on-done :done}}
+             :done        {}}})
 ```
 
-The 5MB string is gone; a ~200-byte marker took its place, and the marker still tells you where the slot lived, how big it was, what kind it was, and why it went away. On-box panels render it as `[● ELIDED 5.2MB]`; off-box shippers ship the marker, not the value.
+The `:sensitive?` slot redacts `[:data :payment :token]` everywhere the machine snapshot egresses — every transition's `:before` / `:after`, the Xray Machine Inspector, the pair-MCP surface, the epoch wire. The `:large?` slot elides the receipt PDF the same way. This is the schema-first machine surface from [chapter 12](12-machines.md), and it is unchanged — co-located props on a declared schema *are* owner-declares-policy when the owner's natural declaration surface is a schema, and a co-located prop is structurally immune to the rename-drift hazard a sibling path map would carry (rename the slot, the prop moves with it).
 
-`:hint` is a free-form short string that rides on the marker — pair it with `:large?` whenever the path alone doesn't make the slot's purpose obvious. An agent or a dev-tool tooltip can read "Resume PDF preview blob" without fetching the 5MB binary to find out what it's looking at.
+The same mechanism covers resource data/params ([chapter 27](27-resources.md)) and HTTP response bodies ([chapter 10](10-http.md)) — three owners, one mechanism. This is **not** in tension with "the frame owns durable app-db policy." The rule is precise: a schema must not be a *second* route to classify an app-db path the frame already owns. But where a schema *is* the owner's natural surface — machine `:data`, resource data, an HTTP body — per-slot props are the *only* route, and there's no competing frame-config route for those shapes. One owner, one route.
+
+## Registration-owned classification: transient payloads
+
+Transient payloads — the values that flow *through* the cascade rather than *living* in durable state — are owned by the registration that introduces their shape. Event args, cofx values, fx args, sub outputs, flow outputs: each is classified by metadata on the registration that defines it.
 
 ```clojure
-(rf/reg-app-schema
-  [:profile/photo-upload]
-  [:map
-   [:filename     :string]
-   [:mime-type    :string]
-   [:encoded-blob {:large? true :hint "Base64 photo preview blob"} :string]])
+(rf/reg-event-fx
+  :auth/login
+  {:sensitive [[:password] [:totp-code]]}
+  (fn [{:keys [db]} [_ {:keys [email password]}]]
+    {:db db
+     :rf.http/managed
+     {:request {:method :post
+                :url    "/api/login"
+                :body   {:email email :password password}}}}))
 
-;; The handler that writes it — no metadata, no interceptor:
-(rf/reg-event-db :profile/load-photo-preview
-  (fn [db [_ encoded]]
-    (assoc-in db [:profile/photo-upload :encoded-blob] encoded)))
+(rf/reg-sub
+  :partner/api-token
+  {:sensitive [[]]}                ;; empty path → the whole sub output
+  (fn [db _]
+    (get-in db [:tenant :partner-api-key])))
+
+(rf/reg-flow
+  :auth/session-summary
+  {:inputs {:token [:auth :token]
+            :user  [:auth :user]}
+   :output [:auth :session-summary]
+   :sensitive [[:token-hash]]
+   :derive (fn [{:keys [token user]}]
+             {:user-id    (:id user)
+              :token-hash (sha256 token)})})
 ```
 
-Same asymmetry as `:sensitive?`: the handler body operates on the real 5MB string, and only the trace surface sees the marker. The wire-boundary walker does the substitution; the handler never knew the marker existed.
+The paths index into the registration's primary data shape — the event arg-map (the second element of `[:event-id {arg-map}]`), the fx-input map, the sub output, the flow output. The empty path `[[]]` marks the whole shape. A mark at a slot that doesn't exist (yet) is a silent no-op — payload shapes evolve, and a stale mark shouldn't crash you — but a malformed path *vector* fails at registration, because that's a bug.
 
-One pointed difference from `:sensitive?`: **`:large?` has no handler-meta escape hatch, by design.** Largeness is *always* a property of the value at a path, never of a handler's behaviour. A handler that reads a small slot doesn't make it large by touching it; a handler that reads a large slot found it large before it ran. There's nowhere for the declaration to live except the schema, so the schema is the only place it lives.
+Note the asymmetry that makes this both safe and usable: the handler body sees `password` verbatim — handlers need real values to do their work, obviously. But the `:event/dispatched` trace event, the always-on event-emit record, the HTTP body — all ship with `:password` projected to `:rf/redacted`. The real value flows through your code; only the *observable shadow* of it on a framework surface gets scrubbed. You did not write a `redact-interceptor`; you did not stamp the handler. The registration declares the truth and the framework projects it.
 
-### The escape valve when you haven't written a schema yet
+## Choosing where observations go: frame `:observability`
 
-You'll write code faster than you write schemas — that's just how development goes — and a `[:user :photo-cache]` slot can quietly balloon past the wire budget before you've declared its shape. The framework nudges you without resorting to a runtime size-walker on the hot path. When the wire-boundary walker is about to emit a value over the 16KB threshold *and* the path has no schema declaration at all, it emits a one-time warning:
+Classification is one of the two things you declare; **sink policy** is the other. Production observability — the always-on handled-event and error records from [chapter 16](16-observability.md) that survive into a production build — is routed by frame `:observability` policy:
 
 ```clojure
-{:operation :rf.warning/large-value-unschema'd
- :tags      {:path  [:user :photo-cache]
-             :bytes 87324
-             :hint  "Add `{:large? true}` to the schema slot for this path."}}
+(rf/reg-frame :app/main
+  {:observability
+   {:handled-events [{:sink :my-app.sinks/datadog
+                      :rf.egress/profile :rf.egress/off-box-observability
+                      :opts {:service "checkout-spa" :env "prod"}}]
+    :errors         [{:sink :my-app.sinks/sentry
+                      :rf.egress/profile :rf.egress/off-box-observability
+                      :opts {:service "checkout-spa" :env "prod"}}]}
+
+   :sensitive {:app-db [[:auth :token]]}
+   :on-create [:app/init]})
 ```
 
-It fires **once per slot per session** (re-emits on the same path short-circuit, so a chatty cascade doesn't flood your dev panel), and it's **dev-only** — under `goog.DEBUG=false` the entire warning emit-site compiles away to nothing, zero production cost. The fix when you see it: open the schema for the slice, add `{:large? true}` (or `{:large? false}` if you've decided the slot really should ride the wire and you want to silence the nudge), reload. Both verdicts are valid; both are explicit.
+Two streams route here:
 
-## Declaring marks at runtime
+- **`:handled-events`** — one production-safe observation record per re-frame event processed by this frame. (Not browser DOM events; not the dev trace stream's many fine-grained events.)
+- **`:errors`** — production-survivable error records, the always-on error axis from chapter 16 / [EP-0008](../EP/EP-0008-production-observability-channels.md).
 
-!!! warning "Superseded by frame-owned classification (EP-0015)"
-    The public authoring boundary for durable app-db classification is now
-    **frame-owned `:sensitive` / `:large` declarations** on `reg-frame` /
-    `make-frame`, plus **`project-egress`** and the `:rf.egress/*` profiles at
-    trust boundaries (per
-    [framework spec/015 §Frame-owned durable classification](../../spec/015-Data-Classification.md)).
-    The imperative `rf/add-marks` / `rf/set-marks` calls described in the rest
-    of this section are **no longer part of the public `re-frame.core`
-    façade** — the underlying path-marks helpers survive only as framework
-    internals. Declare durable app-db classification on the frame instead. This
-    section is retained pending its full rewrite around the classification /
-    projection / sink-policy model.
-
-The canonical declaration above wants a schema, and the recommendation stands: when a slot has a shape, mark it where the shape lives. But two cases sit outside that grain. A slot that has *no* schema registered — the `[:user :photo-cache]` the warning above just nudged you about — has nowhere for a slot prop to attach. And occasionally the sensitivity is *dynamic*: a path you only learn is secret at runtime, or one a feature module wants to mark without owning the schema that declares the slot's shape. For exactly those cases the framework ships an explicit runtime path-marks API — `rf/add-marks` and `rf/set-marks`:
+The app declares a *sink id* the frame policy names, then registers the concrete sink fn against that id. The framework ships no Datadog or Sentry client — the sink fn is your (or an integration library's) concern, and that's why the sink id lives outside the framework namespace (`:my-app.sinks/datadog`, not `:rf.sink/datadog`) and vendor options ride a local `:opts` map:
 
 ```clojure
-;; Mark paths sensitive/large at runtime, against a frame.
-;; Mark keywords are :sensitive and :large (path-list form, not slot props).
-(rf/add-marks :rf/default
-  {[:user :photo-cache] :large        ;; no schema for this slot
-   [:session :jwt]      :sensitive})  ;; learned-at-runtime secret
+(rf/reg-observability-sink! :my-app.sinks/datadog
+  (fn [projected-record]
+    ;; Already projected. No sink-local redaction.
+    (datadog/send projected-record)))
 ```
 
-Two verbs, mirroring `reg-app-schema`'s own additive-vs-replace shape:
+The sink fn receives an **already-projected** record. It does no redaction of its own — by the time it runs, the runtime has already built the record, projected it under the owning frame's classification and the entry's `:rf.egress/profile`, and handed it over safe. That conservative default is the framework's safety net for the app author who wires up a published integration without reading its source: the failure mode is "I see a `:rf/redacted` in the payload and have to widen the policy deliberately," not "I shipped a card number and found out from a customer."
 
-- **`rf/add-marks`** — *additive merge.* The paths you pass merge into the frame's existing mark-set; unmentioned paths keep their prior state, and repeat calls accumulate. This is the form feature-modular code reaches for — each module declares its own marks without clobbering another's.
-- **`rf/set-marks`** — *wholesale replace.* The paths you pass become the frame's `:marks`-sourced set; previously-marks-declared paths not mentioned this time are cleared. Schema-attached marks are untouched — `set-marks` only replaces entries it owns.
+A couple of properties make this robust:
 
-Both are **frame-scoped** (the first arg is the `frame-id`, the same asymmetry as `reg-app-schema`) and both are **pure declarations**: like the schema flag, they don't mutate `app-db`, don't install an interceptor, and don't change any handler's view of the data. They only feed the same mark-lookup table the walker already consults at the wire boundary — runtime marks redact through exactly the same one walker, with exactly the same sentinels.
-
-The two sources **union, and neither can unmark the other.** A path is sensitive if the schema says so *or* a runtime mark says so; there is no precedence fight and no way for one source to override the other down to "not sensitive." That asymmetry is the safe one — adding a second declaration site can only ever *add* protection, never silently strip it — which is precisely why the runtime API can sit alongside the schema without reopening the leak risk the schema-first stance closes.
-
-So the relationship to hold in your head: the **schema is the canonical declaration** for a slot's privacy and size — schema-first wins, and it's where you'll declare marks the overwhelming majority of the time. `add-marks` / `set-marks` is the **explicit runtime augmentation API** for the schema-less and the dynamic cases — a deliberate escape hatch, not a co-equal everyday alternative. Same enforcement, same walker, same sentinels; the only difference is *when* and *where* the truth gets declared. (Spec 015 is the normative home for the path-marks contract and the union rule.)
-
-## When both flags land on one slot
-
-A base64-encoded scan of a customer's passport is both sensitive *and* large. Both flags apply, and the composition rule is deterministic: **sensitive wins, and the value is *dropped*, not marker-substituted.**
+- **Routing is fail-closed and frame-scoped.** An unresolved frame (destroyed or never registered) or a frame with no `:observability` policy routes **nothing** — the runtime never synthesizes `:rf/default`, never borrows another frame's sinks, and never ships a record under unknown classification.
+- **Sinks are isolated.** A throwing sink is dropped; a buggy sink cannot block its siblings or crash the dispatch.
+- **The off-box default omits event args.** Under the default `:rf.egress/off-box-observability` profile, a handled-event record carries frame, event id, status, elapsed, effect keys, and work/correlation ids — and **omits the `:event` args slot entirely**. A tool can opt into a richer payload, but it receives a *projected* payload, never raw values. (This is the same rule as EP-0008's "structured data only — never raw values"; the two specs cross-cite one statement.)
 
 ```clojure
-(cond
-  (and sensitive? large?)  ::drop                  ; no marker; emit :sensitive? true
-  sensitive?               ::redact-or-drop        ; :rf/redacted sentinel
-  large?                   ::elide-with-marker     ; :rf.size/large-elided marker
-  :else                    ::pass-through)
+;; The off-box handled-event record a sink actually receives:
+{:kind        :rf.observe/handled-event
+ :frame       :app/main
+ :event-id    :checkout/submit
+ :status      :ok
+ :elapsed-ms  12
+ :effects     [:db :rf.http/managed]
+ :correlation {:work-id "w-77" :dispatch-id "d-91"}}
+;; No :event slot at all under the off-box default.
 ```
 
-The reason drop beats the size marker is subtle but real: the marker itself carries `:path` and `:bytes`, which are *structural facts* about the slot. Leaking "there's a 5MB blob at `[:kyc :id-document]`" tells an attacker that this customer's KYC review has a document attached and roughly how big it is — and for a sensitive slot, that's still too much. So when both flags fire, the value vanishes entirely and the top-level `:sensitive? true` rollup lets off-box shippers drop the whole event the way they would for any other secret. This same rule binds everywhere the walker runs — wire emits, schema-validation traces, every tool downstream. One rule, no per-site dialect.
+The low-level `register-event-listener!` / `register-error-listener!` registries still exist as advanced integration APIs, but the normal production story is declaring a sink under frame `:observability` and registering its fn — not hand-wiring a listener.
 
-## The one walker
+## Projection profiles: which boundary is this?
 
-Everything above bottoms out on a single function. Every tool that emits wire data calls `rf/elide-wire-value`; it is the *only* normative emission site for the `:rf/redacted` sentinel and the `:rf.size/large-elided` marker, and per-tool reimplementation is prohibited. One function means one place where redaction and elision are correct, instead of five places where four of them are correct and one ships your password.
+The framework performs projection, but it needs to know *which trust boundary* a record is about to cross, because the rules differ — a local dev panel may show indicators, a hosted log sink must omit raw state entirely, a public error response must never carry an internal value. The normal way you (or a tool) answer that question is a named **egress profile**, passed as `:rf.egress/profile`:
 
 ```clojure
-(rf/elide-wire-value v
-                     {:rf.size/include-sensitive? false    ;; default false — sensitive drops
-                      :rf.size/include-large?     false    ;; default false — large elides
-                      :rf.size/include-digests?   false    ;; default false — no sha256 in marker
-                      :rf.size/threshold-bytes    16384
-                      :frame                      :rf/default})
-;; → v unchanged, OR
-;; → nil (sensitive event dropped entirely), OR
-;; → v with :rf/redacted at sensitive paths, OR
-;; → v with :rf.size/large-elided markers at large paths
+(rf/project-egress record
+  {:frame :app/main
+   :rf.egress/profile :rf.egress/off-box-observability})
 ```
 
-The `:handle` on a large marker is a plain EDN vector — not a tagged literal — so agents pattern-match on the leading `:rf.elision/at` keyword and pass the handle straight to the re-frame2-pair-mcp `get-path` tool to fetch the elided value when they genuinely need it (subject to that tool's own cap check; an over-cap fetch fails with `:rf.mcp/overflow`). One round-trip per elided value the consumer actually wants, and never by default.
+`:rf.egress/profile` takes a value from a **closed six-member enum** — the public question is "which boundary?", not "which combination of booleans did I remember?":
+
+| Profile | Default behaviour |
+|---|---|
+| `:rf.egress/off-box-observability` | hosted monitoring (Datadog / Sentry / Honeycomb). Omit raw app-db / runtime-db; redact sensitive; elide large; omit digests unless explicitly enabled. |
+| `:rf.egress/off-box-tool` | MCP / AI / tool wire. Redact sensitive; elide large; include structural indicators / counters so a tool can reason about *shape* without seeing *content*. |
+| `:rf.egress/local-redacted` | local dev UI default. Suppress sensitive display by default; may show indicators. |
+| `:rf.egress/local-raw` | trusted local operator. Include sensitive and large, unless size caps still require handles. |
+| `:rf.egress/ssr-hydration` | the projection applied **after** the SSR allowlist — defence-in-depth, never a parallel SSR mechanism. |
+| `:rf.egress/public-error` | client-safe server error projection; never includes internal raw values. |
+
+The boolean `:rf.size/*` flags (`:include-sensitive?`, `:include-large?`, `:include-digests?`) remain beneath the profiles as an **advanced override layer** — you reach for them when you genuinely need to override one axis of a profile, not as the everyday choice. (The profile names are currently *provisional*: the set is closed, but the exact names don't lock until each profile is exercised by a real consumer surface — a hosted sink, an MCP wire, an SSR payload, and so on.)
+
+### The two projection primitives
+
+Real egress surfaces emit **records**, not bare values — a handled-event record, an error record, an epoch record, an MCP snapshot, an HTTP diagnostic. The public, record-level boundary primitive is **`rf/project-egress`**: it's the required step before any off-box sink, it knows which slots of a record are app-db-shaped, event-shaped, exception-shaped, or summary-only, and it applies the per-record-kind rules (like omitting `:event` args off-box):
+
+```clojure
+(rf/project-egress
+  {:kind   :rf.observe/handled-event
+   :frame  :app/main
+   :event  [:auth/login {:password "secret"}]
+   :status :ok
+   :effects [:db :rf.http/managed]}
+  {:rf.egress/profile :rf.egress/off-box-observability})
+```
+
+Beneath it, **`rf/elide-wire-value`** is the single low-level walker for *tree-shaped values*. It walks a value and substitutes sentinels at the slots the frame's classification says to redact or elide:
+
+```clojure
+(rf/elide-wire-value app-db-slice
+  {:frame :app/main
+   :path  [:auth]
+   :rf.egress/profile :rf.egress/off-box-tool})
+```
+
+`elide-wire-value` knows nothing about record shapes; it's the leaf-level primitive `project-egress` delegates to for each tree-shaped slot. Sinks and tools should reach for `project-egress` and rarely call the walker directly.
+
+## Direct reads must project, with the frame known
+
+A few accessors bypass the trace surface entirely — `rf/app-db-value`, `rf/sub-cache`, an MCP `get-path`. Any direct read that crosses an egress boundary must **project app-side, with the frame known**:
+
+```clojure
+(rf/project-egress value
+  {:frame :app/main
+   :path  [:auth]
+   :rf.egress/profile :rf.egress/off-box-tool})
+```
+
+Egress policy is frame-scoped, so it inherits the no-default-frame rule (chapter 18): **if a projection needs frame policy and no frame is known, it fails closed — it does not synthesize `:rf/default`.** A record reaching the projector frameless redacts rather than leaks; that's belt-and-braces over the routing-level fail-closed above.
+
+On-box visibility is **per (tool, frame) pair** — there's no single process-global "show sensitive" toggle. Local tools default to `:rf.egress/local-redacted`; raw requires an explicit trusted-local opt-in (`:rf.egress/local-raw`). And here's the payoff of routing everything through one projection: **revealing sensitive data is an operator act, and it is itself trace-visible** — auditable, not silent.
 
 ## HTTP is the canonical leak surface
 
-Passwords ride request bodies, auth tokens ride headers, user PII rides response payloads — HTTP is where secrets go to get logged. The managed-HTTP cascade from [chapter 10 — HTTP](10-http.md) layers three cooperating defences on top of the generic `:sensitive?` machinery. None of the three is an app-writer declaration; all three honour your schema's verdict automatically.
+Passwords ride request bodies, auth tokens ride headers, user PII rides response payloads — HTTP is where secrets go to get logged. The managed-HTTP cascade from [chapter 10](10-http.md) layers cooperating defences on top of the general classification machinery.
 
-**Header denylist (always-on).** A canonical set of header names is *always* sensitive — the name itself declares the value secret, regardless of any surrounding flag. The closed list is twelve names: `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `X-Auth-Token`, `X-Session-Token`, `X-CSRF-Token`, `X-XSRF-Token`, `Authentication`, `WWW-Authenticate`, `Proxy-Authenticate`. Their values become `:rf/redacted` in every `:rf.http/*` trace event carrying a `:headers` slot. Extend with your own carrier names on the **frame**: `(rf/reg-frame :app/main {:sensitive {:http {:headers ["X-Honeycomb-Team"]}}})` — the frame's carriers union onto the immutable built-in defaults (EP-0015 §3).
-
-**URL query-string denylist (always-on).** Same idea on the parallel axis: a closed set of query-param names whose values redact inline. `?api_key=SECRET&page=2` becomes `?api_key=:rf/redacted&page=2` — name and position survive (so you can see *which* endpoint was hit), the secret doesn't. A denylist hit also *stamps* `:sensitive? true` on the trace event, because the mere presence of a denylisted param signals the request carries an auth secret. Extend with your own carrier names on the **frame**: `(rf/reg-frame :app/main {:sensitive {:http {:query-params ["shop_token"]}}})` (EP-0015 §3).
-
-**Body redaction (effective-sensitive).** When a request is sensitive — because the handler-meta says so, *or* because a schema slot the body assembles from is `:sensitive?` — the body redaction fires: `:body`, `:body-text`, `:decoded`, `:detail`, `:params`, and all `:url` query-string values become `:rf/redacted`. Three OR-reduced sources contribute the effective flag (handler `:sensitive?`, the `:request` map's `:sensitive?`, or a top-level `:sensitive?` on the `:rf.http/managed` args); any one true means sensitive.
-
-Here's the whole login story, declared once and enforced everywhere:
+**Header denylist (always-on).** A canonical set of header names is *always* sensitive — the name itself declares the value secret. The closed built-in list is twelve names: `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `X-Auth-Token`, `X-Session-Token`, `X-CSRF-Token`, `X-XSRF-Token`, `Authentication`, `WWW-Authenticate`, `Proxy-Authenticate`. Their values become `:rf/redacted` in every `:rf.http/*` record carrying a `:headers` slot. These are **immutable framework defaults** — no frame can remove them. Extend them with your own carrier names on the **frame**, where they union onto the built-ins:
 
 ```clojure
-;; 1. Declare the schema slot. The password is the entire privacy surface.
-(rf/reg-app-schema
-  [:auth]
-  [:map
-   [:username :string]
-   [:password {:sensitive? true} :string]])
+(rf/reg-frame :app/main
+  {:sensitive {:http {:headers ["X-Honeycomb-Team"]}}})
+```
 
-;; 2. Sign-in handler — no metadata, no interceptor.
-;;    The schema's :sensitive? drives the trace scrub AND the HTTP body redaction.
+**URL query-string denylist (always-on).** Same idea on the parallel axis: a closed set of query-param names whose values redact inline. `?api_key=SECRET&page=2` becomes `?api_key=:rf/redacted&page=2` — name and position survive, the secret doesn't. Extend on the frame the same way: `{:sensitive {:http {:query-params ["shop_token"]}}}`.
+
+**Response-body classification (per-slot, on the `:decode` schema).** A response body is a *transient payload* owned by the request's `:decode` schema, classified per-slot with the same `:sensitive?` / `:large?` props the machine and resource surfaces use:
+
+```clojure
 (rf/reg-event-fx :auth/sign-in
   {:doc "Verify credentials and start a session."}
   (fn [{:keys [db]} [_ {:keys [username password]}]]
@@ -233,130 +280,150 @@ Here's the whole login story, declared once and enforced everywhere:
      :fx [[:rf.http/managed
            {:request {:method :post
                       :url    "/auth/login"
-                      :body   {:u username :p password}}}]]}))
-
-;; 3. The trace stream when the user signs in:
-
-;;    Event A — :event/dispatched
-;;    {:operation :event/dispatched
-;;     :tags      {:event [:auth/sign-in {:username "ada" :password :rf/redacted}]}
-;;     :sensitive? true}            ;; schema-driven scrub on :password; flag at top level
-
-;;    Event B — :rf.http/request-started
-;;    {:operation :rf.http/request-started
-;;     :tags      {:request {:url "/auth/login" :body :rf/redacted}}
-;;     :sensitive? true}            ;; HTTP body redaction fired off the same schema verdict
-
-;;    (Events A and B are dev-only trace events. On-box panels render the
-;;    :rf/redacted chip; the dev trace bus elides entirely in production.)
-
-;;    Production: the Datadog event-emit listener from ch.16
-;;    {:event    [:auth/sign-in {:username "ada" :password :rf/redacted}]
-;;     :event-id :auth/sign-in
-;;     :outcome  :ok :frame :rf/default :elapsed-ms 12}
-;;    The always-on event-emit record always fans out — it does NOT whole-drop
-;;    for sensitivity the way a dev trace event can. Its :event payload is
-;;    walked by the SAME elide-wire-value, so :password lands as :rf/redacted
-;;    before Datadog ever sees it. Datadog gets the event-id, frame, outcome,
-;;    and timing — a built-in audit trail of the sign-in, minus the secret.
+                      :body   {:u username :p password}
+                      ;; the :decode schema owns response-body classification:
+                      :decode [:map
+                               [:user-id :string]
+                               [:token {:sensitive? true} :string]]}}]}))
 ```
 
-One declaration site, one walker, every consumer — dev tool or production shipper — honours it.
+The `{:sensitive? true}` prop on the decoded `:token` slot redacts that field everywhere the response egresses. Whole-body sensitivity is a root-level prop on the `:decode` schema. And the fail-closed default bites here too: an **unschematized response body is treated as whole-sensitive** — off-box production traces and captures omit response bodies entirely unless a classified projection is explicitly requested. You don't leak a login response because you forgot to write its `:decode` schema; you get a redacted body until you describe its shape.
 
-## Schema-validation errors: the back door
-
-There's one sneaky leak path worth calling out explicitly. When `app-db` fails validation, the runtime emits `:rf.error/schema-validation-failure` with the failing value in `:tags :value` (plus the surrounding `:explain` map). For a sensitive slot, *the value the schema rejected is exactly the value you didn't want on the bus* — the validation error is the one place a redaction overlay could quietly hand the secret right back.
-
-It doesn't. The validation emit-site walks the failing path's schema; if the slot is `:sensitive?`, the `:value` and `:received` fields are substituted with `:rf/redacted` before emit and the event is stamped `:sensitive? true` at the top level. It's the same declaration you already wrote on the schema slot — there's no second site to also inform the validator.
+Here's the whole login story, declared once and projected everywhere:
 
 ```clojure
-(rf/reg-app-schema
-  [:map [:token {:sensitive? true} :string]])
+;; Frame owns the durable app-db secret (if the token lands in app-db):
+(rf/reg-frame :app/main
+  {:sensitive {:app-db [[:auth :token]]}})
 
-;; A validation failure on [:token] now emits:
-;;   {:operation :rf.error/schema-validation-failure
-;;    :tags      {:path  [:token]
-;;                :value :rf/redacted             ;; ← scrubbed
-;;                :explain {...}}
-;;    :sensitive? true                            ;; ← consumers route on this
-;;    ...}
+;; The event arg-map's :password is a transient payload — registration owns it:
+(rf/reg-event-fx :auth/sign-in
+  {:sensitive [[:password]]}
+  (fn [{:keys [db]} [_ {:keys [username password]}]]
+    {:db (assoc db :auth/pending? true)
+     :fx [[:rf.http/managed
+           {:request {:method :post
+                      :url    "/auth/login"
+                      :body   {:u username :p password}
+                      :decode [:map [:token {:sensitive? true} :string]]}}]}))
+
+;; Production: the Datadog handled-event record the frame's :observability routes.
+;;   {:kind :rf.observe/handled-event :frame :app/main
+;;    :event-id :auth/sign-in :status :ok :elapsed-ms 12 :effects [:db :rf.http/managed]}
+;; The off-box default omits the :event args slot entirely — Datadog gets the
+;; event-id, frame, status, and timing (a built-in sign-in audit trail), no secret.
 ```
 
-Same `sensitive-wins` composition as everywhere else: if the slot were also `:large?`, no size marker is emitted, because the marker's `:path` / `:bytes` would themselves leak structure.
+Three owners — the frame (durable token in app-db), the registration (the transient `:password` arg), the `:decode` schema (the response `:token`) — each declares its own piece once, and `project-egress` carries every declaration to every boundary.
 
-## The consumer side: conservative by default
+## Schema-validation errors: the back door, closed
 
-You've been writing the *producer* side — the declarations. The other half is the *consumer's* policy: the per-call opts map every tool passes when it invokes `rf/elide-wire-value`. The rule that makes the whole system safe is that every off-box consumer ships with **maximum elision by default.**
+When `app-db` or a payload fails validation, the runtime emits `:rf.error/schema-validation-failure` with the failing value. For a sensitive slot, *the value the schema rejected is exactly the value you didn't want on the bus* — the validation error is the one place a leak could quietly hand the secret right back. It doesn't: the validation emit-site projects under the owning frame's classification, so a value at a frame-sensitive (or schema-`:sensitive?`) slot is substituted with `:rf/redacted` and the record stamped sensitive before emit. It's the same declaration you already wrote — there's no second site to also inform the validator. The same `sensitive-wins` composition holds: a slot that's also large emits no size marker, because the marker's `:path` / `:bytes` would themselves leak structure.
 
-| Consumer | `:include-sensitive?` | `:include-large?` | Off-box? |
-|---|---|---|---|
-| re-frame2-pair-mcp (AI surface) | `false` | `false` | Yes |
-| story-mcp (story playgrounds) | `false` | `false` | Yes |
-| Xray-MCP (cascade graph) | `false` | `false` | Yes |
-| Story panel (on-box dev UI) | `false` | `false` | No |
-| Xray panel (on-box dev UI) | `false` | `false` | No |
+## Derived values inherit by default
 
-The production shippers from [chapter 16](16-observability.md) — the Datadog event-emit listener, the Sentry error-emit listener — follow the same rule, with one twist on *who* runs the walker: **off-box egress MUST default both `include-*` flags to `false`.** Off-box means the data is leaving your trust boundary, and Datadog's trust boundary is not yours. Unlike the dev tools above, an event/error-emit listener never calls `elide-wire-value` itself — the always-on substrate walks each record's `:event` payload with those conservative off-box defaults *before* fan-out, so by the time your listener body runs the secret is already `:rf/redacted`. That conservative default is the framework's safety net for the app author who wires up a published integration without reading its source — the failure mode is "I see a `:rf/redacted` in the payload and have to widen the policy deliberately," not "I shipped a card number and found out from a customer."
+Derived values are the hardest case: a subscription, flow, or machine selector can copy, summarise, hash, or reshape a sensitive input into a new value. The conservative rule:
 
-The on-box dev UIs render a small `[● REDACTED]` / `[● ELIDED 5.2MB]` chip wherever a sentinel or marker lands in the rendered tree; the dev clicks the chip to opt in for a single live-fetch via the marker's `:handle`. That's the *only* path by which a sensitive or large value re-materialises on screen, and it's per-fetch, not session-wide. (There's a deliberate verb split worth internalising if you write your own consumer: `include-*` governs *bytes leaving the process*, `show-*` governs *pixels rendered to the dev*. Both default off; both are explicit when on.)
+> **If a framework-known derivation depends on a sensitive input, its output is treated as sensitive — unless the registration explicitly declares the output safe.**
 
-## The runtime-db partition: a separate, coarser off-box default
+"Framework-known" means the dependency graphs re-frame2 actually owns: **subscription topology** (chapter 05's fixed-topology invariant, including realized inputs for parametric subs), **flows**, and **machine selectors** (recognised as subscription variants). Handler internals are honestly *out of scope* — there's no pretend taint-tracking through arbitrary handler bodies. A sub reading `[:auth :token]` projects its output redacted by default, even though you never marked the sub itself.
 
-Everything above governs **app-db** — your application state, where `:sensitive?` / `:large?` ride per-slot on the schema. The *other* partition of a frame (chapter 02), **runtime-db** — the framework's own state: machine snapshots, the route slice, SSR hydration metadata — gets a blunter rule off-box: the **whole partition is redacted/omitted by default**, not per-slot-elided. A stray off-box ship never leaks framework runtime state, period, regardless of whether any individual runtime slot was declared sensitive.
+When a derived value is genuinely safe to surface — a token *prefix*, a hash, a count — you declassify it explicitly with **`:rf.egress/output-sensitivity`**, whose closed value set is `:rf.egress/inherit` (the default), `:rf.egress/sensitive` (force-mark even from public inputs), and `:rf.egress/public` (declassify despite sensitive inputs):
 
-That makes runtime-db a partition you *opt into* off-box, rather than one you opt secrets *out of*. Two trusted-local tools let a developer inspecting their own running app lift that redaction — and here's a wrinkle worth knowing, because the two tools spell the opt-in differently:
+```clojure
+(rf/reg-sub
+  :auth/token-prefix
+  {:inputs [[:auth :token]]
+   :rf.egress/output-sensitivity :rf.egress/public}
+  (fn [token _]
+    (subs token 0 4)))            ;; only the non-secret prefix
+```
 
-- **Xray** exposes a *dedicated, orthogonal* runtime-db axis. Its machine-state accessor takes an `:include-runtime-db?` opt that is **separate** from the `:include-sensitive?` / `:include-large?` opts. Lifting the partition redaction is independent of per-slot elision: opt in with `:include-runtime-db? true` and you see the live machine snapshot, but a `:sensitive?` slot *inside* it (say a `:sensitive?` `:data-schema`, or an `[:auth :password]` leaf) **still redacts**. Two knobs, composed.
-- **re-frame2-pair-mcp** has *no* `:include-runtime-db?` arg. It **folds** runtime-db opt-in onto its existing sensitive gate: the AI-facing `snapshot` tool's `:machines` slice ships `:rf/redacted` unless the server was launched with `--allow-sensitive-reads` **and** the call passed `:include-sensitive true` — the same one switch that lifts per-slot sensitive elision also lifts the runtime-db redaction, in one step.
+The key is flat under `:rf.egress/*`, and — per the cross-layer distinction above — you must **not** spell this `:sensitive false`, because `:sensitive` already means "a collection of paths." A `:rf.egress/public` claim is the declassification analogue of a `:rf.scope/global` resource claim: **Xray enumerates every `:public` claim as a standing audit surface**, so a reviewer can see every place an author asserted "this derived-from-sensitive value is safe." The fail-closed default plus the audit list is the whole bet — you opt *out* of safety deliberately and visibly, never *into* a leak by forgetting.
 
-Both fail closed by default; both honour the same normative ruling (trusted-local tools may request richer diagnostics explicitly, default fails closed). The asymmetry is deliberate, not an oversight: the pair-mcp `--allow-sensitive-reads` boot gate is *already* that tool's coarse "I trust this local session" boundary, so the runtime-db opt-in rides it rather than adding a second knob behind a gate that's already the explicit opt-in. The practical takeaway for anyone reasoning about "how do I see machine/route state off-box": on Xray, reach for `:include-runtime-db?`; on pair-mcp, reach for `--allow-sensitive-reads` + `:include-sensitive` — and don't go hunting for an `:include-runtime-db?` on the pair side, because there isn't one.
+## SSR and hydration are allowlist-first
+
+SSR / hydration is production egress to the browser, and it asks a *different* question from the rest of this chapter. It does not primarily ask "which leaves are sensitive?" — it asks **"which state is allowed to cross this boundary?"** So it's an **allowlist-first** boundary:
+
+```clojure
+(rf/reg-frame :app/server
+  {:ssr
+   {:hydrate
+    {:include-app-db [[:route]
+                      [:public-config]
+                      [:catalog :visible-items]]}}})
+```
+
+Frame classification still composes as **defence-in-depth**: if an allowlisted slice contains a sensitive child, projection redacts it unless the SSR policy explicitly permits. But the primary safety property is that **unlisted state does not cross** — a secret you forgot to classify still can't ride to the browser, because it wasn't on the allowlist in the first place. The `:rf.egress/ssr-hydration` profile is exactly the projection applied *after* this allowlist, never a parallel mechanism. (Resource SSR/hydration follows the same allowlist-first rule — see [chapter 27](27-resources.md).)
+
+## Epoch records: project at export, never mutate at rest
+
+Epoch records ([chapter 24](24-config-and-safety.md)) are **causal replay material** — one assembled record per dequeued event, the substance time-travel and `restore-epoch` replay from. That changes how you protect them. You do **not** scrub them in storage: mutating an epoch record at rest corrupts the replay contract, because the replayer needs the record it actually recorded.
+
+So the posture is:
+
+- raw epoch records may remain **in-process local dev state** — that's where time-travel reads them;
+- off-box epoch *export* **must use egress projection** (`project-egress` with an off-box profile);
+- frame-level epoch projection policy replaces the old process-global redaction hook for ordinary use;
+- **storage-side mutation is removed**, not merely discouraged.
+
+In short: classify your sensitive `app-db` paths on the frame, and epoch *export* projects them at the boundary like every other off-box surface — while the in-process record stays replay-faithful for time-travel.
+
+## The display contract: three sentinels
+
+Projection substitutes one of three sentinel forms, spanning the two-axis (sensitive × large) space. The sentinel keywords are framework-reserved — your app must never use them as legitimate payload values.
+
+**`:rf/redacted` — sensitive only.** An opaque keyword carrying *no* information about the underlying content: not its type, not its size, not a hash, not a prefix.
+
+```clojure
+{:auth/token :rf/redacted}
+```
+
+**`:rf/large {:bytes N :head "..."}` — large only.** A sentinel plus a metadata map: `:bytes` (the size) and an optional `:head` (the first N chars of a printable rendering — the CLJS reference uses 128). The low-level walker emits this as `:rf.size/large-elided`; surfaces that preserve size diagnostics render the rich form.
+
+```clojure
+{:docs/csv-upload :rf/large {:bytes 4523198 :head "ID,Name,Email\n42,Alice,…"}}
+```
+
+**`:rf/redacted {:bytes N}` — sensitive + large composed.** Sensitive wins on content visibility — `:rf/redacted` rides the slot, no `:head` is ever permitted — though a size diagnostic *may* ride alongside.
+
+```clojure
+{:internal/diff-blob :rf/redacted {:bytes 4523198}}
+```
+
+The rendering rule for any consuming tool is uniform and load-bearing: **a large marker is drillable** (click-to-expand, subject to a per-tool size-confirmation), but **`:rf/redacted` MUST NOT be expandable, ever**. A "show original" affordance against `:rf/redacted` is non-conformant — that affordance is the exact leak the contract exists to prevent.
 
 ## The one gap: exceptions
 
-The path-marked declarations redact everywhere the walker can resolve a *path against a known shape* — `app-db`, event arg-maps, sub outputs, fx inputs, cofx injections, machine `:data`, flow outputs. They do **not** walk exception messages or `ex-data` maps, and that's a small but real residual you need to know about.
+Projection walks **known data shapes** and substitutes sentinels at classified paths. It does **not** walk exception messages or `ex-data` maps, and that's a small but real residual you need to know about. Once a sensitive value has been concatenated into a flat `ex-message` string, no path resolves to the substring; and `ex-data` keys are author-chosen (`{:user/email "..."}`) with no relationship to a frame's classified paths — a value-comparison rule would be the taint-tracking non-goal the contract explicitly rejects.
 
-Here's the bite. If a handler reads a sensitive-path value and then throws with it interpolated into the message —
+The bite is narrow — it's the *intersection* of two facts: the handler read a sensitive value, *and* the handler then threw with that value in the message or `ex-data`:
 
 ```clojure
-;; ANTI-PATTERN — the email lands in the exception message.
+;; ANTI-PATTERN — the email lands in the error record verbatim.
 (throw (ex-info (str "User " email " failed login")
                 {:user/email email :reason :invalid-credentials}))
 ```
 
-— the resulting `:rf.error/handler-exception` trace carries the email **verbatim** in `:exception-message` and `:exception-data`. The framework has no way to know the string was assembled from a sensitive path; once the value is concatenated into a flat message there's no path that resolves to the substring, and an `ex-data` map carries arbitrary author-chosen keys (`:user/email`) with no relationship to the `[:user :email]` path in app-db. This is the deliberate boundary of the contract: it's a leak-prevention overlay on observability, not a full taint-tracking system. The framework redacts everywhere it can resolve a path; the exception-assembly site is the one place *you* have to participate.
-
-The cheapest fix, and the one to reach for by default: **don't interpolate sensitive values into messages at all.** The exception exists for the dev reading the trace, and the dev needs the *category* of failure, not the user's identity — which is recoverable anyway from dispatch-id correlation against the (already-redacted) app-db snapshot.
+The cheapest fix, and the one to reach for by default: **name the category of failure, not the value.** The dev reading the trace needs to know *what* failed, not *whose* identity — and the identity is recoverable anyway by correlating the dispatch-id against the (already-projected) app-db snapshot:
 
 ```clojure
-;; Name the category, not the value. Nothing leaks.
+;; Name the category. Nothing leaks.
 (throw (ex-info "Invalid credentials" {:reason :invalid-credentials}))
 ```
 
-When you genuinely need the *structure* of the failing context but not the leaf value, substitute the `:rf/redacted` sentinel at the assembly site (`{:user/email :rf/redacted}`) so the dev sees that an email-keyed lookup was the trigger without seeing the email. And if you throw from sensitive-path-reading handlers often enough that you want it systematic, write a twelve-line `safe-throw` helper in your app that takes a category, a context map, and a set of keys to scrub:
+When you genuinely need the *structure* of the failing context but not the leaf value, substitute the `:rf/redacted` sentinel at the assembly site (`{:user/email :rf/redacted}`) so the dev sees that an email-keyed lookup was the trigger without seeing the email. If you throw from sensitive-path-reading handlers often enough to want it systematic, a per-app `safe-throw` convention (a category, a context map, a set of keys to scrub) is the right shape. The framework deliberately does **not** ship that helper, and for the same reason the projection stops at the path boundary: *which `ex-data` keys correspond to sensitive paths in your specific app* is author knowledge, not framework knowledge. A framework helper would either make you name the scrub keys at every call (adding nothing) or auto-detect them (the rejected taint-tracking system). The point is the convention, not the twelve lines.
 
-```clojure
-(defn safe-throw
-  "Throw an ex-info whose message and ex-data never carry raw values for
-   the keys named in `scrub`. Message is the category; named keys redact."
-  ([category] (safe-throw category {} #{}))
-  ([category context] (safe-throw category context #{}))
-  ([category context scrub]
-   (let [redacted (reduce #(assoc %1 %2 :rf/redacted) context scrub)]
-     (throw (ex-info (str category) (assoc redacted :reason category))))))
-```
+None of this should make you paranoid about every exception. Most handlers neither read a sensitive value nor throw with one in the message, and most exceptions are structural — a missing key, a timeout — where no secret reaches the message at all.
 
-The framework deliberately does *not* ship this for you, and the reason is the same reason Spec 015 stops at the path boundary: knowing *which ex-data keys correspond to sensitive paths in your specific app* is author knowledge, not framework knowledge. A framework helper would either make you name the scrub keys at every call anyway (adding nothing over the in-app version) or try to auto-detect them (the taint-tracking system the design explicitly rejects). The right shape is a per-app convention, and the point is the convention, not the twelve lines.
+## The five moves, in the order you'll reach for them
 
-None of this should make you paranoid about every exception. The gap bites only at the intersection of two facts: the handler reads a sensitive-path value, *and* it throws with that value in the message or ex-data. Most handlers do neither, and most exceptions are about structural failures — a missing key, a timeout — where no secret ends up in the message at all.
+Everything in this chapter reduces to a small set of declarations, and the law underneath them all is the one from the top: *you classify at the owner, the framework projects at the boundary, sinks consume the projected record.*
 
-## Five declarations, in the order you'll reach for them
+1. **Frame `:sensitive` / `:large {:app-db …}`** — for durable app-db secrets and big slices. The auth token, the partner key, the 5MB upload. Declared once on the frame; every off-box surface honours it. The everyday move.
+2. **Schema `:sensitive?` / `:large?` props** — for owner-local schema'd data: a machine's `:data`, a resource's data/params, an HTTP response body's `:decode` slots. The prop lives next to the type; one mechanism across all three owners.
+3. **Registration `:sensitive` / `:large`** — for transient payloads: event args, sub outputs, flow outputs. The `:password` in a login event, the whole output of a token sub.
+4. **`:rf.egress/output-sensitivity :rf.egress/public`** — the deliberate, audited declassification of a derived value that's safe despite a sensitive input. Rare, and Xray lists every one.
+5. **A `safe-throw` convention** — for the exception-assembly gap projection can't reach. The one place the contract asks *you* to participate.
 
-Everything in this chapter reduces to five moves, ranked by how often you'll use them:
-
-1. **Schema-slot `:sensitive?`** — for data-shape secrets. The card number, the session token, the patient record number. One flag, every consumer honours it. You'll write this 90% of the time.
-2. **Schema-slot `:large?` + `:hint`** — for size, not secrecy. The photo blob, the audit log, the cached PDF. The marker keeps `:path` / `:bytes` / `:hint` / `:handle` so consumers know what was elided and can opt in to fetch.
-3. **Handler-meta `:sensitive?`** — for cross-cutting handler-scope sensitivity. The export bundle, the third-party POST, the operation that composes individually-innocent slots into a sensitive whole. Rare.
-4. **Runtime `add-marks` / `set-marks`** — the explicit escape hatch for the schema-less and the dynamic cases: a slot with no schema to carry the flag, or a path you only learn is sensitive at runtime. Unions with the schema; never co-equal with it. Reach for it when the canonical place can't hold the truth.
-5. **A `safe-throw` convention** — for the exception-assembly gap the walker can't reach. The one place the contract asks you to participate.
-
-Not one of these is an interceptor you wire by hand or a per-consumer filter you ship to every tool. You declare the truth once where the truth lives — canonically on the schema, and via the runtime marks API for the slots a schema can't reach — and the platform carries it to every wire boundary it owns.
+Not one of these is an interceptor you wire by hand or a per-consumer filter you ship to every tool. You declare the truth once, where the truth lives — on the frame, on the schema, or on the registration — choose where production observations go, and the platform projects it at every boundary it owns, fail-closed by default and auditable when you open it.
