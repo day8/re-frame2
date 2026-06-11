@@ -172,15 +172,16 @@ Here's the criterion landing on a real case, because it's the one that shows why
 
 When a frame is destroyed, the runtime runs a best-effort recipe of cleanup hooks — late-bound teardown that frees whatever the frame's features acquired. Best-effort means a hook is *allowed* to throw without aborting the rest; the others still run. Historically, a throwing hook emitted a per-hook `:rf.warning/teardown-hook-exception` on the diagnostic channel — which DCE'd out of production entirely. Run the criterion over it and that's plainly the wrong channel. It's production-reachable (a per-request SSR frame destroys on every request). It's a resource leak the next operation can't see (skipped teardown — leaked request data, orphaned timers, cross-request contamination is exactly the failure mode the [SSR per-frame teardown](20-server-side.md) exists to prevent). And it compounds with process lifetime: a long-lived render host leaking one handle per request is a slow death you only diagnose from the leak, never from the symptom. All three legs hold. So teardown-hook failure is promoted onto the always-on axis.
 
-But *how* it's promoted is the instructive part, and it's a pattern you'll see again. A teardown recipe runs *many* hooks. The naive promotion — turn each per-hook warning into a per-hook always-on error — would fan out one production record per failed hook per destroy. Multiply by SSR request volume and you've flooded the very error shipper the promotion was supposed to make useful. So the promotion is **not a blind per-hook rename**. The runtime emits a **single bounded report** per destroy — one `:rf.error/frame-teardown-failed` — carrying the per-hook detail as a `:hook-failures` vector:
+But *how* it's promoted is the instructive part, and it's a pattern you'll see again. A teardown recipe runs *many* hooks. The naive promotion — turn each per-hook warning into a per-hook always-on error — would fan out one production record per failed hook per destroy. Multiply by SSR request volume and you've flooded the very error shipper the promotion was supposed to make useful. So the promotion is **not a blind per-hook rename**. The runtime emits a **single bounded report** per destroy — one `:rf.error/frame-teardown-failed` — carrying the per-hook detail as a `:hook-failures` vector. This is the record your `register-error-listener!` body receives, so `:error` (not `:operation`/`:op-type`) is the top-level discriminator — the same tight error-emit record shape as every other always-on category above:
 
 ```clojure
-{:operation    :rf.error/frame-teardown-failed
- :op-type      :error
- :frame        :app/per-request-42
- :recovery     :ignored                 ;; teardown stays best-effort
+{:error         :rf.error/frame-teardown-failed
+ :frame         :app/per-request-42
+ :recovery      :ignored                ;; teardown stays best-effort
+ :reason        "2 frame-teardown cleanup hook(s) threw during destroy; ..."
+ :time          1715600000000           ;; ms since epoch
  :hook-failures [{:hook :http/abort-inflight :exception #object[...] :where :safe-call-hook!}
-                 {:hook :timers/clear       :exception #object[...] :where :safe-call-hook!}]}}
+                 {:hook :timers/clear        :exception #object[...] :where :safe-call-hook!}]}
 ```
 
 One record names the higher-level fact ("this destroy had teardown failures"), and the vector preserves the *which-hooks-failed-together* correlation an external shipper would never reliably re-group. The recovery stays `:ignored` — teardown is still best-effort; promotion changed the *channel*, not the behaviour.
