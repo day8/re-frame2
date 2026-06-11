@@ -262,6 +262,63 @@
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
                  (path/instantiate [:a '?x] {})))))
 
+;; ---- rf2-ehkut7: instantiate validates the substituted binding ------------
+;;
+;; `instantiate` is a CONCRETE-path PRODUCER (its result feeds get/put/over),
+;; so it routes the substituted result through `normalize-concrete` — the
+;; SAME validated boundary frame classification and resource scope use
+;; (rf2-w9x5fv). A binding whose VALUE is outside the concrete-segment domain
+;; (a fn / host object / composite vector|map|set, or a literal
+;; `[:rf.path/param …]` data form) FAILS CLOSED with `:rf.error/bad-path`
+;; rather than silently smuggling a non-portable segment into a path
+;; presented as concrete. The defect class this closes is exactly the
+;; silent-non-portable-segment leak `normalize-concrete` exists to prevent;
+;; pre-fix `instantiate` substituted the binding unchecked.
+
+(deftest instantiate-rejects-non-concrete-binding
+  (testing "a function-valued binding fails closed with :rf.error/bad-path"
+    (is (= :rf.error/bad-path
+           (try (path/instantiate [:a [:rf.path/param :x] :b] {:x identity}) nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                  (:rf.error/id (ex-data e))))
+           )
+        "a fn binding is a host handle — never a concrete EDN segment"))
+  (testing "a composite (vector) binding fails closed — not a concrete segment"
+    (is (= :rf.error/bad-path
+           (try (path/instantiate [:by-id [:rf.path/param :id]] {:id [:nested]}) nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                  (:rf.error/id (ex-data e)))))
+        "a vector binding is indistinguishable from a template-param data form
+         once substituted; it is rejected at the concrete boundary"))
+  (testing "a map binding fails closed"
+    (is (= :rf.error/bad-path
+           (try (path/instantiate [:a '?x] {:x {:k 1}}) nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                  (:rf.error/id (ex-data e)))))))
+  (testing "a set binding fails closed"
+    (is (= :rf.error/bad-path
+           (try (path/instantiate [:a '?x] {:x #{:a}}) nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                  (:rf.error/id (ex-data e)))))))
+  (testing "the error names the offending substituted segment under :bad-segment"
+    (let [data (try (path/instantiate [:a '?x] {:x [:nope]}) nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                      (ex-data e)))]
+      (is (= [:nope] (:bad-segment data))
+          ":bad-segment surfaces the non-concrete binding value")))
+  (testing "every concrete-domain binding STILL instantiates (no regression)"
+    (is (= [:billing :invoices :by-id "iid" :email]
+           (path/instantiate [:billing :invoices :by-id '?invoice-id :email]
+                             {:invoice-id "iid"}))
+        "string binding")
+    (is (= [:by-id #uuid "00000000-0000-0000-0000-000000000001"]
+           (path/instantiate [:by-id '?id]
+                             {:id #uuid "00000000-0000-0000-0000-000000000001"}))
+        "uuid binding")
+    (is (= [:n 42] (path/instantiate [:n '?i] {:i 42})) "integer binding")
+    (is (= [:a nil :c] (path/instantiate [:a '?x :c] {:x nil}))
+        "present-nil is a legal concrete segment — must NOT be rejected")))
+
 ;; ---- vector-index container policy (rf2-orcbow point 5) ------------------
 ;;
 ;; The intermediate-container policy (Conventions §Path laws) defines the

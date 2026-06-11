@@ -68,6 +68,12 @@
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.trace :as trace]
             [re-frame.conformance :as conformance]
+            ;; EP-0012 (rf2-qyb9l1) — CEDN-1 canonical-identity + `:rf/path`
+            ;; algebra foundation, for the `:canonical-bytes` /
+            ;; `:canonical-identical` / `:canonical-distinct` /
+            ;; `:path-instantiate` call ops. Mirror of the JVM runner.
+            [re-frame.identity :as identity]
+            [re-frame.path :as path]
             [re-frame.routing :as routing]
             ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution`
             ;; fixture event moved out of the `re-frame.routing` production
@@ -130,6 +136,11 @@
     :routing/fragment
     :routing/blocking
     :routing/nav-token
+    ;; EP-0012 (rf2-qyb9l1) — CEDN-1 canonical-identity + `:rf/path` algebra
+    ;; foundation. Matches the JVM runner's claim so
+    ;; `cedn1-path-algebra-golden.edn` runs on CLJS too — the frozen
+    ;; cross-host byte-contract.
+    :identity/cedn1
     :actor/spawn-destroy   ;; rf2-mtq4h — renamed from :actor/spawn to align with spec vocabulary
     :actor/invoke
     :actor/spawn-and-join
@@ -939,6 +950,52 @@
                     (str "reg-machine\n"
                          "    expected: no error (well-formed machine)\n"
                          "    thrown:   " (ex-message thrown)))}))
+
+    ;; EP-0012 (rf2-qyb9l1) — CEDN-1 canonical-identity golden ops. Mirror
+    ;; of the JVM runner: a fixture pins the FROZEN byte-contract
+    ;; (`canonical-bytes`) so an encoder rewrite that changed the bytes
+    ;; fails the corpus on BOTH hosts.
+    :canonical-bytes
+    (let [actual (try (identity/canonical-bytes (:value call))
+                      (catch :default e (str "<error: " (ex-message e) ">")))
+          expect (:expect call)]
+      {:passed? (= expect actual)
+       :detail  (when (not= expect actual)
+                  (str "canonical-bytes " (pr-str (:value call))
+                       "\n    expected: " (pr-str expect)
+                       "\n    actual:   " (pr-str actual)))})
+
+    :canonical-identical
+    (let [ok? (try (identity/identical-identity? (:a call) (:b call))
+                   (catch :default _ false))]
+      {:passed? (boolean ok?)
+       :detail  (when-not ok?
+                  (str "canonical-identical expected = identity: "
+                       (pr-str (:a call)) " vs " (pr-str (:b call))))})
+
+    :canonical-distinct
+    (let [same? (try (identity/identical-identity? (:a call) (:b call))
+                     (catch :default _ false))]
+      {:passed? (not same?)
+       :detail  (when same?
+                  (str "canonical-distinct expected DISTINCT identities: "
+                       (pr-str (:a call)) " vs " (pr-str (:b call))))})
+
+    :path-instantiate
+    (let [want-error (:expect-error call)
+          result     (try {:ok (path/instantiate (:path call) (:bindings call))}
+                          (catch :default e
+                            {:err (or (:rf.error/id (ex-data e)) (ex-message e))}))]
+      (if want-error
+        {:passed? (= want-error (:err result))
+         :detail  (when (not= want-error (:err result))
+                    (str "path-instantiate expected error " want-error
+                         " got " (pr-str result)))}
+        {:passed? (= (:expect call) (:ok result))
+         :detail  (when (not= (:expect call) (:ok result))
+                    (str "path-instantiate " (pr-str (:path call))
+                         "\n    expected: " (pr-str (:expect call))
+                         "\n    actual:   " (pr-str result)))}))
 
     {:passed? false :detail (str "unknown :call form: " (:call call))}))
 

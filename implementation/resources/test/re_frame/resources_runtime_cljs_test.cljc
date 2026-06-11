@@ -194,6 +194,45 @@
     (is (= (state/canonicalize {:a 1 :b 2})
            (state/canonicalize {:b 2 :a 1})))))
 
+;; rf2-o84qq2 (EP-0012 final-review, DEFERRED with this pin): the scoped
+;; resource key is the CEDN-1 canonical VECTOR `[scope rid params]` used
+;; DIRECTLY as a Clojure map key in the `:entries` cache. Clojure map keys
+;; compare by `=` + hash, and `(= [1 2 3] '(1 2 3))` is TRUE — so a
+;; vector-params key and a list-params key, though they carry DISTINCT
+;; authoritative CEDN-1 identities (the test above), still COLLAPSE to one
+;; entry at the map-keying layer. The map-key `=` is COARSER than the
+;; CEDN-1 byte identity for the list-vs-vector edge.
+;;
+;; This pins the KNOWN, deliberately-deferred limitation so it cannot
+;; silently shift. A correct fix (keying `:entries` on `canonical-bytes`
+;; rather than the canonical EDN value under `=`) is a cross-cutting
+;; re-keying refactor — the scoped vector is destructured as `[scope rid
+;; params]` and used as a `get-in`/`assoc-in` path component across events,
+;; the reverse tag/owner indexes, mutation descriptors, SSR projection,
+;; tooling, and the subs layer — far beyond a surgical change, and the edge
+;; is extremely narrow (a LIST as a resource params value; params are
+;; typically Malli `:map`s of scalars/vectors, never lists). The competing
+;; "normalize list→vector" fix is REJECTED: it would re-erase the CEDN-1
+;; list-vs-vector kind distinction rf2-wgutc2 deliberately introduced (the
+;; test above). Deferred per the rf2-o84qq2 triage; this pin is the target a
+;; future canonical-bytes re-keying would flip.
+(deftest scoped-key-map-collapse-is-a-known-deferred-edge-rf2-o84qq2
+  (testing "list-vs-vector params keys carry DISTINCT CEDN-1 identities..."
+    (let [kv (state/scoped-resource-key :rf.scope/global :r/x {:xs [1 2 3]})
+          kl (state/scoped-resource-key :rf.scope/global :r/x {:xs '(1 2 3)})]
+      (is (not (identity/identical-identity? kv kl))
+          "the authoritative identities differ (v[...] vs l(...))")
+      ;; ...yet Clojure `=` (the map-key comparator) does NOT discriminate
+      ;; them, so they collapse to ONE entry in an `:entries`-shaped map.
+      (testing "...but COLLAPSE under Clojure = at the :entries map-keying layer
+                (the known deferred limitation)"
+        (is (= kv kl)
+            "Clojure value = treats the vector- and list-params keys as equal")
+        (is (= 1 (count (-> {} (assoc kv :v) (assoc kl :l))))
+            "both keys map to ONE entry — the coarser-than-CEDN-1 collapse")
+        (is (= :l (get (-> {} (assoc kv :v) (assoc kl :l)) kv))
+            "the second write wins under =, confirming the single-slot collapse")))))
+
 ;; ===========================================================================
 ;; 2. Fail-closed scope policy (no global fallthrough)
 ;; ===========================================================================

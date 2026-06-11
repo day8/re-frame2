@@ -40,8 +40,14 @@
   [file]
   (try
     (let [raw   (slurp file)
+          ;; Rewrite ONLY a standalone auto-resolved keyword `::name` (one
+          ;; beginning a token — preceded by `(` / `[` / `{` / whitespace).
+          ;; The lookbehind keeps the rewrite from corrupting a `::` INSIDE a
+          ;; value, e.g. the CEDN-1 keyword token `"k::answer"` in an EP-0012
+          ;; `:expect` string (rf2-qyb9l1). Mirror of the JVM runner's
+          ;; load-fixture rewrite.
           fixed (str/replace raw
-                             #"::([a-zA-Z][a-zA-Z0-9_-]*)"
+                             #"(?<=[\s(\[{])::([a-zA-Z][a-zA-Z0-9_-]*)"
                              ":rf.machine.timer/$1")]
       (edn/read-string fixed))
     (catch Throwable e

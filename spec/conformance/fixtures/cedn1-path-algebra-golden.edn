@@ -1,0 +1,97 @@
+;; Conformance fixture: identity/cedn1-path-algebra-golden
+;;
+;; EP-0012 (`:rf/path` algebra + CEDN-1 canonical identity). Per the EP
+;; §Validation/Conformance: "Conforming implementations SHOULD validate this
+;; EP with property tests AND small cross-host fixtures" and the
+;; Canonical-identity conformance list: "Pin FIXTURES for heterogeneous map
+;; keys that the canonical encoder supports."
+;;
+;; This is the FROZEN cross-host byte-contract for the EP-0012 foundation
+;; (rf2-qyb9l1). The live dual-host `.cljc` property + example tests
+;; (`identity-cedn1-cljs-test`, `path-laws-cljs-test`) exercise the encoder
+;; on each host; this fixture pins the EXACT CEDN-1 token stream a value
+;; encodes to, so an encoder rewrite that silently changed the bytes would
+;; fail the conformance corpus on BOTH the JVM and CLJS runners — a static
+;; contract a live property test cannot give (it compares to itself, not to
+;; a frozen string). It is the concrete target a non-Clojure port aims at
+;; (the EP's stated motivation: "gives non-Clojure ports a concrete target").
+;;
+;; Capabilities exercised:
+;;   :identity/cedn1 — the canonical-bytes encoding + identical-identity?
+;;                     comparison, and the `:rf/path` instantiate boundary.
+;;
+;; Call ops (see the conformance runner's run-call):
+;;   :canonical-bytes      {:value V :expect "<token-string>"}
+;;   :canonical-identical  {:a A :b B}            ;; A and B share ONE identity
+;;   :canonical-distinct   {:a A :b B}            ;; A and B are DISTINCT facts
+;;   :path-instantiate     {:path P :bindings M :expect CONCRETE}
+;;                         {:path P :bindings M :expect-error :rf.error/...}
+
+{:fixture/id           :identity/cedn1-path-algebra-golden
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:identity/cedn1}
+ :fixture/doc          "Frozen CEDN-1 canonical-bytes token contract for the EP-0012 foundation: scalars, vector-vs-list kind distinction, set / map canonical ordering, heterogeneous map keys, instants, plus the `:rf/path` instantiate concrete-path-producer boundary (a host/composite binding fails closed). The bytes are pinned so an encoder rewrite that changed them fails the corpus on both hosts."
+
+ :fixture/calls
+ [;; --- scalars: the type tag keeps distinct EDN kinds distinct ----------
+  {:call :canonical-bytes :value "42"      :expect "s:\"42\""}
+  {:call :canonical-bytes :value 42        :expect "i:42"}
+  {:call :canonical-bytes :value :answer   :expect "k::answer"}
+  {:call :canonical-bytes :value sym       :expect "y:sym"}
+  {:call :canonical-bytes :value true      :expect "b:1"}
+  {:call :canonical-bytes :value false     :expect "b:0"}
+  {:call :canonical-bytes :value nil       :expect "n"}
+  {:call :canonical-bytes
+   :value #uuid "00000000-0000-0000-0000-000000000001"
+   :expect "u:00000000-0000-0000-0000-000000000001"}
+  {:call :canonical-bytes
+   :value #inst "2026-06-12T00:00:00.000-00:00"
+   :expect "t:2026-06-12T00:00:00.000Z"}
+
+  ;; --- vector vs list: DISTINCT EDN facts, never collapsed --------------
+  {:call :canonical-bytes :value [1 2 3]     :expect "v[i:1 i:2 i:3]"}
+  {:call :canonical-bytes :value (1 2 3)     :expect "l(i:1 i:2 i:3)"}
+  ;; the authoritative identities differ (the `=`-collapse rf2-o84qq2
+  ;; notwithstanding — CEDN-1 is the authoritative identity).
+  {:call :canonical-distinct :a [1 2 3] :b (1 2 3)}
+
+  ;; --- map canonical KEY ORDER: insertion order is not identity ---------
+  {:call :canonical-bytes :value {:b 2 :a 1} :expect "m{k::a i:1 k::b i:2}"}
+  {:call :canonical-bytes :value {:a 1 :b 2} :expect "m{k::a i:1 k::b i:2}"}
+  {:call :canonical-identical :a {:b 2 :a 1} :b {:a 1 :b 2}}
+
+  ;; --- a map mixing value kinds incl. present-nil (distinct from absent) -
+  {:call :canonical-bytes
+   :value {:k "v" :n 42 :ok true :nada nil}
+   :expect "m{k::k s:\"v\" k::n i:42 k::nada n k::ok b:1}"}
+
+  ;; --- set canonical ELEMENT ORDER --------------------------------------
+  {:call :canonical-bytes :value #{:m :x :a} :expect "q#{k::a k::m k::x}"}
+  {:call :canonical-identical :a #{:m :x :a} :b #{:a :x :m}}
+
+  ;; --- HETEROGENEOUS map keys (the EP's named fixture obligation): a
+  ;;     vector key alongside a keyword key, both canonically ordered by
+  ;;     their key CEDN-1 bytes.
+  {:call :canonical-bytes
+   :value {[:nested :key] 1 :flat 2}
+   :expect "m{k::flat i:2 v[k::nested k::key] i:1}"}
+
+  ;; --- the `:rf/path` instantiate concrete-path-producer boundary -------
+  ;; A fully-bound template instantiates to a concrete path.
+  {:call :path-instantiate
+   :path     [:billing :invoices :by-id [:rf.path/param :invoice-id] :email]
+   :bindings {:invoice-id "iid"}
+   :expect   [:billing :invoices :by-id "iid" :email]}
+  ;; A present-nil binding is a legal concrete segment.
+  {:call :path-instantiate
+   :path [:a [:rf.path/param :x] :c] :bindings {:x nil}
+   :expect [:a nil :c]}
+  ;; rf2-ehkut7: a COMPOSITE (vector) binding fails closed — it would
+  ;; smuggle a non-concrete segment into a path presented as concrete.
+  {:call :path-instantiate
+   :path [:by-id [:rf.path/param :id]] :bindings {:id [:nested]}
+   :expect-error :rf.error/bad-path}
+  ;; an UNBOUND param fails closed with the missing-param error.
+  {:call :path-instantiate
+   :path [:a [:rf.path/param :x]] :bindings {}
+   :expect-error :rf.error/missing-path-param}]}
