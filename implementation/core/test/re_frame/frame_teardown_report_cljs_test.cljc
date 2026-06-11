@@ -282,3 +282,199 @@
         (is (= 1 (count reps)) "always-on channel: ONE bounded report")
         (is (= 2 (count (:hook-failures (first reps))))
             "the single report carries both hook failures")))))
+
+;; ===========================================================================
+;; (e) No-raw-values property of the always-on report (rf2-c80lom)
+;; ---------------------------------------------------------------------------
+;; The teardown report rides the ALWAYS-ON / production-surviving axis, which
+;; is NOT privacy-gated like the dev trace. `dispatch-frame-teardown-report!`
+;; builds the record with EXACTLY `{:error :frame :hook-failures :recovery
+;; :reason :time}` — deliberately NO `:event` vector and NO app-db slice — and
+;; each `:hook-failures` entry is structured-only `{:hook :exception :where}`.
+;; The contrast partner `write_after_destroy_always_on_cljs_test.cljc` asserts
+;; its record carries no raw values (`:event`/`:frame`/`:exception` nil); the
+;; teardown report had no equivalent pin (the F2 review verified it "by
+;; construction" only). This pins the property so a future change that folds an
+;; app value into the report fails closed.
+;; ===========================================================================
+
+(deftest report-record-carries-no-raw-values
+  (testing "Per rf2-c80lom / Spec 009 §Observability channels (always-on axis,
+            non-privacy-gated): the `:rf.error/frame-teardown-failed` record's
+            keys are EXACTLY the known structured set — no `:event` vector, no
+            `:app-db` slice, no raw app-supplied payload — so a destroy report
+            on a `goog.DEBUG=false` host carries no user data off-box. Each
+            `:hook-failures` entry is structured-only `{:hook :exception
+            :where}`. (The per-hook `:exception` object can itself carry app
+            data in its ex-data — that is a SPEC question for 009, not pinned
+            here; see the rf2-c80lom companion note.)"
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (rf/reg-frame :teardown/no-raw {:doc "two hooks throw"})
+      (with-hooks*
+        {:ssr/on-frame-destroyed      (throwing-hook :ssr)
+         :schemas/on-frame-destroyed! (throwing-hook :schemas)}
+        (fn [] (rf/destroy-frame! :teardown/no-raw)))
+      (let [r (first (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))]
+        (is (some? r) "the report fired")
+        (is (= #{:error :frame :hook-failures :recovery :reason :time}
+               (set (keys r)))
+            "the report record's keys are EXACTLY the known structured set —
+             no :event vector, no :app-db slice, no raw payload leak")
+        (is (not (contains? r :event))
+            "no :event vector — a destroy report is not a per-event throw")
+        (is (not (contains? r :app-db))
+            "no :app-db slice rides the always-on report")
+        (doseq [entry (:hook-failures r)]
+          (is (= #{:hook :exception :where} (set (keys entry)))
+              "each :hook-failures entry is structured-only {:hook :exception
+               :where} — no raw user value folded into the entry"))))))
+
+;; ===========================================================================
+;; (f) Multi-listener fan-out + throwing-sibling isolation on the REPORT path
+;; (rf2-tvoc63)
+;; ---------------------------------------------------------------------------
+;; `on_error_test.cljc` pins the per-event axis (`dispatch-on-error!`) against
+;; multiple listeners incl. a throwing one (`error-listener-exception-is-
+;; swallowed` → sibling still receives). The bounded-report sibling
+;; (`dispatch-frame-teardown-report!`) shares the SAME `(:fan-out registry)`,
+;; so the isolation is correct by construction — but it was only ever exercised
+;; against a single recorder listener. This pins the throwing-sibling isolation
+;; for the report fn directly.
+;; ===========================================================================
+
+(deftest report-fans-out-across-multiple-listeners-throwing-sibling-isolated
+  (testing "Per rf2-tvoc63 / Spec 009 §register-error-listener! fan-out: the
+            teardown report fans out to EVERY registered listener, and a
+            throwing listener cannot starve a sibling — the report still
+            reaches the recorder. The report path shares the per-event axis's
+            `(:fan-out registry)`, so the defensive fan-out holds for it too."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/throws
+                                   (fn [_record]
+                                     (throw (ex-info "listener went boom" {}))))
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      ;; Direct substrate exercise — the same fn frame.cljc reaches via the
+      ;; :error-emit/dispatch-frame-teardown-report late-bind hook.
+      (error-emit/dispatch-frame-teardown-report!
+        :prod/frame
+        [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {}) :where :safe-call-hook!}]
+        12345)
+      (is (= 1 (count @seen))
+          "the report still reached the sibling recorder despite the throwing
+           listener (fan-out is defensive across listeners)")
+      (is (= :rf.error/frame-teardown-failed (:error (first @seen))))))
+
+  (testing "Per rf2-tvoc63 (latent same-hook-key note): `safe-call-hook!`
+            conj's one entry per call, so if the SAME hook key were to throw
+            twice in one destroy the report would carry two entries with the
+            same `:hook` (no de-dup). The current recipe calls each hook once,
+            so this is latent — pinned directly at the report shape via a
+            hand-built two-same-key failure vector to document the
+            accumulate-don't-dedup contract."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (error-emit/dispatch-frame-teardown-report!
+        :prod/frame
+        [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {}) :where :safe-call-hook!}
+         {:hook :ssr/on-frame-destroyed :exception (ex-info "y" {}) :where :safe-call-hook!}]
+        99)
+      (let [r (first @seen)]
+        (is (= 2 (count (:hook-failures r)))
+            "duplicate hook keys accumulate — the report does NOT de-dup by
+             :hook (one entry per safe-call-hook! failure)")
+        (is (= [:ssr/on-frame-destroyed :ssr/on-frame-destroyed]
+               (map :hook (:hook-failures r)))
+            "both same-key entries are preserved in order")))))
+
+;; ===========================================================================
+;; (g) Re-entrant / nested destroy accumulator isolation (rf2-chpdkr)
+;; ---------------------------------------------------------------------------
+;; `destroy-frame!` holds the per-destroy hook-failure accumulator in a fresh
+;; `(atom [])` bound to the dynamic `*teardown-hook-failures*` PER CALL. Spec
+;; 002 re-entrancy (rf2-r1ciy) supports a nested `destroy-frame!` for a
+;; DIFFERENT id from inside an `:on-destroy` handler. The correctness-by-
+;; construction claim is that each destroy gets its OWN accumulator (the
+;; `binding` shadows), so a nested destroy's hook failures cannot leak into the
+;; outer destroy's report and vice-versa, and each emits its own bounded report.
+;; This isolation invariant had NO test — a future refactor to a non-dynamic
+;; accumulator would silently break it. Pinned here.
+;;
+;; Mechanism: `fire-on-destroy-event!` (teardown step 1) runs the user
+;; `:on-destroy` synchronously BEFORE the outer frame's own cleanup hooks
+;; (step *). So an `:on-destroy` that triggers a nested `destroy-frame!` of a
+;; DIFFERENT frame runs that inner teardown — incl. the inner finally-flush —
+;; fully nested inside the outer's step 1, while the outer's accumulator is
+;; still empty. The `binding` shadow gives the inner destroy its own atom.
+;;
+;; Note: the cleanup hooks are late-bound by KEY (global), not per-frame — so
+;; BOTH A and B run the same recipe and BOTH fail every installed hook. The
+;; isolation invariant is therefore: each report carries exactly N entries
+;; (its OWN extent's failures), NOT 2N (the combined set). A leak from the
+;; binding-shadow breaking would show up as a 2N (double-counted) report.
+;; ===========================================================================
+
+(deftest nested-destroy-accumulators-are-isolated
+  (testing "Per rf2-chpdkr / Spec 002 re-entrancy (rf2-r1ciy) + rf2-ini4wr: a
+            frame A whose `:on-destroy` triggers a nested `destroy-frame!` of a
+            DIFFERENT frame B, with throwing cleanup hooks installed for BOTH
+            extents, yields TWO independent `:rf.error/frame-teardown-failed`
+            reports — each carrying ONLY its own extent's failures (no
+            cross-contamination, no double-count). The dynamic
+            `*teardown-hook-failures*` binding shadow gives each destroy its own
+            accumulator: the inner (B) destroy runs nested inside A's
+            `:on-destroy` (step 1) under a SHADOWED atom, so its failures do not
+            land in A's accumulator and A's later failures do not land in B's."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      ;; B: the inner frame, destroyed nested from A's :on-destroy.
+      (rf/reg-frame :teardown/inner-B {:doc "inner frame, destroyed nested"})
+      ;; A's :on-destroy event destroys B mid-teardown of A. B's full teardown
+      ;; (incl. its finally-flush report) completes nested inside A's step 1,
+      ;; while A's own accumulator is still empty (A's own hooks run AFTER).
+      (rf/reg-event-db :teardown/destroy-inner
+                       (fn [db _]
+                         (rf/destroy-frame! :teardown/inner-B)
+                         db))
+      (rf/reg-frame :teardown/outer-A
+                    {:doc        "outer frame"
+                     :on-destroy [:teardown/destroy-inner]})
+      ;; Three throwing hooks installed for the whole extent. Both A and B run
+      ;; the full recipe, so BOTH fail all three. The binding shadow must keep
+      ;; the two accumulators separate — each report carries exactly THREE, not
+      ;; six.
+      (with-hooks*
+        {:ssr/on-frame-destroyed           (throwing-hook :ssr)
+         :schemas/on-frame-destroyed!      (throwing-hook :schemas)
+         :flows/teardown-on-frame-destroy! (throwing-hook :flows)}
+        (fn [] (rf/destroy-frame! :teardown/outer-A)))
+      (let [reports  (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)
+            by-frame (into {} (map (juxt :frame identity)) reports)
+            report-A (get by-frame :teardown/outer-A)
+            report-B (get by-frame :teardown/inner-B)
+            expected #{:ssr/on-frame-destroyed
+                       :schemas/on-frame-destroyed!
+                       :flows/teardown-on-frame-destroy!}]
+        (is (= 2 (count reports))
+            "TWO independent reports — one per destroy (A and B), each frame-
+             attributed; the binding shadow did not collapse them into one")
+        (is (some? report-A) "the outer (A) report fired")
+        (is (some? report-B) "the inner (B) report fired")
+        ;; B's report carries exactly its OWN three failures — NOT six (which
+        ;; would mean A's accumulator leaked into B's), NOT zero.
+        (is (= 3 (count (:hook-failures report-B)))
+            "B's report carries exactly its OWN three hook failures — no leak
+             from / into A's extent (a broken binding shadow would show 6)")
+        (is (= expected (set (map :hook (:hook-failures report-B))))
+            "B's report carries B's own failing hook keys, no duplicates")
+        ;; A's report carries exactly its OWN three failures — NOT six (B's
+        ;; nested failures did NOT leak into A's accumulator).
+        (is (= 3 (count (:hook-failures report-A)))
+            "A's report carries exactly its OWN three hook failures — B's
+             nested failures did NOT leak into A's accumulator (no double-count)")
+        (is (= expected (set (map :hook (:hook-failures report-A))))
+            "A's report carries A's own failing hook keys, no duplicates")))))
