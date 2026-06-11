@@ -1164,3 +1164,122 @@
                  (is (err? r)
                      "a non-string override target ⇒ :isError")
                  (done))))))
+
+;; ---------------------------------------------------------------------------
+;; world-inputs wire shape (rf2-q6s1nb / EP-0010) — a scripted causal
+;; world-input map is parsed as EDN data and threaded into the dispatch opts
+;; under the namespaced `:rf.world/inputs` key the router reads
+;; (router.cljc:202-204, which preserves a caller-supplied map verbatim). A
+;; dispatched event then carries the agent's exact `:time-ms` / `:uuid` /
+;; `:random`, so the resulting state is REPRODUCIBLE — the agent-replay-
+;; determinism affordance the EP calls for. A malformed value short-circuits
+;; to an :isError envelope before the eval rather than threading a value the
+;; runtime's :rf/dispatch-opts validation would reject.
+;; ---------------------------------------------------------------------------
+
+(deftest world-inputs-threaded-into-opts-under-namespaced-key
+  ;; The headline rf2-q6s1nb case: `world-inputs "{:time-ms 1781078400123}"`
+  ;; must appear in the emitted runtime opts map under the namespaced
+  ;; `:rf.world/inputs` key, as DATA (the exact integer time), so the router
+  ;; preserves it verbatim and the dispatch is reproducible.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 7 :db-changed? true
+                                         :changed-paths [[:todo]] :effects-fired [:db] :no-op? false}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:todo/add {:text \"buy milk\"}]"
+                                           :world-inputs "{:time-ms 1781078400123}"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [parsed (cljs.reader/read-string @captured)
+                         opts   (nth parsed 2)]
+                     (is (= [:todo/add {:text "buy milk"}] (second parsed)))
+                     (is (= {:time-ms 1781078400123} (:rf.world/inputs opts))
+                         "world-inputs is threaded under the :rf.world/inputs opts key the router reads")
+                     (is (int? (get-in opts [:rf.world/inputs :time-ms]))
+                         ":time-ms rides as an integer — DATA, not source")
+                     (is (re-find #":rf\.world/inputs" @captured)
+                         "the namespaced key is emitted in the runtime form"))
+                   (done)))))))
+
+(deftest world-inputs-supports-uuid-and-random-maps
+  ;; The schema's optional :uuid / :random domain-keyed maps ride through
+  ;; verbatim so an agent can script generated ids and random choices too.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 8}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:todo/add {:text \"x\"}]"
+                                           :sync true
+                                           :world-inputs "{:time-ms 1700000000000 :uuid {:todo/id \"id-1\"} :random {:roll 4}}"})))
+          (.then (fn [_]
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)
+                         wi   (:rf.world/inputs opts)]
+                     (is (= 1700000000000 (:time-ms wi)))
+                     (is (= {:todo/id "id-1"} (:uuid wi))
+                         ":uuid domain-keyed map rides through verbatim")
+                     (is (= {:roll 4} (:random wi))
+                         ":random recorded choices ride through verbatim"))
+                   (done)))))))
+
+(deftest no-world-inputs-arg-omits-the-opts-key
+  ;; Absent `world-inputs` ⇒ no `:rf.world/inputs` key in the emitted opts
+  ;; (the ordinary live path — the runtime stamps :time-ms itself). Guards
+  ;; against a stray nil-valued slot that would defeat the router's stamp.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 7}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]" :sync true})))
+          (.then (fn [_]
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                     (is (not (contains? opts :rf.world/inputs))
+                         "no :rf.world/inputs opt when the arg is absent"))
+                   (done)))))))
+
+(deftest world-inputs-non-map-rejected
+  ;; A vector / scalar is valid EDN but the wrong shape — reject with
+  ;; :invalid-world-inputs rather than thread it into the opts.
+  (async done
+    (-> (with-captured-eval! (atom nil) {:ok? true}
+          (fn []
+            (dispatch/dispatch-tool (fresh-conn)
+                                    #js {:event "[:counter/inc]"
+                                         :world-inputs "[:not :a :map]"})))
+        (.then (fn [r]
+                 (is (err? r) "a non-map world-inputs ⇒ :isError")
+                 (let [edn (read-result-text r)]
+                   (is (= :invalid-world-inputs (:reason edn))))
+                 (done))))))
+
+(deftest world-inputs-unreadable-rejected
+  ;; Unreadable EDN (mismatched brackets) ⇒ :invalid-world-inputs.
+  (async done
+    (-> (with-captured-eval! (atom nil) {:ok? true}
+          (fn []
+            (dispatch/dispatch-tool (fresh-conn)
+                                    #js {:event "[:counter/inc]"
+                                         :world-inputs "{:time-ms 1"})))
+        (.then (fn [r]
+                 (is (err? r))
+                 (let [edn (read-result-text r)]
+                   (is (= :invalid-world-inputs (:reason edn))))
+                 (done))))))
+
+(deftest world-inputs-non-integer-time-ms-rejected
+  ;; :time-ms must be an integer (epoch ms). A string / float ⇒
+  ;; :invalid-world-inputs-time-ms, short-circuited before the eval.
+  (async done
+    (-> (with-captured-eval! (atom nil) {:ok? true}
+          (fn []
+            (dispatch/dispatch-tool (fresh-conn)
+                                    #js {:event "[:counter/inc]"
+                                         :world-inputs "{:time-ms \"now\"}"})))
+        (.then (fn [r]
+                 (is (err? r) "a non-integer :time-ms ⇒ :isError")
+                 (let [edn (read-result-text r)]
+                   (is (= :invalid-world-inputs-time-ms (:reason edn))))
+                 (done))))))

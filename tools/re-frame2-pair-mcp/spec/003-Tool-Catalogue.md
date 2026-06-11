@@ -1000,9 +1000,11 @@ settled epoch), `await-render` (bool, rf2-gfu33), `queued` (bool,
 rf2-3bu3d.2 — async transport-ack shape), `timeout-ms` (integer,
 default `5000` — render-settle deadline), `frame` (string, e.g.
 `":foo"`), `fx-overrides` (object, e.g. `{:http :stub-http}`),
-`include-sensitive` (bool, default `false` — ship the raw `:epoch` /
-`:event-vector` verbatim; honoured ONLY under `--allow-sensitive-reads`,
-rf2-8fin7.3), `build` (string).
+`world-inputs` (string — EDN map of scripted causal world facts, e.g.
+`"{:time-ms 1781078400123}"`; rf2-q6s1nb / EP-0010 — see *Reproducible
+dispatch* below), `include-sensitive` (bool, default `false` — ship the
+raw `:epoch` / `:event-vector` verbatim; honoured ONLY under
+`--allow-sensitive-reads`, rf2-8fin7.3), `build` (string).
 
 The `frame` arg is colon-tolerant (rf2-ldfnx): both the documented
 colon-prefixed id (`":rf/xray"` — the form discover-app surfaces, §Id
@@ -1067,6 +1069,39 @@ ambiguous (`:reason :ambiguous-frame`) — the tool surfaces a structured
 ERROR envelope (`:isError true`) carrying the runtime's verbatim
 `:ok? false` / `:reason` / `:hint`, with NO `:mode` slot. It never
 reports `{:mode …}` over a no-op.
+
+### Reproducible dispatch — `world-inputs` (rf2-q6s1nb / EP-0010)
+
+By default a dispatched event's wall-clock time, generated ids, and
+random choices are stamped freshly by the runtime, so the resulting
+state differs run-to-run — an agent cannot replay a fixture and assert
+the SAME output. The `world-inputs` arg closes that: it accepts an EDN
+map of scripted causal world facts that is threaded into the dispatch
+envelope under the public `:rf.world/inputs` opts key.
+
+`:rf.world/inputs` is an optional key of the `:rf/dispatch-opts` schema
+([Spec-Schemas §:rf.world/inputs](../../../spec/Spec-Schemas.md#rfworldinputs)),
+and the router PRESERVES a caller-supplied map verbatim — it fills only
+the framework-required `:time-ms` when absent and never overwrites a
+supplied value ([002 §Envelope stamping](../../../spec/002-Frames.md#envelope-stamping)).
+So a dispatch with `world-inputs "{:time-ms 1781078400123}"` makes every
+durable wall-clock read (entity `:created-at`, resource `:loaded-at`,
+machine snapshot times, the epoch record's causal time, …) read that
+exact value; `:uuid` / `:random` domain-keyed maps script generated ids
+and recorded random choices the same way. This is the
+agent-replay-determinism affordance EP-0010 names for the tool-dispatch
+helpers (Ref-Impl step 4).
+
+**Wire shape.** The arg is an EDN STRING (data, not host source — the
+same gate as `event`, rf2-vflrg). It MUST read as a map, and `:time-ms`,
+when present, MUST be an integer (epoch milliseconds). A non-map /
+unreadable value returns `:reason :invalid-world-inputs`; a non-integer
+`:time-ms` returns `:reason :invalid-world-inputs-time-ms` — both short-
+circuit to an `:isError` envelope BEFORE the dispatch eval, so a typo
+never reaches the runtime's deeper `:rf/dispatch-opts` validation. Omit
+the arg for the ordinary live path (the runtime stamps `:time-ms`).
+`world-inputs` composes with every mode (`sync` / `trace` / `settle` /
+`await-render` / `queued`) and with `frame` / `fx-overrides`.
 
 ### Render-settle — `:await-render` (rf2-gfu33)
 

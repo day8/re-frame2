@@ -352,6 +352,18 @@
         ;; and REJECTS any other value with a structured error.
         fx-r         (args/parse-fx-overrides (wire/arg args :fx-overrides))
         fx-overrides (when (= :ok (first fx-r)) (second fx-r))
+        ;; rf2-q6s1nb / EP-0010 — caller-scripted causal world inputs. The
+        ;; agent supplies `world-inputs "{:time-ms …}"` (EDN data, same
+        ;; data-not-source gate as `event`); the router PRESERVES the
+        ;; supplied map verbatim and stamps only the framework-required
+        ;; `:time-ms` when absent (router.cljc:202-204), so a dispatched
+        ;; event carries a scripted causal time / uuid / random and the
+        ;; resulting state is REPRODUCIBLE (the agent-replay-determinism
+        ;; affordance). A malformed value short-circuits to an honest
+        ;; isError below rather than threading a value the runtime's
+        ;; `:rf/dispatch-opts` validation would reject deep in the eval.
+        world-r      (args/parse-world-inputs (wire/arg args :world-inputs))
+        world-inputs (when (= :ok (first world-r)) (second world-r))
         ;; rf2-olvr5 finding 1 — `:trace` (`dispatch-and-collect`) and
         ;; `:settle` (`dispatch-and-settle!`) return RAW epoch material
         ;; (`:epoch` carrying `:db-before`/`:db-after`/`:trigger-event`/
@@ -385,6 +397,12 @@
       (= :err (first fx-r))
       (js/Promise.resolve (wire/err-text (second fx-r)))
 
+      ;; rf2-q6s1nb — a malformed `world-inputs` map (non-map / unreadable /
+      ;; non-integer :time-ms) short-circuits to an honest isError before the
+      ;; dispatch eval, rather than threading a value the runtime would reject.
+      (= :err (first world-r))
+      (js/Promise.resolve (wire/err-text (second world-r)))
+
       :else
       (case tag
         :err
@@ -394,7 +412,13 @@
       (let [event-vec payload
             opts-form (cond-> {}
                         frame        (assoc :frame frame)
-                        fx-overrides (assoc :fx-overrides fx-overrides))
+                        fx-overrides (assoc :fx-overrides fx-overrides)
+                        ;; rf2-q6s1nb — thread the scripted causal world
+                        ;; inputs under the namespaced `:rf.world/inputs`
+                        ;; opts key the router reads (router.cljc:202). The
+                        ;; map is `pr-str`'d as an EDN literal by `rt-call`'s
+                        ;; arg-emit path, exactly like `:fx-overrides`.
+                        world-inputs (assoc :rf.world/inputs world-inputs))
             ;; rf2-vflrg: the event is now a parsed CLJS vector. Pass it
             ;; through `rt-call`'s normal arg-emit path so it is `pr-str`'d
             ;; as an EDN literal — the runtime fn receives data, not host
