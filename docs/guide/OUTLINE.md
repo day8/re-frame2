@@ -44,6 +44,7 @@ The guide is not the spec and should not read like the spec. It should teach eno
 | 24 | `24-config-and-safety.md` | Teach configuration, safety knobs, and production posture. |
 | 25 | `25-from-re-frame-v1.md` | Map v1 habits to v2 and explain why migration is worth it. |
 | 26 | `26-operating-well.md` | Provide the operating map: examples, API, spec, patterns, tools, skills. |
+| 27 | `27-resources.md` | Teach declarative server-state: cached reads, scopes, owners, invalidation, and mutations. |
 
 ## Live Cell Policy
 

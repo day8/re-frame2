@@ -266,10 +266,25 @@ Resource events take **map payloads**, not positional argument vectors:
 
 The race semantics are normative and worth knowing:
 
+- **`ensure` of an entry that is already `:loaded` and still fresh-by-policy is a cache hit** — it serves the cached value, attaches any supplied owner, and starts **no** fetch. It neither dedupes (there's no in-flight work to join) nor refetches; it emits a `:rf.resource/cache-hit` trace and, for a blocking route slot, settles the navigation immediately (a route blocked on a fresh resource never hangs). This is the fresh-skip path that lets [§Route-driven loading](#route-driven-loading) say "if hydrated data is already fresh, it doesn't block at all." A *stale* `:loaded` entry is not a cache hit — its next `ensure` refetches per policy — and a `refetch` is never a cache hit (it always forces a new generation).
 - **`ensure` while the same scoped key is already in flight** *joins* the existing work — it attaches any supplied owner to both the entry and the ledger row, records the new cause, and emits a dedupe trace. Two screens asking for the same article fire one request.
 - **`refetch` may force a new generation.** If a prior request is still in flight, the old work record is marked superseded, aborted when possible, otherwise suppressed by work-id + generation.
 - **Owner release while in flight** aborts only when *no remaining owner* needs the work. A shared request isn't cancelled just because one of its owners went away.
 - **Stale/GC timers are advisory.** A timer handler re-reads the current entry, owners, and generation before writing — a newer event may already have refreshed, invalidated, or removed it. Freshness is computed from durable timestamps, not from trusting a timer fired on time.
+
+Freshness and lifetime are policy, declared on the resource. Two optional `reg-resource` keys arm the timers above:
+
+```clojure
+(rf/reg-resource :article/by-slug
+  {:params-schema  [:map [:slug :string]]
+   :scope          :rf.scope/global
+   :stale-after-ms 60000        ;; after 60s a :loaded entry is stale — the next ensure refetches
+   :gc-after-ms    300000       ;; after 5min with no active owner the entry is GC-eligible
+   :request        (fn [{:keys [slug]} _ctx]
+                     {:request {:method :get :url (str "/api/articles/" slug)} :decode :json})})
+```
+
+`:stale-after-ms` is what makes a fresh ensure a cache hit and a later one a refetch; `:gc-after-ms` reclaims an inactive entry. Omit them and the entry is fresh until explicitly invalidated and never GC'd on a timer — fine for small, long-lived caches; set them for data that ages.
 
 The lowering to transport is the framework's job. Internally an ensure creates or joins a work-ledger record, then lowers to `:rf.http/managed` — supplying the `:request-id`, `:on-success`, and `:on-failure` itself from the scoped key and generation. Your `:request` fn returns a [Spec 014](../../spec/014-HTTPRequests.md) args map (the nested `:request`, `:decode`, `:retry`, sensitivity metadata) but **must not** supply `:request-id` / `:on-success` / `:on-failure` — those are how stale-suppression is wired, and an app that bypasses them is rejected.
 

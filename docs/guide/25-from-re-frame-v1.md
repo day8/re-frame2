@@ -60,6 +60,8 @@ Inside that tree, every bare `dispatch` / `subscribe` you already wrote works un
 
 **View-rendering boundary.** Plain Reagent fns keep working when they render *under an established frame scope* — inside a `frame-provider`, they inherit the frame ambiently like any other call. What no longer works is a plain fn that dispatches or subscribes with *no* scope at all: that fails loudly with `:rf.error/no-frame-context` rather than the silent default-frame routing v1 allowed. `reg-view` adoption is opt-in modernisation (it injects frame-bound `dispatch` / `subscribe` and survives more boundaries cleanly), not a migration requirement — the requirement is simply that a frame scope exist above the view.
 
+**Subscription input functions.** The two-function `reg-sub` form changes shape, not spirit. A v1 *signal function* returned live signals — `(rf/subscribe ...)` calls. A v2 *input function* returns plain **query vectors** (a vector *of* query vectors), and the runtime does the subscribing — which is what keeps the input function pure and the subscription graph inspectable without running the app. The mechanical tell is the bracket count on the single-input case: v2 wants `[[:item/by-id id]]`, not `[:item/by-id id]`. [Chapter 05](05-subscriptions.md#the-input-functions-one-rule-about-its-return-value) carries the full grammar and the why; the migration skill rewrites the common shapes and flags the rest.
+
 When a failure matches none of the above, the skill surfaces it for human review rather than guessing. That's the cardinal rule again, and it's what keeps an automated migration trustworthy: it does the things it's sure of and asks about the rest.
 
 ## The two changes worth understanding in depth
