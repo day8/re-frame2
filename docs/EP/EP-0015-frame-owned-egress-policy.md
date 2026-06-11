@@ -1,10 +1,27 @@
 # EP-0015: Frame-Owned Egress Policy
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
-> This EP proposes one public model for sensitive/large classification,
+> This EP defines one public model for sensitive/large classification,
 > trust-boundary projection, and observability sink policy.
+>
+> **Ruling recorded 2026-06-11 (Mike, in-session; bead `rf2-mh84yw`).**
+> Accepted. All twelve open issues are dispositioned in
+> [§Open Issues](#open-issues) — nine as recommended (with sharpenings from the
+> three-analysis convergence), and three previously-open calls resolved:
+> issue 3 adopts the renamed six-profile closed set provisionally
+> (`local-redacted`/`local-raw` replacing the on-box/trusted-local spellings),
+> issue 5 rules response-body classification onto per-slot `:sensitive?` /
+> `:large?` props on the request's `:decode` schema (the EP-0005 mechanism;
+> whole-body fail-closed when unschematized; off-box captures omit bodies
+> unless classified), and issue 12 rules **no supersession of EP-0005** — the
+> schema-first machine surface stands, and §5 is rewritten as composition, not
+> replacement, in the action wave. The resulting one-line model: **durable
+> frame-wide facts → frame config path maps; owner-local schema'd data
+> (machine `:data`, resource data/params, HTTP bodies) → per-slot schema
+> props; event args → registration metadata** — a named EP-0007 rule-3
+> cross-layer distinction, not an exception.
 >
 > Normative home after acceptance: `spec/015-Data-Classification.md`,
 > `spec/009-Instrumentation.md`, `spec/014-HTTPRequests.md`,
@@ -508,11 +525,14 @@ This keeps the ownership rule compact:
 
 ### 5. Machine-Owned Durable Classification
 
-This section is a proposed replacement for EP-0005's v1 public policy surface,
-not a description of the current final contract. Today, EP-0005 and Spec 005
-own the shipped rule: machine `:data` sensitivity is expressed through
-`:data-schema` slot metadata. EP-0015 may supersede that rule only by explicit
-ruling.
+> **Ruled 2026-06-11 — this section's replacement proposal was REJECTED
+> (Open Issues, disposition 12).** EP-0005's schema-first surface stands:
+> machine `:data` sensitivity is expressed through per-slot `:data-schema`
+> props, with no top-level machine `:sensitive` / `:large` keys. This section
+> is retained as the record of the considered-and-rejected alternative; the
+> action wave rewrites it as *composition* (how the schema-first machine
+> surface composes with frame-owned and registration-owned policy), not
+> replacement.
 
 Machine `:data` is durable process state owned by the machine definition. It
 should follow the same explicit-policy posture as frames: schemas describe
@@ -892,51 +912,136 @@ Mechanical upgrade from re-frame v1 remains a secondary goal:
 
 ## Open Issues
 
+**All twelve issues were ruled 2026-06-11 (Mike, in-session; bead
+`rf2-mh84yw`).** Original recommendations are kept verbatim as the record of
+what was ruled; dispositions and riders are inline.
+
 1. **Exact frame config shape.** Should the keys be `:sensitive` / `:large`, or
    a nested `:egress` / `:classification` map? Recommendation: use
    `:sensitive` / `:large`; they are the words authors think in.
+   **Disposition: as recommended.** `:observability` stays a separate sibling
+   key. Rider: the `:sensitive` (frame path map) vs `:sensitive?` (per-slot
+   schema prop) pair is recorded as a named EP-0007 rule-3 cross-layer
+   vocabulary distinction, not left as accident.
 2. **Projection API name.** `project-egress`, `project-record`, and
    `project-observation` are candidate names. Recommendation: use a general
    `project-egress` for the public boundary primitive and narrower internal
-   helpers per record kind.
+   helpers per record kind. **Disposition: as recommended.** The name names the
+   boundary, not a record kind; per-record-kind projectors stay private. The
+   facade-export classification rule applies when `rf/project-egress` lands.
 3. **Profile names.** The exact `:rf.egress/*` vocabulary should be thrashed
    out with examples from MCP, Xray, SSR, and hosted monitoring.
+   **Disposition (ruled; no prior recommendation):** adopt the six-profile set
+   **provisionally**, renamed for axis consistency:
+   `:rf.egress/off-box-observability`, `:rf.egress/off-box-tool`,
+   `:rf.egress/local-redacted` (was `on-box-hidden-sensitive`),
+   `:rf.egress/local-raw` (was `trusted-local-raw`),
+   `:rf.egress/ssr-hydration`, `:rf.egress/public-error`. The set is a
+   **closed enum** (additions need a recorded ruling). Graduation gate: each
+   profile must be exercised by at least one real consumer surface (pair-MCP,
+   Xray, SSR payload, hosted-monitoring sink) before final naming locks.
+   `:rf.egress/ssr-hydration` is defined as the projection applied **after**
+   §14's allowlist — never a parallel SSR mechanism.
 4. **Handled-event record shape.** What is safe and useful by default? Should
    event args be omitted unless registration metadata declares them safe?
    Recommendation: hosted monitoring defaults to summary-only; tools can opt
-   into richer projected payloads.
+   into richer projected payloads. **Disposition: as recommended, sharpened:**
+   the off-box default record carries frame, event id, status, elapsed,
+   effect keys, and work/correlation ids; the `:event` args slot is **omitted
+   entirely** by default (the §9 candidate shape showing full args is
+   corrected in the action wave). Tools opt into **projected** payloads, never
+   raw. This is one rule with EP-0008's "structured data only — never raw
+   values" always-on record rule; the two specs cross-cite a single statement.
 5. **HTTP response bodies.** Header/query policy is not enough. Managed HTTP
    needs a response-body classification story for login, refresh, partner API,
    upload URL, and opaque token responses.
+   **Disposition (ruled; no prior recommendation):** response bodies are
+   **registration-owned transient payloads**, classified per-slot via
+   `:sensitive?` / `:large?` props on the request's `:decode` schema — the
+   EP-0005 mechanism, reused (the decode schema lives on the owning
+   call/resource/mutation declaration). Whole-body sensitivity is a root-level
+   prop; an **unschematized body is whole-sensitive (fail-closed)**; off-box
+   production traces and captures **omit response bodies entirely** unless a
+   classified projection is explicitly requested. This does not conflict with
+   §7: that section bars schemas from being a *second* route to classify
+   durable app-db paths; transient payloads have one owner and one route.
 6. **Epoch storage versus projection.** Should `:redact-fn` be removed,
-   demoted, or reframed as a projection hook? Recommendation: demote; projection
-   should be the normal answer.
+   demoted, or reframed as a projection hook? Recommendation: demote;
+   projection should be the normal answer. **Disposition: as recommended,
+   hardened:** the surviving hook is **projection-side only** (export/egress);
+   storage-side mutation is **removed**, not discouraged — post-EP-0010, epoch
+   records are causal replay material, and mutating them at rest corrupts the
+   replay contract, not merely restore fidelity.
 7. **Cross-tool `show-sensitive?`.** Should on-box visibility be per tool, per
    session, per frame, or all three? Recommendation: no single process-global
-   user toggle.
+   user toggle. **Disposition: as recommended, with the grain named:**
+   visibility is **per (tool, frame) pair**; session pinning composes on top
+   as tool UX, not framework state. Local tools default `local-redacted`; raw
+   requires explicit trusted-local opt-in; revealing sensitive data is an
+   operator act and is itself trace-visible (auditable).
 8. **Derived sensitivity.** Should derived outputs inherit sensitivity from
    sensitive inputs by default? Recommendation: yes for framework-known
    dependency graphs, with explicit safe-output declarations.
+   **Disposition: as recommended, scoped:** framework-known graphs means
+   subscription topology (EP-0004's fixed-topology invariant, including
+   `:realized-inputs` for parametric subs), flows, machine selectors, and
+   EP-0016's named scope resolvers (declared inputs). Handler internals are
+   honestly out of scope — no pretend taint-tracking. **Not gated on EP-0014**
+   (a proposal); EP-0004's topology suffices for v1, EP-0014 generalizes later.
 9. **Derived declassification spelling.** What is the exact metadata key and
     value for declaring a derived output safe? Recommendation: do not overload
     `:sensitive false`; reserve `:sensitive` for path declarations and use a
     namespaced egress/sensitivity key for output-level claims.
+    **Disposition: as recommended, with the spelling fixed:**
+    `:rf.egress/output-sensitivity` with the closed value set
+    `:rf.egress/inherit` (default) | `:rf.egress/sensitive` |
+    `:rf.egress/public` — flat in `:rf.egress/*`, no sub-namespaces (the §15
+    `:rf.egress.sensitivity/*` candidate is rejected as an issue-10 boundary
+    violation). A `:public` claim is the declassification analogue of the
+    `:rf.scope/global` claim: **Xray enumerates every `:public` claim as a
+    standing audit surface**, mirroring the global-scope list. No reason-note
+    requirement in v1 (demand-driven).
 10. **Reserved namespaces.** Should the initial reserved policy namespaces be
     limited to `:rf.egress/*`, `:rf.observe/*`, and existing `:rf.size/*`
     low-level flags? Recommendation: yes; keep frame-local grammar keys bare
     and keep user/integration sink ids outside framework namespaces.
+    **Disposition: as recommended.** Rider: wherever this EP's surfaces use
+    path maps (frame config, SSR allowlists), the path grammar is EP-0012's
+    `:rf/path` vocabulary — no fourth ad-hoc path notation.
 11. **Resource and mutation spelling.** Should Spec 016 keep its coarse
     `:sensitive?` / `:large?` registration claims for whole resource entries,
     or should EP-0015 introduce explicit resource/mutation `:sensitive` /
     `:large` path maps rooted at `:scope`, `:params`, `:data`, errors, and
     mutation payloads? Recommendation: preserve the current fail-closed scope
     and hydration semantics either way; decide the spelling with the Spec 016
-    follow-up.
+    follow-up. **Disposition: semantics pinned as recommended; spelling ruled
+    now:** per-slot `:sensitive?` / `:large?` props on the existing
+    `:data-schema` / `:params-schema` are the canonical fine-grained surface;
+    the coarse whole-entry claims remain as the degenerate root-prop case.
+    **No new resource path-map vocabulary** — that would be the fourth
+    spelling EP-0007 exists to prevent. Scope values stay covered by the
+    shared elision walker; error envelopes are covered by issue 5's
+    failure-shape classification at the HTTP layer.
 12. **EP-0005 supersession.** Should EP-0015 replace EP-0005's final machine
     `:data-schema` sensitivity surface with explicit machine `:sensitive` /
     `:large` metadata, or should machines keep EP-0005's schema-first v1 rule
     while frames move to owner-owned policy? Recommendation: decide this at
     EP-0015 acceptance, because the proposal intentionally crosses a final EP.
+    **Disposition: NO supersession — EP-0005's schema-first machine surface
+    stands.** Grounds: (a) the surface is final, implementation-complete, and
+    was ruled twice (the five 2026-06-08 calls; `rf2-0k5ubx` on 2026-06-09
+    explicitly rejecting top-level machine `:sensitive`/`:large` keys) with no
+    defect identified since; (b) the "schema-based exception" premise
+    dissolves — per-slot props on a declared schema *are* owner-declares-policy
+    for owners whose natural declaration surface is a schema, and co-located
+    props are structurally immune to the schema-rename drift hazard that
+    sibling path maps carry; (c) with issues 5 and 11 ruled schema-props,
+    machines/resources/HTTP bodies now share one mechanism — superseding
+    EP-0005 would make machines the odd one out in the opposite direction.
+    Consequence: §5 and the §7 machine sentence are **rewritten as composition,
+    not replacement** in the action wave (machines keep their surface; frame
+    policy and registration policy cover the other owners); Bead Plan item 4
+    is void as written; this EP no longer crosses any final EP.
 
 ## Bead Plan
 
