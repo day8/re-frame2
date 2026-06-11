@@ -85,8 +85,8 @@ leaves is the smallest count that exercises:
 
 **Xray (26)**:
 - Trace panel populates on first dispatch — each button produces a
-  visible `:event/db-changed` trace with `:tags :app-db-before` and
-  `:tags :app-db-after` carrying the 55-leaf shape.
+  visible `:event/db-changed` trace with `:tags :db-before` and
+  `:tags :db-after` carrying the 55-leaf shape.
 - Time-travel scrub forward/back mutates visible UI — scrubbing 6
   clicks back-and-forth exercises the diff renderer at every depth.
 - `:event/db-changed` trace event for app-db changes — the surface
@@ -121,6 +121,6 @@ lands in `implementation/out/testbeds/non-trivial-app-db/`.
 
 ## Cross-references
 
-- [`spec/009-Instrumentation.md` §Trace event for app-db changes](../../spec/009-Instrumentation.md) — the `:event/db-changed` shape this surface's clicks emit, with `:tags :app-db-before` / `:tags :app-db-after` consumers diff against.
+- [`spec/009-Instrumentation.md` §Trace event for app-db changes](../../spec/009-Instrumentation.md) — the `:event/db-changed` shape this surface's clicks emit, with `:tags :db-before` / `:tags :db-after` consumers diff against.
 - [`spec/Spec-Schemas.md` §`:rf/epoch-record`](../../spec/Spec-Schemas.md) — the epoch record's `:db-before` / `:db-after` slots carrying the 55-leaf shape per cascade.
 - [`spec/Tool-Pair.md` §Time-travel](../../spec/Tool-Pair.md) — the re-frame2-pair-mcp time-travel contract a diff visualisation rides.

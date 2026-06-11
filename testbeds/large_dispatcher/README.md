@@ -94,7 +94,7 @@ needs:
 - **`:large?` value arrives as `:rf.size/large-elided` marker** —
   the load-bearing scenario this surface unblocks. Xray's trace
   panel must show the `[:declared-large-value]` slot replaced with
-  the marker shape under `:tags :app-db-after` on the first emit
+  the marker shape under `:tags :db-after` on the first emit
   after button B.
 - `:rf.warning/large-value-unschema'd` highlighted in trace stream —
   button A's first emit fires the advisory; subsequent button-A
