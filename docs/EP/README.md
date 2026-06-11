@@ -8,6 +8,10 @@ In brief: an EP is warranted for **feature-level or public-contract decisions wi
 
 `final` asserts the **decisions** are settled — it does **not**, on its own, assert the implementation is build-complete. In brief, a final EP whose build outlives its decision-freeze carries an implementation-errata ledger; the governing rule lives in [EP-0009](EP-0009-the-ep-process.md#statuses). This README is only the index and summary.
 
+## Authoring a new EP
+
+Copy [`EP-template.md`](EP-template.md) to `EP-NNNN-<slug>.md`, fill it in, and add an index row below. The template encodes the active-process rules so a new EP follows them by construction: `Status:` is a [controlled lifecycle](EP-0009-the-ep-process.md#statuses) (not free text), `Type:` is `standards-track` or `process`, and graduation is per-type — standards-track into `spec/`, process into its named normative home (which may be the active EP itself). The full process — including the EP-worthiness bar and the [document conventions](EP-0009-the-ep-process.md#document-conventions) — is normative in [EP-0009](EP-0009-the-ep-process.md). `scripts/check_ep_status_sync.py` is the mechanical gate (status/Type grammar + README/header sync).
+
 ## Index
 
 | EP       | Title | Status | Summary |
