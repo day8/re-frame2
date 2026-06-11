@@ -1,7 +1,8 @@
 (ns re-frame.realm-cljs-test
-  "EP-0013 D1 internal staging 1-3 (rf2-gkddyq) — the runtime realm record,
-  the default realm, the realm-owned registrar, and the frame's realm
-  reference.
+  "EP-0013 D1 internal staging 1-4 — the runtime realm record, the default
+  realm, the realm-owned registrar, the frame's realm reference (stages 1-3,
+  rf2-gkddyq), and the realm-owned adapter SELECTION + host-transient
+  subsystem inventory (stage 4, rf2-0lq5cd).
 
   D1 is INTERNAL: no public `rf/realm` constructor and no realm-targeted
   public query ship. The headline acceptance is **zero ergonomic regression**
@@ -17,7 +18,15 @@
         exactly as before);
     (3) a frame carries its realm REFERENCE internally (`:realm` slot →
         `:rf.realm/default`); the realm-owned frame-membership VIEW is
-        derived live from the frame registry, with no separately-stored set.
+        derived live from the frame registry, with no separately-stored set;
+    (4) the realm OWNS the adapter SELECTION — `re-frame.substrate.adapter` is
+        the access seam over the default realm's `:adapter` +
+        `:adapter-disposed?` slots; install / current / dispose route through
+        the realm with byte-identical behaviour (stage 4);
+    (5) the realm OWNS the host-transient subsystem DESCRIPTOR inventory —
+        `subsystem-id → :rf/host-transient-descriptor` lives in the default
+        realm's `:host-transient` slot; register / read / clear are
+        realm-owned (stage 4).
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) AND the JVM
@@ -29,6 +38,7 @@
             [re-frame.frame :as frame]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
+            [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]))
 
@@ -190,3 +200,123 @@
           "a destroyed frame drops out of the grouping")
       (is (contains? (get by-realm :rf.realm/default) :realm-test/b)
           "the surviving frame stays in the grouping"))))
+
+;; ---------------------------------------------------------------------------
+;; (4) the realm OWNS the adapter SELECTION — stage 4 (rf2-0lq5cd)
+;;
+;; The adapter selection moved off the two process-global `defonce` cells that
+;; used to live in `re-frame.substrate.adapter` and onto the default realm's
+;; record (`:adapter` + `:adapter-disposed?`). `substrate.adapter` is now the
+;; ACCESS SEAM. The headline is STILL zero ergonomic regression: install /
+;; current / dispose behave byte-identically, routed through the one default
+;; realm. (The reset fixture installs plain-atom into the default realm, so
+;; these tests assert the seam reads/writes the realm slot rather than that an
+;; adapter is absent at entry.)
+;; ---------------------------------------------------------------------------
+
+(deftest default-realm-owns-the-adapter-selection
+  (testing "the installed adapter is OWNED BY the default realm — the seam's
+            read resolves the realm's :adapter slot"
+    ;; The fixture installed plain-atom into the default realm.
+    (is (identical? plain-atom/adapter (realm/realm-adapter))
+        "realm/realm-adapter returns the fixture-installed adapter")
+    (is (identical? (realm/realm-adapter)
+                    (:adapter (realm/default-realm)))
+        "the read seam IS the default realm's :adapter slot")
+    (is (identical? (realm/realm-adapter)
+                    (adapter/current-adapter-spec))
+        "substrate.adapter/current-adapter-spec routes through the realm")
+    (is (= :rf.adapter/plain-atom (adapter/current-adapter))
+        "current-adapter reports the realm-owned adapter's kind")))
+
+(deftest adapter-install-dispose-lifecycle-is-realm-owned
+  (testing "install seats the adapter on the realm + clears the breadcrumb;
+            dispose clears the slot + sets the breadcrumb — the two-cell shape
+            is preserved across the move onto the realm record"
+    ;; Start from the fixture-installed state, tear down to a clean cold slate.
+    (adapter/dispose-adapter!)
+    (is (nil? (realm/realm-adapter))
+        "dispose clears the realm's :adapter slot")
+    (is (true? (realm/realm-adapter-disposed?))
+        "dispose sets the realm's :adapter-disposed? breadcrumb")
+    (is (true? (adapter/adapter-disposed?))
+        "the seam's adapter-disposed? reads the realm breadcrumb")
+    ;; Re-install: the breadcrumb clears, the slot is seated.
+    (adapter/install-adapter! plain-atom/adapter)
+    (is (identical? plain-atom/adapter (realm/realm-adapter))
+        "install re-seats the adapter on the realm")
+    (is (false? (realm/realm-adapter-disposed?))
+        "install clears the breadcrumb")
+    ;; The single-adapter-per-realm guard still fires on a double install.
+    (is (thrown? #?(:clj Exception :cljs js/Error)
+                 (adapter/install-adapter! plain-atom/adapter))
+        "a second install without an intervening dispose still throws")))
+
+(deftest adapter-lifecycle-cold-reset-seam
+  (testing "reset-lifecycle-state-for-tests! wipes the realm's adapter slot +
+            breadcrumb to a never-installed cold state"
+    ;; The fixture already seated plain-atom; tear it down so the breadcrumb is
+    ;; set, then prove the cold reset clears BOTH the slot and the breadcrumb.
+    (adapter/dispose-adapter!)
+    (is (true? (realm/realm-adapter-disposed?))
+        "dispose leaves the disposed breadcrumb set")
+    (adapter/reset-lifecycle-state-for-tests!)
+    (is (nil? (realm/realm-adapter))
+        "cold reset clears the realm's :adapter slot")
+    (is (false? (realm/realm-adapter-disposed?))
+        "cold reset clears the breadcrumb — distinct from a disposed state")))
+
+;; ---------------------------------------------------------------------------
+;; (5) the realm OWNS the host-transient subsystem inventory — stage 4
+;;
+;; The framework's host-transient side-tables (HTTP in-flight, routing nav
+;; counters, machine timers, …) are realm-owned. Stage 4 makes the realm the
+;; OWNER of the DESCRIPTOR inventory (subsystem-id → descriptor), recording
+;; each subsystem's scope / teardown / test-reset. The side-table bytes stay
+;; in their producing artefacts (reset through the existing late-bind hooks);
+;; this is the queryable record of what exists + how each is torn down.
+;; ---------------------------------------------------------------------------
+
+(deftest host-transient-inventory-is-realm-owned
+  (testing "a host-transient descriptor registers under the default realm and
+            reads back; the inventory lives in the realm's :host-transient slot"
+    ;; A fresh realm carries no host-transient inventory.
+    (realm/clear-host-transient!)
+    (is (nil? (realm/host-transient))
+        "a realm with no registered subsystem has no host-transient inventory")
+    (let [descriptor {:id            :rf.test/in-flight
+                      :storage-class :host-transient
+                      :scope         :frame
+                      :durability    :none}]
+      (realm/register-host-transient! descriptor)
+      (is (= descriptor (realm/host-transient :rf.realm/default :rf.test/in-flight))
+          "the descriptor reads back by subsystem-id")
+      (is (= {:rf.test/in-flight descriptor}
+             (realm/host-transient))
+          "the inventory is the realm's :host-transient slot")
+      (is (= {:rf.test/in-flight descriptor}
+             (:host-transient (realm/default-realm)))
+          "the slot lives on the default realm record")
+      ;; Registering a second subsystem adds to (does not clobber) the table.
+      (let [d2 {:id :rf.test/timers :storage-class :host-transient
+                :scope :realm :durability :none}]
+        (realm/register-host-transient! d2)
+        (is (= #{:rf.test/in-flight :rf.test/timers}
+               (set (keys (realm/host-transient))))
+            "a second register adds to the inventory")))
+    ;; Clearing drops the inventory (the test-reset / cold-start counterpart).
+    (realm/clear-host-transient!)
+    (is (nil? (realm/host-transient))
+        "clear-host-transient! drops the realm's inventory")))
+
+(deftest host-transient-durability-is-none
+  (testing "every host-transient descriptor declares :durability :none — the
+            non-durable contract (MUST NOT ride the wire)"
+    (realm/clear-host-transient!)
+    (realm/register-host-transient!
+      {:id :rf.test/nav-counters :storage-class :host-transient
+       :scope :frame :durability :none})
+    (is (= :none (:durability (realm/host-transient :rf.realm/default
+                                                    :rf.test/nav-counters)))
+        "the registered descriptor is non-durable")
+    (realm/clear-host-transient!)))

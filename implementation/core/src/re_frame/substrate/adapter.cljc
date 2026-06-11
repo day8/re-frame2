@@ -34,17 +34,29 @@
   ships only that adapter's code."
   (:require [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.realm :as realm]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- adapter installation -------------------------------------------------
+;; ---- adapter installation — realm-owned (EP-0013 D1 stage 4, rf2-0lq5cd) --
 ;;
-;; Two cells, not one. `installed-adapter` holds the live spec
-;; map when an adapter is installed and `nil` otherwise. `disposed?` is a
-;; boolean breadcrumb left behind by the most recent
-;; `(dispose-adapter!)` so subsequent runtime calls can distinguish
+;; The adapter SELECTION is OWNED BY the realm (Runtime-Subsystems §Adapter
+;; Ownership). Stage 4 moved the two process-global `defonce` cells that used
+;; to live HERE into the default realm's record — `:adapter` (the live spec
+;; map, or absent) and `:adapter-disposed?` (the dispose breadcrumb). This ns
+;; is now the ACCESS SEAM over those realm slots; the public surface below is
+;; byte-identical and every call in a single-realm app routes through the one
+;; default realm, so the install/dispose lifecycle and the "single adapter per
+;; process" diagnostics behave exactly as before. The two-cell shape is
+;; preserved across the move:
 ;;
+;;   `realm/realm-adapter`            ← the old `@installed-adapter` read
+;;   `realm/install-realm-adapter!`   ← the old `(reset! installed-adapter …)`
+;;   `realm/dispose-realm-adapter!`   ← clears the slot + sets the breadcrumb
+;;   `realm/realm-adapter-disposed?`  ← the old `@disposed?` read
+;;
+;; The breadcrumb still distinguishes:
 ;;   (a) `no adapter installed yet` — fresh process, init! never ran;
 ;;       the right diagnosis is `:rf.error/no-adapter-installed`;
 ;;   (b) `adapter was installed and then torn down` — usually a test
@@ -53,28 +65,29 @@
 ;;
 ;; Both states leave the install slot empty so a fresh adapter can
 ;; install via `install-adapter!`; the breadcrumb clears on the next
-;; successful install.
-
-(defonce ^:private installed-adapter (atom nil))
-(defonce ^:private disposed?         (atom false))
+;; successful install. No cycle: `re-frame.realm` requires only `registrar` +
+;; `late-bind` (neither pulls this ns), so the static require above is sound.
 
 (defn install-adapter!
   "Install the adapter for this process. Once. A second call without an
   intervening dispose-adapter! raises :rf.error/adapter-already-installed
   (per Spec 006 §Single adapter per process). Clears the disposed
   breadcrumb so subsequent delegation calls see a fresh adapter rather
-  than `:rf.error/adapter-disposed`."
+  than `:rf.error/adapter-disposed`.
+
+  The adapter SELECTION is owned by the default realm (EP-0013 D1 stage 4);
+  this fn guards the single-adapter invariant and then seats the adapter via
+  `realm/install-realm-adapter!`."
   [adapter]
-  (when @installed-adapter
+  (when-let [installed (realm/realm-adapter)]
     (throw (ex-info ":rf.error/adapter-already-installed"
                     {:rf.error/id :rf.error/adapter-already-installed
                      :where       'rf/init!
                      :recovery    :no-recovery
                      :reason      "A second install-adapter! was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process)."
-                     :installed   @installed-adapter
+                     :installed   installed
                      :attempted   adapter})))
-  (reset! installed-adapter adapter)
-  (reset! disposed? false)
+  (realm/install-realm-adapter! adapter)
   adapter)
 
 (defn current-adapter
@@ -88,7 +101,7 @@
   For \"give me the adapter spec map\" (fn handles, hot-swap, identity
   checks across install/dispose), use `current-adapter-spec`."
   []
-  (when-let [a @installed-adapter]
+  (when-let [a (realm/realm-adapter)]
     (:kind a :custom)))
 
 (defn current-adapter-spec
@@ -102,7 +115,7 @@
   human-readable discriminator (predicate / branch code), use
   `current-adapter`."
   []
-  @installed-adapter)
+  (realm/realm-adapter))
 
 (defn dispose-adapter!
   "Tear down the installed adapter. Calls the adapter's :dispose-adapter!
@@ -111,33 +124,36 @@
   `:rf.error/adapter-disposed` instead of `:rf.error/no-adapter-installed`
   (rf2-6wxys). Calling dispose with no adapter installed leaves the
   breadcrumb untouched — it doesn't pretend a never-installed adapter
-  was disposed."
+  was disposed.
+
+  The adapter SELECTION is owned by the default realm (EP-0013 D1 stage 4);
+  this fn runs the seated adapter's own teardown and then clears the realm's
+  adapter slot via `realm/dispose-realm-adapter!`."
   []
-  (when-let [adapter @installed-adapter]
+  (when-let [adapter (realm/realm-adapter)]
     (when-let [f (:dispose-adapter! adapter)]
       (f))
-    (reset! installed-adapter nil)
-    (reset! disposed? true))
+    (realm/dispose-realm-adapter!))
   nil)
 
 (defn adapter-disposed?
   "Return true iff the most recent lifecycle event was a successful
   `dispose-adapter!` and no `install-adapter!` has fired since. False
   for `never installed` (fresh process) and after a fresh install.
-  Read-only — the breadcrumb is owned by the install / dispose pair."
+  Read-only — the breadcrumb is owned by the install / dispose pair (the
+  default realm's `:adapter-disposed?` slot, EP-0013 D1 stage 4)."
   []
-  @disposed?)
+  (realm/realm-adapter-disposed?))
 
 (defn ^:no-doc reset-lifecycle-state-for-tests!
-  "Test-only seam — resets the installed-adapter slot and the disposed
+  "Test-only seam — resets the default realm's adapter slot and the disposed
   breadcrumb to a never-installed cold state. NOT part of the runtime
   contract; cold-start test fixtures (e.g. `boot_test/cold-start`) use
   this to wipe the lifecycle state between cases so the no-adapter-
   installed throw can be asserted independently of the adapter-
   disposed throw."
   []
-  (reset! installed-adapter nil)
-  (reset! disposed? false)
+  (realm/reset-realm-adapter-lifecycle!)
   nil)
 
 ;; ---- delegation helpers ---------------------------------------------------
@@ -185,10 +201,12 @@
   pivots to the same category. `where-sym` is stamped on the throw so
   grep-for-symbol finds the delegation site in user code. Private —
   callers in this ns thread the symbol of the public surface they
-  implement (e.g. `'rf/make-state-container`)."
+  implement (e.g. `'rf/make-state-container`).
+
+  Reads the adapter SELECTION from the default realm (EP-0013 D1 stage 4)."
   [where-sym]
-  (or @installed-adapter
-      (if @disposed?
+  (or (realm/realm-adapter)
+      (if (realm/realm-adapter-disposed?)
         (throw (ex-info ":rf.error/adapter-disposed"
                         {:rf.error/id :rf.error/adapter-disposed
                          :where    where-sym
