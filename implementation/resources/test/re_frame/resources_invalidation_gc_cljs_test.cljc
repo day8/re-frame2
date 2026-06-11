@@ -38,6 +38,7 @@
    ;; :rf.resource/* events + the timer / work-ledger side-table fx + the
    ;; internal re-check events these tests dispatch through.
    [re-frame.resources]
+   [re-frame.resources.events :as events]
    [re-frame.resources.state :as state]
    [re-frame.resources.timers :as timers]
    [re-frame.resources.work-ledger :as work-ledger]
@@ -159,6 +160,111 @@
               EVERY scope (the explicit, Xray-visible opt-in)"
       (is (some? (:invalidated-at (entry ka))) "scope A entry marked stale")
       (is (some? (:invalidated-at (entry kb))) "scope B entry ALSO marked stale"))))
+
+;; ---- rf2-pvdae1: scoped invalidate-tags fails closed without a scope -------
+;; The re-frame event loop catches a handler throw and surfaces it as
+;; :rf.error/handler-exception (it does NOT rethrow to dispatch-sync's
+;; caller), so the throw is asserted at the fn boundary (calling
+;; invalidate-tags-handler directly), exactly as the mutation suite asserts
+;; its validation throws. The dispatch-path no-mutation is observed
+;; separately.
+
+(defn- invalidate-cofx
+  "A minimal cofx for a direct invalidate-tags-handler call: a runtime-db
+  value under :rf.db/runtime + a frame id."
+  [runtime-db]
+  {:rf.db/runtime runtime-db :rf.frame/id :rf/default})
+
+(deftest invalidate-tags-scoped-without-scope-fails-closed
+  (testing "rf2-pvdae1 / Spec 016 §Invalidation — a SCOPED (default)
+            invalidate-tags with NO :scope is a loud
+            :rf.error/resource-invalidate-scope-required (never a silent
+            nil-scope match that invalidates nothing or the wrong set)"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-invalidate-scope-required"
+          (events/invalidate-tags-handler
+            (invalidate-cofx {})
+            [:rf.resource/invalidate-tags {:tags #{[:article "w"]}}]))))
+  (testing "an explicitly nil :scope (not merely absent) is ALSO rejected
+            — fail-closed is about the absence of a concrete scope"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-invalidate-scope-required"
+          (events/invalidate-tags-handler
+            (invalidate-cofx {})
+            [:rf.resource/invalidate-tags {:scope nil :tags #{[:article "w"]}}])))))
+
+(deftest invalidate-tags-cross-scope-without-scope-allowed
+  ;; the ONLY scope-agnostic path: :cross-scope? true with no :scope is
+  ;; permitted (scope-agnostic by construction). Proven end-to-end through
+  ;; the dispatch path (no throw → the matched entries are marked stale).
+  (rf/reg-resource :ivxn/article (article-spec))
+  (let [sa {:user "a"} sb {:user "b"}
+        ka (state/scoped-resource-key sa :ivxn/article {:slug "w"})
+        kb (state/scoped-resource-key sb :ivxn/article {:slug "w"})]
+    (ensure! :ivxn/article sa "w" [:lease :a 1])
+    (succeed! ka {:title "A"})
+    (ensure! :ivxn/article sb "w" [:lease :b 1])
+    (succeed! kb {:title "B"})
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :a 1]}])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :b 1]}])
+    (testing "rf2-pvdae1 — cross-scope? true with NO :scope is allowed
+              (scope-agnostic) and invalidates the tag in every scope"
+      (rf/dispatch-sync [:rf.resource/invalidate-tags
+                         {:tags #{[:article "w"]} :cross-scope? true}])
+      (is (some? (:invalidated-at (entry ka))) "scope A entry marked stale")
+      (is (some? (:invalidated-at (entry kb))) "scope B entry marked stale"))))
+
+;; ---- rf2-hosnba: invalidate-tags scope routes through canonicalize-scope ---
+
+(deftest invalidate-tags-rejects-reserved-scope-typo
+  (testing "rf2-hosnba / rf2-lzv9xc — a reserved-namespace scope typo
+            (:rf.scope/glabal) reaching invalidate-tags fails closed through
+            the shared state/canonicalize-scope path (never a silent wrong
+            cache scope), surfaced as :rf.error/resource-invalid-scope"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
+          (events/invalidate-tags-handler
+            (invalidate-cofx {})
+            [:rf.resource/invalidate-tags
+             {:scope :rf.scope/glabal :tags #{[:article "w"]}}])))))
+
+(deftest invalidate-tags-rejects-host-scope
+  (testing "rf2-hosnba / rf2-lzv9xc — a host / non-EDN scope value reaching
+            invalidate-tags is rejected through the shared path
+            (:rf.error/resource-non-edn-params)"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
+          (events/invalidate-tags-handler
+            (invalidate-cofx {})
+            [:rf.resource/invalidate-tags
+             {:scope {:cb (fn [])} :tags #{[:article "w"]}}])))))
+
+(deftest invalidate-tags-normalizes-singleton-global-scope
+  ;; rf2-hosnba / rf2-vv87xz — the historical [:rf.scope/global] singleton
+  ;; spelling normalizes to the canonical bare :rf.scope/global so it matches
+  ;; the SAME entries an explicit-global resource stored under.
+  (rf/reg-resource :ivg/article (article-spec)) ;; :rf.scope/global policy
+  (let [k (state/scoped-resource-key :rf.scope/global :ivg/article {:slug "w"})]
+    (ensure! :ivg/article :rf.scope/global "w" [:lease :g 1])
+    (succeed! k {:title "G"})
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :g 1]}])
+    (testing "the singleton-vector global spelling matches the bare-global key"
+      (rf/dispatch-sync [:rf.resource/invalidate-tags
+                         {:scope [:rf.scope/global] :tags #{[:article "w"]}}])
+      (is (some? (:invalidated-at (entry k)))
+          "entry under bare :rf.scope/global was matched via the normalized
+           singleton-vector scope"))))
+
+(deftest clear-scope-rejects-reserved-scope-typo
+  (testing "rf2-hosnba / rf2-lzv9xc — clear-scope routes its scope through
+            the shared state/canonicalize-scope path; a reserved-namespace
+            typo (:rf.scope/glabal) fails closed (a typo can never silently
+            clear the WRONG scope — a cross-tenant data wipe)"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
+          (events/clear-scope-handler
+            (invalidate-cofx {})
+            [:rf.resource/clear-scope {:scope :rf.scope/glabal :cause :logout}])))))
 
 (deftest invalidate-tags-refetches-active-leaves-inactive-stale
   (rf/reg-resource :ivr/article (article-spec))

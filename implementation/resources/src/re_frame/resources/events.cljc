@@ -492,6 +492,17 @@
   multi-user storm is observable + lintable). A cross-scope invalidation with
   no `:scope` is permitted (it is scope-agnostic by construction).
 
+  **Fail closed without a scope** (rf2-pvdae1, Spec 016 §Invalidation): a
+  SCOPED invalidation (the default, `:cross-scope?` false / absent) with NO
+  `:scope` is a loud `:rf.error/resource-invalidate-scope-required` — never
+  a silent `(= nil entry-scope)` match that quietly invalidates nothing (or,
+  worse, only the entries that happen to live in a nil scope). Cross-scope is
+  the ONLY scope-agnostic path; it must be requested explicitly. The concrete
+  `:scope` is routed through the shared `state/canonicalize-scope` validation
+  path (rf2-hosnba) so a reserved-namespace typo (`:rf.scope/glabal`) or a
+  host / non-EDN scope value fails closed through the SAME single path every
+  other scope-bearing operation uses.
+
   **No-match distinction** (Spec 016 §Invalidation): the summary carries
   `:matched` (the matched keys), `:any-tag-match-other-scope?` (whether the
   tags match an entry in ANOTHER scope — \"no match HERE\" vs \"no resource
@@ -499,7 +510,33 @@
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
    [_event-id {:keys [scope tags cause cross-scope?]}]]
   (let [runtime-db (or rt {})
-        cscope     (when (some? scope) (state/canonicalize scope))
+        ;; FAIL CLOSED (rf2-pvdae1): a scoped (default) invalidation MUST
+        ;; carry an explicit :scope — a missing scope would otherwise match
+        ;; `(= nil (first k))` and silently invalidate nothing (or the wrong
+        ;; set). Cross-scope is the only scope-agnostic path and must be
+        ;; opted into explicitly. Per Spec 016 §Invalidation.
+        _          (when (and (not cross-scope?) (nil? scope))
+                     (throw (ex-info ":rf.error/resource-invalidate-scope-required"
+                                     {:rf.error/id :rf.error/resource-invalidate-scope-required
+                                      :where       'rf.resource/invalidate-tags
+                                      :recovery    :fix-scope
+                                      :reason      (str "a scoped :rf.resource/invalidate-tags MUST "
+                                                        "supply an explicit :scope. A missing scope "
+                                                        "is fail-closed (it would silently match "
+                                                        "nothing — or the wrong nil-scope set — "
+                                                        "rather than the intended scope). To "
+                                                        "invalidate the tags in EVERY scope, opt in "
+                                                        "explicitly with :cross-scope? true. Per Spec "
+                                                        "016 §Invalidation.")
+                                      :tags        tags})))
+        ;; route the concrete scope through the SHARED validation path
+        ;; (rf2-hosnba, rf2-lzv9xc): rejects reserved-namespace typos +
+        ;; host / non-EDN scope values, normalizes [:rf.scope/global] → bare,
+        ;; canonicalizes — the SAME single path event/sub resolution, route
+        ;; planning, and clear-scope use. No resource-id (a tag invalidation
+        ;; spans resources); nil when scope-agnostic cross-scope.
+        cscope     (when (some? scope)
+                     (state/canonicalize-scope scope 'rf.resource/invalidate-tags nil))
         tag-set    (set tags)
         invalidated-at (now-ms)
         entries    (get-in runtime-db (state/entries-path))
@@ -637,10 +674,17 @@
   emits an explaining trace. Stale suppression by work-id + generation
   remains the correctness boundary — the entry a late reply would write
   into is gone, so the reply handler's existence check suppresses it; the
-  abort is the optimisation. Payload: `{:scope :cause}`."
+  abort is the optimisation. Payload: `{:scope :cause}`.
+
+  The concrete `:scope` is routed through the shared
+  `state/canonicalize-scope` validation path (rf2-hosnba, rf2-lzv9xc) so a
+  reserved-namespace typo (`:rf.scope/glabal`) or a host / non-EDN scope
+  value fails closed through the SAME single path every other scope-bearing
+  operation uses — a typo can never silently clear the WRONG scope (a
+  cross-tenant data wipe)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [scope cause]}]]
   (let [runtime-db (or rt {})
-        cscope     (state/canonicalize scope)
+        cscope     (state/canonicalize-scope scope 'rf.resource/clear-scope nil)
         entries    (get-in runtime-db (state/entries-path))
         in-scope   (into #{} (comp (filter (fn [[k _]] (= cscope (first k))))
                                    (map key))
