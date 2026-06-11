@@ -17,6 +17,8 @@ implementation/
 ├── core/                    EP 001, 002, 008, 009 — the heart of the runtime
 │   └── src/re_frame/
 │       ├── core.cljc        public API surface (re-exports + macros)
+│       ├── path.cljc        EP-0012 — internal `:rf/path` algebra (get/lookup/put/over/compose/prefix?/overlap?/instantiate)
+│       ├── identity.cljc    EP-0012 — internal canonical-EDN identity (`CEDN-1`); digest is a derived projection
 │       ├── registrar.cljc   EP 001 — the (kind, id) → metadata registry
 │       ├── frame.cljc       EP 002 — frame: {frame-state, queue, sub-cache, id}; frame-state = {:rf.db/app :rf.db/runtime}
 │       ├── events.cljc      EP 002 — event handlers; interceptor chain
@@ -52,6 +54,18 @@ implementation/
 The per-feature directories ship as **separate artefacts** in the published library — pay-as-you-go. Your port may bundle some or all into one artefact; the split is a packaging choice, not a contract.
 
 ## Walk by EP
+
+### The shared path + identity foundation (`core/src/re_frame/{path,identity}.cljc`)
+
+**What you'll find.** Two small internal namespaces that every path-shaped and identity-shaped fact inherits (EP-0012). `path.cljc` holds the `:rf/path` algebra — `get` / `lookup` / `put` / `over` / `compose` / `prefix?` / `overlap?` / `instantiate` over concrete path vectors, with `[]` as the root path and the path laws (root-path law, `put`-`lookup` round trip, symmetric `overlap?`) backed by a dedicated law-test file (`core/test/re_frame/path_laws_cljs_test.cljc`). `identity.cljc` holds the canonical-EDN identity function and the `CEDN-1` reference byte encoding (type tag before every value, map entries sorted by key bytes, set elements sorted by element bytes), fail-closed on out-of-domain host values (`:rf.error/non-edn-identity`), with the digest as a derived, recomputable projection — backed by `core/test/re_frame/identity_cedn1_cljs_test.cljc`. Both namespace docstrings open by stating they are **INTERNAL** at this slice — semantics normative, names not yet public — and the consumers (flows / schemas / routing / resources) that will graduate a public name once two-plus use them unchanged.
+
+**What's CLJS-specific.**
+
+- The function/namespace **names** (`re-frame.path`, `re-frame.identity`) and their `.cljc` cross-compilation. Your port picks its own internal module names; the names are not the contract.
+- `get-in` / `assoc-in`-shaped intermediate-creation (missing intermediates become maps). The *behaviour* is the contract (`put` is total, root-path law holds); the host primitive you build it on is yours — and a port MUST NOT just delegate `put` to the host's `assoc-in`, which violates the root-path law at `[]`.
+- The `CEDN-1` byte details (UTF-8 token stream, the specific type-tag letters) are the reference encoding. A port MAY store a normalized projection or a digest instead — but equality-sensitive comparison MUST be equivalent to comparing `CEDN-1` bytes, so the encoding is effectively pattern-required even though the storage form is a choice.
+
+**What's pattern-required.** One path algebra + one canonical-identity rule, inherited by every consumer (no private per-subsystem overlap / canonicalization / round-trip logic). Concrete path vectors over the shared segment domain; `[]` as root with the root-path law; the path laws and the symmetric `overlap?`; declaration normalization to a vector with templates stored ONLY as `[:rf.path/param …]` (never the `'?name` sugar); canonical identity where equal facts collide across hosts and map key order is irrelevant, fail-closed on host values, with the digest derived-only and never the authoritative stored key; scoped resource keys + work ids on that one rule; canonical route emission (deterministic query order, `nil` elided — the prism laws, consumer-wired in routing). Internal-first: no facade export until two-plus consumers force a public name. See [`phase-2-impl-order.md` §The shared path + identity foundation (EP-0012)](phase-2-impl-order.md#the-shared-path--identity-foundation-ep-0012).
 
 ### EP 001 — Registration (`core/src/re_frame/registrar.cljc`)
 
