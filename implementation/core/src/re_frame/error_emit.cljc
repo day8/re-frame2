@@ -221,6 +221,65 @@
     ((:fan-out registry) record))
   nil)
 
+;; ---- frame-teardown report (EP-0008 promotion criterion) ------------------
+;;
+;; The frame-destroy teardown recipe runs many optional cleanup hooks. A
+;; hook throwing is production-reachable (long-lived SSR / tooling), is a
+;; resource-leakage class (skipped teardown the next operation cannot see
+;; locally), and compounds with process lifetime — all three legs of the
+;; Spec 009 §promotion criterion hold. Rather than fan ONE always-on
+;; emission out per failed hook (an SSR per-request-destroy × M req/s flood
+;; of the production error shipper), the runtime accumulates the per-hook
+;; failures and emits ONE bounded `:rf.error/frame-teardown-failed` record
+;; carrying a `:hook-failures` vector (Spec 009 §Channel-promotion catalogue
+;; rows — the report-vs-per-item idiom). The dev per-hook diagnostic
+;; (`:rf.warning/teardown-hook-exception`, DCE'd in prod) stays at its
+;; causal positions inside `frame/safe-call-hook!`.
+
+(defn dispatch-frame-teardown-report!
+  "Surface ONE always-on `:rf.error/frame-teardown-failed` report through
+  the corpus-wide error-emit listener registry (surface #4). Always-on
+  (NOT gated by `re-frame.interop/debug-enabled?`) — fires in CLJS
+  production builds where the dev per-hook trace is DCE'd.
+
+  Per Spec 009 §Observability channels §Channel-promotion catalogue rows
+  (EP-0008 Open Issue 1, ruled): the frame-destroy case satisfies the
+  promotion criterion with a SINGLE bounded report naming the higher-
+  level fact, with the per-hook detail carried as the `hook-failures`
+  payload vector — NOT one record per failed hook. The destroy IS the
+  fact; the hooks are detail rows, and one record preserves the
+  which-hooks-failed-together correlation external shippers will not
+  reliably re-group.
+
+  Builds the catalogue-shaped record (`:tags` keys `:frame`,
+  `:hook-failures`, `:reason`; `:recovery :ignored` — teardown is
+  best-effort) and fans it out. Called at most once per destroy
+  (whether teardown completes or aborts) via the
+  `:error-emit/dispatch-frame-teardown-report` late-bind hook from
+  `frame.cljc`'s finally-shaped flush boundary (`frame` cannot static-
+  require this ns — `error-emit` → `elision` → `frame` is a load cycle).
+
+  `hook-failures` is a non-empty vector of
+  `{:hook <late-bind-hook-key> :exception <ex> :where :safe-call-hook!}`
+  entries — one per failed hook, accumulated during the teardown walk.
+  Returns nil; a no-op when `hook-failures` is empty (no failures, no
+  report)."
+  [frame-id hook-failures time]
+  (when (seq hook-failures)
+    (let [record {:error          :rf.error/frame-teardown-failed
+                  :frame          frame-id
+                  :hook-failures  (vec hook-failures)
+                  :recovery       :ignored
+                  :reason         (str (count hook-failures)
+                                       " frame-teardown cleanup hook(s) threw"
+                                       " during destroy; teardown continued"
+                                       " best-effort (skipped cleanup may have"
+                                       " leaked resources)")
+                  :time           time}]
+      ;; Corpus-wide listeners fan out.
+      ((:fan-out registry) record)))
+  nil)
+
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; `router.cljc` already statically `:require`s this namespace (per
@@ -232,3 +291,10 @@
 ;; records without static-requiring this ns.
 
 (late-bind/set-fn! :error-emit/dispatch-on-error dispatch-on-error!)
+
+;; The frame-teardown report fires from `frame/destroy-frame!`'s finally-
+;; shaped flush. `frame` MUST reach it via late-bind: a static
+;; `re-frame.frame` → `re-frame.error-emit` require closes a load cycle
+;; (`error-emit` → `elision` → `frame`). Per EP-0008 / rf2-ini4wr.
+(late-bind/set-fn! :error-emit/dispatch-frame-teardown-report
+                   dispatch-frame-teardown-report!)

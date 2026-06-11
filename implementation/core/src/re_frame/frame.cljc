@@ -974,6 +974,21 @@
 ;; take no frame arg). Per rf2-x3m8c.
 (def ^:dynamic *destroying-frame-id* nil)
 
+;; Per-destroy accumulator of cleanup-hook failures, bound to a fresh atom
+;; by `destroy-frame!` for the duration of the teardown walk. Each
+;; `safe-call-hook!` failure conj's one entry
+;; (`{:hook <key> :exception <ex> :where :safe-call-hook!}`); the
+;; finally-shaped flush at the bottom of `destroy-frame!` ships them as the
+;; single always-on `:rf.error/frame-teardown-failed` report's
+;; `:hook-failures` vector. ACCUMULATING into a side atom (rather than
+;; emitting per-hook on the always-on axis) is what makes the flush
+;; FINALLY-shaped: if a downstream teardown step aborts the walk mid-recipe,
+;; the entries collected so far are already in the atom and the `finally`
+;; boundary still flushes them (EP-0008 R1 / Spec 009 §Emit-safety —
+;; finally-shaped flush). nil outside a destroy (defensive — `safe-call-hook!`
+;; only conj's when bound). Per rf2-ini4wr.
+(def ^:dynamic *teardown-hook-failures* nil)
+
 ;; Pre-cascade frame-state snapshot of the in-flight dequeued event, bound by
 ;; the router around `process-event!` (see `re-frame.router/run-one-pass!`).
 ;; A handler that calls `destroy-frame!` on its own frame mid-drain runs
@@ -991,19 +1006,43 @@
 (defn- safe-call-hook!
   "Fire a late-bound cleanup hook by key. No-op when unbound. Exceptions
   are caught so one bad hook can't block the rest of teardown — but the
-  failure is NOT silent (rf2-x3m8c): before continuing we emit a
-  `:rf.warning/teardown-hook-exception` trace carrying the hook key, the
-  in-flight frame id (when known via `*destroying-frame-id*`), and the
-  exception, so a leaked optional-artefact cleanup (stale schemas, flow
-  rows, side-channel atoms, trace rings) leaves a causal breadcrumb in
-  long-lived SSR / test / tooling processes. Best-effort teardown
-  semantics are preserved — the throw is swallowed and teardown
-  continues. The emit rides `interop/debug-enabled?` (inside
-  `trace/emit-error!`) so production CLJS bundles DCE it."
+  failure is NOT silent. On a throw we do TWO things, on two distinct
+  Spec 009 observability channels:
+
+    1. ALWAYS-ON axis (EP-0008 R1, rf2-ini4wr) — conj the failure entry
+       (`{:hook <key> :exception <ex> :where :safe-call-hook!}`) onto the
+       per-destroy `*teardown-hook-failures*` accumulator. `destroy-frame!`
+       flushes the accumulated entries as ONE bounded
+       `:rf.error/frame-teardown-failed` report through a finally-shaped
+       boundary, so even a mid-teardown abort ships the entries gathered
+       so far. Accumulating here (rather than emitting per-hook on the
+       always-on axis) collapses the SSR per-request-destroy × M req/s
+       per-hook flood to one record per destroy while preserving the
+       which-hooks-failed-together correlation (Spec 009 §Channel-
+       promotion catalogue rows).
+
+    2. DIAGNOSTIC channel (EP-0008 R2, rf2-x3m8c) — emit the per-hook
+       `:rf.warning/teardown-hook-exception` trace at its CAUSAL position
+       carrying the hook key, the in-flight frame id (`*destroying-frame-
+       id*`), and the exception, so a leaked optional-artefact cleanup
+       (stale schemas, flow rows, side-channel atoms, trace rings) leaves
+       a dev breadcrumb in long-lived SSR / test / tooling processes. This
+       emit rides `interop/debug-enabled?` (inside `trace/emit-error!`) so
+       production CLJS bundles DCE it — the per-hook dev visibility is KEPT
+       (only the always-on emission collapsed to the single report).
+
+  Best-effort teardown semantics are preserved — the throw is swallowed
+  and teardown continues (`:recovery :ignored`)."
   [hook-key & args]
   (when-let [f (late-bind/get-fn hook-key)]
     (try (apply f args)
          (catch #?(:clj Throwable :cljs :default) ex
+           ;; Always-on axis: accumulate (flushed once by destroy-frame!).
+           (when-let [acc *teardown-hook-failures*]
+             (swap! acc conj {:hook      hook-key
+                              :exception ex
+                              :where     :safe-call-hook!}))
+           ;; Diagnostic channel: per-hook dev trace at its causal position.
            (trace/emit-error! :rf.warning/teardown-hook-exception
                               {:category  :rf.warning/teardown-hook-exception
                                :hook      hook-key
@@ -1308,8 +1347,17 @@
       ;; Both are passed to `notify-epoch-listeners!` (step 8). EP-0001
       ;; (rf2-3aizt1, decision #2): the whole frame-state, both partitions.
       (let [cascade-fs-before *cascade-frame-state-before*
-            fs-at-destroy     (frame-state-value id)]
-       (binding [*destroying-frame-id* id]
+            fs-at-destroy     (frame-state-value id)
+            ;; EP-0008 R1 (rf2-ini4wr): per-destroy accumulator for
+            ;; cleanup-hook failures. `safe-call-hook!` conj's an entry per
+            ;; failed hook; the finally-shaped flush below ships them as ONE
+            ;; always-on `:rf.error/frame-teardown-failed` report. Held in a
+            ;; side atom so a mid-teardown abort still flushes the entries
+            ;; gathered so far (the entries are already in the atom when the
+            ;; `finally` runs).
+            hook-failures     (atom [])]
+       (binding [*destroying-frame-id*    id
+                 *teardown-hook-failures* hook-failures]
         (try
         (fire-on-destroy-event! id f)
         (notify-machine-destruction! id)
@@ -1381,6 +1429,27 @@
         (notify-epoch-listeners! id cascade-fs-before fs-at-destroy)
         nil
         (finally
+          ;; EP-0008 R1 (rf2-ini4wr) — FINALLY-shaped flush of the always-on
+          ;; teardown report. If any cleanup hook threw (entries accumulated
+          ;; in `hook-failures`), ship ONE bounded
+          ;; `:rf.error/frame-teardown-failed` record carrying the
+          ;; `:hook-failures` vector. Running this in the `finally` is the
+          ;; emit-safety contract: even if a downstream teardown step aborts
+          ;; the walk mid-recipe (after, say, hook 3 of 7), the entries
+          ;; collected so far are already in the atom and STILL flush — the
+          ;; single-report shape does not sacrifice incremental delivery
+          ;; against a mid-teardown collapse (Spec 009 §Emit-safety). Reached
+          ;; via late-bind (`error-emit` → `elision` → `frame` is a load
+          ;; cycle); no-op when no hook failed (the report fn short-circuits
+          ;; on an empty vector). The flush itself is wrapped so a fault in
+          ;; the always-on substrate can never strand the in-flight marker.
+          (let [failures @hook-failures]
+            (when (seq failures)
+              (when-let [emit-report (late-bind/get-fn
+                                       :error-emit/dispatch-frame-teardown-report)]
+                (try
+                  (emit-report id failures (interop/now-ms))
+                  (catch #?(:clj Throwable :cljs :default) _ nil)))))
           ;; Always clear the in-flight marker — even if a downstream step
           ;; throws unexpectedly, future `destroy-frame!` calls for `id`
           ;; (after a fresh `reg-frame`) must not see a stale entry.
