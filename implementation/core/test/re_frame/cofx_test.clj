@@ -42,6 +42,10 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
+  ;; rf2-2941zx — re-register the standard cofx (`:db` / `:event`) plus the
+  ;; EP-0010 `:app/now-ms` compatibility time cofx, wiped by `clear-all!`.
+  ;; The `:app/now-ms` injection test below resolves it from the registry.
+  (require 're-frame.cofx     :reload)
   ;; EP-0002: establish an explicit frame scope for the body. `init!` no
   ;; longer creates `:rf/default`; register it as an ordinary frame and
   ;; pin `*current-frame*` so the ambient `dispatch-sync` calls below
@@ -403,3 +407,68 @@
       (is (= 1 (count (filter #(= :rf.cofx/skipped-on-platform (:operation %))
                               @traces)))
           "the skip trace fired instead"))))
+
+;; ---- EP-0010 :app/now-ms compatibility time cofx (rf2-2941zx) --------------
+;;
+;; The initial recordable time coeffect (EP-0010 §Backwards Compatibility and
+;; Migration, reference-implementation step 7): `:app/now-ms` injects the
+;; dispatch envelope's causal `(:time-ms (:rf.world/inputs cofx))` so a v1-style
+;; host-clock read in a durable handler becomes a recordable coeffect. It reads
+;; ONLY the already-seeded `:rf.world/inputs` framework coeffect — no ambient
+;; `(.now js/Date)` / `interop/now-ms` of its own — so a scripted / replayed
+;; `:time-ms` is returned exactly (Spec 002 §Event Context And Coeffects: a
+;; coeffect that can affect durable state MUST be recordable).
+
+(deftest app-now-ms-reads-causal-time-ms-exactly
+  (testing ":app/now-ms returns the supplied :rf.world/inputs :time-ms VERBATIM
+            — a scripted past timestamp comes back exactly, proving no ambient
+            clock read at the injection site (replay determinism)"
+    (let [scripted 1781078400123      ;; a fixed past epoch-ms; an ambient
+          seen     (atom ::unset)]    ;; (.now js/Date) read would never equal it
+      (rf/reg-event-fx :cofx-test/read-now
+        [(rf/inject-cofx :app/now-ms)]
+        (fn [{:keys [app/now-ms]} _]
+          (reset! seen now-ms)
+          {}))
+      (rf/dispatch-sync [:cofx-test/read-now]
+                        {:rf.world/inputs {:time-ms scripted}})
+      (is (= scripted @seen)
+          "the handler saw the EXACT scripted :time-ms — sourced from the causal
+           token, not a live host-clock read (a replayed dispatch is stable)"))))
+
+(deftest app-now-ms-tracks-router-stamped-time-ms
+  (testing "with no caller-supplied world inputs, :app/now-ms returns the SAME
+            value the router stamped on the envelope (:rf.world/inputs :time-ms)
+            — one causal read, surfaced through the cofx (not a second read)"
+    (let [seen-now   (atom ::unset)
+          seen-world (atom ::unset)]
+      (rf/reg-event-fx :cofx-test/read-now-stamped
+        [(rf/inject-cofx :app/now-ms)]
+        (fn [{:keys [app/now-ms rf.world/inputs]} _]
+          (reset! seen-now now-ms)
+          (reset! seen-world (:time-ms inputs))
+          {}))
+      (rf/dispatch-sync [:cofx-test/read-now-stamped])
+      (is (number? @seen-now)
+          ":app/now-ms is a stamped epoch-ms number on the live path")
+      (is (= @seen-world @seen-now)
+          ":app/now-ms equals the envelope's own :rf.world/inputs :time-ms —
+           it surfaces the single causal read, never re-reads the host"))))
+
+(deftest app-now-ms-nil-without-world-inputs
+  (testing ":app/now-ms injects nil when no :rf.world/inputs coeffect is present
+            (a handler invoked outside the dispatch path) — it never falls back
+            to an ambient host read (durable time must come from a stamped
+            envelope)"
+    (let [seen   (atom ::unset)
+          ;; Drive the cofx directly with a context carrying NO :rf.world/inputs
+          ;; coeffect — isolates the cofx body from the router's stamping so the
+          ;; nil-source branch is exercised deterministically.
+          cofx    (registrar/lookup :cofx :app/now-ms)
+          handler (:handler-fn cofx)
+          ctx     {:coeffects {:event [:cofx-test/no-world]}}
+          result  (handler ctx)]
+      (reset! seen (get-in result [:coeffects :app/now-ms]))
+      (is (nil? @seen)
+          "no :rf.world/inputs → :app/now-ms is nil (no ambient (.now js/Date)
+           fallback — durable time is causal-only)"))))

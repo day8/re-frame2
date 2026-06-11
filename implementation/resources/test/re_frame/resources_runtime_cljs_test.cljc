@@ -538,6 +538,67 @@
     (testing ":stale-at = :loaded-at + the :stale-after-ms policy"
       (is (= (+ completed-at 60000) (:stale-at (entry scoped-key)))))))
 
+;; rf2-95b0lc / EP-0010 §The World-Input Rule: the ensure FRESH-SKIP gate is a
+;; freshness DECISION that gates a durable runtime-db write (serve-cache vs
+;; start-new-work). Its basis MUST be the ensure token's causal
+;; `(:time-ms (:rf.world/inputs cofx))`, NOT an ambient host-clock read — so a
+;; replayed ensure under a LATER live clock takes the SAME branch the recorded
+;; `:time-ms` dictated. Pre-fix the gate read `(now-ms)` (= the live host
+;; clock, ~1.78e12 epoch-ms / `System/currentTimeMillis`), which dwarfs any
+;; scripted `:stale-at`, so a replay always re-read the live clock and could
+;; flip serve-cache → refetch, minting a DIVERGENT work-ledger row.
+(deftest fresh-skip-decision-reads-causal-time-ms-not-ambient-clock
+  (rf/reg-resource :fsd/article (article-spec {:stale-after-ms 60000}))
+  (let [scoped-key  (state/scoped-resource-key :rf.scope/global :fsd/article {:slug "w"})
+        t0          1000000          ;; a SMALL scripted epoch-ms (a "recorded
+        ;; run" basis far below the live host clock). The entry loads at t0 and
+        ;; is fresh until t0 + 60000.
+        completed-at t0]
+    ;; --- first ensure + scripted reply: entry loads, fresh until t0+60s ------
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :fsd/article :scope :rf.scope/global
+                                            :params {:slug "w"} :owner [:lease :fsd 1]}])
+    (let [e (entry scoped-key)]
+      (rf/dispatch-sync [:rf.resource.internal/succeeded
+                         {:resource-key scoped-key :work/id (:current-work e)
+                          :generation (:generation e) :data {:title "W"}}]
+                        {:rf.world/inputs {:time-ms completed-at}}))
+    (is (= :loaded (:status (entry scoped-key))) "entry loaded")
+    (is (= (+ t0 60000) (:stale-at (entry scoped-key))) "durable :stale-at = t0 + policy")
+    (let [gen0 (:generation (entry scoped-key))]
+      ;; --- replay the ensure under a LATER causal clock, still WITHIN the
+      ;; freshness window — MUST fresh-skip (serve cache), even though the LIVE
+      ;; host clock is decades past t0+60s. -------------------------------------
+      (reset! last-managed-args nil)
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :fsd/article :scope :rf.scope/global
+                                              :params {:slug "w"} :owner [:lease :fsd 1]}]
+                        ;; scripted causal "now": t0 + 30s — fresh by policy.
+                        {:rf.world/inputs {:time-ms (+ t0 30000)}})
+      (testing "a within-window causal :time-ms takes the FRESH-SKIP branch
+                — no new work, no transport call, generation unchanged"
+        (is (nil? @last-managed-args)
+            "no managed-HTTP fetch fired — the ensure served cache (fresh-skip),
+             NOT a new load (a pre-fix ambient (now-ms) read would have seen the
+             live clock far past :stale-at and started a divergent fetch)")
+        (is (= gen0 (:generation (entry scoped-key)))
+            "generation unchanged — no new work-ledger generation was minted")
+        (is (= :loaded (:status (entry scoped-key)))
+            "entry stayed :loaded (served cache); did NOT transition to :fetching"))
+      ;; --- the SAME entry, replayed under a causal :time-ms PAST the window,
+      ;; takes the opposite (refetch) branch — proving the gate genuinely reads
+      ;; the causal token, not a constant. ------------------------------------
+      (reset! last-managed-args nil)
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :fsd/article :scope :rf.scope/global
+                                              :params {:slug "w"} :owner [:lease :fsd 1]}]
+                        ;; scripted causal "now": t0 + 90s — STALE by policy.
+                        {:rf.world/inputs {:time-ms (+ t0 90000)}})
+      (testing "a past-window causal :time-ms takes the REFETCH branch — a new
+                load fires (the decision tracks the causal token both ways)"
+        (is (some? @last-managed-args)
+            "a managed-HTTP fetch fired — the stale-by-causal-time ensure started
+             a fresh load")
+        (is (= (inc gen0) (:generation (entry scoped-key)))
+            "a new generation was minted — the stale ensure forced new work")))))
+
 ;; ===========================================================================
 ;; 10. owner release / clear-scope / remove / tag invalidation
 ;; ===========================================================================
