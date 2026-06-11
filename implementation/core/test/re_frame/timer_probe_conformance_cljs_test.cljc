@@ -209,8 +209,12 @@
   (testing "a framework test/tool target MAY opt into stale delivery; app targets MUST NOT"
     (is (false? (:deliver? (probe/suppress base-args 2 {} [:t]))) "no opt-in → not delivered")
     (is (false? (:deliver? (probe/suppress base-args 2 {} {:event [:t] :dispatch-stale? false}))))
-    (is (true?  (:deliver? (probe/suppress base-args 2 {} {:event [:t] :dispatch-stale? true})))
-        ":dispatch-stale? true (framework test/tool only) → delivered")))
+    (is (true?  (:deliver? (probe/suppress base-args 2 {}
+                                           (reply/with-stale-authority {:event [:t] :dispatch-stale? true}))))
+        ":dispatch-stale? true on a framework/tool-authorised target → delivered")
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (probe/suppress base-args 2 {} {:event [:t] :dispatch-stale? true}))
+        "an APP target setting :dispatch-stale? true without framework authority FAILS LOUD")))
 
 ;; ===========================================================================
 ;; Property 9 — the reply-target functor law (Managed-Effects §Reply mapping

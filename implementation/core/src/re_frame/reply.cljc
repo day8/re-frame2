@@ -71,11 +71,12 @@
 ;; and the internal descriptor form (Managed-Effects §The reply target).
 ;;
 ;; A normalized target is a map:
-;;   {:event          [:event-id arg ...]   ;; the prefix to complete
-;;    :delivery       :append               ;; the only public delivery mode
-;;    :suppress       {...}                  ;; optional data-only gates
-;;    :dispatch-stale? false                 ;; framework test/tool opt-in only
-;;    ::post          (fn [event] event)}    ;; the composed event-transform
+;;   {:event             [:event-id arg ...] ;; the prefix to complete
+;;    :delivery          :append             ;; the only public delivery mode
+;;    :suppress          {...}               ;; optional data-only gates
+;;    :dispatch-stale?   false               ;; framework test/tool opt-in only
+;;    ::post             (fn [event] event)  ;; the composed event-transform
+;;    ::stale-authority  true}               ;; framework/tool capability marker
 ;;
 ;; `::post` is the functor's accumulator: a pure event→event transform that
 ;; `complete` applies AFTER appending the reply map. It is namespaced-private
@@ -83,9 +84,35 @@
 ;; only on a normalized target while a family is assembling/relocating a
 ;; continuation, exactly the role Elm's `Cmd.map` plays. Identity target
 ;; carries no `::post` (treated as identity); composition composes them.
+;;
+;; `::stale-authority` is the framework/tool CAPABILITY marker for stale
+;; delivery (Managed-Effects §The reply target: `:dispatch-stale?` is
+;; "restricted to framework test and tool targets"). It is namespaced-private
+;; — only framework/tool code reaches it (via `with-stale-authority`); an app
+;; target built from `:rf/reply-to` data cannot name it, so it cannot grant
+;; itself stale-delivery authority. Like `::post`, it is EPHEMERAL: it rides a
+;; normalized target while a family/tool assembles a continuation and MUST NOT
+;; be serialized into an effect map or a durable reply target.
+;;
+;; EPHEMERAL vs DURABLE. `::post` and `::stale-authority` are the two
+;; ephemeral, host-/capability-bearing slots a normalized target may carry
+;; while in-flight. A target that could become DURABLE (persisted to a ledger
+;; row, a stored continuation, a replay log) MUST be data-only: see
+;; `durable-target` (strips ephemerals + asserts data-only) and
+;; `data-only-target?` (the predicate conformance pins).
 ;; ---------------------------------------------------------------------------
 
 (def ^:private post-key ::post)
+
+(def ^:private stale-authority-key ::stale-authority)
+
+(def ^:private ephemeral-target-keys
+  "The namespaced-private slots a normalized target may carry while in-flight
+  that MUST NOT survive into a durable target: the functor accumulator
+  (`::post`, a fn) and the stale-delivery capability marker
+  (`::stale-authority`). `durable-target` strips these; their presence makes a
+  target non-data-only."
+  #{post-key stale-authority-key})
 
 (defn descriptor?
   "True when `target` is the descriptor (map) form rather than the
@@ -126,17 +153,20 @@
 (defn target->short-form
   "Project a normalized target back to its public short form when it has no
   non-default descriptor fields (no `:suppress`, no `:dispatch-stale?`, no
-  accumulated `::post`, `:delivery :append`). Otherwise returns the
-  descriptor unchanged. Lets a family expose the bare vector publicly while
-  using the descriptor internally (Managed-Effects: \"A family MAY expose
-  only the short vector form publicly while using the descriptor form
-  internally\")."
+  accumulated `::post`, no `::stale-authority`, `:delivery :append`).
+  Otherwise returns the descriptor unchanged. Lets a family expose the bare
+  vector publicly while using the descriptor internally (Managed-Effects: \"A
+  family MAY expose only the short vector form publicly while using the
+  descriptor form internally\"). The ephemeral capability slot
+  (`::stale-authority`) keeps the descriptor too — projecting must never
+  silently drop a framework/tool capability."
   [target]
   (let [{:keys [event delivery suppress dispatch-stale?] :as d} (normalize-target target)]
     (if (and (= delivery :append)
              (nil? suppress)
              (not dispatch-stale?)
-             (nil? (get d post-key)))
+             (nil? (get d post-key))
+             (nil? (get d stale-authority-key)))
       event
       d)))
 
@@ -210,14 +240,46 @@
     (assoc d post-key composed)))
 
 ;; ---------------------------------------------------------------------------
-;; Reply-map schema validation (Managed-Effects §The reply map / §Status
-;; taxonomy). Validates the closed-status invariant, the value/error
-;; conventions per status, and the data-only invariant (no host handles).
-;;
-;; Returns nil when valid; otherwise a vector of problem maps
-;; `{:rf.reply/problem <kw> :path <path> :detail ...}`. `valid?` is the
-;; boolean sugar. Pure — does not throw on a malformed reply (a malformed
-;; reply is data the caller classifies), only on a non-map argument.
+;; Stale-delivery authority — the framework/tool capability (Managed-Effects
+;; §The reply target). `:dispatch-stale?` is "restricted to framework test and
+;; tool targets"; the substrate is pure and has no caller-identity context, so
+;; the restriction is enforced STRUCTURALLY by a namespaced-private capability
+;; marker that only framework/tool code can attach. An app target built from
+;; `:rf/reply-to` data cannot name `::stale-authority`, so it cannot grant
+;; itself stale delivery — and `suppress` fails LOUD if it tries.
+;; ---------------------------------------------------------------------------
+
+(defn with-stale-authority
+  "Stamp a reply `target` as a FRAMEWORK/TOOL target authorised to opt into
+  stale delivery via `:dispatch-stale? true` (Managed-Effects §The reply
+  target). Returns the normalized descriptor carrying the namespaced-private
+  `::stale-authority` capability marker.
+
+  This is the ONLY way `:dispatch-stale? true` is honoured: `suppress` throws
+  on a target that sets `:dispatch-stale? true` WITHOUT this marker (an app
+  target cannot reach the private key, so it cannot grant itself the
+  capability). Framework test/tool callers wrap their target with this helper;
+  app code — which builds a target from public `:rf/reply-to` data — never
+  does, and so an app reply is never delivered stale.
+
+  Like `::post`, the marker is EPHEMERAL: it rides an in-flight normalized
+  target and MUST NOT be serialized into an effect map or a durable target
+  (`durable-target` strips it)."
+  [target]
+  (assoc (normalize-target target) stale-authority-key true))
+
+(defn stale-authority?
+  "True when `target` carries the framework/tool `::stale-authority`
+  capability marker (set via `with-stale-authority`)."
+  [target]
+  (true? (get (normalize-target target) stale-authority-key)))
+
+;; ---------------------------------------------------------------------------
+;; Host-handle detection — the shared data-only walker (Managed-Effects §The
+;; reply map / §The reply target: the data-only invariant). Used by BOTH the
+;; durable-target guard and `validate-reply` — a single definition of "what a
+;; host handle is" so the reply map and the reply target enforce the same
+;; data-only contract.
 ;; ---------------------------------------------------------------------------
 
 (defn- host-handle?
@@ -249,6 +311,60 @@
      (set? v)         (some #(walk-find-host-handle % (conj path '*)) v)
      :else            nil)))
 
+;; ---------------------------------------------------------------------------
+;; Data-only / durable target invariant (Managed-Effects §The reply target —
+;; the reply-target-as-data contract). A normalized target may carry the
+;; ephemeral, non-data slots `::post` (a fn) and `::stale-authority` (a
+;; capability) WHILE IN-FLIGHT, but a target that can become DURABLE (a stored
+;; continuation, a ledger row, a replay log) MUST be data-only. These helpers
+;; make that boundary explicit and fail LOUD rather than letting a
+;; non-serializable function or a capability marker leak into durable reply
+;; data.
+;; ---------------------------------------------------------------------------
+
+(defn data-only-target?
+  "True when `target` is DATA-ONLY — safe to persist into a durable reply
+  target. False when it carries an ephemeral, non-data slot: the functor
+  accumulator `::post` (an arbitrary fn) or the `::stale-authority` capability
+  marker. (The public data fields `:event` / `:delivery` / `:suppress` /
+  `:dispatch-stale?` are all data and pass.) A nil target is data-only
+  (nothing to persist)."
+  [target]
+  (let [d (normalize-target target)]
+    (not (some #(contains? d %) ephemeral-target-keys))))
+
+(defn durable-target
+  "Project `target` to a DURABLE, data-only normalized descriptor — stripping
+  the ephemeral non-data slots (`::post`, `::stale-authority`) — and assert
+  the result carries no host handle anywhere. Use before a target could be
+  persisted (a stored continuation, a ledger row, a replay log).
+
+  Fails LOUD (throws `ex-info` `:rf.reply/non-data-target`) if, after
+  stripping the framework-private slots, the descriptor STILL contains a host
+  handle (a fn, Promise, AbortController, …) in a public field — that would be
+  an app/family bug smuggling a non-serializable value through `:event` /
+  `:suppress`. A nil target yields nil (no continuation to persist)."
+  [target]
+  (when-let [d (normalize-target target)]
+    (let [stripped (apply dissoc d ephemeral-target-keys)]
+      (when-let [handle-path (walk-find-host-handle stripped)]
+        (throw (ex-info "Durable reply target must be data-only — it carries a host handle (fn / Promise / AbortController / …) in a public field."
+                        {:rf.error/kind :rf.reply/non-data-target
+                         :path          handle-path
+                         :target        stripped})))
+      stripped)))
+
+;; ---------------------------------------------------------------------------
+;; Reply-map schema validation (Managed-Effects §The reply map / §Status
+;; taxonomy). Validates the closed-status invariant, the value/error
+;; conventions per status, and the data-only invariant (no host handles).
+;;
+;; Returns nil when valid; otherwise a vector of problem maps
+;; `{:rf.reply/problem <kw> :path <path> :detail ...}`. `valid?` is the
+;; boolean sugar. Pure — does not throw on a malformed reply (a malformed
+;; reply is data the caller classifies), only on a non-map argument.
+;; ---------------------------------------------------------------------------
+
 (defn validate-reply
   "Validate a reply map against the Managed-Effects reply-map contract.
   Returns nil when valid, else a vector of problem maps. Checks:
@@ -256,13 +372,25 @@
     - `:status` present and in the CLOSED `statuses` set;
     - per-status value/error conventions:
         `:ok`        — `:value` present, `:error` absent;
-        `:partial`   — `:value` present AND `:error` present (with a
-                       family `:kind` when `:error` is a map);
-        `:error`     — `:error` present (with a family `:kind` when a map);
-        `:cancelled` — `:cancel/reason` present;
+        `:partial`   — `:value` present AND `:error` present as a family
+                       error MAP carrying a `:kind`;
+        `:error`     — `:error` present as a family error MAP carrying a
+                       `:kind`;
+        `:cancelled` — `:cancel/reason` present AND `:cancelled? true`
+                       (the intentional-cancellation marker);
         `:stale`     — `:stale? true` AND `:stale/reason` present;
     - `:work/status` (when present) in the `work-statuses` set;
     - the data-only invariant: no host handles anywhere in the map.
+
+  The `:error`/`:partial` error shape is TIGHT: the spec status taxonomy
+  requires `:error` \"present with a family `:kind`\", so a loose scalar
+  `:error` (a bare keyword/string) is rejected — every family error rides a
+  structured `{:kind … …}` map so downstream classification, tracing, and
+  cross-family error handling have a uniform shape to dispatch on (a scalar
+  would force each consumer to special-case it). Likewise a `:cancelled`
+  reply MUST carry the `:cancelled? true` marker, not merely a
+  `:cancel/reason`, so cancellation is an explicit positive fact rather than
+  inferred from the presence of a reason.
 
   Pure; throws only on a non-map argument."
   [reply]
@@ -270,7 +398,10 @@
     (throw (ex-info "Reply must be a map." {:rf.error/kind :rf.reply/non-map-reply :reply reply})))
   (let [{:keys [status value error]} reply
         problem (fn [kind path detail] {:rf.reply/problem kind :path path :detail detail})
-        kind-ok? (fn [e] (or (not (map? e)) (some? (:kind e))))
+        ;; A family error MUST be a structured map carrying a :kind. A loose
+        ;; scalar (bare keyword/string/number) is NOT a valid family error —
+        ;; the closed contract demands the uniform {:kind …} shape.
+        error-map-with-kind? (fn [e] (and (map? e) (some? (:kind e))))
         ps (cond-> []
              (not (contains? reply :status))
              (conj (problem :rf.reply/missing-status [:status] nil))
@@ -284,23 +415,29 @@
              (and (= status :ok) (some? error))
              (conj (problem :rf.reply/ok-has-error [:error] error))
 
-             ;; :partial — both value and error present; error carries a family :kind.
+             ;; :partial — both value and error present; :error is a family
+             ;; error MAP carrying a :kind (a loose scalar is rejected).
              (and (= status :partial) (not (contains? reply :value)))
              (conj (problem :rf.reply/partial-missing-value [:value] nil))
              (and (= status :partial) (nil? error))
              (conj (problem :rf.reply/partial-missing-error [:error] nil))
-             (and (= status :partial) (some? error) (not (kind-ok? error)))
-             (conj (problem :rf.reply/error-missing-kind [:error :kind] error))
+             (and (= status :partial) (some? error) (not (error-map-with-kind? error)))
+             (conj (problem :rf.reply/error-not-family-map [:error] error))
 
-             ;; :error — error present, carries a family :kind.
+             ;; :error — :error present as a family error MAP carrying a :kind
+             ;; (a loose scalar is rejected).
              (and (= status :error) (nil? error))
              (conj (problem :rf.reply/error-missing-error [:error] nil))
-             (and (= status :error) (some? error) (not (kind-ok? error)))
-             (conj (problem :rf.reply/error-missing-kind [:error :kind] error))
+             (and (= status :error) (some? error) (not (error-map-with-kind? error)))
+             (conj (problem :rf.reply/error-not-family-map [:error] error))
 
-             ;; :cancelled — :cancel/reason present.
+             ;; :cancelled — :cancel/reason present AND the :cancelled? true
+             ;; intentional-cancellation marker (cancellation is a positive
+             ;; fact, not inferred from a stray reason).
              (and (= status :cancelled) (nil? (:cancel/reason reply)))
              (conj (problem :rf.reply/cancelled-missing-reason [:cancel/reason] nil))
+             (and (= status :cancelled) (not (true? (:cancelled? reply))))
+             (conj (problem :rf.reply/cancelled-missing-marker [:cancelled?] (:cancelled? reply)))
 
              ;; :stale — :stale? true and :stale/reason present; MUST NOT carry :value.
              (and (= status :stale) (not (true? (:stale? reply))))
@@ -395,13 +532,24 @@
   "Produce the stale-suppression outcome for a superseded completion WITHOUT
   dispatching the app target. This is the correctness boundary made
   concrete: the returned `:reply` is `:status :stale` (no `:value`, no app
-  mutation), and `:deliver?` is `false` (unless the target explicitly opted
-  into stale delivery via `:dispatch-stale?` — restricted to framework test
-  / tool targets).
+  mutation), and `:deliver?` is `false` (unless the target is a FRAMEWORK/TOOL
+  target that explicitly opted into stale delivery via `:dispatch-stale? true`
+  — see the authority rule below).
+
+  AUTHORITY (Managed-Effects §The reply target — `:dispatch-stale?` is
+  \"restricted to framework test and tool targets\"). `:dispatch-stale? true`
+  is honoured ONLY when the target also carries the framework/tool
+  `::stale-authority` capability marker (stamped via `with-stale-authority`).
+  An APP target — built from public `:rf/reply-to` data, which has no way to
+  name the namespaced-private marker — cannot grant itself stale delivery: if
+  it sets `:dispatch-stale? true` WITHOUT authority this FAILS LOUD (throws
+  `ex-info` `:rf.reply/unauthorized-stale-delivery`) rather than silently
+  delivering a stale envelope to app state. The default (no `:dispatch-stale?`)
+  is non-delivery for every target, app or framework.
 
   Arguments:
     `target`  — the (optionally normalized) reply target; consulted only for
-                its `:dispatch-stale?` opt-in.
+                its `:dispatch-stale?` opt-in and `::stale-authority`.
     `carried` — the data-only correlation captured at issuance.
     `current` — the data-only correlation read from live frame-state now.
     `extra`   — optional reply fields to carry verbatim (`:work/id`,
@@ -425,7 +573,17 @@
   ([target carried current extra]
    (let [reason   (or (:stale/reason extra) :rf.reply/correlation-mismatch)
          d        (when target (normalize-target target))
-         opt-in?  (true? (:dispatch-stale? d))
+         wants?   (true? (:dispatch-stale? d))
+         authorised? (true? (get d stale-authority-key))
+         ;; FAIL LOUD: a target asking for stale delivery without the
+         ;; framework/tool capability is an app target overreaching. The
+         ;; substrate is pure (no caller identity), so the marker IS the
+         ;; authority — its absence means "not framework/tool".
+         _        (when (and wants? (not authorised?))
+                    (throw (ex-info "Stale delivery (:dispatch-stale? true) is restricted to framework test/tool targets — this target lacks the stale-delivery authority. App reply targets MUST NOT receive stale envelopes."
+                                    {:rf.error/kind :rf.reply/unauthorized-stale-delivery
+                                     :target        d})))
+         opt-in?  (and wants? authorised?)
          carry    (dissoc extra :stale/reason)
          reply    (merge {:status       :stale
                           :stale?       true

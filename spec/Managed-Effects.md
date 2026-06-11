@@ -163,9 +163,9 @@ The reply `:status` vocabulary is **closed**:
 | Reply status | Meaning | Value / error convention |
 |---|---|---|
 | `:ok` | Work completed successfully and the reply is current. | `:value` present; `:error` absent. |
-| `:partial` | Work completed with usable value data **and** structured family-specific problems; the reply is current and the family decides how partial data installs. | `:value` present; `:error` present with a family `:kind` (e.g. `:rf.graphql/partial-success`). |
-| `:error` | Work completed with a failure and the reply is current. | `:error` present with a family `:kind`. |
-| `:cancelled` | Work was intentionally cancelled while still correlated with the target. | `:cancel/reason` present; `:error` MAY carry compatibility failure data. |
+| `:partial` | Work completed with usable value data **and** structured family-specific problems; the reply is current and the family decides how partial data installs. | `:value` present; `:error` present as a family error **map** carrying a `:kind` (e.g. `:rf.graphql/partial-success`) — a loose scalar error is rejected. |
+| `:error` | Work completed with a failure and the reply is current. | `:error` present as a family error **map** carrying a `:kind` — a loose scalar error is rejected. |
+| `:cancelled` | Work was intentionally cancelled while still correlated with the target. | `:cancelled? true` (the intentional-cancellation marker) **and** `:cancel/reason` present; `:error` MAY carry compatibility failure data. |
 | `:stale` | Work completed or was observed after its correlation became obsolete. | `:stale? true`; `:stale/reason` present; **no app-state mutation**. |
 
 `:partial` keeps the envelope transport-neutral: a protocol that can return both data and errors in one completion (GraphQL is the motivating case) must not be forced to pretend it is plain `:ok` or plain `:error`. Plain managed HTTP does not emit `:partial` — an HTTP response is decoded as `:ok` or projected as `:error`/`:cancelled`/`:stale`.

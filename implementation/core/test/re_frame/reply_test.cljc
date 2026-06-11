@@ -45,15 +45,23 @@
               (reply/validate-reply {:status :ok :value 1 :error {:kind :x}})))))
 
 (deftest error-conventions
-  (testing ":error requires :error with a family :kind"
+  (testing ":error requires :error as a family error MAP carrying a :kind"
     (is (reply/valid-reply? {:status :error :error {:kind :rf.http/http-5xx}}))
     (is (some #(= :rf.reply/error-missing-error (:rf.reply/problem %))
               (reply/validate-reply {:status :error})))
-    (is (some #(= :rf.reply/error-missing-kind (:rf.reply/problem %))
-              (reply/validate-reply {:status :error :error {:no :kind}})))))
+    (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
+              (reply/validate-reply {:status :error :error {:no :kind}}))
+        "a map without :kind is not a family error"))
+  (testing "a LOOSE SCALAR :error is rejected — every family error is a structured {:kind …} map"
+    (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
+              (reply/validate-reply {:status :error :error :rf.http/http-5xx}))
+        "a bare keyword :error fails loud — the closed contract demands the {:kind …} shape")
+    (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
+              (reply/validate-reply {:status :error :error "boom"}))
+        "a bare string :error fails loud too")))
 
 (deftest partial-conventions
-  (testing ":partial carries BOTH usable :value AND structured :error with a family :kind"
+  (testing ":partial carries BOTH usable :value AND a structured family :error MAP with a :kind"
     (is (reply/valid-reply?
           {:status :partial
            :value  {:user {:name "Ada"}}
@@ -63,18 +71,27 @@
               (reply/validate-reply {:status :partial :error {:kind :x}})))
     (is (some #(= :rf.reply/partial-missing-error (:rf.reply/problem %))
               (reply/validate-reply {:status :partial :value 1})))
-    (is (some #(= :rf.reply/error-missing-kind (:rf.reply/problem %))
-              (reply/validate-reply {:status :partial :value 1 :error {:no :kind}})))))
+    (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
+              (reply/validate-reply {:status :partial :value 1 :error {:no :kind}})))
+    (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
+              (reply/validate-reply {:status :partial :value 1 :error :loose-scalar}))
+        "a loose scalar :error on a :partial is rejected just like on :error")))
 
 (deftest cancelled-conventions
-  (testing ":cancelled requires :cancel/reason; :error MAY carry compatibility data"
-    (is (reply/valid-reply? {:status :cancelled :cancel/reason :user}))
+  (testing ":cancelled requires :cancel/reason AND the :cancelled? true marker; :error MAY carry compatibility data"
+    (is (reply/valid-reply? {:status :cancelled :cancel/reason :user :cancelled? true}))
     (is (reply/valid-reply? {:status        :cancelled
                              :cancel/reason :actor-destroyed
                              :cancelled?    true
                              :error         {:kind :rf.http/aborted :reason :actor-destroyed}}))
     (is (some #(= :rf.reply/cancelled-missing-reason (:rf.reply/problem %))
-              (reply/validate-reply {:status :cancelled})))))
+              (reply/validate-reply {:status :cancelled :cancelled? true})))
+    (is (some #(= :rf.reply/cancelled-missing-marker (:rf.reply/problem %))
+              (reply/validate-reply {:status :cancelled :cancel/reason :user}))
+        "a :cancel/reason alone is NOT enough — cancellation is a positive :cancelled? true fact")
+    (is (some #(= :rf.reply/cancelled-missing-marker (:rf.reply/problem %))
+              (reply/validate-reply {:status :cancelled :cancel/reason :user :cancelled? false}))
+        ":cancelled? false on a :cancelled reply is contradictory and fails loud")))
 
 (deftest stale-conventions
   (testing ":stale requires :stale? true + :stale/reason and carries NO :value"
@@ -139,6 +156,51 @@
     (is (map? (reply/target->short-form {:event [:x] :suppress {:g 1}}))))
   (testing "nil target ⇒ nil (no continuation)"
     (is (nil? (reply/normalize-target nil)))))
+
+;; ---------------------------------------------------------------------------
+;; Group 1b' — the reply-target-as-data contract (rf2-r16hfc item 1). A
+;; normalized target may carry the EPHEMERAL non-data slots (`::post`, the
+;; functor accumulator fn; `::stale-authority`, the capability marker) while
+;; in-flight, but a target that could become DURABLE must be data-only.
+;; `durable-target` strips the ephemerals and asserts no host handle leaks
+;; into a persisted target; `data-only-target?` is the predicate.
+;; ---------------------------------------------------------------------------
+
+(deftest durable-target-is-data-only
+  (testing "a plain data target is data-only and survives durable projection unchanged"
+    (is (true? (reply/data-only-target? [:x 1])))
+    (is (true? (reply/data-only-target? {:event [:x] :suppress {:g 1} :dispatch-stale? false})))
+    (is (= {:event [:x] :delivery :append :suppress {:g 1}}
+           (reply/durable-target {:event [:x] :suppress {:g 1}})))
+    (is (nil? (reply/durable-target nil)) "nil target ⇒ nil (nothing to persist)"))
+  (testing "a MAPPED target carries the ::post fn — NOT data-only — and durable projection strips it"
+    (let [mapped (reply/map-target (fn [e] e) [:x 1])]
+      (is (false? (reply/data-only-target? mapped))
+          "the functor accumulator is a fn — a mapped target is not safe to persist")
+      (let [durable (reply/durable-target mapped)]
+        (is (true? (reply/data-only-target? durable)) "stripping ::post restores data-only")
+        (is (not (reply/stale-authority? durable))))))
+  (testing "an AUTHORISED target carries the capability marker — NOT data-only — and is stripped"
+    (let [authd (reply/with-stale-authority {:event [:x] :dispatch-stale? true})]
+      (is (false? (reply/data-only-target? authd))
+          "the ::stale-authority capability must not persist into a durable target")
+      (is (false? (reply/stale-authority? (reply/durable-target authd)))
+          "durable projection strips the capability — a persisted target re-acquires no authority")
+      (is (= {:event [:x] :delivery :append :dispatch-stale? true}
+             (reply/durable-target authd)))))
+  (testing "durable-target FAILS LOUD when a host handle hides in a PUBLIC field (an app/family bug)"
+    ;; A function smuggled into :suppress (or any public slot) would leak a
+    ;; non-serializable value into a durable reply target — reject it loudly.
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #"must be data-only"
+          (reply/durable-target {:event [:x] :suppress {:cb (fn [] 1)}})))
+    (try
+      (reply/durable-target {:event [:x] :suppress {:cb (fn [] 1)}})
+      (is false "expected durable-target to throw")
+      (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+        (is (= :rf.reply/non-data-target (:rf.error/kind (ex-data e))))
+        (is (= [:suppress :cb] (:path (ex-data e))) "the failure reports the exact path to the handle")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Group 1c — completion appends the reply as the final arg.
@@ -280,10 +342,56 @@
            (:stale/reason (:reply (reply/suppress [:x] {:g 1} {:g 2})))))))
 
 (deftest suppress-dispatch-stale-opt-in
-  (testing "framework test/tool targets MAY opt into stale delivery via :dispatch-stale?"
-    (is (false? (:deliver? (reply/suppress {:event [:x]} {:g 1} {:g 2}))))
-    (is (true?  (:deliver? (reply/suppress {:event [:x] :dispatch-stale? true} {:g 1} {:g 2})))
-        "the explicit framework-only opt-in lets a test/tool target receive the stale envelope")))
+  (testing "the default — every target, app or framework — is NON-delivery of a stale reply"
+    (is (false? (:deliver? (reply/suppress {:event [:x]} {:g 1} {:g 2})))
+        "no :dispatch-stale? ⇒ not delivered")
+    (is (false? (:deliver? (reply/suppress (reply/with-stale-authority {:event [:x]}) {:g 1} {:g 2})))
+        "authority WITHOUT :dispatch-stale? ⇒ still not delivered (the capability alone does not opt in)"))
+  (testing "a FRAMEWORK/TOOL target — :dispatch-stale? true stamped with stale-authority — IS delivered"
+    (is (true? (:deliver? (reply/suppress (reply/with-stale-authority {:event [:x] :dispatch-stale? true})
+                                          {:g 1} {:g 2})))
+        "the framework/tool capability + the explicit opt-in lets a test/tool target receive the stale envelope")
+    (is (false? (:deliver? (reply/suppress (reply/with-stale-authority {:event [:x] :dispatch-stale? false})
+                                           {:g 1} {:g 2})))
+        ":dispatch-stale? false on an authorised target ⇒ not delivered")))
+
+;; ---------------------------------------------------------------------------
+;; Group 3b — :dispatch-stale? AUTHORITY: framework/tool-only (rf2-636pkr).
+;; The substrate is pure (no caller identity), so stale-delivery authority is
+;; a namespaced-private capability marker only framework/tool code can attach
+;; via `with-stale-authority`. An APP target — built from public `:rf/reply-to`
+;; data, which cannot name the private marker — cannot grant itself stale
+;; delivery; trying to (`:dispatch-stale? true` with no authority) FAILS LOUD.
+;; ---------------------------------------------------------------------------
+
+(deftest dispatch-stale-app-target-cannot-opt-in
+  (testing "an APP target (:dispatch-stale? true, NO authority) cannot enable stale delivery — fails loud"
+    ;; This is the security boundary: an app's :rf/reply-to descriptor can set
+    ;; :dispatch-stale? true (it is plain data), but it CANNOT carry the
+    ;; framework-private authority marker, so suppress must refuse it loudly
+    ;; rather than silently deliver a stale envelope into app state.
+    (let [app-target {:event [:app/replied] :dispatch-stale? true}]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"restricted to framework"
+            (reply/suppress app-target {:g 1} {:g 2}))
+          "an app target that sets :dispatch-stale? true is rejected — it has no stale-delivery authority")
+      (try
+        (reply/suppress app-target {:g 1} {:g 2})
+        (is false "expected suppress to throw")
+        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+          (is (= :rf.reply/unauthorized-stale-delivery (:rf.error/kind (ex-data e)))
+              "the failure carries the closed error kind")))))
+  (testing "the SAME descriptor, once stamped with framework/tool authority, IS allowed"
+    (is (true? (:deliver?
+                 (reply/suppress (reply/with-stale-authority {:event [:app/replied] :dispatch-stale? true})
+                                 {:g 1} {:g 2})))
+        "wrapping with with-stale-authority is the ONLY way to legitimately opt in"))
+  (testing "stale-authority? reports the capability; the public descriptor never carries it"
+    (is (false? (reply/stale-authority? {:event [:x] :dispatch-stale? true}))
+        "a plain (app) descriptor has no authority")
+    (is (true? (reply/stale-authority? (reply/with-stale-authority {:event [:x]})))
+        "with-stale-authority stamps the capability")))
 
 ;; ---------------------------------------------------------------------------
 ;; Group 4 — data-only trace summaries route through the shared elision walker.

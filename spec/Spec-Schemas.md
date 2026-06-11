@@ -2585,7 +2585,7 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
   [:map
    [:status        ReplyStatus]                              ;; ALWAYS required
    [:value         {:optional true} :any]                    ;; present for :ok / :partial; absent for :stale
-   [:error         {:optional true} :any]                    ;; present for :error / :partial (with a family :kind); MAY carry compat data for :cancelled
+   [:error         {:optional true} :any]                    ;; for :error / :partial a family error MAP carrying a :kind (loose scalar rejected); MAY carry compat data for :cancelled
    [:work/id       {:optional true} :any]                    ;; required for ledger-backed work; =-comparable EDN attempt identity
    [:work/kind     {:optional true} :keyword]                ;; :http / :resource / :mutation / :timer / :route / :machine / …
    [:work/status   {:optional true} ReplyWorkStatus]
@@ -2595,9 +2595,9 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
    [:completed-at  {:optional true} [:maybe :int]]
    [:deadline-at   {:optional true} [:maybe :int]]
    [:correlation   {:optional true} :map]                    ;; data-only correlation metadata (request-id, scope, generation, owner, …)
-   [:stale?        {:optional true} :boolean]
+   [:stale?        {:optional true} :boolean]               ;; required true for :status :stale
    [:stale/reason  {:optional true} [:maybe :keyword]]
-   [:cancelled?    {:optional true} :boolean]
+   [:cancelled?    {:optional true} :boolean]               ;; required true for :status :cancelled — the intentional-cancellation marker
    [:cancel/reason {:optional true} [:maybe :keyword]]
    [:trace         {:optional true} :any]                    ;; data-only trace summary (wire slots elided via rf/elide-wire-value)
    [:meta          {:optional true} :any]])                  ;; effect-family data
@@ -2609,14 +2609,20 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
   ;; runtime appends the reply map as the final event argument on :append
   ;; (the only public delivery mode). :suppress carries data-only stale
   ;; gates; :dispatch-stale? (framework test/tool targets only) opts into
-  ;; receiving stale envelopes. Per [Managed-Effects §The reply target].
+  ;; receiving stale envelopes. The framework/tool AUTHORITY for stale
+  ;; delivery is a namespaced-private capability marker (not a public field
+  ;; here) stamped via re-frame.reply/with-stale-authority — an app target
+  ;; built from this public data cannot name it, so :dispatch-stale? true
+  ;; without authority FAILS LOUD (:rf.reply/unauthorized-stale-delivery)
+  ;; rather than delivering a stale envelope to app state. Per
+  ;; [Managed-Effects §The reply target].
   [:or
    [:vector :any]                                            ;; short form: an event-vector prefix [:event-id arg …]
    [:map
     [:event           [:vector :any]]                        ;; the event-vector prefix to complete
     [:delivery        {:optional true} [:enum :append]]      ;; :append is the only PUBLIC delivery mode
     [:suppress        {:optional true} :map]                 ;; data-only gates that must still match before delivery
-    [:dispatch-stale? {:optional true} :boolean]]])          ;; framework test/tool opt-in to stale delivery; app targets MUST NOT set it
+    [:dispatch-stale? {:optional true} :boolean]]])          ;; framework test/tool opt-in to stale delivery; app targets MUST NOT set it (enforced: needs the framework-private stale-authority capability)
 ```
 
 `:rf/reply-map` and `:rf/reply-target` are the schema ids for `ReplyMap` and `ReplyTarget`. The closed `:status` taxonomy, the value/error conventions per status (`:value` on `:ok`/`:partial`; `:error` with a family `:kind` on `:error`/`:partial`; `:cancel/reason` on `:cancelled`; `:stale? true` + `:stale/reason` and no `:value` on `:stale`), the `:work/id` correlation rule (one attempt has one work id — no `:stale-key` synonym, per [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)), and the data-only invariant are all owned normatively by [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope); this catalogue carries the shape. The `:error` envelope on a `:status :error`/`:partial` reply carries the closed `:rf.http/*` (or family-specific) failure-map shapes owned by the per-family spec. A `:status :stale` reply's `:work/status` is `:suppressed` and the linked `WorkLedger` row (above) reaches `:suppressed` — the reply target and a ledger row are the same fact, the ledger's `:reply-to` being this target made durable.
