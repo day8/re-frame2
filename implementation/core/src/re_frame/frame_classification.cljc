@@ -46,10 +46,13 @@
     EXTENSIONS to the immutable built-in HTTP carrier denylist (Spec 014
     §Privacy). They are durable frame config facts — retained verbatim on
     the frame's `:config` (so `frame-meta` surfaces them and the HTTP
-    layer can read them per the later HTTP slice) — NOT elision-walker
-    path declarations. This slice validates them (non-string carrier names
-    fail loudly) and keeps them on the config; wiring the HTTP redactor to
-    consult per-frame carriers is the EP-0015 HTTP slice (bead-plan item 8).
+    layer can read them) — NOT elision-walker path declarations. This slice
+    validates them (non-string carrier names fail loudly) and keeps them on
+    the config; the `http-carriers` resolver (this ns) lowers them to
+    lower-cased extension sets the HTTP privacy redactor unions onto the
+    immutable built-in carrier denylist at trace-emit time, reached via the
+    `:frame-classification/http-carriers` late-bind hook (EP-0015 HTTP
+    slice, bead-plan item 8 — rf2-ppkh3v).
 
   - **`:observability`** (`:handled-events` / `:errors`) is durable frame
     sink policy, likewise retained on the frame's `:config`. This slice
@@ -83,7 +86,9 @@
   is namespaced (it means the same thing across `project-egress`, sink
   policy, MCP, SSR, and tool options). User/library-owned sink ids
   (`:my-app.sinks/datadog`) are NOT framework-claimed."
-  (:require [re-frame.elision :as elision]
+  (:require [clojure.string :as str]
+            [re-frame.elision :as elision]
+            [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.path :as path]))
 
@@ -419,6 +424,50 @@
             (empty? new-l) (dissoc :declarations))))))
   nil)
 
+;; ---- frame-local HTTP carrier resolution (EP-0015 §3, HTTP slice) -------
+;;
+;; The `:sensitive :http {:headers [..] :query-params [..]}` carriers ride
+;; the frame's `:config` verbatim (validated above, shape only). The HTTP
+;; privacy redactor (`re-frame.http-privacy*`) consults them at trace-emit
+;; time as frame-local EXTENSIONS to the immutable built-in carrier denylist
+;; (Spec 014 §Privacy). HTTP sits BELOW core in artefact load order, so it
+;; reaches this resolver via the `:frame-classification/http-carriers`
+;; late-bind hook published at the foot of this ns — never a static require.
+;;
+;; Carrier names are matched case-insensitively on the wire, so the resolver
+;; lower-cases them ONCE here (the redactor lower-cases the incoming header /
+;; param name and does a set lookup). The resolver is the single normalisation
+;; point so the HTTP layer never re-derives the lower-cased form per emit.
+
+(defn http-carriers
+  "Resolve `frame-id`'s frame-local HTTP carrier extension sets from its
+  `reg-frame` `:sensitive {:http {:headers [..] :query-params [..]}}` config
+  (EP-0015 §3). Returns
+
+      {:headers      #{<lower-cased header name>...}
+       :query-params #{<lower-cased query-param name>...}}
+
+  — the EXTENSIONS only (the immutable built-in defaults are owned by the
+  HTTP layer and unioned there). Returns `nil` when `frame-id` is nil, the
+  frame is unregistered, or the frame declares no `:sensitive :http` block —
+  the common case, so the redactor's per-frame lookup allocates nothing when
+  a frame carries no carrier policy. Names are lower-cased for the
+  case-insensitive wire match. Pure (modulo the registry read)."
+  [frame-id]
+  (when frame-id
+    (when-let [f (frame/frame frame-id)]
+      (let [http (get-in f [:config :sensitive :http])]
+        (when (some? http)
+          (let [->set (fn [names]
+                        (when (seq names)
+                          (into #{} (map str/lower-case) names)))
+                hs (->set (:headers http))
+                qs (->set (:query-params http))]
+            (when (or hs qs)
+              (cond-> {}
+                hs (assoc :headers hs)
+                qs (assoc :query-params qs)))))))))
+
 (defn install-from-config!
   "The seam `reg-frame` calls: validate `config`'s classification keys
   (fail loud on any defect) and install the app-db paths into `frame-id`'s
@@ -448,3 +497,7 @@
 (late-bind/set-fn! :frame-classification/validate+extract    validate+extract)
 (late-bind/set-fn! :frame-classification/install!            install!)
 (late-bind/set-fn! :frame-classification/install-from-config! install-from-config!)
+;; The HTTP privacy redactor reaches frame-local carrier policy through this
+;; hook (HTTP sits below core in load order — a static require would not see
+;; this ns when the http artefact is absent, and would cycle when present).
+(late-bind/set-fn! :frame-classification/http-carriers       http-carriers)

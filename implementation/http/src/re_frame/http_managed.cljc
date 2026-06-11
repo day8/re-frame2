@@ -157,8 +157,10 @@
 ;; Privacy surface — Spec 014 §Privacy (rf2-bma05). Header denylist lives
 ;; in `re-frame.http-privacy-headers`; the orchestrating composers
 ;; (request-sensitive?, prepare-emit-*) stay in `re-frame.http-privacy`.
-(def declare-sensitive-header!  privacy-headers/declare-sensitive-header!)
-(def clear-sensitive-headers!   privacy-headers/clear-sensitive-headers!)
+;; rf2-ppkh3v — the app-specific `declare-sensitive-header!` /
+;; `clear-sensitive-headers!` mutators are REMOVED: app carrier names are
+;; declared on the FRAME via `:sensitive {:http {:headers [..]}}` (EP-0015
+;; §3). The immutable built-in default denylist is re-exported for tests.
 (def default-header-denylist    privacy-headers/default-header-denylist)
 
 ;; ---- registration ---------------------------------------------------------

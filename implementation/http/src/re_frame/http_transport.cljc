@@ -30,6 +30,7 @@
             [re-frame.http-encoding     :as encoding]
             [re-frame.http-middleware   :as middleware]
             [re-frame.http-privacy      :as privacy]
+            [re-frame.http-privacy-body :as privacy-body]
             [re-frame.http-registry     :as registry]
             [re-frame.http-reply        :as http-reply]
             [re-frame.http-transport-cljs :as transport-cljs]
@@ -152,7 +153,7 @@
   Aborts (`:rf.http/aborted`, any reason) are EXCLUDED: a cancelled
   request that no longer wants its reply is correct-by-design silence,
   not a swallowed error."
-  [failure url sensitive?]
+  [failure url sensitive? frame]
   (when (and interop/debug-enabled?
              (not= :rf.http/aborted (:kind failure))
              (compare-and-set! failure-swallowed-warned? false true))
@@ -167,7 +168,8 @@
                                   "handler. If the silence is intentional "
                                   "(fire-and-forget telemetry), ignore this; "
                                   "otherwise supply an `:on-failure` target.")}
-                   (true? sensitive?)))))
+                   (true? sensitive?)
+                   {:frame frame}))))
 
 (defn- on-failure-silenced?
   "True when the ctx carries an explicit `:on-failure nil` — the exact
@@ -191,16 +193,33 @@
   `:rf.http/*` trace rows."
   [ctx reply]
   (when interop/debug-enabled?
-    ;; Thread the CARRIED frame into the elider opts (EP-0002 — wire-egress
-    ;; frame resolves from the carried stamp; HTTP completions fire from the
-    ;; transport callback, OUTSIDE any `with-frame` scope, so without an
-    ;; explicit `:frame` the elider fails closed and redacts every wire slot).
-    ;; The per-call `:sensitive?` flag (Spec 014 §Privacy) is forwarded so a
-    ;; sensitive request redacts its payload slots wholesale, matching the
-    ;; existing `:rf.http/*` trace posture.
-    (trace/emit! :info :rf.http/replied
-                 (http-reply/trace-reply reply (cond-> {:sensitive? (true? (:sensitive? ctx))}
-                                                 (:frame ctx) (assoc :frame (:frame ctx)))))))
+    ;; rf2-ppkh3v — RESPONSE-BODY classification (EP-0015 §8, issue 5). The
+    ;; success reply's `:value` IS the decoded response body — a registration-
+    ;; owned transient payload classified per-slot via `:sensitive?` props on
+    ;; the request's `:decode` SCHEMA (the EP-0005 mechanism). Apply those
+    ;; per-slot marks to the value BEFORE it rides the trace, so a body slot
+    ;; the owner's `:decode` schema marks sensitive (`[:token]`) redacts even
+    ;; when the request was NOT declared per-call `:sensitive?`. A non-schema
+    ;; `:decode` (`:auto` / `:json` / `:text` / binary / custom fn) is a
+    ;; no-op here — its body is governed by the per-call `:sensitive?` flag on
+    ;; the dev trace (and by the off-box fail-closed disposition for captures).
+    ;; Only the success status carries a decoded body; failure / cancel carry
+    ;; `:error`, untouched here.
+    (let [reply' (if (and (= :ok (:status reply))
+                          (contains? reply :value)
+                          (privacy-body/schema-decode? (:decode ctx)))
+                   (update reply :value privacy-body/classify-decoded (:decode ctx))
+                   reply)]
+      ;; Thread the CARRIED frame into the elider opts (EP-0002 — wire-egress
+      ;; frame resolves from the carried stamp; HTTP completions fire from the
+      ;; transport callback, OUTSIDE any `with-frame` scope, so without an
+      ;; explicit `:frame` the elider fails closed and redacts every wire slot).
+      ;; The per-call `:sensitive?` flag (Spec 014 §Privacy) is forwarded so a
+      ;; sensitive request redacts its payload slots wholesale, matching the
+      ;; existing `:rf.http/*` trace posture.
+      (trace/emit! :info :rf.http/replied
+                   (http-reply/trace-reply reply' (cond-> {:sensitive? (true? (:sensitive? ctx))}
+                                                    (:frame ctx) (assoc :frame (:frame ctx))))))))
 
 (defn- dispatch-failure!
   "Dispatch a `:failure` reply carrying `failure` as its `:failure` slot.
@@ -220,7 +239,7 @@
   `warn-failure-swallowed!` before the (no-op) dispatch."
   [ctx failure]
   (when (on-failure-silenced? ctx)
-    (warn-failure-swallowed! failure (:url ctx) (:sensitive? ctx)))
+    (warn-failure-swallowed! failure (:url ctx) (:sensitive? ctx) (:frame ctx)))
   (let [reply (http-reply/failure-reply (reply-ctx ctx) failure)]
     (emit-reply-trace! ctx reply)
     (dispatch-reply! (assoc ctx
@@ -273,7 +292,8 @@
                          (assoc failure
                                 :url      (:url ctx)
                                 :recovery :no-recovery)
-                         sensitive?)]
+                         sensitive?
+                         {:frame (:frame ctx)})]
         (trace/emit-error! :rf.http/aborted redacted)))
     ;; Per rf2-lxd3 — supersede semantics suppress the reply. Other
     ;; abort reasons (`:user`, `:actor-destroyed`, `:timeout`) all
@@ -355,7 +375,8 @@
                               :request-id (:request-id ctx)
                               :url        (:url ctx)
                               :recovery   :no-recovery)
-                       sensitive?)]
+                       sensitive?
+                       {:frame (:frame ctx)})]
       (trace/emit-error! (:kind failure) redacted)))
   (let [superseded? (and (= :rf.http/aborted (:kind failure))
                          (= :request-id-superseded (:reason failure)))]
@@ -525,7 +546,12 @@
                      request-id actor-id
                      {:abort-fn   abort-fn
                       :url        (:url ctx)
-                      :sensitive? (true? (:sensitive? ctx))})
+                      :sensitive? (true? (:sensitive? ctx))
+                      ;; rf2-ppkh3v — carry the originating frame so the
+                      ;; actor-destroy abort trace (emitted from the registry
+                      ;; ns, distant from the fx ctx) can resolve the frame's
+                      ;; frame-local HTTP carriers for the URL redaction.
+                      :frame      (:frame ctx)})
         ;; rf2-meq28 — publish the stamped handle so the abort-fn closure
         ;; (defined above, before `handle` was bound) can pass it to the
         ;; 2-arg `clear-in-flight!` via `@handle-cell`. The reset! happens
@@ -604,7 +630,8 @@
                           :max-attempts    max-attempts
                           :failure         failure
                           :next-backoff-ms delay-ms}
-                         (true? (:sensitive? ctx)))))
+                         (true? (:sensitive? ctx))
+                         {:frame (:frame ctx)})))
         ;; Clear the prior attempt's live-fetch handle from both indexes;
         ;; `schedule-backoff-handle!` immediately re-registers a fresh
         ;; backoff handle so the request is never invisible to a
@@ -643,7 +670,8 @@
                           :max-attempts    max-attempts
                           :failure         failure
                           :next-backoff-ms nil}
-                         (true? (:sensitive? ctx)))))
+                         (true? (:sensitive? ctx))
+                         {:frame (:frame ctx)})))
         (finalise-failure! ctx failure)))))
 
 (defn- handle-response!
@@ -716,6 +744,10 @@
                   ;; runtime-wide slot in that case.
                   :handler-id       (first (:origin-event ctx))
                   :sensitive?       (:sensitive? ctx)
+                  ;; rf2-ppkh3v — the originating frame, so the
+                  ;; decode-defaulted warning's URL redaction consults
+                  ;; the frame's frame-local HTTP carriers (EP-0015 §3).
+                  :frame            (:frame ctx)
                   ;; rf2-wu1n5 — thread the keyword-cap from the
                   ;; normalised ctx into the decoder; nil means
                   ;; the reader uses its default.
@@ -771,6 +803,15 @@
           ;; `finalise-failure!` — never `maybe-retry!`.
           (let [decoded (:decoded decode-result)
                 ctx'    (assoc ctx :decoded decoded)
+                ;; rf2-ppkh3v — RESPONSE-BODY classification (EP-0015 §8,
+                ;; issue 5). The pre-`:accept` decoded body rides at
+                ;; `:decoded` on an `:rf.http/accept-failure` trace; apply
+                ;; the request's `:decode` schema per-slot `:sensitive?`
+                ;; marks so a sensitive body slot redacts even when the
+                ;; request was not declared per-call `:sensitive?`. A
+                ;; non-schema `:decode` is a no-op here (the per-call flag /
+                ;; off-box disposition govern an unschematized body).
+                decoded' (privacy-body/classify-decoded decoded decode)
                 outcome (try
                           {:accepted (encoding/run-accept accept decoded)}
                           (catch #?(:clj Throwable :cljs :default) e
@@ -783,7 +824,7 @@
                  :detail     {:rf.http/bad-accept :threw
                               :message #?(:clj (.getMessage ^Throwable (:accept-error outcome))
                                           :cljs (.-message ^js (:accept-error outcome)))}
-                 :decoded    decoded
+                 :decoded    decoded'
                  :request-id request-id})
 
               (encoding/valid-accept-return? (:accepted outcome))
@@ -795,7 +836,7 @@
                 {:kind       :rf.http/accept-failure
                  :detail     {:rf.http/bad-accept :malformed-return
                               :returned (:accepted outcome)}
-                 :decoded    decoded
+                 :decoded    decoded'
                  :request-id request-id})))))
 
       :else
@@ -1046,7 +1087,11 @@
                     ;; emit (lives in the registry ns) can stamp the
                     ;; trace event without re-resolving registration
                     ;; metadata.
-                    :sensitive? (true? (:sensitive? ctx))})
+                    :sensitive? (true? (:sensitive? ctx))
+                    ;; rf2-ppkh3v — carry the originating frame so the
+                    ;; actor-destroy abort trace can resolve the frame's
+                    ;; frame-local HTTP carriers for URL redaction.
+                    :frame      (:frame ctx)})
         ;; rf2-lz7se — publish the stamped handle so the abort-fn closure
         ;; (defined above, before `handle` was bound) can pass it to the
         ;; 2-arg `clear-in-flight!` via `@handle-holder`. The reset!
@@ -1131,7 +1176,12 @@
                                  ;; envelope key on the JVM (default `:follow`).
                                  ;; Selects the redirect-policy-specific client.
                                  :redirect   (:redirect request)
-                                 :sensitive? (true? (:sensitive? ctx))})]
+                                 :sensitive? (true? (:sensitive? ctx))
+                                 ;; rf2-ppkh3v — the originating frame so the
+                                 ;; per-header validation warning's URL
+                                 ;; redaction consults the frame's frame-local
+                                 ;; HTTP carriers (EP-0015 §3).
+                                 :frame      (:frame ctx)})]
                  ;; rf2-on7sj — publish cf to the abort-fn closure's holder
                  ;; BEFORE wiring whenComplete. A racing abort that arrives
                  ;; between `jvm-fetch` returning and `.whenComplete`

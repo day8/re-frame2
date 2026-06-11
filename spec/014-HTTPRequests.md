@@ -1196,18 +1196,22 @@ HTTP is the canonical privacy surface in any application: passwords ride request
 
 Spec 014 specifies HTTP-side honouring on top of the Spec 009 contract: every `:rf.http/*` trace event MUST stamp `:sensitive?` when the originating handler is sensitive, MUST redact known-sensitive request headers regardless of handler sensitivity, and MUST redact request / response bodies when the request is sensitive. The contract layers as three cooperating pieces.
 
-### Privacy at a glance — user-facing entry points and owning namespaces
+### Privacy at a glance — declaration surfaces and owning namespaces
 
-App code requires only the `re-frame.http` façade, which re-exports the four entry points below. The structural split (three implementation namespaces) is visible to the operator who's reading the spec or stepping into framework source — headers, URL query-string params, and the orchestrating composers are distinct decoration surfaces.
+The privacy surface has four declaration surfaces, none of them a process-global mutation (EP-0015 §3, rf2-ppkh3v):
 
-| Entry point | Purpose | Owning namespace |
+| Surface | Purpose | Where declared |
 |---|---|---|
-| `declare-sensitive-header!` | Extend the always-on header denylist with an app-specific header name. | `re-frame.http-privacy-headers` |
-| `clear-sensitive-headers!` | Clear the app-extended header denylist (test ergonomics). The fixed default denylist is not affected. | `re-frame.http-privacy-headers` |
-| `declare-sensitive-query-param!` | Extend the always-on query-string param denylist with an app-specific param name. | `re-frame.http-url` |
-| `clear-sensitive-query-params!` | Clear the app-extended query-param denylist (test ergonomics). The fixed default denylist is not affected. | `re-frame.http-url` |
+| Built-in header denylist | A closed, **immutable** set of always-sensitive header names ([§1](#1-header-denylist-always-on)). No frame can remove one. | framework default (`re-frame.http-privacy-headers`) |
+| Built-in query-param denylist | A closed, **immutable** set of always-sensitive query-param names ([§2](#2-query-param-denylist-always-on)). | framework default (`re-frame.http-url`) |
+| Frame-local carriers | App-specific sensitive header / query-param names, declared on the **frame** via `:sensitive {:http {:headers [..] :query-params [..]}}` ([§Frame-local carriers](#frame-local-carriers-ep-0015-3)). The frame extension set **unions** onto the built-in defaults for the emitting frame. | `reg-frame` metadata (`re-frame.frame-classification`) |
+| Per-request `:sensitive?` | The coarse per-call / per-request flag ([§3](#3-per-request--per-call-sensitive)) that redacts a single request's body / params / all URL params wholesale. | the `:rf.http/managed` args map |
 
-The composers that orchestrate per-emit redaction + stamping — `request-sensitive?`, `prepare-emit-tags`, `prepare-emit-failure` — live in `re-frame.http-privacy` as the privacy orchestrator. They consult the two denylist atoms and the per-request / per-call `:sensitive?` flag and produce the redacted slot values + stamped tags map that `trace/emit!` / `trace/emit-error!` sees.
+Response **bodies** are classified separately, per-slot, via the request's `:decode` schema ([§Response-body classification](#response-body-classification-ep-0015-5)).
+
+The composers that orchestrate per-emit redaction + stamping — `request-sensitive?`, `prepare-emit-tags`, `prepare-emit-failure` — live in `re-frame.http-privacy` as the privacy orchestrator. They consult the two built-in denylists, the emitting frame's frame-local carrier extension sets (resolved once per emit via `re-frame.frame-classification/http-carriers`), and the per-request / per-call `:sensitive?` flag, and produce the redacted slot values + stamped tags map that `trace/emit!` / `trace/emit-error!` sees.
+
+> **No process-global carrier mutation (EP-0015 §3, rf2-ppkh3v).** Earlier drafts exposed `declare-sensitive-header!` / `declare-sensitive-query-param!` (and `clear-*!` siblings) as a process-global denylist mutation on the `re-frame.http` façade. Those are **removed**: re-frame2 is multi-frame, so app-specific carrier policy is frame-owned durable config, not a process global. The immutable built-in defaults remain.
 
 ### 1. Header denylist (always-on)
 
@@ -1230,13 +1234,14 @@ The v1 closed denylist:
 | `WWW-Authenticate` | Challenge response carries scheme + realm details |
 | `Proxy-Authenticate` | Same as WWW-Authenticate at the proxy layer |
 
-Apps extend the denylist for app-specific tokens (e.g. `X-Honeycomb-Team`, `X-Stripe-Signature`) via:
+The built-in denylist is **immutable** — no frame can remove a name. Apps extend it for app-specific tokens (e.g. `X-Honeycomb-Team`, `X-Stripe-Signature`) on the **frame** (EP-0015 §3 — see [§Frame-local carriers](#frame-local-carriers-ep-0015-3)):
 
 ```clojure
-(rf.http/declare-sensitive-header! "X-Honeycomb-Team")
+(rf/reg-frame :app/main
+  {:sensitive {:http {:headers ["X-Honeycomb-Team"]}}})
 ```
 
-Names stored lower-cased; matching is case-insensitive. The default denylist is fixed at boot; the app-extended set is mutable and clearable for test ergonomics via `(rf.http/clear-sensitive-headers!)`.
+The frame extension set is lower-cased and **unions** onto the immutable built-in defaults for traces emitted from that frame; matching is case-insensitive.
 
 ### 2. Query-param denylist (always-on)
 
@@ -1256,13 +1261,14 @@ The v1 closed denylist:
 | `session` / `session_id` / `sessionid` | Session identifier carried on the URL |
 | `signature` / `sig` / `hmac` | Signed-URL HMAC / signature value |
 
-Apps extend the denylist for app-specific tokens (e.g. `shop_token` for Shopify, `signature` variants in webhook receivers) via:
+The built-in denylist is **immutable** — no frame can remove a name. Apps extend it for app-specific tokens (e.g. `shop_token` for Shopify, `signature` variants in webhook receivers) on the **frame** (EP-0015 §3 — see [§Frame-local carriers](#frame-local-carriers-ep-0015-3)):
 
 ```clojure
-(rf.http/declare-sensitive-query-param! "shop_token")
+(rf/reg-frame :app/main
+  {:sensitive {:http {:query-params ["shop_token"]}}})
 ```
 
-Names stored lower-cased; matching is case-insensitive. The default denylist is fixed at boot; the app-extended set is mutable and clearable for test ergonomics via `(rf.http/clear-sensitive-query-params!)`.
+The frame extension set is lower-cased and **unions** onto the immutable built-in defaults for traces emitted from that frame; matching is case-insensitive.
 
 Matching is **percent-decoding-aware**: a query-param name is compared against the denylist in both its raw spelling **and** its percent-decoded form, so an encoded denylisted name (`?api%5Fkey=…` for `api_key`, `?%61ccess_token=…` for `access_token`, an app-declared `?shop%5Ftoken=…`) is redacted just like its plain spelling. The decode is comparison-only — the rebuilt URL preserves the original raw name verbatim and replaces only the value. A malformed percent-escape decodes to nothing and falls back to the raw-name match; redaction is total and never throws.
 
@@ -1309,6 +1315,51 @@ For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, 
 
 The `:sensitive?` flag a `:rf.http/*` trace event carries is the one resolved for **that specific request** from its per-request / per-call opt-ins (plus any automatic query-param-denylist stamp). Sensitivity does not transitively propagate across a dispatch cascade — a request fired from a non-sensitive call stays non-sensitive even when an ancestor handler in the cascade fired a sensitive request, and vice versa. The OR-reduce-by-cascade rollup, if a consumer wants one, is the consumer's responsibility (group by `:dispatch-id`).
 
+The header and query-param denylist redaction (rules 1–2) consults the **built-in defaults unioned with the emitting frame's frame-local carriers** — see [§Frame-local carriers](#frame-local-carriers-ep-0015-3) below.
+
+### Frame-local carriers (EP-0015 §3)
+
+App-specific sensitive header and query-param names are declared on the **frame**, not through a process-global mutation. re-frame2 is multi-frame: durable frame-wide facts (which carrier names this frame's HTTP traffic treats as secret) belong to frame config (EP-0015 §3 / [Spec 015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification)), so different frames can route to different carrier policies.
+
+```clojure
+(rf/reg-frame :app/main
+  {:sensitive {:http {:headers      ["X-Honeycomb-Team"]
+                      :query-params ["shop_token"]}}})
+```
+
+Semantics:
+
+- The carrier names are **frame-local extensions** to the immutable built-in denylists ([§1](#1-header-denylist-always-on) / [§2](#2-query-param-denylist-always-on)). They **union** onto the defaults; they never replace or remove a built-in name.
+- The names are validated at `reg-frame` time (non-string carrier names fail loudly — [Spec 015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification)); they ride the frame's durable config. The HTTP privacy redactor resolves the emitting frame's extension sets (lower-cased) once per emit via `re-frame.frame-classification/http-carriers` and unions them onto the built-in defaults.
+- The **emitting frame** is the one the request was issued from (the `:rf.http/managed` fx carries the cascade-envelope frame, propagated onto the in-flight handle so even an actor-destroy abort trace fired from the registry resolves the right frame's carriers). A completion that fires with no resolvable frame applies the built-in defaults only.
+- A frame-local query-param carrier hit **stamps `:sensitive? true`** on the trace event exactly like a built-in denylist hit — the carrier name is the signal.
+
+This replaces the removed process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators (EP-0015 §3, rf2-ppkh3v).
+
+### Response-body classification (EP-0015 §5)
+
+Header and query-param policy covers the request carriers; the **response body** (login / refresh / partner-API / upload-URL / opaque-token responses) is classified separately. Per [EP-0015 issue 5 (ruled)](../docs/EP/EP-0015-frame-owned-egress-policy.md#open-issues) and [Spec 015 §HTTP response bodies](015-Data-Classification.md#http-response-bodies), a response body is a **registration-owned transient payload classified per-slot via `:sensitive?` / `:large?` props on the request's `:decode` SCHEMA** — the [Spec 010](010-Schemas.md) / EP-0005 schema-prop mechanism reused (the `:decode` schema is the owner's natural declaration surface for the body shape, so per-slot props are the *one* route — not a second route to classify a frame-owned app-db path; [Spec 015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy)).
+
+```clojure
+;; The :decode schema is the owner's declaration of the body shape AND its
+;; per-slot sensitivity. [:token] is sensitive; [:user-id] is not.
+(rf/reg-event-fx :auth/login
+  (fn [_ [_ creds]]
+    {:fx [[:rf.http/managed
+           {:request {:method :post :url "/auth/login" :body creds}
+            :decode  [:map
+                      [:token {:sensitive? true} :string]
+                      [:user-id :int]]
+            :on-success [:auth/logged-in]}]]}))
+```
+
+Rules:
+
+1. **Per-slot.** A `:sensitive?` prop on a `:decode`-schema slot redacts that slot of the decoded body (to the `:rf/redacted` sentinel) **before** the body rides a `:rf.http/*` trace event — and it fires **independently of** the per-call / per-request `:sensitive?` flag ([§3](#3-per-request--per-call-sensitive)). The owner's schema declaration is the signal. A non-sensitive sibling slot rides verbatim.
+2. **Whole-body root prop.** A root-level `:sensitive?` prop on the `:decode` schema (e.g. `[:string {:sensitive? true}]` — an opaque-token response whose entire body is the secret) redacts the whole body.
+3. **Unschematized is whole-sensitive (fail-closed).** Only a Malli-**schema** `:decode` carries per-slot marks. The keyword decode modes (`:auto` / `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data`) and a custom decoder fn are not schemas. An **unschematized** body has an unknown shape: for an **off-box** egress (production capture / off-box trace) it is treated as whole-sensitive and **omitted entirely** unless a classified projection is explicitly requested; on the in-process **dev** trace stream it rides governed by the per-call `:sensitive?` flag as before (the local operator inspects their own process). This is the `re-frame.http-privacy-body/off-box-body-disposition` rule.
+4. **Composition.** The per-call `:sensitive?` flag remains the **coarse** escape hatch (it redacts the whole body wholesale, regardless of schema marks); response-body classification is the **fine-grained** schema-driven layer that fires irrespective of that flag. Sensitive wins over large (the shared `rf/elide-wire-value` ordering). The decoded body rides at `:value` on the `:rf.http/replied` success trace and at `:decoded` on an `:rf.http/accept-failure` trace; both apply the `:decode`-schema marks.
+
 ### Composition
 
 | Surface | Behaviour |
@@ -1325,7 +1376,7 @@ The `:sensitive?` flag a `:rf.http/*` trace event carries is the one resolved fo
 The HTTP privacy machinery rides the trace surface and elides with it:
 
 - The redact / stamp helpers all gate on `interop/debug-enabled?` at their call sites (the same gate as `trace/emit!` and `trace/emit-error!`). In `:advanced` + `goog.DEBUG=false` builds Closure DCE removes the trace emits AND the redaction step that prepares them.
-- The header denylist atom itself ships in production (it's read by `declare-sensitive-header!`). The walker only runs against it when a trace emit fires, so production builds that elide the trace surface incur no runtime cost.
+- The immutable built-in denylists ship in production as plain data; a frame's frame-local carrier extension sets ride its durable config. The walkers (header / query-param / response-body) only run when a trace emit fires, so production builds that elide the trace surface incur no runtime cost.
 - Handler-meta `:sensitive?` is no longer consulted (the annotation has been removed). Per-call `:sensitive?` on the `:rf.http/managed` args map is the supported per-request sensitivity opt-in.
 
 ### Cross-references
@@ -1384,7 +1435,7 @@ Per [§Aborts](#aborts) `:rf.http/managed` requests issued from inside a spawned
 
 ### Privacy honoured via `:sensitive?` on HTTP trace events
 
-Per [§Privacy](#privacy) the `:rf.http/*` trace events honour the [Spec 009 §`:sensitive?`](009-Instrumentation.md#privacy--sensitive-data-in-traces) contract: per-call and per-request `:sensitive?` flags OR-reduce (handler-meta `:sensitive?` is no longer a source); the framework redacts request/response bodies and a 12-name header denylist (`authorization`, `cookie`, `set-cookie`, etc.). Headers were chosen as the always-on default surface because they carry the highest-value secrets (auth tokens) across the largest fraction of apps. Apps register their own sensitive headers via `rf.http/declare-sensitive-header!`.
+Per [§Privacy](#privacy) the `:rf.http/*` trace events honour the [Spec 009 §`:sensitive?`](009-Instrumentation.md#privacy--sensitive-data-in-traces) contract: per-call and per-request `:sensitive?` flags OR-reduce (handler-meta `:sensitive?` is no longer a source); the framework redacts request/response bodies and a 12-name header denylist (`authorization`, `cookie`, `set-cookie`, etc.). Headers were chosen as the always-on default surface because they carry the highest-value secrets (auth tokens) across the largest fraction of apps. Apps register their own sensitive carrier names on the **frame** via `:sensitive {:http {...}}` (EP-0015 §3 — [§Frame-local carriers](#frame-local-carriers-ep-0015-3)), and response bodies classify per-slot via the request's `:decode` schema ([§Response-body classification](#response-body-classification-ep-0015-5)).
 
 ### Query-string denylist is always-on
 

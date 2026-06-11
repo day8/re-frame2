@@ -264,7 +264,7 @@
   surface as `:rf.http/decode-failure`, not be masked behind a malli
   rejection."
   [{:keys [body-text body-binary headers decode decode-supplied? request-id url
-           sensitive? max-decoded-keys handler-id]}]
+           sensitive? max-decoded-keys handler-id frame]}]
   (let [content-type     (content-type-of headers)
         requested-decode (cond
                            (nil? decode)        :auto
@@ -299,7 +299,8 @@
                       :url              url
                       :content-type     content-type
                       :resolved-decoder (if (keyword? resolved) resolved :auto)}
-                     (true? sensitive?))))
+                     (true? sensitive?)
+                     {:frame frame})))
     (cond
       (fn? requested-decode)
       (requested-decode body-text headers)

@@ -752,10 +752,11 @@
   ["re-frame.http" "patch"]   {:tier :advanced :owner "014" :status "v1 (optional capability)"}
   ["re-frame.http" "head"]    {:tier :advanced :owner "014" :status "v1 (optional capability)"}
   ["re-frame.http" "options"] {:tier :advanced :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http" "declare-sensitive-header!"]      {:tier :tooling :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http" "declare-sensitive-query-param!"] {:tier :tooling :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http" "clear-sensitive-headers!"]       {:tier :tooling :owner "014" :status "v1 (optional capability)"}
-  ["re-frame.http" "clear-sensitive-query-params!"]  {:tier :tooling :owner "014" :status "v1 (optional capability)"}
+  ;; rf2-ppkh3v (EP-0015 §3) — the app-specific HTTP carrier mutators
+  ;; (declare-sensitive-header! / declare-sensitive-query-param! and the
+  ;; clear-*! siblings) are REMOVED from the public API. App carrier names
+  ;; are declared on the FRAME via :sensitive {:http {...}}; the immutable
+  ;; built-in denylists remain framework defaults.
 
   ;; =========================================================================
   ;; re-frame.ssr — optional artefact (day8/re-frame2-ssr), §011.

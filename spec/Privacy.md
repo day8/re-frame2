@@ -63,17 +63,16 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 
 ### `re-frame.http`
 
-HTTP-specific extensions for header / query-param denylists. These are HTTP-namespace-specific because the HTTP fx maps headers + query-strings into `:rf.http/*` trace events — declaring them here keeps the artefact's default denylists colocated with the consumer. Re-exported from `re-frame.core` through `re-frame.http-managed` only for the headers pair; the query-param pair lives only in `re-frame.http`.
+HTTP carrier policy. The HTTP fx maps headers + query-strings + the decoded response body into `:rf.http/*` trace events; their classification surfaces:
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `declare-sensitive-header!` | imperative | Add header name to denylist. Keys lower-cased; case-insensitive lookup. Stored across the process. | [014 §HTTP privacy headers](014-HTTPRequests.md), |
-| `clear-sensitive-headers!` | imperative | Drop app-declared header names from the denylist (built-in defaults survive). Test fixture. | |
-| `declare-sensitive-query-param!` | imperative | Add query-param name to denylist. URLs carrying the param value are redacted **inline** in every `:rf.http/*` trace event that carries a `:url` slot, regardless of the request `:sensitive?` flag — the **name is the signal**. | [014 §URL privacy](014-HTTPRequests.md), |
-| `clear-sensitive-query-params!` | imperative | Test fixture. | |
+| Built-in header / query-param denylists | framework default (immutable) | Closed sets of always-sensitive header / query-param names redacted in every `:rf.http/*` trace event regardless of the request `:sensitive?` flag — the **name is the signal**. No frame can remove a built-in name. | [014 §1–2](014-HTTPRequests.md) |
+| Frame-local carriers | declarative (frame config) | `(rf/reg-frame :app {:sensitive {:http {:headers [..] :query-params [..]}}})` — app-specific carrier names that **union** onto the immutable built-in defaults for the emitting frame (EP-0015 §3). Replaces the removed process-global `declare-sensitive-*!` mutators. | [014 §Frame-local carriers](014-HTTPRequests.md#frame-local-carriers-ep-0015-3) |
+| Response-body classification | declarative (`:decode` schema) | Per-slot `:sensitive?` / `:large?` props on the request's `:decode` Malli schema classify the decoded body (the EP-0005 mechanism). Whole-body root prop redacts everything; an unschematized body fails closed off-box (EP-0015 issue 5). | [014 §Response-body classification](014-HTTPRequests.md#response-body-classification-ep-0015-5) |
 | `:sensitive?` (per-call) | request arg | `{:rf.http/managed {:sensitive? true}}` — opts a specific request in. When true, the request **body** is redacted to the sentinel and **all** query params are scrubbed (broader than the denylist). Sugar form: `{:request {:sensitive? true}}`. | [014 §Privacy](014-HTTPRequests.md) |
 
-Built-in denylists ship populated with the obvious cross-app names (`authorization`, `cookie`, `x-api-key`, `set-cookie`, ...; `api_key`, `access_token`, `auth`, `token`, ...) — `(rf/declare-sensitive-header! ...)` extends them for app-specific tokens (`X-MyApp-Auth`).
+Built-in denylists ship populated with the obvious cross-app names (`authorization`, `cookie`, `x-api-key`, `set-cookie`, ...; `api_key`, `access_token`, `auth`, `token`, ...). App-specific carrier names (`X-MyApp-Auth`, `shop_token`) are declared on the **frame** via `:sensitive {:http {...}}` (EP-0015 §3, rf2-ppkh3v) — the process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators are removed.
 
 ### `re-frame.schemas` (declarative — no imperative surface)
 
@@ -140,10 +139,11 @@ Every `reg-*` accepts `:sensitive` / `:large` (vectors of paths) plus, for subs 
 
 Both write through the runtime-db `[:rf.runtime/elision :sensitive-declarations]` + `[:rf.runtime/elision :declarations]` registry keyed by absolute path with `:source :marks` (so they survive schema re-hydration; schema-sourced entries survive an `add-marks` / `set-marks` re-call). Per [015 §2](015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks).
 
-### Imperative — HTTP denylists
+### Declarative — HTTP carriers (frame policy)
 
-- `(rf/declare-sensitive-header! "X-MyApp-Auth")` / `(rf/clear-sensitive-headers!)` — extends the built-in header denylist
-- `(rf/declare-sensitive-query-param! "my_token")` / `(rf/clear-sensitive-query-params!)` — extends the built-in query-param denylist
+- `(rf/reg-frame :app {:sensitive {:http {:headers ["X-MyApp-Auth"]}}})` — frame-local header carrier; unions onto the immutable built-in header denylist (EP-0015 §3)
+- `(rf/reg-frame :app {:sensitive {:http {:query-params ["my_token"]}}})` — frame-local query-param carrier; unions onto the built-in query-param denylist
+- `{:rf.http/managed {:decode <malli-schema-with-:sensitive?-props>}}` — per-slot response-body classification (EP-0015 issue 5)
 - `{:rf.http/managed {:sensitive? true ...}}` — per-call opt-in (body redaction + ALL params scrubbed)
 
 ### Imperative — interceptor-based scrub
@@ -373,10 +373,12 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
             :on-success [:auth/log-in-success]
             :on-failure [:auth/log-in-failure]}]]}))
 
-;; 3. Declare the header denylist for the app-specific auth token name.
+;; 3. Declare the app-specific auth-token header carrier on the FRAME.
 ;;    The built-in defaults already cover `authorization` / `x-api-key` /
-;;    `cookie` / `set-cookie`; the call below adds an app-specific name.
-(rf/declare-sensitive-header! "X-MyApp-Session")
+;;    `cookie` / `set-cookie`; the frame carrier below adds an app-specific
+;;    name and unions onto those immutable defaults (EP-0015 §3).
+(rf/reg-frame :app/main
+  {:sensitive {:http {:headers ["X-MyApp-Session"]}}})
 
 ;; 4. The on-success event receives the JWT in the response payload. Mark
 ;;    its event arg so the trace surface sees :rf/redacted there too.

@@ -199,6 +199,10 @@
     :producer-ns 're-frame.frame-classification
     :design-bead "rf2-ueg1tn"
     :description "Combined validate+install seam (validate+extract then install!) for the re-registration path, where the container already exists."}
+   {:key         :frame-classification/http-carriers
+    :producer-ns 're-frame.frame-classification
+    :design-bead "rf2-ppkh3v"
+    :description "Resolve a frame's frame-local HTTP carrier extension sets ({:headers #{..} :query-params #{..}}, lower-cased) from its reg-frame :sensitive {:http {...}} config (EP-0015 §3). The HTTP privacy redactor unions these onto the immutable built-in carrier denylist at trace-emit time. Returns nil when the frame is unregistered or declares no :sensitive :http block. Reached via late-bind because the http artefact sits below core in load order (EP-0015 HTTP slice, bead-plan item 8)."}
 
    ;; ---- re-frame.flows -------------------------------------------------------
    ;; Both the public `rf/reg-flow` / `rf/clear-flow` surfaces AND the

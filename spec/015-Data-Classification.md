@@ -144,7 +144,7 @@ Semantics:
 - **Sensitive wins over large.** A path that is both sensitive and large redacts as sensitive and does **not** emit a large marker that could leak path, size, digest, or fetch-handle information.
 - Malformed paths, unknown classification keys, and non-string HTTP carrier names **fail loudly at frame registration** (fail-fast, not silent-ignore).
 
-Frame-owned classification is the durable, cross-frame-distinct, one-place declaration of "what in this frame's app-db is sensitive or large." It replaces the public need for post-creation imperative mark mutation (`add-marks` / `set-marks`) and for app-specific process-global HTTP carrier declarations (`declare-sensitive-header!` / `declare-sensitive-query-param!`). Those imperative helpers may remain as internal / test / generated-code helpers, but they are not the normal guide surface. (The actual API removal/demotion is sequenced as a later EP-0015 action-wave slice; this Spec graduates the *model*.)
+Frame-owned classification is the durable, cross-frame-distinct, one-place declaration of "what in this frame's app-db is sensitive or large." It replaces the public need for post-creation imperative mark mutation (`add-marks` / `set-marks`) and for app-specific process-global HTTP carrier declarations. The HTTP carrier removal has landed (rf2-ppkh3v): `declare-sensitive-header!` / `declare-sensitive-query-param!` (and `clear-*!`) are **removed** from the public API; the immutable built-in HTTP denylists remain framework defaults that a frame's `:sensitive {:http {...}}` carriers union onto ([014-HTTPRequests §Frame-local carriers](014-HTTPRequests.md#frame-local-carriers-ep-0015-3)).
 
 ### Registration-owned transient classification
 
@@ -555,7 +555,7 @@ Per-artefact unit tests cover implementation-specific propagation mechanism; the
 
 ## HTTP response bodies
 
-> Cross-referenced from [§Resource and mutation durable classification](#resource-and-mutation-durable-classification) and the [§Cross-references](#cross-references) HTTP entry; the full Spec 014 reconciliation is a later EP-0015 action-wave slice.
+> Cross-referenced from [§Resource and mutation durable classification](#resource-and-mutation-durable-classification) and the [§Cross-references](#cross-references) HTTP entry. The Spec 014 HTTP-layer reconciliation has landed (rf2-ppkh3v): see [014-HTTPRequests §Response-body classification](014-HTTPRequests.md#response-body-classification-ep-0015-5).
 
 Header / query carrier policy is not enough — managed HTTP needs a response-**body** classification story (login, refresh, partner API, upload-URL, opaque-token responses). Per EP-0015 issue 5, response bodies are **registration-owned transient payloads classified per-slot via `:sensitive?` / `:large?` props on the request's `:decode` schema** — the EP-0005 mechanism reused (the `:decode` schema lives on the owning call / resource / mutation declaration). Whole-body sensitivity is a root-level prop; an **unschematized body is whole-sensitive (fail-closed)**; off-box production traces and captures **omit response bodies entirely** unless a classified projection is explicitly requested.
 
