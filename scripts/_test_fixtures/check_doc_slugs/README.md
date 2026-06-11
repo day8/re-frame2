@@ -25,3 +25,7 @@ Fixtures:
 | `relative_dotdot_ok`               | 0               | `[text](../foo.md)` from a subdirectory                                            |
 | `inline_code_placeholder_ignored`  | 0               | Backticked link-syntax placeholders are masked; real link still validates (rf2-mqv8s) |
 | `inline_code_negative_control`     | 1               | Same-line broken link OUTSIDE an inline-code span is still flagged (rf2-mqv8s)     |
+| `ai_findings_link_flagged`         | 1               | Link into the gitignored `ai/findings/<file>.md` tree is flagged (rf2-l7yj8)       |
+| `ai_findings_dir_link_flagged`     | 1               | Link into the bare `ai/findings/` directory is flagged (rf2-l7yj8)                 |
+| `blockquoted_heading_ok`           | 0               | Link into a blockquoted heading (`> #### Foo`, incl. nested) resolves (rf2-869k9m) |
+| `indented_heading_not_indexed`     | 1               | Negative control: an *indented bare* `#` line still mints no anchor (rf2-869k9m)   |

@@ -98,7 +98,22 @@ EXCLUDE_DIR_REL = frozenset({Path("docs/spec"), Path("docs/migration")})
 # to every heading regardless of `toc_depth` (which only controls which
 # headings appear in the rendered TOC).  Anchor links to H4-H6 therefore
 # resolve on the published site and must be validated here too.
-_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
+#
+# An optional blockquote prefix is accepted: python-markdown (and therefore
+# the MkDocs build) renders a heading *inside* a blockquote — `> #### Foo` —
+# as a real `<h4 id="...">` and mints the same slug anchor it would for a
+# top-level heading.  Authors use blockquoted headings for "callout" teaching
+# boxes (e.g. docs/guide/10-http.md has ~7), and committed links target those
+# anchors.  Without this prefix the indexer never saw them and every such link
+# false-positived as a BROKEN ANCHOR (rf2-869k9m).  The prefix mirrors the
+# block-quote tokeniser: leading whitespace, then one or more `>` markers each
+# with an optional following space (nested quotes `> > #### Foo` included).
+# The title is captured *after* the prefix, so slugification is identical to
+# the non-quoted case — no loosening of the slug contract.  A *bare* heading
+# still must start at column 0 (the prefix group is only entered when a `>`
+# is present); we don't begin tolerating indented `#` lines, which markdown
+# treats as code, not headings.
+_HEADING_RE = re.compile(r"^(?:[ \t]*>[ \t]?)*(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
 
 # Custom heading id syntax: "## Title {#explicit-id}" — pymdownx.toc honours
 # this when the attr_list extension is enabled.  We're conservative and accept
@@ -553,6 +568,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("inline_code_negative_control",     1),  # rf2-mqv8s
         ("ai_findings_link_flagged",         1),  # rf2-l7yj8
         ("ai_findings_dir_link_flagged",     1),  # rf2-l7yj8
+        ("blockquoted_heading_ok",           0),  # rf2-869k9m
+        ("indented_heading_not_indexed",     1),  # rf2-869k9m (negative control)
     ]
 
     failures = 0
