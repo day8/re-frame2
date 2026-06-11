@@ -182,13 +182,17 @@
         (is (= [:derived :blob] (:path marker))
             "marker carries the flow's output path")
         ;; Flow output marks are installed into the SAME per-frame elision
-        ;; registry the schema-first wire walker (`elide-wire-value`) reads,
-        ;; so the marker is produced by `elision/->marker` and carries its
-        ;; `:reason :schema` stamp. That uniformity is the point — one
-        ;; walker, one marker shape, regardless of whether the declaration
-        ;; was schema-sourced or reg-flow-sourced.
-        (is (= :schema (:reason marker))
-            "marker rides the unified walker's :reason :schema stamp")))))
+        ;; registry the wire walker (`elide-wire-value`) reads, so the
+        ;; marker is produced by `elision/->marker` and carries the
+        ;; declaration's `:source` as its `:reason`. reg-flow-sourced
+        ;; declarations are stamped `{:source :flow}` (registry.cljc), so
+        ;; the marker rides `:reason :flow`. That uniformity is the point —
+        ;; one walker, one marker shape; the `:reason` records provenance
+        ;; (`:flow` here, `:frame` for frame-owned `:large {:app-db …}`,
+        ;; `:marks` for marks-sourced). Per EP-0015 §8 schemas no longer
+        ;; feed this registry, so `:schema` is no longer a `:reason`.
+        (is (= :flow (:reason marker))
+            "marker rides the walker's :reason :flow stamp (reg-flow-sourced)")))))
 
 (deftest reg-flow-large-subpath-marks-only-that-slot
   (testing "a flow declaring `:large [[:big]]` marks only the :big sub-slot"

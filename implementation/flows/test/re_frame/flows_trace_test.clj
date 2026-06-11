@@ -16,6 +16,7 @@
             [re-frame.elision :as elision]
             [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
@@ -64,6 +65,31 @@
   events in capture order."
   [op]
   (filterv #(= op (:operation %)) @*captured*))
+
+;; EP-0015 §8 (rf2-d2r3um): durable app-db egress classification is
+;; frame-owned (`reg-frame` `:sensitive` / `:large {:app-db …}`, installed
+;; by `re-frame.frame-classification` under `:source :frame`); schema-
+;; attached `{:sensitive? true}` / `{:large? true}` slot props no longer
+;; feed the frame elision registry the walker reads. These helpers seed the
+;; classification via the frame-owned path — the successor to the removed
+;; schema→elision population — preserving each test's real intent.
+
+(defn- install-large!
+  "Seed the frame's large app-db classification (frame-owned, `:source
+  :frame`). Marker `:reason` for these paths is now `:frame`."
+  [frame-id & paths]
+  (frame-class/install! frame-id
+    (frame-class/validate+extract frame-id
+      {:large {:app-db (vec paths)}})))
+
+(defn- install-sensitive!
+  "Seed the frame's sensitive app-db classification (frame-owned, `:source
+  :frame`). Drives the router's per-handler schema-derived overlap stamp +
+  on-wire redaction, the same way schema-sensitive slots formerly did."
+  [frame-id & paths]
+  (frame-class/install! frame-id
+    (frame-class/validate+extract frame-id
+      {:sensitive {:app-db (vec paths)}})))
 
 (defn- record-all-traces
   "Capture every emitted trace event (not just `:op-type :flow`) for the
@@ -671,10 +697,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest computed-trace-elides-large-result
-  (testing ":rf.flow/computed :result rides through elide-wire-value — schema-large path is elided"
+  (testing ":rf.flow/computed :result rides through elide-wire-value — frame-large path is elided"
     ;; A plain replacing `:init` handler is safe: under the two-partition
     ;; contract a `:db` return replaces ONLY the app-db partition, so the
-    ;; schema-installed elision registry — which lives in the runtime-db
+    ;; frame-installed elision registry — which lives in the runtime-db
     ;; partition at `[:rf.runtime/elision]` — survives untouched for the
     ;; flow's evaluate-time registry read. (Pre-migration the registry sat
     ;; in app-db under `:rf/runtime`, where a replacing handler WOULD have
@@ -685,7 +711,7 @@
                   :inputs [[:n]]
                   :output (fn [_] {:bytes "BIG"})
                   :path   [:derived :blob]})
-    (rf/reg-app-schema [:derived :blob] [:map {:large? true}])
+    (install-large! :rf/default [:derived :blob])
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (let [ev   (last (by-op :rf.flow/computed))
@@ -695,20 +721,20 @@
           ":result is replaced by the `:rf.size/large-elided` marker")
       (let [marker (:rf.size/large-elided (:result tags))]
         (is (= [:derived :blob] (:path marker))
-            "marker carries the schema-declared path")
-        (is (= :schema (:reason marker))
-            "marker carries :reason :schema for schema-large paths")))))
+            "marker carries the frame-declared path")
+        (is (= :frame (:reason marker))
+            "marker carries :reason :frame for frame-large paths")))))
 
 (deftest failed-trace-elides-inputs
   (testing ":rf.flow/failed :inputs rides through elide-wire-value"
-    ;; Register the flow that will throw; the input path is schema-
+    ;; Register the flow that will throw; the input path is frame-
     ;; declared large so the walker substitutes the marker on emit.
     (rf/reg-event-db :init (fn [_ _] {:payload {:big "value"}}))
     (rf/reg-flow {:id     :boom
                   :inputs [[:payload]]
                   :output (fn [_] (throw (ex-info "boom" {})))
                   :path   [:doomed]})
-    (rf/reg-app-schema [:payload] [:map {:large? true}])
+    (install-large! :rf/default [:payload])
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (let [ev   (last (by-op :rf.flow/failed))
@@ -1071,14 +1097,14 @@
     ;; Seed [:derived :blob] with a non-nil value so :before is non-
     ;; nil on the FIRST flow drain we observe. Then bump :n to drive
     ;; a recompute whose :before reads the previous blob and is
-    ;; therefore schema-large. The walker must substitute the marker.
+    ;; therefore frame-large. The walker must substitute the marker.
     (rf/reg-event-db :init (fn [db _] (merge db {:n 1 :derived {:blob {:bytes "PRESEEDED"}}})))
     (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
     (rf/reg-flow {:id     :payload
                   :inputs [[:n]]
                   :output (fn [n] {:bytes (str "blob-" n)})
                   :path   [:derived :blob]})
-    (rf/reg-app-schema [:derived :blob] [:map {:large? true}])
+    (install-large! :rf/default [:derived :blob])
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:bump])
@@ -1087,14 +1113,14 @@
           tags     (:tags last-ev)]
       (is (some? last-ev) ":rf.flow/computed fired on the recompute")
       (is (elision/marker? (:before tags))
-          ":before is replaced by the `:rf.size/large-elided` marker — the slot is schema-large")
+          ":before is replaced by the `:rf.size/large-elided` marker — the slot is frame-large")
       (is (elision/marker? (:result tags))
           ":result is similarly elided (sanity)")
       (let [marker (:rf.size/large-elided (:before tags))]
         (is (= [:derived :blob] (:path marker))
-            "before-marker carries the schema-declared path")
-        (is (= :schema (:reason marker))
-            "before-marker carries :reason :schema")))))
+            "before-marker carries the frame-declared path")
+        (is (= :frame (:reason marker))
+            "before-marker carries :reason :frame")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. `:sensitive?` inheritance on `:rf.flow/*` traces (Spec 013 §`:sensitive?`
@@ -1103,13 +1129,15 @@
 ;; Spec 013 is normative: the runtime stamps `:sensitive? true` at the top
 ;; level of every `:rf.flow/*` trace event when the in-scope handler's
 ;; cascade is sensitive — "the flow itself does not declare `:sensitive?`
-;; directly; the marker rides the cascade." Sensitivity is schema-derived
-;; per rf2-hjs2d: a handler scoped (`rf/path`) over a schema slot marked
-;; `{:sensitive? true}` makes the router bind `:rf/sensitive? true` into the
-;; handler scope. Flows run inside that scope (`commit-and-flow!` sits inside
-;; `run-handler-cascade!`'s `with-handler-scope`), so `trace/build-event`'s
-;; `compute-sensitive?` hoists the stamp onto the flow trace automatically —
-;; the same handler-scope inheritance every other in-cascade trace uses.
+;; directly; the marker rides the cascade." Sensitivity is frame-
+;; classification-derived (EP-0015 §8, rf2-d2r3um — the successor to the
+;; schema-derived overlap of rf2-hjs2d): a handler scoped (`rf/path`) over a
+;; frame-owned `:sensitive {:app-db …}` slot makes the router bind
+;; `:rf/sensitive? true` into the handler scope. Flows run inside that scope
+;; (`commit-and-flow!` sits inside `run-handler-cascade!`'s
+;; `with-handler-scope`), so `trace/build-event`'s `compute-sensitive?`
+;; hoists the stamp onto the flow trace automatically — the same handler-
+;; scope inheritance every other in-cascade trace uses.
 ;;
 ;; These tests pin the contract end-to-end so a future reorder of the drain
 ;; (e.g. moving the flow walk outside the handler scope) cannot silently
@@ -1119,14 +1147,12 @@
 
 (deftest flow-computed-trace-inherits-sensitive-from-schema-scope
   (testing "Spec 013:242 — `:rf.flow/computed` is stamped `:sensitive? true`
-            when the triggering handler's cascade is schema-sensitive"
-    ;; Sensitive schema slot at [:auth :token]; a path-scoped handler
-    ;; writes it (drives the router's schema-derived overlap → scope
+            when the triggering handler's cascade is frame-sensitive"
+    ;; Sensitive frame app-db slot at [:auth :token]; a path-scoped handler
+    ;; writes it (drives the router's frame-classification overlap → scope
     ;; `:rf/sensitive? true`). The flow reads [:auth :token] and writes
     ;; [:auth :derived-user] — it recomputes inside the sensitive scope.
-    (rf/reg-app-schema [:auth]
-                       [:map
-                        [:token {:sensitive? true} :string]])
+    (install-sensitive! :rf/default [:auth :token])
     (rf/reg-flow {:id     :auth/derived-user
                   :inputs [[:auth :token]]
                   :output (fn [t] (str "user-of-" t))
@@ -1141,14 +1167,12 @@
           "the flow recomputed once on the sensitive handler's drain")
       (is (true? (:sensitive? (first computes)))
           ":rf.flow/computed carries a top-level `:sensitive? true` stamp —
-           inherited from the schema-sensitive handler scope (Spec 013:242)"))))
+           inherited from the frame-sensitive handler scope (Spec 013:242)"))))
 
 (deftest flow-failed-trace-inherits-sensitive-from-schema-scope
   (testing "Spec 013:242 — `:rf.flow/failed` is also stamped `:sensitive?`
-            when the triggering handler's cascade is schema-sensitive"
-    (rf/reg-app-schema [:auth]
-                       [:map
-                        [:token {:sensitive? true} :string]])
+            when the triggering handler's cascade is frame-sensitive"
+    (install-sensitive! :rf/default [:auth :token])
     (rf/reg-flow {:id     :auth/derived-user
                   :inputs [[:auth :token]]
                   :output (fn [_] (throw (ex-info "derive boom" {})))
@@ -1166,10 +1190,8 @@
 
 (deftest flow-skip-trace-inherits-sensitive-from-schema-scope
   (testing "Spec 013:242 — `:rf.flow/skip` is stamped `:sensitive?` when the
-            triggering handler's cascade is schema-sensitive"
-    (rf/reg-app-schema [:auth]
-                       [:map
-                        [:token {:sensitive? true} :string]])
+            triggering handler's cascade is frame-sensitive"
+    (install-sensitive! :rf/default [:auth :token])
     (rf/reg-flow {:id     :auth/derived-user
                   :inputs [[:auth :token]]
                   :output (fn [t] (str "user-of-" t))
@@ -1179,7 +1201,7 @@
                      (fn [auth [_ token]] (assoc auth :token token)))
     ;; First sign-in computes; second sign-in with the SAME token leaves
     ;; the input value-equal → `:rf.flow/skip` fires, still inside the
-    ;; schema-sensitive handler scope.
+    ;; frame-sensitive handler scope.
     (rf/dispatch-sync [:auth/signed-in "secret-token"])
     (reset! *captured* [])
     (rf/dispatch-sync [:auth/signed-in "secret-token"])
@@ -1192,12 +1214,10 @@
 (deftest flow-trace-NOT-sensitive-when-handler-not-sensitive
   (testing "Spec 013:242 negative — a flow recompute driven by a NON-sensitive
             handler does NOT carry the `:sensitive?` stamp (absent reads false)"
-    ;; No sensitive schema slot is under the handler's focus, so the
+    ;; No sensitive frame app-db slot is under the handler's focus, so the
     ;; router computes no overlap and the scope is not sensitive. The
     ;; flow trace must NOT acquire a stamp.
-    (rf/reg-app-schema [:auth]
-                       [:map
-                        [:token {:sensitive? true} :string]])
+    (install-sensitive! :rf/default [:auth :token])
     ;; This handler is path-scoped to :profile (disjoint from the sensitive
     ;; :auth slot) and the flow reads :profile — non-sensitive cascade.
     (rf/reg-flow {:id     :profile/derived
@@ -1224,10 +1244,7 @@
     ;; The flow's :path is the sensitive slot, so `:result` (and the
     ;; sensitive input) ride through the elision walker → `:rf/redacted`,
     ;; while the cascade is sensitive → top-level stamp.
-    (rf/reg-app-schema [:auth]
-                       [:map
-                        [:token {:sensitive? true} :string]
-                        [:derived-token {:sensitive? true} :string]])
+    (install-sensitive! :rf/default [:auth :token] [:auth :derived-token])
     (rf/reg-flow {:id     :auth/derived-token
                   :inputs [[:auth :token]]
                   :output (fn [t] (str "derived-" t))
