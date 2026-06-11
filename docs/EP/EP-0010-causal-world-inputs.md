@@ -1,12 +1,21 @@
 # EP-0010: Causal World Inputs
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
-> This EP proposes the replay-determinism rule for host facts: when time,
+> This EP defines the replay-determinism rule for host facts: when time,
 > randomness, UUIDs, browser facts, storage reads, or asynchronous completion
 > facts affect durable frame-state, they enter the frame fold as causal input
 > data, not as ambient reads during transition execution.
+>
+> **Ruling recorded 2026-06-11 (Mike, bead `rf2-jm6tlv`).** Accepted. All five
+> open issues are dispositioned **as recommended**, with three riders recorded
+> in [§Open Issues](#open-issues): the named `:rf.world/uuid` deferral trigger,
+> the `:dispatched-at` same-change retirement rule, and the secrets-exclusion
+> boundary on recordable randomness (now normative in [§Randomness, UUIDs, And
+> Generated Identity](#randomness-uuids-and-generated-identity)). Implementation
+> is tracked by the EP-0010 action epic; the reply-token completion-facts slice
+> sequences with/after the in-flight EP-0011 envelope slices.
 >
 > Normative home after acceptance: `spec/002-Frames.md`, `spec/016-Resources.md`,
 > and the managed-effects/runtime-subsystem sections that define dispatch
@@ -260,11 +269,12 @@ It may carry additional keys as needed:
 - subsystem-qualified keys such as `:rf.http/completed-at` or
   `:rf.route/location` when a narrower spec defines them.
 
-The existing optional envelope field `:dispatched-at` remains diagnostic during
-migration. It MUST NOT be the durable causal-time contract. On acceptance,
-Spec 002 should either retire it or define it as a diagnostic alias derived from
-`(:time-ms (:rf.world/inputs envelope))`. New durable code reads
-`:rf.world/inputs`.
+The existing optional envelope field `:dispatched-at` MUST NOT be the durable
+causal-time contract. This fork is ruled (Open Issues, disposition 5):
+`:dispatched-at` is **retired in the same change that lands the envelope
+stamp** — no coexistence window — with the standard retirement treatment, a
+hard error naming `(:time-ms (:rf.world/inputs envelope))` as the replacement.
+New durable code reads `:rf.world/inputs`.
 
 ## Specification
 
@@ -420,6 +430,15 @@ Random choices should generally record the chosen value, not merely a seed,
 because host RNG algorithms and collection ordering are not portable contracts.
 A seed is acceptable only when the algorithm and input order are named and
 stable.
+
+**Secrets are not world facts (ruled rider, 2026-06-11).** Crypto-grade
+randomness — session tokens, keys, nonces, anything whose value must remain
+confidential — MUST NOT flow through recordable world inputs. A recorded
+choice would *be* the secret, durably embedded in the causal record itself
+(epoch history, replay fixtures), inside the boundary that egress redaction
+protects only at the edges. Secrets are generated in effects on the host side;
+only derived or server-issued facts — never the raw secret material — may
+become durable frame-state.
 
 Host-transient randomness remains ambient. Animation jitter, decorative
 particle positions, local retry jitter that is not written durably, and
@@ -975,35 +994,54 @@ all durable projections are equal after replay.
 
 ## Open Issues
 
-Each issue carries the author's recommendation; per EP-0009, dispositions are
-recorded before this EP graduates.
+**All five issues were ruled 2026-06-11 (Mike, bead `rf2-jm6tlv`): every
+disposition is "as recommended", with three riders recorded inline below.** The
+original recommendations are kept verbatim as the record of what was ruled.
 
-- Should `:time-ms` remain a plain epoch-millisecond number, or should a future
-  accepted spec replace it with a structured clock value carrying wall-clock and
-  monotonic components? **Recommendation:** keep the plain number. The optional
-  `:monotonic-ms` slot already covers the elapsed-time case, and a structured
-  clock could graduate later without breaking `:time-ms` readers.
-- Which framework-provided recordable coeffects should ship first:
-  `:rf.world/uuid`, `:rf.world/random`, `:rf.world/browser-location`,
-  `:rf.world/storage`, or only the core time coeffect?
-  **Recommendation:** ship only the core time path first (the envelope stamp
-  plus the compatibility cofx). `:rf.world/uuid` and `:rf.world/random` follow
-  when an example app or conformance fixture needs them; browser and storage
-  inputs stay app-level recipes until a subsystem graduates a schema.
-- Should random support standardize a deterministic seed algorithm, or should
-  the framework recommend recording generated choices rather than seeds?
-  **Recommendation:** recommend recording generated choices; treat seeds as the
-  exception reserved for named, stable algorithms. Do not standardize a
-  framework RNG now.
-- How much of `:rf.world/inputs` should appear in production traces after
-  privacy projection? **Recommendation:** `:time-ms` is always safe to surface;
-  every other key follows the same marks/projection rules as event payloads and
-  is redacted by default.
-- Should the migration retain `:dispatched-at` as a diagnostic alias, or retire
-  it once `:rf.world/inputs` is universal? **Recommendation:** retire it. Two
-  spellings of "when was this dispatched" violates one-name-per-fact (EP-0007),
-  and the diagnostic need is already covered by the trace event's own `:time`
-  stamp (Spec 009).
+1. Should `:time-ms` remain a plain epoch-millisecond number, or should a future
+   accepted spec replace it with a structured clock value carrying wall-clock and
+   monotonic components? **Recommendation:** keep the plain number. The optional
+   `:monotonic-ms` slot already covers the elapsed-time case, and a structured
+   clock could graduate later without breaking `:time-ms` readers.
+   **Disposition: as recommended.**
+2. Which framework-provided recordable coeffects should ship first:
+   `:rf.world/uuid`, `:rf.world/random`, `:rf.world/browser-location`,
+   `:rf.world/storage`, or only the core time coeffect?
+   **Recommendation:** ship only the core time path first (the envelope stamp
+   plus the compatibility cofx). `:rf.world/uuid` and `:rf.world/random` follow
+   when an example app or conformance fixture needs them; browser and storage
+   inputs stay app-level recipes until a subsystem graduates a schema.
+   **Disposition: as recommended, with the deferral trigger named (rider):**
+   the expected first `:rf.world/uuid` consumer is the optimistic-mutations
+   follow-on EP (temp ids for optimistic inserts — the managed-HTTP RealWorld
+   example's optimistic comment flow is the visible in-repo case).
+3. Should random support standardize a deterministic seed algorithm, or should
+   the framework recommend recording generated choices rather than seeds?
+   **Recommendation:** recommend recording generated choices; treat seeds as the
+   exception reserved for named, stable algorithms. Do not standardize a
+   framework RNG now.
+   **Disposition: as recommended, plus the secrets-exclusion boundary (rider):**
+   crypto-grade randomness (session tokens, keys, nonces) is excluded from
+   recordable world inputs entirely — a recorded choice would *be* the secret,
+   durably embedded in the causal record (epoch history, replay fixtures) where
+   issue 4's egress redaction cannot protect it. Now normative in
+   [§Randomness, UUIDs, And Generated Identity](#randomness-uuids-and-generated-identity).
+4. How much of `:rf.world/inputs` should appear in production traces after
+   privacy projection? **Recommendation:** `:time-ms` is always safe to surface;
+   every other key follows the same marks/projection rules as event payloads and
+   is redacted by default. **Disposition: as recommended.**
+5. Should the migration retain `:dispatched-at` as a diagnostic alias, or retire
+   it once `:rf.world/inputs` is universal? **Recommendation:** retire it. Two
+   spellings of "when was this dispatched" violates one-name-per-fact (EP-0007),
+   and the diagnostic need is already covered by the trace event's own `:time`
+   stamp (Spec 009).
+   **Disposition: retire, with the timing pinned (rider):** retirement happens
+   **in the same change that lands the envelope stamp** — no coexistence
+   window. The `rf2-cg7llv` epoch-naming ruling demonstrated that coexistence
+   windows become permanent and the de-facto spelling wins; the window here is
+   open precisely because `:rf.world/inputs` has not shipped. Standard
+   retirement treatment: a hard error naming the replacement, never a silent
+   alias.
 
 ## Guide Impact
 
