@@ -226,8 +226,14 @@
 ;; Inheritable envelope fields — copied from parent to child when
 ;; `:dispatch` / `:dispatch-later` queue a new envelope. Per Spec 002
 ;; §Cascade propagation (line 1162) and §Drain-loop pseudocode
-;; `inheritable-envelope-keys` (lines 947-952). `:event` and
-;; `:dispatched-at` are NOT inherited — the child gets its own.
+;; `inheritable-envelope-keys` (lines 947-952). `:event` is NOT
+;; inherited — the child gets its own.
+;; Per EP-0010 (rf2-s9ss0t) `:rf.world/inputs` is ALSO not inherited —
+;; a child dispatch is a DISTINCT causal token, so `build-envelope`
+;; stamps it a fresh `:time-ms` rather than copying the parent's (Spec
+;; 002 §Dispatch Envelope Stamping). Its absence from this list is the
+;; mechanism. (`:dispatched-at` was retired in the same change — EP-0010
+;; rider b — so there is nothing left to exclude on that axis.)
 ;; Per rf2-ejtpd, `:source` is ALSO not inherited — each fx-emitted
 ;; child dispatch's `:source` reflects its immediate trigger
 ;; (`:fx-dispatch` / `:fx-dispatch-later`), stamped by the fx handler
@@ -933,8 +939,13 @@
   stamp per Spec 002 §Event context — the retired bare `:frame`
   coeffect is gone, rf2-1m6rf1) are the EP-0001 partition coeffects,
   likewise injected by `assemble-initial-ctx` — framework defaults, not
-  user cofx (rf2-bvwoi4)."
-  #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id})
+  user cofx (rf2-bvwoi4).
+  `:rf.world/inputs` (the EP-0010 causal world-input map, rf2-s9ss0t) is
+  a framework coeffect stamped at envelope construction, so it is
+  filtered out here exactly like the other framework defaults — the
+  COEFFECTS section shows only genuinely user-injected coeffects (Spec
+  002 §Event Context And Coeffects)."
+  #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.world/inputs})
 
 (defn user-injected-coeffects
   "Project the user-injected subset of a coeffects map. Pure data → data.

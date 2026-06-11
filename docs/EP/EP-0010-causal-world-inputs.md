@@ -1,6 +1,6 @@
 # EP-0010: Causal World Inputs
 
-Status: accepted
+Status: final
 Type: standards-track
 
 > This EP defines the replay-determinism rule for host facts: when time,
@@ -22,6 +22,57 @@ Type: standards-track
 > Normative home after acceptance: `spec/002-Frames.md`, `spec/016-Resources.md`,
 > and the managed-effects/runtime-subsystem sections that define dispatch
 > envelopes, coeffects, reply envelopes, restore, and conformance fixtures.
+
+> **`final` means the decisions are settled (2026-06-11, bead `rf2-s9ss0t`).**
+> All five open issues were dispositioned with three riders recorded (see
+> [§Open Issues](#open-issues)); the design is locked. The **core slice** has
+> shipped: the `:rf.world/inputs` envelope field + framework coeffect, the
+> envelope stamping rule (`:time-ms` stamped once at the causal boundary,
+> caller-supplied preserved, child dispatches stamped fresh), the user-cofx
+> trace-projection filter, and the `:dispatched-at` retirement (rider b, no
+> coexistence window) are normative in `spec/002-Frames.md` §Causal world
+> inputs and registered in `spec/Spec-Schemas.md` (`:rf.world/inputs`).
+> Finalizing the *decisions* does not, on its own, assert the *implementation*
+> is gap-free (EP-0005 pattern); the [Implementation errata](#implementation-errata)
+> ledger below tracks the remaining wave steps to their close.
+
+## Implementation errata
+
+The EP decisions are final and the **core slice** (envelope field, coeffect,
+stamping, trace filter, `:dispatched-at` retirement, spec graduation into 002 +
+Spec-Schemas) has shipped under `rf2-s9ss0t`. The items below are the remaining
+build steps of the EP-0010 action wave; they are **open errata**, not reopened
+rulings — each carries out a settled decision, none changes a contract.
+
+### Open errata — remaining EP-0010 wave steps
+
+- **Causal-token coverage across all dispatch sites.** Extend `:dispatch` /
+  `:dispatch-later`, machine timers, routing, HTTP replies, SSR hydration, and
+  tool dispatch helpers so every causal token carries its own world inputs
+  (Reference Implementation step 4). The core stamping path is in place; the
+  per-substrate audit/coverage is the follow-on.
+- **Resource / mutation / work-ledger timestamps + reply completion.** Convert
+  the resource event reducers, mutation reducers, and work-ledger writers from
+  ambient `interop/now-ms` reads to token/reply world inputs, and carry
+  completion facts (`:completed-at`) on reply tokens (steps 5–6;
+  [§Resources, Mutations, And Work-Ledger Timestamps](#resources-mutations-and-work-ledger-timestamps)).
+  Scheduled **behind** this wave so each EP-0011 reply slice is born causally
+  correct (Mike, 2026-06-11).
+- **Recordable-coeffect guidance + time helper.** Add the recordable-coeffect
+  doctrine and the initial compatibility time cofx
+  (`:app/now-ms` reading `:rf.world/inputs`) plus UUID/random helpers when a
+  consumer needs them (step 7; disposition 2 — core time path first,
+  `:rf.world/uuid` follows the optimistic-mutations EP).
+- **Replay fixtures + lint/conformance.** Add replay fixtures that supply
+  times, UUIDs, random choices, browser facts, and reply completion metadata,
+  and the lint/conformance guards for ambient durable-world reads with the
+  diagnostic/host-transient allowlists (steps 8–9;
+  [§Validation / Conformance](#validation--conformance)).
+- **Docs + guide update.** Update the migration docs and the guide's
+  event/coeffect + testing material to teach causal world inputs instead of
+  ambient clock stubbing (step 10; [§Guide Impact](#guide-impact)).
+- **Review series.** The EP-0010 review beads `rf2-cc25b9`, `rf2-h273u8`, and
+  `rf2-bkp3ik` track the cross-cutting review of the wave's output.
 
 ## Abstract
 

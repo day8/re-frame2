@@ -101,8 +101,10 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
    [:trace-id              {:optional true} :any]
    [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :router :ssr-hydration :test :tool :websocket :repl :unknown :other]] ;; trigger kind — default `:unknown` (envelope-construction); per rf2-1ve9h the `:rf/dispatch-origin` axis was collapsed into `:source` (Mike-approved 2026-05-28). Substrate-internal stamp sites: `:ui` (UI handlers), `:frame-init` (frame `:on-create`), `:machine-spawn` (spawn fx — actor bootstrap), `:machine-action` (machine handler's `:dispatch`(-later) — actor-message path, rf2-c3990), `:always` (machine `:always` microstep marker), `:after-timer` (machine `:after` timer fire), `:fx-dispatch` / `:fx-dispatch-later` (ordinary handler's `:dispatch` / `:dispatch-later` fx), `:http` (managed-HTTP reply settle), `:router` (routing-internal dispatches), `:ssr-hydration` (`:rf/hydrate` boot), `:test` (test-harness fixtures), `:tool` (tool / REPL / story dispatches), `:websocket` (reserved — app websocket adapters opt in), `:repl` (REPL eval), `:unknown` (the default — un-stamped dispatch site, per rf2-hxj0d), `:other` (escape hatch)
    [:origin                {:optional true} :keyword]                      ;; actor identity (default :app) — per [002 §Dispatch origin tagging]
-   [:dispatched-at         {:optional true} :any]])                        ;; CLJS reference may add an impl-specific timestamp; tools tolerate
+   [:rf.world/inputs       {:optional true} #'WorldInputs]])               ;; EP-0010 causal world inputs — runtime-guaranteed to carry `:time-ms` (stamped when caller omits); `{:optional true}` because the user-facing OPTS schema is a subset and the runtime fills it (see `:rf.world/inputs` below + [002 §The World-Input Rule])
 ```
+
+> **`:dispatched-at` is retired.** The earlier optional `:dispatched-at` envelope key is **removed** (EP-0010 rider b — retired in the same change that landed the envelope stamp, no coexistence window). The durable causal-time fact is now `(:time-ms (:rf.world/inputs envelope))`; the diagnostic dispatch-time need is the trace event's own `:time` stamp ([009](009-Instrumentation.md)). See [002 §`:dispatched-at` is retired](002-Frames.md#dispatched-at-is-retired).
 
 ### `:rf/dispatch-opts`
 
@@ -110,7 +112,7 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
 > **Owner:** [002-Frames §Routing](002-Frames.md#routing-the-dispatch-envelope)
 > **Status:** v1-required
 
-The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event opts)` / `(subscribe query-v opts)`. The runtime promotes these into a `:rf/dispatch-envelope`. **The opts schema is a *subset* of the envelope** — opts the user supplies are user-facing; envelope keys the runtime adds (`:event` itself, `:dispatched-at`) are internal.
+The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event opts)` / `(subscribe query-v opts)`. The runtime promotes these into a `:rf/dispatch-envelope`. **The opts schema is a *subset* of the envelope** — opts the user supplies are user-facing; the envelope key the runtime adds (`:event` itself) is internal. A caller MAY supply `:rf.world/inputs` (for tests, replay, SSR hydration, tools); when absent the runtime stamps `:time-ms` (see [002 §Envelope stamping](002-Frames.md#envelope-stamping)).
 
 ```clojure
 (def DispatchOpts
@@ -121,10 +123,36 @@ The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event op
    [:interceptors          {:optional true} [:vector :any]]
    [:trace-id              {:optional true} :any]
    [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :router :ssr-hydration :test :tool :websocket :repl :unknown :other]]
-   [:origin                {:optional true} :keyword]])                      ;; actor identity tag — defaults to :app when omitted
+   [:origin                {:optional true} :keyword]                       ;; actor identity tag — defaults to :app when omitted
+   [:rf.world/inputs       {:optional true} #'WorldInputs]])                ;; EP-0010 causal world inputs — caller-supplied for replay/tests/SSR; runtime stamps `:time-ms` when omitted
 ```
 
-The promotion is structural: `(dispatch event opts)` → envelope is `(merge {:event event :frame :rf/default :dispatched-at (now)} opts)`. The runtime asserts `:event` and `:frame` are present after the merge.
+The promotion is structural: `(dispatch event opts)` → envelope is `(merge {:event event} opts)` with `:frame` resolved per the EP-0002 carried invariant and `:rf.world/inputs` ensured to carry `:time-ms`. The runtime asserts `:event` and `:frame` are present after the merge.
+
+### `:rf.world/inputs`
+
+> **Layer:** Runtime
+> **Owner:** [002-Frames §Causal world inputs](002-Frames.md#causal-world-inputs)
+> **Status:** v1-required
+> **Conformance:** `implementation/core/test/re_frame/world_inputs_test.clj` + `implementation/core/test/re_frame/event_context_coeffect_keys_test.clj`
+
+The EP-0010 causal world-input map carried on every dispatch envelope and exposed to handlers as the `:rf.world/inputs` framework coeffect. Host facts that can affect a durable write (time, generated identity, browser/storage facts, async-completion facts) enter the frame fold as data here rather than as an ambient host read at the write site — making replay, restore, and SSR hydration deterministic ([002 §The World-Input Rule](002-Frames.md#the-world-input-rule)). An **open** EDN map with one required key; serializable after the same projection / elision / privacy rules as event payloads.
+
+```clojure
+(def WorldInputs
+  [:map
+   [:time-ms                            :int]                              ;; REQUIRED — wall-clock epoch milliseconds; the canonical durable wall-clock fact. Stamped at the causal boundary when the caller omits it.
+   [:monotonic-ms      {:optional true} :int]                              ;; a monotonic host time for replayable elapsed-time bases
+   [:uuid              {:optional true} [:map-of :keyword :any]]           ;; domain-name → generated id (e.g. `{:todo/id #uuid "…"}`)
+   [:random            {:optional true} [:map-of :keyword :any]]           ;; recorded random CHOICES (not seeds, save named-stable-algorithm cases); crypto-grade secrets EXCLUDED (EP-0010 rider)
+   [:storage           {:optional true} [:map-of :keyword :any]]           ;; normalized storage values read at the causal boundary
+   [:browser/location  {:optional true} :any]                             ;; normalized browser facts — EDN only, never host objects
+   [:browser/visibility {:optional true} :any]
+   [:browser/online?   {:optional true} :boolean]])
+   ;; open: subsystem-qualified keys (e.g. `:rf.route/location`, `:rf.http/completed-at`) ride additively when a narrower spec defines them
+```
+
+The map is required to carry `:time-ms` on the envelope (the runtime guarantees it); it is optional on `:rf/dispatch-opts` because the user-facing opts schema is a subset and the runtime fills `:time-ms` when omitted. Child dispatches receive their own freshly-stamped map — `:time-ms` is not inherited ([002 §Envelope stamping](002-Frames.md#envelope-stamping)).
 
 ### `:rf/registration-metadata`
 

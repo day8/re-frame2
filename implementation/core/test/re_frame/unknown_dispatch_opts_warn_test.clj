@@ -143,5 +143,6 @@
     ;; set must move with it. This is the canonical enumeration callers
     ;; (and the warning message) rely on.
     (is (= #{:frame :fx-overrides :interceptor-overrides :trace-id :source
-             :source-detail :origin :rf.trace/call-site :rf.machine/internal?}
+             :source-detail :origin :rf.world/inputs :rf.trace/call-site
+             :rf.machine/internal?}
            diag/known-dispatch-opts))))
