@@ -33,6 +33,14 @@
 
 ;; ---- spec validation (fail-closed at the authoring boundary) -------------
 
+(def invalidate-timings
+  "The CLOSED enum of valid `:invalidate-timing` values (Spec 016
+  §Mutations). `nil` is also valid at registration — it defaults to
+  `:after-success` at runtime. Any non-nil value outside this set is a typo
+  (e.g. `:after-succes`) that would silently skip every invalidation timing
+  branch — rejected fail-closed by `validate-mutation-spec!`."
+  #{:before-request :after-success :after-failure :after-settle})
+
 (defn- registration-error
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error
   shape) for a `reg-mutation` validation failure."
@@ -81,6 +89,28 @@
                   "the write's params (which the :request / :invalidates / "
                   ":patches fns close over). Per EP-0003 §Mutations.")
              {:mutation-id mutation-id})))
+  ;; :invalidate-timing is a CLOSED four-value enum (Spec 016 §Mutations). It
+  ;; is OPTIONAL (nil defaults to :after-success at runtime), but a non-nil
+  ;; value outside the enum is a typo (e.g. :after-succes) that would register
+  ;; cleanly and then SILENTLY skip every invalidation timing branch at
+  ;; runtime (`(or (:invalidate-timing spec) :after-success)` defaults nil,
+  ;; but a typo is neither nil nor matched by the `#{…}` timing guards). Reject
+  ;; it loudly here so the failure is at the authoring boundary, not a silent
+  ;; runtime no-op (rf2-t8j7oj). Fails in dev AND prod (a caller bug).
+  (let [timing (:invalidate-timing spec)]
+    (when (and (some? timing) (not (contains? invalidate-timings timing)))
+      (throw (registration-error
+               :rf.error/invalid-mutation-spec
+               'rf/reg-mutation
+               (str "mutation " mutation-id " declares an :invalidate-timing of "
+                    (pr-str timing) " outside the closed enum "
+                    (pr-str (sort invalidate-timings)) ". A typo (e.g. "
+                    ":after-succes) would register cleanly and then silently "
+                    "skip every invalidation timing branch at runtime. Per "
+                    "Spec 016 §Mutations.")
+               {:mutation-id       mutation-id
+                :invalidate-timing timing
+                :valid             invalidate-timings}))))
   nil)
 
 ;; ---- reg-mutation / clear-mutation ---------------------------------------
