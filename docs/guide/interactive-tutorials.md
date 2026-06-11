@@ -25,7 +25,7 @@ For a guide chapter, the answer is almost always ` ```cljs-rf2 `. You're teachin
 
 A teaching cell is not a screenshot. It's an invitation to experiment. Three conventions keep that invitation honest:
 
-**1. The cell must run as written.** Whatever you put between the fences is what the reader sees, edits, and evaluates. There's no hidden setup. If the counter needs its `app-db` seeded before the view renders, the seeding form is *in the cell* where the reader can see it. A cell that only works because of state left behind by an earlier cell is a trap — write each interactive cell to stand alone.
+**1. The cell must run as written.** Whatever you put between the fences is what the reader sees, edits, and evaluates — no hidden *application* code. If the counter needs its `app-db` seeded before the view renders, the seeding form is *in the cell* where the reader can see it. (The one thing the harness supplies off-screen is the runtime scaffolding that mounts the cell — substrate plus a default frame — disclosed where it first matters in [chapter 03](03-first-app.md#the-counter-live-and-in-pieces); the cell body never hides app logic.) A cell that only works because of state left behind by an earlier cell is a trap — write each interactive cell to stand alone.
 
 **2. Tell the reader what to change.** After a cell, name the edit you want them to try and what they should expect. "Change `inc` to `(partial + 10)`, press the eval shortcut, and click `+` — the counter now jumps by ten." A live cell with no suggested experiment is just a slow screenshot.
 

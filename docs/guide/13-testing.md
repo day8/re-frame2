@@ -331,9 +331,9 @@ One boundary to respect: these patterns are for a **single application frame** â
 
 ```clojure
 (deftest counter-walk
-  (rf/dispatch-sync [:counter/init])
-  (let [final (ts/dispatch-sequence [[:counter/inc] [:counter/inc] [:counter/dec]])]
-    (is (= 1 (:n final)))))
+  (rf/with-new-frame [f (rf/make-frame {:on-create [:counter/init]})]
+    (let [final (ts/dispatch-sequence [[:counter/inc] [:counter/inc] [:counter/dec]])]
+      (is (= 1 (:n final))))))
 ```
 
 It takes an `:after-each` callback if you want to snapshot the intermediate states:
@@ -349,12 +349,13 @@ It's a `doseq` of `dispatch-sync` calls; it just reads as one intention instead 
 **`assert-path-equals` / `assert-db-equals`** are `clojure.test`-aware assertions in two shapes. The path form is the common case; the full-db form is for "the whole thing should equal this" in small fixtures:
 
 ```clojure
-(rf/dispatch-sync [:auth/login-pressed])
+(rf/with-new-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
+  (rf/dispatch-sync [:auth/login-pressed])
 
-(ts/assert-path-equals [:auth :state] :validating)     ;; the common case
-(ts/assert-db-equals   {:auth {:state :validating}})   ;; full-db form
+  (ts/assert-path-equals [:auth :state] :validating)     ;; the common case
+  (ts/assert-db-equals   {:auth {:state :validating}}))  ;; full-db form
 
-;; against a non-default frame
+;; addressing a frame explicitly, when the body isn't the current one
 (ts/assert-path-equals [:auth :state] :validating {:frame :test/auth-flow})
 ```
 
@@ -443,23 +444,25 @@ Or one-shot, scoped to a single dispatch:
 The per-request shape redirects to a canned success or failure:
 
 ```clojure
-(rf/dispatch-sync [:counter/load]
-                  {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+(rf/with-new-frame [f (rf/make-frame {})]
+  (rf/dispatch-sync [:counter/load]
+                    {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
 
-(rf/dispatch-sync [:counter/load]
-                  {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
+  (rf/dispatch-sync [:counter/load]
+                    {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}))
 ```
 
 And for a suite that hits many endpoints, `with-managed-request-stubs` routes by method + URL:
 
 ```clojure
-(rf/with-managed-request-stubs
-  {[:get  "/api/counter"]        {:reply {:ok {:count 5}}}
-   [:get  "/api/does-not-exist"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}
-   [:post "/api/counter"]        {:reply {:ok {:count 6}}}}
-  (rf/dispatch-sync [:counter/load])
-  (rf/dispatch-sync [:counter/load-bad])
-  (rf/dispatch-sync [:counter/save]))
+(rf/with-new-frame [f (rf/make-frame {})]
+  (rf/with-managed-request-stubs
+    {[:get  "/api/counter"]        {:reply {:ok {:count 5}}}
+     [:get  "/api/does-not-exist"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}
+     [:post "/api/counter"]        {:reply {:ok {:count 6}}}}
+    (rf/dispatch-sync [:counter/load])
+    (rf/dispatch-sync [:counter/load-bad])
+    (rf/dispatch-sync [:counter/save])))
 ```
 
 Wrap, dispatch, assert against the resulting `app-db`. No browser, no network. One rule: **production and SSR code must not require `re-frame.http-test-support`** â€” under that constraint the canned-stub ids are unregistered on every host (absent from the classpath on the JVM, dead-code-eliminated on advanced CLJS) and the re-exports raise `:rf.error/http-artefact-missing` rather than silently shipping test scaffolding to users. The tests cost production exactly nothing. (The full managed-HTTP story is [chapter 10](10-http.md).)

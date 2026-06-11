@@ -66,7 +66,8 @@ The framework emits errors from a fixed-but-additive set of categories. You don'
 | Cofx | `:rf.error/no-such-cofx` | An `inject-cofx` referenced an unregistered cofx-id. |
 | Interceptor | `:rf.error/unwrap-bad-event-shape` | The `:rf/unwrap` interceptor saw a non-`[id payload-map]` shape. |
 | Schema | `:rf.error/schema-validation-failure` | A `:spec`-validated value failed Malli validation. |
-| Frame | `:rf.error/frame-destroyed` | A dispatch / subscribe arrived against a destroyed frame. |
+| Frame | `:rf.error/no-frame-context` | A `dispatch` / `subscribe` ran with **no frame in scope** — no `with-frame` / `with-new-frame` region, no carried `frame-handle`, no explicit `{:frame ...}`. The absence of a target, raised *before* any registry lookup; the runtime does not synthesise a default. |
+| Frame | `:rf.error/frame-destroyed` | A dispatch / subscribe arrived against a destroyed frame — a *bad* target, distinct from no target at all. |
 | Router | `:rf.error/drain-depth-exceeded` | The run-to-completion drain hit its depth limit. |
 | Machine | `:rf.error/machine-action-exception` | A machine action body threw. |
 | Routing | `:rf.error/no-such-route` / `:rf.error/missing-route-param` | A route op referenced an unknown id or omitted a required param. |
@@ -196,6 +197,22 @@ Client-side error UX is a different thing and does *not* go through the projecto
 ## The failures you'll actually meet
 
 Reference material, the lot of it — skim on a first read, and come back to the relevant one when you hit it in the wild. Each is a real `:rf.error/*` category, and every one of them is JVM-runnable, which means every one of them is something you can write a test for (see [§Testing error paths](#testing-error-paths) below and the full surface in [chapter 13](13-testing.md)).
+
+### A dispatch with no frame in scope
+
+*You wrote a quick `(rf/dispatch [:counter/inc])` at the REPL, or in a fresh test, or in a plain Reagent fn you forgot to mount inside a `frame-provider` — and instead of the cascade you expected, you got an error. This is the single most common first stumble: `dispatch` and `subscribe` are frame-scoped, and you ran one with no frame around it.*
+
+A bare `(rf/dispatch [:counter/inc])` resolves its target frame from the surrounding scope — a `with-frame` / `with-new-frame` region, a carried `frame-handle`, an enclosing `frame-provider`, or an explicit `{:frame ...}` opt. With *none* of those present, there is nothing to resolve against, and the runtime does **not** invent a default. It emits:
+
+```clojure
+{:operation :rf.error/no-frame-context
+ :op-type   :error
+ :recovery  :supply-frame
+ :tags      {:event    [:counter/inc]
+             :reason   "No frame in scope for `dispatch` of `:counter/inc`."}}
+```
+
+This is the absence of a target, and the runtime reports it *before* any registry lookup — so a missing context is never mis-reported as a destroyed-frame error for a synthesised default. The fix is always the same: establish a frame. In a view, render under a `frame-provider` (a `reg-view` does this for you); at the REPL or in a test, wrap the work in `with-new-frame` or pass `{:frame ...}` explicitly. (The full carried-frame contract is [chapter 18](18-frames.md); the test shapes are [chapter 13](13-testing.md).)
 
 ### A malformed event vector
 
@@ -334,7 +351,8 @@ Errors are data on a wire, which makes asserting them as boring as asserting any
         (fn [_ _]
           (reset! fired? true)
           {}))
-      (rf/dispatch-sync [:test/run-no-cofx])
+      (rf/with-new-frame [f (rf/make-frame {})]
+        (rf/dispatch-sync [:test/run-no-cofx]))
       (rf/unregister-listener! ::no-cofx)
 
       (is (true? @fired?)

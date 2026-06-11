@@ -57,7 +57,7 @@ Okay. That's the theory. I promised you'd run something. Let's run something.
 
 The smallest program worth writing is a counter: a number, a plus button, a minus button. Click plus, number goes up. It is *aggressively* unimpressive, and that's deliberate, because the shape we use to build this trivial thing is the *exact same shape* we'd use for a trading desk. If the small case feels clean, the large case will too. (And if the small case feels like ceremony — well, hold that thought, we'll come back to it.)
 
-Here's the whole thing, live. This is a real re-frame2 program running in your browser right now — there's no toolchain, no install, nothing hidden off-screen. Click into the cell, then hit **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac) to evaluate it. The first run takes a second while the engine wakes up; after that it's instant. Then click the buttons.
+Here's the whole thing, live. This is a real re-frame2 program running in your browser right now — there's no toolchain, no install, and every line of the *program* is on the page. (The playground does one small thing for you off-screen: it supplies the runtime scaffolding to mount the cell, the same way a `main` would in a real app — [chapter 03](03-first-app.md) shows exactly what it does.) Click into the cell, then hit **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac) to evaluate it. The first run takes a second while the engine wakes up; after that it's instant. Then click the buttons.
 
 ```cljs-rf2
 (require '[reagent2.core :as r]
