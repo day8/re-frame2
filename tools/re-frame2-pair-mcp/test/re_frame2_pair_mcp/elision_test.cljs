@@ -522,8 +522,11 @@
 ;;
 ;; Per Tool-Pair §Direct-read privacy posture, the `snapshot` and
 ;; `get-path` direct-read surfaces MUST honour
-;; `:rf.size/include-sensitive?`. The two-arity form lifts the MCP arg
-;; `:include-sensitive?` into the walker's namespace-prefixed opt.
+;; `:rf.size/include-sensitive?`. EP-0015 §10 (rf2-qus09h) reframes the
+;; two-arity form as named-profile adoption: the `include-sensitive?`
+;; posture names a `:rf.egress/*` profile (`off-box-tool` default /
+;; `local-raw` opt-in) whose `:rf.size/*` floor the framework resolves;
+;; the `include-large?` arg composes on top as the §10 explicit override.
 ;; ---------------------------------------------------------------------------
 
 (deftest elision-opts-edn-include-sensitive-defaults-false
@@ -534,26 +537,53 @@
         "single-arity ⇒ include-sensitive? false (the default per Tool-Pair §Direct-read privacy posture)")))
 
 (deftest elision-opts-edn-include-sensitive-true-opts-in
-  ;; The documented opt-in flow: `:include-sensitive? true` flows into
-  ;; the walker opt of the same shape. Sensitive slots then pass through
-  ;; unmodified.
+  ;; The documented opt-in flow: `:include-sensitive? true` selects the
+  ;; trusted-local `:rf.egress/local-raw` boundary (EP-0015 §10,
+  ;; rf2-qus09h). Sensitive slots then pass through unmodified.
   (let [parsed (cljs.reader/read-string (elision/elision-opts-edn false true))]
     (is (true? (:rf.size/include-sensitive? parsed))
-        "two-arity true ⇒ walker passes sensitive values through")))
+        "two-arity true ⇒ local-raw ⇒ walker passes sensitive values through")))
 
 (deftest elision-opts-edn-include-sensitive-false-explicit
-  ;; Explicit `false` matches the single-arity default.
+  ;; Explicit `false` matches the single-arity default (both ⇒ off-box-tool).
   (let [parsed-explicit (cljs.reader/read-string (elision/elision-opts-edn false false))
         parsed-default  (cljs.reader/read-string (elision/elision-opts-edn false))]
     (is (= parsed-explicit parsed-default))))
 
-(deftest elision-opts-edn-include-sensitive-orthogonal-to-include-large
-  ;; rf2-suoj2 — the two knobs are orthogonal AND symmetric: both
-  ;; pass through to the walker via the same `(boolean ...)` parser.
-  ;; A test reader can read the args left-to-right with no inversion.
-  (doseq [include-large?     [true false]
-          include-sensitive? [true false]]
-    (let [parsed (cljs.reader/read-string
-                   (elision/elision-opts-edn include-large? include-sensitive?))]
-      (is (= include-large?     (:rf.size/include-large? parsed)))
-      (is (= include-sensitive? (:rf.size/include-sensitive? parsed))))))
+(deftest elision-opts-edn-resolves-named-egress-profiles
+  ;; EP-0015 §10 profile adoption (rf2-qus09h): the posture
+  ;; (`include-sensitive?`) names a `:rf.egress/*` profile, resolved to its
+  ;; `:rf.size/*` floor via the cross-MCP `mcp-base.egress` mirror (pinned
+  ;; byte-identical to the framework table by the mcp-conformance
+  ;; wire-vocab gate). The `:elision` arg (`include-large?`) composes ON
+  ;; TOP as the explicit override.
+  ;;
+  ;;   include-sensitive? false  ⇒ :rf.egress/off-box-tool
+  ;;     {include-sensitive? false, include-large? <overlay>, include-digests? true}
+  ;;   include-sensitive? true   ⇒ :rf.egress/local-raw
+  ;;     {include-sensitive? true, include-large? true, include-digests? false}
+  (testing "off-box-tool floor (the off-box default): sensitive redacts, structural digests on"
+    (let [parsed (cljs.reader/read-string (elision/elision-opts-edn false false))]
+      (is (false? (:rf.size/include-sensitive? parsed)) "sensitive redacts off-box")
+      (is (false? (:rf.size/include-large? parsed)) "large elides under off-box-tool floor")
+      (is (true? (:rf.size/include-digests? parsed))
+          "off-box-tool carries structural digests (§10 structural indicators)")))
+  (testing "off-box-tool + :elision false ⇒ include-large? overlaid true (the explicit override wins)"
+    (let [parsed (cljs.reader/read-string (elision/elision-opts-edn true false))]
+      (is (false? (:rf.size/include-sensitive? parsed)) "sensitive still redacts")
+      (is (true? (:rf.size/include-large? parsed))
+          "the :elision-false override opts large content back in over the floor")))
+  (testing "local-raw floor (the --allow-sensitive-reads opt-in): sensitive AND large pass through"
+    (let [parsed (cljs.reader/read-string (elision/elision-opts-edn false true))]
+      (is (true? (:rf.size/include-sensitive? parsed)) "sensitive passes raw (operator opt-in)")
+      (is (true? (:rf.size/include-large? parsed))
+          "local-raw includes large too — the trusted-local boundary"))))
+
+(deftest posture->profile-maps-posture-to-named-boundary
+  ;; The posture→profile mapping is the explicit EP-0015 §10 naming
+  ;; (rf2-qus09h): off-box-tool is the off-box default; local-raw is the
+  ;; trusted-local opt-in.
+  (is (= :rf.egress/off-box-tool (elision/posture->profile false))
+      "not-opted-in ⇒ the MCP/AI tool wire boundary")
+  (is (= :rf.egress/local-raw (elision/posture->profile true))
+      "trusted-local opt-in ⇒ the raw boundary"))

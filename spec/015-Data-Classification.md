@@ -297,18 +297,18 @@ The names are **renamed for axis consistency** (`local-redacted` / `local-raw` r
 
 ### The graduation gate
 
-The six-profile enum is a **closed set** but the **exact names do not lock** until each profile is exercised by at least one real consumer surface:
+The six-profile enum is a **closed set** but the **exact names do not lock** until each profile is exercised by at least one real consumer surface. The per-profile consumer-exercise evidence (the issue-3 graduation requirement) is enumerated in the third column — produced by the `/tools` propagation pass (rf2-qus09h):
 
-| Profile | Graduating consumer (must exercise before naming locks) |
-|---|---|
-| `:rf.egress/off-box-observability` | a hosted-monitoring sink (Datadog / Sentry shape) |
-| `:rf.egress/off-box-tool` | pair-MCP / Story-MCP / Xray-MCP wire |
-| `:rf.egress/local-redacted` | an on-box dev tool (Xray panel) |
-| `:rf.egress/local-raw` | the same dev tool under explicit trusted-local opt-in |
-| `:rf.egress/ssr-hydration` | a real SSR / hydration payload |
-| `:rf.egress/public-error` | a public error-response projection |
+| Profile | Graduating consumer (must exercise before naming locks) | Exercised by (evidence) |
+|---|---|---|
+| `:rf.egress/off-box-observability` | a hosted-monitoring sink (Datadog / Sentry shape) | ✅ frame `:observability` sink routing — `re-frame.observability` routes handled-event / error records through `project-egress` under this profile to declared sinks (`re-frame.frame-classification` default; rf2-t55hxg.7) |
+| `:rf.egress/off-box-tool` | pair-MCP / Story-MCP wire | ✅ re-frame2-pair-mcp + story-mcp default boundary — both servers resolve their direct-read / live-state egress to this profile via `re-frame.mcp-base.egress` (rf2-qus09h) |
+| `:rf.egress/local-redacted` | an on-box dev tool (Xray panel) | ⏳ **gap** — defined + unit-tested in `re-frame.projection`; Xray local-render adoption is deferred behind the in-flight EP-0014 derivation-graph panel (rf2-9ett2d) to avoid a same-file rewrite (follow-up: rf2-t55hxg.12) |
+| `:rf.egress/local-raw` | a dev tool under explicit trusted-local opt-in | ✅ the pair-MCP / story-mcp `--allow-sensitive-reads` + per-call `:include-sensitive` two-key opt-in resolves to this profile (rf2-qus09h) |
+| `:rf.egress/ssr-hydration` | a real SSR / hydration payload | ✅ `re-frame.resources.ssr` projects the allowlisted resource hydration slice under this profile (`re-frame.resources.classification`) |
+| `:rf.egress/public-error` | a public error-response projection | ✅ `re-frame.error-emit` / `re-frame.observability` route the `:rf.observe/error` record under this profile (drops the host `:exception`, never internal raw values) |
 
-Until every row is exercised, the names are provisional and may be re-thrashed. The EP stays `accepted` (not `final`) for the duration. Additions to the set after lock require a recorded ruling.
+Until every row is exercised, the names are provisional and may be re-thrashed. The EP stays `accepted` (not `final`) for the duration. **Five of six profiles now have a real consumer; `:rf.egress/local-redacted` is the one remaining gap** (the on-box Xray-render adoption, deferred to sequence behind rf2-9ett2d's in-flight panel work). Additions to the set after lock require a recorded ruling.
 
 ## Frame-owned observability sink policy
 

@@ -78,10 +78,49 @@
   disclosed and MUST stay redacted. See `sensitive-values` for the
   fail-SAFE argument."
   (:require [re-frame.core :as rf]
+            [re-frame.mcp-base.egress :as base-egress]
             [re-frame.mcp-base.elision :as base-elision]
             [re-frame.mcp-base.envelope :as base-envelope]
             [re-frame.mcp-base.sensitive :as sensitive]
             [re-frame.story-mcp.tools.result :as result]))
+
+;; ---------------------------------------------------------------------------
+;; Named `:rf.egress/*` profile adoption (EP-0015 §10, rf2-qus09h).
+;;
+;; story-mcp is an off-box MCP/AI tool wire — the same boundary class as
+;; re-frame2-pair-mcp. Per EP-0015 §10 the egress posture names a
+;; `:rf.egress/*` profile, resolved to its `:rf.size/*` floor by the
+;; cross-MCP `re-frame.mcp-base.egress` mirror (pinned byte-identical to
+;; the framework `re-frame.projection` table by the mcp-conformance
+;; wire-vocab gate). The boolean `include?` each tool computes
+;; (`(and (sensitive-reads-allowed?) per-call-include-sensitive)`) selects
+;; the boundary: not-opted-in ⇒ `:rf.egress/off-box-tool` (redact
+;; sensitive, elide large, structural digests on); the trusted-local
+;; opt-in ⇒ `:rf.egress/local-raw` (sensitive AND large pass through).
+;; The server expresses "which boundary is this", never a hand-rolled
+;; `:rf.size/*` combination.
+;; ---------------------------------------------------------------------------
+
+(defn posture->profile
+  "Resolve the off-box egress POSTURE to a named `:rf.egress/*` profile
+  (EP-0015 §10, rf2-qus09h). `include?` is the already-gated,
+  already-opted-in boolean: `false` ⇒ `:rf.egress/off-box-tool` (the
+  default MCP/AI tool wire); `true` ⇒ `:rf.egress/local-raw` (the
+  trusted-local operator's deliberate raw read). Mirror of
+  re-frame2-pair-mcp's `tools.elision/posture->profile`."
+  [include?]
+  (if include?
+    :rf.egress/local-raw
+    :rf.egress/off-box-tool))
+
+(defn posture->elision-opts
+  "The `:rf.size/*` opt-set `elide-wire-value` is called under for the
+  resolved egress posture (EP-0015 §10, rf2-qus09h) — the named profile's
+  floor from the cross-MCP `mcp-base.egress` mirror. `:rf.egress/off-box-tool`
+  redacts sensitive + elides large + emits structural digests;
+  `:rf.egress/local-raw` opts both back in."
+  [include?]
+  (base-egress/profile-size-opts (posture->profile include?)))
 
 ;; ---------------------------------------------------------------------------
 ;; Path-based redaction
@@ -89,8 +128,9 @@
 
 (defn elide-app-db
   "Run `app-db` through `re-frame.core/elide-wire-value` against
-  `variant-id`'s frame registry. Returns the elided value, or the input
-  unchanged when `include?` is true.
+  `variant-id`'s frame registry, under the named-egress profile the
+  posture resolves to (EP-0015 §10, rf2-qus09h). Returns the elided value,
+  or the input unchanged when `include?` is true.
 
   The egress walker reads `variant-id`'s frame-owned elision registry
   (`[:rf.runtime/elision :sensitive-declarations]` / `:declarations`),
@@ -100,24 +140,31 @@
   schema→registry population hook (`:elision/populate-from-schemas!`) was
   removed with the §8 schema-attached app-db egress route.
 
+  The walk runs under the `:rf.egress/off-box-tool` profile floor
+  (`posture->elision-opts`): sensitive redacts to `:rf/redacted`, large
+  elides to `:rf.size/large-elided` (with the structural digest off-box-tool
+  carries), seeded at `variant-id`'s frame.
+
   Two short-circuits avoid pointless work:
 
     - Nil-safe — a nil `app-db` returns immediately (the walker treats
       nil as a non-elidable scalar, but we pre-check to avoid the
       registry lookup on the empty-frame happy path).
 
-    - `include? true` returns the input unchanged. With both inclusion
-      knobs flipped on the walker yields `v` at every node (per
-      `elide-wire-value`'s composition rule: `sensitive?` and `large?`
-      both return `v` when their inclusion flag is true; no marker
-      emit, no frame-owned elision, no warning). The walk is a pure
-      no-op — full traversal, zero edits — so we skip it. The escape
-      hatch should be free."
+    - `include? true` returns the input unchanged. The trusted-local
+      `:rf.egress/local-raw` floor flips both inclusion knobs on, so the
+      walker yields `v` at every node (per `elide-wire-value`'s
+      composition rule: `sensitive?` and `large?` both return `v` when
+      their inclusion flag is true; no marker emit, no frame-owned
+      elision, no warning). The walk is a pure no-op — full traversal,
+      zero edits — so we skip it. The escape hatch should be free."
   [app-db variant-id include?]
   (cond
     (nil? app-db) app-db
     include?      app-db
-    :else         (rf/elide-wire-value app-db {:frame variant-id})))
+    :else         (rf/elide-wire-value
+                    app-db
+                    (assoc (posture->elision-opts include?) :frame variant-id))))
 
 (defn scrub-assertions+count
   "Default-drop any assertion records carrying the top-level
@@ -309,7 +356,12 @@
       ;; app-db. A candidate present here is shipped verbatim by the
       ;; :app-db egress (already disclosed) so it is dropped; one that is
       ;; absent (redacted / elided away) stays redacted in derived trees.
-      (let [wire   (rf/elide-wire-value app-db {:frame variant-id})
+      ;; Walk under the SAME `:rf.egress/off-box-tool` floor `elide-app-db`
+      ;; uses (rf2-qus09h) so the wire-classification reasons about the
+      ;; identical bytes the `:app-db` egress actually ships.
+      (let [wire   (rf/elide-wire-value
+                     app-db
+                     (assoc (posture->elision-opts false) :frame variant-id))
             public (persistent!
                      (collect-wire-values! (transient #{}) wire candidates))]
         (into #{} (remove public) candidates)))))
