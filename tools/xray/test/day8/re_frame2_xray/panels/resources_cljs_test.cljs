@@ -166,8 +166,8 @@
     (let [panels (palette-subs/palette-panels)
           ids    (set (map :id panels))]
       (is (contains? ids :resources) ":resources in palette-panels")
-      (is (= 7 (count panels))
-          "7 Dynamic tabs — Epoch / App DB / Views / Trace / Machines / Routing / Resources"))))
+      (is (= 8 (count panels))
+          "8 Dynamic tabs — Epoch / App DB / Views / Trace / Machines / Routing / Resources / Graph (rf2-9ett2d added the EP-0014 derivation-graph tab)"))))
 
 ;; ---- (3) sections render ------------------------------------------------
 

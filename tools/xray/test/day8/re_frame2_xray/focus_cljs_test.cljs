@@ -134,10 +134,12 @@
   (is (= [[:rf.xray/focus-slice-path [:user :profile :name]]]
          (focus/focus-command->dispatches {:path [:user :profile :name]}))))
 
-(deftest valid-panels-is-the-six-tab-inventory
+(deftest valid-panels-is-the-tab-inventory
   ;; rf2-gbz39 — the Issues tab was removed (Mike RULED Option (c));
   ;; `:issues` is no longer a focusable panel.
-  (is (= #{:epoch :app-db :views :trace :machines :routes}
+  ;; rf2-9ett2d (EP-0014 prop-3) — `:derivation-graph` is the unified
+  ;; derivation/process graph tab.
+  (is (= #{:epoch :app-db :views :trace :machines :routes :derivation-graph}
          focus/valid-panels)))
 
 ;; =========================================================================

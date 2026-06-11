@@ -284,6 +284,13 @@
    :rf.xray/resource-routing-slice
    :rf.xray/resource-routing-slice-override
    :rf.xray/resources-tab-data
+   ;; rf2-9ett2d (EP-0014 prop-3) — Derivation-Graph tab subs: the
+   ;; assembled `re-frame.derivation.graph` view (static/live), the mode
+   ;; toggle slot, the test override, and the view-facing composite.
+   :rf.xray/derivation-graph
+   :rf.xray/derivation-graph-mode
+   :rf.xray/derivation-graph-override
+   :rf.xray/derivation-graph-tab-data
    ;; rf2-o5f5f.3 — Routes browse + Simulate-URL state lives under
    ;; the Static Routes panel (promoted from `:rf.xray.routing/*` per
    ;; the two-verbs-two-homes split). The Dynamic Routing lens narrows
@@ -665,6 +672,10 @@
    :rf.xray/set-resource-sub-reads-override-for-test
    ;; rf2-m5u3gt — live route/resource graph routing-slice override.
    :rf.xray/set-resource-routing-slice-override-for-test
+   ;; rf2-9ett2d (EP-0014 prop-3) — Derivation-Graph tab events: the
+   ;; static/live mode toggle + the test-only graph override.
+   :rf.xray/set-derivation-graph-mode
+   :rf.xray/set-derivation-graph-override-for-test
    ;; rf2-o5f5f.3 — Static Routes UI-state events (search input,
    ;; Simulate-URL input, expand-row toggle, hermetic Simulate-nav
    ;; toggle, cross-link to Dynamic Routing). Promoted from the

@@ -84,6 +84,7 @@
             [day8.re-frame2-xray.panels.managed-fx-subs :as managed-fx-subs]
             [day8.re-frame2-xray.panels.routing :as routing]
             [day8.re-frame2-xray.panels.resources :as resources]
+            [day8.re-frame2-xray.panels.derivation-graph :as derivation-graph]
             [day8.re-frame2-xray.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-xray.panels.trace :as trace]))
 
@@ -957,6 +958,18 @@
     ;; resources artefact (Xray does not :require it; bundle isolation).
     ;; Read-only: no `:rf.resource/*` dispatch (observing pins nothing).
     (resources/install!)
+    ;; Derivation-Graph tab (EP-0014 prop-3, rf2-9ett2d) — Dynamic L3 tab:
+    ;; the UNIFIED derivation/process graph composed by
+    ;; `re-frame.derivation.graph` across the five algebra-view families.
+    ;; Xray is the EP's NAMED FIRST CONSUMER of the structured graph
+    ;; accessor. Installs the static/live mode toggle, the assembled-graph
+    ;; sub (composing the subs/flows/routes tooling siblings Xray :requires),
+    ;; and the `:rf.xray/derivation-graph-tab-data` composite. Reads the
+    ;; registrar (static) + the observed target frame's runtime-db (live)
+    ;; decoupled. ON-BOX raw (Security.md permits on-box); off-box egress
+    ;; redaction is `derivation-graph-helpers/redact-graph-for-egress`.
+    ;; Read-only: assembling the graph pins nothing, dispatches nothing.
+    (derivation-graph/install!)
     ;; Static Routes panel (rf2-o5f5f.3) — Static-surface browse +
     ;; Simulate-URL + per-row inline expand + hermetic Simulate-
     ;; navigation preview. Installs the UI-state slots under
