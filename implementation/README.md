@@ -163,6 +163,15 @@ implementation/
   security/                  Cross-cutting security regression tests (MCP egress, schema
                              redaction, SSR escaping) — test-only, no shipped namespace.
     test/re_frame/security/        JVM + CLJS security regression suites.
+
+  reply-conformance/         Cross-family reply-vocabulary conformance tier (EP-0011) —
+                             test-only, no shipped namespace. Holds the umbrella guards
+                             that sit above several artefacts: the shared :status /
+                             :work/status / :work/id / canonical-stale vocabulary across
+                             every managed-async family (HTTP, resources, mutations,
+                             machines, routing) plus the family-level functor/naturality
+                             law at the target-relocating families.
+    test/re_frame/                 JVM + CLJS cross-family reply conformance suites.
 ```
 
 ## Status by spec area
