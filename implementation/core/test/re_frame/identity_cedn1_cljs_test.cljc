@@ -190,7 +190,33 @@
              #inst "2026-06-10T10:00:00.000+10:00"
              #inst "2026-06-10T00:00:00.000-00:00"))
        (is (= "t:2026-06-10T00:00:00.000Z"
-              (id/canonical-bytes #inst "2026-06-10T00:00:00.000-00:00"))))))
+              (id/canonical-bytes #inst "2026-06-10T00:00:00.000-00:00")))))
+  ;; --- CLJS js/Date instant encoding (rf2-orcbow point 4) ---
+  ;; The JVM instant tests above exercise the java.time path; CLJS js/Date
+  ;; encoding rides a SEPARATE branch (`.toISOString`) that can regress
+  ;; independently, so it gets its own dedicated assertions. The exact
+  ;; `t:...Z` millisecond-precision token, and the equivalent-instant
+  ;; timezone-collapse property, are both pinned for the JS host.
+  #?(:cljs
+     (testing "CLJS js/Date encodes to the exact RFC 3339 millis-UTC t:...Z token"
+       ;; 2026-06-10T00:00:00.000Z == epoch millis 1781049600000.
+       (is (= "t:2026-06-10T00:00:00.000Z"
+              (id/canonical-bytes (js/Date. 1781049600000))))
+       (testing "a whole-second instant still renders the millisecond .000 suffix"
+         (is (= "t:2026-06-10T00:00:00.000Z"
+                (id/canonical-bytes (js/Date. "2026-06-10T00:00:00Z")))))
+       (testing "sub-second precision is preserved in the token"
+         (is (= "t:2026-06-10T00:00:00.123Z"
+                (id/canonical-bytes (js/Date. 1781049600123)))))
+       (testing "two js/Date objects built for the same instant in different
+                 timezone literals collapse to one identity"
+         (is (id/identical-identity?
+               (js/Date. "2026-06-10T10:00:00+10:00")
+               (js/Date. "2026-06-10T00:00:00Z"))))
+       (testing "a js/Date is identity-equal to its EDN #inst counterpart for the
+                 same instant (host-date and EDN-instant are one fact)"
+         (is (= (id/canonical-bytes (js/Date. 1781049600000))
+                (id/canonical-bytes #inst "2026-06-10T00:00:00.000-00:00")))))))
 
 ;; ---- fail-closed rejection -----------------------------------------------
 
@@ -229,3 +255,124 @@
   #?(:clj
      (testing "an arbitrary host object fails closed"
        (is (non-edn-id-error? #(id/canonical-bytes (java.lang.Object.)))))))
+
+;; ---- canonical projection: ordering is owned by canonical-bytes ----------
+;;
+;; rf2-orcbow point 3. The bead asks whether `canonical` returns a
+;; deterministically-ordered readable projection, or merely an =-equal
+;; value. These tests PIN the actual contract: `canonical` returns an
+;; =-equal, recursively-normalized value but does NOT reorder map/set entries
+;; — ordering is owned EXCLUSIVELY by `canonical-bytes` (the byte-level
+;; identity the equality contract is defined over, Conventions §Canonical
+;; byte encoding). Two map spellings that differ only in insertion order have
+;; identical `canonical-bytes`; their `canonical` projections are `=` but
+;; their entry-iteration order is not a contract. A consumer that needs a
+;; deterministic readable projection sorts by `canonical-bytes` itself (or a
+;; future surface narrows this). Pinning the narrow contract here keeps a
+;; later "make canonical ordered" change from silently widening it.
+
+(deftest canonical-projection-ordering-contract
+  (testing "canonical-bytes is the deterministically-ordered surface"
+    ;; Map key order in the source spelling does not change the bytes.
+    (is (= (id/canonical-bytes {:z 1 :a 2 :m 3})
+           (id/canonical-bytes {:a 2 :m 3 :z 1})
+           (id/canonical-bytes {:m 3 :z 1 :a 2})))
+    ;; Repeated calls are byte-identical (determinism).
+    (is (= (id/canonical-bytes {:z 1 :a 2})
+           (id/canonical-bytes {:z 1 :a 2})))
+    ;; Sets order by element bytes regardless of construction order.
+    (is (= (id/canonical-bytes #{:gamma :alpha :beta})
+           (id/canonical-bytes #{:beta :gamma :alpha}))))
+  (testing "canonical returns an =-equal value but ordering is NOT its contract"
+    ;; Equal as a value, key-order normalized away.
+    (is (= (id/canonical {:z 1 :a 2 :m 3})
+           (id/canonical {:a 2 :m 3 :z 1})))
+    (is (= {:a 2 :m 3 :z 1} (id/canonical {:z 1 :a 2 :m 3})))
+    ;; The projection recurses but preserves vector order (vectors are
+    ;; order-significant EDN facts).
+    (is (= {:xs [3 1 2]} (id/canonical {:xs [3 1 2]})))
+    ;; A set projection is =-equal to the source set.
+    (is (= #{:alpha :beta :gamma} (id/canonical #{:gamma :alpha :beta}))))
+  (testing "two values are equal-as-identity iff their canonical-bytes are ="
+    ;; The normative equality contract (Conventions §Canonical EDN identity):
+    ;; canonical-bytes equality is the identity, not canonical-value =.
+    (is (= (id/identical-identity? {:z 1 :a 2} {:a 2 :z 1})
+           (= (id/canonical-bytes {:z 1 :a 2}) (id/canonical-bytes {:a 2 :z 1}))
+           true))))
+
+;; ---- duplicate canonical map keys (the host-value collision) -------------
+;;
+;; rf2-orcbow point 1. Two DISTINCT host values can encode to the same
+;; CEDN-1 key bytes. The canonical adversarial case (the one the bead names)
+;; is JVM-only: a `java.util.Date` and a `java.time.Instant` for the SAME
+;; instant are distinct host types AND distinct Clojure map keys (`=` does
+;; not equate them), yet both render the identical `t:<utc>.SSSZ` token. A
+;; map keyed by both keeps BOTH entries, so its CEDN-1 bytes carry two
+;; colliding key tokens inside one `m{…}` group. Conventions §Canonical byte
+;; encoding: "Duplicate canonical keys are invalid and MUST be rejected
+;; before the value becomes a cache key, route identity, or work id."
+;;
+;; CLJS has a single host date type (`js/Date`), and CLJS `=` equates two
+;; `js/Date`s (and an EDN `#inst`, which READS as a `js/Date`) for the same
+;; instant — so a map keyed by "two same-instant dates" COLLAPSES to one
+;; entry on CLJS. The distinct-host-keys-same-bytes map collision is
+;; therefore inherently a JVM phenomenon; the CLJS leg pins the cross-host
+;; "same instant → one identity" facts instead (which hold on both hosts).
+;;
+;; KNOWN GAP — the current encoder does NOT yet detect the JVM collision: it
+;; sorts entries by key bytes and emits both, producing colliding key tokens.
+;; The fail-closed source fix is owned by the correctness/best-practice
+;; review beads rf2-wgutc2 (item 1, canonical alignment) and rf2-w9x5fv
+;; (item 3, "rejecting duplicate canonical map keys"), NOT by this coverage
+;; bead (tests-only). These tests therefore (a) DOCUMENT + PIN the current
+;; observable behaviour so the gap is visible and a regression can't slip in
+;; unnoticed, and (b) carry the spec-correct assertion commented inline so
+;; the flip to fail-closed is a one-line edit when the source fix lands.
+
+(deftest duplicate-canonical-keys
+  (testing "two distinct host instants for the same moment encode to identical key bytes"
+    ;; Holds on both hosts: a host date and its EDN-instant counterpart are
+    ;; one identity fact (the cross-host instant-collapse property).
+    (let [d #?(:clj (java.util.Date. 1781049600000) :cljs (js/Date. 1781049600000))
+          i #inst "2026-06-10T00:00:00.000-00:00"]
+      (is (= (id/canonical-bytes d) (id/canonical-bytes i))
+          "distinct host representations, identical CEDN-1 bytes")
+      (is (id/identical-identity? d i))))
+  #?(:clj
+     ;; The map-collision premise only holds where the two same-instant keys
+     ;; are DISTINCT map keys — i.e. on the JVM, where Date and Instant are
+     ;; distinct types that `=` does not equate.
+     (let [dup-map {(java.util.Date. 1781049600000)               :via-date
+                    (java.time.Instant/ofEpochMilli 1781049600000) :via-instant}]
+       (testing "a JVM map keyed by Date + Instant for one instant keeps BOTH entries"
+         (is (not= (java.util.Date. 1781049600000)
+                   (java.time.Instant/ofEpochMilli 1781049600000))
+             "Date and Instant are distinct keys (= does not equate them)")
+         (is (= 2 (count dup-map))
+             "the map carries two entries whose canonical key bytes collide"))
+       (testing "KNOWN GAP (rf2-wgutc2 / rf2-w9x5fv): the duplicate canonical
+                 key is NOT yet rejected — current behaviour pinned"
+         ;; CURRENT behaviour: canonical-bytes emits both colliding key tokens.
+         (is (string? (id/canonical-bytes dup-map))
+             "current: encodes (does not throw) — collision is silently serialized")
+         ;; SPEC-CORRECT behaviour, asserted once the source fix lands — flip to:
+         ;;   (is (non-edn-id-error? #(id/canonical-bytes dup-map)))
+         ;;   (is (non-edn-id-error? #(id/canonical       dup-map)))
+         ;; (Conventions: duplicate canonical keys are invalid and MUST be
+         ;; rejected before the value becomes a cache key / route id / work id.)
+         (let [bytes (id/canonical-bytes dup-map)]
+           ;; The colliding key token appears for BOTH entries inside the
+           ;; group — the observable symptom the rejection will eliminate.
+           (is (= 2 (count (re-seq #"t:2026-06-10T00:00:00\.000Z" bytes)))
+               "the same key token appears twice — the duplicate-key defect")))))
+  #?(:cljs
+     (testing "CLJS collapses same-instant js/Date keys (no distinct-key
+               collision to reject on this host)"
+       ;; Documents WHY there is no CLJS map-collision leg: value-equal dates
+       ;; are one key, so the map has a single entry and a single key token.
+       (let [m {(js/Date. 1781049600000)              :a
+                #inst "2026-06-10T00:00:00.000-00:00" :b}]
+         (is (= 1 (count m))
+             "value-equal js/Date keys collapse to one entry on CLJS")
+         (is (= 1 (count (re-seq #"t:2026-06-10T00:00:00\.000Z"
+                                 (id/canonical-bytes m)))))))))
