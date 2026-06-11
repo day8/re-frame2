@@ -343,10 +343,11 @@
      `frame-provider` scoped to the variant id, so the view's
      subscribe / dispatch (resolved via React context at render time)
      target the per-variant frame the runtime allocated. Without the
-     wrap, subscriptions fall through to `:rf/default` and every cell
-     reads the same app-db — which is why the four counter cards
-     previously rendered identically (or empty when `:rf/default`
-     carries no `:count`)."
+     wrap, subscriptions run under no carried frame and fail with
+     `:rf.error/no-frame-context` (EP-0002). Before EP-0002, this same
+     gap fell through to `:rf/default`, which is why the four counter
+     cards previously rendered identically (or empty when `:rf/default`
+     carried no `:count`)."
      [variant-id]
      (let [view-id        (variant-component-id variant-id)
            shell          @state/shell-state-atom
