@@ -479,8 +479,9 @@
   (`{:id :params :query :fragment …}`), `ctx` the entry context (the seam
   routing threads through `:routing/on-route-entry`; a `:scope` / `:when`
   resolver reads it, e.g. `(fn [_route ctx] (:current-session-scope ctx))`).
-  `entry-ctx` carries `:nav-token`, `:prev-id`, `:prev-nav-token`. Returns
-  `{:fx [...] :blocking #{<scoped-key> …} :plan-error err?}`.
+  `entry-ctx` carries `:nav-token`, `:prev-id`, `:prev-nav-token`, and
+  `:app-db` (the route-entry app-db value — see the `:app-db` paragraph
+  below). Returns `{:fx [...] :blocking #{<scoped-key> …} :plan-error err?}`.
 
   FAIL-CLOSED structural inputs (rf2-ac71vm): a `nil` `ctx` or a missing
   `nav-token` is a planning bug, not a silently-defaulted read — the owner
