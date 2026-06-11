@@ -578,12 +578,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest drain-form-gated-elision-wraps-events
-  ;; Gate OFF (the default published-build posture). The drain form must:
+  ;; Gate OFF (the default published-build posture), a TRACE-event topic.
+  ;; The drain form must:
   ;;   - call `drain-subscription!` for the sub-id.
   ;;   - mapv each event through `re-frame.core/elide-wire-value`.
   ;;   - assoc the elided events back onto the drain envelope.
   ;;   - thread `:rf.size/include-sensitive? false` into the walker opts.
-  (let [form (sub/drain-form "sub-abc" true false)]
+  (let [form (sub/drain-form "sub-abc" :trace true false)]
     (is (str/includes? form "drain-subscription!")
         "drain-subscription! is the runtime entry point")
     (is (str/includes? form "\"sub-abc\"")
@@ -604,8 +605,9 @@
   ;; (`(re-frame2-pair.runtime/current-frame)`), the same idiom the
   ;; sub-cache walker + pair-dispatch override use. Without this the live
   ;; subscribe streaming gate goes RED (the cascade event vector — and its
-  ;; causal nonce — never crosses the wire; it redacts away).
-  (let [form (sub/drain-form "sub-frame" true false)]
+  ;; causal nonce — never crosses the wire; it redacts away). Trace-event
+  ;; topic — the walker arm carries the frame thread.
+  (let [form (sub/drain-form "sub-frame" :trace true false)]
     (is (str/includes? form "(re-frame2-pair.runtime/current-frame)")
         "the walker opts resolve the operating frame app-side")
     (is (str/includes? form ":frame")
@@ -617,17 +619,17 @@
   ;; Gate ON path — when the operator passed `--allow-sensitive-reads` AND the
   ;; caller passed `:include-sensitive true`, the walker still fires
   ;; (elision is independent of sensitive), but sensitive slots pass
-  ;; through.
-  (let [form (sub/drain-form "sub-xyz" true true)]
+  ;; through. Trace-event topic.
+  (let [form (sub/drain-form "sub-xyz" :trace true true)]
     (is (str/includes? form "re-frame.core/elide-wire-value"))
     (is (str/includes? form ":rf.size/include-sensitive? true")
         "include-sensitive? true threads into the walker opts")))
 
 (deftest drain-form-elision-off-bare-drain
-  ;; Gate ON + caller passes `:elision false` — the form must NOT wrap
-  ;; with the walker. Bare `drain-subscription!` call ships raw events
-  ;; (the pre-rf2-vr2hn posture).
-  (let [form (sub/drain-form "sub-raw" false false)]
+  ;; Gate ON + caller passes `:elision false` on a trace-event topic —
+  ;; the form must NOT wrap with the walker. Bare `drain-subscription!`
+  ;; call ships raw events (the pre-rf2-vr2hn posture).
+  (let [form (sub/drain-form "sub-raw" :trace false false)]
     (is (str/includes? form "drain-subscription!"))
     (is (not (str/includes? form "re-frame.core/elide-wire-value"))
         "elision OFF ⇒ no walker; raw events ride the wire")
@@ -639,12 +641,78 @@
   ;; The sub-id is an EDN string literal — `pr-str` escapes quotes /
   ;; backslashes correctly so a runtime read-string round-trips it
   ;; verbatim. Pin against a sub-id containing characters that would
-  ;; break naive concatenation.
-  (let [form (sub/drain-form "id-with-\"quote\"" true false)]
+  ;; break naive concatenation. Trace-event topic.
+  (let [form (sub/drain-form "id-with-\"quote\"" :trace true false)]
     ;; pr-str emits the embedded quotes as `\"` — the round-trip is
     ;; correct, no raw-`str` concatenation hazard.
     (is (str/includes? form "\\\"quote\\\"")
         "embedded quotes survive as escaped EDN literals")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-mahffz (EP-0015 §13) — the `:epoch` topic's `:events` slot egresses
+;; whole `:rf/epoch-record`s. Those carry the structured `:effects` rows
+;; whose `:args` slot is payload-bearing fx input (an HTTP body, a payment
+;; map) — NOT rooted at app-db, so the schema-path-keyed
+;; `elide-wire-value` walker cannot prove it safe and ships it RAW. Per
+;; Security.md §Epoch privacy posture, off-box epoch egress MUST route
+;; through `re-frame.core/projected-record` — the single normative
+;; emission site, which FAILS CLOSED on `:effects[].args` — NOT the
+;; per-slot wire-value walker. Pre-rf2-mahffz the streaming `:epoch`
+;; drain reused the cascade walker (`elide-wire-value`) on whole records,
+;; leaking `:effects[].args`. The fix routes the `:epoch` topic's
+;; `:events` through `projected-record`, mirroring `watch-epochs` /
+;; `trace-window`.
+;; ---------------------------------------------------------------------------
+
+(deftest drain-form-epoch-topic-projects-via-projected-record
+  ;; Gate OFF (the default). The `:epoch` drain form MUST:
+  ;;   - call `drain-subscription!`,
+  ;;   - mapv the `:events` slot through `re-frame.core/projected-record`
+  ;;     (the single normative off-box epoch-egress site, fail-closed on
+  ;;     `:effects[].args`),
+  ;;   - NOT walk records through `elide-wire-value` (the prohibited
+  ;;     per-tool reimplementation that left `:effects[].args` raw).
+  (let [form (sub/drain-form "sub-epoch" :epoch true false)]
+    (is (str/includes? form "drain-subscription!")
+        "drain-subscription! is the runtime entry point")
+    (is (str/includes? form "re-frame.core/projected-record")
+        "epoch records route through the normative projector")
+    (is (str/includes? form ":events")
+        "the projection targets the flat :events slot")
+    (is (not (str/includes? form "re-frame.core/elide-wire-value"))
+        "epoch records MUST NOT use the per-slot wire-value walker — it leaves :effects[].args raw")))
+
+(deftest drain-form-epoch-projection-tracks-sensitive-axis-not-elision
+  ;; Epoch projection rides the `--allow-sensitive-reads` opt-in axis
+  ;; (`incl?`), like watch-epochs / trace-window — NOT the large-slot
+  ;; `elision?` toggle. A gate-ON caller who passed `:elision false` but
+  ;; left `:include-sensitive` at its default (incl? false) STILL gets
+  ;; PROJECTED (fail-closed) epoch records, not raw fx-arg payloads.
+  (let [form (sub/drain-form "sub-epoch" :epoch false false)]
+    (is (str/includes? form "re-frame.core/projected-record")
+        "elision? false does not disable epoch projection — sensitive axis governs")))
+
+(deftest drain-form-epoch-include-sensitive-opt-in-ships-raw
+  ;; Gate ON + `:include-sensitive true` (incl? true) — the operator's
+  ;; deliberate raw opt-in. Mirrors subscribe's bare-drain / watch-epochs
+  ;; raw path: the epoch records ship verbatim (no projection).
+  (let [form (sub/drain-form "sub-epoch" :epoch false true)]
+    (is (= "(re-frame2-pair.runtime/drain-subscription! \"sub-epoch\")"
+           form)
+        "raw epoch opt-in is the bare drain form")
+    (is (not (str/includes? form "re-frame.core/projected-record"))
+        "the operator opted into raw — no projection")))
+
+(deftest drain-form-frameless-topic-uses-wire-value-walker
+  ;; The `:frameless` topic's `:events` are raw TRACE events (registration
+  ;; emits, REPL evals, lifecycle) — tree-shaped, rooted at app-db — so
+  ;; they take the size-elision walker, NOT projected-record (which is for
+  ;; whole epoch records). Confirm the topic discriminates correctly.
+  (let [form (sub/drain-form "sub-fl" :frameless true false)]
+    (is (str/includes? form "re-frame.core/elide-wire-value")
+        "frameless trace events take the wire-value walker")
+    (is (not (str/includes? form "re-frame.core/projected-record"))
+        "frameless events are not epoch records — no projected-record")))
 
 ;; ---------------------------------------------------------------------------
 ;; Cascade-bundle wire format (rf2-mscih) — drain envelope shape, slot
@@ -653,19 +721,23 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest drain-form-handles-both-cascade-and-events-slots
-  ;; rf2-mscih — `drain-form` with elision ON must wrap WHICHEVER slot
-  ;; the runtime produced. The form uses `cond->` over slot presence so
-  ;; it's topic-agnostic at the form level; the runtime determines
-  ;; which slot the drain envelope carries.
-  (let [form (sub/drain-form "sub-1" true false)]
+  ;; rf2-mscih — for a TRACE-event topic (cascade-bundle `:trace`/`:fx`/
+  ;; `:error` ship `:cascades`; `:frameless` ships `:events`), `drain-form`
+  ;; with elision ON wraps WHICHEVER trace-event slot the runtime produced.
+  ;; The walker arm uses `cond->` over slot presence so it's slot-agnostic
+  ;; WITHIN the trace-event family; the runtime determines which slot the
+  ;; drain envelope carries. (rf2-mahffz: the `:epoch` topic's `:events`
+  ;; take a DIFFERENT primitive — `projected-record` — so they are NOT in
+  ;; this walker arm; covered by `drain-form-epoch-*` above.)
+  (let [form (sub/drain-form "sub-1" :trace true false)]
     (is (str/includes? form ":cascades")
         "drain form mentions the :cascades slot for cascade-bundle topics")
     (is (str/includes? form ":events")
-        "drain form mentions the :events slot for flat topics")
+        "drain form mentions the :events slot for the frameless flat topic")
     (is (str/includes? form "contains?")
         "the form uses contains? to discriminate the slot")
     (is (str/includes? form "re-frame.core/elide-wire-value")
-        "the walker is applied to whichever slot is present")))
+        "the walker is applied to whichever trace-event slot is present")))
 
 (deftest progress-payload-uses-cascades-slot-on-cascade-bundle-topics
   ;; rf2-mscih — the progress payload's load slot is named per the
