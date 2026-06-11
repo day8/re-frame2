@@ -61,6 +61,18 @@
             [re-frame.routing.subs :as routing-subs]
             [re-frame.routing.url-bound :as url-bound]
             [re-frame.routing.url-change :as url-change]
+            ;; EP-0014 slice-5 (rf2-eiiifu): the JVM-only require of the
+            ;; routing tooling sibling that backs the `route-algebra-view` /
+            ;; `route-slice-algebra-view` aliases below. CLJS deliberately
+            ;; OMITS this require so a CLJS app that loads the routing
+            ;; artefact but never attaches a tool DCEs the tooling body
+            ;; wholesale — the facade never reaches it. JVM has no bundle to
+            ;; protect; the alias gives JVM tools / conformance fixtures the
+            ;; ergonomic `re-frame.routing/route-algebra-view` shape. Mirrors
+            ;; the `re-frame.flows` → `re-frame.flows.tooling` JVM-only
+            ;; require (rf2-s8w3nw slice-3) and `re-frame.subs` →
+            ;; `re-frame.subs.tooling` (rf2-bmzq0 / rf2-gge6mf slice-2).
+            #?@(:clj  [[re-frame.routing.tooling :as routing-tooling]])
             #?@(:cljs [[re-frame.views :as views]])))
 
 ;; ---- public API re-exports ----------------------------------------------
@@ -93,6 +105,25 @@
 
 ;; Subs
 (def route-sub-fn               routing-subs/route-sub-fn)
+
+;; EP-0014 slice-5 (rf2-eiiifu): the derivation/process algebra view of
+;; registered routes (`route-algebra-view`, static) and a frame's live route
+;; slice (`route-slice-algebra-view`, live). JVM-runnable (the route
+;; registry is partition-agnostic registration metadata; the live read is a
+;; single runtime-db container deref), so a JVM convenience alias lets tools /
+;; conformance fixtures reach them as `re-frame.routing/route-algebra-view` /
+;; `re-frame.routing/route-slice-algebra-view` without naming the sibling. The
+;; bodies live in `re-frame.routing.tooling` so a CLJS app that loads the
+;; routing artefact but attaches no tool DCEs them (the CLJS facade never
+;; `:require`s the tooling sibling — the require above is `#?@(:clj ...)`-
+;; gated). CLJS consumers (Xray + conformance) call
+;; `re-frame.routing.tooling/<name>` directly. No `re-frame.core` facade
+;; export (EP-0014 issue-1 disposition). Mirrors the
+;; `re-frame.flows/flow-algebra-view` JVM alias (slice-3).
+#?(:clj
+   (do
+     (def route-algebra-view       routing-tooling/route-algebra-view)
+     (def route-slice-algebra-view routing-tooling/route-slice-algebra-view)))
 
 ;; URL-owner resolution
 (def url-owner-frame-id         nav-fx/url-owner-frame-id)
