@@ -11,7 +11,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-event-ctx` | `(id meta? intercept? (fn [ctx] ctx'))` |
 | `rf/reg-fx` | `(id [metadata?] (fn [ctx args] ...))` — `ctx` is `{:frame :event}`; `args` is the `:fx` entry's 2nd slot |
 | `rf/reg-cofx` | `(id [metadata?] (fn [ctx] ctx') \| (fn [ctx value] ctx'))` — `ctx` is the interceptor ctx; assoc into `(:coeffects ctx)`. `value` is the `inject-cofx` per-call arg |
-| `rf/reg-sub` | `(id [signals?] (fn [db\|inputs query-v] value))` |
+| `rf/reg-sub` | `(id (fn [db query-v] value))` layer-1 · `(id :<- […] … (fn [inputs query-v] value))` static · `(id (fn [query-v] [[:q…]…]) (fn [inputs query-v] value))` parametric — input fn returns a **vector of query vectors** (EP-0004), NOT `subscribe` reactions |
 | `rf/reg-view` | `(sym [args] body)` — defn-shape, auto-injects `dispatch`/`subscribe` |
 | `rf/reg-view*` | `(id metadata? render-fn)` — runtime form |
 | `rf/reg-frame` | `(id metadata-map)` |

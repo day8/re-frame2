@@ -90,8 +90,8 @@
 ;; with `reserved-tool-frame?` / `app-frame-ids` in
 ;; preload/re_frame2_pair/runtime.cljs (landed rf2-3bu3d.4). A `:rf/*`
 ;; frame is a TOOL frame (Xray's :rf/xray, SSR slots) excluded from the
-;; default snapshot scope; the sole `:rf/default` carve-out is the
-;; universal default APP frame.
+;; default snapshot scope; the sole `:rf/default` carve-out is an ordinary
+;; APP frame id (no framework privilege), not a tool frame.
 
 (defn- reserved-tool-frame? [frame-id]
  (and (keyword? frame-id)

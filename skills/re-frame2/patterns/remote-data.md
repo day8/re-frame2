@@ -137,10 +137,15 @@ The split exists for one reason: the UI for an empty page mid-load is a spinner;
 
 `:attempt` increments on **every** fetch (initial load is `1`, first retry `2`, revalidate `3`). One counter answers two questions: "have we ever tried?" (`> 0`) and "how many times have we retried?" (drives backoff). Don't add a parallel retry-only counter — derive it.
 
+## When a resource fits better
+
+This leaf is the **hand-rolled** slice (or machine region). If the same fetch is **shared across views**, needs **freshness / TTL / fresh-skip**, must be **invalidated after a write** (list ⇄ detail), or wants **tenant/user scoping** as a fail-closed boundary, reach instead for the declarative [`patterns/resources.md`](resources.md) (`reg-resource`, optional `day8/re-frame2-resources`) — the TanStack-Query-shaped layer that owns identity, scope, staleness, dedupe, invalidation, GC, and SSR preload for you. Resources lower onto the same managed-HTTP transport; you stop hand-writing the lifecycle. Use this RemoteData slice when the fetch is a one-off with no sharing or invalidation story.
+
 ## Deeper pointers
 
 - Spec: `SKILL-REDIRECT.md` → *Pattern — Remote data* (full slice schema, `:loading` vs `:fetching` table, optimistic-update rollback, SSR considerations).
 - HTTP fx: `SKILL-REDIRECT.md` → *EP — HTTP requests (014)* (the `:rf.http/managed` surface, retry semantics, failure categories, cancellation cascade).
+- Cached/shared server-state: [`patterns/resources.md`](resources.md) and `SKILL-REDIRECT.md` → *EP — Resources (016)* — the framework-owned cache layer over this slice's territory.
 - Compose: `patterns/nine-states.md` (the `:data` region of a parallel machine).
 - Stale: `SKILL-REDIRECT.md` → *Pattern — Stale detection* (epoch idiom).
 

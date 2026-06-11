@@ -353,7 +353,7 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 **Expected output shape.** Same as any re-frame2-pair op, scoped to the variant's frame. `snapshot` returns whatever the variant's loaders + events seeded; `last-epoch` returns the last dispatch (often the last `:play-script` step if the variant just mounted).
 
-**Gotcha.** If you forget to pin the frame (`set-operating-frame`) or pass a per-call `frame:` arg, dispatches land in `:rf/default` and you'll see nothing in the variant's history. See [variant-as-frame.md §Common gotchas](variant-as-frame.md#common-gotchas--variant-as-frame-specific).
+**Gotcha.** If you forget to pin the frame (`set-operating-frame`) or pass a per-call `frame:` arg, the op resolves the operating frame by the four-tier contract (per-call > session pin > sole app frame > refuse). With the variant frame plus the host app's frame both live, that is two-plus app frames, so the op **refuses** with `:reason :ambiguous-frame` rather than silently targeting another frame — you see a refusal, not the variant's history. Pin the variant id (or pass `frame:`). See [variant-as-frame.md §Common gotchas](variant-as-frame.md#common-gotchas--variant-as-frame-specific).
 
 ## "Diff two variants of the same component"
 

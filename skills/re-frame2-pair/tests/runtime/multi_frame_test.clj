@@ -91,8 +91,9 @@
 ;; `reserved-tool-frame?` / `app-frame-ids` / `current-frame` in
 ;; preload/re_frame2_pair/runtime.cljs. A `:rf/*` frame is a TOOL frame
 ;; (Xray's `:rf/xray`, SSR slots) EXCLUDED from the ambiguity count, with
-;; the sole `:rf/default` carve-out (the universal default APP frame per
-;; Conventions.md §The single-root reserved set).
+;; the sole `:rf/default` carve-out (an ordinary app frame id with no
+;; framework privilege per Conventions.md §Reserved namespaces / EP-0002 —
+;; counted as an app frame, never a tool frame).
 
 (defn reserved-tool-frame? [frame-id]
   (and (keyword? frame-id)
@@ -218,7 +219,7 @@
 ;;
 ;; A `:rf/*` TOOL frame (`:rf/xray`, an SSR slot) is excluded from the
 ;; ambiguity count; the sole remaining APP frame auto-selects. `:rf/default`
-;; is an APP frame (the universal default), NOT a tool frame.
+;; is an ordinary APP frame id (no framework privilege), NOT a tool frame.
 ;; ---------------------------------------------------------------------------
 
 (deftest reserved-tool-frame-predicate
@@ -226,7 +227,7 @@
     (is (true?  (reserved-tool-frame? :rf/xray)))
     (is (true?  (reserved-tool-frame? :rf/ssr)))
     (is (false? (reserved-tool-frame? :rf/default))
-        ":rf/default is the universal default APP frame, not a tool frame")
+        ":rf/default is an ordinary app frame id, not a tool frame")
     (is (false? (reserved-tool-frame? :stories)))
     (is (false? (reserved-tool-frame? :rf-default))
         "un-namespaced lookalike is a user frame")))

@@ -14,6 +14,7 @@ Load when the task is:
 
 Do NOT load for:
 
+- **A cached server-state read with freshness / TTL / invalidation.** That is declarative [`patterns/resources.md`](resources.md) (`reg-resource`) — the resource runtime owns generation-based stale suppression *internally*, so you do not hand-roll the epoch for a resource read. This leaf is the manual epoch idiom for async work the framework does not already track (search-as-you-type, hand-built WebSocket replies, machine `:after`).
 - A reply whose event id is unique to its request (`:auth/succeeded`, `:cart/loaded`). Re-frame's standard "unhandled event" fallback already drops it cleanly when the receiving state has moved past handling it. The epoch is needed only when the *same event id* may be dispatched against *different state instances* of the same container.
 - Cancellation as an optimisation (saving bandwidth or CPU). That's an `AbortController` concern, not stale-detection. The epoch handles correctness regardless.
 

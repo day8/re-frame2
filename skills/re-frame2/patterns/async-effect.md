@@ -37,7 +37,7 @@ Six steps; each instance fills in the concrete external system. The shape is inv
 |---|---|
 | `reg-fx` | Registers the outgoing effect handler. |
 | `:fx` vector in handler returns | The event handler declares the work as data. |
-| Frame capture in async closures | The fx reads `:frame` off its first-arg map and threads it into the reply `dispatch` so the result lands in the originating frame, not `:rf/default`. |
+| Frame capture in async closures | The fx reads `:frame` off its first-arg map and threads it into the reply `dispatch` so the result lands in the originating frame. Without the carried frame an after-commit reply `dispatch` raises `:rf.error/no-frame-context` (EP-0002 — no default to fall back to), which is why the frame must be captured and threaded. |
 | Plain `reg-event-db` / `reg-event-fx` | The reply handlers — nothing special; the reply is just an event. |
 
 ## Canonical declaration

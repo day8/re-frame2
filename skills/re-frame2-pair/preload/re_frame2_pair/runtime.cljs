@@ -241,9 +241,9 @@
 ;;
 ;; So the resolver is RESERVED-FRAME-AWARE: a `:rf/*`-namespaced frame is
 ;; a tool frame and is EXCLUDED from the ambiguity count, with ONE
-;; deliberate exception — `:rf/default`, which Conventions.md §The
-;; single-root reserved set names as "the universal default frame id". It
-;; is the canonical APP frame, not a tool frame, despite sharing the
+;; deliberate exception — `:rf/default`, which per Conventions.md §Reserved
+;; namespaces (EP-0002) is an ordinary app frame id with no framework
+;; privilege. It is an APP frame, not a tool frame, despite sharing the
 ;; `:rf/*` root. We key off the reserved-namespace RULE (namespace = "rf",
 ;; minus the `:rf/default` carve-out), never a literal `:rf/xray`, so the
 ;; behaviour holds for any tool frame any project mounts under `:rf/*`.
@@ -269,10 +269,11 @@
    The rule is the reserved-namespace convention (spec/Conventions.md
    §Reserved namespaces — framework-owned ids live under the single `:rf/*`
    root), NOT a hardcoded id, so it holds for every `:rf/*` tool frame any
-   project mounts. The SOLE carve-out is `:rf/default`: Conventions.md §The
-   single-root reserved set names it \"the universal default frame id\" —
-   it shares the `:rf/*` root but IS the canonical app frame, so it is
-   never treated as a tool frame.
+   project mounts. The SOLE carve-out is `:rf/default`: per Conventions.md
+   §Reserved namespaces (EP-0002) it is an ordinary app frame id with no
+   framework privilege — it shares the `:rf/*` root but is a normal app
+   frame an app may explicitly register, so it is never treated as a tool
+   frame.
 
    Non-keyword / un-namespaced ids (a user's `:stories`, `:sandbox`) are
    app frames and return false."

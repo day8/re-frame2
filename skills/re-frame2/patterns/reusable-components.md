@@ -19,9 +19,13 @@ The whole pattern is **identity-as-argument** — the slice lookup happens *insi
   (fn [db [_ id]]
     (get-in db [:customers id])))
 
-(rf/reg-sub :customer/display-name              ;; derived; id flows through the signal fn
-  (fn [[_ id] _] (rf/subscribe [:customer id]))
-  (fn [customer _] (str (:first-name customer) " " (:last-name customer))))
+;; Derived: the id flows through the input fn. EP-0004 — the input fn takes the
+;; query vector and returns a *vector of query vectors*; the runtime resolves
+;; each in the outer sub's frame and hands the compute fn the resolved values.
+(rf/reg-sub :customer/display-name
+  (fn [[_ id]] [[:customer id]])                ;; input fn → vector of query vectors
+  (fn [[customer] _]                            ;; compute fn → one-element input vector
+    (str (:first-name customer) " " (:last-name customer))))
 ```
 
 `(subscribe [:customer 42])` and `(subscribe [:customer 43])` cache as **distinct** entries — two instances run two independent computations against two app-db slices.
