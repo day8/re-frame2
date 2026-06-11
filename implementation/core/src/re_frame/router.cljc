@@ -2340,11 +2340,46 @@
     (when-not no-emit?
       (trace/with-call-site (:call-site envelope)
         (trace/emit! :rf.event :rf.event/dispatched
-                     (cond-> {:rf.event/v         event
-                              :frame              (:frame envelope)
-                              :rf.event/origin    (:origin envelope)
-                              :source             (:source envelope)
-                              :rf.event/sync?     sync?}
+                     ;; Per rf2-jt854w (EP-0010 observability completion):
+                     ;; stamp the envelope's causal world-input map onto the
+                     ;; enqueue trace so Xray's Event lens (018 §5.1) can render
+                     ;; the WORLD INPUTS surface — the framework-stamped
+                     ;; `:time-ms` plus any caller-supplied `:uuid` / `:random`
+                     ;; / browser/storage facts. Without it the only trace-side
+                     ;; view of the causal token is the filtered framework-
+                     ;; default cofx (the user-cofx projection drops it via
+                     ;; `fx/framework-coeffect-keys`), so the lens had no data.
+                     ;;
+                     ;; DEBUG-GATED via the canonical OUTERMOST
+                     ;; `(if interop/debug-enabled? <stamped> <plain>)` shape —
+                     ;; the dev arm carries the `:rf.world/inputs` slot, the
+                     ;; prod arm omits it. This is the rf2-7ynhyn-correct idiom:
+                     ;; NOT a `cond->` test-position gate, because Closure does
+                     ;; not constant-fold a keyword literal away from a `cond->`
+                     ;; step test, so a `(envelope :rf.world/inputs) (assoc …)`
+                     ;; step would leave the slot reachable under `:advanced` +
+                     ;; `goog.DEBUG=false`. This is a dev-trace / diagnostic
+                     ;; surface, NOT always-on — unlike the envelope's
+                     ;; `:rf.world/inputs` itself (durable causal data, stamped
+                     ;; unconditionally in `build-envelope`, present in
+                     ;; production). The whole `:rf.event/dispatched` emit
+                     ;; already elides in production (the `event/dispatched` op
+                     ;; keyword is a `check-elision.cjs` dev-only sentinel), so
+                     ;; the dev arm rides that same whole-body elision; the
+                     ;; outermost `if` makes the slot's absence in the prod arm
+                     ;; structurally explicit rather than incidental.
+                     (cond-> (if interop/debug-enabled?
+                               {:rf.event/v         event
+                                :frame              (:frame envelope)
+                                :rf.event/origin    (:origin envelope)
+                                :source             (:source envelope)
+                                :rf.event/sync?     sync?
+                                :rf.world/inputs    (:rf.world/inputs envelope)}
+                               {:rf.event/v         event
+                                :frame              (:frame envelope)
+                                :rf.event/origin    (:origin envelope)
+                                :source             (:source envelope)
+                                :rf.event/sync?     sync?})
                        (:dispatch-id envelope)
                        (assoc :rf.trace/dispatch-id (:dispatch-id envelope))
                        (:parent-dispatch-id envelope)
