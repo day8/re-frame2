@@ -213,6 +213,50 @@
       (let [article (first (filter #(= :article/by-slug (:resource-id %)) rows))]
         (is (= [:route/article] (:declaring-routes article)))))))
 
+;; ---- (3b) project-scope-resolvers (rf2-hls77w, EP-0016 D3) --------------
+
+(def ^:private scope-resolver-registrations
+  "A `(rf/registrations :resource-scope)` shape — `{<scope-id> <meta>}`
+  where meta carries the canonical resolver spec under `:rf/resource-scope`
+  + source coords. One declared-inputs resolver + one whole-db-sugar
+  resolver (`:whole-db? true`, synthetic root-path input)."
+  {:realworld/session
+   {:doc  "Viewer session scope."
+    :file "app/scopes.cljs" :line 7
+    :rf/resource-scope {:doc       "Viewer session scope."
+                        :inputs    {:username [:db [:auth :user :username]]}
+                        :whole-db? false
+                        :resolve   (fn [_ _] [:rf.scope/session {:username "jake"}])}}
+   :realworld/tenant
+   {:rf/resource-scope {:inputs    {:db [:db []]}
+                        :whole-db? true
+                        :resolve   (fn [_ _] nil)}}})
+
+(deftest project-scope-resolvers-test
+  (let [rows (h/project-scope-resolvers scope-resolver-registrations)]
+    (testing "one row per registered resolver, sorted by scope-id"
+      (is (= 2 (count rows)))
+      (is (= [:realworld/session :realworld/tenant] (mapv :scope-id rows))))
+    (testing "declared inputs surface as {:name :source :path-summary} — the
+              :db source head + the rf-path summarized, NEVER the value"
+      (let [session (first (filter #(= :realworld/session (:scope-id %)) rows))
+            input   (first (:inputs session))]
+        (is (= :username (:name input)))
+        (is (= :db (:source input)))
+        ;; the path is a SUMMARY map (bounded), not the raw path vector
+        (is (map? (:path input)))
+        (is (false? (:whole-db? session)))
+        (is (= {:file "app/scopes.cljs" :line 7} (:source-coord session)))))
+    (testing "whole-db sugar is flagged (the explicit-cost mark, EP-0015 disp 8)"
+      (let [tenant (first (filter #(= :realworld/tenant (:scope-id %)) rows))]
+        (is (true? (:whole-db? tenant)))))
+    (testing "NO resolved scope value or input VALUE is rendered (PII surfaces
+              only via the egress-projected :rf.resource/scope-resolved trace)"
+      (let [session (first (filter #(= :realworld/session (:scope-id %)) rows))]
+        ;; the row carries the declared shape, not a resolved [:rf.scope/session …]
+        (is (not (contains? session :resolved-scope)))
+        (is (not (contains? (first (:inputs session)) :value)))))))
+
 ;; ---- (4) project-instances ---------------------------------------------
 
 (def ^:private now 1000000)

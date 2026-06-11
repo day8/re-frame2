@@ -37,6 +37,13 @@ Machine Inspector uses for machine snapshots:
 
 - the **static registry** via `(rf/registrations :resource)` (the
   process-global registrar);
+- the **named resource-scope resolver registry** via
+  `(rf/registrations :resource-scope)` (rf2-hls77w, EP-0016 D3) — the
+  resolver id, its declared `{:inputs … }` (input names + `[:db <rf-path>]`
+  sources, paths summarized), and the whole-db-sugar cost flag. Per-resolution
+  input **values** and the resolved scope are **never** read from the
+  registry; they surface only via the egress-projected
+  `:rf.resource/scope-resolved` trace op (a scope carries PII — see below);
 - the **live per-frame instance table** from the runtime-db partition
   slice at `[:rf.runtime/resources :entries]` (EP-0001 — the resource
   cache is framework-owned runtime-db state, never app-db), sourced from
@@ -290,15 +297,17 @@ No event registered here dispatches a `:rf.resource/*` event (read-only).
 | Sub | Inputs | Returns |
 |---|---|---|
 | `:rf.xray/registered-resources` | `:rf.xray/trace-buffer`, override | `(rf/registrations :resource)` — the static registry map. |
+| `:rf.xray/registered-scope-resolvers` | `:rf.xray/trace-buffer`, override | `(rf/registrations :resource-scope)` — the static named-scope-resolver registry map (rf2-hls77w, EP-0016 D3). |
 | `:rf.xray/resource-entries` | `:rf.xray/target-frame-runtime-db`, override | the live cache entries map at `[:rf.runtime/resources :entries]`. |
 | `:rf.xray/resource-work-ledger` | `:rf.xray/target-frame-runtime-db`, override | the live work-ledger map at `[:rf.runtime/work-ledger]`. |
 | `:rf.xray/resource-sub-reads` | override | observed live subscription reads backing the scope-mismatch lint (empty by default). |
 | `:rf.xray/resource-routing-slice` | `:rf.xray/target-frame-runtime-db`, override | the live routing-runtime subtree at `[:rf.runtime/routing]` (current route + nav-token + per-nav-token unsettled-blocking set) backing the live route/resource graph. |
-| `:rf.xray/resources-tab-data` | the five above + `:rf.xray/trace-buffer` + the route registry | the view-facing composite: `{:silent? :registry :instances :work :live-work :stale-races :stale-tally :route-graph :timeline :invalidations :cache-growth :audit}`. Its `:route-graph` joins the static route plan against the live instance/work rows + routing slice. The `:live-work` / `:stale-races` / `:stale-tally` slots are the UNIFORM reply-envelope reads (see below). |
+| `:rf.xray/resources-tab-data` | the six above + `:rf.xray/trace-buffer` + the route registry | the view-facing composite: `{:silent? :registry :scope-resolvers :instances :work :live-work :stale-races :stale-tally :route-graph :timeline :invalidations :cache-growth :audit}`. Its `:scope-resolvers` is the projected named-scope-resolver registry (id + declared inputs + whole-db cost flag, paths summarized, NO resolved value); `:route-graph` joins the static route plan against the live instance/work rows + routing slice. The `:live-work` / `:stale-races` / `:stale-tally` slots are the UNIFORM reply-envelope reads (see below). |
 
 ### Events (test-only override hooks)
 
 `:rf.xray/set-registered-resources-override-for-test`,
+`:rf.xray/set-registered-scope-resolvers-override-for-test`,
 `:rf.xray/set-resource-entries-override-for-test`,
 `:rf.xray/set-resource-work-ledger-override-for-test`,
 `:rf.xray/set-resource-sub-reads-override-for-test`,

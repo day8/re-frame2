@@ -32,6 +32,7 @@
             [re-frame.resources.mutation-registry :as mutation-registry]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.revalidate-listeners :as revalidate-listeners]
+            [re-frame.resources.scope-registry :as scope-registry]
             [re-frame.resources.state :as state]
             [re-frame.resources.subs :as subs]
             [re-frame.resources.timers :as timers]
@@ -52,6 +53,10 @@
   ;; clear the :mutation registrar kind too (rf2-dwme29) — the mutation
   ;; registry is the causal-write counterpart of the resource registry.
   (registrar/clear-kind! mutation-registry/mutation-kind)
+  ;; and the :resource-scope registrar kind (rf2-hls77w) — the named
+  ;; scope-resolver registry (EP-0016 D3). Pure resolvers hold no per-frame
+  ;; runtime state, so clearing the registrar kind is the whole reset.
+  (registrar/clear-kind! scope-registry/scope-kind)
   (state/reset-cache!)
   ;; drop the host-side work-ledger handles too (rf2-afpdkn) — also
   ;; host-side transient state not cleared by the runtime / frames reset.

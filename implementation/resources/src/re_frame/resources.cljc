@@ -62,6 +62,7 @@
             [re-frame.resources.registry :as registry]
             [re-frame.resources.revalidate-listeners :as revalidate-listeners]
             [re-frame.resources.route :as route]
+            [re-frame.resources.scope-registry :as scope-registry]
             [re-frame.resources.ssr :as ssr]
             [re-frame.resources.state :as state]
             [re-frame.resources.subs :as resource-subs]
@@ -89,6 +90,18 @@
 (def clear-mutation  mutation-registry/clear-mutation)
 (def mutation-meta   mutation-registry/mutation-meta)
 (def mutation-ids    mutation-registry/mutation-ids)
+
+;; Named resource-scope resolvers (rf2-hls77w, Spec 016 §Named
+;; resource-scope resolvers / EP-0016 D3 slice 2). `reg-resource-scope`
+;; registers a PURE named scope resolver under the `:resource-scope`
+;; registrar kind; `clear-resource-scope` is the registration-lifecycle
+;; removal; `resolve-resource-scope` is the PURE helper that resolves a
+;; named scope against a supplied db value (the logout coeffect-db idiom).
+(def reg-resource-scope     scope-registry/reg-resource-scope)
+(def clear-resource-scope   scope-registry/clear-resource-scope)
+(def resolve-resource-scope scope-registry/resolve-resource-scope)
+(def scope-resolver-meta    scope-registry/scope-resolver-meta)
+(def scope-resolver-ids     scope-registry/scope-resolver-ids)
 
 ;; Focus / reconnect revalidation host-listener install (rf2-vtblcq, Spec 016
 ;; §Deferred slices). An app calls `install-revalidation-listeners!` for each
@@ -410,4 +423,12 @@
    :resources/clear-mutation clear-mutation
    :resources/mutation-meta  mutation-meta
    :resources/mutation-state mutation-state
-   :resources/mutations      mutations})
+   :resources/mutations      mutations
+   ;; rf2-hls77w (EP-0016 D3 slice 2): the named resource-scope resolver
+   ;; surface, published through the same late-bind table so
+   ;; `re-frame.core`'s `reg-resource-scope` / `clear-resource-scope` /
+   ;; `resolve-resource-scope` wrappers reach the producing impl without a
+   ;; static :require.
+   :resources/reg-resource-scope     reg-resource-scope
+   :resources/clear-resource-scope   clear-resource-scope
+   :resources/resolve-resource-scope resolve-resource-scope})

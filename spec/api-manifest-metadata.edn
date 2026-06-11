@@ -183,20 +183,15 @@
    ;; replace-app-db! / replace-runtime-db! / replace-frame-state! as live
    ;; vars — they are now manifested and classified below, so they are removed
    ;; from this allowlist.
-   "reset-app-db!"          ; EP-0001 app-db-only reset (Tool-Pair) — unshipped (rf2-tfepxu / bead 9)
-   ;; EP-0016 named resource-scope resolvers (slice 1, rf2-zyn57j) — SPEC
-   ;; landed ahead of the impl. The spec/API.md facade rows classify the
-   ;; `reg-resource-scope` / `clear-resource-scope` / `resolve-resource-scope`
-   ;; exports per the standing diff-time facade-classification rule, but the
-   ;; Resources artefact does not yet ship them as live public vars (this is a
-   ;; spec-only slice), so the generated manifest cannot carry them. Remove
-   ;; each from this allowlist as the implementation slice lands and the
-   ;; regenerated manifest picks it up — at which point its tier/owner/status
-   ;; classification moves into the `:classification` map below (the same
-   ;; shape as the already-shipped `reg-resource` / `reg-mutation` rows).
-   "reg-resource-scope"     ; spec/API.md §Resources — EP-0016 scope resolver registrar, unshipped
-   "clear-resource-scope"   ; spec/API.md §Resources — clear- decrement counterpart, unshipped
-   "resolve-resource-scope"}  ; spec/API.md §Resources — pure scope-resolution helper, unshipped
+   "reset-app-db!"}         ; EP-0001 app-db-only reset (Tool-Pair) — unshipped (rf2-tfepxu / bead 9)
+ ;; EP-0016 named resource-scope resolvers (slice 2, rf2-hls77w) — the impl
+ ;; landed: `reg-resource-scope` / `clear-resource-scope` /
+ ;; `resolve-resource-scope` now ship as live `re-frame.core` facade vars
+ ;; (the inverse of slice-1's spec-ahead reservation), so the generated
+ ;; manifest carries them and their tier/owner/status classification moves
+ ;; into the `:classification` map below (the same shape as the already-shipped
+ ;; `reg-resource` / `reg-mutation` rows). They are NO LONGER on the
+ ;; `:api-md-known-unmanifested` allowlist above.
 
  ;; --------------------------------------------------------------------------
  ;; SECONDARY projection-check allowlists (rf2-gkp0t). The keystone guards
@@ -339,6 +334,18 @@
   ["re-frame.core" "mutation-meta"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "mutation-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "mutations"]           {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ;; Named resource-scope resolvers — the third resources kind (rf2-hls77w,
+  ;; Spec 016 §Named resource-scope resolvers / EP-0016 D3 slice 2). The
+  ;; inverse of slice-1's spec-ahead reservation: these now ship as live
+  ;; facade vars (moved off the :api-md-known-unmanifested allowlist above).
+  ;; `reg-resource-scope` registers a pure named db-derived scope resolver
+  ;; under the :resource-scope kind; `clear-resource-scope` is the registrar
+  ;; decrement; `resolve-resource-scope` is the pure scope-resolution helper
+  ;; (the logout coeffect-db idiom). Same optional-artefact wrapper posture
+  ;; as reg-resource.
+  ["re-frame.core" "reg-resource-scope"]    {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.core" "clear-resource-scope"]  {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ["re-frame.core" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; Focus/reconnect revalidation listener seam (spec/016 §Stale and GC
   ;; scheduling); lifecycle install/remove fns mirroring routing's
   ;; install-history-listener! / remove-history-listener!.

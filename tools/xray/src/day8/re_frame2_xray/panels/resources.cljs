@@ -587,6 +587,13 @@
   (rf/reg-sub :rf.xray/registered-resources-override
     (fn [db _] (get db :registered-resources-override)))
 
+  (rf/reg-event-db :rf.xray/set-registered-scope-resolvers-override-for-test
+    (fn [db [_ ov]]
+      (if (nil? ov) (dissoc db :registered-scope-resolvers-override)
+          (assoc db :registered-scope-resolvers-override ov))))
+  (rf/reg-sub :rf.xray/registered-scope-resolvers-override
+    (fn [db _] (get db :registered-scope-resolvers-override)))
+
   (rf/reg-event-db :rf.xray/set-resource-entries-override-for-test
     (fn [db [_ ov]]
       (if (nil? ov) (dissoc db :resource-entries-override)
@@ -622,6 +629,16 @@
     :<- [:rf.xray/registered-resources-override]
     (fn [[_buffer override] _]
       (or override (rf/registrations :resource))))
+
+  ;; Named resource-scope resolvers (rf2-hls77w, EP-0016 D3 / Spec 016
+  ;; §Named resource-scope resolvers). The static `:resource-scope` registry
+  ;; read decoupled, exactly like `:registered-resources` above. Test
+  ;; override slot below.
+  (rf/reg-sub :rf.xray/registered-scope-resolvers
+    :<- [:rf.xray/trace-buffer]
+    :<- [:rf.xray/registered-scope-resolvers-override]
+    (fn [[_buffer override] _]
+      (or override (rf/registrations :resource-scope))))
 
   (rf/reg-sub :rf.xray/resource-entries
     :<- [:rf.xray/target-frame-runtime-db]
@@ -668,14 +685,23 @@
     :<- [:rf.xray/trace-buffer]
     :<- [:rf.xray/resource-sub-reads]
     :<- [:rf.xray/resource-routing-slice]
-    (fn [[registrations entries ledger trace-buffer sub-reads routing-slice] _]
+    :<- [:rf.xray/registered-scope-resolvers]
+    (fn [[registrations entries ledger trace-buffer sub-reads routing-slice
+          scope-resolvers] _]
       (let [now-ms        (.now js/Date)
             routes-map    (rf/registrations :route)
             registry-rows (h/project-registry registrations routes-map)
             instance-rows (h/project-instances entries now-ms)
-            work-rows     (h/project-work-ledger ledger)]
-        {:silent?       (and (empty? registry-rows) (empty? instance-rows))
+            work-rows     (h/project-work-ledger ledger)
+            resolver-rows (h/project-scope-resolvers scope-resolvers)]
+        {:silent?       (and (empty? registry-rows) (empty? instance-rows)
+                             (empty? resolver-rows))
          :registry      registry-rows
+         ;; rf2-hls77w (EP-0016 D3): the named resource-scope resolver
+         ;; registry — id + declared inputs (paths summarized) + whole-db
+         ;; cost flag. Per-resolution input VALUES + resolved scope surface
+         ;; only via the egress-projected :rf.resource/scope-resolved trace.
+         :scope-resolvers resolver-rows
          :instances     instance-rows
          :work          work-rows
          ;; The UNIFORM reply-envelope reads (rf2-zqefg3.7). These read the

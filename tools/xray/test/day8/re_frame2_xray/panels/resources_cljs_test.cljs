@@ -118,6 +118,8 @@
     (registry/register-xray-handlers!)
     (doseq [s [:rf.xray/registered-resources
                :rf.xray/registered-resources-override
+               :rf.xray/registered-scope-resolvers
+               :rf.xray/registered-scope-resolvers-override
                :rf.xray/resource-entries
                :rf.xray/resource-entries-override
                :rf.xray/resource-work-ledger
@@ -129,6 +131,7 @@
                :rf.xray/resources-tab-data]]
       (is (some? (registrar/handler :sub s)) (str s " sub registered")))
     (doseq [e [:rf.xray/set-registered-resources-override-for-test
+               :rf.xray/set-registered-scope-resolvers-override-for-test
                :rf.xray/set-resource-entries-override-for-test
                :rf.xray/set-resource-work-ledger-override-for-test
                :rf.xray/set-resource-sub-reads-override-for-test

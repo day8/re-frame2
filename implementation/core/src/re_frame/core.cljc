@@ -94,7 +94,7 @@
              [re-frame.core :refer [reg-event-db reg-event-fx reg-event-ctx
                                     reg-sub reg-fx reg-cofx reg-frame
                                     reg-flow reg-route reg-app-schema reg-app-schemas
-                                    reg-resource reg-mutation
+                                    reg-resource reg-mutation reg-resource-scope
                                     reg-error-projector reg-head
                                     reg-http-interceptor
                                     reg-view reg-machine defmachine
@@ -180,6 +180,14 @@
   `day8/re-frame2-resources`; require `re-frame.resources` at boot. See
   `re-frame.core-resources/reg-mutation` and spec/API.md §Registration."}
        reg-mutation    rf-resources/reg-mutation)
+     (def ^{:doc "Fn-alias of the `reg-resource-scope` macro for HoF /
+  programmatic registration (no source-coord capture). Register a PURE named
+  scope resolver under `scope-id`; `resolver` is the declared-inputs map
+  `{:inputs {name [:db <rf-path>]} :resolve (fn [inputs ctx] -> scope|nil)}`
+  or the whole-db fn sugar. Implementation ships in `day8/re-frame2-resources`;
+  require `re-frame.resources` at boot. See
+  `re-frame.core-resources/reg-resource-scope` and spec/API.md §Resources."}
+       reg-resource-scope rf-resources/reg-resource-scope)
      (def ^{:doc "Fn-alias of the `reg-app-schema` macro for HoF / programmatic
   registration (no source-coord capture). Register a Malli schema at a
   path inside app-db (frame-scoped per Spec 010). Implementation ships
@@ -314,6 +322,21 @@
        `re-frame.resources` at boot. See
        `re-frame.core-resources/reg-mutation` for the full signature."
        {:arglists '([mutation-id mutation-spec])})
+
+     (rm/defreg-macro reg-resource-scope rf-resources/reg-resource-scope
+       "Register a PURE named scope resolver under `scope-id` (EP-0016 D3) —
+       the one scope-resolution currency reused by resource registration,
+       route resources, ensure / subscriptions, invalidation descriptors, and
+       clear-scope. `resolver` is the declared-inputs map `{:inputs {name
+       [:db <rf-path>]} :resolve (fn [inputs ctx] -> scope|nil)}` or the
+       whole-db fn sugar. The shipped input source is `[:db <rf-path>]`;
+       `[:runtime …]` is reserved. A nil resolve result is FAIL-CLOSED.
+       Referenced via `{:from-db <scope-id>}`. Captures source-coords (Spec
+       001) at this call site. Implementation ships in
+       `day8/re-frame2-resources` (rf2-hls77w); apps must add the artefact and
+       require `re-frame.resources` at boot. See
+       `re-frame.core-resources/reg-resource-scope` for the full signature."
+       {:arglists '([scope-id resolver])})
 
      (rm/defreg-macro reg-app-schema rf-schemas/reg-app-schema
        "Register a Malli schema at a path inside app-db (frame-scoped
@@ -1354,6 +1377,25 @@
   table (keyed by instance id). Per EP-0003 §Mutations. Implementation ships
   in `day8/re-frame2-resources`."}
   mutations       rf-resources/mutations)
+
+;; Named resource-scope resolvers (rf2-hls77w, EP-0016 D3). `reg-resource-scope`
+;; is a macro (above, for source-coord capture) + a CLJS fn-alias; the
+;; non-registration surface is plain re-exports below.
+
+(def ^{:doc "Remove a registered resource-scope resolver (a
+  registration-lifecycle removal — the `clear-` decrement counterpart of
+  `reg-resource-scope`). Per Spec 016 §Named resource-scope resolvers.
+  Implementation ships in `day8/re-frame2-resources`."}
+  clear-resource-scope rf-resources/clear-resource-scope)
+
+(def ^{:doc "PURE helper: resolve the named resolver `scope-id` against the
+  supplied `db` value, returning a canonical concrete scope or nil — a plain
+  function over the resolver registry, NOT an effect. Canonical use is the
+  logout idiom (resolve the concrete old scope from the handler's coeffect
+  db and pass it to `:rf.resource/clear-scope` concretely). Per Spec 016
+  §`clear-scope` resolves the concrete scope from the coeffect db (EP-0016
+  issue 7). Implementation ships in `day8/re-frame2-resources`."}
+  resolve-resource-scope rf-resources/resolve-resource-scope)
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 

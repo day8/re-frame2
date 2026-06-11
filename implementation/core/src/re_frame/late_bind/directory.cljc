@@ -480,10 +480,24 @@
     :producer-ns 're-frame.resources
     :design-bead "rf2-dwme29"
     :description "Return mutation introspection for a frame target — registered mutation ids + the live per-frame mutation-instance table (keyed by instance id). Per EP-0003 §Mutations."}
+   ;; ---- named resource-scope resolvers (rf2-hls77w — EP-0016 D3 slice 2) ----
+   ;; The third resources kind: pure named db-derived scope resolvers.
+   {:key         :resources/reg-resource-scope
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-hls77w"
+    :description "Register a PURE named scope resolver under a scope-id (Spec 016 §Named resource-scope resolvers / EP-0016 D3) — the one scope-resolution currency reused by resource registration, route resources, ensure / subscriptions, invalidation descriptors, and clear-scope. The resolver is the declared-inputs map {:inputs {name [:db <rf-path>]} :resolve (fn [inputs ctx] -> scope|nil)} or the whole-db fn sugar. The shipped input source is [:db <rf-path>]; [:runtime …] is reserved. A nil resolve result is FAIL-CLOSED. Referenced via {:from-db <scope-id>}."}
+   {:key         :resources/clear-resource-scope
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-hls77w"
+    :description "Remove a registered resource-scope resolver (registration-lifecycle, the clear- decrement counterpart of reg-resource-scope). A pure resolver holds no per-frame runtime state. Per Spec 016 §Named resource-scope resolvers."}
+   {:key         :resources/resolve-resource-scope
+    :producer-ns 're-frame.resources
+    :design-bead "rf2-hls77w"
+    :description "PURE helper: resolve a named scope resolver against a SUPPLIED db value, returning the canonical scope or nil — a plain function over the resolver registry, NOT an effect. Canonical use is the logout/account-switch idiom (resolve the concrete old scope from the handler's coeffect db, then pass it to :rf.resource/clear-scope concretely). Per Spec 016 §clear-scope resolves the concrete scope from the coeffect db (EP-0016 issue 7)."}
    {:key         :resources/reset-resources!
     :producer-ns 're-frame.resources.test-support
     :design-bead "rf2-p10npe"
-    :description "Test-isolation reset: clear the :resource-kind + :mutation-kind registrar entries + the host-side generation high-water marks + the host-side work-ledger / timer / revalidation handles. Published from re-frame.resources.test-support (kept behind an explicit test-support require, rf2-dbiv8 posture); fired by the shared CLJS make-reset-runtime-fixture reset-hooks table, no-op when test-support is absent."}
+    :description "Test-isolation reset: clear the :resource-kind + :mutation-kind + :resource-scope-kind registrar entries + the host-side generation high-water marks + the host-side work-ledger / timer / revalidation handles. Published from re-frame.resources.test-support (kept behind an explicit test-support require, rf2-dbiv8 posture); fired by the shared CLJS make-reset-runtime-fixture reset-hooks table, no-op when test-support is absent."}
    {:key         :resources/on-frame-destroyed!
     :producer-ns 're-frame.resources
     :design-bead "rf2-afpdkn"
