@@ -23,9 +23,9 @@ process-global.
 This EP introduces two explicit values:
 
 - an **app value**, which is an immutable description of a program or feature
-  slice: events, subscriptions, flows, machines, resources, routes, schemas,
-  views, effects, coeffects, ownership claims, capability requirements, and
-  source coordinates;
+  slice: events, subscriptions, flows, machines, resources, mutations, routes,
+  schemas, views, effects, coeffects, ownership claims, capability requirements,
+  and source coordinates;
 - a **runtime realm**, which is the operational environment into which an app
   value is installed: registrar, adapter, capability map, host-transient
   subsystem registry, frame registry, and lifecycle.
@@ -166,6 +166,17 @@ inherited v1 ambient behavior.
   and registration metadata map that this EP's descriptors normalize; the
   registration *grammar* is unchanged, the registration *semantics* become
   construction of an app value.
+- [EP-0003](EP-0003-resource-queries.md) and
+  [Spec 016](../../spec/016-Resources.md) define resources and mutations as
+  the server-state read/write pair. When the optional resources artefact is
+  present, app values carry both `:resource` and `:mutation` descriptors; their
+  durable instance state remains under Spec 016's runtime-db and work-ledger
+  contract.
+- [Spec 010](../../spec/010-Schemas.md) defines `:schema` registration
+  metadata and `reg-app-schema` app-db path schemas. This EP may carry schema
+  declarations in app values, but current app-db schemas are not registrar kinds;
+  installation must write them through the schemas side table unless the owning
+  spec changes that storage contract.
 - [Spec 006](../../spec/006-ReactiveSubstrate.md) owns the adapter contract.
   This EP changes adapter *ownership* (process → realm/root) but not the
   adapter contract itself.
@@ -178,6 +189,10 @@ inherited v1 ambient behavior.
   `:rf.capability/random`); EP-0014's derivation descriptors would live in app
   values if both are accepted. Each can stand without this EP, and this EP can
   stand without them.
+- [EP-0015](EP-0015-frame-owned-egress-policy.md) proposes the policy model for
+  frame-owned durable egress policy and registration-owned transient payload
+  policy. If accepted, those policy declarations are natural app-value/realm
+  material; this EP supplies the eventual home, not the egress-profile semantics.
 
 ## Definitions
 
@@ -405,7 +420,7 @@ An app value MUST contain, directly or through its modules:
 - a module map keyed by module id;
 - normalized registration descriptors grouped by registry kind;
 - ownership declarations for app-db paths, runtime subsystem children, routes,
-  resources, effects, and other public contract surfaces;
+  resources, mutations, effects, and other public contract surfaces;
 - capability requirements;
 - source coordinates where the host can supply them;
 - composition diagnostics accumulated while constructing the value, or a
@@ -454,8 +469,11 @@ the same questions without replaying namespace load order.
 
 ### Registration Descriptors
 
-Every `reg-*` source form and every explicit module entry lowers to a
-registration descriptor.
+Every registrar-backed `reg-*` source form and every explicit module entry
+lowers to a registration descriptor. Non-registrar declarations that are still
+part of the app contract, such as `reg-app-schema` path schemas, lower to
+app-value descriptors owned by their spec; installation writes them to the
+owning side table rather than inventing a registrar kind.
 
 A registration descriptor MUST include:
 
@@ -520,8 +538,8 @@ example:
   replacement operation is being performed;
 - app-db path ownership overlaps SHOULD be rejected when neither module declares
   a parent/child ownership relationship;
-- two modules owning the same route id, resource id, effect id, or schema path
-  MUST produce a precise diagnostic;
+- two modules owning the same route id, resource id, mutation id, effect id, or
+  schema path MUST produce a precise diagnostic;
 - capability requirements MUST be satisfiable by the target realm before
   installation succeeds.
 
@@ -1457,8 +1475,9 @@ The implementation should be internal-first and compatibility-preserving:
    default realm.
 7. Define an internal app-value descriptor format for `:event`, `:sub`, `:fx`,
    `:cofx`, and `:frame` registrations.
-8. Extend the descriptor format to routes, flows, machines, schemas, resources,
-   views, and SSR/error-projector registrations.
+8. Extend the descriptor format to routes, flows, machines, resources,
+   mutations, views, SSR/error-projector registrations, and non-registrar
+   declaration surfaces such as app-db schemas.
 9. Implement composition validation for same-kind same-id collisions and source
    coordinate diagnostics.
 10. Add realm-owned host-transient subsystem descriptors for at least one
@@ -1571,8 +1590,9 @@ Each issue carries an author recommendation only; none is a ruling.
 11. Which registrar query arities become public at the first realm-aware stage?
     **Recommendation:** expose read-only queries scoped by `{ :realm ... }` and
     `{ :realm ... :kind ... }`; defer broad process-global queries to tools.
-12. How should active resources, route transitions, and machines participate in
-    a realm reinstall beyond the existing per-kind hot-reload rules?
+12. How should active resources, mutations, route transitions, and machines
+    participate in a realm reinstall beyond the existing per-kind hot-reload
+    rules?
     **Recommendation:** first reinstall slice is descriptor-only and refuses
     when live runtime instances would need migration; later slices add
     per-subsystem migration hooks through the runtime-subsystem contract.
