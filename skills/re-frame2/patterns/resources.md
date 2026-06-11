@@ -21,7 +21,7 @@ The prompt mentions: a **server-state cache** with freshness / staleness / TTL, 
 
 ## The shape
 
-A **resource instance** is identified by a triple — `[cache-scope resource-id canonical-params]`. The scope is the leak boundary; params identify the read within a scope. Both are serializable EDN, canonicalized so key order never affects identity.
+A **resource instance** is identified by a **scoped resource key** — the triple `[canonical-scope resource-id canonical-params]`. The scope is the leak boundary; params identify the read within a scope. Scope and params both run through re-frame2's one canonical EDN identity rule (`CEDN-1`): the **canonical EDN value is the authoritative identity** — equal facts produce the same key across CLJ/CLJS hosts, map key order never affects it, and a present `nil` param differs from an absent one. The identity domain is **fail-closed**: a param value outside the portable EDN domain (a function, a host `Date`, a DOM node, a floating-point number) is rejected with `:rf.error/non-edn-identity` rather than hashed by object identity — coerce host values to portable EDN (e.g. a `#inst` instant) at the boundary first. Any digest is an **optional, derived projection** of that canonical key for size-constrained surfaces, never the authoritative identity. See [`../references/cross-cutting/path-and-identity.md`](../references/cross-cutting/path-and-identity.md) for the shared contract.
 
 Three roles never blur:
 
