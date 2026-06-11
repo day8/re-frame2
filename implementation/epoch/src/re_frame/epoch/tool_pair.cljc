@@ -54,6 +54,7 @@
             [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.state :as state]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.marks :as marks]
             [re-frame.projection :as projection]
@@ -1058,13 +1059,32 @@
 
   A vector of slot PATHS (each a `get-in`/`assoc-in` path) so an operation
   whose body can ride in more than one slot (retry-attempt) is covered with
-  one general rule rather than a per-slot special case."
-  {:rf.http/replied        [[:value]]
-   :rf.http/accept-failure [[:decoded]]
-   :rf.http/http-4xx       [[:body]]
-   :rf.http/http-5xx       [[:body]]
-   :rf.http/decode-failure [[:body-text]]
-   :rf.http/retry-attempt  [[:failure :body] [:failure :body-text]]})
+  one general rule rather than a per-slot special case.
+
+  Elision (rf2-t55hxg.10): the table is the tool-pair OFF-BOX ENFORCEMENT,
+  not the on-box stamp — it lives behind the same `interop/debug-enabled?`
+  boundary that elides the whole epoch off-box projection surface in
+  production (`epoch/projected-record` — \"Production builds elide the
+  entire epoch surface\"). Gating it matters because `:rf.http/retry-attempt`
+  is a DEV-ONLY trace op (its only emit sites are `(when
+  interop/debug-enabled? (trace/emit! :info :rf.http/retry-attempt …))`);
+  holding it as a literal KEY in a top-level production-loaded `def` is the
+  one route that would float its keyword constant into the production
+  bundle (the Spec 009 elision probe asserts that sentinel ABSENT). Under
+  `:advanced` + `goog.DEBUG=false` the map literal is dead code, so the def
+  folds to `nil`, the dev-only constant DCEs, and `omit-off-box-http-bodies`
+  short-circuits to a pass-through (it is never called on a production egress
+  path — off-box projection is dev/tool-only). The sibling production-real
+  operation keywords (`:rf.http/replied`, `:rf.http/http-4xx`, …) already
+  ride the bundle as `:kind`/`:operation` data values, so the gate is about
+  the dev-only `:rf.http/retry-attempt` constant, not the table per se."
+  (when interop/debug-enabled?
+    {:rf.http/replied        [[:value]]
+     :rf.http/accept-failure [[:decoded]]
+     :rf.http/http-4xx       [[:body]]
+     :rf.http/http-5xx       [[:body]]
+     :rf.http/decode-failure [[:body-text]]
+     :rf.http/retry-attempt  [[:failure :body] [:failure :body-text]]}))
 
 (defn- omit-off-box-http-bodies
   "Per rf2-t55hxg.6 + rf2-t55hxg.10: enforce the EP-0015 disposition-5 off-box
