@@ -7,11 +7,11 @@ Status: accepted
 > [`spec/016-Resources.md`](../../spec/016-Resources.md) (slice 1, rf2-8eqf99).
 > Where this EP and the spec differ, the **spec governs**; this EP remains the
 > design record (rationale, prior-art benchmark, slice plan) and the home of the
-> deferred GraphQL phase. The EP itself remains `accepted`, not `final`, while
-> the fresh-skip/cache-hit graduation hold (`rf2-hsa0sv`) is unresolved.
-> Sections that describe fresh entries as no-op/cache-hit behavior are the
-> accepted target shape and must be reconciled with the implementation or
-> demoted before final graduation. Implementation slices (artefact skeleton,
+> deferred GraphQL phase. The fresh-skip/cache-hit hold (`rf2-hsa0sv`) is
+> resolved: Mike ruled option (a), and the reference implementation now
+> short-circuits fresh ensures and emits `:rf.resource/cache-hit` as Spec 016
+> describes. The EP itself remains `accepted`, not `final`, pending the separate
+> graduation ruling (`rf2-9l9xs2`). Implementation slices (artefact skeleton,
 > work-ledger substrate, runtime, managed-HTTP, invalidation/GC, route, SSR,
 > Xray, focus/reconnect, mutation, docs) are tracked per
 > [§Bead Structure](#bead-structure).
