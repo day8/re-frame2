@@ -78,6 +78,32 @@ Two hard-won rules:
 A skipped gate needs a one-line PR-body reason (e.g. "tool not installed locally;
 relying on CI"). A silent skip fails review.
 
+## Choosing solo vs cluster
+
+Pick the shape by **priority first, then size** — don't reflexively dispatch
+one-worker-per-bead, and don't reflexively bundle everything:
+
+- **P1 → always SOLO** (Shape 1). A high-priority bead gets a dedicated worker and
+  its own PR, so it merges on its own green and is never blocked by a cluster-sibling.
+- **P2 → SOLO by default.** Cluster several P2s only when they are genuinely small,
+  same-surface, and low-risk.
+- **Many small low-priority (P3/P4) same-surface beads → CLUSTER** (Shape 2). This is
+  the primary clustering case: it stops you handling dozens of trivia serially.
+- **Any LARGE bead → SOLO**, whatever its priority (a feature, a deep / multi-file
+  fix). Never pad a meaty bead into a cluster; never bundle two large beads.
+
+**One agent owns a surface; surfaces run in parallel.** That is how you avoid serial
+handling: same-surface beads ride one agent (which never collides with itself), while
+genuinely-separable surfaces dispatch as concurrent agents. Two workers never share a
+surface — they merge-conflict and can silently revert each other.
+
+**The serial exceptions** (where same-surface work is *meant* to be sequential): an
+EPIC deliberately structured serially; and a single tightly-coupled module whose core
+files are touched by many beads — that surface is its own serial lane (sequence its
+PRs, later ones rebasing on the earlier merges; never blind `--theirs`/`--ours`). On a
+coupled surface, even solo P1/P2 work cannot run in parallel — sequence it one at a
+time, or fold a tight coupled set into one cluster-lane.
+
 ## Dispatch shapes
 
 **Shape 1 — Solo.** One bead → one PR. Bead id + verbatim title; 2–4 paragraphs of
@@ -89,13 +115,15 @@ report PR URL + per-step summary + test deltas. *A coverage/rigour pass must add
 ≥1 adversarial/negative case per surface — assertion-count growth alone only
 exercises the happy path.*
 
-**Shape 2 — Cluster.** 3–12 beads on a shared surface → one PR. Order commits
-smallest-cleanup → biggest-correctness-fix (a failing P1 must not strand the small
+**Shape 2 — Cluster.** Several small same-surface beads → one PR (see *Choosing solo
+vs cluster* above for when — chiefly the small P3/P4 remainder, not P1s). Order commits
+smallest-cleanup → biggest-correctness-fix (a failing bead must not strand the small
 wins); claim each bead before its commit (history mirrors tracker state → a
 stalled cluster leaves a clean partial trail); gates after each commit + full
 regression after all. Disjoint-surface "small-misc" clusters are valid at the tail
 of a drain — the binding rule is hot-zone parallelism, not strict same-surface.
-Keep bundles to ~3–4 beads; larger ones tend to time out.
+Keep a cluster to ~3–6 small beads; beyond that, run successive cluster-PRs (each
+opens with what it finished + lists the remainder, never a half-bead uncommitted).
 
 **Shape 3 — Audit (read-only).** A finding, not a fix. Goal + surface paths +
 prior findings to avoid re-discovering; boundary block; write the findings doc to
