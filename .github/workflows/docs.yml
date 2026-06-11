@@ -37,6 +37,7 @@ on:
       - 'requirements.txt'
       - 'scripts/check_doc_slugs.py'
       - 'scripts/_test_fixtures/check_doc_slugs/**'
+      - 'scripts/check_runtime_subsystem_grading.py'
       - '.github/workflows/docs.yml'
   # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
   # below). The docs surface is re-applied job-side via the `detect` job.
@@ -88,7 +89,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|.github/workflows/docs.yml)
+              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_runtime_subsystem_grading.py|.github/workflows/docs.yml)
                 docs_surface=true ;;
             esac
           done <<< "$files"
@@ -239,6 +240,21 @@ jobs:
       # it too (rf2-bxsnp7). See scripts/check_ep_status_sync.py.
       - name: Validate EP README status-sync
         run: python scripts/check_ep_status_sync.py --verbose
+
+      # EP-0006's Runtime Subsystem Contract pins every reserved `:rf.runtime/*`
+      # subsystem key (spec/Conventions.md §Reserved runtime-db keys) to a
+      # complete five-clause grading subsection in spec/Runtime-Subsystems.md
+      # §Grading table. The two surfaces drift by hand (PR #3817 had to hand-add
+      # the `:rf.runtime/mutations` grading row after the key was reserved). This
+      # guard fails the build on a missing/extra key, an omitted/out-of-order
+      # clause, or an ungraded clause. It runs in the PR-gate spine
+      # (scripts/test-fast-pr.sh); this mirrors it in CI (rf2-ba5acq). Self-test
+      # first (proves the guard fires on each drift shape), then the live scan.
+      - name: Self-test the runtime-subsystem grading validator
+        run: python scripts/check_runtime_subsystem_grading.py --self-test --verbose
+
+      - name: Validate runtime-subsystem grading-table coherence
+        run: python scripts/check_runtime_subsystem_grading.py --verbose
 
       # Stage the spec/ + migration/ trees under docs/ so MkDocs (which
       # requires docs_dir to be a child of the config file) can see them.
