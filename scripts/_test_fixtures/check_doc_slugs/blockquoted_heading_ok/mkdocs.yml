@@ -1,0 +1,2 @@
+# Self-test fixture marker.  Empty config is fine — the validator only
+# checks for this file's existence as the repo-root guard.
