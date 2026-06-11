@@ -130,6 +130,34 @@
           #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
           (rf/reg-mutation :m/no-schema {:request (fn [_ _] {:request {:url "/x"}})})))))
 
+(deftest reg-mutation-rejects-invalidate-timing-typo
+  ;; rf2-t8j7oj — :invalidate-timing is a CLOSED four-value enum (Spec 016
+  ;; §Mutations). A typo (`:after-succes`) would register cleanly and then
+  ;; silently skip every invalidation timing branch at runtime
+  ;; (`(or (:invalidate-timing spec) :after-success)` only defaults nil; a
+  ;; typo is neither nil nor matched by the `#{…}` timing guards). Reject it
+  ;; loudly AT REGISTRATION rather than as a silent runtime no-op.
+  (testing "a typo'd :invalidate-timing is rejected at reg-mutation"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
+          (rf/reg-mutation :m/typo
+                           (save-article-spec {:invalidate-timing :after-succes})))))
+  (testing "a non-keyword :invalidate-timing is rejected"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
+          (rf/reg-mutation :m/non-kw
+                           (save-article-spec {:invalidate-timing "after-success"})))))
+  (testing "every value in the closed enum registers cleanly"
+    (doseq [timing mreg/invalidate-timings]
+      (rf/reg-mutation :m/ok (save-article-spec {:invalidate-timing timing}))
+      (is (= timing (:invalidate-timing (rf/mutation-meta :m/ok)))
+          (str "valid timing " timing " registered"))
+      (rf/clear-mutation :m/ok)))
+  (testing "an OMITTED :invalidate-timing is valid (nil → :after-success at runtime)"
+    (rf/reg-mutation :m/default (save-article-spec))
+    (is (nil? (:invalidate-timing (rf/mutation-meta :m/default))))
+    (rf/clear-mutation :m/default)))
+
 (deftest execute-unregistered-is-loud
   (testing "EP-0003 §Mutations — :rf.mutation/execute on an unregistered
             mutation never reaches the transport"
