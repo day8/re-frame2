@@ -872,7 +872,7 @@
   always `summarize`s scope/params/data (type + bounded size + a
   redaction-aware preview, never the raw value). On top of that the
   PAYLOAD slots — `:data`/`:error`/`:refresh-error` in the entry and the
-  scope/params in the key — route through the off-box `egress-resource-value`
+  scope/params in the key — route through the off-box `resource-egress-fn`
   walker so a `:sensitive?` declaration egresses them as `:rf/redacted` and
   a `:large?` slot as `:rf.size/large-elided`. The non-PII metadata
   (status, generation, attempt, request-id, current-work, active-owners,
@@ -944,7 +944,7 @@
 
   PRIVACY (rf2-tgm1xu): the projection always `summarize`s scope/params/
   data; on top, the PAYLOAD slots (`:data`/`:error`/`:refresh-error` + the
-  key's scope/params) route through `egress-resource-value` (runtime-db
+  key's scope/params) route through `resource-egress-fn` (runtime-db
   default-redacted off-box; `:include-runtime-db? true` to opt in to the
   raw payload). The non-PII metadata (status / owners / tags / request-id /
   generation / timestamps) is NEVER redacted — a redacted summary STILL
