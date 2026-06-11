@@ -246,27 +246,38 @@
    :tags           (fn [_params _data] #{[:tags]})})
 
 ;; ============================================================================
-;; SESSION READ — an explicit session scope (whose feed?)
+;; SESSION READ — a named `{:from-db …}` scope resolver (whose feed?)
 ;; ============================================================================
 ;;
 ;; The authenticated user's personalised feed depends on WHO is asking, so it
-;; carries a session scope rather than `:rf.scope/global`. The route supplies
-;; the concrete scope via its `:scope` resolver (reading the auth slice from
-;; ctx); the view supplies the SAME scope on its subscription payload via the
-;; `:session/scope` sub (Spec 016 §Subscription-side scope resolution). The
-;; declared spec-side policy is `:rf.scope/from-caller`: the scope MUST come
-;; from the use site (the route resolver / the sub payload), and a reach with
-;; no scope is a loud use-time error — never a silent shared-cache read.
+;; carries a session scope rather than `:rf.scope/global`. EP-0016 names that
+;; scope ONCE — `reg-resource-scope :realworld/session` (see scope.cljs) — and
+;; the resource declares `:scope {:from-db :realworld/session}`: a derived-scope
+;; REFERENCE the runtime resolves at every site against app-db.
+;;
+;; This is the EP-0016 idiom that replaces the prior `:rf.scope/from-caller`
+;; hand-wiring (where the route ensured the feed from an event and every view
+;; threaded a `:session/scope` payload). Now:
+;;   - a `[:rf.resource/state {:resource :realworld/feed :params {…}}]` sub
+;;     resolves the scope ITSELF — no view passes a `:scope` payload — and
+;;     re-keys reactively across login / logout (Spec 016 §A `{:from-db …}`
+;;     subscription re-keys when the resolver's inputs change);
+;;   - the home route owns the feed as a declarative `:resources` entry with
+;;     `:scope {:from-db :realworld/session}` (routing.cljs);
+;;   - logged out, the reference resolves nil — fail-closed: the sub is the
+;;     loud "scope unresolved" condition, never a silent shared-cache read.
 
 (rf/reg-resource :realworld/feed
   {:doc            "The authenticated user's feed (`/articles/feed`). Session-
-                    scoped: a logged-out user must never see a prior user's
-                    feed from cache. Paginated by `:page` — the page rides the
-                    params on top of the session scope, so each (scope, page)
-                    is a distinct cache entry."
+                    scoped via the named `{:from-db :realworld/session}`
+                    resolver: a logged-out user must never see a prior user's
+                    feed from cache, and a login / logout re-keys every live
+                    feed subscription automatically. Paginated by `:page` — the
+                    page rides the params on top of the session scope, so each
+                    (scope, page) is a distinct cache entry."
    :params-schema  [:map [:page {:optional true} [:maybe :int]]]
    :data-schema    schema/ArticlesResponse
-   :scope          :rf.scope/from-caller
+   :scope          {:from-db :realworld/session}
    :request        (fn [{:keys [page]} _ctx]
                      {:request {:method :get
                                 :url    (-> (rh/full-url "/articles/feed")
