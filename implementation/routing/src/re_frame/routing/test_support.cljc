@@ -54,7 +54,8 @@
   `(require 're-frame.routing.test-support :reload)` so the fixture event
   re-seats."
   (:require [re-frame.events :as events]
-            [re-frame.trace :as trace]))
+            [re-frame.routing.nav-token :as nav-token]
+            [re-frame.routing.reply :as route-reply]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -64,33 +65,36 @@
   re-wires it on a fresh registrar.
 
   Replays an async http completion that carries the `:carried-nav-token`
-  captured at request time. Match against the current
+  captured at request time. The stale check is the SAME ordinary
+  reply-envelope `:suppress` gate the production
+  `:rf.route/with-nav-token` handler uses (via
+  `re-frame.routing.reply/suppress?`): match against the current
   `[:rf.runtime/routing :current :nav-token]` → dispatch the
   `:on-success-event` continuation; mismatch → suppress and emit
-  `:rf.route.nav-token/stale-suppressed` (same trace shape as the
-  production `:rf.route/with-nav-token` handler, so a single conformance
-  assertion covers both paths)."
+  `:rf.route.nav-token/stale-suppressed` joined to the route work-id
+  (same trace shape as production, so a single conformance assertion
+  covers both paths)."
   [{frame :rf.frame/id rdb :rf.db/runtime} [_ {:keys [on-success-event carried-nav-token]}]]
   ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-  (let [current (get-in (or rdb {}) [:rf.runtime/routing :current :nav-token])]
-    (cond
-      (= carried-nav-token current)
-      ;; Token matches — dispatch the continuation.
+  (let [slice   (get-in (or rdb {}) [:rf.runtime/routing :current])
+        current (:nav-token slice)]
+    (if-not (route-reply/suppress? carried-nav-token current)
+      ;; Gate matches (token current) — dispatch the continuation.
       {:fx [[:dispatch on-success-event]]}
 
-      :else
-      ;; Stale — suppress.
-      ;; rf2-7d30s — frame-attribute the suppression (matches the
-      ;; production `with-nav-token-handler` path) so it lands in the
+      ;; Stale — suppress through the shared reply-envelope correctness
+      ;; boundary. rf2-7d30s — frame-attribute the suppression (matches
+      ;; the production `with-nav-token-handler` path) so it lands in the
       ;; emitting frame's epoch / Xray.
-      (do (trace/emit-error! :rf.route.nav-token/stale-suppressed
-                             (cond-> {:carried-token     carried-nav-token
-                                      :current-token     current
-                                      :rf.trace/event-id (when (vector? on-success-event)
-                                                           (first on-success-event))
-                                      :recovery          :replaced-with-default}
-                               frame (assoc :frame frame)))
-          {}))))
+      (let [event-id (when (vector? on-success-event) (first on-success-event))]
+        (nav-token/emit-stale-suppressed!
+          {:carried-token carried-nav-token
+           :current-token current
+           :event-id      event-id
+           :frame-id      frame
+           :route-id      (:id slice)
+           :loader-id     event-id})
+        {}))))
 
 ;; ---- test-only fixture event registration --------------------------------
 ;;

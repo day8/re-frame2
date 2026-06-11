@@ -10,6 +10,20 @@
       entry (`:do`) with a stale-result check: match → run; mismatch →
       suppress and emit `:rf.route.nav-token/stale-suppressed`.
 
+  ## Lowered onto the uniform reply envelope (EP-0011, rf2-zqefg3.5)
+
+  The receipt-side stale check is NOT a bespoke per-family token
+  comparison: it is an ORDINARY reply-envelope `:suppress` gate. The
+  carried `:nav-token` is the value of the ONE data-only suppression gate
+  `{:route/nav-token <token>}`, validated against the live
+  `[:rf.runtime/routing :current :nav-token]` via the shared
+  `re-frame.reply/stale?` (through `re-frame.routing.reply`). The route
+  work-id is `[:rf.work/route route-id nav-token loader-id]`; the
+  suppression trace is joined to `:work/id`. The PUBLIC API (the cofx and
+  the `:rf.route/with-nav-token` fx) is PRESERVED — internal lowering
+  only. See `spec/Managed-Effects.md` §The uniform reply envelope and
+  Spec 012 §Lowering onto the uniform reply envelope.
+
   The test-only `:rf.test/simulate-http-resolution` fixture analogue of
   this fx lives in `re-frame.routing.test-support` (rf2-dbiv8) — behind
   an explicit test-support require, so it never reaches a production
@@ -23,6 +37,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.interop :as interop]
+            [re-frame.routing.reply :as route-reply]
             [re-frame.trace :as trace]))
 
 (def nav-token-cofx-meta
@@ -82,6 +97,42 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
         (first inner-event-vec)
         fx-id))))
 
+(defn emit-stale-suppressed!
+  "Emit the `:rf.route.nav-token/stale-suppressed` trace for a superseded
+  route-loader completion. The facts ride on top of the shared
+  `re-frame.reply/suppress` outcome (EP-0011 §Route Loader Completion):
+  the suppression trace is joined to `:work/id`, alongside the existing
+  carried-token / current-token / event-id tags. Shared by the
+  production `:rf.route/with-nav-token` handler and the test-only
+  `:rf.test/simulate-http-resolution` fixture so one conformance
+  assertion covers both paths.
+
+  `event-id` is the suppressed continuation's event-id (per
+  `inner-fx-event-id`); `frame-id` (when non-nil) frame-attributes the
+  suppression so it lands in the emitting frame's epoch / Xray
+  (rf2-7d30s). The work-id is built from the route context
+  (`{:route-id … :nav-token <carried> :loader-id …}`) — `route-reply/
+  suppress` carries it on the reply + trace."
+  [{:keys [carried-token current-token event-id frame-id route-id loader-id]}]
+  (let [{:keys [trace]} (route-reply/suppress
+                          {:route-id  route-id
+                           :nav-token carried-token
+                           :loader-id loader-id
+                           :frame     frame-id}
+                          current-token)]
+    (trace/emit-error! :rf.route.nav-token/stale-suppressed
+                       (cond-> {:carried-token     carried-token
+                                :current-token     current-token
+                                :rf.trace/event-id event-id
+                                ;; The suppression trace is joined to
+                                ;; `:work/id` per EP-0011 §Route Loader
+                                ;; Completion — the route-loader work-id
+                                ;; `[:rf.work/route route-id nav-token
+                                ;; loader-id]` the shared substrate built.
+                                :work/id           (:work/id trace)
+                                :recovery          :replaced-with-default}
+                         frame-id (assoc :frame frame-id)))))
+
 (def with-nav-token-meta
   "Metadata for the `:rf.route/with-nav-token` fx registration: the
   docstring + the inline Malli schema per Spec-Schemas.md
@@ -100,7 +151,15 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
 
 (defn with-nav-token-handler
   "`:rf.route/with-nav-token` fx handler. Registered by the façade so a
-  `:reload` re-wires it on a fresh registrar."
+  `:reload` re-wires it on a fresh registrar.
+
+  The stale check is an ordinary reply-envelope `:suppress` gate
+  (EP-0011, rf2-zqefg3.5): the carried `:nav-token` and the live route
+  slice token are compared through the shared `re-frame.reply/stale?`
+  (via `re-frame.routing.reply/suppress?`) — match runs the wrapped
+  `:do`; mismatch suppresses it and emits `:rf.route.nav-token/
+  stale-suppressed` joined to the route work-id. The public fx surface
+  (`{:do … :nav-token …}`) is unchanged."
   [{:keys [frame] :as _ctx} args]
   ;; Destructure `:do` via `get` rather than `:keys` so the binding name
   ;; doesn't shadow `clojure.core/do` inside the body. Per Spec 012
@@ -116,10 +175,10 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
         frame-record    (frame/frame frame-id)
         ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
         rdb             (frame/frame-runtime-db-value frame-id)
-        current         (get-in rdb [:rf.runtime/routing :current :nav-token])]
-    (cond
-      (= nav-token current)
-      ;; Token matches — route the inner fx entry through
+        slice           (get-in rdb [:rf.runtime/routing :current])
+        current         (:nav-token slice)]
+    (if-not (route-reply/suppress? nav-token current)
+      ;; Gate matches (token current) — route the inner fx entry through
       ;; `fx/handle-one-fx`. Routing it through the same machinery means
       ;; `:dispatch`, `:dispatch-later`, `:rf.http/managed`, et al. all
       ;; work uniformly. `handle-one-fx` rather than `do-fx` so the
@@ -134,15 +193,16 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
                                 (interop/active-platform))]
         (fx/handle-one-fx frame-id do-entry active-platform {} nil))
 
-      :else
-      ;; Stale — suppress. Same trace shape as
-      ;; `:rf.test/simulate-http-resolution` so a single conformance
-      ;; assertion covers both production and test paths.
-      ;; rf2-7d30s — `frame-id` (resolved above) frame-attributes the
-      ;; suppression so it lands in the emitting frame's epoch / Xray.
-      (trace/emit-error! :rf.route.nav-token/stale-suppressed
-                         {:carried-token     nav-token
-                          :current-token     current
-                          :rf.trace/event-id (inner-fx-event-id do-entry)
-                          :frame             frame-id
-                          :recovery          :replaced-with-default}))))
+      ;; Stale — suppress through the shared reply-envelope correctness
+      ;; boundary. Same trace shape as `:rf.test/simulate-http-resolution`
+      ;; (now joined to `:work/id`) so a single conformance assertion
+      ;; covers both production and test paths. rf2-7d30s — `frame-id`
+      ;; frame-attributes the suppression so it lands in the emitting
+      ;; frame's epoch / Xray.
+      (emit-stale-suppressed!
+        {:carried-token nav-token
+         :current-token current
+         :event-id      (inner-fx-event-id do-entry)
+         :frame-id      frame-id
+         :route-id      (:id slice)
+         :loader-id     (inner-fx-event-id do-entry)}))))

@@ -64,7 +64,19 @@
                        (= "nav-2" (-> ev :tags :current-token))
                        (= :article/loaded (-> ev :tags :rf.trace/event-id))))
                 @traces)
-          "expected :rf.route.nav-token/stale-suppressed trace for the A response"))))
+          "expected :rf.route.nav-token/stale-suppressed trace for the A response")
+
+      ;; rf2-zqefg3.5 — the suppression trace is joined to the route
+      ;; work-id `[:rf.work/route route-id nav-token loader-id]`
+      ;; (EP-0011 §Route Loader Completion). The carried (stale) token
+      ;; rides in the work-id tuple, so the suppressed attempt is
+      ;; correlatable by `:work/id` in the trace stream.
+      (is (some (fn [ev]
+                  (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
+                       (= [:rf.work/route :route/article "nav-1" :article/loaded]
+                          (-> ev :tags :work/id))))
+                @traces)
+          "the stale-suppressed trace is joined to the route :work/id (the carried nav-token rides in the tuple)"))))
 
 (deftest with-nav-token-fx-suppresses-stale-do-and-commits-fresh
   (testing ":rf.route/with-nav-token fx: stale `:do` is suppressed; fresh `:do` runs"
@@ -145,6 +157,18 @@
                        (= :article/loaded (-> ev :tags :rf.trace/event-id))))
                 @traces)
           "stale :do produced :rf.route.nav-token/stale-suppressed with the inner dispatch's event-id")
+
+      ;; rf2-zqefg3.5 — the production fx path joins the suppression
+      ;; trace to the route work-id. `route-id` is read from the live
+      ;; slice (`:route/article`, the route B is on); `nav-token` is the
+      ;; carried (stale) token "nav-1"; `loader-id` is the suppressed
+      ;; inner dispatch's event-id.
+      (is (some (fn [ev]
+                  (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
+                       (= [:rf.work/route :route/article "nav-1" :article/loaded]
+                          (-> ev :tags :work/id))))
+                @traces)
+          "the production :rf.route/with-nav-token suppression is joined to the route :work/id")
 
       ;; Negative: no spurious suppressed-trace for the fresh path.
       (is (= 1 (count (filter (fn [ev]
