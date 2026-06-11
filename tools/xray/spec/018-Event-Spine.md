@@ -617,17 +617,18 @@ L4 fills the remaining canvas (60% default; resizable via L2/L3 drag handle). Al
 
 The renderer does NOT depend on `binaryage/cljs-devtools` (that library targets the Chrome console; this is in-page hiccup). Pure hiccup, theme-token-driven, substrate-agnostic. See [`007-UX-IA.md`](007-UX-IA.md) §Detail panel renderer.
 
-### §5.1 Epoch panel content — the 8-section event lens (rf2-5gl5r)
+### §5.1 Epoch panel content — the 9-section event lens (rf2-5gl5r)
 
-Shipped layout per rf2-zh2qc + rf2-jhhqt + rf2-lo37i (rf2-jhhqt swaps
-DISPATCH SITE before EVENT per Mike's Q1 verbatim and adds the COEFFECTS
+Shipped layout per rf2-zh2qc + rf2-jhhqt + rf2-lo37i + rf2-9fyn40 (rf2-jhhqt
+swaps DISPATCH SITE before EVENT per Mike's Q1 verbatim and adds the COEFFECTS
 section; rf2-lo37i adds the FLOWS section as a peer surface to make the
-cascade's flow step first-class). FLOWS sits RIGHT AFTER the HANDLER —
-flows fire at the outermost `:after` interceptor, reshaping the pending
-`:db` before it commits, so the lens reads in true pipeline order
-(handler → flows → committed effects → fx-handlers). Top-of-panel: a
-single-line cascade-outcome summary; below: eight stacked sections that
-read top-to-bottom as the developer scans.
+cascade's flow step first-class; rf2-9fyn40 adds the WORLD INPUTS section
+right after DISPATCH SITE — the EP-0010 causal-provenance surface). FLOWS sits
+RIGHT AFTER the HANDLER — flows fire at the outermost `:after` interceptor,
+reshaping the pending `:db` before it commits, so the lens reads in true
+pipeline order (handler → flows → committed effects → fx-handlers).
+Top-of-panel: a single-line cascade-outcome summary; below: nine stacked
+sections that read top-to-bottom as the developer scans.
 
 ```
 ┌─ Event lens · :cart/add-item                              ✓ ok · 11ms · #347 · SSR✓ ┐
@@ -635,6 +636,10 @@ read top-to-bottom as the developer scans.
 │ ▼ DISPATCH SITE                                                                      │
 │   src/cart/views.cljs:127       [code]                                             │
 │   via :ui · origin :app                                                              │
+│                                                                                      │
+│ ▼ WORLD INPUTS                                                                       │
+│   time-ms  1781078400123                                                             │
+│   :uuid    [redacted]            (value-bearing keys redact by default)              │
 │                                                                                      │
 │ ▼ EVENT                                                                              │
 │   [:cart/add-item {:id 42 :qty 2}]                                                   │
@@ -688,7 +693,7 @@ read top-to-bottom as the developer scans.
   `:rf.ssr/hydrated` / `:rf.ssr/hydration-complete`; omitted for
   purely-client-side cascades.
 
-#### The 8 sections (Mike's verbatim order, rf2-jhhqt + rf2-lo37i)
+#### The 9 sections (Mike's verbatim order, rf2-jhhqt + rf2-lo37i + rf2-9fyn40)
 
 1. **DISPATCH SITE** — source-coord chip + `via :source · origin :origin`
    caption. Reads `:rf.trace/call-site` off the `:rf.event/dispatched`
@@ -696,6 +701,30 @@ read top-to-bottom as the developer scans.
    call-site was captured. **Comes FIRST** per Mike's Q1 — the
    developer's first instinct ("who fired this?") gets the most
    prominent slot.
+1a. **WORLD INPUTS** (rf2-9fyn40 · EP-0010) — the dispatch envelope's
+   causal `:rf.world/inputs` map, surfaced **RIGHT AFTER DISPATCH SITE**
+   (it answers the same orienting "where did this state value come from?"
+   question — the explicit time / id / randomness / browser facts the fold
+   consumed). **Silent-by-default** when the cascade surfaced no world-input
+   map (older runtimes / the production-elided emit arm). Reads the map off
+   the `:rf.event/dispatched` trace's `[:tags :rf.world/inputs]` slot (the
+   substrate stamps it per rf2-jt854w · `router/emit-dispatched-trace!`,
+   DEBUG-gated so it rides the same whole-body production elision as the
+   rest of the dispatched emit; see EP-0010 §Tooling). Each row reads
+   `<key>  <value>`.
+   - **PRIVACY** (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11):
+     `:time-ms` is **ALWAYS safe to surface** (a wall-clock fact, never PII)
+     and renders **verbatim**. **Every other key is value-bearing and
+     REDACTS BY DEFAULT** — its value is routed through the same
+     summarize/projection path the reply-envelope consumer uses
+     (`resources-helpers/summarize`, mirroring `reply_envelope.cljc`'s
+     wire-slot summarization), so the panel renders a privacy-preserving
+     summary (type + bounded size + a redaction-aware preview; an upstream
+     `:rf/redacted` / `:rf.size/large-elided` sentinel keeps its sentinel
+     status as `[redacted]` / `[large — elided]`) and **NEVER a raw value**.
+     The KEY itself (`:uuid` / `:random` / `:browser/location` / `:storage`
+     / …) is framework vocabulary, not PII, so it rides verbatim as the row
+     label; only the VALUE is summarized.
 2. **EVENT** — the dispatched event vector via `inspector/inspect`.
    Always present.
 3. **COEFFECTS** — user-injected coeffects only, **silent when zero**
@@ -765,6 +794,16 @@ read top-to-bottom as the developer scans.
 
 - **No call-site captured** — DISPATCH SITE shows
   `"source coord unavailable"`; no open chip rendered.
+- **No world-input map** — WORLD INPUTS section ABSENT entirely (silent-by-
+  default — older runtimes, the production-elided emit arm, or fixtures that
+  synthesise an epoch without the `:rf.world/inputs` tag).
+- **World-input map carries only `:time-ms`** — WORLD INPUTS renders the
+  single `time-ms <ms>` row (the time fact is worth surfacing on its own).
+- **Empty world-input map (`{}`)** — WORLD INPUTS section ABSENT (nothing to
+  show).
+- **A value-bearing key was redacted upstream** (`:rf/redacted` for a
+  `:sensitive?` slot) — the row renders `[redacted]`, never the raw value
+  (marks/projection redact by default; only `:time-ms` is exempt).
 - **No user coeffects** — COEFFECTS section ABSENT entirely.
 - **No user interceptors** — INTERCEPTORS section ABSENT entirely.
 - **No effects returned** — EFFECTS RETURNED section ABSENT.

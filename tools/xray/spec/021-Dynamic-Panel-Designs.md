@@ -1428,13 +1428,14 @@ empty-state line. This matches the §2.2 dynamic-numbering contract
 from the Event lens — both panels share the same "absence is
 silence" rhythm.
 
-### §9.1.4 Badge taxonomy (the 9-badge inventory)
+### §9.1.4 Badge taxonomy (the 10-badge inventory)
 
 Each step renders a uppercase badge pill at its numbered circle:
 
 | Badge | Token | Hue family |
 |-------|-------|------------|
 | `:DISPATCH`           | `:text-tertiary` | muted grey |
+| `:WORLD-INPUTS`       | `:text-secondary` | muted (a step lighter than DISPATCH — rf2-9fyn40; reads as orienting causal-context metadata, EP-0010 provenance, not a pipeline action) |
 | `:COEFFECT`           | `:magenta`       | purple |
 | `:INTERCEPTOR`        | `:accent`        | blue (rf2-yz57h — the chain WRAPS the handler; one identity family) |
 | `:HANDLER`            | `:accent`        | blue (single Xray accent) |
