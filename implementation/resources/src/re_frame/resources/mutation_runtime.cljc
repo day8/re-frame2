@@ -476,3 +476,139 @@
   (when (and (some? instance-id) (not (state/serializable-edn? instance-id)))
     (throw (instance-id-error instance-id where)))
   instance-id)
+
+;; ---- scoped invalidation descriptors (EP-0016 D2 / slice 5) ---------------
+;;
+;; The mutation `:invalidates` arm is `(fn [params result] -> <descriptors>)`.
+;; Two PUBLIC input forms lower to ONE canonical descriptor vector (and from
+;; there into the SINGLE scoped invalidation engine `:rf.resource/invalidate-
+;; tags`, never a second engine — Spec 016 §Scoped invalidation descriptors):
+;;
+;;   - the BARE tag-set shorthand `#{[:article slug] [:article-list]}` — means
+;;     "invalidate those tags in the mutation's resolved (execution) scope"
+;;     (`:rf.scope/same`, the default);
+;;   - the per-target DESCRIPTOR form — a single descriptor map
+;;     `{:scope … :tags #{…}}` or a vector of them, each naming its OWN scope
+;;     so one mutation can precisely invalidate global facts AND viewer-relative
+;;     facts without a blunt `:cross-scope?` blast.
+;;
+;; A descriptor `:scope` is one of: `:rf.scope/same` (default when omitted —
+;; the mutation's resolved scope), `:rf.scope/global`, a concrete canonical
+;; scope value, or a `{:from-db <id>}` named-resolver reference resolved
+;; against db at SETTLE time (phase 4, the single use-time rule). A descriptor
+;; MAY carry `:cross-scope? true` (the audited escape — invalidate the tag in
+;; every scope the cache holds, scopes the call site cannot enumerate) and
+;; `:refetch-populated? true` (the Rider-1 same-mutation refetch opt-in, parsed
+;; here and carried for the slice-6 populate-exempt pass).
+;;
+;; This namespace owns the PURE normalization (raw form -> canonical descriptor
+;; vector); the impure per-descriptor scope resolution + the engine dispatch fx
+;; live in `mutation-events` (it needs the registry + app-db + trace).
+
+(def same-scope-marker
+  "The descriptor `:scope` marker meaning \"the mutation's resolved
+  (execution) scope\" — the DEFAULT when a descriptor omits `:scope`, and the
+  meaning of the bare tag-set shorthand (Spec 016 §Scoped invalidation
+  descriptors). Resolved to the concrete mutation scope by the events layer at
+  settle time; it is NOT itself a literal cache scope (it never reaches the
+  cache key)."
+  :rf.scope/same)
+
+(defn invalidation-descriptor-error
+  "Build the canonical thrown-error shape (Spec 009 §The thrown-error shape)
+  for a malformed mutation `:invalidates` result. A malformed descriptor fails
+  CLOSED at settle time (before any invalidation dispatch), never a silent
+  no-op — an author who returns garbage from `:invalidates` learns loudly."
+  [where reason raw extra]
+  (ex-info ":rf.error/mutation-invalid-invalidation"
+           (merge {:rf.error/id :rf.error/mutation-invalid-invalidation
+                   :where       where
+                   :arm         :invalidates
+                   :recovery    :fix-invalidates
+                   :reason      reason
+                   :invalidates (pr-str raw)}
+                  extra)))
+
+(defn- normalize-one-descriptor
+  "Normalize ONE descriptor map into the canonical shape
+  `{:scope <scope-or-same-marker> :tags #{…} :cross-scope? bool
+  :refetch-populated? bool}`, validating fail-closed. `:scope` defaults to
+  `:rf.scope/same` (Spec 016 §Scoped invalidation descriptors). `:tags` must
+  be a non-nil collection of tags; the boolean flags default false. The
+  `:scope` VALUE is NOT canonicalized here (a `:rf.scope/same` marker and a
+  `{:from-db …}` reference are not concrete scopes yet) — the events layer
+  resolves + canonicalizes the concrete scope at settle time. Returns the
+  canonical descriptor map; throws `:rf.error/mutation-invalid-invalidation`
+  on a non-map descriptor or a non-collection `:tags`."
+  [descriptor raw where]
+  (when-not (map? descriptor)
+    (throw (invalidation-descriptor-error
+             where
+             (str "a mutation :invalidates descriptor must be a map "
+                  "{:scope … :tags #{…}}; got " (pr-str descriptor)
+                  ". Per Spec 016 §Scoped invalidation descriptors.")
+             raw {:descriptor (pr-str descriptor)})))
+  (let [{:keys [scope tags cross-scope? refetch-populated?]} descriptor]
+    (when-not (and (some? tags) (coll? tags))
+      (throw (invalidation-descriptor-error
+               where
+               (str "a mutation :invalidates descriptor must carry a non-nil "
+                    ":tags collection; got " (pr-str tags) " in "
+                    (pr-str descriptor) ". Per Spec 016 §Scoped invalidation "
+                    "descriptors.")
+               raw {:descriptor (pr-str descriptor) :tags (pr-str tags)})))
+    {:scope              (if (contains? descriptor :scope) scope same-scope-marker)
+     :tags               (set tags)
+     :cross-scope?       (boolean cross-scope?)
+     :refetch-populated? (boolean refetch-populated?)}))
+
+(defn normalize-invalidation-descriptors
+  "PURE: lower the raw `:invalidates` result into the canonical descriptor
+  vector `[{:scope … :tags #{…} :cross-scope? bool :refetch-populated? bool}]`
+  — the one shape the events layer resolves + dispatches into the single
+  scoped invalidation engine (Spec 016 §Scoped invalidation descriptors,
+  EP-0016 D2). Accepts the two PUBLIC input forms:
+
+    - the BARE tag-set shorthand (a set / sequential collection of TAGS, where
+      a tag is itself a vector like `[:article slug]`) — one descriptor at
+      `:rf.scope/same` carrying all the tags;
+    - the per-target DESCRIPTOR form — a single descriptor MAP, or a vector of
+      descriptor maps, each `{:scope … :tags #{…}}`.
+
+  A nil / empty raw result yields an empty vector (the mutation invalidates
+  nothing). The disambiguation: a MAP is a single descriptor; a sequential /
+  set collection whose first element is a MAP is a descriptor vector; any
+  other non-empty collection is the bare tag-set (its elements are tags). A
+  malformed result fails CLOSED (`:rf.error/mutation-invalid-invalidation`)
+  rather than silently invalidating nothing. The descriptor `:scope` values
+  are left UNRESOLVED here (the `:rf.scope/same` marker, a `{:from-db …}`
+  reference, a concrete scope) — the events layer resolves each at settle
+  time against the mutation scope / app-db."
+  [raw where]
+  (cond
+    (or (nil? raw) (and (coll? raw) (empty? raw)))
+    []
+
+    ;; a single descriptor map
+    (map? raw)
+    [(normalize-one-descriptor raw raw where)]
+
+    ;; a vector / list / set of descriptor maps
+    (and (coll? raw) (map? (first raw)))
+    (mapv #(normalize-one-descriptor % raw where) raw)
+
+    ;; the bare tag-set shorthand: a collection of TAGS at :rf.scope/same
+    (coll? raw)
+    [{:scope              same-scope-marker
+      :tags               (set raw)
+      :cross-scope?       false
+      :refetch-populated? false}]
+
+    :else
+    (throw (invalidation-descriptor-error
+             where
+             (str "a mutation :invalidates result must be a tag-set "
+                  "(`#{[:article slug] …}`) or a descriptor map / vector "
+                  "(`{:scope … :tags #{…}}`); got " (pr-str raw)
+                  ". Per Spec 016 §Scoped invalidation descriptors.")
+             raw {}))))
