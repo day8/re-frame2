@@ -981,6 +981,10 @@
     :producer-ns 're-frame.app-value
     :design-bead "rf2-yozjzo"
     :description "EP-0013 D2 stage-5 app-value projection. Returns the immutable, recomputable app VALUE projected over a realm's registrar — `realm-id → {:rf.app/id … :registrations {kind {id descriptor}} :requires #{}}`. `re-frame.realm/installed-app` consults it to answer the realm-side installed-app read seam — `re-frame.app-value` requires `re-frame.realm` (it projects over the realm's registrar), so the back-read is late-bound to avoid a require cycle. The projection is RECOMPUTABLE over the registrar (the single source of truth), so the ordinary `reg-*` sugar path keeps it current with no invalidation step. INTERNAL — no public app constructor / installed-app read surface ships in stage 5 (EP-0013 issue 1)."}
+   {:key         :app-value/install-descriptor!
+    :producer-ns 're-frame.core
+    :design-bead "rf2-xq4go0"
+    :description "EP-0013 D2 stage-7 kind-aware descriptor lowering. Lowers one app-value registration descriptor `[kind id descriptor]` into the realm's registrar through its kind's REAL registration logic (`reg-event-db`/`-fx`/`-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`) so a CONSTRUCTED (high-level `module`-form) descriptor becomes dispatch/resolve-ready (the event interceptor wrap, the sub input-signal parse). `re-frame.app-value/install!` consults it per descriptor — `re-frame.app-value` is a leaf on the realm/registrar spine and must not require the kind-specific reg surfaces, so core (which already pulls all four) publishes the hook. Returns truthy when the kind was handled here; `install!` falls back to the flat registrar lowering otherwise (projected descriptors, whose metadata already carries the wrapped slots, + kinds not yet special-cased — `:frame`/`:view`/`:route`, a later slice)."}
 
    ;; ---- re-frame.trace.cascade (rf2-931pm — focused-event-only cascade-DAG aggregator) ----
    ;;

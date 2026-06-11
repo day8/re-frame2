@@ -86,18 +86,23 @@
             ;; bundle-isolation neutral and production-surviving (the
             ;; always-on observability stream is NOT DCE'd, by design).
             [re-frame.observability :as observability]
-            ;; EP-0013 D2 stage 5 (rf2-yozjzo) + stage 6 (rf2-zlhgr6): the
-            ;; app-value ns. Stage 5 published the `:app-value/project`
-            ;; late-bind hook `re-frame.realm/installed-app` consults to
-            ;; project the realm's installed app VALUE over its registrar
-            ;; (an ns-load side-effect — bound at boot). Stage 6 adds the
-            ;; PUBLIC construction half (`module` / `app` + the inspectors
-            ;; `app-registrations` / `app-owns` / `app-requires`), re-exported
-            ;; below under `rf/module` / `rf/app` / `rf/app-*`. The ns pulls
-            ;; only `re-frame.realm` + `re-frame.late-bind` (core spine), so it
-            ;; is bundle-isolation neutral; construction is PURE inert data
-            ;; (no realm, no registrar). `rf/realm` + `rf/install!` (stage 7 —
-            ;; seating an app into a realm) are NOT shipped here.
+            ;; EP-0013 D2 stages 5-7: the app-value ns. Stage 5 (rf2-yozjzo)
+            ;; published the `:app-value/project` late-bind hook
+            ;; `re-frame.realm/installed-app` consults to project the realm's
+            ;; installed app VALUE over its registrar (an ns-load side-effect —
+            ;; bound at boot). Stage 6 (rf2-zlhgr6) added the PUBLIC
+            ;; construction half (`module` / `app` + the inspectors
+            ;; `app-registrations` / `app-owns` / `app-requires`). Stage 7
+            ;; (rf2-xq4go0) adds the installation half — `install!` /
+            ;; `reinstall!` SEAT an app value into a realm (capability-checked,
+            ;; descriptor-lowered into the realm's registrar). All re-exported
+            ;; below under `rf/module` / `rf/app` / `rf/app-*` / `rf/install!`
+            ;; / `rf/reinstall!`. The ns pulls only `re-frame.realm` +
+            ;; `re-frame.registrar` + `re-frame.late-bind` (core spine), so it
+            ;; is bundle-isolation neutral; construction is PURE inert data, and
+            ;; install! defaults to the default realm so the `reg-*` sugar path
+            ;; is byte-identical. `rf/realm` (the public realm constructor) is
+            ;; a later stage and NOT shipped here.
             [re-frame.app-value :as app-value]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.core-flows    :as rf-flows]
@@ -1546,7 +1551,8 @@
 ;; the inspectors the EP's "A Whole App As Data" example shows. PURE — a
 ;; `module` / `app` call has no registration side effect (it returns data, not
 ;; a realm mutation); the ordinary `reg-*` sugar path is untouched. Seating an
-;; app value into a realm (`rf/install!`) is stage 7 (deferred).
+;; app value into a realm (`rf/install!` / `rf/reinstall!`) is the installation
+;; half just below (stage 7).
 
 (def ^{:doc "Construct a MODULE value — a composable app-value fragment
   (EP-0013 §Module Values). `(module {:id … :owns {…} :requires #{…} :events
@@ -1584,6 +1590,96 @@
   {:app-db [...]}` ownership declarations. Per spec/API.md §App values and
   composition (EP-0013)."}
   app-owns app-value/app-owns)
+
+;; ---- app-value installation (EP-0013 D2 stage 7) -------------------------
+;;
+;; The LAST D2 slice: seat an immutable app value into a runtime realm.
+;; `install!` makes a constructed (stage-6) app value the program a realm
+;; dispatches/subscribes/resolves against — capability-checked first (the
+;; app's `:requires` must be satisfiable by the realm, fail loud on unmet),
+;; then the descriptors are lowered into the realm's registrar and the seated
+;; value recorded at the realm boundary. `reinstall!` hot-reloads a realm by
+;; diffing the new app value against the installed one and applying the delta,
+;; returning the diff. Both DEFAULT to the process default realm, so seating an
+;; app value is byte-identical to the `reg-*` sugar that registered the same
+;; ids — zero ergonomic regression; the ordinary namespace-load sugar path is
+;; untouched. `rf/install!` / `rf/reinstall!` are the reserved-vocabulary names
+;; ruled in EP-0013 issue 1.
+
+;; ---- the kind-aware descriptor lowering seam (the install! bridge) --------
+;;
+;; A CONSTRUCTED app value's descriptor (from `module`) carries the HIGH-LEVEL
+;; registration form — a raw `:handler` + the `:doc`/`:schema`/`:event/kind`
+;; metadata — NOT the wrapped, dispatch-ready registrar metadata (the event
+;; interceptor chain, the sub `:input-kind`/`:input-signals`). To make a seated
+;; descriptor actually DISPATCHABLE/RESOLVABLE, `install!` must lower it through
+;; the SAME kind-specific registration logic the `reg-*` sugar path uses —
+;; `register-event!` wraps the handler into the kind-appropriate interceptor;
+;; `reg-sub` parses input signals; `reg-fx`/`reg-cofx` stamp their slots. That
+;; logic lives in `re-frame.events` / `re-frame.subs` / `re-frame.fx` /
+;; `re-frame.cofx`, which `re-frame.app-value` must NOT require (it is a leaf on
+;; the realm/registrar spine, bundle-isolation neutral). So core — which already
+;; pulls all four reg surfaces — publishes a `:app-value/install-descriptor!`
+;; late-bind hook that `app-value/install!` consults per descriptor; the flat
+;; registrar lowering is the FALLBACK for kinds this hook does not special-case
+;; (and for a projected descriptor, whose `:metadata` already carries the
+;; wrapped slots — it round-trips through the flat path unchanged).
+
+(defn- install-descriptor!
+  "Lower one app-value registration descriptor into the realm's registrar
+  through its kind's real registration path, so a constructed (high-level)
+  descriptor becomes dispatch/resolve-ready exactly as a `reg-*` call would.
+  Returns `true` when the kind was handled here, `false` to signal `install!`
+  should fall back to the flat registrar lowering (projected descriptors +
+  kinds not special-cased — e.g. `:frame`/`:view`/`:route`, whose seating is a
+  later slice). The `:event/kind` is read from the descriptor metadata
+  (defaulting to `:db`), so a module event entry tagged `{:event/kind :fx}`
+  lowers through `reg-event-fx`."
+  [kind id {:keys [handler metadata source owner]}]
+  ;; Fold the descriptor's lifted `:source` envelope back into the metadata the
+  ;; reg fn sees, so an explicitly-supplied source coordinate (issue 8: a
+  ;; non-macro / code-gen host) survives the lower→register round-trip. The reg
+  ;; fns merge the macro `*pending-coords*` over this, so a real macro-path coord
+  ;; still wins when present. Carry the `:owner` (module provenance) through too
+  ;; so the realm's registrar records which module installed each registration.
+  (let [meta (cond-> (merge source (or metadata {}))
+               (some? owner) (assoc :owner owner))]
+    (case kind
+      :event (do (case (:event/kind meta)
+                   :fx  (events/reg-event-fx  id meta handler)
+                   :ctx (events/reg-event-ctx id meta handler)
+                   (events/reg-event-db id meta handler))
+                 true)
+      :sub   (do (subs/reg-sub id meta handler) true)
+      :fx    (do (fx/reg-fx id meta handler) true)
+      :cofx  (do (cofx/reg-cofx id meta handler) true)
+      false)))
+
+(late-bind/set-fn! :app-value/install-descriptor! install-descriptor!)
+
+(def ^{:doc "Seat an immutable app value into a runtime realm — `(install! app)`
+  (default realm) or `(install! realm app)`. CAPABILITY-CHECKS first: every
+  `:rf.capability/*` in `(app-requires app)` must be present in the realm's
+  capability map, else `:rf.error/missing-capability` is thrown BEFORE any
+  registrar mutation. Then lowers every descriptor into the realm's registrar
+  (firing the ordinary hot-reload hooks + registration trace) and records the
+  seated app value at the realm boundary; returns the realm map. The explicit
+  seating path — the ordinary `reg-*` sugar path (which updates the default
+  realm's program in place) is UNCHANGED. Per spec/API.md §App values and
+  composition (EP-0013)."}
+  install! app-value/install!)
+
+(def ^{:doc "Hot-reload a realm by replacing its installed app value —
+  `(reinstall! new-app)` (default realm) or `(reinstall! realm new-app opts)`.
+  Diffs `new-app` against the installed app and applies the delta: `:added` /
+  `:changed` `(kind, id)` are re-registered (the registrar's hot-reload
+  replacement path fires its hooks + trace, so changed subs invalidate their
+  caches), `:removed` are unregistered (failing loudly on future lookup). Re-runs
+  the capability check on the new app. Returns the diff value
+  `{:realm :reason :added :changed :removed}` (`:reason` echoes `opts`,
+  default `:hot-reload`). Descriptor-only slice — live-instance migration is a
+  later slice. Per spec/API.md §App values and composition (EP-0013)."}
+  reinstall! app-value/reinstall!)
 
 ;; ---- interceptors --------------------------------------------------------
 

@@ -433,12 +433,23 @@
   ;; EP-0013 issue 1) + the three inspectors. `advanced` tier — the surface
   ;; large-SPA code uses to compose a program as a value before install; not
   ;; a day-one front-porch surface. Owner: Runtime-Subsystems (the EP-0013
-  ;; realm/app-value contract home). install!/reinstall! (stage 7) deferred.
+  ;; realm/app-value contract home).
   ["re-frame.core" "module"]               {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
   ["re-frame.core" "app"]                  {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
   ["re-frame.core" "app-registrations"]    {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
   ["re-frame.core" "app-requires"]         {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
   ["re-frame.core" "app-owns"]             {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
+  ;; EP-0013 D2 stage 7 (rf2-xq4go0): the PUBLIC installation half — `install!`
+  ;; seats an immutable app value into a realm (capability-checked, descriptors
+  ;; lowered into the realm's registrar), `reinstall!` hot-reloads a realm by
+  ;; diffing the new app value against the installed one and applying the delta.
+  ;; The reserved-vocabulary `rf/install!` / `rf/reinstall!` (EP-0013 issue 1).
+  ;; `advanced` tier alongside the stage-6 constructors — the explicit seating
+  ;; path large-SPA code uses; both DEFAULT to the default realm so the `reg-*`
+  ;; sugar path is byte-identical (zero ergonomic regression). Owner:
+  ;; Runtime-Subsystems (the EP-0013 realm/app-value contract home).
+  ["re-frame.core" "install!"]             {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
+  ["re-frame.core" "reinstall!"]           {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
   ;; Feature registry (optional-artefact presence checks).
   ["re-frame.core" "feature-loaded?"]      {:tier :advanced :owner "Conventions" :status "v1"}
   ["re-frame.core" "features"]             {:tier :advanced :owner "Conventions" :status "v1"}

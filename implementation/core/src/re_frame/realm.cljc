@@ -290,6 +290,31 @@
          (when-let [project (late-bind/get-fn :app-value/project)]
            (project rid))))))
 
+;; ---- seating the app VALUE into the realm's :app slot (stage 7) ------------
+;;
+;; Stage 7 adds the WRITE half of the `:app` slot: `install!` / `reinstall!`
+;; (owned by `re-frame.app-value`) lower an immutable app value into the
+;; realm's registrar AND record the seated value here, so the realm STORES the
+;; rich constructed app value (carrying `:modules` + `:owner`-stamped
+;; descriptors) and `installed-app` returns it in preference to the
+;; recomputable projection. This is the single realm-owned mutation seam over
+;; the slot — the value is replaced at the realm boundary (EP-0013 §Installation:
+;; "the public contract is value replacement at the realm boundary"), the
+;; registrar-lowering + diff logic stays in `app-value` (which owns the
+;; descriptor format). nil resolves to the default realm (absence = default
+;; realm). Returns the realm map.
+
+(defn set-installed-app!
+  "Seat `app` as the realm's `:app` slot — the installed app VALUE the realm is
+  running. The realm-owned write counterpart of `installed-app`'s read seam
+  (stage 7). The registrar-lowering that makes the program actually resolvable
+  is `re-frame.app-value/install!`'s job; this seam only records the seated
+  value at the realm boundary. nil resolves to the default realm. Returns the
+  updated realm map. INTERNAL — no public realm-mutation surface ships."
+  ([app] (set-installed-app! default-realm-id app))
+  ([realm-or-id app]
+   (update-realm! (realm-id realm-or-id) assoc :app app)))
+
 ;; ---- realm-owned adapter SELECTION (EP-0013 D1 stage 4, rf2-0lq5cd) --------
 ;;
 ;; The adapter SELECTION — the installed adapter spec map and the
