@@ -64,10 +64,13 @@
   "Override :rf.http/managed with a capturing no-op (binary fx-handler
   signature). The reply is replayed explicitly by the test via
   `reply-success!` / `reply-failure!` so the 3-element internal reply event
-  matches what the live transport produces."
+  matches what the live transport produces.
+
+  rf2-784223: the shared `make-reset-runtime-fixture`'s
+  `:resources/reset-resources!` post-dispose hook already clears the resource
+  state cache before this fixture runs — no per-suite reset is repeated here."
   [f]
   (reset! last-managed-args nil)
-  (state/reset-cache!)
   (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 

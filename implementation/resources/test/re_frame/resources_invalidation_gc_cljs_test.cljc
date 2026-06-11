@@ -61,13 +61,17 @@
   capturing no-ops, and CAPTURE :rf.resource/schedule-timers so the
   succeeded-handler's arming is asserted WITHOUT a real wall-clock timer
   firing (the timer-table primitive is tested directly elsewhere). Composed
-  INSIDE the reset-runtime fixture (one `use-fixtures` call)."
+  INSIDE the reset-runtime fixture (one `use-fixtures` call).
+
+  rf2-784223: the shared `make-reset-runtime-fixture`'s
+  `:resources/reset-resources!` post-dispose hook already clears the state /
+  work-ledger / timer host caches before this fixture runs, so no per-suite
+  reset is repeated here. (The timer-PRIMITIVE tests below keep their own
+  `timers/reset-cache!` calls — those are direct primitive assertions that
+  reset just before arming a real timer, not fixture-level cache hygiene.)"
   [f]
   (reset! aborts [])
   (reset! scheduled-timers [])
-  (state/reset-cache!)
-  (work-ledger/reset-cache!)
-  (timers/reset-cache!)
   (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
   ;; capture the schedule-timers arming (the real fx arms host timers; here we

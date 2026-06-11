@@ -38,8 +38,11 @@
    [re-frame.resources.mutation-runtime :as mstate]
    [re-frame.resources.mutation-events :as mevents]
    [re-frame.resources.mutation-registry :as mreg]
+   ;; work-ledger: used by the cross-frame request-id correlation assertions
+   ;; (rf2-sxyrzk). The per-suite `(timers/reset-cache!)` was dropped with the
+   ;; rf2-784223 fixture consolidation (shared reset hook clears timer caches),
+   ;; so the `timers` alias is no longer required here.
    [re-frame.resources.work-ledger :as work-ledger]
-   [re-frame.resources.timers :as timers]
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch is overridden by the capturing reply stub below.
@@ -55,11 +58,13 @@
 (def ^:private scheduled-timers (atom []))
 
 (defn- capturing-transport-fixture
+  ;; rf2-784223: the shared `make-reset-runtime-fixture`'s
+  ;; `:resources/reset-resources!` post-dispose hook already clears the
+  ;; resource state + timer host caches before this fixture runs — no
+  ;; per-suite reset is repeated here.
   [f]
   (reset! last-managed-args nil)
   (reset! scheduled-timers [])
-  (state/reset-cache!)
-  (timers/reset-cache!)
   (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   ;; capture the host-side stale / GC timer arming so the success handler's
   ;; emission is asserted deterministically WITHOUT a real wall-clock timer

@@ -11,12 +11,16 @@
 
   ## The seam
 
-  The host browser surfaces a `focus` / `visibilitychange` (tab return) and
-  an `online` (network reconnect) event on `window`. This namespace wires
-  those to a resource event dispatched at a specific FRAME:
+  The host browser surfaces a `focus` / `online` (network reconnect) event
+  on `window` and a `visibilitychange` (tab return) event on `document` (the
+  ONLY target `visibilitychange` fires on — it is a `document` event, not a
+  `window` one, and `document.visibilityState` is what the handler reads).
+  This namespace wires those to a resource event dispatched at a specific
+  FRAME:
 
-    focus / visibilitychange-to-visible  -> [:rf.resource/window-focused]
-    online                               -> [:rf.resource/network-reconnected]
+    window  focus                         -> [:rf.resource/window-focused]
+    document visibilitychange-to-visible  -> [:rf.resource/window-focused]
+    window  online                        -> [:rf.resource/network-reconnected]
 
   The event handlers (`re-frame.resources.events`) do the active-stale scan
   + background refetch-by-policy. The listener carries NO policy — it only
@@ -112,16 +116,27 @@
      (when (exists? js/window) js/window)))
 
 #?(:cljs
+   (defn- document-obj
+     "The `js/document` object, or nil when no DOM is present (node / SSR).
+     `visibilitychange` is a `document` event (it never fires on `window`),
+     so the visibility listener attaches/detaches HERE."
+     []
+     (when (exists? js/document) js/document)))
+
+#?(:cljs
    (defn- remove-frame-listeners!
-     "Detach + drop frame-id's installed window listeners from the side table
-     (a no-op when none is installed). Idempotent. CLJS-only."
+     "Detach + drop frame-id's installed listeners from the side table (a
+     no-op when none is installed). Idempotent. CLJS-only. `focus` / `online`
+     detach from `window`; `visibilitychange` detaches from `document` (its
+     only event target)."
      [frame-id]
-     (when-let [w (window-obj)]
-       (when-let [{:keys [focus visibility online]} (get @listener-table frame-id)]
-         (try (when focus      (.removeEventListener w "focus" focus))
-              (when visibility  (.removeEventListener w "visibilitychange" visibility))
-              (when online      (.removeEventListener w "online" online))
-              (catch :default _ nil))))
+     (when-let [{:keys [focus visibility online]} (get @listener-table frame-id)]
+       (try (when-let [w (window-obj)]
+              (when focus  (.removeEventListener w "focus" focus))
+              (when online (.removeEventListener w "online" online)))
+            (when-let [d (document-obj)]
+              (when visibility (.removeEventListener d "visibilitychange" visibility)))
+            (catch :default _ nil)))
      (swap! listener-table dissoc frame-id)
      nil))
 
@@ -130,13 +145,14 @@
   active-stale revalidation for `frame-id`. Per Spec 016 §Deferred slices
   (focus/reconnect revalidation as resource events).
 
-  Wires three `window` listeners:
+  Wires three host listeners (`focus` / `online` on `window`,
+  `visibilitychange` on `document` — its only valid event target):
 
-    - `focus`            -> `[:rf.resource/window-focused]`  @ frame-id
-    - `visibilitychange` -> `[:rf.resource/window-focused]`  @ frame-id (only
-                            when the document becomes VISIBLE — the tab-return
-                            case TanStack Query revalidates on);
-    - `online`           -> `[:rf.resource/network-reconnected]` @ frame-id.
+    - `window`  `focus`            -> `[:rf.resource/window-focused]`  @ frame-id
+    - `document` `visibilitychange` -> `[:rf.resource/window-focused]`  @ frame-id
+                            (only when the document becomes VISIBLE — the
+                            tab-return case TanStack Query revalidates on);
+    - `window`  `online`           -> `[:rf.resource/network-reconnected]` @ frame-id.
 
   The event handlers do the scan + background refetch-by-policy; the listener
   only translates the host event into the frame-targeted resource event (the
@@ -154,14 +170,21 @@
      (when-let [w (window-obj)]
        ;; replace, don't stack (hot-reload safe)
        (remove-frame-listeners! frame-id)
-       (let [focus-handler      (fn [_e] (dispatch-revalidation! frame-id window-focused-event))
+       (let [d                  (document-obj)
+             focus-handler      (fn [_e] (dispatch-revalidation! frame-id window-focused-event))
              visibility-handler (fn [_e]
-                                  (when (and (exists? js/document)
-                                             (= "visible" (.-visibilityState js/document)))
+                                  ;; `visibilitychange` fires on BOTH the
+                                  ;; visible→hidden and hidden→visible
+                                  ;; transitions; revalidate ONLY on the
+                                  ;; tab-return (document becomes VISIBLE),
+                                  ;; never when the tab is hidden.
+                                  (when (and d (= "visible" (.-visibilityState d)))
                                     (dispatch-revalidation! frame-id window-focused-event)))
              online-handler     (fn [_e] (dispatch-revalidation! frame-id network-reconnected-event))]
          (.addEventListener w "focus" focus-handler)
-         (.addEventListener w "visibilitychange" visibility-handler)
+         ;; `visibilitychange` is a `document` event — attach it to `document`,
+         ;; not `window` (the handler reads `document.visibilityState`).
+         (when d (.addEventListener d "visibilitychange" visibility-handler))
          (.addEventListener w "online" online-handler)
          (swap! listener-table assoc frame-id
                 {:focus focus-handler :visibility visibility-handler :online online-handler})
@@ -170,11 +193,12 @@
      :clj nil))
 
 (defn remove-revalidation-listeners!
-  "Tear down the window focus / online listeners installed for `frame-id` by
-  `install-revalidation-listeners!`. No-op when none is installed (and on the
-  JVM). Useful for test isolation and single-page hosts that rotate which
-  frame owns revalidation. CLJS detaches the host listeners; both arms drop
-  the side-table slot. Returns nil."
+  "Tear down the window focus / online + document visibilitychange listeners
+  installed for `frame-id` by `install-revalidation-listeners!`. No-op when
+  none is installed (and on the JVM). Useful for test isolation and
+  single-page hosts that rotate which frame owns revalidation. CLJS detaches
+  the host listeners (focus/online from `window`, visibilitychange from
+  `document`); both arms drop the side-table slot. Returns nil."
   [frame-id]
   #?(:cljs (remove-frame-listeners! frame-id)
      :clj  (do (swap! listener-table dissoc frame-id) nil))

@@ -51,12 +51,15 @@
 (defn- capturing-transport-fixture
   "Override the real :rf.http/managed + :rf.http/managed-abort fxs with
   capturing no-ops so the ledger writes are deterministic and no real fetch
-  / abort fires. Composed INSIDE the reset-runtime fixture."
+  / abort fires. Composed INSIDE the reset-runtime fixture.
+
+  rf2-784223: the shared `make-reset-runtime-fixture`'s
+  `:resources/reset-resources!` post-dispose hook already clears the resource
+  state + work-ledger host caches before this fixture runs — no per-suite
+  reset is repeated here."
   [f]
   (reset! last-managed-args nil)
   (reset! aborts [])
-  (state/reset-cache!)
-  (work-ledger/reset-cache!)
   (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   ;; rf2-sxyrzk — managed-abort args is the frame-QUALIFIED transport
   ;; request-id (`[:rf.req <frame-id> <work-id>]`, `managed-request-id`), NOT
