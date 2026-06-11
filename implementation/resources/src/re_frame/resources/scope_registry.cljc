@@ -46,6 +46,15 @@
   declared-inputs form is the recommended path; the sugar is a marked
   convenience, not a peer.
 
+  NOTE — the automatic-inheritance propagation arm itself (mark a derived
+  scope sensitive because a declared `:db` input is frame-sensitive, even
+  when the owning resource was not declared `:sensitive?`) is NOT wired here:
+  it is deferred to the EP-0016 action wave, which owns this scope-resolver
+  mechanism (see Spec 015 §Derived sensitivity). The stored `:inputs` shape
+  is the dependency graph a future propagation pass reads; the primary scope
+  boundary holds independently via the resource-owned `:sensitive?` claim +
+  scoped-key redaction (Spec 016).
+
   ## The pure `resolve-resource-scope` helper
 
   `resolve-resource-scope` resolves a named scope against a SUPPLIED db
