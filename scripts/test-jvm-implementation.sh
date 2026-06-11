@@ -35,6 +35,17 @@ artefacts=(
   # namespaces under the JVM so the `:clj` arm is exercised — previously
   # only the CLJS side (the always-on `:node-test` gate) ever ran the tier.
   implementation/reply-conformance
+  # rf2-jn7frs — the EP-0014 derivation/process-ALGEBRA conformance tier
+  # is `.cljc` and runs in BOTH runtimes. Its own `:test` alias
+  # (implementation/derivation-conformance/deps.edn) runs the SAME `.cljc`
+  # namespaces under the JVM so the `:clj`-side composition (JVM
+  # `default-contributors` auto-resolution, the pure-data algebra views,
+  # the whole-value law over JVM data) is exercised — previously only the
+  # CLJS side (the always-on `:node-test` gate) ever ran the tier. It
+  # proves the four EP-0014 laws (lowering / storage+eval+lifecycle
+  # classification / graph edges / whole-value) across all five families
+  # through the graph composer.
+  implementation/derivation-conformance
 )
 
 for artefact in "${artefacts[@]}"; do

@@ -145,6 +145,27 @@
                 ;; :node-test gate (`cljs-test$` matches); the JVM
                 ;; counterpart is reply-conformance/deps.edn `:test`.
                 "reply-conformance/test"
+                ;; rf2-jn7frs — EP-0014 derivation/process-ALGEBRA
+                ;; conformance tier (Reference Implementation Plan item 9 +
+                ;; §Validation / Conformance; spec/Derivations.md
+                ;; §Conformance). The umbrella conformance the per-artefact
+                ;; `*-algebra-view` suites + the composer-mechanics test
+                ;; cannot hold: the four EP-0014 LAWS proven ACROSS all five
+                ;; families (subs, flows, resources, route facts, machines)
+                ;; THROUGH the graph composer (`re-frame.derivation.graph`)
+                ;; — (a) LOWERING to the correct node kind/superkind,
+                ;; (b) storage/evaluation/lifecycle CLASSIFICATION per
+                ;; family, (c) graph EDGES (input/param/selector) in static +
+                ;; live graphs, (d) the semantic WHOLE-VALUE law. The tests
+                ;; sit ABOVE several artefacts (core + flows/resources/
+                ;; routing/machines), so — like reply-conformance/ and
+                ;; security/ — they live in their own top-level
+                ;; derivation-conformance/ surface; the cross-artefact
+                ;; node-test classpath already spans every required ns.
+                ;; Namespaces end in `-cljs-test`, so they run under the
+                ;; always-on :node-test gate (`cljs-test$` matches); the JVM
+                ;; counterpart is derivation-conformance/deps.edn `:test`.
+                "derivation-conformance/test"
                 ;; tools/mcp-base — the security tier's MCP-egress surface
                 ;; (`re-frame.mcp-base.sensitive`, the spec/009 §Privacy
                 ;; default-suppress filter) is CLJC and lives here. Source
