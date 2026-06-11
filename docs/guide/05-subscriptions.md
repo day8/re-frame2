@@ -154,8 +154,14 @@ Click into the cell and hit **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac) to ru
     "  (recomputed " @static-recomputes " times)"]])
 
 ;; --- Seed, then tick once a second forever ---
+;; The setInterval callback fires later, on a bare timer turn with no frame in
+;; scope — so it must CARRY the frame. Capture (rf/frame-handle) here, while the
+;; frame is still ambient, and close over its :dispatch in the callback. A bare
+;; (rf/dispatch [:graph/tick]) inside the timer would raise
+;; :rf.error/no-frame-context. (See chapter 18.)
 (rf/dispatch-sync [:graph/initialise])
-(js/setInterval #(rf/dispatch [:graph/tick]) 1000)
+(let [{:keys [dispatch]} (rf/frame-handle)]
+  (js/setInterval #(dispatch [:graph/tick]) 1000))
 [graph-demo]
 ```
 
