@@ -101,8 +101,12 @@
                                                  {:event [:t] :dispatch-stale? false})))
         ":dispatch-stale? false → not delivered")
     (is (true? (:deliver? (route-reply/suppress {:nav-token "nav-1"} "nav-2"
-                                                {:event [:t] :dispatch-stale? true})))
-        ":dispatch-stale? true (framework test/tool only) → delivered")))
+                                                (reply/with-stale-authority {:event [:t] :dispatch-stale? true}))))
+        ":dispatch-stale? true on a framework/tool-authorised target → delivered")
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (route-reply/suppress {:nav-token "nav-1"} "nav-2"
+                                       {:event [:t] :dispatch-stale? true}))
+        "an APP route target setting :dispatch-stale? true without framework authority FAILS LOUD")))
 
 ;; ---- §Tracing -------------------------------------------------------------
 
