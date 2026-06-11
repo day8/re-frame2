@@ -165,6 +165,35 @@
       (is (some? (:invalidated-at (entry ka))) "scope A entry marked stale")
       (is (some? (:invalidated-at (entry kb))) "scope B entry ALSO marked stale"))))
 
+(deftest invalidate-tags-invalidated-at-is-the-event-time-ms
+  ;; rf2-258p1z / EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
+  ;; the durable :invalidated-at is the INVALIDATION EVENT'S :time-ms (the
+  ;; causal world input), NOT an ambient clock read in the reducer. Scripting
+  ;; the dispatch's :rf.world/inputs pins the value; replaying the SAME token
+  ;; rewrites the SAME :invalidated-at (replay-stable, not the live clock).
+  (rf/reg-resource :ivt/article (article-spec))
+  (let [sa {:user "a"}
+        ka (state/scoped-resource-key sa :ivt/article {:slug "w"})
+        t1 1781078400123
+        t2 1781078999999]
+    (ensure! :ivt/article sa "w" [:lease :a 1])
+    (succeed! ka {:title "A"})
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :a 1]}])
+    (rf/dispatch-sync [:rf.resource/invalidate-tags
+                       {:scope sa :tags #{[:article "w"]}}]
+                      {:rf.world/inputs {:time-ms t1}})
+    (testing ":invalidated-at is EXACTLY the supplied token :time-ms (not now)"
+      (is (= t1 (:invalidated-at (entry ka)))))
+    ;; re-invalidate with a DIFFERENT scripted time — the durable fact tracks
+    ;; the causal token, so it moves to the new token's :time-ms (proving it
+    ;; is read off the token, not a fresh clock read).
+    (rf/dispatch-sync [:rf.resource/invalidate-tags
+                       {:scope sa :tags #{[:article "w"]}}]
+                      {:rf.world/inputs {:time-ms t2}})
+    (testing "replaying with a new scripted token rewrites :invalidated-at to
+              that token's :time-ms (read off the token, not the clock)"
+      (is (= t2 (:invalidated-at (entry ka)))))))
+
 ;; ---- rf2-pvdae1: scoped invalidate-tags fails closed without a scope -------
 ;; The re-frame event loop catches a handler throw and surfaces it as
 ;; :rf.error/handler-exception (it does NOT rethrow to dispatch-sync's

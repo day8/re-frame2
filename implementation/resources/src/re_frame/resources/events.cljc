@@ -133,7 +133,8 @@
   SETTLED fresh `:loaded` entry.
 
   Returns the event-fx map `{:rf.db/runtime :fx}`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation
+    world :rf.world/inputs}
    {:keys [resource params owner cause keep-previous?] :as payload} {:keys [force-new? where]}]
   (let [runtime-db (or rt {})
         spec       (registry/require-resource-spec! resource where)
@@ -281,8 +282,15 @@
             ;; and supersede/abort each other's in-flight request. Qualifying
             ;; with the frame id isolates them.
             request-id (work-ledger/managed-request-id frame-id work-id)
-            now        (now-ms)
-            deadline   (when-let [ms (:timeout-ms spec)] (+ now ms))
+            ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps: the
+            ;; durable work-ledger `:started-at` is the TRIGGERING TOKEN'S
+            ;; `:time-ms` (the causal world input the router stamped once at
+            ;; the dispatch boundary), and `:deadline-at` is computed from it
+            ;; plus the configured timeout policy — NOT an ambient clock read
+            ;; in the reducer. Replay-stable: the same ensure/refetch token
+            ;; mints the same `:started-at` / `:deadline-at`.
+            started-at (:time-ms world)
+            deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
             entry'     (cond-> (state/entry-start-load
                                  entry {:generation generation :work-id work-id
                                         :request-id request-id :owner owner})
@@ -303,7 +311,7 @@
                           :transport    transport-id
                           :owner        owner
                           :cause        cause
-                          :started-at   now
+                          :started-at   started-at
                           :deadline-at  deadline})
             rdb'       (-> runtime-db
                            (assoc-in (state/entry-path scoped-key) entry')
@@ -583,7 +591,7 @@
   `:matched` (the matched keys), `:any-tag-match-other-scope?` (whether the
   tags match an entry in ANOTHER scope — \"no match HERE\" vs \"no resource
   provides this tag in any scope\"), so Xray can tell the two apart."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs}
    [_event-id {:keys [scope tags cause cross-scope?]}]]
   (let [runtime-db (or rt {})
         ;; FAIL CLOSED (rf2-pvdae1): a scoped (default) invalidation MUST
@@ -614,7 +622,13 @@
         cscope     (when (some? scope)
                      (state/canonicalize-scope scope 'rf.resource/invalidate-tags nil))
         tag-set    (set tags)
-        invalidated-at (now-ms)
+        ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps: the
+        ;; durable `:invalidated-at` written by an invalidation event is that
+        ;; EVENT'S `:time-ms` (the causal world input the router stamped once
+        ;; at the dispatch boundary), NOT an ambient clock read in the
+        ;; reducer. Replay-stable: re-running the same invalidation token
+        ;; rewrites the SAME `:invalidated-at`.
+        invalidated-at (:time-ms world)
         entries    (get-in runtime-db (state/entries-path))
         tags-hit?  (fn [entry] (seq (set/intersection (set (:tags entry)) tag-set)))
         in-scope?  (fn [k] (or cross-scope? (= cscope (first k))))

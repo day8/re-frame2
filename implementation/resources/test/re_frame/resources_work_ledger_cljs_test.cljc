@@ -151,6 +151,40 @@
         (is (not (contains? r :promise)))
         (is (not (contains? r :abort-fn)))))))
 
+(deftest work-record-started-at-deadline-at-from-token-time-ms
+  ;; rf2-uuzj88 / EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
+  ;; the durable work-ledger `:started-at` is the TRIGGERING TOKEN'S
+  ;; `:time-ms` (the causal world input), and `:deadline-at` is
+  ;; `:started-at` + the configured `:timeout-ms` policy — NOT an ambient
+  ;; clock read in the reducer. Scripting the dispatch's `:rf.world/inputs`
+  ;; pins both; the same token mints the same row (replay-stable).
+  (rf/reg-resource :wlt/article (article-spec {:timeout-ms 5000}))
+  (let [scoped-key (state/scoped-resource-key :rf.scope/global :wlt/article {:slug "w"})
+        t1 1781078400123]
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :wlt/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:route :r 1]}]
+                      {:rf.world/inputs {:time-ms t1}})
+    (let [r (record (:current-work (entry scoped-key)))]
+      (testing ":started-at is EXACTLY the triggering token :time-ms (not now)"
+        (is (= t1 (:started-at r))))
+      (testing ":deadline-at is :started-at + the :timeout-ms policy"
+        (is (= (+ t1 5000) (:deadline-at r))))))
+  ;; a resource declaring NO timeout policy has a nil :deadline-at, and its
+  ;; :started-at still tracks the token (replay-stable, no ambient read).
+  (rf/reg-resource :wlnt/article (article-spec))
+  (let [scoped-key (state/scoped-resource-key :rf.scope/global :wlnt/article {:slug "w"})
+        t2 1781079000000]
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :wlnt/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:route :r 1]}]
+                      {:rf.world/inputs {:time-ms t2}})
+    (let [r (record (:current-work (entry scoped-key)))]
+      (testing ":started-at tracks the token even with no timeout policy"
+        (is (= t2 (:started-at r))))
+      (testing "no :timeout-ms policy => nil :deadline-at"
+        (is (nil? (:deadline-at r)))))))
+
 ;; ===========================================================================
 ;; 2. host handles live in the side table keyed by [frame-id work-id]
 ;; ===========================================================================
