@@ -62,9 +62,13 @@
   {:call :route-url :route-id :route/article-detail :params {:id "intro"}
    :expect "/articles/intro"}
 
-  ;; 3-arity form: with query-params
+  ;; 3-arity form: with query-params. Query keys are emitted in DETERMINISTIC
+  ;; CANONICAL KEY ORDER (by CEDN-1 key bytes), NOT the caller's source order —
+  ;; so `:page` precedes `:q` regardless of how the query map was spelled
+  ;; (EP-0012, rf2-wgutc2; Conventions §The :rf/path algebra: "query keys are
+  ;; emitted in deterministic canonical order").
   {:call :route-url :route-id :route/search :params {} :query {:q "clojure" :page 2}
-   :expect "/search?q=clojure&page=2"}
+   :expect "/search?page=2&q=clojure"}
 
   ;; Splat round-trip
   {:call :route-url :route-id :route/files :params {:rest "a/b/c.txt"}
@@ -90,11 +94,17 @@
   {:call :route-url :route-id :route/article-detail :params {:id "intro"} :query {} :fragment nil
    :expect "/articles/intro"}
 
-  ;; Round-trip property: for every registered route, route-url ∘ match-url is identity.
+  ;; Round-trip property: route-url ∘ match-url recovers the URL. This is a
+  ;; PRISM (a lawful partial round-trip, Conventions §The :rf/path algebra),
+  ;; not an isomorphism: the query string round-trips byte-identical only when
+  ;; its keys are already in canonical order, because route-url emits query
+  ;; keys in deterministic canonical order (`:page` before `:q`; EP-0012,
+  ;; rf2-wgutc2). The query URLs below are spelled in canonical key order so
+  ;; the byte-identical round-trip holds.
   {:call :round-trip :url "/articles/intro"}
   {:call :round-trip :url "/files/a/b/c.txt"}
-  {:call :round-trip :url "/search?q=test&page=3"}
+  {:call :round-trip :url "/search?page=3&q=test"}
 
   ;; Fragment round-trip: URL with '#fragment' parses, rebuilds back byte-identical.
   {:call :round-trip :url "/articles/intro#section-1"}
-  {:call :round-trip :url "/search?q=test&page=3#results"}]}
+  {:call :round-trip :url "/search?page=3&q=test#results"}]}

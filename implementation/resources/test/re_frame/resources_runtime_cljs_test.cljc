@@ -33,6 +33,7 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.frame :as frame]
+   [re-frame.identity :as identity]
    [re-frame.late-bind :as late-bind]
    [re-frame.registrar :as registrar]
    ;; load-bearing side-effecting require: the façade registers the
@@ -129,6 +130,69 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
           (state/reject-non-edn! {:f (fn [])} 'test :params :r/x)))))
+
+;; rf2-wgutc2 (EP-0012 correctness review item 1): resource params + scopes
+;; use the SHARED CEDN-1 identity rule (`re-frame.identity/canonical`), not a
+;; resource-local dialect. This closes three divergences the prior
+;; resource-local canonicalizer carried:
+;;   - it accepted broad `number?` (floats / ratios / decimals / out-of-safe-
+;;     range integers) — CEDN-1 admits only portable safe-range integers;
+;;   - it collapsed lists → vectors, erasing the list-vs-vector EDN distinction;
+;;   - it sorted keys under a bespoke comparator the CEDN-1 byte order subsumes.
+(deftest resource-identity-uses-shared-cedn1-rule
+  (testing "non-portable NUMBERS are rejected at the cache-key boundary
+            (CEDN-1 admits only portable safe-range integers)"
+    ;; floats / doubles
+    (is (false? (state/serializable-edn? {:ratio 1.5}))
+        "a float param is not a portable CEDN-1 identity")
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
+          (state/reject-non-edn! {:ratio 1.5} 'test :params :r/x))
+        "a float param is rejected loudly")
+    ;; out-of-safe-range integer (> 2^53 - 1) — diverges across hosts, so
+    ;; CEDN-1 fails it closed.
+    (is (false? (state/serializable-edn? {:n 9007199254740993}))
+        "an integer beyond the ECMAScript safe range is rejected")
+    #?(:clj
+       ;; ratios + bigdecimals only exist on the JVM
+       (do
+         (is (false? (state/serializable-edn? {:r 1/3}))
+             "a ratio param is rejected")
+         (is (false? (state/serializable-edn? {:d 1.5M}))
+             "a bigdecimal param is rejected"))))
+  (testing "a plain safe-range integer param is STILL accepted (the common case)"
+    (is (true? (state/serializable-edn? {:rev 1 :page 42})))
+    (is (= {:rev 1 :page 42} (state/canonicalize {:page 42 :rev 1}))))
+  (testing "list vs vector are DISTINCT EDN facts — never collapsed
+            (Conventions §Sequences and sets)"
+    ;; The prior resource-local canonicalize ACTIVELY COERCED lists to vectors
+    ;; (`(sequential? x) (mapv …)`), erasing the kind entirely — a vector and a
+    ;; list params value became byte-identical, silently sharing one cache
+    ;; entry. CEDN-1 PRESERVES the kind, so the two stay distinct EDN identities.
+    ;;
+    ;; Note: Clojure value `=` does NOT discriminate a vector from a list
+    ;; (`(= [1 2 3] '(1 2 3))` is true), so the distinction is at the
+    ;; AUTHORITATIVE CEDN-1 identity level (EP-0012 disposition 5: the canonical
+    ;; EDN value IS the identity, and equality-as-identity is CEDN-1 byte
+    ;; equality, `identity/identical-identity?`) — the vector encodes `v[…]`
+    ;; and the list encodes `l(…)`, distinct token streams.
+    (is (not (identity/identical-identity?
+               (state/canonicalize {:xs [1 2 3]})
+               (state/canonicalize {:xs '(1 2 3)})))
+        "a vector value and a list value canonicalize to DISTINCT CEDN-1 identities")
+    (is (not (identity/identical-identity?
+               (state/scoped-resource-key :rf.scope/global :r/x {:xs [1 2 3]})
+               (state/scoped-resource-key :rf.scope/global :r/x {:xs '(1 2 3)})))
+        "the scoped keys are distinct identities — list and vector params are
+         not the same cache fact")
+    (is (vector? (:xs (state/canonicalize {:xs [1 2 3]})))
+        "a vector value stays a vector")
+    (is (seq? (:xs (state/canonicalize {:xs '(1 2 3)})))
+        "a list value stays a list (not coerced to a vector — the prior
+         resource-local canonicalizer's silent collapse is gone)"))
+  (testing "key-order independence is preserved through the shared rule"
+    (is (= (state/canonicalize {:a 1 :b 2})
+           (state/canonicalize {:b 2 :a 1})))))
 
 ;; ===========================================================================
 ;; 2. Fail-closed scope policy (no global fallthrough)

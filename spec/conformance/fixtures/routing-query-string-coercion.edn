@@ -108,7 +108,12 @@
             :fragment nil
             :validation-failed? true}}
 
-  ;; route-url's 3-arity emits the query string in input order.
+  ;; route-url's 3-arity emits the query string in DETERMINISTIC CANONICAL
+  ;; KEY ORDER (by CEDN-1 key bytes), NOT the caller's input/source order —
+  ;; `:page` precedes `:q` regardless of how the query map is spelled
+  ;; (EP-0012, rf2-wgutc2; Conventions §The :rf/path algebra: "query keys are
+  ;; emitted in deterministic canonical order"). Two callers passing the same
+  ;; query map in different key orders build the byte-identical URL.
   {:call :route-url :route-id :route/articles :params {}
                     :query {:q "clojure" :page 2}
-   :expect "/articles?q=clojure&page=2"}]}
+   :expect "/articles?page=2&q=clojure"}]}
