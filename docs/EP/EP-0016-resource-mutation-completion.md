@@ -912,20 +912,31 @@ and logout clear-scope can now all use the same named resolver.
 
 ### Logout clear-scope
 
+Logout needs to clear the scope the user was *in* after current db has already
+removed the user. The canonical idiom resolves the **concrete** old scope from
+the handler's **coeffect db** — pre-transition by definition, the EP-0010-coherent
+causal input — using the pure `resolve-resource-scope` helper, and passes it to
+`clear-scope` concretely:
+
 ```clojure
 (rf/reg-event-fx :auth/logout
   (fn [{:keys [db]} _]
-    {:db (dissoc db :auth)
-     :fx [[:dispatch
-           [:rf.resource/clear-scope
-            {:scope {:from-db :realworld/session}
-             :snapshot-db db}]]]}))
+    (let [old-scope (rf/resolve-resource-scope db :realworld/session)]
+      {:db (dissoc db :auth)
+       :fx [[:dispatch
+             [:rf.resource/clear-scope
+              {:scope old-scope
+               :cause :logout}]]]})))
 ```
 
-The optional `:snapshot-db` detail is illustrative: logout often needs to clear
-the old session scope after removing auth from current db. The implementation
-plan must settle the exact API for "resolve using pre-transition state" without
-making scope clearing ambiguous.
+`resolve-resource-scope` is a pure function over the resolver registry (a plain
+helper, not a new effect-API surface) — it resolves a named scope against a
+given db value, with no resolution-timing ambiguity. There is **no `:snapshot-db`
+payload key**: a whole-db snapshot riding an event vector is an egress-bearing
+record on traces and epoch history, rejected under EP-0015 (issue 7). A
+`{:from-db …}` reference *may* still appear on a `clear-scope` payload (the
+single use-time resolution rule applies); a reference that resolves nil at a
+clear-scope site emits a loud diagnostic, never a silent no-op.
 
 ## Reference Implementation Plan
 
@@ -1165,10 +1176,16 @@ resolver should produce nil or an explainable unresolved state rather than
 falling back.
 
 `clear-scope` needs careful treatment around logout/account switch. The common
-case wants to clear the old scope after current db has removed the user. The
-implementation plan should settle whether clear uses explicit concrete scope,
-resolver plus snapshot db, or a helper that resolves before applying the logout
-db change.
+case wants to clear the old scope after current db has removed the user. Issue 7
+settles this: the logout handler resolves the **concrete** old scope from its
+**coeffect db** (pre-transition by definition) via the pure `resolve-resource-scope`
+helper and passes it to `clear-scope` concretely (see the corrected
+[§Logout clear-scope](#logout-clear-scope) example). The rejected `:snapshot-db`
+event-payload option is **not** an implementation choice — a whole-db snapshot on
+an event vector is an egress-bearing record under EP-0015. A `{:from-db …}`
+reference on a `clear-scope` payload remains valid under the single use-time
+resolution rule and emits a loud diagnostic (never a silent no-op) when it
+resolves nil.
 
 ## Guide Impact
 
