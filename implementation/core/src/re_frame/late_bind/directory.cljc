@@ -718,6 +718,10 @@
     :producer-ns 're-frame.error-emit
     :design-bead "rf2-bacs4"
     :description "Always-on per-`:rf.error/*` fan-out: builds the tight error-record once (elided), then fans it out to the corpus-wide listener registry (rf2-bacs4 — Sentry / Honeybadger / Rollbar shippers), ALWAYS fired. Per-listener invocations try/catch wrapped (a buggy listener cannot block siblings). Recovery is framework-owned (the per-category typed defaults); the per-frame `:on-error` recovery policy was REMOVED (rf2-hiqtk8, superseding the rf2-2hvga axis-2 / recovery-policy-eligible column). Survives `:advanced` + `goog.DEBUG=false`. Invoked from EVERY production-reachable `:rf.error/*` site: router (handler-exception, flow-eval, frame-destroyed), fx (reserved-fx typed throws), subs/memo + subs (reactive + compute-sub exceptions), subs (frame-destroyed, no-such-sub on subscribe), router/diagnostics (no-such-handler)."}
+   {:key         :error-emit/dispatch-frame-teardown-report
+    :producer-ns 're-frame.error-emit
+    :design-bead "rf2-ini4wr"
+    :description "Always-on ONE-bounded-record-per-destroy frame-teardown report (EP-0008 promotion criterion / Spec 009 §Channel-promotion catalogue rows). `frame/destroy-frame!` accumulates per-hook failures during the best-effort teardown walk and, through a FINALLY-shaped flush boundary, fires this hook once with the `:frame` + the collected `:hook-failures` vector — so a mid-teardown abort still ships the entries gathered so far. Builds the catalogue-shaped `:rf.error/frame-teardown-failed` record (`:recovery :ignored`) and fans it out to the corpus-wide error listeners. NOT one record per failed hook (the per-hook detail stays on the dev-only `:rf.warning/teardown-hook-exception` trace, DCE'd in prod). `frame` reaches it via late-bind because a static require closes a `error-emit` → `elision` → `frame` load cycle. Survives `:advanced` + `goog.DEBUG=false`. No-op when no hook failed."}
 
    ;; ===========================================================================
    ;; GROUP 3 — ADAPTER-INJECTION
