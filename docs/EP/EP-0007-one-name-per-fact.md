@@ -180,8 +180,18 @@ pruned the redirect aliases immediately, with no compatibility window. Items
 3. ~~`rf2-vngir`: the redirect narrowing~~ — **merged** (item 4 done; retired
    spellings fail loudly and name `:location`).
 4. `reg-`/`register-` audit bead (doc-only unless stragglers found).
-5. Lint bead: retired-spelling checks for items 1 and 4 (both renames have
-   merged, so the lint can land when the no-floor check is written).
+5. ~~Lint bead: retired-spelling checks for items 1 and 4~~ — **done**
+   (`rf2-ziak6w`). `scripts/check_retired_spellings.py` fails on the retired
+   bare `:frame` event-context coeffect read (item 1) and the `:url` / `:to`
+   redirect-target key on an SSR redirect fx (item 4), scoped to the retired
+   *shapes* so the sanctioned public `:frame` opt / trace tag / fx-handler ctx
+   and client-navigation `:url` stay green. Wired into the always-on PR-spine
+   python job (`.github/workflows/test.yml`) and the local pre-checkin spine
+   (`scripts/test-fast-pr.sh`). The two shapes too ambiguous to lint without
+   noise (a `let`-bound redirect map far from the fx id; an exotic coeffect
+   accessor) are documented in the script header as deliberate non-targets —
+   the runtime guards (`reject-retired-redirect-keys!`, the
+   `event_context_coeffect_keys_test` conformance pin) are the backstop there.
 
 ## Recommendation
 
