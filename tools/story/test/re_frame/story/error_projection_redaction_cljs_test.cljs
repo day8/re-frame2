@@ -80,8 +80,8 @@
             (fn [_first-run]
               ;; Mark the ex-data key sensitive on the variant frame, then
               ;; re-run the play so the throw is captured under the marks.
-              (rf/add-marks :story.err-redaction/probe
-                            {[:token] :sensitive})
+              (story/add-marks :story.err-redaction/probe
+                               {[:token] :sensitive})
               (-> (story/execute-play! :story.err-redaction/probe)
                   (async-lib/then
                     (fn [_]

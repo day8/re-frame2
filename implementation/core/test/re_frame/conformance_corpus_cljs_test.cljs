@@ -49,6 +49,10 @@
   (:require [cljs.test :refer-macros [deftest is]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            ;; EP-0015 (rf2-mngp4o): `add-marks` / `set-marks` are no longer
+            ;; on the `re-frame.core` façade; the corpus `:add-marks` /
+            ;; `:set-marks` ops drive the internal `re-frame.marks` helpers.
+            [re-frame.marks :as marks]
             [re-frame.cofx :as cofx]
             ;; rf2-wxe9t — the always-on error-emit substrate is the
             ;; fan-out path the conformance runner observes for the
@@ -571,8 +575,8 @@
   [fixture scope-frame]
   (doseq [op (or (:fixture/app-marks fixture) [])]
     (cond
-      (contains? op :add-marks) (rf/add-marks scope-frame (:add-marks op))
-      (contains? op :set-marks) (rf/set-marks scope-frame (:set-marks op)))))
+      (contains? op :add-marks) (marks/add-marks scope-frame (:add-marks op))
+      (contains? op :set-marks) (marks/set-marks scope-frame (:set-marks op)))))
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]

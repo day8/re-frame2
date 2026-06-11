@@ -145,6 +145,15 @@
   event vector's payload map with the `:rf/redacted` sentinel before the
   handler body runs.
 
+  REMOVED FROM THE PUBLIC API (EP-0015 §7, rf2-mngp4o). A positional
+  \"redact for the trace but not the handler\" interceptor made privacy
+  depend on interceptor placement rather than on the owner of the payload
+  shape; registration-owned `:sensitive` payload classification +
+  centralized `project-egress` at egress boundaries replace it. This fn
+  remains as internal router plumbing (the router still recognises any
+  `redact-interceptor`-shaped value in a handler's chain), but it is no
+  longer published from the `re-frame.core` façade.
+
   The handler itself receives the UNREDACTED payload via the regular
   `:event` coeffect slot; the redaction is for the trace surface only
   (`:event/*` trace events, `:event/db-changed`, `:rf.error/handler-
@@ -166,17 +175,17 @@
       handler invocation on the trace surface inside the cascade. The
       record carries the already-scrubbed trace events into the fn.
 
-  Usage:
+  Internal usage (no longer a public `rf/` surface):
 
       (rf/reg-event-fx :auth/login
-        [(rf/redact-interceptor [[:password] [:token]])]
+        [(privacy/redact-interceptor [[:password] [:token]])]
         (fn [{:keys [db]} [_ {:keys [username password token]}]]
           ;; password + token visible HERE (unredacted via :event coeffect)
           ;; trace surface sees them as :rf/redacted
           ...))
 
-  Per [API.md §Privacy](API.md#privacy-spec-009-privacy--sensitive-data-in-traces)
-  and [Security.md §Behavioural MUSTs across the privacy surface](Security.md#behavioural-musts-across-the-privacy-surface)."
+  Per [Spec 009 §Privacy](009-Instrumentation.md) and
+  [Security.md §Behavioural MUSTs across the privacy surface](Security.md#behavioural-musts-across-the-privacy-surface)."
   [paths]
   (let [paths (vec paths)]
     (interceptor/->interceptor*

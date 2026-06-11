@@ -87,7 +87,7 @@
             (fn [_first-run]
               ;; Mark the path sensitive on the variant frame, then re-run
               ;; the assertion against the now-marked frame.
-              (rf/add-marks :story.redaction.path-equals/probe
+              (story/add-marks :story.redaction.path-equals/probe
                             {[:auth :token] :sensitive})
               (-> (story/execute-play! :story.redaction.path-equals/probe)
                   (async-lib/then
@@ -150,7 +150,7 @@
       (-> (story/run-variant :story.redaction.sub-equals/probe)
           (async-lib/then
             (fn [_first-run]
-              (rf/add-marks :story.redaction.sub-equals/probe
+              (story/add-marks :story.redaction.sub-equals/probe
                             {[:user :ssn] :sensitive})
               (-> (story/execute-play! :story.redaction.sub-equals/probe)
                   (async-lib/then

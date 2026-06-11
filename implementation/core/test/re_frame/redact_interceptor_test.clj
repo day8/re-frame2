@@ -1,5 +1,5 @@
 (ns re-frame.redact-interceptor-test
-  "Per rf2-461sp — `(rf/redact-interceptor paths)` positional interceptor.
+  "Per rf2-461sp — `(privacy/redact-interceptor paths)` positional interceptor.
 
   The third composition site for `:sensitive?` (per [Security.md
   §Behavioural MUSTs across the privacy surface](spec/Security.md)):
@@ -63,15 +63,22 @@
 
 ;; ---- public-API + interceptor-shape sanity --------------------------------
 
-(deftest redact-interceptor-is-exported
-  (is (= rf/redact-interceptor privacy/redact-interceptor)
-      "rf/redact-interceptor is the rf.core alias of privacy/redact-interceptor"))
+(deftest redact-interceptor-is-not-on-the-public-facade
+  ;; EP-0015 §7 (rf2-mngp4o): `redact-interceptor` is REMOVED from the
+  ;; public `re-frame.core` façade. It survives only as the internal
+  ;; `re-frame.privacy/redact-interceptor` helper (router plumbing + this
+  ;; test). The negative assertion pins the demotion so a re-export would
+  ;; fail loudly.
+  (is (nil? (ns-resolve 're-frame.core 'redact-interceptor))
+      "EP-0015 §7: redact-interceptor must NOT be published from re-frame.core")
+  (is (fn? privacy/redact-interceptor)
+      "the internal re-frame.privacy/redact-interceptor helper still exists"))
 
 (deftest redact-interceptor-returns-interceptor-with-paths
   (testing "the returned interceptor map exposes its paths on `:paths` so the
             router can fold them into the pre-chain trace projection"
     (let [paths [[:password] [:token]]
-          icpt  (rf/redact-interceptor paths)]
+          icpt  (privacy/redact-interceptor paths)]
       (is (map? icpt))
       (is (= :rf/redact-interceptor (:id icpt)))
       (is (= paths (:paths icpt)))
@@ -84,7 +91,7 @@
             surface that uses `redacted-event-from-ctx` sees the scrub"
     (let [seen (atom nil)]
       (rf/reg-event-db :auth/login
-        [(rf/redact-interceptor [[:password] [:token]])]
+        [(privacy/redact-interceptor [[:password] [:token]])]
         (fn [db [_ payload]]
           (reset! seen payload)
           (assoc db :last-login payload)))
@@ -112,7 +119,7 @@
             payload. Opt-in privacy is additive, not conditional;
             consistent with the schema-redaction helper's `redact-path`."
     (rf/reg-event-db :neutral/save
-      [(rf/redact-interceptor [[:declared]])]
+      [(privacy/redact-interceptor [[:declared]])]
       (fn [db [_ payload]] (assoc db :saved payload)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:neutral/save {:keep "me"}]))
@@ -137,7 +144,7 @@
 (deftest empty-path-scrubs-entire-payload
   (testing "an empty path is the documented 'scrub everything' form"
     (rf/reg-event-db :whole/payload
-      [(rf/redact-interceptor [[]])]
+      [(privacy/redact-interceptor [[]])]
       (fn [db _] (assoc db :ran? true)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:whole/payload {:any "thing"}]))
@@ -149,7 +156,7 @@
             is `[id payload-map ...]`); the interceptor must not throw or
             mangle a non-conforming event"
     (rf/reg-event-db :raw/vec-payload
-      [(rf/redact-interceptor [[:password]])]
+      [(privacy/redact-interceptor [[:password]])]
       (fn [db _] (assoc db :ran? true)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:raw/vec-payload "scalar"]))
@@ -171,7 +178,7 @@
       ;; string, so the parent (get-in payload [:auth]) is non-nil but
       ;; non-associative — the exact mis-declaration the bead calls out.
       (rf/reg-event-db :auth/scalar-parent
-        [(rf/redact-interceptor [[:auth :password]])]
+        [(privacy/redact-interceptor [[:auth :password]])]
         (fn [db [_ payload]]
           (reset! seen payload)
           (assoc db :committed payload)))
@@ -218,7 +225,7 @@
         ;; auto-install for `:password` (schema-declared sensitive). The
         ;; user `redact-interceptor` adds `:token` (NOT schema-declared).
         [(rf/path :auth)
-         (rf/redact-interceptor [[:token]])]
+         (privacy/redact-interceptor [[:token]])]
         (fn [auth [_ payload]]
           (reset! seen payload)
           (assoc auth :last payload)))
@@ -252,7 +259,7 @@
             stamper. The `:sensitive?` boolean on emitted events is the
             registration-meta / schema-derived signal only."
     (rf/reg-event-db :plain/scrub
-      [(rf/redact-interceptor [[:password]])]
+      [(privacy/redact-interceptor [[:password]])]
       (fn [db _] db))
     (let [evs       (record-traces
                       #(rf/dispatch-sync [:plain/scrub {:password "shh"}]))
@@ -268,7 +275,7 @@
             had a `redact-interceptor` interceptor surfaces the scrub in the
             `:rf.error/handler-exception` trace event"
     (rf/reg-event-db :auth/explode
-      [(rf/redact-interceptor [[:password] [:token]])]
+      [(privacy/redact-interceptor [[:password] [:token]])]
       (fn [_ _] (throw (ex-info "boom" {}))))
     (let [evs   (record-traces
                   #(rf/dispatch-sync
@@ -289,8 +296,8 @@
             ships its own privacy interceptor and the registration also
             wants per-call scrubs."
     (rf/reg-event-db :auth/dual
-      [(rf/redact-interceptor [[:password]])
-       (rf/redact-interceptor [[:token]])]
+      [(privacy/redact-interceptor [[:password]])
+       (privacy/redact-interceptor [[:token]])]
       (fn [db _] (assoc db :ran? true)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync

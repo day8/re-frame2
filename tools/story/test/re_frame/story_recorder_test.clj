@@ -25,6 +25,10 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            ;; EP-0015 (rf2-mngp4o): `redact-interceptor` is no longer
+            ;; published from `re-frame.core`; it survives as an internal
+            ;; helper in its home ns, exercised here directly.
+            [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story :as story]
@@ -600,7 +604,7 @@
       (fn [db _] (update db :n (fnil inc 0))))
     ;; Use `redact-interceptor` so the trace surface sees the redacted payload.
     (rf/reg-event-db :auth/login
-      [(rf/redact-interceptor [[:password] [:totp]])]
+      [(privacy/redact-interceptor [[:password] [:totp]])]
       (fn [db _] db))
     (story/reg-variant :story.recorder/sens-end-to-end {})
     (async/deref-blocking (story/run-variant :story.recorder/sens-end-to-end) 5000)

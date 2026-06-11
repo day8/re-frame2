@@ -78,6 +78,12 @@
   Per IMPL-SPEC §5 the boundary is: synchronous drain belongs to the
   test driver; the queue belongs to the application."
   (:require [re-frame.core              :as rf]
+            ;; EP-0015 (rf2-mngp4o): the `add-marks` / `set-marks` path-marks
+            ;; primitives are no longer published from `re-frame.core` (frame-
+            ;; owned classification + `project-egress` are the public boundary).
+            ;; They remain as internal helpers in their home ns; the Story-author
+            ;; re-export below (rf2-l6hzv) now sources them from there.
+            [re-frame.marks             :as marks]
             [re-frame.story.config      :as config]
             [re-frame.story.registrar   :as registrar]
             ;; Phase-2 cohesive internal nss — own the implementation
@@ -645,16 +651,16 @@
 
 ;; ---- add-marks / set-marks re-export (rf2-l6hzv) ------------------------
 ;;
-;; Story-author ergonomic aliases for `re-frame.core/add-marks` and
-;; `re-frame.core/set-marks`. The primitives live in the framework
-;; (`re-frame.core`) — variant bodies declare per-frame path-marks via
-;; `(story/add-marks <variant-id> {path mark, ...})` or
-;; `(story/set-marks <variant-id> {path mark, ...})` exactly the same
-;; shapes they would call `re-frame.core/add-marks` / `set-marks`
-;; directly. No fork, no shim; the re-export is purely for
-;; discoverability so authors scanning `re-frame.story`'s public
-;; surface for privacy primitives find them without chasing cross-
-;; references into `re-frame.core`.
+;; Story-author ergonomic aliases for the framework path-marks primitives.
+;; Per EP-0015 (rf2-mngp4o) these primitives are no longer published from
+;; `re-frame.core` — frame-owned `:sensitive` / `:large` classification +
+;; `project-egress` are the public boundary now — but they survive as
+;; internal helpers in their home ns (`re-frame.marks`). Story re-exports
+;; them from THERE so the `(story/add-marks <variant-id> {path mark, ...})`
+;; / `(story/set-marks ...)` author surface is preserved unchanged. No
+;; fork, no shim; the re-export is purely for discoverability so authors
+;; scanning `re-frame.story`'s public surface for privacy primitives find
+;; them without chasing cross-references into the framework internals.
 ;;
 ;; Per Conventions.md §Privacy primitives — `add-marks` / `set-marks` re-export.
 
@@ -673,16 +679,19 @@
          [:auth :token]    :sensitive
          [:docs :csv-upload] :large})
 
-  Re-export of `re-frame.core/add-marks` per rf2-l6hzv — Story-author
-  discoverability alias; same primitive, same data model, same per-
-  frame semantics. See [Conventions.md §Privacy primitives —
-  `add-marks` / `set-marks` re-export](../spec/Conventions.md#privacy-primitives--add-marks--set-marks-re-export)
+  Re-export of the framework's internal `re-frame.marks/add-marks`
+  primitive per rf2-l6hzv — Story-author discoverability alias; same
+  primitive, same data model, same per-frame semantics. (EP-0015,
+  rf2-mngp4o: the framework no longer publishes this from `re-frame.core`;
+  authoring app-db classification is a frame-creation concern. Story keeps
+  the ergonomic alias by sourcing the internal helper directly.) See
+  [Conventions.md §Privacy primitives — `add-marks` / `set-marks` re-export](../spec/Conventions.md#privacy-primitives--add-marks--set-marks-re-export)
   for the convention rationale.
 
   Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
   does NOT install an interceptor, does NOT change any handler's view
   of the data. Use `set-marks` for replace-semantics."}
-  add-marks rf/add-marks)
+  add-marks marks/add-marks)
 
 (def ^{:doc "Replace the per-frame `app-db` mark-set, per
   [framework spec/015 §App-db marks](../../../../spec/015-Data-Classification.md).
@@ -692,9 +701,11 @@
         {[:user :password] :sensitive
          [:auth :token]    :sensitive})
 
-  Re-export of `re-frame.core/set-marks` per rf2-l6hzv. Returns
-  `frame-id`. Pure declaration — does NOT mutate `app-db`."}
-  set-marks rf/set-marks)
+  Re-export of the framework's internal `re-frame.marks/set-marks`
+  primitive per rf2-l6hzv (EP-0015 rf2-mngp4o moved it off the public
+  `re-frame.core` façade). Returns `frame-id`. Pure declaration — does
+  NOT mutate `app-db`."}
+  set-marks marks/set-marks)
 
 ;; ---- reg-global-decorator (rf2-835ey — preview.ts parity, F-1) ----------
 ;;

@@ -389,9 +389,13 @@
 ;; (`re-frame.elision/elide-wire-value`) sees the declarations without a
 ;; second lookup path.
 ;;
-;; Author-facing shape (path-keyed, symmetric between the two fns):
+;; Internal-helper shape (path-keyed, symmetric between the two fns). Per
+;; EP-0015 (rf2-mngp4o) these are NO LONGER published from `re-frame.core`
+;; — frame-owned `:sensitive` / `:large` classification + `project-egress`
+;; are the public authoring boundary; `add-marks` / `set-marks` survive as
+;; internal / test / generated-code helpers called via this home ns:
 ;;
-;;   (rf/add-marks :rf/default
+;;   (marks/add-marks :rf/default
 ;;     {[:user :ssn]   :sensitive
 ;;      [:auth :token] :sensitive
 ;;      [:docs :csv]   :large})
@@ -454,7 +458,7 @@
   the frame's existing marks — paths NOT mentioned keep their prior
   state. Repeat calls accumulate.
 
-      (rf/add-marks :rf/default
+      (marks/add-marks :rf/default
         {[:user :ssn]   :sensitive
          [:auth :token] :sensitive
          [:docs :csv]   :large})
@@ -464,6 +468,10 @@
   of the data. The declaration only feeds the mark-lookup table the
   observation surfaces (trace bus, Xray, MCP, third-party log sinks)
   consult at emission time.
+
+  NOTE: not a public façade fn (EP-0015 §3, rf2-mngp4o) — frame-owned
+  `:sensitive` / `:large` classification is the public authoring surface;
+  this is an internal / test / generated-code helper.
 
   Schema-attached marks (via `reg-app-schema` with `:sensitive?` /
   `:large?` slot metadata) are preserved — the two declaration sources
@@ -492,7 +500,7 @@
   keywords (`:sensitive` or `:large`). Paths supplied here REPLACE the
   frame's prior marks set wholesale — paths NOT mentioned are CLEARED.
 
-      (rf/set-marks :rf/default
+      (marks/set-marks :rf/default
         {[:user :ssn]   :sensitive
          [:auth :token] :sensitive
          [:docs :csv]   :large})
@@ -502,6 +510,10 @@
   of the data. The declaration only feeds the mark-lookup table the
   observation surfaces (trace bus, Xray, MCP, third-party log sinks)
   consult at emission time.
+
+  NOTE: not a public façade fn (EP-0015 §3, rf2-mngp4o) — frame-owned
+  `:sensitive` / `:large` classification is the public authoring surface;
+  this is an internal / test / generated-code helper.
 
   Schema-attached marks (via `reg-app-schema` with `:sensitive?` /
   `:large?` slot metadata) are preserved — only the `:source :marks`

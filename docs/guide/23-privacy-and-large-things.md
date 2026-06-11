@@ -137,6 +137,19 @@ It fires **once per slot per session** (re-emits on the same path short-circuit,
 
 ## Declaring marks at runtime
 
+!!! warning "Superseded by frame-owned classification (EP-0015)"
+    The public authoring boundary for durable app-db classification is now
+    **frame-owned `:sensitive` / `:large` declarations** on `reg-frame` /
+    `make-frame`, plus **`project-egress`** and the `:rf.egress/*` profiles at
+    trust boundaries (per
+    [framework spec/015 §Frame-owned durable classification](../../spec/015-Data-Classification.md)).
+    The imperative `rf/add-marks` / `rf/set-marks` calls described in the rest
+    of this section are **no longer part of the public `re-frame.core`
+    façade** — the underlying path-marks helpers survive only as framework
+    internals. Declare durable app-db classification on the frame instead. This
+    section is retained pending its full rewrite around the classification /
+    projection / sink-policy model.
+
 The canonical declaration above wants a schema, and the recommendation stands: when a slot has a shape, mark it where the shape lives. But two cases sit outside that grain. A slot that has *no* schema registered — the `[:user :photo-cache]` the warning above just nudged you about — has nowhere for a slot prop to attach. And occasionally the sensitivity is *dynamic*: a path you only learn is secret at runtime, or one a feature module wants to mark without owning the schema that declares the slot's shape. For exactly those cases the framework ships an explicit runtime path-marks API — `rf/add-marks` and `rf/set-marks`:
 
 ```clojure
