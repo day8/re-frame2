@@ -6,7 +6,7 @@
 >
 > **Code samples are in ClojureScript** (the CLJS reference). The contract is host-agnostic; the spec calls out per-host divergences (CLJS Fetch / JVM `java.net.http.HttpClient`) explicitly per row.
 >
-> `:rf.http/managed` is a **managed external effect** — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the eight properties (effect-as-data, framework-owned lifecycle, structured failure taxonomy under `:rf.http/*`, trace-bus observability, `:sensitive?` / `:large?` composition, built-in retry / abort / teardown, in-flight registry, per-frame interceptor scoping).
+> `:rf.http/managed` is a **managed external effect** — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the nine properties (effect-as-data, framework-owned lifecycle, structured failure taxonomy under `:rf.http/*`, trace-bus observability, `:sensitive?` / `:large?` composition, built-in retry / abort / teardown, in-flight registry, per-frame interceptor scoping, and — property 9 — the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) for async completions, onto which managed HTTP [lowers its replies](#lowering-onto-the-uniform-reply-envelope)).
 
 ## Abstract
 
@@ -522,6 +522,36 @@ A success reply lands as:
 ```
 
 The two outer-`:kind` values (`:success` / `:failure`) discriminate the reply branch; the inner `:kind` (under `:failure`) names the failure category. Both `:kind`s are framework-owned and unqualified — they live inside `:rf/reply`, where the framework is the sole writer.
+
+### Lowering onto the uniform reply envelope
+
+The `{:kind …}` payload above is the **public** shape, and it is unchanged. Internally, every managed-HTTP completion lowers onto the framework-wide [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) (Managed-Effects property 9; [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) §Managed HTTP Lowering is the rationale record). One HTTP attempt produces one **canonical reply map** with a single closed `:status`:
+
+```clojure
+{:status       :ok            ;; one of :ok | :error | :cancelled
+ :value        <decoded-and-accepted-payload>   ;; on :ok
+ :error        {:kind <one of :rf.http/*> …}     ;; on :error / :cancelled
+ :work/id      [:rf.work/http logical-id attempt] ;; the attempt identity
+ :work/kind    :http
+ :work/status  :completed | :failed | :timed-out | :cancelled
+ :attempt      1
+ :rf.frame/id  :app/main
+ :completed-at 1781078400456   ;; read ONCE from the host completion
+ :correlation  {:request-id <the :request-id>}}  ;; correlation metadata
+```
+
+Status mapping (per [Managed-Effects §Status taxonomy](Managed-Effects.md#status-taxonomy)):
+
+- a successful, decoded-and-`:accept`-projected response → `:status :ok` (`:work/status :completed`);
+- any `:rf.http/*` failure → `:status :error`, the classified failure map riding verbatim as `:error`;
+- a **timeout** → `:status :error` with `:work/status :timed-out` — **timeout is not a top-level status**, it is an error kind (`:rf.http/timeout`) plus a work status;
+- an **abort** → `:status :cancelled` with `:cancelled? true`, `:cancel/reason`, and the `:rf.http/aborted` shape under `:error`.
+
+The HTTP `:request-id` is **correlation metadata** under `:correlation` — it is **not** a second stale-suppression key ([Managed-Effects §Work-id correlation](Managed-Effects.md#work-id-correlation); [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md): one attempt, one `:work/id`). The single `:work/id` head is `[:rf.work/http logical-id attempt]` (the `logical-id` is the caller's `:request-id` when supplied, else the originating event-id; the trailing `attempt` is the generation slot, so retries of the same logical request are distinct work ids). The frame-qualified transport request-id `[:rf.req frame-id work-id]` (landed in [Spec 016](016-Resources.md#ledger-row-retention-and-identity)) is the sanctioned second identity for process-global transport correlation; intra-frame stale suppression still keys on `:work/id`.
+
+`:completed-at` is causal completion metadata ([EP-0010](../docs/EP/EP-0010-causal-world-inputs.md)) read **once** from the host completion at finalisation and carried on the reply — a reply handler derives a durable timestamp from `(:completed-at reply)`, never from a fresh ambient clock read. Completion trace rows (`:rf.http/replied`) are emitted from these canonical reply facts, routing every wire-bearing slot through the shared [`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker) walker (property 5).
+
+**Public compatibility sugar.** `:on-success` / `:on-failure` and the co-located `(:rf/reply msg)` merge are public compatibility sugar that lower to one internal `:rf.http/compat-reply` target; the compat-reply handler reshapes the canonical reply back into the `{:kind :success :value v}` / `{:kind :failure :failure f}` payload above, so the public event shapes promised here are preserved exactly. A `:status :stale` (suppressed) reply is never delivered to the app target.
 
 ## Reply addressing
 

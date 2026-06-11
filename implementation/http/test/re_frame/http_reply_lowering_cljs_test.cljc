@@ -1,0 +1,91 @@
+(ns re-frame.http-reply-lowering-cljs-test
+  "Host-symmetric (CLJS + JVM) conformance for the PURE core of the
+  managed-HTTP lowering (rf2-zqefg3.2): the canonical reply map, the
+  work-id head, and the public-compatibility reshape in
+  `re-frame.http-reply`. Runs on the `npm run test:cljs` node gate (its
+  ns matches the `cljs-test$` regexp) so the lowering's pure functor /
+  schema core is exercised on the CLJS runtime too — the end-to-end
+  real-transport groups live in the JVM-only
+  `http-reply-lowering-test`.
+
+  Canonical contract: `spec/Managed-Effects.md` §The uniform reply
+  envelope; EP-0011 §Managed HTTP Lowering / §Public Compatibility Sugar."
+  (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.http-reply :as http-reply]
+            [re-frame.reply :as reply]))
+
+(def ^:private ctx
+  {:request-id   :article/by-id
+   :origin-event [:article/load {:id 42}]
+   :attempt      1
+   :frame        :app/main
+   :completed-at 1781078400456})
+
+(deftest work-id-and-transport-id
+  (testing "HTTP work-id head [:rf.work/http logical-id attempt]"
+    (is (= [:rf.work/http :article/by-id 1] (http-reply/work-id ctx)))
+    (is (= [:rf.work/http :article/load 1]
+           (http-reply/work-id (dissoc ctx :request-id)))
+        "logical-id falls back to origin event-id")
+    (is (= [:rf.work/http :article/by-id 2]
+           (http-reply/work-id (assoc ctx :attempt 2)))
+        "attempt is the generation slot — retries are distinct"))
+  (testing "frame-qualified transport request-id [:rf.req frame-id work-id]"
+    (is (= [:rf.req :app/main [:rf.work/http :article/by-id 1]]
+           (http-reply/transport-request-id :app/main (http-reply/work-id ctx))))))
+
+(deftest canonical-replies-validate
+  (testing ":status :ok success"
+    (let [r (http-reply/success-reply ctx {:title "Welcome"})]
+      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+      (is (= :ok (:status r)))
+      (is (= :completed (:work/status r)))
+      (is (= :http (:work/kind r)))
+      (is (= {:request-id :article/by-id} (:correlation r)))
+      (is (not (contains? r :request-id))
+          ":request-id is correlation metadata, not a second stale key")))
+  (testing ":status :error failure"
+    (let [r (http-reply/failure-reply ctx {:kind :rf.http/http-5xx :status 503})]
+      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+      (is (= :error (:status r)))
+      (is (= :failed (:work/status r)))))
+  (testing "timeout → :status :error + :work/status :timed-out (not a top-level status)"
+    (let [r (http-reply/failure-reply ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]
+      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+      (is (= :error (:status r)))
+      (is (= :timed-out (:work/status r)))))
+  (testing "abort → :status :cancelled with :rf.http/aborted :error"
+    (let [r (http-reply/aborted-reply ctx {:kind :rf.http/aborted :reason :user})]
+      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+      (is (= :cancelled (:status r)))
+      (is (= :cancelled (:work/status r)))
+      (is (true? (:cancelled? r)))
+      (is (= :user (:cancel/reason r)))
+      (is (= :rf.http/aborted (get-in r [:error :kind]))))))
+
+(deftest reshape-preserves-public-spec-014-shapes
+  (testing ":ok → {:kind :success :value v}"
+    (is (= {:kind :success :value {:title "Welcome"}}
+           (http-reply/reply->public-payload
+             (http-reply/success-reply ctx {:title "Welcome"})))))
+  (testing ":error → {:kind :failure :failure f}"
+    (let [f {:kind :rf.http/http-4xx :status 404}]
+      (is (= {:kind :failure :failure f}
+             (http-reply/reply->public-payload (http-reply/failure-reply ctx f))))))
+  (testing ":cancelled → {:kind :failure :failure {:kind :rf.http/aborted …}}"
+    (let [f {:kind :rf.http/aborted :reason :user}]
+      (is (= {:kind :failure :failure f}
+             (http-reply/reply->public-payload (http-reply/aborted-reply ctx f))))))
+  (testing ":stale → nil (suppressed reply never delivered to the app target)"
+    (is (nil? (http-reply/reply->public-payload
+                {:status :stale :stale? true :stale/reason :x})))))
+
+(deftest trace-summary-elides-wire-slots
+  (testing "the canonical trace summary keeps identity facts verbatim"
+    (let [r       (http-reply/success-reply ctx {:secret "x"})
+          summary (http-reply/trace-reply r {:sensitive? true})]
+      (is (= :ok (:status summary)))
+      (is (= [:rf.work/http :article/by-id 1] (:work/id summary)))
+      (is (= :http (:work/kind summary)))
+      (testing "a sensitive request redacts the wire slots wholesale"
+        (is (= :rf/redacted (:value summary)))))))
