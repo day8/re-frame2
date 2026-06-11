@@ -693,6 +693,22 @@
   ["re-frame.routing" "counter-snapshot"]       {:tier :internal-public :owner "012" :status "v1"}
   ["re-frame.routing" "routing-state-classification"] {:tier :internal-public :owner "012" :status "v1"}
   ["re-frame.routing" "reset-nav-counters!"]    {:tier :internal-public :owner "012" :status "v1"}
+  ;; EP-0014 slice-5 (rf2-eiiifu): the derivation/process algebra view of
+  ;; registered routes (`route-algebra-view`, static) and a frame's live
+  ;; route slice (`route-slice-algebra-view`, live). JVM-only convenience
+  ;; aliases of `re-frame.routing.tooling/route-algebra-view` /
+  ;; `route-slice-algebra-view` (the bodies live in the bundle-isolated
+  ;; tooling sibling; the CLJS facade never `:require`s it — the require is
+  ;; `#?@(:clj ...)`-gated — so prod CLJS bundles DCE it). `:tooling`, no
+  ;; `re-frame.core` facade export (EP-0014 issue-1 disposition). Owner
+  ;; "012" to match the host `re-frame.routing` spec section (the sibling
+  ;; routing rows above), mirroring how `re-frame.flows/flow-algebra-view`
+  ;; (slice-3) carries owner "013" for its host `re-frame.flows`. Mirror of
+  ;; `sub-algebra-view` (slice-2) — which carries no manifest row only
+  ;; because its host `re-frame.subs` is not a generator-introspected
+  ;; namespace, whereas `re-frame.routing` is.
+  ["re-frame.routing" "route-algebra-view"]       {:tier :tooling :owner "012" :status "v1"}
+  ["re-frame.routing" "route-slice-algebra-view"] {:tier :tooling :owner "012" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.flows — optional artefact (day8/re-frame2-flows), §013.
