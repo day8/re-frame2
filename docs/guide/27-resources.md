@@ -137,6 +137,43 @@ The practical rule: **if a route or event ensures under a session scope, the vie
   ...)
 ```
 
+### Named scope resolvers — derive viewer scope once
+
+Session, tenant, organization, locale, account, and impersonation all have the same shape: a *viewer identity* lives in app state, and it should determine cache scope. Threading that derivation by hand through every route resource, event-side ensure, subscription, and invalidation descriptor is exactly the kind of repetition the framework should own. **`reg-resource-scope`** registers a named, pure, *declared* scope resolver, derived once and reused everywhere a derived scope is allowed:
+
+```clojure
+(rf/reg-resource-scope :realworld/session
+  {:inputs {:username [:db [:auth :user :username]]}
+   :resolve
+   (fn [{:keys [username]} _ctx]
+     (when username
+       [:rf.scope/session {:username username}]))})
+```
+
+A resolver is **pure** — it derives a scope and does nothing else (no fetch, no dispatch, no ambient host reads). The `:inputs` map is the load-bearing part: names on the left, `[:db <path>]` source descriptors on the right. Declaring inputs lets tools *explain which app facts decide a resource identity*, and lets the runtime re-resolve scope only when a relevant input changes. (A whole-db function sugar — `(fn [db _ctx] …)` — is supported, but it lowers to an explicit whole-db dependency, and tooling marks that cost.)
+
+You reference a named resolver with `{:from-db :realworld/session}` anywhere a derived scope is allowed — resource registration `:scope`, route resource entries, event-side ensure/refetch payloads, subscriptions, invalidation descriptors, map-form populate/patch/remove targets, and clear-scope helpers:
+
+```clojure
+(rf/reg-resource :realworld/feed
+  {:scope   {:from-db :realworld/session}
+   :params  (fn [{:keys [page]}] {:page page})
+   :request (fn [{:keys [page]} _ctx]
+              {:request {:method :get :url "/articles/feed"
+                         :params {:limit 20 :offset (* 20 (dec page))}}
+               :decode :json})
+   :tags    (fn [_params _value] #{[:feed] [:article-list]})})
+
+(rf/reg-route :realworld/home
+  {:path "/"
+   :resources [{:resource :realworld/feed :params {:page 1}
+                :scope {:from-db :realworld/session} :blocking? true}]})
+```
+
+The session feed can now be a declarative route resource — loaded on entry, released on leave, read by subs, and invalidated by descriptors — all keyed by the *same* resolver. Nil from a resolver at a scope-requiring site is **fail-closed**: route planning never substitutes global, and a subscription surfaces a "scope unresolved" diagnostic rather than quietly reading a different entry.
+
+Xray surfaces both halves: a **Named scope resolvers** section lists each resolver's id + declared inputs + the whole-db cost flag (the static declaration, no PII), and a **scope resolution timeline** shows each `:rf.resource/scope-resolved` event — which resolver ran, the resolved scope (summarized), and the fail-closed nil evidence.
+
 ### `clear-scope` is causal
 
 Logout, account switch, tenant switch, permission change, locale switch that affects wire data, and impersonation enter/exit must each clear or replace the affected scope. That's a causal operation, the `:rf.resource/clear-scope` event:
@@ -148,6 +185,18 @@ Logout, account switch, tenant switch, permission change, locale switch that aff
 ```
 
 It removes or marks unusable every entry in that scope, releases owners in it, aborts in-flight requests that have no remaining owner outside it, suppresses late replies by scope + generation, and emits trace rows explaining what it removed, aborted, or left alone. (An auth-*token* refresh doesn't necessarily require clearing scope — if the user, tenant, permissions, and impersonation state are unchanged, the cache is still valid.)
+
+Logout has a subtle ordering problem: you want to clear the scope the user *was in*, but the obvious place to do it — after `(dissoc db :auth)` — has already removed the identity the scope is derived from. The canonical idiom resolves the **concrete** old scope from the handler's **coeffect db** (pre-transition by definition — the causal input) with the pure `resolve-resource-scope` helper, and passes it to `clear-scope` concretely:
+
+```clojure
+(rf/reg-event-fx :auth/logout
+  (fn [{:keys [db]} _]
+    (let [old-scope (rf/resolve-resource-scope db :realworld/session)]
+      {:db (dissoc db :auth)
+       :fx [[:dispatch [:rf.resource/clear-scope {:scope old-scope :cause :logout}]]]})))
+```
+
+`resolve-resource-scope` is a plain pure function over the resolver registry — not an effect, no resolution-timing ambiguity. (A whole-db snapshot riding an event payload was considered and rejected: it would be an egress-bearing record on traces and epoch history. A `{:from-db …}` reference *may* still appear on a `clear-scope` payload under the single use-time resolution rule; one that resolves nil at a clear-scope site emits a loud diagnostic, never a silent no-op.)
 
 ### Xray is defense-in-depth, not the boundary
 
@@ -370,6 +419,46 @@ The full instance view-model and sub family:
 
 The instance-keyed model is load-bearing: **two concurrent submissions of the same mutation never clobber each other.** Fire `:comment/add` twice (instances `:c-1` and `:c-2`) and each keeps its own `:pending` / `:success` / `:error` row. A caller-supplied instance id makes the relationship between a form and its submission explicit; an omitted instance id is generated (and closes over the monotone generation, so concurrent generated submissions still differ). `:rf.mutation/clear` is the **causal** reset of a runtime instance (best-effort aborting in-flight work) — distinct from `clear-mutation`, which is the registration-lifecycle removal of the mutation definition itself, not a form reset.
 
+### Continue the workflow with `:reply-to`
+
+Watching the instance from a view is right for *rendering* — the button reads `:pending?` and disables itself. But a write usually also has to **drive workflow**: save the user, navigate to the new article's slug, clear the editor, show a toast. Those are *causes*, not renders, and they should not live in a component lifecycle reaction watching mutation state. They belong on the event tape.
+
+`:rf.mutation/execute` takes an optional call-site **`:reply-to`** event target. When the runtime accepts the mutation reply as current, it dispatches that target with one **reply map** appended as the final argument:
+
+```clojure
+(rf/reg-event-fx :settings/save
+  (fn [_ [_ form]]
+    {:fx [[:dispatch [:rf.mutation/execute
+                      {:mutation :realworld/update-user
+                       :params   form
+                       :instance [:settings/save]
+                       :reply-to [:settings/save-replied]}]]]}))
+
+(rf/reg-event-fx :settings/save-replied
+  (fn [{:keys [db]} [_ {:keys [status value error]}]]
+    (case status
+      :ok    {:db (assoc db :auth/user (:user value))
+              :fx [[:dispatch [:toast/show "Settings saved"]]]}
+      :error {:db (assoc db :settings/error error)})))
+```
+
+No view watcher. The accepted reply becomes the next causal event — folded through the interceptor chain, the trace tape, and replay like any other event. (It is **not** a callback: a callback that returned effects would mint effects outside the event tape, outside replay, outside frame causality. The continuation is a *causal event target*.)
+
+The reply map carries the mutation-specific facts the handler reads directly: `:status` (`:ok` / `:error` / accepted `:cancelled`), `:mutation`, `:params`, `:instance`, `:scope`, `:value` / `:error`, `:affected-keys` (the resource keys the reply populated / patched / invalidated), `:work/id`, `:rf.frame/id`, `:completed-at`, and `:cause`. Static call-site args are preserved — `:reply-to [:toast/after-save {:kind :article}]` dispatches `[:toast/after-save {:kind :article} reply]`.
+
+**The delivery rule:** `:reply-to` fires for any **accepted terminal reply** — `:ok`, `:error`, or an accepted terminal `:cancelled`. It **never** fires for a stale or superseded reply (a re-execute under the same instance, an `:rf.mutation/clear`). The handler branches on `:status`; the runtime guarantees it only ever sees an accepted one.
+
+**Phase order is deterministic.** The continuation runs *after* the cache consequences and instance settlement, so a handler reached by `:reply-to` observes a settled world:
+
+1. resolve canonical params + mutation scope;
+2. issue the managed request under runtime-owned reply addressing;
+3. accept or stale-suppress the host reply;
+4. apply success-time cache consequences (`:patches`, `:populates`, `:invalidates`, removes);
+5. settle mutation instance + work-ledger state;
+6. dispatch the `:reply-to` continuation, if present.
+
+> **The doctrine, in one line: `:reply-to` is for *workflow*; `:populates` / `:patches` / `:invalidates` are for *cache*.** A continuation updates app-db, navigates, toasts. A cache consequence updates resource entries. Don't reach for `:reply-to` to invalidate a tag (the registration already declared that, scoped and owner-aware), and don't try to express navigation as a cache consequence. Registration-level `:reply-to` is deliberately *not* added — an invariant workflow continuation is spelled by every call site passing the same target, and a workflow target hidden inside the remote-write definition would hide app behaviour.
+
 ### The write→invalidate→refetch loop, end to end
 
 Putting the two halves together — this is the write→invalidate→refetch loop, end to end:
@@ -419,13 +508,86 @@ You *can* write with an ordinary `:rf.http/managed` event whose success handler 
 
 - **Instance-keyed lifecycle** — `:pending?` / `:success?` / `:error?` / `:settled?` per submission, concurrency-safe, with no `app-db` slice to maintain. (A write has no last-known-good, so there's no `:refresh-error` analogue — failure simply settles `:error`.)
 - **Stale-suppression on writes** — a superseded reply (a re-execute under the same instance, or an `:rf.mutation/clear`) can never overwrite a newer instance, by the same work-id + generation check resources use.
-- **Patch / populate before invalidate** — `:patches` and `:populates` (controlled transforms / seeds keyed by scoped key) update resource entries *before* the success-time invalidation, so a saved article can appear in the cache immediately without waiting for the refetch round-trip.
+- **Causal workflow continuation** — call-site `:reply-to` (above) dispatches an app event with the accepted reply map after cache consequences settle, so post-write navigation / session updates / toasts ride the event tape instead of a view-side watcher.
+- **Patch / populate before invalidate** — `:patches` and `:populates` ([map-form exact targets](#map-form-exact-targets), keyed by scoped key) update resource entries *before* the success-time invalidation, so a saved article can appear in the cache immediately without waiting for the refetch round-trip. A populated key is an [authoritative load](#populate-is-an-authoritative-load) — it is treated as freshly loaded and is not refetched by the same mutation's invalidation pass.
+- **Per-target scoped invalidation** — `:invalidates` can target [different scopes precisely](#per-target-scoped-invalidation) (one write that affects a global fact *and* a session-scoped fact), instead of one resolved scope for every tag.
 - **Invalidation timing** — `:invalidate-timing` is explicit: `:after-success` (default), `:before-request`, `:after-failure`, or `:after-settle`.
-- **Trace-visible instance ids** — the `:rf.mutation/*` trace family (`started` / `succeeded` / `failed` / `cleared` / `stale-suppressed`) carries the instance id, so Xray groups submissions under their mutation and shows the write→invalidate→refetch causality.
+- **Trace-visible instance ids** — the `:rf.mutation/*` trace family (`started` / `succeeded` / `failed` / `replied` / `cleared` / `stale-suppressed`) carries the instance id, so Xray groups submissions under their mutation and shows the write→invalidate→refetch→continue causality. `succeeded` / `failed` carry the per-descriptor invalidation evidence; `replied` is the `:reply-to` continuation dispatch.
 
 (Optimistic rollback — the snapshot/rollback/reconciliation shape — is reserved in the success trace but **deferred**; until it lands, patch/populate are forward-only.)
 
 > **When managed HTTP is still the right tool: user-visible optimistic *rollback*.** `:patches` / `:populates` are **forward-only** seeds — they make a change appear immediately and let the success-time invalidation reconcile, but there is **no automatic revert on failure** (the snapshot/rollback shape is deferred — see [What's deferred](#whats-deferred)). So when you need a write that flips the UI optimistically *and* rolls the change back if the server rejects it — the favourite toggle that un-flips on a 500, a like-count that decrements again, a positional list re-insert that undoes itself — reach for a plain `:rf.http/managed` write where your own `:on-failure` handler restores the prior `app-db` value. A mutation cannot express that today. The favourite / follow / comment-delete shapes in [`examples/reagent/realworld/`](../../examples/reagent/realworld/) (the managed-HTTP sibling of the resources RealWorld variant) are worked examples of exactly this optimistic-then-rollback pattern; the resources variant ([`examples/reagent/realworld_resources/`](../../examples/reagent/realworld_resources/)) uses forward-only `:populates` for the same toggles and accepts the brief refetch round-trip instead.
+
+### Per-target scoped invalidation
+
+The bare tag-set shorthand invalidates those tags **in the mutation's resolved scope**:
+
+```clojure
+:invalidates (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})
+```
+
+That's the common case, and it's all most writes need. But one write can affect facts in **more than one scope** — and tags name *facts* while scopes name *viewers*. The minimal failing case is favourite/unfavourite: it changes the global article-detail and article-list facts *and* the current user's session-scoped feed. "Invalidate `[:feed]` in the mutation's global scope" never reaches a feed entry that lives under a session scope; "invalidate `[:feed]` across every scope" is a blunt cross-user fan-out.
+
+The fix is the **descriptor form** — each target carries its own scope:
+
+```clojure
+:invalidates
+(fn [{:keys [slug]} _result]
+  [{:scope :rf.scope/global
+    :tags  #{[:article slug] [:article-list]}}
+   {:scope {:from-db :realworld/session}      ;; a named scope resolver, below
+    :tags  #{[:feed]}}])
+```
+
+A descriptor `:scope` may be `:rf.scope/same` (the default — the mutation's resolved scope), `:rf.scope/global`, a concrete canonical scope value (`[:rf.scope/session {:username "jake"}]`), or a **named scope resolver reference** (`{:from-db :realworld/session}`, resolved against the handler's coeffect db at settle time). Bare shorthand and descriptor form lower to the *same* scoped invalidation engine — the descriptor is just the public data telling the engine which `(tags, scope)` pairs to mark stale.
+
+A `{:from-db …}` reference that resolves **nil** is **fail-closed**: that descriptor produces no invalidation — never an implicit global blast. Xray's mutation-invalidation surface shows the per-descriptor resolved scope and lists any fail-closed `:unresolved` references.
+
+Deliberate broad invalidation (admin tooling, cache-poisoning response, a migration — "invalidate this tag in *every* scope currently holding it") stays available as an explicit audited escape (`:cross-scope? true`), is privacy-relevant in traces, and must never be the default reading of a bare tag.
+
+### Map-form exact targets
+
+`:populates`, `:patches`, and removes address an **exact** cache entry. The canonical source shape is the **target map**:
+
+```clojure
+{:resource :realworld/article
+ :params   {:slug slug}
+ :scope    :rf.scope/global}
+```
+
+`:scope` may be concrete, `:rf.scope/same`, `:rf.scope/global`, or a named resolver reference. Populate creates-or-replaces exactly one key; patch updates an existing exact key only (patch does not target tags). The internal storage representation is a scoped-key tuple, but the **map form is the only public input form** — spec, guide, traces, and examples use it.
+
+### Populate is an authoritative load
+
+Some replies carry authoritative resource data — an article save returns the full updated article. `:populates` seeds that into the cache. The rule that makes populate + invalidate coherent: **populate is an authoritative load.** A key populated by an accepted mutation reply becomes loaded, its value becomes current, freshness timers arm as if it had loaded normally — and it is **exempt from immediate refetch by that same mutation's invalidation pass**. So a mutation can populate the article detail *and* invalidate a broad `[:article …]` tag without immediately re-fetching the key it just learned from the write.
+
+The populated value MUST be the resource's **stored shape** — the same value a successful load produces (the full decoded envelope), not a sub-projection of the reply — so a populated entry reads identically to a fetched one. If the reply is *partial* relative to the full GET, opt into a same-mutation refetch per descriptor:
+
+```clojure
+:invalidates
+[{:scope :rf.scope/global
+  :tags  #{[:article slug]}
+  :refetch-populated? true}]
+```
+
+The key may still be invalidated/refetched later by other events, focus/reconnect policy, or explicit refetch — `:refetch-populated?` only governs *this* mutation's own invalidation pass.
+
+### Request decoration lives in managed HTTP, not in every resource
+
+Resources and mutations lower through Spec 014 managed HTTP. A resource's `:request` fn describes the **domain** request — method, URL, params, body, decode. Cross-cutting transport concerns — auth headers, tracing headers, common base URLs, tenant headers, default read-retry policy — are **frame/application managed-HTTP policy**, not something to copy into every resource. The seam is the managed-HTTP interceptor/defaults layer ([chapter 10](10-http.md)):
+
+```clojure
+(rf/reg-http-interceptor :realworld/auth
+  {:before (fn [ctx]
+             (let [token (some-> (rf/app-db-value (:frame ctx)) :auth :token)]
+               (cond-> ctx
+                 token (assoc-in [:request :headers "Authorization"] (str "Token " token)))))})
+
+(rf/reg-resource :realworld/current-user
+  {:request (fn [_params _ctx] {:request {:method :get :url "/user"} :decode :json})})
+```
+
+Registered once per frame, the interceptor decorates *every* managed request the frame issues — resource reads, mutations, and plain managed calls alike — so `:realworld/current-user` needs no per-resource opt-in. It reads the token from `(:frame ctx)` (carried-frame-correct, not an ambient db) and returns `ctx` unchanged when there's no token. Two riders: default retry policy should be **read-focused** (retrying writes can duplicate side effects, so mutation retry defaults stay conservative), and traces should report *that* an auth interceptor applied, never the bearer token value.
 
 ## Route-driven loading
 
@@ -501,7 +663,7 @@ The payoff: time-travel over an app full of server-state is coherent, with no re
 
 ## Xray
 
-Resources are a trace/accessor contract, not just panel UI. Xray exposes a static resource registry (ids, schemas, request summary, stale/GC policy, tag producer, scope resolver, sensitivity, declaring routes); a live resource-instance table per frame (key, scope, status, timestamps, generation, owners, tags, errors, data summary, GC eligibility); a live work-ledger table per frame; a route/resource graph; a lifecycle timeline; an invalidation graph; a cache-growth view; and the **scope audit surface** — the standing enumeration of every `:rf.scope/global` resource. Two lints ride it: a **scope-mismatch lint** (an entry under scope A while a live sub reads the same key under scope B and gets a permanent `:idle`) and the **orphaned-owner lint**. Tool accessors prefer summaries over raw values — an agent usually needs "this route owns `:article/by-slug`, it's stale, the last refresh failed 503," not the full article body — and params/scopes get the same privacy/size elision as data. (The Xray docs cover the panels in depth.)
+Resources are a trace/accessor contract, not just panel UI. Xray exposes a static resource registry (ids, schemas, request summary, stale/GC policy, tag producer, scope resolver, sensitivity, declaring routes); a **named scope resolver registry** (each `reg-resource-scope` resolver's id + declared inputs + whole-db cost flag); a live resource-instance table per frame (key, scope, status, timestamps, generation, owners, tags, errors, data summary, GC eligibility); a live work-ledger table per frame; a route/resource graph; a lifecycle timeline; an invalidation graph; a **scope resolution timeline** (each `:rf.resource/scope-resolved` event — which resolver ran, the resolved scope, and the fail-closed nil evidence); a **mutation continuations + scoped invalidation** view (the per-descriptor resolved scopes + fail-closed unresolved references off the mutation settlement traces, and the `:reply-to` continuation dispatches); a cache-growth view; and the **scope audit surface** — the standing enumeration of every `:rf.scope/global` resource. Two lints ride it: a **scope-mismatch lint** (an entry under scope A while a live sub reads the same key under scope B and gets a permanent `:idle`) and the **orphaned-owner lint**. Tool accessors prefer summaries over raw values — an agent usually needs "this route owns `:article/by-slug`, it's stale, the last refresh failed 503," not the full article body — and params/scopes get the same privacy/size elision as data. (The Xray docs cover the panels in depth.)
 
 ## What's deferred
 

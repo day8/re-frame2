@@ -337,6 +337,11 @@
    ;; Resources lower their issuance onto the work-ledger row (`.3`, landed):
    :rf.resource/work-started               :issued
    :rf.resource/fetch-started              :issued
+   ;; Mutations reuse the resource work-ledger substrate (`:work/kind
+   ;; :mutation`); `:rf.mutation/started` is the issuance row (EP-0016 D1 —
+   ;; the mutation phase order, phase 2: the managed request is issued under
+   ;; runtime-owned reply addressing).
+   :rf.mutation/started                    :issued
    ;; HTTP issues the request through the `:rf.http/managed` fx (`.2`, landed);
    ;; the canonical completion is `:rf.http/replied` (see :completed below).
    ;; Machines (`.4`) + routing (`.5`) issuance ops are forward-looking; the
@@ -367,6 +372,12 @@
    :rf.resource/succeeded                  :completed
    :rf.resource/failed                     :completed
    :rf.resource/refresh-failed             :completed
+   ;; Mutation settlement (EP-0016 D1 — phase 5, instance + work-ledger
+   ;; settled; the row carries the accepted reply `:status` via the canonical
+   ;; reply map). A `:rf.mutation/succeeded` is `:ok`; `:rf.mutation/failed` is
+   ;; `:error` or an accepted terminal `:cancelled`.
+   :rf.mutation/succeeded                  :completed
+   :rf.mutation/failed                     :completed
    :rf.machine.timer/fired                 :completed
    :rf.machine/done                        :completed
    ;; ---- stale suppression (the correctness boundary) ----
@@ -376,8 +387,18 @@
    ;; forward-looking; the suffix heuristic catches `*stale-suppress*` /
    ;; `*suppressed*` until those PRs land.
    :rf.resource/stale-suppressed           :stale-suppressed
+   ;; Mutations emit `:rf.mutation/stale-suppressed` for a superseded / cleared
+   ;; / cross-frame reply (EP-0016 D1 — a stale reply NEVER fires the
+   ;; `:reply-to` continuation; it suppresses here instead), carrying the
+   ;; identical `:rf.reply/*` correlation shape (carried-vs-current generation).
+   :rf.mutation/stale-suppressed           :stale-suppressed
    :rf.reply/suppressed                    :stale-suppressed
    ;; ---- delivery ----
+   ;; `:rf.mutation/replied` is the call-site `:reply-to` continuation dispatch
+   ;; (EP-0016 D1 — phase 6, after cache consequences + instance settlement). A
+   ;; row here is the accepted reply CONTINUING into app workflow; it is emitted
+   ;; only for an accepted terminal reply, never a stale one.
+   :rf.mutation/replied                    :delivered
    :rf.reply/delivered                     :delivered})
 
 (def ^:private suffix->phase

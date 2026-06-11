@@ -185,6 +185,8 @@
   (testing "issuance / start across families (the landed literals)"
     (is (= :issued (re/phase-of :rf.resource/work-started)))
     (is (= :issued (re/phase-of :rf.resource/fetch-started)))
+    ;; EP-0016 D1 (slice 8) — mutation issuance reuses the resource ledger.
+    (is (= :issued (re/phase-of :rf.mutation/started)))
     (is (= :issued (re/phase-of :rf.machine.timer/scheduled))))
   (testing "retry / intermediate"
     (is (= :retry (re/phase-of :rf.http/retry-attempt)))
@@ -202,12 +204,19 @@
     (is (= :completed (re/phase-of :rf.http/failed)))
     (is (= :completed (re/phase-of :rf.resource/work-completed)))
     (is (= :completed (re/phase-of :rf.resource/succeeded)))
+    ;; EP-0016 D1 (slice 8) — mutation settlement (phase 5).
+    (is (= :completed (re/phase-of :rf.mutation/succeeded)))
+    (is (= :completed (re/phase-of :rf.mutation/failed)))
     (is (= :completed (re/phase-of :rf.machine/done))))
   (testing "stale suppression lowers to ONE phase — the landed resource op +
-            the shared substrate :rf.reply/suppressed"
+            the shared substrate :rf.reply/suppressed + the mutation analogue"
     (is (= :stale-suppressed (re/phase-of :rf.resource/stale-suppressed)))
+    ;; EP-0016 D1 — a stale mutation reply suppresses, never fires :reply-to.
+    (is (= :stale-suppressed (re/phase-of :rf.mutation/stale-suppressed)))
     (is (= :stale-suppressed (re/phase-of :rf.reply/suppressed))))
-  (testing "delivery"
+  (testing "delivery — the call-site :reply-to continuation is the mutation
+            delivery row (EP-0016 D1, phase 6)"
+    (is (= :delivered (re/phase-of :rf.mutation/replied)))
     (is (= :delivered (re/phase-of :rf.reply/delivered))))
   (testing "the suffix heuristic classifies a NOT-YET-enumerated family op
             (a new :rf.stream/* surface) before the table learns it"

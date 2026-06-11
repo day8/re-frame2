@@ -182,6 +182,54 @@
       (empty-caption "No resources registered in the host app."
                      "rf-xray-resources-registry-empty"))))
 
+;; ---- §1b NAMED SCOPE RESOLVERS (EP-0016 D3) -----------------------------
+;;
+;; The static `(rf/registrations :resource-scope)` registry: each named
+;; resolver's id + its DECLARED inputs (the `[:db path]` sources that decide a
+;; resource identity, paths summarized) + the whole-db-sugar cost flag. Per
+;; Spec 016 §Named resource-scope resolvers. The LIVE per-resolution input
+;; values + resolved scope surface in the resolution timeline (§5b) off the
+;; egress-projected `:rf.resource/scope-resolved` trace — NEVER here (a static
+;; declaration carries no PII).
+
+(defn- scope-resolver-row-view [row]
+  (let [sid (:scope-id row)
+        testid (str "rf-xray-resources-scope-resolver-row-"
+                    (when sid (-> sid str (subs 1))))]
+    [:div {:data-testid testid
+           :data-scope-id (str sid)
+           :style {:display "flex" :align-items "baseline" :gap "10px"
+                   :flex-wrap "wrap" :padding "3px 0"
+                   :font-family mono-stack :font-size "12px"}}
+     [:span {:data-testid (str testid "-id")
+             :style {:color mode-accent :font-weight 600 :min-width "10rem"}}
+      (str sid)]
+     (if (seq (:inputs row))
+       (into [:span {:data-testid (str testid "-inputs")
+                     :style {:color (:text-tertiary tokens)}}
+              "inputs: "]
+             (interpose " "
+               (for [in (:inputs row)]
+                 [:span {:style {:color (:text-primary tokens)}}
+                  (str (:name in) "←" (:source in) " " (get-in in [:path :preview]))])))
+       [:span {:style {:color (:text-tertiary tokens)}} "no declared inputs"])
+     (when (:whole-db? row)
+       [:span {:data-testid (str testid "-whole-db")
+               :style {:color (:warning tokens)}}
+        "whole-db cost"])]))
+
+(defn- scope-resolvers-section [rows]
+  (section
+    {:first? false :testid "rf-xray-resources-scope-resolvers"}
+    (section-caption "Named scope resolvers" "rf-xray-resources-scope-resolvers-caption")
+    (if (seq rows)
+      (into [:div {:data-testid "rf-xray-resources-scope-resolvers-body"
+                   :style {:display "flex" :flex-direction "column" :gap "2px"}}]
+            (for [row rows]
+              ^{:key (str (:scope-id row))} (scope-resolver-row-view row)))
+      (empty-caption "No named resource-scope resolvers registered."
+                     "rf-xray-resources-scope-resolvers-empty"))))
+
 ;; ---- §2 LIVE INSTANCES --------------------------------------------------
 
 (defn- instance-row-view [row]
@@ -419,6 +467,136 @@
       (empty-caption "No invalidations in this epoch."
                      "rf-xray-resources-invalidation-empty"))))
 
+;; ---- §6b SCOPE RESOLUTION TIMELINE (EP-0016 D3) -------------------------
+;;
+;; The `:rf.resource/scope-resolved` rows: which named resolver ran, the
+;; declared input names, the resolved scope (PRIVACY-summarized), and the
+;; fail-closed nil evidence (`resolved-nil?` — the scope-requiring site got nil,
+;; never an implicit global). Per Spec 016 §Named resource-scope resolvers.
+
+(defn- scope-resolution-row-view [row]
+  [:div {:data-testid (str "rf-xray-resources-scope-resolution-row-" (:id row))
+         :data-resolved-nil (str (:resolved-nil? row))
+         :style {:display "flex" :gap "8px" :align-items "baseline"
+                 :padding "2px 0" :font-family mono-stack :font-size "11px"}}
+   [:span {:style {:color (if (:resolved-nil? row)
+                            (:warning tokens)
+                            (:text-primary tokens))
+                   :font-weight 600 :min-width "9rem"}}
+    (if (:resolved-nil? row) "resolved nil" "scope resolved")]
+   [:span {:style {:color mode-accent}} (str (:scope-id row))]
+   (when (seq (:inputs row))
+     [:span {:style {:color (:text-tertiary tokens)}}
+      "inputs " (str/join "," (map name (:inputs row)))])
+   (when (:whole-db? row)
+     [:span {:style {:color (:warning tokens)}} "whole-db"])
+   (if (:resolved-nil? row)
+     [:span {:data-testid (str "rf-xray-resources-scope-resolution-failclosed-" (:id row))
+             :style {:color (:warning tokens)}}
+      "fail-closed (no global fallback)"]
+     [:span {:style {:color (:text-tertiary tokens)}}
+      "→ " (get-in row [:scope :preview])])])
+
+(defn- scope-resolution-section [rows]
+  (section
+    {:first? false :testid "rf-xray-resources-scope-resolution"}
+    (section-caption "Scope resolution timeline" "rf-xray-resources-scope-resolution-caption")
+    (if (seq rows)
+      (into [:div {:data-testid "rf-xray-resources-scope-resolution-body"
+                   :style {:display "flex" :flex-direction "column" :gap "1px"}}]
+            (for [row rows]
+              ^{:key (str (:id row))} (scope-resolution-row-view row)))
+      (empty-caption "No named-scope resolutions in this epoch."
+                     "rf-xray-resources-scope-resolution-empty"))))
+
+;; ---- §6c MUTATION CONTINUATIONS + DESCRIPTOR EVIDENCE (EP-0016 D1/D2) ----
+;;
+;; The descriptor-level invalidation evidence (per-descriptor resolved scope +
+;; fail-closed `:unresolved` + Rider-1 `:populate-exempt`) off the mutation
+;; settlement traces, and the call-site `:reply-to` continuation dispatch
+;; (`:rf.mutation/replied`). The doctrine made visible: "reply-to is for
+;; workflow; populate/patch/invalidate are for cache" (Spec 016 §Mutation
+;; completion continuations / §Trace evidence for invalidation).
+
+(defn- descriptor-chip [d]
+  [:span {:style {:color (:text-tertiary tokens)}}
+   "["
+   (if (:cross-scope? d)
+     [:span {:style {:color (:warning tokens)}} "cross-scope"]
+     [:span {:style {:color (:text-primary tokens)}} (get-in d [:scope :preview])])
+   " " (str/join " " (map pr-str (:tags d)))
+   (when (:refetch-populated? d)
+     [:span {:style {:color (:info tokens)}} " refetch-populated"])
+   "]"])
+
+(defn- mutation-invalidation-row-view [row]
+  [:div {:data-testid (str "rf-xray-resources-mutation-invalidation-row-" (:id row))
+         :data-mutation (str (:mutation row))
+         :style {:display "flex" :gap "8px" :align-items "baseline" :flex-wrap "wrap"
+                 :padding "2px 0" :font-family mono-stack :font-size "11px"}}
+   [:span {:style {:color (:orange tokens) :font-weight 600 :min-width "9rem"}}
+    "mutation invalidate"]
+   [:span {:style {:color mode-accent}} (str (:mutation row))]
+   [:span {:style {:color (:text-tertiary tokens)}}
+    (str (:descriptor-count row) " descriptors")]
+   (into [:span {:style {:display "flex" :gap "6px" :flex-wrap "wrap"}}]
+         (for [d (:dispatched row)]
+           ^{:key (str (get-in d [:scope :preview]) (:tags d))} (descriptor-chip d)))
+   (when (seq (:unresolved row))
+     [:span {:data-testid (str "rf-xray-resources-mutation-invalidation-unresolved-" (:id row))
+             :style {:color (:warning tokens)}}
+      "unresolved (fail-closed): " (str/join " " (map str (:unresolved row)))])
+   (when (seq (:populate-exempt row))
+     [:span {:style {:color (:info tokens)}}
+      (count (:populate-exempt row)) " populate-exempt"])])
+
+(defn- continuation-status-colour
+  "Reply-status → token for a `:reply-to` continuation row (the accepted reply
+  status, NOT a resource status): `:ok` green, `:error` red, `:cancelled`
+  muted-warning, else accent."
+  [status]
+  (case status
+    :ok        (:green tokens)
+    :error     (:error tokens)
+    :cancelled (:warning tokens)
+    mode-accent))
+
+(defn- continuation-row-view [row]
+  [:div {:data-testid (str "rf-xray-resources-continuation-row-" (:id row))
+         :data-mutation (str (:mutation row))
+         :data-status (str (some-> (:status row) name))
+         :style {:display "flex" :gap "8px" :align-items "baseline" :flex-wrap "wrap"
+                 :padding "2px 0" :font-family mono-stack :font-size "11px"}}
+   [:span {:style {:color (continuation-status-colour (:status row)) :font-weight 600 :min-width "9rem"}}
+    "reply-to → " (some-> (:status row) name)]
+   [:span {:style {:color mode-accent}} (str (:mutation row))]
+   [:span {:style {:color (:text-primary tokens)}} (pr-str (:target row))]
+   (when (:work-id row)
+     [:span {:style {:color (:text-tertiary tokens)}} "work " (pr-str (:work-id row))])])
+
+(defn- continuations-section [{:keys [continuations mutation-invalidations]}]
+  (section
+    {:first? false :testid "rf-xray-resources-continuations"}
+    (section-caption "Mutation continuations + scoped invalidation"
+                     "rf-xray-resources-continuations-caption")
+    [:div {:style {:display "flex" :flex-direction "column" :gap "8px"}}
+     ;; the descriptor-level invalidation evidence (cache consequence)
+     (if (seq mutation-invalidations)
+       (into [:div {:data-testid "rf-xray-resources-mutation-invalidation-body"
+                    :style {:display "flex" :flex-direction "column" :gap "1px"}}]
+             (for [row mutation-invalidations]
+               ^{:key (str (:id row))} (mutation-invalidation-row-view row)))
+       (empty-caption "No scoped mutation invalidations in this epoch."
+                      "rf-xray-resources-mutation-invalidation-empty"))
+     ;; the call-site :reply-to continuation dispatch (workflow)
+     (if (seq continuations)
+       (into [:div {:data-testid "rf-xray-resources-continuations-body"
+                    :style {:display "flex" :flex-direction "column" :gap "1px"}}]
+             (for [row continuations]
+               ^{:key (str (:id row))} (continuation-row-view row)))
+       (empty-caption "No :reply-to continuations dispatched in this epoch."
+                      "rf-xray-resources-continuations-empty"))]))
+
 ;; ---- §7 CACHE GROWTH ----------------------------------------------------
 
 (defn- cache-growth-section [growth]
@@ -512,14 +690,17 @@
 
 (rf/reg-view Panel
   "The Resources tab's root view (Spec 016 §Xray and AI tooling).
-  Subscribes to `:rf.xray/resources-tab-data` and renders the eight
-  sections top → bottom: static registry, live instances, work ledger,
-  route/resource graph, lifecycle timeline, invalidation graph, cache
-  growth, scope audit + lints. When the host has no resources registered
-  AND no live instances, renders the silent-by-default caption."
+  Subscribes to `:rf.xray/resources-tab-data` and renders the sections
+  top → bottom: static registry, named scope resolvers (EP-0016 D3), live
+  instances, work ledger, route/resource graph, lifecycle timeline,
+  invalidation graph, scope resolution timeline (EP-0016 D3), mutation
+  continuations + scoped invalidation (EP-0016 D1/D2), cache growth, scope
+  audit + lints. When the host has no resources registered AND no live
+  instances, renders the silent-by-default caption."
   []
-  (let [{:keys [silent? registry instances work route-graph timeline
-                invalidations cache-growth audit]}
+  (let [{:keys [silent? registry scope-resolvers instances work route-graph
+                timeline invalidations scope-resolutions mutation-invalidations
+                continuations cache-growth audit]}
         @(rf/subscribe [:rf.xray/resources-tab-data])]
     [:section {:data-testid "rf-xray-resources"
                :style {:height         "100%"
@@ -534,11 +715,15 @@
        (silent-state)
        [:<>
         (registry-section registry)
+        (scope-resolvers-section scope-resolvers)
         (instances-section instances)
         (work-ledger-section work)
         (route-graph-section route-graph)
         (timeline-section timeline)
         (invalidation-section invalidations)
+        (scope-resolution-section scope-resolutions)
+        (continuations-section {:continuations continuations
+                                :mutation-invalidations mutation-invalidations})
         (cache-growth-section cache-growth)
         (audit-section audit)])]))
 
@@ -724,6 +909,18 @@
                            :blocking-keys (h/routing-blocking-keys routing-slice)})
          :timeline      (h/lifecycle-timeline trace-buffer)
          :invalidations (h/invalidation-graph trace-buffer)
+         ;; EP-0016 D3 (slice 8): the named-scope-resolver RESOLUTION timeline
+         ;; — `:rf.resource/scope-resolved` rows (which resolver ran, resolved
+         ;; scope summarized, fail-closed nil evidence).
+         :scope-resolutions (h/scope-resolutions trace-buffer)
+         ;; EP-0016 D2 (slice 8): the descriptor-level invalidation evidence off
+         ;; the mutation settlement traces (resolved scope per descriptor +
+         ;; fail-closed `:unresolved` + Rider-1 `:populate-exempt`).
+         :mutation-invalidations (h/mutation-invalidation-evidence trace-buffer)
+         ;; EP-0016 D1 (slice 8): the call-site `:reply-to` continuation
+         ;; dispatch evidence (`:rf.mutation/replied` — phase 6, after cache
+         ;; consequences + instance settlement).
+         :continuations (h/mutation-continuations trace-buffer)
          :cache-growth  (h/cache-growth instance-rows work-rows)
          :audit         {:global-audit (h/global-scope-audit registry-rows)
                          :suspicious   (h/suspicious-global-warnings registry-rows)

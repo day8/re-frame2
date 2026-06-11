@@ -86,6 +86,10 @@
     (is (= :gc (h/op-class :rf.resource/gc-fired)))
     (is (= :dedupe (h/op-class :rf.resource/deduped)))
     (is (= :hydration (h/op-class :rf.resource/hydrated)))
+    ;; EP-0016 D3 (slice 8) — the named-scope-resolver resolution op.
+    (is (h/resource-trace-op? :rf.resource/scope-resolved))
+    (is (= :lifecycle (h/op-class :rf.resource/scope-resolved)))
+    (is (= "scope resolved" (h/op-label :rf.resource/scope-resolved)))
     (is (= "fetch started" (h/op-label :rf.resource/fetch-started))))
   (testing "the SSR / route / revalidate ops the runtime also emits are
             enumerated (rf2-uqwbhr — align the enum with the emitted set)"
@@ -104,6 +108,7 @@
           ;; set, cross-checked against implementation/resources/ emit sites
           ;; + Spec 009 §Where trace emission lives.
           emitted    #{:rf.resource/registered
+                       :rf.resource/scope-resolved
                        :rf.resource/owner-attached
                        :rf.resource/cache-hit
                        :rf.resource/deduped
@@ -477,6 +482,112 @@
         (is (= 2 (:entry-count article)))
         (is (= 1 (:owned-count article)))
         (is (= 1 (:gc-eligible article)))))))
+
+;; ---- (7b) EP-0016 slice-8 projections ----------------------------------
+;; scope-resolution timeline (D3), descriptor-level invalidation evidence
+;; (D2), and the call-site :reply-to continuation dispatch (D1).
+
+(def ^:private ep0016-trace-buffer
+  [;; a named resolver resolved a {:from-db …} reference to a concrete scope
+   {:id 10 :operation :rf.resource/scope-resolved
+    :tags {:resource-id :realworld/session
+           :kind :resource-scope
+           :inputs [:username]
+           :input-values {:username "jake"}
+           :whole-db? false
+           :scope [:rf.scope/session {:username "jake"}]
+           :resolved-nil? false}}
+   ;; a resolver that FAILED CLOSED — returned nil (no implicit global)
+   {:id 11 :operation :rf.resource/scope-resolved
+    :tags {:resource-id :realworld/session
+           :inputs [:username]
+           :input-values {:username nil}
+           :whole-db? false
+           :scope nil
+           :resolved-nil? true}}
+   ;; a mutation settled with per-target scoped invalidation descriptors
+   ;; (global + session) + a fail-closed unresolved {:from-db …} + a Rider-1
+   ;; populate-exempt key
+   {:id 12 :operation :rf.mutation/succeeded
+    :tags {:mutation :realworld/favorite-article
+           :instance [:favorite "welcome"]
+           :invalidation
+           {:descriptor-count 3
+            :dispatched [{:scope :rf.scope/global :cross-scope? false
+                          :tags #{[:article-list] [:article "welcome"]}
+                          :refetch-populated? false}
+                         {:scope [:rf.scope/session {:username "jake"}] :cross-scope? false
+                          :tags #{[:feed]} :refetch-populated? false}]
+            :unresolved [:realworld/tenant]
+            :populate-exempt [[:rf.scope/global :realworld/article {:slug "welcome"}]]}}}
+   ;; a mutation settlement with NO :invalidation facet (no :invalidates) — skipped
+   {:id 13 :operation :rf.mutation/succeeded
+    :tags {:mutation :realworld/noop :instance [:noop 1]}}
+   ;; the call-site :reply-to continuation dispatch (phase 6)
+   {:id 14 :operation :rf.mutation/replied
+    :tags {:rf.frame/id :app/main
+           :mutation :realworld/save-article
+           :instance [:editor/save "first-post"]
+           :work-id [:rf.work/resource [:rf.mutation [:editor/save "first-post"]] 8]
+           :status :ok
+           :target [:editor/save-replied]
+           :cause [:mutation :realworld/save-article [:editor/save "first-post"]]}}])
+
+(deftest scope-resolutions-test
+  (let [rows (h/scope-resolutions ep0016-trace-buffer)]
+    (testing "one row per :rf.resource/scope-resolved, in buffer order"
+      (is (= 2 (count rows)))
+      (is (= [10 11] (mapv :id rows))))
+    (testing "resolver id + declared input NAMES surfaced; scope summarized"
+      (let [r (first rows)]
+        (is (= :realworld/session (:scope-id r)))
+        (is (= [:username] (:inputs r)))
+        (is (false? (:whole-db? r)))
+        (is (false? (:resolved-nil? r)))
+        ;; the resolved scope is PRIVACY-summarized, never raw
+        (is (= "vector" (get-in r [:scope :type])))
+        ;; the resolved input values are summarized too
+        (is (map? (:input-values r)))))
+    (testing "a nil resolution surfaces as fail-closed (:resolved-nil? true)"
+      (let [r (second rows)]
+        (is (true? (:resolved-nil? r)))))))
+
+(deftest mutation-invalidation-evidence-test
+  (let [rows (h/mutation-invalidation-evidence ep0016-trace-buffer)]
+    (testing "only mutation settlements that carry an :invalidation facet"
+      (is (= 1 (count rows)))
+      (is (= 12 (:id (first rows)))))
+    (testing "per-descriptor resolved scope (summarized) + descriptor count"
+      (let [r (first rows)]
+        (is (= :realworld/favorite-article (:mutation r)))
+        (is (= 3 (:descriptor-count r)))
+        (is (= 2 (count (:dispatched r))))
+        ;; first descriptor is global, second is the session scope — both
+        ;; resolved scopes are summarized (PRIVACY), tags are identity
+        (is (= "keyword" (get-in r [:dispatched 0 :scope :type])))
+        (is (= "vector"  (get-in r [:dispatched 1 :scope :type])))
+        (is (false? (get-in r [:dispatched 0 :cross-scope?])))
+        (is (= #{[:feed]} (set (get-in r [:dispatched 1 :tags]))))))
+    (testing "fail-closed :unresolved {:from-db …} ids surface"
+      (is (= [:realworld/tenant] (:unresolved (first rows)))))
+    (testing "Rider-1 populate-exempt keys surface (summarized scoped keys)"
+      (let [r (first rows)]
+        (is (= 1 (count (:populate-exempt r))))
+        (is (= :realworld/article (get-in r [:populate-exempt 0 :resource-id])))))))
+
+(deftest mutation-continuations-test
+  (let [rows (h/mutation-continuations ep0016-trace-buffer)]
+    (testing "one row per :rf.mutation/replied continuation dispatch"
+      (is (= 1 (count rows)))
+      (let [r (first rows)]
+        (is (= :realworld/save-article (:mutation r)))
+        (is (= [:editor/save "first-post"] (:instance r)))
+        (is (= :ok (:status r)))
+        (is (= [:editor/save-replied] (:target r)))
+        (is (= [:rf.work/resource [:rf.mutation [:editor/save "first-post"]] 8]
+               (:work-id r)))
+        ;; the cause is summarized (may carry data)
+        (is (map? (:cause r)))))))
 
 ;; ---- (8) lints ----------------------------------------------------------
 
