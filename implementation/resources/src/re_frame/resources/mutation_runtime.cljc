@@ -285,3 +285,194 @@
            :stale-at       stale-at
            :invalidated-at nil
            :tags           (or tags (:tags base) #{}))))
+
+;; ---- fail-closed boundary validation (Spec 016 §Resource identity / -------
+;;       EP-0003 §Mutations)
+;;
+;; Mutation runtime state is durable and trace-visible, so the identities it
+;; writes — the mutation INSTANCE id and the patch / populate TARGET scoped
+;; keys — must follow the SAME serializable-EDN discipline the resource cache
+;; key and the resource params already enforce (`state/serializable-edn?` /
+;; `state/reject-non-edn!`). These predicates / validators are PURE so they
+;; sit in the runtime layer (this namespace, the home of the instance shape +
+;; the controlled patch / populate transition); the impure handler boundary
+;; (`mutation-events`) CALLS them before any runtime-db / work-ledger write or
+;; HTTP lowering, so an invalid identity fails CLOSED — before any partial
+;; cache mutation. Resource-registration lookup is injected as a predicate
+;; (`registered-resource?`) so the runtime stays free of a registry require.
+
+(def reserved-scope-ns
+  "The framework-reserved scope namespace (`:rf.scope/*`, per Conventions
+  §Reserved namespaces). A BARE keyword in this namespace is a CLOSED reserved
+  enum (`reserved-scope-policies`); any other `:rf.scope/*` bare keyword is a
+  TYPO, not a literal scope (mirrors `registry`'s reserved-scope gate). A
+  non-keyword scope VALUE (`[:rf.scope/session {…}]` tuple, a map, a string)
+  is NOT in the bare-keyword reserved slot."
+  "rf.scope")
+
+(def reserved-scope-policies
+  "The closed reserved bare-keyword scope-policy enum (mirrors `registry`).
+  A canonicalized scoped key may carry a literal SCOPE that is one of these
+  reserved policies (`:rf.scope/global` is a legitimate literal scope), an
+  app-namespaced keyword, or a data-value (tuple / map / string). Any OTHER
+  bare `:rf.scope/*` keyword is a typo and rejected."
+  #{:rf.scope/global :rf.scope/from-caller})
+
+(defn reserved-scope-typo?
+  "True iff `scope` is a BARE keyword in the framework-reserved `:rf.scope/*`
+  namespace that is NOT one of the closed `reserved-scope-policies` — i.e. a
+  typo (`:rf.scope/glabal`) that must NOT be silently accepted as a literal
+  scope (which would write the cache under a wrong scope). Mirrors the
+  fail-closed reserved-namespace gate `registry/valid-scope-policy?` applies
+  at resource registration. A non-keyword scope value is never a typo."
+  [scope]
+  (and (keyword? scope)
+       (= reserved-scope-ns (namespace scope))
+       (not (contains? reserved-scope-policies scope))))
+
+(defn target-key-error
+  "Build the canonical thrown-error shape (Spec 009 §The thrown-error shape)
+  for an invalid mutation patch / populate TARGET scoped key. `arm`
+  (`:patches` | `:populates`) names the offending mutation-spec arm."
+  [where arm reason target extra]
+  (ex-info ":rf.error/mutation-invalid-target"
+           (merge {:rf.error/id :rf.error/mutation-invalid-target
+                   :where       where
+                   :arm         arm
+                   :recovery    :fix-mutation-target
+                   :reason      reason
+                   :target      (pr-str target)}
+                  extra)))
+
+(defn validate-target-key!
+  "Fail-closed validation of a SINGLE mutation patch / populate TARGET scoped
+  key, BEFORE any cache mutation (EP-0003 §Mutations / Spec 016 §Resource
+  identity). A target key is the canonical scoped resource key
+  `[scope resource-id params]` — the SAME shape `state/scoped-resource-key`
+  produces and the read path writes under. Rejects, loudly:
+
+  - a malformed key (not a 3-element `[scope resource-id params]` vector);
+  - a non-keyword `resource-id`;
+  - an UNREGISTERED resource id (`registered-resource?` returns falsey) — a
+    patch / populate must target a resource the read path also knows, or the
+    seeded / patched entry is unreachable by any subscription;
+  - a reserved-scope TYPO (a bare `:rf.scope/*` keyword outside the closed
+    enum — `:rf.scope/glabal`), which would silently write under a wrong
+    scope;
+  - a non-EDN / host scope or params (the cache key MUST be serializable EDN —
+    the same boundary `state/reject-non-edn!` enforces for resource params).
+
+  `registered-resource?` is `(fn [resource-id] -> truthy)` — the injected
+  registry-lookup predicate (so this PURE validator carries no registry
+  require). `where` names the call-site public surface; `arm`
+  (`:patches` | `:populates`) names the offending mutation-spec arm. Returns
+  the CANONICALIZED scoped key `[canonical-scope resource-id canonical-params]`
+  on success (so the caller writes under the canonical identity, never a
+  caller's alternate spelling). Throws `:rf.error/mutation-invalid-target`
+  otherwise."
+  [target registered-resource? where arm]
+  (when-not (and (vector? target) (= 3 (count target)))
+    (throw (target-key-error
+             where arm
+             (str "a mutation " (name arm) " target must be a canonical "
+                  "scoped resource key [scope resource-id params] (a "
+                  "3-element vector); got " (pr-str target) ". Per EP-0003 "
+                  "§Mutations / Spec 016 §Resource identity.")
+             target {})))
+  (let [[scope resource-id params] target]
+    (when-not (keyword? resource-id)
+      (throw (target-key-error
+               where arm
+               (str "a mutation " (name arm) " target's resource id must be "
+                    "a keyword; got " (pr-str resource-id) ".")
+               target {:resource-id resource-id})))
+    (when (reserved-scope-typo? scope)
+      (throw (target-key-error
+               where arm
+               (str "a mutation " (name arm) " target carries the bare "
+                    "framework-reserved scope " (pr-str scope) ", which is "
+                    "not one of the closed reserved policies "
+                    (pr-str reserved-scope-policies) " — a typo would "
+                    "silently write the cache under a wrong scope. Per "
+                    "Conventions §Reserved namespaces.")
+               target {:scope scope})))
+    (when-not (state/serializable-edn? scope)
+      (throw (target-key-error
+               where arm
+               (str "a mutation " (name arm) " target's scope is not "
+                    "serializable EDN — host / opaque values are rejected at "
+                    "the cache-key boundary. Per Spec 016 §Resource identity.")
+               target {:scope (pr-str scope)})))
+    (when-not (state/serializable-edn? params)
+      (throw (target-key-error
+               where arm
+               (str "a mutation " (name arm) " target's params are not "
+                    "serializable EDN — host / opaque values are rejected at "
+                    "the cache-key boundary. Per Spec 016 §Resource identity.")
+               target {:params (pr-str params)})))
+    (when-not (registered-resource? resource-id)
+      (throw (target-key-error
+               where arm
+               (str "a mutation " (name arm) " targets the UNREGISTERED "
+                    "resource " (pr-str resource-id) " — a controlled patch / "
+                    "populate must target a resource the read path also "
+                    "knows, or the seeded / patched entry is unreachable by "
+                    "any subscription. Call rf/reg-resource first. Per "
+                    "EP-0003 §Mutations.")
+               target {:resource-id resource-id})))
+    (state/scoped-resource-key scope resource-id params)))
+
+(defn validate-target-map!
+  "Fail-closed validation + canonicalization of a WHOLE mutation `:patches` /
+  `:populates` target map `{scoped-key value}` BEFORE any cache mutation
+  (EP-0003 §Mutations). Validates EVERY target key via `validate-target-key!`
+  (so one bad target rejects the whole success-time patch / populate — no
+  partial cache mutation) and returns a NEW map re-keyed by the CANONICAL
+  scoped key, values preserved. `kind` (`:patches` | `:populates`) names the
+  offending arm in the error. A nil / empty map returns itself."
+  [target-map registered-resource? kind where]
+  (when (seq target-map)
+    (reduce-kv
+      (fn [m target value]
+        (assoc m (validate-target-key! target registered-resource? where kind) value))
+      {}
+      target-map)))
+
+;; ---- mutation INSTANCE id validation (Spec 016 §Resource identity) --------
+
+(defn instance-id-error
+  "Build the canonical thrown-error shape (Spec 009 §The thrown-error shape)
+  for a non-serializable mutation INSTANCE id."
+  [instance-id where]
+  (ex-info ":rf.error/mutation-non-serializable-instance-id"
+           {:rf.error/id :rf.error/mutation-non-serializable-instance-id
+            :where       where
+            :recovery    :fix-instance-id
+            :reason      (str "a mutation instance id must be serializable EDN "
+                              "(a scalar — keyword / string / number — or an "
+                              "EDN collection recursively built from such); got "
+                              (pr-str instance-id) ". The instance id is stored "
+                              "in runtime-db, the work-ledger work id, and the "
+                              "reply payloads — all durable + trace-visible + "
+                              "epoch / restore-safe — so it follows the same "
+                              "serializable-identity discipline as resource "
+                              "params and scopes. Host / opaque values "
+                              "(functions, promises, dates, DOM nodes, "
+                              "AbortControllers, JS objects, atoms) are "
+                              "rejected. Per EP-0003 §Mutations / Spec 016 "
+                              "§Resource identity.")
+            :instance-id (pr-str instance-id)}))
+
+(defn validate-instance-id!
+  "Fail-closed: reject a non-serializable mutation INSTANCE id BEFORE it is
+  stored in runtime-db / the work-ledger work id / the reply payloads (all
+  durable + trace-visible + epoch-restore-safe), mirroring the resource
+  params / scope EDN discipline. A caller MAY supply nil (the events layer
+  then mints a generated id) — nil passes here; the GENERATED id is itself
+  serializable by construction. Returns `instance-id` unchanged when it
+  conforms; throws `:rf.error/mutation-non-serializable-instance-id`
+  otherwise. Per EP-0003 §Mutations."
+  [instance-id where]
+  (when (and (some? instance-id) (not (state/serializable-edn? instance-id)))
+    (throw (instance-id-error instance-id where)))
+  instance-id)
