@@ -37,6 +37,7 @@
    [re-frame.resources]
    [re-frame.resources.state :as state]
    [re-frame.resources.transport.http :as http]
+   [re-frame.resources.work-ledger :as work-ledger]
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch is overridden by the capturing reply stub below.
@@ -275,6 +276,116 @@
         (testing "the CURRENT gen-2 reply lands normally"
           (reply-success! @last-managed-args {:fresh "data"})
           (is (= {:fresh "data"} (:data (entry scoped-key)))))))))
+
+;; ===========================================================================
+;; 4b. managed-HTTP ABORT replies are CANCELLATION, not failure (rf2-z70ujl)
+;;     — an intentional abort routes through the same :on-failure reply but
+;;     must NOT populate :error / :refresh-error or a :failed ledger row; the
+;;     work row settles :cancelled and the entry settles to a non-error state.
+;;     Tests use the REAL managed-HTTP failure shape ({:kind :rf.http/aborted}).
+;; ===========================================================================
+
+(defn- aborted-failure
+  "The real managed-HTTP abort failure envelope (Spec 014 §Aborts) the
+  transport dispatches through the :on-failure reply for an intentional
+  cancellation (`:user` / `:actor-destroyed` / `:timeout`). `:request-id-
+  superseded` is NOT used here — the transport suppresses that reply entirely."
+  [request-id reason]
+  {:kind :rf.http/aborted :request-id request-id :reason reason :actor-id nil})
+
+(deftest first-load-abort-settles-non-error-not-failure
+  (rf/reg-resource :ab1/article (article-spec))
+  (let [k (state/scoped-resource-key :rf.scope/global :ab1/article {:slug "w"})]
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :ab1/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:lease :ab1 1]}])
+    (is (= :loading (:status (entry k))))
+    (let [wid (:current-work (entry k))]
+      (testing "rf2-z70ujl — a FIRST-load abort reply (the real
+                {:kind :rf.http/aborted} envelope) settles to a non-error
+                stable state: NOT :error, NO :error envelope, no usable data"
+        (reply-failure! @last-managed-args (aborted-failure wid :user))
+        (let [e (entry k)]
+          (is (not= :error (:status e)) "aborted first-load did NOT settle :error")
+          (is (= :idle (:status e)) "settled to a non-error stable :idle state")
+          (is (nil? (:error e)) "no error envelope written")
+          (is (nil? (:refresh-error e)) "no refresh-error written")
+          (is (nil? (:data e)) "no data (the load was cancelled)")
+          (is (nil? (:current-work e)) "current-work cleared")))
+      (testing "the work row settles terminal :cancelled (not :failed)"
+        (let [rec (work-ledger/get-record (runtime-db) wid)]
+          (is (= :cancelled (:status rec)) "work row :cancelled")
+          (is (= :aborted (:reason (:outcome rec)))))))))
+
+(deftest refresh-abort-preserves-prior-loaded-data
+  (rf/reg-resource :ab2/article (article-spec))
+  (let [k (state/scoped-resource-key :rf.scope/global :ab2/article {:slug "w"})]
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :ab2/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:lease :ab2 1]}])
+    (reply-success! @last-managed-args {:title "Loaded"})
+    (rf/dispatch-sync [:rf.resource/refetch
+                       {:resource :ab2/article :scope :rf.scope/global
+                        :params {:slug "w"}}])
+    (is (= :fetching (:status (entry k))))
+    (let [wid (:current-work (entry k))]
+      (testing "rf2-z70ujl — a background-REFRESH abort returns to :loaded,
+                PRESERVES prior :data, and records NO :refresh-error (a
+                cancelled refresh leaves the last-known-good value intact)"
+        (reply-failure! @last-managed-args (aborted-failure wid :actor-destroyed))
+        (let [e (entry k)]
+          (is (= :loaded (:status e)) "returned to :loaded")
+          (is (= {:title "Loaded"} (:data e)) "prior data preserved")
+          (is (nil? (:refresh-error e)) "no refresh-error (abort is not a failure)")
+          (is (nil? (:error e)))
+          (is (nil? (:current-work e)) "current-work cleared")))
+      (testing "the work row settles terminal :cancelled"
+        (is (= :cancelled (:status (work-ledger/get-record (runtime-db) wid))))))))
+
+(deftest stale-abort-reply-cannot-mutate-newer-entry
+  (rf/reg-resource :ab3/article (article-spec))
+  (let [k (state/scoped-resource-key :rf.scope/global :ab3/article {:slug "w"})]
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :ab3/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:lease :ab3 1]}])
+    (let [gen1-args @last-managed-args
+          gen1-wid  (:current-work (entry k))]
+      ;; supersede with a forced refetch → gen 2 is the live work
+      (rf/dispatch-sync [:rf.resource/refetch
+                         {:resource :ab3/article :scope :rf.scope/global
+                          :params {:slug "w"}}])
+      (is (= 2 (:generation (entry k))))
+      (testing "rf2-z70ujl — a STALE (gen-1) abort reply NEVER mutates the
+                newer gen-2 entry (the live-entry-for-reply boundary
+                suppresses it); the gen-2 in-flight attempt is untouched"
+        (reply-failure! gen1-args (aborted-failure gen1-wid :user))
+        (let [e (entry k)]
+          (is (= 2 (:generation e)) "entry still on gen 2")
+          (is (= :loading (:status e)) "gen-2 attempt still in flight")
+          (is (some? (:current-work e)) "gen-2 work pointer intact"))
+        (testing "the STALE gen-1 work row settles :cancelled (it was a
+                  cancellation), not :suppressed-as-failure"
+          (is (= :cancelled (:status (work-ledger/get-record (runtime-db) gen1-wid)))))))))
+
+(deftest owner-release-orphan-abort-does-not-set-entry-error
+  ;; the end-to-end orphan path: an in-flight first load whose last owner is
+  ;; released emits a best-effort abort; when that abort reply lands it must
+  ;; NOT surface as a resource error (rf2-z70ujl acceptance).
+  (rf/reg-resource :ab4/article (article-spec))
+  (let [k (state/scoped-resource-key :rf.scope/global :ab4/article {:slug "w"})]
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :ab4/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:lease :ab4 1]}])
+    (let [args @last-managed-args
+          wid  (:current-work (entry k))]
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :ab4 1]}])
+      (testing "rf2-z70ujl — when the orphaned in-flight attempt's abort reply
+                lands it settles cancellation, NOT a user-visible error"
+        (reply-failure! args (aborted-failure wid :user))
+        (let [e (entry k)]
+          (is (not= :error (:status e)) "orphan abort did not set :error status")
+          (is (nil? (:error e)) "no error envelope on the entry")
+          (is (empty? (:active-owners e)) "still owner-free"))))))
 
 ;; ===========================================================================
 ;; 5. ensure dedupe / join while in flight (attach owner, no new generation)

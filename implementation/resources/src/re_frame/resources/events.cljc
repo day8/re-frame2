@@ -821,6 +821,27 @@
     (:failure http-result)
     (:error verification-payload)))
 
+(def ^:private http-aborted-kind
+  "The managed-HTTP failure `:kind` for an intentional abort/cancellation
+  (Spec 014 §Aborts — the transport classifies a `:rf.http/managed-abort`,
+  an actor-destroy cancellation, or a timeout teardown to this kind). A
+  failure envelope carrying this kind is a CANCELLATION, not a user-visible
+  resource error (rf2-z70ujl). Note a `:request-id-superseded` abort never
+  even dispatches a reply (the transport suppresses it, Spec 014 §Abort
+  precedence) — so a superseded supersession is handled by the missing reply
+  + stale-suppression, not here."
+  :rf.http/aborted)
+
+(defn- abort-failure?
+  "True iff `error` is a managed-HTTP ABORT failure envelope
+  (`{:kind :rf.http/aborted …}`) — an intentional cancellation that must NOT
+  become a user-visible resource `:error` / `:refresh-error` or a failed
+  ledger row (rf2-z70ujl, Spec 016 §Cancellation is opportunistic). Every
+  other `:rf.http/*` category (transport / 5xx / 4xx / timeout-as-failure /
+  decode / accept) is a genuine failure and flows the ordinary failed path."
+  [error]
+  (= http-aborted-kind (:kind error)))
+
 (defn succeeded-handler
   "`:rf.resource.internal/succeeded` — a transport read succeeded. Verifies
   frame + work-id + generation against the live entry; on match installs the
@@ -916,12 +937,45 @@
                         :gc-delay-ms    gc-delay-ms
                         :server?        (server-frame? frame-id)}]]))))))
 
+(defn- entry-abort-settled
+  "Settle a LIVE entry whose current attempt was ABORTED (a cancellation, NOT
+  a failure — rf2-z70ujl). An abort must NEVER populate `:error` /
+  `:refresh-error` or leave the entry stranded mid-flight:
+
+    - a REFRESH abort (the entry was `:fetching` — it has prior data) returns
+      to `:loaded` and KEEPS the prior `:data` (the cancelled background
+      refresh leaves the last-known-good value intact, no `:refresh-error`);
+    - a FIRST-load abort (the entry was `:loading` — no usable data) settles
+      to a non-error stable `:idle` state (the load was cancelled, not
+      failed; a subsequent live cause re-ensures it cleanly).
+
+  Either way `:current-work` is cleared (the attempt settled) and no error
+  facts are written. Per Spec 016 §Cancellation is opportunistic / §Status
+  semantics. (Distinct from `state/entry-failed`, which records the failure
+  envelope; an abort is the no-error settlement.)"
+  [entry]
+  (if (state/has-data? entry)
+    (assoc entry :status :loaded :current-work nil)
+    (assoc entry :status :idle  :current-work nil)))
+
 (defn failed-handler
   "`:rf.resource.internal/failed` — a transport read failed. Verifies frame
   + work-id + generation; a first-load failure settles `:error` (no usable
   data); a background-refresh failure returns to `:loaded`, keeps prior
   `:data`, and records `:refresh-error`. A stale / superseded reply is
   suppressed. Per Spec 016 §Status semantics.
+
+  An ABORT reply (`{:kind :rf.http/aborted}`, rf2-z70ujl) is NOT a failure:
+  the managed-HTTP transport routes an intentional cancellation (owner-loss
+  orphan abort, actor-destroy, timeout teardown) through this same
+  `:on-failure` reply, but it must NOT become a user-visible resource error
+  or a `:failed` ledger row. It is branched into CANCELLATION semantics —
+  the live attempt settles to a non-error stable state (`entry-abort-settled`)
+  WITHOUT `:error` / `:refresh-error`, the work row settles terminal
+  `:cancelled`, and a route-owned blocking resource drains its slot like a
+  non-error settle (the route un-blocks rather than flipping to `:error`).
+  A stale / superseded abort reply is suppressed by the same
+  `live-entry-for-reply` boundary (it can never mutate a newer entry).
 
   Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
   transport appends `{:kind :failure :failure <:rf.http/* envelope>}` as the
@@ -931,18 +985,49 @@
    [_event-id {:keys [resource-key work-id generation] :as payload} http-result]]
   (let [runtime-db (or rt {})
         error      (reply-failure-error payload http-result)
+        aborted?   (abort-failure? error)
         entry      (live-entry-for-reply runtime-db payload)]
-    (if (nil? entry)
-      ;; STALE SUPPRESSION (mandatory): a superseded / vanished failure
-      ;; reply never mutates a newer entry. Settle its work row terminal +
-      ;; clear the handle.
+    (cond
+      ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply (failure
+      ;; OR abort) never mutates a newer entry. Settle its work row terminal +
+      ;; clear the handle. An aborted stale reply settles :cancelled (it was a
+      ;; cancellation); a failed stale reply settles :suppressed.
+      (nil? entry)
       (do (trace/emit! :rf.event :rf.resource/stale-suppressed
                        {:rf.frame/id frame-id :resource-key resource-key
-                        :work-id work-id :generation generation :outcome :failure})
+                        :work-id work-id :generation generation
+                        :outcome (if aborted? :aborted :failure)})
           (work-ledger/clear-handle! frame-id work-id)
           {:rf.db/runtime (work-ledger/update-record
                             runtime-db work-id work-ledger/mark-terminal
-                            :suppressed {:reason :stale-reply :outcome :failure})})
+                            (if aborted? :cancelled :suppressed)
+                            (if aborted?
+                              {:reason :aborted}
+                              {:reason :stale-reply :outcome :failure}))})
+
+      ;; ABORT (rf2-z70ujl): an intentional cancellation reached the failure
+      ;; reply seam. Settle the LIVE attempt to a non-error stable state, mark
+      ;; the work row terminal :cancelled, drain any route blocking slot like a
+      ;; non-error settle (status :success keeps drain-blocking off the
+      ;; route-:error branch — a cancelled blocking first-load un-blocks the
+      ;; route rather than surfacing a spurious error). NO :error /
+      ;; :refresh-error write. The host handle is cleared.
+      aborted?
+      (let [entry' (entry-abort-settled entry)
+            rdb'   (-> runtime-db
+                       (assoc-in (state/entry-path resource-key) entry')
+                       (work-ledger/update-record
+                         work-id work-ledger/mark-terminal
+                         :cancelled {:reason :aborted})
+                       (route/drain-blocking resource-key entry' :success))]
+        (work-ledger/clear-handle! frame-id work-id)
+        (trace/emit! :rf.event :rf.resource/work-abort-requested
+                     {:rf.frame/id frame-id :resource-key resource-key
+                      :work-id work-id :generation generation
+                      :status-before (:status entry) :status-after (:status entry')})
+        {:rf.db/runtime rdb'})
+
+      :else
       (let [entry' (state/entry-failed entry {:error error})
             op     (if (= :error (:status entry'))
                      :rf.resource/failed :rf.resource/refresh-failed)
