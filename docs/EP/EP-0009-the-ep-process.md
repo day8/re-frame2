@@ -87,10 +87,13 @@ The `Status:` line is machine-readable. Its value MUST be one of:
 `deferred`, or `superseded-by EP-NNNN`.
 
 - **proposal** — under discussion. Normative-voiced text is permitted (it makes
-  graduation a move, not a rewrite) but binds nothing; nothing may implement a
-  proposal.
+  graduation a move, not a rewrite) but binds nothing; the proposal itself is
+  not implementation authority. Independently settled work may still land by
+  bead/spec/operator ruling and be recorded in the proposal as evidence or an
+  already-resolved dependency, but any decision that relies on the EP waits for
+  acceptance.
 - **accepted** — ruled by the operator; graduation into the normative home +
-  beads begins. Implementation may start.
+  beads begins. EP-authorized implementation may start.
 - **final / active** — graduated. The named normative home is now
   authoritative: for standards-track that is `spec/`, and **where the EP body
   and the spec differ, the spec governs** (the EP-0002 precedent); for process
