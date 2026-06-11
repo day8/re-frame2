@@ -447,6 +447,34 @@ Their algebra views differ only in output, storage, evaluation, and lifecycle:
 
 `sum-cart` is one whole-value function. The difference between the subscription and the flow is **not the mathematical function; it is policy over the same dependency graph.** That is the whole point of naming the algebra. Full worked source-form/algebra-view pairs for every member — parametric subscriptions, runtime subscriptions, resources (static + live), route facts, machine processes and selectors — live in [EP-0014 §Examples](../docs/EP/EP-0014-derivation-and-process-algebra.md#examples).
 
+## Subscriptions expose algebra views
+
+Subscriptions are the first concrete algebra member to expose its view. Every subscription registration — `reg-sub` (the layer-1 `:db` reader, the static `:<-` chain, and the parametric input-fn form), the framework-internal `reg-runtime-sub` and `reg-frame-state-sub`, and every live sub-cache entry — projects to the [node shape](#the-node-shape). The projection is **registrar-derived** (see [§The EP-0013 relocation seam](#the-ep-0013-relocation-seam)): the reactive substrate ([006](006-ReactiveSubstrate.md)) keeps the cache, ref-counting, and disposal semantics; the algebra view is assembled from the registration metadata that already exists, never from re-executing a source form.
+
+A subscription is always a **`:derivation`** (never a process — [§Derivation](#derivation)), and every subscription node carries the same five fixed classifications, because a subscription is the canonical ephemeral member of the algebra:
+
+| Axis | Value | Why |
+|---|---|---|
+| `:kind` | `:derivation` | a pure whole-value computation; no durable private state |
+| `:storage` | `:ephemeral` | a cache/reaction value, never written to durable frame state |
+| `:evaluation` | `:on-demand` | evaluated when a reader subscribes — a read never causes a durable write ([§Evaluation policy](#evaluation-policy) rule 1) |
+| `:lifecycle` | `:subscription-cache-entry` | the concrete query vector's readers keep it alive; ref-count disposal releases it |
+| `:materialized?` | `false` | an ephemeral output has a fact identity but no durable address |
+
+The two axes that **vary** per subscription are the declared **inputs** and the **output** fact id:
+
+- **`:output`** is `[:fact <id>]` — the sub id for a static node, the concrete query vector for a live cache entry.
+- **`:inputs`** lowers from the registered input-producer kind ([§Declared input](#declared-input); the [006](006-ReactiveSubstrate.md) input-producer discriminator):
+  - a layer-1 `:db` reader hands the *whole* `app-db` value to its body, so the conservative declared input is the app-db projection root `[[:db []]]` (a future path-aware source form MAY narrow it; correctness does not depend on the narrowing);
+  - a `reg-runtime-sub` reads the runtime-db partition — `[[:runtime []]]`;
+  - a `reg-frame-state-sub` reads across both partitions (framework-internal) — `[[:frame-state []]]`;
+  - a static `:<-` sub lowers each literal input query-vector to a `[:sub query-vector]` edge, in declaration order (args preserved);
+  - a parametric input-fn sub reports the **`:parametric`** marker plus an opaque `:input-producer` token — its realized edge set depends on a concrete query vector and is *not statically enumerable* (the [don't-execute rule](#the-dont-execute-rule-ep-0014-issue-3-disposition); the static graph never runs the input-fn). The **live** sub-cache view reports the realized `[:sub query-vector]` edges per concrete entry — exactly the edges the static graph cannot enumerate.
+
+The node additionally carries the opaque `:derive` body token (never serialized — [§The node shape](#the-node-shape)), the `:source-form` `{:kind :reg-sub :id <id>}`, and the `:source` coordinates / `:schema` / doc when the registration carried them. A live cache-entry node also carries its current `:value` (a value summary, redacted by the graph-inspection helper before egress — [§Redaction metadata](#redaction-metadata-ep-0014-issue-1-disposition-ep-0015)) and its `:ref-count` (the lifecycle evidence the cache-entry owner is kept alive by its readers).
+
+This exposure is *internal registration metadata*, consistent with the slice scope: it ships **no public accessor**. The static and live subscription views live in the bundle-isolated subscription tooling sibling (`re-frame.subs.tooling/sub-algebra-view` and `…/sub-cache-algebra-view` in the reference implementation; production CLJS bundles DCE the bodies), consumed by [Xray](../tools/xray/spec/README.md) and the conformance fixtures — the two named first consumers. They feed the later internal graph-inspection helper ([EP-0014 §Reference Implementation / Bead Plan](../docs/EP/EP-0014-derivation-and-process-algebra.md#reference-implementation--bead-plan) item 7); the public name is deferred until a third consumer needs it (the [graduation gate](#one-accessor-two-projections-ep-0014-issue-1-disposition)).
+
 ## The EP-0013 relocation seam
 
 In slice-1 the algebra view is **registrar-derived** — assembled from registration metadata at the surface that registers each source form. The normalized node this doc defines is deliberately the per-fact/per-process row an app value would carry, so a future move to [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) app values/runtime realms is a *relocation, not a redesign*.
