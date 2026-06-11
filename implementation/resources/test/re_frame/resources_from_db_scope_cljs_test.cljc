@@ -1,0 +1,258 @@
+(ns re-frame.resources-from-db-scope-cljs-test
+  "Named-resolver scope integration — `{:from-db <id>}` references at the
+  route-entry / event-ensure / subscription-read sites (rf2-qiv160, EP-0016
+  D3 slice 3, Spec 016 §Resolver references — `{:from-db <id>}` / §Route
+  integration / §Subscription-side scope resolution).
+
+  Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
+  `.*-test$` ns regex; Shadow's `:node-test` build via the `cljs-test$`
+  regex. Cross-host so the db-derived scope resolution behaves identically
+  server- and client-side.
+
+  What's under test (the slice's validation-plan items 9 + 10 + rf2-616xa6):
+
+    1. a `{:from-db <id>}` resource-spec `:scope` resolves against app-db on
+       EVENT ensure → the SAME scoped key a route entry or sub resolves;
+    2. a `{:from-db <id>}` route-resource `:scope` resolves at route entry,
+       BEFORE planning, and ensures + (on leave) releases the owner under
+       the RESOLVED scope;
+    3. a `{:from-db <id>}` subscription resolves against the frame app-db,
+       reading the SAME entry the route ensured;
+    4. FAIL-CLOSED nil — a resolver whose declared inputs are absent yields
+       nil; an event raises `:rf.error/resource-scope-unresolved-reference`,
+       a route surfaces a planning error, a sub raises
+       `:rf.error/resource-sub-unresolved-scope` — never a silent global;
+    5. rf2-616xa6 — a `{:from-db}` sub RE-KEYS reactively when the
+       resolver's app-db inputs change mid-session (account switch): the
+       sub re-points to the new scoped entry, and the view observes the new
+       key's loading/idle state, not the stale entry."
+  (:require
+   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [re-frame.core :as rf]
+   ;; load-bearing side-effecting requires: register the resources + routing
+   ;; events / subs and resources' late-bound :routing/* integration hooks.
+   [re-frame.resources]
+   [re-frame.resources.registry :as registry]
+   [re-frame.resources.route :as route]
+   [re-frame.resources.state :as state]
+   [re-frame.resources.subs :as r-subs]
+   [re-frame.resources.test-support]
+   [re-frame.routing :as routing]
+   [re-frame.schemas]
+   [re-frame.http-managed]
+   [re-frame.registrar :as registrar]
+   [re-frame.test-support :as core-test-support]
+   #?(:clj  [re-frame.substrate.plain-atom :as substrate]
+      :cljs [re-frame.adapter.reagent :as substrate])))
+
+;; ---- fixture --------------------------------------------------------------
+
+(defn- init!
+  "Per-test setup: a URL-owning default app frame, reset routing counters,
+  re-publish the late-bound routing integration, register the named scope
+  resolver + the session-scoped feed resource, and stub managed-HTTP +
+  push-url so ensure / navigation are deterministic without a fetch /
+  browser."
+  []
+  (rf/reg-frame :rf/default {:url-bound? true
+                             :doc "from-db scope suite default app frame."})
+  (routing/reset-counters!)
+  (route/install-routing-integration!)
+  (registrar/clear-kind! :resource-scope)
+  (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  ;; the named db-derived viewer-session resolver (EP-0016 D3 canonical form)
+  (rf/reg-resource-scope :t/session
+    {:inputs  {:username [:db [:auth :user :username]]}
+     :resolve (fn [{:keys [username]} _ctx]
+                (when username [:rf.scope/session {:username username}]))})
+  ;; a session-scoped feed resource whose spec :scope is the {:from-db …} ref
+  (rf/reg-resource :t/feed
+    {:scope         {:from-db :t/session}
+     :params-schema [:map [:page :int]]
+     :request       (fn [{:keys [page]} _ctx]
+                      {:request {:method :get :url "/feed" :params {:page page}}})
+     :tags          (fn [_p _v] #{[:feed]})})
+  ;; an app event that writes the logged-in user (the resolver's db input)
+  (rf/reg-event-db :t/login (fn [db [_ username]] (assoc-in db [:auth :user :username] username)))
+  (rf/reg-event-db :t/logout (fn [db _] (update db :auth dissoc :user))))
+
+(use-fixtures :each
+  (core-test-support/make-reset-runtime-fixture
+    {:adapter substrate/adapter
+     :init-fn init!}))
+
+;; ---- helpers --------------------------------------------------------------
+
+(defn- runtime-db [] (rf/runtime-db-value :rf/default))
+(defn- entries [] (get-in (runtime-db) (state/entries-path)))
+(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
+(defn- slice [] (get-in (runtime-db) [:rf.runtime/routing :current]))
+
+(defn- session-key
+  "The scoped feed key for username `u`, page `page`."
+  [u page]
+  (state/scoped-resource-key [:rf.scope/session {:username u}] :t/feed {:page page}))
+
+(defn- settle-loaded!
+  "Drive the just-ensured entry at `scoped-key` to :loaded by dispatching
+  the internal success reply for its current work."
+  [scoped-key data]
+  (let [e (entry scoped-key)]
+    (rf/dispatch-sync [:rf.resource.internal/succeeded
+                       {:resource-key scoped-key
+                        :work/id      (:current-work e)
+                        :generation   (:generation e)
+                        :data         data}])))
+
+;; ===========================================================================
+;; 1. {:from-db} on an EVENT ensure resolves against app-db
+;; ===========================================================================
+
+(deftest event-ensure-from-db-spec-policy
+  (rf/dispatch-sync [:t/login "jake"])
+  (testing "ensure of a {:from-db} spec-policy resource resolves the session
+            scoped key from app-db (no payload :scope needed)"
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                            :owner [:lease :x 1]}])
+    (is (some? (entry (session-key "jake" 1)))
+        "the entry lives under the db-derived session scope")
+    (is (= #{(session-key "jake" 1)} (set (keys (entries))))
+        "exactly one entry, under the resolved scope — never a global key")))
+
+(deftest event-ensure-from-db-payload-reference
+  (rf/dispatch-sync [:t/login "abel"])
+  ;; a from-caller resource read with an explicit {:from-db …} PAYLOAD scope
+  (rf/reg-resource :t/notes
+    {:scope         :rf.scope/from-caller
+     :params-schema [:map]
+     :request       (fn [_p _ctx] {:request {:method :get :url "/notes"}})})
+  (testing "a {:from-db …} payload :scope resolves against app-db at use time"
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :t/notes :params {}
+                                            :scope {:from-db :t/session}
+                                            :owner [:lease :n 1]}])
+    (is (some? (entry (state/scoped-resource-key
+                        [:rf.scope/session {:username "abel"}] :t/notes {}))))))
+
+(deftest event-ensure-from-db-nil-fails-closed
+  (testing "a {:from-db} reference resolving nil (no logged-in user) FAILS
+            CLOSED on an event — `resolve-scope-for-event` throws
+            `:rf.error/resource-scope-unresolved-reference`, never a silent
+            global read"
+    ;; no logged-in user — the resolver's :inputs are absent against `{}`
+    (let [spec (rf/resource-meta :t/feed)]
+      (is (thrown-with-msg?
+            #?(:clj Throwable :cljs js/Error) #"resource-scope-unresolved-reference"
+            (registry/resolve-scope-for-event
+              :t/feed spec {:db {}} 'test)))))
+  (testing "dispatched through the event the failure is caught by the runtime
+            error path — NO entry is created under any scope (fail-closed)"
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}}])
+    (is (empty? (entries)) "no entry created under any scope (fail-closed)")))
+
+;; ===========================================================================
+;; 2. {:from-db} on a ROUTE-RESOURCE :scope (resolved at route entry)
+;; ===========================================================================
+
+(deftest route-entry-from-db-scope-resolves-and-ensures
+  (rf/dispatch-sync [:t/login "jake"])
+  (rf/reg-route :t/home
+    {:path "/"
+     :resources [{:resource :t/feed :params (fn [_] {:page 1})
+                  :scope {:from-db :t/session} :blocking? true}]})
+  (testing "route entry resolves the {:from-db} route-resource scope against
+            app-db BEFORE planning, ensuring under the session scope"
+    (rf/dispatch-sync [:rf.route/navigate :t/home])
+    (let [k (session-key "jake" 1)]
+      (is (some? (entry k)) "the route ensured the feed under the resolved session scope")
+      (let [owner [:route :t/home (:nav-token (slice))]]
+        (is (contains? (:active-owners (entry k)) owner)
+            "the route owner is attached under the RESOLVED scope")))))
+
+(deftest route-leave-releases-owner-under-resolved-scope
+  (rf/dispatch-sync [:t/login "jake"])
+  (rf/reg-route :t/home
+    {:path "/"
+     :resources [{:resource :t/feed :params (fn [_] {:page 1})
+                  :scope {:from-db :t/session}}]})
+  (rf/reg-route :t/other {:path "/other"})
+  (rf/dispatch-sync [:rf.route/navigate :t/home])
+  (let [k     (session-key "jake" 1)
+        owner [:route :t/home (:nav-token (slice))]]
+    (is (contains? (:active-owners (entry k)) owner) "owner attached on entry")
+    (testing "route leave releases the owner acquired under the RESOLVED scope"
+      (rf/dispatch-sync [:rf.route/navigate :t/other])
+      (is (not (contains? (:active-owners (entry k)) owner))
+          "the prior route owner (resolved-scope key) is released on leave"))))
+
+(deftest route-entry-from-db-nil-is-a-planning-error
+  ;; no login — the route-resource {:from-db} scope resolves nil
+  (rf/reg-route :t/home
+    {:path "/"
+     :resources [{:resource :t/feed :params (fn [_] {:page 1})
+                  :scope {:from-db :t/session}}]})
+  (testing "a {:from-db} route scope resolving nil surfaces as a route
+            PLANNING error on the slice, never a silent global ensure"
+    (rf/dispatch-sync [:rf.route/navigate :t/home])
+    (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice))))
+        "the route slice carries the planning error")
+    (is (empty? (entries)) "no entry ensured under any scope (fail-closed)")))
+
+;; ===========================================================================
+;; 3. {:from-db} on a SUBSCRIPTION read (against frame app-db)
+;; ===========================================================================
+
+(deftest sub-from-db-reads-the-same-entry-the-event-ensured
+  (rf/dispatch-sync [:t/login "jake"])
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                          :owner [:lease :s 1]}])
+  (settle-loaded! (session-key "jake" 1) {:articles [:a :b]})
+  (testing "a {:from-db} spec-policy sub resolves the same session key and
+            reads the loaded entry (no payload :scope needed)"
+    (let [q {:resource :t/feed :params {:page 1}}]
+      (is (= :loaded (:status @(rf/subscribe [:rf.resource/state q]))))
+      (is (= {:articles [:a :b]} @(rf/subscribe [:rf.resource/data q]))))))
+
+(deftest sub-from-db-nil-raises-unresolved-scope
+  (testing "a {:from-db} sub whose resolver yields nil raises the sub-side
+            fail-closed diagnostic — never a silent :idle / global read.
+            (Asserted at the resolution boundary `resolve-scoped-key`, the
+            same level the from-caller sub-unresolved test asserts at; a sub
+            body throw is otherwise routed to the runtime error path.)"
+    ;; no logged-in user — the {:from-db} spec policy resolves nil against `{}`
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-sub-unresolved-scope"
+          (r-subs/resolve-scoped-key {:resource :t/feed :params {:page 1}} {})))))
+
+;; ===========================================================================
+;; 4. rf2-616xa6 — mid-session input change RE-KEYS the live sub
+;; ===========================================================================
+
+(deftest sub-re-keys-on-mid-session-account-switch
+  (rf/dispatch-sync [:t/login "jake"])
+  ;; ensure + load jake's feed
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                          :owner [:lease :s 1]}])
+  (settle-loaded! (session-key "jake" 1) {:for "jake"})
+  (let [q   {:resource :t/feed :params {:page 1}}
+        sub (rf/subscribe [:rf.resource/state q])]
+    (testing "the live sub reads jake's loaded entry"
+      (is (= :loaded (:status @sub)))
+      (is (= {:for "jake"} (:data @sub))))
+    (testing "switching the logged-in user (the resolver's app-db input)
+              re-keys the SAME sub to the new scope — it no longer reads
+              jake's entry; the new key has no entry yet (idle empty-state),
+              so the view sees the new principal's loading/idle, NOT the
+              stale data (rf2-616xa6)"
+      (rf/dispatch-sync [:t/login "abel"])
+      (is (= :idle (:status @sub)) "re-pointed to abel's (un-ensured) key")
+      (is (nil? (:data @sub)) "abel's key has no data — never jake's stale data")
+      (is (false? (:has-data? @sub))))
+    (testing "ensuring + loading abel's feed makes the SAME sub read the new
+              entry — the re-pointing is fully reactive"
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                              :owner [:lease :s 2]}])
+      (settle-loaded! (session-key "abel" 1) {:for "abel"})
+      (is (= :loaded (:status @sub)))
+      (is (= {:for "abel"} (:data @sub)) "the sub now reads abel's data"))))

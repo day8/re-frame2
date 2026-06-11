@@ -134,12 +134,16 @@
 
   Returns the event-fx map `{:rf.db/runtime :fx}`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation
-    world :rf.world/inputs}
+    world :rf.world/inputs, app-db :db}
    {:keys [resource params owner cause keep-previous?] :as payload} {:keys [force-new? where]}]
   (let [runtime-db (or rt {})
         spec       (registry/require-resource-spec! resource where)
+        ;; EP-0016 D3 slice 3: a `{:from-db …}` payload-scope OR spec-policy
+        ;; resolves against the handler's app-db coeffect (`app-db`, the
+        ;; causal world input) at use time — fail-closed on nil. Concrete
+        ;; scopes resolve as before.
         scope      (registry/resolve-scope-for-event
-                     resource spec {:payload-scope (:scope payload)} where)
+                     resource spec {:payload-scope (:scope payload) :db app-db} where)
         cparams    (registry/validate+canonicalize-params resource spec params where)
         scoped-key (state/scoped-resource-key scope resource cparams)
         entry      (or (get-in runtime-db (state/entry-path scoped-key))
@@ -825,11 +829,12 @@
   "`:rf.resource/remove` — remove a single resource instance from the cache
   by its scoped key, and drop its owner/tag-index rows. Per Spec 016
   §Events. Payload: `{:resource :scope :params}`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [resource params] :as payload}]]
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db} [_event-id {:keys [resource params] :as payload}]]
   (let [runtime-db (or rt {})
         spec       (registry/require-resource-spec! resource 'rf.resource/remove)
+        ;; EP-0016 D3 slice 3: resolve a `{:from-db …}` scope against app-db.
         scope      (registry/resolve-scope-for-event
-                     resource spec {:payload-scope (:scope payload)} 'rf.resource/remove)
+                     resource spec {:payload-scope (:scope payload) :db app-db} 'rf.resource/remove)
         cparams    (registry/validate+canonicalize-params
                      resource spec params 'rf.resource/remove)
         scoped-key (state/scoped-resource-key scope resource cparams)

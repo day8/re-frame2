@@ -160,7 +160,12 @@
                                        ":params … :frame <frame-id>}. Per Spec 016 "
                                        "§Introspection / EP-0002.")
                      :opts        (dissoc opts :frame)})))
-  (let [scoped-key (resource-subs/resolve-scoped-key opts)
+  (let [;; EP-0016 D3 slice 3: a `{:from-db <id>}` scope on the introspection
+        ;; target resolves against the frame's app-db value (the same db the
+        ;; reactive sub resolves against), so `resource-state` and a live
+        ;; `[:rf.resource/state …]` sub resolve the SAME scoped key.
+        scoped-key (resource-subs/resolve-scoped-key
+                     opts (frame/frame-app-db-value frame))
         runtime-db (frame/frame-runtime-db-value frame)]
     (get-in runtime-db (state/entry-path scoped-key))))
 

@@ -53,6 +53,7 @@
   Per Spec 016 §Route integration."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.resources.registry :as registry]
+            [re-frame.resources.scope-registry :as scope-registry]
             [re-frame.resources.state :as state]
             [re-frame.trace :as trace]))
 
@@ -300,16 +301,43 @@
     {}))
 
 (defn- resolve-entry-scope
-  "Resolve a route-resource entry's scope via its `:scope` `(fn [route ctx]
-  …)` resolver, or nil when the entry declares NO route resolver (the spec
-  scope policy then governs — `resolve-scope-for-event` with no route
-  scope). A PRESENT `:scope` resolver that returns `nil` is a fail-closed
-  PLANNING error — it INTENDED to resolve a scope (the tenant / user / leak
-  boundary) and could not, which must NOT silently fall through to the
-  resource's spec policy or a `:rf.scope/global` read (rf2-ac71vm). Per
-  Spec 016 §Scope resolution (precedence tier 2)."
-  [{scope-fn :scope :keys [resource]} route ctx]
-  (when scope-fn
+  "Resolve a route-resource entry's scope to a CONCRETE value (the route
+  tier of the precedence ladder), or nil when the entry declares NO route
+  `:scope` (the spec scope policy then governs — `resolve-scope-for-event`
+  with no route scope). A route-resource `:scope` may be:
+
+    - a `{:from-db <id>}` named-resolver REFERENCE (EP-0016 D3 slice 3),
+      resolved against the route-entry `app-db` at use time — db-derived
+      viewer scope (session / tenant / account), the primary slice-3 form;
+    - a `(fn [route ctx] …)` resolver, evaluated against the route + entry
+      ctx (the legacy/anonymous form).
+
+  A PRESENT `:scope` that resolves to `nil` (a reference whose declared
+  inputs are absent, or a fn returning nil) is a fail-closed PLANNING error
+  — it INTENDED to resolve the tenant / user / leak-boundary scope and could
+  not, which must NOT silently fall through to the resource's spec policy or
+  a `:rf.scope/global` read (rf2-ac71vm / Spec 016 §Resolver references —
+  nil at a scope-requiring site is fail-closed). Per Spec 016 §Scope
+  resolution (precedence tier 2)."
+  [{scope-fn :scope :keys [resource]} route ctx app-db]
+  (cond
+    ;; a {:from-db …} reference — db-derived route-resource scope (slice 3)
+    (scope-registry/from-db-reference? scope-fn)
+    (let [s (scope-registry/resolve-from-db-reference
+              scope-fn (or app-db {}) 'rf.resource/route-entry)]
+      (if (nil? s)
+        (throw (planning-error
+                 (str "route resource " resource " :scope {:from-db "
+                      (pr-str (:from-db scope-fn)) "} resolved nil against the "
+                      "route-entry app-db — a planning error, not a silent "
+                      "fallback to the spec policy or a global read. The named "
+                      "resolver's declared :inputs are absent (e.g. no "
+                      "logged-in user). Per Spec 016 §Resolver references / "
+                      "§Scope resolution.")
+                 {:resource-id resource :recovery :fix-scope :from-db (:from-db scope-fn)}))
+        s))
+    ;; a (fn [route ctx] …) resolver — the legacy anonymous form
+    (fn? scope-fn)
     (let [s (scope-fn route ctx)]
       (if (nil? s)
         (throw (planning-error
@@ -319,7 +347,9 @@
                       "scope is the tenant / user / leak boundary and MUST "
                       "fail closed. Per Spec 016 §Scope resolution.")
                  {:resource-id resource :recovery :fix-scope}))
-        s))))
+        s))
+    ;; no route `:scope` — the spec policy governs (resolve-scope-for-event)
+    :else nil))
 
 ;; ---- :after — DISPATCH-ORDER waterfall, fail-closed (rf2-xeb4l1) ----------
 ;;
@@ -470,8 +500,15 @@
   transition stays `:loading`) vs background. `:keep-previous?` is threaded
   onto the ensure payload so the runtime projects the previous key's data
   while the new key first-loads. The previous route's owner token is
-  released."
-  [route ctx {:keys [nav-token prev-id prev-nav-token]}]
+  released.
+
+  `app-db` is the route-entry app-db value (threaded from the navigation
+  handler's coeffect by `on-route-entry-fx` / routing's `commit-navigation`)
+  — a `{:from-db <id>}` route-resource `:scope` (or the resource's spec
+  `:scope` policy) resolves against it at route entry, BEFORE planning the
+  resource work (EP-0016 D3 slice 3). A reference that resolves nil is a
+  fail-closed planning error (route planning MUST NOT substitute global)."
+  [route ctx {:keys [nav-token prev-id prev-nav-token app-db]}]
   ;; rf2-ac71vm — fail closed on missing/invalid structural planning inputs.
   ;; These are seam-contract bugs (routing must thread a ctx + nav-token),
   ;; surfaced loudly rather than collapsing into an empty-ctx / no-owner read.
@@ -533,11 +570,18 @@
                   (let [spec       (registry/require-resource-spec!
                                      resource-id 'rf.resource/route-entry)
                         raw-params (resolve-entry-params entry route)
-                        route-scope (resolve-entry-scope entry route ctx)
+                        ;; EP-0016 D3 slice 3: a `{:from-db …}` route-resource
+                        ;; `:scope` resolves against the route-entry app-db
+                        ;; here, BEFORE planning the resource work; a `(fn
+                        ;; [route ctx])` resolver evaluates against route+ctx.
+                        route-scope (resolve-entry-scope entry route ctx app-db)
                         ;; fail-closed resolution: throws a PLANNING error on
                         ;; a missing / invalid scope or non-conforming params.
+                        ;; `:db` carries the route-entry app-db so a `{:from-db
+                        ;; …}` SPEC policy (no route `:scope`) also resolves
+                        ;; against db at route entry.
                         scope      (registry/resolve-scope-for-event
-                                     resource-id spec {:route-scope route-scope}
+                                     resource-id spec {:route-scope route-scope :db app-db}
                                      'rf.resource/route-entry)
                         cparams    (registry/validate+canonicalize-params
                                      resource-id spec raw-params
@@ -595,9 +639,19 @@
   UNCHANGED (no silent nil→`{}` default): an absent ctx is a routing↔
   resources seam bug the planner fails closed on, not a silently-empty read
   (rf2-ac71vm). Routing's `commit-navigation` always threads an (at-least-
-  empty) `:ctx`. Per Spec 016 §Route integration."
+  empty) `:ctx`.
+
+  `:app-db` is the route-entry app-db value (EP-0016 D3 slice 3): routing's
+  navigation handlers carry the app-db coeffect and thread it through
+  `commit-navigation` into this hook, so a `{:from-db <id>}` route-resource
+  `:scope` (or the resource's spec `:scope` policy) resolves against the
+  CURRENT db BEFORE the resource work is planned. An absent `:app-db` (a
+  routing build that predates this thread) resolves references against `{}`
+  — fail-closed (a `{:from-db …}` scope then resolves nil and surfaces as a
+  route planning error, never a silent global). Per Spec 016 §Route
+  integration / §Resolver references."
   [{:keys [route-meta route-id params query fragment nav-token
-           prev-id prev-nav-token ctx]}]
+           prev-id prev-nav-token ctx app-db]}]
   (when (or (seq (:resources route-meta)) prev-id)
     (let [route {:id        route-id
                  :params    params
@@ -607,7 +661,8 @@
       (route-resource-plan route ctx
                            {:nav-token      nav-token
                             :prev-id        prev-id
-                            :prev-nav-token prev-nav-token}))))
+                            :prev-nav-token prev-nav-token
+                            :app-db         app-db}))))
 
 (defn install-routing-integration!
   "Publish the LATE-BOUND routing integrations: the
