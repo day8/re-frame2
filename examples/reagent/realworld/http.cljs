@@ -177,21 +177,38 @@
 ;; CLOCK COEFFECT — :realworld/now
 ;; ============================================================================
 ;;
-;; Reading wall-clock time inside a handler makes the handler impure;
-;; the same event applied to the same db at two moments produces two
-;; different `:loaded-at` stamps. Per Spec 002 §Cofx, side-effecting
-;; inputs belong in coeffects so handlers stay pure functions of
-;; `(coeffects, event) → effects`. Pulling the clock into a registered
-;; cofx (rather than calling `(.getTime (js/Date.))` directly) gives
-;; the example a single injection point that tests can override and
-;; SSR can hydrate.
+;; `:loaded-at` is a durable write — it rides epoch-restore, SSR/hydration,
+;; and replay. Per the EP-0010 World-Input Rule (Spec 002 §Causal world
+;; inputs), a durable write MUST read its wall-clock fact from the causal
+;; token, not from an ambient host read at the write site: replaying the
+;; same reply event must reproduce the same `:loaded-at`, which a fresh
+;; `(.getTime (js/Date.))` at handler-run time cannot guarantee.
+;;
+;; The framework stamps that fact once, at the causal boundary, onto every
+;; dispatch envelope as `:rf.world/inputs {:time-ms ...}`, and exposes it as
+;; a built-in event-context coeffect. Tests, SSR hydration, and replay
+;; fixtures supply an exact `:time-ms` via the dispatch opts; live code lets
+;; the router stamp it.
+;;
+;; The handlers below were written against an `:realworld/now` cofx, so this
+;; example keeps that recognizable source form (the EP-0010-sanctioned
+;; migration, §Backwards Compatibility) but moves its SOURCE from the host
+;; clock to the envelope: the cofx now reads `:time-ms` off `:rf.world/inputs`
+;; instead of calling `(.getTime (js/Date.))`. A greenfield handler would skip
+;; the cofx entirely and destructure `:rf.world/keys [inputs]` directly —
+;; `realworld_resources/` shows that path, where managed resources stamp
+;; `:loaded-at` from the same envelope time internally.
 
 (rf/reg-cofx :realworld/now
-  {:doc "Inject the current wall-clock time (ms since epoch) into
-         coeffects under `:realworld/now`. Use `(rf/inject-cofx
-         :realworld/now)` on any handler that stamps `:loaded-at`."}
+  {:doc "Inject the causal wall-clock time (ms since epoch) into coeffects
+         under `:realworld/now`, read from the dispatch envelope's
+         `:rf.world/inputs` `:time-ms` (EP-0010) rather than the host clock,
+         so `:loaded-at` durable writes are replay-deterministic. Use
+         `(rf/inject-cofx :realworld/now)` on any handler that stamps
+         `:loaded-at`."}
   (fn cofx-realworld-now [ctx]
-    (rf/assoc-coeffect ctx :realworld/now (.getTime (js/Date.)))))
+    (rf/assoc-coeffect ctx :realworld/now
+                       (:time-ms (rf/get-coeffect ctx :rf.world/inputs)))))
 
 ;; ============================================================================
 ;; FAILURE PROJECTION
