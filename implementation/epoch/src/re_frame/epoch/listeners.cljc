@@ -308,13 +308,20 @@
   (rf2-3aizt1, decision #2): the canonical snapshot unit is the whole
   frame-state; `build-record` derives the `:db-*` app-db projections.
 
+  `committed-at` (rf2-bh56rc) is the destroying event's causal `:time-ms`
+  (the router-bound `frame/*cascade-time-ms*`, threaded through
+  `destroy-frame!`), used for the `:halted-destroy` record's
+  `:committed-at` so it is replayable per EP-0010 §Time rather than an
+  ambient host-clock read at assembly time. nil outside a drain (no
+  `:halted-destroy` record is committed there, so the value is moot).
+
   Called from `re-frame.frame/destroy-frame!` via the
   `:epoch/on-frame-destroyed` late-bind hook. Idempotent across
   repeated destroys of the same frame — once a cb's entry no longer
   contains the frame-id, no further trace fires for that pair, and
   the (already-cleared) ring-buffer / capture-buffer entries stay
   absent."
-  [frame-id fs-before fs-after]
+  [frame-id fs-before fs-after committed-at]
   (when interop/debug-enabled?
     ;; Step 1: mid-drain destroy detection. The capture-buffer holds
     ;; every emit tagged with this frame, including non-cascade emits
@@ -344,6 +351,7 @@
         ;; redacted shape they would see for an :ok cascade record.
         (let [record (assembly/maybe-redact
                        (assembly/build-record frame-id fs-before fs-after buffered-events
+                                              committed-at
                                               :halted-destroy
                                               {:operation :rf.frame/destroyed-mid-drain}))]
           ;; Per rf2-18g1w / rf2-jppad — the cascade-trailer pair (detailed
