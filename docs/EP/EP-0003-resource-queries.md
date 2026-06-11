@@ -698,10 +698,17 @@ if it exists and can be cancelled. If the host cannot cancel it, the ledger and
 resource generation checks must still suppress the late reply. A stale reply
 must never be able to mutate a newer resource entry.
 
-SSR and tools should observe the ledger projection, not host handles. SSR waits
-on blocking ledger records, hydration serializes only the allowed cache and
-work-summary projection, and Xray answers "what is still running?" from ledger
-records joined to resource entries and trace causes.
+SSR and tools should observe the ledger projection, not host handles. SSR
+*waits on* blocking ledger records server-side, but the hydration payload
+serializes only the allowed **`:rf.runtime/resources` cache projection** —
+work-ledger rows do **not** ride hydration (in-flight work belongs to the server
+timeline that owns its host handles; the client has nothing to reconcile). Epoch
+restore (same-frame, same host) is the boundary that carries non-terminal
+work-ledger rows so the reconciler can dangle them. Xray answers "what is still
+running?" from ledger records joined to resource entries and trace causes. (The
+canonical statement is [Spec 016 §Frame work ledger](../../spec/016-Resources.md#frame-work-ledger)
+and the work-ledger graduation row in
+[Spec 016 §Runtime-subsystem graduation](../../spec/016-Resources.md#runtime-subsystem-graduation).)
 
 ### Resource Identity Is Data
 
@@ -2183,34 +2190,65 @@ need to know "this route owns `:article/by-slug`, it is stale, and the latest
 background refresh failed with a 503", not the full article body or user
 profile payload.
 
-This needs a trace/accessor contract, not only panel UI. Add a `:rf.resource/*`
-trace family with operations such as:
+This needs a trace/accessor contract, not only panel UI. The artefact adds a
+`:rf.resource/*` trace family. The **closed, runtime-emitted** operation set is
+the 28 ops below — every one is emitted by the Resources runtime. Xray defines
+the family (closed op set + per-op semantic class + label) in
+[Xray spec 024 §The `:rf.resource/*` trace family](../../tools/xray/spec/024-Resources-Panel.md);
+the emit catalogue is in
+[Spec 009 §Where trace emission lives](../../spec/009-Instrumentation.md#where-trace-emission-lives).
+Those two are the canonical sources; this list mirrors them.
 
 ```clojure
-:rf.resource/registered
-:rf.resource/ensure
-:rf.resource/owner-attached
-:rf.resource/cache-hit
-:rf.resource/deduped
-:rf.resource/fetch-started
-:rf.resource/work-started
+;; lifecycle
+:rf.resource/registered          ; first-time reg-resource (frame-agnostic)
+:rf.resource/owner-attached      ; a new owner lease lands on an entry
+:rf.resource/work-started        ; work-LEDGER row created (transport request started)
+:rf.resource/fetch-started       ; cache ENTRY transitioned to :fetching (emitted with work-started)
 :rf.resource/work-abort-requested
 :rf.resource/work-completed
-:rf.resource/work-suppressed
 :rf.resource/succeeded
-:rf.resource/failed
-:rf.resource/refresh-failed
-:rf.resource/invalidated
-:rf.resource/refetch-decision
+:rf.resource/refetch-decision    ; per-entry refetch decision
+:rf.resource/revalidate-scan     ; focus/reconnect active-stale scan summary
+:rf.resource/route-plan          ; route-entry resource planning summary
 :rf.resource/owner-released
-:rf.resource/gc-scheduled
-:rf.resource/gc-fired
-:rf.resource/gc-skipped
 :rf.resource/removed
+;; dedupe
+:rf.resource/cache-hit           ; fresh-skip ensure (serve cached, no fetch/join)
+:rf.resource/deduped             ; join in-flight work
+;; failure
+:rf.resource/failed              ; first-load failure → :error
+:rf.resource/refresh-failed      ; background-refresh failure, data kept
+;; invalidation
+:rf.resource/invalidated
+;; gc / stale scheduling
+:rf.resource/stale-scheduled     ; stale timer armed
+:rf.resource/stale-fired         ; stale timer fired
+:rf.resource/gc-scheduled        ; GC timer armed
+:rf.resource/gc-fired
+:rf.resource/gc-skipped          ; entry re-owned
+;; suppression (the SINGLE suppression op)
 :rf.resource/stale-suppressed
-:rf.resource/hydrated
-:rf.resource/hydrate-refetch
+;; hydration / restore
+:rf.resource/hydrated            ; SSR hydration reconcile
+:rf.resource/hydrate-refetch     ; per-entry hydrate refetch-plan row
+:rf.resource/hydrate-clock-skew  ; :warning — hydrate stale-at skew
+:rf.resource/restored            ; epoch/SSR restore reconcile summary
+:rf.resource/restore-clock-skew  ; :warning — restore stale-at skew
 ```
+
+Two ops named in earlier drafts are **NOT** members of this set:
+`:rf.resource/work-suppressed` was folded into `:rf.resource/stale-suppressed`
+(the runtime never emitted a distinct work-suppressed row — there is exactly one
+suppression op), and `:rf.resource/ensure` (with `:rf.resource/refetch` /
+`:rf.resource/remove` / `:rf.resource/window-focused` /
+`:rf.resource/network-reconnected` / `:rf.resource/invalidate-tags` /
+`:rf.resource/release-owner`) is a dispatched **event id**, not an emitted
+`:operation` — it appears in the stream only as the `:rf.event/dispatched`
+event vector, so it is not a member of the `trace-ops` family enum.
+`:rf.resource/work-started` and `:rf.resource/fetch-started` are the **two
+facets of a single start** (work-ledger row vs cache-entry transition), emitted
+together on the one start path — not first-load vs refresh.
 
 Every resource trace should carry, where applicable, frame, work id, scope,
 resource key, resource id, params summary, generation, request id, owner, cause,
