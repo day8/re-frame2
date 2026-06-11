@@ -79,7 +79,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.derivation.graph :as graph]
-            [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             ;; load-bearing side-effecting requires: each façade registers
@@ -93,6 +92,7 @@
             [re-frame.subs.tooling :as subs-tooling]
             [re-frame.flows.tooling :as flows-tooling]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace]))
 
 ;; ---------------------------------------------------------------------------
@@ -144,21 +144,40 @@
 ;; framework registrations are live (mirrors the composer test's fixture).
 ;; ---------------------------------------------------------------------------
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
+;; This suite installs the NON-React `plain-atom` substrate. Under the
+;; always-on `npm run test:cljs` gate EVERY `*-cljs-test` namespace compiles
+;; and runs in ONE shared CLJS bundle (one Node process, one process-global
+;; runtime — adapter slot, registrar, `frame/frames`). A bare per-test fixture
+;; that `clear-all!`s the registrar / installs an adapter and does NOT
+;; snapshot-and-restore on teardown strands state for the alphabetically-later
+;; suites in the bundle — exactly the run-order hazard
+;; `re-frame.test-support/make-reset-runtime-fixture` was built to absorb
+;; (rf2-7hwnu): it captures this ns's load-time registrar baseline, folds it
+;; back before each test, snapshots, and on the way out RESTORES the registrar
+;; AND disposes the installed adapter. The JVM-only composer test this suite
+;; mirrors (`re-frame.derivation-graph-test`, a `.clj`) can keep a bare
+;; `reset-runtime` because the JVM gate never shares a bundle with a React
+;; adapter; the CLJS bundle does (`re-frame.reg-view-react-key-cljs-test`'s
+;; `reagent.core/as-element` died with a null `reagent_component` React-
+;; internals read when this suite left the runtime dirty), so the conformance
+;; CLJS arm MUST use the disciplined fixture. `:init-fn` carries the
+;; per-test family-registration refresh (the `:reload`s the bare JVM fixture
+;; did inline) — it runs AFTER the adapter is installed and the registrar
+;; baseline is reinstated, BEFORE the test body, with the ambient
+;; `:rf/default` frame bound (the fixture's default `:ambient-frame`).
+(defn- refresh-families! []
   (flows/reset-flows!)
   (flows/reset-last-inputs!)
   (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
   #?(:clj (do (require 're-frame.routing :reload)
               (require 're-frame.resources :reload)
               (require 're-frame.machines :reload)))
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
-    (test-fn)))
+  (frame/ensure-default-frame!))
 
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn refresh-families!}))
 
 ;; ---------------------------------------------------------------------------
 ;; The contributor map — every family present (built explicitly so the suite
@@ -208,8 +227,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- register-one-of-each! []
-  ;; the seed event for the whole-value law (registered here so it survives
-  ;; the fixture's `registrar/clear-all!`).
+  ;; the seed event for the whole-value law (registered per-test, inside the
+  ;; fixture's restored registrar baseline).
   (rf/reg-event-db ::seed-cart
                    (fn [db [_ items]]
                      (assoc-in db [:cart :items] items)))
