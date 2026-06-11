@@ -41,7 +41,9 @@
             ;; rf2-bh56rc: `with-redefs`'d in the :committed-at causal-time
             ;; tests to a sentinel clock, proving the durable :committed-at
             ;; comes from the committing token's :time-ms, not an ambient
-            ;; `interop/now-ms` read at assembly time.
+            ;; clock read at assembly time. Both `now-ms` (elapsed clock) and
+            ;; `epoch-now-ms` (wall-clock, the surface the router stamps fresh
+            ;; tokens from — rf2-n1rh0f / EP-0010 §Time) are pinned.
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
@@ -183,10 +185,12 @@
 ;; Per EP-0010 §Time (epoch record causal time) + Spec 002 §The World-Input
 ;; Rule: the durable :committed-at fact MUST come from the committing causal
 ;; token's `:rf.world/inputs` :time-ms (read ONCE at the causal boundary,
-;; envelope construction), NOT an ambient `interop/now-ms` read at epoch
-;; assembly time. These tests pin that conversion: they stub `interop/now-ms`
-;; to a sentinel clock so a regression that re-reads the ambient clock at
-;; assembly would stamp the sentinel and fail loudly.
+;; envelope construction, from `interop/epoch-now-ms` per rf2-n1rh0f), NOT an
+;; ambient clock read at epoch assembly time. These tests pin that conversion:
+;; they stub BOTH host clocks (`interop/now-ms` + `interop/epoch-now-ms`) to a
+;; sentinel so a regression that re-reads the ambient clock at assembly would
+;; stamp the sentinel and fail loudly. The fresh-child test additionally
+;; relies on the `epoch-now-ms` pin to script the freshly-stamped token time.
 
 (deftest committed-at-comes-from-supplied-token-time-ms
   (testing "the durable :committed-at on a clean settle is the committing
@@ -196,10 +200,15 @@
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (let [token-time 1781078400123      ; the supplied causal token time
           clock-time 9999999999999]     ; the (wrong) ambient clock sentinel
-      ;; Stub the host clock to a value NOTHING legitimate should stamp into
+      ;; Stub BOTH host clocks (the elapsed `interop/now-ms` AND the
+      ;; wall-clock `interop/epoch-now-ms` the router stamps fresh tokens
+      ;; from — rf2-n1rh0f) to a value NOTHING legitimate should stamp into
       ;; the record. The router preserves a caller-supplied :time-ms (it only
-      ;; fills :time-ms when absent), so the token time below rides through.
-      (with-redefs [interop/now-ms (constantly clock-time)]
+      ;; fills :time-ms when absent), so the token time below rides through;
+      ;; pinning both clocks makes a regression that re-reads either ambient
+      ;; surface at assembly time stamp the sentinel and fail loudly.
+      (with-redefs [interop/now-ms       (constantly clock-time)
+                    interop/epoch-now-ms (constantly clock-time)]
         (rf/dispatch-sync [:seed] {:frame            :test/main
                                    :rf.world/inputs {:time-ms token-time}}))
       (let [r (last (rf/epoch-history :test/main))]
@@ -219,10 +228,15 @@
     (let [token-time 1781078400123]
       ;; First commit under one wall-clock, second under a DIFFERENT one —
       ;; both supply the SAME causal token :time-ms (the replay scenario).
-      (with-redefs [interop/now-ms (constantly 100)]
+      ;; Pin BOTH clock surfaces (elapsed `now-ms` + wall-clock
+      ;; `epoch-now-ms`, rf2-n1rh0f) so neither ambient read can leak into
+      ;; :committed-at across the drift.
+      (with-redefs [interop/now-ms       (constantly 100)
+                    interop/epoch-now-ms (constantly 100)]
         (rf/dispatch-sync [:seed] {:frame            :test/main
                                    :rf.world/inputs {:time-ms token-time}}))
-      (with-redefs [interop/now-ms (constantly 8888888888888)]
+      (with-redefs [interop/now-ms       (constantly 8888888888888)
+                    interop/epoch-now-ms (constantly 8888888888888)]
         (rf/dispatch-sync [:inc]  {:frame            :test/main
                                    :rf.world/inputs {:time-ms token-time}}))
       (let [history (rf/epoch-history :test/main)]
@@ -248,10 +262,14 @@
     (rf/reg-event-db :child (fn [db _] (update db :order conj :child)))
     (let [parent-time 1781078400123
           ;; The child has no supplied token, so the router stamps its
-          ;; :time-ms from `now-ms` — pinned to this sentinel by the redef.
+          ;; :time-ms fresh at the causal boundary (envelope construction) from
+          ;; `interop/epoch-now-ms` — the wall-clock-epoch surface for durable
+          ;; causal time (rf2-n1rh0f / EP-0010 §Time), NOT `interop/now-ms`
+          ;; (which is the elapsed-measurement clock: `performance.now()` on
+          ;; CLJS). Pinned to this sentinel by the redef below.
           child-clock 5550000000000]
       (rf/dispatch-sync [:seed] {:frame :test/main})
-      (with-redefs [interop/now-ms (constantly child-clock)]
+      (with-redefs [interop/epoch-now-ms (constantly child-clock)]
         (rf/dispatch-sync [:parent] {:frame            :test/main
                                      :rf.world/inputs {:time-ms parent-time}}))
       (let [history    (rf/epoch-history :test/main)
