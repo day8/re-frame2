@@ -12,17 +12,24 @@
   (distinct from the data-lifecycle `:rf.resource/invalidate-tags` /
   `:rf.resource/remove` / `:rf.resource/clear-scope` events).
 
-  This namespace owns the registration lifecycle only: validation + the
-  registry write/read (so an app can register a resource and Xray can
-  enumerate the static registry). `clear-resource` removes the registrar
-  entry; the per-frame runtime disposal of cached data (owner-index
-  release, host-handle cancel, in-flight abort, late-reply suppression,
-  tag-index prune, trace) is the app's job via the data-lifecycle events
-  (`:rf.resource/remove` / `:rf.resource/release-owner` /
-  `:rf.resource/clear-scope`), not a side effect of `clear-resource`."
-  (:require [re-frame.late-bind :as late-bind]
+  This namespace owns the registration lifecycle: validation + the registry
+  write/read (so an app can register a resource and Xray can enumerate the
+  static registry) PLUS, for `clear-resource`, the per-frame runtime
+  disposal of that resource id's live cache state. Per Spec 016
+  §clear-resource MUST-dispose (rf2-m9h5iq) `clear-resource` removes the
+  registrar entry AND disposes every live `:rf.runtime/resources` entry for
+  the id across registered frames (entries + reverse indexes recomputed,
+  stale / GC timers cancelled, in-flight work marked terminal + best-effort
+  aborted) so a late reply cannot recreate the cleared entries. The
+  data-lifecycle events (`:rf.resource/remove` / `:rf.resource/release-owner`
+  / `:rf.resource/clear-scope`) remain the in-cascade, scope/instance-grained
+  disposal surfaces."
+  (:require [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.resources.state :as state]
+            [re-frame.resources.timers :as timers]
+            [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
@@ -51,23 +58,16 @@
   resource resolver MUST."
   :rf.scope/from-caller)
 
-(def ^:private reserved-scope-ns
-  "The framework-reserved scope namespace (`:rf.scope/*`, per Conventions
-  §Reserved namespaces / the `:rf.<spec-area>/*` scheme). A *bare keyword*
-  in this namespace is a CLOSED reserved enum (`#{:rf.scope/global
-  :rf.scope/from-caller}`); any other `:rf.scope/*` bare keyword is a typo
-  and a loud registration error, NOT a literal scope. Note a scope VALUE
-  like `[:rf.scope/session {…}]` is a vector tuple, not a bare keyword —
-  the reserved namespace governs only the bare-keyword *policy* slot."
-  "rf.scope")
-
 (defn- reserved-scope-namespace?
   "True when `scope` is a bare keyword in the framework-reserved
   `:rf.scope/*` namespace — i.e. a candidate for the closed scope-policy
   enum. A non-keyword (a `[:rf.scope/session …]` tuple, a map, a string)
-  is NOT in the bare-keyword reserved slot."
+  is NOT in the bare-keyword reserved slot. Reuses the shared
+  `state/reserved-scope-ns` constant (one source of truth for the reserved
+  namespace across the policy gate here and the concrete-scope gate in
+  `state`)."
   [scope]
-  (and (keyword? scope) (= reserved-scope-ns (namespace scope))))
+  (and (keyword? scope) (= state/reserved-scope-ns (namespace scope))))
 
 (defn- valid-scope-policy?
   "A scope policy is one of the reserved enum keywords
@@ -199,20 +199,93 @@
                     :gc-after-ms    (:gc-after-ms resource-spec)})))
   resource-id)
 
+(defn- entry-keys-for-resource
+  "The scoped keys in `runtime-db`'s `:entries` whose resource id (the
+  SECOND element of `[scope resource-id params]`) is `resource-id`."
+  [runtime-db resource-id]
+  (into []
+        (comp (map key) (filter (fn [[_scope rid _params]] (= rid resource-id))))
+        (get-in runtime-db (state/entries-path))))
+
+(defn- dispose-resource-runtime!
+  "Dispose every live runtime entry for `resource-id` in ONE frame (Spec 016
+  §clear-resource MUST-dispose, rf2-m9h5iq). Atomically (through
+  `frame/swap-runtime-db!`, the framework-authority out-of-cascade runtime-db
+  write surface routing / machine spawn use): removes the resource's
+  `:entries`, marks each in-flight work record terminal `:suppressed` (so a
+  late reply's `live-entry-for-reply` existence check finds nothing to write
+  into — the entry is gone — and the ledger row is settled), and recomputes
+  `:tag-index` / `:owner-index` from what remains. Then, host-side: cancels
+  each entry's advisory stale / GC timers and best-effort aborts each
+  in-flight attempt (opportunistic; stale suppression by removed-entry is the
+  correctness boundary). Emits a `:rf.resource/removed` trace row
+  (`:reason :clear-resource`) for the frame when anything was disposed.
+  Returns the disposed scoped keys (possibly empty)."
+  [frame-id resource-id]
+  (let [runtime-db (or (frame/frame-runtime-db-value frame-id) {})
+        keys'      (entry-keys-for-resource runtime-db resource-id)]
+    (when (seq keys')
+      (let [in-flight (into []
+                            (keep (fn [k]
+                                    (let [e   (get-in runtime-db (state/entry-path k))
+                                          wid (:current-work e)]
+                                      (when wid
+                                        [wid (:transport (work-ledger/get-record runtime-db wid))]))))
+                            keys')]
+        ;; durable disposal — atomic on the frame's runtime-db partition
+        (frame/swap-runtime-db!
+          frame-id
+          (fn [rdb]
+            (-> (or rdb {})
+                (update-in (state/entries-path) (fn [es] (reduce dissoc es keys')))
+                (as-> db (reduce (fn [d [wid _]]
+                                   (work-ledger/update-record
+                                     d wid work-ledger/mark-terminal
+                                     :suppressed {:reason :clear-resource}))
+                                 db in-flight))
+                (update state/resources-key state/recompute-indexes))))
+        ;; host-side disposal — release advisory timers + opportunistically
+        ;; abort each in-flight attempt. Correctness rests on the removed
+        ;; entry (a late reply's existence check finds nothing), NOT on the
+        ;; abort landing; `opportunistic-abort!` fires any direct host handle
+        ;; and drops the side-table slot — the SAME best-effort path the
+        ;; frame-destroy teardown uses (Spec 016 §Cancellation is
+        ;; opportunistic).
+        (doseq [k keys']
+          (timers/cancel-for-key! frame-id k))
+        (doseq [[wid _transport] in-flight]
+          (work-ledger/opportunistic-abort! frame-id wid))
+        (trace/emit! :rf.event :rf.resource/removed
+                     {:rf.frame/id frame-id :resource-id resource-id
+                      :reason :clear-resource :removed (vec keys')
+                      :aborted (mapv first in-flight)})))
+    keys'))
+
 (defn clear-resource
-  "Remove a registered resource (registration-lifecycle, NOT data
-  invalidation). Per Spec 016 §Public API §Registration.
+  "Remove a registered resource AND dispose its live per-frame runtime state.
+  Per Spec 016 §Public API §Registration / §clear-resource MUST-dispose
+  (rf2-m9h5iq).
 
-  Clears the registrar entry. This is registration-lifecycle only: it does
-  NOT dispose the per-frame resource-runtime state for the id (owner
-  indexes, timers / host handles, in-flight requests, cached rows). Cached
-  data is managed through the data-lifecycle events
+  Clears the registrar entry, then for every registered frame disposes the
+  resource id's live cache state: removes its `:rf.runtime/resources`
+  `:entries`, recomputes the reverse `:tag-index` / `:owner-index`, cancels
+  its stale / GC timers and host handles, marks any in-flight work terminal
+  `:suppressed`, and best-effort aborts those attempts. A late reply cannot
+  recreate the cleared entries — its existence check finds the entry gone.
+
+  The scope/instance-grained data-lifecycle events
   (`:rf.resource/invalidate-tags` / `:rf.resource/remove` /
-  `:rf.resource/clear-scope`) instead.
+  `:rf.resource/clear-scope`) remain the in-cascade disposal surfaces;
+  `clear-resource` is the process-level registration removal that ALSO
+  disposes (the registration is gone, so leaving live entries would strand a
+  permanent unrefreshable cache).
 
-  No-op (returns `resource-id`) when the id is not registered."
+  No-op (returns `resource-id`) when the id is not registered and no frame
+  holds a live entry for it."
   [resource-id]
   (registrar/unregister! resource-kind resource-id)
+  (doseq [frame-id (frame/frame-ids)]
+    (dispose-resource-runtime! frame-id resource-id))
   resource-id)
 
 ;; ---- registry-side introspection -----------------------------------------
@@ -295,12 +368,17 @@
 ;; either path.
 
 (defn- canonical-scope!
-  "Reject a non-EDN scope value (host / opaque) and return the canonical
-  scope. Per Spec 016 §Resource identity (a scope map gets the SAME
-  canonicalization as params)."
+  "Route a CONCRETE resolved scope through the single shared concrete-scope
+  validation path (`state/canonicalize-scope`, rf2-lzv9xc): reject a
+  reserved-namespace typo fail-closed (rf2-pd7akw), reject a host / opaque
+  value, normalize the historical `[:rf.scope/global]` singleton-vector
+  spelling to bare `:rf.scope/global` (rf2-vv87xz), then canonicalize. Per
+  Spec 016 §Resource identity / §Scope resolution. Used by both event and
+  sub scope resolution, so a misspelled reserved `:rf.scope/*` in a payload /
+  route-resolver / fn-of-nothing / pure-data policy is caught at the concrete
+  boundary, not silently accepted as a literal scope."
   [resource-id scope where]
-  (state/reject-non-edn! scope where :scope resource-id)
-  (state/canonicalize scope))
+  (state/canonicalize-scope scope where resource-id))
 
 (defn resolve-scope-for-event
   "Resolve the concrete cache scope for a resource EVENT, fail-closed, in

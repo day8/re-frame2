@@ -39,6 +39,7 @@
    ;; dispatch / subscribe to.
    [re-frame.resources]
    [re-frame.resources.registry :as registry]
+   [re-frame.resources.mutation-registry :as mreg]
    [re-frame.resources.state :as state]
    [re-frame.resources.subs :as subs]
    [re-frame.resources.test-support]
@@ -492,3 +493,191 @@
   (testing "the :resource registrar kind is valid (skeleton invariant held)"
     (is (registrar/valid-kind? :resource))
     (is (not (registrar/valid-kind? :query)))))
+
+;; ===========================================================================
+;; 13. Concrete-scope typo rejection at resolution boundaries (rf2-pd7akw)
+;; ===========================================================================
+
+(deftest reserved-scope-typo-rejected-at-concrete-boundaries
+  (rf/reg-resource :tp/article (article-spec {:scope :rf.scope/from-caller}))
+  (let [spec (registry/resource-meta :tp/article)]
+    (testing "rf2-pd7akw — a misspelled reserved :rf.scope/* keyword on an
+              EVENT payload is rejected fail-closed (never a silent wrong
+              cache scope)"
+      (is (thrown-with-msg?
+            #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
+            (registry/resolve-scope-for-event
+              :tp/article spec {:payload-scope :rf.scope/glabal} 'test))))
+    (testing "rf2-pd7akw — a misspelled reserved :rf.scope/* keyword on a
+              SUBSCRIPTION payload is rejected fail-closed too"
+      (is (thrown-with-msg?
+            #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
+            (registry/resolve-scope-for-sub
+              :tp/article spec :rf.scope/sesssion 'test))))
+    (testing "rf2-pd7akw — :rf.scope/from-caller reaching a CONCRETE boundary
+              as a payload value (not a policy) is a typo-class rejection"
+      (is (thrown-with-msg?
+            #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
+            (registry/resolve-scope-for-event
+              :tp/article spec {:payload-scope :rf.scope/from-caller} 'test))))
+    (testing "an APP-namespaced keyword scope is a legitimate literal scope
+              (only the framework-reserved namespace is fail-closed)"
+      (is (= :my.app/tenant
+             (registry/resolve-scope-for-event
+               :tp/article spec {:payload-scope :my.app/tenant} 'test))))
+    (testing "a vector-tuple scope [:rf.scope/session {…}] is a value, not a
+              bare-keyword typo — accepted"
+      (is (= [:rf.scope/session {:tenant "acme"}]
+             (registry/resolve-scope-for-event
+               :tp/article spec {:payload-scope [:rf.scope/session {:tenant "acme"}]}
+               'test))))))
+
+;; ===========================================================================
+;; 14. Singleton-vector [:rf.scope/global] cannot create a 2nd global key
+;;     (rf2-vv87xz, impl/guard half)
+;; ===========================================================================
+
+(deftest singleton-vector-global-normalizes-to-bare-global
+  (testing "rf2-vv87xz — a [:rf.scope/global] payload normalizes to the bare
+            :rf.scope/global so it collapses to the SAME global cache key the
+            implementation resolves an explicit-global policy to (it cannot
+            silently create a second, distinct global key)"
+    (let [k-bare      (state/canonicalize-scope :rf.scope/global 'test :r/x)
+          k-singleton (state/canonicalize-scope [:rf.scope/global] 'test :r/x)]
+      (is (= :rf.scope/global k-bare))
+      (is (= :rf.scope/global k-singleton)
+          "singleton-vector spelling collapses to the bare canonical scope")
+      (is (= k-bare k-singleton) "both spellings produce ONE global cache key")))
+  (testing "rf2-vv87xz — end-to-end: an ensure under :rf.scope/global and a
+            sub under [:rf.scope/global] read the SAME entry (no second key)"
+    (rf/reg-resource :gv/article (article-spec))
+    (let [bare-key (state/scoped-resource-key :rf.scope/global :gv/article {:slug "w"})]
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :gv/article :scope :rf.scope/global
+                                              :params {:slug "w"} :owner [:lease 1]}])
+      (let [wid (:current-work (entry bare-key))]
+        (rf/dispatch-sync [:rf.resource.internal/succeeded
+                           {:resource-key bare-key :work-id wid :generation 1
+                            :data {:title "W"}}]))
+      ;; a sub payload using the historical singleton-vector spelling resolves
+      ;; to the SAME bare key — it reads the loaded entry, not a fresh skeleton.
+      (is (= bare-key
+             (subs/resolve-scoped-key {:resource :gv/article
+                                       :scope [:rf.scope/global]
+                                       :params {:slug "w"}}))))))
+
+;; ===========================================================================
+;; 15. clear-resource disposes live runtime state (rf2-m9h5iq)
+;; ===========================================================================
+
+(deftest clear-resource-disposes-runtime-state
+  (rf/reg-resource :cr/article (article-spec))
+  (let [loaded-key  (state/scoped-resource-key :rf.scope/global :cr/article {:slug "loaded"})
+        inflight-key (state/scoped-resource-key :rf.scope/global :cr/article {:slug "inflight"})]
+    ;; one LOADED entry (with tags + an active owner → indexed)
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :cr/article :scope :rf.scope/global
+                                            :params {:slug "loaded"} :owner [:lease :cr 1]}])
+    (let [wid (:current-work (entry loaded-key))]
+      (rf/dispatch-sync [:rf.resource.internal/succeeded
+                         {:resource-key loaded-key :work-id wid :generation 1
+                          :data {:title "L"} :tags #{[:article "loaded"]}}]))
+    ;; one IN-FLIGHT entry (still :loading, has :current-work)
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :cr/article :scope :rf.scope/global
+                                            :params {:slug "inflight"} :owner [:lease :cr 2]}])
+    (is (= :loaded (:status (entry loaded-key))))
+    (is (some? (:current-work (entry inflight-key))) "in-flight entry has live work")
+    (is (seq (get-in (runtime-db) (state/tag-index-path))) "tag index populated")
+    (is (seq (get-in (runtime-db) (state/owner-index-path))) "owner index populated")
+    (let [inflight-wid (:current-work (entry inflight-key))]
+      ;; CLEAR the resource (registration-lifecycle + runtime disposal)
+      (registry/clear-resource :cr/article)
+      (testing "rf2-m9h5iq — clear-resource removes the registrar entry"
+        (is (nil? (registry/resource-meta :cr/article))))
+      (testing "rf2-m9h5iq — every live entry for the id is removed from
+                :rf.runtime/resources :entries"
+        (is (nil? (entry loaded-key)))
+        (is (nil? (entry inflight-key))))
+      (testing "rf2-m9h5iq — reverse indexes are recomputed/pruned"
+        (is (empty? (get-in (runtime-db) (state/tag-index-path))))
+        (is (empty? (get-in (runtime-db) (state/owner-index-path)))))
+      (testing "rf2-m9h5iq — the in-flight work record is settled terminal
+                (:suppressed) so the ledger row is not left in-flight"
+        (let [rec (get-in (runtime-db) (state/work-record-path inflight-wid))]
+          ;; record may be pruned or marked terminal; if present it must be
+          ;; the terminal :suppressed status, never still in-flight.
+          (when rec
+            (is (= :suppressed (:status rec))))))
+      (testing "rf2-m9h5iq — a LATE reply for a cleared in-flight entry cannot
+                recreate it (its existence check finds the entry gone)"
+        (rf/dispatch-sync [:rf.resource.internal/succeeded
+                           {:resource-key inflight-key :work-id inflight-wid
+                            :generation 1 :data {:title "late"}}])
+        (is (nil? (entry inflight-key))
+            "late reply suppressed — no resurrected entry")))))
+
+;; ===========================================================================
+;; 16. mutation scope routes through shared validation (rf2-lzv9xc)
+;; ===========================================================================
+
+(deftest mutation-scope-routes-through-shared-validation
+  (testing "rf2-lzv9xc — a mutation execute-payload scope that is a reserved
+            :rf.scope/* typo is rejected through the same path resources use"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
+          (mreg/resolve-scope :m/x {} :rf.scope/glabal))))
+  (testing "rf2-lzv9xc — a host / opaque mutation scope value is rejected"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
+          (mreg/resolve-scope :m/x {} {:fn (fn [])}))))
+  (testing "rf2-lzv9xc — the default global scope still resolves, and the
+            [:rf.scope/global] spelling normalizes to bare (no 2nd key)"
+    (is (= :rf.scope/global (mreg/resolve-scope :m/x {} nil)))
+    (is (= :rf.scope/global (mreg/resolve-scope :m/x {} [:rf.scope/global])))))
+
+;; ===========================================================================
+;; 17. resource-state fails closed without an explicit frame (rf2-c8lgy3)
+;; ===========================================================================
+
+(deftest resource-state-fails-closed-without-frame
+  (rf/reg-resource :rs/article (article-spec))
+  (testing "rf2-c8lgy3 — a frameless resource-state call raises
+            :rf.error/no-frame-context (never a silent nil that is
+            indistinguishable from an absent entry)"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"no-frame-context"
+          (re-frame.resources/resource-state
+            {:resource :rs/article :scope :rf.scope/global :params {:slug "w"}}))))
+  (testing "rf2-c8lgy3 — a valid explicit frame returns nil ONLY for a
+            genuinely absent entry"
+    (is (nil? (re-frame.resources/resource-state
+                {:resource :rs/article :scope :rf.scope/global
+                 :params {:slug "absent"} :frame :rf/default}))))
+  (testing "rf2-c8lgy3 — a valid explicit frame returns the entry when present"
+    (let [k (state/scoped-resource-key :rf.scope/global :rs/article {:slug "w"})]
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :rs/article :scope :rf.scope/global
+                                              :params {:slug "w"} :owner [:lease 1]}])
+      (let [wid (:current-work (entry k))]
+        (rf/dispatch-sync [:rf.resource.internal/succeeded
+                           {:resource-key k :work-id wid :generation 1
+                            :data {:title "W"}}]))
+      (is (some? (re-frame.resources/resource-state
+                   {:resource :rs/article :scope :rf.scope/global
+                    :params {:slug "w"} :frame :rf/default}))))))
+
+;; ===========================================================================
+;; 18. param canonicalization is total over mixed EDN key types (rf2-ptz7z8)
+;; ===========================================================================
+
+(deftest param-canonicalization-total-over-mixed-keys
+  (testing "rf2-ptz7z8 — a params map mixing keyword and string keys
+            canonicalizes deterministically (no raw ClassCastException)"
+    (let [c1 (state/canonicalize {:b 1 "a" 2 :a 3 "z" 4})
+          c2 (state/canonicalize {"z" 4 :a 3 "a" 2 :b 1})]
+      (is (= c1 c2) "key-order-independent over mixed key types")
+      (is (= {:b 1 "a" 2 :a 3 "z" 4} c1) "values preserved")))
+  (testing "rf2-ptz7z8 — mixed nil / number / boolean / keyword / string keys
+            all order deterministically"
+    (let [m {nil 0 1 :one true :t :kw :k "s" :str}]
+      (is (= (state/canonicalize m) (state/canonicalize (into {} (shuffle (seq m))))))))
+  (testing "rf2-ptz7z8 — a scoped key built from mixed-key params is stable"
+    (is (= (state/scoped-resource-key :rf.scope/global :r/x {:a 1 "b" 2})
+           (state/scoped-resource-key :rf.scope/global :r/x {"b" 2 :a 1})))))
