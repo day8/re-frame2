@@ -66,6 +66,7 @@
             [re-frame.resources.mutation-runtime :as mstate]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.reply :as rreply]
+            [re-frame.resources.scope-registry :as scope-registry]
             [re-frame.resources.state :as state]
             [re-frame.resources.transport :as transport]
             [re-frame.resources.work-ledger :as work-ledger]
@@ -208,22 +209,123 @@
       populates)
     [runtime-db #{} {}]))
 
-(defn- invalidation-fx
-  "Build the `:rf.resource/invalidate-tags` dispatch fx (or nil) for the
-  mutation's `:invalidates` result. `:invalidates` is
-  `(fn [params result] -> #{tag …})`. The invalidation is SCOPED to the
-  mutation's resolved scope (same cache-scope rules as resources); it
-  composes with the landed exact-tag invalidation (`:rf.resource/invalidate-
-  tags`) wholesale — the runtime does not re-implement the invalidation, it
-  causes it. Returns a `[:dispatch …]` fx pair, or nil when the mutation
-  invalidates nothing. Per EP-0003 §Mutations (tag invalidation from
-  success / failure)."
-  [invalidates-fn params result scope mutation-id instance-id]
-  (when-let [tags (when invalidates-fn (not-empty (set (invalidates-fn params result))))]
-    [:dispatch [:rf.resource/invalidate-tags
-                {:scope scope
-                 :tags  tags
-                 :cause [:mutation mutation-id instance-id]}]]))
+;; ---- scoped invalidation descriptors (EP-0016 D2 / slice 5) ---------------
+;;
+;; The mutation `:invalidates` arm now lowers TWO public forms — the bare
+;; tag-set shorthand AND the per-target descriptor form — into ONE canonical
+;; descriptor vector (the pure `mstate/normalize-invalidation-descriptors`),
+;; then resolves each descriptor's OWN scope and dispatches the SINGLE scoped
+;; invalidation engine (`:rf.resource/invalidate-tags`) once per descriptor.
+;; The runtime does not re-implement the invalidation — it causes it, once per
+;; resolved `(tags, scope)` pair (Spec 016 §Scoped invalidation descriptors).
+
+(defn- resolve-descriptor-scope
+  "Resolve ONE invalidation descriptor's `:scope` to a concrete cache scope at
+  settle time, against the mutation's resolved scope `mut-scope` and the
+  handler's app-db coeffect `db` (the EP-0010-coherent causal input). Returns
+  `[:resolved <concrete-scope>]`, `[:cross-scope]` (the audited escape — no
+  concrete scope, the engine ignores the scope filter), or `[:nil-resolved
+  <from-db-id>]` (a `{:from-db …}` reference that resolved nil — FAIL-CLOSED:
+  this descriptor produces NO invalidation, never an implicit global blast).
+  Per Spec 016 §Scoped invalidation descriptors / §Resolver references.
+
+    - `:rf.scope/same` (the default) -> the mutation's resolved scope;
+    - `:rf.scope/global` / a concrete value -> routed through the SHARED
+      `state/canonicalize-scope` (typo / host / global-spelling guarantees);
+    - `{:from-db <id>}` -> resolved against `db` at use time, nil fail-closed;
+    - a `:cross-scope? true` descriptor -> `[:cross-scope]` (scope-agnostic by
+      construction; its `:scope`, if any, is advisory only)."
+  [{:keys [scope cross-scope?]} mut-scope db where]
+  (cond
+    cross-scope?                                [:cross-scope]
+    (= scope mstate/same-scope-marker)          [:resolved mut-scope]
+    (scope-registry/from-db-reference? scope)   (if-let [s (scope-registry/resolve-from-db-reference scope db where)]
+                                                  [:resolved (state/canonicalize-scope s where nil)]
+                                                  [:nil-resolved (:from-db scope)])
+    :else                                       [:resolved (state/canonicalize-scope scope where nil)]))
+
+(defn- invalidation-plan
+  "Resolve the mutation's `:invalidates` result into the per-descriptor
+  invalidation plan at settle time. `:invalidates` is
+  `(fn [params result] -> <tag-set | descriptor | descriptor-vector>)`
+  (Spec 016 §Scoped invalidation descriptors / §Cache-consequence callback
+  signatures — the one canonical `(params result)` signature, NO `db`/`ctx`).
+
+  The raw result lowers (purely) into the canonical descriptor vector; each
+  descriptor's OWN scope is resolved against the mutation's resolved scope
+  `mut-scope` and the handler app-db `db` at settle time (the single use-time
+  rule for `{:from-db …}` references). A `:rf.scope/same` (default) descriptor
+  resolves to `mut-scope`; a concrete / `:rf.scope/global` scope is canonicalized;
+  a `:cross-scope? true` descriptor lowers to the audited scope-agnostic engine
+  path; a `{:from-db …}` reference that resolves NIL is FAIL-CLOSED — it is
+  recorded in `:unresolved` and produces NO dispatch (never an implicit global
+  blast).
+
+  Returns `nil` when the mutation has no `:invalidates` fn, else a plan map
+  `{:dispatches [<resolved-descriptor> …] :unresolved [<from-db-id> …]
+  :descriptor-count <n>}` — the caller turns `:dispatches` into the
+  per-descriptor `:rf.resource/invalidate-tags` fx and attaches the whole plan
+  (incl. the fail-closed `:unresolved` evidence) to the mutation settlement
+  trace (the descriptor-level invalidation evidence Spec 016 §Trace evidence
+  for invalidation prescribes, recorded on the existing `:rf.mutation/*`
+  settlement op rather than a new trace op). Per EP-0003 §Mutations / EP-0016 D2."
+  [invalidates-fn params result mut-scope db where]
+  (when invalidates-fn
+    (let [descriptors (mstate/normalize-invalidation-descriptors
+                        (invalidates-fn params result) where)]
+      (reduce
+        (fn [plan {:keys [tags cross-scope? refetch-populated?] :as descriptor}]
+          (if-not (seq tags)
+            plan
+            (let [[outcome scope-or-id] (resolve-descriptor-scope
+                                          descriptor mut-scope db where)]
+              (case outcome
+                :nil-resolved
+                (update plan :unresolved conj scope-or-id)
+                :cross-scope
+                (update plan :dispatches conj
+                        {:scope nil :cross-scope? true :tags tags
+                         :refetch-populated? refetch-populated?})
+                :resolved
+                (update plan :dispatches conj
+                        {:scope scope-or-id :cross-scope? false :tags tags
+                         :refetch-populated? refetch-populated?})))))
+        {:dispatches [] :unresolved [] :descriptor-count (count descriptors)}
+        descriptors))))
+
+(defn- plan->fx
+  "Turn an `invalidation-plan` `:dispatches` vector into the per-descriptor
+  `[:dispatch [:rf.resource/invalidate-tags …]]` fx — one dispatch into the
+  SINGLE scoped invalidation engine per resolved descriptor. Returns nil when
+  the plan dispatches nothing (so the caller's `cond->` skips it)."
+  [plan cause]
+  (not-empty
+    (mapv (fn [{:keys [scope cross-scope? tags]}]
+            [:dispatch [:rf.resource/invalidate-tags
+                        (cond-> {:tags tags :cause cause}
+                          (some? scope) (assoc :scope scope)
+                          cross-scope?  (assoc :cross-scope? true))]])
+          (:dispatches plan))))
+
+(defn- plan-tags
+  "The union of every dispatched descriptor's tags (the invalidated-tags trace
+  reservation / `:patch-summary` facet)."
+  [plan]
+  (into #{} (mapcat :tags) (:dispatches plan)))
+
+(defn- plan-trace
+  "The descriptor-level invalidation evidence facet for the mutation settlement
+  trace (Spec 016 §Trace evidence for invalidation): the descriptor count, the
+  per-descriptor resolved `(scope, cross-scope?, tags)`, and the fail-closed
+  `:unresolved` `{:from-db …}` ids (descriptors that resolved nil and produced
+  no invalidation). nil-safe (an absent plan yields nil)."
+  [plan]
+  (when plan
+    {:descriptor-count (:descriptor-count plan)
+     :dispatched (mapv (fn [{:keys [scope cross-scope? tags]}]
+                         {:scope scope :cross-scope? cross-scope? :tags (vec tags)})
+                       (:dispatches plan))
+     :unresolved (vec (:unresolved plan))}))
 
 ;; ---- mutation completion continuation — call-site :reply-to (D1) -----------
 ;;
@@ -315,7 +417,7 @@
 
   Returns the event-fx map (`:rf.db/runtime` + `:fx`)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation
-    world :rf.world/inputs}
+    world :rf.world/inputs, app-db :db}
    [_event-id {:keys [mutation params instance scope cause reply-to] :as _payload}]]
   (let [where      'rf.mutation/execute
         runtime-db (or rt {})
@@ -357,8 +459,14 @@
         http-args  ((:request spec) cparams nil)
         invalidate-timing (or (:invalidate-timing spec) :after-success)
         before?    (= :before-request invalidate-timing)
-        before-fx  (when before?
-                     (invalidation-fx (:invalidates spec) cparams nil cscope mutation instance-id))
+        ;; EP-0016 D2: a `:before-request` invalidation resolves descriptor
+        ;; scopes (incl. `{:from-db …}`) against the EXECUTE-time app-db (the
+        ;; causal coeffect db), then lowers each descriptor into one dispatch
+        ;; of the single scoped invalidation engine.
+        before-plan (when before?
+                      (invalidation-plan (:invalidates spec) cparams nil cscope app-db where))
+        before-fxs  (when before-plan
+                      (plan->fx before-plan [:mutation mutation instance-id]))
         instance'  (mstate/empty-instance
                      mutation instance-id
                      {:scope cscope :params cparams :cause cause
@@ -411,9 +519,13 @@
                        (assoc-in (mstate/instance-path instance-id) instance')
                        (work-ledger/put-record work-id record))]
     (trace/emit! :rf.event :rf.mutation/started
-                 {:rf.frame/id frame-id :mutation mutation :instance instance-id
-                  :work-id work-id :generation generation :scope cscope
-                  :cause cause :invalidate-timing invalidate-timing})
+                 (cond-> {:rf.frame/id frame-id :mutation mutation :instance instance-id
+                          :work-id work-id :generation generation :scope cscope
+                          :cause cause :invalidate-timing invalidate-timing}
+                   ;; EP-0016 D2: a `:before-request` invalidation attaches its
+                   ;; descriptor-level evidence (resolved scopes + fail-closed
+                   ;; nil-resolved `{:from-db …}` ids) to the started trace.
+                   before-plan (assoc :invalidation (plan-trace before-plan))))
     {:rf.db/runtime rdb'
      ;; rf2-agrjvk — `:before-request` invalidation must precede the request
      ;; being lowered to transport. fx run in order, so the invalidation
@@ -427,8 +539,8 @@
                   [:rf.resource/record-work-handle
                    {:frame-id frame-id :work-id work-id
                     :transport transport-id :request-id request-id}]]
-           before-fx (conj before-fx)
-           true      (conj lower-fx))}))
+           before-fxs (into before-fxs)
+           true       (conj lower-fx))}))
 
 ;; ---- :rf.mutation/clear — causal instance reset ---------------------------
 
@@ -645,9 +757,10 @@
   (the instance-layer spelling — kh9jz6 / EP-0007).
 
   Event shape: `[_ <verification-payload> <http-result>]`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs, app-db :db}
    [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope reply-to] :as payload} http-result]]
-  (let [runtime-db (or rt {})
+  (let [where      'rf.mutation.internal/succeeded
+        runtime-db (or rt {})
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
         ;; And Work-Ledger Timestamps: the reply is a CAUSAL TOKEN; the host
         ;; completion time (`:completed-at`, read ONCE at the transport
@@ -699,13 +812,20 @@
             [rdb2 populated-ks populate-policies] (apply-populates rdb1 (:populates spec) params result clock-ms)
             patch-affected      (set/union patched-ks populated-ks)
             timer-policies      (merge patch-policies populate-policies)
-            ;; the success-time invalidation tags (scoped). The patch already
-            ;; freshened the keys it touched; the invalidation reaches the
-            ;; OTHER tagged entries (lists, siblings) the patch did not seed.
-            inv-fx      (when (#{:after-success :after-settle} timing)
-                          (invalidation-fx (:invalidates spec) params result scope
-                                           mutation-id instance-id))
-            inv-tags    (when inv-fx (get-in inv-fx [1 1 :tags]))
+            ;; the success-time invalidation (EP-0016 D2: per-descriptor
+            ;; scoped). The patch already freshened the keys it touched; the
+            ;; invalidation reaches the OTHER tagged entries (lists, siblings)
+            ;; the patch did not seed. Each descriptor resolves its OWN scope
+            ;; (incl. `{:from-db …}` against this reply's app-db at settle time)
+            ;; and lowers into one dispatch of the single scoped invalidation
+            ;; engine; a nil-resolving `{:from-db …}` is fail-closed (recorded
+            ;; in the plan `:unresolved`, no dispatch).
+            inv-plan    (when (#{:after-success :after-settle} timing)
+                          (invalidation-plan (:invalidates spec) params result scope app-db where))
+            inv-fxs     (when inv-plan (plan->fx inv-plan [:mutation mutation-id instance-id]))
+            ;; the union of every dispatched descriptor's tags (the affected-key
+            ;; / patch-summary trace reservation records the invalidated tags).
+            inv-tags    (when inv-plan (plan-tags inv-plan))
             ;; the affected-key / patch-summary trace reservation (optimistic
             ;; rollback shape — DEFERRED; populated descriptively here)
             affected    (vec patch-affected)
@@ -763,12 +883,17 @@
                            :status (:status reply)})]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.mutation/succeeded
-                     {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
-                      :work-id work-id :generation generation
-                      :affected-keys affected :patch-summary patch-summary})
+                     (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
+                              :work-id work-id :generation generation
+                              :affected-keys affected :patch-summary patch-summary}
+                       ;; EP-0016 D2: the descriptor-level invalidation evidence
+                       ;; (resolved scope per descriptor + fail-closed
+                       ;; nil-resolved `{:from-db …}` ids) rides the settlement
+                       ;; trace (Spec 016 §Trace evidence for invalidation).
+                       inv-plan (assoc :invalidation (plan-trace inv-plan))))
         {:rf.db/runtime rdb'
          :fx (cond-> (vec timer-fx)
-               inv-fx  (conj inv-fx)
+               inv-fxs (into inv-fxs)
                cont-fx (conj cont-fx))}))))
 
 (defn failed-handler
@@ -788,9 +913,10 @@
   `:error` stores) is read back from the canonical reply.
 
   Event shape: `[_ <verification-payload> <http-result>]`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs, app-db :db}
    [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope reply-to] :as payload} http-result]]
-  (let [runtime-db (or rt {})
+  (let [where      'rf.mutation.internal/failed
+        runtime-db (or rt {})
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
         ;; And Work-Ledger Timestamps: a terminal mutation reply writes
         ;; `:settled-at` from the reply completion time. The host
@@ -831,11 +957,13 @@
             clock-ms completed-at
             ;; failure-time invalidation (only when the timing opts in):
             ;; some mutations invalidate on failure to force a re-read of
-            ;; the authoritative server state after a rejected write.
-            inv-fx   (when (#{:after-failure :after-settle} timing)
-                       (invalidation-fx (:invalidates spec) params nil scope
-                                        mutation-id instance-id))
-            inv-tags (when inv-fx (get-in inv-fx [1 1 :tags]))
+            ;; the authoritative server state after a rejected write. EP-0016
+            ;; D2: per-descriptor scoped (the failure result is nil, so
+            ;; descriptor fns close over only `params`).
+            inv-plan (when (#{:after-failure :after-settle} timing)
+                       (invalidation-plan (:invalidates spec) params nil scope app-db where))
+            inv-fxs  (when inv-plan (plan->fx inv-plan [:mutation mutation-id instance-id]))
+            inv-tags (when inv-plan (plan-tags inv-plan))
             inst'    (mstate/instance-failed
                        inst {:error error :settled-at clock-ms
                              :affected-keys (when inv-tags [])})
@@ -864,10 +992,13 @@
                         :status (:status reply)})]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.mutation/failed
-                     {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
-                      :work-id work-id :generation generation :error error
-                      :invalidated-tags (vec (or inv-tags #{}))})
+                     (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
+                              :work-id work-id :generation generation :error error
+                              :invalidated-tags (vec (or inv-tags #{}))}
+                       ;; EP-0016 D2: descriptor-level failure-invalidation
+                       ;; evidence rides the failed-settlement trace.
+                       inv-plan (assoc :invalidation (plan-trace inv-plan))))
         {:rf.db/runtime rdb'
          :fx (cond-> []
-               inv-fx  (conj inv-fx)
+               inv-fxs (into inv-fxs)
                cont-fx (conj cont-fx))}))))
