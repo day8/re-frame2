@@ -367,9 +367,16 @@
           (is (= 2 (:generation e)) "entry still on gen 2")
           (is (= :loading (:status e)) "gen-2 attempt still in flight")
           (is (some? (:current-work e)) "gen-2 work pointer intact"))
-        (testing "the STALE gen-1 work row settles :cancelled (it was a
-                  cancellation), not :suppressed-as-failure"
-          (is (= :cancelled (:status (work-ledger/get-record (runtime-db) gen1-wid)))))))))
+        (testing "rf2-jzh5gq — STALE VALIDATION WINS over the natural status:
+                  once the reply no longer correlates with a live target the
+                  STALE gen-1 work row settles :suppressed, NOT an accepted
+                  :cancelled (a stale abort cannot be an accepted cancellation
+                  — there is no live target to cancel; the :aborted outcome is
+                  kept as a diagnostic)"
+          (let [rec (work-ledger/get-record (runtime-db) gen1-wid)]
+            (is (= :suppressed (:status rec)))
+            (is (= :aborted (:outcome (:outcome rec)))
+                "the abort nature is retained as a diagnostic outcome")))))))
 
 (deftest owner-release-orphan-abort-does-not-set-entry-error
   ;; the end-to-end orphan path: an in-flight first load whose last owner is

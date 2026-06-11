@@ -35,6 +35,7 @@
    [re-frame.resources]
    [re-frame.resources.ssr :as ssr]
    [re-frame.resources.state :as state]
+   [re-frame.resources.work-ledger :as work-ledger]
    [re-frame.resources.test-support]
    [re-frame.http-managed]
    [re-frame.schemas]
@@ -259,6 +260,72 @@
             "the stale reply emitted :rf.resource/stale-suppressed")
         (is (not (contains? (ops traces) :rf.resource/work-suppressed))
             ":rf.resource/work-suppressed is never emitted")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-mn4j89 / rf2-hh8nzd / rf2-uwqs7l — the canonical :status :stale reply
+;; envelope rides the PRODUCTION resource stale-suppression trace. The
+;; behaviour-only test above (and the work-ledger / invalidation-GC stale
+;; tests) PASSED SILENTLY while the production stale branch discarded the
+;; canonical reply: it emitted a bespoke trace with carried-generation ONLY
+;; and never lowered through the shared `re-frame.reply` substrate. These
+;; assertions FAIL before rf2-mn4j89 and pin the fix — the SAME envelope
+;; shape the machine `:rf.machine/done` stale path pins.
+;; ---------------------------------------------------------------------------
+
+(deftest stale-suppressed-trace-carries-canonical-reply-envelope
+  (rf/reg-resource :rev/article (article-spec))
+  (testing "rf2-mn4j89 — a superseded resource reply (carried gen 1 vs current
+            gen 2) is recorded :status :stale / :work/status :suppressed via
+            the shared substrate, with the carried-vs-current generation pair
+            on the production :rf.resource/stale-suppressed trace; the app
+            target does NOT run (no entry write) and the ledger is :suppressed"
+    (let [scoped-key (state/scoped-resource-key :rf.scope/global :rev/article {:slug "w"})]
+      (rf/dispatch-sync
+        [:rf.resource/ensure {:resource :rev/article :scope :rf.scope/global
+                              :params {:slug "w"} :owner [:lease :rev 1]}])
+      (let [wid1 (:current-work (entry scoped-key))
+            traces
+            (record-resource-traces!
+              (fn []
+                ;; supersede with a refetch (mints generation 2), then land the
+                ;; OLD (generation-1) reply — the REAL production stale path.
+                (rf/dispatch-sync
+                  [:rf.resource/refetch {:resource :rev/article :scope :rf.scope/global
+                                         :params {:slug "w"}}])
+                (rf/dispatch-sync
+                  [:rf.resource.internal/succeeded
+                   {:resource-key scoped-key :work/id wid1 :generation 1
+                    :data {:stale "data"}}])))
+            sup  (first (by-op traces :rf.resource/stale-suppressed))]
+        (is (some? sup) ":rf.resource/stale-suppressed fired for the stale reply")
+        (let [tags (:tags sup)]
+          ;; bespoke facts preserved (additive, not replaced)
+          (is (= scoped-key (:resource-key tags)))
+          (is (= wid1       (:work-id tags)))
+          (is (= :success   (:outcome tags)) "the stale reply's natural outcome diagnostic")
+          ;; CANONICAL reply-envelope vocabulary via the shared substrate
+          (is (= :stale (:rf.reply/status tags))
+              "the canonical :status :stale reply IS produced via re-frame.reply")
+          (is (= :suppressed (:rf.reply/work-status tags))
+              "the ledger terminal for a stale completion")
+          (is (= :rf.resource/superseded (:rf.reply/stale-reason tags)))
+          (is (= wid1 (:rf.reply/work-id tags)) "joined to :work/id")
+          ;; the carried-vs-current generation pair IS the supersession gate
+          (let [corr (:rf.reply/correlation tags)]
+            (is (= 1 (-> corr :generation :carried))
+                "carried generation off the stale reply token")
+            (is (= 2 (-> corr :generation :current))
+                "current generation is the LIVE entry's generation (gen 2)")
+            (is (= scoped-key (:resource-key corr)))))
+        ;; (2)/(5) the app target did NOT run — the entry was NOT overwritten by
+        ;; the stale reply (still on gen 2, not :loaded with {:stale "data"}).
+        (let [e (entry scoped-key)]
+          (is (= 2 (:generation e)) "the stale reply did not touch the newer entry")
+          (is (not= {:stale "data"} (:data e)) "stale data was NOT written"))
+        ;; (3) the ledger row settles terminal :suppressed.
+        (is (= :suppressed (:status (work-ledger/get-record
+                                      (rf/runtime-db-value :rf/default) wid1)))
+            "the work row settled terminal :suppressed")))))
 
 (deftest cache-hit-emitted-on-fresh-ensure
   ;; no :stale-after-ms → the entry is always fresh once loaded

@@ -866,6 +866,76 @@
 ;; generation before writing (Spec 016 §Transport — stale suppression is
 ;; the correctness boundary). User code MUST NOT dispatch them.
 
+(defn- entry-current-generation
+  "Read the LIVE counterpart generation for a stale-suppression gate: the
+  `:generation` of the entry currently occupying `resource-key` at
+  completion. nil when no entry occupies the slot (it was removed / GC'd /
+  cleared — no live counterpart, exactly the supersession the gate records).
+  This is the `:current` half of the carried-vs-current pair the canonical
+  stale reply carries; the `:carried` half is the generation stamped on the
+  reply token (`(:generation payload)`)."
+  [runtime-db resource-key]
+  (:generation (get-in runtime-db (state/entry-path resource-key))))
+
+(defn- stale-suppress-reply
+  "Build the canonical `:status :stale` reply outcome for a superseded /
+  vanished RESOURCE reply through the SHARED `re-frame.reply` substrate
+  (via `rreply/stale-reply`), so the resource family lowers its stale
+  outcome exactly as every other managed-async family does (Managed-Effects
+  §Stale suppression). The carried correlation is the reply token's
+  `:work/id` + `:generation`; the current correlation is the live entry's
+  `:generation` (nil when the slot is gone — no live counterpart). The
+  result rides `:rf.reply/status :stale` / `:rf.reply/work-status
+  :suppressed` / `:rf.reply/stale-reason` / the carried-vs-current
+  generation pair ADDITIVELY onto the existing `:rf.resource/stale-
+  suppressed` trace via `emit-resource-stale-suppressed!`.
+
+  Returns the `re-frame.reply/suppress` outcome map (`:deliver?` is false —
+  the app reply target MUST NOT run; `:reply` is the data-only `:status
+  :stale` reply; `:work/status :suppressed`). `extra` threads diagnostic
+  facts (e.g. `:outcome`) onto the stale reply."
+  [runtime-db resource-key {work-id :work/id :keys [generation scope] :as payload} extra]
+  (let [carried-gen (:generation payload)
+        current-gen (entry-current-generation runtime-db resource-key)]
+    (rreply/stale-reply
+      {:carried {:work/id work-id :generation carried-gen}
+       :current {:generation current-gen}
+       :extra   (merge {:work/id      work-id
+                        :work/kind    rreply/work-kind-resource
+                        :stale/reason :rf.resource/superseded
+                        :correlation  (cond-> {:generation {:carried carried-gen
+                                                             :current current-gen}}
+                                        (some? resource-key) (assoc :resource-key resource-key)
+                                        (some? scope)         (assoc :scope scope))}
+                       extra)})))
+
+(defn- emit-resource-stale-suppressed!
+  "Emit the `:rf.resource/stale-suppressed` trace for a suppressed late
+  resource reply, carrying its bespoke facts (`:resource-key` / `:work-id` /
+  `:generation` / `:outcome`) PLUS the canonical reply-envelope vocabulary
+  ADDITIVELY (joined to `:work/id` via the shared `:rf.reply/*` facts):
+  `:rf.reply/status :stale`, `:rf.reply/work-status :suppressed`,
+  `:rf.reply/stale-reason`, `:rf.reply/work-id`, and `:rf.reply/correlation`
+  (the carried-vs-current generation gate) — the SAME additive shape the
+  machine `:rf.machine/done` and HTTP / probe stale paths ride (Managed-
+  Effects §Tracing / EP-0011). `stale` is the `stale-suppress-reply`
+  outcome; its trace summary routes wire slots through the shared elider via
+  `rreply/trace-reply`."
+  [frame-id resource-key work-id generation outcome stale]
+  (let [summary (rreply/trace-reply (:reply stale))]
+    (trace/emit! :rf.event :rf.resource/stale-suppressed
+                 {:rf.frame/id frame-id :resource-key resource-key
+                  :work-id work-id :generation generation :outcome outcome
+                  ;; reply-envelope vocabulary (Managed-Effects §9) — the
+                  ;; canonical :status :stale reply produced via the shared
+                  ;; substrate, recorded ADDITIVELY (the bespoke facts above
+                  ;; are preserved).
+                  :rf.reply/status      (:status summary)
+                  :rf.reply/work-status (:work/status summary)
+                  :rf.reply/work-id     (:work/id summary)
+                  :rf.reply/stale-reason (:stale/reason summary)
+                  :rf.reply/correlation (:correlation summary)})))
+
 (defn- live-entry-for-reply
   "Look the live entry up for an internal reply and verify it is still the
   one the reply belongs to: the reply's stamped `:rf.frame/id` equals the
@@ -1021,17 +1091,25 @@
         entry      (live-entry-for-reply runtime-db frame-id payload)]
     (if (nil? entry)
       ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply never
-      ;; mutates a newer entry. Settle its (already-superseded) work row to a
-      ;; terminal :suppressed outcome if it still exists, and clear the host
-      ;; handle. Per Spec 016 §Cancellation is opportunistic; stale
-      ;; suppression is mandatory.
-      (do (trace/emit! :rf.event :rf.resource/stale-suppressed
-                       {:rf.frame/id frame-id :resource-key resource-key
-                        :work-id work-id :generation generation :outcome :success})
-          (work-ledger/clear-handle! frame-id work-id)
-          {:rf.db/runtime (work-ledger/update-record
-                            runtime-db work-id work-ledger/mark-terminal
-                            :suppressed {:reason :stale-reply :outcome :success})})
+      ;; mutates a newer entry. Per Managed-Effects §Stale suppression the
+      ;; completion is recorded `:status :stale` / `:work/status :suppressed`
+      ;; through the SHARED `re-frame.reply` substrate (via
+      ;; `rreply/stale-reply`), exactly as every other managed-async family
+      ;; lowers its stale outcome — the canonical reply built above
+      ;; (`rreply/success-reply`) is the SUCCESS reply for the live path; the
+      ;; nil-entry path produces the canonical STALE reply instead. The app
+      ;; reply target MUST NOT run (no live entry to settle), the
+      ;; (already-superseded) work row settles terminal `:suppressed`, and the
+      ;; host handle is cleared. Per Spec 016 §Cancellation is opportunistic;
+      ;; stale suppression is mandatory.
+      (let [stale (stale-suppress-reply runtime-db resource-key payload
+                                        {:outcome :success})]
+        (emit-resource-stale-suppressed!
+          frame-id resource-key work-id generation :success stale)
+        (work-ledger/clear-handle! frame-id work-id)
+        {:rf.db/runtime (work-ledger/update-record
+                          runtime-db work-id work-ledger/mark-terminal
+                          :suppressed {:reason :stale-reply :outcome :success})})
       (let [spec      (registry/resource-meta (:resource/id entry))
             ;; the durable entry stores the canonical reply's `:value` under
             ;; `:data` (the entry layer's spelling of the same fact — the
@@ -1168,21 +1246,29 @@
         entry      (live-entry-for-reply runtime-db frame-id payload)]
     (cond
       ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply (failure
-      ;; OR abort) never mutates a newer entry. Settle its work row terminal +
-      ;; clear the handle. An aborted stale reply settles :cancelled (it was a
-      ;; cancellation); a failed stale reply settles :suppressed.
+      ;; OR abort) never mutates a newer entry. Per Managed-Effects §Stale
+      ;; suppression the completion is recorded `:status :stale` /
+      ;; `:work/status :suppressed` through the SHARED `re-frame.reply`
+      ;; substrate (via `stale-suppress-reply`), and the canonical reply-
+      ;; envelope vocabulary rides ADDITIVELY on the `:rf.resource/stale-
+      ;; suppressed` trace. STALE VALIDATION WINS OVER NATURAL STATUS
+      ;; (rf2-jzh5gq): once the reply no longer correlates with a live target
+      ;; the ledger row is ALWAYS `:suppressed` — never an accepted
+      ;; `:cancelled`. A stale abort can never be an accepted cancellation:
+      ;; there is no live target to cancel. The `:outcome` diagnostic still
+      ;; distinguishes `:aborted` from `:failure` for tooling.
       (nil? entry)
-      (do (trace/emit! :rf.event :rf.resource/stale-suppressed
-                       {:rf.frame/id frame-id :resource-key resource-key
-                        :work-id work-id :generation generation
-                        :outcome (if aborted? :aborted :failure)})
-          (work-ledger/clear-handle! frame-id work-id)
-          {:rf.db/runtime (work-ledger/update-record
-                            runtime-db work-id work-ledger/mark-terminal
-                            (if aborted? :cancelled :suppressed)
-                            (if aborted?
-                              {:reason :aborted}
-                              {:reason :stale-reply :outcome :failure}))})
+      (let [stale (stale-suppress-reply runtime-db resource-key payload
+                                        {:outcome (if aborted? :aborted :failure)})]
+        (emit-resource-stale-suppressed!
+          frame-id resource-key work-id generation
+          (if aborted? :aborted :failure) stale)
+        (work-ledger/clear-handle! frame-id work-id)
+        {:rf.db/runtime (work-ledger/update-record
+                          runtime-db work-id work-ledger/mark-terminal
+                          :suppressed
+                          {:reason :stale-reply
+                           :outcome (if aborted? :aborted :failure)})})
 
       ;; ABORT (rf2-z70ujl): an intentional cancellation reached the failure
       ;; reply seam. Settle the LIVE attempt to a non-error stable state, mark
@@ -1373,8 +1459,9 @@
   the suppression in trace for tools. Per Spec 016 §Cancellation is
   opportunistic; stale suppression is mandatory."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {work-id :work/id :keys [resource-key generation]}]]
-  (trace/emit! :rf.event :rf.resource/stale-suppressed
-               {:rf.frame/id frame-id :resource-key resource-key
-                :work-id work-id :generation generation})
-  {:rf.db/runtime (or rt {})})
+   [_event-id {work-id :work/id :keys [resource-key generation] :as payload}]]
+  (let [runtime-db (or rt {})
+        stale      (stale-suppress-reply runtime-db resource-key payload nil)]
+    (emit-resource-stale-suppressed!
+      frame-id resource-key work-id generation nil stale)
+    {:rf.db/runtime runtime-db}))
