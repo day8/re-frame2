@@ -32,6 +32,7 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [clojure.string :as str]
    [re-frame.core :as rf]
    [re-frame.frame :as frame]
    [re-frame.late-bind :as late-bind]
@@ -122,6 +123,13 @@
     (is (= {} (ssr/project-resources-runtime-db {})))
     (is (= {} (ssr/project-resources-runtime-db (runtime-db-with {}))))))
 
+(defn- only-wire-entry
+  "The single projected wire entry `[wire-key wire-entry]` from a one-entry
+  projection (the projected key may be redacted, so callers can't look it up
+  by the raw key — rf2-otms75)."
+  [proj]
+  (first (get-in proj [state/resources-key :entries])))
+
 (deftest sensitive-resource-is-redacted
   (reg! :secret/thing {:sensitive? true})
   (testing "a :sensitive? resource ships METADATA ONLY — data redacted, refresh-error dropped"
@@ -130,12 +138,20 @@
                       :loaded-at 1000 :stale-at 9.0e15
                       :refresh-error {:kind :rf.http/http-5xx}})
           proj (ssr/project-resources-runtime-db (runtime-db-with {k e}))
-          we   (get-in proj [state/resources-key :entries k])]
+          [wk we] (only-wire-entry proj)]
       (is (not= {:ssn "123-45-6789"} (:data we))
           "the sensitive data must NOT ride verbatim")
       (is (nil? (:refresh-error we))
           "refresh-error is the same privacy class as data — dropped on a redacted entry")
-      (is (= :loaded (:status we)) "metadata (status / timestamps) still rides"))))
+      (is (= :loaded (:status we)) "metadata (status / timestamps) still rides")
+      (testing "rf2-otms75 — the scoped KEY's scope + params are redacted too"
+        (is (= :secret/thing (nth wk 1)) "the resource-id rides verbatim (position 1, never sensitive)")
+        (is (contains? (nth wk 0) :rf/redacted)
+            "the scope is redacted in the wire key (a redaction token, not the raw scope)")
+        (is (not= :rf.scope/global (nth wk 0)) "the raw scope does not ride in the key")
+        (is (map? (nth wk 2)) "the params component is a redaction token, not raw")
+        (is (contains? (nth wk 2) :rf/redacted) "the params are redacted in the wire key")
+        (is (not= {:slug "s"} (nth wk 2)) "the raw sensitive params do NOT ride in the key")))))
 
 (deftest large-resource-is-omitted
   (reg! :big/thing {:large? true})
@@ -144,9 +160,13 @@
           e   (entry {:resource-id :big/thing :data (vec (range 10000))
                       :loaded-at 1000 :stale-at 9.0e15})
           proj (ssr/project-resources-runtime-db (runtime-db-with {k e}))
-          we   (get-in proj [state/resources-key :entries k])]
+          [wk we] (only-wire-entry proj)]
       (is (not (contains? we :data)) "the large data key is omitted entirely")
-      (is (= :loaded (:status we))))))
+      (is (= :loaded (:status we)))
+      (testing "rf2-otms75 — the large resource's scope + params are redacted in the key"
+        (is (= :big/thing (nth wk 1)))
+        (is (contains? (nth wk 2) :rf/redacted) "the (large) params do not ride raw in the key")
+        (is (not= {:slug "b"} (nth wk 2)))))))
 
 (deftest projection-metadata-records-decisions
   (reg! :article/by-slug)
@@ -181,6 +201,76 @@
           "redacted → metadata-only refetch")
       (is (= :omitted    (:disposition (metas k-big))))
       (is (true?         (:refetch-on-client? (metas k-big)))))))
+
+;; ===========================================================================
+;; 1b. Scoped-KEY privacy: align key scope+params with classification (rf2-otms75)
+;; ===========================================================================
+;;
+;; A :sensitive? / :large? resource's scope + params must NOT ride RAW in the
+;; projected map KEY (Spec 016 clause 4: params, scopes, and data carry the
+;; same classification). They are projected to opaque content-addressed
+;; {:rf/redacted <digest>} tokens — distinct values stay distinct, the raw
+;; identity never rides, and the resource-id (position 1) is preserved.
+
+(deftest serialize-resource-key-rides-verbatim
+  (reg! :article/by-slug)
+  (testing "a non-sensitive, non-large resource's key rides VERBATIM (scope +
+            params are wire-safe, same class as its data)"
+    (let [k    (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"})
+          e    (entry {:resource-id :article/by-slug :data {:t "x"} :loaded-at 1000 :stale-at 9.0e15})
+          [wk _] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))]
+      (is (= k wk) "the serialized key is unchanged on the wire"))))
+
+(deftest sensitive-resource-key-scope-and-params-are-redacted
+  (reg! :secret/thing {:sensitive? true})
+  (testing "a :sensitive? resource's scope (user/tenant markers) + params are
+            redacted in the projected key — neither rides raw"
+    (let [scope [:rf.scope/session {:user "alice@example.com" :tenant "acme"}]
+          k    (state/scoped-resource-key scope :secret/thing {:account-id "secret-42"})
+          e    (entry {:resource-id :secret/thing :data {:ssn "x"} :loaded-at 1000 :stale-at 9.0e15})
+          [wk _] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))]
+      (is (= :secret/thing (nth wk 1)) "resource-id preserved")
+      (is (contains? (nth wk 0) :rf/redacted) "scope redacted")
+      (is (contains? (nth wk 2) :rf/redacted) "params redacted")
+      ;; the raw sensitive substrings must not appear anywhere in the wire key
+      (let [s (pr-str wk)]
+        (is (not (str/includes? s "alice@example.com")) "no raw user in the key")
+        (is (not (str/includes? s "acme")) "no raw tenant in the key")
+        (is (not (str/includes? s "secret-42")) "no raw param in the key")))))
+
+(deftest redacted-keys-stay-distinct-no-collision
+  (reg! :secret/thing {:sensitive? true})
+  (testing "ADVERSARIAL: two distinct sensitive entries (same scope+resource,
+            DIFFERENT params) project to DISTINCT wire keys — the redaction
+            never collapses them into one (no lost entry; rf2-otms75)"
+    (let [k1 (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "alpha"})
+          k2 (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "beta"})
+          e1 (entry {:resource-id :secret/thing :data {:s 1} :loaded-at 1000 :stale-at 9.0e15})
+          e2 (entry {:resource-id :secret/thing :data {:s 2} :loaded-at 1000 :stale-at 9.0e15})
+          proj (ssr/project-resources-runtime-db (runtime-db-with {k1 e1 k2 e2}))
+          wks  (set (keys (get-in proj [state/resources-key :entries])))]
+      (is (= 2 (count wks)) "two distinct entries → two distinct wire keys (no collision)")
+      (is (every? (fn [wk] (= :secret/thing (nth wk 1))) wks)
+          "both wire keys preserve the resource-id")
+      (is (every? (fn [wk] (and (contains? (nth wk 2) :rf/redacted)
+                                (not= {:slug "alpha"} (nth wk 2))
+                                (not= {:slug "beta"} (nth wk 2)))) wks)
+          "neither wire key carries the raw params"))))
+
+(deftest project-scoped-key-is-pure
+  (testing "project-scoped-key: :serialize rides verbatim; :redact/:omit redact
+            scope+params, preserve resource-id + distinctness"
+    (let [k1 (state/scoped-resource-key :rf.scope/global :r {:a 1})
+          k2 (state/scoped-resource-key :rf.scope/global :r {:a 2})]
+      (is (= k1 (ssr/project-scoped-key k1 :serialize)))
+      (let [r1 (ssr/project-scoped-key k1 :redact)
+            r2 (ssr/project-scoped-key k2 :redact)]
+        (is (= :r (nth r1 1)) "resource-id preserved")
+        (is (contains? (nth r1 2) :rf/redacted))
+        (is (not= r1 r2) "distinct params → distinct redacted keys")
+        (is (= r1 (ssr/project-scoped-key k1 :redact)) "deterministic (same input → same digest)")
+        (is (= (ssr/project-scoped-key k1 :redact) (ssr/project-scoped-key k1 :omit))
+            ":redact and :omit redact the key identically (both metadata-only)")))))
 
 ;; ===========================================================================
 ;; 2. SERVER blocking drain + timeout
@@ -534,18 +624,23 @@
           ;; a FRESH sensitive entry on the server (stale-at far ahead)
           e    (entry {:resource-id :secret/thing :data {:ssn "123-45-6789"}
                        :loaded-at 1000 :stale-at 9.0e15})
-          ;; SERVER projection redacts the data to the sentinel
+          ;; SERVER projection redacts the data to the sentinel AND the key
+          ;; (rf2-otms75) — look the wire entry up by the PROJECTED key.
           proj (ssr/project-resources-runtime-db (runtime-db-with {k e}))
-          we   (get-in proj [state/resources-key :entries k])]
+          [wk we] (only-wire-entry proj)]
       (is (= privacy/redacted-sentinel (:data we))
           "projection redacts the sensitive data to the sentinel")
+      (is (not= {:slug "s"} (nth wk 2)) "the sensitive params do not ride raw in the wire key (rf2-otms75)")
+      (is (= :secret/thing (nth wk 1)) "the resource-id is preserved for refetch identity")
       ;; CLIENT hydration over the projected slice (a coherent runtime-db)
-      (let [installed {state/resources-key {:entries {k we}}}
+      (let [installed {state/resources-key {:entries {wk we}}}
             plan      (->> (ssr/hydrate-refetch-plan installed 5000)
                            (into {} (map (juxt :resource-key identity))))]
-        (is (contains? plan k)
+        (is (contains? plan wk)
             "the redacted (fresh-on-server) entry IS in the refetch plan — the sentinel is not usable data")
-        (is (= :metadata-only (:reason (plan k))))))))
+        (is (= :metadata-only (:reason (plan wk))))
+        (is (= :secret/thing (:resource-id (plan wk)))
+            "the refetch plan still names the resource-id from the (redacted) key — enough to reconcile/refetch")))))
 
 ;; ===========================================================================
 ;; 5. SCOPE isolation
