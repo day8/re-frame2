@@ -313,7 +313,8 @@
     (raw trace events) — are tree-shaped values rooted at the frame's
     app-db, so the size-elision walker
     `re-frame.core/elide-wire-value` is the correct primitive: it
-    redacts schema-declared-sensitive slots and elides large slots.
+    redacts the frame's declared-sensitive slots and elides large slots
+    (the declarations are frame-owned, EP-0015 §3/§8).
 
   - **The `:epoch` topic's `:events`** carry whole `:rf/epoch-record`s
     (`:db-before` / `:db-after` / `:trigger-event` / `:trace-events`

@@ -107,11 +107,13 @@
                         record: post-EP-0010 epoch records are causal replay
                         material, and mutating them at rest would corrupt the
                         replay contract. The fn is the rare advanced escape
-                        for an app that records material the schema-driven
-                        projection cannot prove (a non-schema-declared
-                        sensitive slot); ordinary redaction needs only the
-                        frame's `:sensitive?` / `:large?` classification,
-                        which `projected-record` already applies. A throwing
+                        for an app that records material the declaration-driven
+                        projection cannot prove (a sensitive slot no frame /
+                        schema declaration covers); ordinary redaction needs
+                        only the frame's `:sensitive` / `:large` classification
+                        (EP-0015 §3) plus the per-slot schema props machine /
+                        resource data carry, which `projected-record` already
+                        applies. A throwing
                         fn emits `:rf.warning/epoch-redact-fn-exception` and
                         falls back to the projected (frame/profile-redacted)
                         record. Passing `nil` clears any previously-installed

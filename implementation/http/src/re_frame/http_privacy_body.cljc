@@ -25,7 +25,7 @@
 
   2. **Whole-body root prop.** A root-level (`[]`) `:sensitive?` prop on the
      `:decode` schema (e.g. an opaque-token response whose WHOLE body is the
-     secret) redacts the whole body. `:large?` at the root omits it.
+     secret) redacts the whole body.
 
   3. **Unschematized is whole-sensitive (fail-closed).** A managed request
      with NO Malli-schema `:decode` (`:auto` / `:json` / `:text` / a custom
@@ -50,9 +50,21 @@
   The existing per-call / per-request `:sensitive?` flag (Spec 014 §Privacy)
   is the COARSE escape hatch: it redacts the whole body wholesale regardless
   of schema marks. This namespace is the FINE-grained, schema-driven layer
-  that fires INDEPENDENTLY of that flag. Sensitive wins over large, matching
-  the shared `re-frame.elision/walk` ordering and the frame-classification
-  install-time rule.
+  that fires INDEPENDENTLY of that flag.
+
+  ## Scope — sensitive marks only (`:large?` not yet applied)
+
+  `classify-decoded` applies only the `:decode` schema's `:sensitive?`
+  per-slot marks (via `re-frame.privacy/redact-paths`). The `:large?` axis
+  is EXTRACTED here (`decode-schema-marks` returns both `:sensitive` and
+  `:large` path maps) for the shared-walker symmetry with the resource /
+  app-schema surfaces, but no per-slot `:large?` body elision is wired yet —
+  the response body never rides the `elide-wire-value` walker that would
+  apply it, so there is no large-body marker emit and no sensitive-wins-over-
+  large precedence exercised on this path. Large-body classification is a
+  follow-up (rf2-jhyccs). When it lands it will
+  route through the shared walker, where sensitive already wins over large
+  (the `re-frame.elision/walk` ordering).
 
   ## Production elision
 

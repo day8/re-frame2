@@ -1758,11 +1758,12 @@
   Returns nil. Per Spec 009 §Error observability."}
   unregister-error-listener! error-emit/unregister-error-listener!)
 
-(def ^{:doc "Walk `v` and substitute schema-declared sensitive or large
-  paths for wire egress. Sensitive wins over large when both
-  declarations match. Sensitive paths become `:rf/redacted`; large paths
-  become `:rf.size/large-elided`. Per Spec 009 §Wire elision and
-  Security.md §Off-box egress."}
+(def ^{:doc "Walk `v` and substitute the frame's declared sensitive or
+  large paths for wire egress (the durable declarations are frame-owned —
+  installed by `reg-frame` `:sensitive` / `:large {:app-db …}`, EP-0015 §8).
+  Sensitive wins over large when both declarations match. Sensitive paths
+  become `:rf/redacted`; large paths become `:rf.size/large-elided`. Per
+  Spec 009 §Wire elision and Security.md §Off-box egress."}
   elide-wire-value                 elision/elide-wire-value)
 
 (def ^{:doc "Project a record or value for egress across a trust boundary

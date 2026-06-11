@@ -132,10 +132,11 @@
   record so on-box devtools (Xray diff, REPL, `restore-epoch`) reason
   about exact state.
 
-  The fn is the rare advanced escape for material the schema-driven
-  projection cannot prove (a non-schema-declared sensitive slot); the
-  ordinary case needs only the frame's `:sensitive?` / `:large?`
-  classification, which `project-egress` already applies. Because it runs
+  The fn is the rare advanced escape for material the declaration-driven
+  projection cannot prove (a sensitive slot no frame / schema declaration
+  covers); the ordinary case needs only the frame's `:sensitive` / `:large`
+  classification (EP-0015 §3) plus the per-slot schema props machine /
+  resource data carry, which `project-egress` already applies. Because it runs
   on the projected egress COPY (the off-box record), it cannot affect
   `restore-epoch` fidelity — that hazard the §15 'may affect restore
   fidelity' warning flagged is gone by construction.
