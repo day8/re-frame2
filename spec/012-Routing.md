@@ -575,6 +575,17 @@ Semantics:
 
 The `:on-match` list is the **enumerable, machine-readable** answer to "what loads when this route is active?" `:on-match` is the canonical surface.
 
+### Route `:resources` and named scope resolvers (EP-0016 integration)
+
+The `:resources` route-metadata key (owned by the [Resources artefact](016-Resources.md#route-integration), late-bound through the `:routing/extra-route-keys` / `:routing/on-route-entry` / `:routing/route-blocking?` seam above) carries a vector of route-resource entries; each entry names a `:resource`, its `:params`, an optional `:scope`, and `:blocking?` / `:when` / `:keep-previous?` flags. [EP-0016](../docs/EP/EP-0016-resource-mutation-completion.md) Decision 3 extends the entry `:scope` slot — the only routing-visible change in this action wave:
+
+- a route-resource entry `:scope` MAY be a **named scope resolver reference** `{:from-db <resolver-id>}` (a `reg-resource-scope` resolver, [016 §Resolver references](016-Resources.md#resolver-references--from-db-id)), in addition to the existing concrete value or `(fn [route ctx] …)` route resolver;
+- a `{:from-db …}` reference is **resolved at route-entry planning time against the frame db** — the resources route-entry plan (`:routing/on-route-entry`) runs the named resolver before planning the resource's ensure, so route ownership, the blocking slot under the nav-token, and route-leave release all key on the resolved concrete scope;
+- resolution is **fail-closed**: a resolver that returns `nil` at a route-resource site is a route/resource **planning error** (`:rf.error/resource-route-plan-failed`, surfaced on the route slice's transition/error state and Xray), **never** a silent substitution of `:rf.scope/global` and never a silent skip. This is the routing-side application of the resources fail-closed scope boundary;
+- the route-resource `:params` / `:scope` / `:when` functions remain the one site with a **populated** planning context — `(fn [route ctx] …)` — because route-entry planning has a real route match and planning context to thread (contrast the reserved-nil `ctx` on resource/mutation fns, [016 §The `ctx` argument is reserved](016-Resources.md#the-ctx-argument-is-reserved-across-resourcemutation-fn-surfaces)).
+
+The mechanism is the existing late-bound seam; the design change is purely the resolver-reference `:scope` form and its planning-time, fail-closed resolution. Spec 016 owns the full route-resource plan contract ([016 §Route integration](016-Resources.md#route-integration)); 012 names only this accepted-`:scope`-form extension.
+
 > **Why not parameterise events explicitly with route params?** Each `:on-match` event runs with full access to the frame's state via cofx, including the freshly-written route slice. The route slice is framework-owned **runtime-db** state (per [§The `:rf/route` slice](#the-rfroute-slice)), so a handler that needs params/query reads them from the `:rf.db/runtime` cofx — `(get-in (:rf.db/runtime cofx) [:rf.runtime/routing :current])` — or, more idiomatically, derives them through the public route subs (`:rf.route/params`, `:rf.route/query`). It does NOT read the slice from the app `:db` cofx (the slice no longer lives in app-db). Hard-wiring param substitution into the event vector would re-introduce a string-DSL where data already suffices.
 
 ## Route-not-found — `:rf.route/not-found` (canonical)

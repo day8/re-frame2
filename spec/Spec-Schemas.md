@@ -2490,6 +2490,65 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
 
 `:rf/scoped-resource-key`, `:rf/resource-entry`, and `:rf/resource-work-record` are the schema ids for `ScopedResourceKey`, `ResourceEntry`, and `ResourceWorkRecord`. The `:error` / `:refresh-error` entry envelopes (and a failed work record's `:outcome`) carry the closed `:rf.http/*` failure-map shapes owned by [014-HTTPRequests.md](014-HTTPRequests.md). When the Resources artefact is loaded, `:rf.runtime/resources` (`ResourcesRuntime`) and `:rf.runtime/work-ledger` (`WorkLedger`) are present as additional runtime-db children alongside the four v1 subsystems; when the app also registers a mutation, `:rf.runtime/mutations` (`MutationsRuntime`, the mutation-instance rows, rf2-dwme29) joins them.
 
+### `:rf/scope-policy`, `:rf/resource-scope-resolver`, `:rf/invalidation-descriptor`, `:rf/exact-target` (EP-0016 D2/D3, R2)
+
+> **Layer:** Authoring (input forms)
+> **Owner:** [016-Resources.md](016-Resources.md) (the optional `day8/re-frame2-resources` artefact)
+> **Status:** v1-optional (post-v1 artefact)
+
+The EP-0016 action-wave **public input forms** — named scope resolvers (D3), per-target scoped invalidation descriptors (D2), and map-form exact targets (R2). These are authoring shapes validated at registration / dispatch, distinct from the runtime storage shapes above (the storage scope head is the canonical tuple `:rf/scoped-resource-key`).
+
+```clojure
+(def ScopePolicy
+  ;; A scope value as it appears in a descriptor / exact target / route
+  ;; resource entry :scope. NOT the resource-registration :scope POLICY enum
+  ;; (:rf.scope/global | resolver | :rf.scope/from-caller, per [016 §Scope
+  ;; resolution]) — this is the per-target / per-descriptor scope slot.
+  [:or
+   [:= :rf.scope/same]                  ;; the mutation's resolved execution scope (DEFAULT when omitted)
+   [:= :rf.scope/global]
+   [:map [:from-db :keyword]]           ;; named-resolver reference, resolved at use time against frame db
+   :any])                               ;; a concrete canonical scope value, e.g. [:rf.scope/session {…}]
+
+(def ResourceScopeResolver
+  ;; A reg-resource-scope spec (the :resource-scope registrar kind). The
+  ;; declared-input PRIMARY form; the whole-db fn sugar (fn [db ctx] …) is
+  ;; accepted at the registrar but lowers to an explicit whole-db dependency
+  ;; (tooling-marked). :resolve is invoked (resolve-fn inputs nil) — ctx is
+  ;; RESERVED, currently literal nil. A nil result is fail-closed at a
+  ;; scope-requiring site. Per [016 §Named resource-scope resolvers].
+  [:map
+   [:inputs   [:map-of :keyword
+               [:tuple [:= :db] :any]]] ;; name → [:db <rf/path>] (the only shipped source; [:runtime path] reserved)
+   [:resolve  fn?]                      ;; (fn [inputs _ctx] → canonical-scope | :rf.scope/global | nil)
+   [:doc      {:optional true} :string]])
+
+(def InvalidationDescriptor
+  ;; One per-target scoped invalidation descriptor (EP-0016 D2). :invalidates
+  ;; accepts a bare tag-set (≡ {:scope :rf.scope/same :tags <set>}), a single
+  ;; descriptor, a vector of descriptors, or a (fn [params result]) returning
+  ;; any of those. :refetch-populated? opts a key this mutation populated into
+  ;; immediate same-mutation refetch (Rider 1; default false).
+  [:map
+   [:tags               [:set :any]]
+   [:scope              {:optional true} ScopePolicy]      ;; omitted ⇒ :rf.scope/same
+   [:cross-scope?       {:optional true} :boolean]         ;; the audited escape — REQUIRES :cause
+   [:cause              {:optional true} :any]             ;; required when :cross-scope? true
+   [:refetch-populated? {:optional true} :boolean]])
+
+(def ExactTarget
+  ;; The canonical map-form exact resource target (EP-0016 Rider 2) — the ONLY
+  ;; public input form for :populates / :patches / removes. The scoped-key
+  ;; TUPLE remains the internal/storage shape (:rf/scoped-resource-key), NOT a
+  ;; second public spelling. Per [016 §Map-form exact resource targets].
+  [:map
+   [:resource :keyword]
+   [:params   :any]                     ;; canonicalized before key construction
+   [:scope    {:optional true} ScopePolicy]])
+```
+
+`:rf/scope-policy`, `:rf/resource-scope-resolver`, `:rf/invalidation-descriptor`, and `:rf/exact-target` are the schema ids for `ScopePolicy`, `ResourceScopeResolver`, `InvalidationDescriptor`, and `ExactTarget`. The mutation **`:reply-to` continuation** reuses the `:rf/reply-map` shape below (one closed `:status` referencing the EP-0011 enum) plus the mutation-specific facts (`:mutation`, `:instance`, `:scope`, `:affected-keys`, `:cause [:mutation <id> <instance>]`) enumerated in [016 §Mutation completion continuations](016-Resources.md#mutation-completion-continuations--call-site-reply-to) — it is **not** a separate reply-map schema, only the `:rf/reply-map` with family facts added additively.
+
 ### `:rf/reply-map`, `:rf/reply-target` (uniform reply envelope, EP-0011)
 
 > **Layer:** Runtime
