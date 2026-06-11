@@ -179,8 +179,8 @@ But *how* it's promoted is the instructive part, and it's a pattern you'll see a
  :op-type      :error
  :frame        :app/per-request-42
  :recovery     :ignored                 ;; teardown stays best-effort
- :hook-failures [{:hook :http/abort-inflight :error #object[...]}
-                 {:hook :timers/clear       :error #object[...]}]}}
+ :hook-failures [{:hook :http/abort-inflight :exception #object[...] :where :safe-call-hook!}
+                 {:hook :timers/clear       :exception #object[...] :where :safe-call-hook!}]}}
 ```
 
 One record names the higher-level fact ("this destroy had teardown failures"), and the vector preserves the *which-hooks-failed-together* correlation an external shipper would never reliably re-group. The recovery stays `:ignored` — teardown is still best-effort; promotion changed the *channel*, not the behaviour.
