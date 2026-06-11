@@ -257,3 +257,70 @@
       (is (= :my-app.sinks/datadog
              (get-in meta [:observability :handled-events 0 :sink]))
           ":observability sink policy rides the frame config"))))
+
+;; ---------------------------------------------------------------------------
+;; concrete path host-segment rejection (rf2-orcbow point 2)
+;;
+;; `:sensitive :app-db` / `:large :app-db` entries are concrete `:rf/path`
+;; vectors (EP-0012). A concrete path's SEGMENTS must be portable EDN identity
+;; values — Conventions §Path shape: "Concrete runtime paths MUST NOT contain
+;; host values; such values are rejected at the boundary that accepts the
+;; path." The existing fail-loud tests above cover path-SHAPE rejection
+;; (a bare keyword, a non-vector :app-db) and list->vector normalization, but
+;; NOT opaque host-OBJECT segments inside an otherwise well-shaped path.
+;;
+;; KNOWN GAP — `normalize-app-db-paths` validates only that each path is
+;; sequential and routes it through `path/normalize`, which coerces container
+;; shape but does NOT validate the segment domain. So `[:auth (Object.)]`
+;; currently passes. The fail-closed source fix (a validated concrete-path
+;; normalization helper at the declaration boundary) is owned by the
+;; correctness / best-practice review beads rf2-wgutc2 (item 3, "Concrete
+;; path boundaries do not reject non-EP path segments ... frame classification
+;; ... can accept host/opaque values as segments") and rf2-w9x5fv (item 2,
+;; "Split shape coercion from validated concrete normalization ... use the
+;; validated helper at concrete boundaries such as frame classification"),
+;; NOT by this coverage bead (tests-only).
+;;
+;; These tests therefore (a) DOCUMENT + PIN the current (does-not-reject)
+;; behaviour on both runtimes so the gap is visible, and (b) carry the
+;; spec-correct fail-closed assertion inline so the flip is a one-line edit
+;; when the source fix lands. Flip the `host-segment-*` blocks then.
+;; ---------------------------------------------------------------------------
+
+(deftest host-object-path-segment-is-not-yet-rejected
+  (testing "KNOWN GAP (rf2-wgutc2 / rf2-w9x5fv): an opaque host-object path
+            segment is NOT rejected at reg-frame — current behaviour pinned"
+    (let [host #?(:clj (java.lang.Object.) :cljs #js {:opaque true})]
+      ;; CURRENT behaviour: validate+extract accepts the host segment, returning
+      ;; it verbatim in the normalized declaration (no fail-loud).
+      (let [{:keys [sensitive-app-db]}
+            (fc/validate+extract :app/host-seg
+              {:sensitive {:app-db [[:auth host]]}})]
+        (is (= 1 (count sensitive-app-db))
+            "current: host-object segment passes through (does not throw)")
+        (is (= :auth (first (first sensitive-app-db)))
+            "the literal prefix segment survives")
+        (is (identical? host (second (first sensitive-app-db)))
+            "the opaque host object rides in the stored path verbatim"))
+      ;; SPEC-CORRECT behaviour, asserted once the source fix lands — flip to:
+      ;;   (let [data (bad-classification-ex
+      ;;                #(rf/reg-frame :app/host-seg
+      ;;                   {:sensitive {:app-db [[:auth host]]}}))]
+      ;;     (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
+      ;;     (is (= [:sensitive :app-db] (:bad-key data)))
+      ;;     (is (= [:auth host] (:bad-path data))))
+      ;; (Conventions §Path shape: concrete paths MUST NOT contain host values;
+      ;;  rejected at the boundary that accepts the path.)
+      )))
+
+(deftest existing-segment-shape-rejections-still-hold
+  (testing "well-formed concrete paths (incl. the root []) still validate + normalize"
+    ;; A vector of concrete EDN segments — and the explicit root [] — are
+    ;; accepted; this anchors the negative (host-segment) case above against
+    ;; the positive baseline so a future over-broad rejection is caught.
+    (let [{:keys [sensitive-app-db]}
+          (fc/validate+extract :app/ok-paths
+            {:sensitive {:app-db [[:auth :token]
+                                  [:cart :items 42 :qty]  ;; integer segment OK
+                                  []]}})]                  ;; root path OK
+      (is (= [[:auth :token] [:cart :items 42 :qty] []] sensitive-app-db)))))

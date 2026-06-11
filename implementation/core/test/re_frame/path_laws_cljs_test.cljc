@@ -261,3 +261,92 @@
   (testing "an unbound param fails closed"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
                  (path/instantiate [:a '?x] {})))))
+
+;; ---- vector-index container policy (rf2-orcbow point 5) ------------------
+;;
+;; The intermediate-container policy (Conventions §Path laws) defines the
+;; vector-index case EXPLICITLY rather than letting a host `assoc` throw.
+;; The generative laws above prove put-lookup / put-put hold for every
+;; generated path, but the SPECIFIC vector-vs-map behaviour was only inferred
+;; from them. These direct examples PIN the intended policy so a change to
+;; `container-for` is caught:
+;;
+;;   - a vector holds an entry ONLY at an in-range non-negative integer index;
+;;   - an out-of-range index, a negative index, or a non-integer segment
+;;     REPLACES the vector with a fresh map (never throws, never grows the
+;;     vector) — keeping `put` total so put-lookup holds for every path;
+;;   - an existing compatible vector is preserved (not silently rebuilt).
+
+(deftest vector-index-container-policy
+  (testing "in-range non-negative integer index: vector is preserved + updated in place"
+    (is (= [10 99 30] (path/put [10 20 30] [1] 99)))
+    (is (= {:present? true :value 20} (path/lookup [10 20 30] [1])))
+    (is (= 20 (path/get [10 20 30] [1])))
+    ;; index 0 and the last in-range index are both legal vector steps
+    (is (= [99 20 30] (path/put [10 20 30] [0] 99)))
+    (is (= [10 20 99] (path/put [10 20 30] [2] 99)))
+    ;; a nested vector under a map key composes through
+    (is (= 30 (path/get {:xs [10 20 30]} [:xs 2])))
+    (is (= {:xs [10 99 30]} (path/put {:xs [10 20 30]} [:xs 1] 99))))
+  (testing "out-of-range index: vector is REPLACED by a fresh map (no growth, no throw)"
+    (is (= {5 99} (path/put [10 20] [5] 99)))
+    ;; the index equal to count is out of range (a vector has no slot there)
+    (is (= {2 99} (path/put [10 20] [2] 99)))
+    ;; lookup of an out-of-range index on a vector is simply missing
+    (is (= {:present? false} (path/lookup [10 20] [5])))
+    (is (= {:present? false} (path/lookup [10 20] [2]))))
+  (testing "negative index: vector is REPLACED by a fresh map (not a tail index)"
+    (is (= {-1 99} (path/put [10 20] [-1] 99)))
+    (is (= {:present? false} (path/lookup [10 20] [-1]))))
+  (testing "non-integer segment over a vector: REPLACED by a fresh map"
+    (is (= {:k 99} (path/put [10 20] [:k] 99)))
+    (is (= {"s" 99} (path/put [10 20] ["s"] 99)))
+    (is (= {:present? false} (path/lookup [10 20] [:k])))
+    ;; lookup on a vector with a non-integer segment is missing, not a throw
+    (is (= ::nf (path/get [10 20] [:k] ::nf))))
+  (testing "deeper write that must create a fresh map UNDER a replaced vector"
+    ;; [10 20] faced with non-integer :a is replaced by {}, then :b nests
+    (is (= {:a {:b 99}} (path/put [10 20] [:a :b] 99)))
+    ;; and the put-lookup law still holds across the replacement
+    (is (= {:present? true :value 99}
+           (path/lookup (path/put [10 20] [:a :b] 99) [:a :b]))))
+  (testing "an in-range vector write does NOT clobber sibling indexes"
+    (is (= [:a :B :c :d] (path/put [:a :b :c :d] [1] :B))))
+  (testing "vector-index put at x=nil stores present-nil at the index (not dissoc)"
+    (is (= [10 nil 30] (path/put [10 20 30] [1] nil)))
+    (is (= {:present? true :value nil}
+           (path/lookup (path/put [10 20 30] [1] nil) [1])))))
+
+;; ---- concrete paths + explicit root (rf2-orcbow concrete-path coverage) ---
+;;
+;; A concrete `:rf/path` is a vector of EDN segments; the empty vector `[]`
+;; is the explicit root path (Conventions §Path shape). normalize coerces any
+;; sequential container to the canonical vector form. These pin the
+;; container-shape coercion + the root spelling directly (the laws cover root
+;; semantics; this covers the SHAPE the declaration boundary stores).
+
+(deftest concrete-path-shape-and-root
+  (testing "normalize coerces sequential containers to the canonical vector"
+    (is (= [:a :b 3] (path/normalize (list :a :b 3))))
+    (is (= [:a :b]   (path/normalize (seq [:a :b]))))
+    (is (vector? (path/normalize (list :a :b))))
+    ;; an already-vector path passes through
+    (is (= [:cart :items 42 :qty] (path/normalize [:cart :items 42 :qty]))))
+  (testing "the empty vector is the canonical root path"
+    (is (= [] (path/normalize [])))
+    (is (= [] (path/normalize (list))))
+    ;; KNOWN GAP (rf2-w9x5fv item 1 / rf2-wgutc2 item 3): nil currently
+    ;; normalizes to root [] — flagged for an explicit-root source change.
+    ;; Pinned here so the behaviour is documented, not relied upon silently.
+    ;; SPEC-CORRECT once the fix lands: nil -> :rf.error/bad-path. Flip to:
+    ;;   (is (thrown? ... (path/normalize nil)))
+    (is (= [] (path/normalize nil))))
+  (testing "a non-sequential path fails closed with :rf.error/bad-path"
+    (is (= :rf.error/bad-path
+           (try (path/normalize :not-a-path) nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                  (:rf.error/id (ex-data e))))))
+    (is (= :rf.error/bad-path
+           (try (path/normalize 42) nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                  (:rf.error/id (ex-data e))))))))
