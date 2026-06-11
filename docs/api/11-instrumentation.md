@@ -36,7 +36,12 @@ Sibling of the event-emit surface above. Runs through the always-on error-emit s
 
 This corpus-wide listener delivers one record per **every catalogued production-reachable runtime `:rf.error/*`** — handler / interceptor / cofx exceptions, flow exceptions, fx / reserved-fx exceptions, reactive- and `compute-sub`-resolution exceptions, **and** the invalid-operation categories `:rf.error/frame-destroyed`, `:rf.error/no-such-handler`, `:rf.error/no-such-sub`. (Registration-time / dev-only-validation categories stay dev-trace-only by design — see [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue).) It is the single error-observability surface; recovery is the framework's typed per-category default, not app-steerable (the per-frame `:on-error` recovery policy was removed per rf2-hiqtk8).
 
-Record shape: `{:error :event :event-id :frame :time :exception :elapsed-ms}` (plus `:source-coord` when the failing handler was registered via the public macro path). The `:event` slot is passed through `elide-wire-value` once before fan-out (same redaction posture as event-emit). Per-listener exceptions are isolated — a buggy listener cannot block siblings or the cascade.
+The listener payload is a **closed union of two record shapes**:
+
+1. **Per-event error record** — `{:error :event :event-id :frame :time :exception :elapsed-ms}` (plus `:source-coord` when the failing handler was registered via the public macro path). One per production-reachable per-event `:rf.error/*`. The `:event` slot is passed through `elide-wire-value` once before fan-out (same redaction posture as event-emit).
+2. **Frame-teardown report** — `{:error :rf.error/frame-teardown-failed :frame :hook-failures :reason :recovery :time}`. One bounded record per frame destroy whose best-effort cleanup hooks threw (EP-0008 promotion criterion; see [009 §Observability channels and the promotion criterion](../../spec/009-Instrumentation.md#observability-channels-and-the-promotion-criterion)). It is frame-keyed and carries a `:hook-failures` vector **instead of** the per-event `:event` / `:event-id` / `:exception` / `:elapsed-ms` slots.
+
+Listener bodies MUST branch on `(:error record)` (or otherwise tolerate a record with no top-level `:exception`) rather than assuming the per-event shape — a generic shipper that maps `(:error record)` to the alert name and forwards the rest handles both arms. Per-listener exceptions are isolated — a buggy listener cannot block siblings or the cascade.
 
 ### `register-error-listener!`
 

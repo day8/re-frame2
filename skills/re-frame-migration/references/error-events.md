@@ -51,13 +51,14 @@ A v1 error-handler that returned a substitute value or swallowed an error has **
 Two distinct listener surfaces exist; picking the wrong one for production monitoring is the single most common error-handling mistake in a migration.
 
 - **`register-listener!`** — the **dev-only** raw trace listener (M-13's process-wide-observer replacement and M-17's audit-interceptor replacement). Sees every emitted trace event with full dev-side enrichment, but is **production-elided**: under `:advanced` + `goog.DEBUG=false` the `emit!` gate is constant-folded out, registration is a no-op, and the listener never fires (per [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code)). Use it for dev-loop observability, never for production error egress.
-- **`register-error-listener!`** — the **always-on** error-emit listener. Survives `:advanced` + `goog.DEBUG=false`; the router fans out one tight record (`{:error :event :event-id :frame :time :exception :elapsed-ms}`, post-elision) per `:rf.error/*` event. This is the correct surface for production Sentry / Honeybadger / Datadog forwarding (per [API.md §Error-emit](../../../spec/API.md#error-emit-always-on-production-survivable)).
+- **`register-error-listener!`** — the **always-on** error-emit listener. Survives `:advanced` + `goog.DEBUG=false`. Its payload is a **closed union of two record shapes**: the per-event error record (`{:error :event :event-id :frame :time :exception :elapsed-ms}`, post-elision, one per production-reachable `:rf.error/*`) and the frame-teardown report (`{:error :rf.error/frame-teardown-failed :frame :hook-failures :reason :recovery :time}`, one bounded record per destroy whose cleanup hooks threw — EP-0008). The teardown report has no `:event` / `:event-id` / `:exception`, so a listener branches on `(:error record)` rather than assuming the per-event shape. This is the correct surface for production Sentry / Honeybadger / Datadog forwarding (per [API.md §Error-emit](../../../spec/API.md#error-emit-always-on-production-survivable)).
 
 ```clojure
 ;; Production error egress — always-on. (register-error-listener!, NOT register-listener!)
+;; Branch on (:error record): a teardown report carries no :exception.
 (rf/register-error-listener!
   :audit/sentry
-  (fn [{:keys [error event-id frame exception] :as record}]
+  (fn [{:keys [error] :as record}]
     (sentry/capture record)))                        ; fires under goog.DEBUG=false
 
 ;; Dev-loop observability only — production-elided.
@@ -76,7 +77,7 @@ The error-handling surface is **split** across the dev/prod gate. Getting this b
 
 **Always-on (survives `:advanced` + `goog.DEBUG=false`):**
 
-- **`register-error-listener!`** (the error-emit listener) — the single error-observability surface. It is NOT gated by `re-frame.interop/debug-enabled?` — it rides a small always-on error-emit substrate (`re-frame.error-emit`) that survives production builds, fanning out one tight record per catalogued production-reachable `:rf.error/*` event per [Spec 009 §What is available in production](../../../spec/009-Instrumentation.md#what-is-available-in-production).
+- **`register-error-listener!`** (the error-emit listener) — the single error-observability surface. It is NOT gated by `re-frame.interop/debug-enabled?` — it rides a small always-on error-emit substrate (`re-frame.error-emit`) that survives production builds, fanning out one tight record per catalogued production-reachable `:rf.error/*` event, plus the bounded `:rf.error/frame-teardown-failed` report on a frame destroy whose cleanup hooks threw (the closed union above), per [Spec 009 §What is available in production](../../../spec/009-Instrumentation.md#what-is-available-in-production).
 
 **Dev-only (production-elided per [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code)):**
 

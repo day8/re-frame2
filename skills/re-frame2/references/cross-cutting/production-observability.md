@@ -38,11 +38,18 @@ Fires once per event the runtime processes — NOT per sub, NOT per fx, NOT per 
  :event-id   :cart/checkout                        ;; (first event)
  :frame      :rf/default                           ;; resolved frame-id
  :time       1715600000000                         ;; emit timestamp (host clock, ms since epoch)
- :outcome    :ok                                   ;; :ok | :error
+ :outcome    :ok                                   ;; :ok | :error | :rolled-back | :flow-error
  :elapsed-ms 12}                                   ;; queue → settle, integer
 ```
 
-No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-handler`, source coords) — those ride the dev-only trace surface. Verified: `re-frame.event-emit/dispatch-on-event!` (`event_emit.cljc:167-230`); record shape per the ns docstring §Record shape.
+`:outcome` covers **every** cascade-failure path, not just the interceptor-chain exception, so a dispatch that aborted is never mis-reported as a clean `:ok` (per `re-frame.event-emit` ns docstring §Record shape and Spec 009 §Event-emit listener):
+
+- `:ok` — clean settle (db committed, flows ran, `:fx` walked).
+- `:error` — the interceptor chain (handler or interceptor) threw.
+- `:rolled-back` — post-commit `:db` schema validation rejected the new state and the container was restored to its pre-handler value (Spec 010 §Per-step recovery row 4); flows and `:fx` were skipped.
+- `:flow-error` — a flow's `:output` threw (Spec 013 §Failure semantics rule 3); the cascade halted before `:fx`.
+
+No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-handler`, source coords) — those ride the dev-only trace surface. Verified: `re-frame.event-emit/dispatch-on-event!`; record shape per the ns docstring §Record shape.
 
 **Privacy is path-based, applied at egress — the record always fans out.** Every surviving record's `:event` vector is walked by `elide-wire-value` with off-box defaults (large → `:rf.size/large-elided`; schema-declared sensitive paths → `:rf/redacted`) *before* listeners run. There is **no** whole-record privacy drop at the handler boundary: `dispatch-on-event!` never suppresses a record for sensitivity — it redacts the payload per `[:rf.runtime/elision :sensitive-declarations]` (in runtime-db) and ships the rest. (Handler-meta `:sensitive?` is **not** consulted; it was removed from the runtime — see `event_emit.cljc` ns docstring.) The only whole-record drop gate is `:rf.trace/no-emit?` on handler-meta, which is **framework-internal** (Xray / Story bookkeeping handlers) and not a user privacy knob.
 
@@ -62,7 +69,9 @@ Fires once per catalogued production-reachable `:rf.error/*` event the runtime e
 (rf/unregister-error-listener! :sentry/errors)
 ```
 
-**Record shape (tight — Spec 009 §Error-emit listener):**
+The listener payload is a **closed union of two record shapes** — the per-event error record below, and the frame-teardown report (§The first promoted category). Branch on `(:error record)`; the teardown report carries no `:event` / `:event-id` / `:exception`.
+
+**Per-event error record (tight — Spec 009 §Error-emit listener):**
 
 ```clojure
 {:error      :rf.error/handler-exception           ;; the error keyword
@@ -88,7 +97,7 @@ The error axis is deliberately small — an alert on it should *mean something*.
 2. **A contract breach or resource leak the caller can't already see** — the load-bearing leg. A bad event vector throws at the call site; the caller sees it. A *leaked handle / skipped teardown / suppressed write / corrupted invariant* leaves the process in a state the next operation can't observe — that needs an off-box record.
 3. **Silence compounds** — the cost of nobody hearing grows with process lifetime / request volume / retries. A leaked timer per SSR request is cheap once and fatal at ten million.
 
-This is also the rule for *your own* domain failures: a failure your `register-error-listener!` consumer raises through a custom `:rf.error/*` category should pass the same three legs, or it belongs on a diagnostic/log path instead — that discipline is what keeps the error stream signal, not noise. The axis is `:rf.error/*`-only (never widened to `:rf.warning/*`), and carries **structured data only** (ids/keys/frame, never raw values — the egress redaction applies).
+**The `:rf.error/*` namespace is framework-owned — do not mint app/domain categories under it.** `register-error-listener!` is a *consume* surface, not an *emit* surface: app code does not raise its own `:rf.error/*` records through it, and the `:rf/*` namespace is reserved for the framework (Cardinal rule 7; `spec/Conventions.md`). The catalogue of error categories on this axis is fixed and framework-defined. App/domain telemetry has its own homes: an **app-owned namespace** for any custom trace/log keys (e.g. `:myapp.error/payment-declined`), a framework-provided **public API** where one exists for the concern, or your ordinary application logging / observability surface (the same Datadog / Sentry pipeline, addressed directly from your handler). Keep domain failures off `:rf.error/*` and the framework error stream stays pure signal — every record on it is a framework-recognised production-reachable failure. The axis is `:rf.error/*`-only (never widened to `:rf.warning/*`), and carries **structured data only** (ids/keys/frame, never raw values — the egress redaction applies).
 
 ### The first promoted category: `:rf.error/frame-teardown-failed`
 
@@ -134,7 +143,7 @@ Three independent conditions: **config env tag** (the app knows it's production)
 
 The two always-on listener APIs carve a minimal substrate that **survives** that elision: a tiny record shape, a `defonce` registry that hot reload won't blow away, fan-out gated on registry size (empty-map check short-circuits). Re-enable the full trace bus in production by flipping `:closure-defines {goog.DEBUG true}` if and only if the bundle cost is acceptable.
 
-Full rationale: [`docs/guide/16-observability.md`](../../../../docs/guide/16-observability.md) and [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md) (line 489).
+Full rationale: [`docs/guide/16-observability.md`](../../../../docs/guide/16-observability.md) and [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md).
 
 ## Generic shipper recipe (Datadog / Sentry / Honeycomb)
 
@@ -167,9 +176,9 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 ## Cross-references
 
 - Guide chapter: [`docs/guide/16-observability.md`](../../../../docs/guide/16-observability.md) — narrative walkthrough with vendor-specific recipes.
-- Spec normative: [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md) (line 489) — substrate contracts.
+- Spec normative: [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md) — substrate contracts.
 - Privacy composition: [`privacy-and-elision.md`](privacy-and-elision.md) — schema-declared sensitive paths are redacted to `:rf/redacted` by `elide-wire-value`; payload already walked at listener entry. No whole-record drop.
 
 ---
 
-*Derived from `re-frame.event-emit` and `re-frame.error-emit` @ main. Verified surfaces: `register-event-listener!` (event_emit.cljc:139), `register-error-listener!` (error_emit.cljc:139); record shapes per each ns docstring §Record shape.*
+*Derived from `re-frame.event-emit` and `re-frame.error-emit` @ main. Verified surfaces: `register-event-listener!` / `dispatch-on-event!` (`event_emit.cljc`), `register-error-listener!` / `dispatch-on-error!` / `dispatch-frame-teardown-report!` (`error_emit.cljc`); record shapes and the `:outcome` enum per each ns docstring §Record shape.*

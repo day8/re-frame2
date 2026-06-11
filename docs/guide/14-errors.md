@@ -79,9 +79,16 @@ Two conventions make the table navigable instead of a thing to look up every tim
 
 And the contract on all of it: **stable and additive.** New categories adopt one of the five existing prefixes; existing names are never renamed or repurposed. You can pin a test to `:rf.error/no-such-cofx` and trust it'll still mean that next year.
 
-## Listening at runtime
+## Observing errors at runtime: two surfaces, not one
 
-The trace stream is the canonical surface, so observing errors is just attaching a listener and filtering for the ones you care about:
+There are two distinct ways to observe errors at runtime, and they are not interchangeable — picking the wrong one for a production monitor is the single most common mistake here. The split tracks the elision boundary from line one of this chapter:
+
+- **The trace stream — `register-listener!` — is the *dev* surface.** Rich, fully-tagged, every `:op-type`, every dev-side enrichment. It is *elided in production*: under `:advanced` + `goog.DEBUG=false` the registration is a no-op and the listener never fires. Use it for dev-loop observation, error tests, and client-side error UX.
+- **The error-emit listener — `register-error-listener!` — is the *production* surface.** It rides a small always-on substrate that survives `goog.DEBUG=false`, fanning one tight record per production-reachable `:rf.error/*` to a hosted monitor. Use it for Sentry / Honeybadger / Rollbar shipping that must keep firing in production. The full posture lives in [chapter 16 §Production observability](16-observability.md).
+
+### Dev observation, on the trace stream
+
+The trace stream is the canonical *dev* surface, so observing errors in development is just attaching a listener and filtering for the ones you care about:
 
 ```clojure
 (require '[re-frame.core :as rf])
@@ -95,28 +102,9 @@ The trace stream is the canonical surface, so observing errors is just attaching
                (get-in ev [:tags :reason])))))
 ```
 
-`register-listener!` hands your function every trace event the runtime emits — events, sub-runs, fx invocations, machine transitions, errors, warnings, the lot — and you filter down. One caveat that matters: the callback runs **synchronously** as part of the emit, so keep it cheap and hand off to whatever async sink you want rather than doing real work inline. Detach with `(rf/unregister-listener! ::my-error-listener)`.
+`register-listener!` hands your function every trace event the runtime emits — events, sub-runs, fx invocations, machine transitions, errors, warnings, the lot — and you filter down. One caveat that matters: the callback runs **synchronously** as part of the emit, so keep it cheap and hand off to whatever async sink you want rather than doing real work inline. Detach with `(rf/unregister-listener! ::my-error-listener)`. Wrap the registration in `(when ^boolean re-frame.interop/debug-enabled? …)` if you want to be explicit that it's a dev-only attach — in a production bundle the whole thing DCEs away regardless.
 
-Two patterns show up constantly. Route errors to monitoring:
-
-```clojure
-(rf/register-listener! ::sentry-bridge
-  (fn [ev]
-    (case (:op-type ev)
-      :error
-      (sentry/capture
-        {:category (:operation ev)
-         :reason   (get-in ev [:tags :reason])
-         :frame    (get-in ev [:tags :frame])
-         :tags     (:tags ev)})
-
-      :warning
-      (sentry/breadcrumb {:message (get-in ev [:tags :reason])})
-
-      nil)))                       ;; ignore non-error events
-```
-
-Or accumulate them for a dev panel:
+The pattern that shows up constantly is accumulating errors for a dev panel:
 
 ```clojure
 (defonce errors (atom []))
@@ -129,7 +117,33 @@ Or accumulate them for a dev panel:
 ;; @errors is now every error/warning since boot.
 ```
 
-And here's the thing worth sitting with: that second snippet is *exactly* how Xray and the pair tool build their "errors" panel. Same listener, same filter, just richer rendering on top. The tools have no privileged back-channel; the trace event **is** the contract, and anything the fancy panel can see, your eight-line listener can see too. That's not an accident of implementation — it's the whole design. One wire, no privileged readers.
+And here's the thing worth sitting with: that snippet is *exactly* how Xray and the pair tool build their "errors" panel. Same listener, same filter, just richer rendering on top. The tools have no privileged back-channel; the trace event **is** the contract, and anything the fancy panel can see, your eight-line listener can see too. That's not an accident of implementation — it's the whole design. One wire, no privileged readers. (It's also why these are *dev* tools: that whole wire is gone from production bundles.)
+
+### Production shipping, on the always-on error-emit substrate
+
+The trace-stream listener above is gone in production. To ship errors to a hosted monitor from a release bundle, register through `register-error-listener!` — the always-on surface that survives `:advanced` + `goog.DEBUG=false`:
+
+```clojure
+;; Production-shaped: belt-and-braces gate the *registration*, then ship
+;; the tight record. The substrate keeps firing under goog.DEBUG=false.
+(when (and (= "production" (:env config))
+           (not ^boolean re-frame.interop/debug-enabled?)
+           (:dsn config))
+  (rf/register-error-listener! ::sentry-bridge
+    (fn [error-record]
+      ;; A teardown report has no :event/:event-id/:exception — branch on :error.
+      (if (= :rf.error/frame-teardown-failed (:error error-record))
+        (sentry/capture
+          {:category (:error error-record)
+           :reason   (:reason error-record)
+           :frame    (:frame error-record)
+           :extra    {:hook-failures (:hook-failures error-record)}})
+        (sentry/capture-exception (:exception error-record)
+          {:tags {:event-id (:event-id error-record)
+                  :frame    (:frame error-record)}})))))
+```
+
+The listener receives the tight record — `{:error :event :event-id :frame :time :exception :elapsed-ms}` (plus `:source-coord` for macro-registered handlers) — for every per-event error category, and a frame-keyed teardown report (`{:error :rf.error/frame-teardown-failed :frame :hook-failures :reason :recovery :time}`) when frame-destroy cleanup hooks throw. Branch on `(:error record)` so a teardown report (which carries no `:event` / `:exception`) isn't mis-shaped. There is no `:op-type` branch to write and no `:warning` breadcrumb path — the error-emit substrate carries production-reachable `:rf.error/*` records only; `:rf.warning/*` and the rest stay on the dev-elided trace stream. Recovery is the framework's typed per-category default; this listener *observes*. Full vendor recipes and the event-throughput sibling (`register-event-listener!`) are in [chapter 16](16-observability.md).
 
 ## Recovery is the framework's job, not yours
 

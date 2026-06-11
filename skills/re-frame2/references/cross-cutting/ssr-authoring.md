@@ -130,7 +130,7 @@ All three are catalogued in [`009 §Error event catalogue`](../../../../spec/009
 | `:rf.ssr/schema-digest-mismatch` | payload `:rf/schema-digest` ≠ client `:schemas/app-schemas-digest` | `:op-type :error` |
 | `:rf.ssr/compatibility-check-skipped` | no hook registered for the relevant probe | `:op-type :warn` |
 
-These are **trace** events — DCE-eligible in CLJS production builds. To ship them off-box, wire `register-error-listener!` per [`production-observability.md`](production-observability.md); the error-emit substrate carries `:rf.ssr/*` records through to production.
+These are **trace-channel** events — DCE-eligible in CLJS production builds. They do **not** ride the always-on error-emit substrate: that substrate carries the catalogued production-reachable `:rf.error/*` records and the frame-teardown report only — *not* `:rf.ssr/*` diagnostics. `:rf.ssr/version-mismatch`, `:rf.ssr/schema-digest-mismatch`, `:rf.ssr/compatibility-check-skipped`, and `:rf.ssr/hydration-mismatch` are compatibility/hydration diagnostics that elide in a production CLJS client build unless the build keeps the trace surface (`:closure-defines {goog.DEBUG true}`) or the category is *separately promoted* to a catalogued `:rf.error/*` (none is, as of EP-0008). So do not wire `register-error-listener!` expecting these to arrive — they won't. To track this drift in production, instrument it deliberately: detect the condition in your own app code (the strict-mode hydration hook, or your `:rf/hydrate` extension) and dispatch an app event that ships through the production observability surfaces — `register-event-listener!` / `register-error-listener!` per [`production-observability.md`](production-observability.md) — or, on the JVM/SSR tier where the trace surface is live, surface render-time errors through the `:rf/public-error` projector. The default `:rf2/runtime-version` / schema-digest checks remain dev-and-server diagnostics on the trace channel.
 
 ## Streaming SSR (advanced — most apps skip this)
 
@@ -159,7 +159,7 @@ Worked example: `examples/reagent/ssr_streaming/core.cljc` (a three-slow-card da
 - API summary: [`spec/API.md §SSR (Spec 011)`](../../../../spec/API.md) — `render-head`, `active-head`, `head-model->html` row; `reg-head` row in §Registration.
 - Guide chapter: [`docs/guide/20-server-side.md`](../../../../docs/guide/20-server-side.md) — narrative walkthrough, head/meta and hydration sections.
 - Worked example: [`examples/reagent/ssr/core.cljc`](../../../../examples/reagent/ssr/core.cljc) — the reference `:rf/hydrate` body matches this leaf verbatim.
-- Production trace fan-out: [`production-observability.md`](production-observability.md) — shipping `:rf.ssr/*` records off-box.
+- Production observability: [`production-observability.md`](production-observability.md) — the always-on event/error-emit listeners. Note `:rf.ssr/*` diagnostics do NOT ride the error-emit substrate (they elide with the trace channel unless separately promoted); instrument SSR drift via your own app event through those listeners, or the `:rf/public-error` projector server-side.
 - Trace catalogue: [`spec/009-Instrumentation.md §Error event catalogue`](../../../../spec/009-Instrumentation.md) — `:rf.ssr/*` keywords.
 
 ---
