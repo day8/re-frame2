@@ -662,7 +662,7 @@ Apps that want HTTP requests tied to the lifetime of a state-machine state shoul
 
 ## Frame awareness
 
-The reply dispatch lands in the **same frame** the request was issued from. The fx captures `:frame` from the dispatch envelope's cofx (per Spec 002 §Routing) and threads it through to the reply dispatch's `{:frame ...}` opt. Multi-frame apps work without extra ceremony.
+The reply dispatch lands in the **same frame** the request was issued from. The fx reads the issuing frame's stamp from the dispatch **envelope's** `:frame` key — one of the **sanctioned** sites the bare `:frame` spelling survives at (the binary fx-handler ctx and the dispatch envelope; there is no bare `:frame` *coeffect* — the event-context spelling is `:rf.frame/id`, per [002 §One carrier, one name — the frame stamp](002-Frames.md#one-carrier-one-name--the-frame-stamp)) — and threads it through to the reply dispatch's `{:frame ...}` opt. Multi-frame apps work without extra ceremony.
 
 ## Middleware
 
