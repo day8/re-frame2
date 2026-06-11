@@ -32,6 +32,15 @@
     (Spec 004 §Render-tree primitives, rf2-piag / rf2-t5tx). The
     instance-token mint, the `*render-key*` binding, and the late-
     bind emit must elide.
+  - `re-frame.frame/safe-call-hook!` — the EP-0008 R2 per-hook
+    `:rf.warning/teardown-hook-exception` DEV DIAGNOSTIC (rf2-inkdqh).
+    The diagnostic emit rides `trace/emit-error!` (gated on
+    `interop/debug-enabled?`), so its body — including the
+    `:rf.warning/teardown-hook-exception` operation keyword — must DCE
+    under `:advanced` + `goog.DEBUG=false`. Rooting a throwing-hook
+    `destroy-frame!` puts the gated emit in the reachability graph so the
+    control build (DEBUG=true) contains the sentinel and the production
+    build must not.
 
   Note the probe does NOT need to assert anything at runtime; it exists
   to root the dead-code-elimination graph at every surface. The grep
@@ -40,6 +49,7 @@
             [re-frame.registrar    :as registrar]
             [re-frame.schemas      :as schemas]
             [re-frame.trace        :as trace]
+            [re-frame.late-bind    :as late-bind]
             ;; rf2-qwm0a — listener + buffer surface lives in
             ;; `re-frame.trace.tooling` (production-DCE split). The
             ;; probe touches it to keep both surfaces reachable so
@@ -450,6 +460,49 @@
   (let [_v (rf/view :re-frame.elision-probe/probe-injected-view)]
     nil))
 
+;; ---- EP-0008 R2 teardown-hook DEV DIAGNOSTIC (rf2-inkdqh) -----------------
+;;
+;; `re-frame.frame/safe-call-hook!` runs the late-bound optional-artefact
+;; cleanup hooks during `destroy-frame!`. When a hook throws it does two
+;; things on two channels (Spec 009 §Observability channels):
+;;
+;;   1. ALWAYS-ON axis — accumulates a `:hook-failures` entry that
+;;      `destroy-frame!` flushes as ONE `:rf.error/frame-teardown-failed`
+;;      report (this survives production — it is NOT gated by
+;;      `interop/debug-enabled?`).
+;;   2. DIAGNOSTIC channel (EP-0008 R2) — emits a per-hook
+;;      `:rf.warning/teardown-hook-exception` trace AT ITS CAUSAL POSITION
+;;      via `trace/emit-error!`, which IS gated on `interop/debug-enabled?`,
+;;      so production CLJS bundles DCE it.
+;;
+;; Before rf2-inkdqh the probe never touched the destroy/teardown path, so
+;; the R2 diagnostic body was never in the DCE reachability graph and
+;; check-elision.cjs had no sentinel for it — its production absence was
+;; UNVERIFIED. This touch installs a throwing late-bound cleanup hook and
+;; calls `destroy-frame!`, rooting the `safe-call-hook!` catch arm + the
+;; gated warn emit so the control build (DEBUG=true) contains the
+;; `:rf.warning/teardown-hook-exception` keyword sentinel and the production
+;; build (DEBUG=false) must DCE it.
+
+(defn ^:export touch-teardown! []
+  ;; Install a throwing cleanup hook under a late-bound teardown hook key,
+  ;; snapshotting the prior binding so the install doesn't leak. The hook
+  ;; key (`:ssr/on-frame-destroyed`) is one safe-call-hook! fires during the
+  ;; teardown recipe; a throw routes through safe-call-hook!'s catch arm,
+  ;; which emits the gated `:rf.warning/teardown-hook-exception` diagnostic.
+  (let [hook-key :ssr/on-frame-destroyed
+        original (late-bind/get-fn hook-key)]
+    (late-bind/set-fn! hook-key
+                       (fn [& _] (throw (ex-info "probe teardown-hook throw"
+                                                 {:hook :probe}))))
+    (rf/reg-frame :rf.probe/teardown-frame {:doc "throwing teardown hook"})
+    (try
+      ;; The accumulated always-on report flushes (survives prod), and the
+      ;; per-hook DEV diagnostic emits at its causal position (DCEs in prod).
+      (rf/destroy-frame! :rf.probe/teardown-frame)
+      (finally
+        (late-bind/set-fn! hook-key original)))))
+
 ;; ---- entry point ----------------------------------------------------------
 
 (defn ^:export run []
@@ -462,6 +515,7 @@
   (touch-machines!)
   (touch-call-site-macros!)
   (touch-reg-view-injection!)
+  (touch-teardown!)
   ;; Reference trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.
   (trace/emit! :event :rf.probe/direct-touch {:source :probe}))
