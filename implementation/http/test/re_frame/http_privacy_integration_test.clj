@@ -442,3 +442,116 @@
           (is (= :rf/redacted v) "whole opaque-token body redacted"))
         (finally
           (stop-server! srv))))))
+
+(deftest response-body-large-slot-elided-in-replied-trace
+  (testing "rf2-jhyccs — a 2xx response body's :decode-schema-marked :large?
+            slot is elided to the :rf.size/large-elided marker in the
+            :rf.http/replied trace value (the per-slot large axis, wired
+            alongside :sensitive?)"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 200 "application/json"
+                                   "{\"blob\":\"PAYLOAD-PAYLOAD-PAYLOAD\",\"user-id\":7}")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        (rf/reg-event-fx :api/big
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request {:method :get
+                              :url    (str "http://127.0.0.1:" port "/big")}
+                    :decode  [:map
+                              [:blob {:large? true} :string]
+                              [:user-id :int]]
+                    :on-success [:api/ok]}]]}))
+        (rf/reg-event-fx :api/ok (fn [_ _] {}))
+
+        (rf/dispatch-sync [:api/big])
+
+        (let [_  (wait-for!
+                   (fn [] (some #(= :rf.http/replied (:operation %)) @captured))
+                   3000)
+              ev (first (filter #(= :rf.http/replied (:operation %)) @captured))
+              v  (get-in ev [:tags :value])]
+          (is (contains? (:blob v) :rf.size/large-elided)
+              "schema-:large? body slot elided to the size marker")
+          (is (= 7 (:user-id v))
+              "non-large body slot rides verbatim"))
+        (finally
+          (stop-server! srv))))))
+
+;; ---- 10. Off-box disposition stamp on the replied trace (rf2-t55hxg.6) -----
+
+(deftest replied-trace-stamps-off-box-omit-for-unschematized-body
+  (testing "rf2-t55hxg.6 — an UNSCHEMATIZED (:auto) :decode stamps
+            :rf.http/off-box-body :omit on the :rf.http/replied trace so the
+            off-box projector omits the body (the on-box :value still rides
+            raw for the local operator — fail-closed is the OFF-BOX rule)"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 200 "application/json"
+                                   "{\"opaque\":\"raw-token\"}")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        ;; No :decode ⇒ :auto ⇒ unschematized ⇒ off-box :omit.
+        (rf/reg-event-fx :api/opaque
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request {:method :get
+                              :url    (str "http://127.0.0.1:" port "/opaque")}
+                    :on-success [:api/ok]}]]}))
+        (rf/reg-event-fx :api/ok (fn [_ _] {}))
+
+        (rf/dispatch-sync [:api/opaque])
+
+        (let [_  (wait-for!
+                   (fn [] (some #(= :rf.http/replied (:operation %)) @captured))
+                   3000)
+              ev (first (filter #(= :rf.http/replied (:operation %)) @captured))]
+          (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
+              "unschematized body stamped :omit for the off-box projector")
+          (is (some? (get-in ev [:tags :value]))
+              "the on-box :value still rides raw — the local operator sees
+               their own process; the omission is the off-box boundary"))
+        (finally
+          (stop-server! srv))))))
+
+(deftest replied-trace-stamps-off-box-classify-for-schema-body
+  (testing "rf2-t55hxg.6 — a SCHEMA :decode stamps :rf.http/off-box-body
+            :classify (the body rides the per-slot classified projection
+            off-box)"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 200 "application/json"
+                                   "{\"token\":\"bearer-secret\",\"user-id\":42}")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        (rf/reg-event-fx :api/login
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request {:method :get
+                              :url    (str "http://127.0.0.1:" port "/login")}
+                    :decode  [:map
+                              [:token {:sensitive? true} :string]
+                              [:user-id :int]]
+                    :on-success [:api/ok]}]]}))
+        (rf/reg-event-fx :api/ok (fn [_ _] {}))
+
+        (rf/dispatch-sync [:api/login])
+
+        (let [_  (wait-for!
+                   (fn [] (some #(= :rf.http/replied (:operation %)) @captured))
+                   3000)
+              ev (first (filter #(= :rf.http/replied (:operation %)) @captured))]
+          (is (= :classify (get-in ev [:tags :rf.http/off-box-body]))
+              "schema body stamped :classify for the off-box projector"))
+        (finally
+          (stop-server! srv))))))

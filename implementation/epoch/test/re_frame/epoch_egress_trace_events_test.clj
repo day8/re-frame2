@@ -373,3 +373,128 @@
            leaves are already :rf/redacted")
       (is (not (contains-secret? twice))
           "no secret re-leaks across the second pass"))))
+
+;; ===========================================================================
+;; 4. Off-box HTTP response-body fail-closed (rf2-t55hxg.6, EP-0015
+;;    disposition 5). An UNSCHEMATIZED HTTP response body is whole-sensitive
+;;    off-box and MUST be omitted; the HTTP emit site stamps the disposition
+;;    forward under :tags :rf.http/off-box-body (:omit | :classify), and
+;;    `omit-off-box-http-bodies` (in `elide-trace-events-slot`) enforces it.
+;;    A schematized body rides as-is (its per-slot marks were applied on-box).
+;;
+;;    No HTTP-artefact dependency here — the records are hand-built carrying
+;;    the same stamp the transport emits, isolating the off-box projector.
+;; ===========================================================================
+
+(def ^:private http-body-secret "raw-bearer-token-do-not-leak")
+
+(defn- contains-http-secret?
+  "Walk an arbitrary EDN value looking for the exact http-body-secret string."
+  [x]
+  (cond
+    (string? x) (.contains ^String x ^String http-body-secret)
+    (map? x)    (or (some contains-http-secret? (keys x))
+                    (some contains-http-secret? (vals x)))
+    (coll? x)   (some contains-http-secret? x)
+    :else       false))
+
+(defn- http-record
+  "A synthetic epoch record whose :trace-events carries one :rf.http/*
+  trace event with the decoded body at `body-slot` and the given off-box
+  disposition stamp."
+  [frame-id operation body-slot body disposition]
+  {:epoch-id      1
+   :frame         frame-id
+   :committed-at  0
+   :event-id      :http/done
+   :trigger-event [:http/done]
+   :db-before     {}
+   :db-after      {}
+   :outcome       :ok
+   :rf.epoch/sensitive? false
+   :trace-events  [{:op-type   :rf.trace
+                    :operation operation
+                    :tags      (cond-> {body-slot body}
+                                 disposition (assoc :rf.http/off-box-body disposition))}]
+   :sub-runs      []
+   :renders       []
+   :effects       []})
+
+(deftest off-box-omits-unschematized-replied-body
+  (testing "rf2-t55hxg.6 — an UNSCHEMATIZED :rf.http/replied body (stamped
+            :rf.http/off-box-body :omit) is OMITTED off-box: the :value tag
+            is replaced with :rf/redacted, leaking nothing"
+    (rf/reg-frame :test/http {})
+    (let [record    (http-record :test/http :rf.http/replied :value
+                                  {:token http-body-secret :user-id 42} :omit)
+          projected (epoch/projected-record record)
+          ev        (first (:trace-events projected))]
+      (is (= :rf/redacted (get-in ev [:tags :value]))
+          "the unschematized body slot is omitted off-box (fail-closed)")
+      (is (not (contains-http-secret? projected))
+          "the raw body token appears nowhere in the projected record"))))
+
+(deftest off-box-omits-unschematized-accept-failure-body
+  (testing "rf2-t55hxg.6 — an UNSCHEMATIZED :rf.http/accept-failure body rides
+            at :decoded; stamped :omit, it is omitted off-box"
+    (rf/reg-frame :test/http {})
+    (let [record    (http-record :test/http :rf.http/accept-failure :decoded
+                                  {:token http-body-secret} :omit)
+          projected (epoch/projected-record record)
+          ev        (first (:trace-events projected))]
+      (is (= :rf/redacted (get-in ev [:tags :decoded]))
+          "the unschematized :decoded body slot is omitted off-box"))))
+
+(deftest off-box-keeps-classified-schema-body
+  (testing "rf2-t55hxg.6 — a SCHEMATIZED body (stamped :classify) rides off-box
+            as the classified projection emitted on-box (its sensitive slots
+            already :rf/redacted, non-sensitive structure intact); the off-box
+            projector does NOT omit it"
+    (rf/reg-frame :test/http {})
+    ;; The on-box emit already redacted the sensitive [:token] slot; the
+    ;; non-sensitive [:user-id] structure rides classified.
+    (let [classified {:token :rf/redacted :user-id 42}
+          record     (http-record :test/http :rf.http/replied :value
+                                   classified :classify)
+          projected  (epoch/projected-record record)
+          ev         (first (:trace-events projected))]
+      (is (= classified (get-in ev [:tags :value]))
+          "the classified schema body rides off-box untouched (sensitive
+           already redacted on-box, non-sensitive structure preserved)"))))
+
+(deftest off-box-include-sensitive-lifts-omission
+  (testing "rf2-t55hxg.6 — a trusted-local :include-sensitive? opt-in lifts
+            the off-box omission (the local-raw boundary): the unschematized
+            body rides for the trusted operator who opted sensitive back in"
+    (rf/reg-frame :test/http {})
+    (let [body      {:token http-body-secret :user-id 42}
+          record    (http-record :test/http :rf.http/replied :value body :omit)
+          projected (epoch/projected-record record {:include-sensitive? true})
+          ev        (first (:trace-events projected))]
+      (is (= body (get-in ev [:tags :value]))
+          "with :include-sensitive? true the body is NOT omitted (lifted)"))))
+
+(deftest on-box-raw-body-preserved-on-ring
+  (testing "rf2-t55hxg.6 — the ON-BOX ring record is NOT projected: the raw
+            unschematized body rides verbatim on the ring (the local operator
+            sees their own process). The omission is the OFF-BOX boundary, not
+            an on-ring mutation"
+    (rf/reg-frame :test/http {})
+    (let [body   {:token http-body-secret :user-id 42}
+          record (http-record :test/http :rf.http/replied :value body :omit)
+          ev     (first (:trace-events record))]
+      (is (= body (get-in ev [:tags :value]))
+          "the hand-built ring record carries the raw body (no projection ran)
+           — projected-record is the boundary, the ring stays raw"))))
+
+(deftest off-box-passes-through-http-events-without-stamp
+  (testing "rf2-t55hxg.6 — an :rf.http/replied event with NO :rf.http/off-box-body
+            stamp (a body slot but no disposition) passes through the omission
+            pass untouched (the omission gates strictly on the :omit stamp)"
+    (rf/reg-frame :test/http {})
+    (let [body      {:k "v"}
+          record    (http-record :test/http :rf.http/replied :value body nil)
+          projected (epoch/projected-record record)
+          ev        (first (:trace-events projected))]
+      (is (= body (get-in ev [:tags :value]))
+          "no stamp ⇒ no omission (the projector only omits an explicit :omit)"))))
