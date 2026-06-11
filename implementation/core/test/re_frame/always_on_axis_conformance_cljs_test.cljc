@@ -1,0 +1,238 @@
+(ns re-frame.always-on-axis-conformance-cljs-test
+  "EP-0008 / rf2-sgz1zq — the always-on EXERCISE leg of the channel
+  conformance pin. The companion catalogue-side leg lives in
+  `re-frame.error-catalogue-channel-conformance-test` (JVM; parses the
+  Spec 009 catalogue markdown).
+
+  Per Spec 009 §Error event catalogue: every `always-on` category MUST be
+  exercised through the `register-error-listener!` error-emit substrate in
+  at least one test, \"so promotion is real, not documentary.\" This file
+  is that exercise — DATA-DRIVEN over the full always-on set so it stays
+  green as categories are added (add the category to the catalogue +
+  `always-on-categories` below and it is automatically exercised here).
+
+  ## What this proves (and what it deliberately does NOT)
+
+  The bead asks that every always-on category be \"exercised through
+  `dispatch-on-error!` (the always-on axis) in at least one test.\" The
+  always-on axis IS `re-frame.error-emit/dispatch-on-error!` (and the
+  bounded-report sibling `dispatch-frame-teardown-report!` for the
+  frame-teardown row, per Spec 009 §Channel-promotion catalogue rows). So
+  this test drives EACH always-on category THROUGH that substrate fn and
+  asserts the `register-error-listener!` registry fans the record out
+  carrying that exact category.
+
+  This is the CONTRACT-level pin: it proves the always-on axis carries
+  every always-on category end-to-end (the fan-out, the category slot, the
+  production-survivable surface). It is intentionally NOT a re-derivation
+  of each real emit SITE — those per-site integration tests already exist
+  and are cross-referenced below (`on-error-test`, the per-category
+  `*_always_on_cljs_test` suites, the machines / flows artefact tests).
+  Re-driving every emit site here would duplicate that coverage and pull
+  the optional machines / flows / routing artefacts into the core test ns
+  for no added contract assurance. The axis is the thing this conformance
+  bead pins; the literal `always-on-categories` is held honest against the
+  catalogue by the JVM companion's
+  `parsed-always-on-set-equals-the-exercise-literal` test.
+
+  Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
+  build (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) AND the JVM
+  `clojure -M:test` runner both pick it up. `error-emit` is plain CLJC; no
+  DOM dependency."
+  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            [clojure.set :as set]
+            [re-frame.core :as rf]
+            [re-frame.error-emit :as error-emit]
+            [re-frame.late-bind :as late-bind]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as ts]))
+
+;; ---------------------------------------------------------------------------
+;; The always-on set — the SINGLE literal this leg iterates.
+;;
+;; This set is PINNED against the Spec 009 catalogue's `always-on` rows by
+;; the JVM companion test
+;; (`re-frame.error-catalogue-channel-conformance-test/parsed-always-on-set-
+;; equals-the-exercise-literal`). Adding a category here without graduating
+;; it in the catalogue (or vice versa) fails that test. So this literal is
+;; not a fragile hand-maintained duplicate: the catalogue is authoritative
+;; and the companion enforces equality.
+;; ---------------------------------------------------------------------------
+
+(def always-on-categories
+  "Every `:rf.error/*` category Spec 009 §Error event catalogue marks
+  `always-on` — the production-survivable error-emit axis (surface #4).
+  Pinned == the parsed catalogue always-on set by the JVM companion."
+  #{:rf.error/handler-exception
+    :rf.error/coeffect-exception
+    :rf.error/interceptor-exception
+    :rf.error/machine-action-exception
+    :rf.error/fx-handler-exception
+    :rf.error/sub-exception
+    :rf.error/no-such-sub
+    :rf.error/sub-input-fn-exception
+    :rf.error/sub-input-fn-bad-return
+    :rf.error/no-such-handler
+    :rf.error/no-frame-context
+    :rf.error/override-fallthrough
+    :rf.error/reserved-fx-override
+    :rf.error/no-such-fx
+    :rf.error/no-such-cofx
+    :rf.error/frame-destroyed
+    :rf.error/write-after-destroy
+    :rf.error/flow-eval-exception
+    ;; The two-arg report fn (not dispatch-on-error!) carries this row —
+    ;; the bounded single-report idiom (Spec 009 §Channel-promotion
+    ;; catalogue rows). Exercised through its own report path below.
+    :rf.error/frame-teardown-failed
+    :rf.error/on-destroy-handler-exception})
+
+;; The frame-teardown report is the ONE always-on category that does NOT
+;; ride `dispatch-on-error!` (the per-event axis) — it rides the bounded
+;; `dispatch-frame-teardown-report!` sibling instead (Spec 009: one record
+;; per destroy carrying a `:hook-failures` vector, NOT one per item). The
+;; data-driven loop below routes it to the report fn; every other category
+;; goes through `dispatch-on-error!`.
+(def ^:private report-categories
+  #{:rf.error/frame-teardown-failed})
+
+;; ---------------------------------------------------------------------------
+;; Fixture — fresh registrar + plain-atom adapter per test; the always-on
+;; error-listener registry (a `defonce` atom) cleared so a listener from one
+;; test cannot leak into the next.
+;; ---------------------------------------------------------------------------
+
+(use-fixtures :each
+  (ts/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn (fn [] (error-emit/clear-error-listeners!))}))
+
+;; ---------------------------------------------------------------------------
+;; Per-category driver: push ONE record for `cat` through the always-on
+;; axis. The teardown-report row uses its bounded-report fn; every other
+;; category uses `dispatch-on-error!` (the per-event always-on surface).
+;; ---------------------------------------------------------------------------
+
+(defn- drive-category!
+  "Surface one always-on record for `cat` through the always-on substrate.
+  Returns nil. The exact payload is not the contract under test here (the
+  per-site integration tests pin payload shapes); this drives the category
+  through the axis so the listener fan-out can be asserted."
+  [cat]
+  (if (contains? report-categories cat)
+    ;; The bounded teardown report — a non-empty :hook-failures vector so
+    ;; the report fn does not short-circuit (it no-ops on empty).
+    (error-emit/dispatch-frame-teardown-report!
+      :conformance/frame
+      [{:hook :ssr/on-frame-destroyed
+        :exception (ex-info "teardown hook threw" {})
+        :where :safe-call-hook!}]
+      0)
+    ;; The per-event always-on axis. Arity:
+    ;; [error-kw event event-id frame-id exception elapsed-ms time].
+    (error-emit/dispatch-on-error!
+      cat
+      [:conformance/event]
+      :conformance/event
+      :conformance/frame
+      (ex-info "conformance" {})
+      0
+      0)))
+
+;; ===========================================================================
+;; The conformance pin: EVERY always-on category fans out through the
+;; corpus-wide `register-error-listener!` substrate.
+;; ===========================================================================
+
+(deftest every-always-on-category-fans-out-through-the-error-listener
+  (testing "Per Spec 009 §Error event catalogue (the rf2-sgz1zq pin):
+            every catalogued `always-on` category is exercised through the
+            `register-error-listener!` substrate — proving promotion is
+            real, not documentary. Data-driven over the full
+            `always-on-categories` set (pinned == the catalogue's
+            always-on rows by the JVM companion), so it stays green as
+            categories are added: each new always-on category is driven
+            through the axis the moment it joins the set."
+    (let [seen (atom #{})]
+      (rf/register-error-listener!
+        :conformance/recorder
+        (fn [record] (swap! seen conj (:error record))))
+      (doseq [cat always-on-categories]
+        (drive-category! cat))
+      ;; Every always-on category must have appeared on the listener as the
+      ;; record's :error slot. A category that did NOT fan out (a substrate
+      ;; that dropped it, a report fn that short-circuited) is a gap.
+      (let [missing (set/difference always-on-categories @seen)]
+        (is (empty? missing)
+            (str "always-on categories that did NOT fan out through "
+                 "register-error-listener!: " (pr-str (sort missing)))))
+      (is (= always-on-categories @seen)
+          "the listener received EXACTLY the always-on set (no extras, no
+           gaps) — the always-on axis carries every always-on category"))))
+
+(deftest each-category-fans-out-exactly-once-and-carries-its-category
+  (testing "Per Spec 009: a single drive of category `cat` through the
+            always-on axis produces EXACTLY ONE listener record whose
+            `:error` slot is `cat`. Pins the 1:1 fan-out (no duplicate
+            emission, no category mislabelling) for every always-on
+            category individually — the data-driven per-category
+            counterpart to the aggregate test above."
+    (doseq [cat always-on-categories]
+      (error-emit/clear-error-listeners!)
+      (let [seen (atom [])]
+        (rf/register-error-listener!
+          :conformance/recorder
+          (fn [record] (swap! seen conj record)))
+        (drive-category! cat)
+        (let [for-cat (filter #(= cat (:error %)) @seen)]
+          (is (= 1 (count for-cat))
+              (str cat ": exactly one always-on record fanned out"))
+          (is (= 1 (count @seen))
+              (str cat ": only that one record fanned out (no stray "
+                   "emission)")))))))
+
+(deftest report-category-rides-the-bounded-report-not-per-event-axis
+  (testing "Per Spec 009 §Channel-promotion catalogue rows: the
+            `:rf.error/frame-teardown-failed` row is the bounded
+            single-report idiom — it rides `dispatch-frame-teardown-report!`
+            (one record per destroy with a `:hook-failures` vector), NOT
+            the per-event `dispatch-on-error!`. Pins that the report fn is
+            a no-op on an empty `:hook-failures` (no flood) yet fans the
+            bounded record out when failures are present."
+    (let [seen (atom [])]
+      (rf/register-error-listener!
+        :conformance/recorder
+        (fn [record] (swap! seen conj record)))
+      ;; Empty failures → no record (the no-flood contract).
+      (error-emit/dispatch-frame-teardown-report! :conformance/frame [] 0)
+      (is (empty? @seen) "empty :hook-failures → no always-on report")
+      ;; Non-empty → one bounded record carrying the failures vector.
+      (error-emit/dispatch-frame-teardown-report!
+        :conformance/frame
+        [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {})
+          :where :safe-call-hook!}]
+        0)
+      (is (= 1 (count @seen)) "non-empty :hook-failures → one bounded report")
+      (let [r (first @seen)]
+        (is (= :rf.error/frame-teardown-failed (:error r)))
+        (is (vector? (:hook-failures r))
+            "the bounded report carries the per-hook detail as a vector")))))
+
+;; ===========================================================================
+;; Late-bind hooks the substrate publishes (so other artefacts can reach
+;; the always-on axis without static-requiring error-emit — load-cycle
+;; avoidance). Pinned here because they are part of the always-on axis's
+;; addressable surface (Spec 009 §What IS available in production).
+;; ===========================================================================
+
+(deftest always-on-late-bind-hooks-are-published
+  (testing "Per EP-0008 (rf2-500ech / rf2-ini4wr): `error-emit` publishes
+            its always-on entry points as late-bind hooks at ns-load, so
+            substrate / frame layers that cannot static-require it (load
+            cycle) still reach the always-on axis in production. Both the
+            per-event and the bounded-report hooks must be present."
+    (is (some? (late-bind/get-fn :error-emit/dispatch-on-error))
+        ":error-emit/dispatch-on-error hook is published")
+    (is (some? (late-bind/get-fn :error-emit/dispatch-frame-teardown-report))
+        ":error-emit/dispatch-frame-teardown-report hook is published")))
