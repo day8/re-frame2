@@ -36,6 +36,7 @@
    [re-frame.resources]
    [re-frame.resources.state :as state]
    [re-frame.resources.mutation-runtime :as mstate]
+   [re-frame.resources.mutation-events :as mevents]
    [re-frame.resources.mutation-registry :as mreg]
    [re-frame.resources.timers :as timers]
    [re-frame.resources.test-support]
@@ -528,3 +529,237 @@
           (mreg/validate+canonicalize-params
             :m/save (rf/mutation-meta :m/save) {:slug "w" :cb (fn [])}
             'test)))))
+
+;; ===========================================================================
+;; 11. rf2-3yyaur — patch / populate TARGET scoped key validation (fail-closed)
+;; ===========================================================================
+
+(defn- article-resource-spec []
+  {:scope :rf.scope/global
+   :params-schema [:map [:slug :string]]
+   :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
+   :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+
+;; The validation boundary itself is asserted via DIRECT calls (the
+;; re-frame event loop catches a handler throw and surfaces it as
+;; :rf.error/handler-exception rather than rethrowing to dispatch-sync's
+;; caller — so a thrown-with-msg? around dispatch never sees it; the
+;; codebase asserts validation throws at the fn boundary, exactly as
+;; `mutation-registry-rejects-non-edn-params` does, and proves the
+;; dispatch-path fail-closed behavior by OBSERVING no partial cache mutation).
+
+(deftest validate-target-key-rejects-unregistered-resource
+  ;; rf2-3yyaur — a controlled patch / populate targeting an UNREGISTERED
+  ;; resource fails CLOSED (the patched / seeded entry would be unreachable by
+  ;; any subscription).
+  (testing "an unregistered resource id is rejected"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+          (mstate/validate-target-key!
+            [:rf.scope/global :r/never-registered {:slug "w"}]
+            (fn [_] false) 'test :patches)))))
+
+(deftest validate-target-key-rejects-malformed-key
+  ;; rf2-3yyaur — a target that is not a 3-element scoped key is rejected.
+  (testing "a 1-element key is malformed"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+          (mstate/validate-target-key! [:r/article] (constantly true) 'test :populates))))
+  (testing "a non-vector target is malformed"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+          (mstate/validate-target-key! :r/article (constantly true) 'test :patches))))
+  (testing "a non-keyword resource id is rejected"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+          (mstate/validate-target-key! [:rf.scope/global "article" {}] (constantly true) 'test :patches)))))
+
+(deftest validate-target-key-rejects-reserved-scope-typo
+  ;; rf2-3yyaur — a bare framework-reserved :rf.scope/* keyword outside the
+  ;; closed enum (a typo) would silently write under a wrong scope — rejected.
+  (testing ":rf.scope/glabal (a typo) is rejected"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+          (mstate/validate-target-key!
+            [:rf.scope/glabal :r/article {:slug "w"}] (constantly true) 'test :patches))))
+  (testing "the closed reserved policy :rf.scope/global is a legitimate literal scope"
+    (is (= [:rf.scope/global :r/article {:slug "w"}]
+           (mstate/validate-target-key!
+             [:rf.scope/global :r/article {:slug "w"}] (constantly true) 'test :patches)))))
+
+(deftest validate-target-key-rejects-non-edn-params
+  ;; rf2-3yyaur — a host value in the target's params / scope reaches the
+  ;; cache-key boundary and is rejected (the EDN discipline resource params
+  ;; follow).
+  (testing "non-EDN params rejected"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+          (mstate/validate-target-key!
+            [:rf.scope/global :r/article {:slug "w" :cb (fn [])}] (constantly true) 'test :patches))))
+  (testing "non-EDN scope rejected"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+          (mstate/validate-target-key!
+            [(fn []) :r/article {:slug "w"}] (constantly true) 'test :patches)))))
+
+(deftest validate-target-map-canonicalizes-and-rejects-whole-map
+  ;; rf2-3yyaur — one bad target rejects the WHOLE arm (no partial write), and
+  ;; valid targets are re-keyed by the canonical scoped key.
+  (testing "a single bad target rejects the whole map"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+          (mstate/validate-target-map!
+            {[:rf.scope/global :r/article {:slug "w"}] :ok
+             [:rf.scope/glabal :r/article {:slug "x"}] :bad}
+            (constantly true) :patches 'test))))
+  (testing "an all-valid map is re-keyed by the canonical scoped key"
+    (is (= {[:rf.scope/global :r/article {:slug "w"}] :v}
+           (mstate/validate-target-map!
+             {[:rf.scope/global :r/article {:slug "w"}] :v}
+             (constantly true) :populates 'test))))
+  (testing "an empty / nil map returns nil (no-op arm)"
+    (is (nil? (mstate/validate-target-map! {} (constantly true) :patches 'test)))
+    (is (nil? (mstate/validate-target-map! nil (constantly true) :patches 'test)))))
+
+(deftest bad-patch-target-fails-closed-no-partial-cache-mutation
+  ;; rf2-3yyaur — end-to-end: a mutation whose :patches targets an unregistered
+  ;; resource fails on the success path BEFORE any cache mutation. The event
+  ;; loop catches the throw, so we observe the fail-closed EFFECT: the bad
+  ;; target's entry was never (partially) written, and the second VALID patch
+  ;; in the same arm also did not land (one bad target rejects the whole arm).
+  (rf/reg-resource :r/article (article-resource-spec))
+  (let [good-key (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})
+        bad-key  [:rf.scope/global :r/never-registered {:slug "w"}]]
+    (rf/reg-mutation :m/save
+                     {:params-schema [:map [:slug :string]]
+                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+                      :patches (fn [_p _r] {good-key (fn [old r] (merge old r))
+                                            bad-key  (fn [old _] old)})})
+    ;; seed the good entry so a (wrongly) partial patch would be observable
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :r/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:view :a]}])
+    (reply-success! @last-managed-args {:title "old"})
+    (reset! last-managed-args nil)
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :bad1}])
+    (reply-success! @last-managed-args {:title "new"})
+    (testing "fail-closed: the good entry was NOT patched (the whole arm was rejected
+              before any cache mutation), and the unregistered key was never written"
+      (is (= {:title "old"} (:data (entry good-key))) "good entry unchanged")
+      (is (nil? (entry bad-key)) "no partial write of the bad target"))))
+
+(deftest valid-patch-target-still-applies
+  ;; rf2-3yyaur — the happy path is UNCHANGED: a well-formed, registered,
+  ;; serializable target patches normally (validation is transparent on valid
+  ;; input, and canonicalizes the key so an alternate spelling still lands).
+  (rf/reg-resource :r/article (article-resource-spec))
+  (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    (rf/reg-mutation :m/patch
+                     {:params-schema [:map [:slug :string]]
+                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+                      ;; target params spelled in a different key order — must
+                      ;; canonicalize to the same identity the read path stored.
+                      :patches (fn [_p _r] {[:rf.scope/global :r/article {:slug "w"}]
+                                            (fn [old result] (merge old result))})})
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :r/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:view :a]}])
+    (reply-success! @last-managed-args {:title "old" :views 1})
+    (reset! last-managed-args nil)
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/patch :params {:slug "w"} :instance :ok1}])
+    (reply-success! @last-managed-args {:title "new"})
+    (testing "the valid patch applied to the canonical entry"
+      (is (= {:title "new" :views 1} (:data (entry rkey))))
+      (is (= [rkey] (:affected-keys (instance :ok1)))))))
+
+;; ===========================================================================
+;; 12. rf2-agrjvk — before-request invalidation PRECEDES request lowering
+;; ===========================================================================
+
+(deftest before-request-invalidation-precedes-lowering
+  ;; rf2-agrjvk — the contract says :before-request invalidation fires BEFORE
+  ;; the request is lowered to transport. Prove it on the returned :fx VECTOR
+  ;; (fx run in order): the :rf.resource/invalidate-tags dispatch must sit at a
+  ;; LOWER index than the :rf.http/managed lower fx.
+  (rf/reg-resource :r/article (article-resource-spec))
+  (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :before-request}))
+  (let [cofx   {:rf.db/runtime {} :rf.frame/id :rf/default :rf.resource/generation 0}
+        out    (mevents/execute-handler
+                 cofx [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ord1}])
+        fx     (:fx out)
+        fx-ids (mapv first fx)
+        inv-ix (->> fx (keep-indexed (fn [i [id sub]]
+                                       (when (and (= :dispatch id)
+                                                  (= :rf.resource/invalidate-tags (first sub))) i)))
+                    first)
+        low-ix (->> fx-ids (keep-indexed (fn [i id] (when (= :rf.http/managed id) i))) first)]
+    (testing "both the invalidation dispatch and the managed-HTTP lower are present"
+      (is (some? inv-ix) "a before-request invalidation dispatch was emitted")
+      (is (some? low-ix) "the managed-HTTP request was lowered"))
+    (testing "EP-0003 §Mutations / rf2-agrjvk — invalidation is ordered BEFORE
+              the request lowering in the fx vector"
+      (is (< inv-ix low-ix)
+          (str "invalidation (index " inv-ix ") must precede lowering (index "
+               low-ix "); got fx ids " (pr-str fx-ids))))))
+
+(deftest no-before-request-invalidation-leaves-order-intact
+  ;; rf2-agrjvk — a default (:after-success) timing emits NO before-request
+  ;; dispatch; the lower fx is still present and the reorder is a no-op.
+  (rf/reg-mutation :m/save (save-article-spec)) ;; default :after-success
+  (let [cofx {:rf.db/runtime {} :rf.frame/id :rf/default :rf.resource/generation 0}
+        out  (mevents/execute-handler
+               cofx [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ord2}])
+        fx-ids (mapv first (:fx out))]
+    (testing "no before-request invalidation dispatch is emitted on the default timing"
+      (is (not-any? (fn [[id sub]] (and (= :dispatch id)
+                                        (= :rf.resource/invalidate-tags (first sub))))
+                    (:fx out))))
+    (testing "the managed-HTTP lower fx is still present"
+      (is (some #{:rf.http/managed} fx-ids)))))
+
+;; ===========================================================================
+;; 13. rf2-e8wj5t — serializable mutation INSTANCE ids (reject host values)
+;; ===========================================================================
+
+(deftest execute-rejects-non-serializable-instance-id-fails-closed
+  ;; rf2-e8wj5t — a non-serializable caller-supplied instance id is rejected
+  ;; BEFORE any runtime-db / work-ledger write or HTTP lowering (the id is
+  ;; durable + trace-visible + epoch-restore-safe). The event loop catches the
+  ;; throw, so we observe the fail-closed EFFECT: nothing lowered to transport,
+  ;; and no instance row written. (The throw itself is asserted directly in
+  ;; `validate-instance-id-accepts-scalars-and-vectors`.)
+  (rf/reg-mutation :m/save (save-article-spec))
+  (reset! last-managed-args nil)
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance (fn [])}])
+  (testing "nothing was lowered to transport (fail-closed BEFORE the write)"
+    (is (nil? @last-managed-args)))
+  (testing "no instance row was written"
+    (is (empty? (:instances (rf/mutations {:frame :rf/default}))))))
+
+(deftest validate-instance-id-accepts-scalars-and-vectors
+  ;; rf2-e8wj5t — valid scalar / vector instance ids pass (they ARE
+  ;; epoch / restore-safe serializable EDN).
+  (testing "scalar ids pass"
+    (is (= :form/save-1 (mstate/validate-instance-id! :form/save-1 'test)))
+    (is (= "inst-7" (mstate/validate-instance-id! "inst-7" 'test)))
+    (is (= 42 (mstate/validate-instance-id! 42 'test))))
+  (testing "a vector id (e.g. a row-keyed form instance) passes"
+    (is (= [:row 7] (mstate/validate-instance-id! [:row 7] 'test))))
+  (testing "nil passes (the events layer then mints a generated id)"
+    (is (nil? (mstate/validate-instance-id! nil 'test))))
+  (testing "a host value is rejected"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"mutation-non-serializable-instance-id"
+          (mstate/validate-instance-id! (fn []) 'test)))))
+
+(deftest execute-with-valid-vector-instance-id
+  ;; rf2-e8wj5t — a vector instance id (a common row-keyed form shape) is
+  ;; accepted end-to-end and stored on the durable instance.
+  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance [:row 7]}])
+  (testing "the instance is keyed + stored under the serializable vector id"
+    (let [i (instance [:row 7])]
+      (is (= :pending (:status i)))
+      (is (= [:row 7] (:instance/id i))))))

@@ -138,7 +138,15 @@
   no entry / no data is a no-op (a patch transforms existing data; populate
   seeds). Per EP-0003 §Mutations (controlled resource patch APIs)."
   [runtime-db patches-fn params result clock-ms]
-  (if-let [patches (when patches-fn (patches-fn params result))]
+  (if-let [patches (when patches-fn
+                     ;; rf2-3yyaur — validate + canonicalize EVERY patch target
+                     ;; scoped key BEFORE any cache mutation (fail-closed: one
+                     ;; bad target rejects the whole patch arm, never a partial
+                     ;; write). Re-keys by the canonical scoped key so the
+                     ;; write lands under the canonical identity.
+                     (mstate/validate-target-map!
+                       (patches-fn params result) registry/resource-meta
+                       :patches 'rf.mutation.internal/succeeded))]
     (reduce-kv
       (fn [[db ks policies] scoped-key patch-fn]
         (let [entry (get-in db (state/entry-path scoped-key))]
@@ -165,7 +173,14 @@
   invalidation can reach it). Returns `[runtime-db' affected-keys]`. Per
   EP-0003 §Mutations (controlled resource populate APIs)."
   [runtime-db populates-fn params result clock-ms]
-  (if-let [populates (when populates-fn (populates-fn params result))]
+  (if-let [populates (when populates-fn
+                       ;; rf2-3yyaur — validate + canonicalize EVERY populate
+                       ;; target scoped key BEFORE any cache mutation
+                       ;; (fail-closed: one bad target rejects the whole
+                       ;; populate arm, never a partial write).
+                       (mstate/validate-target-map!
+                         (populates-fn params result) registry/resource-meta
+                         :populates 'rf.mutation.internal/succeeded))]
     (reduce-kv
       (fn [[db ks policies] scoped-key value]
         (let [[_scope resource-id rparams] scoped-key
@@ -228,6 +243,12 @@
         spec       (mreg/require-mutation-spec! mutation where)
         cparams    (mreg/validate+canonicalize-params mutation spec params where)
         cscope     (mreg/resolve-scope mutation spec scope)
+        ;; rf2-e8wj5t — reject a non-serializable caller-supplied instance id
+        ;; BEFORE any runtime-db / work-ledger write or HTTP lowering (the
+        ;; instance id is durable + trace-visible + epoch-restore-safe). A nil
+        ;; instance falls through to the generated id (serializable by
+        ;; construction).
+        _          (mstate/validate-instance-id! instance where)
         generation (state/next-generation gen-snapshot)
         instance-id (mint-instance-id mutation instance generation)
         ;; the work-id reuses the resource work-id shape, but keyed by the
@@ -290,12 +311,20 @@
                   :work-id work-id :generation generation :scope cscope
                   :cause cause :invalidate-timing invalidate-timing})
     {:rf.db/runtime rdb'
+     ;; rf2-agrjvk — `:before-request` invalidation must precede the request
+     ;; being lowered to transport. fx run in order, so the invalidation
+     ;; dispatch is placed BEFORE `lower-fx` (not appended after it). The
+     ;; generation commit + work-handle record stay first (they establish the
+     ;; stale-suppression identity the lowered request rides); the invalidation
+     ;; then fires; only THEN does the write lower. Without the reorder the
+     ;; contract ("before-request invalidation happens before the request is
+     ;; lowered") was violated — the request lowered first.
      :fx (cond-> [[:rf.resource/commit-generation {:value generation}]
                   [:rf.resource/record-work-handle
                    {:frame-id frame-id :work-id work-id
-                    :transport transport-id :request-id request-id}]
-                  lower-fx]
-           before-fx (conj before-fx))}))
+                    :transport transport-id :request-id request-id}]]
+           before-fx (conj before-fx)
+           true      (conj lower-fx))}))
 
 ;; ---- :rf.mutation/clear — causal instance reset ---------------------------
 
