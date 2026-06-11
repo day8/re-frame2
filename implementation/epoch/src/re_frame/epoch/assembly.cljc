@@ -370,9 +370,12 @@
   own. The two-arg-fewer arity defaults `outcome` to `:ok` and `halt-reason`
   to nil; both arities require `committed-at` (callers without a token — the
   pair-tool synthetic db-replace injections, which run with no application
-  event in flight — pass `(interop/now-ms)` explicitly at the call site,
-  where the ambient read is the honest answer for a tool action's
-  wall-clock, per EP-0010 §Time `Ambient time remains allowed for ...`)."
+  event in flight — pass `(interop/epoch-now-ms)` explicitly at the call
+  site, where the ambient wall-clock read is the honest answer for a tool
+  action, per EP-0010 §Time `Ambient time remains allowed for ...`. It is
+  the wall-clock surface, NOT `interop/now-ms` — `:committed-at` is a
+  durable field, kept wall-clock-class for cross-epoch comparison;
+  rf2-czwwf4)."
   ([frame-id frame-state-before frame-state-after events committed-at]
    (build-record frame-id frame-state-before frame-state-after events committed-at :ok nil))
   ([frame-id frame-state-before frame-state-after events committed-at outcome halt-reason]

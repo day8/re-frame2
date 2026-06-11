@@ -585,13 +585,23 @@
             ;; pair-tool injection — NO application event (and therefore no
             ;; causal token) is in flight, so there is no `:time-ms` to fold.
             ;; The honest `:committed-at` is the wall-clock of the tool action
-            ;; itself, so the ambient `interop/now-ms` read happens HERE, at
-            ;; the call site, rather than inside the pure `build-record`
-            ;; builder (per EP-0010 §Time — ambient time remains allowed for a
-            ;; tool action's own wall-clock).
+            ;; itself, so the ambient read happens HERE, at the call site,
+            ;; rather than inside the pure `build-record` builder (per EP-0010
+            ;; §Time — ambient time remains allowed for a tool action's own
+            ;; wall-clock).
+            ;;
+            ;; rf2-czwwf4: `:committed-at` is a DURABLE epoch field, so the
+            ;; ambient read uses `interop/epoch-now-ms` (wall-clock epoch ms,
+            ;; `js/Date.now()` on CLJS) — NOT `interop/now-ms`, which on CLJS is
+            ;; `performance.now()` (origin-relative, NOT for durable facts).
+            ;; This keeps a tool-injected epoch's `:committed-at` in the same
+            ;; wall-clock CLASS as the router-stamped epochs (whose committed-at
+            ;; folds the token's `epoch-now-ms` :time-ms), so the Epoch panel
+            ;; shows comparable timestamps across tool-injected and normal
+            ;; epochs (EP-0010 §Time durable-timestamp rule).
             (let [record (assembly/maybe-redact
                            (assoc (assembly/build-record frame-id fs-before fs-after []
-                                                          (interop/now-ms))
+                                                          (interop/epoch-now-ms))
                                   :event-id      :rf.epoch/db-replaced
                                   :trigger-event [:rf.epoch/db-replaced]))]
               (state/record! record)
@@ -622,13 +632,20 @@
 
   rf2-bh56rc: a pair-tool injection — no application event / causal token
   is in flight, so `:committed-at` is the tool action's own wall-clock; the
-  ambient `interop/now-ms` read happens HERE rather than inside the pure
-  `build-record` builder (per EP-0010 §Time — ambient time stays allowed
-  for a tool action's wall-clock)."
+  ambient read happens HERE rather than inside the pure `build-record`
+  builder (per EP-0010 §Time — ambient time stays allowed for a tool
+  action's wall-clock).
+
+  rf2-czwwf4: `:committed-at` is a DURABLE epoch field, so the ambient read
+  uses `interop/epoch-now-ms` (wall-clock epoch ms, `js/Date.now()` on
+  CLJS) — NOT `interop/now-ms`, which on CLJS is `performance.now()`
+  (origin-relative, NOT for durable facts). This keeps a tool-injected
+  epoch's `:committed-at` in the same wall-clock CLASS as the
+  router-stamped epochs (EP-0010 §Time durable-timestamp rule)."
   [frame-id fs-before fs-after]
   (let [record (assembly/maybe-redact
                  (assoc (assembly/build-record frame-id fs-before fs-after []
-                                                (interop/now-ms))
+                                                (interop/epoch-now-ms))
                         :event-id      :rf.epoch/db-replaced
                         :trigger-event [:rf.epoch/db-replaced]))]
     (state/record! record)
