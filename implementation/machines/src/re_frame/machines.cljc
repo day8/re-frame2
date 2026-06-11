@@ -63,7 +63,18 @@
             [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.machines.timer :as timer]
             [re-frame.registrar :as registrar]
-            [re-frame.subs :as subs]))
+            [re-frame.subs :as subs]
+            ;; EP-0014 slice-6 (rf2-2axssk): the JVM-only require of the
+            ;; machines tooling sibling that backs the `machine-algebra-view` /
+            ;; `machine-instance-algebra-view` / `machine-selector?` aliases at
+            ;; the foot of this ns. CLJS deliberately OMITS this require so a
+            ;; CLJS app that loads the machines artefact but never attaches a
+            ;; tool DCEs the tooling body wholesale — the facade never reaches
+            ;; it. JVM has no bundle to protect; the aliases give JVM tools /
+            ;; conformance fixtures the ergonomic `re-frame.machines/<name>`
+            ;; shape. Mirrors the `re-frame.flows` → `re-frame.flows.tooling`
+            ;; JVM-only require (rf2-s8w3nw slice-3).
+            #?@(:clj [[re-frame.machines.tooling :as machines-tooling]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -161,6 +172,28 @@
    ;; EP-0001 (rf2-vzld77): the system-ids reverse index is durable
    ;; machine runtime-db state — read it off the runtime-db partition.
    (get-in (frame/frame-runtime-db-value frame-id) (paths/system-id-path system-id))))
+
+;; ---- derivation/process algebra views (EP-0014 slice-6) -------------------
+;;
+;; EP-0014 slice-6 (rf2-2axssk): the derivation/process algebra view of
+;; registered machines (`machine-algebra-view`), their live instances /
+;; spawned actors (`machine-instance-algebra-view`), and the machine-selector
+;; recognizer (`machine-selector?`). A machine is the canonical `:process`
+;; member of the algebra (a derivation WITH state, lifecycle, and commands over
+;; time); its snapshot materializes into runtime-db, evaluated `:on-transition`.
+;;
+;; JVM convenience aliases: the bodies live in `re-frame.machines.tooling` so a
+;; CLJS app that loads the machines artefact but attaches no tool DCEs them (the
+;; CLJS facade never `:require`s the tooling sibling — the require above is
+;; `#?@(:clj ...)`-gated). CLJS consumers (Xray + conformance) call
+;; `re-frame.machines.tooling/<name>` directly. No `re-frame.core` facade export
+;; (EP-0014 issue-1 disposition). Mirrors the `re-frame.flows/flow-algebra-view`
+;; JVM alias (slice-3).
+#?(:clj
+   (do
+     (def machine-algebra-view          machines-tooling/machine-algebra-view)
+     (def machine-instance-algebra-view machines-tooling/machine-instance-algebra-view)
+     (def machine-selector?             machines-tooling/machine-selector?)))
 
 ;; ---- :rf.machine/dispatch-to-system — action→spawned-actor messaging fx --
 ;;

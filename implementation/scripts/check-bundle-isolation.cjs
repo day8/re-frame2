@@ -388,6 +388,32 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
+  // re-frame.machines.tooling (rf2-2axssk — EP-0014 slice-6
+  // `machine-algebra-view` / `machine-instance-algebra-view` /
+  // `machine-selector?` split off from the machines artefact for production
+  // DCE). The whole machines artefact is ALREADY bundle-isolated from
+  // counter (counter never `:require`s `re-frame.machines` — the `machines`
+  // entry above pins that), so this sibling can never reach a no-machines
+  // app's bundle; this entry is the belt-and-braces guard the
+  // tooling-sibling pattern standardises (it also fires if a machines-using
+  // CLJS app's facade ever `:require`s the tooling sibling — the
+  // `re-frame.machines` → `re-frame.machines.tooling` require is
+  // `#?@(:clj ...)`-gated so the body stays out of CLJS). Sentinel mirrors
+  // the flows-tooling / subs-tooling / trace-tooling shape: a unique string
+  // planted at the bottom of the namespace body, surviving `:advanced`
+  // (string literals are not renamed) and outside any DCE gate.
+  {
+    name: 'machines-tooling',
+    internalSentinels: [
+      // machines/tooling.cljc — explicit sentinel planted at the bottom
+      // of the namespace body (`bundle-isolation-sentinel`).
+      { source: 're-frame.machines.tooling (bundle-isolation-sentinel)',
+        sentinel: 'rf.machines.tooling/sentinel:rf2-2axssk-2026-06-12:do-not-rename' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
+
   // re-frame.trace.cascade (rf2-931pm — focused-event-only cascade-DAG
   // aggregator). Same posture as `trace.tooling`: the namespace is
   // autoloaded from `re-frame.core` only via the JVM-only conditional
