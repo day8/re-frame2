@@ -16,7 +16,8 @@
   Three concerns:
 
    1. **Work-id correlation** (`work-id`). One HTTP attempt has one
-      `:work/id` head `[:rf.work/http logical-id args... generation]`
+      `:work/id` head `[:rf.work/http logical-id attempt]` (the `attempt`
+      number is HTTP's generation slot — see `work-id`)
       (Managed-Effects §Work-id correlation). The HTTP `:request-id` is
       NOT a second stale-suppression key — it rides as `:correlation`
       metadata on the reply map. The frame-qualified transport
@@ -58,7 +59,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Work-id correlation (Managed-Effects §Work-id correlation).
 ;;
-;; HTTP head: `[:rf.work/http logical-id args... generation]`. The logical
+;; HTTP head: `[:rf.work/http logical-id attempt]` (the trailing `attempt`
+;; is HTTP's generation slot — see below). The logical
 ;; identity is the caller's `:request-id` when supplied (a stable, =-
 ;; comparable handle the caller already chose for supersede/abort), else
 ;; the originating event-id (the default reply target's identity). HTTP has

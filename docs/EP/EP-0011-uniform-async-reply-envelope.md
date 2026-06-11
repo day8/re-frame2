@@ -33,9 +33,11 @@ Type: standards-track
 > omission.
 >
 > **`final` settles the decisions; it does not on its own assert the build is
-> gap-free (EP-0005 pattern).** Two non-blocking follow-ups remain open and are
-> tracked in the [Implementation errata](#implementation-errata) ledger below —
-> neither reopens a ruling.
+> gap-free (EP-0005 pattern).** One non-blocking follow-up remains open (a P4
+> cosmetic one-name-per-fact tidy); the one P3 observability follow-up has since
+> been resolved. Both are tracked in the
+> [Implementation errata](#implementation-errata) ledger below — neither reopens
+> a ruling.
 >
 > Plain-language summary: when framework-managed async work completes, it
 > reports back as one standard reply map delivered to one standard reply target.
@@ -53,24 +55,30 @@ conformance-proven by the test-only managed-timer probe. The final correctness
 review (`rf2-zqefg3.9`) and this completeness review (`rf2-zqefg3.10`) both
 passed clean with no state-safety or correctness defect.
 
-The items below are **open errata** — small build/tidy follow-ups that carry
-out the settled design; neither reopens a ruling or changes a contract. They
-are recorded here per the EP-0005 final-with-errata pattern: finalizing the
-*decisions* does not, on its own, assert the *implementation* is gap-free.
+The items below carry out the settled design; neither reopens a ruling or
+changes a contract. They are recorded here per the EP-0005 final-with-errata
+pattern: finalizing the *decisions* does not, on its own, assert the
+*implementation* is gap-free.
 
-- **`rf2-lohbfg`** *(open — P3, observability, behaviourally safe)* — wire the
-  machine `stale-spawn-reply` into the one reachable machine-supersession path:
-  a spawned child reaching a `:final?` leaf *after* its parent was already
-  destroyed. That path is handled today in `finalize-machine` by silently
-  reducing `:on-done` to identity when the parent snapshot is `nil` — which is
+- **`rf2-lohbfg`** *(RESOLVED — P3, observability, behaviourally safe)* — wire
+  the machine `stale-spawn-reply` into the one reachable machine-supersession
+  path: a spawned child reaching a `:final?` leaf *after* its parent was
+  already destroyed. This path was previously handled in `finalize-machine` by
+  silently reducing `:on-done` to identity when the parent snapshot is `nil` —
   **behaviourally safe** (no parent to mutate, no app-state corruption) and so
-  meets the §Stale suppression clauses (1) app target not run and (5) no app
-  mutation. The gap is observability only: it does not yet emit the
-  `:status :stale` reply (clause 2) nor the stale-suppression trace joined to
-  `:work/id` (clause 4) that the machine `:after`-timer stale path already
-  emits. The machine completion model is synchronous, so a genuinely-late
-  completion arriving after the child itself was destroyed is not reachable;
-  parent-destroyed-before-child-finishes is the only live case.
+  already meeting the §Stale suppression clauses (1) app target not run and (5)
+  no app mutation, but it did not yet emit the `:status :stale` reply (clause 2)
+  nor the stale-suppression trace joined to `:work/id` (clause 4) that the
+  machine `:after`-timer stale path emits. **Now resolved:** `finalize-machine`
+  gates on parent liveness (`parent-live?`) and, for a stale late completion,
+  builds `stale-spawn-reply` and emits the `:rf.machine/done` trace carrying the
+  reply-envelope `:rf.reply/status :stale` / `:rf.reply/work-status :suppressed`
+  facts plus the carried/current generation correlation joined to `:work/id` —
+  the spawn analogue of the `:after` path's `:rf.machine.timer/stale-after`
+  trace, so all five §Stale suppression clauses now hold for the spawn path.
+  The machine completion model is synchronous, so a genuinely-late completion
+  arriving after the child itself was destroyed is not reachable;
+  parent-destroyed-before-child-finishes was the only live case.
 - **`rf2-mdjzs0`** *(open — P4, cosmetic, one-name-per-fact tidy)* — converge
   the unqualified `:work-id` spelling that survives in several resource /
   mutation **trace-tag** and internal in-flight-bookkeeping maps onto the
