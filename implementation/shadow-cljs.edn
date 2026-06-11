@@ -267,7 +267,19 @@
                 ;; Dev-only via the same `:devtools/preloads` gate as
                 ;; the rest of Xray; bundle-isolation verifies
                 ;; `editscript.*` does not reach production bundles.
-                [juji/editscript "0.6.5"]]
+                [juji/editscript "0.6.5"]
+                ;; nextjournal/markdown (rf2-e2t7v4) — the RealWorld example
+                ;; apps render the article body as CommonMark via
+                ;; `realworld-shared.markdown` (hiccup-emitting mode). Used
+                ;; ONLY by the `:examples/realworld` + `:examples/realworld-
+                ;; resources` example builds (browser); nothing in
+                ;; implementation/ or a production framework bundle :requires
+                ;; it. In CLJS it tokenizes with markdown-it (the npm deps
+                ;; below, auto-read from this jar's deps.cljs :npm-deps);
+                ;; markdown-it is pure JS (no DOM) so it also runs in the
+                ;; :node-test build that exercises the renderer's
+                ;; sanitization contract.
+                [io.github.nextjournal/markdown "0.7.225"]]
 
  ;; Top-level dev-http servers (rf2-aqcix). shadow-cljs's `:dev-http`
  ;; map binds a port to a list of file roots; the dev server cascades

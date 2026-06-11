@@ -27,7 +27,7 @@
             [reagent.core :as r]
             [reagent.ratom :as ratom]
             [realworld-resources.http :as rh]
-            [realworld-resources.markdown :as md]
+            [realworld-shared.markdown :as md]
             [realworld-resources.resources :as resources]
             [realworld-resources.scope :as scope])
   (:require-macros [re-frame.core :refer [reg-view]]))

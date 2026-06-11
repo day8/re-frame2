@@ -131,12 +131,13 @@
                  :title "Hello, Conduit"
                  :description "A short greeting from the realworld-resources stub."
                  ;; A markdown body so the article-detail page exercises the
-                 ;; sanitized markdown renderer (realworld-resources.markdown/
-                 ;; render): headings, bold/italic, inline + fenced code, a safe
-                 ;; link, and lists. The renderer emits hiccup (never raw HTML),
-                 ;; so this is rendered as real markup while any injected
-                 ;; `<script>` / `javascript:` link in user content would
-                 ;; degrade to inert escaped text.
+                 ;; sanitized CommonMark renderer (realworld-shared.markdown/
+                 ;; render — rf2-e2t7v4): headings, bold/italic, inline + fenced
+                 ;; code, a safe link, lists, plus full-CommonMark shapes the old
+                 ;; hand-rolled subset could not do (a table, a nested list).
+                 ;; The renderer emits hiccup (never raw HTML), so this is real
+                 ;; markup while any injected `<script>` / `javascript:` link in
+                 ;; user content degrades to inert escaped text.
                  :body (str "# Hello, Conduit\n\n"
                             "This article is served by the demo `:rf.http/managed` "
                             "override that **resources + mutations** lower onto, "
@@ -145,8 +146,13 @@
                             "for the reference behaviour.\n\n"
                             "## Highlights\n\n"
                             "- Sanitized by construction (hiccup, never raw HTML)\n"
-                            "- Headings, lists, code, links\n"
-                            "- Zero new dependencies\n\n"
+                            "- Full CommonMark via `nextjournal/markdown`\n"
+                            "  - tables, nested lists, images\n"
+                            "  - safe-by-construction link/image schemes\n\n"
+                            "| Surface | Shape |\n"
+                            "| --- | --- |\n"
+                            "| reads | `reg-resource` |\n"
+                            "| writes | `reg-mutation` |\n\n"
                             "```clojure\n(rf/reg-resource :realworld/article ...)\n```\n\n"
                             "> A blockquote, for good measure.")
                  :tagList ["intro" "demo"]}
