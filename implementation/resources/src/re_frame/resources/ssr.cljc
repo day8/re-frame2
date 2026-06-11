@@ -142,6 +142,86 @@
       (:large? spec)     :omit
       :else              :serialize)))
 
+;; ---- scoped-key privacy (Spec 016 clause 4, rf2-otms75) -------------------
+;;
+;; The scoped resource KEY (`[scope resource-id params]`) is the MAP KEY of the
+;; projected `{scoped-key wire-entry}` slice — so even when the entry's DATA is
+;; redacted/omitted, the raw scope + params still ride in the key. Spec 016
+;; §Runtime-subsystem graduation clause 4 / §Xray and AI tooling: "params,
+;; scopes, and data carry the same classification" — a `:sensitive?` resource's
+;; scope (user / tenant / impersonation markers) or a `:large?` resource's
+;; params MUST NOT ride raw on the hydration wire any more than its data does.
+;;
+;; The client refetch is ROUTE-DRIVEN: the route plan re-resolves params from
+;; the LIVE route on the client and re-ensures under a freshly-computed scoped
+;; key (route.cljc/route-resource-plan). So a redacted/omitted hydrated entry
+;; does NOT need its original raw scope/params to refetch — it only needs (a)
+;; the resource-id (position 1, never sensitive) so the refetch plan can name
+;; it, and (b) a DISTINCT key so the index recompute does not collapse two
+;; entries. We therefore project the sensitive/large scope + params to an
+;; OPAQUE, content-addressed DIGEST: distinct values stay distinct (no
+;; collision / lost entry), the raw identity never rides, and the digest is
+;; deliberately one-way (refetch is route-driven, not key-driven).
+
+(def ^:private fnv-offset-basis 2166136261)
+(def ^:private fnv-prime 16777619)
+
+(defn- fnv-1a-32
+  "A deterministic, cross-process-stable 32-bit FNV-1a hash of `s` (a string),
+  returned as an 8-char lower-case hex. Used to content-address a redacted
+  scope / params value so distinct keys stay distinct on the wire without the
+  raw value riding. Self-contained (no dep on the SSR artefact's hash)."
+  [^String s]
+  (let [bytes #?(:clj (.getBytes s "UTF-8") :cljs s)
+        n     #?(:clj (alength ^bytes bytes) :cljs (.-length bytes))]
+    (loop [i 0
+           h fnv-offset-basis]
+      (if (< i n)
+        (let [b #?(:clj (bit-and (aget ^bytes bytes i) 0xff)
+                   :cljs (bit-and (.charCodeAt bytes i) 0xff))
+              h' (-> (bit-xor h b)
+                     (* fnv-prime)
+                     (bit-and 0xffffffff))]
+          (recur (inc i) h'))
+        #?(:clj  (format "%08x" (bit-and h 0xffffffff))
+           :cljs (let [hx (.toString (bit-and h 0xffffffff) 16)]
+                   (str (subs "00000000" 0 (max 0 (- 8 (count hx)))) hx)))))))
+
+(defn- redact-key-component
+  "Project a scope or params `value` from a scoped key to its wire shape under
+  a metadata-only (`:redact` / `:omit`) classification: a `{:rf/redacted
+  <digest>}` token whose digest content-addresses the canonical value (Spec
+  016 clause 4 / rf2-otms75). Distinct values get distinct digests (so the
+  projected key stays unique — the index recompute never collapses two
+  entries), the raw scope / params never ride, and the token is opaque (the
+  client refetches route-driven, not from this digest). A nil / empty value
+  (the empty-scope / no-params case) projects to a stable `{:rf/redacted
+  nil}` — there is nothing sensitive to hide."
+  [value]
+  (if (or (nil? value) (and (coll? value) (empty? value)))
+    {:rf/redacted nil}
+    {:rf/redacted (fnv-1a-32 (pr-str value))}))
+
+(defn project-scoped-key
+  "Project a scoped resource KEY (`[scope resource-id params]`) to its wire
+  shape per the resource's `disposition` (Spec 016 clause 4 / rf2-otms75):
+
+    - `:serialize` — the key rides VERBATIM (a non-sensitive, non-large
+      resource: its scope / params are wire-safe, same as its data);
+    - `:redact` / `:omit` — the scope and params are replaced by opaque
+      content-addressed `{:rf/redacted <digest>}` tokens so the sensitive /
+      large raw identity does NOT ride, while the resource-id (position 1) and
+      key DISTINCTNESS are preserved (the digest differs per distinct value).
+
+  The wire key keeps the `[scope resource-id params]` SHAPE so the client's
+  index recompute + refetch plan parse it unchanged (resource-id at position
+  1). PURE."
+  [scoped-key disposition]
+  (if (= :serialize disposition)
+    scoped-key
+    (let [[scope resource-id params] scoped-key]
+      [(redact-key-component scope) resource-id (redact-key-component params)])))
+
 (defn- project-entry
   "Project a single durable cache `entry` (under `scoped-key`) to its wire
   shape per its classification, against the SSR `frame-id` (so the shared
@@ -253,7 +333,13 @@
   sensitive / large schema paths govern the per-entry projection. The
   projection NEVER ships all of `:rf.db/runtime` — only the
   `:rf.runtime/resources` `:entries` (Spec 016 §SSR and hydration: \"Do not
-  serialize all of `:rf.db/runtime` by default\")."
+  serialize all of `:rf.db/runtime` by default\").
+
+  rf2-otms75 — the projected MAP KEY is also privacy-aligned: a `:sensitive?` /
+  `:large?` resource's scope + params are redacted to opaque content-addressed
+  tokens in the wire key (`project-scoped-key`), so the raw identity never
+  rides any more than its data does (Spec 016 clause 4). A `:serialize`
+  resource's key rides verbatim."
   [runtime-db]
   (let [resources (get runtime-db state/resources-key)
         entries   (:entries resources)]
@@ -262,7 +348,9 @@
             clock-ms (now-ms)
             wired    (into {}
                            (map (fn [[k entry]]
-                                  [k (first (project-entry frame-id clock-ms k entry))]))
+                                  (let [disposition (entry-classification k entry)
+                                        wire-key    (project-scoped-key k disposition)]
+                                    [wire-key (first (project-entry frame-id clock-ms k entry))])))
                            entries)]
         {state/resources-key {:entries wired}})
       {})))
