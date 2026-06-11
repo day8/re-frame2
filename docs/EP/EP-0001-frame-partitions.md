@@ -14,10 +14,11 @@ Status: final
 > [Implementation errata](#implementation-errata). Finalizing the *decisions*
 > did not, on its own, assert the *implementation* was gap-free; the errata
 > ledger below tracked that separately to its close. Historical proposal
-> sections below still preserve rejected alternatives such as `:db-before` /
-> `:db-after` and multi-container representations; the Resolved Decisions and
-> the graduated specs are authoritative where they conflict with earlier
-> proposal voice.
+> sections below still preserve superseded alternatives such as the
+> multi-container representations; the Resolved Decisions — including the
+> 2026-06-11 `rf2-cg7llv` errata on Decision 2, which blessed `:db-before` /
+> `:db-after` as the canonical projection slot names — and the graduated specs
+> are authoritative where they conflict with earlier proposal voice.
 
 ## Implementation errata
 

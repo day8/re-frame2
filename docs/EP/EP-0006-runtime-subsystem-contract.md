@@ -122,11 +122,12 @@ third-party-registration API.
 
 - **Builds on EP-0001** (the partition that created the children) and adopts
   its Appendix A item 5, which the fourteen rulings never addressed.
-- **Informs EP-0003 graduation** (by recommendation, not hard dependency):
+- **Informed EP-0003 graduation** (by recommendation, not hard dependency):
   `:rf.runtime/resources`, `:rf.runtime/work-ledger`, and
-  `:rf.runtime/mutations` graduate against this checklist. EP-0003 is already
-  accepted and its HTTP-only Spec 016 scope has graduated; this relationship is
-  now conformance/status hygiene, not an acceptance gate.
+  `:rf.runtime/mutations` graduated against this checklist. EP-0003 is now
+  **final** (graduated 2026-06-11, `rf2-9l9xs2`) with those grading rows
+  shipped; this relationship is settled history plus ongoing conformance
+  hygiene (the drift test, `rf2-ba5acq`).
 - **Sequenced with rf2-3939ig, not coupled to it:** the authority *mechanism*
   (general framework-authority registration meta) has shipped as a bug fix;
   this contract is the *policy* layer that cites it as clause 2's

@@ -2,7 +2,6 @@
 
 Status: proposal
 Type: standards-track
-Created: 2026-06-11
 
 > This EP proposes a narrow post-EP-0003 amendment to Spec 016:
 > mutation completion continuations, per-target scoped invalidation, named
@@ -377,8 +376,10 @@ and inspect.
   scope resolver inputs and map-form resource targets should use canonical
   params/scope identity rules defined there where applicable.
 - **[EP-0014](EP-0014-derivation-and-process-algebra.md) (proposal).** Named
-  scope resolvers are declared pure derivations with inputs, output, storage
-  policy, and lifecycle. This EP uses that model for a concrete Spec 016 gap.
+  scope resolvers are shaped consistently with EP-0014's derivation vocabulary
+  (declared inputs, output, lifecycle), so if EP-0014 is accepted they slot
+  into its algebra unchanged — but this EP specifies them independently and
+  carries no dependency on that proposal.
 - **[EP-0015](EP-0015-frame-owned-egress-policy.md) (proposal).** Resource
   scope values, params, reply values, mutation payloads, and trace evidence
   produced by this EP must pass through the eventual egress projection policy.
@@ -522,6 +523,13 @@ Each descriptor has its own scope. Descriptor `:scope` may be:
 - a future route/frame resolver reference if accepted by a later EP.
 
 Missing descriptor scope defaults to `:rf.scope/same`.
+
+"The mutation's resolved scope" here is the scope defined by Spec 016
+§Mutation scope is two distinct scopes (hybrid): the fail-open *execution*
+scope (execute-payload `:scope` → spec `:scope` → `:rf.scope/global`), which
+the mutation supplies as the fail-closed *invalidation* scope. This EP's
+descriptors refine that composition — each target names its own invalidation
+scope explicitly instead of inheriting the execution scope for every tag.
 
 Bare shorthand and descriptor form both lower to the same scoped invalidation
 engine. There is one invalidation implementation. The descriptor is only the

@@ -176,7 +176,7 @@ day one.
 ## Relationships
 
 - **[EP-0003](EP-0003-resource-queries.md) / [Spec 016](../../spec/016-Resources.md)
-  (accepted; HTTP-only spec graduated).** The frame work ledger is this EP's durable
+  (final).** The frame work ledger is this EP's durable
   substrate: a ledger row *is* the reified continuation of a managed async
   effect, and the row's `:reply-to` field is this EP's reply target made
   durable. This EP rides that design — same `:work/id`, same
@@ -186,6 +186,14 @@ day one.
   `:work/kind :mutation`, and their internal replies verify frame, work id, and
   generation before settling. This EP MUST land with or after the EP-0003
   work-ledger slice and MUST NOT introduce a parallel correlation store.
+- **[EP-0016](EP-0016-resource-mutation-completion.md) (proposal).** EP-0016's
+  call-site mutation `:reply-to` is the concrete resources/mutations slice of
+  this envelope: its reply map is designed to *be* (or trivially lower to) this
+  EP's reply shape, delivered to an event target after stale suppression. The
+  two proposals must converge on one reply vocabulary (one-name-per-fact) —
+  whichever graduates first, the other cites its shape rather than forking.
+  This EP remains the cross-family envelope proposal (HTTP, timers, routing,
+  machines); EP-0016 covers only the mutation instance.
 - **[EP-0010](EP-0010-causal-world-inputs.md) (proposal).** Replies are causal
   tokens under EP-0010; completion facts that affect durable state ride the
   reply map. This EP uses EP-0010's suffixless durable timestamp vocabulary:

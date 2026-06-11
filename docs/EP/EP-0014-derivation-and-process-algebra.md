@@ -147,7 +147,7 @@ mental model.
 
 ## Relationships
 
-- [EP-0003](EP-0003-resource-queries.md) (accepted; HTTP-only spec graduated) and
+- [EP-0003](EP-0003-resource-queries.md) (final) and
   [Spec 016](../../spec/016-Resources.md) define resource identity, cache
   scope, owners, the work ledger, and runtime-db storage for server-state
   processes. Resources are a family member of this algebra; this EP reuses

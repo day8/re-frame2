@@ -294,6 +294,14 @@ This EP builds on three other EPs whose contracts have already landed. It is
 written against those final/implemented contracts, not against pending
 dependencies.
 
+- **Post-final amendments arrive via [EP-0016](EP-0016-resource-mutation-completion.md)
+  (proposal).** Per EP-0009's amendment rule, substantive changes to this final
+  contract go through a new EP. EP-0016 proposes mutation completion
+  continuations, per-target scoped invalidation, and named scope resolvers;
+  where it is accepted, its changes land in `spec/016-Resources.md` (which
+  governs) and this EP remains the unamended design record of the original
+  scope.
+
 - **Builds on the app/runtime partition (landed).** Resource Queries stores its
   cache in the framework-owned runtime partition (`:rf.runtime/resources`) of the
   [App/Runtime Partition EP](EP-0001-frame-partitions.md). That partition has
