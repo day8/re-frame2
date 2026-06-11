@@ -57,6 +57,16 @@
     " five side-by-side, switch to Test mode and watch the assertions"
     " flip green."]])
 
+;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence,
+;; so the live-app surface must render under an explicit frame scope. The
+;; Story shell side (`#/stories`) allocates its own per-variant frames; this
+;; wrapper scopes only the live-app `#/` surface to the testbed's `:rf/default`
+;; frame so `login-app`'s reg-view-injected dispatch/subscribe resolve. Passed
+;; to the shared story-host as the live-app root view (mirrors
+;; counter-with-stories.core).
+(defn live-app-root []
+  [rf/frame-provider {:frame :rf/default} [login-app]])
+
 ;; ---------------------------------------------------------------------------
 ;; rf2-r1uod — Xray-as-RHS open-in-editor project-root for the live
 ;; testbed. Story testbeds register source-coords with classpath-
@@ -120,5 +130,6 @@
   ;; scope — symmetric to counter-with-stories' migrated boot.
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:login/flow [:login/dismiss]]))
-  ;; Wire the live-app↔Story-shell hash router (shared helper).
-  (story-host/mount-with-hash-routing! login-app))
+  ;; Wire the live-app↔Story-shell hash router (shared helper). The live-app
+  ;; root is frame-scoped via `live-app-root` (the `frame-provider` wrapper).
+  (story-host/mount-with-hash-routing! live-app-root))

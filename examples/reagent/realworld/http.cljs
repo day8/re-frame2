@@ -10,9 +10,14 @@
    This namespace ships TWO small helpers on top of `:rf.http/managed`:
 
    - `request` — build a request map (`{:request {...} :decode ... :retry ...}`)
-     that bakes in the API base URL, JSON content-type, and a Bearer token
-     pulled from the auth slice. Auth-on-by-default; pass `:auth? false` to
-     omit the header (login / register / public reads).
+     that bakes in the API base URL and JSON content-type. The Bearer token is
+     NOT read here: auth-header injection is centralised in the
+     `:realworld/bearer-auth` HTTP interceptor (`core.cljs`), which reads the
+     token from the CARRIED frame's auth slice (`(:frame ctx)`) on every
+     request — so the header tracks whichever frame the cascade runs under, not
+     a hard-coded `:rf/default` (the carried invariant, EP-0002 rf2-9o48ih).
+     A single source of truth is the recommended production shape; this example
+     follows it (rf2-63c89b).
    - `data-fetch-retry` — the standard retry policy used for read-only
      fetches (transport, 5xx, timeout — not 4xx; the user's request was
      valid even when the server is sad).
@@ -60,28 +65,20 @@
 ;; REQUEST BUILDER
 ;; ============================================================================
 
-(defn- token-from-frame
-  "Read the current JWT (or nil) from the auth slice on the given frame."
-  [frame]
-  (some-> (rf/app-db-value (or frame :rf/default))
-          :auth :token))
-
 (defn request
   "Build a Spec 014 `:rf.http/managed` args map for a Conduit endpoint.
 
    Required keys: `:method`, `:path`. Other keys are optional and
    correspond to the Spec 014 args map (see spec/014-HTTPRequests.md).
 
-   Auth header is injected by default when a token is present in the
-   frame's auth slice. Pass `:auth? false` to omit (login / register
-   / public reads).
+   The Bearer auth header is NOT injected here — it is added by the
+   frame-wide `:realworld/bearer-auth` HTTP interceptor (`core.cljs`),
+   which reads the token from the carried frame's auth slice on every
+   request (the single source of truth, carried-frame-correct). This
+   builder therefore has no `:frame` / `:auth?` concern.
 
    Body, if a clj coll, is JSON-encoded (`:request-content-type :json`).
    Decode defaults to `:json` (RealWorld returns JSON everywhere).
-
-   The optional `:frame` arg selects which frame's auth slice the token
-   is read from (defaulting to `:rf/default`). In an event handler, pass
-   the cofx `:frame` through here if you need a non-default frame.
 
    Example:
      {:fx [[:rf.http/managed
@@ -92,15 +89,11 @@
                          :retry  rh/data-fetch-retry})]]}"
   [{:keys [method path body decode accept retry timeout-ms
            on-success on-failure request-id abort-signal
-           frame auth? extra-headers]
-    :or   {auth? true
-           method :get
+           extra-headers]
+    :or   {method :get
            decode :json}
     :as   args}]
-  (let [token   (when auth? (token-from-frame frame))
-        headers (cond-> (or extra-headers {})
-                  token (assoc "Authorization" (str "Token " token))
-                  true  (assoc "Accept" "application/json"))
+  (let [headers (assoc (or extra-headers {}) "Accept" "application/json")
         req     (cond-> {:method method
                          :url    (full-url path)
                          :headers headers}

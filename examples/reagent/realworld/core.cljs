@@ -368,22 +368,19 @@
 ;; site.
 ;;
 ;; The interceptor returns the ctx unchanged when no token is present,
-;; so login / register / public-read endpoints are unaffected. Compare
-;; with `realworld.http/request` (which threads the header explicitly)
-;; — both shapes work; the interceptor pattern is the lighter option
-;; once the auth slot is established.
+;; so login / register / public-read endpoints are unaffected (an
+;; unauthenticated user has no token to send).
 ;;
-;; DELIBERATE DUALITY (rf2-ygh4m ITEM 4): this example wires BOTH shapes
-;; live at once so a reader can see them side by side, so every authed
-;; request actually gets the Bearer header written twice — once by
-;; `rh/request` and once here. This is intentional and harmless: the
-;; interceptor `assoc-in`s the SAME header to the SAME value, so the
-;; second write is idempotent (no duplicate header, no precedence
-;; surprise). A real app would pick ONE source of truth — drop the token
-;; logic from `rh/request` (leaving `:auth? false` as a header
-;; suppressor) and keep this single read site, or vice versa. The
-;; side-by-side wiring is a teaching choice, not the recommended
-;; production shape.
+;; SINGLE SOURCE OF TRUTH (rf2-63c89b): this is the ONE place the Bearer
+;; header is written. `realworld.http/request` no longer reads the token —
+;; it just composes the request map. Centralising the read here keeps the
+;; example carried-frame-correct: the interceptor reads from `(:frame ctx)`
+;; (the frame the cascade actually runs under, EP-0002 rf2-9o48ih), so the
+;; header tracks a renamed / multi-frame mount rather than a hard-coded
+;; `:rf/default`. (An earlier revision wired the token in BOTH `rh/request`
+;; and here as a side-by-side teaching duality, rf2-ygh4m; the `rh/request`
+;; copy hard-coded `:rf/default` and bypassed the carried invariant, so it
+;; was dropped — one read site, the recommended production shape.)
 
 (defn- bearer-auth-interceptor [ctx]
   (let [token (some-> (rf/app-db-value (:frame ctx))

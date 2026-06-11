@@ -136,6 +136,15 @@
 ;; `create-root` calls onto the same shared `#app` element.
 (defonce react-root (atom nil))
 
+;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
+;; synthesises a frame from absence — an app must establish its frame
+;; explicitly. This example uses `:rf/default` as its app frame id:
+;; `init!` installs the adapter (it does NOT create the frame), `reg-frame`
+;; registers the app frame, the boot dispatch runs under `with-frame`, and
+;; the render is wrapped in a `frame-provider` so every in-tree
+;; `dispatch`/`subscribe` resolves to the app frame.
+(def app-frame :rf/default)
+
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
@@ -144,19 +153,25 @@
   ;; loader's GET routes to the per-URL canned stub above. The
   ;; override applies frame-wide; the boot example doesn't issue any
   ;; non-mocked requests, so a blanket override is the right grain.
-  (rf/reg-frame :rf/default
+  (rf/reg-frame app-frame
     {:doc          "Boot example demo frame."
      :fx-overrides {:rf.http/managed :boot.demo/http-stub}})
 
-  ;; Kick the boot. The `:app/boot` machine's :initial state and
-  ;; :data seed `[:rf.runtime/machines :snapshots :app/boot]` (runtime-db) on first dispatch (per
-  ;; Spec 005 §Restore semantics); :boot/initialise fires
+  ;; Kick the boot under `with-frame` so the boot dispatch resolves to
+  ;; the app frame (a bare dispatch-sync would raise
+  ;; :rf.error/no-frame-context under the carried invariant). The
+  ;; `:app/boot` machine's :initial state and :data seed
+  ;; `[:rf.runtime/machines :snapshots :app/boot]` (runtime-db) on first
+  ;; dispatch (per Spec 005 §Restore semantics); :boot/initialise fires
   ;; `[:app/boot [:rf.machine/start]]`, the creation marker that births
   ;; the machine directly into :configuring and runs its :spawn
   ;; entry-cascade, starting the boot sequence.
-  (rf/dispatch-sync [:boot/initialise])
+  (rf/with-frame app-frame
+    (rf/dispatch-sync [:boot/initialise]))
 
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root [boot.views/root-view])))
+    (rdc/render @react-root
+                [rf/frame-provider {:frame app-frame}
+                 [boot.views/root-view]])))

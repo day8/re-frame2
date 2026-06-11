@@ -169,7 +169,6 @@
           [:rf.http/managed
            (rh/request {:method     :get
                         :path       "/tags"
-                        :auth?      false
                         :decode     schema/TagsResponse
                         :retry      rh/data-fetch-retry
                         :request-id :tags/load

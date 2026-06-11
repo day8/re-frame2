@@ -244,7 +244,6 @@
             [:rf.http/managed
              (rh/request {:method     :get
                           :path       path
-                          :auth?      false
                           :decode     schema/ArticlesResponse
                           :retry      rh/data-fetch-retry
                           :request-id :articles/load

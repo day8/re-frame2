@@ -9,22 +9,36 @@ the tutorial in [docs/guide/27-resources.md](../../../docs/guide/27-resources.md
 
 ## What this demonstrates
 
-The four **landed** causal patterns, in one cohesive app:
+The four **landed** causal patterns, in one cohesive app — all four are
+**wired into the articles page UI** and run live:
 
 - **Route-driven page load** — `reg-route` with `:resources` metadata
   (`:resources.app/articles`, `:resources.app/article-detail`). Route entry
   marks each resource active under a `[:route route-id nav-token]` owner and
   ensures it with cause `[:route-entry …]`; route leave releases by token.
-- **Event-driven ensure** — `:resources.app/preview-opened` dispatches
-  `:rf.resource/ensure` under an app-minted `[:lease …]` owner, with a
-  matching `:resources.app/preview-closed` → `:rf.resource/release-owner`
-  release path (app leases are app-authoritative).
+- **Event-driven ensure** — the per-row **Preview** button dispatches
+  `:resources.app/preview-opened` → `:rf.resource/ensure` under an
+  app-minted `[:lease …]` owner; **Close preview** dispatches
+  `:resources.app/preview-closed` → `:rf.resource/release-owner` (the
+  matching release path app leases require — app leases are
+  app-authoritative).
 - **Manual refresh** — the "Refresh" button dispatches
   `:rf.resource/refetch` with a `:cause` and **no** `:owner` (a refresh
   wants fresh data but keeps nothing alive — owner vs cause).
-- **Machine-owned resource** — `:resources.app/reader` ensures the article
-  under a `[:machine machine-id instance-id]` owner (released on actor
-  destroy); the machine stays the semantic workflow.
+- **Machine-owned resource** — the per-row **Open in reader** button starts
+  the `:resources.app/reader` machine, whose `:reading` entry ensures the
+  article under a `[:machine machine-id instance-id]` owner; **Stop reader**
+  emits `[:rf.machine/destroy …]`, which releases that owner. The machine
+  stays the semantic workflow.
+
+**No backend ships with the example.** It overrides `:rf.http/managed` with a
+per-URL canned stub that delegates to the framework-shipped
+`:rf.http/managed-canned-success` (Spec 014 §Testing) — the same reply shape a
+live server would produce, so every ensure exercises a real fetch, in-flight
+dedupe, and the passive status flow (a 120 ms delay lets the loading skeleton
+render before the reply lands). A repeat ensure of an entry still inside its
+`:stale-after-ms` window **fresh-skips** (no refetch — `:rf.resource/cache-hit`);
+the manual Refresh forces a refetch regardless.
 
 Plus the read side: views read everything through the **passive**
 `[:rf.resource/state …]` sub (and its narrower projections), distinguishing
@@ -45,9 +59,10 @@ and the read-resource runtime has **landed** (EP-0003): `reg-resource`, the
 passive `[:rf.resource/*]` subs, route `:resources` metadata, and the causal
 `:rf.resource/ensure` / `:rf.resource/refetch` / `:rf.resource/invalidate-tags`
 / `:rf.resource/release-owner` event bodies are all real and operational. The
-four patterns above run live: route entry, an event lease, a manual refresh,
-and a machine-owned ensure each cause a real fetch, dedupe in flight, and
-flow through the passive status subs.
+four patterns above run live: route entry, an event lease (the Preview
+button), a manual refresh, and a machine-owned ensure (the Open-in-reader
+button) each cause a real fetch (against the canned stub), dedupe in flight,
+and flow through the passive status subs.
 
 ## Scope of this example — read patterns only
 
@@ -73,9 +88,17 @@ under the same scope its resources were ensured under).
 
 ```
 resources/
-  core.cljs    — resources, routes, events, the reader machine, subs, views, mount.
+  core.cljs    — resources, the per-URL canned :rf.http/managed stub, routes,
+                 events, the reader machine, subs, views, mount.
   index.html   — minimal host page.
 ```
+
+The example synthesises its server replies **in-app** via the canned
+`:rf.http/managed` stub (it delegates to `:rf.http/managed-canned-success`),
+so — unlike `managed_http_counter`, which fetches a real static
+`api/inc.json` — there is **no `api/` asset to stage**. The detail route's
+per-slug URL (`/api/articles/:slug`) is routed by the stub, not by a static
+file tree.
 
 ## How to run
 

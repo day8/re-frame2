@@ -81,6 +81,16 @@
     " on either surface to open Xray and inspect the auth-submit cascade."]
    [core/root-view]])
 
+;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence,
+;; so the live-app `#/` surface must render under an explicit frame scope. The
+;; Story shell side (`#/stories`) allocates its own per-variant frames; this
+;; wrapper scopes only the live-app surface to the showcase's `:rf/default`
+;; frame so `login-app`'s reg-view-injected dispatch/subscribe (and
+;; `core/root-view`'s subs) resolve. Passed to the shared story-host as the
+;; live-app root view (mirrors counter-with-stories.core).
+(defn live-app-root []
+  [rf/frame-provider {:frame :rf/default} [login-app]])
+
 ;; -- Routing between the live app and the Story shell ----------------------
 ;;
 ;; The live-app↔Story-shell hash router + React-root host handle live in the
@@ -105,5 +115,7 @@
   ;; resolves the on-disk project-root (build-env define or `?project-root=`
   ;; override, cross-platform) and calls `story/configure!` itself — that
   ;; also bridges the root into Xray's slot. Without it the Story 'open in
-  ;; editor' chips would resolve `login/stories.cljs` against a nil root.
-  (story-host/mount-with-hash-routing! login-app {:story-subdir "examples/reagent"}))
+  ;; editor' chips would resolve `login/stories.cljs` against a nil root. The
+  ;; live-app root is frame-scoped via `live-app-root` (the `frame-provider`
+  ;; wrapper) so the bare `#/` surface mounts under the app frame.
+  (story-host/mount-with-hash-routing! live-app-root {:story-subdir "examples/reagent"}))
