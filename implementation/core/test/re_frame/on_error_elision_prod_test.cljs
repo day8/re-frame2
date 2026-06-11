@@ -327,6 +327,41 @@
         (is (some? r) "listener received :rf.error/override-fallthrough under prod")
         (is (= :rf/default (:frame r)))))))
 
+(deftest reserved-fx-override-listener-survives-prod
+  (testing "Per rf2-uh5ic5 / Spec 009 §Error event catalogue: under
+            `:advanced` + `goog.DEBUG=false`, a rejected `:fx-overrides`
+            entry targeting a REJECT-tier reserved fx-id fans
+            `:rf.error/reserved-fx-override` through the always-on
+            `register-error-listener!` substrate. This is the REAL producer
+            path: under prod the dev per-call reject in `handle-one-fx`
+            DCEs with the trace surface, so the router routes the effective
+            override map through `re-frame.fx/strip-rejected-overrides`
+            (the `:production-strip` site), which fans the error out on the
+            always-on axis. Driven through the genuine `dispatch-sync` →
+            fx-walk path — proving the production prod-strip producer (not
+            just the dev per-call one) survives elision."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! seen conj record)))
+      ;; :rf.fx/reg-flow is a REJECT-tier reserved fx (installs durable
+      ;; per-frame flow-registry state). A prod build cannot stub it out.
+      (rf/reg-event-fx :uh5ic5/install-flow
+                       (fn [_ _] {:fx [[:rf.fx/reg-flow
+                                        {:id     :uh5ic5/prod-flow
+                                         :inputs [[:uh5ic5 :seed]]
+                                         :output (fn [_] 1)
+                                         :path   [:uh5ic5 :out]}]]}))
+      (rf/dispatch-sync [:uh5ic5/install-flow]
+                        {:fx-overrides {:rf.fx/reg-flow (fn [_ _] :should-not-fire)}})
+      (let [r (some (fn [x] (when (= :rf.error/reserved-fx-override (:error x)) x)) @seen)]
+        (is (some? r)
+            "listener received :rf.error/reserved-fx-override under prod
+             (the strip-rejected-overrides production producer survives elision)")
+        (is (= :uh5ic5/install-flow (:event-id r))
+            ":event-id is the dispatched event-vector head")
+        (is (= :rf/default (:frame r))
+            ":frame names the frame the override was rejected in")))))
+
 (deftest no-such-cofx-listener-survives-prod
   (testing "Per rf2-goum9x: an `inject-cofx` to an unregistered cofx-id
             fans `:rf.error/no-such-cofx` through the always-on listener

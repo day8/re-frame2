@@ -31,6 +31,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
+            [re-frame.error-emit :as error-emit]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
 
@@ -39,6 +40,10 @@
   (reset! frame/frames {})
   (flows/reset-flows!)
   (schemas/clear-schemas-by-frame!)
+  ;; The always-on error-emit listener registry is a `defonce` atom that
+  ;; `clear-all!` does NOT touch; clear it so an error listener registered
+  ;; by one test cannot leak into the next (rf2-uh5ic5).
+  (error-emit/clear-error-listeners!)
   (rf/init! plain-atom/adapter)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`, and
   ;; the framework operation surfaces now require a carried frame stamp.
@@ -64,6 +69,20 @@
   [id]
   (let [acc (atom [])]
     (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
+    acc))
+
+(defn- collect-errors!
+  "Register an ALWAYS-ON error listener under `id` via
+  `rf/register-error-listener!`, returning the atom that accumulates the
+  tight error-records (the production-survivable observability surface —
+  Spec 009 §What IS available in production §Error-emit listener). Tests
+  must (rf/unregister-error-listener! id) to detach (the fixture also
+  clears the registry). Distinct from `collect-traces!`: that listens on
+  the dev-only trace surface (DCE'd in prod); this listens on the
+  always-on axis."
+  [id]
+  (let [acc (atom [])]
+    (rf/register-error-listener! id (fn [record] (swap! acc conj record)))
     acc))
 
 ;; ---- 1. Source-order ordering across mixed effect types -------------------
@@ -1211,6 +1230,68 @@
           "the reserved :rf.fx/reg-flow body ran despite the redirect")
       (is (= 1 (count (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)))
           "one :rf.error/reserved-fx-override trace fired for the redirect form too"))))
+
+(deftest reject-tier-override-fans-out-on-always-on-axis
+  ;; rf2-uh5ic5: the existing reserved-fx tests above assert the dev-only
+  ;; TRACE surface (`:operation` via `collect-traces!`). But Spec 009 §Error
+  ;; event catalogue marks `:rf.error/reserved-fx-override` as ALWAYS-ON — a
+  ;; production-reachable misconfiguration MUST reach the corpus-wide
+  ;; `register-error-listener!` substrate (surface #4, the off-box shipper
+  ;; axis). This pins the always-on listener contract for the REAL producer
+  ;; path (`fx.cljc`'s reject emit through `emit-fx-error!` →
+  ;; `error-emit/dispatch-on-error!`), driven through the genuine
+  ;; `dispatch-sync` → fx-walk path — NOT by calling the error substrate
+  ;; directly. The companion prod-elision leg lives in
+  ;; `re-frame.on-error-elision-prod-test` (proves it survives goog.DEBUG=false).
+  (testing "the real fn-value reject producer fans :rf.error/reserved-fx-override
+            out through register-error-listener! with event/id/frame context"
+    (let [errors (collect-errors! ::reject-always-on)]
+      (rf/reg-event-fx :fx-test.uh5ic5/install-flow
+        (fn [_ _] {:fx [[:rf.fx/reg-flow {:id     :fx-test.uh5ic5/a-flow
+                                          :inputs [[:fx-test.uh5ic5 :seed]]
+                                          :output (fn [_] 7)
+                                          :path   [:fx-test.uh5ic5 :out]}]]}))
+      (rf/dispatch-sync
+        [:fx-test.uh5ic5/install-flow]
+        {:fx-overrides {:rf.fx/reg-flow (fn [_ _] :should-not-fire)}})
+      (rf/unregister-error-listener! ::reject-always-on)
+      (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
+        (is (= 1 (count records))
+            "exactly ONE always-on record reached register-error-listener!")
+        (let [r (first records)]
+          (is (= :rf.error/reserved-fx-override (:error r))
+              "the always-on record carries the reserved-fx-override category")
+          (is (= [:fx-test.uh5ic5/install-flow] (:event r))
+              ":event carries the dispatched event vector")
+          (is (= :fx-test.uh5ic5/install-flow (:event-id r))
+              ":event-id is the dispatched event-vector head")
+          (is (= :rf/default (:frame r))
+              ":frame names the frame the override was rejected in")
+          (is (number? (:time r)) ":time is a wall-clock millis number")))
+      (is (contains? (get (flows/flows-snapshot) :rf/default) :fx-test.uh5ic5/a-flow)
+          "the reserved :rf.fx/reg-flow body still ran (recovery :reserved-body-ran)")))
+
+  (testing "the keyword-redirect reject producer ALSO fans out on the always-on axis"
+    (let [errors (collect-errors! ::reject-always-on-redir)]
+      (rf/reg-fx :fx-test.uh5ic5/redir-target
+                 {:platforms #{:client :server}}
+                 (fn [_ _] :should-not-fire))
+      (rf/reg-event-fx :fx-test.uh5ic5/install-flow-2
+        (fn [_ _] {:fx [[:rf.fx/reg-flow {:id     :fx-test.uh5ic5/b-flow
+                                          :inputs [[:fx-test.uh5ic5 :seed]]
+                                          :output (fn [_] 1)
+                                          :path   [:fx-test.uh5ic5 :b]}]]}))
+      (rf/dispatch-sync
+        [:fx-test.uh5ic5/install-flow-2]
+        {:fx-overrides {:rf.fx/reg-flow :fx-test.uh5ic5/redir-target}})
+      (rf/unregister-error-listener! ::reject-always-on-redir)
+      (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
+        (is (= 1 (count records))
+            "one always-on record for the keyword-redirect reject form too")
+        (is (= :fx-test.uh5ic5/install-flow-2 (:event-id (first records)))
+            ":event-id is the dispatched event-vector head"))
+      (is (contains? (get (flows/flows-snapshot) :rf/default) :fx-test.uh5ic5/b-flow)
+          "the reserved body still ran for the redirect form"))))
 
 (deftest overridable-tier-unaffected-by-reject
   (testing "OVERRIDABLE reserved fxs (:dispatch) still honour fn-value overrides"

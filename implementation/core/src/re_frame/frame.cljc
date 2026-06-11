@@ -1228,18 +1228,35 @@
   torn down.
 
   Mechanism: the router catches handler throws and converts them to
-  `:rf.error/handler-exception` traces — `dispatch-sync!` does not re-
-  throw. To surface the throw as the dedicated `:rf.error/on-destroy-
-  handler-exception` category (Mike's decision), we observe the trace
-  stream for the duration of the dispatch: any `:rf.error/handler-
-  exception` whose `:frame` matches us is captured and re-emitted under
-  the new category. We also wrap the dispatch itself in try/catch as a
-  defence-in-depth: if `dispatch-sync!` ever re-throws (e.g. a fault
-  inside the dispatch infrastructure itself, not the user handler),
-  we catch it here — and per EP-0008 (rf2-7b9r4l) the dedicated category
-  now rides the always-on axis so this defence-in-depth branch (which never
-  produced a router `:rf.error/handler-exception`) is observable in
-  production.
+  `:rf.error/handler-exception` — `dispatch-sync!` does not re-throw. To
+  surface the throw as the dedicated `:rf.error/on-destroy-handler-
+  exception` category (Mike's decision), we install a TRANSIENT listener
+  on the ALWAYS-ON error-emit axis for the duration of the dispatch: any
+  `:rf.error/handler-exception` record whose `:frame` matches us is
+  captured and re-emitted under the new category. The always-on axis is
+  the one surface the router's handler-exception fan-out ALSO rides
+  (`re-frame.router/emit-pipeline-exception!` → `error-emit/dispatch-on-
+  error!`), so this capture survives `:advanced` + `goog.DEBUG=false`
+  where the dev trace is DCE'd (rf2-87f7fb — the pre-EP-0008 capture
+  observed the dev-only `trace.tooling` listener registry, which no-ops
+  in production, so the dedicated discriminator did NOT survive prod for
+  the common path despite the Spec 009 catalogue promising it does). We
+  reach the registry through the `:error-emit/register-error-listener!` /
+  `:error-emit/unregister-error-listener!` late-bind hooks because a
+  static `re-frame.frame` → `re-frame.error-emit` require closes the
+  `error-emit` → `elision` → `frame` load cycle (the same reason the
+  emission below rides `:error-emit/dispatch-on-error`).
+
+  We ALSO wrap the dispatch itself in try/catch as a defence-in-depth: if
+  `dispatch-sync!` ever re-throws (e.g. a fault inside the dispatch
+  infrastructure itself, not the user handler), we catch it here — and
+  per EP-0008 (rf2-7b9r4l) the dedicated category now rides the always-on
+  axis so this defence-in-depth branch (which never produced a router
+  `:rf.error/handler-exception`) is observable in production. The two
+  paths are mutually exclusive (a router-converted handler throw never
+  re-throws out of `dispatch-sync!`; an infra fault re-throws and never
+  produces a router handler-exception record), and a `re-entered?` guard
+  makes the single-record contract explicit either way.
 
   This mirrors the swallow-then-continue shape of `safe-call-hook!` below
   but ALSO emits a structured error event (where `safe-call-hook!` is
@@ -1248,21 +1265,23 @@
   [id f]
   (when-let [on-destroy (-> f :config :on-destroy)]
     (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
-      (let [captured (atom nil)
-            ;; The trace-buffer / listener registry lives in the optional
-            ;; trace.tooling sibling per rf2-qwm0a. Reach it through
-            ;; late-bind so this fn carries no static dep on the tooling
-            ;; ns; in production CLJS builds where trace.tooling is not
-            ;; loaded, the listener install is a silent no-op (no trace
-            ;; surface to observe, no trace to re-emit).
-            register   (late-bind/get-fn :trace.tooling/register-listener!)
-            remove-cb  (late-bind/get-fn :trace.tooling/unregister-listener!)
-            listener-k ::on-destroy-throw-watch
-            listener   (fn [ev]
-                         (when (and (= :rf.error/handler-exception (:operation ev))
-                                    (= id (-> ev :tags :frame))
-                                    (nil? @captured))
-                           (reset! captured ev)))]
+      (let [captured     (atom nil)
+            infra-fault? (atom false)
+            ;; The always-on error-emit listener registry — the
+            ;; production-survivable axis the router's handler-exception
+            ;; fan-out rides. Reached via late-bind so this fn carries no
+            ;; static dep on `error-emit` (the `error-emit` → `elision` →
+            ;; `frame` load cycle). The producer always loads at boot, so
+            ;; the lookup never misses in production; the `when register`
+            ;; guard keeps the install defensive regardless.
+            register     (late-bind/get-fn :error-emit/register-error-listener!)
+            remove-cb    (late-bind/get-fn :error-emit/unregister-error-listener!)
+            listener-k   ::on-destroy-throw-watch
+            listener     (fn [record]
+                           (when (and (= :rf.error/handler-exception (:error record))
+                                      (= id (:frame record))
+                                      (nil? @captured))
+                             (reset! captured record)))]
         (when (and register remove-cb)
           (register listener-k listener))
         (try
@@ -1275,20 +1294,26 @@
               ;; branch never produced a router :rf.error/handler-exception,
               ;; so the always-on emission here is its ONLY production
               ;; observability (EP-0008, rf2-7b9r4l).
+              (reset! infra-fault? true)
               (emit-on-destroy-handler-exception! id on-destroy ex nil)))
           (finally
             (when (and register remove-cb)
               (remove-cb listener-k))))
-        ;; If the router converted a handler throw to a trace, re-emit
-        ;; under the dedicated :on-destroy category so consumers can
-        ;; discriminate teardown failures from regular handler throws.
-        ;; Rides the always-on axis (EP-0008, rf2-7b9r4l) so the
-        ;; discriminable teardown signal survives `goog.DEBUG=false`.
-        (when-let [ev @captured]
-          (let [tags (:tags ev)]
+        ;; If the router converted a handler throw to an always-on
+        ;; `:rf.error/handler-exception` record, re-emit under the
+        ;; dedicated :on-destroy category so consumers can discriminate
+        ;; teardown failures from regular handler throws. Rides the
+        ;; always-on axis (EP-0008, rf2-7b9r4l) so the discriminable
+        ;; teardown signal survives `goog.DEBUG=false` (rf2-87f7fb). The
+        ;; `infra-fault?` guard keeps the single-record contract explicit
+        ;; — the defence-in-depth arm above already emitted in that case.
+        (when (and (not @infra-fault?) @captured)
+          (let [record @captured]
             (emit-on-destroy-handler-exception!
-              id on-destroy (:exception tags)
-              {:exception-message (:exception-message tags)})))))))
+              id on-destroy (:exception record)
+              {:exception-message (when-let [ex (:exception record)]
+                                    #?(:clj  (.getMessage ^Throwable ex)
+                                       :cljs (.-message ex)))})))))))
 
 (defn- notify-machine-destruction!
   "Frame-destroy machine-cascade entry-point.

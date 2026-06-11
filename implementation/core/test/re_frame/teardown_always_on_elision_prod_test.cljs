@@ -23,24 +23,32 @@
   rows (handler-exception / frame-destroyed / no-such-* / fx). This file
   closes the gap for the NEW EP-0008-promoted rows under the prod build.
 
-  NUANCE for `:rf.error/on-destroy-handler-exception` (rf2-7b9r4l): the
-  dedicated category has TWO producers with DIFFERENT prod-survival:
+  CONTRACT for `:rf.error/on-destroy-handler-exception` (rf2-7b9r4l +
+  rf2-87f7fb): the dedicated category has TWO producers, and BOTH now
+  survive prod (rf2-87f7fb closed the common-path gap):
 
-    - COMMON path (the user `:on-destroy` handler throws): the dedicated
-      record is re-emitted by `fire-on-destroy-event!` OBSERVING the
-      router's `:rf.error/handler-exception` trace via
-      `:trace.tooling/register-listener!` — a dev-only surface that DCEs.
-      So the dedicated record does NOT survive prod for this path. The
-      PRODUCTION SOURCE OF RECORD is the router's
-      `:rf.error/handler-exception` (which DOES ride the always-on axis).
-      This is the documented PARTIAL-COVERAGE NUANCE — dev-discrimination
-      only by design, NOT a regression.
+    - COMMON path (the user `:on-destroy` handler throws): the router
+      converts the throw to an always-on `:rf.error/handler-exception`
+      record (`emit-pipeline-exception!` → `error-emit/dispatch-on-
+      error!`, which is NOT `goog.DEBUG`-gated). `fire-on-destroy-event!`
+      installs a TRANSIENT listener on that SAME always-on axis (via the
+      `:error-emit/register-error-listener!` late-bind hook) for the
+      duration of the dispatch, captures the record, and re-emits the
+      dedicated `:rf.error/on-destroy-handler-exception` category. Because
+      the capture rides the always-on axis (NOT the dev-only
+      `trace.tooling` listener registry it used pre-rf2-87f7fb), the
+      dedicated discriminable record SURVIVES `:advanced` +
+      `goog.DEBUG=false` — exactly what the Spec 009 catalogue promises.
+      The router's generic `:rf.error/handler-exception` ALSO fires (the
+      production source of record for the handler throw itself); the
+      dedicated category is the discriminator (it happened during
+      destroy).
 
     - DEFENCE-IN-DEPTH branch (`dispatch-sync!` itself faults, rf2-bxud9v):
       `fire-on-destroy-event!` calls `emit-on-destroy-handler-exception!`
-      DIRECTLY (no trace capture), so the dedicated record DOES survive
-      prod — and this branch never produced a router handler-exception, so
-      the always-on emission is its ONLY production observability.
+      DIRECTLY (no capture), so the dedicated record DOES survive prod —
+      and this branch never produced a router handler-exception, so the
+      always-on emission is its ONLY production observability.
 
   This file pins BOTH legs explicitly so the contract is unambiguous.
 
@@ -209,27 +217,26 @@
 ;; throw signal survives prod (rf2-7b9r4l promotion).
 ;; ===========================================================================
 
-(deftest on-destroy-common-path-prod-coverage-is-handler-exception
-  (testing "Per rf2-7b9r4l PARTIAL-COVERAGE NUANCE: for the COMMON path (the
-            user `:on-destroy` handler itself throws), the DEDICATED
-            `:rf.error/on-destroy-handler-exception` category is
-            dev-discrimination-ONLY by design — it is re-emitted by
-            `fire-on-destroy-event!` observing the router's
-            `:rf.error/handler-exception` TRACE, and that trace-capture
-            mechanism (`:trace.tooling/register-listener!`) is a silent
-            no-op under `:advanced` + `goog.DEBUG=false` (the trace surface
-            is DCE'd). So under prod the dedicated record does NOT fire for
-            the common path. The PRODUCTION SOURCE OF RECORD for the throw
-            is the router's `:rf.error/handler-exception`, which DOES ride
-            the always-on axis and survives elision (per rf2-7b9r4l: 'the
-            underlying handler throw is ALSO caught by the router and emitted
-            as :rf.error/handler-exception, which DOES ride the always-on
-            axis -- so the failure is NOT fully silent in production'). This
-            test pins exactly that contract under the prod build: NO
-            dedicated record, but the handler-exception record survives. The
-            discriminable dedicated signal for a path with NO router
-            coverage — the dispatch-infra defence-in-depth branch — is pinned
-            by `dispatch-sync-infra-fault-survives-prod` below."
+(deftest on-destroy-common-path-dedicated-record-survives-prod
+  (testing "Per rf2-87f7fb / Spec 009 §Error event catalogue: for the COMMON
+            path (the user `:on-destroy` handler itself throws), the
+            DEDICATED `:rf.error/on-destroy-handler-exception` category
+            SURVIVES `:advanced` + `goog.DEBUG=false`. `fire-on-destroy-
+            event!` captures the router's ALWAYS-ON
+            `:rf.error/handler-exception` record (the router fans it out
+            via `error-emit/dispatch-on-error!`, NOT `goog.DEBUG`-gated)
+            through a TRANSIENT listener installed on the SAME always-on
+            axis (the `:error-emit/register-error-listener!` late-bind
+            hook), then re-emits the dedicated category — so the
+            discriminable teardown signal rides a production-survivable
+            surface. Before rf2-87f7fb the capture observed the dev-only
+            `trace.tooling` listener registry, which DCE'd under prod, so
+            the dedicated record did NOT fire for the common path despite
+            the catalogue promising it does — this test is the regression
+            that would have caught that gap. BOTH the dedicated discriminator
+            AND the router's generic `:rf.error/handler-exception` (the
+            production source of record for the handler throw itself) must
+            survive."
     (let [seen (atom [])]
       (rf/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
@@ -241,15 +248,25 @@
                      :on-destroy [:prod.ondestroy/blow-up]})
       (is (nil? (rf/destroy-frame! :prod.ondestroy/worker))
           "destroy-frame! returns nil even though :on-destroy threw under prod")
-      (is (empty? (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen))
-          "the DEDICATED category does NOT survive prod for the common path
-           (it rides the DCE'd trace-capture mechanism — dev-discrimination
-           only, per rf2-7b9r4l)")
+      (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)]
+        (is (= 1 (count reports))
+            "the DEDICATED discriminable teardown category SURVIVES prod for
+             the common path (rf2-87f7fb) — EXACTLY ONE record")
+        (let [r (first reports)]
+          (is (= :rf.error/on-destroy-handler-exception (:error r)))
+          (is (= :prod.ondestroy/worker (:frame r))
+              ":frame names the frame being torn down")
+          (is (= [:prod.ondestroy/blow-up] (:event r))
+              ":event carries the :on-destroy event vector")
+          (is (= :prod.ondestroy/blow-up (:event-id r))
+              ":event-id is the event-vector head")
+          (is (some? (:exception r))
+              ":exception carries the thrown object")
+          (is (number? (:time r)) ":time is a wall-clock millis number")))
       (let [hx (filter #(= :rf.error/handler-exception (:error %)) @seen)]
         (is (= 1 (count hx))
-            "the router's :rf.error/handler-exception IS the production
-             source of record — it rides the always-on axis and survives
-             elision")
+            "the router's :rf.error/handler-exception ALSO survives — the
+             production source of record for the handler throw itself")
         (let [r (first hx)]
           (is (= [:prod.ondestroy/blow-up] (:event r))
               ":event carries the :on-destroy event vector")

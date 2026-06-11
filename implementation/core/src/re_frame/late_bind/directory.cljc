@@ -757,6 +757,14 @@
     :producer-ns 're-frame.error-emit
     :design-bead "rf2-ini4wr"
     :description "Always-on ONE-bounded-record-per-destroy frame-teardown report (EP-0008 promotion criterion / Spec 009 §Channel-promotion catalogue rows). `frame/destroy-frame!` accumulates per-hook failures during the best-effort teardown walk and, through a FINALLY-shaped flush boundary, fires this hook once with the `:frame` + the collected `:hook-failures` vector — so a mid-teardown abort still ships the entries gathered so far. Builds the catalogue-shaped `:rf.error/frame-teardown-failed` record (`:recovery :ignored`) and fans it out to the corpus-wide error listeners. NOT one record per failed hook (the per-hook detail stays on the dev-only `:rf.warning/teardown-hook-exception` trace, DCE'd in prod). `frame` reaches it via late-bind because a static require closes a `error-emit` → `elision` → `frame` load cycle. Survives `:advanced` + `goog.DEBUG=false`. No-op when no hook failed."}
+   {:key         :error-emit/register-error-listener!
+    :producer-ns 're-frame.error-emit
+    :design-bead "rf2-87f7fb"
+    :description "Register a TRANSIENT always-on error listener under a key on the corpus-wide error-emit registry (the same surface `rf/register-error-listener!` exports). Published so `frame/fire-on-destroy-event!` can observe the router's always-on `:rf.error/handler-exception` fan-out for the duration of a throwing `:on-destroy` dispatch and re-emit the discriminable `:rf.error/on-destroy-handler-exception` category — WITHOUT a static `re-frame.frame` → `re-frame.error-emit` require (that closes the `error-emit` → `elision` → `frame` load cycle). Replaces the dev-only `:trace.tooling/register-listener!` capture the common path used pre-EP-0008 (which DCE'd under `goog.DEBUG=false`, so the dedicated teardown discriminator did not survive prod, rf2-87f7fb). Survives `:advanced` + `goog.DEBUG=false`."}
+   {:key         :error-emit/unregister-error-listener!
+    :producer-ns 're-frame.error-emit
+    :design-bead "rf2-87f7fb"
+    :description "Drop a listener registered through `:error-emit/register-error-listener!`. Paired with it in `frame/fire-on-destroy-event!`'s finally-shaped teardown of the transient `:on-destroy`-throw capture listener (rf2-87f7fb), so the listener never leaks past the dispatch. Survives `:advanced` + `goog.DEBUG=false`."}
 
    ;; ---- re-frame.observability (rf2-t55hxg.7 — EP-0015 §9 frame sink routing) -
    {:key         :observability/route-handled-event
