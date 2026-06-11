@@ -58,7 +58,7 @@
    ;; the whole `{:article …}` envelope its `:decode schema/ArticleResponse`
    ;; produces — so the populated entry reads identically to a fetched one.
    :populates     (fn [{:keys [slug]} result]
-                    {[:rf.scope/global :realworld/article {:slug slug}] result})
+                    {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
    ;; Then invalidate so any list showing this article refetches its count.
    :invalidates   (fn [{:keys [slug]} _result] #{[:article slug] [:article-list] [:feed]})})
 
@@ -70,7 +70,7 @@
                     {:request {:method :delete :url (rh/full-url (str "/articles/" slug "/favorite"))}
                      :decode  schema/ArticleResponse})
    :populates     (fn [{:keys [slug]} result]
-                    {[:rf.scope/global :realworld/article {:slug slug}] result})
+                    {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
    :invalidates   (fn [{:keys [slug]} _result] #{[:article slug] [:article-list] [:feed]})})
 
 ;; ============================================================================
@@ -91,7 +91,7 @@
    ;; Seed the banner from the reply (the whole `{:profile …}` envelope, the
    ;; `:realworld/profile` resource's stored shape) so it flips immediately.
    :populates     (fn [{:keys [username]} result]
-                    {[:rf.scope/global :realworld/profile {:username username}] result})
+                    {{:resource :realworld/profile :params {:username username} :scope :rf.scope/global} result})
    :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})})
 
 (rf/reg-mutation :realworld/unfollow
@@ -102,7 +102,7 @@
                     {:request {:method :delete :url (rh/full-url (str "/profiles/" username "/follow"))}
                      :decode  schema/ProfileResponse})
    :populates     (fn [{:keys [username]} result]
-                    {[:rf.scope/global :realworld/profile {:username username}] result})
+                    {{:resource :realworld/profile :params {:username username} :scope :rf.scope/global} result})
    :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})})
 
 ;; ============================================================================

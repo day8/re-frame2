@@ -330,6 +330,15 @@
        (= reserved-scope-ns (namespace scope))
        (not (contains? reserved-scope-policies scope))))
 
+(def same-scope-marker
+  "The `:scope` marker meaning \"the mutation's resolved (execution) scope\" —
+  the DEFAULT when an invalidation descriptor OR a map-form exact target omits
+  `:scope`, and the meaning of the bare tag-set invalidation shorthand (Spec
+  016 §Scoped invalidation descriptors / §Map-form exact resource targets).
+  Resolved to the concrete mutation scope by the events layer at settle time;
+  it is NOT itself a literal cache scope (it never reaches the cache key)."
+  :rf.scope/same)
+
 (defn target-key-error
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error shape)
   for an invalid mutation patch / populate TARGET scoped key. `arm`
@@ -344,15 +353,49 @@
                    :target      (pr-str target)}
                   extra)))
 
-(defn validate-target-key!
-  "Fail-closed validation of a SINGLE mutation patch / populate TARGET scoped
-  key, BEFORE any cache mutation (EP-0003 §Mutations / Spec 016 §Resource
-  identity). A target key is the canonical scoped resource key
-  `[scope resource-id params]` — the SAME shape `state/scoped-resource-key`
-  produces and the read path writes under. Rejects, loudly:
+;; ---- map-form exact target (EP-0016 Rider 2 / slice 6) --------------------
+;;
+;; The ONLY public input form for an exact `:populates` / `:patches` (and a
+;; future remove) target is the TARGET MAP `{:resource … :params … :scope …}`
+;; (Spec 016 §Map-form exact resource targets / EP-0016 issue 4 — no migration
+;; window; pre-alpha, no external consumers). The hand-built scoped-key tuple
+;; `[scope resource-id params]` remains the documented INTERNAL / STORAGE
+;; representation (the `:rf/scoped-resource-key` shape the read path writes
+;; under) — an input-form-vs-storage-form distinction per EP-0007 rule 3, NOT
+;; two public spellings of one fact.
+;;
+;; The map `:scope` is one of: `:rf.scope/same` (the mutation's resolved
+;; scope — the DEFAULT when omitted), `:rf.scope/global`, a concrete canonical
+;; scope value, or a `{:from-db <id>}` named-resolver reference. The DERIVED
+;; scope forms (`:rf.scope/same` / `{:from-db …}`) resolve against the
+;; settle-time app-db, so this PURE runtime validator does NOT resolve scope
+;; itself — the events layer resolves each target's scope first (it owns the
+;; registry + db), then this validator validates + canonicalizes the resulting
+;; CONCRETE key fail-closed before any cache write.
 
-  - a malformed key (not a 3-element `[scope resource-id params]` vector);
-  - a non-keyword `resource-id`;
+(defn target-map?
+  "True iff `target` is the public map-form exact target
+  `{:resource <id> :params <params>}` (a map carrying `:resource`). The
+  `:scope` key is optional (it defaults to `:rf.scope/same`). A 3-element
+  storage tuple is NOT a target map. Per Spec 016 §Map-form exact resource
+  targets / EP-0016 Rider 2."
+  [target]
+  (and (map? target) (contains? target :resource)))
+
+(defn validate-target-key!
+  "Fail-closed validation of a SINGLE mutation patch / populate TARGET, BEFORE
+  any cache mutation (EP-0003 §Mutations / Spec 016 §Resource identity /
+  §Map-form exact resource targets). The public INPUT form is the TARGET MAP
+  `{:resource <id> :params <params> :scope <scope>}` (EP-0016 Rider 2 — the
+  only public input form, no tuple migration window). The map's `:scope` has
+  already been RESOLVED to a CONCRETE scope value by the events layer
+  (`resolved-scope` — the `:rf.scope/same` default and any `{:from-db …}`
+  reference resolve against the settle-time app-db upstream); this PURE
+  validator never resolves scope itself. Rejects, loudly:
+
+  - a non-map target (the tuple is the internal storage form, not a public
+    input — a tuple reaching here is rejected loudly);
+  - a missing / non-keyword `:resource` id;
   - an UNREGISTERED resource id (`registered-resource?` returns falsey) — a
     patch / populate must target a resource the read path also knows, or the
     seeded / patched entry is unreachable by any subscription;
@@ -366,26 +409,30 @@
   registry-lookup predicate (so this PURE validator carries no registry
   require). `where` names the call-site public surface; `arm`
   (`:patches` | `:populates`) names the offending mutation-spec arm. Returns
-  the CANONICALIZED scoped key `[canonical-scope resource-id canonical-params]`
+  the CANONICAL STORAGE key `[canonical-scope resource-id canonical-params]`
   on success (so the caller writes under the canonical identity, never a
   caller's alternate spelling). Throws `:rf.error/mutation-invalid-target`
   otherwise."
-  [target registered-resource? where arm]
-  (when-not (and (vector? target) (= 3 (count target)))
+  [target resolved-scope registered-resource? where arm]
+  (when-not (target-map? target)
     (throw (target-key-error
              where arm
-             (str "a mutation " (name arm) " target must be a canonical "
-                  "scoped resource key [scope resource-id params] (a "
-                  "3-element vector); got " (pr-str target) ". Per EP-0003 "
-                  "§Mutations / Spec 016 §Resource identity.")
+             (str "a mutation " (name arm) " target must be the map-form exact "
+                  "target {:resource <id> :params <params> :scope <scope>} (the "
+                  "only public input form — the scoped-key tuple is the internal "
+                  "storage representation, not a public input); got "
+                  (pr-str target) ". Per Spec 016 §Map-form exact resource "
+                  "targets / EP-0016 Rider 2.")
              target {})))
-  (let [[scope resource-id params] target]
-    (when-not (keyword? resource-id)
+  (let [{:keys [resource params]} target
+        scope resolved-scope]
+    (when-not (keyword? resource)
       (throw (target-key-error
                where arm
-               (str "a mutation " (name arm) " target's resource id must be "
-                    "a keyword; got " (pr-str resource-id) ".")
-               target {:resource-id resource-id})))
+               (str "a mutation " (name arm) " target map's :resource must be "
+                    "a keyword; got " (pr-str resource) " in " (pr-str target)
+                    ". Per Spec 016 §Map-form exact resource targets.")
+               target {:resource-id resource})))
     (when (reserved-scope-typo? scope)
       (throw (target-key-error
                where arm
@@ -410,32 +457,58 @@
                     "serializable EDN — host / opaque values are rejected at "
                     "the cache-key boundary. Per Spec 016 §Resource identity.")
                target {:params (pr-str params)})))
-    (when-not (registered-resource? resource-id)
+    (when-not (registered-resource? resource)
       (throw (target-key-error
                where arm
                (str "a mutation " (name arm) " targets the UNREGISTERED "
-                    "resource " (pr-str resource-id) " — a controlled patch / "
+                    "resource " (pr-str resource) " — a controlled patch / "
                     "populate must target a resource the read path also "
                     "knows, or the seeded / patched entry is unreachable by "
                     "any subscription. Call rf/reg-resource first. Per "
                     "EP-0003 §Mutations.")
-               target {:resource-id resource-id})))
-    (state/scoped-resource-key scope resource-id params)))
+               target {:resource-id resource})))
+    (state/scoped-resource-key scope resource params)))
+
+(defn target-scope
+  "The DECLARED `:scope` of a map-form exact target, defaulting to
+  `:rf.scope/same` (the mutation's resolved scope) when the target omits
+  `:scope` — the same default the invalidation-descriptor `:scope` carries.
+  Pure; the events layer resolves the returned scope (concrete /
+  `:rf.scope/same` / `{:from-db …}`) against the settle-time app-db. Per Spec
+  016 §Map-form exact resource targets."
+  [target]
+  (if (contains? target :scope) (:scope target) same-scope-marker))
 
 (defn validate-target-map!
   "Fail-closed validation + canonicalization of a WHOLE mutation `:patches` /
-  `:populates` target map `{scoped-key value}` BEFORE any cache mutation
-  (EP-0003 §Mutations). Validates EVERY target key via `validate-target-key!`
-  (so one bad target rejects the whole success-time patch / populate — no
-  partial cache mutation) and returns a NEW map re-keyed by the CANONICAL
-  scoped key, values preserved. `kind` (`:patches` | `:populates`) names the
-  offending arm in the error. A nil / empty map returns itself."
-  [target-map registered-resource? kind where]
-  (when (seq target-map)
+  `:populates` target map `{target value}` BEFORE any cache mutation (EP-0003
+  §Mutations / Spec 016 §Map-form exact resource targets). Each KEY is a public
+  map-form target `{:resource :params :scope}`; `resolve-target-scope` is
+  `(fn [target] -> [:resolved <concrete-scope>] | [:nil-resolved <from-db-id>])`
+  — injected by the events layer (it owns the registry + settle-time db) and
+  resolves each target's declared `:scope` (`:rf.scope/same` / concrete /
+  `{:from-db …}`). A target whose scope resolves NIL (`:nil-resolved`) is
+  FAIL-CLOSED: it is DROPPED (no cache write under an implicit global, never a
+  silent wrong-scope poke). Validates every resolved key via
+  `validate-target-key!` (one bad target rejects the whole arm — no partial
+  cache mutation) and returns `[canonical-map nil-resolved-ids]`: a map re-keyed
+  by the CANONICAL STORAGE key (values preserved) plus the vector of
+  `{:from-db …}` ids that resolved nil (fail-closed evidence for the trace).
+  `kind` (`:patches` | `:populates`) names the offending arm in the error. A
+  nil / empty input map returns `[nil []]`."
+  [target-map resolve-target-scope registered-resource? kind where]
+  (if-not (seq target-map)
+    [nil []]
     (reduce-kv
-      (fn [m target value]
-        (assoc m (validate-target-key! target registered-resource? where kind) value))
-      {}
+      (fn [[m nils] target value]
+        (let [[outcome scope-or-id] (resolve-target-scope target)]
+          (case outcome
+            :nil-resolved [m (conj nils scope-or-id)]
+            :resolved     [(assoc m (validate-target-key!
+                                      target scope-or-id registered-resource? where kind)
+                                  value)
+                           nils])))
+      [{} []]
       target-map)))
 
 ;; ---- mutation INSTANCE id validation (Spec 016 §Resource identity) --------
@@ -504,15 +577,6 @@
 ;; This namespace owns the PURE normalization (raw form -> canonical descriptor
 ;; vector); the impure per-descriptor scope resolution + the engine dispatch fx
 ;; live in `mutation-events` (it needs the registry + app-db + trace).
-
-(def same-scope-marker
-  "The descriptor `:scope` marker meaning \"the mutation's resolved
-  (execution) scope\" — the DEFAULT when a descriptor omits `:scope`, and the
-  meaning of the bare tag-set shorthand (Spec 016 §Scoped invalidation
-  descriptors). Resolved to the concrete mutation scope by the events layer at
-  settle time; it is NOT itself a literal cache scope (it never reaches the
-  cache key)."
-  :rf.scope/same)
 
 (defn invalidation-descriptor-error
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error shape)

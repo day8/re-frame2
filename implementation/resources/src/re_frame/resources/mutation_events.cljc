@@ -137,77 +137,120 @@
   (or supplied-instance
       [:rf.mutation/instance mutation-id generation]))
 
+;; ---- exact-target scope resolution (EP-0016 Rider 2 / slice 6) -------------
+;;
+;; A map-form `:populates` / `:patches` target declares its OWN `:scope` —
+;; concrete, `:rf.scope/same` (the mutation's resolved scope, the default), or
+;; a `{:from-db …}` named-resolver reference resolved against the settle-time
+;; app-db (the single use-time rule). This mirrors the invalidation-descriptor
+;; scope resolution (`resolve-descriptor-scope` below); both share the same
+;; `:rf.scope/same` marker, the same `state/canonicalize-scope` path, and the
+;; same fail-closed nil-resolution discipline.
+
+(defn- resolve-exact-target-scope
+  "Resolve a map-form exact target's DECLARED `:scope` (via `mstate/target-scope`,
+  defaulting `:rf.scope/same`) to a concrete cache scope at settle time, against
+  the mutation's resolved scope `mut-scope` and the handler's app-db `db`.
+  Returns `[:resolved <concrete-scope>]` or `[:nil-resolved <from-db-id>]` (a
+  `{:from-db …}` reference that resolved nil — FAIL-CLOSED: the target is
+  dropped, never written under an implicit global). Cross-scope is NOT a target
+  concept (an exact target writes ONE key, so there is no scope-agnostic form).
+  Per Spec 016 §Map-form exact resource targets / §Resolver references."
+  [target mut-scope db where]
+  (let [scope (mstate/target-scope target)]
+    (cond
+      (= scope mstate/same-scope-marker)
+      [:resolved mut-scope]
+
+      (scope-registry/from-db-reference? scope)
+      (if-let [s (scope-registry/resolve-from-db-reference scope db where)]
+        [:resolved (state/canonicalize-scope s where nil)]
+        [:nil-resolved (:from-db scope)])
+
+      :else
+      [:resolved (state/canonicalize-scope scope where nil)])))
+
 ;; ---- the success-time patch / populate / invalidate composition -----------
 
 (defn- apply-patches
   "Apply the mutation spec's `:patches` to the resource cache. `:patches` is
-  `(fn [params result] -> {scoped-key patch-fn})` — each `patch-fn` is
-  `(fn [old-data result] -> new-data)` applied to the keyed resource entry's
-  last-known-good `:data` (controlled patch, structural-shared, freshness
-  refreshed). Returns `[runtime-db' affected-keys]`. A patch on a key with
-  no entry / no data is a no-op (a patch transforms existing data; populate
-  seeds). Per EP-0003 §Mutations (controlled resource patch APIs)."
-  [runtime-db patches-fn params result clock-ms]
-  (if-let [patches (when patches-fn
-                     ;; rf2-3yyaur — validate + canonicalize EVERY patch target
-                     ;; scoped key BEFORE any cache mutation (fail-closed: one
-                     ;; bad target rejects the whole patch arm, never a partial
-                     ;; write). Re-keys by the canonical scoped key so the
-                     ;; write lands under the canonical identity.
-                     (mstate/validate-target-map!
-                       (patches-fn params result) registry/resource-meta
-                       :patches 'rf.mutation.internal/succeeded))]
-    (reduce-kv
-      (fn [[db ks policies] scoped-key patch-fn]
-        (let [entry (get-in db (state/entry-path scoped-key))]
-          (if (and entry (state/has-data? entry))
-            (let [rspec    (registry/resource-meta (:resource/id entry))
-                  stale-at (stale-at-for rspec clock-ms)
-                  entry'   (mstate/patch-entry entry patch-fn result
-                                               {:clock-ms clock-ms :stale-at stale-at})
-                  delays   (timer-delays rspec)]
-              [(assoc-in db (state/entry-path scoped-key) entry')
-               (conj ks scoped-key)
-               (cond-> policies delays (assoc scoped-key delays))])
-            [db ks policies])))
-      [runtime-db #{} {}]
-      patches)
-    [runtime-db #{} {}]))
+  `(fn [params result] -> {target patch-fn})` — each KEY is a map-form exact
+  target `{:resource :params :scope}` (EP-0016 Rider 2 — the only public input
+  form) and each `patch-fn` is `(fn [old-data result] -> new-data)` applied to
+  the resolved key's last-known-good `:data` (controlled patch,
+  structural-shared, freshness refreshed). Returns `[runtime-db' affected-keys
+  policies nil-resolved-ids]`. A patch on a key with no entry / no data is a
+  no-op (a patch transforms existing data; populate seeds); a target whose
+  `{:from-db …}` scope resolves nil is FAIL-CLOSED (dropped). Per EP-0003
+  §Mutations / Spec 016 §Map-form exact resource targets."
+  [runtime-db patches-fn params result clock-ms mut-scope db where]
+  (let [[patches nil-ids]
+        (when patches-fn
+          ;; rf2-3yyaur / EP-0016 Rider 2 — resolve each map-form target's
+          ;; scope against the settle-time db, then validate + canonicalize
+          ;; EVERY resolved key BEFORE any cache mutation (fail-closed: one bad
+          ;; target rejects the whole patch arm; a nil-resolving {:from-db …}
+          ;; target is dropped, never a partial / wrong-scope write).
+          (mstate/validate-target-map!
+            (patches-fn params result)
+            #(resolve-exact-target-scope % mut-scope db where)
+            registry/resource-meta :patches where))]
+    (if (seq patches)
+      (reduce-kv
+        (fn [[db' ks policies nils] scoped-key patch-fn]
+          (let [entry (get-in db' (state/entry-path scoped-key))]
+            (if (and entry (state/has-data? entry))
+              (let [rspec    (registry/resource-meta (:resource/id entry))
+                    stale-at (stale-at-for rspec clock-ms)
+                    entry'   (mstate/patch-entry entry patch-fn result
+                                                 {:clock-ms clock-ms :stale-at stale-at})
+                    delays   (timer-delays rspec)]
+                [(assoc-in db' (state/entry-path scoped-key) entry')
+                 (conj ks scoped-key)
+                 (cond-> policies delays (assoc scoped-key delays))
+                 nils])
+              [db' ks policies nils])))
+        [runtime-db #{} {} (vec nil-ids)]
+        patches)
+      [runtime-db #{} {} (vec nil-ids)])))
 
 (defn- apply-populates
-  "Apply the mutation spec's `:populates` to the resource cache.
-  `:populates` is `(fn [params result] -> {scoped-key value})` — each
-  keyed entry is SEEDED `:loaded` from `value` (controlled populate). The
-  populated entry takes the resource's tags from the resource spec's
-  `:tags` fn (a populated entry MUST carry its own tags so a later
-  invalidation can reach it). Returns `[runtime-db' affected-keys]`. Per
-  EP-0003 §Mutations (controlled resource populate APIs)."
-  [runtime-db populates-fn params result clock-ms]
-  (if-let [populates (when populates-fn
-                       ;; rf2-3yyaur — validate + canonicalize EVERY populate
-                       ;; target scoped key BEFORE any cache mutation
-                       ;; (fail-closed: one bad target rejects the whole
-                       ;; populate arm, never a partial write).
-                       (mstate/validate-target-map!
-                         (populates-fn params result) registry/resource-meta
-                         :populates 'rf.mutation.internal/succeeded))]
-    (reduce-kv
-      (fn [[db ks policies] scoped-key value]
-        (let [[_scope resource-id rparams] scoped-key
-              rspec    (registry/resource-meta resource-id)
-              stale-at (stale-at-for rspec clock-ms)
-              tags-fn  (:tags rspec)
-              tags     (when tags-fn (set (tags-fn rparams value)))
-              entry    (get-in db (state/entry-path scoped-key))
-              entry'   (mstate/populate-entry entry resource-id value
-                                              {:clock-ms clock-ms :stale-at stale-at :tags tags})
-              delays   (timer-delays rspec)]
-          [(assoc-in db (state/entry-path scoped-key) entry')
-           (conj ks scoped-key)
-           (cond-> policies delays (assoc scoped-key delays))]))
-      [runtime-db #{} {}]
-      populates)
-    [runtime-db #{} {}]))
+  "Apply the mutation spec's `:populates` to the resource cache. `:populates`
+  is `(fn [params result] -> {target value})` — each KEY is a map-form exact
+  target `{:resource :params :scope}` (EP-0016 Rider 2) and each resolved key
+  is SEEDED `:loaded` from `value` (controlled populate — an AUTHORITATIVE
+  load, Rider 1). The populated entry takes the resource's tags from the
+  resource spec's `:tags` fn (a populated entry MUST carry its own tags so a
+  later invalidation can reach it). Returns `[runtime-db' affected-keys
+  policies nil-resolved-ids]`. A target whose `{:from-db …}` scope resolves nil
+  is FAIL-CLOSED (dropped). Per EP-0003 §Mutations / Spec 016 §Map-form exact
+  resource targets / §Populate is an authoritative load."
+  [runtime-db populates-fn params result clock-ms mut-scope db where]
+  (let [[populates nil-ids]
+        (when populates-fn
+          (mstate/validate-target-map!
+            (populates-fn params result)
+            #(resolve-exact-target-scope % mut-scope db where)
+            registry/resource-meta :populates where))]
+    (if (seq populates)
+      (reduce-kv
+        (fn [[db' ks policies nils] scoped-key value]
+          (let [[_scope resource-id rparams] scoped-key
+                rspec    (registry/resource-meta resource-id)
+                stale-at (stale-at-for rspec clock-ms)
+                tags-fn  (:tags rspec)
+                tags     (when tags-fn (set (tags-fn rparams value)))
+                entry    (get-in db' (state/entry-path scoped-key))
+                entry'   (mstate/populate-entry entry resource-id value
+                                                {:clock-ms clock-ms :stale-at stale-at :tags tags})
+                delays   (timer-delays rspec)]
+            [(assoc-in db' (state/entry-path scoped-key) entry')
+             (conj ks scoped-key)
+             (cond-> policies delays (assoc scoped-key delays))
+             nils]))
+        [runtime-db #{} {} (vec nil-ids)]
+        populates)
+      [runtime-db #{} {} (vec nil-ids)])))
 
 ;; ---- scoped invalidation descriptors (EP-0016 D2 / slice 5) ---------------
 ;;
@@ -297,14 +340,26 @@
   "Turn an `invalidation-plan` `:dispatches` vector into the per-descriptor
   `[:dispatch [:rf.resource/invalidate-tags …]]` fx — one dispatch into the
   SINGLE scoped invalidation engine per resolved descriptor. Returns nil when
-  the plan dispatches nothing (so the caller's `cond->` skips it)."
-  [plan cause]
+  the plan dispatches nothing (so the caller's `cond->` skips it).
+
+  EP-0016 Rider 1 (populate is an authoritative load): `populated-ks` is the
+  set of EXACT scoped keys this same mutation just POPULATED. A populated key
+  is FRESH for the mutation result, so it is EXEMPT from immediate refetch by
+  this same mutation's invalidation pass — UNLESS the descriptor opts in with
+  `:refetch-populated? true` (the partial-reply case). Each descriptor's
+  dispatch therefore carries `:exempt-keys` = the populated keys (default) or
+  `#{}` (when `:refetch-populated?`), and the invalidation engine excludes the
+  exempt keys from its matched set. Per Spec 016 §Populate is an authoritative
+  load."
+  [plan cause populated-ks]
   (not-empty
-    (mapv (fn [{:keys [scope cross-scope? tags]}]
-            [:dispatch [:rf.resource/invalidate-tags
-                        (cond-> {:tags tags :cause cause}
-                          (some? scope) (assoc :scope scope)
-                          cross-scope?  (assoc :cross-scope? true))]])
+    (mapv (fn [{:keys [scope cross-scope? tags refetch-populated?]}]
+            (let [exempt (if refetch-populated? #{} (set populated-ks))]
+              [:dispatch [:rf.resource/invalidate-tags
+                          (cond-> {:tags tags :cause cause}
+                            (some? scope)  (assoc :scope scope)
+                            cross-scope?   (assoc :cross-scope? true)
+                            (seq exempt)   (assoc :exempt-keys exempt))]]))
           (:dispatches plan))))
 
 (defn- plan-tags
@@ -316,16 +371,24 @@
 (defn- plan-trace
   "The descriptor-level invalidation evidence facet for the mutation settlement
   trace (Spec 016 §Trace evidence for invalidation): the descriptor count, the
-  per-descriptor resolved `(scope, cross-scope?, tags)`, and the fail-closed
-  `:unresolved` `{:from-db …}` ids (descriptors that resolved nil and produced
-  no invalidation). nil-safe (an absent plan yields nil)."
-  [plan]
+  per-descriptor resolved `(scope, cross-scope?, tags, refetch-populated?)`, the
+  fail-closed `:unresolved` `{:from-db …}` ids (descriptors that resolved nil
+  and produced no invalidation), and `:populate-exempt` — the EXACT keys this
+  same mutation populated that are exempted from same-mutation refetch by
+  Rider 1 (empty when no `:populates`, or when every descriptor opted into
+  `:refetch-populated? true`). nil-safe (an absent plan yields nil)."
+  [plan populated-ks]
   (when plan
-    {:descriptor-count (:descriptor-count plan)
-     :dispatched (mapv (fn [{:keys [scope cross-scope? tags]}]
-                         {:scope scope :cross-scope? cross-scope? :tags (vec tags)})
-                       (:dispatches plan))
-     :unresolved (vec (:unresolved plan))}))
+    (let [any-refetch? (some :refetch-populated? (:dispatches plan))]
+      {:descriptor-count (:descriptor-count plan)
+       :dispatched (mapv (fn [{:keys [scope cross-scope? tags refetch-populated?]}]
+                           {:scope scope :cross-scope? cross-scope? :tags (vec tags)
+                            :refetch-populated? (boolean refetch-populated?)})
+                         (:dispatches plan))
+       :unresolved (vec (:unresolved plan))
+       ;; Rider 1: the populated keys exempted from this mutation's refetch
+       ;; (empty when a descriptor opted into a same-mutation refetch).
+       :populate-exempt (if any-refetch? [] (vec populated-ks))})))
 
 ;; ---- mutation completion continuation — call-site :reply-to (D1) -----------
 ;;
@@ -465,8 +528,11 @@
         ;; of the single scoped invalidation engine.
         before-plan (when before?
                       (invalidation-plan (:invalidates spec) cparams nil cscope app-db where))
+        ;; a `:before-request` invalidation runs BEFORE the write is even sent,
+        ;; so no `:populates` has run — there are no populated keys to exempt
+        ;; (Rider 1 is a success-path concept).
         before-fxs  (when before-plan
-                      (plan->fx before-plan [:mutation mutation instance-id]))
+                      (plan->fx before-plan [:mutation mutation instance-id] #{}))
         instance'  (mstate/empty-instance
                      mutation instance-id
                      {:scope cscope :params cparams :cause cause
@@ -525,7 +591,7 @@
                    ;; EP-0016 D2: a `:before-request` invalidation attaches its
                    ;; descriptor-level evidence (resolved scopes + fail-closed
                    ;; nil-resolved `{:from-db …}` ids) to the started trace.
-                   before-plan (assoc :invalidation (plan-trace before-plan))))
+                   before-plan (assoc :invalidation (plan-trace before-plan #{}))))
     {:rf.db/runtime rdb'
      ;; rf2-agrjvk — `:before-request` invalidation must precede the request
      ;; being lowered to transport. fx run in order, so the invalidation
@@ -801,17 +867,23 @@
             ;; `:loaded-at` produced by the mutation uses that SAME causal
             ;; completion time (off the reply token, never an ambient read).
             clock-ms    completed-at
-            ;; 1. controlled patch / populate (BEFORE invalidation). Each
-            ;; arm also returns the per-key advisory stale / GC timer policy
-            ;; (the third value) so this handler arms timers exactly as the
-            ;; resource read path does (a populate seeds a fresh, ownerless
-            ;; entry that otherwise has a durable :stale-at / :gc-after-ms
-            ;; policy but NO armed reaper). populate wins on a key written by
-            ;; both (it ran last, so its entry — and policy — is current).
-            [rdb1 patched-ks patch-policies]     (apply-patches runtime-db (:patches spec) params result clock-ms)
-            [rdb2 populated-ks populate-policies] (apply-populates rdb1 (:populates spec) params result clock-ms)
+            ;; 1. controlled patch / populate (BEFORE invalidation). Each arm
+            ;; takes a map-form exact target (EP-0016 Rider 2 — the only public
+            ;; input form), resolves each target's declared `:scope`
+            ;; (`:rf.scope/same` / concrete / `{:from-db …}`) against this
+            ;; reply's app-db at settle time, validates + canonicalizes the
+            ;; resolved key fail-closed, and returns the per-key advisory stale
+            ;; / GC timer policy (so this handler arms timers exactly as the
+            ;; read path does — a populate seeds a fresh, ownerless entry that
+            ;; otherwise has a durable :stale-at / :gc-after-ms policy but NO
+            ;; armed reaper) PLUS the fail-closed nil-resolved {:from-db …} ids
+            ;; (targets dropped because their scope resolver returned nil).
+            ;; populate wins on a key written by both (it ran last).
+            [rdb1 patched-ks patch-policies patch-nil-ids]        (apply-patches runtime-db (:patches spec) params result clock-ms scope app-db where)
+            [rdb2 populated-ks populate-policies populate-nil-ids] (apply-populates rdb1 (:populates spec) params result clock-ms scope app-db where)
             patch-affected      (set/union patched-ks populated-ks)
             timer-policies      (merge patch-policies populate-policies)
+            target-nil-ids      (into (vec patch-nil-ids) populate-nil-ids)
             ;; the success-time invalidation (EP-0016 D2: per-descriptor
             ;; scoped). The patch already freshened the keys it touched; the
             ;; invalidation reaches the OTHER tagged entries (lists, siblings)
@@ -819,10 +891,14 @@
             ;; (incl. `{:from-db …}` against this reply's app-db at settle time)
             ;; and lowers into one dispatch of the single scoped invalidation
             ;; engine; a nil-resolving `{:from-db …}` is fail-closed (recorded
-            ;; in the plan `:unresolved`, no dispatch).
+            ;; in the plan `:unresolved`, no dispatch). EP-0016 Rider 1: the
+            ;; keys this same mutation just POPULATED are EXEMPT from this
+            ;; invalidation pass's refetch (a populate is an authoritative load
+            ;; — the key is already fresh for the result) unless a descriptor
+            ;; opts in with `:refetch-populated? true`.
             inv-plan    (when (#{:after-success :after-settle} timing)
                           (invalidation-plan (:invalidates spec) params result scope app-db where))
-            inv-fxs     (when inv-plan (plan->fx inv-plan [:mutation mutation-id instance-id]))
+            inv-fxs     (when inv-plan (plan->fx inv-plan [:mutation mutation-id instance-id] populated-ks))
             ;; the union of every dispatched descriptor's tags (the affected-key
             ;; / patch-summary trace reservation records the invalidated tags).
             inv-tags    (when inv-plan (plan-tags inv-plan))
@@ -832,6 +908,11 @@
             patch-summary {:patched   (vec patched-ks)
                            :populated (vec populated-ks)
                            :invalidated-tags (vec (or inv-tags #{}))
+                           ;; EP-0016 Rider 2 fail-closed evidence: map-form
+                           ;; populate/patch targets whose {:from-db …} scope
+                           ;; resolved nil were DROPPED (never written under an
+                           ;; implicit global).
+                           :target-unresolved (vec target-nil-ids)
                            ;; reserved for the later optimistic slice:
                            :snapshot-id nil :rollback nil :reconciliation-refetches nil}
             inst'       (mstate/instance-succeeded
@@ -889,8 +970,11 @@
                        ;; EP-0016 D2: the descriptor-level invalidation evidence
                        ;; (resolved scope per descriptor + fail-closed
                        ;; nil-resolved `{:from-db …}` ids) rides the settlement
-                       ;; trace (Spec 016 §Trace evidence for invalidation).
-                       inv-plan (assoc :invalidation (plan-trace inv-plan))))
+                       ;; trace (Spec 016 §Trace evidence for invalidation). The
+                       ;; Rider 1 populate-exempt evidence (the populated keys
+                       ;; exempted from this mutation's refetch) rides the same
+                       ;; facet (Spec 016 §Populate is an authoritative load).
+                       inv-plan (assoc :invalidation (plan-trace inv-plan populated-ks))))
         {:rf.db/runtime rdb'
          :fx (cond-> (vec timer-fx)
                inv-fxs (into inv-fxs)
@@ -962,7 +1046,11 @@
             ;; descriptor fns close over only `params`).
             inv-plan (when (#{:after-failure :after-settle} timing)
                        (invalidation-plan (:invalidates spec) params nil scope app-db where))
-            inv-fxs  (when inv-plan (plan->fx inv-plan [:mutation mutation-id instance-id]))
+            ;; a FAILED write applies no `:populates` (the result is nil), so
+            ;; there are no populated keys to exempt (Rider 1 is a success-path
+            ;; concept) — the empty exempt set keeps the failure-time
+            ;; invalidation a plain pass.
+            inv-fxs  (when inv-plan (plan->fx inv-plan [:mutation mutation-id instance-id] #{}))
             inv-tags (when inv-plan (plan-tags inv-plan))
             inst'    (mstate/instance-failed
                        inst {:error error :settled-at clock-ms
@@ -996,8 +1084,10 @@
                               :work-id work-id :generation generation :error error
                               :invalidated-tags (vec (or inv-tags #{}))}
                        ;; EP-0016 D2: descriptor-level failure-invalidation
-                       ;; evidence rides the failed-settlement trace.
-                       inv-plan (assoc :invalidation (plan-trace inv-plan))))
+                       ;; evidence rides the failed-settlement trace (no
+                       ;; populated keys on a failure, so the Rider 1 exempt
+                       ;; set is empty).
+                       inv-plan (assoc :invalidation (plan-trace inv-plan #{}))))
         {:rf.db/runtime rdb'
          :fx (cond-> []
                inv-fxs (into inv-fxs)
