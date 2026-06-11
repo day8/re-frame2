@@ -40,8 +40,9 @@
 ;;
 ;;   explicit `:rf.size/threshold-bytes` opt  >  `(rf/configure! :elision …)`  >  default
 ;;
-;; A threshold of 0 disables runtime auto-detect entirely (only declared /
-;; schema-marked entries elide); the unschema'd-large warning never fires.
+;; A threshold of 0 disables runtime auto-detect entirely (only
+;; frame-declared `:large` entries elide); the unschema'd-large warning
+;; never fires.
 ;; The default mirrors the documented `{:rf.size/threshold-bytes 16384}`.
 
 (def ^:private default-threshold-bytes 16384)
@@ -55,7 +56,7 @@
   "Update the elision configuration. Supports
   `{:rf.size/threshold-bytes N}` — a non-negative integer runtime
   auto-detect size threshold for the `:rf.warning/large-value-unschema'd`
-  advisory (0 disables runtime auto-detect; only declared / schema-marked
+  advisory (0 disables runtime auto-detect; only frame-declared `:large`
   entries elide). Per API.md §Configure keys (`:elision`) and Spec 009
   §Size elision in traces. Routed from `re-frame.core/configure!`."
   [opts]
@@ -542,8 +543,11 @@
     (walk v seed-path #{seed-path} ctx)))
 
 (defn elide-wire-value
-  "Walk `v` and substitute schema-declared sensitive or large paths for
-  wire egress. Sensitive wins over large when both declarations match.
+  "Walk `v` and substitute the frame's declared sensitive or large paths for
+  wire egress (the durable declarations live in `[:rf.runtime/elision …]`,
+  installed frame-owned by `re-frame.frame-classification` under
+  `:source :frame` — EP-0015 §8; the schema→app-db-egress route is gone).
+  Sensitive wins over large when both declarations match.
 
   EP-0002 (rf2-gjq3ow) — the wire-egress frame resolves from the CARRIED
   stamp: the explicit `:frame` opt (*override*) wins, else the in-effect

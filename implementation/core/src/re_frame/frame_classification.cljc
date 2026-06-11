@@ -34,13 +34,15 @@
     values (EP-0012). They are INSTALLED into the frame's durable elision
     registry (`[:rf.runtime/elision :sensitive-declarations]` /
     `[:rf.runtime/elision :declarations]`, Conventions §Reserved runtime-db
-    keys) under `:source :frame`, ALONGSIDE the schema-sourced
-    (`:source :schema`) and the imperative-mark-sourced (`:source :marks`)
-    declarations. The three sources union at lookup time exactly as Spec
-    015 §Relationship with schema-attached marks describes — a path
-    declared by ANY source is classified. Re-registering a frame REPLACES
-    the `:source :frame` entries (the declaration IS the frame's policy);
-    schema- and marks-sourced entries survive untouched.
+    keys) under `:source :frame` — the canonical durable app-db egress
+    route post-EP-0015 §8 (the `reg-app-schema` schema→app-db-egress route
+    is GONE; schemas describe shape, not durable app-db egress policy). The
+    only other source that can live in this registry is the demoted
+    imperative-mark route (`:source :marks` — internal / test /
+    generated-code only, no longer public). A path declared by ANY source
+    is classified: the sources union at lookup time. Re-registering a frame
+    REPLACES the `:source :frame` entries (the declaration IS the frame's
+    policy); any `:source :marks` entries survive untouched.
 
   - **`:sensitive :http :headers` / `:query-params`** are frame-local
     EXTENSIONS to the immutable built-in HTTP carrier denylist (Spec 014
@@ -369,17 +371,19 @@
 
 ;; ---- install into the durable elision registry --------------------------
 ;;
-;; Frame-owned app-db classification installs ALONGSIDE schema- and
-;; marks-sourced declarations in `[:rf.runtime/elision …]`, tagged
-;; `:source :frame`. The three sources union at lookup time (Spec 015
-;; §Relationship with schema-attached marks). Re-registration REPLACES the
-;; `:source :frame` entries; the other sources survive (matching how
-;; `re-frame.elision/install-schema-declarations!` replaces only
-;; `:source :schema` entries).
+;; Frame-owned app-db classification installs into `[:rf.runtime/elision …]`
+;; tagged `:source :frame`. Re-registration REPLACES only the `:source :frame`
+;; entries; any `:source :marks` entries (the demoted imperative-mark route —
+;; `re-frame.marks`, internal / test only) survive untouched, and the sources
+;; union at lookup time. The schema→app-db-egress route is GONE (EP-0015 §8 —
+;; no `:source :schema` installer feeds this registry; schemas describe shape,
+;; not durable app-db egress policy). This mirrors how `re-frame.marks/set-marks`
+;; replaces only its own `:source :marks` entries.
 
 (defn- without-frame-sourced
   "Drop `:source :frame` entries from a `{path decl}` declaration map,
-  preserving schema- and marks-sourced entries. Returns `{}` for nil."
+  preserving any other-sourced entries (the demoted `:source :marks` route).
+  Returns `{}` for nil."
   [decls]
   (reduce-kv (fn [acc p decl]
                (if (= :frame (:source decl))

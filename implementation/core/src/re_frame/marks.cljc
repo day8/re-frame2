@@ -25,14 +25,18 @@
   tables at boot (constant memory), but emit-time projection is gated
   and constant-folds out of CLJS production bundles via `goog.DEBUG`.
 
-  Per Spec 015 §Relationship with schema-attached marks: this
-  namespace writes into the SAME registry slot the schema-first
-  elision walker reads from
+  This namespace writes into the SAME durable elision registry slot the
+  frame-owned classification installs into
   (`[:rf.runtime/elision :sensitive-declarations]` and
   `[:rf.runtime/elision :declarations]` in the frame's runtime-db
-  partition — EP-0001 rf2-vzld77), keyed by absolute path. The
-  two declaration sources union at lookup time — a path declared
-  sensitive by EITHER source is sensitive."
+  partition — EP-0001 rf2-vzld77), keyed by absolute path, tagged
+  `:source :marks`. The frame-owned (`:source :frame`, EP-0015 §3) and
+  marks-sourced declarations union at lookup time — a path declared
+  sensitive by EITHER source is sensitive. (`add-marks` / `set-marks`
+  are DEMOTED off the public façade — EP-0015 §3, rf2-mngp4o — and remain
+  as internal / test / generated-code helpers; durable app-db
+  classification is authored on the frame. The former
+  schema→app-db-egress route is gone post-EP-0015 §8.)"
   (:require [re-frame.elision :as elision]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -61,10 +65,11 @@
 ;;
 ;; Schema-derived machine marks live in a SEPARATE per-machine-id table from
 ;; the author-sourced `kind->id->marks` `:event` entry, and `marks-for :event
-;; <id>` UNIONS the two at READ time. This is the SAME architecture app-db
-;; marks already use: a schema-sourced declaration (`:source :schema`) lives
-;; ALONGSIDE the `:marks`-sourced ones in the elision registry, unioned at
-;; lookup. Bringing it to machine marks makes the schema-vs-author union
+;; <id>` UNIONS the two at READ time. This is the SAME multi-source-union
+;; architecture the app-db elision registry uses: differently-sourced
+;; declarations (`:source :frame` from `reg-frame`, `:source :marks` from the
+;; demoted imperative route) live ALONGSIDE each other in the registry,
+;; unioned at lookup. Bringing it to machine marks makes the schema-vs-author union
 ;; truly ORDER-INDEPENDENT (rf2-qpibk0): a `register-marks!` (or a bare-meta
 ;; re-registration) on the `:event` entry REPLACES that entry in full
 ;; (matching the registrar slot semantics every other reg-* site relies on),
@@ -409,16 +414,18 @@
 ;;   survive). Author-facing repeat-call semantics: declarative.
 ;;
 ;; Both honour last-write-wins semantics when called against the same
-;; frame and overlap with each other. Schema-sourced entries (carrying
-;; `:source :schema`) are always preserved — they are not owned by
-;; this namespace and live alongside per Spec 015 §Relationship with
-;; schema-attached marks.
+;; frame and overlap with each other. Differently-sourced entries are
+;; always preserved — frame-owned classification (`:source :frame` from
+;; `reg-frame`, EP-0015 §3) is not owned by this namespace and lives
+;; alongside the `:source :marks` entries, unioned at lookup. (The former
+;; schema→app-db-egress route — `:source :schema` — is gone post-EP-0015 §8;
+;; schemas describe shape, not durable app-db egress policy.)
 
 (defn- without-marks-sourced
   "Drop entries whose `:source` is `:marks` from a declaration map.
   Used by `set-marks` to clear the prior `add-marks` / `set-marks`
-  contributions before overlaying the new ones — schema-sourced
-  entries survive."
+  contributions before overlaying the new ones — frame-sourced
+  (`:source :frame`) entries survive."
   [decls]
   (when decls
     (reduce-kv (fn [acc path decl]
@@ -473,12 +480,12 @@
   `:sensitive` / `:large` classification is the public authoring surface;
   this is an internal / test / generated-code helper.
 
-  Schema-attached marks (via `reg-app-schema` with `:sensitive?` /
-  `:large?` slot metadata) are preserved — the two declaration sources
-  union at lookup time per Spec 015 §Relationship with schema-attached
-  marks. Use `set-marks` for replace-semantics, or call `add-marks`
-  with a path mapped to a different mark to last-write-wins overwrite
-  that path's mark."
+  Frame-owned declarations (`reg-frame` `:sensitive` / `:large {:app-db …}`,
+  `:source :frame`) are preserved — the two declaration sources union at
+  lookup time. (The former schema→app-db-egress route is gone post-EP-0015
+  §8; schemas describe shape, not durable app-db egress policy.) Use
+  `set-marks` for replace-semantics, or call `add-marks` with a path mapped
+  to a different mark to last-write-wins overwrite that path's mark."
   [frame-id path->mark]
   (let [[sens-paths large-paths] (split-by-mark path->mark)]
     (elision/swap-elision-slot! frame-id
@@ -515,17 +522,17 @@
   `:sensitive` / `:large` classification is the public authoring surface;
   this is an internal / test / generated-code helper.
 
-  Schema-attached marks (via `reg-app-schema` with `:sensitive?` /
-  `:large?` slot metadata) are preserved — only the `:source :marks`
-  entries are dropped. The two declaration sources union at lookup
-  time per Spec 015 §Relationship with schema-attached marks.
+  Frame-owned declarations (`reg-frame` `:sensitive` / `:large {:app-db …}`,
+  `:source :frame`) are preserved — only the `:source :marks` entries are
+  dropped. The two declaration sources union at lookup time. (The former
+  schema→app-db-egress route is gone post-EP-0015 §8.)
 
   Use `add-marks` for additive-merge semantics."
   [frame-id path->mark]
   (let [[sens-paths large-paths] (split-by-mark path->mark)]
     (elision/swap-elision-slot! frame-id
       (fn [reg]
-        ;; Drop prior :marks-sourced entries first (schema-sourced survive),
+        ;; Drop prior :marks-sourced entries first (frame-sourced survive),
         ;; then assoc the new paths.
         (let [carry-s (without-marks-sourced (get reg :sensitive-declarations))
               carry-l (without-marks-sourced (get reg :declarations))
@@ -540,8 +547,8 @@
 
 (defn clear-app-db-marks!
   "Drop every `add-marks` / `set-marks`-sourced declaration for
-  `frame-id`. Schema-sourced declarations are preserved. Returns nil.
-  Test-isolation only; production code rarely needs this."
+  `frame-id`. Frame-sourced (`:source :frame`) declarations are preserved.
+  Returns nil. Test-isolation only; production code rarely needs this."
   [frame-id]
   (elision/swap-elision-slot! frame-id
     (fn [reg]

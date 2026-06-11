@@ -870,7 +870,8 @@
 ;; RULED). After the frame/profile projection lands, `projected-record`
 ;; applies the installed `:redact-fn` (`assembly/apply-redact-fn`) to the
 ;; PROJECTED record — the rare advanced escape for material the
-;; schema-driven projection cannot prove. It runs ONLY here, on the off-box
+;; declaration-driven projection cannot prove (a slot no frame / schema
+;; declaration covers). It runs ONLY here, on the off-box
 ;; egress copy; the ring stays raw, so it can never affect `restore-epoch`
 ;; fidelity (the §15 hazard is gone by construction).
 ;;
@@ -892,8 +893,9 @@
   off-box safe path) and, when a trusted-local caller opts them back in,
   compose on top as explicit `:rf.size/*` overrides (the override wins —
   see `re-frame.projection/resolve-elision-opts`). The record frame is
-  stamped so schema-declared sensitive / large paths (keyed by absolute
-  app-db path) match the projected value."
+  stamped so the frame's declared sensitive / large paths (keyed by absolute
+  app-db path, installed frame-owned per EP-0015 §3) match the projected
+  value."
   [frame-id {:keys [include-sensitive? include-large?]}]
   {:rf.egress/profile          egress-profile
    :frame                      frame-id
