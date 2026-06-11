@@ -225,7 +225,23 @@
   (into [{:slug "hello-conduit"
           :title "Hello, Conduit"
           :description "A short greeting from the realworld stub."
-          :body "This article is served by the demo :rf.http/managed override."
+          ;; A markdown body so the article-detail page exercises the
+          ;; sanitized markdown renderer (realworld.markdown/render): headings,
+          ;; bold/italic, inline + fenced code, a safe link, and lists. The
+          ;; renderer emits hiccup (never raw HTML), so this is rendered as
+          ;; real markup while any injected `<script>` / `javascript:` link in
+          ;; user content would degrade to inert escaped text.
+          :body (str "# Hello, Conduit\n\n"
+                     "This article is served by the demo `:rf.http/managed` "
+                     "override and rendered as **markdown** with *emphasis*.\n\n"
+                     "See the [RealWorld spec](https://github.com/gothinkster/realworld) "
+                     "for the reference behaviour.\n\n"
+                     "## Highlights\n\n"
+                     "- Sanitized by construction (hiccup, never raw HTML)\n"
+                     "- Headings, lists, code, links\n"
+                     "- Zero new dependencies\n\n"
+                     "```clojure\n(rf/reg-event-db :hello (fn [db _] db))\n```\n\n"
+                     "> A blockquote, for good measure.")
           :tagList ["intro" "demo"]
           :createdAt "2026-01-01T00:00:00Z"
           :updatedAt "2026-01-01T00:00:00Z"

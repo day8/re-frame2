@@ -27,6 +27,7 @@
             [reagent.core :as r]
             [reagent.ratom :as ratom]
             [realworld-resources.http :as rh]
+            [realworld-resources.markdown :as md]
             [realworld-resources.resources :as resources]
             [realworld-resources.scope :as scope])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -586,7 +587,7 @@
           [:div.container.page
            [:div.row.article-content
             [:div.col-md-12
-             [:p {:data-testid "article-body"} body]
+             [:div {:data-testid "article-body"} (md/render body)]
              (into [:ul.tag-list] (for [tag tagList] ^{:key tag} [:li.tag-default.tag-pill.tag-outline tag]))]]
            [:hr]
            [:div.article-actions
