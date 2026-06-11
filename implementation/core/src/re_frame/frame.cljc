@@ -1003,6 +1003,18 @@
 ;; is moot there).
 (def ^:dynamic *cascade-frame-state-before* nil)
 
+;; rf2-bh56rc: the in-flight dequeued event's causal `:time-ms` (the
+;; `:rf.world/inputs` `:time-ms` stamped on its envelope at the causal
+;; boundary), bound by the router around `process-event!` alongside
+;; `*cascade-frame-state-before*`. A handler that calls `destroy-frame!`
+;; on its own frame mid-drain runs INSIDE this binding, so the
+;; `:halted-destroy` epoch record's `:committed-at` is the DESTROYING
+;; event's causal time — replayable — rather than an ambient host-clock
+;; read at assembly time (per EP-0010 §Time / Spec 002 §The World-Input
+;; Rule). nil outside a drain — the moot out-of-cascade destroy commits no
+;; record, so the epoch surface's nil-tolerant fallback applies.
+(def ^:dynamic *cascade-time-ms* nil)
+
 (defn- safe-call-hook!
   "Fire a late-bound cleanup hook by key. No-op when unbound. Exceptions
   are caught so one bad hook can't block the rest of teardown — but the
@@ -1284,9 +1296,15 @@
   Both snapshots are captured BEFORE the frame is removed and passed
   explicitly so the epoch surface (which fires AFTER `dissoc-frame!`,
   step 6) does not have to read a container that is already gone — the
-  root cause of the prior nil-`:db-before` / nil-`:db-after` records."
-  [id fs-before fs-after]
-  (safe-call-hook! :epoch/on-frame-destroyed id fs-before fs-after))
+  root cause of the prior nil-`:db-before` / nil-`:db-after` records.
+
+  `committed-at` (rf2-bh56rc) is the destroying event's causal `:time-ms`
+  (the router-bound `*cascade-time-ms*`), threaded so the `:halted-destroy`
+  record's `:committed-at` is replayable per EP-0010 §Time rather than an
+  ambient host-clock read. nil outside a drain (the moot out-of-cascade
+  destroy commits no record)."
+  [id fs-before fs-after committed-at]
+  (safe-call-hook! :epoch/on-frame-destroyed id fs-before fs-after committed-at))
 
 (defn destroy-frame!
   "Tear down a frame. Per Spec 002 §Destroy, the ordered steps are:
@@ -1395,6 +1413,11 @@
       ;; Both are passed to `notify-epoch-listeners!` (step 8). EP-0001
       ;; (rf2-3aizt1, decision #2): the whole frame-state, both partitions.
       (let [cascade-fs-before *cascade-frame-state-before*
+            ;; rf2-bh56rc: the destroying event's causal `:time-ms`, bound by
+            ;; the router alongside `*cascade-frame-state-before*`. Threaded to
+            ;; the epoch hook so the `:halted-destroy` record's `:committed-at`
+            ;; is replayable (per EP-0010 §Time). nil outside a drain.
+            cascade-time-ms   *cascade-time-ms*
             fs-at-destroy     (frame-state-value id)
             ;; EP-0008 R1 (rf2-ini4wr): per-destroy accumulator for
             ;; cleanup-hook failures. `safe-call-hook!` conj's an entry per
@@ -1474,7 +1497,7 @@
         (safe-call-hook! :trace.tooling/release-frame-ring! id)
         (dissoc-frame! id)
         (unregister-frame! id)
-        (notify-epoch-listeners! id cascade-fs-before fs-at-destroy)
+        (notify-epoch-listeners! id cascade-fs-before fs-at-destroy cascade-time-ms)
         nil
         (finally
           ;; EP-0008 R1 (rf2-ini4wr) — FINALLY-shaped flush of the always-on

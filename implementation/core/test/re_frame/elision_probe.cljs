@@ -254,7 +254,7 @@
   ;; `re-frame.epoch` facade publishes through the
   ;; `:epoch/on-frame-destroyed` late-bind hook only (per rf2-e0lva the
   ;; facade-side wrapper is private).
-  (epoch.listeners/on-frame-destroyed! :rf/default nil nil))
+  (epoch.listeners/on-frame-destroyed! :rf/default nil nil nil))
 
 ;; ---- Spec 004 §Render-tree primitives — reg-view* wrapper (rf2-piag) -----
 

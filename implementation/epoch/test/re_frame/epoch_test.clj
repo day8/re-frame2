@@ -38,6 +38,11 @@
             ;; fixture no longer touches the private flows atoms (the
             ;; reset-hook table owns flows reset).
             [re-frame.flows]
+            ;; rf2-bh56rc: `with-redefs`'d in the :committed-at causal-time
+            ;; tests to a sentinel clock, proving the durable :committed-at
+            ;; comes from the committing token's :time-ms, not an ambient
+            ;; `interop/now-ms` read at assembly time.
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             ;; rf2-eig68k — require the schemas FAÇADE, not the `.malli`
@@ -172,6 +177,91 @@
       (is (= (:dispatch-id r)
              (some #(get-in % [:tags :rf.trace/dispatch-id]) (:trace-events r)))
           ":dispatch-id slot equals the cascade's trace :rf.trace/dispatch-id tag"))))
+
+;; ---- rf2-bh56rc: :committed-at is the committing token's causal time -------
+;;
+;; Per EP-0010 §Time (epoch record causal time) + Spec 002 §The World-Input
+;; Rule: the durable :committed-at fact MUST come from the committing causal
+;; token's `:rf.world/inputs` :time-ms (read ONCE at the causal boundary,
+;; envelope construction), NOT an ambient `interop/now-ms` read at epoch
+;; assembly time. These tests pin that conversion: they stub `interop/now-ms`
+;; to a sentinel clock so a regression that re-reads the ambient clock at
+;; assembly would stamp the sentinel and fail loudly.
+
+(deftest committed-at-comes-from-supplied-token-time-ms
+  (testing "the durable :committed-at on a clean settle is the committing
+            token's `:rf.world/inputs` :time-ms — NOT an ambient now-ms
+            read at assembly time (rf2-bh56rc / EP-0010 §Time)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (let [token-time 1781078400123      ; the supplied causal token time
+          clock-time 9999999999999]     ; the (wrong) ambient clock sentinel
+      ;; Stub the host clock to a value NOTHING legitimate should stamp into
+      ;; the record. The router preserves a caller-supplied :time-ms (it only
+      ;; fills :time-ms when absent), so the token time below rides through.
+      (with-redefs [interop/now-ms (constantly clock-time)]
+        (rf/dispatch-sync [:seed] {:frame            :test/main
+                                   :rf.world/inputs {:time-ms token-time}}))
+      (let [r (last (rf/epoch-history :test/main))]
+        (is (= token-time (:committed-at r))
+            ":committed-at is the supplied token :time-ms — replayable")
+        (is (not= clock-time (:committed-at r))
+            ":committed-at is NOT the ambient host clock — assembly performs
+             no clock read of its own")))))
+
+(deftest committed-at-replay-stable-across-wall-clock-drift
+  (testing "replaying the same event with the same supplied :time-ms yields
+            equal :committed-at even as the wall clock advances — the
+            replay-stability EP-0010 §Time guarantees (rf2-bh56rc)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (let [token-time 1781078400123]
+      ;; First commit under one wall-clock, second under a DIFFERENT one —
+      ;; both supply the SAME causal token :time-ms (the replay scenario).
+      (with-redefs [interop/now-ms (constantly 100)]
+        (rf/dispatch-sync [:seed] {:frame            :test/main
+                                   :rf.world/inputs {:time-ms token-time}}))
+      (with-redefs [interop/now-ms (constantly 8888888888888)]
+        (rf/dispatch-sync [:inc]  {:frame            :test/main
+                                   :rf.world/inputs {:time-ms token-time}}))
+      (let [history (rf/epoch-history :test/main)]
+        (is (= 2 (count history)))
+        (is (= [token-time token-time]
+               (mapv :committed-at history))
+            "both records carry the supplied token time — wall-clock drift
+             between the two commits did not leak into :committed-at")))))
+
+(deftest committed-at-each-child-event-reads-its-own-token
+  (testing "in a multi-event drain, each dequeued event's :committed-at is
+            ITS OWN token's :time-ms — an :fx-dispatched child gets a fresh
+            token (the router does NOT inherit the parent's :time-ms), so the
+            child's :committed-at is the freshly-stamped clock value, while
+            the parent's is its supplied token time (rf2-bh56rc / EP-0010
+            §Dispatch Envelope Stamping — children are distinct causal tokens)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:order []}))
+    (rf/reg-event-fx :parent
+      (fn [{:keys [db]} _]
+        {:db (update db :order conj :parent)
+         :fx [[:dispatch [:child]]]}))
+    (rf/reg-event-db :child (fn [db _] (update db :order conj :child)))
+    (let [parent-time 1781078400123
+          ;; The child has no supplied token, so the router stamps its
+          ;; :time-ms from `now-ms` — pinned to this sentinel by the redef.
+          child-clock 5550000000000]
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (with-redefs [interop/now-ms (constantly child-clock)]
+        (rf/dispatch-sync [:parent] {:frame            :test/main
+                                     :rf.world/inputs {:time-ms parent-time}}))
+      (let [history    (rf/epoch-history :test/main)
+            by-event   (into {} (map (juxt :event-id :committed-at)) history)]
+        (is (= parent-time (get by-event :parent))
+            "the parent's :committed-at is its supplied token time")
+        (is (= child-clock (get by-event :child))
+            "the :fx-dispatched child reads ITS OWN fresh token (stamped from
+             now-ms here) — NOT inherited from the parent, NOT a separate
+             assembly-time clock read")))))
 
 (deftest record-multi-event-cascade
   (testing "per rf2-nj6p7 (Spec 002 §Drain versus event): each dequeued
@@ -1552,6 +1642,41 @@
             "the :halted-destroy cause projects to :blocked at the consumer
              tier per rf2-18g1w / rf2-jppad")))))
 
+(deftest committed-at-on-halted-destroy-is-destroying-token-time
+  (testing "the :halted-destroy partial record committed when a handler
+            destroys its OWN frame mid-drain carries the DESTROYING event's
+            causal token :time-ms as :committed-at — threaded via the
+            router-bound frame/*cascade-time-ms*, NOT an ambient now-ms read
+            at assembly time (rf2-bh56rc / EP-0010 §Time). The ring is
+            dropped in the same destroy step, so the record is observed via
+            a register-epoch-listener! callback."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-fx :self-destruct
+      (fn [_ _]
+        (rf/destroy-frame! :test/short-lived)
+        {}))
+    (let [token-time 1781078400123
+          clock-time 7777777777777
+          halted     (atom [])]
+      (rf/register-epoch-listener! ::watch-committed-at
+                                   (fn [r]
+                                     (when (= :halted-destroy (:outcome r))
+                                       (swap! halted conj r))))
+      ;; Stub the ambient clock to a sentinel; supply the destroying event's
+      ;; causal token time. A regression that re-read now-ms at assembly
+      ;; would stamp the sentinel.
+      (with-redefs [interop/now-ms (constantly clock-time)]
+        (rf/dispatch-sync [:self-destruct]
+                          {:frame            :test/short-lived
+                           :rf.world/inputs {:time-ms token-time}}))
+      (is (= 1 (count @halted))
+          "exactly one :halted-destroy record reached the listener")
+      (let [r (first @halted)]
+        (is (= token-time (:committed-at r))
+            ":committed-at is the destroying event's token :time-ms")
+        (is (not= clock-time (:committed-at r))
+            ":committed-at is NOT the ambient host clock")))))
+
 ;; ---- :halted-handler-exception is schema-reserved, never emitted ---------
 ;;
 ;; Per Spec-Schemas §`:rf/epoch-record` §Outcomes (rf2-v0jwt) and Spec 009
@@ -1746,8 +1871,10 @@
     (reset! @#'state/capture-buffers {})
 
     ;; settle! fires at the abort boundary with no buffered cascade
-    ;; context — the empty-buffer skip suppresses the commit.
-    (epoch/settle! :test/main {} {})
+    ;; context — the empty-buffer skip suppresses the commit. (rf2-bh56rc:
+    ;; the clean arity now takes committed-at; nil here — nothing commits,
+    ;; so the value is unused.)
+    (epoch/settle! :test/main {} {} nil)
 
     (is (empty? (rf/epoch-history :test/main))
         "no epoch record committed for an empty-buffer drain boundary —
@@ -3113,9 +3240,10 @@
     ;; Call on-frame-destroyed! DIRECTLY — without going through
     ;; frame/destroy-frame!. The frame record still exists in
     ;; frames-atom; only the epoch ring is dropped. (rf2-9neiq: the
-    ;; hook now takes (frame-id db-before db-after); this seam tests the
-    ;; ring-drop with no in-flight cascade, so nil/nil snapshots apply.)
-    (epoch.listeners/on-frame-destroyed! :test/other nil nil)
+    ;; hook takes (frame-id db-before db-after committed-at) — rf2-bh56rc
+    ;; added the causal :time-ms; this seam tests the ring-drop with no
+    ;; in-flight cascade, so nil snapshots + nil committed-at apply.)
+    (epoch.listeners/on-frame-destroyed! :test/other nil nil nil)
 
     ;; The frame's ring is gone.
     (is (= [] (rf/epoch-history :test/other))
@@ -3134,13 +3262,14 @@
     (rf/dispatch-sync [:seed] {:frame :test/repeat})
     (is (= 1 (count (rf/epoch-history :test/repeat))))
 
-    ;; First call — clears the buffer. (rf2-9neiq: hook arity is now
-    ;; (frame-id db-before db-after); nil/nil for this ring-drop pin.)
-    (epoch.listeners/on-frame-destroyed! :test/repeat nil nil)
+    ;; First call — clears the buffer. (rf2-9neiq / rf2-bh56rc: hook arity
+    ;; is (frame-id db-before db-after committed-at); nil snapshots + nil
+    ;; committed-at for this ring-drop pin.)
+    (epoch.listeners/on-frame-destroyed! :test/repeat nil nil nil)
     (is (= [] (rf/epoch-history :test/repeat)))
 
     ;; Second call — no-op.
-    (epoch.listeners/on-frame-destroyed! :test/repeat nil nil)
+    (epoch.listeners/on-frame-destroyed! :test/repeat nil nil nil)
     (is (= [] (rf/epoch-history :test/repeat))
         "ring stays empty across repeated calls")))
 
@@ -3152,7 +3281,7 @@
     ;; The observable contract is "no throw, no side effects on
     ;; unrelated state".
     (let [traces (record-trace!)]
-      (epoch.listeners/on-frame-destroyed! :test/no-such-frame nil nil)
+      (epoch.listeners/on-frame-destroyed! :test/no-such-frame nil nil nil)
       (is (empty? @traces)
           "no traces emitted — nothing observed to silence"))))
 
@@ -3251,12 +3380,14 @@
       (is (some? (get @buffers-atom :test/main))
           "sanity: the synthetic capture-buffer entry is present pre-destroy")
 
-      ;; rf2-9neiq: on-frame-destroyed! now takes (frame-id db-before
-      ;; db-after) — the two snapshots destroy-frame! threads. This test
-      ;; exercises the buffer-drop (step 4), so nil/nil snapshots are fine
-      ;; (the synthetic run-start carries no :event-id, so no halted record
-      ;; commits — and this test does not assert one).
-      (epoch.listeners/on-frame-destroyed! :test/main nil nil)
+      ;; rf2-9neiq / rf2-bh56rc: on-frame-destroyed! takes (frame-id
+      ;; db-before db-after committed-at) — the two snapshots destroy-frame!
+      ;; threads plus the destroying event's causal :time-ms. This test
+      ;; exercises the buffer-drop (step 4), so nil snapshots + nil
+      ;; committed-at are fine (the synthetic run-start carries no
+      ;; :event-id, so no halted record commits — and this test does not
+      ;; assert one).
+      (epoch.listeners/on-frame-destroyed! :test/main nil nil nil)
 
       (is (nil? (get @buffers-atom :test/main))
           "the capture-buffer entry was dropped on destroy — no
@@ -3445,6 +3576,7 @@
                                         :rf.trace/phase :run-start}}]
           record          (#'assembly/build-record
                             :test/main nil nil tag-less-events
+                            1700000000000  ; rf2-bh56rc: committed-at (token :time-ms)
                             :halted-destroy
                             {:operation :rf.frame/destroyed-mid-drain})]
       (is (not (contains? record :event-id))
@@ -3473,11 +3605,16 @@
                                :rf.trace/phase    :run-start
                                :rf.trace/event-id :seed
                                :rf.event/v        [:seed 1 2 3]}}]
-          record (#'assembly/build-record :test/main {} {:n 0} events)]
+          record (#'assembly/build-record :test/main {} {:n 0} events 1700000000000)]
       (is (= :seed (:event-id record))
           ":event-id is the resolved event keyword")
       (is (= [:seed 1 2 3] (:trigger-event record))
-          ":trigger-event is the full event vector — payload preserved"))))
+          ":trigger-event is the full event vector — payload preserved")
+      ;; rf2-bh56rc: :committed-at is the supplied causal time verbatim —
+      ;; build-record performs NO clock read of its own.
+      (is (= 1700000000000 (:committed-at record))
+          ":committed-at is the supplied committed-at (token :time-ms),
+           not an ambient now-ms read"))))
 
 ;; ---- rf2-7kxxx: find-trigger-event must not synthesise [eid] when
 ;; ---- :event tag is absent on the fallback arm ----------------------------
@@ -3517,6 +3654,7 @@
                                         :rf.trace/event-id :foo}}]
           record          (#'assembly/build-record
                             :test/main nil nil tag-less-events
+                            1700000000000  ; rf2-bh56rc: committed-at (token :time-ms)
                             :halted-destroy
                             {:operation :rf.frame/destroyed-mid-drain})]
       (is (= :foo (:event-id record))
@@ -3578,6 +3716,7 @@
                                :rf.trace/dispatch-id 99}}]
           record (#'assembly/build-record
                   :test/main nil nil events
+                  1700000000000  ; rf2-bh56rc: committed-at (token :time-ms)
                   :halted-destroy
                   {:operation :rf.frame/destroyed-mid-drain})]
       (is (not (contains? record :dispatch-id))

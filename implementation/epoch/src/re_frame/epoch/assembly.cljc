@@ -31,7 +31,6 @@
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.state :as state]
             [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
             [re-frame.trace :as trace]))
@@ -357,9 +356,26 @@
 ;; ---- record assembly ------------------------------------------------------
 
 (defn build-record
-  ([frame-id frame-state-before frame-state-after events]
-   (build-record frame-id frame-state-before frame-state-after events :ok nil))
-  ([frame-id frame-state-before frame-state-after events outcome halt-reason]
+  "Assemble a `:rf/epoch-record`. `committed-at` is the record's durable
+  causal time — per EP-0010 §Time (epoch record causal time) and Spec 002
+  §The World-Input Rule it MUST be the committing causal token's
+  `:rf.world/inputs` `:time-ms`, threaded down from the router's settle /
+  halt seam, NOT an ambient host-clock read at assembly time. Threading
+  the token's `:time-ms` makes `:committed-at` replayable: replaying the
+  same event log with the same supplied `:time-ms` values produces records
+  with equal `:committed-at`, and a restored frame-state's recorded
+  timestamps are not silently reinterpreted against a new ambient clock.
+
+  `build-record` is a pure data builder — it performs NO clock read of its
+  own. The two-arg-fewer arity defaults `outcome` to `:ok` and `halt-reason`
+  to nil; both arities require `committed-at` (callers without a token — the
+  pair-tool synthetic db-replace injections, which run with no application
+  event in flight — pass `(interop/now-ms)` explicitly at the call site,
+  where the ambient read is the honest answer for a tool action's
+  wall-clock, per EP-0010 §Time `Ambient time remains allowed for ...`)."
+  ([frame-id frame-state-before frame-state-after events committed-at]
+   (build-record frame-id frame-state-before frame-state-after events committed-at :ok nil))
+  ([frame-id frame-state-before frame-state-after events committed-at outcome halt-reason]
    ;; EP-0001 (rf2-3aizt1, decision #2): the CANONICAL snapshot unit is the
    ;; whole frame-state (`{:rf.db/app … :rf.db/runtime …}`) — both partitions.
    ;; `restore-epoch` rewinds to `:frame-state-after`, reviving machines /
@@ -424,7 +440,16 @@
                                    frame-id db-before db-after)]
      (cond-> {:epoch-id           (state/next-epoch-id)
               :frame              frame-id
-              :committed-at       (interop/now-ms)
+              ;; EP-0010 §Time (epoch record causal time) + Spec 002 §The
+              ;; World-Input Rule (rf2-bh56rc): the durable causal-time fact
+              ;; is the committing token's `:rf.world/inputs` `:time-ms`,
+              ;; threaded in via `committed-at` — NOT an ambient
+              ;; `interop/now-ms` read at assembly time. The one `now-ms`
+              ;; read happens ONCE at the causal boundary (envelope
+              ;; construction, `re-frame.router/build-envelope`); it is not
+              ;; re-read in the commit path. This makes the record replayable:
+              ;; the same token replays to the same `:committed-at`.
+              :committed-at       committed-at
               ;; CANONICAL (decision #2): the whole frame-state both before
               ;; and after — restore rewinds to `:frame-state-after`.
               :frame-state-before frame-state-before

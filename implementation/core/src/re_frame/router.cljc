@@ -1913,7 +1913,16 @@
         ;; `last-event` (the most-recently-run event) if the queue is empty
         ;; at the halt seam (defensive — the depth-exceed path always has a
         ;; pending child under the runaway-cascade pattern that trips it).
-        halting-event   (or (:event (peek queue)) last-event)
+        halting-envelope (peek queue)
+        halting-event   (or (:event halting-envelope) last-event)
+        ;; rf2-bh56rc: the halting event's causal `:time-ms` (stamped on its
+        ;; envelope at the causal boundary). Threaded into the synthesised
+        ;; `:halted-depth` record's `:committed-at` so even this never-ran
+        ;; marker carries a replayable causal time per EP-0010 §Time / Spec
+        ;; 002 §The World-Input Rule, not an ambient assembly-time read. nil
+        ;; only on the defensive empty-queue fallback (no envelope to read);
+        ;; the epoch surface tolerates a nil `:committed-at` there.
+        halting-time-ms (-> halting-envelope :rf.world/inputs :time-ms)
         ;; Current durable frame-state value — the state the last-settled
         ;; event left behind. The halting event makes no write, so
         ;; :frame-state-before equals :frame-state-after on its record.
@@ -1939,8 +1948,10 @@
       ;; The halting event never ran, so the capture buffer is empty and
       ;; `settle!` would skip; `commit-halt-record!` commits regardless,
       ;; pinning the halting event's trigger. :frame-state-before equals
-      ;; :frame-state-after — the halting event made no write.
-      (commit-halt! frame-id fs-now fs-now :halted-depth halt-reason
+      ;; :frame-state-after — the halting event made no write. rf2-bh56rc:
+      ;; `:committed-at` is the halting event's causal `:time-ms`, not an
+      ;; ambient read.
+      (commit-halt! frame-id fs-now fs-now halting-time-ms :halted-depth halt-reason
                     halting-event))))
 
 (defn- settle-event-epoch!
@@ -1962,10 +1973,16 @@
 
   EP-0001 (rf2-3aizt1, decision #2): `frame-state-before` / `frame-state-after`
   are whole frame-state values (both partitions); `build-record` derives the
-  `:db-before` / `:db-after` app-db projections from them."
-  [frame-id frame-state-before frame-state-after]
+  `:db-before` / `:db-after` app-db projections from them.
+
+  rf2-bh56rc: `committed-at` is the settling event's causal `:time-ms` (its
+  envelope's `:rf.world/inputs` `:time-ms`, stamped at the causal boundary).
+  Threaded into the epoch record's `:committed-at` so the durable
+  causal-time fact is replayable per EP-0010 §Time / Spec 002 §The
+  World-Input Rule, not an ambient assembly-time host-clock read."
+  [frame-id frame-state-before frame-state-after committed-at]
   (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
-    (settle! frame-id frame-state-before frame-state-after)))
+    (settle! frame-id frame-state-before frame-state-after committed-at)))
 
 ;; ---- drain-loop! phases ---------------------------------------------------
 ;;
@@ -2120,18 +2137,28 @@
         ;; the whole frame-state (both partitions — app-db + runtime-db), so
         ;; an epoch carries (and `restore-epoch` rewinds to) machine snapshots
         ;; / the route slice / SSR metadata, not just app-db.
-        (let [fs-before (frame/frame-state-value frame-id)]
+        (let [fs-before (frame/frame-state-value frame-id)
+              ;; rf2-bh56rc: this event's causal `:time-ms` — the
+              ;; `:rf.world/inputs` `:time-ms` stamped on the envelope at the
+              ;; causal boundary (`build-envelope`). Threaded into the epoch
+              ;; record's `:committed-at` (per EP-0010 §Time / Spec 002 §The
+              ;; World-Input Rule) so the durable causal-time fact is
+              ;; replayable rather than an ambient assembly-time clock read.
+              time-ms   (-> envelope :rf.world/inputs :time-ms)]
           ;; Per rf2-9neiq: expose this event's pre-cascade frame-state to a
           ;; handler that calls `destroy-frame!` on its OWN frame mid-drain.
           ;; `destroy-frame!`'s epoch hook reads `frame/*cascade-frame-state-before*`
           ;; for the `:halted-destroy` record's pre-cascade snapshot — the
           ;; value the frame-state held before this in-flight event's cascade
           ;; began, which is otherwise gone by the time the (post-dissoc)
-          ;; epoch hook fires.
-          (binding [frame/*cascade-frame-state-before* fs-before]
+          ;; epoch hook fires. rf2-bh56rc: `*cascade-time-ms*` is bound the
+          ;; same way so the mid-drain `:halted-destroy` record's
+          ;; `:committed-at` is THIS event's causal time, not an ambient read.
+          (binding [frame/*cascade-frame-state-before* fs-before
+                    frame/*cascade-time-ms*            time-ms]
             (process-event! envelope))
           (let [fs-after (frame/frame-state-value frame-id)]
-            (settle-event-epoch! frame-id fs-before fs-after))
+            (settle-event-epoch! frame-id fs-before fs-after time-ms))
           (recur (inc depth) (:event envelope)))
         ::settled))))
 

@@ -422,9 +422,11 @@
   (testing "cleanup hooks that take the destroyed frame's id receive it
             correctly — :ssr / :machines / :epoch all pass the id"
     ;; :ssr / :machines take the destroyed id. :epoch/on-frame-destroyed
-    ;; takes (id db-before db-after) since rf2-9neiq (the two snapshots for
-    ;; the :halted-destroy record). Pin each arg shape so a future refactor
-    ;; that swaps positional → varargs (or drops the id) breaks loudly.
+    ;; takes (id db-before db-after committed-at) since rf2-9neiq (the two
+    ;; snapshots for the :halted-destroy record) + rf2-bh56rc (the
+    ;; destroying event's causal :time-ms). Pin each arg shape so a future
+    ;; refactor that swaps positional → varargs (or drops the id) breaks
+    ;; loudly.
     (let [snapshot   @late-bind/hooks
           captured-args (atom {})]
       (try
@@ -432,14 +434,16 @@
                    :machines/on-frame-destroyed!]]
           (late-bind/set-fn! k (fn [id]
                                  (swap! captured-args assoc k id))))
-        ;; rf2-9neiq: the epoch hook's three-arg shape — record the id
-        ;; AND that the snapshot args arrive (nil here: an out-of-cascade
-        ;; destroy carries no pre-cascade snapshot).
+        ;; rf2-9neiq / rf2-bh56rc: the epoch hook's four-arg shape — record
+        ;; the id AND that the snapshot args + committed-at arrive (all nil
+        ;; here: an out-of-cascade destroy carries no pre-cascade snapshot
+        ;; and no in-flight causal token).
         (late-bind/set-fn! :epoch/on-frame-destroyed
-                           (fn [id db-before db-after]
+                           (fn [id db-before db-after committed-at]
                              (swap! captured-args assoc
                                     :epoch/on-frame-destroyed id
-                                    :epoch/snapshot-args [db-before db-after])))
+                                    :epoch/snapshot-args [db-before db-after]
+                                    :epoch/committed-at committed-at)))
         (rf/reg-frame :rf2-j9phb/arg-target {})
         (frame/destroy-frame! :rf2-j9phb/arg-target)
 
@@ -464,6 +468,15 @@
             "epoch hook receives (fs-before fs-after): nil pre-cascade
              (out-of-cascade destroy) + the destroy-time frame-state
              {:rf.db/app {} :rf.db/runtime {}} (rf2-9neiq / rf2-3aizt1)")
+        ;; rf2-bh56rc: an out-of-cascade destroy has no in-flight causal
+        ;; token, so frame/*cascade-time-ms* is unbound (nil) and the hook's
+        ;; committed-at arrives nil. (No :halted-destroy record is committed
+        ;; on this path, so the value is moot — the assertion pins the arg
+        ;; shape, not a committed timestamp.)
+        (is (contains? @captured-args :epoch/committed-at)
+            "epoch hook receives a fourth committed-at arg (rf2-bh56rc)")
+        (is (nil? (get @captured-args :epoch/committed-at))
+            "committed-at is nil for an out-of-cascade destroy (no token)")
         (finally
           (reset! late-bind/hooks snapshot))))))
 

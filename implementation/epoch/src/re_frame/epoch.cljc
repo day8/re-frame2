@@ -213,9 +213,11 @@
   `re-frame.epoch.listeners/on-frame-destroyed!`, whose docstring is the
   canonical pin. `db-before` / `db-after` are the pre-cascade and
   destroy-time snapshots `destroy-frame!` captured before the frame was
-  removed (both nil for an out-of-cascade destroy)."
-  [frame-id db-before db-after]
-  (listeners/on-frame-destroyed! frame-id db-before db-after))
+  removed (both nil for an out-of-cascade destroy). `committed-at`
+  (rf2-bh56rc) is the destroying event's causal `:time-ms`, used for the
+  `:halted-destroy` record's replayable `:committed-at`."
+  [frame-id db-before db-after committed-at]
+  (listeners/on-frame-destroyed! frame-id db-before db-after committed-at))
 
 ;; ---- per-cascade trace capture --------------------------------------------
 ;;
@@ -246,8 +248,14 @@
   explicit `[event-id …]` vector to pin the record's trigger when the
   buffer carries no `:event/run-start` (the depth-exceed halting event,
   per rf2-nj6p7), or nil to let `build-record` derive the trigger from
-  the buffer (the normal `:ok` path)."
-  [frame-id frame-state-before frame-state-after events outcome halt-reason trigger-event]
+  the buffer (the normal `:ok` path).
+
+  `committed-at` is the record's durable causal time — per EP-0010 §Time
+  and Spec 002 §The World-Input Rule (rf2-bh56rc) the committing causal
+  token's `:rf.world/inputs` `:time-ms`, threaded down from the router's
+  per-event settle / depth-halt seam, NOT an ambient host-clock read at
+  assembly time. This makes `:committed-at` replayable."
+  [frame-id frame-state-before frame-state-after events committed-at outcome halt-reason trigger-event]
   ;; Per rf2-wp70d / Tool-Pair §Time-travel §Redaction hook:
   ;; `maybe-redact` runs ONCE per record between `build-record` and
   ;; ring-append / listener fan-out so the ring and listeners see the
@@ -260,7 +268,7 @@
   ;; `:frame-state-before` / `:frame-state-after` and derives the
   ;; `:db-before` / `:db-after` app-db projections.
   (let [base   (assembly/build-record frame-id frame-state-before frame-state-after
-                                      events outcome halt-reason)
+                                      events committed-at outcome halt-reason)
         ;; Pin the explicit trigger when supplied AND the buffer didn't
         ;; already resolve one (the halting event never ran, so no
         ;; `:event/run-start` was buffered). Per Spec-Schemas
@@ -321,13 +329,22 @@
   emits ride the triggering event's buffer and settle as ONE epoch (per
   Spec 005 §macrostep); they do not allocate a new epoch.
 
+  `committed-at` is the record's durable causal time — per EP-0010 §Time
+  (epoch record causal time) and Spec 002 §The World-Input Rule
+  (rf2-bh56rc) the committing causal token's `:rf.world/inputs` `:time-ms`,
+  read ONCE at the causal boundary (envelope construction) and threaded
+  down here by the router's per-event settle seam (`settle-event-epoch!`),
+  NOT an ambient host-clock read at assembly time. This makes the record's
+  `:committed-at` replayable: the same event log replayed with the same
+  supplied `:time-ms` values yields records with equal `:committed-at`.
+
   Arities:
-    (settle! frame-id frame-state-before frame-state-after)
+    (settle! frame-id frame-state-before frame-state-after committed-at)
       Clean per-event settle. `:outcome` is `:ok`. Equivalent to passing
       `:ok` as `outcome` explicitly. Skips recording when the captured
       buffer is empty (a truly empty cascade — likely a rejected
       dispatch — is degenerate and would emit a misleading record).
-    (settle! frame-id frame-state-before frame-state-after outcome halt-reason)
+    (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason)
       Drain-boundary commit with explicit outcome. The runtime commits
       one of three outcomes: `:ok` / `:halted-depth` / `:halted-destroy`
       (`:halted-handler-exception` is a schema-reserved value the
@@ -363,9 +380,9 @@
   Both fns share the private `commit-record!` helper; `commit-halt-record!`
   synthesises the halting event's trigger explicitly while `settle!` lets
   `build-record` derive it from the harvested buffer."
-  ([frame-id frame-state-before frame-state-after]
-   (settle! frame-id frame-state-before frame-state-after :ok nil))
-  ([frame-id frame-state-before frame-state-after outcome halt-reason]
+  ([frame-id frame-state-before frame-state-after committed-at]
+   (settle! frame-id frame-state-before frame-state-after committed-at :ok nil))
+  ([frame-id frame-state-before frame-state-after committed-at outcome halt-reason]
    (when interop/debug-enabled?
      ;; Per rf2-nj6p7: scoped harvest — take only the settling event's
      ;; traces (its `:dispatch-id` + pre-cascade tagalongs), LEAVING any
@@ -384,8 +401,8 @@
        ;; per rf2-nj6p7) use `commit-halt-record!` instead, which
        ;; synthesises the halting event's trigger explicitly.
        (when (seq events)
-         (commit-record! frame-id frame-state-before frame-state-after events outcome
-                         halt-reason nil))))))
+         (commit-record! frame-id frame-state-before frame-state-after events
+                         committed-at outcome halt-reason nil))))))
 
 (defn- commit-halt-record!
   "Commit a `:halted-*` epoch record for a drain halt whose halting event
@@ -409,16 +426,24 @@
   (there should be none under per-event settling) can't leak into the
   next cascade for this frame.
 
+  `committed-at` is the record's durable causal time — per EP-0010 §Time
+  and Spec 002 §The World-Input Rule (rf2-bh56rc) the halting causal
+  token's `:rf.world/inputs` `:time-ms`, threaded down from the router's
+  `handle-depth-exceeded!` seam, NOT an ambient host-clock read. The
+  halting event never ran, but its envelope carries a `:time-ms` stamped
+  at its dispatch (the causal boundary); using it keeps even this
+  synthesised `:halted-depth` marker replayable.
+
   See also `settle!` — the clean-path sibling that handles every per-
   event `:ok` settle. Both fns share the private `commit-record!`
   helper; `settle!` lets `build-record` derive the trigger from the
   harvested buffer (an `:event/run-start` is always present on the
   clean path) and skips on an empty buffer."
-  [frame-id frame-state-before frame-state-after outcome halt-reason trigger-event]
+  [frame-id frame-state-before frame-state-after committed-at outcome halt-reason trigger-event]
   (when interop/debug-enabled?
     (let [events (state/harvest-buffer! frame-id)]
-      (commit-record! frame-id frame-state-before frame-state-after events outcome
-                      halt-reason trigger-event))))
+      (commit-record! frame-id frame-state-before frame-state-after events
+                      committed-at outcome halt-reason trigger-event))))
 
 ;; ---- restore --------------------------------------------------------------
 ;;
@@ -555,8 +580,18 @@
             ;; Per rf2-wp70d: `maybe-redact` runs once between assembly and
             ;; the record!/notify-listeners! split so ring + listeners see
             ;; the SAME redacted shape on this synthetic record too.
+            ;;
+            ;; rf2-bh56rc: this synthetic `:rf.epoch/db-replaced` record is a
+            ;; pair-tool injection — NO application event (and therefore no
+            ;; causal token) is in flight, so there is no `:time-ms` to fold.
+            ;; The honest `:committed-at` is the wall-clock of the tool action
+            ;; itself, so the ambient `interop/now-ms` read happens HERE, at
+            ;; the call site, rather than inside the pure `build-record`
+            ;; builder (per EP-0010 §Time — ambient time remains allowed for a
+            ;; tool action's own wall-clock).
             (let [record (assembly/maybe-redact
-                           (assoc (assembly/build-record frame-id fs-before fs-after [])
+                           (assoc (assembly/build-record frame-id fs-before fs-after []
+                                                          (interop/now-ms))
                                   :event-id      :rf.epoch/db-replaced
                                   :trigger-event [:rf.epoch/db-replaced]))]
               (state/record! record)
@@ -583,10 +618,17 @@
   record!/notify-listeners! split so ring + listeners see the SAME
   redacted shape. Per rf2-qs6dl: stamps the synthetic epoch as the
   frame's last-settled so post-settle re-renders attribute back to it
-  rather than the next real cascade."
+  rather than the next real cascade.
+
+  rf2-bh56rc: a pair-tool injection — no application event / causal token
+  is in flight, so `:committed-at` is the tool action's own wall-clock; the
+  ambient `interop/now-ms` read happens HERE rather than inside the pure
+  `build-record` builder (per EP-0010 §Time — ambient time stays allowed
+  for a tool action's wall-clock)."
   [frame-id fs-before fs-after]
   (let [record (assembly/maybe-redact
-                 (assoc (assembly/build-record frame-id fs-before fs-after [])
+                 (assoc (assembly/build-record frame-id fs-before fs-after []
+                                                (interop/now-ms))
                         :event-id      :rf.epoch/db-replaced
                         :trigger-event [:rf.epoch/db-replaced]))]
     (state/record! record)
