@@ -1,34 +1,92 @@
 # EP-0011: Uniform Async Reply Envelope
 
-Status: accepted
+Status: final
 Type: standards-track
 
-> **`accepted` means the design is adopted; the rules graduate into their
-> normative homes.** Mike green-lit actioning this EP on 2026-06-11. The
-> canonical contract — the uniform reply map shape, the reply target, the
-> closed status taxonomy, work-id correlation, mandatory stale suppression, and
-> the reply-mapping functor law — now lives in its primary normative home,
+> **`final` means the decisions are settled (2026-06-11).** Mike green-lit
+> actioning this EP on 2026-06-11; the full lowering chain (slices .1–.8) then
+> landed and the final correctness review (`rf2-zqefg3.9`) and completeness
+> review (`rf2-zqefg3.10`) both passed clean. The canonical contract — the
+> uniform reply map shape, the reply target, the closed status taxonomy,
+> work-id correlation, mandatory stale suppression, and the reply-mapping
+> functor law — lives in its primary normative home,
 > [`spec/Managed-Effects.md` §Property 9](../../spec/Managed-Effects.md#9-uniform-reply-envelope-async-completions),
 > as the ninth managed-effect property. Where this EP and the spec differ, the
 > spec governs. This EP remains the durable **rationale record**: why one
 > envelope beats N effect-family callback vocabularies, the alternatives
 > considered, and the cross-family motivation.
 >
-> **What remains is implementation, not decision.** The envelope is *defined*
-> here and in Managed-Effects; *lowering* each managed async family onto it
-> (HTTP/014, resources+mutations/016, machines/005, routing/012, timers, the
-> managed-effect substrate, plus tooling and docs) is a tracked serial chain of
-> implementation-alignment slices. Each slice adds its own cross-references into
-> its owning spec when it lands, so the per-family normative homes
-> (`spec/014-HTTPRequests.md`, `spec/016-Resources.md`,
-> `spec/005-StateMachines.md`, `spec/012-Routing.md`) accrue the envelope
-> reference incrementally rather than in one hot-zone sweep.
+> **Every managed async family now lowers onto the envelope.** All four shipped
+> async surfaces — HTTP ([014](../../spec/014-HTTPRequests.md)), resources +
+> mutations ([016](../../spec/016-Resources.md)), machine async work
+> ([005](../../spec/005-StateMachines.md)), and route loaders
+> ([012](../../spec/012-Routing.md)) — consume the one shared
+> `re-frame.reply` substrate, carry property 9 with their family-specific
+> work-id tuple, and back-reference
+> [`Managed-Effects.md` §The uniform reply envelope](../../spec/Managed-Effects.md#the-uniform-reply-envelope)
+> from their own spec. The "any future surface inherits all nine properties"
+> claim is conformance-proven by the test-only managed-timer probe
+> (`re-frame.timer-probe`, slice .6). A **public** managed-timer surface
+> (`:rf.timer/after`) and its `:rf.timer/*` Conventions reservation are
+> deliberately deferred to `rf2-5wuikc` (EP-0003 test-only-instance precedent),
+> so the timer carries no shipped Conventions reservation by design, not by
+> omission.
+>
+> **`final` settles the decisions; it does not on its own assert the build is
+> gap-free (EP-0005 pattern).** Two non-blocking follow-ups remain open and are
+> tracked in the [Implementation errata](#implementation-errata) ledger below —
+> neither reopens a ruling.
 >
 > Plain-language summary: when framework-managed async work completes, it
 > reports back as one standard reply map delivered to one standard reply target.
 > HTTP callbacks, resource replies, timers, route loaders, and machine
 > completions may keep their public conveniences, but those conveniences lower
 > to the same causal continuation shape.
+
+## Implementation errata
+
+The EP decisions are **final** and the lowering chain has shipped: all four
+managed async families (HTTP, resources + mutations, machines, route loaders)
+complete through the one shared `re-frame.reply` substrate, each carrying
+property 9 and its work-id tuple, and the inheritance claim is
+conformance-proven by the test-only managed-timer probe. The final correctness
+review (`rf2-zqefg3.9`) and this completeness review (`rf2-zqefg3.10`) both
+passed clean with no state-safety or correctness defect.
+
+The items below are **open errata** — small build/tidy follow-ups that carry
+out the settled design; neither reopens a ruling or changes a contract. They
+are recorded here per the EP-0005 final-with-errata pattern: finalizing the
+*decisions* does not, on its own, assert the *implementation* is gap-free.
+
+- **`rf2-lohbfg`** *(open — P3, observability, behaviourally safe)* — wire the
+  machine `stale-spawn-reply` into the one reachable machine-supersession path:
+  a spawned child reaching a `:final?` leaf *after* its parent was already
+  destroyed. That path is handled today in `finalize-machine` by silently
+  reducing `:on-done` to identity when the parent snapshot is `nil` — which is
+  **behaviourally safe** (no parent to mutate, no app-state corruption) and so
+  meets the §Stale suppression clauses (1) app target not run and (5) no app
+  mutation. The gap is observability only: it does not yet emit the
+  `:status :stale` reply (clause 2) nor the stale-suppression trace joined to
+  `:work/id` (clause 4) that the machine `:after`-timer stale path already
+  emits. The machine completion model is synchronous, so a genuinely-late
+  completion arriving after the child itself was destroyed is not reachable;
+  parent-destroyed-before-child-finishes is the only live case.
+- **`rf2-mdjzs0`** *(open — P4, cosmetic, one-name-per-fact tidy)* — converge
+  the unqualified `:work-id` spelling that survives in several resource /
+  mutation **trace-tag** and internal in-flight-bookkeeping maps onto the
+  qualified `:work/id`. The **durable** identity is already uniformly
+  `:work/id` everywhere it matters (the verification payload, the entry's
+  `:current-work`, the ledger row key, and the canonical reply map), so there
+  is no second stale-suppression key and no second identity on durable state —
+  this is trace-stream readability only ([EP-0007](EP-0007-one-name-per-fact.md)).
+  Xray already tolerates both spellings; the tidy lets that tolerance be
+  dropped.
+
+The two **decision-level** Open Issues that did not resolve to a contract here —
+the `:rf.runtime/work-ledger` multi-writer authority path and the streaming /
+multi-reply sibling EP — are recorded honestly as future-EP questions in
+[§Open Issues](#open-issues), not as build errata; each carries a recommendation
+and is dispositioned to a named future trigger.
 
 ## Abstract
 
