@@ -1,7 +1,18 @@
 # EP-0007: One Name Per Fact
 
-Status: accepted
+Status: active
 Type: process
+
+> **Ruling recorded 2026-06-11 (rf2-q30c19).** This is a process EP; its
+> normative home — [`spec/Conventions.md` §Reserved namespaces → The naming
+> rules (one name per fact)](../../spec/Conventions.md#the-naming-rules-one-name-per-fact) —
+> exists and carries the authoritative rule text, so the EP graduates to
+> `active` (the EP-0009 / rf2-rjh00f precedent: a process EP whose named home
+> exists goes `active`, even with sweep items still in flight). The two
+> documentation sweep items remaining at acceptance (rows 5 and 6 of §The
+> sweep) are completed by the same bead: the `reg-*`/`register-*` audit found
+> no stragglers, and the `:schema`-family vocabulary table is now recorded in
+> Conventions §The naming rules.
 
 > A process EP (the PEP-8 analogue, per EP-0009). **Accepted 2026-06-11.** The
 > rules in §Specification have graduated into
@@ -143,8 +154,8 @@ class that dominated this review cycle.
 | 2 | `:rf.db/runtime` parent vs `:rf.runtime/*` children | **Keep, as a recorded rule**: `:rf.db/*` names partition *slots* of frame-state (`:rf.db/app`, `:rf.db/runtime`); `:rf.runtime/*` names *subsystem children* inside the runtime partition — globally greppable when detached from context. EP-0001 Appendix A asked for the split to be justified or aligned; this justifies it as a layer rule (rule 3) |
 | 3 | Work-ledger `:work/id` vs `:stale-key` | **Done** — EP-0003 acceptance / Spec 016 resolved one identity: stale suppression keys on `:work/id`; the separate `:stale-key` synonym is dropped, and denormalized fields are projections (rule 4) |
 | 4 | Redirect `:location`/`:url`/`:to` | **Done** — `rf2-vngir` merged 2026-06-10. Canonical key is `:location` per rule 3's vocabulary rule; `:url` / `:to` are retired spellings rejected with `:rf.error/redirect-retired-target-key`, not compatibility aliases |
-| 5 | `reg-*` vs `register-*` families | Audit: `reg-*` = registrar-kind registrations; `register-*` = listener/side-table attachments (`register-listener!`, `register-marks!`, `register-error-listener!`). If the split is principled, record it as a rule; align any stragglers |
-| 6 | The `:schema` family | Record the map: `reg-event-*` `:schema` validates *event args*; machine `:data-schema` validates machine `:data` (EP-0005's rename — the precedent: qualify where a visible sibling creates ambiguity); `reg-app-schema` validates app-db paths; runtime-db schemas are framework-owned. One Conventions table; no renames expected beyond what EP-0005 already did |
+| 5 | `reg-*` vs `register-*` families | **Done** — no stragglers; rule recorded in [Conventions §Naming: when does a surface carry `!`?](../../spec/Conventions.md#naming-when-does-a-surface-carry-) (bucket 1 `reg-*` registrars vs bucket 2 `register-*!` listeners) + the lifecycle-verb law roster. The `rf2-q30c19` verify swept the API surface (`spec/API.md` + the `re-frame.core` facade exports): every `reg-*` is a registrar entry and every `register-*!` a listener/side-table attachment (`register-event-listener!`, `register-error-listener!`, `register-listener!`, `register-epoch-listener!`, `register-marks!`). The lone inverse verb `unregister-route!` is a runtime teardown of a `reg-route` entry (bang for process-state mutation, no `register-route!` collision), not a straggler |
+| 6 | The `:schema` family | **Done** — schema-family table recorded in [Conventions §The naming rules](../../spec/Conventions.md#the-naming-rules-one-name-per-fact) (rf2-q30c19): `reg-event-*` `:schema` validates *event args*; machine `:data-schema` validates machine `:data` (the EP-0005 qualify-where-a-sibling-makes-`:schema`-ambiguous precedent); `reg-app-schema` validates app-db paths; runtime-db schemas are framework-owned. No renames beyond EP-0005's |
 
 ### Enforcement
 
