@@ -156,6 +156,117 @@
             "child did NOT inherit the parent's :time-ms — distinct causal token (EP-0010)")))))
 
 ;; ===========================================================================
+;; rf2-irbjjq: a :dispatch-later child gets FRESH world-inputs stamped at
+;; FIRE time (the causal boundary is when the deferred dispatch RUNS, not when
+;; it was enqueued) — :time-ms is NOT the parent's, NOT the enqueue-time clock,
+;; while the inherited envelope fields (:frame / :trace-id / :origin) still
+;; propagate from the parent.
+;;
+;; EP-0010 §Dispatch Envelope Stamping names BOTH :dispatch and :dispatch-later
+;; as child causal-token producers. The existing child-dispatch-gets-fresh-
+;; time-ms (above) covers the IMMEDIATE :dispatch child; the deferred path is
+;; distinct because `:dispatch-later` wraps the router `dispatch!` in
+;; `interop/set-timeout!` (re-frame.fx §reserved-fx-handlers), so the child's
+;; `build-envelope` — and thus its `:rf.world/inputs` stamp — happens inside
+;; the timer callback, an arbitrary wall-clock interval after the parent
+;; settled. `:rf.world/inputs` is deliberately ABSENT from
+;; `re-frame.fx/inheritable-envelope-keys`, so the deferred child is stamped
+;; a fresh `:time-ms` at fire from `interop/epoch-now-ms` rather than copying
+;; the parent's — the mechanism the existing world-input tests pin only for
+;; the synchronous case.
+;;
+;; We make the wall clock ADVANCE between enqueue and fire (a mutable clock
+;; redef) and capture the timer thunk via a `set-timeout!` redef so we fire it
+;; AFTER advancing — adversarially separating the three candidate stamp times
+;; (parent token / enqueue clock / fire clock). A regression that inherited
+;; the parent's :time-ms, or that stamped at enqueue time, or that added
+;; :rf.world/inputs to the inheritable set, fails loudly here.
+;; ===========================================================================
+
+(deftest dispatch-later-child-gets-fresh-world-inputs-stamped-at-fire-time
+  (testing "a :fx [[:dispatch-later …]] child is stamped FRESH world-inputs at
+            FIRE time — :time-ms is the fire-time clock, NOT the parent token,
+            NOT the enqueue-time clock; inherited fields still propagate"
+    (rf/reg-frame :wi/later {:doc "ctx"})
+    (let [;; mutable wall clock — the value `epoch-now-ms` reads moves between
+          ;; enqueue (parent dispatch) and fire (deferred thunk run).
+          clock          (atom 1000)
+          ;; capture the deferred timer thunk so the test fires it MANUALLY
+          ;; after advancing the clock (rather than relying on a real timer).
+          deferred       (atom nil)
+          captured-child (atom nil)]
+      ;; The deferred child reads its own envelope off the fx-handler ctx
+      ;; (:envelope m) — the same surface child-dispatch-gets-fresh-time-ms
+      ;; uses — so we observe the world-inputs map the router stamped for it.
+      (rf/reg-fx :wi.later/capture-env
+        (fn [m _args] (reset! captured-child (:envelope m))))
+      (rf/reg-event-fx :wi.later/parent
+        (fn [_ _]
+          {:fx [[:dispatch-later {:ms 50 :event [:wi.later/child]}]]}))
+      (rf/reg-event-fx :wi.later/child
+        (fn [_ _]
+          {:fx [[:wi.later/capture-env]]}))
+
+      (with-redefs [interop/epoch-now-ms (fn [] @clock)
+                    ;; capture the deferred thunk; do NOT run it yet, so the
+                    ;; clock can advance before the child's build-envelope runs.
+                    interop/set-timeout! (fn [f _ms] (reset! deferred f) :handle)
+                    ;; the deferred thunk calls the ASYNC router `dispatch!`,
+                    ;; which schedules its drain on `interop/next-tick` (a
+                    ;; separate executor thread on the JVM). Run next-tick
+                    ;; INLINE so the deferred child's cascade settles
+                    ;; synchronously within this test — the clock read under
+                    ;; test is at the deferred dispatch's `build-envelope`,
+                    ;; which the inline drain reaches deterministically.
+                    interop/next-tick   (fn [f] (f) nil)]
+        ;; Parent supplies an explicit token :time-ms and rides a distinctive
+        ;; :trace-id / :origin so we can assert inheritance onto the child.
+        (rf/dispatch-sync [:wi.later/parent]
+                          {:frame           :wi/later
+                           :trace-id        :wi.later/T
+                           :origin          :ui
+                           :rf.world/inputs {:time-ms 1781078400000}})
+        ;; ENQUEUE happened at clock=1000; the child's envelope is NOT built yet
+        ;; (it is deferred). Advance the wall clock, THEN fire the deferred
+        ;; thunk so the child's build-envelope reads the ADVANCED clock.
+        (is (some? @deferred) "the :dispatch-later scheduled a deferred thunk")
+        (is (nil? @captured-child)
+            "the child has not run yet — it is genuinely deferred")
+        (reset! clock 5000)            ; wall clock advanced between enqueue and fire
+        (@deferred))                   ; fire the deferred dispatch at clock=5000
+
+      (let [child-env @captured-child
+            child-t   (get-in child-env [:rf.world/inputs :time-ms])]
+        (is (some? child-env) "the deferred child ran when the thunk fired")
+        (is (= [:wi.later/child] (:event child-env)) "captured the child event")
+        ;; FRESH at FIRE — the three adversarial candidates are separated:
+        (is (= 5000 child-t)
+            "child :time-ms is the FIRE-time clock (5000) — stamped when the
+             deferred dispatch RAN, not at enqueue")
+        (is (not= 1781078400000 child-t)
+            "child did NOT inherit the parent token's :time-ms — distinct
+             causal token (EP-0010 §Dispatch Envelope Stamping)")
+        (is (not= 1000 child-t)
+            "child :time-ms is NOT the enqueue-time clock — the stamp is read
+             at fire, inside the timer callback, not captured at schedule time")
+        ;; INHERITED envelope fields still propagate from the parent.
+        (is (= :wi/later (:frame child-env))
+            ":frame is inherited onto the deferred child")
+        (is (= :wi.later/T (:trace-id child-env))
+            ":trace-id is inherited onto the deferred child")
+        (is (= :origin (key (find child-env :origin)))
+            "the :origin slot is present on the child envelope")
+        (is (= :ui (:origin child-env))
+            ":origin is inherited onto the deferred child")
+        ;; The deferred child's :source reflects its OWN immediate trigger
+        ;; (the :dispatch-later fx), NOT inherited (rf2-ejtpd) — a foil that
+        ;; confirms the inheritance set is exactly the trace-context keys, not
+        ;; "everything", so :rf.world/inputs being excluded is the same shape.
+        (is (= :fx-dispatch-later (:source child-env))
+            "the deferred child's :source is its immediate trigger
+             (:fx-dispatch-later), stamped by the fx handler — not inherited")))))
+
+;; ===========================================================================
 ;; Coeffect visibility + trace projection filtering
 ;; ===========================================================================
 
