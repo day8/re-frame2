@@ -27,6 +27,14 @@ artefacts=(
   # goes RED here — previously only the CLJS side (`npm run test:security`
   # + the always-on `:node-test` gate) ever exercised the tier.
   implementation/security
+  # rf2-wbh1ln + rf2-5ha70w — the EP-0011 cross-family reply-VOCABULARY-
+  # consistency tier is `.cljc` and runs in BOTH runtimes (it round-trips
+  # work-id tuples through the reader-conditional EDN reader: `:clj`
+  # `read-string` vs `:cljs` `cljs.reader/read-string`). Its own `:test`
+  # alias (implementation/reply-conformance/deps.edn) runs the SAME `.cljc`
+  # namespaces under the JVM so the `:clj` arm is exercised — previously
+  # only the CLJS side (the always-on `:node-test` gate) ever ran the tier.
+  implementation/reply-conformance
 )
 
 for artefact in "${artefacts[@]}"; do

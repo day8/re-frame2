@@ -127,6 +127,24 @@
                 ;; dedicated `:node-test-security` build below
                 ;; (`-security-cljs-test$`, wired as `npm run test:security`).
                 "security/test"
+                ;; rf2-wbh1ln + rf2-5ha70w — EP-0011 cross-family
+                ;; reply-VOCABULARY-consistency tier. The umbrella
+                ;; conformance the per-family reply suites cannot hold: the
+                ;; cross-family vocab-consistency guard (every managed-async
+                ;; family — HTTP, resources, mutations, machines, routing —
+                ;; produces the ONE shared :status/:work/status/:work/id/
+                ;; canonical-stale shape, the axis rf2-mn4j89 violated) and
+                ;; the family-level functor/naturality law at the
+                ;; TARGET-RELOCATING families (route-loader relay,
+                ;; machine-spawn :on-done). The tests sit ABOVE several
+                ;; artefacts (core, http, resources, machines, routing), so
+                ;; — like security/ — they live in their own top-level
+                ;; reply-conformance/ surface; the cross-artefact node-test
+                ;; classpath already spans every required ns. Namespaces end
+                ;; in `-cljs-test`, so they run under the always-on
+                ;; :node-test gate (`cljs-test$` matches); the JVM
+                ;; counterpart is reply-conformance/deps.edn `:test`.
+                "reply-conformance/test"
                 ;; tools/mcp-base — the security tier's MCP-egress surface
                 ;; (`re-frame.mcp-base.sensitive`, the spec/009 §Privacy
                 ;; default-suppress filter) is CLJC and lives here. Source
