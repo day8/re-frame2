@@ -6,6 +6,7 @@
   rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.identity :as identity]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]
@@ -168,6 +169,78 @@
       (is (some? m) "the route still matches")
       (is (= "" (get-in m [:query "foo"]))
           "an unterminated `?foo=` parses to (get :query \"foo\") \"\""))))
+
+;; ---- rf2-t3cfil: match-url :query is in CEDN-1 canonical KEY order --------
+;;
+;; EP-0012 tier-2 routing consumer sweep. The inbound URL's query string
+;; carries keys in whatever left-to-right order the author of THAT URL chose,
+;; but the route slice's `:query` is route DATA — an identity fact the
+;; `:rf.route/query` sub, no-op detection, and SSR-hydration parity key off.
+;; Two inbound URLs spelling the same query in different key orders MUST yield
+;; the SAME `:query` identity (and the same key ORDER), so match-url reorders
+;; the surviving entries into CEDN-1 canonical key order. This is the inbound
+;; mirror of route-url's already-canonical query emission (rf2-wgutc2): per
+;; Conventions §Routes are prisms, both prism legs share ONE canonical order.
+
+(defn- canonical-key-order
+  "The CEDN-1 canonical order of `ks` (the order match-url's :query must
+  use), computed via the SAME shared identity rule the implementation sorts
+  by — re-frame.identity/canonical-bytes."
+  [ks]
+  (vec (sort-by identity/canonical-bytes ks)))
+
+(deftest match-url-query-is-canonical-key-order
+  (testing "match-url :query keys are emitted in CEDN-1 canonical order,
+            independent of the inbound URL's key order. Declared :query
+            vocabulary keys are promoted to keywords and ordered canonically."
+    (rf/reg-route :route/search {:path  "/search"
+                                 :query [:map
+                                         [:b {:optional true} :string]
+                                         [:a {:optional true} :string]
+                                         [:c {:optional true} :string]]})
+    (let [m1 (routing/match-url "/search?b=2&a=1&c=3")
+          m2 (routing/match-url "/search?c=3&b=2&a=1")
+          expected-order (canonical-key-order [:a :b :c])]
+      (is (= (:query m1) (:query m2))
+          "the same query spelled in two inbound key orders yields = :query")
+      (is (= expected-order (vec (keys (:query m1))))
+          "m1 :query keys are in CEDN-1 canonical order, not inbound URL order")
+      (is (= expected-order (vec (keys (:query m2))))
+          "m2 :query keys are in CEDN-1 canonical order regardless of spelling")
+      (is (= {:a "1" :b "2" :c "3"} (:query m1))
+          "membership + values are unchanged — only key ORDER is canonicalised"))))
+
+(deftest match-url-undeclared-query-keys-canonical-order
+  (testing "undeclared query keys (string keys, no :query vocabulary) are
+            ALSO emitted in CEDN-1 canonical order — the order is total over
+            the mixed keyword/string keys a :query may carry"
+    (rf/reg-route :route/raw {:path "/raw"})
+    (let [m1 (routing/match-url "/raw?z=1&a=2&m=3")
+          m2 (routing/match-url "/raw?m=3&z=1&a=2")
+          expected-order (canonical-key-order ["a" "m" "z"])]
+      (is (= (:query m1) (:query m2))
+          "two inbound key orders yield = :query for undeclared string keys")
+      (is (= expected-order (vec (keys (:query m1))))
+          "string keys ordered by CEDN-1 bytes, not inbound URL order")
+      (is (= {"a" "2" "m" "3" "z" "1"} (:query m1))
+          "values preserved; keys stay strings (no vocabulary declared)"))))
+
+(deftest match-url-query-defaults-participate-in-canonical-order
+  (testing ":query-defaults-populated keys are interleaved into the SAME
+            canonical key order as parsed keys, not appended after them"
+    (rf/reg-route :route/listing {:path           "/listing"
+                                  :query          [:map
+                                                   [:sort {:optional true} :string]
+                                                   [:page {:optional true} :int]]
+                                  :query-defaults {:page 1}})
+    ;; `:sort` arrives from the URL; `:page` is filled from defaults. Both
+    ;; must sit in canonical key order in the final :query.
+    (let [m (routing/match-url "/listing?sort=name")
+          expected-order (canonical-key-order [:page :sort])]
+      (is (= expected-order (vec (keys (:query m))))
+          "default-filled :page and parsed :sort share one canonical order")
+      (is (= {:page 1 :sort "name"} (:query m))
+          "default applied; values intact"))))
 
 (deftest match-url-trailing-slash-normalizes
   (testing "trailing-slash equivalence is implicit — /foo and /foo/

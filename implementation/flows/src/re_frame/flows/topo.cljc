@@ -28,34 +28,29 @@
   order is undefined and they would race for the shared slot under
   last-write-wins. That is an authoring footgun, not a valid topology,
   so it is rejected at registration with `:rf.error/flow-path-overlap`."
-  ;; Pure module — no requires. .cljc-portable so the JVM test sweep
-  ;; can exercise the algorithm without dragging the CLJS runtime in.
-  )
-
-(defn- prefix?
-  "True iff `a` is a path-prefix of `b`. Both must be Clojure vectors —
-  `valid-path?` in registry.cljc enforces this before any path reaches
-  topo, so `subvec` is safe.
-
-  Implementation note: `subvec` is O(1) and allocates only a thin view
-  on `b`; the older `(= a (vec (take (count a) b)))` materialised a
-  fresh vector per call. `prefix?` is called O(n² · k) times per
-  topo-sort invocation (n = flow count, k = inputs per flow); zero-
-  alloc matters here even at v1's tiny per-frame node counts."
-  [a b]
-  (let [a-count (count a)]
-    (and (<= a-count (count b))
-         (= a (subvec b 0 a-count)))))
+  ;; rf2-t3cfil (EP-0012 tier-2 flows consumer sweep): the prefix / overlap
+  ;; relations are the SHARED `:rf/path` algebra (`re-frame.path`,
+  ;; Conventions §The :rf/path algebra), not a flows-private dialect. Per the
+  ;; EP-0012 disposition-1 graduation note, "subsystems MUST NOT keep private
+  ;; ad hoc overlap / prefix logic once they cite these helpers — there is no
+  ;; tool-only path semantics." Flows is exactly such a consumer (the
+  ;; algebra's ns-doc names "flows" as a use site), so topo depends on
+  ;; `re-frame.path` rather than re-deriving `prefix?` / a bespoke overlap
+  ;; test. `re-frame.path` lives in core, which this artefact already depends
+  ;; on, so this drags no new dependency onto the classpath and the module
+  ;; stays .cljc-portable for the JVM test sweep.
+  (:require [re-frame.path :as path]))
 
 (defn depends-on?
   "Per Spec 013 §Topological sort: B depends on A iff A's :path and any
-  of B's :inputs share a path prefix in either direction."
+  of B's :inputs share a path prefix in either direction. The prefix
+  relation is the shared `re-frame.path/prefix?` (rf2-t3cfil)."
   [b-flow a-flow]
   (let [a-path (:path a-flow)]
     (boolean
       (some (fn [b-input]
-              (or (prefix? a-path b-input)
-                  (prefix? b-input a-path)))
+              (or (path/prefix? a-path b-input)
+                  (path/prefix? b-input a-path)))
             (:inputs b-flow)))))
 
 (defn output-paths-overlap?
@@ -65,10 +60,15 @@
   paths: `[:x]` overlaps `[:x]` (identical), `[:x]` overlaps `[:x :y]`
   (parent/child — writing `[:x]` clobbers everything under it, and writing
   `[:x :y]` lands inside `[:x]`'s value), but `[:x :y]` and `[:x :z]` are
-  disjoint (siblings — neither is a prefix of the other)."
+  disjoint (siblings — neither is a prefix of the other).
+
+  This is the shared `re-frame.path/overlap?` relation (rf2-t3cfil) — the
+  SAME prefix-in-either-direction test every path-shaped subsystem inherits,
+  no longer a flows-private predicate. `re-frame.path/overlap?` normalizes
+  its inputs; flow paths are already validated vectors, so the behaviour is
+  identical."
   [a-path b-path]
-  (or (prefix? a-path b-path)
-      (prefix? b-path a-path)))
+  (path/overlap? a-path b-path))
 
 (defn- first-overlapping-pair
   "Scan the prospective per-frame `flow-map` (`{flow-id flow-map}`) for the
