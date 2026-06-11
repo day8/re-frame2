@@ -31,6 +31,7 @@
             [re-frame.http-middleware   :as middleware]
             [re-frame.http-privacy      :as privacy]
             [re-frame.http-registry     :as registry]
+            [re-frame.http-reply        :as http-reply]
             [re-frame.http-transport-cljs :as transport-cljs]
             [re-frame.http-transport-jvm  :as transport-jvm]
             [re-frame.interop           :as interop]
@@ -78,6 +79,33 @@
        :explicit-on    explicit
        :reply-payload  reply-payload
        :kind           kind})))
+
+;; rf2-zqefg3.2 — the canonical-reply lowering seam (EP-0011 §Managed HTTP
+;; Lowering). Every completion (success / failure / abort) now flows through
+;; ONE canonical reply map built in `re-frame.http-reply` — `:status`,
+;; `:work/id` `[:rf.work/http logical-id attempt]`, `:work/kind :http`,
+;; `:work/status`, `:attempt`, `:rf.frame/id`, `:completed-at`, and
+;; `:correlation {:request-id …}` (the `:request-id` is correlation metadata,
+;; NOT a second stale-suppression key). The canonical reply is the single
+;; internal artefact; the PUBLIC Spec 014 `{:kind …}` payload is recovered
+;; from it by `http-reply/reply->public-payload` (the `:rf.http/compat-reply`
+;; reshape), so `:on-success` / `:on-failure` and the co-located
+;; `(:rf/reply msg)` merge keep their documented shapes (Spec 014 §Reply
+;; payload shape). The public API does NOT change — only the internal
+;; continuation is unified.
+
+(defn- reply-ctx
+  "Project the transport ctx onto the data-only correlation/identity facts
+  `re-frame.http-reply` consumes to build a canonical reply map. Reads the
+  host completion clock ONCE here, at finalisation, and threads it as
+  `:completed-at` (the reply handler MUST NOT re-read the clock —
+  Managed-Effects §Causal completion metadata)."
+  [ctx]
+  {:request-id   (:request-id ctx)
+   :origin-event (:origin-event ctx)
+   :attempt      (:attempt ctx)
+   :frame        (:frame ctx)
+   :completed-at (interop/now-ms)})
 
 ;; rf2-ee38b.7 — the failure-reply and success-reply dispatch shapes were
 ;; spelled out inline at four / two sites across finalise-success!,
@@ -137,8 +165,41 @@
   (let [explicit (:explicit-on-failure ctx)]
     (and (:supplied? explicit) (nil? (:value explicit)))))
 
+(defn- emit-reply-trace!
+  "rf2-zqefg3.2 — emit a managed-async completion trace row built from the
+  CANONICAL reply-envelope facts (Managed-Effects §Tracing), not the
+  private callback payload. The wire-bearing slots (`:value` / `:error` /
+  `:correlation`) route through the shared `http-reply/trace-reply` →
+  `re-frame.reply/trace-summary` → `re-frame.elision/elide-wire-value`
+  walker (never a family-private elider); the identity facts (`:status`,
+  `:work/id`, `:work/kind`, `:work/status`, `:attempt`, `:rf.frame/id`,
+  `:completed-at`) ride verbatim. Gated on `debug-enabled?` like the other
+  `:rf.http/*` trace rows."
+  [ctx reply]
+  (when interop/debug-enabled?
+    ;; Thread the CARRIED frame into the elider opts (EP-0002 — wire-egress
+    ;; frame resolves from the carried stamp; HTTP completions fire from the
+    ;; transport callback, OUTSIDE any `with-frame` scope, so without an
+    ;; explicit `:frame` the elider fails closed and redacts every wire slot).
+    ;; The per-call `:sensitive?` flag (Spec 014 §Privacy) is forwarded so a
+    ;; sensitive request redacts its payload slots wholesale, matching the
+    ;; existing `:rf.http/*` trace posture.
+    (trace/emit! :info :rf.http/replied
+                 (http-reply/trace-reply reply (cond-> {:sensitive? (true? (:sensitive? ctx))}
+                                                 (:frame ctx) (assoc :frame (:frame ctx)))))))
+
 (defn- dispatch-failure!
   "Dispatch a `:failure` reply carrying `failure` as its `:failure` slot.
+
+  rf2-zqefg3.2 — the failure lowers through the canonical reply envelope:
+  the `:rf.http/*` failure map becomes a `:status :error` (or
+  `:status :cancelled` for an abort, `:work/status :timed-out` for a
+  timeout) canonical reply (`http-reply/failure-reply`), a completion trace
+  row is emitted from those canonical facts, and the PUBLIC Spec 014
+  `{:kind :failure :failure …}` payload is recovered by
+  `http-reply/reply->public-payload` (the compat-reply reshape) before it
+  threads through the `:after` chain + late-bind dispatch. The public event
+  shape is unchanged.
 
   rf2-rl5tt — when the reply is silenced by an explicit `:on-failure nil`
   AND the failure is not an abort, surface it once via
@@ -146,18 +207,27 @@
   [ctx failure]
   (when (on-failure-silenced? ctx)
     (warn-failure-swallowed! failure (:url ctx) (:sensitive? ctx)))
-  (dispatch-reply! (assoc ctx
-                          :kind          :failure
-                          :reply-payload {:kind    :failure
-                                          :failure failure})))
+  (let [reply (http-reply/failure-reply (reply-ctx ctx) failure)]
+    (emit-reply-trace! ctx reply)
+    (dispatch-reply! (assoc ctx
+                            :kind          :failure
+                            :reply-payload (http-reply/reply->public-payload reply)))))
 
 (defn- dispatch-success!
-  "Dispatch a `:success` reply carrying `value` as its `:value` slot."
+  "Dispatch a `:success` reply carrying `value` as its `:value` slot.
+
+  rf2-zqefg3.2 — the success lowers through the canonical reply envelope:
+  `value` becomes a `:status :ok` / `:work/status :completed` canonical
+  reply (`http-reply/success-reply`), a completion trace row is emitted
+  from those canonical facts, and the PUBLIC Spec 014 `{:kind :success
+  :value …}` payload is recovered by `http-reply/reply->public-payload`
+  before dispatch. The public event shape is unchanged."
   [ctx value]
-  (dispatch-reply! (assoc ctx
-                          :kind          :success
-                          :reply-payload {:kind  :success
-                                          :value value})))
+  (let [reply (http-reply/success-reply (reply-ctx ctx) value)]
+    (emit-reply-trace! ctx reply)
+    (dispatch-reply! (assoc ctx
+                            :kind          :success
+                            :reply-payload (http-reply/reply->public-payload reply)))))
 
 (defn- dispatch-aborted!
   "Emit the `:rf.http/aborted` trace + dispatch the abort reply for a
