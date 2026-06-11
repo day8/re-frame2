@@ -28,8 +28,8 @@ The `reg-event-*` metadata-map is the one **superset** middle slot — reflectio
 
 | Surface | Shape |
 |---|---|
-| `rf/dispatch` | `(event)` / `(event opts)` — async queued |
-| `rf/dispatch-sync` | `(event)` / `(event opts)` — drains to fixed point |
+| `rf/dispatch` | `(event)` / `(event opts)` — async queued; `opts` may carry `:rf.world/inputs` (EP-0010 causal world inputs — pin durable `:time-ms` / `:uuid` / `:random`; runtime stamps `:time-ms` when omitted) |
+| `rf/dispatch-sync` | `(event)` / `(event opts)` — drains to fixed point; same `:rf.world/inputs` opt |
 | `rf/subscribe` | `(query-v)` / `(frame-id query-v)` → reaction |
 | `rf/subscribe-once` | `(query-v)` — one-shot: materialise + deref + unsubscribe |
 | `rf/unsubscribe` | `(query-v)` / `(frame-id query-v)` |
@@ -142,7 +142,8 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 |---|---|
 | `rf/->interceptor` | `({:id :before :after})` → interceptor |
 | `rf/get-coeffect` / `rf/assoc-coeffect` / `rf/get-effect` / `rf/assoc-effect` | inside an interceptor |
-| `rf/inject-cofx` | `(id)` / `(id value)` — cofx injector; `value` is the per-call arg passed to the cofx handler's 2-arity form |
+| `rf/inject-cofx` | `(id)` / `(id value)` — cofx injector; `value` is the per-call arg passed to the cofx handler's 2-arity form. For durable host facts the cofx must be recordable (or use the `:rf.world/inputs` coeffect — see `fundamentals/cofx.md`); ambient cofx are for diagnostics / host-transient reads |
+| `:rf.world/inputs` (coeffect) | framework coeffect on every event context (EP-0010): `{:time-ms … :uuid {…} :random […] :browser/* … :storage …}`. Read durable time/ids/host facts off it — `(fn [{:rf.world/keys [inputs]} ev] (:time-ms inputs))`. Filtered out of the user-coeffect trace. Not injected via `inject-cofx` — it is always present |
 | `rf/path` / `rf/unwrap-interceptor` | std interceptors |
 | `rf/init!` | `(adapter-map)` — install adapter/runtime capabilities; creates no frame. No registry. |
 | `rf/install-adapter!` / `rf/destroy-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |

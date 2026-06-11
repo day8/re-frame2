@@ -130,7 +130,7 @@ When the user asks how to test a re-frame2 view — "does the screen show the ri
 
 Load at most two leaves per task. If a task seems to need three, it likely spans patterns and should be broken up.
 
-**Fundamentals — `references/fundamentals/`**: `events.md`, `fx.md`, `cofx.md`, `subs.md`, `flows.md` (`reg-flow` — materialised computed state; the flow-vs-sub decision), `schemas.md`, `frames.md`, `event-state-cycle.md`, `project-structure.md`.
+**Fundamentals — `references/fundamentals/`**: `events.md`, `fx.md`, `cofx.md` (coeffects — incl. the EP-0010 rule: durable time/ids/host facts come from the `:rf.world/inputs` causal token or a recordable cofx, ambient cofx only for diagnostics), `subs.md`, `flows.md` (`reg-flow` — materialised computed state; the flow-vs-sub decision), `schemas.md`, `frames.md`, `event-state-cycle.md`, `project-structure.md`.
 
 **State machines — `references/state-machines/`**: `reg-machine.md` (declaration + the xstate→re-frame2 translation key), `regions.md` (parallel), `tags.md`, `spawn.md` (child machines), `history.md` (`:type :history` re-entry), `cancellation.md`. Standing mental model across all of these: think in xstate, then map onto re-frame2 — see `reg-machine.md` for the full mapping table and deliberate-divergence flags.
 
