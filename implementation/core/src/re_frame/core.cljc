@@ -57,6 +57,13 @@
             [re-frame.error-emit :as error-emit]
             [re-frame.elision :as elision]
             [re-frame.marks   :as marks]
+            ;; EP-0015 §3 (rf2-ueg1tn): required for its ns-load side-effect
+            ;; only — it publishes the `:frame-classification/*` late-bind
+            ;; hooks `re-frame.frame/reg-frame` consults to validate + install
+            ;; frame-owned durable classification. No symbols are referenced
+            ;; here; the require exists so the hooks are bound at boot before
+            ;; any runtime `reg-frame` call.
+            [re-frame.frame-classification]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.core-flows    :as rf-flows]
             [re-frame.core-routing  :as rf-routing]
