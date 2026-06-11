@@ -269,49 +269,37 @@
 ;; (a bare keyword, a non-vector :app-db) and list->vector normalization, but
 ;; NOT opaque host-OBJECT segments inside an otherwise well-shaped path.
 ;;
-;; KNOWN GAP — `normalize-app-db-paths` validates only that each path is
-;; sequential and routes it through `path/normalize`, which coerces container
-;; shape but does NOT validate the segment domain. So `[:auth (Object.)]`
-;; currently passes. The fail-closed source fix (a validated concrete-path
-;; normalization helper at the declaration boundary) is owned by the
-;; correctness / best-practice review beads rf2-wgutc2 (item 3, "Concrete
-;; path boundaries do not reject non-EP path segments ... frame classification
-;; ... can accept host/opaque values as segments") and rf2-w9x5fv (item 2,
+;; HARDENED (rf2-w9x5fv) — `normalize-app-db-paths` now routes each path
+;; through `path/normalize-concrete`, the VALIDATED concrete boundary (item 2:
 ;; "Split shape coercion from validated concrete normalization ... use the
-;; validated helper at concrete boundaries such as frame classification"),
-;; NOT by this coverage bead (tests-only).
-;;
-;; These tests therefore (a) DOCUMENT + PIN the current (does-not-reject)
-;; behaviour on both runtimes so the gap is visible, and (b) carry the
-;; spec-correct fail-closed assertion inline so the flip is a one-line edit
-;; when the source fix lands. Flip the `host-segment-*` blocks then.
+;; validated helper at concrete boundaries such as frame classification").
+;; `normalize` still coerces container shape only; `normalize-concrete`
+;; additionally validates the segment domain, so an opaque host-object segment
+;; like `[:auth (Object.)]` FAILS CLOSED at reg-frame (item 3 / Conventions
+;; §Segment domain) rather than silently riding in a stored elision path.
 ;; ---------------------------------------------------------------------------
 
-(deftest host-object-path-segment-is-not-yet-rejected
-  (testing "KNOWN GAP (rf2-wgutc2 / rf2-w9x5fv): an opaque host-object path
-            segment is NOT rejected at reg-frame — current behaviour pinned"
+(deftest host-object-path-segment-is-rejected
+  (testing "rf2-w9x5fv (items 2 + 3): an opaque host-object path segment FAILS
+            LOUDLY at reg-frame — the concrete declaration boundary routes
+            through path/normalize-concrete, which rejects non-EDN segments
+            (Conventions §Path shape / §Segment domain: concrete paths MUST NOT
+            contain host values; rejected at the boundary that accepts them)"
     (let [host #?(:clj (java.lang.Object.) :cljs #js {:opaque true})]
-      ;; CURRENT behaviour: validate+extract accepts the host segment, returning
-      ;; it verbatim in the normalized declaration (no fail-loud).
-      (let [{:keys [sensitive-app-db]}
-            (fc/validate+extract :app/host-seg
-              {:sensitive {:app-db [[:auth host]]}})]
-        (is (= 1 (count sensitive-app-db))
-            "current: host-object segment passes through (does not throw)")
-        (is (= :auth (first (first sensitive-app-db)))
-            "the literal prefix segment survives")
-        (is (identical? host (second (first sensitive-app-db)))
-            "the opaque host object rides in the stored path verbatim"))
-      ;; SPEC-CORRECT behaviour, asserted once the source fix lands — flip to:
-      ;;   (let [data (bad-classification-ex
-      ;;                #(rf/reg-frame :app/host-seg
-      ;;                   {:sensitive {:app-db [[:auth host]]}}))]
-      ;;     (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
-      ;;     (is (= [:sensitive :app-db] (:bad-key data)))
-      ;;     (is (= [:auth host] (:bad-path data))))
-      ;; (Conventions §Path shape: concrete paths MUST NOT contain host values;
-      ;;  rejected at the boundary that accepts the path.)
-      )))
+      (let [data (bad-classification-ex
+                   #(rf/reg-frame :app/host-seg
+                      {:sensitive {:app-db [[:auth host]]}}))]
+        (is (= :rf.error/bad-frame-classification (:rf.error/id data))
+            "a host-object segment is rejected with the frame-classification error")
+        (is (= [:sensitive :app-db] (:bad-key data))
+            "the offending classification key is named")
+        (is (= [:auth host] (:bad-path data))
+            "the offending path is named")
+        (is (identical? host (:bad-segment data))
+            "the offending host segment is surfaced from the path boundary"))
+      ;; The frame must NOT have been registered (fail-loud is transactional).
+      (is (nil? (frame/frame :app/host-seg))
+          "the malformed classification threw before any frame state mutated"))))
 
 (deftest existing-segment-shape-rejections-still-hold
   (testing "well-formed concrete paths (incl. the root []) still validate + normalize"

@@ -57,28 +57,105 @@
   Pure namespace — no runtime state, no trace, no host coupling. `.cljc`
   so the JVM test sweep exercises the algebra without the CLJS runtime."
   (:refer-clojure :exclude [get])
-  (:require [clojure.core :as core]))
+  (:require [clojure.core :as core])
+  #?(:clj (:import [java.util UUID Date]
+                   [java.time Instant])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; ---- path shape / normalization ------------------------------------------
 
+(defn- bad-path!
+  "Throw the canonical `:rf.error/bad-path` error. `where` names the source
+  helper; `reason` is the human-facing message; `extras` names the offending
+  slot (`:bad-path`, `:bad-segment`)."
+  [where reason extras]
+  (throw (ex-info (str "rf.path: " reason)
+                  (merge {:rf.error/id :rf.error/bad-path
+                          :where       where
+                          :recovery    :fix-path}
+                         extras))))
+
 (defn normalize
-  "Normalize a path input to the canonical vector form. The primary path
-  container is a vector; APIs MAY accept any sequential collection for
-  migration ergonomics, but every stored declaration MUST normalize to a
-  vector (Conventions §Path shape). A nil path normalizes to the root
-  path `[]`."
+  "Coerce a path input's CONTAINER SHAPE to the canonical vector form. The
+  primary path container is a vector; APIs MAY accept any sequential
+  collection for migration ergonomics, but every stored declaration MUST
+  normalize to a vector (Conventions §Path shape).
+
+  The root path is the EXPLICIT empty vector `[]`; a nil path FAILS CLOSED
+  with `:rf.error/bad-path` (EP-0012 fail-closed boundary, rf2-w9x5fv). An
+  omitted path is NOT silently the whole value: a caller that legitimately
+  has no path handles that absence BEFORE normalization (e.g. an `or`-default
+  to `[]` at its own boundary, where targeting the root is the deliberate
+  intent), so an accidental nil here can never silently put/over the whole
+  value. `normalize` validates SHAPE only — it does not validate that each
+  segment is a concrete EDN identity value; the validated concrete boundary
+  is `normalize-concrete`."
   [p]
   (cond
-    (nil? p)        []
+    (nil? p)        (bad-path! 'rf.path/normalize
+                               (str "a path must be a sequential collection of segments; "
+                                    "the root path is the explicit empty vector [], not nil")
+                               {:bad-path p})
     (vector? p)     p
     (sequential? p) (vec p)
-    :else           (throw (ex-info "rf.path: a path must be a sequential collection of segments"
-                                    {:rf.error/id :rf.error/bad-path
-                                     :where       'rf.path/normalize
-                                     :recovery    :fix-path
-                                     :bad-path    p}))))
+    :else           (bad-path! 'rf.path/normalize
+                               "a path must be a sequential collection of segments"
+                               {:bad-path p})))
+
+;; ---- concrete-segment domain (Conventions §Segment domain) ---------------
+;;
+;; The shared upper bound for a CONCRETE path segment: a portable EDN
+;; identity value usable as an associative key or vector index — a keyword,
+;; string, symbol, integer, boolean, UUID, instant, or nil. Functions,
+;; atoms, promises, DOM nodes, AbortControllers, opaque host objects, and
+;; other host handles are NOT valid segments. A spec MAY narrow this domain
+;; for its surface, but never widen it (Conventions §Segment domain).
+
+(defn- valid-segment?
+  "True iff `seg` is a concrete EDN identity value admissible as a path
+  segment (Conventions §Segment domain). Composite values (vectors, maps,
+  sets, seqs) and host handles are NOT valid concrete segments — a
+  composite vector is only the template-parameter data form, which is not a
+  concrete segment."
+  [seg]
+  (or (nil? seg)
+      (keyword? seg)
+      (string? seg)
+      (symbol? seg)
+      (boolean? seg)
+      (integer? seg)
+      #?(:clj  (or (instance? UUID seg)
+                   (instance? Instant seg)
+                   (instance? Date seg))
+         :cljs (or (uuid? seg)
+                   (instance? js/Date seg)))))
+
+(defn normalize-concrete
+  "Normalize a path to the canonical vector form AND validate that every
+  segment is a concrete EDN identity value (Conventions §Segment domain).
+
+  This is the VALIDATED concrete boundary (EP-0012 rf2-w9x5fv item 2):
+  `normalize` coerces container shape only; `normalize-concrete` additionally
+  fails closed with `:rf.error/bad-path` on any segment outside the concrete
+  domain — an opaque host object, a function, a template-parameter segment
+  (`[:rf.path/param …]`), or any other composite. Concrete boundaries such as
+  frame classification and resource-scope inputs MUST route through this
+  helper, never bare `normalize`, so a host/opaque segment is rejected at the
+  declaration boundary rather than silently riding in a stored path."
+  [p]
+  (let [v (normalize p)]
+    (reduce (fn [_ seg]
+              (when-not (valid-segment? seg)
+                (bad-path! 'rf.path/normalize-concrete
+                           (str "a concrete path segment must be a portable EDN "
+                                "identity value (keyword, string, symbol, integer, "
+                                "boolean, UUID, instant, or nil) — host objects and "
+                                "composite/template segments are not valid concrete "
+                                "segments")
+                           {:bad-path v :bad-segment seg})))
+            nil v)
+    v))
 
 ;; ---- the unique missing sentinel -----------------------------------------
 ;;

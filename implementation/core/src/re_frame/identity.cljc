@@ -177,12 +177,22 @@
 (defn- encode-map [m]
   ;; Order entries by their keys' CEDN-1 bytes; each key token is separated
   ;; from its value token, and entries from each other, by a single space.
-  ;; Duplicate canonical keys are impossible inside a Clojure map (the
-  ;; reader collapses them); a reader/adapter that could produce duplicates
-  ;; rejects them upstream before this boundary.
+  ;;
+  ;; Duplicate canonical keys FAIL CLOSED (Conventions §Map key
+  ;; canonicalization: "Duplicate canonical keys are invalid and MUST be
+  ;; rejected before the value becomes a cache key, route identity, or work
+  ;; id."). Two DISTINCT host map keys can encode to the SAME CEDN-1 key
+  ;; bytes — e.g. a `java.util.Date` and a `java.time.Instant` for one
+  ;; instant are distinct JVM map keys (`=` does not equate them) yet render
+  ;; the identical `t:<utc>` token. Emitting both would produce a structurally
+  ;; ambiguous identity; instead we reject the whole identity closed
+  ;; (rf2-w9x5fv item 3) rather than silently serialize colliding key tokens.
   (let [entries (->> m
                      (map (fn [[k v]] [(encode k) (encode v)]))
-                     (sort-by first))]
+                     (sort-by first))
+        ks      (map first entries)]
+    (when-not (= (count ks) (count (distinct ks)))
+      (reject! m :duplicate-canonical-map-key))
     (str "m{"
          (str/join " " (mapcat (fn [[ke ve]] [ke ve]) entries))
          "}")))
@@ -214,8 +224,10 @@
     (vector? x)         (str "v[" (encode-elements x) "]")
     (set? x)            (encode-set x)
     (map? x)            (encode-map x)
+    ;; `seq?` subsumes `list?` (every list is a seq; lazy seqs are seq? but
+    ;; not list?) and both encode identically, so one `seq?` branch covers
+    ;; the whole list-kind (fe3a9q: the prior `list?` branch was dead).
     (seq? x)            (str "l(" (encode-elements x) ")")
-    (list? x)           (str "l(" (encode-elements x) ")")
     :else               (reject! x :unsupported-host-value)))
 
 ;; ---- public-internal surface ---------------------------------------------
@@ -230,6 +242,28 @@
   [value]
   (encode value))
 
+(declare canonical)
+
+(defn- canonical-map
+  "Canonicalize a map's keys and values, failing closed on DUPLICATE
+  canonical keys. Two DISTINCT source keys can canonicalize to the SAME key
+  (e.g. a java.util.Date and a java.time.Instant for one instant both
+  normalize to the same UTC text), which would silently collapse two
+  identity-distinct entries into one. Per Conventions §Map key
+  canonicalization (\"Duplicate canonical keys are invalid and MUST be
+  rejected before the value becomes a cache key, route identity, or work
+  id\") this rejects the whole identity closed — the same fail-closed rule
+  `canonical-bytes` enforces, so the two surfaces never diverge (rf2-w9x5fv
+  item 3)."
+  [m]
+  (let [out (reduce-kv (fn [acc k v]
+                         (let [ck (canonical k)]
+                           (when (contains? acc ck)
+                             (reject! m :duplicate-canonical-map-key))
+                           (assoc acc ck (canonical v))))
+                       {} m)]
+    out))
+
 (defn canonical
   "Return the canonical normalized EDN identity of `value` — the storage,
   work-ledger, trace, and replay identity (EP-0012 disposition 5: canonical
@@ -238,9 +272,14 @@
   The normalization recursively reorders map entries and set elements into
   CEDN-1 canonical order while preserving vector / list order and EDN kind,
   so two map spellings that differ only in insertion order return an `=`
-  canonical value. Fails closed with `:rf.error/non-edn-identity` for any
-  out-of-domain value — the validation walk runs eagerly so a host handle
-  buried anywhere in the structure is rejected, never host-stringified.
+  canonical value. Instants normalize to a single representation
+  (millisecond-precision UTC), so `canonical` and `canonical-bytes` share ONE
+  canonical form — a value stored via `canonical` and a value compared via
+  `canonical-bytes` can never disagree (rf2-w9x5fv item 3). Fails closed with
+  `:rf.error/non-edn-identity` for any out-of-domain value — the validation
+  walk runs eagerly so a host handle buried anywhere in the structure is
+  rejected, never host-stringified — and for a map carrying DUPLICATE
+  canonical keys (two distinct host keys whose CEDN-1 bytes collide).
 
   Present `nil` stays distinct from a missing key: `(canonical {:page nil})`
   is not `(canonical {})`. `nil` elision, if a surface wants it, is a
@@ -251,8 +290,15 @@
     (boolean? value)   value
     (string? value)    value
     (keyword? value)   value
-    (uuid-value? value)    value
-    (instant-value? value) value
+    ;; A UUID is `=` across both surfaces already (UUID equality is over the
+    ;; canonical 4122 form), so it has no two-surface divergence — preserve it.
+    (uuid-value? value) value
+    ;; Instants DO diverge: a java.util.Date and a java.time.Instant for one
+    ;; moment are NOT `=`, so preserving the host object would give two
+    ;; unequal canonical values for one identity fact. Normalize both to the
+    ;; single CEDN-1 UTC text so `canonical` and `canonical-bytes` agree on a
+    ;; single canonical form (rf2-w9x5fv item 3).
+    (instant-value? value) (instant->utc-millis-string value)
     (symbol? value)    value
     (integer? value)   (if (and (not (bad-number? value)) (safe-integer? value))
                          value
@@ -260,10 +306,9 @@
     (number? value)    (reject! value :non-integer-number)
     (vector? value)    (mapv canonical value)
     (set? value)       (into #{} (map canonical) value)
-    (map? value)       (reduce-kv (fn [acc k v] (assoc acc (canonical k) (canonical v)))
-                                  {} value)
+    (map? value)       (canonical-map value)
+    ;; `seq?` subsumes `list?` (fe3a9q) — one branch covers list-kind.
     (seq? value)       (apply list (map canonical value))
-    (list? value)      (apply list (map canonical value))
     :else              (reject! value :unsupported-host-value)))
 
 (defn identical-identity?

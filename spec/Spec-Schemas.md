@@ -65,13 +65,14 @@ This catalogue is a **projection** of shapes that originate in the owning per-Sp
 
 ## Schema layers
 
-Each schema in this catalogue belongs to exactly one of three layers. The layer tells consumers what role the schema plays in the contract:
+Each schema in this catalogue belongs to exactly one layer. The layer tells consumers what role the schema plays in the contract:
 
 - **Runtime** — shapes the framework produces or consumes during normal operation (the dispatch envelope the runtime constructs, the effect-map a handler returns, the snapshot a machine writes, the trace event a tool reads). Implementations *must* match these on the wire; they are observable to every layer above.
-- **Public** — shapes the user passes into `reg-*` metadata or `(rf/configure! ...)` opts. These describe *what tooling reads when introspecting registrations*: the metadata map shape, the frame-meta returned by `(frame-meta id)`, the route-metadata accepted by `reg-route`. Tools target this surface; implementations validate user input against it.
+- **Public** — shapes the user passes into `reg-*` metadata or `(rf/configure! ...)` opts. These describe *what tooling reads when introspecting registrations*: the metadata map shape, the frame-meta returned by `(frame-meta id)`, the route-metadata accepted by `reg-route`. Tools target this surface; implementations validate user input against it. A `> Layer:` header MAY add a parenthetical refinement (e.g. `Public (input forms)` / `Authoring (input forms)`) to mark a public **authoring** shape validated at registration / dispatch as distinct from the runtime storage shape it lowers into; the refinement narrows Public, it does not introduce a separate layer.
 - **Conformance** — shapes that exist for the conformance corpus and capability-tagging machinery. The handler-body DSL, the fixture-file format, the capability-tagging convention — none of these flow through the runtime; they exist so a host-agnostic test harness can drive any implementation.
+- **Value** — cross-cutting **EDN value / identity** shapes that are not a single subsystem's runtime, public, or conformance surface but the shared *vocabulary* many surfaces normalize to. The canonical example is the [`:rf/path`](#rfpath-rfpath-template-the-path-algebra-ep-0012) algebra (EP-0012): a path is neither a runtime envelope the framework emits nor a `reg-*` metadata key, but the shared shape app-db focus, schema paths, redaction marks, flow inputs/outputs, route params, and named declarations all share. A Value schema is owned by a Conventions / EP section (the shared definition) rather than by one subsystem spec.
 
-Layer membership is **disjoint**: a schema is exactly one of Runtime, Public, or Conformance. Each schema entry below carries a `> Layer:` header naming its layer.
+Layer membership is **disjoint**: a schema names exactly one layer (Runtime, Public, Conformance, or Value — Public MAY carry a narrowing parenthetical). Each schema entry below carries a `> Layer:` header naming its layer.
 
 ### v1 vs post-v1 contracts
 

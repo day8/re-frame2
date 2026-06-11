@@ -149,18 +149,37 @@
                     "016 §The :inputs grammar.")
                {:scope-id scope-id :input input-name :source head}))
 
-      (not (or (nil? raw-path) (sequential? raw-path)))
+      ;; A `:db` target must be a CONCRETE sequential `:rf/path`. nil is NOT
+      ;; the root path — the root is the explicit `[]` (the whole-db sugar
+      ;; lowers to `[:db []]`). A nil here is an accidental absent path and
+      ;; fails closed rather than silently targeting the whole db (EP-0012
+      ;; rf2-w9x5fv item 1: explicit root, no silent nil→root).
+      (not (sequential? raw-path))
       (throw (registration-error
                :rf.error/invalid-resource-scope-spec
                'rf/reg-resource-scope
                (str "resource-scope " scope-id " input " input-name
                     " has a non-path `:db` target " (pr-str raw-path)
                     ". `[:db <rf-path>]` takes an EP-0012 concrete :rf/path "
-                    "(a sequential collection of segments). Per Spec 016 "
-                    "§The :inputs grammar / Conventions §The :rf/path algebra.")
+                    "(a sequential collection of segments; the root is the "
+                    "explicit [], not nil). Per Spec 016 §The :inputs grammar "
+                    "/ Conventions §The :rf/path algebra.")
                {:scope-id scope-id :input input-name :descriptor descriptor}))
 
-      :else [:db (path/normalize raw-path)])))
+      ;; Route through the VALIDATED concrete boundary (rf2-w9x5fv item 2):
+      ;; a host/opaque or template segment in a `:db` path fails closed here.
+      :else
+      (try
+        [:db (path/normalize-concrete raw-path)]
+        (catch #?(:clj Exception :cljs :default) e
+          (throw (registration-error
+                   :rf.error/invalid-resource-scope-spec
+                   'rf/reg-resource-scope
+                   (str "resource-scope " scope-id " input " input-name
+                        " `:db` path carries a malformed segment: "
+                        #?(:clj (.getMessage e) :cljs (ex-message e))
+                        " Per Conventions §Segment domain.")
+                   {:scope-id scope-id :input input-name :descriptor descriptor})))))))
 
 (defn- canonical-spec
   "Normalize a resolver registration argument into the canonical STORED

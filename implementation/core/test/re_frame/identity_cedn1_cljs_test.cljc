@@ -319,15 +319,13 @@
 ;; therefore inherently a JVM phenomenon; the CLJS leg pins the cross-host
 ;; "same instant → one identity" facts instead (which hold on both hosts).
 ;;
-;; KNOWN GAP — the current encoder does NOT yet detect the JVM collision: it
-;; sorts entries by key bytes and emits both, producing colliding key tokens.
-;; The fail-closed source fix is owned by the correctness/best-practice
-;; review beads rf2-wgutc2 (item 1, canonical alignment) and rf2-w9x5fv
-;; (item 3, "rejecting duplicate canonical map keys"), NOT by this coverage
-;; bead (tests-only). These tests therefore (a) DOCUMENT + PIN the current
-;; observable behaviour so the gap is visible and a regression can't slip in
-;; unnoticed, and (b) carry the spec-correct assertion commented inline so
-;; the flip to fail-closed is a one-line edit when the source fix lands.
+;; HARDENED (rf2-w9x5fv item 3) — the encoder now DETECTS the JVM collision:
+;; `encode-map` (and the value-form `canonical`) compare the entries' canonical
+;; key tokens and FAIL CLOSED with `:rf.error/non-edn-identity` on a duplicate,
+;; rather than sorting by key bytes and emitting both colliding tokens. Both
+;; surfaces share the one fail-closed rule, so `canonical` and `canonical-bytes`
+;; never disagree. The tests below assert the fail-closed behaviour on the JVM
+;; (the only host where Date and Instant are distinct keys for one instant).
 
 (deftest duplicate-canonical-keys
   (testing "two distinct host instants for the same moment encode to identical key bytes"
@@ -350,21 +348,17 @@
              "Date and Instant are distinct keys (= does not equate them)")
          (is (= 2 (count dup-map))
              "the map carries two entries whose canonical key bytes collide"))
-       (testing "KNOWN GAP (rf2-wgutc2 / rf2-w9x5fv): the duplicate canonical
-                 key is NOT yet rejected — current behaviour pinned"
-         ;; CURRENT behaviour: canonical-bytes emits both colliding key tokens.
-         (is (string? (id/canonical-bytes dup-map))
-             "current: encodes (does not throw) — collision is silently serialized")
-         ;; SPEC-CORRECT behaviour, asserted once the source fix lands — flip to:
-         ;;   (is (non-edn-id-error? #(id/canonical-bytes dup-map)))
-         ;;   (is (non-edn-id-error? #(id/canonical       dup-map)))
-         ;; (Conventions: duplicate canonical keys are invalid and MUST be
-         ;; rejected before the value becomes a cache key / route id / work id.)
-         (let [bytes (id/canonical-bytes dup-map)]
-           ;; The colliding key token appears for BOTH entries inside the
-           ;; group — the observable symptom the rejection will eliminate.
-           (is (= 2 (count (re-seq #"t:2026-06-10T00:00:00\.000Z" bytes)))
-               "the same key token appears twice — the duplicate-key defect")))))
+       (testing "rf2-w9x5fv item 3: a duplicate canonical key FAILS CLOSED
+                 (Conventions §Map key canonicalization — duplicate canonical
+                 keys are invalid and MUST be rejected before the value becomes
+                 a cache key / route id / work id)"
+         ;; BOTH surfaces reject the whole identity closed — no silent
+         ;; serialization of colliding key tokens, and canonical + canonical-bytes
+         ;; agree (one canonical form).
+         (is (non-edn-id-error? #(id/canonical-bytes dup-map))
+             "canonical-bytes rejects the duplicate-canonical-key map")
+         (is (non-edn-id-error? #(id/canonical dup-map))
+             "canonical rejects it too — the two surfaces share one fail-closed rule"))))
   #?(:cljs
      (testing "CLJS collapses same-instant js/Date keys (no distinct-key
                collision to reject on this host)"
