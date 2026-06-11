@@ -203,10 +203,13 @@
 (rf/reg-event-fx :profile.articles/load
   {:doc "Load the profile's authored articles. Public; data-fetch retry.
          Also broadcasts `:show-articles` so the `:ui/profile` :tab
-         region tracks the active tab."
+         region tracks the active tab. `?page=` paginates the list via
+         `rh/paginate-path` (official RealWorld limit/offset)."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [username (username-from-db rt)]
+    (let [username (username-from-db rt)
+          page     (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
+          path     (rh/paginate-path (str "/articles?author=" username) page)]
       {:db (-> db
                (assoc-in [:profile.articles :status] :loading)
                (assoc-in [:profile.articles :error] nil)
@@ -214,7 +217,7 @@
        :fx [[:dispatch [:ui/profile [:show-articles]]]
             [:rf.http/managed
              (rh/request {:method     :get
-                          :path       (str "/articles?author=" username)
+                          :path       path
                           :decode     schema/ArticlesResponse
                           :retry      rh/data-fetch-retry
                           :request-id [:profile.articles/load username]
@@ -227,6 +230,8 @@
     {:db (-> db
              (assoc-in [:profile.articles :status] :loaded)
              (assoc-in [:profile.articles :data] (vec (:articles value)))
+             (assoc-in [:profile.articles :articles-count]
+                       (or (:articlesCount value) (count (:articles value))))
              (assoc-in [:profile.articles :loaded-at] now))}))
 
 (rf/reg-event-db :profile.articles/load-failed
@@ -238,10 +243,13 @@
 (rf/reg-event-fx :profile.favorites/load
   {:doc "Load the profile's favorited articles. Public; data-fetch retry.
          Also broadcasts `:show-favorites` so the `:ui/profile` :tab
-         region tracks the active tab."
+         region tracks the active tab. `?page=` paginates the list via
+         `rh/paginate-path` (official RealWorld limit/offset)."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [username (username-from-db rt)]
+    (let [username (username-from-db rt)
+          page     (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
+          path     (rh/paginate-path (str "/articles?favorited=" username) page)]
       {:db (-> db
                (assoc-in [:profile.favorites :status] :loading)
                (assoc-in [:profile.favorites :error] nil)
@@ -249,7 +257,7 @@
        :fx [[:dispatch [:ui/profile [:show-favorites]]]
             [:rf.http/managed
              (rh/request {:method     :get
-                          :path       (str "/articles?favorited=" username)
+                          :path       path
                           :decode     schema/ArticlesResponse
                           :retry      rh/data-fetch-retry
                           :request-id [:profile.favorites/load username]
@@ -262,6 +270,8 @@
     {:db (-> db
              (assoc-in [:profile.favorites :status] :loaded)
              (assoc-in [:profile.favorites :data] (vec (:articles value)))
+             (assoc-in [:profile.favorites :articles-count]
+                       (or (:articlesCount value) (count (:articles value))))
              (assoc-in [:profile.favorites :loaded-at] now))}))
 
 (rf/reg-event-db :profile.favorites/load-failed
@@ -381,6 +391,48 @@
       :favorites (or favorited [])
       (or authored []))))
 
+;; ---- pagination (official RealWorld limit/offset) ----
+
+(rf/reg-sub :profile.articles/count
+  (fn [db _] (get-in db [:profile.articles :articles-count] 0)))
+
+(rf/reg-sub :profile.favorites/count
+  (fn [db _] (get-in db [:profile.favorites :articles-count] 0)))
+
+(rf/reg-sub :profile/current-count
+  {:doc "Grand article count for the active profile tab — drives the page
+         count for the tab's `?page=` control."}
+  :<- [:rf/machine :ui/profile]
+  :<- [:profile.articles/count]
+  :<- [:profile.favorites/count]
+  (fn sub-current-count [[snap authored-count favorited-count] _]
+    (case (get-in snap [:state :tab])
+      :favorites (or favorited-count 0)
+      (or authored-count 0))))
+
+(rf/reg-sub :profile/current-page
+  {:doc "The 1-indexed current page for the active profile tab, read off the
+         route query (`?page=`; defaulted to 1 by `:query-defaults`)."}
+  :<- [:rf.route/query]
+  (fn sub-profile-page [query _]
+    (or (:page query) 1)))
+
+(rf/reg-sub :profile/page-count
+  {:doc "Total pages for the active profile tab — `(ceil count / page-size)`,
+         never below 1."}
+  :<- [:profile/current-count]
+  (fn sub-profile-page-count [total _]
+    (rh/page-count total)))
+
+(rf/reg-event-fx :profile/show-page
+  {:doc "Navigate to a 1-indexed pagination page for the active profile tab.
+         Stays on the current profile route (authored vs favorited) and
+         username; changing `?page=` re-fires the route `:on-match`, re-running
+         the tab's load with the new limit/offset window."}
+  (fn [{rt :rf.db/runtime} [_ page]]
+    (let [{:keys [id params]} (get-in rt [:rf.runtime/routing :current])]
+      {:fx [[:dispatch [:rf.route/navigate id params {:query {:page page}}]]]})))
+
 ;; ============================================================================
 ;; VIEWS
 ;; ============================================================================
@@ -402,10 +454,12 @@
 (reg-view ^{:doc "Data region :loaded — banner, tabs, and the active
                   tab's article list."}
           profile-loaded []
-  (let [profile     @(subscribe [:profile/data])
-        own?        @(subscribe [:profile/own-profile?])
-        on-favs?    @(rf/machine-has-tag? :ui/profile :tab/favorites)
-        articles*   @(subscribe [:profile/current-articles])]
+  (let [profile      @(subscribe [:profile/data])
+        own?         @(subscribe [:profile/own-profile?])
+        on-favs?     @(rf/machine-has-tag? :ui/profile :tab/favorites)
+        articles*    @(subscribe [:profile/current-articles])
+        current-page @(subscribe [:profile/current-page])
+        page-count   @(subscribe [:profile/page-count])]
     [:<>
      [:div.user-info
       [:div.container
@@ -444,7 +498,10 @@
           (for [article articles*]
             ^{:key (:slug article)}
             [articles/article-preview {:article article}])
-          [:div.article-preview "No articles here yet."])]]]]))
+          [:div.article-preview "No articles here yet."])
+        [articles/pagination {:current-page current-page
+                              :page-count   page-count
+                              :on-select    #(dispatch [:profile/show-page %])}]]]]]))
 
 (reg-view profile-page []
   (let [render-mode @(subscribe [:profile/render])]

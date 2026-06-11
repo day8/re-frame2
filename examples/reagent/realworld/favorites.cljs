@@ -59,23 +59,30 @@
 
          Also broadcasts `:fetch-started` into the home machine so the
          `:data` region advances to `:loading` (or `:refreshing` from
-         `:some`)."
+         `:some`).
+
+         `?page=` (the home route's 1-indexed pagination page, durable
+         runtime-db routing state) becomes the wire's limit/offset window via
+         `rh/paginate-path` — the same official RealWorld pagination the global
+         feed uses."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
-  (fn [{:keys [db]} _]
-    {:db (-> db
-             (assoc-in [:feed :status]
-                       (if (seq (get-in db [:feed :data])) :fetching :loading))
-             (assoc-in [:feed :error] nil)
-             (update-in [:feed :attempt] (fnil inc 0)))
-     :fx [[:dispatch [:realworld/articles-home [:fetch-started]]]
-          [:rf.http/managed
-           (rh/request {:method     :get
-                        :path       "/articles/feed"
-                        :decode     schema/ArticlesResponse
-                        :retry      rh/data-fetch-retry
-                        :request-id :feed/load
-                        :on-success [:feed/loaded]
-                        :on-failure [:feed/load-failed]})]]}))
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [page (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
+          path (rh/paginate-path "/articles/feed" page)]
+      {:db (-> db
+               (assoc-in [:feed :status]
+                         (if (seq (get-in db [:feed :data])) :fetching :loading))
+               (assoc-in [:feed :error] nil)
+               (update-in [:feed :attempt] (fnil inc 0)))
+       :fx [[:dispatch [:realworld/articles-home [:fetch-started]]]
+            [:rf.http/managed
+             (rh/request {:method     :get
+                          :path       path
+                          :decode     schema/ArticlesResponse
+                          :retry      rh/data-fetch-retry
+                          :request-id :feed/load
+                          :on-success [:feed/loaded]
+                          :on-failure [:feed/load-failed]})]]})))
 
 (rf/reg-event-fx :feed/cancel
   {:doc "Abort an in-flight :feed/load. Useful when the user navigates
@@ -89,10 +96,12 @@
          `:resolving` `:always`-cascade picks `:empty` or `:some`."}
   [(rf/inject-cofx :realworld/now)]
   (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
-    (let [items (vec (:articles value))]
+    (let [items (vec (:articles value))
+          total (or (:articlesCount value) (count items))]
       {:db (-> db
                (assoc-in [:feed :status] :loaded)
                (assoc-in [:feed :data] items)
+               (assoc-in [:feed :articles-count] total)
                (assoc-in [:feed :loaded-at] now))
        :fx [[:dispatch [:realworld/articles-home
                         [:fetch-succeeded {:items items}]]]]})))
@@ -191,6 +200,7 @@
 (rf/reg-sub :feed/slice (fn [db _] (:feed db)))
 (rf/reg-sub :feed/data :<- [:feed/slice] (fn [slice _] (:data slice)))
 (rf/reg-sub :feed/error :<- [:feed/slice] (fn [slice _] (:error slice)))
+(rf/reg-sub :feed/count :<- [:feed/slice] (fn [slice _] (:articles-count slice 0)))
 (rf/reg-sub :feed/loading? :<- [:feed/slice]
   (fn [slice _] (#{:loading :fetching} (:status slice))))
 

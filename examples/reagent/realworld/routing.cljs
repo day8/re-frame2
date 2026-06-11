@@ -30,11 +30,19 @@
 ;; ============================================================================
 
 (rf/reg-route :realworld/home
-  {:doc      "The landing page: global feed, your feed, and optional tag filter."
+  {:doc      "The landing page: global feed, your feed, and optional tag filter.
+
+              `?page=N` is the 1-indexed pagination page for the active feed
+              (official RealWorld limit/offset pagination). It rides the route
+              query so back/forward and bookmarking restore the page; `:int`
+              coercion turns the URL's `\"2\"` into `2`, and `:query-defaults`
+              fills page 1 when the key is absent."
    :path     "/"
    :query    [:map
-              [:tag {:optional true} :string]
-              [:feed {:optional true} :string]]
+              [:tag  {:optional true} :string]
+              [:feed {:optional true} :string]
+              [:page {:optional true} :int]]
+   :query-defaults {:page 1}
    :on-match [[:home/load]]
    :scroll   :top})
 
@@ -76,16 +84,22 @@
    :scroll   :top})
 
 (rf/reg-route :realworld.profile/show
-  {:doc      "A user's profile — articles they authored."
+  {:doc      "A user's profile — articles they authored. `?page=N` paginates
+              the authored list (official RealWorld limit/offset pagination)."
    :path     "/profile/:username"
    :params   [:map [:username :string]]
+   :query    [:map [:page {:optional true} :int]]
+   :query-defaults {:page 1}
    :on-match [[:profile/load]
               [:profile.articles/load]]})
 
 (rf/reg-route :realworld.profile/favorites
-  {:doc      "A user's profile — articles they have favorited."
+  {:doc      "A user's profile — articles they have favorited. `?page=N`
+              paginates the favorited list."
    :path     "/profile/:username/favorites"
    :params   [:map [:username :string]]
+   :query    [:map [:page {:optional true} :int]]
+   :query-defaults {:page 1}
    :on-match [[:profile/load]
               [:profile.favorites/load]]})
 

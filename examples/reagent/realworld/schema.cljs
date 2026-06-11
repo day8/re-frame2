@@ -118,13 +118,20 @@
 ;; spec/Pattern-RemoteData.md.
 
 (def RequestSlice
-  "The standard remote-data lifecycle slice. Generic over the :data type."
+  "The standard remote-data lifecycle slice. Generic over the :data type.
+
+   `:articles-count` is the official RealWorld pagination total — the GRAND
+   count of articles matching the query (before the limit/offset window), used
+   to compute the page count. Optional because only the paginated article-list
+   slices (`:articles`, `:feed`, `:profile.articles`, `:profile.favorites`)
+   carry it; single-resource slices (`:article`, `:profile`) never do."
   [:map
    [:status         [:enum :idle :loading :fetching :loaded :error]]
    [:data           {:default nil} :any]
    [:error          {:default nil} [:maybe :any]]
    [:loaded-at      {:default nil} [:maybe :int]]
    [:attempt        {:default 0}   :int]
+   [:articles-count {:optional true} :int]
    [:stale-after-ms {:optional true} [:maybe :int]]])
 
 (def AuthSlice

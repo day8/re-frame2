@@ -215,33 +215,72 @@
    demo-seam knob, not a production value."
   20)
 
+;; A corpus larger than one page (25 articles) so the official
+;; limit/offset pagination is observable in the standalone demo: with the
+;; fixed page size of 10 (`realworld.http/page-size`) that is three pages.
+;; `demo-articles` keeps its hand-written first two cards (so the article
+;; detail / favorites paths see familiar slugs) and pads the rest
+;; programmatically.
 (def ^:private demo-articles
-  [{:slug "hello-conduit"
-    :title "Hello, Conduit"
-    :description "A short greeting from the realworld stub."
-    :body "This article is served by the demo :rf.http/managed override."
-    :tagList ["intro" "demo"]
-    :createdAt "2026-01-01T00:00:00Z"
-    :updatedAt "2026-01-01T00:00:00Z"
-    :favorited false
-    :favoritesCount 0
-    :author {:username "stub-bot"
-             :bio "A friendly stub."
-             :image ""
-             :following false}}
-   {:slug "second-article"
-    :title "Second article"
-    :description "A second short article."
-    :body "More canned demo content."
-    :tagList ["demo"]
-    :createdAt "2026-02-01T00:00:00Z"
-    :updatedAt "2026-02-01T00:00:00Z"
-    :favorited false
-    :favoritesCount 0
-    :author {:username "stub-bot"
-             :bio "A friendly stub."
-             :image ""
-             :following false}}])
+  (into [{:slug "hello-conduit"
+          :title "Hello, Conduit"
+          :description "A short greeting from the realworld stub."
+          :body "This article is served by the demo :rf.http/managed override."
+          :tagList ["intro" "demo"]
+          :createdAt "2026-01-01T00:00:00Z"
+          :updatedAt "2026-01-01T00:00:00Z"
+          :favorited false
+          :favoritesCount 0
+          :author {:username "stub-bot"
+                   :bio "A friendly stub."
+                   :image ""
+                   :following false}}
+         {:slug "second-article"
+          :title "Second article"
+          :description "A second short article."
+          :body "More canned demo content."
+          :tagList ["demo"]
+          :createdAt "2026-02-01T00:00:00Z"
+          :updatedAt "2026-02-01T00:00:00Z"
+          :favorited false
+          :favoritesCount 0
+          :author {:username "stub-bot"
+                   :bio "A friendly stub."
+                   :image ""
+                   :following false}}]
+        (for [n (range 3 26)]
+          {:slug           (str "article-" n)
+           :title          (str "Demo article " n)
+           :description    (str "Canned demo article number " n ".")
+           :body           "More canned demo content."
+           :tagList        ["demo"]
+           :createdAt      "2026-03-01T00:00:00Z"
+           :updatedAt      "2026-03-01T00:00:00Z"
+           :favorited      false
+           :favoritesCount 0
+           :author         {:username "stub-bot"
+                            :bio "A friendly stub."
+                            :image ""
+                            :following false}})))
+
+(defn- parse-int-param
+  "Pull an integer query param `k` (e.g. \"limit\") out of a URL string, or
+   nil when absent / unparseable."
+  [u k]
+  (when-let [m (re-find (re-pattern (str "[?&]" k "=(\\d+)")) u)]
+    (js/parseInt (second m) 10)))
+
+(defn- page-of
+  "Return the limit/offset window of `articles` for the demo stub, plus the
+   grand `articlesCount` — the canonical Conduit list-response shape. Reads
+   `limit` / `offset` straight off the URL (defaulting to the whole list when
+   absent), so the stub paginates exactly like the real backend."
+  [articles u]
+  (let [total  (count articles)
+        offset (or (parse-int-param u "offset") 0)
+        limit  (or (parse-int-param u "limit") total)
+        window (->> articles (drop offset) (take limit) vec)]
+    {:articles window :articlesCount total}))
 
 (def ^:private demo-tags
   ["intro" "demo" "clojure" "re-frame"])
@@ -301,8 +340,11 @@
       (and (= method :post) (re-find #"/articles/[^/]+/comments$" u))
       (canned-comment (some-> req :body :comment :body))
 
+      ;; GET /articles/feed — the authenticated feed. Paged from the same
+      ;; corpus so the home "Your Feed" tab paginates like the global feed
+      ;; (limit/offset off the URL, grand articlesCount in the reply).
       (str/includes? u "/articles/feed")
-      {:articles [] :articlesCount 0}
+      (page-of demo-articles u)
 
       (re-find #"/articles/[^/]+/comments" u)
       {:comments []}
@@ -310,8 +352,11 @@
       (re-find #"/articles/[^/?]+$" u)
       {:article (first demo-articles)}
 
+      ;; GET /articles[?tag=…|author=…|favorited=…][&limit&offset] — the
+      ;; global / tag / profile lists. `page-of` reads limit/offset off the
+      ;; URL and returns the windowed page + the grand articlesCount.
       (or (str/ends-with? u "/articles") (str/includes? u "/articles?"))
-      {:articles demo-articles :articlesCount (count demo-articles)}
+      (page-of demo-articles u)
 
       (str/includes? u "/tags")
       {:tags demo-tags}
