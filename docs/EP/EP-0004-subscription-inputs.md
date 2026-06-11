@@ -244,6 +244,13 @@ It is equivalent to a constant input producer:
     (filter-items items filter)))
 ```
 
+That equivalence is about producing input query vectors. The existing static
+`:<-` handler delivery convention is preserved: a single static `:<-` input is
+delivered as the bare value, while multiple static `:<-` inputs are delivered as
+a vector. Parametric `input-fn` subscriptions are different: their computation
+function always receives a vector of resolved input values, even when the
+`input-fn` returns exactly one query vector.
+
 Use `:<-` for static inputs. Use `input-fn` only when the upstream query
 vectors need values from the outer query vector.
 
@@ -293,8 +300,9 @@ For `(subscribe [:article/page :a1])`:
    - `(input-fn [:article/page :a1])` for the parametric form.
 3. Validate that the result is a vector of query vectors.
 4. Subscribe to each input query vector in the same frame.
-5. Call the computation function with the vector of resolved input values and
-   the outer query-v.
+5. Call the computation function with the resolved input values and the outer
+   query-v. For this parametric form, the resolved input values are delivered
+   as a vector in producer order.
 6. Cache the derived node under the concrete outer query-v.
 
 The input function is not on the hot recompute path. It runs when a cache entry
@@ -488,7 +496,8 @@ v2:
 
 - Static `:<-` behavior remains unchanged.
 - Parametric input function receives the full outer query vector.
-- Vector-of-query-vectors input returns resolve to vectors of input values.
+- Parametric vector-of-query-vectors input returns resolve to vectors of input
+  values, including the single-input case.
 - Scalar returns such as `[:x :y]`, `:x`, maps, reactions, and derefables are
   rejected.
 - `compute-sub` and `subscribe-once` agree for parametric subscriptions.

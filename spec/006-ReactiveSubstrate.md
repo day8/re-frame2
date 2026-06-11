@@ -615,7 +615,7 @@ Every subscription has one **input query-vector producer** — the thing that, a
 
 > A subscription has an input query-vector producer. Layer-1 has **no** producer (it reads `app-db` directly); `:<-` is the **literal** producer (a fixed list of input query vectors known at registration); and an `input-fn` is the **query-parametric** producer (it computes the input query vectors from the outer `query-v`).
 
-This is what `reg-sub`'s optional first function is. It is a v2 **`input-fn`**: a **pure** function from the outer subscription `query-v` to a vector of input query vectors — **not** a v1 reaction-returning signal function. The runtime resolves each returned query vector through the ordinary [§Lookup algorithm](#lookup-algorithm) in the same frame as the outer subscription, then calls the computation function with the resolved input *values* (in order) and the outer `query-v`.
+This is what `reg-sub`'s optional first function is. It is a v2 **`input-fn`**: a **pure** function from the outer subscription `query-v` to a vector of input query vectors — **not** a v1 reaction-returning signal function. The runtime resolves each returned query vector through the ordinary [§Lookup algorithm](#lookup-algorithm) in the same frame as the outer subscription, then calls the computation function with the resolved input *values* (in order) and the outer `query-v`. Input-production equivalence does not erase handler delivery shape: static `:<-` preserves the v1 convention (one input -> bare value, multiple inputs -> vector), while parametric `input-fn` subscriptions always deliver a vector of resolved input values, including the single-input case.
 
 ```clojure
 (rf/reg-sub
@@ -965,7 +965,15 @@ The per-frame **sub-cache** ([§Subscription cache invalidation](#subscription-c
         ;; entry's input topology is FIXED once materialized (the input-fn does
         ;; not re-run on recompute — fixed-topology-per-cache-entry invariant).
         r        (ratom/make-reaction
-                   (fn [] (apply body-fn (conj (mapv deref inputs) query-v))))]
+                   (fn []
+                     (let [body-arg (case (:input-kind meta)
+                                      :db         (adapter/read-container (frame-app-db frame))
+                                      :parametric (mapv deref inputs)
+                                      :static     (case (count inputs)
+                                                    0 nil
+                                                    1 @(first inputs)
+                                                    (mapv deref inputs)))]
+                       (body-fn body-arg query-v)))))]
     ;; Store the realized input QUERY-VECTORS (not the containers) so disposal,
     ;; trace, and Xray can read this entry's realized parametric edges.
     (swap! (:sub-cache frame) assoc k {:reaction r :inputs input-qs :ref-count 1})
