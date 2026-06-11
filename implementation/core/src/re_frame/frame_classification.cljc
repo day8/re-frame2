@@ -104,7 +104,9 @@
   "Build the `:rf.error/bad-frame-classification` ex-info with the canonical
   thrown-error shape (Spec 009 §The thrown-error shape). `reason` is the
   human-facing message; `extras` names the offending slot (`:bad-key`,
-  `:bad-path`, `:bad-carrier`, `:bad-entry`, `:bad-value`)."
+  `:bad-path`, `:bad-segment`, `:bad-carrier`, `:bad-entry`, `:bad-value`)
+  and MAY carry `:rf.error/cause` (the inner `:rf.error/id` of a wrapped
+  path error — kept distinct so it never clobbers this error's own id)."
   [frame-id reason extras]
   (ex-info (str :rf.error/bad-frame-classification)
            (merge {:rf.error/id :rf.error/bad-frame-classification
@@ -116,13 +118,18 @@
 
 ;; ---- path validation (EP-0012 :rf/path) ----------------------------------
 ;;
-;; `:sensitive :app-db` / `:large :app-db` entries are `:rf/path` values.
-;; A well-formed declaration is a VECTOR of paths; each path is a
-;; sequential collection of scalar segments (the empty path `[]` is legal
-;; — it marks the whole app-db). `rf.path/normalize` is the EP-0012 helper:
-;; it canonicalises a sequential path to a vector and THROWS
-;; `:rf.error/bad-path` on a non-sequential path. We catch that and re-raise
-;; as the frame-classification error so the author sees the frame + key.
+;; `:sensitive :app-db` / `:large :app-db` entries are concrete `:rf/path`
+;; values. A well-formed declaration is a VECTOR of paths; each path is a
+;; sequential collection of CONCRETE EDN segments (the empty path `[]` is
+;; legal — it marks the whole app-db). `rf.path/normalize-concrete` is the
+;; EP-0012 VALIDATED concrete boundary (rf2-w9x5fv item 2): it canonicalises
+;; a sequential path to a vector AND fails closed with `:rf.error/bad-path`
+;; on a non-sequential path OR any segment outside the concrete EDN domain
+;; (an opaque host object, a function, a template-parameter segment). We
+;; catch that and re-raise as the frame-classification error so the author
+;; sees the frame + key. This is a concrete declaration boundary, so it MUST
+;; use `normalize-concrete`, never bare `normalize` — a host/opaque segment
+;; in a stored elision path is rejected here, not silently stored.
 
 (defn- normalize-app-db-paths
   "Validate + normalise the `:app-db` paths of a `:sensitive` / `:large`
@@ -153,15 +160,21 @@
                             ":rf/path (a sequential collection of segments)")
                        {:bad-key [class-key :app-db] :bad-path p})))
             (try
-              (path/normalize p)
+              (path/normalize-concrete p)
               (catch #?(:clj Exception :cljs :default) e
                 (throw (classification-error
                          frame-id
                          (str class-key " :app-db carries a malformed "
                               ":rf/path: " #?(:clj (.getMessage e)
                                               :cljs (ex-message e)))
+                         ;; Surface the offending segment + the inner path
+                         ;; error cause WITHOUT clobbering this error's own
+                         ;; `:rf.error/id :rf.error/bad-frame-classification`
+                         ;; (the inner cause is `:rf.error/bad-path`).
                          (merge {:bad-key [class-key :app-db] :bad-path p}
-                                (select-keys (ex-data e) [:rf.error/id])))))))
+                                (when-some [cause (:rf.error/id (ex-data e))]
+                                  {:rf.error/cause cause})
+                                (select-keys (ex-data e) [:bad-segment])))))))
           paths)))
 
 ;; ---- HTTP carrier validation --------------------------------------------

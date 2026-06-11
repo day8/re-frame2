@@ -335,12 +335,14 @@
   (testing "the empty vector is the canonical root path"
     (is (= [] (path/normalize [])))
     (is (= [] (path/normalize (list))))
-    ;; KNOWN GAP (rf2-w9x5fv item 1 / rf2-wgutc2 item 3): nil currently
-    ;; normalizes to root [] — flagged for an explicit-root source change.
-    ;; Pinned here so the behaviour is documented, not relied upon silently.
-    ;; SPEC-CORRECT once the fix lands: nil -> :rf.error/bad-path. Flip to:
-    ;;   (is (thrown? ... (path/normalize nil)))
-    (is (= [] (path/normalize nil))))
+    ;; rf2-w9x5fv item 1: the root path is the EXPLICIT empty vector [], and a
+    ;; nil path fails closed with :rf.error/bad-path — an omitted path is NOT
+    ;; silently the whole value. (Hardened from the prior nil->[] coercion.)
+    (is (= :rf.error/bad-path
+           (try (path/normalize nil) nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                  (:rf.error/id (ex-data e)))))
+        "nil is not the root path — it fails closed (explicit [] is the root)"))
   (testing "a non-sequential path fails closed with :rf.error/bad-path"
     (is (= :rf.error/bad-path
            (try (path/normalize :not-a-path) nil
