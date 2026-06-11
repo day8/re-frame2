@@ -30,7 +30,8 @@
    (in the framework test tree at
    `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`;
    the example tree is test-free, rf2-8cevm) run without a network."
-  (:require [re-frame.core :as rf]))
+  (:require [clojure.string]
+            [re-frame.core :as rf]))
 
 ;; ============================================================================
 ;; CONFIG
@@ -43,6 +44,54 @@
 
 (defn full-url [path]
   (str api-base path))
+
+;; ============================================================================
+;; PAGINATION (official RealWorld spec — limit/offset query params)
+;; ============================================================================
+;;
+;; The Conduit API paginates every article list (global, tag-filtered, the
+;; authenticated feed, and a profile's authored / favorited lists) with two
+;; query params:
+;;
+;;   ?limit=<page-size>&offset=<rows-to-skip>
+;;
+;; and returns the GRAND total under `articlesCount` (the count BEFORE the
+;; limit/offset window — how many articles match the query, not how many this
+;; page returned). The canonical Conduit frontend renders a 1-indexed
+;; page-number control and computes the page count as
+;; `(Math.ceil articlesCount / limit)` with a fixed page size of 10. This
+;; example follows that shape: the route carries a 1-indexed `?page=N` (so
+;; back/forward and bookmarking work), and the request builder below converts
+;; it to the wire's 0-based `offset`.
+
+(def page-size
+  "Articles per page. Matches the canonical Conduit frontend's fixed page
+   size of 10 (the official client hardcodes `Math.ceil(articlesCount / 10)`)."
+  10)
+
+(defn page->offset
+  "Convert a 1-indexed UI page number to the 0-based `offset` the Conduit
+   API expects (`offset = (page - 1) * limit`). Clamps a stray nil / sub-1
+   page (e.g. a hand-typed `?page=0` URL) to page 1."
+  [page]
+  (* (dec (max 1 (or page 1))) page-size))
+
+(defn page-count
+  "Total number of pages for `articles-count` items at the fixed `page-size`
+   — `(ceil articles-count / page-size)`, never below 1 (an empty list is
+   still one — empty — page). Mirrors the official frontend's
+   `Math.ceil(articlesCount / 10)`."
+  [articles-count]
+  (max 1 (long (js/Math.ceil (/ (or articles-count 0) page-size)))))
+
+(defn paginate-path
+  "Append the `limit` + `offset` query params for `page` (1-indexed) to a
+   list `path`, preserving any params the path already carries (e.g.
+   `/articles?tag=foo` → `/articles?tag=foo&limit=10&offset=20`). The API
+   base is added later by the request builder via `full-url`."
+  [path page]
+  (let [sep (if (clojure.string/includes? path "?") "&" "?")]
+    (str path sep "limit=" page-size "&offset=" (page->offset page))))
 
 ;; ============================================================================
 ;; RETRY POLICIES (Spec 014 §Retry and backoff)

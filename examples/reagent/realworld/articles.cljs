@@ -230,11 +230,16 @@
          `:some`)."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+  ;; `?page=` (1-indexed, durable on the route query) becomes the wire's
+  ;; limit/offset window via `rh/paginate-path` (official RealWorld pagination).
   (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [tag       (get-in rt [:rf.runtime/routing :current :query :tag])
-          path      (if tag
+    (let [query     (get-in rt [:rf.runtime/routing :current :query])
+          tag       (:tag query)
+          page      (or (:page query) 1)
+          base      (if tag
                       (str "/articles?tag=" tag)
                       "/articles")
+          path      (rh/paginate-path base page)
           has-data? (seq (get-in db [:articles :data]))]
       {:db (-> db
                (assoc-in [:articles :status] (if has-data? :fetching :loading))
@@ -258,10 +263,15 @@
          `:resolving` `:always`-cascade picks `:empty` or `:some`."}
   [(rf/inject-cofx :realworld/now)]
   (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
-    (let [items (vec (:articles value))]
+    (let [items (vec (:articles value))
+          ;; `articlesCount` is the GRAND total (all matching articles), not
+          ;; this page's size — it drives the page-count. Fall back to the
+          ;; page size when the server omits it (older backends).
+          total (or (:articlesCount value) (count items))]
       {:db (-> db
                (assoc-in [:articles :status] :loaded)
                (assoc-in [:articles :data] items)
+               (assoc-in [:articles :articles-count] total)
                (assoc-in [:articles :error] nil)
                (assoc-in [:articles :loaded-at] now))
        :fx [[:dispatch [:realworld/articles-home
@@ -298,6 +308,7 @@
 (rf/reg-sub :articles/slice      (fn [db _] (:articles db)))
 (rf/reg-sub :articles/data       :<- [:articles/slice] (fn [s _] (:data s)))
 (rf/reg-sub :articles/error      :<- [:articles/slice] (fn [s _] (:error s)))
+(rf/reg-sub :articles/count      :<- [:articles/slice] (fn [s _] (:articles-count s 0)))
 
 ;; The `:tags/data` sub is defined in `realworld.tags`. The
 ;; popular-tags lifecycle is the :data-region machine variant of
@@ -349,6 +360,38 @@
       :user-feed (or feed-items [])
       (or global-items []))))
 
+;; ---- pagination (official RealWorld limit/offset) ----
+;;
+;; The page-number control + articles-count read from the SAME `:feed` region
+;; the article list reads from: the active feed's grand `articlesCount` drives
+;; the page count, and the 1-indexed current page rides the route query.
+
+(rf/reg-sub :articles.home/articles-count
+  {:doc "Grand article count for the active home feed (global / user-feed),
+         from whichever slice the `:feed` region is rendering. Drives the
+         page count."}
+  :<- [:rf/machine :realworld/articles-home]
+  :<- [:articles/count]
+  :<- [:feed/count]
+  (fn sub-home-count [[snap global-count feed-count] _]
+    (case (get-in snap [:state :feed])
+      :user-feed (or feed-count 0)
+      (or global-count 0))))
+
+(rf/reg-sub :articles.home/current-page
+  {:doc "The 1-indexed current page for the home feed, read off the route
+         query (`?page=`; `:query-defaults {:page 1}` fills it when absent)."}
+  :<- [:home/query]
+  (fn sub-home-page [query _]
+    (or (:page query) 1)))
+
+(rf/reg-sub :articles.home/page-count
+  {:doc "Total number of pages for the active home feed —
+         `(ceil articles-count / page-size)`, never below 1."}
+  :<- [:articles.home/articles-count]
+  (fn sub-home-page-count [total _]
+    (rh/page-count total)))
+
 ;; ============================================================================
 ;; VIEWS
 ;; ============================================================================
@@ -382,6 +425,26 @@
        (for [tag tagList]
          ^{:key tag}
          [:li.tag-default.tag-pill.tag-outline tag])]]]))
+
+(reg-view ^{:doc "Official RealWorld page-number control. Renders the
+                  Conduit `.pagination` / `.page-item` / `.page-link` markup
+                  with the active page marked `.active`. Reused by the home
+                  feeds and the profile lists — `on-select` is a 1-arg fn
+                  (page-number → navigation) so each call site routes to its
+                  own `?page=`. A single page renders nothing (the official
+                  client hides the control when there is nothing to page)."}
+          pagination [{:keys [current-page page-count on-select]}]
+  (when (> page-count 1)
+    [:nav
+     [:ul.pagination
+      (for [page (range 1 (inc page-count))]
+        ^{:key page}
+        [:li.page-item {:class (when (= page current-page) "active")}
+         [:a.page-link
+          {:href        "#"
+           :data-testid (str "pagination-page-" page)
+           :on-click    #(do (.preventDefault %) (on-select page))}
+          page]])]]))
 
 ;; ---- per-render-state subviews ----
 
@@ -420,7 +483,9 @@
         on-global?    @(rf/machine-has-tag? :realworld/articles-home :feed/global)
         tag-filtered? @(rf/machine-has-tag? :realworld/articles-home :filter/tagged)
         tags          @(subscribe [:tags/data])
-        render-mode   @(subscribe [:articles.home/render])]
+        render-mode   @(subscribe [:articles.home/render])
+        current-page  @(subscribe [:articles.home/current-page])
+        page-count    @(subscribe [:articles.home/page-count])]
     [:div.home-page
      [:div.banner
       [:div.container
@@ -458,7 +523,10 @@
           :error   [articles-error]
           :empty   [articles-empty]
           :some    [articles-some]
-          [articles-empty])]
+          [articles-empty])
+        [pagination {:current-page current-page
+                     :page-count   page-count
+                     :on-select    #(dispatch [:home/show-page %])}]]
        [:div.col-md-3
         [:div.sidebar
          [:p "Popular Tags"]

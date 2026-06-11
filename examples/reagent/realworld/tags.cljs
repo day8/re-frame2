@@ -263,6 +263,11 @@
              your-feed?       (conj [:dispatch [:feed/load]])
              (not your-feed?) (conj [:dispatch [:articles/load]]))})))
 
+;; Switching feed or tag, or clearing a filter, builds a fresh query and so
+;; drops any in-flight `?page=` — landing back on page 1, which is the
+;; official Conduit behaviour (the page-number control resets when the feed or
+;; tag changes). Only `:home/show-page` carries the other query keys forward.
+
 (rf/reg-event-fx :home/show-global-feed
   (fn [_ _]
     {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {}}]]]}))
@@ -271,13 +276,23 @@
   (fn [_ _]
     {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:feed "your"}}]]]}))
 
+(rf/reg-event-fx :home/show-page
+  {:doc "Navigate to a 1-indexed pagination page for the active home feed,
+         carrying the current `?feed=` / `?tag=` forward so paging stays
+         within the same feed. Changing `?page=` re-fires the `:realworld/home`
+         `:on-match` (Spec 012 — same route, changed query), re-running
+         `:home/load` and the per-feed fetch with the new limit/offset window."}
+  (fn [{rt :rf.db/runtime} [_ page]]
+    (let [query (assoc (home-query rt) :page page)]
+      {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query query}]]]})))
+
 (rf/reg-event-fx :tags/apply-filter
   (fn [_ [_ tag]]
     {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:tag tag}}]]]}))
 
 (rf/reg-event-fx :tags/clear-filter
   (fn [{rt :rf.db/runtime} _]
-    (let [query (dissoc (home-query rt) :tag)]
+    (let [query (dissoc (home-query rt) :tag :page)]
       {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query query}]]]})))
 
 (rf/reg-sub :home/query
