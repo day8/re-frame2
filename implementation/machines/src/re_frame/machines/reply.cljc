@@ -79,22 +79,27 @@
 ;;                         no `#n` suffix carries generation 1.
 ;; ---------------------------------------------------------------------------
 
-(defn- actor-generation
+(defn actor-generation
   "Parse the spawn generation off an `actor-id` of the form
   `<type>#<n>` (the instance id the spawn-counter mints — see
   `lifecycle-fx.spawn/allocate-actor-id-in-runtime-db`). Returns the
   integer `n`, or 1 when the id carries no `#n` suffix (an explicit
-  per-state-singleton `:spawn-id` actor — one attempt, generation 1)."
+  per-state-singleton `:spawn-id` actor — one attempt, generation 1).
+  nil-safe: returns nil for a nil id (no live counterpart). Public so the
+  finalize path can read the LIVE spawn-slot occupant's generation as the
+  `:current` counterpart of the stale-spawn carried/current gate."
   [actor-id]
-  (let [nm (when (keyword? actor-id) (name actor-id))
-        i  (when nm #?(:clj  (.lastIndexOf ^String nm "#")
-                       :cljs (.lastIndexOf nm "#")))]
-    (if (and i (nat-int? i) (pos? i))
-      (let [suffix (subs nm (inc i))
-            n      #?(:clj  (try (Long/parseLong suffix) (catch Exception _ nil))
-                      :cljs (let [x (js/parseInt suffix 10)] (when-not (js/isNaN x) x)))]
-        (or n 1))
-      1)))
+  (if (nil? actor-id)
+    nil
+    (let [nm (when (keyword? actor-id) (name actor-id))
+          i  (when nm #?(:clj  (.lastIndexOf ^String nm "#")
+                         :cljs (.lastIndexOf nm "#")))]
+      (if (and i (nat-int? i) (pos? i))
+        (let [suffix (subs nm (inc i))
+              n      #?(:clj  (try (Long/parseLong suffix) (catch Exception _ nil))
+                        :cljs (let [x (js/parseInt suffix 10)] (when-not (js/isNaN x) x)))]
+          (or n 1))
+        1))))
 
 (defn spawn-work-id
   "Build the machine work-id for one spawned-actor attempt:
@@ -185,17 +190,33 @@
   app mutation. `:stale/reason :rf.machine/actor-not-live`,
   `:work/status :suppressed`.
 
-  `ctx` keys mirror `success-reply`'s. The carried/current correlation
-  facts ride the trace via `stale-spawn-trace`."
+  `ctx` keys mirror `success-reply`'s (`:actor-id`, `:parent-id`,
+  `:work-bearing-path`, `:frame`, `:completed-at`) plus an optional
+  `:current-generation` — the generation currently occupying the spawn
+  slot at completion (the LIVE counterpart), or nil when the slot is gone
+  (the parent was destroyed, or the slot was never reused). Mirroring the
+  `:after` path's carried/current gate, the correlation carries the
+  carried-vs-current generation pair under
+  `:generation {:carried <n> :current <m-or-nil>}` — `:carried` is the
+  generation parsed off the finishing actor's id (the `<type>#<n>` suffix),
+  `:current` is `:current-generation`. The pair is the data-only
+  supersession gate: `:carried` != `:current` (including a nil `:current`
+  — no live counterpart) is exactly why the completion is stale. The
+  whole correlation map elides through the shared trace summary
+  (`stale-spawn-trace`)."
   [ctx]
-  (let [{:keys [actor-id parent-id work-bearing-path frame completed-at]} ctx]
+  (let [{:keys [actor-id parent-id work-bearing-path frame completed-at
+                current-generation]} ctx
+        carried-generation (actor-generation actor-id)]
     (cond-> {:status       :stale
              :stale?       true
              :stale/reason :rf.machine/actor-not-live
              :work/id      (spawn-work-id actor-id work-bearing-path)
              :work/kind    :machine
              :work/status  :suppressed
-             :correlation  (cond-> {:actor-id actor-id}
+             :correlation  (cond-> {:actor-id   actor-id
+                                    :generation {:carried carried-generation
+                                                 :current current-generation}}
                              (some? parent-id)         (assoc :parent-id parent-id)
                              (some? work-bearing-path) (assoc :spawn-id (vec work-bearing-path)))}
       (some? frame)        (assoc :rf.frame/id frame)
@@ -268,3 +289,16 @@
   `:frame`)."
   ([reply] (trace-reply reply nil))
   ([reply opts] (reply/trace-summary reply opts)))
+
+(defn stale-spawn-trace
+  "Build a DATA-ONLY trace summary of a `stale-spawn-reply` for the
+  managed-async trace row that records a suppressed late spawned-actor
+  completion — the spawn-path counterpart of the `:after` path's
+  `after-stale-reply` → `trace-reply`. The wire-bearing slots (here
+  `:correlation`, carrying the carried/current generation gate) elide
+  through the single shared `re-frame.elision/elide-wire-value` walker via
+  `trace-reply`; the identity facts (`:status`, `:work/id`, `:work/kind`,
+  `:work/status`, `:stale/reason`, `:rf.frame/id`) ride verbatim. `opts`
+  is forwarded to the walker (e.g. `:frame`)."
+  ([reply] (stale-spawn-trace reply nil))
+  ([reply opts] (trace-reply reply opts)))
