@@ -1,12 +1,26 @@
 # EP-0016: Resource Mutation Completion, Scoped Invalidation Targets, And Named Scope Resolution
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
-> This EP proposes a narrow post-EP-0003 amendment to Spec 016:
+> This EP defines a narrow post-EP-0003 amendment to Spec 016:
 > mutation completion continuations, per-target scoped invalidation, named
 > resource-scope resolvers, and the small semantic riders needed to make those
 > features coherent.
+>
+> **Ruling recorded 2026-06-11 (Mike, in-session; bead `rf2-6o6a62`).**
+> Accepted. All nine open issues are dispositioned in
+> [§Open Issues](#open-issues) — six as recommended with riders, and three
+> sharpened in the ruling: issue 4 drops the migration window entirely
+> (map-form targets are the **only** public input form from day one; the tuple
+> is the internal/storage representation), issue 6 keys continuation delivery
+> on **acceptance** rather than a status enumeration (any accepted terminal
+> reply fires; stale/suppressed never do), and issue 7 replaces the
+> `:snapshot-db` escape hatch with the resolve-in-handler-from-coeffect idiom
+> plus a pure resolver helper (a whole-db snapshot on an event payload is an
+> egress-bearing record — rejected under EP-0015). Implementation is tracked
+> by the EP-0016 action epic, with the standard wave tails (correctness
+> review, repeat pass, and the four propagation beads).
 >
 > Normative home after acceptance: `spec/016-Resources.md`, with a small
 > routing-integration touch in `spec/012-Routing.md`, managed-HTTP guide
@@ -357,22 +371,22 @@ and inspect.
   (final).** This EP is a post-final amendment to the resources contract. It
   does not reopen the read-resource foundation, work ledger, route ownership,
   SSR, cache-hit, lifecycle, or HTTP-only graduation decisions.
-- **[EP-0011](EP-0011-uniform-async-reply-envelope.md) (proposal).** Mutation
+- **[EP-0011](EP-0011-uniform-async-reply-envelope.md) (accepted).** Mutation
   `:reply-to` uses the same core idea: async completion is a causal reply map
   delivered to an event target. EP-0016 is the concrete resources/mutations
   slice; EP-0011 remains the cross-family envelope proposal.
-- **[EP-0010](EP-0010-causal-world-inputs.md) (proposal).** Mutation replies
+- **[EP-0010](EP-0010-causal-world-inputs.md) (final).** Mutation replies
   that affect durable state must carry causal completion facts rather than
   asking handlers to read ambient time.
 - **[EP-0002](EP-0002-frame-target-resolution.md) (final).** All continuations,
   resource keys, and scope resolutions are frame-scoped. This EP adds no
   ambient default-frame fallback.
-- **[EP-0007](EP-0007-one-name-per-fact.md) (proposal).** The EP follows the
+- **[EP-0007](EP-0007-one-name-per-fact.md) (active).** The EP follows the
   one-name-per-fact rule: `:status` is the reply status, `:work/id` is the work
   identity, scope resolver ids are the named scope-derivation facts, and
   request decoration remains HTTP policy instead of becoming resource-local
   auth policy.
-- **[EP-0012](EP-0012-path-optics-and-canonical-forms.md) (proposal).** Named
+- **[EP-0012](EP-0012-path-optics-and-canonical-forms.md) (accepted).** Named
   scope resolver inputs and map-form resource targets should use canonical
   params/scope identity rules defined there where applicable.
 - **[EP-0014](EP-0014-derivation-and-process-algebra.md) (proposal).** Named
@@ -380,7 +394,7 @@ and inspect.
   (declared inputs, output, lifecycle), so if EP-0014 is accepted they slot
   into its algebra unchanged — but this EP specifies them independently and
   carries no dependency on that proposal.
-- **[EP-0015](EP-0015-frame-owned-egress-policy.md) (proposal).** Resource
+- **[EP-0015](EP-0015-frame-owned-egress-policy.md) (accepted).** Resource
   scope values, params, reply values, mutation payloads, and trace evidence
   produced by this EP must pass through the eventual egress projection policy.
 
@@ -1175,47 +1189,123 @@ by RealWorld dogfooding.
 
 ## Open Issues
 
+**All nine issues were ruled 2026-06-11 (Mike, in-session; bead `rf2-6o6a62`),
+merging three convergent analyses.** Original recommendations are kept verbatim
+as the record of what was ruled; dispositions and riders are inline.
+
 1. Should registration-level mutation `:reply-to` be added now?
    **Recommendation:** no. Defer until a real invariant non-cache workflow
    appears that cannot be cleanly expressed at call sites.
+   **Disposition: as recommended.** Riders: registration-level workflow would
+   hide app behavior inside the remote-write definition (the locality
+   argument); EP-0015's observability work is explicitly NOT the deferral
+   trigger — cross-cutting post-write concerns (toasts, logging) were already
+   considered-and-rejected to the instrumentation/interceptor axis (the
+   MutationCache rejection). If ever added, it is event-target-shaped, never a
+   callback.
 
 2. What exact input descriptor grammar should `reg-resource-scope` support?
    **Recommendation:** ship `[:db path]` first, reserve route/frame sources,
    and treat anonymous whole-db functions as explicit-cost sugar.
+   **Disposition: as recommended, now contractually grounded:** the
+   `{:inputs … :resolve …}` grammar is pinned forward-compatible by EP-0012's
+   disposition 3 (the reserved named-declaration shape), and the `path` in
+   `[:db path]` is an EP-0012 concrete `:rf/path`. Rider from EP-0015's
+   disposition 8: declared inputs make resolvers members of the
+   derived-sensitivity graph — whole-db sugar degrades both narrow
+   re-resolution and sensitivity-inheritance precision, so tooling marks the
+   whole-db cost on both axes.
 
 3. Should `:cross-scope?` remain after descriptors exist?
    **Recommendation:** keep it as an explicit broad operation with dev warnings
    and trace evidence. Do not let it become the ergonomic path.
+   **Disposition: as recommended, with the justification stated:** descriptors
+   can only name scopes the call site knows; "invalidate this tag in every
+   scope currently holding it" (admin tooling, cache-poisoning response,
+   migration) targets scopes unenumerable at the call site but known to the
+   cache — a genuinely different operation. Riders: cross-scope invalidations
+   MUST carry `:cause` evidence; the full lattice is — bare invalidate-tags
+   with no scope = loud error (fail-closed, `rf2-pvdae1`), descriptors = the
+   precise path, `:cross-scope? true` = the explicit audited escape; cross-scope
+   invalidations are privacy-relevant trace events per EP-0015.
 
 4. Should map-form exact targets replace tuple-style scoped keys immediately?
    **Recommendation:** make map form canonical in spec/docs/traces, accept old
    tuple forms during a short migration if the implementation already exposes
    them.
+   **Disposition: STRONGER than the recommendation — no migration window.**
+   The map form is the **only** accepted public input form from day one;
+   in-repo tuple writers (`realworld_resources/mutations.cljs`) are swept in
+   the same change (pre-alpha; no external consumers). The tuple remains the
+   documented **internal/storage** representation — this is an input-form vs
+   storage-form distinction recorded per EP-0007 rule 3, not two spellings of
+   one fact. Grounds: the `rf2-cg7llv` and EP-0010 disposition-5 lessons —
+   coexistence windows become permanent and the de-facto form wins. This also
+   eliminates the `rf2-vv87xz` spelling-ambiguity class at the API boundary.
 
 5. How should route-derived tenant scope be represented?
    **Recommendation:** do not add a second mechanism in this EP. Either mirror
    route match into frame state or reserve a named resolver input source for a
    later routing EP.
+   **Disposition: as recommended, with the reservation named precisely:** the
+   route match is already mirrored into the fold — `[:rf.runtime/routing
+   :current]` is durable runtime-db — so the reserved input source is
+   **`[:runtime path]`** (already in EP-0014's input vocabulary); no new
+   mirroring, no anonymous route functions. Deferred until a consumer; the
+   named un-defer consumer is the tenant-switcher testbed (`rf2-s6rviz`).
+   Selection rule: viewer identity that is app state → `[:db …]`; a pure
+   route fact → the reserved `[:runtime …]`.
 
 6. Should `:reply-to` fire for accepted error replies?
    **Recommendation:** yes. A workflow may need to fold validation errors,
    notifications, or form state. The reply `:status` tells the handler what
    happened. Stale/suppressed replies still do not fire.
+   **Disposition: yes — keyed on acceptance, not on a status enumeration.**
+   The rule: `:reply-to` fires for **any accepted terminal reply** (`:ok`,
+   `:error`, and an accepted terminal `:cancelled`); it never fires for
+   stale/suppressed replies. One rule, no per-status table to drift, and it
+   settles the cancellation edge the delivery rule left implicit.
 
 7. How should logout clear the old named scope after auth state is removed?
    **Recommendation:** require either concrete old scope or resolver evaluation
    against a supplied pre-change snapshot. Do not let `clear-scope` resolve
    against already-cleared db and silently do nothing.
+   **Disposition: REVISED — the snapshot API is dropped.** Canonical: the
+   logout handler resolves the **concrete** scope from its **coeffect db**
+   (pre-transition by definition — the existing idiom, and the EP-0010-coherent
+   answer: the cofx db is the causal input) and passes it to `clear-scope`
+   concretely. A pure helper — resolve a named resource scope against a given
+   db value — ships for ergonomics (a plain function over the registry; no new
+   effect-API surface, no resolution-timing ambiguity). `:snapshot-db` on the
+   event payload is rejected: a whole-db snapshot in an event vector is an
+   egress-bearing record riding traces and epoch history — unacceptable under
+   EP-0015. The §Logout clear-scope example is corrected in the action wave.
+   Tripwire: a `{:from-db …}` reference that resolves nil at a clear-scope
+   site emits a loud diagnostic, never a silent no-op. The single use-time
+   resolution rule for `{:from-db …}` references is preserved.
 
 8. Is `:refetch-populated?` the right spelling?
    **Recommendation:** yes unless the implementation already has a closer
    established option name. It says exactly what it changes.
+   **Disposition: as recommended** (no established competitor exists in
+   Spec 016). Wording precision for the spec edit: the flag changes exactly
+   whether a key populated by this mutation may be immediately refetched by
+   this same mutation's invalidation pass.
 
 9. Should optimistic rollback be the next resources EP?
    **Recommendation:** only when a consumer requires sub-RTT write feedback.
    The likely follow-on scope is optimistic `:on-start`, tag-addressed patching,
    per-entry revision tracking, rollback-by-invalidation on conflict, and
    explicit transaction traces.
+   **Disposition: as recommended — the deferral stands with its consumer
+   trigger.** Riders: the follow-on scope **keeps tag-addressed patching**
+   (the `patch-article-everywhere` cross-view-consistency demand is the
+   canonical motivating case; exact-key-only would ship the machinery while
+   missing the demand that justified it) and excludes the normalized graph
+   cache; the identity substrate for per-entry revision tracking is settled by
+   EP-0012's disposition 5; the recommended driver when the trigger fires is a
+   Linearlite-class port (the local-first ecosystem's canonical
+   optimistic-workload benchmark), not an invented stressor.
 
 ## Recommendation
 
