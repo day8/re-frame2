@@ -139,6 +139,27 @@
                        (state/empty-entry resource))
         prior-work (:current-work entry)
         in-flight? (some? prior-work)
+        ;; JOINABLE work (rf2-v4ygg5): an `ensure` may DEDUPE onto the prior
+        ;; attempt ONLY when that attempt is genuinely LIVE — its work record
+        ;; exists and its status is `:queued` / `:running`. A record that has
+        ;; been marked `:abort-requested` (the last owner released it, an
+        ;; opportunistic abort was issued) or that has reached a TERMINAL
+        ;; status (`:cancelled` / `:suppressed` / …) is DOOMED — joining it
+        ;; would leave the new owner attached to dead / dying work that will
+        ;; never produce a usable reply (the only reply it can produce is a
+        ;; suppressed/aborted one). Such a stale `:current-work` pointer can
+        ;; survive a route supersession (release-owner marks the record
+        ;; `:abort-requested` but leaves the entry's `:current-work` set) or a
+        ;; direct/internal aborted settlement (the `:rf.resource.internal/
+        ;; aborted` handler settles the row terminal but makes no entry write),
+        ;; so the pointer alone is NOT proof of joinable work — the LINKED
+        ;; RECORD'S status is. A non-joinable prior pointer falls through to a
+        ;; fresh load (a new generation), which is the correct re-ensure.
+        prior-record (when prior-work (work-ledger/get-record runtime-db prior-work))
+        prior-status (:status prior-record)
+        joinable?  (and (some? prior-record)
+                        (not (work-ledger/terminal? prior-status))
+                        (not= :abort-requested prior-status))
         ;; FRESH-SKIP gate (Spec 016 §Lifecycle is an FSM / §Restore and
         ;; replay): an `ensure` (never a `refetch`) of an already-`:loaded`
         ;; entry that is NOT in flight and is still fresh-by-policy serves
@@ -213,8 +234,13 @@
       ;; Attach any supplied owner to the existing entry + record the cause;
       ;; do NOT start a new generation. Join the SAME work-ledger record
       ;; (attach owner / append cause). Per Spec 016 §Race (ensure while in
-      ;; flight joins the existing current work record).
-      (and in-flight? (not force-new?))
+      ;; flight joins the existing current work record). Gated on `joinable?`
+      ;; (rf2-v4ygg5): only a LIVE (:queued / :running) prior attempt is
+      ;; joinable — an `:abort-requested` (owner-released, doomed) or terminal
+      ;; (`:cancelled` / suppressed) prior record falls through to a fresh
+      ;; load below, so a route supersession + immediate re-ensure never joins
+      ;; dead work.
+      (and joinable? (not force-new?))
       (let [joined (cond-> entry
                      owner (update :active-owners (fnil conj #{}) owner))
             rdb'   (-> runtime-db

@@ -37,6 +37,7 @@
    [re-frame.resources]
    [re-frame.resources.route :as route]
    [re-frame.resources.state :as state]
+   [re-frame.resources.work-ledger :as work-ledger]
    [re-frame.resources.test-support]
    [re-frame.routing :as routing]
    [re-frame.schemas]
@@ -281,6 +282,75 @@
       (is (not (contains? (:active-owners (entry scoped-key))
                           [:route :route/article token-1]))
           "the prior route owner was released on leave"))))
+
+;; ---- rf2-v4ygg5: route A→B (same scoped key) does not join abort-requested -
+;; A route leave releases the prior nav-token owner, which marks an in-flight
+;; attempt :abort-requested while the entry still points at it. An immediate
+;; re-entry of the SAME scoped key must NOT join that doomed work — it starts
+;; a fresh attempt, and a blocking re-entry must drain on the FRESH reply (not
+;; hang waiting on a reply the aborted work will never send).
+
+(defn- work-record-for [scoped-key]
+  (work-ledger/get-record (rf/runtime-db-value :rf/default) (:current-work (entry scoped-key))))
+
+(deftest route-resupersede-same-key-does-not-join-abort-requested-non-blocking
+  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-route :route/article
+                {:path      "/articles/:slug"
+                 :params    [:map [:slug :string]]
+                 :resources [{:resource :article/by-slug
+                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]})
+  (rf/reg-route :route/home {:path "/"})
+  (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
+    ;; enter route A: the resource is in flight under token-1's route owner
+    (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
+    (let [token-1 (:nav-token (slice))
+          wid1    (:current-work (entry scoped-key))
+          gen1    (:generation (entry scoped-key))]
+      (is (= :running (:status (work-record-for scoped-key))))
+      ;; leave (route B = home): releases token-1's route owner → wid1 becomes
+      ;; :abort-requested; the entry still points at wid1.
+      (rf/dispatch-sync [:rf.route/navigate :route/home])
+      (is (= :abort-requested (:status (work-ledger/get-record (rf/runtime-db-value :rf/default) wid1)))
+          "the superseded route's in-flight work is abort-requested")
+      ;; re-enter the SAME route + same slug → re-ensure the same scoped key
+      (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
+      (testing "rf2-v4ygg5 — the re-entry started a FRESH attempt, not a join
+                onto the abort-requested work"
+        (let [e (entry scoped-key)]
+          (is (= (inc gen1) (:generation e)) "fresh generation on re-entry")
+          (is (not= wid1 (:current-work e)) "a new work id (not the abort-requested one)")
+          (is (= :running (:status (work-record-for scoped-key))) "the new attempt is live")
+          (is (contains? (:active-owners e) [:route :route/article (:nav-token (slice))])
+              "the re-entry nav-token owns the fresh attempt"))))))
+
+(deftest route-resupersede-same-key-blocking-transition-drains
+  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-route :route/article
+                {:path      "/articles/:slug"
+                 :params    [:map [:slug :string]]
+                 :resources [{:resource  :article/by-slug
+                              :params    (fn [route] {:slug (get-in route [:params :slug])})
+                              :blocking? true}]})
+  (rf/reg-route :route/home {:path "/"})
+  (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
+    (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
+    (let [wid1 (:current-work (entry scoped-key))]
+      (rf/dispatch-sync [:rf.route/navigate :route/home])
+      (is (= :abort-requested (:status (work-ledger/get-record (rf/runtime-db-value :rf/default) wid1))))
+      ;; re-enter the blocking route on the SAME key
+      (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
+      (let [token-2 (:nav-token (slice))]
+        (testing "rf2-v4ygg5 — the blocking re-entry holds :loading on a FRESH
+                  attempt (it did not join the abort-requested work)"
+          (is (= :loading (:transition (slice))) "blocking transition is loading on a fresh attempt")
+          (is (not= wid1 (:current-work (entry scoped-key))) "fresh work id, not the aborted one")
+          (is (contains? (blocking-slot token-2) scoped-key) "the new token's blocking slot tracks the key"))
+        (testing "the FRESH attempt's reply drains the blocking slot → :idle
+                  (the route does not hang on the aborted work's missing reply)"
+          (settle-success! scoped-key {:title "Intro"})
+          (is (= :idle (:transition (slice))) "blocking transition drained on the fresh reply")
+          (is (empty? (blocking-slot token-2)) "the blocking slot drained"))))))
 
 ;; ===========================================================================
 ;; 6. :when gates the resource out
