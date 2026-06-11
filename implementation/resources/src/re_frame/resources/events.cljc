@@ -63,6 +63,7 @@
             [re-frame.resources.registry :as registry]
             [re-frame.resources.reply :as rreply]
             [re-frame.resources.route :as route]
+            [re-frame.resources.scope-registry :as scope-registry]
             [re-frame.resources.state :as state]
             [re-frame.resources.transport :as transport]
             [re-frame.resources.work-ledger :as work-ledger]
@@ -825,25 +826,14 @@
 
 ;; ---- clear-scope — the causal logout / tenant-switch boundary --------------
 
-(defn clear-scope-handler
-  "`:rf.resource/clear-scope` — causal scope clear (Spec 016 §clear-scope
-  is causal). Removes every entry in the scope, releases its owners from
-  the owner-index, marks each in-scope in-flight work record terminal
-  `:cancelled`, best-effort aborts those attempts (opportunistic), and
-  emits an explaining trace. Stale suppression by work-id + generation
-  remains the correctness boundary — the entry a late reply would write
-  into is gone, so the reply handler's existence check suppresses it; the
-  abort is the optimisation. Payload: `{:scope :cause}`.
-
-  The concrete `:scope` is routed through the shared
-  `state/canonicalize-scope` validation path (rf2-hosnba, rf2-lzv9xc) so a
-  reserved-namespace typo (`:rf.scope/glabal`) or a host / non-EDN scope
-  value fails closed through the SAME single path every other scope-bearing
-  operation uses — a typo can never silently clear the WRONG scope (a
-  cross-tenant data wipe)."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [scope cause]}]]
-  (let [runtime-db (or rt {})
-        cscope     (state/canonicalize-scope scope 'rf.resource/clear-scope nil)
+(defn- clear-scope-handler*
+  "The clear-scope body once `scope` is a resolved concrete value (a literal
+  scope, or a `{:from-db …}` reference already resolved against app-db). Routes
+  the concrete scope through the shared `state/canonicalize-scope` validation
+  path, then removes the in-scope entries, settles their in-flight work rows
+  `:cancelled`, recomputes indexes, and emits the explaining trace + fx."
+  [runtime-db frame-id scope cause]
+  (let [cscope     (state/canonicalize-scope scope 'rf.resource/clear-scope nil)
         entries    (get-in runtime-db (state/entries-path))
         in-scope   (into #{} (comp (filter (fn [[k _]] (= cscope (first k))))
                                    (map key))
@@ -885,6 +875,75 @@
            (seq in-scope)
            (conj [:rf.resource/cancel-timers
                   {:frame-id frame-id :resource-keys (vec in-scope)}]))}))
+
+(defn clear-scope-handler
+  "`:rf.resource/clear-scope` — causal scope clear (Spec 016 §clear-scope
+  is causal). Removes every entry in the scope, releases its owners from
+  the owner-index, marks each in-scope in-flight work record terminal
+  `:cancelled`, best-effort aborts those attempts (opportunistic), and
+  emits an explaining trace. Stale suppression by work-id + generation
+  remains the correctness boundary — the entry a late reply would write
+  into is gone, so the reply handler's existence check suppresses it; the
+  abort is the optimisation. Payload: `{:scope :cause}`.
+
+  The concrete `:scope` is routed through the shared
+  `state/canonicalize-scope` validation path (rf2-hosnba, rf2-lzv9xc) so a
+  reserved-namespace typo (`:rf.scope/glabal`) or a host / non-EDN scope
+  value fails closed through the SAME single path every other scope-bearing
+  operation uses — a typo can never silently clear the WRONG scope (a
+  cross-tenant data wipe).
+
+  **`{:from-db <id>}` reference resolution** (rf2-mfnc5i, Spec 016 §clear-scope
+  is causal / §Named resource-scope resolvers): a `:scope` MAY be a
+  `{:from-db <resolver-id>}` named-resolver reference, resolved at USE TIME
+  against this handler's app-db coeffect (the single use-time rule, uniform
+  with event / route / sub / remove). A reference that resolves NIL at a
+  clear-scope site is FAIL-CLOSED with a loud
+  `:rf.warning/resource-clear-scope-unresolved` diagnostic — NEVER a silent
+  no-op (it INTENDED to derive the tenant / user / leak-boundary scope to wipe
+  and could not; clearing nothing — or matching the literal reference map,
+  which keys nothing — would be the silent no-op the spec prohibits). The
+  resolved concrete scope is then routed through `state/canonicalize-scope`
+  exactly as a literal scope is. Per Spec 016 §clear-scope is causal."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db} [_event-id {:keys [scope cause]}]]
+  (let [runtime-db (or rt {})
+        ;; EP-0016 D3 / rf2-mfnc5i: resolve a `{:from-db …}` reference at use
+        ;; time against the handler's app-db coeffect. A reference that resolves
+        ;; NIL is FAIL-CLOSED with a loud diagnostic (see the early return
+        ;; below) — never canonicalized as a literal scope map (which would
+        ;; match no entry → the silent no-op Spec 016 prohibits).
+        from-db?   (scope-registry/from-db-reference? scope)
+        resolved   (if from-db?
+                     (scope-registry/resolve-from-db-reference
+                       scope app-db 'rf.resource/clear-scope)
+                     scope)]
+    (if (and from-db? (nil? resolved))
+      ;; FAIL-CLOSED: a {:from-db …} reference resolved nil at a clear-scope
+      ;; site — emit the loud dev diagnostic and clear NOTHING. The resolver's
+      ;; declared :inputs are not present in db (e.g. no logged-in user); a
+      ;; derived scope that cannot resolve is the unresolved condition, never
+      ;; permission to clear global or silently no-op. Per Spec 016 §clear-scope
+      ;; is causal (EP-0016 issue-7 tripwire).
+      (do
+        (trace/emit! :warning :rf.warning/resource-clear-scope-unresolved
+                     {:rf.frame/id frame-id
+                      :scope       scope
+                      :from-db     (:from-db scope)
+                      :cause       cause
+                      :recovery    :fix-scope
+                      :hint        (str ":rf.resource/clear-scope referenced named "
+                                        "scope resolver " (pr-str (:from-db scope))
+                                        " via {:from-db …}, but it resolved NIL "
+                                        "against the current db — FAIL-CLOSED. "
+                                        "Nothing was cleared (a {:from-db …} that "
+                                        "cannot resolve is NEVER a silent no-op, and "
+                                        "NEVER a fall-through to clearing global / "
+                                        "another tier). The resolver's declared "
+                                        ":inputs are not present in db (e.g. no "
+                                        "logged-in user at logout). Per Spec 016 "
+                                        "§clear-scope is causal.")})
+        {})
+      (clear-scope-handler* runtime-db frame-id resolved cause))))
 
 ;; ---- remove — single-instance cache removal --------------------------------
 

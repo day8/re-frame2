@@ -42,6 +42,7 @@
    [re-frame.schemas]
    [re-frame.http-managed]
    [re-frame.registrar :as registrar]
+   [re-frame.trace.tooling :as trace-tooling]
    [re-frame.test-support :as core-test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
@@ -256,3 +257,70 @@
       (settle-loaded! (session-key "abel" 1) {:for "abel"})
       (is (= :loaded (:status @sub)))
       (is (= {:for "abel"} (:data @sub)) "the sub now reads abel's data"))))
+
+;; ===========================================================================
+;; 5. rf2-mfnc5i — {:from-db} on a CLEAR-SCOPE payload resolves at use time;
+;;    a nil-resolving reference is a loud warning + fail-closed (never a
+;;    silent no-op). Slice-3 wired event/route/sub/remove but missed
+;;    clear-scope. Spec 016 §clear-scope is causal.
+;; ===========================================================================
+
+(defn- record-clear-scope-warnings!
+  "Run `body-fn` with a trace listener installed; return the vector of every
+  `:rf.warning/resource-clear-scope-unresolved` event emitted during it (in
+  capture order). The listener is unregistered in a `finally`."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::clear-scope-recorder]
+    (trace-tooling/register-listener!
+      k (fn [ev]
+          (when (= :rf.warning/resource-clear-scope-unresolved (:operation ev))
+            (swap! seen conj ev))))
+    (try (body-fn)
+         (finally (trace-tooling/unregister-listener! k)))
+    @seen))
+
+(deftest clear-scope-from-db-resolves-and-clears-the-resolved-scope
+  (rf/dispatch-sync [:t/login "jake"])
+  ;; ensure + load jake's feed under the db-derived session scope
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                          :owner [:lease :c 1]}])
+  (settle-loaded! (session-key "jake" 1) {:for "jake"})
+  (is (some? (entry (session-key "jake" 1))) "jake's entry loaded")
+  (testing "a {:from-db …} clear-scope payload RESOLVES against app-db at use
+            time and clears the resolved session scope (never the literal
+            reference map, which would match nothing — the silent no-op the
+            spec prohibits)"
+    (rf/dispatch-sync [:rf.resource/clear-scope
+                       {:scope {:from-db :t/session} :cause :logout}])
+    (is (nil? (entry (session-key "jake" 1)))
+        "jake's session-scoped entry was cleared via the resolved {:from-db} scope")
+    (is (empty? (entries)) "no entry survives the resolved-scope clear")))
+
+(deftest clear-scope-from-db-nil-warns-and-clears-nothing
+  ;; jake is logged in with a loaded entry; we clear-scope with a {:from-db}
+  ;; reference AFTER logout (the resolver's :inputs are gone → resolves nil).
+  (rf/dispatch-sync [:t/login "jake"])
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                          :owner [:lease :c 1]}])
+  (settle-loaded! (session-key "jake" 1) {:for "jake"})
+  (rf/dispatch-sync [:t/logout])
+  (testing "rf2-mfnc5i / Spec 016 §clear-scope is causal — a {:from-db …}
+            clear-scope reference that resolves NIL (no logged-in user) emits a
+            loud :rf.warning/resource-clear-scope-unresolved diagnostic and
+            clears NOTHING — never a silent no-op, never a fall-through to
+            clearing global"
+    (let [warns (record-clear-scope-warnings!
+                  (fn []
+                    (rf/dispatch-sync [:rf.resource/clear-scope
+                                       {:scope {:from-db :t/session}
+                                        :cause :logout}])))]
+      (is (= 1 (count warns)) "exactly one unresolved warning fired")
+      (let [w (first warns)]
+        (is (= :rf.warning/resource-clear-scope-unresolved (:operation w)))
+        (is (= :t/session (-> w :tags :from-db)) "names the unresolved resolver id"))
+      ;; jake's entry is UNTOUCHED — the nil-resolving reference cleared nothing
+      ;; (the entry would only be reachable under the resolved session scope,
+      ;; which is exactly what failed to resolve here)
+      (is (some? (entry (session-key "jake" 1)))
+          "the nil-resolving clear-scope cleared NOTHING (fail-closed, not silent)"))))
