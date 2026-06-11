@@ -996,8 +996,8 @@ Possible shape:
 ```clojure
 {:frame-state-before <frame-state>
  :frame-state-after  <frame-state>
- :app-db-before      <app-db>
- :app-db-after       <app-db>}
+ :db-before          <app-db>
+ :db-after           <app-db>}
 ```
 
 Alternatively, keep `:db-before` / `:db-after` as app-db projections and add
@@ -1192,10 +1192,22 @@ ruling here is the binding form.
 
 2. **Epoch record shape — frame-state canonical, app-db projections optional.**
    `:frame-state-before` / `:frame-state-after` are the canonical snapshot fields;
-   `:app-db-before` / `:app-db-after` are optional app-db projections kept for tool
-   diff ergonomics. There is no `:db-before` / `:db-after`. The "alternatively, keep
-   `:db-before` / `:db-after`" option in §6 is rejected; the canonical-plus-optional-
-   projection shape from the same section is the one adopted.
+   the optional app-db projections kept for tool diff ergonomics are
+   `:db-before` / `:db-after` (see the 2026-06-11 errata note below). The
+   canonical-plus-optional-projection shape from §6 is the one adopted.
+
+   > **Errata — 2026-06-11 (Mike, bead `rf2-cg7llv`).** This decision's original
+   > text named the optional app-db projection slots `:app-db-before` /
+   > `:app-db-after` and stated "There is no `:db-before` / `:db-after`." That
+   > naming did not land: the reference implementation, the conformance fixtures,
+   > the skill docs, and most of `spec/` + `docs/guide/` ship the projection slots
+   > as **`:db-before` / `:db-after`**. Per one-name-per-fact (EP-0007), the
+   > de-facto short names are now blessed as canonical — renaming the corpus to the
+   > originally-ruled names was the costlier path and is rejected. The
+   > canonical-plus-optional-projection *shape* (frame-state canonical, app-db
+   > projection optional) ruled here is unchanged; only the projection *slot names*
+   > are corrected. The "alternatively, keep `:db-before` / `:db-after`" option in
+   > §6 is therefore the adopted naming.
 
 3. **Representation — one physical container plus projection reactions.** A frame
    holds **one** physical frame-state container; app-db and runtime-db are derived as

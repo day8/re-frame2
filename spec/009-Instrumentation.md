@@ -1305,7 +1305,7 @@ External tools consume re-frame2 through stable surfaces. Production builds elid
 | Synchronous, event-at-a-time delivery | Preserved |
 | Trace event shape (`:id`, `:operation`, `:op-type`, `:time`, `:tags`) | Preserved exactly |
 | `:op-type` discriminator vocabulary (`:rf.event`, `:rf.sub`, `:rf.fx`, `:rf.view`, `:rf.frame`, `:rf.machine`, `:warning`, `:error`, ...) | Preserved; new values additive |
-| `:tags` for op-type-specific data (`:frame` (bare carve-out), `:rf.trace/event-id`, `:rf.event/v`, `:app-db-before`, `:app-db-after`, `:rf.trace/dispatch-id`, `:rf.trace/parent-dispatch-id`, `:rf.event/origin`, ...) | Preserved |
+| `:tags` for op-type-specific data (`:frame` (bare carve-out), `:rf.trace/event-id`, `:rf.event/v`, `:db-before`, `:db-after`, `:rf.trace/dispatch-id`, `:rf.trace/parent-dispatch-id`, `:rf.event/origin`, ...) | Preserved |
 | Hoisted top-level fields (`:source`, `:recovery`) | Preserved |
 | `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`) | Preserved |
 | Compile-time elision via `goog.DEBUG=false` + `:advanced` | Preserved |
