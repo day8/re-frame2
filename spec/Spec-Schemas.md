@@ -2404,6 +2404,78 @@ The Resources artefact owns three runtime-db children — `:rf.runtime/resources
 
 `:rf/scoped-resource-key`, `:rf/resource-entry`, and `:rf/resource-work-record` are the schema ids for `ScopedResourceKey`, `ResourceEntry`, and `ResourceWorkRecord`. The `:error` / `:refresh-error` entry envelopes (and a failed work record's `:outcome`) carry the closed `:rf.http/*` failure-map shapes owned by [014-HTTPRequests.md](014-HTTPRequests.md). When the Resources artefact is loaded, `:rf.runtime/resources` (`ResourcesRuntime`) and `:rf.runtime/work-ledger` (`WorkLedger`) are present as additional runtime-db children alongside the four v1 subsystems; when the app also registers a mutation, `:rf.runtime/mutations` (`MutationsRuntime`, the mutation-instance rows, rf2-dwme29) joins them.
 
+### `:rf/reply-map`, `:rf/reply-target` (uniform reply envelope, EP-0011)
+
+> **Layer:** Runtime
+> **Owner:** [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope)
+> **Status:** v1-required
+> **Conformance:** `implementation/core/test/re_frame/reply_test.cljc` (the `re-frame.reply` substrate — schema validity, the functor laws, and stale suppression)
+
+The canonical shape every managed *async* surface — HTTP ([014](014-HTTPRequests.md)), resources + mutations ([016](016-Resources.md)), machine async work ([005](005-StateMachines.md)), route loaders ([012](012-Routing.md)), and any future managed timer / background-job surface — completes through ([EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) is the rationale record). One standard **reply map** delivered to one standard **reply target**. The shared `re-frame.reply` substrate (`implementation/core`) realises the pure core: target normalization, completion (append per `:delivery`), the reply-mapping functor law, this schema's validation, and the stale-suppression helper. The reply map is **data only** — it MUST NOT carry functions, promises, `AbortController`s, timer handles, DOM nodes, or any host resource (those live in a host-transient side-table keyed by `[frame-id work-id]`, never in durable reply data).
+
+```clojure
+(def ReplyStatus
+  ;; The CLOSED reply status taxonomy (Managed-Effects §Status taxonomy).
+  ;; Exactly ONE of these is a reply's :status. Timeout is NOT here — it is
+  ;; an :error status + a :timed-out work status. Stale wins over the
+  ;; natural completion status for delivery purposes.
+  [:enum :ok :partial :error :cancelled :stale])
+
+(def ReplyWorkStatus
+  ;; The operational :work/status on a reply map — narrower / more
+  ;; operational than the reply :status. :suppressed is the stale terminal;
+  ;; :timed-out is an error work-status. Mirrors the ledger row's terminal
+  ;; statuses (WorkLedger above), minus the non-terminal :queued/:running.
+  [:enum :completed :failed :timed-out :suppressed :cancelled])
+
+(def ReplyMap
+  ;; The data delivered when managed async work completes. CLOSED on :status
+  ;; (the only always-required field); the per-status value/error conventions
+  ;; are enforced by `re-frame.reply/validate-reply` (a closed-Malli :map
+  ;; cannot express the cross-field conditionals, so the contract lives in
+  ;; the validator and is pinned by reply_test.cljc). Open map otherwise per
+  ;; the catalogue convention — families add :meta and family-specific facts
+  ;; additively. NO HOST HANDLES anywhere in the map (the data-only
+  ;; invariant). Per [Managed-Effects §The reply map].
+  [:map
+   [:status        ReplyStatus]                              ;; ALWAYS required
+   [:value         {:optional true} :any]                    ;; present for :ok / :partial; absent for :stale
+   [:error         {:optional true} :any]                    ;; present for :error / :partial (with a family :kind); MAY carry compat data for :cancelled
+   [:work/id       {:optional true} :any]                    ;; required for ledger-backed work; =-comparable EDN attempt identity
+   [:work/kind     {:optional true} :keyword]                ;; :http / :resource / :mutation / :timer / :route / :machine / …
+   [:work/status   {:optional true} ReplyWorkStatus]
+   [:attempt       {:optional true} [:maybe :int]]
+   [:rf.frame/id   {:optional true} :any]                    ;; required when frame-scoped — the canonical carried frame stamp (EP-0002)
+   [:started-at    {:optional true} [:maybe :int]]           ;; EP-0010 causal epoch-ms — NOT a fresh ambient read
+   [:completed-at  {:optional true} [:maybe :int]]
+   [:deadline-at   {:optional true} [:maybe :int]]
+   [:correlation   {:optional true} :map]                    ;; data-only correlation metadata (request-id, scope, generation, owner, …)
+   [:stale?        {:optional true} :boolean]
+   [:stale/reason  {:optional true} [:maybe :keyword]]
+   [:cancelled?    {:optional true} :boolean]
+   [:cancel/reason {:optional true} [:maybe :keyword]]
+   [:trace         {:optional true} :any]                    ;; data-only trace summary (wire slots elided via rf/elide-wire-value)
+   [:meta          {:optional true} :any]])                  ;; effect-family data
+
+(def ReplyTarget
+  ;; Where a completion is dispatched. The public short form is an
+  ;; event-vector prefix; the descriptor form is for framework internals
+  ;; and future public surfaces needing explicit delivery options. The
+  ;; runtime appends the reply map as the final event argument on :append
+  ;; (the only public delivery mode). :suppress carries data-only stale
+  ;; gates; :dispatch-stale? (framework test/tool targets only) opts into
+  ;; receiving stale envelopes. Per [Managed-Effects §The reply target].
+  [:or
+   [:vector :any]                                            ;; short form: an event-vector prefix [:event-id arg …]
+   [:map
+    [:event           [:vector :any]]                        ;; the event-vector prefix to complete
+    [:delivery        {:optional true} [:enum :append]]      ;; :append is the only PUBLIC delivery mode
+    [:suppress        {:optional true} :map]                 ;; data-only gates that must still match before delivery
+    [:dispatch-stale? {:optional true} :boolean]]])          ;; framework test/tool opt-in to stale delivery; app targets MUST NOT set it
+```
+
+`:rf/reply-map` and `:rf/reply-target` are the schema ids for `ReplyMap` and `ReplyTarget`. The closed `:status` taxonomy, the value/error conventions per status (`:value` on `:ok`/`:partial`; `:error` with a family `:kind` on `:error`/`:partial`; `:cancel/reason` on `:cancelled`; `:stale? true` + `:stale/reason` and no `:value` on `:stale`), the `:work/id` correlation rule (one attempt has one work id — no `:stale-key` synonym, per [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)), and the data-only invariant are all owned normatively by [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope); this catalogue carries the shape. The `:error` envelope on a `:status :error`/`:partial` reply carries the closed `:rf.http/*` (or family-specific) failure-map shapes owned by the per-family spec. A `:status :stale` reply's `:work/status` is `:suppressed` and the linked `WorkLedger` row (above) reaches `:suppressed` — the reply target and a ledger row are the same fact, the ledger's `:reply-to` being this target made durable.
+
 <a id="rfelision-registry"></a>
 
 <!-- legacy anchor — points readers at the new :rf/runtime-db schema above for the elision sub-container. -->
