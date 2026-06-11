@@ -440,7 +440,7 @@ The path-marked declarations redact at the **five observation boundaries** named
 
 | Anti-pattern | Preferred |
 |---|---|
-| `(throw (ex-info (str "User " email " failed login") {:user/email email :reason :invalid-credentials}))` — leaks email into `:exception-message` and `:exception-data` | `(throw (ex-info "Invalid credentials" {:reason :invalid-credentials}))` — name the category in the message; correlate via `:dispatch-id` against the (correctly redacted) `:app-db-before` snapshot |
+| `(throw (ex-info (str "User " email " failed login") {:user/email email :reason :invalid-credentials}))` — leaks email into `:exception-message` and `:exception-data` | `(throw (ex-info "Invalid credentials" {:reason :invalid-credentials}))` — name the category in the message; correlate via `:dispatch-id` against the (correctly redacted) `:db-before` snapshot |
 | Author-named `ex-data` keys carrying the sensitive value | Substitute `:rf/redacted` at the assembly site, or omit the key entirely |
 
 The framework deliberately does NOT ship a `safe-throw` helper — the call-site knowledge of *which ex-data keys correspond to sensitive paths in this specific app* is author knowledge, not framework knowledge. A twelve-line per-app `safe-throw` helper is the recommended shape; worked example at [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/24-config-and-safety.md).
