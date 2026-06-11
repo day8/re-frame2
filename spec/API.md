@@ -629,6 +629,16 @@ The framework primitive that walks tree-shaped values at the wire boundary and s
 
 **Schema-only declaration path.** The `[:rf.runtime/elision]` registry has exactly two slots: `:declarations` (schema-derived `:large?` paths, populated by `populate-elision-from-schemas!`) and `:sensitive-declarations` (schema-derived `:sensitive?` paths). There is no runtime declaration API — apps declare `:large?` / `:sensitive?` on the Malli schema and `rf/reg-app-schema` it; the boot-time hydrator does the rest. Per [docs/guide/23-privacy-and-large-things.md](../docs/guide/23-privacy-and-large-things.md) — the canonical statement of "schemas are the only path" — and `implementation/core/src/re_frame/elision.cljc` L4-6.
 
+### Record-level egress projection (EP-0015 / Spec 015)
+
+> Cross-reference: [015 §Projection](015-Data-Classification.md#projection) is the normative home; `project-egress` is the public, record-level boundary primitive layered over `elide-wire-value`. The six-member `:rf.egress/*` profile enum is the named-boundary vocabulary; the boolean `:rf.size/*` flags remain the advanced override layer beneath it (EP-0015 §10/§11).
+
+`rf/project-egress` is the required projection step before any off-box sink. It dispatches on a record's `:kind` (the `:rf.observe/*` record kinds) to a **private** per-kind projector — only `project-egress` is public (EP-0015 issue 2: the name names the *boundary*, not a record kind) — and delegates every tree-shaped slot to [`rf/elide-wire-value`](#elide-wire-value-the-wire-boundary-walker). A profile resolves to a `:rf.size/*` opt-set; an explicit `:rf.size/*` boolean composes on top (the override wins).
+
+| API | M/Fn | Signature | Status | Tier | Spec |
+|---|---|---|---|---|---|
+| `project-egress` | Fn | `(project-egress record-or-value)` / `(project-egress record-or-value opts)` → a value safe to ship under the resolved profile. `opts` conforms to [`:rf/project-egress-opts`](Spec-Schemas.md#rfproject-egress-opts): `{:rf.egress/profile <closed six-member enum> :frame <frame-id> :path [...] :rf.size/include-sensitive? <bool> :rf.size/include-large? <bool> :rf.size/include-digests? <bool> :rf.size/threshold-bytes <int> :as-of-epoch <epoch>}`. Dispatches on a record's `:kind` (`:rf.observe/handled-event` / `:rf.observe/error`) to a private per-kind projector, falling back to walking a kindless input as a tree-shaped value (the direct-read path); delegates tree-shaped slots to `elide-wire-value`. Profile resolves to a `:rf.size/*` opt-set; explicit `:rf.size/*` booleans compose on top (override wins). Unknown profile raises `:rf.error/unknown-egress-profile` (closed enum). Fail-closed when no frame is known (no `:rf/default` synthesis). Per [015 §`project-egress`](015-Data-Classification.md#project-egress--the-record-level-boundary-primitive). | v1 | tooling | 015 |
+
 ### DOM source-coord annotations (mandatory)
 
 Per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory) and [Tool-Pair §Source-mapping](Tool-Pair.md), every adapter whose host has a DOM-attribute concept MUST inject `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. Format and exemptions (Fragments, non-DOM roots) are documented in Spec 006 §Source-coord annotation. Annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via dead-code elimination — there is no DOM-bytes cost in shipped bundles. The JVM SSR emitter mirrors the same contract per [Spec 011 §Source-coord annotation under SSR](011-SSR.md#source-coord-annotation-under-ssr).
@@ -693,6 +703,7 @@ Per [Spec-Schemas.md](Spec-Schemas.md), the spec's own runtime shapes are descri
 | `:rf/pending-navigation` | Pending-navigation slot when `:can-leave` guard rejects | 012 |
 | `:rf/elision-registry` | Per-frame size-elision declaration registry in the reserved runtime-db child `[:rf.runtime/elision]` | 009 |
 | `:rf/elision-marker` | Wire shape `rf/elide-wire-value` substitutes for an elided large value (`:rf.size/large-elided`) | 009 |
+| `:rf/project-egress-opts` | The opts map `rf/project-egress` accepts (`:rf.egress/profile` + advanced `:rf.size/*` overrides) | 015 |
 
 Schemas are **open** by default (consumers tolerate unknown keys; producers grow shapes additively); `:closed true` is opt-in at boundary-validation sites and on the effect-map.
 

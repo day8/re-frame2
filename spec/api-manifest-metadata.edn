@@ -494,6 +494,8 @@
   ["re-frame.core" "projected-history"]          {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ;; Size-elision / privacy wire surfaces — §009.
   ["re-frame.core" "elide-wire-value"]                  {:tier :tooling  :owner "009" :status "v1"}
+  ;; Record-level egress projection (EP-0015 §10/§11 — rf2-yjbr1w).
+  ["re-frame.core" "project-egress"]                    {:tier :tooling  :owner "015" :status "v1"}
   ["re-frame.core" "elision-declarations"]              {:tier :tooling  :owner "009" :status "v1"}
   ["re-frame.core" "elision-sensitive-declarations"]    {:tier :tooling  :owner "009" :status "v1"}
   ["re-frame.core" "populate-elision-from-schemas!"]    {:tier :advanced :owner "009" :status "v1"}

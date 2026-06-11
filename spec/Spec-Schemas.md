@@ -2657,6 +2657,33 @@ Per-field MUST-level requirements (catalogued at [009 §Wire marker — `:rf.siz
 
 The reserved sentinel `:rf.elision/at` (under the `:rf.elision/*` namespace per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) marks the handle as fetchable. Agents pattern-match on the leading `:rf.elision/at` keyword — no decoder needed.
 
+### `:rf/project-egress-opts`
+
+> **Layer:** Public
+> **Owner:** [015-Data-Classification §`project-egress`](015-Data-Classification.md#project-egress--the-record-level-boundary-primitive)
+> **Status:** v1-required
+
+The opts map `rf/project-egress` accepts (EP-0015 §10/§11). `project-egress` is the public, record-level egress boundary primitive; it dispatches on a record's `:kind` to a private per-kind projector and delegates every tree-shaped slot to `rf/elide-wire-value`. The opts carry the named `:rf.egress/profile` (the closed six-member `EgressProfile` enum above) plus the advanced `:rf.size/*` overrides `elide-wire-value` consumes — the profile resolves to a `:rf.size/*` opt-set, and an explicit `:rf.size/*` boolean **composes on top (the override wins)**. `:frame` / `:path` / `:rf.size/threshold-bytes` / `:as-of-epoch` flow through to the walker.
+
+```clojure
+(def ProjectEgressOpts
+  [:map {:closed false}
+   [:rf.egress/profile          {:optional true} EgressProfile]            ;; the named boundary; resolves to a :rf.size/* opt-set
+   [:frame                      {:optional true} :keyword]                 ;; whose classification applies; fail-closed when unknown
+   [:path                       {:optional true} [:vector :any]]           ;; offset for a bare-value walk (direct-read path)
+   [:rf.size/include-sensitive? {:optional true} :boolean]                 ;; explicit override (wins over the profile floor)
+   [:rf.size/include-large?     {:optional true} :boolean]
+   [:rf.size/include-digests?   {:optional true} :boolean]
+   [:rf.size/threshold-bytes    {:optional true} :int]                     ;; pass-through tuning knob (not profile-resolved)
+   [:as-of-epoch                {:optional true} :any]])                   ;; pass-through epoch handle
+```
+
+Semantics (normative in [015 §Projection](015-Data-Classification.md#projection)):
+
+- An **unknown** `:rf.egress/profile` raises `:rf.error/unknown-egress-profile` — the enum is closed (no silent fall-through to a permissive walk).
+- With **no profile**, the `:rf.size/*` flags pass through to `elide-wire-value` verbatim (the advanced raw-flags path).
+- **Fail-closed** (EP-0002): a tree-shaped slot is projected only when the frame is known; with no frame and no `:rf.size/include-sensitive? true` opt-out the delegated walker redacts the whole value to `:rf/redacted` — `project-egress` does **not** synthesise `:rf/default`.
+
 ### `:rf/route-pattern`
 
 > **Layer:** Public
@@ -3167,6 +3194,24 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
   [:map
    [:app-db {:optional true} [:vector Path]]])                             ;; Path = :rf/path
 
+;; The closed six-member `:rf.egress/profile` enum (EP-0015 §10, issue 3;
+;; normative in [015 §Projection profiles](015-Data-Classification.md#projection-profiles--the-rfegress-enum-provisional)).
+;; The names are RENAMED for axis consistency (`local-redacted` / `local-raw`
+;; replacing the EP's earlier on-box-hidden-sensitive / trusted-local-raw
+;; spellings) and are PROVISIONAL until each profile is exercised by a real
+;; consumer surface (the graduation gate). Additions require a recorded
+;; ruling. Each profile resolves to a `:rf.size/*` opt-set (the §10
+;; default-behaviour table); an explicit `:rf.size/*` boolean COMPOSES on
+;; top (the override wins).
+(def EgressProfile
+  [:enum
+   :rf.egress/off-box-observability                                        ;; hosted monitoring; redact sensitive, elide large, omit digests
+   :rf.egress/off-box-tool                                                 ;; MCP / AI / tool wire; redact sensitive, elide large, structural indicators
+   :rf.egress/local-redacted                                               ;; on-box dev UI default; suppress sensitive display
+   :rf.egress/local-raw                                                    ;; trusted local operator; include sensitive AND large
+   :rf.egress/ssr-hydration                                                ;; projection AFTER the §14 allowlist; defence-in-depth
+   :rf.egress/public-error])                                               ;; client-safe error projection; never internal raw values
+
 ;; Production observation sink policy. Each entry names a user/library-owned
 ;; `:sink` keyword id; `:rf.egress/profile` and `:opts` are optional. The
 ;; sink ids are NOT framework-claimed (EP-0015 §2). Routing records through
@@ -3174,7 +3219,7 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
 (def FrameSinkEntry
   [:map
    [:sink :keyword]                                                        ;; user/library-owned sink id, e.g. :my-app.sinks/datadog
-   [:rf.egress/profile {:optional true} :keyword]                          ;; e.g. :rf.egress/off-box-observability
+   [:rf.egress/profile {:optional true} EgressProfile]                     ;; the closed six-member egress-profile enum
    [:opts {:optional true} [:map-of :keyword :any]]])                      ;; vendor-specific, framework does not own the vocabulary
 
 (def FrameObservability
