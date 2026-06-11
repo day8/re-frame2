@@ -1,0 +1,491 @@
+# Derivations And Processes
+
+> **Type:** Reference
+> The unifying conceptual frame for every **declared fact and process over the frame fold** in re-frame2 — subscriptions, runtime subscriptions, flows, resources, route facts, and machine selectors. Names the one vocabulary those five plural source forms lower to: declared inputs, an output fact, a storage class, an evaluation policy, and a lifecycle/owner. This is the **derivation/process analogue of [Managed-Effects.md](Managed-Effects.md) (effect surfaces) and [Runtime-Subsystems.md](Runtime-Subsystems.md) (durable-state surfaces)** — Managed-Effects names the shape every framework-owned *effect* satisfies, Runtime-Subsystems names the shape every framework-owned *durable-state subtree* satisfies, and this doc names the shape every *declared derived value or stateful process* satisfies.
+>
+> Graduated from [EP-0014](../docs/EP/EP-0014-derivation-and-process-algebra.md) (accepted 2026-06-11, bead `rf2-gwezdt`). **Slice-1 scope: vocabulary, the spec model, and internal registration metadata — no new public authoring or accessor primitive.** The graph-inspection contract here is the *shape* an internal accessor produces; the public name is deferred (see [§Graph inspection — internal but structured](#graph-inspection--internal-but-structured)).
+
+## Why this doc exists
+
+re-frame2 already explains six related mechanisms with six separate vocabularies:
+
+- **subscriptions** derive ephemeral view values ([006-ReactiveSubstrate](006-ReactiveSubstrate.md));
+- **runtime subscriptions** derive ephemeral values from framework-owned `runtime-db` ([006](006-ReactiveSubstrate.md), [Runtime-Subsystems](Runtime-Subsystems.md));
+- **flows** materialize derived values into `app-db` ([013-Flows](013-Flows.md));
+- **resources** fetch, cache, refresh, and GC remote state ([016-Resources](016-Resources.md));
+- **routes** materialize match facts, params, and transition state ([012-Routing](012-Routing.md));
+- **machines** materialize process snapshots and expose selectors over them ([005-StateMachines](005-StateMachines.md)).
+
+Each distinction is real. A resource is not a pure subscription; a machine is not a flow. The problem is not the distinctions — it is that a large SPA needs *cross-cutting* answers the separate vocabularies make harder than they should be:
+
+- Which facts does this page depend on?
+- Which event, route, resource, or machine state can change this value?
+- Is this value durable frame state, an ephemeral cache entry, host-transient state, or server-owned data represented locally?
+- Is this computation lazy, event-boundary eager, reply-driven, route-driven, or scheduled?
+- Which owner keeps it alive, and which teardown boundary releases it?
+- Can [Xray](../tools/xray/spec/README.md) or a conformance test enumerate the graph without executing arbitrary app code?
+
+Without one vocabulary, tools and maintainers stitch together partial graphs — subscription topology here, flow topology there, resource owners elsewhere, route facts in routing, machine selectors in machine code. That fragmentation is unnecessary: **all six surfaces are declared facts and processes over the same [frame fold](#the-frame-fold).**
+
+**A derivation/process is a declared way to compute a fact from inputs — with `derive`, `materialize`, `fetch`, and `synchronize` understood as storage and evaluation policies over one declared dependency graph, not as separate runtime kinds.** The authoring APIs stay plural and ergonomic; the inspection, testing, and specification vocabulary becomes singular.
+
+Naming the shape turns six ad-hoc cross-references into **gradeable instances**: a new declared-fact surface is admitted by answering the same five questions every node answers (inputs, output, storage, evaluation, lifecycle/owner), and a tool that understands only two superkinds — `:derivation` and `:process` — can classify every node in the graph.
+
+## Scope — vocabulary, not a new authoring API
+
+This doc is the named normative home for the **vocabulary, the node/edge model, the classification tables, the static/live rule, and the whole-value law**. It does **not** mint a public authoring primitive.
+
+- There is **no** `reg-fact`, **no** `reg-derivation`, and **no** stable public graph-accessor name in this slice. The plural source forms — `reg-sub`, `reg-flow`, `reg-resource`, `reg-route`, `reg-machine` — remain the authoring surface (the *project-before-primitive* discipline: prove the projection from existing forms before minting a primitive). A future source form, if any, is a separate EP.
+- This doc does **not** change subscription cache semantics ([006](006-ReactiveSubstrate.md)), flow drain integration ([013](013-Flows.md)), resource HTTP scope or snapshot shape ([016](016-Resources.md)), route ranking ([012](012-Routing.md)), or machine snapshot shape ([005](005-StateMachines.md)). It names the **common view** those owners' surfaces lower to. Each owning Spec remains canonical for its mechanism; this doc is canonical only for the shared vocabulary and the whole-value law.
+- The runtime shapes (the node/fact/edge/storage-class/evaluation-policy/lifecycle Malli forms) are **projected** into [Spec-Schemas §`:rf/derivation-node`](Spec-Schemas.md#rfderivation-node-rffact-rfderivation-edge-rfstorage-class-rfevaluation-policy-rflifecycle-the-derivationprocess-algebra-ep-0014), which defers here for semantics.
+
+This is downstream of, and complementary to, the [Runtime-Subsystems](Runtime-Subsystems.md) contract: Runtime-Subsystems organizes *where durable framework state lives* (the children of `runtime-db`); this doc organizes *how every declared fact — durable or ephemeral, app or framework — relates to the frame fold*. A `:runtime-db`-storage node here is still graded by its owning runtime subsystem's projection policy there; this doc names the storage class, Runtime-Subsystems / [EP-0006](../docs/EP/EP-0006-runtime-subsystem-contract.md) remains the authority on how each `runtime-db` key is projected, hydrated, and torn down.
+
+## The frame fold
+
+A **frame fold** is the ordered sequence of frame-state values produced by applying causal inputs to a frame:
+
+```text
+frame-state-0
+  -- causal input 1 --> frame-state-1
+  -- causal input 2 --> frame-state-2
+  -- causal input 3 --> frame-state-3
+```
+
+Each frame-state value has the two durable partitions of [002-Frames §The two partitions](002-Frames.md): application-owned `app-db` (`:rf.db/app`) and framework-owned `runtime-db` (`:rf.db/runtime`). Host-transient state — abort handles, timers, scroll caches, dirty-check side tables — may *support* the fold but is **not** durable frame state ([002 §Durable vs transient](002-Frames.md#durable-vs-transient)).
+
+Every fact and process this doc names is a declared relationship over this fold: a value read at a point in it, a value derived from other values in it, or a stateful process that materializes into it and emits commands that later return causal inputs to it.
+
+## The vocabulary
+
+### Fact
+
+A **fact** is a named readable value at a point in the frame fold. A fact may be:
+
+- a **source fact** — an `app-db` path, a `runtime-db` path, a route param, or a resource key;
+- a **derived fact** — a subscription value;
+- a **materialized fact** — a flow output in `app-db`;
+- a **process fact** — a resource entry status or a machine snapshot selector.
+
+A fact has **one canonical identity** in the layer where it is named (the one-name-per-fact rule of [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md), applied graph-wide). That identity is what tools use for graph edges and what docs use when explaining the source of a value. Canonical node/fact identity uses the [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md) path/identity rules directly (see [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra) and [Spec-Schemas §`:rf/path`](Spec-Schemas.md#rfpath-rfpath-template-the-path-algebra-ep-0012)).
+
+### Source form and algebra view
+
+A **source form** is the API shape an author writes: `reg-sub`, `reg-flow`, `reg-resource`, `reg-route`, `reg-machine`, or a future manifest form. Source forms remain optimized for humans and migration.
+
+The **algebra view** is the normalized data view tools and specs use. It MAY be derived from source forms at registration time, from runtime cache entries (the live graph), or — in a future architecture ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md)) — from an app value. In slice-1 the algebra view stays **registrar-derived** (see [§The EP-0013 relocation seam](#the-ep-0013-relocation-seam)).
+
+A single source form MAY lower to **more than one** algebra node. A resource declaration, for example, lowers to a process node for the cache entry **and** to derived read facts (state, data, loading flag, error projection) over that entry.
+
+### Derivation
+
+A **derivation** computes an output fact from declared inputs with a pure whole-value function. A derivation has no durable private state beyond optional memoization and, if materialized, its output value.
+
+**Subscriptions and flows are derivations.** The difference between them is not the function — it is policy (storage, evaluation, lifecycle) over the same dependency graph (see [§Worked equivalence](#worked-equivalence--one-function-two-policies)).
+
+### Process
+
+A **process** is a derivation with state, lifecycle, and commands over time. It may react to causal events, async replies, route entry/exit, timers, or machine transitions. It may materialize state into `runtime-db`, hold host-transient handles, and emit commands that later return causal replies.
+
+**Resources and machines are processes.** A route transition is also process-like: it materializes route facts, invokes loaders/resources, and suppresses stale continuations by navigation token.
+
+Processes may produce **command** outputs, but commands are **not facts**. A command becomes part of the causal graph only when the host returns a reply event ([EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md)) or a process transition records durable state.
+
+### Declared input
+
+A **declared input** is a data description of a dependency. It names *what* a derivation or process reads without requiring a tool to inspect arbitrary function bodies.
+
+Inputs are written as data forms. The following are the normative vocabulary; specs MAY add narrower aliases that lower to these:
+
+```clojure
+[:db path]                  ;; read the app-db partition at path
+[:runtime path]             ;; read the runtime-db partition at path
+[:frame-state path]         ;; framework-internal cross-partition read (see below)
+[:sub query-vector]         ;; depend on another subscription's value
+[:param key]                ;; a query/route/resource/machine parameter
+[:scope scope-id-or-expr]   ;; a resource cache scope
+[:route projection]         ;; a slice of the route fact
+[:resource resource-ref]    ;; a resource read-fact dependency
+[:machine machine-ref proj] ;; a machine snapshot selector
+[:fact fact-id]             ;; a named fact
+[:event event-id]           ;; a causal-event trigger (process inputs)
+[:reply reply-kind]         ;; an async-reply trigger (process inputs)
+[:timer timer-id]           ;; a scheduled trigger (process inputs)
+```
+
+`[:db path]` reads the app-db partition; `[:runtime path]` reads the runtime-db partition. `[:frame-state path]` is **reserved for framework internals** that deliberately read across the product value; application source forms SHOULD prefer the partition-specific inputs.
+
+A declared input is either **static** (known from registration alone) or **parametric** (its realized edges require a concrete query vector, route match, resource params, or machine instance before they are known). See [§Static and live graphs](#static-and-live-graphs).
+
+### Output and materialization
+
+An **output** is the fact or address a derivation/process produces:
+
+```clojure
+[:fact :cart/total]
+[:db [:cart :total]]
+[:runtime [:rf.runtime/resources :entries scoped-key]]
+[:runtime [:rf.runtime/machines :snapshots :upload/main]]
+[:host-transient [:rf.http/in-flight work-id]]
+```
+
+- An **ephemeral output** has a fact identity but **no durable frame-state address** — it is cached or returned, never written to durable frame state.
+- A **materialized output** has a durable address — an `app-db` path or a `runtime-db` path. A materialized derivation installs the *whole value* at its output address (the whole-value default, [§The whole-value law](#the-whole-value-law)).
+- A **process** may have both: a materialized snapshot plus ephemeral selectors over that snapshot.
+
+`:materialized?` is `true` exactly when the node has a durable output address.
+
+### Storage class
+
+A **storage class** declares **where the output or supporting process state lives locally**. Storage is *always the local representation home*; remote authority is a separate axis (see [§Authority — the remote axis](#authority--the-remote-axis)).
+
+| Storage class | Meaning |
+|---|---|
+| `:ephemeral` | A cache/reaction value derived from frame state. Not durable frame state; released by its lifecycle. |
+| `:app-db` | Application-owned durable frame state under the `:rf.db/app` partition. |
+| `:runtime-db` | Framework-owned durable frame state under the `:rf.db/runtime` partition. |
+| `:host-transient` | Host handles or caches outside durable frame state. They must be derived, cleared, or reconciled at lifecycle boundaries. |
+
+Rules:
+
+1. `:ephemeral` values MUST be recomputable or disposable without changing durable frame state.
+2. `:app-db` values are application-owned durable facts, subject to app schema, SSR, restore, and time-travel rules ([002](002-Frames.md), [010](010-Schemas.md), [011](011-SSR.md)).
+3. `:runtime-db` values are framework-owned durable facts, subject to runtime-subsystem authority, projection, SSR, restore, and teardown rules ([Runtime-Subsystems](Runtime-Subsystems.md), [EP-0006](../docs/EP/EP-0006-runtime-subsystem-contract.md)).
+4. `:host-transient` values MUST declare a teardown or reconciliation boundary. They MUST NOT be the only copy of a fact required for replay or restore ([002 §Durable vs transient](002-Frames.md#durable-vs-transient)).
+
+The storage classes align with — and do not replace — the [EP-0006](../docs/EP/EP-0006-runtime-subsystem-contract.md) runtime-subsystem projection tiers: a `:runtime-db` output is still graded durable-serialized or local-subscribable per key by its owning subsystem's projection policy, and `:host-transient` here is the same tier EP-0006 names. `:ephemeral` values have no subsystem row because they are not durable state.
+
+> **The split (EP-0014 issue-2 disposition).** `:remote` is **not** a storage class. The EP's `§Definitions` originally listed five classes; the ruling split `:remote` into two facts: `:storage` always names the *local* representation home (one of the four above), and `:authority` is a separate axis (next section). The four-class table here is the swept result. "Remote" survives only as prose shorthand for "a fact whose authority is external"; it never names where a value is stored.
+
+### Authority — the remote axis
+
+A node whose source of truth lives **outside the frame** declares an `:authority` map *alongside* its local `:storage`:
+
+```clojure
+{:kind      :remote
+ :system    :server
+ :transport :rf.http/managed}
+```
+
+- `:storage` always answers "where does the local representation live?" — for resources, `:runtime-db` (the cache entry) plus `:host-transient` (in-flight handles).
+- `:authority` answers "whose fact is this, really?" — `{:kind :remote …}` says the authority is external.
+- `:transport` inside `:authority` is a **projection of the [Spec 016](016-Resources.md) registration fact, never a second authoritative home** — it mirrors the registered transport so a graph reader can see it without re-resolving the registry. A mirror is a recomputable projection of its source (the [Runtime-Subsystems derived rule 2](Runtime-Subsystems.md) one-authoritative-home discipline applied to graph metadata), not a co-equal home that can drift.
+
+`:authority :remote` is **not a license to hide state**. The local cache entry, in-flight row, owner index, and selectors still declare their local storage and lifecycle. Resources are the proof case: `:authority {:kind :remote …}` + `:storage :runtime-db` describes a shipped resource exactly.
+
+### Evaluation policy
+
+An **evaluation policy** declares *when* the derivation/process runs:
+
+| Policy | Meaning |
+|---|---|
+| `:on-demand` | Evaluated when a reader subscribes or requests the fact. |
+| `:after-event` | Evaluated during an event drain after handlers have produced pending state. |
+| `:on-reply` | Evaluated when an async reply envelope (or equivalent causal completion) arrives. |
+| `:on-route` | Evaluated on route activation, egress, or route-match change. |
+| `:on-transition` | Evaluated as part of a machine/process transition. |
+| `:scheduled` | Evaluated because a timer or scheduler delivered a causal input. |
+| `:manual` | Evaluated only when an explicit invalidation, refresh, ensure, or recompute command asks for it. |
+
+A node's `:evaluation` is a **single policy or a set** — a process with more than one trigger (e.g. a resource that runs on route activation, manual refresh, *and* async reply) carries the set `#{:on-route :manual :on-reply}`.
+
+Rules:
+
+1. `:on-demand` derivations MUST NOT cause durable state changes merely because a view read them. (Reading a resource selector does not start resource work.)
+2. `:after-event` derivations run inside the event drain and participate in the event's atomicity rules ([013 §Drain integration](013-Flows.md#drain-integration)). For an already-registered flow this means **same-commit materialization** — there is no general one-event staleness (the one exception is a flow registered mid-event, [013 §Sequencing — the one-event lag](013-Flows.md#sequencing--the-one-event-lag)).
+3. `:on-reply` processes run only from causal reply events or equivalent framework-owned completions; **stale replies MUST be suppressible by declared identity** ([016](016-Resources.md), [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md)).
+4. `:on-route` processes MUST declare the route fact, nav-token, owner, or route lifecycle boundary they depend on ([012](012-Routing.md)).
+5. `:scheduled` processes MUST separate durable scheduling facts from host-transient timer handles.
+6. `:manual` processes MUST expose the event, command, or API that causes invalidation/refetch/recompute.
+
+### Lifecycle and owner
+
+A **lifecycle** declares who keeps the fact/process alive and who releases it:
+
+| Lifecycle | Typical owner / release boundary |
+|---|---|
+| `:subscription-cache-entry` | The concrete query vector's readers keep it alive; ref-count disposal releases it. |
+| `:frame` | The frame owns it; `destroy-frame!` releases it. |
+| `:route` | The active route/nav-token owns it; route exit or supersession releases it. |
+| `:resource-key` | A scoped resource key owns the cache entry; owners, freshness policy, and GC release it. |
+| `:machine-instance` | A singleton or spawned actor snapshot owns it; machine destroy releases it. |
+| `:host-root` | A host root, adapter, or runtime realm owns it; adapter/runtime disposal releases it. |
+
+Lifecycle is part of the fact's contract — **a graph that shows data dependencies but hides ownership is incomplete.** Every node declares lifecycle, optionally with an explicit `:owner`:
+
+```clojure
+{:lifecycle :subscription-cache-entry :owner [:sub-query [:cart/total]]}
+{:lifecycle :frame                    :owner [:frame :checkout]}
+{:lifecycle :route                    :owner [:route :route/article nav-token]}
+{:lifecycle :resource-key             :owner [scope :article/by-slug {:slug "welcome"}]}
+{:lifecycle :machine-instance         :owner [:machine :upload/main]}
+```
+
+For processes, **owner and cause are distinct**. The *owner* keeps the process or cache entry alive; the *cause* explains why work happened. A button click that refreshes a resource is usually a cause; a route, machine, SSR request, or explicit lease is usually an owner. (Resources formalize this as active owners vs causes — [016](016-Resources.md).)
+
+## The node shape
+
+Every derivation/process SHOULD be describable by an algebra view equivalent to:
+
+```clojure
+{:id          :cart/total
+ :kind        :derivation                      ;; superkind: :derivation | :process
+ :source-form {:kind :reg-sub :id :cart/total} ;; which source form it lowered from
+ :inputs      [[:sub [:cart/items]]
+               [:sub [:pricing/discounts]]]    ;; declared inputs, or :parametric
+ :output      [:fact :cart/total]
+ :storage     :ephemeral                        ;; the LOCAL storage class
+ :authority   nil                               ;; the remote axis (present only when external)
+ :evaluation  :on-demand                        ;; policy or set of policies
+ :lifecycle   :subscription-cache-entry
+ :materialized? false
+ :derive      #'app.cart/sum-cart               ;; opaque fn token — see below
+ :schema      :app.money/amount
+ :source      {:ns "app.cart" :file "src/app/cart.cljs" :line 42}}
+```
+
+**Two superkinds, refinable.** Every `:kind` classifies as either `:derivation` or `:process`. The refined kinds in the examples below — `:resource-process`, `:route-fact`, `:machine-process`, `:machine-selector` — are *informative refinements*; specs MAY add refinements, but a tool that understands only the two superkinds MUST still be able to classify every node.
+
+**Functions are opaque.** Function values (`:derive`, an input-producer) MAY be represented by symbols, source coordinates, registry metadata, or opaque implementation tokens. The graph contract is about dependencies, storage, evaluation, and ownership — it does **not** require serializing executable functions.
+
+**Reserved relocation fields (EP-0014 issue-6 disposition).** The node schema **reserves** optional `:realm/id`, `:app/id`, and `:module/id` fields. They are **never required in slice-1**. They exist so the [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) relocation (moving the algebra view from registrar-derived metadata to a section of an app value) is a *relocation, not a reshape* (see [§The EP-0013 relocation seam](#the-ep-0013-relocation-seam)).
+
+### Fact identity
+
+Fact identity MUST be stable enough for tools, tests, and docs:
+
+- a **subscription** fact is identified by its query vector when concrete, and by its sub id when static;
+- a **flow** fact is identified by its flow id and output path;
+- a **route** fact is identified by the route slice or projection, e.g. `:rf/route` / `:rf.route/params` ([012](012-Routing.md));
+- a **resource** fact is identified by `[cache-scope resource-id canonical-params]` when concrete, and by resource id when static ([016](016-Resources.md), [Spec-Schemas §`:rf/scoped-resource-key`](Spec-Schemas.md#rfscoped-resource-key-rfresource-entry-rfresource-work-record-resources-spec-016));
+- a **machine** fact is identified by machine id or instance id plus snapshot or selector identity ([005](005-StateMachines.md)).
+
+When a source form is parametric, the **static graph MUST mark the edge set `:parametric`** instead of inventing all possible concrete edges.
+
+## Static and live graphs
+
+Graph inspection has two modes.
+
+- A **static graph** (`:mode :static`) is derived from registrations and source forms. It can show literal `:<-` subscription edges, flow input paths, resource declarations, route metadata, and machine declarations.
+- A **live graph** (`:mode :live`) is derived from a frame at a point in time. It can include concrete subscription query vectors, realized parametric input edges, active resource keys, route owners, machine instances, in-flight work, and current lifecycle state.
+
+For a parametric subscription, the static graph reports the source form rather than guessing edges:
+
+```clojure
+{:id :article/page
+ :kind :derivation
+ :inputs :parametric
+ :input-producer #'app.article/article-page-inputs}
+```
+
+and the live graph reports the realized edges per concrete query vector:
+
+```clojure
+{:id [:sub [:article/page "welcome"]]
+ :kind :derivation
+ :inputs [[:sub [:article/by-slug "welcome"]]
+          [:sub [:comments/for-article "welcome"]]]
+ :lifecycle :subscription-cache-entry}
+```
+
+### The don't-execute rule (EP-0014 issue-3 disposition)
+
+**Static inspection NEVER invokes a node's param functions or scope functions.** It reads declarations; it does not run them. No side effects, no nondeterminism, and no hidden runtime assumptions may enter static analysis. Static graph tools MUST NOT pretend every possible parametric edge is known before concrete query vectors exist — a parametric edge set is reported as `:parametric`, and only the live graph (which observes realized inputs, not executed declarations speculatively) shows concrete edges.
+
+### Named-resolver enrichment (EP-0014 issue-3 disposition)
+
+A **named resolver** turns part of a parametric declaration into a *static fact*. When a resource scope is an [EP-0016](../docs/EP/EP-0016-resource-mutation-completion.md) `{:from-db <resolver-id>}` reference rather than an inline function, the static graph reports the **resolver id and its declared inputs** even while the params stay `:parametric`:
+
+```clojure
+{:id :article/by-slug
+ :kind :resource-process
+ :inputs [[:param :slug]
+          [:scope {:from-db :session/current-tenant}]]   ;; named resolver — static!
+ :scope-resolver {:id :session/current-tenant
+                  :inputs [[:db [:session :tenant-id]]]}  ;; declared inputs are static facts
+ :params :parametric}
+```
+
+The resolver's declared inputs ([016 §Named resource-scope resolvers](016-Resources.md#named-resource-scope-resolvers-reg-resource-scope)) appear in the static graph because they are declared, not executed — this is exactly the static visibility the don't-execute rule otherwise costs an inline function.
+
+## Graph inspection — internal but structured
+
+Slice-1 ships **no public graph-accessor name**. It ships a *structured shape* an internal accessor produces, so [Xray](../tools/xray/spec/README.md) and the conformance fixtures can consume it from day one and the public name can be stabilized only after the shape survives real use (the *project-before-primitive* discipline applied to accessors).
+
+The shape (EP-0014 issue-1 disposition) carries:
+
+- `:mode` — `:static` or `:live`;
+- **canonical node ids** under the [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md) identity rules;
+- **explicit edge records** — `{:from <node-id> :to <node-id> :role <role>}` (roles: `:input`, `:param`, `:selector`, …);
+- **source-form metadata** — `{:kind :reg-sub :id …}`;
+- the **storage / evaluation / lifecycle classifications** named above;
+- **parametric markers** for unrealized edge sets;
+- **redaction metadata** (next section).
+
+A representative graph view:
+
+```clojure
+{:mode :live
+ :frame :checkout
+ :nodes
+ {[:sub [:cart/total]]
+  {:kind :derivation
+   :storage :ephemeral
+   :evaluation :on-demand
+   :lifecycle :subscription-cache-entry
+   :source-form {:kind :reg-sub :id :cart/total}}
+
+  [:flow :cart/materialized-total]
+  {:kind :derivation
+   :storage :app-db
+   :evaluation :after-event
+   :lifecycle :frame
+   :output [:db [:cart :total]]}
+
+  [:resource [[:rf.scope/global] :article/by-slug {:slug "welcome"}]]
+  {:kind :process
+   :storage :runtime-db
+   :authority {:kind :remote :system :server :transport :rf.http/managed}
+   :evaluation #{:on-route :on-reply :scheduled :manual}
+   :lifecycle :resource-key
+   :output [:runtime [:rf.runtime/resources :entries
+                      [[:rf.scope/global] :article/by-slug {:slug "welcome"}]]]}}
+
+ :edges
+ [{:from [:sub [:cart/items]]                                   :to [:sub [:cart/total]] :role :input}
+  {:from [:runtime [:rf.runtime/routing :current :params :slug]] :to [:resource [[:rf.scope/global] :article/by-slug {:slug "welcome"}]] :role :param}
+  {:from [:machine :upload/main]                                 :to [:sub [:upload/progress]] :role :selector}]}
+```
+
+An Xray panel renders this as **one** graph even though the underlying runtime mechanisms are route state, resource cache, and subscription cache.
+
+### One accessor, two projections (EP-0014 issue-1 disposition)
+
+The [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) module-view demand trigger and this graph accessor are **projections of one registry** — never two overlapping internal accessors. The graduation gate: the public name ships only when a consumer **beyond** the two named first consumers (Xray, conformance fixtures) needs it, with [API](API.md)-facade classification recorded per name at graduation (the diff-time facade-export rule).
+
+### Redaction metadata (EP-0014 issue-1 disposition; EP-0015)
+
+Graph payloads carry source coordinates and value summaries, which are **egress-bearing once any tool ships them off-box**. The graph SHOULD be useful **without** exposing sensitive raw values: it MAY elide large data, redact sensitive params/scopes, and summarize functions, composing through the single shared `rf/elide-wire-value` walker ([009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces), [015-Data-Classification](015-Data-Classification.md), [Managed-Effects §5](Managed-Effects.md#5-sensitive--large-composition)). Redaction MUST NOT lose graph *structure* — a redacted param is still an edge.
+
+## The whole-value law
+
+**Whole-value derivation is mandatory.** A conforming implementation MUST be correct if every derivation recomputes its entire output from its declared inputs. This is the semantic floor:
+
+```clojure
+(= (derive inputs context)
+   (read-output-after-recompute inputs context))
+```
+
+Memoization, equality pruning, dependency tracking, dirty checks, and deltas are **implementation techniques**. They MAY improve performance but MUST NOT change the observable value. Whole-value output is the default for both ephemeral and materialized outputs: the derivation returns the entire next value of the output fact; a materialized derivation installs that whole value at its output address.
+
+### The optional delta law (semantic-only in slice-1)
+
+A derivation MAY one day provide a delta step as an optimization:
+
+```clojure
+{:id :large-grid/visible-rows
+ :derive     #'app.grid/visible-rows
+ :step-delta #'app.grid/visible-rows-delta}
+```
+
+The required law is that delta execution **commutes** with whole-value recomputation:
+
+```text
+derive(apply-input-delta(inputs, delta-in), context)
+=
+apply-output-delta(derive(inputs, context),
+                   step-delta(derive(inputs, context), delta-in, context))
+```
+
+**Slice-1 states this law and ships no executable delta protocol** (EP-0014 issue-5 disposition). Whole-value derivation *is* the contract; the delta representation is deliberately deferred until a real performance use case needs it. The rule that survives now: **any mechanism that later supports deltas MUST satisfy this law.** If the delta path is absent, disabled, or rejected by conformance, whole-value derivation remains correct. The home for the law is here, cited by [006](006-ReactiveSubstrate.md) and [013](013-Flows.md); the law is about derivation *semantics*, not about any one mechanism or about inspection.
+
+## Errors and diagnostics
+
+A graph node SHOULD carry source coordinates, doc text, schema metadata, sensitivity/size metadata, and runtime ownership when available. Structured errors SHOULD be **attributable to algebra identities** rather than only to low-level functions:
+
+- unknown input fact;
+- cycle in a derivation graph that requires acyclic evaluation;
+- illegal storage write for the source form;
+- missing lifecycle owner;
+- unresolved resource scope;
+- stale reply suppressed;
+- delta law check failed.
+
+The error *vocabulary* remains owned by the relevant specs (the `:rf.error/*` / `:rf.warning/*` catalogue is owned by [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). This doc requires only that errors be attributable to graph nodes.
+
+## Worked equivalence — one function, two policies
+
+The clearest illustration of the algebra: the *same* whole-value function, expressed as a subscription and as a flow, differs only in policy.
+
+```clojure
+;; Source form A — a subscription
+(rf/reg-sub
+  :cart/total
+  :<- [:cart/items]
+  :<- [:pricing/discounts]
+  (fn [[items discounts] _] (sum-cart items discounts)))
+
+;; Source form B — a flow, same function
+(rf/reg-flow
+  {:id :cart/materialized-total
+   :inputs [[:cart :items] [:pricing :discounts]]
+   :output (fn [items discounts] (sum-cart items discounts))
+   :path   [:cart :total]})
+```
+
+Their algebra views differ only in output, storage, evaluation, and lifecycle:
+
+| | Subscription | Flow |
+|---|---|---|
+| `:kind` | `:derivation` | `:derivation` |
+| `:output` | `[:fact :cart/total]` | `[:db [:cart :total]]` |
+| `:storage` | `:ephemeral` | `:app-db` |
+| `:evaluation` | `:on-demand` | `:after-event` |
+| `:lifecycle` | `:subscription-cache-entry` | `:frame` |
+| `:materialized?` | `false` | `true` |
+| `:derive` | `#'app.cart/sum-cart` | `#'app.cart/sum-cart` |
+
+`sum-cart` is one whole-value function. The difference between the subscription and the flow is **not the mathematical function; it is policy over the same dependency graph.** That is the whole point of naming the algebra. Full worked source-form/algebra-view pairs for every member — parametric subscriptions, runtime subscriptions, resources (static + live), route facts, machine processes and selectors — live in [EP-0014 §Examples](../docs/EP/EP-0014-derivation-and-process-algebra.md#examples).
+
+## The EP-0013 relocation seam
+
+In slice-1 the algebra view is **registrar-derived** — assembled from registration metadata at the surface that registers each source form. The normalized node this doc defines is deliberately the per-fact/per-process row an app value would carry, so a future move to [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) app values/runtime realms is a *relocation, not a redesign*.
+
+The EP-0013 condition **fired** (EP-0013 accepted 2026-06-11). The relocation is governed by the **shape-agreement obligation** recorded on the EP-0013 action epic (`rf2-c6armm`): it verifies the EP-0014 node shape here and the EP-0013 descriptor shape agree **before** either EP's spec slice lands, and the relocation itself happens inside EP-0013's D2. The reserved optional `:realm/id` / `:app/id` / `:module/id` node fields (above) are the forward-compatibility hook so the move needs no breaking reshape.
+
+## Conformance
+
+A conforming implementation should satisfy these checks (the [EP-0014 §Validation / Conformance](../docs/EP/EP-0014-derivation-and-process-algebra.md#validation--conformance) list, restated as the slice-1 contract):
+
+- **Source lowering** — each registered source form exposes an algebra view with the expected id, kind, inputs, output, storage, evaluation, and lifecycle.
+- **Static graph** — static inspection reports only registration-known edges, marks parametric edge sets `:parametric`, and **never executes** param/scope functions (the don't-execute rule); named-resolver inputs appear statically.
+- **Live graph** — live inspection reports concrete query vectors, active resource keys, route owners, machine instances, and realized parametric edges.
+- **Storage classification** — ephemeral outputs do not appear in durable frame-state; app-db outputs appear in app-db; runtime-db outputs appear in runtime-db; host-transient state declares teardown. No node uses `:remote` as a storage class — external authority is the separate `:authority` axis.
+- **Materialization** — a materialized derivation's output path contains the same whole value its derivation function computes from the same inputs.
+- **Evaluation policy** — on-demand reads cause no durable writes; after-event derivations obey event atomicity; reply-driven processes suppress stale replies by declared identity.
+- **Lifecycle** — destroying a frame releases frame-owned graph nodes and host-transient state; subscription disposal releases cache-entry nodes; route exit releases route owners; machine destroy releases machine-owned leases and timers.
+- **Tool redaction** — graph inspection can summarize or redact sensitive params, scopes, and values without losing graph structure.
+- **Public-API staging** — slice-1 exports **no** new public authoring primitive or stable graph-accessor name; any public API requires a later recorded ruling after the internal shape proves stable.
+- **Whole-value / delta law** — every derivation is correct as a whole-value function; any provided `:step-delta` passes the commuting law against whole-value recomputation. Implementations with no delta support still conform.
+
+The node/fact/edge/storage-class/evaluation-policy/lifecycle Malli shapes are in [Spec-Schemas §`:rf/derivation-node`](Spec-Schemas.md#rfderivation-node-rffact-rfderivation-edge-rfstorage-class-rfevaluation-policy-rflifecycle-the-derivationprocess-algebra-ep-0014).
+
+## Cross-references
+
+- [EP-0014](../docs/EP/EP-0014-derivation-and-process-algebra.md) — the source proposal; §Examples carries the full per-member source-form/algebra-view pairs, §Open Issues the six ruled dispositions this doc applies.
+- [006-ReactiveSubstrate](006-ReactiveSubstrate.md) — subscriptions and runtime subscriptions, the first concrete derivation instance; cites the whole-value law here.
+- [013-Flows](013-Flows.md) — flows as materialized `:after-event` derivations into `app-db`; the `:after-event` sequencing this doc summarizes is owned there.
+- [016-Resources](016-Resources.md) — resources as processes (`:authority :remote` + `:storage :runtime-db`); the `[cache-scope resource-id canonical-params]` identity, owners, work ledger, `{:from-db}` named resolvers, and `:rf.resource/*` selectors this doc reuses.
+- [012-Routing](012-Routing.md) — route facts (`:rf/route`), route-owned resource activation edges.
+- [005-StateMachines](005-StateMachines.md) — machines as processes; selectors as ephemeral derivations over machine snapshots.
+- [Managed-Effects](Managed-Effects.md) — the effect-surface analogue; `:rf.flow/*` is its internal-effect cousin.
+- [Runtime-Subsystems](Runtime-Subsystems.md) — the durable-state analogue; grades the `:runtime-db` storage class's owning subtrees. EP-0006 owns the per-key projection tiers the storage classes align with.
+- [EP-0006](../docs/EP/EP-0006-runtime-subsystem-contract.md) — runtime-subsystem projection tiers the durable storage classes align with.
+- [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md) — one-name-per-fact, applied graph-wide to fact identity.
+- [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) — the reply envelope `:on-reply` processes consume.
+- [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md) — canonical path/node identity rules.
+- [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) — the relocation seam (registrar-derived → app value); the shape-agreement obligation on `rf2-c6armm`.
+- [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) — the frame-owned egress posture the redaction metadata composes through.
+- [Spec-Schemas §`:rf/derivation-node`](Spec-Schemas.md#rfderivation-node-rffact-rfderivation-edge-rfstorage-class-rfevaluation-policy-rflifecycle-the-derivationprocess-algebra-ep-0014) — the projected Malli shapes.
+- [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra) — the path shape node/fact identity normalizes to.
+- [Ownership](Ownership.md) — the contract-surface → owning-doc matrix; this doc is the canonical home for the derivation/process vocabulary and the whole-value law.
