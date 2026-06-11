@@ -64,14 +64,14 @@ or a redaction path that disagrees with schema paths is a framework-level bug.
 re-frame2 needs one answer.
 
 The divergence is already observable in the CLJS reference. Four registration
-surfaces accept "a path" today with four different grammars and three different
-failure behaviors:
+surfaces accept "a path" today with four different grammars and surface-local
+failure behavior:
 
 | Surface | Accepts | On a malformed path |
 |---|---|---|
 | `path` interceptor (`re-frame.std-interceptors`) | varargs segments, coerced with `vec` | nothing rejected |
-| `reg-app-schema` (`re-frame.schemas.storage`) | any `sequential?` | throws `:rf.error/bad-app-schema-path` |
-| marks `:sensitive` / `:large` (`re-frame.marks`) | vectors only | silently drops non-vector entries |
+| `reg-app-schema` (`re-frame.schemas.storage`) | any `sequential?`, except runtime-db roots | throws `:rf.error/bad-app-schema-path` or `:rf.error/app-schema-runtime-path` |
+| marks `:sensitive` / `:large` (`re-frame.marks`) | vector of path vectors with scalar segments; `[]` marks the whole value | throws `:rf.error/bad-marks` |
 | flow `:inputs` / `:path` (`re-frame.flows.registry`) | non-empty vector of keyword/string/integer/symbol/boolean segments | throws a stable flow-validation error |
 
 Even `[]` already means three things: the flow `:path` validator rejects it
@@ -894,15 +894,14 @@ focuses inside the values it produces. Four surfaces, four subtly different
 path semantics:
 
 ```clojure
-;; 1. Schema registration: any sequential? accepted, throws
-;;    :rf.error/bad-app-schema-path otherwise.
+;; 1. Schema registration: any sequential? accepted except runtime-db
+;;    roots; malformed shapes throw :rf.error/bad-app-schema-path.
 (rf/reg-app-schema [:billing :invoices] Invoices)
 
-;; 2. Marks declaration (output-relative): vectors only; a non-vector
-;;    entry is silently dropped, so this one-bracket typo registers
-;;    cleanly and redacts nothing:
+;; 2. Marks declaration (output-relative): a vector of path vectors
+;;    with scalar segments; malformed entries throw :rf.error/bad-marks.
 (rf/reg-sub :billing/invoice
-  {:sensitive [:customer :email]}       ;; meant [[:customer :email]]
+  {:sensitive [[:customer :email]]}
   (fn [db [_ id]] (get-in db [:billing :invoices :by-id id])))
 
 ;; 3. Flow output: non-empty vector of scalar keys; [] rejected,
@@ -921,12 +920,11 @@ path semantics:
 
 Under this EP the four surfaces keep their call shapes, but all four mean the
 same thing by "path": each registration boundary normalizes to a canonical
-`:rf/path` vector, malformed paths fail loudly with one error vocabulary
-(the marks typo above becomes a registration error instead of a silent
-redaction no-op), and the flow overlap check is the shared `overlap?`
-relation rather than a private one. Root selection stays with the owning
-surface (app-db for the schema/flow/interceptor, the sub's output for the
-marks declaration) per §Partition-Relative Paths.
+`:rf/path` vector, malformed paths fail loudly through the shared path error
+vocabulary instead of surface-local error families, and the flow overlap check
+is the shared `overlap?` relation rather than a private one. Root selection
+stays with the owning surface (app-db for the schema/flow/interceptor, the
+sub's output for the marks declaration) per §Partition-Relative Paths.
 
 ### Raw Vector Paths
 
@@ -1318,8 +1316,8 @@ Migration tooling should classify issues:
    dependency and output-collision checks.
 6. Update `spec/010-Schemas.md` and `spec/015-Data-Classification.md` to cite
    `:rf/path` for app-db schema paths, marks declarations, and derived
-   redaction declarations — including normalizing the marks surface's
-   silent-drop path coercion to the shared loud-failure rule.
+   redaction declarations — including mapping the marks surface's
+   marks-specific path validation onto the shared path error vocabulary.
 7. Update `spec/016-Resources.md` to replace local canonicalization prose with
    the shared canonical EDN identity rule.
 8. Update `spec/Runtime-Subsystems.md` to cite shared path semantics for
