@@ -1169,11 +1169,25 @@
   sets and entry generation after wake\").
 
   GC-eligibility re-check (against the LIVE durable facts):
-    - the entry is gone — no-op (`:no-entry`);
+    - the entry is gone — no-op (`:no-entry`); nothing to GC or reschedule;
     - the entry has an active owner — pinned alive, no GC (`:has-owner`);
     - the entry has work in flight (`:current-work`) — no GC (`:in-flight`);
     - otherwise the entry is owner-free + idle — REMOVE it (recompute the
-      reverse indexes) and cancel its advisory timers."
+      reverse indexes) and cancel its advisory timers.
+
+  RESCHEDULE-ON-SKIP (rf2-07693y): a GC timer that fires while the entry is
+  still OWNED or IN-FLIGHT must NOT just skip and leave the entry uncollectable
+  — if the owner later releases or the work settles AFTER the original
+  `:gc-after-ms` deadline, nothing would re-fire and the now-inactive entry
+  would linger indefinitely. So a `:has-owner` / `:in-flight` skip RE-ARMS a
+  fresh GC timer (via `schedule-timers`, which cancel-then-arms — this also
+  cleans up the FIRED one-shot handle still sitting in the side table). The
+  re-armed timer fires another re-check after `:gc-after-ms`; once the entry is
+  owner-free + idle that re-check collects it deterministically. A `:no-entry`
+  skip does NOT reschedule (there is nothing left to collect; `cancel-timers`
+  on the removal path already released the handles). A resource declaring no
+  `:gc-after-ms` never armed a GC timer in the first place, so it never skips
+  here — but the reschedule fx is gated on a positive delay for safety."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
    [_event-id {:keys [resource-key]}]]
   (let [runtime-db (or rt {})
@@ -1190,12 +1204,31 @@
          ;; one-shot, but the paired stale timer may still be armed).
          :fx [[:rf.resource/cancel-timers
                {:frame-id frame-id :resource-keys [resource-key]}]]})
-      (do (trace/emit! :rf.event :rf.resource/gc-skipped
-                       {:rf.frame/id frame-id :resource-key resource-key
-                        :reason (cond (nil? entry) :no-entry
-                                      (seq (:active-owners entry)) :has-owner
-                                      :else :in-flight)})
-          {:rf.db/runtime runtime-db}))))
+      (let [reason   (cond (nil? entry)                  :no-entry
+                           (seq (:active-owners entry))  :has-owner
+                           :else                         :in-flight)
+            ;; rf2-07693y: a still-owned / in-flight skip RE-ARMS the GC timer
+            ;; so a later release / work-settle is followed by another GC
+            ;; re-check (and the fired one-shot handle is replaced). A
+            ;; :no-entry skip has nothing to reschedule. The delay is the
+            ;; resource's own :gc-after-ms (positive-guarded — a resource with
+            ;; no GC policy never armed one, so it never reaches this branch).
+            gc-delay (when (not= :no-entry reason)
+                       (positive-or-nil (:gc-after-ms (registry/resource-meta (:resource/id entry)))))]
+        (trace/emit! :rf.event :rf.resource/gc-skipped
+                     {:rf.frame/id frame-id :resource-key resource-key
+                      :reason reason
+                      :rescheduled? (some? gc-delay)})
+        (cond-> {:rf.db/runtime runtime-db}
+          gc-delay
+          (assoc :fx [[:rf.resource/schedule-timers
+                       {:frame-id       frame-id
+                        :resource-key   resource-key
+                        ;; reschedule the GC re-check ONLY (leave stale as-is —
+                        ;; nil disarms that kind in schedule-timers-handler)
+                        :stale-delay-ms nil
+                        :gc-delay-ms    gc-delay
+                        :server?        (server-frame? frame-id)}]]))))))
 
 (defn stale-suppressed-handler
   "`:rf.resource.internal/stale-suppressed` — a late reply carrying a
