@@ -3,11 +3,14 @@
 Status: final
 
 > **`final` means the decisions are settled.** The fourteen deferred calls were
-> ruled by Mike on 2026-06-08 (see [Resolved Decisions](#resolved-decisions)),
-> the two design-review premises Appendices A and B left open were closed on
-> 2026-06-10 (Resolved Decisions [15](#resolved-decisions) and the §Partition
-> Keys naming note), and the partition is locked. The two implementation gaps
-> tracked against those settled rulings have now also shipped — see
+> ruled by Mike on 2026-06-08 (see [Resolved Decisions](#resolved-decisions)).
+> The design-review follow-ups were also closed before finalization: Appendix
+> A's concrete recommendations are disposed by Resolved Decisions 3, 4, 7, and
+> 13, the §Partition Keys naming note, and the follow-on [Runtime Subsystem
+> Contract EP](EP-0006-runtime-subsystem-contract.md); Appendix B's upstream
+> handler-contract premise is settled by Resolved Decision
+> [15](#resolved-decisions). The partition is locked. The two implementation
+> gaps tracked against those settled rulings have now also shipped — see
 > [Implementation errata](#implementation-errata). Finalizing the *decisions*
 > did not, on its own, assert the *implementation* was gap-free; the errata
 > ledger below tracked that separately to its close. Historical proposal
@@ -170,6 +173,12 @@ This EP is foundational for other EPs that store framework-owned state.
   partition (`:rf.runtime/resources`) this EP introduces, so this partition
   should land — or at least its key vocabulary be fixed — before resources rely
   on it.
+- **Substrate for the runtime-subsystem contract.** The [Runtime Subsystem
+  Contract EP](EP-0006-runtime-subsystem-contract.md) adopts Appendix A item 5
+  from this EP and grades the `:rf.runtime/*` children this partition creates.
+  Its normative home is [`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md);
+  it organizes runtime-db's children without reopening this EP's two-partition
+  frame contract.
 - **Shares a path with the machine `:data` schema EP.** The [Machine `:data`
   Schema EP](EP-0005-machine-data-schema.md) touches the same
   `[:rf/runtime :machines :snapshots]` path this EP renames to
@@ -1309,11 +1318,13 @@ coherent app+runtime snapshot, and giving app-db a pure application contract an
 agent can read without framework noise. The pre-alpha posture favors the clean
 break (no long-lived `:rf/runtime` aliases) over compatibility shims.
 
-The design-review appendices below record two open considerations the maintainers
-should settle alongside adoption: pinning write-authority at registration so the
-"structurally impossible" guarantee is earned (Appendix A), and whether the
-upstream handler-contract question should be decided before the partition is
-locked (Appendix B).
+The design-review appendices below are historical review records, not open
+issues. Their dispositions are recorded above: the single-container/projection
+model (Resolved Decisions 3 and 7), convention-plus-diagnostics write authority
+rather than a capability gate (Resolved Decision 4), the durable/transient
+boundary (Resolved Decision 13), the `:rf.db/app` naming tradeoff (§Partition
+Keys), the follow-on runtime-subsystem contract (EP-0006), and the retained
+whole-db handler contract (Resolved Decision 15).
 
 ## Source Findings
 
@@ -1326,42 +1337,43 @@ Both findings agree on the destination: application code owns app-db,
 re-frame2 owns runtime state, and the frame owns both as one coherent
 frame-state snapshot.
 
-This review also checked the local implementation and specs. Important
-constraints:
+At proposal time, this review also checked the then-current local implementation
+and specs. The findings below are historical evidence for why the migration was
+needed, not current build status:
 
-- `implementation/core/src/re_frame/router.cljc` currently builds event
+- `implementation/core/src/re_frame/router.cljc` then built event
   contexts with `:db`, `:event`, and bare `:frame`; emits
   `:rf.warning/runtime-state-dropped` only after durable ordinary `:db`
   commits; and treats `:db` as the single app-db container write boundary.
 - `implementation/core/src/re_frame/events.cljc` and
-  `spec/Spec-Schemas.md` currently define the top-level event effect map as
+  `spec/Spec-Schemas.md` then defined the top-level event effect map as
   closed to `:db` and `:fx`, so `:rf.db/runtime` must be added there as a
   deliberate reserved key.
-- Machines, routing, schemas, SSR, and epoch code all still read or write
+- Machines, routing, schemas, SSR, and epoch code then read or wrote
   `[:rf/runtime ...]` paths under app-db. Some write through ordinary `:db`
-  effects, while others use direct container helpers such as
-  `frame/swap-frame-db!` or `adapter/replace-container!`; the implementation
-  must classify those call sites before the partition is real.
-- Instrumentation and schema specs deliberately use bare `:frame` in public
-  opts and trace tags today. This EP's `:rf.frame/id` rename must therefore be
-  applied to runtime context/fx context first, with any public `:frame` rename
-  left to the owning Frames and Instrumentation specs.
-- Current epoch records store `:db-before` and `:db-after` as app-db values.
-  A partitioned restore needs an explicit frame-state snapshot or an
+  effects, while others used direct container helpers such as
+  `frame/swap-frame-db!` or `adapter/replace-container!`; the migration had to
+  classify those call sites before the partition was real.
+- Instrumentation and schema specs deliberately used bare `:frame` in public
+  opts and trace tags at the time. This EP's `:rf.frame/id` rename therefore
+  had to be applied to runtime context/fx context first, with any public
+  `:frame` rename left to the owning Frames and Instrumentation specs.
+- Epoch records then stored `:db-before` and `:db-after` as app-db values.
+  A partitioned restore needed an explicit frame-state snapshot or an
   unambiguous sibling shape.
 - The SSR artefact deliberately keeps request slots, response accumulators,
   pending error buffers, head snapshots, and streaming continuation registries in
   side-channel atoms so they do not ride hydration payloads. The partition
-  migration must keep that privacy and lifecycle boundary.
+  migration had to keep that privacy and lifecycle boundary.
 - Managed HTTP keeps in-flight request handles, abort controllers, retry timers,
   and actor indexes in registries outside app-db. These are host handles or
   transient runtime state, not durable runtime-db values.
 - Flows materialize outputs into app-db but keep registrations and `last-inputs`
-  dirty-check rows in per-frame registries. Restore and rollback semantics must
+  dirty-check rows in per-frame registries. Restore and rollback semantics had to
   keep those caches aligned or recompute them.
 - Epoch, Xray, and pair tooling store histories, capture buffers, listeners,
   trace rings, and mount attribution outside app-db. This EP's "tool state"
-  language must therefore mean explicit frame-state projections, not every
+  language had to mean explicit frame-state projections, not every
   tool-side cache.
 
 ## Appendix A — Design review: elegance, simplicity, sophistication
