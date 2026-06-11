@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 510,
+ :var-count 512,
  :tier-vocab
  [:front-porch
   :advanced
@@ -172,6 +172,7 @@
   {:namespace "re-frame.core", :var "reg-machine", :tier :advanced, :kind :macro, :owner "005", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-machine*", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-mutation", :tier :advanced, :kind :macro, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "reg-observability-sink!", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-resource", :tier :advanced, :kind :macro, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-resource-scope", :tier :advanced, :kind :macro, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-route", :tier :advanced, :kind :macro, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
@@ -220,6 +221,7 @@
   {:namespace "re-frame.core", :var "unregister-error-listener!", :tier :tooling, :kind :fn, :owner "009", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "unregister-event-listener!", :tier :tooling, :kind :fn, :owner "009", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "unregister-listener!", :tier :tooling, :kind :fn, :owner "009", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "unregister-observability-sink!", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "unregister-route!", :tier :tooling, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "unsubscribe", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "unwrap-interceptor", :tier :advanced, :kind :var, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
