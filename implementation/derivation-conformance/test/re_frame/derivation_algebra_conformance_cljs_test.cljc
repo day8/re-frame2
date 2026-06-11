@@ -30,12 +30,14 @@
   restated as the slice-1 contract):
 
     (a) LOWERING        — each source form lowers to the correct node KIND /
-                          SUPERKIND. Every node's `:kind` classifies as the
-                          closed two-superkind enum (`:derivation` |
+                          SUPERKIND. Every node's `:kind` is DIRECTLY a member
+                          of the closed two-superkind enum (`:derivation` |
                           `:process`); a tool that understands ONLY the two
-                          superkinds can classify EVERY node (refined kinds
-                          — `:machine-process`, `:route-fact` — reduce to a
-                          superkind).
+                          superkinds can classify EVERY node by reading `:kind`
+                          alone. Informative refined kinds
+                          (`:resource-process`, `:route-fact`,
+                          `:machine-process`) ride the separate `:refinement`
+                          axis, NEVER `:kind` (rf2-7wwp1z).
     (b) CLASSIFICATION  — storage-class / evaluation-policy / lifecycle
                           correctness PER FAMILY, against the
                           spec/Derivations.md fixed-classification tables
@@ -108,21 +110,25 @@
   understands only these MUST be able to classify every node."
   #{:derivation :process})
 
-(def refined->superkind
-  "Informative refined kinds (Derivations §Two superkinds, refinable) and
-  the superkind they reduce to. `:machine-process` refines `:process`; a
-  route's `:kind` is already the bare `:process` superkind (the `:route-fact`
-  detail rides `:refinement`)."
-  {:derivation       :derivation
-   :process          :process
+(def refinements
+  "The informative refined kinds (Derivations §The node shape — refinements
+  are informative, the superkind is canonical) and the superkind each refines.
+  Per the graduated Spec-Schemas `DerivationKind` enum these are CLOSED out of
+  `:kind` (a node's `:kind` is always a bare superkind); a refinement rides the
+  separate `:refinement` axis. This map exists only to validate that a node's
+  declared `:refinement` (when present) refines the superkind its `:kind`
+  asserts (rf2-7wwp1z)."
+  {:resource-process :process
+   :route-fact       :process
    :machine-process  :process
-   :resource-process :process
-   :route-fact       :process})
+   :machine-selector :derivation})
 
-(defn superkind-of
-  "Reduce any node `:kind` to its closed superkind, or nil if unknown."
-  [kind]
-  (get refined->superkind kind))
+;; NOTE (rf2-7wwp1z): there is deliberately NO `superkind-of` reduction helper.
+;; The closed `DerivationKind` enum makes a node's `:kind` ALWAYS a bare
+;; superkind, so conformance asserts `(contains? superkinds (:kind node))`
+;; DIRECTLY. The historic refined->superkind lookup masked a `:kind
+;; :machine-process` violation by accepting a refined kind in `:kind` and
+;; reducing it — the closed-enum contract is pinned by direct membership now.
 
 (def storage-classes
   "The closed storage-class set (Derivations §Storage class — the issue-2
@@ -294,23 +300,43 @@
       (is (= #{:subs :flows :resources :routes :machines}
              (->> nodes vals (map :rf/family) set))
           "every source form lowered to at least one node"))
-    (testing "EVERY node classifies to the closed two-superkind enum — a tool
-              that understands only :derivation / :process classifies all"
+    (testing "EVERY node's :kind is DIRECTLY a member of the closed two-superkind
+              enum — a tool that understands only :derivation / :process classifies
+              all by reading :kind alone (no refined-kind reduction; rf2-7wwp1z)"
       (doseq [[node-id node] nodes]
-        (is (contains? superkinds (superkind-of (:kind node)))
+        (is (contains? superkinds (:kind node))
             (str node-id " :kind " (:kind node)
-                 " does not reduce to a closed superkind"))))
+                 " is not DIRECTLY in the closed DerivationKind enum "
+                 (pr-str superkinds)
+                 " — refined kinds must ride :refinement, never :kind"))))
+    (testing "every refinement (when present) is informative and refines the
+              superkind its :kind asserts — refinements never replace the
+              superkind (rf2-7wwp1z)"
+      (doseq [[node-id node] nodes
+              :let [refinement (:refinement node)]
+              :when (some? refinement)]
+        (is (contains? refinements refinement)
+            (str node-id " :refinement " refinement " is not a known refinement"))
+        (is (= (:kind node) (get refinements refinement))
+            (str node-id " :refinement " refinement " refines "
+                 (get refinements refinement) " but :kind asserts " (:kind node)))))
     (testing "subscriptions + flows are DERIVATIONS (Derivations §Derivation)"
       (is (= :derivation (:kind (node-by-family nodes :subs :cart/total))))
       (is (= :derivation (:kind (node-by-family nodes :subs :cart/items))))
       (is (= :derivation (:kind (node-by-family nodes :flows :cart/materialized-total)))))
-    (testing "resources + routes + machines are PROCESSES (Derivations §Process)"
-      ;; resource carries the bare superkind :process; route carries :process
-      ;; with the :route-fact refinement; machine carries the :machine-process
-      ;; refinement — all three reduce to :process.
-      (is (= :process (superkind-of (:kind (node-by-family nodes :resources :article/by-slug)))))
-      (is (= :process (superkind-of (:kind (node-by-family nodes :routes :route/article)))))
-      (is (= :process (superkind-of (:kind (node-by-family nodes :machines :upload/main))))))
+    (testing "resources + routes + machines are PROCESSES (Derivations §Process)
+              — :kind is the bare :process superkind across ALL THREE families;
+              the informative refinement (:resource-process / :route-fact /
+              :machine-process) rides :refinement, one convention (rf2-7wwp1z)"
+      (let [res   (node-by-family nodes :resources :article/by-slug)
+            route (node-by-family nodes :routes    :route/article)
+            mach  (node-by-family nodes :machines  :upload/main)]
+        (is (= :process (:kind res)))
+        (is (= :process (:kind route)))
+        (is (= :process (:kind mach)))
+        (is (= :resource-process (:refinement res)))
+        (is (= :route-fact       (:refinement route)))
+        (is (= :machine-process  (:refinement mach)))))
     (testing "the route fact's id is the ONE consumer-facing slice name :rf/route
               (one-name-per-fact), with the per-route id under :source-form"
       (let [route (node-by-family nodes :routes :route/article)]

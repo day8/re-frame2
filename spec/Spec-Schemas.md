@@ -2575,9 +2575,19 @@ The normalized **algebra view** every declared fact / process lowers to — the 
   ;; The two superkinds every node classifies as. The refined kinds
   ;; (:resource-process / :route-fact / :machine-process / :machine-selector)
   ;; are informative refinements — a tool that knows only the two superkinds
-  ;; MUST still classify every node. Refinements appear in :source-form / the
-  ;; per-owner specs, not as a third superkind.
+  ;; MUST still classify every node by reading :kind alone. A refinement rides
+  ;; the separate :refinement key (the per-owner specs name it), NEVER :kind —
+  ;; :kind is always one of these two superkinds, never a refined kind.
   [:enum :derivation :process])
+
+(def RefinedKind
+  ;; The informative refinement a node MAY carry under :refinement (open —
+  ;; specs MAY add more). Each refines exactly one superkind:
+  ;; :resource-process / :route-fact / :machine-process refine :process;
+  ;; :machine-selector refines :derivation. A refinement NEVER replaces the
+  ;; :kind superkind — a tool that knows only :derivation / :process still
+  ;; classifies the node by reading :kind alone.
+  [:enum :resource-process :route-fact :machine-process :machine-selector])
 
 (def StorageClass
   ;; Where the LOCAL representation lives. Always one of these four — the
@@ -2649,6 +2659,7 @@ The normalized **algebra view** every declared fact / process lowers to — the 
   [:map
    [:id           :any]
    [:kind         DerivationKind]
+   [:refinement   {:optional true} RefinedKind]  ;; informative refinement of :kind — NEVER replaces the superkind
    [:source-form  {:optional true} [:map [:kind :keyword] [:id {:optional true} :any]]]
    [:inputs       [:or [:vector DeclaredInput] [:= :parametric]]]
    [:input-producer {:optional true} :any]   ;; opaque fn token — present when :inputs is :parametric

@@ -83,7 +83,8 @@
 ;;
 ;; The fixed classifications for EVERY machine-process node (Derivations
 ;; §Machines expose algebra views — the machine column):
-;;   :kind          :machine-process     (a process — refines :process)
+;;   :kind          :process             (the superkind — Derivations §Two superkinds)
+;;   :refinement    :machine-process     (the informative refinement of :process)
 ;;   :storage       :runtime-db          (the snapshot is durable runtime-db state)
 ;;   :lifecycle     :machine-instance    (machine destroy releases it)
 ;;   :materialized? true                 (the snapshot has a durable runtime-db address)
@@ -228,14 +229,16 @@
   coordinates (the registered TYPE id — a spawned actor inherits its type's
   coords).
 
-  The fixed-classification spine — a `:machine-process` whose materialized
-  snapshot lands in runtime-db, evaluated `:on-transition` (+ derived policies),
-  owned by its `:machine-instance` — plus the per-machine `:inputs` (the
+  The fixed-classification spine — a `:process` (refinement `:machine-process`)
+  whose materialized snapshot lands in runtime-db, evaluated `:on-transition`
+  (+ derived policies), owned by its `:machine-instance` — plus the per-machine
+  `:inputs` (the
   declared `[:event …]` triggers), `:output` (the runtime-db snapshot path),
   `:source-form`, `:spawns?` flag, and source coords / schema / doc."
   [id source-id machine meta]
   (-> {:id            id
-       :kind          :machine-process
+       :kind          :process
+       :refinement    :machine-process
        :source-form   {:kind :reg-machine :id source-id}
        :inputs        (declared-event-inputs machine)
        :output        [:runtime (paths/snapshot-path id)]
@@ -265,8 +268,10 @@
   lifecycle, and commands over time — Derivations §Process). Each node carries:
 
   - `:id`          — the machine id (its canonical fact identity).
-  - `:kind`        — `:machine-process` (a process — refines `:process`;
-                     Derivations §Two superkinds).
+  - `:kind`        — `:process` (the superkind; Derivations §Two superkinds).
+  - `:refinement`  — `:machine-process` (the informative refinement — a process
+                     WITH state, lifecycle, and commands over time;
+                     Derivations §The node shape).
   - `:source-form` — `{:kind :reg-machine :id <machine-id>}`.
   - `:inputs`      — the declared inputs (Derivations §Declared input): each
                      author-declared `:on` event trigger across the whole

@@ -260,6 +260,7 @@
         resolver     (scope-resolver-enrichment spec)]
     (-> {:id            resource-id
          :kind          resource-superkind
+         :refinement    resource-refined-kind
          :source-form   {:kind :reg-resource :id resource-id}
          :inputs        (declared-inputs spec)
          :output        [:runtime [state/resources-key :entries]]
@@ -292,7 +293,9 @@
   derivation — Derivations §Process). Each node carries:
 
   - `:id`          — the resource id (its canonical fact identity when static).
-  - `:kind`        — `:process` (the superkind; refined `:resource-process`).
+  - `:kind`        — `:process` (the superkind; Derivations §Two superkinds).
+  - `:refinement`  — `:resource-process` (the informative refinement;
+                     Derivations §The node shape).
   - `:source-form` — `{:kind :reg-resource :id <resource-id>}`.
   - `:inputs`      — the declared inputs (Derivations §Declared input): the
                      params (`[:param :rf.params]`) and the scope policy
@@ -377,6 +380,7 @@
         record   (when work-id (work-ledger/get-record runtime-db work-id))]
     (cond-> {:id            scoped-key
              :kind          resource-superkind
+             :refinement    resource-refined-kind
              :source-form   {:kind :reg-resource :id resource-id}
              :inputs        [[:scope scope] [:param params]]
              :output        [:runtime (state/entry-path scoped-key)]

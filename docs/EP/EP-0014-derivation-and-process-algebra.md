@@ -410,11 +410,16 @@ this shape:
 The exact public accessor name is deferred. The required information is not.
 Tools must be able to recover the same facts from a conforming implementation.
 
-Every `:kind` value classifies as either a derivation or a process. Refined
-kinds used in this EP's examples — `:resource-process`, `:route-fact`,
-`:machine-process`, `:machine-selector` — are informative refinements of those
-two superkinds; specs may add refinements, but a tool that understands only
-`:derivation` and `:process` must still be able to classify every node.
+Every `:kind` value is one of exactly two closed superkinds — `:derivation` or
+`:process` (the graduated, closed `DerivationKind` enum). Refined kinds used in
+this EP's examples — `:resource-process`, `:route-fact`, `:machine-process`,
+`:machine-selector` — are informative refinements of those two superkinds,
+carried on the separate `:refinement` axis, never in `:kind`: specs may add
+refinements, but a tool that understands only `:derivation` and `:process` must
+still be able to classify every node by reading `:kind` alone. (Graduation note:
+earlier drafts placed the refined kind directly in `:kind`; the graduated
+Spec-Schemas `DerivationKind` closed the enum to the two superkinds, so the
+examples below carry the refinement under `:refinement` — rf2-7wwp1z.)
 
 Function values in graph output MAY be represented by symbols, source
 coordinates, registry metadata, or opaque implementation tokens. The graph
@@ -937,7 +942,8 @@ Static algebra view:
 
 ```clojure
 {:id :article/by-slug
- :kind :resource-process
+ :kind :process
+ :refinement :resource-process
  :source-form {:kind :reg-resource :id :article/by-slug}
  :inputs [[:param :slug]
           [:scope :rf.scope/from-caller]]
@@ -1012,7 +1018,8 @@ Spec 012 already gives the route slice (one name per fact, per EP-0007):
 
 ```clojure
 {:id :rf/route
- :kind :route-fact
+ :kind :process
+ :refinement :route-fact
  :source-form {:kind :reg-route :id :route/article}
  :inputs [[:event :rf.route/navigate]
           [:event :rf.route/transitioned]
@@ -1081,7 +1088,8 @@ Machine process algebra:
 
 ```clojure
 {:id :upload/main
- :kind :machine-process
+ :kind :process
+ :refinement :machine-process
  :source-form {:kind :reg-machine :id :upload/main}
  :inputs [[:event :upload/start]
           [:event :upload/progress]
@@ -1109,7 +1117,8 @@ Selector algebra:
 
 ```clojure
 {:id :upload/progress
- :kind :machine-selector
+ :kind :derivation
+ :refinement :machine-selector
  :inputs [[:machine :upload/main [:data :progress]]]
  :output [:fact :upload/progress]
  :storage :ephemeral
@@ -1132,7 +1141,8 @@ A live graph for an article page might expose:
          :nav-token 17}
  :facts
  {[:runtime [:rf.runtime/routing :current]]
-  {:kind :route-fact
+  {:kind :process
+   :refinement :route-fact
    :storage :runtime-db}
 
   [:sub [:article/page "welcome"]]
