@@ -832,10 +832,13 @@
 
 (defn assert-write-after-destroy-guard
   "replace-container! with a nil container is a documented no-op +
-  :rf.warning/write-after-destroy (the guard is substrate-agnostic;
-  this pins it through the installed React adapter)."
+  :rf.error/write-after-destroy (the guard is substrate-agnostic; this
+  pins it through the installed React adapter). EP-0008 / rf2-500ech
+  promoted the category from the DCE'd :rf.warning onto the always-on
+  axis — same destroy-race the dispatch/subscribe paths surface as
+  :rf.error/frame-destroyed."
   [{:keys [substrate-kw name]}]
-  (testing (str name " — write-after-destroy: nil container no-ops with warning")
+  (testing (str name " — write-after-destroy: nil container no-ops with error")
     (let [fid      (mint-kw substrate-kw "race-frame")
           recorded (atom [])]
       (trace-tooling/register-listener! ::wad (fn [ev] (swap! recorded conj ev)))
@@ -848,12 +851,12 @@
           (is (nil? container) "app-db-container on a destroyed frame returns nil")
           (is (nil? (substrate-adapter/replace-container! container {:would-have :npe'd}))
               "writing through the nil container is a documented no-op"))
-        (let [warns (filterv (fn [ev]
-                               (and (= :warning (:op-type ev))
-                                    (= :rf.warning/write-after-destroy (:operation ev))))
-                             @recorded)]
-          (is (pos? (count warns))
-              ":rf.warning/write-after-destroy fired for the post-destroy write"))
+        (let [errs (filterv (fn [ev]
+                              (and (= :error (:op-type ev))
+                                   (= :rf.error/write-after-destroy (:operation ev))))
+                            @recorded)]
+          (is (pos? (count errs))
+              ":rf.error/write-after-destroy fired for the post-destroy write"))
         (finally
           (trace-tooling/unregister-listener! ::wad))))))
 

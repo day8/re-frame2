@@ -1051,14 +1051,61 @@
                                :where     :safe-call-hook!})
            nil))))
 
+(defn- emit-on-destroy-handler-exception!
+  "Surface `:rf.error/on-destroy-handler-exception` through BOTH the
+  ALWAYS-ON error-emit axis (production-survivable) AND the dev-only trace
+  surface. Per EP-0008 (rf2-7b9r4l): the dedicated `:on-destroy`-throw
+  category is the DISCRIMINABLE teardown signal — an operator on a
+  `goog.DEBUG=false` host must be able to tell 'this throw happened during
+  destroy' from a generic `:rf.error/handler-exception`. The router's
+  `:rf.error/handler-exception` is the production source of record for the
+  *handler throw*, but the discriminator (it was an `:on-destroy`) was
+  previously LOST under elision (the dedicated category rode only the DCE'd
+  `trace/emit-error!`). It now rides the always-on axis too.
+
+  This is also the ONLY always-on coverage for the rf2-bxud9v defence-in-
+  depth re-throw branch (`dispatch-sync!` itself faulting): that path never
+  produced a router `:rf.error/handler-exception`, so before this promotion
+  it had ZERO production observability.
+
+  `frame` cannot static-require `re-frame.error-emit` (the always-on error
+  substrate sits above frame in the load order — a static require closes a
+  cycle), so the always-on emission rides the published
+  `:error-emit/dispatch-on-error` late-bind hook (the same hook
+  `emit-no-frame-context!` uses at `:262`). The producer always loads at
+  boot, so the lookup never misses in production. The dev trace below keeps
+  the in-process tooling surface (DCE'd in production)."
+  [id on-destroy exception extra-tags]
+  ;; Always-on listener registry (survives prod elision). Default
+  ;; `:recovery :ignored` — teardown continues best-effort.
+  (when-let [dispatch-on-error! (late-bind/get-fn :error-emit/dispatch-on-error)]
+    (dispatch-on-error!
+      :rf.error/on-destroy-handler-exception
+      on-destroy                         ;; the :on-destroy event vector
+      (when (vector? on-destroy) (first on-destroy)) ;; event-id
+      id                                 ;; the frame being torn down
+      exception
+      0                                  ;; elapsed-ms — not a timed dispatch here
+      (interop/now-ms)))
+  ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
+  (trace/emit-error! :rf.error/on-destroy-handler-exception
+                     (merge {:frame     id
+                             :event     on-destroy
+                             :exception exception
+                             :recovery  :ignored
+                             :where     :fire-on-destroy-event!}
+                            extra-tags)))
+
 (defn- fire-on-destroy-event!
   "Run the user-supplied `:on-destroy` event synchronously, then continue
   teardown regardless of outcome. Per Spec 002 §Destroy — `:on-destroy`
   handler throw semantics (rf2-r1ciy decision b): a throw from the user's
   handler MUST NOT abort teardown. Emit `:rf.error/on-destroy-handler-exception`
-  via `trace/emit-error!` and continue — every downstream step
-  (machine cascade, sub-cache disposal, cleanup hooks, `:frame/destroyed`,
-  registry dissoc) MUST still run so the frame is fully torn down.
+  through the always-on error-emit axis AND the dev trace
+  (`emit-on-destroy-handler-exception!`) and continue — every downstream
+  step (machine cascade, sub-cache disposal, cleanup hooks,
+  `:frame/destroyed`, registry dissoc) MUST still run so the frame is fully
+  torn down.
 
   Mechanism: the router catches handler throws and converts them to
   `:rf.error/handler-exception` traces — `dispatch-sync!` does not re-
@@ -1069,10 +1116,13 @@
   the new category. We also wrap the dispatch itself in try/catch as a
   defence-in-depth: if `dispatch-sync!` ever re-throws (e.g. a fault
   inside the dispatch infrastructure itself, not the user handler),
-  we catch it here.
+  we catch it here — and per EP-0008 (rf2-7b9r4l) the dedicated category
+  now rides the always-on axis so this defence-in-depth branch (which never
+  produced a router `:rf.error/handler-exception`) is observable in
+  production.
 
   This mirrors the swallow-then-continue shape of `safe-call-hook!` below
-  but ALSO emits a structured error trace (where `safe-call-hook!` is
+  but ALSO emits a structured error event (where `safe-call-hook!` is
   silent) — the user's `:on-destroy` is application code; its failure
   is a first-class diagnostic event."
   [id f]
@@ -1101,26 +1151,24 @@
             (catch #?(:clj Throwable :cljs :default) ex
               ;; Defence-in-depth: dispatch-sync! normally swallows
               ;; handler throws, but if the dispatch infrastructure
-              ;; itself fails we still emit the dedicated category.
-              (trace/emit-error! :rf.error/on-destroy-handler-exception
-                                 {:frame     id
-                                  :event     on-destroy
-                                  :exception ex
-                                  :where     :fire-on-destroy-event!})))
+              ;; itself fails we still emit the dedicated category. This
+              ;; branch never produced a router :rf.error/handler-exception,
+              ;; so the always-on emission here is its ONLY production
+              ;; observability (EP-0008, rf2-7b9r4l).
+              (emit-on-destroy-handler-exception! id on-destroy ex nil)))
           (finally
             (when (and register remove-cb)
               (remove-cb listener-k))))
         ;; If the router converted a handler throw to a trace, re-emit
         ;; under the dedicated :on-destroy category so consumers can
         ;; discriminate teardown failures from regular handler throws.
+        ;; Rides the always-on axis (EP-0008, rf2-7b9r4l) so the
+        ;; discriminable teardown signal survives `goog.DEBUG=false`.
         (when-let [ev @captured]
           (let [tags (:tags ev)]
-            (trace/emit-error! :rf.error/on-destroy-handler-exception
-                               {:frame             id
-                                :event             on-destroy
-                                :exception         (:exception tags)
-                                :exception-message (:exception-message tags)
-                                :where             :fire-on-destroy-event!})))))))
+            (emit-on-destroy-handler-exception!
+              id on-destroy (:exception tags)
+              {:exception-message (:exception-message tags)})))))))
 
 (defn- notify-machine-destruction!
   "Frame-destroy machine-cascade entry-point.

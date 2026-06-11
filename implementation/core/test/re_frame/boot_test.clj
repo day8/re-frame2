@@ -426,12 +426,12 @@
                 (str where-sym " ex-data :reason names rf/init! as the recovery action"))))))))
 
 (deftest replace-container-nil-container-skips-adapter-check
-  (testing "replace-container! with a nil container short-circuits via the rf2-ft2b warning trace and does NOT consult the adapter slot"
+  (testing "replace-container! with a nil container short-circuits via the rf2-ft2b error path and does NOT consult the adapter slot"
     ;; Defense-in-depth nil-container guard is checked BEFORE the
     ;; adapter lookup so a scheduled drain hitting a destroyed frame
     ;; does not produce a misleading 'no-adapter-installed' throw — it
-    ;; correctly emits :rf.warning/write-after-destroy regardless of
-    ;; whether an adapter is installed.
+    ;; correctly emits :rf.error/write-after-destroy (EP-0008 / rf2-500ech)
+    ;; regardless of whether an adapter is installed.
     (is (nil? (adapter/current-adapter))
         "precondition: no adapter installed")
     (is (nil? (adapter/replace-container! nil {:any :value}))
