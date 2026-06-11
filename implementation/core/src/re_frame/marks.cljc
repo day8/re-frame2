@@ -178,27 +178,132 @@
      :else
      paths)))
 
+;; ---- derived-output sensitivity claim (EP-0015 issue 9) ------------------
+;;
+;; A subscription / flow can copy, summarise, hash, or reshape a sensitive
+;; input into a NEW value. The author declares the resulting output's
+;; sensitivity with the closed `:rf.egress/output-sensitivity` enum (Spec 015
+;; §Derived sensitivity) — NOT by overloading the boolean `:sensitive?`
+;; declassify spelling (that overload is REJECTED, Spec 015:425, because
+;; `:sensitive` already names a path COLLECTION at the registration layer).
+;;
+;;   :rf.egress/inherit    — default; the output inherits sensitivity from
+;;                           its inputs (propagation, fail-closed).
+;;   :rf.egress/sensitive  — force-mark the output sensitive even from
+;;                           public inputs.
+;;   :rf.egress/public     — DECLASSIFY: the output is safe to surface
+;;                           despite sensitive inputs. The declassification
+;;                           analogue of `:rf.scope/global` — Xray enumerates
+;;                           every `:public` claim as a standing audit
+;;                           surface (see `public-declassification-claims`).
+;;
+;; Fail-closed: an unknown value THROWS (the enum is closed — a typo never
+;; silently falls through to a permissive inherit), and `:inherit` is the
+;; safe default when the key is absent. The claim is stored verbatim in the
+;; per-(kind, id) marks table under `:output-sensitivity`; `resolve-sub-output-marks`
+;; (subs) and the flows registry resolver consult it instead of the removed
+;; `:sensitive?` boolean override.
+
+(def ^:const output-sensitivity-values
+  "The closed value set of the `:rf.egress/output-sensitivity` derived-output
+  declassification claim (EP-0015 issue 9; Spec 015 §Derived sensitivity)."
+  #{:rf.egress/inherit
+    :rf.egress/sensitive
+    :rf.egress/public})
+
+(defn- coerce-output-sensitivity
+  "Validate a `:rf.egress/output-sensitivity` claim against the closed enum
+  and return it verbatim. Fail-closed: an unknown value THROWS
+  `:rf.error/bad-marks` (the enum is closed — a typo is a loud error, never a
+  silent permissive fall-through). `nil` (key absent) returns `:rf.egress/inherit`,
+  the safe default."
+  [v]
+  (cond
+    (nil? v)                          :rf.egress/inherit
+    (contains? output-sensitivity-values v) v
+    :else
+    (throw (marks-error :rf.egress/output-sensitivity
+                        (str ":rf.egress/output-sensitivity must be one of "
+                             (pr-str output-sensitivity-values)
+                             " — :rf.egress/inherit (default) inherits from inputs, "
+                             ":rf.egress/sensitive force-marks, :rf.egress/public declassifies")
+                        {:bad-value v
+                         :valid     output-sensitivity-values}))))
+
+(defn- reject-sensitive-boolean-overload!
+  "REJECT the boolean `:sensitive?` declassify/force spelling on a derived
+  output (`:sub` kind — Spec 015:425): `:sensitive` already names a path
+  collection at the registration layer, so overloading `:sensitive?` to a
+  whole-output boolean is forbidden. Derived-output sensitivity is declared
+  with the `:rf.egress/output-sensitivity` enum instead. Throws with a recovery
+  hint naming the correct spelling.
+
+  SCOPED to derived outputs (`:sub`): for non-derived kinds (`:event` / `:fx`
+  / `:cofx` / machine `:event` entries), a top-level `:sensitive?` was always a
+  stored-but-never-consulted no-op vestige (it is meaningful ONLY as a Malli
+  schema-slot prop, never as registration meta), so this rejection does not
+  fire there — those kinds keep their prior permissive behaviour and the key is
+  simply dropped by `normalise-marks`. (`:large?` is NOT rejected on any kind —
+  it remains the whole-output size override; size has no declassification
+  analogue and is out of EP-0015 issue 9's scope.)
+
+  No-op when `kind` is not `:sub` or the meta carries no `:sensitive?` key."
+  [kind meta]
+  (when (and (= :sub kind) (contains? meta :sensitive?))
+    (throw (marks-error :sensitive?
+                        (str "the boolean :sensitive? declassify/force spelling is "
+                             "rejected on a derived (sub) output (Spec 015) — declare "
+                             "derived-output sensitivity with "
+                             ":rf.egress/output-sensitivity, whose closed value set is "
+                             (pr-str output-sensitivity-values)
+                             " (:rf.egress/public to declassify, :rf.egress/sensitive "
+                             "to force-mark, :rf.egress/inherit — the default — to "
+                             "inherit from inputs)")
+                        {:bad-value (:sensitive? meta)
+                         :use       :rf.egress/output-sensitivity}))))
+
 (defn- normalise-marks
   "Extract the mark-relevant subset of a registration meta-map and
   normalise into the canonical shape this namespace consults:
 
-    {:sensitive  [vector-of-paths]
-     :large      [vector-of-paths]
-     :sensitive? <bool-or-nil>   ;; whole-output override (subs/flows)
-     :large?     <bool-or-nil>}  ;; whole-output override (subs/flows)
+    {:sensitive           [vector-of-paths]
+     :large               [vector-of-paths]
+     :output-sensitivity  <closed enum>  ;; derived-output claim (subs/flows)
+     :large?              <bool-or-nil>}  ;; whole-output size override (subs/flows)
 
-  Returns `nil` when the meta-map carries no mark-relevant keys —
-  callers branch on the nil to avoid stashing empty tables."
-  [meta]
-  (when (or (contains? meta :sensitive)
-            (contains? meta :large)
-            (contains? meta :sensitive?)
-            (contains? meta :large?))
-    (cond-> {}
-      (contains? meta :sensitive)  (assoc :sensitive  (coerce-paths (:sensitive meta) :sensitive))
-      (contains? meta :large)      (assoc :large      (coerce-paths (:large meta) :large))
-      (contains? meta :sensitive?) (assoc :sensitive? (boolean (:sensitive? meta)))
-      (contains? meta :large?)     (assoc :large?     (boolean (:large? meta))))))
+  Derived-output sensitivity is declared with the closed
+  `:rf.egress/output-sensitivity` enum (EP-0015 issue 9; Spec 015 §Derived
+  sensitivity). On the derived (`:sub`) path the legacy boolean `:sensitive?`
+  declassify/force spelling is REJECTED (Spec 015:425) — a `:sensitive?` key
+  throws with a recovery hint naming the enum; on non-derived kinds it is the
+  prior stored-but-ignored no-op and is silently dropped. An explicit
+  `:rf.egress/output-sensitivity` is validated against the closed enum
+  (fail-closed: an unknown value throws); the absent default
+  `:rf.egress/inherit` is NOT stored (the resolver treats a missing claim as
+  inherit, so an empty marks entry stays empty).
+
+  `kind` scopes the `:sensitive?` rejection to derived outputs (see
+  `reject-sensitive-boolean-overload!`). Returns `nil` when the meta-map
+  carries no mark-relevant keys — callers branch on the nil to avoid stashing
+  empty tables."
+  [kind meta]
+  (reject-sensitive-boolean-overload! kind meta)
+  (let [;; The explicit (non-default) output-sensitivity claim, or nil when
+        ;; the key is absent OR is the no-op `:rf.egress/inherit` default —
+        ;; either way the marks entry omits the slot and the resolver
+        ;; inherits. An unknown value throws (fail-closed).
+        os (when (contains? meta :rf.egress/output-sensitivity)
+             (let [v (coerce-output-sensitivity (:rf.egress/output-sensitivity meta))]
+               (when (not= :rf.egress/inherit v) v)))]
+    (when (or (contains? meta :sensitive)
+              (contains? meta :large)
+              (some? os)
+              (contains? meta :large?))
+      (cond-> {}
+        (contains? meta :sensitive) (assoc :sensitive (coerce-paths (:sensitive meta) :sensitive))
+        (contains? meta :large)     (assoc :large     (coerce-paths (:large meta) :large))
+        (some? os)                  (assoc :output-sensitivity os)
+        (contains? meta :large?)    (assoc :large?    (boolean (:large? meta)))))))
 
 (defn register-marks!
   "Record a registration's mark declaration for later emit-time consultation.
@@ -208,7 +313,7 @@
   marks table mirrors the registry. Re-registration replaces the prior
   marks entry in full (no merge — matches the registrar's slot semantics)."
   [kind id meta]
-  (let [marks (normalise-marks meta)]
+  (let [marks (normalise-marks kind meta)]
     (if (nil? marks)
       ;; Clear any prior marks for this (kind, id) on re-registration
       ;; without marks — the new registration's declaration set should
@@ -253,6 +358,21 @@
     (or (false? existing-flag) (false? added-flag)) false
     :else nil))
 
+(defn- union-output-sensitivity
+  "Union a derived-output `:rf.egress/output-sensitivity` claim across the
+  existing and added declarations. Returns the resolved enum value, or nil
+  when NEITHER side declared a non-inherit claim. Monotone toward sensitivity
+  (fail-closed): `:rf.egress/sensitive` (force) on either side wins over
+  `:rf.egress/public` (declassify) — a union can never let one source's
+  declassify retract another source's force-mark, mirroring the
+  `:sensitive?`-flag monotone-OR. An explicit `:public` is preserved when the
+  other side is absent."
+  [existing added]
+  (cond
+    (or (= :rf.egress/sensitive existing) (= :rf.egress/sensitive added)) :rf.egress/sensitive
+    (or (= :rf.egress/public existing)    (= :rf.egress/public added))    :rf.egress/public
+    :else nil))
+
 (defn union-marks!
   "Union a mark declaration into the existing `(kind, id)` marks entry —
   the per-(kind, id) marks-table analogue of `add-marks` merging into a
@@ -284,19 +404,20 @@
   egress (`project-machine-tags`) exactly like an app-db slot — and a
   machine that ALSO carries a manual `register-marks!` keeps both sets."
   [kind id meta]
-  (let [added (normalise-marks meta)]
+  (let [added (normalise-marks kind meta)]
     (when added
       (swap! kind->id->marks update-in [kind id]
              (fn [existing]
                (let [union-s (union-path-vecs (:sensitive existing) (:sensitive added))
                      union-l (union-path-vecs (:large existing)     (:large added))
-                     sens?   (union-whole-output-flag (:sensitive? existing) (:sensitive? added))
+                     os      (union-output-sensitivity (:output-sensitivity existing)
+                                                       (:output-sensitivity added))
                      large?  (union-whole-output-flag (:large? existing)     (:large? added))]
                  (cond-> {}
-                   union-s          (assoc :sensitive  union-s)
-                   union-l          (assoc :large      union-l)
-                   (some? sens?)    (assoc :sensitive? sens?)
-                   (some? large?)   (assoc :large?     large?)))))))
+                   union-s          (assoc :sensitive          union-s)
+                   union-l          (assoc :large              union-l)
+                   (some? os)       (assoc :output-sensitivity os)
+                   (some? large?)   (assoc :large?             large?)))))))
   nil)
 
 (defn- merge-schema-marks
@@ -314,21 +435,24 @@
   (when (or manual schema)
     (let [union-s (union-path-vecs (:sensitive manual) (:sensitive schema))
           union-l (union-path-vecs (:large manual)     (:large schema))
-          sens?   (union-whole-output-flag (:sensitive? manual) (:sensitive? schema))
+          os      (union-output-sensitivity (:output-sensitivity manual)
+                                            (:output-sensitivity schema))
           large?  (union-whole-output-flag (:large? manual)     (:large? schema))
           merged  (cond-> {}
-                    union-s        (assoc :sensitive  union-s)
-                    union-l        (assoc :large      union-l)
-                    (some? sens?)  (assoc :sensitive? sens?)
-                    (some? large?) (assoc :large?     large?))]
+                    union-s        (assoc :sensitive          union-s)
+                    union-l        (assoc :large              union-l)
+                    (some? os)     (assoc :output-sensitivity os)
+                    (some? large?) (assoc :large?             large?))]
       (when (seq merged) merged))))
 
 (defn marks-for
   "Return the registered mark declaration for `(kind, id)`, or nil.
 
   The returned shape is `{:sensitive [paths] :large [paths]
-  :sensitive? bool :large? bool}` — slots are present only when the
-  registration declared them.
+  :output-sensitivity <enum> :large? bool}` — slots are present only when the
+  registration declared them. `:output-sensitivity` is the derived-output
+  declassification claim (`:rf.egress/sensitive` / `:rf.egress/public`; the
+  `:rf.egress/inherit` default is omitted).
 
   For `:event`-kind ids that name a machine carrying a `:data-schema`, the
   author-sourced `kind->id->marks` entry is UNIONED at read time with the
@@ -343,6 +467,29 @@
     (if (= :event kind)
       (merge-schema-marks manual (get @machine-id->schema-marks id))
       manual)))
+
+(defn public-declassification-claims
+  "Enumerate every registered derived output that carries an explicit
+  `:rf.egress/output-sensitivity :rf.egress/public` declassification claim —
+  the standing AUDIT surface (EP-0015 issue 9; Spec 015 §Derived sensitivity).
+  A `:public` claim is the declassification analogue of `:rf.scope/global`:
+  this list lets a reviewer see every place an author asserted \"this
+  derived-from-sensitive value is safe.\"
+
+  Returns a vector of `{:kind <kind> :id <id>}` maps (e.g.
+  `{:kind :sub :id :auth/token-prefix}`), sorted by `(kind, id)` string for a
+  stable audit ordering. Pure read over the process-scoped marks table — the
+  Xray `:public`-claim panel consumes it, mirroring how `global-scope-audit`
+  consumes the resources registry. Empty when no output is declassified."
+  []
+  (->> @kind->id->marks
+       (mapcat (fn [[kind id->marks]]
+                 (keep (fn [[id marks]]
+                         (when (= :rf.egress/public (:output-sensitivity marks))
+                           {:kind kind :id id}))
+                       id->marks)))
+       (sort-by (juxt (comp str :kind) (comp str :id)))
+       vec))
 
 (defn declare-machine-schema-marks!
   "Record a machine's `:data-schema`-derived marks under `machine-id` in the
@@ -782,18 +929,21 @@
   state + a layer-1 sub's path overlap with the frame's app-db
   sensitive declarations.
 
-  Resolution per Spec 015 §3. Subscriptions:
-    1. `:sensitive? true`  forces sensitive
-    2. `:sensitive? false` opts out (overrides propagation)
-    3. Otherwise: propagate — if ANY input-signal's resolved sub-output
-       is sensitive, OR if the sub is layer-1 and any sensitive app-db
-       path was declared, mark sensitive
-  Mirror for `:large?` / `:large`.
+  Sensitivity resolution per Spec 015 §Derived sensitivity — driven by the
+  closed `:rf.egress/output-sensitivity` declassification claim (EP-0015
+  issue 9), NOT the rejected boolean `:sensitive?` overload (removed):
+    1. `:rf.egress/sensitive` forces sensitive (even from public inputs)
+    2. `:rf.egress/public`    DECLASSIFIES (overrides propagation)
+    3. `:rf.egress/inherit` (default, claim absent): propagate — if ANY
+       input-signal's resolved sub-output is sensitive, OR if the sub is
+       layer-1 and any sensitive app-db path was declared, mark sensitive
+  Size still uses the `:large?` whole-output override (size has no
+  declassification analogue — EP-0015 issue 9 is sensitivity-only).
 
   Returns `[sensitive? large?]`."
   [frame-id sub-id input-signals layer-1?]
   (let [marks       (sub-marks sub-id)
-        forced-s    (:sensitive? marks)
+        output-sens (:output-sensitivity marks)
         forced-l    (:large? marks)
         ;; Propagation from inputs
         input-s?    (and (seq input-signals)
@@ -823,9 +973,9 @@
                             decls     (get-in rt [:rf.runtime/elision :declarations])]
                         (boolean (seq decls))))
         sensitive?  (cond
-                      (true? forced-s)  true
-                      (false? forced-s) false
-                      :else             (or input-s? (boolean any-sens?)))
+                      (= :rf.egress/sensitive output-sens) true
+                      (= :rf.egress/public output-sens)    false
+                      :else                                (or input-s? (boolean any-sens?)))
         large?      (cond
                       (true? forced-l)  true
                       (false? forced-l) false

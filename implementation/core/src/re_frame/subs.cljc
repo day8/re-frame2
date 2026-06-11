@@ -240,9 +240,12 @@
                      :input-kind    input-kind
                      :input-signals (or input-signals []))
         input-fn (assoc :input-fn input-fn)))
-    ;; Per Spec 015 §3. Subscriptions — stash declarations:
+    ;; Per Spec 015 §Derived sensitivity — stash declarations:
     ;;   :sensitive / :large — per-output-path marks
-    ;;   :sensitive? / :large? — whole-output override
+    ;;   :rf.egress/output-sensitivity — the derived-output declassification
+    ;;     enum (:rf.egress/inherit | :rf.egress/sensitive | :rf.egress/public,
+    ;;     EP-0015 issue 9; the rejected :sensitive? overload is gone)
+    ;;   :large? — whole-output size override
     ;; The propagation table (`re-frame.marks/mark-sub-output!`) is
     ;; updated on each sub-cache compute pass — see `compute-and-cache!`.
     (when-let [register! (late-bind/get-fn :marks/register-marks!)]
@@ -696,8 +699,9 @@
     ;; Per Spec 015 §App-db → subs / §Subs → fx propagation: when this
     ;; sub is being built, resolve whether its output should be marked
     ;; sensitive/large for downstream emit-time consultation. Honours
-    ;; the `:sensitive? true/false` and `:large? true/false` overrides
-    ;; on the sub's registration meta. Late-bound — when the marks
+    ;; the `:rf.egress/output-sensitivity` declassification enum (sensitive
+    ;; axis) and the `:large?` whole-output override on the sub's
+    ;; registration meta. Late-bound — when the marks
     ;; artefact is absent, this is a silent no-op. Gated by debug so
     ;; production builds DCE the lookup.
     (when interop/debug-enabled?
