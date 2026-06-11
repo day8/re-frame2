@@ -1,11 +1,28 @@
 # EP-0013: App Values And Runtime Realms
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
-> This EP proposes the long-term architecture in which the application program
+> This EP defines the long-term architecture in which the application program
 > and runtime environment are explicit values. Existing process-global
 > registration remains as compatibility sugar over a default runtime realm.
+>
+> **Ruling recorded 2026-06-11 (Mike, in-session; bead `rf2-1vj3b6`).**
+> Accepted, with the severable matrix the EP requires: **D1 (realm container)
+> — adopt. D2 (app value) — adopt, sequenced behind D1. D3 (module manifests)
+> — adopt the shape; the public surface stages last.** All thirteen open
+> issues are dispositioned in [§Open Issues](#open-issues), merging three
+> convergent analyses. Headline corrections to the original recommendations:
+> the constructor vocabulary is **`rf/realm`, never `rf/runtime`** ("runtime"
+> is the corpus's most overloaded word — an EP-0007 hazard all three analyses
+> flagged independently); there is **no day-one public facade** — the names
+> are reserved vocabulary and exposure graduates internal-first per the
+> corpus's proven discipline; and replacement-batch identity must be
+> reload-stable and **auto-minted by dev tooling**, never line/column-based.
+> Implementation is tracked by the EP-0013 action epic, **gated behind the
+> current EP wave epics**, with the standard wave tails. The `:rf.realm/id`
+> slot reservation in the EP-0010/0011/0016 record shapes is an early,
+> ungated bead.
 >
 > Normative home after acceptance: registration, frames, reactive substrate,
 > runtime subsystem, adapter, and conventions specs.
@@ -184,11 +201,19 @@ inherited v1 ambient behavior.
   proposal relies on: one decision surface, explicit relationships, and the
   proposal/accepted/final lifecycle. App values may eventually deserve a
   sequence of narrower follow-on EPs rather than one large graduation.
-- EP-0010, EP-0011, EP-0012, and EP-0014 are companion proposals. EP-0010's
-  injected world inputs are natural realm capabilities (`:rf.capability/clock`,
-  `:rf.capability/random`); EP-0014's derivation descriptors would live in app
-  values if both are accepted. Each can stand without this EP, and this EP can
-  stand without them.
+- [EP-0010](EP-0010-causal-world-inputs.md) (final),
+  [EP-0011](EP-0011-uniform-async-reply-envelope.md) (accepted),
+  [EP-0012](EP-0012-path-optics-and-canonical-forms.md) (accepted), and
+  [EP-0014](EP-0014-derivation-and-process-algebra.md) (proposal) are
+  companions. EP-0010's injected world inputs are natural realm capabilities
+  (`:rf.capability/clock`, `:rf.capability/random` — the coeffect surface those
+  capabilities would wrap is now a final contract); EP-0014's derivation
+  descriptors would live in app values if it is accepted. Each can stand
+  without this EP, and this EP can stand without them.
+  [EP-0016](EP-0016-resource-mutation-completion.md) (accepted) supplies the
+  first live named-declaration registrar precedent — `reg-resource-scope`,
+  whose `{:inputs … :resolve …}` grammar EP-0012's disposition 3 pins as the
+  shape an app-value row would carry.
 - [EP-0015](EP-0015-frame-owned-egress-policy.md) proposes the policy model for
   frame-owned durable egress policy and registration-owned transient payload
   policy. If accepted, those policy declarations are natural app-value/realm
@@ -745,12 +770,13 @@ Registrar query APIs MAY keep default-realm arities:
 (rf/handler-meta :event :cart/add)
 ```
 
-and SHOULD grow realm-targeted arities:
+and SHOULD grow realm-targeted forms, map-shaped per open-issue 11's ruling
+(unambiguous against the existing keyword arities, and extensible):
 
 ```clojure
-(rf/registrations tenant-a-realm :event)
-(rf/handler-meta tenant-a-realm :event :cart/add)
-(rf/app-registrations tenant-a-app :event)
+(rf/registrations {:realm tenant-a-realm :kind :event})
+(rf/handler-meta {:realm tenant-a-realm :kind :event :id :cart/add})
+(rf/app-registrations {:app tenant-a-app :kind :event})
 ```
 
 Default-realm sugar exists for migration and ergonomics. It is not the law that
@@ -1547,59 +1573,143 @@ Conformance should be tested at three levels.
 
 ## Open Issues
 
-Each issue carries an author recommendation only; none is a ruling.
+**All thirteen issues were ruled 2026-06-11 (Mike, in-session; bead
+`rf2-1vj3b6`), merging three convergent analyses.** Original recommendations
+are kept verbatim as the record of what was ruled; dispositions and riders are
+inline.
 
 1. What public names should ship: `rf/app`, `rf/module`, `rf/runtime`,
    `rf/realm`, `rf/install!`, `rf/reinstall!`, or a different vocabulary?
    **Recommendation:** keep the first public slice small: `rf/app`,
    `rf/module`, `rf/realm`, and `rf/install!`; defer reinstall naming until
    hot-reload semantics are proven.
+   **Disposition: corrected on two points.** The vocabulary is **`rf/realm`,
+   never `rf/runtime`** — "runtime" already names runtime-db, `:rf.runtime/*`
+   children, runtime subsystems, and Runtime-Architecture; a realm constructor
+   called `runtime` is a permanent EP-0007 hazard (three analyses converged
+   independently). And there is **no day-one public facade**: the four names
+   (with `realm`) are the *reserved vocabulary*; the D1 proving slice needs no
+   public names, and exposure graduates internal-first per the corpus
+   discipline (the EP-0012 ≥2-consumer criterion), facade-classification per
+   name. Reinstall naming deferred as recommended.
 2. What is the exact realm stamp shape carried with frame identity?
    **Recommendation:** carry `:rf.realm/id` beside `:rf.frame/id` in framework
    envelopes and records; do not overload frame ids with realm-qualified tuples.
+   **Disposition: as recommended** — tuple-overloading would retroactively
+   change every shipped `:rf.frame/id` carrier (EP-0010 replay records,
+   EP-0011 reply maps, EP-0016 continuation payloads). Riders: absence of
+   `:rf.realm/id` means **the default realm as an explicit documented rule** (a
+   real, runtime-created realm — the EP-0002 refinement pattern), never
+   synthesis; multi-realm processes always stamp it; and the EP-0010/0011/0016
+   record shapes **reserve the slot now** (one line each — an early, ungated
+   bead) so the later addition is non-breaking.
 3. Are frame ids unique within a realm only, or should public multi-realm APIs
    require globally unique frame ids during the compatibility window?
    **Recommendation:** frame ids are unique within a realm; APIs that cross a
    realm boundary require both realm and frame, while single-realm apps keep the
    current frame-id ergonomics.
+   **Disposition: as recommended** — the (realm, frame) pair is the full
+   address under the carried model. Riders: the Tool-Pair four-tier discovery
+   ladder gains the realm dimension (tier-3 sole-app-frame resolution becomes
+   realm-scoped); the same frame id registered in two realms is a **tested
+   legal case**, not an accident.
 4. Is adapter ownership per realm, per render root, or both?
    **Recommendation:** realm owns the adapter capability; render roots may bind
    a narrower concrete root instance, but the capability lookup is realm-owned.
+   **Disposition: as recommended, with the boundary sharpened:** the realm owns
+   adapter *selection* (the capability); render roots own concrete
+   mount/disposer *instances of that adapter*. Two roots needing **different
+   adapters means two realms**, unless a future bridge is explicitly designed —
+   the no-mixing-within-one-frame's-graph invariant is the conformance test.
+   Named payoff: two adapters in one process becomes legal via realms (stock
+   Reagent and reagent-slim side by side — impossible today).
 5. Which host-transient subsystem should move behind the realm first?
    **Recommendation:** move adapter installation/test reset first, then HTTP
    in-flight handles, because those two give the fastest hermetic-test payoff.
+   **Disposition: as recommended.** Riders: adapter-first *is* D1's proving
+   slice and directly enables issue 4's payoff; the HTTP migration sequences
+   **behind the current EP-0011/0016 waves settling** (they are actively
+   editing that runtime, and its reply seams are freshly tested); EP-0006's
+   host-transient grading column (issue 13) is written from these two
+   migrations as evidence.
 6. How much of the module ownership map belongs in the first public API?
    **Recommendation:** expose descriptor ownership and capability requirements;
    keep advanced provenance/query metadata internal until tooling needs it.
+   **Disposition: as recommended, plus one fact the recommendation predates:**
+   EP-0015 made registration-owned classification load-bearing, so the public
+   descriptor facts are **three** — ownership, capability requirements, and
+   classification metadata. Provenance/query stays internal with a named
+   demand trigger: an Xray module-view bead.
 7. Should explicit app composition return error values, throw ex-info, or
    support both?
    **Recommendation:** validation APIs return data; install/boot APIs throw
    `ex-info` with the same data when asked to make an invalid app visible.
+   **Disposition: as recommended** — data is the primitive; the `ex-data` *is*
+   the validation result (one fact, two delivery modes). Rider: the
+   composition-error categories are routed through the EP-0008 promotion
+   criterion at implementation — boot-time `install!` failure is
+   production-reachable, so the family likely needs an always-on row.
 8. How are source coordinates supplied in hosts without macro support?
    **Recommendation:** source coordinates are optional descriptor metadata in
    non-macro hosts; code generators and language adapters may fill them.
+   **Disposition: as recommended** — coordinates are diagnostic facts
+   (EP-0010's durable/diagnostic split); absence never changes behavior, and
+   they are never faked. Degradation rule: absent coordinates, tooling anchors
+   provenance to module/kind/id.
 9. What replacement declaration is sufficient to distinguish hot reload from an
    accidental collision?
    **Recommendation:** require an explicit generation/source identity on
    replacement batches; accidental same-id collisions outside a replacement
    batch fail loudly.
+   **Disposition: as recommended, with two riders that decide whether the rule
+   survives:** the batch identity must be **reload-stable** — a hot-reload
+   generation plus stable source/form identity or an explicit `:replace`,
+   never line/column (which changes on every edit, i.e. on every reload); and
+   the dev tooling **mints the replacement batch automatically** on hot reload
+   (tied to the build tool's compile id where available) — without
+   auto-minting, every shadow-cljs re-eval fails loudly and the rule is
+   disabled by every user in week one.
 10. How does namespace-load `reg-*` sugar interact with explicit app values when
     a namespace contains both forms?
     **Recommendation:** namespace-load `reg-*` targets the default realm only;
     explicit app descriptors are inert values until installed into a realm.
+    **Disposition: as recommended** — no hidden merge; "inert" is load-bearing
+    (a module map has no registration side effect; it is pure data). Rider:
+    the predictable migration accident — the same handler registered via sugar
+    *and* listed in a module installed into the default realm — is a same-id
+    collision outside a replacement batch, caught loudly by rule 9; this is
+    documented explicitly as the first error migrating apps will meet.
 11. Which registrar query arities become public at the first realm-aware stage?
     **Recommendation:** expose read-only queries scoped by `{ :realm ... }` and
     `{ :realm ... :kind ... }`; defer broad process-global queries to tools.
+    **Disposition: as recommended — map-shaped is the ruled public form**
+    (extensible; unambiguous against existing keyword arities); the positional
+    examples this EP previously showed are corrected to match. Riders: the
+    frame-neutral enumeration surfaces grow realm-scoped forms per EP-0002's
+    registrar-enumeration carve-out; new registrar kinds (e.g. EP-0016's
+    `reg-resource-scope`) enumerate for free via the Spec 001 taxonomy;
+    process-global enumeration is the Tool-Pair operator layer's job.
 12. How should active resources, mutations, route transitions, and machines
     participate in a realm reinstall beyond the existing per-kind hot-reload
     rules?
     **Recommendation:** first reinstall slice is descriptor-only and refuses
     when live runtime instances would need migration; later slices add
     per-subsystem migration hooks through the runtime-subsystem contract.
+    **Disposition: as recommended — refuse-loudly is fail-closed applied to
+    hot reload.** Rider, from a convergence the recommendation predates: the
+    refusal must be **diagnosable**, enumerating exactly which live instances
+    block the reinstall — and the work ledger is the enumeration source (after
+    the EP-0011/0016 waves, every live instance class carries a ledger row),
+    so the refusal check is a ledger query, not new machinery.
 13. Does the host-transient subsystem descriptor live here or as an extension row
     in EP-0006's grading table? **Recommendation:** EP-0006 owns the contract;
     this EP contributes realm ownership and lifecycle as the host-transient
     grading column.
+    **Disposition: as recommended** — one contract, one grading table. Riders:
+    the mechanism is a `spec/Runtime-Subsystems.md` amendment adding the
+    column (EP-0006 is final; its spec evolves); the conformance drift test
+    (`rf2-ba5acq`) grows the column when it lands so host-transient rows
+    cannot silently go missing.
 
 ## Recommendation
 
