@@ -76,6 +76,34 @@ focus/reconnect revalidation.
 That validates EP-0003 and Spec 016's center. It also makes the remaining gaps
 clearer because they show up as local workarounds in otherwise declarative code.
 
+### Evidence boundary: RealWorld is a witness, not the oracle
+
+RealWorld is a good test case for this EP because it is ordinary. It has
+authenticated reads and writes, route-owned page data, a current-user/session
+boundary, list/detail consistency, form submissions, post-write navigation,
+favorites/follows/comments/settings/editor workflows, and enough app surface to
+expose ergonomics that do not show up in toy examples.
+
+It is not a complete design space for resources. It does not seriously stress
+offline operation, collaborative/realtime updates, high-cardinality data grids,
+concurrent optimistic writes, normalized GraphQL-style entity graphs, streaming
+jobs, complex tenant/role hierarchies, or large SSR/hydration edge cases.
+
+Therefore RealWorld is used here as a dogfood witness and forcing function, not
+as the final authority on API shape. The design discipline is:
+
+1. RealWorld identifies concrete friction in normal application code.
+2. Prior art checks whether the friction is mainstream rather than app-local.
+3. First principles decide the re-frame2-shaped primitive.
+4. Conformance tests prove the general law with small synthetic cases.
+5. RealWorld dogfood then proves the primitive is usable in a real app.
+
+That boundary is why this EP accepts mutation continuations, scoped
+invalidation descriptors, named scope resolvers, and populate semantics, but
+continues to reject or defer RealWorld-adjacent requests such as pagination
+primitives, official RealWorld E2E conformance, optimistic rollback, and
+tag-addressed patching.
+
 ### RealWorld finding 1: mutation replies need causal continuations
 
 Settings save, article create, article update, and article delete are writes
@@ -229,6 +257,7 @@ The alternatives agree on the capability set mature SPA authors expect:
 
 The re-frame2-specific synthesis is narrower:
 
+- RealWorld decides priority, not API shape;
 - cache consequences stay declarative on `reg-mutation`;
 - workflow continuation is a call-site event target on mutation execution;
 - optimistic rollback and tag-addressed patching are deferred to a dedicated
@@ -949,7 +978,9 @@ land in one PR.
 
 ## Validation Plan
 
-Implementation must add conformance or regression coverage for:
+Implementation must add conformance or regression coverage for the general
+rules below. These tests should be small synthetic cases first, with RealWorld
+kept as dogfood acceptance rather than the only proof of correctness.
 
 1. Mutation phase order: resolve scope -> send -> accept/suppress -> cache
    consequences -> instance settlement -> continuation.
