@@ -46,7 +46,7 @@ Columns: **Δt · stage · area badge · what-happened · target/detail · durat
 
 - **Δt** — ms offset from the epoch's first op.
 - **stage** — the Epoch-panel pipeline step this op belongs to (§3a): `DISPATCH` · `COEFFECT` · `EVENT HANDLER` · `FLOW` · `EFFECT HANDLERS` · `SUBSCRIPTIONS` · `VIEWS`. The label rides the step's own colour.
-- **area badge** — a neutral text badge (no per-family colour): `EVENT` · `COEFFECT` · `DB` · `FX` · `FLOW` · `SUB` · `VIEW` · `MACHINE` · `ROUTING` · `EPOCH` · `ERROR` · `WARNING`.
+- **area badge** — a neutral text badge (no per-family colour): `EVENT` · `COEFFECT` · `DB` · `FX` · `FLOW` · `SUB` · `VIEW` · `MACHINE` · `ROUTING` · `RESOURCE` · `EPOCH` · `ERROR` · `WARNING`. (`RESOURCE` is the `:rf.resource/*` trace family — Spec 016 + [`024`](./024-Resources-Panel.md); the rows are emitted at op-type `:rf.event` so they are discriminated by NAMESPACE before the generic `EVENT` fallthrough.)
 - **what-happened** — the per-area verb (§5).
 - **target/detail** — the op's subject: event vector, `fx-id → arg`, `sub-id  old→new`, `view-id ← cause-sub`, route id, path, etc.
 - **duration** — a number in **ms**, or `—` when the substrate supplies no timing (§6).
@@ -69,6 +69,7 @@ The op → stage mapping (the coarse projection of the §3 area badge onto the 7
 | `:rf.event/db-changed` (DB) | EFFECT HANDLERS |
 | `:rf.fx/*` (FX) | EFFECT HANDLERS |
 | `:rf.route/*` (ROUTING) | EFFECT HANDLERS |
+| `:rf.resource/*` (RESOURCE) | EFFECT HANDLERS |
 | `:rf.sub/*` (SUB) | SUBSCRIPTIONS |
 | `:rf.view/*` (VIEW) | VIEWS |
 | `:rf.epoch/*` (EPOCH lifecycle) | DISPATCH (muted grey) |
@@ -88,6 +89,7 @@ Errors / warnings are cross-cutting (§7): the stage column still labels the ste
 | VIEW | mounted · re-rendered · skipped · unmounted |
 | MACHINE | created · transition · action-ran · guard-evaluated · after · spawned · spawn-cancelled · timer-scheduled · timer-fired · timer-stale · timer-cancelled · timer-skipped-on-server · done · finished · event-received · system-id-bound · system-id-released · destroyed (a `:spawn` wall-clock guard fires as `timer-fired` on the `:spawn`-bearing state's `:after` — the retired `spawn-timed-out` op, per Spec-009 / rf2-3y3y) |
 | ROUTING | activated · deactivated · cleared · fragment-changed · navigation-blocked (no-match surfaces as the `WARNING :rf.warning/no-not-found-route` row, not a positive ROUTING op; a URL change is the dispatched event `:rf.event/dispatched [:rf.route/handle-url-change …]`, an EVENT row) |
+| RESOURCE | registered · owner-attached · cache-hit · deduped · fetch-started · work-started · abort-requested · work-completed · succeeded · failed · refresh-failed · invalidated · refetch-decision · revalidate-scan · route-plan · owner-released · stale-scheduled · stale-fired · gc-scheduled · gc-fired · gc-skipped · removed · stale-suppressed · hydrated · hydrate-refetch · restored (the `:rf.resource/*` trace family, Spec 016 §Xray and AI tooling + [`024`](./024-Resources-Panel.md) §The `:rf.resource/*` trace family; the per-op semantic class + label live in `panels/resources_helpers.cljc`. The `:warning`-level `hydrate-clock-skew` / `restore-clock-skew` rows surface as `WARNING`, not a positive RESOURCE op — severity is cross-cutting §7. `:rf.resource/ensure` / `refetch` / `window-focused` are dispatched EVENT ids, surfacing as `:rf.event/dispatched` EVENT rows, not RESOURCE ops) |
 | EPOCH | snapshotted · restored · db-replaced · replay-conflict · reset |
 
 Registration ops (`:rf.flow/registered`, `:rf.route/registered`, `:rf.fx/reg-flow`, `:rf.machine.registrar/*`) are boot-time / out-of-epoch and are normally absent from a per-epoch arc.
@@ -107,7 +109,7 @@ Cross-cutting, **not a stage**. An `:rf.error/*` / `:rf.warning/*` op renders **
 Colour and visual styling are intentionally **not specified here** — to be designed in Figma. The design must, however, make these dimensions visually distinguishable:
 
 - **Stage** — each row names its Epoch pipeline step (§3a) in the **stage column** and a **colour-coded left edge** reusing the Epoch step palette (`panels.epoch.badge`). The stage column + edge must read together at a glance.
-- **Op-family** — the area badge identifies the family (EVENT · COEFFECT · DB · FX · FLOW · SUB · VIEW · MACHINE · ROUTING · EPOCH).
+- **Op-family** — the area badge identifies the family (EVENT · COEFFECT · DB · FX · FLOW · SUB · VIEW · MACHINE · ROUTING · RESOURCE · EPOCH).
 - **Outcome** — the what-happened state is legible at a glance, with at least these tiers distinguished: created/changed/recalculated/mounted · cache-hit/ran-unchanged/skipped · disposed/unmounted · queued/pending.
 - **Errors / warnings** — clearly emphasised, distinct from normal ops and from each other (the edge rides the severity colour).
 
@@ -182,6 +184,7 @@ Linkable rows carry a `↗` jump affordance to the relevant panel (restoring/ext
 | DB (path) | **App-db** panel, scrolled to that path ([`021`](./021-Dynamic-Panel-Designs.md) §4) |
 | MACHINE | **Machine** panel, that machine's chart at the row's state ([`003`](./003-Machine-Inspector.md)) |
 | ROUTING | **Routes** panel ([`021`](./021-Dynamic-Panel-Designs.md) §7) |
+| RESOURCE | **Resources** panel, that resource's instance/timeline row ([`024`](./024-Resources-Panel.md)) |
 | FX `:dispatch` / child | the child epoch's Trace arc (`↗`) |
 | source coords (any op) | open-in-editor at `file:line` (`↗`) |
 

@@ -104,15 +104,29 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The runtime EMITS these rows across the resource artefact —
-;; `:rf.resource/registered` (`reg-resource`, frame-agnostic),
-;; `:owner-attached` / `:deduped` / `:fetch-started` / `:work-started`
-;; (`events.cljc` ensure path), `:invalidated`, `:owner-released`,
-;; `:removed`, `:succeeded`/`:failed`/`:refresh-failed`,
-;; `:stale-suppressed`, `:gc-fired`/`:gc-skipped`, `:work-abort-requested`,
-;; `:hydrated` / `:hydrate-refetch` (`ssr.cljc`), … . Xray DEFINES the
-;; family (its closed operation set, per-op colour class, and a human
-;; label) so the Resources tab + the Trace tab can colour, group, and
-;; filter resource rows without re-deriving the vocabulary.
+;; `:rf.resource/registered` (`registry.cljc`, frame-agnostic),
+;; `:owner-attached` / `:cache-hit` / `:deduped` / `:fetch-started` /
+;; `:work-started` (`events.cljc` ensure path), `:invalidated`,
+;; `:refetch-decision`, `:revalidate-scan` (focus/reconnect scan summary),
+;; `:owner-released`, `:removed`, `:succeeded` / `:failed` /
+;; `:refresh-failed`, `:stale-suppressed`, `:stale-scheduled` /
+;; `:stale-fired` / `:gc-scheduled` / `:gc-fired` / `:gc-skipped`
+;; (`timers.cljc` + `events.cljc`), `:work-abort-requested`, `:route-plan`
+;; (`route.cljc` — route-entry planning), `:hydrated` / `:hydrate-refetch`
+;; / `:hydrate-clock-skew` and `:restored` / `:restore-clock-skew`
+;; (`ssr.cljc` — SSR hydration + epoch/SSR restore reconcile). The
+;; per-file emit-site catalogue is Spec 009 §Where trace emission lives
+;; (the resources artefact entry) + Xray spec 024 §The `:rf.resource/*`
+;; trace family. Xray DEFINES the family (its
+;; closed operation set, per-op colour class, and a human label) so the
+;; Resources tab + the Trace tab can colour, group, and filter resource
+;; rows without re-deriving the vocabulary.
+;;
+;; NOTE: `:rf.resource/ensure` / `:rf.resource/refetch` /
+;; `:rf.resource/window-focused` / etc. are dispatched EVENT IDs, not
+;; emitted trace operations — they appear in the stream only as the
+;; `:rf.event/dispatched` event vector, never as a `:rf.resource/*`
+;; `:operation`, so they are NOT family members of `trace-ops`.
 ;;
 ;; `:rf.resource/cache-hit` is a FRESH-SKIP ensure — an `ensure` of an
 ;; already-`:loaded` entry still fresh-by-policy serves the cached value
@@ -140,7 +154,6 @@
   and `:hydration`. Per Spec 016 §Xray and AI tooling (the trace-family
   enumeration)."
   {:rf.resource/registered           {:class :lifecycle    :label "registered"}
-   :rf.resource/ensure               {:class :lifecycle    :label "ensure"}
    :rf.resource/owner-attached       {:class :lifecycle    :label "owner attached"}
    :rf.resource/cache-hit            {:class :dedupe       :label "cache hit"}
    :rf.resource/deduped              {:class :dedupe       :label "deduped"}
@@ -153,6 +166,8 @@
    :rf.resource/refresh-failed       {:class :failure      :label "refresh failed"}
    :rf.resource/invalidated          {:class :invalidation :label "invalidated"}
    :rf.resource/refetch-decision     {:class :lifecycle    :label "refetch decision"}
+   :rf.resource/revalidate-scan      {:class :lifecycle    :label "revalidate scan"}
+   :rf.resource/route-plan           {:class :lifecycle    :label "route plan"}
    :rf.resource/owner-released       {:class :lifecycle    :label "owner released"}
    :rf.resource/stale-scheduled      {:class :gc           :label "stale scheduled"}
    :rf.resource/stale-fired          {:class :gc           :label "stale fired"}
@@ -162,7 +177,10 @@
    :rf.resource/removed              {:class :lifecycle    :label "removed"}
    :rf.resource/stale-suppressed     {:class :suppression  :label "stale suppressed"}
    :rf.resource/hydrated             {:class :hydration    :label "hydrated"}
-   :rf.resource/hydrate-refetch      {:class :hydration    :label "hydrate refetch"}})
+   :rf.resource/hydrate-refetch      {:class :hydration    :label "hydrate refetch"}
+   :rf.resource/hydrate-clock-skew   {:class :hydration    :label "hydrate clock skew"}
+   :rf.resource/restored             {:class :hydration    :label "restored"}
+   :rf.resource/restore-clock-skew   {:class :hydration    :label "restore clock skew"}})
 
 (defn resource-trace-op?
   "True iff `operation` (a trace event's `:operation`) is a member of the

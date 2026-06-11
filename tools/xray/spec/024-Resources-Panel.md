@@ -192,22 +192,40 @@ group, and filter resource rows without re-deriving the vocabulary. Any
 keyword in the reserved `rf.resource` namespace is recognised as a family
 member even before the enum is extended.
 
-The operation set + semantic class:
+The operation set + semantic class (lifecycle order; this is the closed
+enumeration — every op listed is EMITTED by the runtime, cross-checked
+against [Spec 009 §Where trace emission lives](../../../spec/009-Instrumentation.md#where-trace-emission-lives)):
 
-| Operation | Class | Operation | Class |
-|---|---|---|---|
-| `:rf.resource/registered` | lifecycle | `:rf.resource/refresh-failed` | failure |
-| `:rf.resource/ensure` | lifecycle | `:rf.resource/invalidated` | invalidation |
-| `:rf.resource/owner-attached` | lifecycle | `:rf.resource/refetch-decision` | lifecycle |
-| `:rf.resource/cache-hit` | dedupe | `:rf.resource/owner-released` | lifecycle |
-| `:rf.resource/deduped` | dedupe | `:rf.resource/gc-scheduled` | gc |
-| `:rf.resource/fetch-started` | lifecycle | `:rf.resource/gc-fired` | gc |
-| `:rf.resource/work-started` | lifecycle | `:rf.resource/gc-skipped` | gc |
-| `:rf.resource/work-abort-requested` | lifecycle | `:rf.resource/removed` | lifecycle |
-| `:rf.resource/work-completed` | success | `:rf.resource/hydrated` | hydration |
-| `:rf.resource/succeeded` | success | `:rf.resource/hydrate-refetch` | hydration |
-| `:rf.resource/failed` | failure | `:rf.resource/stale-scheduled` | gc |
-| `:rf.resource/stale-suppressed` | suppression | `:rf.resource/stale-fired` | gc |
+| Operation | Class | Emit site |
+|---|---|---|
+| `:rf.resource/registered` | lifecycle | `registry.cljc` (first-time `reg-resource`) |
+| `:rf.resource/owner-attached` | lifecycle | `events.cljc` (ensure — a new lease lands) |
+| `:rf.resource/cache-hit` | dedupe | `events.cljc` (ensure — fresh-skip cache serve) |
+| `:rf.resource/deduped` | dedupe | `events.cljc` (ensure — join in-flight work) |
+| `:rf.resource/work-started` | lifecycle | `events.cljc` (work-LEDGER row created — the transport request started; carries `:status :running` + `:superseded`) |
+| `:rf.resource/fetch-started` | lifecycle | `events.cljc` (the cache ENTRY transitioned — carries the entry's `:status`, `:fetching` first-load or stale-revalidate; emitted alongside `work-started` on the same start) |
+| `:rf.resource/work-abort-requested` | lifecycle | `events.cljc` (abort/cancel of in-flight work) |
+| `:rf.resource/work-completed` | success | `events.cljc` (work row settled terminal) |
+| `:rf.resource/succeeded` | success | `events.cljc` (reply landed, entry `:loaded`) |
+| `:rf.resource/failed` | failure | `events.cljc` (first-load failure → `:error`) |
+| `:rf.resource/refresh-failed` | failure | `events.cljc` (background-refresh failure, data kept) |
+| `:rf.resource/invalidated` | invalidation | `events.cljc` (tag invalidation) |
+| `:rf.resource/refetch-decision` | lifecycle | `events.cljc` (per-entry refetch decision) |
+| `:rf.resource/revalidate-scan` | lifecycle | `events.cljc` (focus/reconnect scan summary) |
+| `:rf.resource/route-plan` | lifecycle | `route.cljc` (route-entry resource planning) |
+| `:rf.resource/owner-released` | lifecycle | `events.cljc` + `ssr.cljc` (lease released) |
+| `:rf.resource/stale-scheduled` | gc | `timers.cljc` (stale timer armed) |
+| `:rf.resource/stale-fired` | gc | `events.cljc` (stale timer fired) |
+| `:rf.resource/gc-scheduled` | gc | `timers.cljc` (GC timer armed) |
+| `:rf.resource/gc-fired` | gc | `events.cljc` (GC timer fired) |
+| `:rf.resource/gc-skipped` | gc | `events.cljc` (GC skipped — entry re-owned) |
+| `:rf.resource/removed` | lifecycle | `events.cljc` + `registry.cljc` (entry removed) |
+| `:rf.resource/stale-suppressed` | suppression | `events.cljc` (stale/superseded reply suppressed) |
+| `:rf.resource/hydrated` | hydration | `ssr.cljc` (SSR hydration reconcile) |
+| `:rf.resource/hydrate-refetch` | hydration | `ssr.cljc` (per-entry hydrate refetch-plan row) |
+| `:rf.resource/hydrate-clock-skew` | hydration | `ssr.cljc` (`:warning` — hydrate stale-at skew) |
+| `:rf.resource/restored` | hydration | `ssr.cljc` (epoch/SSR restore reconcile summary) |
+| `:rf.resource/restore-clock-skew` | hydration | `ssr.cljc` (`:warning` — restore stale-at skew) |
 
 `:rf.resource/stale-suppressed` is the single suppression op (entry +
 ledger stale/superseded-reply suppression); an earlier draft also named
@@ -216,7 +234,20 @@ emitted a distinct work-suppressed row). `:rf.resource/cache-hit` is a
 FRESH-SKIP ensure — an `ensure` of an already-`:loaded` entry still
 fresh-by-policy serves the cached value (no fetch, no in-flight join),
 which the panel colours `:dedupe`; distinct from `:rf.resource/deduped`
-(joining in-flight work). See Spec 016 §Xray and AI tooling.
+(joining in-flight work). The two `*-clock-skew` rows are emitted at
+`:warning` level (a hydrated/restored entry's absolute `:stale-at` is
+ahead of the live clock — freshness is ambiguous until the next
+live-owner ensure resolves it), so the main Trace panel surfaces them
+under its cross-cutting `WARNING` badge while the Resources lifecycle
+timeline colours them `:hydration`.
+
+`:rf.resource/ensure` / `:rf.resource/refetch` / `:rf.resource/remove` /
+`:rf.resource/window-focused` / `:rf.resource/network-reconnected` /
+`:rf.resource/invalidate-tags` / `:rf.resource/release-owner` are
+dispatched **EVENT IDs**, NOT emitted trace operations — they appear in
+the trace stream only as the `:rf.event/dispatched` event vector, never
+as a `:rf.resource/*` `:operation`, so they are NOT members of the
+`trace-ops` family enum. See Spec 016 §Xray and AI tooling.
 
 Each row carries, where applicable: frame, work id, scope, resource
 key/id, params summary, generation, request id, owner, cause, status
