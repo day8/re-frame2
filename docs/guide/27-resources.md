@@ -425,6 +425,8 @@ You *can* write with an ordinary `:rf.http/managed` event whose success handler 
 
 (Optimistic rollback — the snapshot/rollback/reconciliation shape — is reserved in the success trace but **deferred**; until it lands, patch/populate are forward-only.)
 
+> **When managed HTTP is still the right tool: user-visible optimistic *rollback*.** `:patches` / `:populates` are **forward-only** seeds — they make a change appear immediately and let the success-time invalidation reconcile, but there is **no automatic revert on failure** (the snapshot/rollback shape is deferred — see [What's deferred](#whats-deferred)). So when you need a write that flips the UI optimistically *and* rolls the change back if the server rejects it — the favourite toggle that un-flips on a 500, a like-count that decrements again, a positional list re-insert that undoes itself — reach for a plain `:rf.http/managed` write where your own `:on-failure` handler restores the prior `app-db` value. A mutation cannot express that today. The favourite / follow / comment-delete shapes in [`examples/reagent/realworld/`](../../examples/reagent/realworld/) (the managed-HTTP sibling of the resources RealWorld variant) are worked examples of exactly this optimistic-then-rollback pattern; the resources variant ([`examples/reagent/realworld_resources/`](../../examples/reagent/realworld_resources/)) uses forward-only `:populates` for the same toggles and accepts the brief refetch round-trip instead.
+
 ## Route-driven loading
 
 The cleanest way to load a page's server state is to declare it on the route. `:resources` is route metadata:
@@ -505,7 +507,7 @@ Resources are a trace/accessor contract, not just panel UI. Xray exposes a stati
 
 The read-resource MVP, mutations (the [Mutations](#mutations--the-causal-write) section above), and focus/reconnect revalidation (the [Focus and reconnect revalidation](#focus-and-reconnect-revalidation) section above) are landed — that's the **first public-beta gate, now complete.** Some surfaces named in this chapter still land with later slices:
 
-- **Optimistic rollback** — the snapshot / rollback / reconciliation shape is *reserved* in the mutation success trace but not yet implemented. Until it lands, mutation `:patches` / `:populates` are forward-only (no automatic rollback on failure).
+- **Optimistic rollback** — the snapshot / rollback / reconciliation shape is *reserved* in the mutation success trace but not yet implemented. Until it lands, mutation `:patches` / `:populates` are forward-only (no automatic rollback on failure). A write that needs **user-visible optimistic rollback** (flip the UI, revert on server rejection) stays a plain `:rf.http/managed` write with an `:on-failure` handler that restores the prior `app-db` value — see [the boundary note under Mutations](#what-a-mutation-refines-beyond-a-plain-managed-http-write).
 - **GraphQL** — a deferred later phase, out of this contract. `:rf.http/managed` is the single built-in transport for both reads and writes; the lifecycle is kept transport-neutral so a GraphQL transport can plug in later without weakening the core semantics.
 - **Later still** — a generic transport-extension protocol, polling/interval revalidation, infinite resources, normalized entity caches, automatic graph-derived invalidation, subscription-driven fetching, offline persistence, and cross-tab broadcast.
 
