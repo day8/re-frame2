@@ -115,6 +115,19 @@ main read**.
   privacy posture (params/scopes get the SAME summary + size elision as
   data; read-only — observing pins no resource). Decoupled from the
   optional Resources artefact.
+- **[025-Derivation-Graph-Panel.md](025-Derivation-Graph-Panel.md)** — The
+  Derivation-Graph tab: the Xray-side consumer contract for the EP-0014
+  derivation/process algebra graph (framework
+  [`spec/Derivations.md`](../../../spec/Derivations.md)). Xray is the EP's
+  **named first consumer** of the structured graph accessor: the unified
+  `{:mode :nodes :edges}` view composed by `re-frame.derivation.graph`
+  across all five algebra-view families, classified by the two closed
+  superkinds (`:derivation` / `:process`), static vs live, with the
+  contributor seam supplying the families Xray `:require`s. Carries the
+  **off-box egress redaction call site** (`redact-graph-for-egress` —
+  per-frame, fail-closed, via `rf/elide-wire-value`; redact value, keep
+  edge): on-box rendering is raw (Security.md permits on-box), off-box
+  egress projects through the frame's elision policy. Read-only.
 
 ### Reference
 

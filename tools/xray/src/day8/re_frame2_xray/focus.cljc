@@ -124,8 +124,9 @@
   `:views` / `:routes` per `tools/xray/spec/007-UX-IA.md`. The Issues
   tab was removed per rf2-gbz39 (Option (c) — issues surface inline in
   the Epoch + the L2 event-row pink-wash + the always-on issues ribbon
-  signal), so `:issues` is no longer a focusable panel."
-  #{:epoch :app-db :views :trace :machines :routes})
+  signal), so `:issues` is no longer a focusable panel. `:derivation-graph`
+  (EP-0014 prop-3, rf2-9ett2d) is the unified derivation/process graph tab."
+  #{:epoch :app-db :views :trace :machines :routes :derivation-graph})
 
 ;; ---------------------------------------------------------------------------
 ;; Pure command → dispatches translation (JVM-runnable)
