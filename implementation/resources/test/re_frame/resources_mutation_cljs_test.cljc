@@ -198,6 +198,21 @@
       (testing "the app :request body passes through unchanged"
         (is (= {:method :put :url "/api/articles/w" :body {:slug "w"}} (:request args)))))))
 
+(deftest execute-started-at-from-token-time-ms
+  ;; rf2-dsyqmz / EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
+  ;; :rf.mutation/execute writes the durable instance :started-at from the
+  ;; TRIGGERING TOKEN'S :time-ms (the causal world input), NOT an ambient
+  ;; clock read in the reducer. Scripting the dispatch's :rf.world/inputs
+  ;; pins it; the same execute token mints the same :started-at
+  ;; (replay-stable).
+  (rf/reg-mutation :m/save (save-article-spec))
+  (let [t1 1781078400123]
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/save :params {:slug "w"} :instance :st/save-1}]
+                      {:rf.world/inputs {:time-ms t1}})
+    (testing "the instance :started-at is EXACTLY the token :time-ms (not now)"
+      (is (= t1 (:started-at (instance :st/save-1)))))))
+
 (deftest execute-generates-instance-id-when-absent
   (rf/reg-mutation :m/save (save-article-spec))
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"}}])

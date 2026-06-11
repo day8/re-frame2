@@ -242,7 +242,8 @@
   request is lowered (a rare timing for pessimistic stale-then-write).
 
   Returns the event-fx map (`:rf.db/runtime` + `:fx`)."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation
+    world :rf.world/inputs}
    [_event-id {:keys [mutation params instance scope cause] :as _payload}]]
   (let [where      'rf.mutation/execute
         runtime-db (or rt {})
@@ -271,7 +272,13 @@
         ;; would collide on a bare work-id and abort/supersede each other's
         ;; in-flight write. Qualifying with the frame id isolates them.
         request-id (work-ledger/managed-request-id frame-id work-id)
-        now        (now-ms)
+        ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
+        ;; `:rf.mutation/execute` writes the durable instance + work-ledger
+        ;; `:started-at` from the TRIGGERING TOKEN'S `:time-ms` (the causal
+        ;; world input the router stamped once at the dispatch boundary), NOT
+        ;; an ambient clock read in the reducer. Replay-stable: the same
+        ;; execute token mints the same `:started-at`.
+        started-at (:time-ms world)
         transport-id (or (:transport spec) transport/default-transport)
         ;; the mutation's :request returns the Spec 014 managed-HTTP args
         ;; (the causal write); the runtime owns reply addressing.
@@ -283,7 +290,7 @@
         instance'  (mstate/empty-instance
                      mutation instance-id
                      {:scope cscope :params cparams :cause cause
-                      :generation generation :work-id work-id :started-at now})
+                      :generation generation :work-id work-id :started-at started-at})
         record     (-> (work-ledger/work-record
                          {:work-id      work-id
                           :frame-id     frame-id
@@ -291,7 +298,7 @@
                           :generation   generation
                           :transport    transport-id
                           :cause        cause
-                          :started-at   now})
+                          :started-at   started-at})
                        ;; the work record's neutral :work/kind for a mutation
                        ;; attempt (the ledger is named neutrally; the resource
                        ;; writer uses :resource, the mutation writer :mutation).
