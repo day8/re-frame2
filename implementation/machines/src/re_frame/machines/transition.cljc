@@ -233,30 +233,49 @@
   map (threaded by `parallel/reduce-regions`) — the cross-region
   coordination keys (XState v5 `stateIn` / SCXML `In()`). `:all-state` is
   the parallel-region marker: present iff this is a region snapshot, so
-  flat / compound machines surface neither key and their ctx is unchanged."
-  [snapshot event]
+  flat / compound machines surface neither key and their ctx is unchanged.
+
+  Per EP-0010 (rf2-g0m4p5): when the event handler's causal world-input
+  token (the router's `:rf.world/inputs` coeffect — Spec 002 §Event Context
+  And Coeffects) has been threaded onto the machine def under `:rf/world-inputs`
+  (stamped by `prepare-machine-ctx` alongside `:rf/frame` / `:rf/platform` /
+  `:rf/parent-id`, and propagated to region specs), surface it on the ctx
+  under the SAME `:rf.world/inputs` key. A durable guard / action that
+  decides on time / random / UUID host facts then reads
+  `(:time-ms (:rf.world/inputs ctx))` — the causal token — instead of an
+  ambient `interop/now-ms`, so machine decisions and snapshot writes replay
+  deterministically. Absent for pure-fn callers (conformance corpus / JVM
+  fixtures) that drive the engine without a router coeffect — the key is
+  simply not present and the destructure binds nil."
+  [machine snapshot event]
   (cond-> {:data  (:data snapshot)
            :event event
            :state (:state snapshot)
            :meta  (:meta snapshot)}
     (contains? snapshot :all-state) (assoc :all-state (:all-state snapshot)
-                                           :tags      (:tags snapshot))))
+                                           :tags      (:tags snapshot))
+    (contains? machine :rf/world-inputs) (assoc :rf.world/inputs
+                                                (:rf/world-inputs machine))))
 
 (defn- call-guard
   "Invoke a resolved guard fn against a snapshot + event with the unified
   context-map contract — `(fn [{:keys [data event state meta]}] boolean)`.
   Per Spec 005 §Guards (rf2-grw4i / rf2-v0rrr); a parallel region's guard
-  additionally receives `:tags` + `:all-state` (rf2-46ly6 / rf2-69d1n)."
-  [g snapshot event]
-  (g (callback-ctx snapshot event)))
+  additionally receives `:tags` + `:all-state` (rf2-46ly6 / rf2-69d1n), and —
+  per EP-0010 (rf2-g0m4p5) — the causal `:rf.world/inputs` token when the
+  handler threaded it onto the machine def."
+  [machine g snapshot event]
+  (g (callback-ctx machine snapshot event)))
 
 (defn- call-action
   "Invoke a resolved action fn against a snapshot + event with the unified
   context-map contract — `(fn [{:keys [data event state meta]}] effects)`.
   Per Spec 005 §Actions (rf2-grw4i / rf2-v0rrr); a parallel region's action
-  additionally receives `:tags` + `:all-state` (rf2-46ly6 / rf2-69d1n)."
-  [f snapshot event]
-  (f (callback-ctx snapshot event)))
+  additionally receives `:tags` + `:all-state` (rf2-46ly6 / rf2-69d1n), and —
+  per EP-0010 (rf2-g0m4p5) — the causal `:rf.world/inputs` token when the
+  handler threaded it onto the machine def."
+  [machine f snapshot event]
+  (f (callback-ctx machine snapshot event)))
 
 ;; ---- guard / action evaluation traces -------------------------------------
 ;;
@@ -318,7 +337,7 @@
           state      (:state snapshot)
           input      {:data (:data snapshot) :event event}]
       (try
-        (let [outcome (boolean (call-guard g snapshot event))]
+        (let [outcome (boolean (call-guard machine g snapshot event))]
           (trace/emit! :rf.machine :rf.machine/guard-evaluated
                        {:machine-id machine-id
                         :guard-id   guard-ref
@@ -1660,7 +1679,7 @@
                              :frame      frame-id}
                       transition-slot (assoc :transition-slot transition-slot))]
       (try
-        (let [r (call-action f snap event)]
+        (let [r (call-action machine f snap event)]
           (trace/emit! :rf.machine :rf.machine/action-ran
                        (assoc base-tags :outcome (if (nil? r) :ok r)))
           (or r {}))
