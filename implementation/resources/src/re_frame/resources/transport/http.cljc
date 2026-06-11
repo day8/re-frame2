@@ -11,11 +11,16 @@
        (assoc http-args
               :request-id  request-id
               :on-success  [:rf.resource.internal/succeeded
-                            {:work-id … :resource-key … :scope …
+                            {:work/id … :resource-key … :scope …
                              :rf.frame/id … :generation …}]
               :on-failure  [:rf.resource.internal/failed
-                            {:work-id … :resource-key … :scope …
+                            {:work/id … :resource-key … :scope …
                              :rf.frame/id … :generation …}])]
+
+  The verification-payload work identity is `:work/id` — the qualified
+  spelling the ledger row, the entry's `:current-work`, and the uniform
+  reply envelope all use (EP-0007 one-attempt-one-spelling: one attempt has
+  one work id, one name). It is NOT `:work-id`.
 
   The managed-HTTP artefact (`day8/re-frame2-http`, `re-frame.http-managed`)
   is reached LATE-BOUND — resources never statically `:require`s it, so an
@@ -25,7 +30,7 @@
   builds the args map (request-id + reply addressing).
 
   The lowering ships here: `lower` mints the request-id and stamps the
-  work-ledger correlation (`:work-id` / `:resource-key` / `:scope` /
+  work-ledger correlation (`:work/id` / `:resource-key` / `:scope` /
   `:rf.frame/id` / `:generation`) into the reply addressing."
   (:require [re-frame.late-bind :as late-bind]))
 
@@ -94,10 +99,12 @@
 
   The reply payloads stamp the qualified `:rf.frame/id` (the canonical
   carried frame stamp, EP-0002 R3) — matching the `:work/frame` stamp on
-  the ledger record — plus `:work-id`, `:resource-key`, `:scope`, and
+  the ledger record — plus `:work/id`, `:resource-key`, `:scope`, and
   `:generation` so the reply handlers can verify frame + work-id +
   generation before writing (stale suppression is the correctness
-  boundary).
+  boundary). The verification work identity is `:work/id` (the qualified
+  EP-0007 spelling the ledger / entry / reply envelope share), never the
+  unqualified `:work-id`.
 
   Reply ADDRESSING is overridable so the SAME managed-HTTP lower serves
   both resources and mutations: `:on-success-id` / `:on-failure-id` default
@@ -119,7 +126,11 @@
   (reject-reserved-reply-keys! http-args resource-key
                                (or where 're-frame.resources.transport.http/build-managed-args))
   (let [payload (assoc (or reply-payload
-                           {:work-id      work-id
+                           ;; EP-0007: the verification work identity is the
+                           ;; qualified `:work/id` (the ledger row / entry
+                           ;; `:current-work` / reply-envelope spelling), one
+                           ;; attempt one name.
+                           {:work/id      work-id
                             :resource-key resource-key
                             :scope        scope
                             :generation   generation})

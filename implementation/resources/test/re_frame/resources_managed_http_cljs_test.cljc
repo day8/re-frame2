@@ -183,7 +183,7 @@
                   §Transport — verify frame + work-id + generation)"
           (let [vp (nth (:on-success args) 1)]
             (is (= scoped-key (:resource-key vp)))
-            (is (= (:current-work (entry scoped-key)) (:work-id vp)))
+            (is (= (:current-work (entry scoped-key)) (:work/id vp)))
             (is (= 1 (:generation vp)))
             (is (= :rf.scope/global (:scope vp)))
             (is (= :rf/default (:rf.frame/id vp))))))

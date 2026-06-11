@@ -253,7 +253,7 @@
                                          :params {:slug "w"}}])
                 (rf/dispatch-sync
                   [:rf.resource.internal/succeeded
-                   {:resource-key scoped-key :work-id wid1 :generation 1
+                   {:resource-key scoped-key :work/id wid1 :generation 1
                     :data {:stale "data"}}])))]
         (is (seq (by-op traces :rf.resource/stale-suppressed))
             "the stale reply emitted :rf.resource/stale-suppressed")
@@ -276,7 +276,7 @@
       (let [wid (:current-work (entry scoped-key))]
         (rf/dispatch-sync
           [:rf.resource.internal/succeeded
-           {:resource-key scoped-key :work-id wid :generation 1 :data {:title "W"}}]))
+           {:resource-key scoped-key :work/id wid :generation 1 :data {:title "W"}}]))
       (is (= :loaded (:status (entry scoped-key))) "entry settled :loaded")
       (let [gen-before (:generation (entry scoped-key))
             data-before (:data (entry scoped-key))
@@ -320,7 +320,7 @@
       (let [wid (:current-work (entry scoped-key))]
         (rf/dispatch-sync
           [:rf.resource.internal/succeeded
-           {:resource-key scoped-key :work-id wid :generation 1 :data {:title "W"}}]))
+           {:resource-key scoped-key :work/id wid :generation 1 :data {:title "W"}}]))
       ;; make it stale WITHOUT auto-refetch: release the owner, then invalidate
       ;; (an inactive matched entry is marked stale but not refetched)
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :st 1]}])

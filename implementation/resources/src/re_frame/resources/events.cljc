@@ -13,8 +13,13 @@
     [:rf.resource/remove          {:resource … :scope … :params …}]
 
   Plus the framework-INTERNAL replies (`:rf.resource.internal/*`) that
-  carry the verification payload (`:work-id` / `:resource-key` / `:scope`
+  carry the verification payload (`:work/id` / `:resource-key` / `:scope`
   / `:generation` / `:rf.frame/id`) — user code MUST NOT dispatch them.
+  The internal replies RECEIVE the canonical uniform reply map (Managed-
+  Effects §The uniform reply envelope) — `re-frame.resources.reply` builds
+  it from the transport's public payload + the verification payload, so a
+  resource completion settles through the SAME one-status reply shape every
+  managed-async family produces (EP-0011 §Resource Reply And Work Ledger).
 
   Every handler carries framework-write authority
   (`state/framework-authority-meta`) so a returned `:rf.db/runtime`
@@ -56,6 +61,7 @@
   (:require [clojure.set :as set]
             [re-frame.frame :as frame]
             [re-frame.resources.registry :as registry]
+            [re-frame.resources.reply :as rreply]
             [re-frame.resources.route :as route]
             [re-frame.resources.state :as state]
             [re-frame.resources.transport :as transport]
@@ -865,8 +871,12 @@
   a work-id. A reply with no stamped frame (a direct-dispatch test payload
   that omits `:rf.frame/id`) skips the frame check (nil never collides with a
   concrete frame id) and is verified by work-id + generation alone — the
-  runtime-slice tests stay deterministic."
-  [runtime-db receiving-frame-id {:keys [resource-key work-id generation] :as payload}]
+  runtime-slice tests stay deterministic.
+
+  The verification work identity is `:work/id` (EP-0007 — the qualified
+  spelling the ledger row, the entry's `:current-work`, and the uniform
+  reply envelope share). One attempt, one work id, one name."
+  [runtime-db receiving-frame-id {work-id :work/id :keys [resource-key generation] :as payload}]
   (let [reply-frame (:rf.frame/id payload)]
     (when (or (nil? reply-frame) (= reply-frame receiving-frame-id))
       (when-let [entry (get-in runtime-db (state/entry-path resource-key))]
@@ -874,24 +884,38 @@
                    (= generation (:generation entry)))
           entry)))))
 
-;; ---- transport reply payload extraction -----------------------------------
+;; ---- transport reply payload extraction → canonical reply map --------------
 ;;
-;; The managed-HTTP transport (Spec 014 §Reply addressing) APPENDS its
-;; result to the runtime-supplied `:on-success` / `:on-failure` internal
-;; reply event vector as the LAST arg, so a live reply lands as a 3-element
-;; event:
+;; Resources lower THROUGH managed HTTP, so the transport (Spec 014 §Reply
+;; addressing) APPENDS its PUBLIC reply payload to the runtime-supplied
+;; `:on-success` / `:on-failure` internal reply event vector as the LAST arg,
+;; so a live reply lands as a 3-element event:
 ;;
 ;;   [:rf.resource.internal/succeeded <verification-payload> {:kind :success :value <decoded-data>}]
 ;;   [:rf.resource.internal/failed    <verification-payload> {:kind :failure :failure <:rf.http/* envelope>}]
 ;;
-;; `<verification-payload>` (arg 2) is the `{:work-id :resource-key :scope
+;; `<verification-payload>` (arg 2) is the `{:work/id :resource-key :scope
 ;; :generation :rf.frame/id}` map resource lowering supplied (the stale-
-;; suppression identity, the boundary the runtime OWNS). `<http-result>`
-;; (arg 3) is the transport's outcome. The runtime reads the verification
-;; identity from arg 2 and the data / error from arg 3. A test that feeds an
-;; internal reply directly may inline `:data` / `:error` in arg 2 (no
-;; transport in the loop); the reader below falls back to that shape so the
-;; runtime-slice tests keep exercising the entry semantics deterministically.
+;; suppression identity, the boundary the runtime OWNS — EP-0007: the work
+;; identity is `:work/id`). `<http-result>` (arg 3) is the transport's
+;; PUBLIC outcome.
+;;
+;; The reply handlers RE-LIFT (arg 2 + arg 3) into the ONE canonical reply
+;; map every managed-async family produces — `re-frame.resources.reply`
+;; builds `{:status :value/:error :work/id :work/kind :resource :work/status
+;; :rf.frame/id :completed-at :correlation}` (Managed-Effects §The uniform
+;; reply envelope / EP-0011 §Resource Reply And Work Ledger). The internal
+;; resource reply targets are framework-INTERNAL, so they receive the
+;; canonical reply map DIRECTLY (no public `{:kind …}` reshape — that reshape
+;; is `:rf.http/managed`'s own public sugar). The handlers then branch on the
+;; canonical `:status` and install `(:value reply)` under the durable entry's
+;; `:data` (the entry layer's spelling of the same fact; the reply-map
+;; spelling is `:value` — kh9jz6 / EP-0007).
+;;
+;; A test that feeds an internal reply directly may inline `:data` / `:error`
+;; in arg 2 (no transport in the loop); the reader below falls back to that
+;; shape so the runtime-slice tests keep exercising the entry semantics
+;; deterministically.
 
 (defn- reply-success-data
   "Extract the decoded success data from a managed-HTTP success reply. The
@@ -937,22 +961,34 @@
   (= http-aborted-kind (:kind error)))
 
 (defn succeeded-handler
-  "`:rf.resource.internal/succeeded` — a transport read succeeded. Verifies
-  frame + work-id + generation against the live entry; on match installs the
-  decoded `:data` (`:loaded`), preserving the old `:data` value when the new
-  data is `=` (structural sharing), and records `:loaded-at` / `:stale-at` /
-  produced `:tags`. A stale / superseded reply is SUPPRESSED (it MUST NEVER
-  mutate a newer entry). Per Spec 016 §Transport / §Structural sharing /
-  §Status semantics.
+  "`:rf.resource.internal/succeeded` — a transport read succeeded. Re-lifts
+  the transport's PUBLIC reply into the canonical reply map
+  (`rreply/success-reply`, `:status :ok` carrying `:value` — Managed-Effects
+  §The uniform reply envelope), verifies frame + `:work/id` + generation
+  against the live entry, and on match installs `(:value reply)` as the
+  durable entry `:data` (`:loaded`), preserving the old `:data` value when
+  the new data is `=` (structural sharing), and records `:loaded-at` /
+  `:stale-at` / produced `:tags`. (`:value` is the reply-map spelling of the
+  decoded result everywhere; `:data` is the durable entry layer's spelling
+  of the same fact — kh9jz6 / EP-0007.) A stale / superseded reply is
+  SUPPRESSED (it MUST NEVER mutate a newer entry). Per Spec 016 §Transport /
+  §Structural sharing / §Status semantics; EP-0011 §Resource Reply And Work
+  Ledger.
 
   Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
   transport appends `{:kind :success :value <decoded-data>}` as the last arg
   (Spec 014 §Reply addressing); the decoded data is read from there
-  (`reply-success-data`)."
+  (`reply-success-data`) and re-lifted into the canonical `:value`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {:keys [resource-key work-id generation] :as payload} http-result]]
+   [_event-id {work-id :work/id :keys [resource-key generation] :as payload} http-result]]
   (let [runtime-db (or rt {})
-        data       (reply-success-data payload http-result)
+        value      (reply-success-data payload http-result)
+        ;; the ONE canonical reply map every managed-async family produces
+        ;; (Managed-Effects §The uniform reply envelope). The internal
+        ;; resource reply target receives it DIRECTLY (no public `{:kind …}`
+        ;; reshape). The decoded result is `:value` (EP-0007 / kh9jz6).
+        reply      (rreply/success-reply payload value
+                                         {:work-kind rreply/work-kind-resource})
         entry      (live-entry-for-reply runtime-db frame-id payload)]
     (if (nil? entry)
       ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply never
@@ -968,6 +1004,10 @@
                             runtime-db work-id work-ledger/mark-terminal
                             :suppressed {:reason :stale-reply :outcome :success})})
       (let [spec      (registry/resource-meta (:resource/id entry))
+            ;; the durable entry stores the canonical reply's `:value` under
+            ;; `:data` (the entry layer's spelling of the same fact — the
+            ;; reply-map spelling is `:value`, kh9jz6 / EP-0007).
+            data      (:value reply)
             loaded-at (now-ms)
             stale-at  (stale-at-for spec loaded-at)
             ;; arm the advisory stale / GC timers from the resource's policy
@@ -1074,12 +1114,23 @@
   Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
   transport appends `{:kind :failure :failure <:rf.http/* envelope>}` as the
   last arg (Spec 014 §Reply addressing); the failure envelope is read from
-  there (`reply-failure-error`)."
+  there (`reply-failure-error`) and re-lifted into the canonical reply map
+  (`rreply/failure-reply` — `:status :error` with the envelope under
+  `:error`, or `:status :cancelled` for an `:rf.http/aborted` envelope; per
+  Managed-Effects §Status taxonomy / EP-0011 §Resource Reply And Work
+  Ledger)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {:keys [resource-key work-id generation] :as payload} http-result]]
+   [_event-id {work-id :work/id :keys [resource-key generation] :as payload} http-result]]
   (let [runtime-db (or rt {})
         error      (reply-failure-error payload http-result)
-        aborted?   (abort-failure? error)
+        ;; the ONE canonical reply map (Managed-Effects §The uniform reply
+        ;; envelope) — `:status :error` (or `:cancelled` for an abort). The
+        ;; internal reply target receives it directly. `abort-failure?` is
+        ;; the family's classifier; the canonical reply's `:status` then
+        ;; drives the branch.
+        reply      (rreply/failure-reply payload error
+                                         {:work-kind rreply/work-kind-resource})
+        aborted?   (= :cancelled (:status reply))
         entry      (live-entry-for-reply runtime-db frame-id payload)]
     (cond
       ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply (failure
@@ -1159,7 +1210,7 @@
   and clears the host handle. Per Spec 016 §Cancellation is opportunistic;
   stale suppression is mandatory / §Ledger row retention and identity."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {:keys [resource-key work-id generation]}]]
+   [_event-id {work-id :work/id :keys [resource-key generation]}]]
   (let [runtime-db (or rt {})]
     (work-ledger/clear-handle! frame-id work-id)
     (trace/emit! :rf.event :rf.resource/work-abort-requested
@@ -1288,7 +1339,7 @@
   the suppression in trace for tools. Per Spec 016 §Cancellation is
   opportunistic; stale suppression is mandatory."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {:keys [resource-key work-id generation]}]]
+   [_event-id {work-id :work/id :keys [resource-key generation]}]]
   (trace/emit! :rf.event :rf.resource/stale-suppressed
                {:rf.frame/id frame-id :resource-key resource-key
                 :work-id work-id :generation generation})
