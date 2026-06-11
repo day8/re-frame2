@@ -698,7 +698,7 @@
       (rf2-64bdnk)."
   [route-owner-policy owner]
   (and (route-owner? owner)
-       (not (identical? :ride-through route-owner-policy))
+       (not= :ride-through route-owner-policy)
        (not= (:restore-live-nav-token route-owner-policy)
              (nth owner 2 nil))))
 
