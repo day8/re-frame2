@@ -57,7 +57,16 @@
             [re-frame.error-emit :as error-emit]
             [re-frame.elision :as elision]
             [re-frame.projection :as projection]
-            [re-frame.marks   :as marks]
+            ;; EP-0015 §3 + §7 (bead item 2, rf2-mngp4o): the imperative
+            ;; `add-marks` / `set-marks` façade exports are removed (frame-
+            ;; owned classification + `project-egress` are the public
+            ;; boundary now). `re-frame.marks` stays a side-effect-only
+            ;; require — it publishes the `:marks/*` late-bind hooks (the
+            ;; trace bus's `:marks/project-trace-event` emit chokepoint, the
+            ;; per-(kind,id) `:marks/register-marks!` / `:marks/marks-for`
+            ;; registry, etc.) that must be bound at boot. No `marks/*`
+            ;; symbols are referenced from this façade any more.
+            [re-frame.marks]
             ;; EP-0015 §3 (rf2-ueg1tn): required for its ns-load side-effect
             ;; only — it publishes the `:frame-classification/*` late-bind
             ;; hooks `re-frame.frame/reg-frame` consults to validate + install
@@ -697,50 +706,18 @@
   set-schema-fns!        rf-schemas/set-schema-fns!)
 
 ;; ---- data classification (Spec 015) -------------------------------------
-
-(def ^{:doc "Additively merge path-marks into `app-db` for a frame, per
-  Spec 015 §App-db marks (per frame). `path->mark` is a map from
-  `get-in`-shaped path vectors to mark keywords (`:sensitive` or
-  `:large`). Paths supplied here MERGE into the frame's existing marks
-  — paths NOT mentioned keep their prior state. Repeat calls accumulate.
-  Schema-attached marks are preserved — the two sources union per
-  Spec 015 §Relationship with schema-attached marks. The declaration
-  feeds the mark-lookup table the observation surfaces (trace bus,
-  Xray, MCP, third-party log sinks) consult at emission time — real
-  values flow through the application unchanged.
-
-  Example:
-
-      (rf/add-marks :rf/default
-        {[:user :ssn]   :sensitive
-         [:auth :token] :sensitive
-         [:docs :csv]   :large})
-
-  Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
-  does NOT install an interceptor, does NOT change any handler's view
-  of the data. Use `set-marks` for replace-semantics."}
-  add-marks marks/add-marks)
-
-(def ^{:doc "Replace the `app-db` mark-set for a frame with `path->mark`,
-  per Spec 015 §App-db marks (per frame). `path->mark` is a map from
-  `get-in`-shaped path vectors to mark keywords (`:sensitive` or
-  `:large`). Paths supplied here REPLACE the frame's prior marks set
-  wholesale — paths NOT mentioned are CLEARED. Schema-attached marks
-  are preserved — only `:marks`-sourced entries are dropped. The two
-  declaration sources union at lookup time per Spec 015 §Relationship
-  with schema-attached marks.
-
-  Example:
-
-      (rf/set-marks :rf/default
-        {[:user :ssn]   :sensitive
-         [:auth :token] :sensitive
-         [:docs :csv]   :large})
-
-  Returns `frame-id`. Pure declaration — does NOT mutate `app-db`,
-  does NOT install an interceptor, does NOT change any handler's view
-  of the data. Use `add-marks` for additive-merge semantics."}
-  set-marks marks/set-marks)
+;;
+;; EP-0015 (frame-owned egress policy, accepted 2026-06-11). The public
+;; classification boundary is now (a) frame-owned `:sensitive` / `:large`
+;; classification declared on `reg-frame` / `make-frame`, plus (b)
+;; `project-egress` and the six `:rf.egress/*` profiles at trust
+;; boundaries. The imperative `add-marks` / `set-marks` path-marks API is
+;; NO LONGER part of the public `re-frame.core` façade (EP-0015 §3 + bead
+;; plan item 2). The underlying `re-frame.marks/add-marks` /
+;; `re-frame.marks/set-marks` fns remain as internal / test / generated-
+;; code helpers (the conformance corpus and the marks unit tests exercise
+;; them via their home namespace), but they are not the normal authoring
+;; surface — declare durable app-db classification on the frame instead.
 
 ;; ---- clearing ------------------------------------------------------------
 
@@ -1610,16 +1587,14 @@
   naming."}
   unwrap-interceptor std-interceptors/unwrap-interceptor)
 
-(def ^{:doc "Build a positional interceptor that overwrites the named
-  payload keys with the `:rf/redacted` sentinel on the trace surface
-  while the handler body still sees the unredacted payload via the
-  `:event` coeffect. `paths` is a sequence of `get-in`-style key paths
-  into the M-19 payload map. Composes additively with schema-declared
-  sensitive slots (handler-meta `:sensitive?` has been removed in
-  favour of path-marked classification). Usage:
-  `(reg-event-fx :auth/login [(redact-interceptor [[:password]])] ...)`.
-  Per spec/API.md §Privacy and Spec 009 §Privacy."}
-  redact-interceptor   privacy/redact-interceptor)
+;; EP-0015 §7 (accepted 2026-06-11): `redact-interceptor` is REMOVED from
+;; the public API. A positional "redact for the trace but not the handler"
+;; interceptor made privacy depend on interceptor placement rather than on
+;; the owner of the payload shape; registration-owned `:sensitive` payload
+;; classification + centralized `project-egress` at egress boundaries
+;; replace it. The `re-frame.privacy/redact-interceptor` fn (and the
+;; router's internal `redact-interceptor?` consumer) remain as internal
+;; plumbing, but the var is no longer published from this façade.
 
 ;; ---- privacy / spec / trace / emit / elision (Spec 009, 010) -------------
 

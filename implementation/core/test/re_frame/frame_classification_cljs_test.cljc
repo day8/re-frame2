@@ -113,8 +113,9 @@
 (deftest re-registration-preserves-marks-sourced-declarations
   (testing "schema/marks-sourced declarations survive a frame-classification replace"
     (rf/reg-frame :app/m {:sensitive {:app-db [[:auth :token]]}})
-    ;; An imperative add-marks declaration (the legacy surface) co-exists.
-    (rf/add-marks :app/m {[:user :ssn] :sensitive})
+    ;; An imperative add-marks declaration (now an internal helper, no
+    ;; longer on the public façade — EP-0015 rf2-mngp4o) co-exists.
+    (marks/add-marks :app/m {[:user :ssn] :sensitive})
     (let [decls (elision/sensitive-declarations :app/m)]
       (is (= :frame (:source (get decls [:auth :token]))))
       (is (= :marks (:source (get decls [:user :ssn])))))

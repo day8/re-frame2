@@ -262,12 +262,22 @@
 
  ;; skills/ (excl. re-frame-migration) call-position `(rf/<var>` references
  ;; the manifest does not carry. The checked skills teach against the LIVE
- ;; surface, so this is empty today — a non-empty entry would name a
- ;; legitimate non-manifest reference (e.g. a CLJS-only var). The
- ;; re-frame-migration skill is excluded wholesale (it names removed old
- ;; APIs by design — see re-frame.api-manifest.skills-check).
+ ;; surface; a non-empty entry names a legitimate non-manifest reference
+ ;; (e.g. a CLJS-only var) or, as here, a removed API still named in skill
+ ;; prose pending that skill's rewrite (the same role `on-changes` plays in
+ ;; :doc-guide-known-unmanifested). The re-frame-migration skill is excluded
+ ;; wholesale (it names removed old APIs by design — see
+ ;; re-frame.api-manifest.skills-check).
  :skills-known-unmanifested
- #{}
+ #{"redact-interceptor"}  ; EP-0015 §7 (rf2-mngp4o): removed from the public
+                          ; façade. Six `(rf/redact-interceptor` references
+                          ; remain in skills/re-frame2 privacy prose + evals;
+                          ; their reframe to the registration-owned
+                          ; `:sensitive` classification + project-egress model
+                          ; is the privacy/skill rewrite (EP-0015 item 12 +
+                          ; skill-update follow-up), not this façade-demote
+                          ; slice. Allowlisted so the lint gate stays green
+                          ; until that coherent rewrite lands.
 
  ;; docs/guide/ call-position `(rf/<var>` references the manifest does not
  ;; carry: removed re-frame v1 names the from-v1 migration chapter names as
@@ -275,7 +285,14 @@
  :doc-guide-known-unmanifested
  #{"on-changes"   ; docs/guide/25-from-re-frame-v1.md — removed v1 reaction API, named as migration guidance
    "set-x!"       ; docs/guide/24-config-and-safety.md — `(rf/set-x!)` is an `<x>` placeholder in the config-shape table
-   "install-x!"}  ; docs/guide/24-config-and-safety.md — `(rf/install-x!)` is an `<x>` placeholder
+   "install-x!"   ; docs/guide/24-config-and-safety.md — `(rf/install-x!)` is an `<x>` placeholder
+   ;; EP-0015 §3 (rf2-mngp4o): `add-marks` / `set-marks` removed from the
+   ;; public façade. docs/guide/23-privacy-and-large-things.md still teaches
+   ;; the runtime path-marks API (now flagged superseded by a banner there);
+   ;; its rewrite around frame-owned classification is EP-0015 item 12. Named
+   ;; here pending that rewrite, same role as `on-changes` above.
+   "add-marks"    ; docs/guide/23-privacy-and-large-things.md — superseded runtime path-marks (EP-0015 item 12)
+   "set-marks"}   ; docs/guide/23-privacy-and-large-things.md — superseded runtime path-marks (EP-0015 item 12)
 
  ;; --------------------------------------------------------------------------
  ;; JVM-introspected classification — keyed ["namespace" "var"].
@@ -300,8 +317,12 @@
   ["re-frame.core" "defmachine"]          {:tier :advanced    :owner "005" :status "v1"}
   ["re-frame.core" "reg-app-schema"]      {:tier :advanced    :owner "010" :status "v1"}
   ["re-frame.core" "reg-app-schemas"]     {:tier :advanced    :owner "010" :status "v1"}
-  ["re-frame.core" "add-marks"]           {:tier :advanced    :owner "015" :status "v1"}
-  ["re-frame.core" "set-marks"]           {:tier :advanced    :owner "015" :status "v1"}
+  ;; EP-0015 §3 + bead item 2 (rf2-mngp4o): the imperative `add-marks` /
+  ;; `set-marks` path-marks API is removed from the public `re-frame.core`
+  ;; façade — frame-owned `:sensitive` / `:large` classification +
+  ;; `project-egress` are the public boundary now. The underlying
+  ;; `re-frame.marks/{add-marks,set-marks}` fns remain internal/test
+  ;; helpers (not facade-published), so they carry no manifest row.
   ["re-frame.core" "reg-flow"]            {:tier :advanced    :owner "013" :status "v1"}
   ["re-frame.core" "reg-route"]           {:tier :advanced    :owner "012" :status "v1"}
   ["re-frame.core" "reg-head"]            {:tier :advanced    :owner "011" :status "v1"}
@@ -392,7 +413,12 @@
   ["re-frame.core" "path"]                {:tier :front-porch :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "unwrap-interceptor"]  {:tier :advanced :owner "002" :status "v1"}
   ["re-frame.core" "with-fx-overrides"]   {:tier :testing :owner "002" :status "v1"}
-  ["re-frame.core" "redact-interceptor"]  {:tier :advanced :owner "009" :status "post-v1 (planned)"}
+  ;; EP-0015 §7 + bead item 2 (rf2-mngp4o): `redact-interceptor` is removed
+  ;; from the public API — registration-owned `:sensitive` payload
+  ;; classification + centralized `project-egress` replace the positional
+  ;; trace-scrub interceptor. The `re-frame.privacy/redact-interceptor` fn
+  ;; remains internal router plumbing (not facade-published), so it carries
+  ;; no manifest row.
   ;; Lifecycle / adapter bootstrap.
   ["re-frame.core" "init!"]                {:tier :front-porch :owner "002" :status "v1"}
   ["re-frame.core" "init-platform"]        {:tier :advanced :owner "002" :status "v1"}

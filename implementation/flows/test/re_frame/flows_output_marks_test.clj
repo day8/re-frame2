@@ -48,6 +48,10 @@
             [re-frame.elision :as elision]
             [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
+            ;; EP-0015 (rf2-mngp4o): `add-marks` / `set-marks` are no longer
+            ;; on the `re-frame.core` façade; these tests drive the internal
+            ;; `re-frame.marks` helpers directly.
+            [re-frame.marks :as marks]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -325,7 +329,7 @@
             add-marks-sourced declarations on adjacent paths survive"
     (rf/reg-event-db :init (fn [db _] (merge db {:n 1})))
     ;; An add-marks-sourced sensitive path the flow does not own.
-    (rf/add-marks :rf/default {[:user :ssn] :sensitive})
+    (marks/add-marks :rf/default {[:user :ssn] :sensitive})
     (rf/reg-flow {:id         :token
                   :inputs     [[:n]]
                   :output     (fn [_] {:jwt "x"})
@@ -429,7 +433,7 @@
             :rf.flow/computed :result is wholesale-redacted."
     (rf/reg-event-db :init (fn [db _] (merge db {:user {:first "Ada" :last "Lovelace"}})))
     ;; Mark the input slot sensitive BEFORE reg-flow (the realistic ordering).
-    (rf/add-marks :rf/default {[:user :first] :sensitive})
+    (marks/add-marks :rf/default {[:user :first] :sensitive})
     (rf/reg-flow {:id     :computed/full-name
                   :inputs [[:user :first] [:user :last]]
                   :output (fn [first last] (str first " " last))
@@ -456,7 +460,7 @@
     (is (not (contains? (sensitive-decls :rf/default) [:derived]))
         "no propagated mark before the input is marked")
     ;; Mark the input AFTER registration.
-    (rf/add-marks :rf/default {[:secret-in] :sensitive})
+    (marks/add-marks :rf/default {[:secret-in] :sensitive})
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (is (contains? (sensitive-decls :rf/default) [:derived])
@@ -468,7 +472,7 @@
   (testing "explicit `:sensitive? true` over a sensitive input keeps the
             whole-output redaction (force-mark and propagation agree)"
     (rf/reg-event-db :init (fn [db _] (merge db {:tok "T"})))
-    (rf/add-marks :rf/default {[:tok] :sensitive})
+    (marks/add-marks :rf/default {[:tok] :sensitive})
     (rf/reg-flow {:id         :wrap
                   :inputs     [[:tok]]
                   :output     (fn [t] {:wrapped t})
@@ -486,7 +490,7 @@
             hash/mask/aggregate opt-out, Spec 015's :computed/hashed-token).
             Previously a no-op; rf2-ihfz9o makes it load-bearing."
     (rf/reg-event-db :init (fn [db _] (merge db {:tok "secret-token"})))
-    (rf/add-marks :rf/default {[:tok] :sensitive})
+    (marks/add-marks :rf/default {[:tok] :sensitive})
     (rf/reg-flow {:id         :computed/hashed-token
                   :inputs     [[:tok]]
                   :output     (fn [t] (hash t))      ; safe — author de-sensitised
@@ -504,9 +508,9 @@
             own propagated/whole mark — it CANNOT unmark an add-marks-sourced
             declaration on the SAME output path (union semantics, Spec 015:295)"
     (rf/reg-event-db :init (fn [db _] (merge db {:in "x"})))
-    (rf/add-marks :rf/default {[:in] :sensitive})
+    (marks/add-marks :rf/default {[:in] :sensitive})
     ;; An independent add-marks declaration directly on the flow's OUTPUT path.
-    (rf/add-marks :rf/default {[:out] :sensitive})
+    (marks/add-marks :rf/default {[:out] :sensitive})
     (rf/reg-flow {:id         :passthrough
                   :inputs     [[:in]]
                   :output     (fn [v] (str v "!"))
@@ -525,7 +529,7 @@
   (testing "an explicit per-output-path `:sensitive [[:extra]]` declaration
             coexists with the propagated whole-output mark — both install"
     (rf/reg-event-db :init (fn [db _] (merge db {:in "x"})))
-    (rf/add-marks :rf/default {[:in] :sensitive})
+    (marks/add-marks :rf/default {[:in] :sensitive})
     (rf/reg-flow {:id        :combine
                   :inputs    [[:in]]
                   :output    (fn [v] {:body v :extra :E})
@@ -542,7 +546,7 @@
             shrinks a large input (count / summary / first-N), so :large
             comes ONLY from explicit flow declarations."
     (rf/reg-event-db :init (fn [db _] (merge db {:blob "BIG"})))
-    (rf/add-marks :rf/default {[:blob] :large})
+    (marks/add-marks :rf/default {[:blob] :large})
     (rf/reg-flow {:id     :summarise
                   :inputs [[:blob]]
                   :output (fn [b] (count b))      ; shrinks — derived-from-large is small
@@ -556,7 +560,7 @@
   (testing "reading a SENSITIVE input and a LARGE input: only :sensitive
             propagates to the output (the asymmetry, cleanly separated)"
     (rf/reg-event-db :init (fn [db _] (merge db {:s "secret" :big "BIG"})))
-    (rf/add-marks :rf/default {[:s] :sensitive [:big] :large})
+    (marks/add-marks :rf/default {[:s] :sensitive [:big] :large})
     (rf/reg-flow {:id     :mix
                   :inputs [[:s] [:big]]
                   :output (fn [s big] {:s s :n (count big)})
@@ -578,7 +582,7 @@
       (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:token "RT-SECRET"}}}}))
     ;; Mark the STRIPPED runtime-db path (the registry is partition-blind —
     ;; declarations are plain path vectors).
-    (rf/add-marks :rf/default {[:rf.runtime/routing :current :token] :sensitive})
+    (marks/add-marks :rf/default {[:rf.runtime/routing :current :token] :sensitive})
     (rf/reg-flow {:id     :route-token-echo
                   :inputs [[:rf.db/runtime :rf.runtime/routing :current :token]]
                   :output (fn [t] {:echo t})
@@ -595,7 +599,7 @@
             output :path inherits A's propagated mark. The topo-ordered drain
             refresh resolves A before B so B sees A's freshly-installed mark."
     (rf/reg-event-db :init (fn [db _] (merge db {:raw "secret"})))
-    (rf/add-marks :rf/default {[:raw] :sensitive})
+    (marks/add-marks :rf/default {[:raw] :sensitive})
     ;; A: reads sensitive [:raw], writes [:step-a] (inherits sensitive).
     (rf/reg-flow {:id     :flow-a
                   :inputs [[:raw]]
@@ -623,7 +627,7 @@
             deferred install, so the output rides the t2 snapshot of that one
             event (the trace-facing assertion the bead requires)."
     (rf/reg-event-db :init (fn [db _] (merge db {:user {:ssn "123-45-6789" :name "Ada"}})))
-    (rf/add-marks :rf/default {[:user :ssn] :sensitive})
+    (marks/add-marks :rf/default {[:user :ssn] :sensitive})
     (rf/reg-flow {:id     :ssn-echo
                   :inputs [[:user :ssn]]
                   :output (fn [ssn] {:copy ssn})
@@ -646,7 +650,7 @@
             re-resolved each drain, not latched"
     (rf/reg-event-db :init (fn [db _] (merge db {:in "x"})))
     (rf/reg-event-db :bump (fn [db _] (update db :in str "!")))
-    (rf/add-marks :rf/default {[:in] :sensitive})
+    (marks/add-marks :rf/default {[:in] :sensitive})
     (rf/reg-flow {:id     :echo
                   :inputs [[:in]]
                   :output (fn [v] (str v "-out"))
@@ -655,7 +659,7 @@
     (is (contains? (sensitive-decls :rf/default) [:echoed])
         "propagated while the input is marked")
     ;; Replace the mark-set with an empty one — clears the input mark.
-    (rf/set-marks :rf/default {})
+    (marks/set-marks :rf/default {})
     (reset! *captured* [])
     (rf/dispatch-sync [:bump])        ; input value changes → flow recomputes + refresh runs
     (is (not (contains? (sensitive-decls :rf/default) [:echoed]))

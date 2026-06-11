@@ -53,7 +53,7 @@
 ;; ---- add-marks / set-marks API ------------------------------------------
 
 (deftest set-marks-writes-into-elision-registry
-  (rf/set-marks :rf/default
+  (marks/set-marks :rf/default
     {[:user :ssn]      :sensitive
      [:auth :token]    :sensitive
      [:docs :csv-upload] :large})
@@ -66,7 +66,7 @@
     (is (= :marks (:source (get decls-l [:docs :csv-upload]))))))
 
 (deftest add-marks-writes-into-elision-registry
-  (rf/add-marks :rf/default
+  (marks/add-marks :rf/default
     {[:user :ssn]      :sensitive
      [:docs :csv-upload] :large})
   (let [decls-s (elision/sensitive-declarations :rf/default)
@@ -76,17 +76,17 @@
     (is (contains? decls-l [:docs :csv-upload]))))
 
 (deftest add-marks-returns-frame-id
-  (is (= :rf/default (rf/add-marks :rf/default {[:x] :sensitive})))
+  (is (= :rf/default (marks/add-marks :rf/default {[:x] :sensitive})))
   (rf/reg-frame :other {:doc "test"})
-  (is (= :other (rf/add-marks :other {[:y] :sensitive}))))
+  (is (= :other (marks/add-marks :other {[:y] :sensitive}))))
 
 (deftest set-marks-returns-frame-id
-  (is (= :rf/default (rf/set-marks :rf/default {[:x] :sensitive}))))
+  (is (= :rf/default (marks/set-marks :rf/default {[:x] :sensitive}))))
 
 (deftest set-marks-replaces-not-merges
   ;; Spec 015 §App-db marks: set-marks REPLACES the previous set
-  (rf/set-marks :rf/default {[:a] :sensitive [:b] :sensitive})
-  (rf/set-marks :rf/default {[:c] :sensitive})
+  (marks/set-marks :rf/default {[:a] :sensitive [:b] :sensitive})
+  (marks/set-marks :rf/default {[:c] :sensitive})
   (let [decls (elision/sensitive-declarations :rf/default)]
     (is (contains? decls [:c]))
     (is (not (contains? decls [:a])))
@@ -94,8 +94,8 @@
 
 (deftest add-marks-merges-not-replaces
   ;; Spec 015 §App-db marks: add-marks MERGES additively
-  (rf/add-marks :rf/default {[:a] :sensitive [:b] :sensitive})
-  (rf/add-marks :rf/default {[:c] :sensitive})
+  (marks/add-marks :rf/default {[:a] :sensitive [:b] :sensitive})
+  (marks/add-marks :rf/default {[:c] :sensitive})
   (let [decls (elision/sensitive-declarations :rf/default)]
     (is (contains? decls [:a]) "first add survives second add")
     (is (contains? decls [:b]) "first add survives second add")
@@ -103,8 +103,8 @@
 
 (deftest add-marks-last-write-wins-per-path
   ;; A path appearing in two add-marks calls — last call's mark wins
-  (rf/add-marks :rf/default {[:p] :sensitive})
-  (rf/add-marks :rf/default {[:p] :large})
+  (marks/add-marks :rf/default {[:p] :sensitive})
+  (marks/add-marks :rf/default {[:p] :large})
   (let [s (elision/sensitive-declarations :rf/default)
         l (elision/declarations :rf/default)]
     ;; After the second add-marks, [:p] is now :large; it should
@@ -117,8 +117,8 @@
 
 (deftest set-marks-after-add-marks-replaces
   ;; set-marks called after add-marks fully replaces — clears prior :marks entries
-  (rf/add-marks :rf/default {[:a] :sensitive [:b] :large})
-  (rf/set-marks :rf/default {[:c] :sensitive})
+  (marks/add-marks :rf/default {[:a] :sensitive [:b] :large})
+  (marks/set-marks :rf/default {[:c] :sensitive})
   (let [s (elision/sensitive-declarations :rf/default)
         l (elision/declarations :rf/default)]
     (is (contains? s [:c]))
@@ -131,7 +131,7 @@
                      [:map
                       [:password {:sensitive? true} :string]])
   (rf/populate-sensitive-from-schemas!)
-  (rf/add-marks :rf/default {[:user :ssn] :sensitive})
+  (marks/add-marks :rf/default {[:user :ssn] :sensitive})
   (let [decls (elision/sensitive-declarations :rf/default)]
     (is (contains? decls [:user :ssn]) "add-marks path present")
     (is (contains? decls [:auth :password]) "schema-sourced path preserved")
@@ -143,8 +143,8 @@
                      [:map
                       [:password {:sensitive? true} :string]])
   (rf/populate-sensitive-from-schemas!)
-  (rf/set-marks :rf/default {[:a] :sensitive})
-  (rf/set-marks :rf/default {[:b] :sensitive})
+  (marks/set-marks :rf/default {[:a] :sensitive})
+  (marks/set-marks :rf/default {[:b] :sensitive})
   (let [decls (elision/sensitive-declarations :rf/default)]
     (is (contains? decls [:b]))
     (is (not (contains? decls [:a])))
@@ -526,7 +526,7 @@
 (deftest db-pending-sensitive-app-db-path-redacts
   (rf/reg-event-db :db/seed (fn [_ _] {:user {:ssn nil :name "A"}}))
   (rf/dispatch-sync [:db/seed])
-  (rf/set-marks :rf/default {[:user :ssn] :sensitive})
+  (marks/set-marks :rf/default {[:user :ssn] :sensitive})
   (rf/reg-event-db :db/write-ssn
     (fn [db _] (assoc-in db [:user :ssn] "123-45-6789")))
   (let [traces (collect-traces! :db-sensitive)]
@@ -543,7 +543,7 @@
 (deftest db-pending-large-app-db-path-emits-marker
   (rf/reg-event-db :db/seed (fn [_ _] {:docs {:csv nil :note "ok"}}))
   (rf/dispatch-sync [:db/seed])
-  (rf/set-marks :rf/default {[:docs :csv] :large})
+  (marks/set-marks :rf/default {[:docs :csv] :large})
   (let [big (apply str (repeat 500 "X"))]
     (rf/reg-event-db :db/write-csv
       (fn [db _] (assoc-in db [:docs :csv] big)))
@@ -669,7 +669,7 @@
   ;; wipes it; seed first, then mark, as for schema-driven elision.
   (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
   (rf/dispatch-sync [:seed])
-  (rf/set-marks :rf/default {[:user :ssn] :sensitive})
+  (marks/set-marks :rf/default {[:user :ssn] :sensitive})
   (rf/reg-sub :all-users (fn [db _] (:user db)))
   @(rf/subscribe [:all-users])
   ;; Layer-1 sub with sensitive declarations present → propagation flag set
@@ -679,7 +679,7 @@
   ;; Spec 015 conformance fixture #4
   (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
   (rf/dispatch-sync [:seed])
-  (rf/set-marks :rf/default {[:user :ssn] :sensitive})
+  (marks/set-marks :rf/default {[:user :ssn] :sensitive})
   (rf/reg-sub :safe
     {:sensitive? false}
     (fn [db _] (get-in db [:user :name])))
@@ -699,7 +699,7 @@
 (deftest layer-2-inherits-from-input-sub
   (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
   (rf/dispatch-sync [:seed])
-  (rf/set-marks :rf/default {[:user :ssn] :sensitive})
+  (marks/set-marks :rf/default {[:user :ssn] :sensitive})
   (rf/reg-sub :u (fn [db _] (:user db)))
   (rf/reg-sub :uname
     :<- [:u]

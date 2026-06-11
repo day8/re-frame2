@@ -1250,7 +1250,7 @@
     ;; Allocate the frame (first run records the error UNMARKED), then mark
     ;; the ex-data key sensitive and re-run the play under the marks.
     (async/deref-blocking (story/run-variant :story.err-redaction-jvm/v) 5000)
-    (rf/add-marks :story.err-redaction-jvm/v {[:token] :sensitive})
+    (story/add-marks :story.err-redaction-jvm/v {[:token] :sensitive})
     (async/deref-blocking (story/execute-play! :story.err-redaction-jvm/v) 5000)
     (let [recs (story/read-assertions :story.err-redaction-jvm/v)
           ex   (last (filter #(= :rf.error/exception (:assertion %)) recs))
