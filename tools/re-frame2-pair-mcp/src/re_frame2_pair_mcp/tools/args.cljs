@@ -524,6 +524,84 @@
   [arg-name raw]
   (parse-positive-int-arg arg-name raw))
 
+;; ---------------------------------------------------------------------------
+;; Causal world inputs (rf2-q6s1nb / EP-0010 agent-replay-determinism).
+;;
+;; `:rf.world/inputs` is an optional key of the PUBLIC `:rf/dispatch-opts`
+;; schema (spec/Spec-Schemas.md §:rf.world/inputs). The router preserves a
+;; caller-supplied map VERBATIM (router.cljc:202-204) and fills only the
+;; framework-required `:time-ms` when absent — so an AI agent that scripts a
+;; world-input map gets a REPRODUCIBLE resulting state (a fixed `:time-ms`,
+;; named `:uuid` / `:random` choices). This is the agent-replay-determinism
+;; affordance EP-0010 calls for from the tool-dispatch helpers.
+;;
+;; The MCP wire shape is an EDN STRING (the same data-not-source posture as
+;; the `event` arg, rf2-vflrg) — the agent passes `world-inputs
+;; "{:time-ms 1781078400123}"` and we parse + shape-check it. The schema
+;; requires `:time-ms` to be an integer when present; we surface a bad
+;; `:time-ms` as a structured error rather than threading a value that the
+;; runtime's `:rf/dispatch-opts` validation would reject deep inside the
+;; dispatch eval. Absent ⇒ `[:ok nil]` (the caller omits the key and the
+;; runtime stamps `:time-ms` itself, the ordinary live-dispatch path).
+
+(defn parse-world-inputs
+  "Parse the OPTIONAL `world-inputs` MCP arg (rf2-q6s1nb) into the CLJS map
+  threaded into the dispatch opts under `:rf.world/inputs`. Returns
+  `[:ok nil]` when absent, `[:ok m]` for a well-shaped map, or `[:err {…}]`
+  for a malformed one.
+
+  The arg is an EDN STRING (data, not host source — same gate as `event`).
+  Shape contract, mirroring the `:rf.world/inputs` schema:
+
+    - MUST read as a map (a vector / scalar / unreadable string is rejected
+      with `:reason :invalid-world-inputs`).
+    - `:time-ms`, when present, MUST be an integer (the schema's lone
+      required-on-the-envelope key; a non-integer is rejected with
+      `:reason :invalid-world-inputs-time-ms`).
+
+  Other keys (`:uuid`, `:random`, `:storage`, …) ride through verbatim —
+  the runtime's `:rf/dispatch-opts` validation is the deeper gate; this is
+  the cheap wire-shape check so an obvious typo gets a corrective hint
+  without a round-trip."
+  [raw]
+  (let [trimmed (some-> raw str/trim)]
+    (cond
+      (or (nil? trimmed) (str/blank? trimmed))
+      [:ok nil]
+
+      :else
+      (let [parsed (try (cljs.reader/read-string trimmed)
+                        (catch :default _ ::reader-fail))]
+        (cond
+          (= ::reader-fail parsed)
+          [:err {:ok?    false
+                 :reason :invalid-world-inputs
+                 :given  raw
+                 :hint   (str "world-inputs must be an EDN-readable map of causal world "
+                              "facts, e.g. \"{:time-ms 1781078400123}\" or "
+                              "\"{:time-ms 1781078400123 :uuid {:todo/id #uuid \\\"…\\\"}}\".")}]
+
+          (not (map? parsed))
+          [:err {:ok?    false
+                 :reason :invalid-world-inputs
+                 :given  raw
+                 :hint   (str "world-inputs must be a MAP (got "
+                              (cond (vector? parsed) "a vector"
+                                    (keyword? parsed) "a keyword"
+                                    (sequential? parsed) "a list"
+                                    :else "a scalar")
+                              "), e.g. \"{:time-ms 1781078400123}\".")}]
+
+          (and (contains? parsed :time-ms) (not (int? (:time-ms parsed))))
+          [:err {:ok?    false
+                 :reason :invalid-world-inputs-time-ms
+                 :time-ms (:time-ms parsed)
+                 :hint   (str "world-inputs :time-ms must be an integer (epoch milliseconds), got "
+                              (pr-str (:time-ms parsed)) ".")}]
+
+          :else
+          [:ok parsed])))))
+
 (defn parse-filter-arg
   "MCP-side filter arg can be either a JS object or an EDN string. We
   accept both for ergonomic parity with the bash-shim chain (`pred`

@@ -407,6 +407,13 @@
                      "setTimeout + flush! + re-read dance. SCOPE: async fx (http / timers) stay observed via "
                      "watch-epochs — `settle` only settles the synchronous cascade + render flush. `settle` wins "
                      "over await-render / trace / queued. "
+                     "Reproducible dispatch (rf2-q6s1nb / EP-0010): set `world-inputs` to an EDN map of scripted "
+                     "causal world facts — `\"{:time-ms 1781078400123}\"` (and optionally `:uuid` / `:random` "
+                     "domain-keyed maps) — and the dispatched event carries that exact wall-clock time / id / "
+                     "random choice instead of a freshly-stamped one. The router preserves the supplied map "
+                     "verbatim (filling only `:time-ms` when absent), so the resulting state is DETERMINISTIC "
+                     "and an agent can replay a fixture and assert the SAME output. `:time-ms` must be an integer "
+                     "(epoch ms); a malformed map returns `:reason :invalid-world-inputs` without dispatching. "
                      "Examples: "
                      "1. Default (consequence): {:event \"[:cart/checkout]\"} -> {:ok? true :mode :sync :epoch-id 7 :resolved [:cart/checkout] :db-changed? true :changed-paths [[:cart]] :effects-fired [:dispatch] :no-op? false :cascade-summary {:event-id :cart/checkout :db-diff {:changed-paths [[:cart]] :added-paths [] :removed-paths []} :fx-fired [:dispatch] :subs-recomputed 3 :renders 1 :outcome :ok :elapsed-ms 4}}. "
                      "2. No-op made visible: {:event \"[:noop/event]\"} -> {:ok? true :mode :sync :epoch-id 8 :db-changed? false :changed-paths [] :effects-fired [] :no-op? true}. "
@@ -414,7 +421,8 @@
                      "4. Trace mode (full epoch): {:event \"[:cart/add {:sku \\\"x\\\"}]\" :trace true} -> {:ok? true :mode :trace :epoch {...} :cascade-summary {...}}. "
                      "5. Render-settle then observe: {:event \"[:counter/inc]\" :await-render true} -> {:ok? true :mode :sync :settled? true :epoch-id 9 :db-changed? true :cascade-summary {:renders 1 ...}} — the DOM now reflects the new state; follow with eval-cljs / a DOM read. "
                      "6. Dispatch-and-settle (full settled epoch): {:event \"[:list/toggle]\" :settle true} -> {:ok? true :mode :settle :settled? true :epoch-id 11 :epoch {...} :render-events [{:operation :rf.view/render :tags {...}} {:operation :rf.view/unmounted :tags {...}}] :cascade-summary {:renders 2 ...}} — one call returns the dispatch's complete epoch WITH the view renders/unmounts. "
-                     "7. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}.")
+                     "7. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}. "
+                     "8. Reproducible dispatch (scripted causal time): {:event \"[:todo/add {:text \\\"buy milk\\\"}]\" :world-inputs \"{:time-ms 1781078400123}\"} -> {:ok? true :mode :sync :epoch-id 7 :db-changed? true ...} — the new todo's :created-at reads the scripted 1781078400123, so a replay asserts the SAME app-db. 9. Bad world-inputs: {:event \"[:x]\" :world-inputs \"[:not :a :map]\"} -> {:ok? false :reason :invalid-world-inputs :hint \"world-inputs must be a MAP ...\"}.")
    :typicalTokens 300
    :annotations destructive-annotations
    :outputSchema envelope-or-marker
@@ -457,6 +465,19 @@
                               :frame {:type "string" :description "Operating frame (e.g. :stories)"}
                               :fx-overrides {:type "object"
                                              :description "Per-call fx redirects, e.g. {:http :stub-http}"}
+                              :world-inputs {:type "string"
+                                             :description (str "Reproducible dispatch (rf2-q6s1nb / EP-0010): an EDN MAP of "
+                                                               "scripted causal world facts threaded into the dispatch envelope "
+                                                               "as :rf.world/inputs, e.g. \"{:time-ms 1781078400123}\" (and "
+                                                               "optionally :uuid / :random domain-keyed maps). The router "
+                                                               "PRESERVES the supplied map verbatim (filling only :time-ms when "
+                                                               "absent), so the dispatched event carries the EXACT wall-clock "
+                                                               "time / id / random choice and the resulting state is "
+                                                               "DETERMINISTIC — an agent can replay a fixture and assert the "
+                                                               "same output. :time-ms must be an integer (epoch ms); a "
+                                                               "non-map / non-integer-:time-ms / unreadable value returns "
+                                                               ":reason :invalid-world-inputs and does NOT dispatch. Omit it "
+                                                               "for the ordinary live path (the runtime stamps :time-ms).")}
                               :build {:type "string"}}
                  :required ["event"]
                  :additionalProperties false}})
