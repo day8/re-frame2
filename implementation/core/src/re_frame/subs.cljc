@@ -286,6 +286,44 @@
                  :rf.sub/input-signals []})
    id))
 
+(defn reg-frame-state-sub
+  "Register a FRAMEWORK subscription whose single layer-1-shaped signal
+  source is the frame's WHOLE frame-state container — BOTH partitions
+  `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}` (EP-0016 D3 slice 3,
+  rf2-616xa6). The handler shape is identical to a layer-1 `reg-sub`
+  computation fn — `(fn [frame-state query-v] …)` — but the `db`-position
+  argument is the FULL frame-state value, so the body can read durable
+  runtime-db state AND derive over app-db in one coherent snapshot.
+
+  Unlike `reg-runtime-sub` (which reads only the runtime-db projection and
+  is therefore inert to an app-db-only commit), a `:frame-state` sub
+  re-runs its body on a change to EITHER partition. That is exactly what a
+  resource subscription whose scope is a `{:from-db …}` resolver needs: it
+  must re-key reactively when the resolver's declared app-db inputs change
+  mid-session (account switch / impersonation / login), while still
+  reacting to runtime-db cache writes. Output `=` memoisation keeps
+  downstream reactions quiet when neither relevant slice changed, so the
+  whole-frame-state signal does not over-notify.
+
+  INTERNAL / framework-only — NOT a public app-author surface (app code
+  reads app-db via `reg-sub`; subsystem state via the framework
+  `reg-runtime-sub`). Accepts an optional leading metadata map, same as
+  `reg-sub` / `reg-runtime-sub`. Returns `id`."
+  ([id handler-fn] (reg-frame-state-sub id {} handler-fn))
+  ([id meta handler-fn]
+   (registrar/register! :sub id
+     (assoc (source-coords/merge-coords meta)
+            :handler-fn    handler-fn
+            :input-kind    :frame-state
+            :input-signals []))
+   (when-let [register! (late-bind/get-fn :marks/register-marks!)]
+     (register! :sub id meta))
+   (trace/emit! :rf.sub :rf.sub/create
+                {:rf.sub/id            id
+                 :rf.sub/input-kind    :frame-state
+                 :rf.sub/input-signals []})
+   id))
+
 (defn clear-sub
   "Unregister a subscription. Zero-arity clears every registered sub
   in the registrar; one-arity clears the named one. Hot-reload tools
@@ -377,8 +415,11 @@
   `:input-signals` list."
   [sub-meta query-v]
   (case (:input-kind sub-meta)
-    :db         []
-    :runtime-db []
+    :db          []
+    :runtime-db  []
+    ;; EP-0016 D3 slice 3: a `:frame-state` sub is a single-source reader
+    ;; over the WHOLE frame-state value (both partitions); no input producer.
+    :frame-state []
     :static     (vec (:input-signals sub-meta))
     :parametric (:queries (normalize-sub-inputs ((:input-fn sub-meta) query-v)))
     ;; Fallback for any registration that predates the discriminator —
@@ -554,6 +595,16 @@
         ;; layer-1 sub — only the signal source differs (Spec 002
         ;; §Subscriptions read the partition they belong to).
         runtime-db?   (= :runtime-db (:input-kind sub-meta))
+        ;; EP-0016 D3 slice 3: a `:frame-state` sub is a single-source
+        ;; reader whose signal is the WHOLE frame-state container (both
+        ;; partitions), so the body re-runs on EITHER an app-db or a
+        ;; runtime-db change — the reactivity a resource sub needs to
+        ;; re-key when a `{:from-db …}` resolver's app-db inputs change
+        ;; (rf2-616xa6) while still reacting to runtime-db cache writes.
+        ;; The body receives the full frame-state value and extracts the
+        ;; partitions it needs; output `=` memoisation keeps downstream
+        ;; quiet when neither relevant slice changed.
+        frame-state?  (= :frame-state (:input-kind sub-meta))
         ;; Produce the realized input query-vectors for THIS concrete
         ;; cache entry from the sub's input producer (Spec 006
         ;; §Subscription input producers): `[]` for layer-1, the literal
@@ -585,8 +636,11 @@
         ;; subs over the realized input query-vectors. A failed parametric
         ;; production yields an empty `input-qs` and a constant-nil body.
         inputs        (cond
-                        layer-1?    [(frame/app-db-container frame-id)]
-                        runtime-db? [(frame/runtime-db-container frame-id)]
+                        layer-1?     [(frame/app-db-container frame-id)]
+                        runtime-db?  [(frame/runtime-db-container frame-id)]
+                        ;; EP-0016 D3 slice 3: the WHOLE frame-state container
+                        ;; — propagates on a change to EITHER partition.
+                        frame-state? [(frame/frame-state-container frame-id)]
                         input-error? []
                         :else       (mapv (fn [input-q] (subscribe frame-id input-q)) input-qs))
         parametric?   (= :parametric (:input-kind sub-meta))
@@ -597,11 +651,14 @@
                         ;; cached (see `input-error?` branches below).
                         (constantly nil)
 
-                        ;; Layer-1 (`:db`) and `:runtime-db` are both single-
-                        ;; source readers — same fixed-arity-1 memoised body;
-                        ;; the signal source resolved above (`inputs`) is the
-                        ;; only difference (app-db vs runtime-db projection).
-                        (or layer-1? runtime-db?)
+                        ;; Layer-1 (`:db`), `:runtime-db`, and `:frame-state`
+                        ;; are all single-source readers — same fixed-arity-1
+                        ;; memoised body; the signal source resolved above
+                        ;; (`inputs`) is the only difference (app-db projection
+                        ;; vs runtime-db projection vs the whole frame-state
+                        ;; container). A `:frame-state` body receives the full
+                        ;; frame-state value `{:rf.db/app … :rf.db/runtime …}`.
+                        (or layer-1? runtime-db? frame-state?)
                         (subs-memo/make-layer-1-memoised-body
                           body-fn query-id query-v frame-id sub-meta)
 
@@ -1058,6 +1115,9 @@
   (if (frame-state-value? supplied)
     (case input-kind
       :runtime-db (get supplied :rf.db/runtime)
+      ;; EP-0016 D3 slice 3: a `:frame-state` sub's body wants the WHOLE
+      ;; frame-state value (both partitions) — pass it through unextracted.
+      :frame-state supplied
       (get supplied :rf.db/app))
     supplied))
 
@@ -1117,7 +1177,7 @@
                 ;; sub the caller supplies the runtime-db value (or a
                 ;; frame-state value, from which `compute-sub` extracts the
                 ;; right partition — see below).
-                layer-1? (#{:db :runtime-db} (:input-kind meta))
+                layer-1? (#{:db :runtime-db :frame-state} (:input-kind meta))
                 ;; Produce the realized input query-vectors from the sub's
                 ;; input producer — the SAME three-mode model as the
                 ;; reactive cache path (Spec 006 §Subscription input

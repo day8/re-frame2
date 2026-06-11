@@ -125,7 +125,8 @@
   positions are likewise a host-side cache (rf2-1hncp2)."
   [{frame        :rf.frame/id
     rdb-raw      :rf.db/runtime
-    nav-counters :rf.route/nav-counters}
+    nav-counters :rf.route/nav-counters
+    app-db       :db}
    [_ target params opts :as event-vec]]
     ;; Per Spec 012 §Navigation is an event and §Fragments §Programmatic
     ;; navigation with fragments. Fragment may be supplied in opts
@@ -503,4 +504,8 @@
                  ;; rf2-oosjmh: host-side counter snapshot injected by the
                  ;; `:rf.route/nav-counters` cofx — `commit-navigation`
                  ;; mints the nav-token from it purely + emits the bump fx.
-                 :nav-counters nav-counters})))))))
+                 :nav-counters nav-counters
+                 ;; EP-0016 D3 slice 3: the route-entry app-db, threaded into
+                 ;; the `:routing/on-route-entry` hook so a `{:from-db …}`
+                 ;; route-resource scope resolves db-derived viewer identity.
+                 :app-db       app-db})))))))

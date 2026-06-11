@@ -167,9 +167,17 @@
   `nav-counters` is the host-side counter snapshot injected by the
   `:rf.route/nav-counters` cofx (rf2-oosjmh) — the nav-token is minted
   from it PURELY and the high-water bump rides a `:rf.route/commit-nav-
-  counter` fx. Returns the event-fx cofx map `{:rf.db/runtime :fx}`."
+  counter` fx.
+
+  `app-db` is the navigation handler's app-db coeffect value (EP-0016 D3
+  slice 3): it is threaded UNCHANGED into the `:routing/on-route-entry`
+  hook so a cross-feature route-resource `{:from-db <id>}` `:scope` (the
+  Resources artefact) can resolve db-derived viewer scope at route entry,
+  BEFORE the resource work is planned. Routing itself never reads app-db;
+  it is a pure pass-through of the causal world input. Returns the event-fx
+  cofx map `{:rf.db/runtime :fx}`."
   [rdb {:keys [id params query fragment transition]} on-match-vec
-   {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-counters]}]
+   {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-counters app-db]}]
   (let [[counter token] (nav-counters/next-nav-token nav-counters)
         committed (merge-route-slice rdb {:id         id
                                           :params     params
@@ -200,7 +208,12 @@
                                 :nav-token      token
                                 :prev-id        prev-id
                                 :prev-nav-token prev-nav-token
-                                :ctx            {}}))
+                                :ctx            {}
+                                ;; EP-0016 D3 slice 3: the route-entry app-db,
+                                ;; threaded from the nav handler's coeffect so a
+                                ;; `{:from-db …}` route-resource scope resolves
+                                ;; db-derived viewer identity at route entry.
+                                :app-db         app-db}))
         committed  (cond-> committed
                      (seq (:blocking plan))
                      (-> (assoc-in [:rf.runtime/routing :resource-blocking token]

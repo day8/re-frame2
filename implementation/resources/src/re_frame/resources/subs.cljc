@@ -25,14 +25,56 @@
   `resolve-scoped-key` canonicalizes the scope + params and applies the
   sub-side scope-resolution precedence (payload `:scope`, or a sub-
   resolvable spec policy), raising `:rf.error/resource-sub-unresolved-scope`
-  fail-closed (NEVER a silent global read or `:idle`)."
-  (:require [re-frame.interop :as interop]
+  fail-closed (NEVER a silent global read or `:idle`).
+
+  ## Frame-state signal + `{:from-db …}` reactive re-keying (EP-0016 D3
+  ## slice 3 / rf2-616xa6)
+
+  The resource subs are registered with `reg-frame-state-sub` (NOT
+  `reg-runtime-sub`): their single signal source is the WHOLE frame-state
+  value `{:rf.db/app … :rf.db/runtime …}`, so the body re-runs on a change
+  to EITHER partition. The cache entries live in runtime-db; a `{:from-db
+  <id>}` scope resolver derives the scoped key from APP-DB. Reading both
+  from one coherent frame-state snapshot means a resource sub whose scope
+  is `{:from-db :session}` RE-KEYS reactively when the resolver's declared
+  app-db inputs change mid-session (account switch / impersonation / login):
+  the body re-resolves the scoped key, the new key's entry is read (`:idle`
+  until a route/event ensures it under the new scope — the view observes the
+  new key's loading/idle state, NOT the stale entry), and output `=`
+  memoisation keeps the sub quiet when neither the resolved key nor the read
+  entry changed. Owner-lease handoff is the existing causal machinery: the
+  route/event that ensures under the new scope attaches the new owner, and
+  route leave / `clear-scope` releases the old — the sub is a passive
+  reader throughout (Spec 016 §Views stay passive)."
+  (:require [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.state :as state]
             [re-frame.subs :as subs]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
+
+;; ---- frame-state partition extraction -------------------------------------
+
+(defn- runtime-of
+  "Extract the runtime-db partition from the frame-state value the
+  `:frame-state` sub body receives (`{:rf.db/app … :rf.db/runtime …}`).
+  Tolerates a bare runtime-db map (the direct-dispatch / `compute-sub` test
+  path that supplies a bare partition) by passing it through when it carries
+  no partition keys."
+  [frame-state]
+  (if (or (contains? frame-state :rf.db/runtime)
+          (contains? frame-state :rf.db/app))
+    (get frame-state :rf.db/runtime)
+    frame-state))
+
+(defn- app-of
+  "Extract the app-db partition from the frame-state value (or nil for a
+  bare runtime-db map). The db a `{:from-db <id>}` sub scope resolves
+  against (EP-0016 D3 slice 3)."
+  [frame-state]
+  (get frame-state :rf.db/app))
 
 ;; ---- scoped-key resolution -----------------------------------------------
 
@@ -45,16 +87,28 @@
 
   PURE: a sub cannot run a `(route, ctx)` resolver. Resolves scope from the
   payload `:scope` or a sub-resolvable spec policy (`:rf.scope/global` /
-  pure-data / fn-of-nothing) and raises `:rf.error/resource-sub-unresolved-
-  scope` otherwise. Throws `:rf.error/resource-not-registered` when no
-  resource is registered under `:resource`."
-  [{:keys [resource params] :as payload}]
-  (let [spec    (registry/require-resource-spec! resource 'rf.resource/subscribe)
-        scope   (registry/resolve-scope-for-sub
-                  resource spec (:scope payload) 'rf.resource/subscribe)
-        cparams (registry/validate+canonicalize-params
-                  resource spec params 'rf.resource/subscribe)]
-    (state/scoped-resource-key scope resource cparams)))
+  `{:from-db <id>}` named-resolver reference / pure-data / fn-of-nothing)
+  and raises `:rf.error/resource-sub-unresolved-scope` otherwise. Throws
+  `:rf.error/resource-not-registered` when no resource is registered under
+  `:resource`.
+
+  `db` is the frame APP-DB value the sub layer reads from the frame-state
+  signal (EP-0016 D3 slice 3): a `{:from-db <id>}` payload-scope or spec
+  policy resolves against it at use time, so the sub re-keys reactively
+  when the resolver's declared app-db inputs change mid-session
+  (rf2-616xa6). A reference that resolves nil raises
+  `:rf.error/resource-sub-unresolved-scope` (the \"scope unresolved\"
+  diagnostic) — never a silent global / wrong-entry read. The 1-arity is
+  kept for the direct-dispatch test path (no `{:from-db …}` scope), where
+  references resolve against an empty db (fail-closed)."
+  ([payload] (resolve-scoped-key payload nil))
+  ([{:keys [resource params] :as payload} db]
+   (let [spec    (registry/require-resource-spec! resource 'rf.resource/subscribe)
+         scope   (registry/resolve-scope-for-sub
+                   resource spec (:scope payload) 'rf.resource/subscribe db)
+         cparams (registry/validate+canonicalize-params
+                   resource spec params 'rf.resource/subscribe)]
+     (state/scoped-resource-key scope resource cparams))))
 
 ;; ---- dev-mode scope-mismatch warning (Spec 016 §Subscription-side scope
 ;; ---- resolution — likely-mismatch dev warning) ----------------------------
@@ -194,9 +248,14 @@
   "Look up the durable cache entry for a sub payload (resolving + validating
   its scoped key), or nil when no entry exists for that key. On the dev
   build also fires the likely-scope-mismatch warning (rf2-rsmiru,
-  `maybe-warn-scope-mismatch!`) — production-elided."
-  [runtime-db payload]
-  (let [k (resolve-scoped-key payload)
+  `maybe-warn-scope-mismatch!`) — production-elided.
+
+  `runtime-db` is the cache partition the entry is read from; `app-db` is
+  the app-db partition a `{:from-db <id>}` sub scope resolves against
+  (EP-0016 D3 slice 3) — both come from the one coherent frame-state
+  snapshot the `:frame-state` sub body receives."
+  [runtime-db app-db payload]
+  (let [k (resolve-scoped-key payload app-db)
         e (get-in runtime-db (state/entry-path k))]
     (maybe-warn-scope-mismatch! runtime-db payload k e)
     e))
@@ -249,8 +308,10 @@
   plus the `:keep-previous?` previous-data projection (Spec 016 §Paginated
   and previous data). Per Spec 016 §Status semantics. Empty-state shape
   when no entry."
-  [runtime-db [_id payload]]
-  (let [e (entry-for runtime-db payload)]
+  [frame-state [_id payload]]
+  (let [rt  (runtime-of frame-state)
+        app (app-of frame-state)
+        e   (entry-for rt app payload)]
     (if (nil? e)
       ;; No entry yet — the documented idle empty-state projection.
       {:status :idle :data nil :error nil :refresh-error nil
@@ -271,56 +332,56 @@
          :has-data?     (some? (:data e))}
         ;; `:keep-previous?` projection — previous-key data shown while this
         ;; key first-loads, WITHOUT polluting this entry's cache / tags.
-        (previous-projection runtime-db e)))))
+        (previous-projection rt e)))))
 
 (defn data-sub-fn
   "Project `:rf.resource/data` — the entry's last-known-good `:data` (or
   nil). Per Spec 016 §Subscriptions."
-  [runtime-db [_id payload]]
-  (:data (entry-for runtime-db payload)))
+  [frame-state [_id payload]]
+  (:data (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
 
 (defn status-sub-fn
   "Project `:rf.resource/status` — the entry's `:status` keyword (or
   `:idle` when no entry). Per Spec 016 §Subscriptions."
-  [runtime-db [_id payload]]
-  (or (:status (entry-for runtime-db payload)) :idle))
+  [frame-state [_id payload]]
+  (or (:status (entry-for (runtime-of frame-state) (app-of frame-state) payload)) :idle))
 
 (defn loading?-sub-fn
   "Project `:rf.resource/loading?` — first load with no usable data. Per
   Spec 016 §Status semantics."
-  [runtime-db [_id payload]]
-  (= :loading (:status (entry-for runtime-db payload))))
+  [frame-state [_id payload]]
+  (= :loading (:status (entry-for (runtime-of frame-state) (app-of frame-state) payload))))
 
 (defn fetching?-sub-fn
   "Project `:rf.resource/fetching?` — work in flight while prior data
   stays visible. Per Spec 016 §Status semantics."
-  [runtime-db [_id payload]]
-  (= :fetching (:status (entry-for runtime-db payload))))
+  [frame-state [_id payload]]
+  (= :fetching (:status (entry-for (runtime-of frame-state) (app-of frame-state) payload))))
 
 (defn stale?-sub-fn
   "Project `:rf.resource/stale?` — freshness orthogonal to load status
   (a `:loaded` entry may be stale). Computed from the durable
   `:invalidated-at` / `:stale-at` facts (Spec 016 §Status semantics)."
-  [runtime-db [_id payload]]
-  (stale? (entry-for runtime-db payload)))
+  [frame-state [_id payload]]
+  (stale? (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
 
 (defn error-sub-fn
   "Project `:rf.resource/error` — the first-load error envelope (or nil).
   Per Spec 016 §Status semantics."
-  [runtime-db [_id payload]]
-  (:error (entry-for runtime-db payload)))
+  [frame-state [_id payload]]
+  (:error (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
 
 (defn refresh-error-sub-fn
   "Project `:rf.resource/refresh-error` — a failed background refresh
   (prior data kept). Per Spec 016 §Status semantics."
-  [runtime-db [_id payload]]
-  (:refresh-error (entry-for runtime-db payload)))
+  [frame-state [_id payload]]
+  (:refresh-error (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
 
 (defn has-data?-sub-fn
   "Project `:rf.resource/has-data?` — usable data present. Per Spec 016
   §Status semantics."
-  [runtime-db [_id payload]]
-  (some? (:data (entry-for runtime-db payload))))
+  [frame-state [_id payload]]
+  (some? (:data (entry-for (runtime-of frame-state) (app-of frame-state) payload))))
 
 (defn previous-data-sub-fn
   "Project `:rf.resource/previous-data` — the prior key's data projected
@@ -329,46 +390,55 @@
   `:previous-key` projection pointer's OWN entry; NOT inserted into the new
   entry and NOT a source of the new key's tags. nil when this key is not
   keeping previous data (no pointer, or it already has its own data)."
-  [runtime-db [_id payload]]
-  (let [e (entry-for runtime-db payload)]
+  [frame-state [_id payload]]
+  (let [rt (runtime-of frame-state)
+        e  (entry-for rt (app-of frame-state) payload)]
     (when (and (:previous-key e) (nil? (:data e)))
-      (:data (get-in runtime-db (state/entry-path (:previous-key e)))))))
+      (:data (get-in rt (state/entry-path (:previous-key e)))))))
 
 ;; ---- registration helper -------------------------------------------------
 
 (defn register-subs!
   "Register the `:rf.resource/*` passive sub family. Called from the
   `re-frame.resources` façade so a `(require … :reload)` on a fresh
-  registrar re-wires them. Per Spec 016 §Subscriptions."
+  registrar re-wires them. Per Spec 016 §Subscriptions.
+
+  Registered with `reg-frame-state-sub` (NOT `reg-runtime-sub`, EP-0016 D3
+  slice 3 / rf2-616xa6): the single signal is the WHOLE frame-state value,
+  so a resource sub whose scope is a `{:from-db <id>}` resolver re-keys
+  reactively when the resolver's declared app-db inputs change mid-session
+  (account switch / impersonation / login), while still reacting to
+  runtime-db cache writes. Output `=` memoisation keeps the sub quiet when
+  neither the resolved scoped key nor the read entry changed."
   []
-  (subs/reg-runtime-sub :rf.resource/state
-    {:doc "Passive read of a resource instance's full view-model `{:status :data :error :refresh-error :loading? :fetching? :stale? :has-data?}`. Resolves scope per Spec 016 §Subscription-side scope resolution; raises :rf.error/resource-sub-unresolved-scope rather than reading global / returning a silent :idle. Per Spec 016 §Subscriptions."}
+  (subs/reg-frame-state-sub :rf.resource/state
+    {:doc "Passive read of a resource instance's full view-model `{:status :data :error :refresh-error :loading? :fetching? :stale? :has-data?}`. Resolves scope per Spec 016 §Subscription-side scope resolution (incl. `{:from-db <id>}` named-resolver references against app-db); raises :rf.error/resource-sub-unresolved-scope rather than reading global / returning a silent :idle. Per Spec 016 §Subscriptions."}
     state-sub-fn)
-  (subs/reg-runtime-sub :rf.resource/data
+  (subs/reg-frame-state-sub :rf.resource/data
     {:doc "Passive read of a resource instance's last-known-good :data (or nil). Per Spec 016 §Subscriptions."}
     data-sub-fn)
-  (subs/reg-runtime-sub :rf.resource/status
+  (subs/reg-frame-state-sub :rf.resource/status
     {:doc "Passive read of a resource instance's :status keyword (:idle / :loading / :fetching / :loaded / :error). Per Spec 016 §Subscriptions."}
     status-sub-fn)
-  (subs/reg-runtime-sub :rf.resource/loading?
+  (subs/reg-frame-state-sub :rf.resource/loading?
     {:doc "Passive read: true iff a resource instance is on its first load with no usable data. Per Spec 016 §Status semantics."}
     loading?-sub-fn)
-  (subs/reg-runtime-sub :rf.resource/fetching?
+  (subs/reg-frame-state-sub :rf.resource/fetching?
     {:doc "Passive read: true iff a resource instance is refreshing while prior data stays visible. Per Spec 016 §Status semantics."}
     fetching?-sub-fn)
-  (subs/reg-runtime-sub :rf.resource/stale?
+  (subs/reg-frame-state-sub :rf.resource/stale?
     {:doc "Passive read: true iff a resource instance is stale (freshness is orthogonal to load status). Per Spec 016 §Status semantics."}
     stale?-sub-fn)
-  (subs/reg-runtime-sub :rf.resource/error
+  (subs/reg-frame-state-sub :rf.resource/error
     {:doc "Passive read of a resource instance's first-load error envelope (or nil). Per Spec 016 §Status semantics."}
     error-sub-fn)
-  (subs/reg-runtime-sub :rf.resource/refresh-error
+  (subs/reg-frame-state-sub :rf.resource/refresh-error
     {:doc "Passive read of a resource instance's background-refresh error envelope (or nil); the prior :data is kept. Per Spec 016 §Status semantics."}
     refresh-error-sub-fn)
-  (subs/reg-runtime-sub :rf.resource/has-data?
+  (subs/reg-frame-state-sub :rf.resource/has-data?
     {:doc "Passive read: true iff a resource instance currently has usable :data. Per Spec 016 §Status semantics."}
     has-data?-sub-fn)
-  (subs/reg-runtime-sub :rf.resource/previous-data
+  (subs/reg-frame-state-sub :rf.resource/previous-data
     {:doc "Passive read of the prior key's data, projected while a new page/filter resource first-loads under :keep-previous? (not inserted into the new entry). Per Spec 016 §Paginated and previous data."}
     previous-data-sub-fn)
   nil)
