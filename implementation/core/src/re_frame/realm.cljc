@@ -17,10 +17,19 @@
   realm-owned adapter SELECTION + host-transient subsystem descriptor table
   (stage 4 — `re-frame.substrate.adapter` is now the access seam over the
   realm's `:adapter` slot, and the framework's host-transient side-tables are
-  inventoried in the realm's `:host-transient` slot). **No public `rf/realm`
-  constructor and no realm-targeted public query ship here** (EP-0013 issue
-  1 — those names are reserved vocabulary, exposure graduates internal-first;
-  D2/later stages). Everything in a single-realm app routes through ONE
+  inventoried in the realm's `:host-transient` slot).
+
+  Stage 8 (rf2-blibek) adds the realm-targeted QUERY readers
+  (`realm-registrations` / `realm-handler-meta` / `realm-handler-ids`) — read
+  the registrations of a SPECIFIED realm rather than the implicit default.
+  The PUBLIC surface is the map-shaped facade form `(rf/registrations {:realm
+  r :kind k})` / `(rf/handler-meta {:realm r :kind k :id id})` (EP-0013
+  open-issue 11 — map-shaped, unambiguous against the existing keyword
+  arities); the no-arg / keyword-arity default-realm calls stay byte-identical.
+  There is still **no public `rf/realm` constructor** (EP-0013 issue 1 — that
+  name is reserved vocabulary; the public realm constructor graduates with the
+  later multi-adapter conformance stage). Everything in a single-realm app
+  routes through ONE
   process-created **default realm** (`:rf.realm/id` = `:rf.realm/default`),
   so today's single-app ergonomics are byte-identical: a single-realm app
   never spells a realm, exactly as a single-frame app never spells a frame
@@ -215,6 +224,69 @@
   ([] (registrar (default-realm)))
   ([realm-map]
    (:registrar (or realm-map (default-realm)))))
+
+;; ---- realm-targeted registrar queries (EP-0013 D1 stage 8, rf2-blibek) ----
+;;
+;; The realm-targeted QUERY surface: read the registrations of a SPECIFIED
+;; realm rather than the implicit default. A realm owns its `(kind, id) →
+;; metadata` registrar atom (the default realm holds a reference to the
+;; process-global atom; a hermetic realm created with an explicit `:registrar`
+;; holds its own), so these readers resolve the realm's OWN atom and snapshot
+;; it — "realm-targeted registrar queries return ONLY that realm's
+;; registrations" (EP-0013 §Realm Conformance; open-issue 11). They are the
+;; realm-scoped counterparts of the process-global `registrar/registrations` /
+;; `registrar/handler-meta` / `registrar/ids` that the public map-shaped facade
+;; forms (`(rf/registrations {:realm r :kind k})`, …) are built on.
+;;
+;; Each accepts a realm-or-id (a realm map, a realm-id keyword, or nil for the
+;; default realm — the absence-is-default rule), resolves it to the realm's
+;; registrar atom, and reads ONCE. Pure with respect to that read; an unknown
+;; realm (no registry entry, so no registrar atom) reads as empty rather than
+;; throwing — querying a realm that was never created is the empty program,
+;; not an error.
+
+(defn- realm-registrar
+  "Resolve `realm-or-id` (a realm map, realm-id keyword, or nil) to the
+  realm's registrar atom, or nil when the realm is unknown. nil resolves to
+  the default realm. INTERNAL."
+  [realm-or-id]
+  (cond
+    (nil? realm-or-id) (registrar (default-realm))
+    (map? realm-or-id) (registrar realm-or-id)
+    :else              (when-let [r (realm realm-or-id)]
+                         (registrar r))))
+
+(defn realm-registrations
+  "Return the `{id metadata}` map registered under `kind` in `realm-or-id`'s
+  OWN registrar (defaults to the default realm), or `{}` when the realm
+  registers none of that kind (or the realm is unknown). The realm-scoped
+  counterpart of `registrar/registrations` — it reads only THIS realm's
+  registrar, so a hermetic realm with its own registrar returns only its
+  registrations (EP-0013 §Realm Conformance). INTERNAL — the public map-shaped
+  `(rf/registrations {:realm r :kind k})` form is built on it."
+  [realm-or-id kind]
+  (if-let [reg (realm-registrar realm-or-id)]
+    (get @reg kind {})
+    {}))
+
+(defn realm-handler-meta
+  "Return the registration metadata map for `[kind id]` in `realm-or-id`'s OWN
+  registrar (defaults to the default realm), or `nil` when that realm has no
+  such registration (or the realm is unknown). The realm-scoped counterpart of
+  `registrar/handler-meta` — it reads only THIS realm's registrar. INTERNAL —
+  the public map-shaped `(rf/handler-meta {:realm r :kind k :id id})` form is
+  built on it."
+  [realm-or-id kind id]
+  (when-let [reg (realm-registrar realm-or-id)]
+    (-> @reg (get kind) (get id))))
+
+(defn realm-handler-ids
+  "Return the set of ids registered under `kind` in `realm-or-id`'s OWN
+  registrar (defaults to the default realm), or `#{}` when none. The
+  realm-scoped counterpart of `registrar/ids`. INTERNAL — the public map-shaped
+  `(rf/handler-ids {:realm r :kind k})` form is built on it."
+  [realm-or-id kind]
+  (-> (realm-registrations realm-or-id kind) keys set))
 
 ;; ---- realm-owned frame registry (membership view) -------------------------
 ;;
