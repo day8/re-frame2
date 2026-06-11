@@ -32,7 +32,8 @@
   explicitly via `(rf/init! reagent/adapter)`. Explicit > implicit
   at the call site, and an app requiring only the adapter it needs
   ships only that adapter's code."
-  (:require [re-frame.late-bind :as late-bind]
+  (:require [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -292,9 +293,12 @@
   Defense-in-depth nil guard (rf2-ft2b): if `container` is nil — e.g. a
   scheduled drain races frame destruction and reaches the per-event :db
   commit after `frame/app-db-container` has started returning nil for the
-  destroyed frame — the write is silently skipped and a
-  `:rf.warning/write-after-destroy` trace fires. The earlier behaviour
-  was an NPE on a background thread (see the rf2-ft2b reproducer). Adapter
+  destroyed frame — the write is silently skipped and a production-
+  survivable `:rf.error/write-after-destroy` rides the always-on error-emit
+  axis (EP-0008, rf2-500ech; default `:recovery :ignored` — the write is
+  dropped, the frame is gone, mirroring `:rf.error/frame-destroyed`). The
+  earlier behaviour was an NPE on a background thread (see the rf2-ft2b
+  reproducer). Adapter
   implementations may assume `container` is non-nil; this wrapper is the
   single choke point through which every frame app-db write flows, so
   guarding here covers the router :db commit, drain rollback, flows, epoch
@@ -320,9 +324,31 @@
     ;; racing frame destruction must not surface a misleading
     ;; no-adapter-installed throw — see `replace-container-nil-container-
     ;; skips-adapter-check`).
-    (trace/emit! :warning :rf.warning/write-after-destroy
-                 {:reason   "replace-container! called with nil container; the frame was likely destroyed mid-drain or before a scheduled write fired"
-                  :recovery :no-recovery})
+    ;;
+    ;; EP-0008 (rf2-500ech): this is a SUPPRESSED WRITE — the dropped :db
+    ;; commit is invisible to the next op and compounds with process lifetime
+    ;; in long-lived SSR / multi-frame hosts. The SAME destroy-race already
+    ;; surfaces as the production-survivable :rf.error/frame-destroyed on the
+    ;; dispatch / subscribe paths, so the write path rides the same always-on
+    ;; axis. The substrate cannot static-require re-frame.error-emit (load
+    ;; order), so we reach `dispatch-on-error!` through the published
+    ;; `:error-emit/dispatch-on-error` late-bind hook — the producer always
+    ;; loads at boot, so the lookup never misses in production. The dev error
+    ;; trace below stays for the in-process tooling surface (DCE'd in prod).
+    (let [reason "replace-container! called with nil container; the frame was likely destroyed mid-drain or before a scheduled write fired"]
+      (when-let [dispatch-on-error! (late-bind/get-fn :error-emit/dispatch-on-error)]
+        (dispatch-on-error!
+          :rf.error/write-after-destroy
+          nil                              ;; no event vector — a dropped write, not a throw on a dispatch
+          nil                              ;; no event-id — the write path carries none
+          nil                              ;; no frame — it was destroyed (the whole point)
+          nil                              ;; no exception — a suppressed write, not a throw
+          0                                ;; elapsed-ms
+          (interop/now-ms)))               ;; time
+      (trace/emit-error! :rf.error/write-after-destroy
+                         {:category :rf.error/write-after-destroy
+                          :reason   reason
+                          :recovery :ignored}))
     ;; Resolve the adapter FIRST so a write before `(rf/init! ...)` or after
     ;; dispose surfaces the uniform `:rf.error/no-adapter-installed` /
     ;; `:rf.error/adapter-disposed` throw (rf2-zdfi1) — the derived-container
