@@ -1149,6 +1149,20 @@
    :asset-path "."
    :modules    {:main {:init-fn realworld.core/run}}}
 
+  ;; RealWorld (Conduit) ported onto EP-0003 (Spec 016) RESOURCES + MUTATIONS
+  ;; (rf2-9iiumv). A sibling of `:examples/realworld` (the `:rf.http/managed`
+  ;; counterpart, kept intact): reads are `reg-resource` + route `:resources`
+  ;; metadata read passively via `[:rf.resource/*]` subs; writes are
+  ;; `reg-mutation` with `:invalidates` driving the read→write→invalidate→
+  ;; refetch loop. `realworld-resources.*` namespaces resolve via the
+  ;; `../examples/reagent` source-path (already on :source-paths near the top
+  ;; of this file), so no per-build deps.
+  :examples/realworld-resources
+  {:target     :browser
+   :output-dir "out/examples/realworld-resources"
+   :asset-path "."
+   :modules    {:main {:init-fn realworld-resources.core/run}}}
+
   ;; Pattern-Boot example (rf2-dsm2). Demonstrates the canonical
   ;; re-frame2 application-boot shape: a single :app/boot state
   ;; machine owns the initialisation graph (config → parallel
