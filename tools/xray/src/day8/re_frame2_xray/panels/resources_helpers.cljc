@@ -776,6 +776,20 @@
                                       "identical for every user/tenant.")}))))
        vec))
 
+(defn- row-canonical-key
+  "The CANONICAL `[scope resource-id params]` identity of an instance row,
+  read from its RAW `:scoped-key` (kept verbatim by `instance-row` as the
+  row identity — never summarized/redacted). Falls back to the row's
+  projected `:resource-id` when the key is malformed (the scope/params are
+  then nil — a malformed key cannot participate in a scope-mismatch). Per
+  rf2-hbq635 — the lint compares canonical identities, not display
+  previews."
+  [row]
+  (let [k (:scoped-key row)]
+    (if (and (vector? k) (= 3 (count k)))
+      k
+      [nil (:resource-id row) nil])))
+
 (defn scope-mismatch-lint
   "Scope-mismatch lint (Spec 016 §Xray — two lints): a cache ENTRY exists
   for resource R + params P under scope A while a LIVE subscription reads
@@ -783,37 +797,54 @@
   never-resolving `:loading`). The runtime tripwire for the cases the
   fail-closed scope rules don't catch.
 
-  `instance-rows` is the projected live instances; `sub-reads` is a
-  vector of `{:resource-id R :params <raw-params> :scope <raw-scope>}`
-  observed live subscription reads. Returns mismatch pairs:
+  `instance-rows` is the projected live instances (each carrying its RAW
+  `:scoped-key`); `sub-reads` is a vector of `{:resource-id R :params
+  <raw-params> :scope <raw-scope>}` observed live subscription reads.
+  Returns mismatch pairs:
 
       [{:resource-id R
         :sub-scope <summary> :sub-params <summary>
         :entry-scope <summary>}]
 
-  PRIVACY: the surfaced scopes/params are summarized. Matching is on
-  resource-id + params identity (a sub reading params P that an entry
-  caches under a DIFFERENT scope). Pure."
+  ## Canonical-identity matching (rf2-hbq635)
+
+  Matching is on the CANONICAL `[resource-id params]` + `scope` values —
+  the RAW key parts (off the entry's `:scoped-key` and the sub-read's raw
+  `:params` / `:scope`), NOT the SUMMARIZED display previews. The previous
+  impl indexed entries by `[resource-id <params-preview>]` → set of
+  `<scope-preview>`s; previews are `pr-str` truncated at the 120-char
+  budget and may be the `[redacted]` sentinel, so:
+
+    - two DIFFERENT long params whose first 120 chars coincide collided to
+      the same preview → a FALSE mismatch (or a missed one), and
+    - every sensitive/redacted scope summarized to the SAME `[redacted]`
+      preview, so distinct redacted scopes were indistinguishable → a
+      redacted sub-scope wrongly looked equal to a redacted entry-scope (a
+      MISSED mismatch).
+
+  Comparing the canonical raw values is exact: full params identity (no
+  truncation collision) and full scope identity (a redacted scope is
+  compared as its raw value, not the lossy `[redacted]` preview). PRIVACY
+  is preserved by summarizing ONLY the surfaced OUTPUT scopes/params — the
+  raw values never leave this fn. Pure."
   [instance-rows sub-reads]
-  (let [;; index entries by [resource-id params-preview] → set of scope previews
+  (let [;; index entries by CANONICAL [resource-id params] → set of
+        ;; CANONICAL scopes (raw values, not previews — rf2-hbq635)
         entry-index
         (reduce (fn [acc row]
-                  (update acc [(:resource-id row) (get-in row [:params :preview])]
-                          (fnil conj #{}) (get-in row [:scope :preview])))
+                  (let [[scope rid params] (row-canonical-key row)]
+                    (update acc [rid params] (fnil conj #{}) scope)))
                 {} instance-rows)]
     (->> (or sub-reads [])
          (keep (fn [{:keys [resource-id params scope]}]
-                 (let [params-sum (summarize params)
-                       scope-sum  (summarize scope)
-                       k          [resource-id (:preview params-sum)]
-                       entry-scopes (get entry-index k)]
+                 (let [entry-scopes (get entry-index [resource-id params])]
                    ;; mismatch iff an entry exists for this R+P but under
-                   ;; NO scope matching the sub's scope.
+                   ;; NO scope canonically equal to the sub's scope.
                    (when (and (seq entry-scopes)
-                              (not (contains? entry-scopes (:preview scope-sum))))
+                              (not (contains? entry-scopes scope)))
                      {:resource-id resource-id
-                      :sub-scope   scope-sum
-                      :sub-params  params-sum
+                      :sub-scope   (summarize scope)
+                      :sub-params  (summarize params)
                       :entry-scope (summarize (first entry-scopes))}))))
          vec)))
 
