@@ -217,8 +217,24 @@
                               :exception  exception
                               :elapsed-ms elapsed-ms}
                        source-coord (assoc :source-coord source-coord))]
-    ;; Corpus-wide listeners fan out.
-    ((:fan-out registry) record))
+    ;; Corpus-wide listeners fan out (the ADVANCED integration registry).
+    ((:fan-out registry) record)
+    ;; EP-0015 §9 (rf2-t55hxg.7): the frame-owned observability sink route —
+    ;; the NORMAL production error-observation surface (Spec 015 §Frame-owned
+    ;; observability sink policy). Parallel to the corpus-wide listener
+    ;; fan-out above: routes the error record to THIS frame's declared
+    ;; `:observability :errors` sinks, projected under the frame's
+    ;; classification + the sink's egress profile (the `:event` tree slot
+    ;; redacts; `:exception` drops under `:rf.egress/public-error`). Passes
+    ;; the RAW `event` (not the listener-elided one) so the projector applies
+    ;; the frame's policy at the sink's profile rather than double-eliding.
+    ;; Late-bound: a static `error-emit` → `observability` → `projection` →
+    ;; `elision` require would re-enter this ns's own require graph; the hook
+    ;; is nil (no-op) until `re-frame.observability` loads. Fail-closed +
+    ;; sibling-isolated inside `route-error!`. Always-on.
+    (when-let [route-error! (late-bind/get-fn-cached :observability/route-error)]
+      (route-error! error-kw event event-id frame-id exception elapsed-ms
+                    time nil)))
   nil)
 
 ;; ---- frame-teardown report (EP-0008 promotion criterion) ------------------
