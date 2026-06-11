@@ -303,9 +303,19 @@ The reserved runtime-db set is **fixed-and-additive** per [Conventions.md §Rese
 
 Three observations:
 
-1. **Handlers are not in the frame.** The handler registrar is global, shared across all frames. Frames isolate *state*, not *behaviour*.
+1. **Handlers are not in the frame.** The handler registrar is **owned by the frame's realm**, not the frame itself — frames in the same realm share one registrar (per [§Frames reference realms](#frames-reference-realms) below). In a single-realm app that registrar is the default realm's, which existing specs call "global". Frames isolate *state*, not *behaviour within a realm*.
 2. **The signal graph is per-frame.** Two frames running the same `:total` subscription compute against their own app-db projections, cache against their own sub-caches; they are independent.
 3. **Frames are mutable runtime objects.** They are not values. User code holds keywords; the framework holds frame records.
+
+### Frames reference realms
+
+> **EP-0013 D1, accepted 2026-06-11 ([rf2-1vj3b6](https://github.com/day8/re-frame2/issues/rf2-1vj3b6)).** This is an **internal** note. D1 ships no public API and no source break; a single-realm app never mentions a realm. The realm-container model itself is graduated in [Runtime-Subsystems §Runtime realms](Runtime-Subsystems.md#runtime-realms--the-container).
+
+A **frame belongs to exactly one realm for its lifetime**, and references it internally. The frame's registrar, installed adapter, and capability map are the realm's, not the frame's — many frames can share one realm (the common many-frames-one-app case), and one process can host more than one realm (multi-tenant, multi-product, a legacy adapter beside a new one). The **frame registry is realm-owned**: a `reg-frame` registers the frame into its realm's registry.
+
+**Frame ids are unique within a realm**, not globally. The same frame id registered in two different realms is a **tested legal case**, not a collision (EP-0013 issue 3 disposition). The full address of a frame under the carried model is therefore the `(realm, frame)` pair; APIs that cross a realm boundary carry both. A single-realm app keeps the current frame-id ergonomics — it carries the default realm implicitly, exactly as observation 1's "global" registrar *is* the default realm's.
+
+Realms follow the carried invariant **verbatim**: a realm is carried (an explicit argument, a dispatch option, or the realm the carried frame already belongs to) or scoped by an explicitly established frame scope — **never resolved from a dynamic binding** (the rejected `with-runtime`-style ambient shape; see [EP-0013 §Realms are carried, not ambient](../docs/EP/EP-0013-app-values-and-runtime-realms.md)). `with-frame` stays valid because the frame it names owns its realm — carried-then-scoped, not discovered. The realm stamp is `:rf.realm/id`, carried **beside** `:rf.frame/id` on the dispatch envelope (never a realm-qualified frame tuple), reserved now and not yet stamped — see [§The frame stamp on the envelope](#routing-the-dispatch-envelope). The implementation MUST NOT infer a realm from absence in multi-realm code; **absence of `:rf.realm/id` means the default realm**, an explicit documented rule, and a frame-scoped operation that crosses realms accidentally is a contract violation.
 
 ### The two-partition frame contract
 
@@ -748,7 +758,7 @@ The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe t
  }
 ```
 
-> **`:rf.realm/id` is reserved, not yet stamped (EP-0013).** [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) (accepted, ruling [rf2-1vj3b6](https://github.com/day8/re-frame2/issues/rf2-1vj3b6)) rules the realm stamp as `:rf.realm/id`, carried **beside** `:rf.frame/id` — never a realm-qualified frame tuple. The slot is reserved on the envelope now so its later addition is non-breaking (the `:rf.timer/*` precedent — reserve where the surface will land). v1 does **not** stamp it and the runtime exhibits no realm behaviour; **its absence is the default realm**, an explicit documented rule. A future multi-realm runtime always stamps `:rf.realm/id`.
+> **`:rf.realm/id` is reserved, not yet stamped (EP-0013).** [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) (accepted, ruling [rf2-1vj3b6](https://github.com/day8/re-frame2/issues/rf2-1vj3b6)) rules the realm stamp as `:rf.realm/id`, carried **beside** `:rf.frame/id` — never a realm-qualified frame tuple. The slot is reserved on the envelope now so its later addition is non-breaking (the `:rf.timer/*` precedent — reserve where the surface will land). v1 does **not** stamp it and the runtime exhibits no realm behaviour; **its absence is the default realm**, an explicit documented rule. A future multi-realm runtime always stamps `:rf.realm/id`. The frame the envelope targets already references its realm (per [§Frames reference realms](#frames-reference-realms)); the realm-container model is graduated in [Runtime-Subsystems §Runtime realms](Runtime-Subsystems.md#runtime-realms--the-container).
 
 The envelope is just a map. Any field can be set by:
 

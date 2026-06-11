@@ -3369,6 +3369,59 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
 
 `Path` is the `:rf/path` schema (a vector of segments; see [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra)). The three classification keys appear on the *input* `reg-frame` metadata map and on the `frame-meta` readback verbatim — they are durable frame config. The `:sensitive :app-db` / `:large :app-db` paths are additionally lowered into the durable elision registry (`[:rf.runtime/elision …]`) under `:source :frame` at registration, where they union with schema- and marks-sourced declarations.
 
+### `:rf/realm` (runtime realm, EP-0013)
+
+> **Layer:** Runtime
+> **Owner:** [Runtime-Subsystems §Runtime realms](Runtime-Subsystems.md#runtime-realms--the-container)
+> **Status:** post-v1 (EP-0013 D1 — internal record; no public constructor ships)
+
+The runtime-realm record ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) D1, accepted 2026-06-11). A realm owns the **non-durable operational layer** an app runs in — the registrar it dispatches against, the installed adapter selection, the capability map, the frame registry, and the host-transient subsystem state — distinct from the *durable* `:rf.runtime/*` subsystems which live inside the frames the realm owns ([`:rf/runtime-db`](#rfframe-state-the-two-partition-projection-and-rfruntime-db-the-runtime-partition)). **D1 is internal: this shape graduates, but no public `rf/realm` constructor or realm-targeted public query ships** — the names are reserved vocabulary (EP-0013 issue 1). The process creates one **default realm** (`:rf.realm/id` = `:rf.realm/default`) that backs existing `reg-*` / adapter-install / registrar-query call shapes; absence of an explicit realm means the default realm, an explicit documented rule.
+
+```clojure
+(def Realm
+  ;; Open map; an implementation MAY represent it as a record for host
+  ;; efficiency, but MUST expose this data projection for tooling. None of
+  ;; these fields is a public read surface in D1 — the projection is for
+  ;; conformance and the eventual (D2/D3) tooling.
+  [:map
+   [:rf.realm/id   :keyword]                                ;; stable, process-unique; the default realm is :rf.realm/default
+   [:adapter       {:optional true} :any]                   ;; the realm's adapter SELECTION (capability) — render roots own concrete instances. CLJS reference: a keyword id (:reagent / :uix / :helix / :plain-atom) or the adapter value
+   [:capabilities  {:optional true} [:map-of :keyword :any]] ;; :rf.capability/* → service map/record (http, clock, random, schemas, routes, ssr, test doubles)
+   [:frames        {:optional true} [:set :keyword]]        ;; frame ids registered in this realm — unique WITHIN the realm (not globally)
+   [:host-transient {:optional true} [:map-of :keyword #'HostTransientDescriptor]] ;; subsystem-id → descriptor for the realm-owned non-durable side tables
+   ;; --- D2/D3, RESERVED here, never required in D1 (the container only) ---
+   [:app           {:optional true} :any]                   ;; the installed app VALUE (D2) — immutable descriptor projection
+   [:lifecycle     {:optional true} [:map [:disposed? {:optional true} :boolean]]]])
+```
+
+The `:app` slot is reserved for the D2 app-value (registrations as immutable descriptors); D1 may hold today's mutable registrar behind the realm unchanged and leaves `:app` absent. The `:rf.realm/id` record-shape slot is already reserved ([rf2-n92kjm](https://github.com/day8/re-frame2/issues/rf2-n92kjm)); adding the `:rf.realm/*` + `:rf.capability/*` rows to the [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) table is a sequential hot-zone follow-up.
+
+### `:rf/host-transient-descriptor` (EP-0013)
+
+> **Layer:** Runtime
+> **Owner:** [Runtime-Subsystems §Host-transient subsystem state](Runtime-Subsystems.md#host-transient-subsystem-state)
+> **Status:** post-v1 (EP-0013 D1 — internal record)
+
+The descriptor a realm-owned **host-transient** subsystem table declares ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) D1, issue 13 disposition). Host-transient state is the framework-owned operational state that is *not* durable frame-state — HTTP abort handles, timers, nav counters, scroll caches, flow last-input caches, machine timer handles, adapter render roots/disposers. It is owned by the realm (subsystems MAY key entries per-frame), torn down on frame/realm destroy, and **MUST NOT ride the wire**. This is the non-durable sibling of the durable five-clause runtime-subsystem contract ([Runtime-Subsystems](Runtime-Subsystems.md)); the per-subsystem host-transient grading column there records each shipped subsystem's scope / teardown / test-reset.
+
+```clojure
+(def HostTransientDescriptor
+  [:map
+   [:id             :keyword]                               ;; e.g. :rf.http/in-flight, :rf.route/nav-counters, :rf.machine/timers
+   [:storage-class  [:= :host-transient]]                   ;; the :host-transient member of the four-class storage axis (Derivations)
+   [:scope          [:enum :frame :realm]]                  ;; :frame — entries keyed per-frame; :realm — one realm-scoped table
+   [:durability     [:= :none]]                             ;; never serialized; never rides restore / SSR
+   [:teardown       {:optional true} :any]                  ;; opaque fn token — the destroy-frame! / realm-dispose cleanup hook
+   [:test-reset     {:optional true} :any]                  ;; opaque fn token — the hermetic-test reset hook
+   [:snapshot       {:optional true} :any]                  ;; nil — excluded from snapshots explicitly
+   [:classification {:optional true}
+    [:map
+     [:egress?    {:optional true} :boolean]
+     [:sensitive? {:optional true} :boolean]]]])             ;; EP-0015 registration-owned classification metadata
+```
+
+The function-valued fields (`:teardown`, `:test-reset`) are opaque tokens — symbol / source-coord / registry meta — and are **never serialized**, consistent with the durable-vs-transient split ([002 §Durable vs transient](002-Frames.md#durable-vs-transient)). `:storage-class` is the `:host-transient` member of the four-class storage axis owned by [Derivations](Derivations.md).
+
 ### `:rf/preset-expansion`
 
 > **Layer:** Public
