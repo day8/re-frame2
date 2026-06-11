@@ -143,7 +143,8 @@
      :realworld.article/show  [views/article-page]
      :realworld.editor/new    [editor/editor-page]
      :realworld.editor/edit   [editor/editor-page]
-     :realworld.profile/show  [views/profile-page]
+     :realworld.profile/show      [views/profile-page]
+     :realworld.profile/favorites [views/profile-page]
      :realworld.user/settings [settings-mount]
      [not-found-page])
    [footer]])

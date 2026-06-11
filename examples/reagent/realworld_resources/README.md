@@ -22,18 +22,37 @@ Every RealWorld read is `reg-resource`d once and read **passively** through `[:r
 
 | Resource | Read |
 |---|---|
-| `:realworld/articles` | the global article list, `:tag`-filtered when `?tag=` is set (the tag is in params, so a filtered list is a distinct cache entry) |
+| `:realworld/articles` | the global article list, `:tag`-filtered when `?tag=` is set and `:page`-paginated (tag AND page are in params, so a filtered list and each page are distinct cache entries) |
 | `:realworld/article` | article detail by slug |
 | `:realworld/comments` | an article's comments (a sub-resource: an ordinary resource whose params carry the parent slug) |
 | `:realworld/profile` | a user's public profile banner |
-| `:realworld/author-articles` | the articles a profile authored |
+| `:realworld/author-articles` | the articles a profile authored (paginated) — the profile's **My Articles** tab |
+| `:realworld/favorited-articles` | the articles a profile **favorited** (`GET /articles?favorited=username`, paginated) — the profile's **Favorited Articles** tab |
 | `:realworld/tags` | the popular-tags sidebar |
-| `:realworld/feed` | the authenticated user's personalised feed — **session-scoped** |
+| `:realworld/feed` | the authenticated user's personalised feed — **session-scoped**, paginated |
 
 - **Route entry CAUSES the load.** `routing.cljs` declares each page's reads as `:resources` route metadata (`:blocking?` / `:keep-previous?` / `:when`). On entry the runtime ensures them under owner `[:route route-id nav-token]`; on leave it releases the owner by token and suppresses any stale reply by generation. The views never fetch.
 - **`:loading` / `:fetching` / `:refresh-error` done right.** Views render the canonical resource shape: `:loading?` → skeleton; `:error` and not `:has-data?` → error; else render the data, plus a quiet refresh indicator while `:fetching?` and a "showing last-known data" warning on `:refresh-error` (a background refresh failed but prior data is kept). The framework owns stale-while-revalidate, not the view.
 - **`:stale-after-ms` / `:gc-after-ms`, dedupe, fresh-skip.** Reads go stale after a minute (a re-`ensure` then refetches into `:fetching`, keeping prior data visible); a fresh re-`ensure` is a cache-hit (no fetch); concurrent identical reads dedupe onto one request; inactive entries are GC-eligible after their window.
 - **Focus / reconnect revalidation** is wired (`install-revalidation-listeners!` in `core.cljs`): returning to the tab or reconnecting refetches the active-and-stale reads, expressed as causal events, not a subscription that fetches.
+
+### Pagination is declarative — params identity + `:keep-previous?` (`resources.cljs` / `routing.cljs` / `views.cljs`)
+
+The Conduit list endpoints page with `limit` / `offset`; the UI is 1-indexed with a fixed page size and renders numbered controls off the server's `articlesCount`. Resources make all of that **declarative** — and this is the missing Spec 016 dogfood: pagination is where canonical-params identity and `:keep-previous?` (the TanStack-parity surface) earn their keep, and it needs **no new spec surface**.
+
+- **The page is just another `:params` key.** `:realworld/articles`, `:realworld/author-articles`, `:realworld/favorited-articles`, and the session feed all carry `:page` in params (mapped to `limit`/`offset` by the one `page->limit-offset` helper). So **page N and page N+1 are DISTINCT cache entries** under the same params-identity rule a `?tag=` filter already used. Every server-visible list option participates in the cache key.
+- **Page state rides the route query.** `?page=N` flows into the route's `:resources` `:params` fn (and, for the session feed, into the `:home/on-match` ensure). Paging is a navigation that swaps only `?page=` and preserves the active feed/tag — no page-cache map, no `:status` field. Page 1 drops the param (the canonical first-page URL).
+- **Back-navigation is a cache-hit.** Returning to a previously-loaded page re-`ensure`s the same params-identity entry — no fetch (`:rf.resource/cache-hit`), as long as it's still within its stale window.
+- **`:keep-previous?` = no flicker.** The route `:resources` entries set `:keep-previous? true`, so while a NEW page key first-loads the public `:rf.resource/state` projection carries `:previous? true` + `:previous-data` (the prior page's articles). The list view renders that prior page (plus a quiet "Loading next page…" indicator) instead of a skeleton — the user never sees a flash of empty list on page change. The projection is **not** inserted into the new key and never provides its tags (Spec 016 §Paginated and previous data); the new entry becomes ordinary `:loaded` only after its own request succeeds.
+
+### The profile's two official tabs — My Articles / Favorited Articles (`routing.cljs` / `views.cljs`)
+
+The official Conduit profile has two tabs, and here they are **two routes**, each declaring its list read as route `:resources`:
+
+- `:realworld.profile/show` → `/profile/:username` → `:realworld/author-articles` (**My Articles**)
+- `:realworld.profile/favorites` → `/profile/:username/favorites` → `:realworld/favorited-articles` (**Favorited Articles**)
+
+The active tab is **just the current route id** — there is no tab state in `app-db`; the view reads `:rf.route/id` to pick which list resource to subscribe to. The tab links are plain `route-link`s. Favoriting / unfavoriting from the Favorited tab fires the same `:realworld/favorite` / `:realworld/unfavorite` mutations, whose `:invalidates` stales `[:article slug]` — a tag the favorited list **carries** for every article it contains — so the list refetches and the article drops out on unfavorite with no extra wiring. (No dedicated `[:favorited-articles username]` invalidation is needed for the toggle; the per-article tag already reaches it.)
 
 ### Scope is the fail-closed leak boundary (`scope.cljs`)
 
@@ -85,16 +104,16 @@ Login / register / session-restore / logout are a Spec 005 state machine issuing
 | File | What it holds |
 |---|---|
 | `core.cljs` | Entry point, app shell, route switch, mount; installs the demo `:rf.http/managed` backend stub + the revalidation listeners + the frame-wide `:realworld/bearer-auth` HTTP interceptor. |
-| `resources.cljs` | Every RealWorld read as `reg-resource` (identity / scope / `:request` / `:tags` / stale + GC policy). |
+| `resources.cljs` | Every RealWorld read as `reg-resource` (identity / scope / `:request` / `:tags` / stale + GC policy); the `page-size` + `page->limit-offset` pagination helpers. |
 | `mutations.cljs` | Every RealWorld write as `reg-mutation` (`:invalidates` / `:populates`). |
 | `scope.cljs` | The fail-closed session cache scope + the `:session/scope` sub the view passes on session-scoped reads. |
-| `routing.cljs` | Routes with `:resources` metadata + the `auth-guard` interceptor; the home `:on-match` ensures the session feed. |
+| `routing.cljs` | Routes with `:resources` metadata (incl. the `?page=` query → resource params + `:keep-previous?`, and the `:realworld.profile/favorites` tab route) + the `auth-guard` interceptor; the home `:on-match` ensures the session feed. |
 | `auth.cljs` | The `:auth/flow` auth machine (login / register / restore-without-navigating / logout-with-clear-scope) + the login/register forms. |
 | `settings.cljs` | The settings page as a mutation instance (`:rf.mutation/state`); the save-success continuation is off the render path (Form-3 settle reaction). |
 | `article_editor.cljs` | Create / edit / delete an article: the `:realworld/save-article` + `:realworld/delete-article` mutations, the `:editor/can-submit?` Spec 013 flow, the `:editor/can-leave?` guard, and the Form-3 settle reactions (seed-on-load + save/delete continuation). |
-| `views.cljs` | Passive pages (home / article / profile) + the small UI event glue (favourite / follow / comment). |
+| `views.cljs` | Passive pages (home / article / profile-with-two-tabs) + the numbered `pagination` control + the keep-previous list render + the small UI event glue (favourite / follow / comment / page navigation). |
 | `schema.cljs` | Malli wire shapes + the small app-db schemas (auth + form drafts only — the reads live in runtime-db). |
-| `http.cljs` | The demo backend stub (resources + mutations lower onto `:rf.http/managed`, so one stub serves the whole API) + the shared `data-fetch-retry` read policy + the `:rf.http/*` failure projection. |
+| `http.cljs` | The demo backend stub (resources + mutations lower onto `:rf.http/managed`, so one stub serves the whole API) — synthesises a multi-page article set + honours `limit`/`offset` + a distinct favorited subset — plus the shared `data-fetch-retry` read policy + the `:rf.http/*` failure projection. |
 | `index.html` | Static host page. |
 
 ## How to run

@@ -51,21 +51,30 @@
 
 (rf/reg-route :realworld/home
   {:doc   "Home: the global article list + popular tags, plus (when signed in)
-           the personalised feed. The `:tag` query param filters the list — it
-           flows into the resource's params, so a tag-filtered list is a
-           distinct cache entry."
+           the personalised feed. The `:tag` query param filters the list and
+           `:page` paginates it — BOTH flow into the resource's params, so a
+           tag-filtered list and each page are distinct cache entries.
+           `:keep-previous?` keeps the prior page/filter visible while the next
+           first-loads (no flicker); back to a previously-loaded page is a
+           cache-hit."
    :path  "/"
    :query [:map
            [:tag  {:optional true} :string]
-           [:feed {:optional true} :string]]
+           [:feed {:optional true} :string]
+           [:page {:optional true} :int]]
    :scroll   :top
-   ;; The session-scoped feed is ensured from `:on-match` (it needs `:db`); the
-   ;; public reads are declarative route resources.
+   ;; The session-scoped feed is ensured from `:on-match` (it needs `:db` —
+   ;; including the page, since the page rides the params, not the route plan
+   ;; for a session-scoped read); the public reads are declarative route
+   ;; resources.
    :on-match [[:home/on-match]]
    :resources
    [{:resource  :realworld/articles
-     ;; Route query → resource params: the `?tag=` flows into identity.
-     :params    (fn [route] {:tag (get-in route [:query :tag])})
+     ;; Route query → resource params: the `?tag=` AND `?page=` flow into
+     ;; identity. Every server-visible list option participates in the cache
+     ;; key (Spec 016 §Paginated and previous data).
+     :params    (fn [route] {:tag  (get-in route [:query :tag])
+                             :page (get-in route [:query :page])})
      :blocking? true
      :keep-previous? true}
     {:resource  :realworld/tags
@@ -121,15 +130,39 @@
      :keep-previous? true}]})
 
 (rf/reg-route :realworld.profile/show
-  {:doc    "A user's profile banner + the articles they authored."
+  {:doc    "A user's profile banner + the articles they AUTHORED (the default
+            profile tab). The `?page=` query paginates the authored list."
    :path   "/profile/:username"
    :params [:map [:username :string]]
+   :query  [:map [:page {:optional true} :int]]
    :resources
    [{:resource  :realworld/profile
      :params    (fn [route] {:username (get-in route [:params :username])})
      :blocking? true}
     {:resource  :realworld/author-articles
+     :params    (fn [route] {:username (get-in route [:params :username])
+                             :page     (get-in route [:query :page])})
+     :blocking? false
+     :keep-previous? true}]})
+
+(rf/reg-route :realworld.profile/favorites
+  {:doc    "A user's profile banner + the articles they FAVORITED (the second
+            official profile tab — `/profile/:username/favorites`). Same banner
+            read as `:realworld.profile/show`; the list read is the
+            `:realworld/favorited-articles` resource. The `?page=` query
+            paginates it. Favoriting / unfavoriting from this tab invalidates
+            `[:article slug]`, which this list carries, so it refetches and the
+            article drops out on unfavorite (Spec 016 §Mutations)."
+   :path   "/profile/:username/favorites"
+   :params [:map [:username :string]]
+   :query  [:map [:page {:optional true} :int]]
+   :resources
+   [{:resource  :realworld/profile
      :params    (fn [route] {:username (get-in route [:params :username])})
+     :blocking? true}
+    {:resource  :realworld/favorited-articles
+     :params    (fn [route] {:username (get-in route [:params :username])
+                             :page     (get-in route [:query :page])})
      :blocking? false
      :keep-previous? true}]})
 
