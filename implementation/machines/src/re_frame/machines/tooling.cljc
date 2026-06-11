@@ -365,6 +365,10 @@
   redacts at egress per Derivations §Redaction metadata); only the `:state`
   summary is surfaced.
 
+  The zero-arity form reads the ambient `re-frame.frame/current-frame`; the
+  one-arity form takes an explicit `frame-id` (the form the graph composer's
+  `:live-fn` calls).
+
   CLJS-and-JVM runnable, but dev-gated on `interop/debug-enabled?` (the
   `goog.DEBUG` mirror) so production builds DCE the runtime-db walk. Returns
   `nil` for a missing/destroyed frame and in production builds, `{}` for a

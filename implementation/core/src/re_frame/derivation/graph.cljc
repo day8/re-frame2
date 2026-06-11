@@ -87,6 +87,17 @@
 ;; `:live-shape :node` — the live-fn returns ONE node or nil (the route
 ;;                       slice).
 ;;
+;; The `:static-fn` / `:live-fn` are usually two DISTINCT sibling fns (the
+;; subs / resources / routes / machines pattern: a registration-derived
+;; static view + a runtime-cache / runtime-db live view). FLOWS are the
+;; exception: a flow has no separate ephemeral cache to snapshot — it
+;; materializes into app-db and is frame-scoped — so its ONE
+;; `flow-algebra-view` serves both slots. The static-fn is its zero-arity
+;; (every frame's flows, `{frame-id {flow-id node}}`); the live-fn is the
+;; SAME symbol invoked one-arity (`(flow-algebra-view frame-id)` →
+;; `{flow-id node}`, the `:map` shape). The "live" flow projection is thus
+;; the per-frame static projection — there is nothing further to realize.
+;;
 ;; The subs contributor is built from the in-core sibling; the four optional
 ;; contributors are resolved (JVM) or supplied (CLJS).
 ;; ---------------------------------------------------------------------------
@@ -150,6 +161,10 @@
                       [family (cond-> c
                                 selector-sym
                                 (assoc :selector? (some-> (requiring-resolve selector-sym) deref)))])))
+            ;; flows reuse the ONE `flow-algebra-view` for both slots
+            ;; (static = zero-arity all-frames, live = one-arity per-frame —
+            ;; a flow has no separate ephemeral cache to snapshot; see the
+            ;; contributor-seam comment above).
             [[:flows     're-frame.flows.tooling/flow-algebra-view
                          're-frame.flows.tooling/flow-algebra-view :map]
              [:resources 're-frame.resources.tooling/resource-algebra-view
@@ -178,10 +193,11 @@
   is the family-local fact identity; this lifts it into the family-tagged
   node id the graph + its edges reference:
 
-    :subs      → the node's `:id` verbatim — already a `[:sub …]`-shaped
-                 fact (a `[:fact <id>]` output's id, or a live query
-                 vector). We wrap a bare sub-id keyword in `[:sub <id>]`
-                 so every subscription node id is uniformly tagged.
+    :subs      → `[:sub <id>]`, where `<id>` is the node's `:id`: a bare
+                 sub-id keyword for a STATIC node (`[:sub :cart/total]`), or
+                 the concrete query vector for a LIVE cache-entry node
+                 (`[:sub [:cart/total …args]]`). Wrapping unconditionally
+                 keeps every subscription node id uniformly tagged.
     :flows     → `[:flow <flow-id>]`.
     :resources → `[:resource <resource-id-or-scoped-key>]`.
     :machines  → `[:machine <machine-or-actor-id>]`.
