@@ -1,0 +1,263 @@
+(ns re-frame.path-laws-cljs-test
+  "Law / property tests for the `:rf/path` algebra (EP-0012, Conventions
+  §Path laws). Covers the put-lookup family, compose associativity,
+  prefix?/overlap? symmetry, the root-path laws, the missing-vs-present-nil
+  distinction, and template normalization (sugar -> data form).
+
+  No `clojure.test.check` on the classpath — these use a small seeded
+  generator (`gen-edn` / `gen-path`) sampled over a fixed seed so the
+  property checks are deterministic and reproducible across CLJ/CLJS. The
+  hand-rolled generator emits the same value stream on both hosts because
+  it draws from a self-contained linear-congruential PRNG, not the host
+  RNG.
+
+  Named `*-cljs-test` so the shadow-cljs `:node-test` build (ns-regexp
+  `cljs-test$`) discovers it; the `-test` suffix also satisfies the JVM
+  cognitect test-runner, so this one `.cljc` file runs on both runtimes."
+  (:refer-clojure :exclude [])
+  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test :refer-macros [deftest is testing]])
+            [re-frame.path :as path]))
+
+;; ---- a deterministic, host-portable PRNG ---------------------------------
+;;
+;; A 32-bit linear-congruential generator with the Numerical-Recipes
+;; constants. Identical sequence on CLJ and CLJS because every op stays in
+;; the int32 range under `unchecked` arithmetic emulation via `bit-and`.
+
+(defn- lcg-next [state]
+  (-> (unchecked-multiply (long state) 1664525)
+      (unchecked-add 1013904223)
+      (bit-and 0x7fffffff)))
+
+(defn- rnd [state n] (mod (lcg-next state) n))
+
+;; ---- generators ----------------------------------------------------------
+
+(def ^:private seg-pool
+  [:a :b :c :x :y 0 1 2 "k" 'sym true false nil])
+
+(defn- gen-seg [state]
+  (nth seg-pool (rnd state (count seg-pool))))
+
+(defn- gen-path
+  "Generate a path of 0..max-len segments drawn from `seg-pool`. Returns
+  `[path next-state]`. nil segments are allowed (a present-nil key path)."
+  [state max-len]
+  (let [len (rnd state (inc max-len))]
+    (loop [i 0, s (lcg-next state), acc []]
+      (if (= i len)
+        [acc s]
+        (recur (inc i) (lcg-next s) (conj acc (gen-seg s)))))))
+
+(defn- gen-edn
+  "Generate a small EDN value (maps/vectors of scalars) to `depth`.
+  Returns `[value next-state]`."
+  [state depth]
+  (let [k (rnd state (if (zero? depth) 4 7))
+        s (lcg-next state)]
+    (case k
+      0 [(nth seg-pool (rnd s (count seg-pool))) (lcg-next s)]
+      1 [(rnd s 1000) (lcg-next s)]
+      2 [(str "v" (rnd s 50)) (lcg-next s)]
+      3 [nil (lcg-next s)]
+      ;; composites only when depth remains
+      4 (let [n (rnd s 3)]
+          (loop [i 0, st (lcg-next s), acc {}]
+            (if (= i n)
+              [acc st]
+              (let [kk (gen-seg st)
+                    [vv st'] (gen-edn (lcg-next st) (dec depth))]
+                (recur (inc i) st' (assoc acc kk vv))))))
+      5 (let [n (rnd s 3)]
+          (loop [i 0, st (lcg-next s), acc []]
+            (if (= i n)
+              [acc st]
+              (let [[vv st'] (gen-edn (lcg-next st) (dec depth))]
+                (recur (inc i) st' (conj acc vv))))))
+      6 [(rnd s 1000) (lcg-next s)])))
+
+(defn- samples
+  "Run `f` over `n` deterministic draws of `[value path x]`. `f` returns
+  truthy on a passing case; returns the first failing `[value path x]` or
+  nil if all pass."
+  [n f]
+  (loop [i 0, s 12345]
+    (if (= i n)
+      nil
+      (let [[v s1]  (gen-edn s 3)
+            [p s2]  (gen-path s1 4)
+            [x s3]  (gen-edn s2 2)]
+        (if (f v p x)
+          (recur (inc i) (lcg-next s3))
+          [v p x])))))
+
+;; ---- root-path laws ------------------------------------------------------
+
+(deftest root-path-laws
+  (testing "get(s, []) = s"
+    (is (= {:a 1} (path/get {:a 1} [])))
+    (is (= 42 (path/get 42 []))))
+  (testing "lookup(s, []) = present s"
+    (is (= {:present? true :value {:a 1}} (path/lookup {:a 1} [])))
+    (is (= {:present? true :value nil} (path/lookup nil []))))
+  (testing "put(s, [], x) = x  (the law raw assoc-in violates)"
+    (is (= {:b 2} (path/put {:a 1} [] {:b 2})))
+    ;; raw assoc-in would give {:a 1, nil {:b 2}}
+    (is (not= (assoc-in {:a 1} [] {:b 2}) (path/put {:a 1} [] {:b 2}))))
+  (testing "over(s, [], f) = f(s)"
+    (is (= {:a 2} (path/over {:a 1} [] #(update % :a inc)))))
+  (testing "overlap?([], p) = true for every p"
+    (is (true? (path/overlap? [] [])))
+    (is (true? (path/overlap? [] [:anything :deep 3])))
+    (is (true? (path/overlap? [:anything] [])))))
+
+;; ---- put-lookup family ---------------------------------------------------
+
+(deftest put-lookup-law
+  (testing "lookup(put(s, p, x), p) = {:present? true :value x} for all p,x"
+    (is (nil? (samples 400
+                (fn [v p x]
+                  (= {:present? true :value x}
+                     (path/lookup (path/put v p x) p)))))))
+  (testing "explicitly at p=[] and x=nil (the nil-write trap)"
+    (is (= {:present? true :value nil}
+           (path/lookup (path/put {:page 1} [:page] nil) [:page])))
+    (is (= {:present? true :value nil}
+           (path/lookup (path/put {:a 1} [] nil) [])))))
+
+(deftest lookup-put-law
+  (testing "if lookup(s,p) present with x then put(s,p,x) = s"
+    (is (nil? (samples 400
+                (fn [v p _x]
+                  (let [{:keys [present? value]} (path/lookup v p)]
+                    (if present?
+                      (= v (path/put v p value))
+                      true))))))))
+
+(deftest put-put-law
+  (testing "put(put(s,p,x),p,y) = put(s,p,y)"
+    (is (nil? (samples 400
+                (fn [v p x]
+                  (= (path/put v p x)
+                     (path/put (path/put v p :first) p x))))))))
+
+;; ---- compose laws --------------------------------------------------------
+
+(deftest compose-laws
+  (testing "compose(p,[]) = p and compose([],p) = p"
+    (is (= [:a :b] (path/compose [:a :b] [])))
+    (is (= [:a :b] (path/compose [] [:a :b]))))
+  (testing "compose associativity over generated paths"
+    (is (nil?
+          (loop [i 0, s 999]
+            (if (= i 300)
+              nil
+              (let [[p s1] (gen-path s 3)
+                    [q s2] (gen-path s1 3)
+                    [r s3] (gen-path s2 3)]
+                (if (= (path/compose (path/compose p q) r)
+                       (path/compose p (path/compose q r)))
+                  (recur (inc i) (lcg-next s3))
+                  [p q r])))))))
+  (testing "get-compose: get(s, compose(p,q)) = get(get(s,p), q) when intermediate present"
+    (let [s {:cart {:items {42 {:qty 2}}}}
+          p [:cart :items]
+          q [42 :qty]]
+      (is (= (path/get s (path/compose p q))
+             (path/get (path/get s p) q)))
+      (is (= 2 (path/get s (path/compose p q)))))))
+
+;; ---- over law ------------------------------------------------------------
+
+(deftest over-law
+  (testing "over(s,p,identity) = s when present"
+    (is (nil? (samples 300
+                (fn [v p _x]
+                  (let [{:keys [present?]} (path/lookup v p)]
+                    (if present?
+                      (= v (path/over v p identity))
+                      true)))))))
+  (testing "over(s,p,f) = put(s,p,f(get(s,p))) (nil-on-missing get semantics)"
+    (is (nil? (samples 300
+                (fn [v p _x]
+                  (= (path/over v p (fn [x] [:wrapped x]))
+                     (path/put v p [:wrapped (path/get v p)]))))))))
+
+;; ---- prefix? / overlap? --------------------------------------------------
+
+(deftest prefix-and-overlap
+  (testing "prefix? basics"
+    (is (true? (path/prefix? [:cart] [:cart :items 42])))
+    (is (false? (path/prefix? [:cart :items 42] [:cart])))
+    (is (true? (path/prefix? [] [:anything])))
+    (is (true? (path/prefix? [:a] [:a]))))
+  (testing "overlap? examples from the spec"
+    (is (true? (path/overlap? [:cart :items] [:cart :items 42 :qty])))
+    (is (true? (path/overlap? [:cart :items 42 :qty] [:cart :items 42])))
+    (is (false? (path/overlap? [:cart :items 42] [:cart :items 43])))
+    (is (false? (path/overlap? [:cart :items] [:profile :display-name]))))
+  (testing "overlap? is symmetric over generated path pairs"
+    (is (nil?
+          (loop [i 0, s 7777]
+            (if (= i 400)
+              nil
+              (let [[p s1] (gen-path s 4)
+                    [q s2] (gen-path s1 4)]
+                (if (= (path/overlap? p q) (path/overlap? q p))
+                  (recur (inc i) (lcg-next s2))
+                  [p q]))))))))
+
+;; ---- missing vs present nil ----------------------------------------------
+
+(deftest missing-versus-present-nil
+  (testing "absent key vs present-nil are distinct under lookup"
+    (is (= {:present? false} (path/lookup {} [:page])))
+    (is (= {:present? true :value nil} (path/lookup {:page nil} [:page]))))
+  (testing "get returns not-found only when missing, never for present-nil"
+    (is (= ::nf (path/get {} [:page] ::nf)))
+    (is (= nil  (path/get {:page nil} [:page] ::nf)))))
+
+;; ---- template normalization (disposition 2) ------------------------------
+
+(deftest template-normalization
+  (testing "'?name sugar normalizes to the data form [:rf.path/param :name]"
+    (is (= [:billing :invoices :by-id [:rf.path/param :invoice-id] :email]
+           (path/normalize-template
+             [:billing :invoices :by-id '?invoice-id :email]))))
+  (testing "already-canonical data-form passes through unchanged (idempotent)"
+    (let [canon [:billing [:rf.path/param :invoice-id] :email]]
+      (is (= canon (path/normalize-template canon)))
+      (is (= canon (path/normalize-template (path/normalize-template canon))))))
+  (testing "'?name NEVER survives into the normalized shape"
+    (is (not (some symbol? (path/normalize-template [:a '?x :b '?y])))))
+  (testing "a literal symbol that is not a ?-marker passes through"
+    (is (= [:a 'plain :b] (path/normalize-template [:a 'plain :b])))
+    ;; a bare `?` symbol is not a marker (name length 1)
+    (is (= ['?] (path/normalize-template ['?]))))
+  (testing "template? detection"
+    (is (true? (path/template? [:a '?x])))
+    (is (true? (path/template? [:a [:rf.path/param :x]])))
+    (is (false? (path/template? [:a :b 3]))))
+  (testing "param-segment? recognises only the data form"
+    (is (true? (path/param-segment? [:rf.path/param :id])))
+    (is (false? (path/param-segment? '?id)))
+    (is (false? (path/param-segment? [:rf.path/param :id :extra])))
+    (is (false? (path/param-segment? [:rf.path/param "id"])))))
+
+;; ---- instantiate ---------------------------------------------------------
+
+(deftest instantiate-template
+  (testing "substitutes bound params, leaves literals"
+    (is (= [:billing :invoices :by-id "iid" :email]
+           (path/instantiate
+             [:billing :invoices :by-id '?invoice-id :email]
+             {:invoice-id "iid"}))))
+  (testing "accepts a named-path-declaration map"
+    (is (= [:profile :display-name]
+           (path/instantiate {:id :p :rf/path [:profile :display-name]} {}))))
+  (testing "a present-nil binding is a legal substitution"
+    (is (= [:a nil :c] (path/instantiate [:a '?x :c] {:x nil}))))
+  (testing "an unbound param fails closed"
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (path/instantiate [:a '?x] {})))))
