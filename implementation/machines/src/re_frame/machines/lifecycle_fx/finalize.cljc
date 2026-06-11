@@ -41,6 +41,7 @@
             [re-frame.machines.lifecycle-fx.traces :as traces]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
+            [re-frame.machines.reply :as m-reply]
             [re-frame.machines.result :as result]
             [re-frame.machines.timer :as timer]
             [re-frame.machines.transition :as transition]
@@ -212,6 +213,25 @@
         error-leaf? (true? (:error? final-node))
         parent-id   (:rf/parent-id child-data)
         invoke-id   (:rf/spawn-id child-data)
+        ;; Per EP-0011 §Machine Completion / Managed-Effects §The uniform
+        ;; reply envelope: form the canonical machine reply map INTERNALLY
+        ;; (work-id `[:rf.work/machine actor-id work-bearing-path
+        ;; generation]`, one closed `:status` — `:ok` for a plain final
+        ;; leaf, `:error` for an `:error?` error terminal — the child's
+        ;; `:output-key` result under `:value`, frame + correlation). The
+        ;; PUBLIC `:on-done` / `:on-error` semantics are PRESERVED: the
+        ;; `:on-done` `:data` callback is still driven with the child's
+        ;; result (now derived as `(:value reply)`), and `:on-error` still
+        ;; routes the raw failure payload to the parent transition. This is
+        ;; internal lowering only — the reply map is what the trace stream,
+        ;; ledger, and future work-correlation read uniformly (m-reply).
+        reply-ctx   {:actor-id          machine-id
+                     :parent-id         parent-id
+                     :work-bearing-path invoke-id
+                     :frame             frame-id}
+        reply       (if error-leaf?
+                      (m-reply/error-reply reply-ctx result)
+                      (m-reply/success-reply reply-ctx result))
         ;; (1) Find parent's `:on-done` / `:on-error`, if this is a `:spawn`-
         ;; spawned actor. The parent's spec carries the `:spawn` map at
         ;; `invoke-id`. Per rf2-a2sn1 — resolve the parent's spec from the
@@ -240,13 +260,24 @@
         ;; (2) Emit `:rf.machine/done` trace BEFORE the destroy cascade
         ;; (D6 ordering). Fired for EVERY finish (success or error leaf) —
         ;; `:on-error` is additive, the done trace is the actor-finality
-        ;; signal regardless of which spawn hook routes the result.
+        ;; signal regardless of which spawn hook routes the result. Per
+        ;; EP-0011 the reply-envelope facts (`:rf.reply/status`,
+        ;; `:rf.reply/work-id`, `:rf.reply/work-status`) ride ADDITIVELY so
+        ;; the trace stream classifies the completion the same way HTTP /
+        ;; resources do; the public `:output` / `:parent-id` / `:error?`
+        ;; shape is preserved. Wire-bearing slots (`:value` / `:error`)
+        ;; route through the shared elision walker via `m-reply/trace-reply`.
+        done-summary (m-reply/trace-reply reply {:frame frame-id})
         _ (trace/emit! :rf.machine :rf.machine/done
                        {:machine-id machine-id
                         :output     result
                         :parent-id  parent-id
                         :error?     error-leaf?
-                        :frame      frame-id})
+                        :frame      frame-id
+                        ;; reply-envelope vocabulary (Managed-Effects §9)
+                        :rf.reply/status      (:status done-summary)
+                        :rf.reply/work-id     (:work/id done-summary)
+                        :rf.reply/work-status (:work/status done-summary)})
         ;; (3) Apply :on-done to the parent's `:data`. The parent's
         ;; snapshot lives at [:rf.runtime/machines :snapshots <parent-id>]; we read it,
         ;; pass the unified context-map (`{:data :result}`) to
@@ -258,12 +289,21 @@
         ;; leaf routing to `:on-error` SKIPS `:on-done` — the two spawn hooks
         ;; are mutually exclusive per finish (error-leaf → transition,
         ;; success-leaf → `:data` callback).
+        ;;
+        ;; Per EP-0011 §Machine Completion the callback's `:result` is now
+        ;; driven from the canonical reply's `:value` — the public callback
+        ;; contract (`(fn [{data :data result :result}] new-data)`) is
+        ;; unchanged; the value flows through the uniform reply envelope
+        ;; internally. `(:value reply)` is `=` to the pre-lowering `result`
+        ;; for a success leaf (behavioural parity), but it is sourced from
+        ;; the one canonical reply map so the value the trace/ledger see and
+        ;; the value the callback receives are the SAME fact.
         db-after-on-done
         (if (and on-done-fn parent-id (not on-error?))
           (let [parent-snap     (get-in runtime-db parent-path)
                 parent-data     (:data parent-snap)
                 new-parent-data (try
-                                  (on-done-fn {:data parent-data :result result})
+                                  (on-done-fn {:data parent-data :result (:value reply)})
                                   (catch #?(:clj Throwable :cljs :default) e
                                     (trace/emit-error! :rf.error/machine-action-exception
                                                        {:machine-id machine-id
@@ -323,6 +363,16 @@
     ;; snapshot — symmetric with how the spawn fx dispatches `:start` into the
     ;; child. The teardown above already ran (the child auto-destroys on its
     ;; error leaf, like any `:final?`); this only ROUTES the failure.
+    ;;
+    ;; Per EP-0011 §Machine Completion this is the `:status :error` reply
+    ;; driving the `:on-error` transition. The dispatched payload is the RAW
+    ;; error (`result`) — the PUBLIC contract: the parent transition reads it
+    ;; off `:event` (`(nth ev 2)`). The canonical reply map (`reply`, built
+    ;; above) classifies the completion as `:status :error` for the trace /
+    ;; ledger; the parent transition's observable payload is unchanged. The
+    ;; reply's `:error` slot is `{:kind … :value result}` (the family-`:kind`
+    ;; wrapping the reply-map schema requires) — but that wrapping is
+    ;; internal vocabulary, not what the parent transition sees.
     (when on-error?
       (spawn-error/dispatch-spawn-error! frame-id parent-id invoke-id result))
     ;; Machine snapshots are durable runtime-db state (EP-0001 rf2-vzld77):
