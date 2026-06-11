@@ -1,11 +1,27 @@
 # EP-0012: Path Optics And Canonical Forms
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
-> This EP proposes one small path and canonical-identity algebra for app-db
+> This EP defines one small path and canonical-identity algebra for app-db
 > paths, runtime-db paths, flow dependencies and outputs, schema and redaction
 > paths, resource identity, work ids, and routing parse/print round trips.
+>
+> **Ruling recorded 2026-06-11 (Mike, in-session; bead `rf2-s7xshi`).**
+> Accepted. All six open issues are dispositioned in
+> [§Open Issues](#open-issues): internal-first surface with a concrete per-op
+> graduation criterion; the `[:rf.path/param …]` data form as the canonical
+> template shape; the registrar kind deferred (forward-compatible with
+> EP-0016's `reg-resource-scope` grammar); route data-form patterns deferred;
+> canonical EDN as **the** identity everywhere with digests as optional
+> recomputable projections (the storage default inverted from the original
+> recommendation); and Spec 013's flow segments **widened** to the shared
+> domain with two explicit flow policies retained. **Semantics are normative
+> immediately**; the in-flight EP-0010/0011/0015 wave slices cite this
+> definition rather than restating fragments. Sequencing (Mike ruling): the
+> Conventions foundation slice + internal helpers land early; all consumer
+> sweeps and conformance slices are ordered **behind** the current EP wave
+> epics.
 >
 > Normative home after acceptance: `spec/Conventions.md`, with cross-references
 > from routing, schemas, flows, resources, runtime-subsystems, and any future
@@ -1385,41 +1401,88 @@ Public/internal conformance:
 
 ## Open Issues
 
-- Should `rf.path/*` and `rf.identity/*` be public v1 API, or internal support
-  with only the semantics documented publicly?
-  **Recommendation:** internal-first. The semantics are normative immediately;
-  the public names graduate only after the flows/schemas/routing/resources
-  consumers have proven them, per §Internal And Public Helper Surface.
-- Should path templates reserve only `'?name` symbols, or should they use an
-  explicit data form such as `[:rf.path/param :invoice-id]` to avoid any chance
-  of confusing a literal symbol segment with a template variable?
-  **Recommendation:** make the explicit data form the canonical stored shape
-  and treat `'?name` as declaration-boundary sugar normalized into it. That
-  removes the literal-symbol ambiguity this EP itself has to caveat.
-- Should named path declarations live in a registrar kind, a future feature
-  manifest, or both?
-  **Recommendation:** defer the registrar kind. Reserve the declaration shape
-  now; let EP-0013/EP-0014 decide the home when a consumer needs runtime
-  lookup. A registrar kind minted before its consumer is speculative surface.
-- Should route data-form path patterns graduate with this EP or remain a later
-  additive front end to the same route prism laws?
-  **Recommendation:** remain later, per Non-Goals. The prism laws are
-  front-end-agnostic by construction.
-- Should canonical identity expose stable human-readable strings, digests, or
-  both? Debugging favors readable EDN; storage and lookup may favor bytes or
-  digests.
-  **Recommendation:** both, with roles fixed: the normalized EDN value is the
-  tool/debugging projection (Xray rows stay readable), the digest is the
-  storage/lookup key, and the digest is always derived from the normalized
-  value — one fact, one identity, two encodings.
-- The flow path validator today restricts segments to
-  keyword/string/integer/symbol/boolean — narrower than this EP's segment
-  domain (no UUID, instant, or `nil` segments), even though UUID-keyed entity
-  paths are a natural concrete shape.
-  **Recommendation:** keep subsystem narrowing legal but explicit: Spec 013
-  either widens flow segments to the shared domain or records its restriction
-  as a stated policy over the shared definition (per §Partition-Relative
-  Paths), so the divergence is a documented decision rather than residue.
+**All six issues were ruled 2026-06-11 (Mike, in-session; bead `rf2-s7xshi`).**
+Original recommendations are kept verbatim as the record of what was ruled;
+dispositions and riders are inline.
+
+1. Should `rf.path/*` and `rf.identity/*` be public v1 API, or internal support
+   with only the semantics documented publicly?
+   **Recommendation:** internal-first. The semantics are normative immediately;
+   the public names graduate only after the flows/schemas/routing/resources
+   consumers have proven them, per §Internal And Public Helper Surface.
+   **Disposition: as recommended, with the graduation gate made concrete:** an
+   op graduates to public API when **two or more consumers** use it through the
+   internal namespace without requiring shape changes. The consumer list now
+   includes EP-0015's frame-config path maps and EP-0016's map-form targets
+   alongside flows/schemas/routing/resources. The facade-export classification
+   rule applies to each name at its graduation.
+2. Should path templates reserve only `'?name` symbols, or should they use an
+   explicit data form such as `[:rf.path/param :invoice-id]` to avoid any chance
+   of confusing a literal symbol segment with a template variable?
+   **Recommendation:** make the explicit data form the canonical stored shape
+   and treat `'?name` as declaration-boundary sugar normalized into it. That
+   removes the literal-symbol ambiguity this EP itself has to caveat.
+   **Disposition: as recommended, with two riders:** the data form is what
+   CEDN-1 encodes and what traces/Xray display — `'?name` never appears in any
+   stored or serialized shape (one fact, one identity); and EP-0015's
+   frame-config path maps accept **concrete paths only** (no templates), a
+   stated narrowing per §Partition-Relative Paths.
+3. Should named path declarations live in a registrar kind, a future feature
+   manifest, or both?
+   **Recommendation:** defer the registrar kind. Reserve the declaration shape
+   now; let EP-0013/EP-0014 decide the home when a consumer needs runtime
+   lookup. A registrar kind minted before its consumer is speculative surface.
+   **Disposition: as recommended, with forward-compatibility pinned:** EP-0016's
+   `reg-resource-scope` (named, registered, declared-inputs resolver) is the
+   first live instance of the named-declaration pattern — the reserved
+   declaration shape must stay compatible with its `{:inputs … :resolve …}`
+   grammar so a later generalization is a relocation, not a redesign. The home
+   is decided by **whichever of EP-0013/EP-0014 is accepted first, or a
+   dedicated ruling if neither** — no dependency on unaccepted proposals.
+4. Should route data-form path patterns graduate with this EP or remain a later
+   additive front end to the same route prism laws?
+   **Recommendation:** remain later, per Non-Goals. The prism laws are
+   front-end-agnostic by construction.
+   **Disposition: as recommended.** Rider: when the data front end does come,
+   it MUST normalize into issue 2's canonical template shape — a route pattern
+   is a path template over segments, and a second template grammar would be the
+   per-subsystem redefinition this EP exists to prevent. No route API redesign
+   rides this EP.
+5. Should canonical identity expose stable human-readable strings, digests, or
+   both? Debugging favors readable EDN; storage and lookup may favor bytes or
+   digests.
+   **Recommendation:** both, with roles fixed: the normalized EDN value is the
+   tool/debugging projection (Xray rows stay readable), the digest is the
+   storage/lookup key, and the digest is always derived from the normalized
+   value — one fact, one identity, two encodings.
+   **Disposition: both — but with the storage default INVERTED from the
+   recommendation.** Canonical EDN is **the** identity everywhere — storage,
+   work ledger, traces, epoch/replay records — exactly as shipped in final
+   Spec 016 and now load-bearing as EP-0010 causal replay material. Digests
+   are an **optional, versioned, always-recomputable projection** for
+   size-constrained surfaces (wire budgets, dedupe tables — the existing
+   `:rf.size/include-digests?` flag is the precedent, and the MB-scale wire
+   investigation is the live consumer). A digest is never an independent
+   identity fact, never required for correctness, and never the authoritative
+   stored key in v1 (Runtime-Subsystems derived rule 2: one authoritative home
+   per fact; mirrors are recomputable projections).
+6. The flow path validator today restricts segments to
+   keyword/string/integer/symbol/boolean — narrower than this EP's segment
+   domain (no UUID, instant, or `nil` segments), even though UUID-keyed entity
+   paths are a natural concrete shape.
+   **Recommendation:** keep subsystem narrowing legal but explicit: Spec 013
+   either widens flow segments to the shared domain or records its restriction
+   as a stated policy over the shared definition (per §Partition-Relative
+   Paths), so the divergence is a documented decision rather than residue.
+   **Disposition: the direction is ruled — WIDEN.** Spec 013 widens flow
+   segments to the shared domain (UUIDs and instants admitted; UUID-keyed
+   entity paths are the natural materialization target, and no design reason
+   for the restriction was ever produced — residue is not laundered into
+   "documented decision" without a decision). Two explicit flow policies are
+   retained as stated narrowings with rationale: **`nil` segments are excluded
+   for flow outputs** (a nil-keyed output is almost certainly a bug), and **a
+   flow output path cannot be `[]`** (the root path overlaps everything — a
+   root output would clobber the entire partition).
 
 ## Recommendation
 
