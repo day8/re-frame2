@@ -142,7 +142,16 @@ stacked sections:
    non-blocking** split (blocking = **SSR wait point**), keep-previous
    flags, and any `:after` dependency waterfall. Resolvers
    (`:params` / `:scope` fns) are recorded as declared without being
-   invoked.
+   invoked. The graph is **live, not just static** (rf2-m5u3gt): it joins
+   the static route plan against the live instance rows, work ledger, and
+   routing slice — each resource node carries a `:live` freshness rollup
+   (`:fresh` / `:stale` / `:loading` / `:idle` / `:none`, plus the active
+   work count) over its cache entries, and the **currently-active route** is
+   flagged `:current?` with its live `:nav-token` and `:blocking-live` (the
+   declared blocking resources whose scoped keys are still in the
+   per-nav-token unsettled-blocking set — the SSR/route wait points that
+   have not yet settled). The bare static projection (no live inputs)
+   remains available for the SSR/JVM path.
 5. **Lifecycle timeline** — the ordered `:rf.resource/*` trace rows
    (oldest-first), each carrying op label + semantic class colour,
    resource id, summarized resource key, generation, owner, summarized
@@ -253,14 +262,16 @@ No event registered here dispatches a `:rf.resource/*` event (read-only).
 | `:rf.xray/resource-entries` | `:rf.xray/target-frame-runtime-db`, override | the live cache entries map at `[:rf.runtime/resources :entries]`. |
 | `:rf.xray/resource-work-ledger` | `:rf.xray/target-frame-runtime-db`, override | the live work-ledger map at `[:rf.runtime/work-ledger]`. |
 | `:rf.xray/resource-sub-reads` | override | observed live subscription reads backing the scope-mismatch lint (empty by default). |
-| `:rf.xray/resources-tab-data` | the four above + `:rf.xray/trace-buffer` + the route registry | the view-facing composite: `{:silent? :registry :instances :work :route-graph :timeline :invalidations :cache-growth :audit}`. |
+| `:rf.xray/resource-routing-slice` | `:rf.xray/target-frame-runtime-db`, override | the live routing-runtime subtree at `[:rf.runtime/routing]` (current route + nav-token + per-nav-token unsettled-blocking set) backing the live route/resource graph. |
+| `:rf.xray/resources-tab-data` | the five above + `:rf.xray/trace-buffer` + the route registry | the view-facing composite: `{:silent? :registry :instances :work :route-graph :timeline :invalidations :cache-growth :audit}`. Its `:route-graph` joins the static route plan against the live instance/work rows + routing slice. |
 
 ### Events (test-only override hooks)
 
 `:rf.xray/set-registered-resources-override-for-test`,
 `:rf.xray/set-resource-entries-override-for-test`,
 `:rf.xray/set-resource-work-ledger-override-for-test`,
-`:rf.xray/set-resource-sub-reads-override-for-test` — production code
+`:rf.xray/set-resource-sub-reads-override-for-test`,
+`:rf.xray/set-resource-routing-slice-override-for-test` — production code
 paths MUST NOT dispatch these; `nil` clears the override.
 
 ## Mountable surface

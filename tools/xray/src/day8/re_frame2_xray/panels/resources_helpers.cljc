@@ -82,6 +82,23 @@
   "Runtime-db-relative path to the reverse owner index."
   [resources-key :owner-index])
 
+(def routing-key
+  "Reserved runtime-db key for the routing slice subtree
+  (`:rf.runtime/routing`). The route/resource graph reads the live
+  `:current` route + the per-nav-token unsettled-blocking set from here
+  (Spec 016 §Route integration). Duplicated literal — Xray does not require
+  the routing artefact (bundle isolation); mirrors the literal the resources
+  route integration uses (rf2-m5u3gt)."
+  :rf.runtime/routing)
+
+(def routing-blocking-key
+  "The per-nav-token unsettled-blocking subtree key under the routing slice
+  (`:resource-blocking`). `[:rf.runtime/routing :resource-blocking
+  <nav-token>]` holds the set of scoped keys whose blocking ensure has NOT
+  yet settled for that navigation (Spec 016 §Route integration — the SSR /
+  route wait points)."
+  :resource-blocking)
+
 ;; ---------------------------------------------------------------------------
 ;; The `:rf.resource/*` trace family (Spec 016 §Xray and AI tooling).
 ;; ---------------------------------------------------------------------------
@@ -569,13 +586,82 @@
 ;; Route / resource graph (Spec 016 §Route integration / §Xray).
 ;; ---------------------------------------------------------------------------
 
+(defn routing-current
+  "Extract the live `:current` route slice from the routing-runtime subtree
+  (`{:rf.runtime/routing {:current {:id … :nav-token … :params … :path …}}}`
+  shape, read decoupled off the target frame's runtime-db). Returns the
+  `:current` map (carrying `:id` + `:nav-token`) or nil when no route is
+  active (rf2-m5u3gt). Pure — accepts the already-extracted routing slice."
+  [routing-slice]
+  (when (map? routing-slice)
+    (:current routing-slice)))
+
+(defn routing-blocking-keys
+  "Extract the live UNSETTLED-blocking scoped keys from the routing-runtime
+  subtree. `[:resource-blocking <nav-token>]` is a map of per-nav-token sets
+  of scoped keys whose blocking ensure has not yet settled; this flattens
+  them to a single vector of scoped keys (the live SSR/route wait points the
+  graph flags on the current route — rf2-m5u3gt). Pure; nil/missing ⇒ `[]`."
+  [routing-slice]
+  (let [by-token (when (map? routing-slice)
+                   (get routing-slice routing-blocking-key))]
+    (into [] (mapcat seq) (vals (or by-token {})))))
+
+(defn- resource-liveness
+  "Aggregate the LIVE state of one declared resource-id across the projected
+  `instance-rows` + `work-rows` (rf2-m5u3gt). The route graph node is static
+  (a registry declaration), but the operator's bug-class question is whether
+  THIS route's read is stale, fresh, or just fetching — so each node carries
+  a `:live` rollup over the cache entries + work ledger for its resource-id:
+
+      {:entry-count 2      ; cached entries for this resource-id (any scope/params)
+       :has-data?   true   ; ≥1 cached entry currently carries data
+       :stale?      false  ; ≥1 cached entry is derived-stale
+       :statuses    #{:loaded}   ; the set of live entry statuses
+       :active-work 1      ; non-terminal work-ledger rows for this resource-id
+       :freshness   :fresh}  ; :fresh / :stale / :loading / :idle / :none
+
+  `:freshness` is the headline: `:loading` (active work and no usable data
+  yet — checked first so a mid-fetch read with no cache entry still reads
+  loading), `:none` (no cached entry AND no active work), `:stale` (≥1 stale
+  entry), `:fresh` (cached, has data, not stale), else `:idle`. Pure over the
+  already-projected rows; nil live inputs ⇒ a `:none` rollup so the static
+  graph still renders."
+  [resource-id instance-rows work-rows]
+  (let [rows  (filterv #(= resource-id (:resource-id %)) (or instance-rows []))
+        works (filterv #(and (= resource-id (:resource-id %))
+                             (not (:terminal? %)))
+                       (or work-rows []))
+        has-data?    (boolean (some :has-data? rows))
+        stale?       (boolean (some :stale? rows))
+        active-work  (count works)
+        statuses     (into #{} (keep :status) rows)
+        freshness    (cond
+                       ;; active work without usable data yet ⇒ :loading
+                       ;; (checked BEFORE :none so a route whose resource is
+                       ;; mid-fetch with no cache entry surfaces as loading,
+                       ;; not "nothing here")
+                       (and (pos? active-work) (not has-data?)) :loading
+                       (and (empty? rows) (zero? active-work)) :none
+                       stale?                                :stale
+                       has-data?                             :fresh
+                       :else                                 :idle)]
+    {:entry-count (count rows)
+     :has-data?   has-data?
+     :stale?      stale?
+     :statuses    statuses
+     :active-work active-work
+     :freshness   freshness}))
+
 (defn- route-resource-node
   "Project ONE `:resources` entry on a route into a graph node. The
   `:params` / `:scope` resolvers are fns (opaque), so the node records
   THAT they are declared, the blocking flag (SSR wait point), the
   keep-previous flag, the local `:id` + `:after` dependency, and any
-  `:when` guard — the structure Xray draws without parsing handlers."
-  [entry]
+  `:when` guard — the structure Xray draws without parsing handlers. When
+  live inputs are supplied (rf2-m5u3gt) the node also carries a `:live`
+  rollup of the resource-id's current cache/work state."
+  [entry instance-rows work-rows]
   {:resource        (:resource entry)
    :blocking?       (boolean (:blocking? entry))
    :keep-previous?  (boolean (:keep-previous? entry))
@@ -583,7 +669,8 @@
    :after           (vec (:after entry))
    :when?           (boolean (:when entry))
    :params-fn?      (boolean (:params entry))
-   :scope-resolver? (boolean (:scope entry))})
+   :scope-resolver? (boolean (:scope entry))
+   :live            (resource-liveness (:resource entry) instance-rows work-rows)})
 
 (defn project-route-graph
   "Project the route registry into the route/resource graph (Spec 016
@@ -594,30 +681,72 @@
 
       [{:route-id     :route/article
         :path         \"/articles/:slug\"
-        :resources    [{:resource :article/by-slug :blocking? true …} …]
+        :resources    [{:resource :article/by-slug :blocking? true
+                        :live {:freshness :fresh …} …} …]
         :blocking     [:article/by-slug]   ; SSR wait points
         :non-blocking [:comments/list]
-        :ssr-wait?    true}                 ; route has ≥1 blocking resource
+        :ssr-wait?    true                  ; route has ≥1 blocking resource
+        :current?     true                  ; this is the active route (live)
+        :nav-token    <token>               ; the active nav-token (live)
+        :blocking-live [:article/by-slug]}  ; blocking resources still unsettled
        …]
 
-  Routes WITHOUT `:resources` are omitted (the graph is the resource
-  view of the route table). Per Spec 016 §Route integration."
-  [routes-map]
-  (->> (or routes-map {})
-       (keep (fn [[route-id route-meta]]
-               (let [resources (:resources route-meta)]
-                 (when (seq resources)
-                   (let [nodes        (mapv route-resource-node resources)
-                         blocking     (into [] (comp (filter :blocking?) (map :resource)) nodes)
-                         non-blocking (into [] (comp (remove :blocking?) (map :resource)) nodes)]
-                     {:route-id     route-id
-                      :path         (:path route-meta)
-                      :resources    nodes
-                      :blocking     blocking
-                      :non-blocking non-blocking
-                      :ssr-wait?    (boolean (seq blocking))})))))
-       (sort-by (comp str :route-id))
-       vec))
+  Routes WITHOUT `:resources` are omitted (the graph is the resource view
+  of the route table).
+
+  ## Live state join (rf2-m5u3gt)
+
+  EP-0003 asks the route graph to surface the CURRENT route/nav-token,
+  active work, and fresh/stale state — not just static declarations. The
+  optional `live` map joins the runtime state the panel reads decoupled:
+
+      {:instance-rows  <projected live instances>
+       :work-rows      <projected work-ledger rows>
+       :current        {:id <route-id> :nav-token <token>}   ; routing slice
+       :blocking-keys  [<scoped-key> …]}  ; the live unsettled-blocking set
+
+  Each resource node gains a `:live` freshness rollup; the active route's
+  node is flagged `:current? true` with its `:nav-token`, and its
+  `:blocking-live` lists the declared blocking resources whose scoped keys
+  are still in the live unsettled-blocking set (the SSR/route wait points
+  that have NOT yet settled for the current nav-token). The bare
+  `(project-route-graph routes-map)` arity stays a pure STATIC projection
+  (nil live inputs ⇒ `:live` rollups are `:none`, no `:current?` flag) so
+  the SSR/JVM path and existing callers are unchanged. Per Spec 016 §Route
+  integration / §Xray and AI tooling."
+  ([routes-map] (project-route-graph routes-map nil))
+  ([routes-map {:keys [instance-rows work-rows current blocking-keys]}]
+   (let [current-route-id (:id current)
+         nav-token        (:nav-token current)
+         blocking-key-rid (into #{}
+                                (keep (fn [k]
+                                        (when (and (vector? k) (= 3 (count k)))
+                                          (second k))))
+                                blocking-keys)]
+     (->> (or routes-map {})
+          (keep (fn [[route-id route-meta]]
+                  (let [resources (:resources route-meta)]
+                    (when (seq resources)
+                      (let [nodes        (mapv #(route-resource-node % instance-rows work-rows)
+                                               resources)
+                            blocking     (into [] (comp (filter :blocking?) (map :resource)) nodes)
+                            non-blocking (into [] (comp (remove :blocking?) (map :resource)) nodes)
+                            current?     (and (some? current-route-id)
+                                              (= route-id current-route-id))]
+                        (cond-> {:route-id     route-id
+                                 :path         (:path route-meta)
+                                 :resources    nodes
+                                 :blocking     blocking
+                                 :non-blocking non-blocking
+                                 :ssr-wait?    (boolean (seq blocking))}
+                          current? (assoc :current?      true
+                                          :nav-token     nav-token
+                                          ;; the declared blocking resources whose
+                                          ;; scoped key is still in the live
+                                          ;; unsettled-blocking set for this nav-token
+                                          :blocking-live (filterv blocking-key-rid blocking))))))))
+          (sort-by (comp str :route-id))
+          vec))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lifecycle timeline + invalidation graph + cache-growth (from trace rows).

@@ -478,7 +478,9 @@ registers NO `:rf.resource/*` event (observing pins no resource, Spec 016
 | `:rf.xray/resource-work-ledger-override` | Test override slot. |
 | `:rf.xray/resource-sub-reads` | Observed live subscription reads (`[{:resource-id :params :scope} …]`) backing the scope-mismatch lint. Empty by default. Test override. |
 | `:rf.xray/resource-sub-reads-override` | Test override slot. |
-| `:rf.xray/resources-tab-data` | View-facing composite — `{:silent? :registry :instances :work :route-graph :timeline :invalidations :cache-growth :audit}` over the registry + entries + ledger + route registry + trace buffer. PRIVACY: every param/scope/data/cause/outcome value is summarized (never raw). |
+| `:rf.xray/resource-routing-slice` | The live routing-runtime subtree at `[:rf.runtime/routing]` (current route + nav-token + per-nav-token unsettled-blocking set) backing the live route/resource graph. Test override. |
+| `:rf.xray/resource-routing-slice-override` | Test override slot. |
+| `:rf.xray/resources-tab-data` | View-facing composite — `{:silent? :registry :instances :work :route-graph :timeline :invalidations :cache-growth :audit}` over the registry + entries + ledger + route registry + trace buffer + routing slice. The `:route-graph` joins the static route plan against the live instance/work rows + routing slice (per-resource freshness rollup; the active route flagged `:current?`). PRIVACY: every param/scope/data/cause/outcome value is summarized (never raw). |
 
 ### Events
 
@@ -488,6 +490,7 @@ registers NO `:rf.resource/*` event (observing pins no resource, Spec 016
 | `:rf.xray/set-resource-entries-override-for-test` | `[_ ov]` | Test-only override hook. `nil` clears. |
 | `:rf.xray/set-resource-work-ledger-override-for-test` | `[_ ov]` | Test-only override hook. `nil` clears. |
 | `:rf.xray/set-resource-sub-reads-override-for-test` | `[_ ov]` | Test-only override hook. `nil` clears. |
+| `:rf.xray/set-resource-routing-slice-override-for-test` | `[_ ov]` | Test-only override hook. `nil` clears. |
 
 ### Tool accessors (the AI / MCP read API)
 
