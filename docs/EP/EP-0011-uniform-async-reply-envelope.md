@@ -22,9 +22,10 @@ data, effects are interpreted at the boundary, and asynchronous work comes back
 as events rather than hidden callbacks mutating state. The remaining problem is
 that each asynchronous effect family spells the same continuation idea
 differently. Managed HTTP has `:on-success` and `:on-failure`; resources have
-internal success/failure/abort reply events tied to a work ledger; machine
-`:after` timers carry epochs; route loaders carry nav-tokens; spawned actors
-notify parents through machine-specific completion hooks.
+internal success/failure/abort reply events; mutations have internal
+success/failure reply events; both are tied to a work ledger. Machine `:after`
+timers carry epochs; route loaders carry nav-tokens; spawned actors notify
+parents through machine-specific completion hooks.
 
 This EP defines a uniform async reply envelope. A managed async effect declares
 one reply target and one optional work id. The runtime completes that target
@@ -36,7 +37,8 @@ remain as compatibility sugar that lower to the envelope.
 The proposal makes "event replies are causal continuations" a framework-wide
 law instead of an effect-family convention. The payoff is one substrate for
 work id correlation, stale suppression, cancellation, tracing, SSR preload
-waiting, resource hydration, and deterministic replay metadata.
+waiting, resource hydration, mutation settlement, and deterministic replay
+metadata.
 
 ## Problem Statement
 
@@ -63,7 +65,7 @@ and drop it if it is no longer current" — is spelled four ways today:
 | Family | Continuation spelling today | Staleness identity | Source |
 |---|---|---|---|
 | Managed HTTP | `:on-success` / `:on-failure` event vectors, or the co-located `(:rf/reply msg)` merge | `:request-id` (abort correlation only) | [Spec 014](../../spec/014-HTTPRequests.md) |
-| Resources | `:rf.resource.internal/succeeded` / `failed` / `aborted` reply events carrying `:work-id` + `:generation` | `:work/id` embedding the generation | [Spec 016](../../spec/016-Resources.md), EP-0003 |
+| Resources / mutations | `:rf.resource.internal/succeeded` / `failed` / `aborted` and `:rf.mutation.internal/succeeded` / `failed` reply events carrying `:work-id` + `:generation` | `:work/id` embedding the generation | [Spec 016](../../spec/016-Resources.md), EP-0003 |
 | Machine `:after` timers | synthetic timer event validated against the per-path `:rf/after-epoch` counter | declaring path + epoch | [Spec 005](../../spec/005-StateMachines.md) |
 | Route-owned work | downstream dispatch threaded through `:rf.route/with-nav-token`; nav-token-guarded internal settles | `:nav-token` | [Spec 012](../../spec/012-Routing.md) |
 
@@ -141,8 +143,8 @@ day one.
 - Make `:work/id` the canonical correlation identity for ledger-backed work.
 - Make stale suppression mandatory and cancellation opportunistic.
 - Carry EP-0010 causal completion metadata on async replies.
-- Let HTTP, resources, timers, routing, and machines share tracing and status
-  classification.
+- Let HTTP, resources, mutations, timers, routing, and machines share tracing
+  and status classification.
 - Preserve existing public HTTP callback APIs as compatibility sugar where
   useful.
 - Make reply-target mapping law-checkable, so wrappers compose predictably.
@@ -179,8 +181,11 @@ day one.
   effect, and the row's `:reply-to` field is this EP's reply target made
   durable. This EP rides that design — same `:work/id`, same
   stale-suppression rule, same host-handle exclusion — and adds the causal
-  reply shape on top. It MUST land with or after the EP-0003 work-ledger
-  slice and MUST NOT introduce a parallel correlation store.
+  reply shape on top. That includes the current mutation slice in Spec 016:
+  mutation instance rows point at `:current-work`, their in-flight writes use
+  `:work/kind :mutation`, and their internal replies verify frame, work id, and
+  generation before settling. This EP MUST land with or after the EP-0003
+  work-ledger slice and MUST NOT introduce a parallel correlation store.
 - **[EP-0010](EP-0010-causal-world-inputs.md) (proposal).** Replies are causal
   tokens under EP-0010; completion facts that affect durable state ride the
   reply map. This EP uses EP-0010's suffixless durable timestamp vocabulary:
@@ -214,8 +219,8 @@ day one.
 
 A managed external effect whose lifecycle crosses event boundaries and whose
 completion is owned by the framework. Examples include managed HTTP requests,
-resource fetches, managed timers, route loader work, spawned actor work, and
-machine delayed transitions.
+resource fetches, mutation writes, managed timers, route loader work, spawned
+actor work, and machine delayed transitions.
 
 **Reply target**
 
@@ -377,7 +382,7 @@ AbortControllers, timer handles, DOM nodes, or other host resources.
  :value           value-or-nil
  :error           error-map-or-nil
  :work/id         work-id-or-nil
- :work/kind       :http | :resource | :timer | :route | :machine | ...
+ :work/kind       :http | :resource | :mutation | :timer | :route | :machine | ...
  :work/status     :completed | :failed | :timed-out | :suppressed | :cancelled
  :attempt         positive-int-or-nil
  :rf.frame/id     frame-id
@@ -470,6 +475,14 @@ Resource work should embed the scoped resource key and generation:
 
 ```clojure
 [:rf.work/resource scoped-resource-key generation]
+```
+
+Mutation work in the current Resources artefact reuses the resource work-id head
+with a mutation-instance key. The ledger row distinguishes the writer with
+`:work/kind :mutation`:
+
+```clojure
+[:rf.work/resource [:rf.mutation instance-id] generation]
 ```
 
 Route loader work should embed the route id and nav-token:
@@ -597,6 +610,8 @@ Every effect family that can be superseded MUST define data-only suppression
 gates and validate them before durable writes. Examples:
 
 - resource `:work/id` plus generation still matches the current resource entry;
+- mutation `:work/id` plus generation still matches the current mutation
+  instance row's `:current-work`;
 - route `:nav-token` still matches `[:rf.runtime/routing :current :nav-token]`;
 - machine `:after` epoch and declaring path still match the active snapshot;
 - actor id still names a live actor when actor-bound work replies;
@@ -945,6 +960,71 @@ the app resource state is unchanged and the ledger records suppression:
                  :current-generation 5}}
 ```
 
+### Mutation Reply
+
+Spec 016's mutation slice is the write counterpart of resource reads. It also
+lowers through managed HTTP, creates a work-ledger row, and suppresses stale
+replies by work id plus generation.
+
+```clojure
+[:rf.mutation/execute
+ {:mutation :article/save
+  :params   {:slug "welcome" :title "Welcome"}
+  :instance :form/save-1}]
+```
+
+The mutation runtime allocates a mutation instance row and a work id that reuses
+the resource work-id head with a mutation-instance key:
+
+```clojure
+(def work-id
+  [:rf.work/resource [:rf.mutation :form/save-1] 2])
+```
+
+Spec 016 currently lowers the write to managed HTTP with runtime-owned reply
+addressing:
+
+```clojure
+[:rf.http/managed
+ {:request    {:method :post :url "/api/articles/welcome"}
+  :decode     :app/article
+  :request-id work-id
+  :on-success [:rf.mutation.internal/succeeded
+               {:instance-id :form/save-1
+                :mutation-id :article/save
+                :work-id     work-id
+                :generation  2
+                :rf.frame/id :app/main}]
+  :on-failure [:rf.mutation.internal/failed
+               {:instance-id :form/save-1
+                :mutation-id :article/save
+                :work-id     work-id
+                :generation  2
+                :rf.frame/id :app/main}]}]
+```
+
+Those slots are the current compatibility surface; under this EP they lower to
+`:rf/reply-to`, and the internal replies receive the same canonical reply facts:
+
+```clojure
+{:status       :ok
+ :value        {:slug "welcome" :title "Welcome"}
+ :work/id      work-id
+ :work/kind    :mutation
+ :work/status  :completed
+ :completed-at 1781078400456
+ :correlation  {:mutation/id :article/save
+                :instance/id :form/save-1
+                :generation  2}}
+```
+
+Before settling the mutation instance or applying patch/populate/invalidation
+effects, the handler verifies that the frame matches, `:work/id` still equals
+the instance row's `:current-work`, and generation still matches the instance
+generation. If a re-execute or `:rf.mutation/clear` superseded the write, the
+reply becomes `:status :stale`, the ledger row is marked `:suppressed`, and no
+patch/populate/invalidation writes are produced.
+
 ### Timer Reply
 
 A future managed timer surface can use the same continuation shape:
@@ -1185,7 +1265,8 @@ more literal. Durable fields such as `:loaded-at`, `:stale-at`,
 from a fresh ambient clock read in a reducer.
 
 The work ledger becomes more than a resource implementation detail. It is the
-runtime's table of live continuations. Resources are the first writer, but the
+runtime's table of live continuations. Resources were the first writer and
+mutations are the second landed writer inside the Resources artefact, but the
 same shape naturally accommodates route loaders, timers, spawned actors,
 machine async work, and future managed background jobs.
 
@@ -1264,6 +1345,12 @@ key Spec 016 currently spells `:work-id` should converge on the qualified
 `:work/id` already used by the ledger row and this EP — one attempt identity,
 one spelling, per EP-0007.
 
+Mutation internals follow the same compatibility posture. The current
+`:rf.mutation.internal/succeeded` / `:rf.mutation.internal/failed` event ids
+may remain public-internal plumbing, but they should receive the canonical
+reply map and settle the mutation instance and work-ledger row by `:work/id`
+plus generation.
+
 Machine and routing public APIs do not need immediate surface changes. Their
 existing nav-token, `:after` epoch, `:on-done`, and actor-destroy semantics can
 lower onto reply envelope facts internally and expose the same behavior to
@@ -1285,7 +1372,7 @@ designed in one moment rather than reconciled later.
 3. Lower `:rf.http/managed` `:on-success` / `:on-failure` / co-located reply
    behavior to the uniform envelope while preserving the public Spec 014 event
    shapes.
-4. Wire Resources to receive a canonical reply map and update
+4. Wire Resources and mutations to receive a canonical reply map and update
    `:rf.runtime/work-ledger` rows by `:work/id`.
 5. Add stale-suppression helpers that take carried/current correlation data and
    produce `:status :stale` plus trace facts without dispatching app targets.
@@ -1294,8 +1381,8 @@ designed in one moment rather than reconciled later.
    public API.
 7. Add SSR/preload wait logic that observes ledger rows and terminal reply
    statuses, not HTTP-specific callback names.
-8. Document public compatibility sugar and migration examples for HTTP and
-   resource-backed route loading.
+8. Document public compatibility sugar and migration examples for HTTP,
+   resource-backed route loading, and mutation writes.
 
 ## Validation / Conformance
 
@@ -1308,11 +1395,11 @@ Conformance should include fixtures or tests for:
   while producing canonical internal replies;
 - co-located HTTP default: originating-event reply still branches on
   `:rf/reply` through compatibility delivery;
-- work id correlation: ledger-backed completions update exactly one row by
-  `:work/id`;
-- stale suppression: a superseded resource generation, route nav-token, or
-  machine `:after` epoch does not dispatch the app target and records a
-  suppressed ledger/trace outcome;
+- work id correlation: ledger-backed completions, including mutation writes,
+  update exactly one row by `:work/id`;
+- stale suppression: a superseded resource generation, mutation generation,
+  route nav-token, or machine `:after` epoch does not dispatch the app target
+  and records a suppressed ledger/trace outcome;
 - cancellation precedence: explicit abort produces `:status :cancelled`, while
   superseded or destroyed obsolete work suppresses stale app delivery;
 - EP-0010 metadata: durable timestamps derive from reply metadata in replay
@@ -1325,12 +1412,12 @@ Conformance should include fixtures or tests for:
 
 ## Open Issues
 
-- `:rf.runtime/work-ledger` is a multi-writer subsystem. Resources can mint
-  authority today; the first non-resource writer must settle the general
-  authority path for timers, route loaders, machine work, and future async
-  surfaces. **Recommendation:** settle it through the EP-0006
-  runtime-subsystem contract when the first non-resource writer lands; until
-  then resources remain the only minting writer and this EP adds no new
+- `:rf.runtime/work-ledger` is a multi-writer subsystem. Resources and
+  mutations can mint authority today through the Resources artefact; the first
+  writer outside that artefact must settle the general authority path for
+  timers, route loaders, machine work, and future async surfaces.
+  **Recommendation:** settle it through the EP-0006 runtime-subsystem contract
+  when that first outside writer lands; until then this EP adds no new
   authority surface.
 - The descriptor form for `:rf/reply-to` may need additional delivery modes for
   compatibility adapters. **Recommendation:** ship `:append` as the only
@@ -1353,14 +1440,15 @@ On graduation, the implementation bead must update the guide's async/no-await
 material (the current chapter 10 box) so managed effects are taught as causal
 reply events. The guide update should show `:rf/reply-to`, the uniform reply
 map, the full status set including `:partial`, stale suppression, cancellation,
-and EP-0010 completion timestamps. HTTP compatibility examples may keep
-`:on-success` / `:on-failure`, but they must be presented as lowering sugar
-over the uniform envelope rather than the general async model.
+and EP-0010 completion timestamps. HTTP and mutation compatibility examples may
+keep `:on-success` / `:on-failure`, but they must be presented as lowering
+sugar over the uniform envelope rather than the general async model.
 
 ## Recommendation
 
 Adopt this EP. It is a small abstraction with high leverage: one causal reply
 shape removes duplicated async callback vocabularies, gives the work ledger a
 framework-wide meaning, makes EP-0010 completion metadata practical, and lets
-HTTP, resources, timers, routing, and machines share stale suppression,
-cancellation, tracing, SSR preload, and migration-compatible public sugar.
+HTTP, resources, mutations, timers, routing, and machines share stale
+suppression, cancellation, tracing, SSR preload, and migration-compatible public
+sugar.
