@@ -4,6 +4,16 @@ Production observability rides **two always-on listener APIs** that survive `goo
 
 Authoring rule: in production, you wire two listeners — one for events (success + error outcomes), one for errors (exception payloads). The framework already runs `elide-wire-value` against each record's `:event` vector before fan-out — listeners do **not** re-walk for privacy / size.
 
+## The mental model: three channels, three production guarantees
+
+Frame everything below against the **three observability channels** the runtime has. They answer three different questions and survive production differently — naming all three is what makes "what survives to production?" precise:
+
+1. **The causal channel** — effects-as-data (`:dispatch`, `:fx`). It *is* the program, not a log line about it. **Never elided** — deleting it deletes the app.
+2. **The diagnostic channel** — `register-listener!` and the whole trace bus (every trace event, the per-frame rings, source-coord enrichment, correlation ids). Ambient, for dev eyes and tools. **Production-elided**: Closure-DCE'd under `:advanced` + `goog.DEBUG=false`; runtime-gated on the JVM (see below).
+3. **The always-on error axis** — `register-error-listener!`. Deliberately **production-survivable**: NOT gated by `debug-enabled?`, so it survives elision on purpose, fanning one tight `:rf.error/*` record per production-reachable failure to your shipper (Sentry / Rollbar / Honeybadger). `register-event-listener!` is the throughput/latency sibling on the same survives-production footing.
+
+The JS-ecosystem anchor: this is the equivalent of "Sentry/Rollbar SDK for the error axis, an APM SDK for the event axis, and a Redux-DevTools-style time-travel bus for the diagnostic channel" — except the diagnostic bus is compiled *out* of production rather than tree-shaken at the edges, and the error axis is a first-class framework substrate rather than a global `window.onerror` hook. **Divergence to flag:** unlike a JS error SDK, you do not steer recovery from the listener (see below); recovery is framework-owned.
+
 ## When to load
 
 Wiring a production observability shipper, writing a `register-event-listener!` / `register-error-listener!` body, or asking "what's the prod-survivable equivalent of `register-listener!`?".
@@ -68,7 +78,33 @@ Verified: `re-frame.error-emit/dispatch-on-error!`; record shape per the ns docs
 
 ### Recovery is framework-owned — there is no app-steering policy
 
-Error **recovery** is not an app-config concern. The runtime applies a **typed per-category default**: frame-destroyed recovers + emits, sub-exception returns `nil`, handler-exception fails loud without crashing the app, no-such-handler / no-such-sub no-op. There is no per-frame `:on-error` recovery policy — it was removed per rf2-hiqtk8 (errors are not generically recoverable by an app policy; the policy's return value was never read or applied). Genuine recovery for **expected** failures is handled at the source — managed-HTTP `:retry`, optional-read fallback — where "recovery" actually has meaning. Off-box **observability** is `register-error-listener!` (above). To re-run a failed event, dispatch a fresh one; the runtime never re-runs the failing handler.
+Error **recovery** is not an app-config concern. The runtime applies a **typed per-category default**: frame-destroyed recovers + emits, sub-exception returns `nil`, handler-exception fails loud without crashing the app, no-such-handler / no-such-sub no-op. There is no per-frame `:on-error` recovery policy — it was removed (errors are not generically recoverable by an app policy; the policy's return value was never read or applied). Genuine recovery for **expected** failures is handled at the source — managed-HTTP `:retry`, optional-read fallback — where "recovery" actually has meaning. Off-box **observability** is `register-error-listener!` (above). To re-run a failed event, dispatch a fresh one; the runtime never re-runs the failing handler.
+
+### What rides the always-on axis: the promotion criterion
+
+The error axis is deliberately small — an alert on it should *mean something*. Most failures stay diagnostic (dev-visible, production-elided); only a specific shape earns a production-survivable record. A category is on the axis only when **all three legs** hold:
+
+1. **Production-reachable** — it can fire in a production build, not just a dev-time misuse caught at the boundary (a malformed-registration shape, a dev-only schema check: those stay diagnostic).
+2. **A contract breach or resource leak the caller can't already see** — the load-bearing leg. A bad event vector throws at the call site; the caller sees it. A *leaked handle / skipped teardown / suppressed write / corrupted invariant* leaves the process in a state the next operation can't observe — that needs an off-box record.
+3. **Silence compounds** — the cost of nobody hearing grows with process lifetime / request volume / retries. A leaked timer per SSR request is cheap once and fatal at ten million.
+
+This is also the rule for *your own* domain failures: a failure your `register-error-listener!` consumer raises through a custom `:rf.error/*` category should pass the same three legs, or it belongs on a diagnostic/log path instead — that discipline is what keeps the error stream signal, not noise. The axis is `:rf.error/*`-only (never widened to `:rf.warning/*`), and carries **structured data only** (ids/keys/frame, never raw values — the egress redaction applies).
+
+### The first promoted category: `:rf.error/frame-teardown-failed`
+
+One always-on category beyond the per-failure errors is worth knowing because its record shape differs. When a frame is destroyed the runtime runs best-effort cleanup hooks; a throwing hook is a resource leak the next operation can't see and compounds per SSR request — all three legs hold. Rather than flood the shipper with one record per failed hook, the runtime emits **one bounded report per destroy** carrying a `:hook-failures` vector. Your `register-error-listener!` body must handle this shape (note `:hook-failures` + `:reason`, and `:error` — not `:operation` — as the discriminator, same as every error-emit record):
+
+```clojure
+{:error         :rf.error/frame-teardown-failed
+ :frame         :app/per-request-42
+ :recovery      :ignored                 ;; teardown stays best-effort
+ :reason        "2 frame-teardown cleanup hook(s) threw during destroy; ..."
+ :time          1715600000000
+ :hook-failures [{:hook :http/abort-inflight :exception #object[...] :where :safe-call-hook!}
+                 {:hook :timers/clear        :exception #object[...] :where :safe-call-hook!}]}
+```
+
+In **development** the per-hook detail still surfaces as `:rf.warning/teardown-hook-exception` traces on the diagnostic channel (at their causal positions, DCE'd in prod); the single always-on report is what a production shipper sees. A generic shipper body that maps `(:error record)` to the alert name and forwards the rest already handles this category without special-casing — the only gotcha is not assuming an `:event`/`:event-id` slot (a teardown report has neither; branch on `(:error record)` if you need the per-category shape).
 
 ## Triple-gate registration pattern
 
