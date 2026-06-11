@@ -258,6 +258,74 @@
       db)))
 
 ;; ============================================================================
+;; ARTICLE-DETAIL SOCIAL CONTROLS  (rf2-2xi8sr)
+;; ============================================================================
+;;
+;; The official Conduit article page puts contextual controls ON THE DETAIL
+;; PAGE: a non-author viewer can follow/unfollow the AUTHOR; the author sees
+;; Edit Article (→ /editor/:slug) and Delete Article. Logged-out viewers see
+;; neither (the controls are auth-gated like the favorite toggle). The follow
+;; here targets the article's OWN author profile (`[:article :data :author]`),
+;; distinct from profile.cljs's `:profile/follow` which targets the profile-page
+;; banner slice.
+
+(rf/reg-event-fx :article/toggle-follow-author
+  {:doc "Optimistically toggle following the article's author, then POST/DELETE
+         /profiles/:username/follow. On failure the prior flag is restored.
+         Auth-gated (same rationale as :article/toggle-favorite): a logged-out
+         click navigates to login rather than issuing a tokenless write the real
+         Conduit backend would 401."
+   :rf.http/decode-schemas [schema/ProfileResponse]}
+  (fn [{:keys [db]} _]
+    (if (nil? (get-in db [:auth :user]))
+      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      (let [author    (get-in db [:article :data :author])
+            username  (:username author)
+            following? (:following author)]
+        (if (nil? username)
+          {}
+          {:db (assoc-in db [:article :data :author :following] (not following?))
+           :fx [[:rf.http/managed
+                 (rh/request {:method     (if following? :delete :post)
+                              :path       (str "/profiles/" username "/follow")
+                              :decode     schema/ProfileResponse
+                              :on-success [:article/author-follow-synced]
+                              :on-failure [:article/author-follow-rollback following?]})]]})))))
+
+(rf/reg-event-db :article/author-follow-synced
+  (fn [db [_ {:keys [value]}]]
+    (if-let [profile (:profile value)]
+      (assoc-in db [:article :data :author] profile)
+      db)))
+
+(rf/reg-event-db :article/author-follow-rollback
+  (fn [db [_ previous-following _failure-payload]]
+    (assoc-in db [:article :data :author :following] previous-following)))
+
+(rf/reg-event-fx :article/delete
+  {:doc "Delete the current article from the DETAIL page (author only). No
+         retry — destructive, one click. On success navigate home; the editor's
+         own Delete path (article_editor.cljs) remains reachable too."}
+  (fn [{:keys [db]} _]
+    (let [slug (get-in db [:article :data :slug])]
+      (if (nil? slug)
+        {}
+        {:fx [[:rf.http/managed
+               (rh/request {:method     :delete
+                            :path       (article-path slug)
+                            :decode     :auto
+                            :on-success [:article/delete-success]
+                            :on-failure [:article/delete-failed]})]]}))))
+
+(rf/reg-event-fx :article/delete-success
+  (fn [_ _]
+    {:fx [[:dispatch [:rf.route/navigate :realworld/home]]]}))
+
+(rf/reg-event-db :article/delete-failed
+  (fn [db [_ {:keys [failure]}]]
+    (assoc-in db [:article :error] (rh/failure->message failure))))
+
+;; ============================================================================
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
@@ -265,6 +333,18 @@
 (rf/reg-sub :article/data :<- [:article/slice] (fn [slice _] (:data slice)))
 (rf/reg-sub :article/status :<- [:article/slice] (fn [slice _] (:status slice)))
 (rf/reg-sub :article/error :<- [:article/slice] (fn [slice _] (:error slice)))
+
+(rf/reg-sub :article/author
+  {:doc "The current article's author profile (username, image, following)."}
+  :<- [:article/data]
+  (fn [article _] (:author article)))
+
+(rf/reg-sub :article/own?
+  {:doc "True when the signed-in viewer is the article's author — gates the
+         Edit / Delete controls on the detail page (rf2-2xi8sr)."}
+  (fn [db _]
+    (let [me (get-in db [:auth :user :username])]
+      (and me (= me (get-in db [:article :data :author :username]))))))
 
 (rf/reg-sub :comments/slice (fn [db _] (:comments db)))
 (rf/reg-sub :comments/data :<- [:comments/slice] (fn [slice _] (:data slice)))
@@ -319,6 +399,44 @@
           :on-click #(dispatch [:comment/delete (:id comment)])}
          [:i.ion-trash-a]])]]))
 
+(reg-view ^{:doc "The article-detail contextual controls (rf2-2xi8sr): the
+                  author byline plus, per the official Conduit template, the
+                  author's Follow/Unfollow for a non-author viewer OR Edit /
+                  Delete for the author. Logged-out viewers see the byline only.
+                  Rendered twice on the page (banner + footer) like the official
+                  template."}
+          article-meta []
+  (let [article @(subscribe [:article/data])
+        author  @(subscribe [:article/author])
+        own?    @(subscribe [:article/own?])
+        authed? @(subscribe [:auth/authenticated?])]
+    [:div.article-meta
+     [rf/route-link {:to :realworld.profile/show :params {:username (:username author)}}
+      [:img {:src (:image author)}]]
+     [:div.info
+      [rf/route-link {:to :realworld.profile/show :params {:username (:username author)} :class "author"}
+       (:username author)]
+      [:span.date (:createdAt article)]]
+     (cond
+       own?
+       [:span
+        [rf/route-link {:to :realworld.editor/edit :params {:slug (:slug article)}
+                        :class "btn btn-sm btn-outline-secondary"
+                        :data-testid "article-edit"}
+         [:i.ion-edit] " Edit Article"]
+        " "
+        [:button.btn.btn-sm.btn-outline-danger
+         {:type "button" :data-testid "article-delete"
+          :on-click #(dispatch [:article/delete])}
+         [:i.ion-trash-a] " Delete Article"]]
+
+       authed?
+       [:button.btn.btn-sm.btn-outline-secondary
+        {:type "button" :data-testid "article-follow-author"
+         :on-click #(dispatch [:article/toggle-follow-author])}
+        [:i.ion-plus-round] " "
+        (if (:following author) "Unfollow " "Follow ") (:username author)])]))
+
 (reg-view article-page []
   (let [article        @(subscribe [:article/data])
         article-status @(subscribe [:article/status])
@@ -352,13 +470,16 @@
          [:div.container
           [:h1 {:data-testid "article-title"} (:title article)]
           [:p {:data-testid "article-description"} (:description article)]
-          [:button.btn.btn-sm.btn-outline-primary
-           {:type        "button"
-            :data-testid "article-favorite"
-            :on-click    #(dispatch [:article/toggle-favorite (:slug article)])}
-           [:i.ion-heart] " "
-           [:span {:data-testid "article-favorites-count"}
-            (:favoritesCount article)]]]]
+          [:span.article-controls
+           [:button.btn.btn-sm.btn-outline-primary
+            {:type        "button"
+             :data-testid "article-favorite"
+             :on-click    #(dispatch [:article/toggle-favorite (:slug article)])}
+            [:i.ion-heart] " "
+            [:span {:data-testid "article-favorites-count"}
+             (:favoritesCount article)]]
+           " "
+           [article-meta]]]]
         [:div.container.page
          [:div.row.article-content
           [:div.col-md-12
@@ -369,6 +490,7 @@
               [:li.tag-default.tag-pill.tag-outline tag])]]]
          [:hr]
          [:div.article-actions
+          [article-meta]
           [rf/route-link {:to :realworld/home} "Back to feed"]]
          [:div.row
           [:div.col-xs-12.col-md-8.offset-md-2

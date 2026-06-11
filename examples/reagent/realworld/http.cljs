@@ -7,6 +7,15 @@
    retry-with-backoff, abort, and reply addressing; the example just
    composes request maps.
 
+   BACKEND MODES (see this example's README §Running against a real backend):
+   - canned demo stub (DEFAULT) — `core.cljs` overrides `:rf.http/managed` with
+     an in-process per-URL stub, so the app runs with NO network. `api-base` is
+     not contacted; the stub matches on the path suffix.
+   - official hosted API — point `api-base` at the current hosted Conduit API
+     `https://api.realworld.show/api` and drop the demo-stub override.
+   - local reference backend — the upstream Node/Postgres backend on
+     `http://localhost:3000/api`.
+
    This namespace ships TWO small helpers on top of `:rf.http/managed`:
 
    - `request` — build a request map (`{:request {...} :decode ... :retry ...}`)
@@ -23,9 +32,10 @@
      valid even when the server is sad).
 
    The RealWorld spec lives at https://github.com/gothinkster/realworld/tree/main/api.
-   Production points at https://api.realworld.io/api; locally the spec
-   ships a Node + Postgres reference backend on http://localhost:3000/api.
-   This file does not register any fx — the demo entry (`core.cljs`) wires
+   The current official hosted API is https://api.realworld.show/api; locally
+   the spec ships a Node + Postgres reference backend on
+   http://localhost:3000/api. This file does not register any fx — the demo
+   entry (`core.cljs`) wires
    `:rf.http/managed` to a canned-stub override so the CLJS test fixtures
    (in the framework test tree at
    `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`;
@@ -38,9 +48,13 @@
 ;; ============================================================================
 
 (def api-base
-  "Default API base URL. In production set this from the build/env; for
-   local development the realworld reference backend runs on :3000."
-  "https://api.realworld.io/api")
+  "Default API base URL — the current official hosted Conduit API. The DEFAULT
+   run mode overrides `:rf.http/managed` with an in-process canned stub
+   (`core.cljs`), so this base is not actually contacted out of the box; it is
+   the base you keep when you drop the stub to run against the real hosted API.
+   For the local upstream reference backend, set it to
+   `http://localhost:3000/api`. See the README §Running against a real backend."
+  "https://api.realworld.show/api")
 
 (defn full-url [path]
   (str api-base path))

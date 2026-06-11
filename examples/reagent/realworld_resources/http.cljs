@@ -17,18 +17,33 @@
    - `install-demo-backend!` — register the stub fx + wire it as the
      `:rf.http/managed` override on the demo frame.
 
-   The RealWorld spec lives at https://github.com/gothinkster/realworld.
-   Production points `api-base` at https://api.realworld.io/api; the upstream
+   BACKEND MODES (see this example's README §Running against a real backend):
+   - canned demo stub (DEFAULT) — `core.cljs` overrides `:rf.http/managed` with
+     an in-process per-URL stub, so the app runs with NO network and `api-base`
+     is not contacted (the stub matches on the path suffix).
+   - official hosted API — point `api-base` at `https://api.realworld.show/api`
+     and drop the demo-stub override. The frame-wide `:realworld/bearer-auth`
+     interceptor (core.cljs) already attaches the token, so authenticated calls
+     work against the real API (rf2-j4kbro).
+   - local reference backend — the upstream Node/Postgres backend on
+     `http://localhost:3000/api`.
+
+   The RealWorld spec lives at https://github.com/gothinkster/realworld; the
+   current official hosted API is https://api.realworld.show/api; the upstream
    spec ships a Node/Postgres reference backend on http://localhost:3000/api."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]))
 
 (def api-base
-  "Default API base URL. The resource / mutation `:request` fns build full
-   URLs from this; the demo stub matches on the path suffix so the base is a
-   demo-seam knob, not load-bearing here."
-  "https://api.realworld.io/api")
+  "Default API base URL — the current official hosted Conduit API. The resource
+   / mutation `:request` fns build full URLs from this; in the DEFAULT run mode
+   the demo stub overrides `:rf.http/managed` and matches on the path suffix, so
+   the base is not actually contacted (a demo-seam knob). Drop the stub to run
+   against the real hosted API, or set it to `http://localhost:3000/api` for the
+   local upstream reference backend. See the README §Running against a real
+   backend."
+  "https://api.realworld.show/api")
 
 (defn full-url [path]
   (str api-base path))

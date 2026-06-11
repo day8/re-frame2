@@ -24,8 +24,11 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.resources]
+            [reagent.core :as r]
+            [reagent.ratom :as ratom]
             [realworld-resources.http :as rh]
-            [realworld-resources.resources :as resources])
+            [realworld-resources.resources :as resources]
+            [realworld-resources.scope :as scope])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -126,6 +129,104 @@
                          :params   {:username username}
                          :instance [:follow username]
                          :cause    [:click :ui/follow username]}]]]})))
+
+;; ----------------------------------------------------------------------------
+;; FEED INVALIDATION ACROSS SCOPES — interim patch (rf2-em5ab8)
+;; ----------------------------------------------------------------------------
+;;
+;; The favorite / unfavorite mutations are `:rf.scope/global` (matching the
+;; PUBLIC reads they invalidate — `[:article slug]`, `[:article-list]`), so the
+;; `[:feed]` tag in their `:invalidates` resolves in the GLOBAL scope. But the
+;; personalised feed entry lives under a SESSION scope
+;; (`[:rf.scope/session {:username …}]`), so the global-scope invalidation is
+;; STRUCTURALLY UNREACHABLE from it: favoriting an article would never refresh
+;; Your Feed.
+;;
+;; Spec 016 invalidation is SCOPED + FAIL-CLOSED by default (rf2-pvdae1 /
+;; rf2-nx8ip6 HYBRID ruling: mutation EXECUTION scope is fail-open, but
+;; INVALIDATION scope is fail-closed — a scoped invalidate MUST name its
+;; scope, or opt into `:cross-scope?` explicitly). A single mutation
+;; `:invalidates` resolves under ONE scope, so it cannot reach BOTH the global
+;; article tags and the session feed.
+;;
+;; INTERIM PATCH: an EXPLICIT, fail-closed session-scoped invalidation of the
+;; `[:feed]` tag, fired when a favorite / unfavorite settles success — derived
+;; from the auth slice so it names the SAME session scope the feed entry lives
+;; under (never a silent cross-scope reach; never `:cross-scope?` storms). The
+;; mutation keeps its global `:invalidates` for the public reads; this names the
+;; session target the per-mutation single scope can't.
+;;
+;; The DURABLE fix is EP-0016 per-target scoped invalidation descriptors
+;; (`{:scope … :tags #{[:feed]}}`), of which this is the minimal failing
+;; example; this app-level patch retires when that lands.
+(rf/reg-event-fx :ui/invalidate-session-feed
+  {:doc "Stale the authenticated user's session-scoped feed so a favorite /
+         unfavorite (a global-scope mutation) is reflected in Your Feed. A
+         no-op for a logged-out visitor (no session scope, nothing to reach).
+         Fail-closed: the explicit `:scope` is REQUIRED by
+         `:rf.resource/invalidate-tags` — a missing scope throws rather than
+         silently matching nothing (Spec 016 §Invalidation, rf2-pvdae1)."}
+  (fn [{:keys [db]} _]
+    (when-let [session-scope (scope/session-scope (get-in db [:auth :user]))]
+      {:fx [[:dispatch [:rf.resource/invalidate-tags
+                        {:scope session-scope
+                         :tags  #{[:feed]}
+                         :cause [:mutation-feed-sync :realworld/favorite]}]]]})))
+
+;; ----------------------------------------------------------------------------
+;; ARTICLE-DETAIL SOCIAL CONTROLS  (rf2-2xi8sr)
+;; ----------------------------------------------------------------------------
+;;
+;; The official Conduit article page carries contextual controls: a non-author
+;; viewer follows/unfollows the AUTHOR; the author sees Edit (→ /editor/:slug)
+;; and Delete. Logged-out viewers see neither. Follow reuses the existing
+;; `:realworld/follow` / `:realworld/unfollow` mutations (which invalidate
+;; `[:profile username]`); to reflect the change on the DETAIL page — whose
+;; embedded `:author.following` lives inside the `[:article slug]` entry, not
+;; the profile resource — the article is additionally staled so its author
+;; refetches. Delete fires the `:realworld/delete-article` mutation; the success
+;; continuation (navigate home) rides the editor's settle-reaction idiom, since
+;; a mutation has no reply-side `:on-success` (until EP-0016 reply-to lands).
+
+(rf/reg-event-fx :ui/follow-author
+  {:doc "Follow / unfollow the article author from the detail page. Fires the
+         follow / unfollow mutation; the detail page's embedded `:author` lives
+         in the `[:article slug]` entry (not the `[:profile username]` resource
+         the follow mutation invalidates), so the article is re-staled when the
+         follow SETTLES — see the `article-page` Form-3 settle reaction. (Staling
+         eagerly here would refetch before the server processed the follow, so
+         the embedded flag would read its old value.) Auth-gated."}
+  (fn [{:keys [db]} [_ _slug username following?]]
+    (if (nil? (get-in db [:auth :user]))
+      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      {:fx [[:dispatch [:rf.mutation/execute
+                        {:mutation (if following? :realworld/unfollow :realworld/follow)
+                         :params   {:username username}
+                         :instance [:follow username]
+                         :cause    [:click :ui/follow-author username]}]]]})))
+
+(rf/reg-event-fx :ui/sync-article-after-follow
+  {:doc "Stale the current article so its embedded `:author.following` refetches
+         after a follow/unfollow settled (fired from the article-page settle
+         reaction). Global scope — the article read is `:rf.scope/global`."}
+  (fn [_ [_ slug]]
+    {:fx [[:dispatch [:rf.resource/invalidate-tags
+                      {:scope :rf.scope/global
+                       :tags  #{[:article slug]}
+                       :cause [:follow-author-detail-sync slug]}]]]}))
+
+(rf/reg-event-fx :ui/delete-article
+  {:doc "Delete the current article from the detail page (author only). Fires
+         the `:realworld/delete-article` mutation under a stable instance the
+         page's settle reaction watches to navigate home on success."}
+  (fn [{:keys [db]} [_ slug]]
+    (if (nil? (get-in db [:auth :user]))
+      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      {:fx [[:dispatch [:rf.mutation/execute
+                        {:mutation :realworld/delete-article
+                         :params   {:slug slug}
+                         :instance [:delete-article slug]
+                         :cause    [:click :ui/delete-article slug]}]]]})))
 
 ;; ============================================================================
 ;; COMMENT FORM — a tiny app-db draft + a post mutation
@@ -258,7 +359,11 @@
 ;; HOME PAGE
 ;; ============================================================================
 
-(reg-view home-page []
+(reg-view ^{:doc "Pure home-page render — a function of subs, never dispatches
+                  out of band. The session-feed invalidation continuation (the
+                  rf2-em5ab8 interim patch) lives in the `home-page` Form-3
+                  wrapper below."}
+          home-page-view []
   (let [authed?      @(subscribe [:auth/authenticated?])
         your-feed?   @(subscribe [:home/your-feed?])
         selected-tag @(subscribe [:home/selected-tag])
@@ -317,6 +422,69 @@
                     tag]))
            [:div.tag-list {:data-testid "tags-loading"} "Loading tags…"])]]]]]))
 
+(defn home-page
+  "The home page. A Reagent Form-3 component: the inner render is the pure
+   `home-page-view`; a mount-time reaction watches the favorite / unfavorite
+   instances of the articles currently shown in Your Feed and, when one settles
+   success, fires the EXPLICIT session-scoped `[:feed]` invalidation
+   (`:ui/invalidate-session-feed`) so the toggle is reflected in the
+   personalised feed (rf2-em5ab8 interim patch — the global-scope mutation's own
+   `:invalidates` can't reach the session-scoped feed entry; see the event
+   docstring). `rf/frame-handle` is captured at render so the reaction's
+   out-of-render dispatch carries the frame; unmount disposes the reaction."
+  []
+  (let [{:keys [dispatch subscribe]} (rf/frame-handle)
+        ;; settled favorite instances we've already reconciled, so a single
+        ;; settle fires exactly one feed invalidation (the instance stays
+        ;; `:success?` until the next toggle re-executes it).
+        seen     (atom #{})
+        watcher  (atom nil)]
+    (r/create-class
+     {:display-name "realworld-resources.views/home-page"
+      :component-did-mount
+      (fn [_this]
+        (reset!
+         watcher
+         (ratom/run!
+          (let [authed?      @(subscribe [:auth/authenticated?])
+                selected-tag @(subscribe [:home/selected-tag])
+                page         @(subscribe [:home/page])
+                ss           @(subscribe [:session/scope])
+                feed-state   (when (and authed? ss)
+                               @(subscribe [:rf.resource/state {:resource :realworld/feed
+                                                                :scope   ss
+                                                                :params  {:page page}}]))
+                list-state   @(subscribe [:rf.resource/state {:resource :realworld/articles
+                                                              :params  {:tag selected-tag :page page}}])
+                visible      (fn [state]
+                               (when state
+                                 (or (:articles (:data state))
+                                     (:articles (:previous-data state)))))
+                articles     (concat (visible feed-state) (visible list-state))]
+            ;; Watch the favorite instance of every article currently visible on
+            ;; the home page (Your Feed AND the global list — a favorite on
+            ;; either may belong to a followed author, so the feed could carry
+            ;; it). A page is bounded (≤ page-size each), so the watch set stays
+            ;; small. When a toggle settles success, stale the session feed
+            ;; ONCE; a re-pending of the same instance re-arms the next fire.
+            (when authed?
+              (doseq [a articles]
+                (let [slug  (:slug a)
+                      inst  [:favorite slug]
+                      state @(subscribe [:rf.mutation/state {:instance inst}])]
+                  (when (and (:success? state) (not (contains? @seen inst)))
+                    (swap! seen conj inst)
+                    (dispatch [:ui/invalidate-session-feed]))
+                  (when (and (:pending? state) (contains? @seen inst))
+                    (swap! seen disj inst)))))))))
+      :component-will-unmount
+      (fn [_this]
+        (when @watcher (ratom/dispose! @watcher))
+        (reset! watcher nil)
+        (reset! seen #{}))
+      :reagent-render
+      (fn [] [home-page-view])})))
+
 ;; ============================================================================
 ;; ARTICLE DETAIL + COMMENTS
 ;; ============================================================================
@@ -338,7 +506,47 @@
                               :on-click #(dispatch [:comment/delete slug (:id comment)])}
          [:i.ion-trash-a]])]]))
 
-(reg-view article-page []
+(reg-view ^{:doc "Article-detail contextual controls (rf2-2xi8sr): the author
+                  byline plus the author's Follow/Unfollow for a non-author
+                  viewer, OR Edit (→ /editor/:slug) + Delete for the author.
+                  Logged-out viewers see the byline only. `article` is the
+                  unwrapped article map; `del-state` the delete instance view."}
+          article-meta [{:keys [article del-state]}]
+  (let [author    (:author article)
+        username  (:username author)
+        slug      (:slug article)
+        me        @(subscribe [:auth/user])
+        authed?   @(subscribe [:auth/authenticated?])
+        own?      (and me (= (:username me) username))]
+    [:div.article-meta
+     [rf/route-link {:to :realworld.profile/show :params {:username username}}
+      [:img {:src (:image author)}]]
+     [:div.info
+      [rf/route-link {:to :realworld.profile/show :params {:username username} :class "author"}
+       username]
+      [:span.date (:createdAt article)]]
+     (cond
+       own?
+       [:span
+        [rf/route-link {:to :realworld.editor/edit :params {:slug slug}
+                        :class "btn btn-sm btn-outline-secondary"
+                        :data-testid "article-edit"}
+         [:i.ion-edit] " Edit Article"]
+        " "
+        [:button.btn.btn-sm.btn-outline-danger
+         {:type "button" :data-testid "article-delete"
+          :disabled (:pending? del-state)
+          :on-click #(dispatch [:ui/delete-article slug])}
+         [:i.ion-trash-a] " Delete Article"]]
+
+       authed?
+       [:button.btn.btn-sm.btn-outline-secondary
+        {:type "button" :data-testid "article-follow-author"
+         :on-click #(dispatch [:ui/follow-author slug username (:following author)])}
+        [:i.ion-plus-round] " "
+        (if (:following author) "Unfollow " "Follow ") username])]))
+
+(reg-view article-page-view []
   (let [slug          (:slug @(subscribe [:rf.route/params]))
         current-user  @(subscribe [:auth/user])
         article-state @(subscribe [:rf.resource/state {:resource :realworld/article :params {:slug slug}}])
@@ -355,8 +563,10 @@
         (str "Couldn't load article: " (rh/failure->message (:error article-state)))]
 
        :else
-       (let [{:keys [slug title description body tagList favoritesCount favorited]} (:article (:data article-state))
-             fav-state @(subscribe [:rf.mutation/state {:instance [:favorite slug]}])]
+       (let [article   (:article (:data article-state))
+             {:keys [slug title description body tagList favoritesCount favorited]} article
+             fav-state @(subscribe [:rf.mutation/state {:instance [:favorite slug]}])
+             del-state @(subscribe [:rf.mutation/state {:instance [:delete-article slug]}])]
          [:<>
           [:div.banner
            [:div.container
@@ -364,18 +574,23 @@
             [:p {:data-testid "article-description"} description]
             (when (:fetching? article-state)
               [:span {:data-testid "article-refreshing"} " (refreshing…)"])
-            [:button.btn.btn-sm.btn-outline-primary
-             {:type "button" :data-testid "article-favorite"
-              :disabled (:pending? fav-state)
-              :on-click #(dispatch [:ui/favorite slug favorited])}
-             [:i.ion-heart] " "
-             [:span {:data-testid "article-favorites-count"} favoritesCount]]]]
+            [:span.article-controls
+             [:button.btn.btn-sm.btn-outline-primary
+              {:type "button" :data-testid "article-favorite"
+               :disabled (:pending? fav-state)
+               :on-click #(dispatch [:ui/favorite slug favorited])}
+              [:i.ion-heart] " "
+              [:span {:data-testid "article-favorites-count"} favoritesCount]]
+             " "
+             [article-meta {:article article :del-state del-state}]]]]
           [:div.container.page
            [:div.row.article-content
             [:div.col-md-12
              [:p {:data-testid "article-body"} body]
              (into [:ul.tag-list] (for [tag tagList] ^{:key tag} [:li.tag-default.tag-pill.tag-outline tag]))]]
            [:hr]
+           [:div.article-actions
+            [article-meta {:article article :del-state del-state}]]
            [:div.row
             [:div.col-xs-12.col-md-8.offset-md-2
              (if current-user
@@ -404,6 +619,62 @@
                      (for [c (:comments (:data comments-state))]
                        ^{:key (:id c)} [comment-card {:comment c :slug slug :current-user current-user}])))]]]]))
      [:p [rf/route-link {:to :realworld/home :data-testid "back-home"} "← Back to feed"]]]))
+
+(defn article-page
+  "The article-detail page. A Reagent Form-3 component: the inner render is the
+   pure `article-page-view`; mount reactions watch two settle continuations the
+   mutations can't express on the reply side (rf2-2xi8sr) —
+   (1) the `:delete-article` instance: on settle-success clear it + navigate
+   home (the `:realworld/delete-article` mutation has no reply-side
+   `:on-success`, so this rides the editor's settle-reaction idiom);
+   (2) the author `:follow` instance: on settle, stale `[:article slug]` so the
+   detail's embedded `:author.following` refetches (the follow mutation
+   invalidates `[:profile username]`, not the article).
+   `rf/frame-handle` is captured at render so the out-of-render dispatches carry
+   the frame; unmount disposes the reactions."
+  []
+  (let [{:keys [dispatch subscribe]} (rf/frame-handle)
+        deleted?      (atom false)
+        follow-synced (atom false)
+        watcher       (atom nil)]
+    (r/create-class
+     {:display-name "realworld-resources.views/article-page"
+      :component-did-mount
+      (fn [_this]
+        (reset!
+         watcher
+         (ratom/run!
+          (let [slug          (:slug @(subscribe [:rf.route/params]))
+                article-state (when slug
+                                @(subscribe [:rf.resource/state {:resource :realworld/article
+                                                                 :params {:slug slug}}]))
+                author-name   (get-in article-state [:data :article :author :username])
+                del           (when slug @(subscribe [:rf.mutation/state {:instance [:delete-article slug]}]))
+                follow        (when author-name
+                                @(subscribe [:rf.mutation/state {:instance [:follow author-name]}]))]
+            ;; (1) delete settled → clear + go home.
+            (when (and del (:success? del) (not @deleted?))
+              (reset! deleted? true)
+              (dispatch [:rf.mutation/clear {:instance [:delete-article slug]}])
+              (dispatch [:rf.route/navigate :realworld/home]))
+            ;; (2) author follow settled → re-stale the article so the embedded
+            ;; author flag refetches. Re-arm on the next pending so a later
+            ;; toggle fires again.
+            (when (and follow slug)
+              (cond
+                (and (:success? follow) (not @follow-synced))
+                (do (reset! follow-synced true)
+                    (dispatch [:ui/sync-article-after-follow slug]))
+                (:pending? follow)
+                (reset! follow-synced false)))))))
+      :component-will-unmount
+      (fn [_this]
+        (when @watcher (ratom/dispose! @watcher))
+        (reset! watcher nil)
+        (reset! deleted? false)
+        (reset! follow-synced false))
+      :reagent-render
+      (fn [] [article-page-view])})))
 
 ;; ============================================================================
 ;; PROFILE  —  two official tabs: My Articles / Favorited Articles
