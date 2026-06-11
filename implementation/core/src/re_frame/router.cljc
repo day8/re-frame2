@@ -1706,15 +1706,42 @@
                    (assoc :rf.event/after-deltas after-deltas)))
     ;; Sticky hook (rf2-f72pd) — always-on per-event observability fan-out
     ;; per rf2-rirbq; survives `:advanced` + `goog.DEBUG=false`.
-    (when-let [emit-event! (late-bind/get-fn-cached :event-emit/dispatch-on-event)]
-      (let [end-ms     (interop/now-ms)
-            elapsed-ms (long (max 0 (- end-ms start-ms)))]
-        (emit-event! emit-event
-                     event-id
-                     frame
-                     end-ms
-                     outcome
-                     elapsed-ms)))))
+    (let [emit-event!     (late-bind/get-fn-cached :event-emit/dispatch-on-event)
+          ;; EP-0015 §9 (rf2-t55hxg.7): the frame-owned observability sink
+          ;; route — the NORMAL production observation stream (Spec 015
+          ;; §The three observation streams, stream 3). Parallel to the
+          ;; corpus-wide event-emit listener fan-out above: this routes the
+          ;; handled-event record to THIS frame's declared `:observability
+          ;; :handled-events` sinks, projected under the frame's
+          ;; classification + the sink's egress profile. Also always-on
+          ;; (survives `:advanced` + `goog.DEBUG=false`); late-bound so the
+          ;; router carries no static dependency on `re-frame.observability`.
+          route-handled! (late-bind/get-fn-cached :observability/route-handled-event)]
+      (when (or emit-event! route-handled!)
+        (let [end-ms     (interop/now-ms)
+              elapsed-ms (long (max 0 (- end-ms start-ms)))]
+          (when emit-event!
+            (emit-event! emit-event
+                         event-id
+                         frame
+                         end-ms
+                         outcome
+                         elapsed-ms))
+          (when route-handled!
+            ;; The effect keys the cascade produced (`final-ctx`'s
+            ;; `:effects` map keys) ride the handled-event record's
+            ;; `:effects` summary slot; the dispatch-id (dev-only — nil
+            ;; under `goog.DEBUG=false`) rides `:correlation` when present.
+            (let [effects     (some-> (:effects final-ctx) keys vec)
+                  dispatch-id (some-> trace/*handler-scope* :dispatch-id)
+                  correlation (when dispatch-id {:dispatch-id dispatch-id})]
+              (route-handled! event
+                              event-id
+                              frame
+                              outcome
+                              elapsed-ms
+                              effects
+                              correlation))))))))
 
 (defn- run-handler-cascade!
   "Sequence the four cascade phases under the handler's
