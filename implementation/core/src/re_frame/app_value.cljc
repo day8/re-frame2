@@ -87,7 +87,9 @@
   bundle-isolation neutral. (It is never *called* on the hot path; in stage 5
   it is reached only by tests, so in a production app it is dead code Closure
   DCE removes.)"
-  (:require [re-frame.realm     :as realm]
+  (:require [clojure.set        :as set]
+            [re-frame.realm     :as realm]
+            [re-frame.registrar :as registrar]
             [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -530,6 +532,258 @@
           (when (some #(= % path) (get-in m [:owns :app-db]))
             mid))
         (:modules app-value)))
+
+;; ---- installation: seat an app value into a realm (EP-0013 D2 stage 7) -----
+;;
+;; The LAST D2 slice. `install!` seats an immutable app value as a realm's
+;; program; `reinstall!` hot-reloads a realm by diffing the new app value
+;; against the installed one and applying the delta. Together they close the
+;; D2 loop: the program is a value (stage 6 construction), and the runtime is a
+;; container you install it into (stage 7).
+;;
+;; Two responsibilities, in order (EP-0013 §Installation):
+;;   1. CAPABILITY CHECK — the app value's `:requires` (its `:rf.capability/*`
+;;      dependency surface) must be satisfiable by the realm's `:capabilities`
+;;      map. Fail LOUD (`:rf.error/missing-capability`) on the FIRST unmet
+;;      capability, BEFORE any registrar mutation — installation must validate
+;;      the app before making it visible (§Installation step 2: "validate that
+;;      the realm satisfies the app's capability requirements"; §Capability
+;;      maps: "installation fails if required capabilities are absent").
+;;   2. DERIVE THE REGISTRAR — lower every descriptor back into the registrar's
+;;      flat metadata shape and `register!` it, then record the seated app value
+;;      in the realm's `:app` slot. The public contract is value replacement at
+;;      the realm boundary (§Installation: "An implementation MAY mutate
+;;      internal cells during installation; the public contract is value
+;;      replacement at the realm boundary, not process-global table mutation as
+;;      an architectural primitive").
+;;
+;; ## Zero ergonomic regression — the default-realm `reg-*` sugar path is UNTOUCHED
+;;
+;; `install!` is the EXPLICIT seating path. The ordinary namespace-load `reg-*`
+;; sugar path stays exactly as it was: a `reg-*` call writes the default realm's
+;; registrar in place, and the next `installed-app` projection reflects it
+;; (EP-0013 §Default Realm And `reg-*` Sugar — sugar updates the default realm's
+;; app value in place). `install!` does not run on the registration hot path,
+;; touches nothing a `reg-*` call touches except through the same
+;; `registrar/register!` it already uses, and the projection seam (stage 5) is
+;; unchanged. Construction (stage 6) and the sugar path remain byte-identical.
+
+(defn descriptor->registration-metadata
+  "Lower an app-value registration descriptor back into the registrar's flat
+  metadata shape — the inverse of `descriptor` / `module-descriptor`. Re-flattens
+  the `:source` coordinate envelope into the flat `:ns`/`:file`/`:line`/`:column`
+  slots, re-seats the handler under `:handler-fn`, folds the `:metadata` map back
+  to top level, and carries the `:owner` (module provenance) through so the
+  realm's registrar records which module installed each registration. Pure —
+  a function of the descriptor only. INTERNAL."
+  [{:keys [handler source metadata owner]}]
+  (cond-> (merge metadata source)
+    (some? handler) (assoc :handler-fn handler)
+    (some? owner)   (assoc :owner owner)))
+
+(defn- realm-capabilities
+  "The realm's capability map (`:rf.capability/* → service`), or `{}` when the
+  realm seats none. INTERNAL."
+  [rid]
+  (get (realm/realm rid) :capabilities {}))
+
+(defn- check-capabilities!
+  "Validate that `realm-id`'s capability map satisfies every `:rf.capability/*`
+  the app value `:requires`. Throws `:rf.error/missing-capability` (an ex-info
+  whose ex-data IS the diagnostic — issue 7) on the FIRST unmet capability,
+  naming the realm + the missing capability, BEFORE any registrar mutation
+  (EP-0013 §Installation step 2 / §Capability maps). A no-op when the app
+  requires nothing. INTERNAL."
+  [rid app]
+  (let [have (set (keys (realm-capabilities rid)))]
+    (doseq [cap (app-requires app)]
+      (when-not (contains? have cap)
+        (throw (ex-info (str "rf/install!: realm " rid
+                             " does not satisfy required capability " cap)
+                        {:error/id   :rf.error/missing-capability
+                         :realm      rid
+                         :capability cap
+                         :required   (app-requires app)
+                         :available  have
+                         :recovery   :install-capability}))))))
+
+(defn- registrations-seq
+  "Flatten an app value's `:registrations` (`kind → id → descriptor`) into a
+  seq of `[kind id descriptor]` triples. INTERNAL."
+  [app]
+  (for [[kind id->desc] (:registrations app)
+        [id desc]       id->desc]
+    [kind id desc]))
+
+(defn- register-descriptor!
+  "Seat one descriptor into the realm's registrar so it is dispatch/resolve-
+  ready. A CONSTRUCTED descriptor (high-level `module` form) must be lowered
+  through its kind's real registration logic (the event interceptor wrap, the
+  sub input-signal parse, …) — that logic lives in `re-frame.events` / `.subs`
+  / `.fx` / `.cofx`, which this leaf ns must not require, so it is reached
+  through the `:app-value/install-descriptor!` late-bind hook core publishes.
+  When the hook handles the kind it returns truthy; otherwise (a projected
+  descriptor — whose `:metadata` already carries the wrapped slots — or a kind
+  the hook does not special-case, or the hook being unbound) fall back to the
+  flat registrar lowering, which round-trips a projected descriptor unchanged.
+  INTERNAL."
+  [kind id desc]
+  (let [lower (late-bind/get-fn :app-value/install-descriptor!)]
+    (when-not (and lower (lower kind id desc))
+      (registrar/register! kind id (descriptor->registration-metadata desc)))))
+
+(defn install!
+  "Seat an immutable app VALUE into a realm — make `app`'s registrations the
+  program `realm-or-id` dispatches/subscribes/resolves against (EP-0013 D2
+  stage 7, §Installation). PUBLIC (`rf/install!`).
+
+  Two steps, in order:
+
+    1. CAPABILITY CHECK — every `:rf.capability/*` in `(app-requires app)` must
+       be present in the realm's `:capabilities` map. The FIRST unmet one
+       THROWS `:rf.error/missing-capability` (naming the realm + capability)
+       BEFORE any registrar mutation, so an under-provisioned app never becomes
+       partially visible (§Installation step 2; §Capability maps).
+    2. DERIVE THE REGISTRAR — lower every descriptor back to the registrar's
+       flat metadata and `register!` it into the realm's registrar (firing the
+       ordinary hot-reload hooks + `:rf.registry/handler-registered` trace per
+       Spec 001), then record the seated app value in the realm's `:app` slot.
+
+  `realm-or-id` defaults to the default realm — `(install! app)` seats `app`
+  into the process default realm, byte-identical to having registered the same
+  ids through the `reg-*` sugar path (the EP-0013 §Default Realm rule). Returns
+  the realm map after install (its `:app` slot now holds `app`), so the call
+  composes — `(-> realm (install! app))`.
+
+  The ordinary `reg-*` sugar path is UNCHANGED: it writes the default realm's
+  registrar in place, and the projection reflects it for free. `install!` is the
+  EXPLICIT seating path for a constructed (stage-6) app value; it does not run
+  on the registration hot path."
+  ([app] (install! realm/default-realm-id app))
+  ([realm-or-id app]
+   (let [rid (realm/realm-id realm-or-id)]
+     ;; (1) capability check FIRST — fail loud before any mutation.
+     (check-capabilities! rid app)
+     ;; (2) derive the registrar, then record the seated value at the realm
+     ;; boundary. Each descriptor is lowered through its kind's real
+     ;; registration logic (so a constructed handler becomes dispatch-ready),
+     ;; writing the realm's `(kind, id) → metadata` table — so this is value
+     ;; replacement at the realm boundary, not a new global-mutation primitive.
+     (doseq [[kind id desc] (registrations-seq app)]
+       (register-descriptor! kind id desc))
+     (realm/set-installed-app! rid app))))
+
+;; ---- reinstall: hot-reload a realm as an app-value diff --------------------
+;;
+;; `reinstall!` models hot reload as replacing one app value with another in the
+;; same realm (EP-0013 §Hot Reload And Reinstall). It diffs the new app value
+;; against the installed one and applies the delta:
+;;   :added   — (kind, id) in NEW but not OLD → register
+;;   :changed — (kind, id) in BOTH, different descriptor → re-register (the
+;;              registrar's hot-reload replacement path fires + traces)
+;;   :removed — (kind, id) in OLD but not NEW → unregister (removed
+;;              registrations fail loudly on future lookup — §Hot Reload rule)
+;; then records the new app value in the realm's `:app` slot. Returns the diff
+;; (the same `{:realm :added :changed :removed}` shape the EP's example shows),
+;; so a dev tool can show what a save changed. The diff is the value; trace +
+;; cache invalidation ride the registrar's existing hot-reload surface (a
+;; re-register fires the replacement hooks subs.cljc already uses to invalidate
+;; its cache — §Hot Reload: "changed subscriptions invalidate the relevant
+;; caches", "future lookups use the new registrar").
+;;
+;; This is the descriptor-only first slice (EP-0013 issue 12: the first reinstall
+;; slice is descriptor-only). Live-instance migration (active machines /
+;; resources / route transitions whose runtime state would need migrating) is a
+;; later slice; the per-kind hot-reload rules each subsystem already honours
+;; (active machine instances continue with their captured spec, etc.) are
+;; unchanged.
+
+(defn- diff-registrations
+  "Diff two `:registrations` maps (`kind → id → descriptor`) into added /
+  changed / removed `[kind id]` vectors. `:added` = in NEW not OLD; `:changed` =
+  in BOTH with a different descriptor value; `:removed` = in OLD not NEW.
+  Order-stable (sorted by kind then id) so the diff is a deterministic value.
+  INTERNAL."
+  [old-regs new-regs]
+  (let [old-keys (set (for [[k m] old-regs [id _] m] [k id]))
+        new-keys (set (for [[k m] new-regs [id _] m] [k id]))
+        added    (sort (set/difference new-keys old-keys))
+        removed  (sort (set/difference old-keys new-keys))
+        changed  (sort (for [[k id] (set/intersection old-keys new-keys)
+                             :when (not= (get-in old-regs [k id])
+                                         (get-in new-regs [k id]))]
+                         [k id]))]
+    {:added   (vec added)
+     :changed (vec changed)
+     :removed (vec removed)}))
+
+(defn reinstall!
+  "Hot-reload a realm by replacing its installed app VALUE with `new-app` —
+  diff the new app value against the installed one and apply the delta
+  (EP-0013 D2 stage 7, §Hot Reload And Reinstall). PUBLIC (`rf/reinstall!`).
+
+  Unlike `install!` (which seats a program into a realm that has none),
+  `reinstall!` REPLACES the realm's current program with a minimal delta:
+
+    * `:added`   `[kind id]` present in `new-app` but not the installed app →
+                 `register!`ed;
+    * `:changed` `[kind id]` in both with a DIFFERENT descriptor → re-registered
+                 (the registrar's hot-reload replacement path fires its
+                 hooks + `:rf.registry/handler-replaced` trace, so changed
+                 subscriptions invalidate their caches via the existing
+                 replacement-hook surface);
+    * `:removed` `[kind id]` in the installed app but not `new-app` →
+                 `unregister!`ed (a removed registration fails loudly on future
+                 lookup, per the §Hot Reload rules).
+
+  Then records `new-app` in the realm's `:app` slot and returns the DIFF — the
+  `{:realm :reason :added :changed :removed}` value the EP's example shows
+  (`:reason` echoes `opts`' `:reason`, defaulting to `:hot-reload`), so a dev
+  tool can show what a save changed.
+
+  Re-running the capability check on the new app (its `:requires` must still be
+  satisfiable) preserves the install invariant across the reload — a reinstall
+  that adds an unmet capability requirement THROWS `:rf.error/missing-capability`
+  before any mutation, exactly as `install!` would.
+
+  Descriptor-only slice (EP-0013 issue 12): the diff is over registration
+  descriptors; live-instance migration (active machines/resources that would
+  need state migration) is a later slice and the per-kind hot-reload rules each
+  subsystem already honours are unchanged.
+
+  Arities (the realm is the LEADING positional when present, matching
+  `install!` + the EP's `(reinstall! shop-realm new-app {:reason …})` examples):
+    `(reinstall! new-app)`             — default realm, no opts;
+    `(reinstall! realm new-app)`       — explicit realm, no opts;
+    `(reinstall! realm new-app opts)`  — explicit realm + `opts` (`:reason`).
+  To pass `opts` against the default realm, name it explicitly:
+  `(reinstall! re-frame.realm/default-realm-id new-app opts)`."
+  ([new-app] (reinstall! realm/default-realm-id new-app nil))
+  ([realm-or-id new-app] (reinstall! realm-or-id new-app nil))
+  ([realm-or-id new-app opts]
+   (let [rid     (realm/realm-id realm-or-id)
+         ;; The installed app — the stored `:app` if a prior install! seated
+         ;; one, else the recomputable projection of the realm's registrar
+         ;; (so the FIRST reinstall after a pure-sugar boot still diffs against
+         ;; the live program).
+         old-app (realm/installed-app rid)
+         diff    (diff-registrations (:registrations old-app)
+                                     (:registrations new-app))]
+     ;; The capability invariant holds across reloads too — fail loud before
+     ;; any mutation if the new app raises a requirement the realm can't meet.
+     (check-capabilities! rid new-app)
+     ;; Apply the delta. Added + changed re-derive the registrar slot from the
+     ;; new descriptor (lowered through its kind's real registration logic, so a
+     ;; reloaded handler is dispatch-ready + the registrar's hot-reload
+     ;; replacement hooks fire); removed unregister (future lookups fail loudly).
+     (doseq [[kind id] (concat (:added diff) (:changed diff))]
+       (register-descriptor! kind id (get-in new-app [:registrations kind id])))
+     (doseq [[kind id] (:removed diff)]
+       (registrar/unregister! kind id))
+     (realm/set-installed-app! rid new-app)
+     (assoc diff
+            :realm  rid
+            :reason (get opts :reason :hot-reload)))))
 
 ;; ---- the realm-side installed-app seam (the late-bind bridge) --------------
 ;;
