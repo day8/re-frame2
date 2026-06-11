@@ -25,6 +25,16 @@
             [re-frame.adapter.uix-source-coord-dom-elision-prod-test]
             [re-frame.adapter.helix-source-coord-dom-elision-prod-test]
             [re-frame.on-error-elision-prod-test]
+            ;; Per rf2-9pxj70 — the three EP-0008-promoted always-on
+            ;; teardown / write-race rows
+            ;; (`:rf.error/frame-teardown-failed`,
+            ;; `:rf.error/write-after-destroy`,
+            ;; `:rf.error/on-destroy-handler-exception`) were exercised
+            ;; only by the DEV `:node-test` runner; this pins their
+            ;; production-survival under `:advanced` + `goog.DEBUG=false`,
+            ;; matching the older always-on rows in
+            ;; `on-error-elision-prod-test`.
+            [re-frame.teardown-always-on-elision-prod-test]
             [re-frame.event-emit-elision-prod-test]
             ;; Per rf2-gmrks — `:rf.error/flow-eval-exception` rides
             ;; the always-on error-emit substrate (Spec 013 §Failure
