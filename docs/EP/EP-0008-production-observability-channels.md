@@ -21,29 +21,53 @@ Type: standards-track
 
 ## Implementation errata
 
-The EP decisions are final (Spec 009 carries the graduated normative text). The
-build that follows the decision-freeze is tracked here; **these rows are open**
-and are struck as they close. None of them reopens any ruling.
+The EP decisions are final (Spec 009 carries the graduated normative text) and
+the decision-freeze build has shipped: **every tracked erratum below is closed.**
+This section is kept as a closed record of the build-completion work that
+followed the freeze; none of it reopens any ruling.
 
-- **`rf2-ini4wr`** *(open — impl)* — the frame-teardown report: a single always-on
-  `:rf.error/frame-teardown-failed` record carrying a `:hook-failures` vector,
-  emitted from `destroy-frame!` through a **finally-shaped** boundary so a
+### Resolved errata
+
+The impl / audit / conformance / guide / review errata below are **fixed**; they
+are kept here as a closed record and no longer reopen any ruling:
+
+- **`rf2-ini4wr`** *(fixed — PR #3860, impl)* — the frame-teardown report: a single
+  always-on `:rf.error/frame-teardown-failed` record carrying a `:hook-failures`
+  vector, emitted from `destroy-frame!` through a **finally-shaped** boundary so a
   partial teardown (abort after hook 3 of 7) still flushes the collected entries.
   The dev-only per-hook diagnostic (`:rf.warning/teardown-hook-exception`) stays
   at its causal positions inside `safe-call-hook!` and DCE-elides in production.
-- **`rf2-iq51qu`** *(open — audit)* — grade the full `:rf.error/*` / `:rf.warning/*`
-  catalogue against the promotion criterion; file promotion-fix beads for any
-  gaps the sweep finds. Teardown was the known first row (now resolved by the
-  report shape, above); the audit covers the rest.
-- **`rf2-sgz1zq`** *(open — conformance)* — the catalogue/channel pin: every
-  emitted category appears in the Spec 009 catalogue with a channel, and every
+- **`rf2-iq51qu`** *(fixed — audit)* — graded the full `:rf.error/*` /
+  `:rf.warning/*` catalogue against the promotion criterion and filed promotion-fix
+  beads for the gaps the sweep found. Teardown was the known first row (resolved by
+  the report shape, above); the audit covered the rest and spun off the follow-ups
+  noted below.
+- **`rf2-sgz1zq`** *(fixed — PR #3872, conformance)* — the catalogue/channel pin:
+  every emitted category appears in the Spec 009 catalogue with a channel, and every
   always-on category is exercised through the error-emit listener in at least one
   test (so promotion is real, not documentary).
-- **`rf2-6jpqkq`** *(open — docs/guide)* — extend the production-observability
-  guide material with the three-channel model, the JVM `re-frame.debug`
-  default-on caveat, the promotion criterion, and the teardown-report example.
-- **`rf2-8k9vk2`** *(open — review)* — correctness + completeness review of the
-  whole EP-0008 wave against this EP and Mike's ruling; file follow-ups.
+- **`rf2-6jpqkq`** *(fixed — PR #3857, docs/guide)* — extended the
+  production-observability guide material with the three-channel model, the JVM
+  `re-frame.debug` default-on caveat, the promotion criterion, and the
+  teardown-report example.
+- **`rf2-8k9vk2`** *(fixed — review)* — correctness + completeness review of the
+  whole EP-0008 wave against this EP and Mike's ruling; follow-ups filed.
+
+### Open follow-ups
+
+The `rf2-iq51qu` audit promoted GAP-1 (`rf2-500ech`, `write-after-destroy`) and
+GAP-3 (`rf2-7b9r4l`, `on-destroy-handler-exception`) onto the always-on axis —
+both **fixed** and closed. Two items remain genuinely open and do **not** reopen
+any ruling:
+
+- **`rf2-hhutya`** *(open — operator decision)* — the SSR-specific recoverable
+  degradation members (`ssr-head-resolution-failed`, `sanitised-on-projection`)
+  ride only the DCE'd / JVM-gated `trace/emit-error!`; whether the deliberate
+  degraded-200 path should also surface off-box telemetry is a call for Mike, not
+  a silent drop.
+- **`rf2-r8oiw7`** *(open — catalogue hygiene, P4)* — co-edit-invariant gap:
+  several emitted-but-uncatalogued `:rf.*` categories should appear in the Spec 009
+  catalogue. These all fail the promotion criterion (not promotion gaps).
 
 ## Abstract
 
