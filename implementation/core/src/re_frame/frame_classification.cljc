@@ -59,8 +59,15 @@
   - **`:observability`** (`:handled-events` / `:errors`) is durable frame
     sink policy, likewise retained on the frame's `:config`. This slice
     validates its shape (each entry a map naming a `:sink` keyword);
-    routing production records through the declared sinks is the EP-0015
-    observability slice (bead-plan item 7).
+    ROUTING production records through the declared sinks — the EP-0015 §9
+    central claim — is now LIVE in `re-frame.observability` (bead-plan
+    item 7, rf2-t55hxg.7): the router fires
+    `:observability/route-handled-event` once per processed event and
+    `error-emit/dispatch-on-error!` fires `:observability/route-error` per
+    `:rf.error/*` site, each projecting the record through `project-egress`
+    under THIS frame's classification + the entry's `:rf.egress/profile`
+    before the declared sink (registered via `reg-observability-sink!`)
+    sees it. This slice owns the `:config` shape the router reads.
 
   ## Sensitive wins over large
 

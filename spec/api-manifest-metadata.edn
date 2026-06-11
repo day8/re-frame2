@@ -533,6 +533,14 @@
   ["re-frame.core" "elide-wire-value"]                  {:tier :tooling  :owner "009" :status "v1"}
   ;; Record-level egress projection (EP-0015 §10/§11 — rf2-yjbr1w).
   ["re-frame.core" "project-egress"]                    {:tier :tooling  :owner "015" :status "v1"}
+  ;; Frame-owned observability sink registry (EP-0015 §9 — rf2-t55hxg.7).
+  ;; The NORMAL production observability story: an app registers a concrete
+  ;; sink fn against the keyword id its frame :observability config names;
+  ;; the runtime routes projected handled-event/error records to it. :tooling
+  ;; (a production-observability integration surface, not a front-porch app
+  ;; primitive), owned by Spec 015.
+  ["re-frame.core" "reg-observability-sink!"]           {:tier :tooling  :owner "015" :status "v1"}
+  ["re-frame.core" "unregister-observability-sink!"]    {:tier :tooling  :owner "015" :status "v1"}
   ["re-frame.core" "elision-declarations"]              {:tier :tooling  :owner "009" :status "v1"}
   ["re-frame.core" "elision-sensitive-declarations"]    {:tier :tooling  :owner "009" :status "v1"}
   ["re-frame.core" "sensitive?"]                        {:tier :tooling  :owner "009" :status "v1"}
