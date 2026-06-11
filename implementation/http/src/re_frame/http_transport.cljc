@@ -103,13 +103,23 @@
   `re-frame.http-reply` consumes to build a canonical reply map. Reads the
   host completion clock ONCE here, at finalisation, and threads it as
   `:completed-at` (the reply handler MUST NOT re-read the clock —
-  Managed-Effects §Causal completion metadata)."
+  Managed-Effects §Causal completion metadata).
+
+  EP-0010 §Time (rf2-2elcw3): `:completed-at` is DURABLE causal time — it
+  flows through `:rf.world/inputs` `:time-ms` into resource `:loaded-at` /
+  `:stale-at` and mutation `:settled-at`, which freshness readers compare
+  against `js/Date.now`. It MUST therefore be wall-clock epoch ms
+  (`epoch-now-ms`), NOT `now-ms` — on CLJS `now-ms` is `performance.now()`
+  (origin-relative), so a `now-ms`-stamped `:stale-at` reads stale
+  immediately against `js/Date`. This is the transport boundary the
+  router's fresh-token fix (427f260d3 / rf2-n1rh0f) deliberately preserves
+  as the host-clock read; converting it here completes that fix."
   [ctx]
   {:request-id   (:request-id ctx)
    :origin-event (:origin-event ctx)
    :attempt      (:attempt ctx)
    :frame        (:frame ctx)
-   :completed-at (interop/now-ms)})
+   :completed-at (interop/epoch-now-ms)})
 
 ;; rf2-ee38b.7 — the failure-reply and success-reply dispatch shapes were
 ;; spelled out inline at four / two sites across finalise-success!,
