@@ -922,17 +922,30 @@
           ;; map, no separate capture path needed. Gated on
           ;; `interop/debug-enabled?` so production CLJS builds DCE
           ;; the call-site read.
+          ;;
+          ;; rf2-inkdqh: the gate MUST be the OUTERMOST form (the canonical
+          ;; `(if interop/debug-enabled? <stamped> <plain>)` shape per Spec
+          ;; 009 §Production builds), NOT an `(and interop/debug-enabled?
+          ;; ...)` test in a `cond->` step. A `cond->` test-position gate
+          ;; leaves the `:rf.trace/call-site` keyword literal reachable in
+          ;; the assoc form — Closure does not constant-fold it away under
+          ;; `:advanced` + `goog.DEBUG=false`, so the keyword survived into
+          ;; production bundles (caught by the elision-probe once the frame-
+          ;; registration path was rooted — see
+          ;; `re-frame.elision-probe/touch-teardown!`). Splitting the gate
+          ;; to the outermost `if` lets DCE prove the whole dev arm dead.
           (when-let [on-create (:on-create config)]
-            (let [init-opts (cond-> {:frame  id
-                                     :source :frame-init}
-                              (and interop/debug-enabled?
-                                   (or (:file config) (:line config)))
-                              (assoc :rf.trace/call-site
-                                     (cond-> {}
-                                       (:ns     config) (assoc :ns     (:ns     config))
-                                       (:file   config) (assoc :file   (:file   config))
-                                       (:line   config) (assoc :line   (:line   config))
-                                       (:column config) (assoc :column (:column config)))))]
+            (let [init-opts (if interop/debug-enabled?
+                              (cond-> {:frame  id
+                                       :source :frame-init}
+                                (or (:file config) (:line config))
+                                (assoc :rf.trace/call-site
+                                       (cond-> {}
+                                         (:ns     config) (assoc :ns     (:ns     config))
+                                         (:file   config) (assoc :file   (:file   config))
+                                         (:line   config) (assoc :line   (:line   config))
+                                         (:column config) (assoc :column (:column config)))))
+                              {:frame id :source :frame-init})]
               (if trace/*handler-scope*
                 ;; Handler-created child frame (a cascade is in flight):
                 ;; async-queue on the child.

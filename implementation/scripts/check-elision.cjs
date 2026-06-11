@@ -334,6 +334,20 @@ const DEV_ONLY_SENTINELS = [
   // `data-rf-view` (the real DOM API used by re-frame-pair and the
   // view-walker) ride the same wrapper unchanged and remain covered
   // by their own sentinels above.
+  // re-frame.frame/safe-call-hook! — :rf.warning/teardown-hook-exception
+  // per-hook DEV DIAGNOSTIC trace (EP-0008 R2, rf2-x3m8c / rf2-inkdqh).
+  // When a late-bound cleanup hook throws during destroy-frame!,
+  // safe-call-hook! emits this per-hook diagnostic AT ITS CAUSAL POSITION
+  // via trace/emit-error!, whose body is gated on
+  // `(when interop/debug-enabled? ...)`. The always-on side (the bounded
+  // :rf.error/frame-teardown-failed report) intentionally SURVIVES prod;
+  // this R2 per-hook diagnostic must DCE. The elision-probe's
+  // `touch-teardown!` installs a throwing hook and calls destroy-frame! so
+  // the gated emit body — including this operation keyword's string
+  // fragment — is in the reachability graph: the control build
+  // (DEBUG=true) contains it, the production build (DEBUG=false) must not.
+  { source: 're-frame.frame/safe-call-hook! (rf.warning/teardown-hook-exception)',
+    sentinel: 'rf.warning/teardown-hook-exception' },
   // re-frame.adapter.context — Context displayName for React DevTools'
   // Context inspector (Spec 006 §React DevTools support, rf2-fa4ly).
   // The "rf2-frame" literal sits inside `(when interop/debug-enabled?
