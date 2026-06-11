@@ -120,7 +120,7 @@ The Resources tab is a Dynamic L3 tab (`:rf.xray/selected-tab`
 `:resources`, mnemonic `s`, order 7 — after Routing). The view
 (`panels/resources.cljs`) is pure hiccup over the single composite sub
 `:rf.xray/resources-tab-data`; the projection algebra is pure data in
-`panels/resources_helpers.cljc` (JVM-portable, unit-tested). Eight
+`panels/resources_helpers.cljc` (JVM-portable, unit-tested). Eleven
 stacked sections:
 
 1. **Static resource registry** — per registered resource: id, source
@@ -129,6 +129,16 @@ stacked sections:
    GC policy, tag-producer presence, scope policy, sensitivity/large
    class, and the **declaring routes** (cross-joined from the route
    registry's `:resources` metadata).
+1b. **Named scope resolvers** (EP-0016 D3) — per `reg-resource-scope`
+   resolver: its id, its **declared inputs** (the `[:db path]` source per
+   input name, paths summarized — the structural fact that explains which
+   app facts decide a resource identity), and the **whole-db cost flag**
+   (the explicit-cost fn-sugar marker — EP-0015 disposition 8: whole-db
+   sugar degrades both narrow re-resolution and sensitivity-inheritance
+   precision). Per-resolution input VALUES + the resolved scope are NOT
+   here (a static declaration carries no PII) — they surface in the scope
+   resolution timeline (§6b) off the egress-projected
+   `:rf.resource/scope-resolved` trace.
 2. **Live instances** (per frame) — per cache entry: resource key
    (scope + params summarized), status, derived `:stale?`, `:has-data?`,
    data summary, error / refresh-error summaries, `:loaded-at` /
@@ -167,6 +177,35 @@ stacked sections:
    rows: summarized scope, the invalidated tags, summarized cause, the
    matched scoped keys, the match count (distinguishes a broad-tag storm
    and a zero-match "no match in this scope"), and the refetch count.
+6b. **Scope resolution timeline** (EP-0016 D3) — the
+   `:rf.resource/scope-resolved` rows: which named resolver ran, its
+   declared input names, the resolved scope (summarized — a scope carries
+   PII), and the **fail-closed nil evidence** (`:resolved-nil?` — the
+   scope-requiring site got nil and produced NO global fallback). The
+   visible proof that derived scope is explicit and inspectable, and that
+   nil fails closed (Spec 016 §Named resource-scope resolvers — scope is a
+   leak boundary).
+6c. **Mutation continuations + scoped invalidation** (EP-0016 D1/D2) — two
+   stacked surfaces making the EP-0016 doctrine visible ("reply-to is for
+   workflow; populate/patch/invalidate are for cache"):
+   - the **descriptor-level invalidation evidence** off the
+     `:rf.mutation/succeeded` / `:rf.mutation/failed` settlement traces
+     (the `:invalidation` plan-trace): the descriptor count, the
+     per-descriptor **resolved scope** (summarized) + tags +
+     `:cross-scope?` (the audited scope-agnostic escape) +
+     `:refetch-populated?` (the Rider-1 partial-reply opt-in), the
+     **fail-closed `:unresolved`** `{:from-db …}` ids (descriptors that
+     resolved nil and produced NO invalidation — never an implicit global
+     blast), and the Rider-1 **`:populate-exempt`** keys (the keys this
+     mutation populated that are exempt from its own refetch). Surfaces
+     the favorite/unfavorite global+session shape precisely;
+   - the **`:reply-to` continuation dispatch** off the
+     `:rf.mutation/replied` trace (mutation phase 6, after cache
+     consequences + instance settlement): the mutation id, instance, work
+     id, the accepted reply `:status`, and the call-site `:reply-to` event
+     **target**. A row here is positive evidence the accepted reply
+     continued into app workflow; a stale/superseded reply never fires one
+     (it appears as `:rf.mutation/stale-suppressed` instead).
 7. **Cache growth** — per-resource aggregate of entry count, owned
    count, and GC-eligible count, plus the totals + live-work count.
    Surfaces unbounded list-param growth (many entries, few owners).
@@ -206,6 +245,7 @@ against [Spec 009 §Where trace emission lives](../../../spec/009-Instrumentatio
 | Operation | Class | Emit site |
 |---|---|---|
 | `:rf.resource/registered` | lifecycle | `registry.cljc` (first-time `reg-resource`) |
+| `:rf.resource/scope-resolved` | lifecycle | `scope_registry.cljc` (a named `reg-resource-scope` resolver resolved a `{:from-db …}` reference — EP-0016 D3; carries the resolver id, declared input names + values, whole-db flag, the resolved scope, and `:resolved-nil?`) |
 | `:rf.resource/owner-attached` | lifecycle | `events.cljc` (ensure — a new lease lands) |
 | `:rf.resource/cache-hit` | dedupe | `events.cljc` (ensure — fresh-skip cache serve) |
 | `:rf.resource/deduped` | dedupe | `events.cljc` (ensure — join in-flight work) |
@@ -314,7 +354,7 @@ No event registered here dispatches a `:rf.resource/*` event (read-only).
 | `:rf.xray/resource-work-ledger` | `:rf.xray/target-frame-runtime-db`, override | the live work-ledger map at `[:rf.runtime/work-ledger]`. |
 | `:rf.xray/resource-sub-reads` | override | observed live subscription reads backing the scope-mismatch lint (empty by default). |
 | `:rf.xray/resource-routing-slice` | `:rf.xray/target-frame-runtime-db`, override | the live routing-runtime subtree at `[:rf.runtime/routing]` (current route + nav-token + per-nav-token unsettled-blocking set) backing the live route/resource graph. |
-| `:rf.xray/resources-tab-data` | the six above + `:rf.xray/trace-buffer` + the route registry | the view-facing composite: `{:silent? :registry :scope-resolvers :instances :work :live-work :stale-races :stale-tally :route-graph :timeline :invalidations :cache-growth :audit}`. Its `:scope-resolvers` is the projected named-scope-resolver registry (id + declared inputs + whole-db cost flag, paths summarized, NO resolved value); `:route-graph` joins the static route plan against the live instance/work rows + routing slice. The `:live-work` / `:stale-races` / `:stale-tally` slots are the UNIFORM reply-envelope reads (see below). |
+| `:rf.xray/resources-tab-data` | the six above + `:rf.xray/trace-buffer` + the route registry | the view-facing composite: `{:silent? :registry :scope-resolvers :instances :work :live-work :stale-races :stale-tally :route-graph :timeline :invalidations :scope-resolutions :mutation-invalidations :continuations :cache-growth :audit}`. Its `:scope-resolvers` is the projected named-scope-resolver registry (id + declared inputs + whole-db cost flag, paths summarized, NO resolved value); `:scope-resolutions` is the `:rf.resource/scope-resolved` resolution timeline (resolver id + resolved scope summarized + fail-closed nil evidence — EP-0016 D3); `:mutation-invalidations` is the descriptor-level invalidation evidence off the mutation settlement traces (per-descriptor resolved scope + fail-closed `:unresolved` + Rider-1 `:populate-exempt` — EP-0016 D2); `:continuations` is the `:rf.mutation/replied` call-site `:reply-to` dispatch evidence (EP-0016 D1). `:route-graph` joins the static route plan against the live instance/work rows + routing slice. The `:live-work` / `:stale-races` / `:stale-tally` slots are the UNIFORM reply-envelope reads (see below). |
 
 ### Events (test-only override hooks)
 
@@ -340,7 +380,12 @@ The resource family is the only ledger writer today, so the rows are all
 `:work/kind :resource` (and `:mutation`) for now; as HTTP / route /
 machine / timer families write their own ledger rows and emit their
 reply-envelope trace ops, these surfaces pick them up with no panel
-change. The contract is owned by
+change. The mutation phase ops are explicitly classified onto the
+reply-envelope phases (EP-0016 D1): `:rf.mutation/started` → `:issued`,
+`:rf.mutation/succeeded` / `:rf.mutation/failed` → `:completed`,
+`:rf.mutation/stale-suppressed` → `:stale-suppressed`, and
+`:rf.mutation/replied` (the `:reply-to` continuation dispatch) →
+`:delivered`. The contract is owned by
 [`013-Trace-Consumer.md` §One work/reply vocabulary](013-Trace-Consumer.md#one-workreply-vocabulary--reading-the-uniform-reply-envelope);
 this panel is one consumer.
 

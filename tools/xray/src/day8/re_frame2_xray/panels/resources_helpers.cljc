@@ -105,7 +105,10 @@
 ;;
 ;; The runtime EMITS these rows across the resource artefact —
 ;; `:rf.resource/registered` (`registry.cljc`, frame-agnostic),
-;; `:owner-attached` / `:cache-hit` / `:deduped` / `:fetch-started` /
+;; `:rf.resource/scope-resolved` (`scope_registry.cljc` — a named
+;; resource-scope resolver resolved an `{:from-db …}` reference to a
+;; concrete scope (or nil); EP-0016 D3 / Spec 016 §Named resource-scope
+;; resolvers), `:owner-attached` / `:cache-hit` / `:deduped` / `:fetch-started` /
 ;; `:work-started` (`events.cljc` ensure path), `:invalidated`,
 ;; `:refetch-decision`, `:revalidate-scan` (focus/reconnect scan summary),
 ;; `:owner-released`, `:removed`, `:succeeded` / `:failed` /
@@ -154,6 +157,7 @@
   and `:hydration`. Per Spec 016 §Xray and AI tooling (the trace-family
   enumeration)."
   {:rf.resource/registered           {:class :lifecycle    :label "registered"}
+   :rf.resource/scope-resolved       {:class :lifecycle    :label "scope resolved"}
    :rf.resource/owner-attached       {:class :lifecycle    :label "owner attached"}
    :rf.resource/cache-hit            {:class :dedupe       :label "cache hit"}
    :rf.resource/deduped              {:class :dedupe       :label "deduped"}
@@ -919,6 +923,163 @@
                   :matched     (mapv scoped-key-summary matched)
                   :match-count (count matched)
                   :refetched   (or (:refetched tags) 0)})))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0016 D3 — named scope-resolver resolution timeline (Spec 016 §Named
+;; resource-scope resolvers / §Trace evidence). The runtime emits
+;; `:rf.resource/scope-resolved` whenever a named resolver resolves a
+;; `{:from-db …}` reference (route entry, event ensure, subscription read,
+;; invalidation descriptor, the pure `resolve-resource-scope` helper). Each row
+;; explains WHICH resolver ran, the declared input NAMES that decided the
+;; identity, the resolved scope (PRIVACY-summarized — a scope carries PII), and
+;; whether the resolution FAILED CLOSED (`:resolved-nil?` — the scope-requiring
+;; site got nil, never an implicit global).
+;; ---------------------------------------------------------------------------
+
+(defn scope-resolutions
+  "Project the `:rf.resource/scope-resolved` trace rows into the named-scope
+  resolution timeline (EP-0016 D3 / Spec 016 §Named resource-scope resolvers).
+  One row per resolution event:
+
+      {:id           <trace-id>
+       :scope-id     :realworld/session   ; the named resolver that ran
+       :inputs       [:username]          ; declared input NAMES (not values)
+       :input-values <summary>            ; PRIVACY — resolved input values summarized
+       :whole-db?    false                ; the explicit-cost fn-sugar flag
+       :scope        <summary>            ; PRIVACY — the resolved scope summarized
+       :resolved-nil? false}              ; true ⇒ FAIL-CLOSED (no implicit global)
+
+  PRIVACY: the resolved input VALUES and the resolved SCOPE both carry PII
+  (user/tenant/locale/impersonation ids), so both go through `summarize`; the
+  declared input NAMES and the `:scope-id` are structural keywords (never PII).
+  A `:resolved-nil? true` row is the fail-closed evidence — the resolver
+  returned nil and the scope-requiring site produced NO global fallback. Pure
+  over the trace vector; preserves buffer order (oldest-first). Per Spec 016."
+  [trace-buffer]
+  (->> (or trace-buffer [])
+       (filter #(= :rf.resource/scope-resolved (trace-op %)))
+       (mapv (fn [ev]
+               (let [tags (trace-tags ev)]
+                 {:id            (:id ev)
+                  :scope-id      (or (:resource-id tags) (:scope-id tags))
+                  :inputs        (vec (:inputs tags))
+                  :input-values  (when (contains? tags :input-values)
+                                   (summarize (:input-values tags)))
+                  :whole-db?     (boolean (:whole-db? tags))
+                  :scope         (summarize (:scope tags))
+                  :resolved-nil? (boolean (:resolved-nil? tags))})))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0016 D1/D2 — mutation continuation + descriptor-level invalidation
+;; evidence (Spec 016 §Mutation completion continuations / §Trace evidence for
+;; invalidation / §Phase order). The descriptor evidence rides ADDITIVELY on
+;; the existing `:rf.mutation/succeeded` / `:rf.mutation/failed` settlement op
+;; under `:invalidation` (resolved scope PER descriptor + the fail-closed
+;; `:unresolved` `{:from-db …}` ids + the Rider-1 `:populate-exempt` keys); the
+;; call-site `:reply-to` continuation dispatch is the `:rf.mutation/replied`
+;; op. These two surfaces answer the operator's EP-0016 questions: "did one
+;; write invalidate global AND session scopes precisely?" and "did the accepted
+;; reply continue into app workflow, after the cache consequences settled?"
+;; ---------------------------------------------------------------------------
+
+(def ^:private mutation-settlement-ops
+  "The `:rf.mutation/*` settlement ops that carry the descriptor-level
+  `:invalidation` plan-trace (success + failure phases). A mutation `:succeeded`
+  / `:failed` row carries `:invalidation` only when the mutation declared
+  `:invalidates`."
+  #{:rf.mutation/succeeded :rf.mutation/failed})
+
+(defn- descriptor-summary
+  "Summarize ONE resolved invalidation descriptor `{:scope … :cross-scope? …
+  :tags … :refetch-populated? …}` (the per-descriptor plan-trace facet, Spec
+  016 §Trace evidence for invalidation) for a render-safe row. PRIVACY: the
+  resolved `:scope` carries PII → summarized; the tags are identity, not PII.
+  `:cross-scope?` marks the audited scope-agnostic escape (privacy-relevant per
+  EP-0015); `:refetch-populated?` marks the partial-reply opt-in to a
+  same-mutation refetch of a populated key."
+  [{:keys [scope cross-scope? tags refetch-populated?]}]
+  {:scope              (summarize scope)
+   :cross-scope?       (boolean cross-scope?)
+   :tags               (vec tags)
+   :refetch-populated? (boolean refetch-populated?)})
+
+(defn mutation-invalidation-evidence
+  "Project the descriptor-level invalidation evidence off the
+  `:rf.mutation/succeeded` / `:rf.mutation/failed` settlement traces (EP-0016
+  D2 / Spec 016 §Trace evidence for invalidation). One row per settled mutation
+  that declared `:invalidates`:
+
+      {:id              <trace-id>
+       :operation       :rf.mutation/succeeded
+       :mutation        :realworld/favorite-article
+       :instance        [:favorite \"welcome\"]
+       :descriptor-count 2
+       :dispatched      [{:scope <summary> :cross-scope? false
+                          :tags [[:article-list] [:article \"welcome\"]]
+                          :refetch-populated? false}
+                         {:scope <summary> :cross-scope? false
+                          :tags [[:feed]] :refetch-populated? false}]
+       :unresolved      [:realworld/session]   ; {:from-db …} refs that resolved nil
+       :populate-exempt [<scoped-key> …]}      ; Rider-1 keys exempt from refetch
+
+  Distinguishes the precise-multi-scope case (≥2 dispatched descriptors with
+  different scopes — the favorite/unfavorite global+session shape) from a
+  fail-closed `:unresolved` descriptor (a `{:from-db …}` reference that
+  resolved nil and produced NO invalidation, never an implicit global blast).
+  PRIVACY: each descriptor's resolved scope is summarized; tags are identity.
+  Pure over the trace vector. Per Spec 016."
+  [trace-buffer]
+  (->> (or trace-buffer [])
+       (keep (fn [ev]
+               (let [op   (trace-op ev)
+                     tags (trace-tags ev)
+                     inv  (:invalidation tags)]
+                 (when (and (contains? mutation-settlement-ops op) (map? inv))
+                   {:id               (:id ev)
+                    :operation        op
+                    :mutation         (:mutation tags)
+                    :instance         (:instance tags)
+                    :descriptor-count (:descriptor-count inv)
+                    :dispatched       (mapv descriptor-summary (:dispatched inv))
+                    :unresolved       (vec (:unresolved inv))
+                    :populate-exempt  (mapv scoped-key-summary (:populate-exempt inv))}))))
+       vec))
+
+(defn mutation-continuations
+  "Project the call-site `:reply-to` continuation dispatch evidence off the
+  `:rf.mutation/replied` trace rows (EP-0016 D1 / Spec 016 §Mutation completion
+  continuations / §Phase order). The runtime emits `:rf.mutation/replied` ONLY
+  when it dispatches a continuation to a call-site `:reply-to` target for an
+  ACCEPTED terminal reply — a stale / superseded reply never fires one (that is
+  a `:rf.mutation/stale-suppressed` row instead), so a row here is positive
+  evidence the accepted reply continued into app workflow AFTER the cache
+  consequences and instance settlement (phase 6 of the deterministic order).
+  One row per continuation:
+
+      {:id        <trace-id>
+       :mutation  :realworld/save-article
+       :instance  [:editor/save \"first-post\"]
+       :work-id   [:rf.work/resource [:rf.mutation [:editor/save \"first-post\"]] 8]
+       :status    :ok                     ; the accepted reply status
+       :target    [:editor/save-replied]  ; the call-site :reply-to event target
+       :cause     <summary>}              ; [:mutation <id> <instance>] — summarized
+
+  PRIVACY: the `:cause` may carry data → summarized; the `:target` is a public
+  event-vector prefix (data-only — the reply substrate rejects host handles),
+  the mutation/instance/work/status are framework bookkeeping. Pure over the
+  trace vector; preserves buffer order. Per Spec 016."
+  [trace-buffer]
+  (->> (or trace-buffer [])
+       (filter #(= :rf.mutation/replied (trace-op %)))
+       (mapv (fn [ev]
+               (let [tags (trace-tags ev)]
+                 {:id       (:id ev)
+                  :mutation (:mutation tags)
+                  :instance (:instance tags)
+                  :work-id  (or (:work-id tags) (:work/id tags))
+                  :status   (:status tags)
+                  :target   (:target tags)
+                  :cause    (when (contains? tags :cause) (summarize (:cause tags)))})))))
 
 (defn cache-growth
   "Project the live instance rows + the work ledger into the cache-growth

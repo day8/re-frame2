@@ -184,6 +184,10 @@
         (is (some? (find-by-testid tree "rf-xray-resources-route-graph")) "route-graph section")
         (is (some? (find-by-testid tree "rf-xray-resources-timeline")) "timeline section")
         (is (some? (find-by-testid tree "rf-xray-resources-invalidation")) "invalidation section")
+        ;; EP-0016 slice-8 sections (always present when not silent)
+        (is (some? (find-by-testid tree "rf-xray-resources-scope-resolvers")) "scope-resolvers section")
+        (is (some? (find-by-testid tree "rf-xray-resources-scope-resolution")) "scope-resolution timeline section")
+        (is (some? (find-by-testid tree "rf-xray-resources-continuations")) "continuations section")
         (is (some? (find-by-testid tree "rf-xray-resources-cache-growth")) "cache-growth section")
         (is (some? (find-by-testid tree "rf-xray-resources-audit")) "audit section")
         ;; a registry row for the article resource
@@ -197,6 +201,86 @@
           (is (some? audit))
           (is (re-find #":article/by-slug" (node-text audit))
               "global-scope audit lists the explicit-global resource"))))))
+
+;; ---- (3b) EP-0016 slice-8 surfaces --------------------------------------
+
+(def scope-resolver-regs
+  {:realworld/session
+   {:doc "Session scope from the auth username."
+    :rf/resource-scope {:doc "Session scope from the auth username."
+                        :inputs {:username [:db [:auth :user :username]]}
+                        :whole-db? false
+                        :resolve (fn [_ _] nil)}}})
+
+(def ep0016-buffer
+  [;; a named resolver resolved {:from-db :realworld/session} → a session scope
+   {:id 50 :op-type :rf.event :operation :rf.resource/scope-resolved
+    :tags {:resource-id :realworld/session :kind :resource-scope
+           :inputs [:username] :input-values {:username "jake"}
+           :whole-db? false :scope [:rf.scope/session {:username "jake"}]
+           :resolved-nil? false}}
+   ;; a favorite mutation invalidated global article/list + the session feed,
+   ;; with a fail-closed unresolved {:from-db …} + a populate-exempt key
+   {:id 51 :op-type :rf.event :operation :rf.mutation/succeeded
+    :tags {:mutation :realworld/favorite-article :instance [:favorite "welcome"]
+           :invalidation
+           {:descriptor-count 3
+            :dispatched [{:scope :rf.scope/global :cross-scope? false
+                          :tags #{[:article-list]} :refetch-populated? false}
+                         {:scope [:rf.scope/session {:username "jake"}] :cross-scope? false
+                          :tags #{[:feed]} :refetch-populated? false}]
+            :unresolved [:realworld/tenant]
+            :populate-exempt [[:rf.scope/global :realworld/article {:slug "welcome"}]]}}}
+   ;; the call-site :reply-to continuation dispatch
+   {:id 52 :op-type :rf.event :operation :rf.mutation/replied
+    :tags {:rf.frame/id :app/main :mutation :realworld/save-article
+           :instance [:editor/save "first-post"] :status :ok
+           :work-id [:rf.work/resource [:rf.mutation [:editor/save "first-post"]] 8]
+           :target [:editor/save-replied]
+           :cause [:mutation :realworld/save-article [:editor/save "first-post"]]}}])
+
+(deftest ep0016-surfaces-render
+  (testing "scope resolvers, scope-resolution timeline, descriptor-level
+            invalidation evidence, and :reply-to continuations render from the
+            registry + trace buffer (EP-0016 slice 8)"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-overrides!)
+      (rf/dispatch-sync [:rf.xray/set-registered-scope-resolvers-override-for-test
+                         scope-resolver-regs]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray/sync-trace-buffer ep0016-buffer] {:frame :rf/xray})
+      (let [tree (resources/Panel)]
+        ;; D3 — the named-scope-resolver registry row (id + declared inputs)
+        (is (some? (find-by-testid tree "rf-xray-resources-scope-resolver-row-realworld/session"))
+            "named scope-resolver row rendered")
+        (is (re-find #"username"
+                     (node-text (find-by-testid
+                                 tree "rf-xray-resources-scope-resolver-row-realworld/session-inputs")))
+            "declared input name surfaced")
+        ;; D3 — the resolution timeline row (resolved scope, not nil)
+        (is (some? (find-by-testid tree "rf-xray-resources-scope-resolution-row-50"))
+            "scope-resolution timeline row rendered")
+        ;; D2 — the descriptor-level invalidation evidence row
+        (let [row (find-by-testid tree "rf-xray-resources-mutation-invalidation-row-51")]
+          (is (some? row) "mutation invalidation evidence row rendered")
+          (is (re-find #"3 descriptors" (node-text row))
+              "descriptor count surfaced")
+          ;; the two dispatched descriptors (global + session) render as chips
+          (is (re-find #":rf.scope/global" (node-text row))
+              "global descriptor scope surfaced")
+          (is (re-find #":feed" (node-text row))
+              "session-scoped feed descriptor surfaced"))
+        ;; D2 — the fail-closed unresolved {:from-db …} evidence
+        (is (some? (find-by-testid tree "rf-xray-resources-mutation-invalidation-unresolved-51"))
+            "fail-closed unresolved descriptor surfaced")
+        ;; D1 — the :reply-to continuation dispatch row (phase 6)
+        (let [row (find-by-testid tree "rf-xray-resources-continuation-row-52")]
+          (is (some? row) ":reply-to continuation row rendered")
+          (is (re-find #":editor/save-replied" (node-text row))
+              "the call-site :reply-to target surfaced")
+          (is (re-find #":realworld/save-article" (node-text row))
+              "the mutation id surfaced"))))))
 
 (deftest instance-row-shows-status-and-owners
   (testing "the instance row surfaces status + owner-count, derived not stored"
