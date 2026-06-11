@@ -525,22 +525,33 @@
       (is (= [[:nested]] (:bad-elements (ex-data ex)))
           "ex-data names the offending element(s)"))))
 
-(deftest reg-flow-accepts-scalar-path-elements
-  (testing "scalar path elements (keyword / string / integer / symbol / boolean) all pass"
-    ;; Sanity check for valid-path-element?: each documented scalar key
-    ;; type round-trips through reg-flow without throwing. Tighter
-    ;; validation must not regress the common case.
-    (doseq [[label elt] [[:kw     :kw]
-                         [:string "str"]
-                         [:int    42]
-                         [:symbol 'sym]
-                         [:bool   true]]]
+(deftest reg-flow-accepts-shared-domain-path-elements
+  (testing "path elements across the SHARED EP-0012 segment domain all pass
+            (keyword / string / integer / symbol / boolean — and, after the
+            rf2-t3cfil widening to re-frame.path/segment?, UUID / instant /
+            nil too)"
+    ;; rf2-t3cfil: flow `valid-path-element?` delegates to the shared
+    ;; `re-frame.path/segment?` rather than a flows-private scalar
+    ;; enumeration, so a flow path may focus through any concrete EDN
+    ;; identity segment the `:rf/path` algebra already supports — including a
+    ;; UUID-keyed map (`{:by-id {#uuid "…" …}}`), an instant key, and the nil
+    ;; key. Each round-trips through reg-flow without throwing; tighter (and
+    ;; now shared) validation must not regress the common scalar case nor the
+    ;; newly-admitted ones.
+    (doseq [[label elt] [[:kw      :kw]
+                         [:string  "str"]
+                         [:int     42]
+                         [:symbol  'sym]
+                         [:bool    true]
+                         [:uuid    #uuid "00000000-0000-0000-0000-000000000001"]
+                         [:instant #inst "2026-06-12T00:00:00.000-00:00"]
+                         [:nilkey  nil]]]
       (let [flow-id (keyword "elt" (name label))]
         (is (some? (rf/reg-flow {:id     flow-id
-                                 :inputs [[elt]]
+                                 :inputs [[:root elt]]
                                  :output identity
-                                 :path   [elt]}))
-            (str "scalar path element " (pr-str elt) " is accepted"))
+                                 :path   [:out elt]}))
+            (str "shared-domain path segment " (pr-str elt) " is accepted"))
         (rf/clear-flow flow-id)))))
 
 (deftest reg-flow-accepts-empty-inputs-vector

@@ -112,12 +112,23 @@
 ;; other host handles are NOT valid segments. A spec MAY narrow this domain
 ;; for its surface, but never widen it (Conventions §Segment domain).
 
-(defn- valid-segment?
+(defn segment?
   "True iff `seg` is a concrete EDN identity value admissible as a path
-  segment (Conventions §Segment domain). Composite values (vectors, maps,
-  sets, seqs) and host handles are NOT valid concrete segments — a
+  segment (Conventions §Segment domain) — the SHARED upper bound a
+  consumer narrows from, never widens past. Composite values (vectors,
+  maps, sets, seqs) and host handles are NOT valid concrete segments — a
   composite vector is only the template-parameter data form, which is not a
-  concrete segment."
+  concrete segment.
+
+  This is the predicate counterpart of `normalize-concrete`'s fail-closed
+  validation: `normalize-concrete` THROWS on a bad segment; `segment?`
+  answers the same membership question without throwing, for a consumer
+  that builds its own diagnostic (e.g. flows' `reg-flow` validator names
+  the offending entries under `:bad-elements` — rf2-t3cfil). A subsystem
+  that needs a NARROWER domain composes its own predicate ON TOP of this
+  one (e.g. `(and (segment? x) (not (nil? x)))`), so the shared upper bound
+  stays the single definition and no consumer re-enumerates the host-type
+  discrimination."
   [seg]
   (or (nil? seg)
       (keyword? seg)
@@ -146,7 +157,7 @@
   [p]
   (let [v (normalize p)]
     (reduce (fn [_ seg]
-              (when-not (valid-segment? seg)
+              (when-not (segment? seg)
                 (bad-path! 'rf.path/normalize-concrete
                            (str "a concrete path segment must be a portable EDN "
                                 "identity value (keyword, string, symbol, integer, "

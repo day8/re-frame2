@@ -38,6 +38,7 @@
             [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.path :as path]
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
@@ -249,26 +250,44 @@
 ;; cleanly but installed no redaction, the worst failure for a safety feature.
 
 (defn- valid-path-element?
-  "Path elements are scalar map keys: keyword, string, integer, symbol, or
-  boolean. Collections (vectors / maps / sets / seqs) are never the right
-  value for a `get-in` path step and almost always indicate a caller bug
-  (e.g. passing a bare keyword where a vector-of-paths was expected, then
-  wrapping it one level too many)."
+  "True iff `x` is admissible as a flow path segment — the SHARED EP-0012
+  concrete-segment domain (`re-frame.path/segment?`, Conventions §Segment
+  domain), no longer a flows-private enumeration (rf2-t3cfil). The shared
+  domain is a keyword / string / symbol / boolean / integer / UUID / instant
+  / nil; composites (vectors / maps / sets / seqs) and host handles are
+  rejected. Collections are never the right value for a `get-in` path step
+  and almost always indicate a caller bug (e.g. passing a bare keyword where
+  a vector-of-paths was expected, then wrapping it one level too many).
+
+  Flows DELEGATE the membership question to the shared policy rather than
+  re-deriving it: per the EP-0012 disposition-1 graduation note, a subsystem
+  narrows from the shared upper bound but never re-enumerates it. This widens
+  the prior flows enumeration (keyword / string / integer / symbol / boolean)
+  to also admit UUID, instant, and nil segments — all valid associative keys
+  the shared `:rf/path` algebra already focuses through. The flows-SPECIFIC
+  restriction (a `:path` / `:inputs` path must be NON-EMPTY — an empty path is
+  a root-output footgun that makes the flow a depends-on prerequisite of every
+  other flow, Spec 013 §Dependency rule) is layered ON TOP in `valid-path?`
+  below, NOT folded into the shared segment domain."
   [x]
-  (or (keyword? x) (string? x) (integer? x) (symbol? x) (boolean? x)))
+  (path/segment? x))
 
 (defn- valid-path?
-  "A path is a non-empty vector of valid path elements."
+  "A flow `:inputs` path or the flow `:path` is a NON-EMPTY vector of valid
+  path segments. The non-emptiness is the flows-specific root-output policy
+  (Spec 013 §Dependency rule — an empty path overlaps every path); the
+  per-element domain is the shared EP-0012 segment policy (`valid-path-element?`
+  → `re-frame.path/segment?`, rf2-t3cfil)."
   [x]
   (and (vector? x) (seq x) (every? valid-path-element? x)))
 
 (defn- valid-output-subpath?
   "A flow output classification subpath (an entry of `:sensitive` / `:large`)
-  is a vector of scalar path elements, AND — unlike a flow `:inputs` path or
+  is a vector of valid path segments, AND — unlike a flow `:inputs` path or
   the flow `:path` — the EMPTY vector `[]` is legal: it marks the whole
   output value (the `[[]]` whole-value convention, Spec 015:81). So this is
   `valid-path?` minus the non-empty requirement: a vector whose every element
-  (if any) is a scalar key."
+  (if any) is a shared-domain segment (`valid-path-element?`)."
   [x]
   (and (vector? x) (every? valid-path-element? x)))
 
@@ -351,7 +370,7 @@
    ;; dig.
    {:pred     (fn [flow] (every? valid-path? (:inputs flow)))
     :error-kw :rf.error/flow-bad-inputs
-    :reason   ":inputs entries must each be a non-empty vector of scalar keys (keyword / string / integer / symbol / boolean)"
+    :reason   ":inputs entries must each be a non-empty vector of path segments (the shared EP-0012 segment domain: keyword / string / symbol / boolean / integer / UUID / instant / nil)"
     :extras   (fn [flow] {:bad-entries (vec (remove valid-path? (:inputs flow)))})}
 
    {:pred     (fn [flow] (fn? (:output flow)))
@@ -368,7 +387,7 @@
 
    {:pred     (fn [flow] (every? valid-path-element? (:path flow)))
     :error-kw :rf.error/flow-bad-path
-    :reason   ":path elements must each be a scalar key (keyword / string / integer / symbol / boolean)"
+    :reason   ":path elements must each be a path segment (the shared EP-0012 segment domain: keyword / string / symbol / boolean / integer / UUID / instant / nil)"
     :extras   (fn [flow] {:bad-elements (vec (remove valid-path-element? (:path flow)))})}
 
    ;; rf2-cgk0wb issue 2: the OPTIONAL output data-classification keys
@@ -405,7 +424,7 @@
    {:pred     (fn [flow] (or (not (contains? flow :sensitive))
                              (every? valid-output-subpath? (:sensitive flow))))
     :error-kw :rf.error/flow-bad-marks
-    :reason   ":sensitive entries must each be a vector of scalar keys (keyword / string / integer / symbol / boolean); [] marks the whole output"
+    :reason   ":sensitive entries must each be a vector of path segments (the shared EP-0012 segment domain: keyword / string / symbol / boolean / integer / UUID / instant / nil); [] marks the whole output"
     :extras   (fn [flow] {:bad-key     :sensitive
                           :bad-entries (vec (remove valid-output-subpath? (:sensitive flow)))})}
 
@@ -418,7 +437,7 @@
    {:pred     (fn [flow] (or (not (contains? flow :large))
                              (every? valid-output-subpath? (:large flow))))
     :error-kw :rf.error/flow-bad-marks
-    :reason   ":large entries must each be a vector of scalar keys (keyword / string / integer / symbol / boolean); [] marks the whole output"
+    :reason   ":large entries must each be a vector of path segments (the shared EP-0012 segment domain: keyword / string / symbol / boolean / integer / UUID / instant / nil); [] marks the whole output"
     :extras   (fn [flow] {:bad-key     :large
                           :bad-entries (vec (remove valid-output-subpath? (:large flow)))})}
 

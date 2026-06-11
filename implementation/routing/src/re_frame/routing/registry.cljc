@@ -609,6 +609,35 @@
       (array-map)
       raw-query)))
 
+(defn- canonical-query-order
+  "Reorder a `match-url` `:query` map's entries into deterministic CEDN-1
+  canonical KEY order (`re-frame.identity/canonical-bytes`), preserving every
+  key/value pair, and return an array-map so the order is stable downstream.
+
+  rf2-t3cfil (EP-0012 tier-2 routing consumer sweep): the inbound URL's
+  query string carries keys in whatever left-to-right order the author of
+  THAT URL chose, but the route slice's `:query` is route DATA — an identity
+  fact the `:rf.route/query` sub, no-op detection (`identical-route-target?`),
+  and SSR-hydration parity key off. Two inbound URLs spelling the same query
+  in different key orders (`?b=2&a=1` vs `?a=1&b=2`) MUST therefore yield the
+  SAME `:query` identity, not one that varies with the link author's spelling.
+  This is the inbound mirror of `route-url`'s already-canonical query emission
+  (rf2-wgutc2): per Conventions §Routes are prisms (deferred to Spec 012),
+  `match-url(route-url(...))` returns canonical route data and \"query keys are
+  emitted in deterministic canonical order\" — both prism legs share ONE order.
+
+  The sort is by the key's shared CEDN-1 byte identity (the same order the
+  CEDN-1 map encoding uses), total over the mixed-kind keys a `:query` may
+  carry (declared keys are promoted to keywords, undeclared keys stay strings
+  — `canonical-bytes` tags each kind, so a keyword `:page` and a string
+  `\"page\"` never collide and order deterministically). Applied AFTER the raw
+  parse, so the parser's last-wins repeated-key collapse and the malformed-
+  %-encoding fail-closed are unchanged — this only fixes the surviving map's
+  key ORDER, never its membership or values."
+  [query]
+  (into (array-map)
+        (sort-by (comp identity/canonical-bytes key) query)))
+
 (defn- coerce-path
   "Coerce a `{keyword-key string-value}` PATH-capture map against the
   precompiled `params-coerce` table (`{:keyword-key type-form}`, from the
@@ -850,7 +879,7 @@
                           ;; defaults are empty, fall back to an empty array-map
                           ;; so the slice's `:query` shape stays consistent and
                           ;; `validate-route-shape` below runs against a map.
-                          with-defaults (cond
+                          merged        (cond
                                           (and (nil? coerced) (empty? defaults)) (array-map)
                                           (empty? defaults)                      coerced
                                           :else
@@ -859,6 +888,19 @@
                                               (if (contains? m k) m (assoc m k v)))
                                             (or coerced (array-map))
                                             defaults))
+                          ;; rf2-t3cfil (EP-0012 tier-2 routing consumer sweep):
+                          ;; reorder the surviving query entries into CEDN-1
+                          ;; canonical KEY order — the inbound mirror of
+                          ;; `route-url`'s canonical query emission (rf2-wgutc2),
+                          ;; so the same query spelled in different inbound-URL
+                          ;; key orders yields the SAME `:query` identity (a
+                          ;; stable `:rf.route/query` sub value / no-op-detection
+                          ;; key / SSR-hydration parity). Per Conventions §Routes
+                          ;; are prisms: both prism legs share ONE canonical
+                          ;; order. Membership + values are untouched (defaults
+                          ;; merge already ran; last-wins + malformed-fail-closed
+                          ;; happened in the raw parse) — only KEY order changes.
+                          with-defaults (canonical-query-order merged)
                           ;; Per Spec 012 §Param validation at the call site: when
                           ;; the route declares :params or :query schemas, validate
                           ;; the parsed values. Either schema failing flips the

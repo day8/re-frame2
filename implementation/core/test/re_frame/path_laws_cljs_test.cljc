@@ -352,3 +352,40 @@
            (try (path/normalize 42) nil
                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
                   (:rf.error/id (ex-data e))))))))
+
+;; ---- rf2-t3cfil: the SHARED concrete-segment domain predicate ------------
+;;
+;; `re-frame.path/segment?` is the public membership predicate for the shared
+;; concrete-segment domain (Conventions §Segment domain) — the upper bound a
+;; consumer (flows / resources / routing) narrows from but never widens past,
+;; and the predicate counterpart of `normalize-concrete`'s fail-closed
+;; validation. Promoted from the private `valid-segment?` so flows' reg-flow
+;; validator delegates to it rather than re-enumerating the domain. These pin
+;; the domain so a consumer's narrowing stays anchored to one definition.
+
+(deftest segment-domain-predicate
+  (testing "the shared concrete-segment domain is admitted"
+    (is (true? (path/segment? :kw)))
+    (is (true? (path/segment? "str")))
+    (is (true? (path/segment? 'sym)))
+    (is (true? (path/segment? true)))
+    (is (true? (path/segment? false)))
+    (is (true? (path/segment? 42)))
+    (is (true? (path/segment? nil)) "nil is a valid associative-key segment")
+    (is (true? (path/segment? #uuid "00000000-0000-0000-0000-000000000001")))
+    (is (true? (path/segment? #inst "2026-06-12T00:00:00.000-00:00"))))
+  (testing "composites and host handles are NOT concrete segments"
+    (is (false? (path/segment? [:nested])) "a vector is not a concrete segment")
+    (is (false? (path/segment? {:k 1})))
+    (is (false? (path/segment? #{:a})))
+    (is (false? (path/segment? (list :a))))
+    (is (false? (path/segment? 1.5)) "a float is not an EDN identity segment")
+    (is (false? (path/segment? identity)) "a fn is not a segment"))
+  (testing "segment? agrees with normalize-concrete's fail-closed boundary"
+    ;; A path of all-segment? elements passes normalize-concrete; one with a
+    ;; composite segment fails closed with :rf.error/bad-path naming it.
+    (is (= [:a 1 nil "x"] (path/normalize-concrete [:a 1 nil "x"])))
+    (is (= :rf.error/bad-path
+           (try (path/normalize-concrete [:a [:nested] :b]) nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                  (:rf.error/id (ex-data e))))))))
