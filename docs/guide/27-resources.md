@@ -82,7 +82,7 @@ For example:
 
 This **scoped resource key** is the cache key, the request-correlation token, and the unit Xray and SSR enumerate. A few rules make it trustworthy:
 
-- **Params are canonicalized.** Maps are normalized so key order doesn't affect identity; two spellings of the same params hash to one cache entry. Host values — functions, promises, dates, DOM nodes, AbortControllers — are rejected at the key boundary. Every variable that affects the remote read MUST be in params; `nil`-vs-missing is decided by your `:params-schema`, not by accident.
+- **Params are canonicalized.** Maps are normalized so key order doesn't affect identity; two spellings of the same params canonicalize to the same scoped key and resolve to *one* cache entry. The canonical EDN *is* the identity — there's no separate hash to keep in sync (a digest, if a size-constrained screen shows one, is just a recomputable nickname for the params, never the cache key itself; see [chapter 02 — the value *is* the identity](02-app-db.md#the-value-is-the-identity)). Host values — functions, promises, dates, DOM nodes, AbortControllers — are not portable data, so they're rejected at the key boundary. Every variable that affects the remote read MUST be in params; `nil`-vs-missing is decided by your `:params-schema`, not by accident.
 - **Scope is canonicalized the same way.** `{:tenant-id "acme" :user-id "u-42"}` and `{:user-id "u-42" :tenant-id "acme"}` are the *same* scope, never two leaking caches.
 - **The correlation id carries the full scoped key.** The same params in two different user scopes can never supersede each other's results.
 

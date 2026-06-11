@@ -384,6 +384,18 @@ Two pure, host-agnostic functions are part of the public surface:
 
 Both run on JVM and CLJS, both resolve against the same registered route table, so adding or removing a route updates both directions automatically. `:rf.route/navigate` uses `route-url` internally to build the URL; `:rf.route/handle-url-change` uses `match-url` internally to resolve one. They're the same functions, exposed for when you need URL↔route translation without a navigation.
 
+### A route is a two-way prism
+
+It's worth naming what these two functions *are* together, because the property they share is what makes URL-as-state trustworthy. A registered route pattern is a **prism**: a lawful, two-way bridge between a URL string and a piece of canonical route data (`{:route-id :params :query :fragment}`). `route-url` *prints* route data to a URL; `match-url` *parses* a URL back to route data — and within the URLs the framework itself emits, the trip is a clean round trip. `(match-url (route-url id params))` gives you back the same `id` and `params` you started with. The URL is just a serialization of the route data; the route data is the real thing.
+
+Three rules keep that round trip honest, and they're the routing-specific reading of the framework-wide canonical-identity idea ([chapter 02](02-app-db.md#the-value-is-the-identity)):
+
+- **Query keys print in a deterministic order.** The same `:query` map always emits the same query string, regardless of the order you happened to assoc the keys — because the route data is identified by its *value*, not its key-insertion order. Two callers building the same route get a byte-identical URL, which means caches, history entries, and conformance fixtures all agree.
+- **A `nil` query value drops out of the URL.** `{:query {:sort nil}}` prints `/items`, not `/items?sort=`. This is the one place routing applies the missing-vs-present-`nil` distinction as a *local policy*: an absent optional filter shouldn't clutter the URL. (Path segments can't elide — a missing path segment has no URL to produce — so a `nil` *path* param is a hard error instead.)
+- **Out-of-domain input fails closed.** When a URL can't be parsed into valid route data — no pattern matches, params fail their schema, the query key count blows a safety cap — the framework doesn't guess and doesn't silently coerce. `match-url` reports the miss (it returns `nil`, or flags `:validation-failed?`), and a *navigation* on such a URL lands on `:rf.route/not-found` carrying a `:reason` rather than limping along with half-parsed params. That's the same fail-closed posture the rest of the framework takes at every identity boundary.
+
+The practical consequence: you build URLs by handing `route-url` plain route data, you read URLs by letting `match-url` hand you plain route data back, and you never hand-concatenate a query string or hand-parse one. The canonical route data is the source of truth, and the URL is its print form.
+
 ## A worked example, end to end
 
 The [`examples/reagent/realworld/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld) app — a re-frame2 implementation of the [RealWorld spec](https://github.com/gothinkster/realworld) — has the canonical full-size routing setup. The route table is just data:

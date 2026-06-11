@@ -54,7 +54,44 @@ Two smaller affordances ride along on the same idea, and they're the kind of thi
 
 - **You can print it, and you can diff two of them.** Whatever is wrong with your app right now, you can dump its entire state to the REPL and read it top to bottom — it's a map. Capture app-db before an event and after it, diff the two, and the diff *is the complete story* of what that event did. Before and after a refactor, before and after a bug report: the diff is the answer. Xray and re-frame2-pair show you this live, but the property is yours at the REPL with `pprint` and nothing else.
 
-- **"Where does this state go?" stops being a question.** The answer is always the same: somewhere in app-db, under a key your feature owns. Cart state goes under `:cart`. Auth state goes under `:auth`. There's no architecture meeting about it. The convention *is* the path, and we'll sharpen that convention in a minute.
+- **"Where does this state go?" stops being a question.** The answer is always the same: somewhere in app-db, under a key your feature owns. Cart state goes under `:cart`. Auth state goes under `:auth`. There's no architecture meeting about it. The convention *is* the path — and "path" turns out to be a precise, shared idea the whole framework leans on, which the next section sharpens.
+
+## Paths are ordinary data
+
+When you say "cart state lives under `:cart`," the thing you just named — the *address* of a value inside app-db — is itself a piece of plain data. A **path** is a vector of segments that walks into a value:
+
+```clojure
+[]                       ;; the whole map — the root
+[:user]                  ;; the :user slice
+[:cart :items 42 :qty]   ;; deep: into :cart, into :items, the 42nd item, its :qty
+```
+
+You already know these from `get-in`, `assoc-in`, and `update-in` — a path is the second argument you hand them. re-frame2 takes that everyday Clojure idea and makes it a *named, shared concept* the whole framework agrees on, so that a path means the same thing whether it's addressing app-db, a flow's output, a route's params, or a resource's cache key. A handful of rules are worth knowing once, because every feature in the rest of this guide inherits them.
+
+**The empty vector `[]` is the root.** It focuses the *entire* value — `(get-in db [])` is `db` itself, and writing to `[]` replaces the whole map. It's the identity address. You rarely write it by hand, but it's the base case the rules below build on, and a few features (schemas, flows) have something to say about it.
+
+**The canonical form is a vector.** A path is *written* as a vector and, wherever the framework stores one for you, it's *normalized to* a vector. Some APIs will politely accept any sequence for convenience, but the one true shape — the shape you'll see in a trace, in the inspector, in a stored declaration — is always the vector. One shape, no surprises.
+
+**Segments are portable data.** The pieces of a path are ordinary, serializable values: keywords, strings, integers, symbols, booleans, UUIDs, instants — the kinds of thing that survive being printed and read back, and that work as map keys or vector indexes. What a segment is *not* is a live host object: a function, an atom, a promise, a DOM node, a request handle. Those can't be a stable address — they don't print, they don't compare by value, they don't mean the same thing tomorrow — so the framework rejects them at the door rather than letting a path quietly stop being data. A path is data all the way down, which is exactly why you can print it, diff it, and store it.
+
+**Missing is not the same as present-`nil`.** This distinction is small and it matters everywhere. A key that's *absent* from a map is a different fact from a key that's *present with the value `nil`*:
+
+```clojure
+(get-in {}          [:page])   ;; => nil  (the key isn't there)
+(get-in {:page nil} [:page])   ;; => nil  (the key is there; its value is nil)
+```
+
+A bare `get` can't tell these apart — both come back `nil`. But they *are* different facts about your state, and the framework preserves the difference: an absent key and a present `nil` are not interchangeable, and the identity of a value (below) reflects which one you've got. When a feature needs to know the difference (did the server send `null`, or did it send nothing?), it can ask. Some surfaces *choose* to treat a `nil` as "not set" — routing, for one, drops a `nil` query parameter from the URL — but that's a deliberate, local policy that surface declares, never a silent erasure baked into paths themselves.
+
+### The value *is* the identity
+
+Here's the rule that ties paths to the rest of the framework, and it's worth stating plainly because several later chapters lean on it. Two pieces of data that are *equal as values* have the *same identity* everywhere the framework needs to know "is this the same thing?" — the same cache entry, the same unit of work, the same trace row. The identity of a thing is the *canonical form of its data*, not a string you printed and not the object's place in memory.
+
+Concretely: a resource keyed by `{:user-id "u-42" :tenant-id "acme"}` and one keyed by `{:tenant-id "acme" :user-id "u-42"}` are the **same resource** — the maps are equal as values, so they're one identity, one cache entry, regardless of the order you happened to type the keys. The framework reaches this conclusion by reducing the data to a canonical form and comparing *that*, which is why it's stable across a CLJ server and a CLJS browser, and why `nil`-vs-missing (above) survives the comparison. Stringifying (`pr-str`, `JSON.stringify`) would *not* give you this — string output leaks map insertion order and differs by host — so the framework never uses stringification as identity. (You may sometimes see a short *digest* — a hash — used as a space-saving label for a big identity on a size-constrained screen. That's a convenience projection you can always recompute from the data; it's never the identity itself. The data is the identity; the hash is just a nickname for it.)
+
+The practical upshot: you address state with plain vector paths, you never hand-craft cache keys or identity strings, and equal data is automatically the same thing. That single idea — *paths and identities are ordinary, canonical data* — is the foundation that [schemas](08-schemas.md), [flows](21-dynamic-model.md#flows--derived-state-that-lives-in-app-db), [routing](19-routing.md), and [server-state resources](27-resources.md) all build on, each adding its own narrow rules on top. The normative statement of the algebra and the canonical-identity rule — the one place all those features cite — lives in [Conventions §The `:rf/path` algebra](../../spec/Conventions.md#the-rfpath-algebra).
+
+> **Naming a path you'll reuse.** Most paths are inline literals and that's fine. But when a path carries *meaning* a feature wants to attach metadata to — who owns it, what schema covers it, whether it holds sensitive data — you can give it a name with a small declaration map whose path slot is the reserved key `:rf/path`. It's optional, and you reach for it only when a path is a first-class fact rather than a one-off address; the everyday case stays a plain vector. Schemas (chapter 08) are where this first earns its keep.
 
 ## Immutable, and why the lost flexibility is the feature
 
