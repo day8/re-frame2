@@ -274,9 +274,11 @@
           ;; Report `:opened` to the parent as a `:dispatch` fx (NOT
           ;; via `(rf/dispatch ...)` from inside the action body) so
           ;; the framework routes through the running drain's frame.
-          ;; Important for tests that spin a per-test frame via
-          ;; `make-frame` — calling `rf/dispatch` directly defaults to
-          ;; `:rf/default` and never reaches the test's frame.
+          ;; Important under the EP-0002 carried invariant (rf2-9o48ih):
+          ;; a `:dispatch` fx inherits the cascade's frame, whereas a bare
+          ;; `(rf/dispatch ...)` from inside an action body runs outside
+          ;; any frame scope and raises `:rf.error/no-frame-context` — it
+          ;; does NOT silently fall back to `:rf/default`.
           {:fx [[:dispatch [parent-id [:ws/opened {:source-socket-id self-id}]]]]}))
 
       :send-via-socket

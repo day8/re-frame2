@@ -373,6 +373,16 @@
   ;; is a `:rf.db/runtime` effect (the reference handler is framework-shaped
   ;; example code — emitting the reserved runtime-db effect is in-bounds,
   ;; decision #4).
+  ;;
+  ;; ADVANCED — runtime-db writes are NOT an everyday-app pattern. This is the
+  ;; ONLY handler in the whole examples tree that returns a `:rf.db/runtime`
+  ;; effect, and deliberately so: it teaches the hydration REFERENCE shape
+  ;; (mirroring loaded values into a machine snapshot so the snapshot is
+  ;; self-describing for SSR / tools). Ordinary app handlers write app-db via
+  ;; `:db` only and let the machine runtime own its own snapshot; reach for a
+  ;; `:rf.db/runtime` effect only when you are intentionally authoring
+  ;; framework-shaped boot/hydration glue, with the reserved-key contract
+  ;; (Conventions §Reserved app-db keys / runtime-db) clearly in view.
   (fn handler-boot-apply-hydration [{:keys [db] rt :rf.db/runtime} _]
     (let [staging (:boot/staging db)]
       {:db (-> db

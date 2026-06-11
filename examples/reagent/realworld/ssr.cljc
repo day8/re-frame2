@@ -67,10 +67,12 @@
        (reader/read-string (.-textContent el)))))
 
 #?(:cljs
-   (defn hydrate-client!
-     ([] (hydrate-client! :rf/default))
-     ([frame-id]
-      (when-let [payload (read-server-payload)]
-        (rf/dispatch-sync [:rf/hydrate payload] {:frame frame-id})
-        payload))))
+   ;; EP-0002 (rf2-9o48ih): the caller names the frame to hydrate explicitly —
+   ;; no zero-arity `:rf/default` convenience. Under the carried invariant the
+   ;; hydration target is a deliberate choice, not an inferred default; a
+   ;; renamed / multi-frame client must pass its own frame-id.
+   (defn hydrate-client! [frame-id]
+     (when-let [payload (read-server-payload)]
+       (rf/dispatch-sync [:rf/hydrate payload] {:frame frame-id})
+       payload)))
 

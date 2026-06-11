@@ -176,7 +176,6 @@
             [:rf.http/managed
              (rh/request {:method     :get
                           :path       (str "/profiles/" username)
-                          :auth?      false
                           :decode     schema/ProfileResponse
                           :retry      rh/data-fetch-retry
                           :request-id [:profile/load username]
@@ -216,7 +215,6 @@
             [:rf.http/managed
              (rh/request {:method     :get
                           :path       (str "/articles?author=" username)
-                          :auth?      false
                           :decode     schema/ArticlesResponse
                           :retry      rh/data-fetch-retry
                           :request-id [:profile.articles/load username]
@@ -252,7 +250,6 @@
             [:rf.http/managed
              (rh/request {:method     :get
                           :path       (str "/articles?favorited=" username)
-                          :auth?      false
                           :decode     schema/ArticlesResponse
                           :retry      rh/data-fetch-retry
                           :request-id [:profile.favorites/load username]

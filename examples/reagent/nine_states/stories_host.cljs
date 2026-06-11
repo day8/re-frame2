@@ -72,7 +72,12 @@
   (rf/reg-frame :rf/default
     {:doc          "Nine-states showcase live-app frame."
      :fx-overrides {:rf.http/managed :nine-states.http/managed-demo}})
-  (rf/dispatch-sync [:nine-states.app/initialise]))
+  ;; EP-0002 (rf2-9o48ih): `init!` installs the adapter only — a frameless
+  ;; `dispatch-sync` raises `:rf.error/no-frame-context`. Run the seed
+  ;; dispatch inside the showcase's `:rf/default` frame scope (symmetric to
+  ;; nine_states.core/run, which wraps its initialise in `with-frame`).
+  (rf/with-frame :rf/default
+    (rf/dispatch-sync [:nine-states.app/initialise])))
 
 (reg-view nine-states-app []
   [:div {:style {:padding "1.5em" :font-family "system-ui, sans-serif"}}
@@ -84,6 +89,16 @@
     [:kbd "Ctrl+Shift+C"]
     " on either surface to open Xray and inspect the fetch cascade."]
    [core/root-view]])
+
+;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence,
+;; so the live-app `#/` surface must render under an explicit frame scope. The
+;; Story shell side (`#/stories`) allocates its own per-variant frames; this
+;; wrapper scopes only the live-app surface to the showcase's `:rf/default`
+;; frame so `nine-states-app`'s reg-view-injected dispatch/subscribe (and
+;; `core/root-view`'s subs) resolve. Passed to the shared story-host as the
+;; live-app root view (mirrors counter-with-stories.core).
+(defn live-app-root []
+  [rf/frame-provider {:frame :rf/default} [nine-states-app]])
 
 ;; -- Routing between the live app and the Story shell ----------------------
 ;;
@@ -110,4 +125,6 @@
   ;; override, cross-platform) and calls `story/configure!` itself — that
   ;; also bridges the root into Xray's slot. Without it the Story 'open in
   ;; editor' chips would resolve `nine_states/stories.cljs` against a nil root.
-  (story-host/mount-with-hash-routing! nine-states-app {:story-subdir "examples/reagent"}))
+  ;; The live-app root is frame-scoped via `live-app-root` (the `frame-provider`
+  ;; wrapper) so the bare `#/` surface mounts under the app frame.
+  (story-host/mount-with-hash-routing! live-app-root {:story-subdir "examples/reagent"}))

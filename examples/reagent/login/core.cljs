@@ -97,8 +97,9 @@
 ;; ============================================================================
 ;;
 ;; Open by default. The snapshot schema describes the shape of
-;; [:rf.runtime/machines :snapshots :auth.login/flow] in app-db. It does not carry :closed
-;; true — this isn't a system boundary.
+;; [:rf.runtime/machines :snapshots :auth.login/flow] in runtime-db (NOT
+;; app-db — per [005 §Where snapshots live]; see :136-138 below). It does not
+;; carry :closed true — this isn't a system boundary.
 
 ;; The submit-event payload — the credentials map the view collects from
 ;; the form. Open by default; the regex/min-length checks describe the

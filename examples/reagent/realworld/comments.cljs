@@ -90,7 +90,6 @@
          :fx [[:rf.http/managed
                (rh/request {:method     :get
                             :path       (article-path slug)
-                            :auth?      false
                             :decode     schema/ArticleResponse
                             :retry      rh/data-fetch-retry
                             :request-id [:article/load slug]})]]}))))
@@ -115,7 +114,6 @@
        :fx [[:rf.http/managed
              (rh/request {:method     :get
                           :path       (comment-path slug)
-                          :auth?      false
                           :decode     schema/CommentsResponse
                           :retry      rh/data-fetch-retry
                           :request-id [:comments/load slug]

@@ -124,7 +124,6 @@
        :fx [[:rf.http/managed
              (rh/request {:method     :post
                           :path       "/users/login"
-                          :auth?      false
                           :body       {:user {:email email :password password}}
                           :decode     schema/UserResponse
                           :on-success [:auth/flow [:auth/success]]
@@ -136,7 +135,6 @@
        :fx [[:rf.http/managed
              (rh/request {:method     :post
                           :path       "/users"
-                          :auth?      false
                           :body       {:user {:username username
                                               :email email
                                               :password password}}

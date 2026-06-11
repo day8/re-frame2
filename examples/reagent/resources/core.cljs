@@ -22,13 +22,26 @@
    explicit, auditable `:rf.scope/global` claim (a user/tenant-scoped read
    would carry a scope resolver instead).
 
+   All four patterns are WIRED INTO THE UI and run live. The articles page
+   carries a Refresh button (manual cause), a per-row Preview toggle (event
+   lease ensure/release), and an Open-in-reader button (machine-owned ensure);
+   route entry drives the list + detail loads. The example ships no backend,
+   so it overrides `:rf.http/managed` with a per-URL canned stub that
+   delegates to the framework-shipped `:rf.http/managed-canned-success`
+   (Spec 014 §Testing) — the same reply shape a live server would produce, so
+   every ensure exercises a REAL fetch, in-flight dedupe, and the passive
+   status flow (a 120 ms delay lets the loading skeleton render before the
+   reply lands, so first-load and refresh-in-flight are observable). A repeat
+   ensure of an entry still inside its `:stale-after-ms` window FRESH-SKIPS
+   (no refetch — `:rf.resource/cache-hit`); the manual Refresh forces a
+   refetch regardless.
+
    STATUS. Resources is a POST-V1 optional artefact and the read-resource
    runtime has LANDED (EP-0003): `reg-resource`, the `:rf.resource/*` passive
    subs, route `:resources` metadata, and the causal `:rf.resource/ensure` /
    `:rf.resource/refetch` / `:rf.resource/invalidate-tags` /
-   `:rf.resource/release-owner` event bodies are all real and operational, so
-   the four patterns above run live (real fetch, dedupe, status flow). This
-   example covers the READ side only; mutations (`reg-mutation` /
+   `:rf.resource/release-owner` event bodies are all real and operational.
+   This example covers the READ side only; mutations (`reg-mutation` /
    `:rf.mutation/execute`) have also landed but live in the guide
    (docs/guide/27-resources.md §Mutations) and the migration walkthrough.
    GraphQL is a deferred later phase. The example tree is test-free
@@ -36,12 +49,21 @@
    `implementation/resources/test/` and the conformance fixtures."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
+            [re-frame.registrar :as registrar]
             [re-frame.views]
             ;; Managed HTTP ships in day8/re-frame2-http — the single
             ;; built-in resource transport (Spec 016 §Transport). Loading
             ;; the ns registers the `:rf.http/managed` fx the resource
             ;; runtime lowers each ensure onto.
             [re-frame.http-managed]
+            ;; This example ships no backend, so it overrides
+            ;; `:rf.http/managed` with a per-URL canned stub that delegates
+            ;; to the framework-shipped `:rf.http/managed-canned-success`
+            ;; (Spec 014 §Testing — the same reply shape a live server would
+            ;; produce). The canned-stub fx ids register from
+            ;; re-frame.http-test-support, NOT from re-frame.http-managed;
+            ;; requiring it is the explicit opt-in for a test/demo app.
+            [re-frame.http-test-support]
             ;; Resources ship in day8/re-frame2-resources. Requiring the
             ;; ns at app boot wires the late-bind hooks + registrations;
             ;; without it, `rf/reg-resource` below throws
@@ -94,6 +116,63 @@
    :tags           (fn [{:keys [slug]} _data] #{[:article slug] [:article-list]})})
 
 ;; ============================================================================
+;; DEMO BACKEND — per-URL canned :rf.http/managed override
+;; ============================================================================
+;;
+;; This example ships no server, so it overrides `:rf.http/managed` (the fx the
+;; resource runtime lowers every ensure onto) with a stub that synthesises the
+;; canned reply per URL. The two resource requests are `GET /api/articles`
+;; (the list) and `GET /api/articles/:slug` (a detail); the stub routes by URL
+;; shape and delegates to the framework-shipped
+;; `:rf.http/managed-canned-success` (Spec 014 §Testing) — the same reply shape
+;; a live server would produce, so the resource lifecycle (in-flight tracking,
+;; dedupe, reply addressing, status flow) is exercised end to end.
+
+(def ^:private demo-articles
+  [{:slug "resources-101"  :title "Resources 101: server-state as cached reads"
+    :body "A resource is identity + scope + a request. Views read it passively."}
+   {:slug "owners-vs-causes" :title "Owners keep alive; causes explain why"
+    :body "A route or lease OWNS a read for its lifetime; a refresh is a CAUSE."}
+   {:slug "fresh-skip"      :title "Fresh-skip: re-ensure within the stale window is free"
+    :body "Ensure an entry still inside :stale-after-ms and the runtime skips the refetch."}])
+
+(def ^:private demo-reply-delay-ms
+  "How long the demo stub defers each canned reply (via the canned-success
+   fx's `:after-ms`, dispatched through `:dispatch-later` — observable in the
+   tape, time-travel-safe, NOT raw `js/setTimeout`). Small but non-zero so the
+   `:loading` skeleton + `:fetching?` refresh states are observable. A
+   demo-seam knob, not a production value."
+  120)
+
+(defn- demo-payload-for-url [url]
+  (let [u (str url)]
+    (if-let [slug (second (re-find #"/api/articles/([^/?#]+)" u))]
+      ;; A detail read — /api/articles/:slug.
+      (or (first (filter #(= slug (:slug %)) demo-articles))
+          {:slug slug :title slug :body "(no such article)"})
+      ;; The bare list endpoint — /api/articles.
+      demo-articles)))
+
+;; The resource runtime lowers every ensure onto `:rf.http/managed`; this
+;; override stands in for the backend. It synthesises the per-URL payload and
+;; delegates to the framework-shipped `:rf.http/managed-canned-success`
+;; (Spec 014 §Testing) — calling it directly via the registrar with `:after-ms`
+;; so the canned reply rides framework `:dispatch-later` (tape-visible,
+;; time-travel-safe, NOT raw `js/setTimeout`) and the reply addressing the
+;; resource runtime put on the args-map is preserved. Mirrors
+;; `examples/reagent/realworld_resources/http.cljs`.
+(rf/reg-fx :resources.demo/http-stub
+  {:doc       "Demo override for `:rf.http/managed`: routes by URL to the
+               canned article payloads so the example runs standalone, then
+               delegates to `:rf.http/managed-canned-success` with `:after-ms`
+               (the deferred reply rides `:dispatch-later`)."
+   :platforms #{:client}}
+  (fn fx-managed-resources-demo [frame-ctx args-map]
+    (let [payload (demo-payload-for-url (-> args-map :request :url))
+          stub    (registrar/handler :fx :rf.http/managed-canned-success)]
+      (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))
+
+;; ============================================================================
 ;; ROUTES — route entry CAUSES the page's resources to load
 ;; ============================================================================
 ;;
@@ -143,18 +222,22 @@
 
 (rf/reg-event-fx :resources.app/preview-opened
   {:doc "Open a lightweight article preview from the list — ensure the
-         detail under a releaseable lease."}
-  (fn [_ [_ slug]]
-    {:fx [[:dispatch [:rf.resource/ensure
+         detail under a releaseable lease, and record the open slug in
+         app-db so the view can render the preview panel."}
+  (fn [{:keys [db]} [_ slug]]
+    {:db (assoc db :resources.app/preview-slug slug)
+     :fx [[:dispatch [:rf.resource/ensure
                       {:resource :article/by-slug
                        :params   {:slug slug}
                        :owner    [:lease :resources.app/preview slug]
                        :cause    [:event :resources.app/preview-opened]}]]]}))
 
 (rf/reg-event-fx :resources.app/preview-closed
-  {:doc "Close the preview — release the lease so the entry can GC."}
-  (fn [_ [_ slug]]
-    {:fx [[:dispatch [:rf.resource/release-owner
+  {:doc "Close the preview — release the lease so the entry can GC, and
+         clear the open slug from app-db."}
+  (fn [{:keys [db]} [_ slug]]
+    {:db (dissoc db :resources.app/preview-slug)
+     :fx [[:dispatch [:rf.resource/release-owner
                       {:owner [:lease :resources.app/preview slug]}]]]}))
 
 ;; A MANUAL refresh is a CAUSE, not an owner (Spec 016 §Causes explain why
@@ -180,24 +263,50 @@
 ;; the cached-read mechanics. A tiny reader machine: it ensures the article
 ;; on entry, and the resource is released when the instance is destroyed.
 
-;; `:entry` names an action by keyword (the house convention); the action
-;; reads the slug + instance-id it owns under from its `:data` slot (Spec
-;; 016 §Machine-owned resource models the owner as `[:machine machine-id
-;; (:instance-id data)]`). Released on actor destroy.
+;; The reader is started by the UI with `[:resources.app/reader
+;; [:rf.machine/start slug instance-id]]` — the creation marker carries the
+;; slug + instance-id this workflow owns. The `:reading` `:entry` action runs
+;; once on the initial-entry cascade: it reads slug + instance-id from the
+;; start `:event`, assigns them into the snapshot `:data` (so the owner is
+;; self-describing for tools / SSR), and ensures the article under a
+;; `[:machine machine-id instance-id]` owner (Spec 016 §Machine-owned
+;; resource). The runtime releases that owner when the actor is destroyed.
 (rf/reg-machine :resources.app/reader
   {:doc     "A reader workflow that owns the article it is reading."
    :initial :reading
    :data    {:slug nil :instance-id nil}
    :actions
    {:ensure-article
-    (fn [{:keys [data]}]
-      {:fx [[:dispatch [:rf.resource/ensure
-                        {:resource :article/by-slug
-                         :params   {:slug (:slug data)}
-                         :owner    [:machine :resources.app/reader (:instance-id data)]
-                         :cause    [:machine-action :resources.app/reader.reading]}]]]})}
+    (fn [{:keys [event]}]
+      (let [[_ slug instance-id] event]
+        {:data {:slug slug :instance-id instance-id}
+         :fx   [[:dispatch [:rf.resource/ensure
+                            {:resource :article/by-slug
+                             :params   {:slug slug}
+                             :owner    [:machine :resources.app/reader instance-id]
+                             :cause    [:machine-action :resources.app/reader.reading]}]]]}))}
    :states
    {:reading {:entry :ensure-article}}})
+
+;; The UI starts/stops the reader through these events. Starting fires the
+;; `[:rf.machine/start slug instance-id]` creation marker (which runs the
+;; reader's `:reading` entry → ensure) and records the active instance-id in
+;; app-db so the view can read the machine-owned article + offer a stop
+;; affordance. Stopping emits the reserved `[:rf.machine/destroy …]` fx,
+;; which runs the actor's `:exit` cascade and releases its `[:machine …]`
+;; resource owner so the entry can GC, then clears the slice.
+(rf/reg-event-fx :resources.app/start-reader
+  {:doc "Start the reader workflow that owns the given article for its lifetime."}
+  (fn [{:keys [db]} [_ slug]]
+    (let [instance-id (str "reader-" slug)]
+      {:db (assoc db :resources.app/reader {:slug slug :instance-id instance-id})
+       :fx [[:dispatch [:resources.app/reader [:rf.machine/start slug instance-id]]]]})))
+
+(rf/reg-event-fx :resources.app/stop-reader
+  {:doc "Destroy the reader actor — releases its machine-owned resource."}
+  (fn [{:keys [db]} _]
+    {:db (dissoc db :resources.app/reader)
+     :fx [[:rf.machine/destroy :resources.app/reader]]}))
 
 ;; ============================================================================
 ;; APP DATA + READ-MODEL SUBS
@@ -206,13 +315,26 @@
 ;; The PASSIVE resource subs read the runtime-managed cache. A small derived
 ;; app sub picks a slug from the list for the "open preview" affordance.
 
+;; A derived read over the list resource's data — projections are ordinary
+;; subs LAYERED over the passive `[:rf.resource/data …]` sub (Spec 016 §No
+;; :select key), NOT a resource-local hook. The EP-0004 input-fn is a pure
+;; `(fn [query-v])` returning a VECTOR OF QUERY VECTORS — never a deref'd
+;; subscribe (the v1 signal-fn idiom, which raises
+;; :rf.error/sub-input-fn-bad-return). The compute fn then receives the
+;; resolved input values positionally: `[[articles] _]`.
 (rf/reg-sub :resources.app/first-slug
-  (fn [_ _]
-    ;; A derived read over the list resource's data — projections are
-    ;; ordinary subs layered over `[:rf.resource/data …]` (Spec 016 §No
-    ;; :select key), NOT a resource-local hook.
-    @(rf/subscribe [:rf.resource/data {:resource :articles/list :params {}}]))
-  (fn [articles _] (:slug (first articles))))
+  (fn [_query-v]
+    [[:rf.resource/data {:resource :articles/list :params {}}]])
+  (fn [[articles] _query-v]
+    (:slug (first articles))))
+
+;; Which article's preview lease is currently open (nil when none).
+(rf/reg-sub :resources.app/preview-slug
+  (fn [db _] (:resources.app/preview-slug db)))
+
+;; The active reader workflow's {:slug :instance-id} (nil when stopped).
+(rf/reg-sub :resources.app/reader
+  (fn [db _] (:resources.app/reader db)))
 
 ;; ============================================================================
 ;; PAGES — passive reads; the runtime owns the state
@@ -227,15 +349,66 @@
                        :data-testid "route-link-articles"}
         "See the articles →"]]])
 
+;; EVENT-LEASE preview panel — reads the lease-ensured detail passively.
+;; Mounted only while a preview slug is open; the lease ensure was dispatched
+;; by `:resources.app/preview-opened` under `[:lease :resources.app/preview
+;; slug]` and released by `:resources.app/preview-closed`.
+(reg-view preview-panel [slug]
+  (let [state @(subscribe [:rf.resource/state {:resource :article/by-slug
+                                               :params  {:slug slug}}])]
+    [:div.preview {:data-testid "preview-panel"}
+     (cond
+       (:loading? state)
+       [:p {:data-testid "preview-skeleton"} "Loading preview…"]
+
+       (and (:error state) (not (:has-data? state)))
+       [:p.error {:data-testid "preview-error"} "Could not load preview."]
+
+       :else
+       [:p {:data-testid "preview-body"} (:body (:data state))])
+     [:button {:data-testid "close-preview"
+               :on-click    #(dispatch [:resources.app/preview-closed slug])}
+      "Close preview"]]))
+
+;; MACHINE-OWNED reader panel — the running reader actor owns this detail for
+;; its lifetime; the panel reads it passively. Stopping destroys the actor and
+;; releases the owner.
+(reg-view reader-panel [slug]
+  (let [state @(subscribe [:rf.resource/state {:resource :article/by-slug
+                                               :params  {:slug slug}}])]
+    [:div.reader {:data-testid "reader-panel"}
+     [:strong "Reader (machine-owned): "]
+     (cond
+       (:loading? state)
+       [:span {:data-testid "reader-skeleton"} "Loading…"]
+
+       (and (:error state) (not (:has-data? state)))
+       [:span.error {:data-testid "reader-error"} "Could not load."]
+
+       :else
+       [:span {:data-testid "reader-title"} (:title (:data state))])
+     [:button {:data-testid "stop-reader"
+               :on-click    #(dispatch [:resources.app/stop-reader])}
+      "Stop reader"]]))
+
 (reg-view articles-page []
   ;; The articles list resource was ensured by THIS route's `:resources`
   ;; metadata on entry. The view reads its full view-model passively.
-  (let [state @(subscribe [:rf.resource/state {:resource :articles/list :params {}}])]
+  (let [state        @(subscribe [:rf.resource/state {:resource :articles/list :params {}}])
+        preview-slug @(subscribe [:resources.app/preview-slug])
+        reader       @(subscribe [:resources.app/reader])
+        ;; A LAYERED PROJECTION over the list resource (EP-0004 input-fn) — the
+        ;; top article's slug, used by the quick-preview button below.
+        top-slug     @(subscribe [:resources.app/first-slug])]
     [:div
      [:h1 "Articles"]
      [:button {:data-testid "refresh-articles"
                :on-click    #(dispatch [:resources.app/refresh-articles])}
       (if (:fetching? state) "Refreshing…" "Refresh")]
+     (when top-slug
+       [:button {:data-testid "preview-top"
+                 :on-click    #(dispatch [:resources.app/preview-opened top-slug])}
+        "Quick-preview top article"])
      (cond
        ;; First load, no usable data yet → skeleton.
        (:loading? state)
@@ -253,10 +426,26 @@
         (into [:ul {:data-testid "articles-list"}]
               (for [{:keys [slug title]} (:data state)]
                 ^{:key slug}
-                [:li [rf/route-link {:to :resources.app/article-detail
-                                     :params {:slug slug}
-                                     :data-testid (str "route-link-article-" slug)}
-                      title]]))])]))
+                [:li
+                 [rf/route-link {:to :resources.app/article-detail
+                                 :params {:slug slug}
+                                 :data-testid (str "route-link-article-" slug)}
+                  title]
+                 ;; EVENT-LEASE: open/close a preview under an app lease.
+                 " "
+                 [:button {:data-testid (str "preview-" slug)
+                           :on-click    #(dispatch [:resources.app/preview-opened slug])}
+                  "Preview"]
+                 ;; MACHINE-OWNED: spawn a reader that owns this article.
+                 " "
+                 [:button {:data-testid (str "read-" slug)
+                           :on-click    #(dispatch [:resources.app/start-reader slug])}
+                  "Open in reader"]]))
+        ;; The lease + machine read-models render passively when active.
+        (when preview-slug
+          [preview-panel preview-slug])
+        (when reader
+          [reader-panel (:slug reader)])])]))
 
 (reg-view article-detail-page []
   ;; This route's `:resources` ensured :article/by-slug for the URL slug.
@@ -313,7 +502,14 @@
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame app-frame {:doc "Resources demo frame." :url-bound? true})
+  ;; Override `:rf.http/managed` on the app frame so every resource ensure
+  ;; routes to the per-URL canned stub above — the example runs standalone
+  ;; with no backend. The override applies frame-wide; this example issues no
+  ;; non-mocked requests, so a blanket override is the right grain.
+  (rf/reg-frame app-frame
+    {:doc          "Resources demo frame."
+     :url-bound?   true
+     :fx-overrides {:rf.http/managed :resources.demo/http-stub}})
   (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root
