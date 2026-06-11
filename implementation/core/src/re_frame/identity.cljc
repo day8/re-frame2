@@ -28,8 +28,9 @@
   value. A *digest* is an OPTIONAL, versioned, always-recomputable
   projection for size-constrained surfaces; it is never an independent
   identity fact, never required for correctness, never the authoritative
-  stored key. This namespace ships `canonical` + `canonical-bytes`
-  (the CEDN-1 byte string the comparison/digest is defined over) and no
+  stored key. This namespace ships `canonical`, `canonical-bytes` (the
+  CEDN-1 byte string the comparison/digest is defined over), and
+  `identical-identity?` (CEDN-1 byte equality) — and no
   authoritative-digest store.
 
   ## The CEDN-1 byte encoding
