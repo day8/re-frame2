@@ -4,9 +4,9 @@
 
 ## Abstract
 
-Routing is **state plus events**, not a separate subsystem. The URL is a derivable view of `app-db`; navigation is an event. Browser back/forward, deep links, and SSR all flow through this single contract.
+Routing is **state plus events**, not a separate subsystem. The active route is a slice of frame-state — the durable **runtime-db** slice at `[:rf.runtime/routing :current]` — and the URL is a derivable view of it; navigation is an event. Browser back/forward, deep links, and SSR all flow through this single contract.
 
-The principle: routing does not get its own runtime. It uses the runtime that already exists — frames, events, subs, app-db. A route table is data; routes are registry entries; `:rf.route/navigate` is an event; `(rf/sub :rf/route)` derives the active route from `app-db`. Nothing new at the foundation level.
+The principle: routing does not get its own runtime. It uses the runtime that already exists — frames, events, subs, the frame-state container (app-db + runtime-db). A route table is data; routes are registry entries; `:rf.route/navigate` is an event; `(rf/sub :rf/route)` derives the active route from the runtime-db route slice. Locating the slice in runtime-db (not app-db) keeps it out of the application's own contract while still riding frame revertibility, SSR hydration, and epoch restore for free (per [§`runtime-db` slices](#runtime-db-slices)). Nothing new at the foundation level.
 
 ## Normative surface inventory
 
@@ -317,7 +317,7 @@ A canonical schema for the slice is registered as `:rf/route-slice` (see [Spec-S
 ```
 
 Three effect categories flow:
-1. `app-db`'s `:rf/route` slice is updated (id, params, query, fragment, transition, nav-token).
+1. The runtime-db `:rf/route` slice (at `[:rf.runtime/routing :current]`) is updated (id, params, query, fragment, transition, nav-token).
 2. The browser URL is pushed via `:rf.nav/push-url` (a registered fx; `:platforms #{:client}`), or replaced via `:rf.nav/replace-url` when `opts` has `:replace? true`.
 3. The route's `:on-match` events (if any) are dispatched, and the route's `:scroll` strategy (if any) is emitted as a `:rf.nav/scroll` effect.
 
@@ -843,7 +843,7 @@ The path syntax is the *primary* binding. Query strings are bound separately via
 | Required by URL? | Yes (URL doesn't match without them) | No (every key is optional from the URL's perspective) |
 | Defaults | n/a (absence = no match) | `:query-defaults` map |
 
-`:query-defaults` populates absent query keys at match time. `:query-retain` is a set of keys that should be **carried through subsequent navigations** even when the caller didn't supply them — useful for global state encoded in the URL (`:theme`, `:locale`, `:debug`). The merge is performed inside `:rf.route/navigate`'s handler (which has access to `app-db` and reads the current `:rf.route/query` slice) before `route-url` is called; `route-url` itself is pure and does not consult `app-db` (per [§Bidirectional URL ↔ params](#bidirectional-url--params)). The result: a `[:rf.route/navigate :route/cart]` from a search page preserves `?theme=dark`.
+`:query-defaults` populates absent query keys at match time. `:query-retain` is a set of keys that should be **carried through subsequent navigations** even when the caller didn't supply them — useful for global state encoded in the URL (`:theme`, `:locale`, `:debug`). The merge is performed inside `:rf.route/navigate`'s handler (which reads the current `:rf.route/query` slice from the runtime-db route slice via the `:rf.db/runtime` cofx) before `route-url` is called; `route-url` itself is pure and does not consult frame-state (per [§Bidirectional URL ↔ params](#bidirectional-url--params)). The result: a `[:rf.route/navigate :route/cart]` from a search page preserves `?theme=dark`.
 
 #### `:query-retain` cross-route coercion class
 
@@ -1218,7 +1218,7 @@ Per [§Scroll restoration](#scroll-restoration) the v1 contract is the closed th
 
 ### URL-state-as-source-of-truth (post-v1)
 
-Per [§State-first, URL-second update order is locked](#state-first-url-second-update-order-is-locked) the v1 model is `app-db`-canonical, URL-derived: navigation mutates state first, then syncs the URL. The inverse — URL canonical, `app-db` derived (the browser URL is the single source of truth; subscriptions parse it on demand) — is a substantial design change with downstream impact on SSR, multi-frame, stale-suppression, and the navigation cascade ordering. Deferred to ; v1's direction is locked because the URL update can fail (browser denies, offline) and state must remain consistent.
+Per [§State-first, URL-second update order is locked](#state-first-url-second-update-order-is-locked) the v1 model is **state-canonical** (the runtime-db route slice), URL-derived: navigation mutates state first, then syncs the URL. The inverse — URL canonical, state derived (the browser URL is the single source of truth; subscriptions parse it on demand) — is a substantial design change with downstream impact on SSR, multi-frame, stale-suppression, and the navigation cascade ordering. Deferred to ; v1's direction is locked because the URL update can fail (browser denies, offline) and state must remain consistent.
 
 ### Declarative redirect rules in route metadata (post-v1)
 
@@ -1238,7 +1238,7 @@ EP-0002 (rf2-nn0jqa) removed the prior `:rf/default`-owns-the-URL-by-default flo
 
 ### State-first, URL-second update order is locked
 
-Per [§Pattern-level contract](#pattern-level-contract), navigation runs state changes first, then the URL update, then `:on-match` dispatches and the scroll effect. The order is locked: if the URL update fails (browser denies, user is offline) the state is still consistent. An earlier alternative — URL-first — was rejected because the `app-db` becomes the source of truth for what URL the runtime *intends*; the `:rf.nav/push-url` fx is a downstream sync.
+Per [§Pattern-level contract](#pattern-level-contract), navigation runs state changes first, then the URL update, then `:on-match` dispatches and the scroll effect. The order is locked: if the URL update fails (browser denies, user is offline) the state is still consistent. An earlier alternative — URL-first — was rejected because the runtime-db route slice becomes the source of truth for what URL the runtime *intends*; the `:rf.nav/push-url` fx is a downstream sync.
 
 ### Three-enum scroll strategy (`:top`, `:restore`, `:preserve`)
 

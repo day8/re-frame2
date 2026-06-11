@@ -500,9 +500,12 @@ The internal replies — `:rf.resource.internal/succeeded` / `:rf.resource.inter
 - **`:params-schema`** — validates and canonicalizes params.
 - **`:scope`** — the resource's **scope policy**, one of `:rf.scope/global`, a resolver, or `:rf.scope/from-caller` (see [§Scope resolution](#scope-resolution)). It is **required**: a `reg-resource` with no scope policy is a loud registration error (`:rf.error/resource-missing-scope-policy`). A genuinely process-independent resource declares `:scope :rf.scope/global` explicitly; there is no implicit default.
 - **`:request`** — for `:transport :rf.http/managed` (the only initial-scope transport), returns a Spec 014 managed-HTTP args map, including the nested `:request` child and top-level keys such as `:decode`, `:accept`, `:retry`, and sensitivity metadata. The args map MUST NOT supply `:request-id`, `:on-success`, or `:on-failure` — resource lowering supplies those from the scoped resource key and current generation (see [§Transport](#transport)); implementations reject those reserved keys at registration or dispatch.
-- **`:data-schema`** — validates successful data when transport decode supports it.
 
-**Optional v1 keys:** `:doc`, `:transport` (initial scope: `:rf.http/managed`, the only built-in), `:stale-after-ms`, `:gc-after-ms`, `:tags`, `:sensitive?` / `:large?` / schema-based classification.
+These three are the registration gate (`:scope` fail-closed first, then `:params-schema` and `:request`); a `reg-resource` missing any of them throws (`:rf.error/resource-missing-scope-policy` for `:scope`, `:rf.error/invalid-resource-spec` for `:params-schema` / `:request`). The set mirrors `reg-mutation`'s (`:params-schema` + `:request` + `:scope`).
+
+**Optional v1 keys:** `:doc`, `:data-schema`, `:transport` (initial scope: `:rf.http/managed`, the only built-in), `:stale-after-ms`, `:gc-after-ms`, `:tags`, `:sensitive?` / `:large?` / schema-based classification.
+
+`:data-schema` is **optional** — when present it validates successful data wherever transport decode supports it (and contributes per-slot `:sensitive?` / `:large?` redaction marks); when absent, response data is not shape-validated. Unlike `:params-schema` (the resource's identity, REQUIRED) and `:scope` (the fail-closed security boundary, REQUIRED), a resource is well-formed without `:data-schema`, so the registration gate does not enforce it — matching the shipped reference implementation and the flagship example, which omit it.
 
 **Deferred keys** (rejected / unused in v1): `:poll-ms`, `:revalidate`, `:placeholder`, transport extension protocols, `:cache-key`, `:infinite`, and mutation-only keys (`:invalidates`, `:optimistic`, `:rollback`).
 
