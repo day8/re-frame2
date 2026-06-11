@@ -56,6 +56,7 @@
             [re-frame.event-emit :as event-emit]
             [re-frame.error-emit :as error-emit]
             [re-frame.elision :as elision]
+            [re-frame.projection :as projection]
             [re-frame.marks   :as marks]
             ;; EP-0015 §3 (rf2-ueg1tn): required for its ns-load side-effect
             ;; only — it publishes the `:frame-classification/*` late-bind
@@ -1727,6 +1728,21 @@
   become `:rf.size/large-elided`. Per Spec 009 §Wire elision and
   Security.md §Off-box egress."}
   elide-wire-value                 elision/elide-wire-value)
+
+(def ^{:doc "Project a record or value for egress across a trust boundary
+  (EP-0015 §10/§11). The public, record-level boundary primitive — the
+  required step before any off-box sink. Dispatches on a record's `:kind`
+  (`:rf.observe/handled-event` / `:rf.observe/error`) to a private per-kind
+  projector, falling back to walking a kindless input as a tree-shaped
+  value (the direct-read path); for every tree-shaped slot it delegates to
+  `elide-wire-value` against the frame's classification. `opts` carries
+  `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, and
+  the advanced `:rf.size/*` overrides (which compose on top of the
+  profile — the override wins). An unknown profile throws
+  `:rf.error/unknown-egress-profile`. Fail-closed: projects a tree slot
+  only when the frame is known; no `:rf/default` synthesis. Per Spec 015
+  §Projection and Security.md §Off-box egress."}
+  project-egress                   projection/project-egress)
 
 (def ^{:doc "Populate `[:rf.runtime/elision :declarations]` from
   `{:large? true}` schema-slot metadata for the frame. Returns the
