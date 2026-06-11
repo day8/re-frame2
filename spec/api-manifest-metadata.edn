@@ -524,8 +524,6 @@
   ["re-frame.core" "project-egress"]                    {:tier :tooling  :owner "015" :status "v1"}
   ["re-frame.core" "elision-declarations"]              {:tier :tooling  :owner "009" :status "v1"}
   ["re-frame.core" "elision-sensitive-declarations"]    {:tier :tooling  :owner "009" :status "v1"}
-  ["re-frame.core" "populate-elision-from-schemas!"]    {:tier :advanced :owner "009" :status "v1"}
-  ["re-frame.core" "populate-sensitive-from-schemas!"]  {:tier :advanced :owner "009" :status "v1"}
   ["re-frame.core" "sensitive?"]                        {:tier :tooling  :owner "009" :status "v1"}
 
   ;; --- Individually-named extra-vars (generator `extra-vars`) ---

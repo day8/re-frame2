@@ -12,6 +12,7 @@
             [clojure.set :as set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.mcp-base.cap :as base-cap]
             [re-frame.mcp-base.overflow :as overflow]
             [re-frame.mcp-base.vocab :as vocab]
@@ -51,6 +52,16 @@
 
 ;; ---- fixtures ------------------------------------------------------------
 
+;; Per-variant frame-owned classification accumulator (EP-0015 §8). Each
+;; `declare-sensitive!` / `declare-large!` call adds ONE `:rf/path` to the
+;; variant's classification config; `frame-class/install!` REPLACES the
+;; frame's `:source :frame` declarations on each install, so the helpers
+;; install the FULL accumulated config every time (a variant that declares
+;; both a sensitive and a large path keeps both). Cleared per test by the
+;; fixture so a prior test's paths don't bleed in. Defined here (above the
+;; fixture) so `reset-story-and-config` can clear it.
+(def ^:private declared-class (atom {}))
+
 (defn reset-story-and-config
   "Each test gets a fresh Story registry + write-gate set to false (the
   documented default per IMPL-SPEC §7.3). Tests that need writes flip
@@ -72,6 +83,10 @@
   ;; exercise the opt-in branch flip it explicitly.
   (config/set-allow-sensitive-reads! false)
   (schemas/clear-schemas-by-frame!)
+  ;; Frame-owned classification accumulator is per-process — clear between
+  ;; tests so a previous test's declared sensitive/large paths don't bleed
+  ;; in (EP-0015 §8, rf2-d2r3um).
+  (reset! declared-class {})
   ;; Recorder atom is per-process — clear between tests so a previous
   ;; test's captured events don't bleed in.
   (recorder/clear!)
@@ -109,22 +124,26 @@
      :doc      "Pin http effect to a known response."
      :fx-id    :http
      :response {:status 200 :body "ok"}})
-  ;; rf2-294yq5 reconciliation — a test helper event the privacy tests
-  ;; wire into a variant's `:setup` so a declared-sensitive / `:large?`
-  ;; app-db schema is RE-APPLIED on every fresh run. rf2-294yq5.3 made
-  ;; `run-variant` destroy + reallocate the variant frame on each run,
-  ;; which drops any schema registered against the prior frame
-  ;; (`:schemas/on-frame-destroyed!`). For the wire-egress redaction to
-  ;; bite at egress (the END of the run), the schema must be present on
-  ;; the fresh frame — so we re-declare it from a `:setup` event (phase 2,
-  ;; after allocation). `reg-app-schema` is keyed by the explicit `:frame`
-  ;; so the re-declaration lands on the live variant frame regardless of
-  ;; the dispatch scope. Idempotent — re-registering an identical schema
-  ;; is a no-op overwrite.
+  ;; rf2-d2r3um (EP-0015 §8) reconciliation — a test helper event the
+  ;; privacy tests wire into a variant's `:setup` so the frame-owned
+  ;; durable classification (`:sensitive` / `:large {:app-db …}`) is
+  ;; RE-INSTALLED on every fresh run. rf2-294yq5.3 made `run-variant`
+  ;; reset the variant frame's state IN PLACE on each run, which
+  ;; overwrites the runtime-db partition with `{}` — wiping the frame's
+  ;; elision registry (the `[:rf.runtime/elision …]` slot frame
+  ;; classification installs). For the wire-egress redaction to bite at
+  ;; egress (the END of the run), the declarations must be present on the
+  ;; reset frame — so we re-install them from a `:setup` event (phase 2,
+  ;; after allocation/reset). `frame-class/install!` writes directly to
+  ;; the named frame's elision registry, so the re-install lands on the
+  ;; live variant frame regardless of the dispatch scope. Idempotent —
+  ;; re-installing the same classification REPLACES the prior `:source
+  ;; :frame` entries.
   (rf/reg-event-db
-    ::reapply-app-schema
-    (fn [db [_ frame-id path schema]]
-      (schemas/reg-app-schema path schema {:frame frame-id})
+    ::reapply-frame-class
+    (fn [db [_ frame-id classification-config]]
+      (frame-class/install! frame-id
+        (frame-class/validate+extract frame-id classification-config))
       db))
   (t))
 
@@ -2183,49 +2202,66 @@
   (when (some? (frame-container variant-id))
     ((requiring-resolve 're-frame.frame/destroy-frame!) variant-id)))
 
-(defn- declare-app-schema!
-  "Register `schema` at `path` on `variant-id`'s frame for the privacy
-  tests, in a way that survives `run-variant`'s fresh-run boundary
-  (rf2-294yq5.3).
+(defn- classification-config
+  "The accumulated `reg-frame` classification map for `variant-id` —
+  `{:sensitive {:app-db [..]} :large {:app-db [..]}}`, omitting an empty
+  block."
+  [variant-id]
+  (let [{:keys [sensitive large]} (get @declared-class variant-id)]
+    (cond-> {}
+      (seq sensitive) (assoc :sensitive {:app-db (vec sensitive)})
+      (seq large)     (assoc :large {:app-db (vec large)}))))
+
+(defn- declare-classification!
+  "Accumulate `path` under `kind` (`:sensitive` / `:large`) for
+  `variant-id` and install the full classification onto the variant's
+  frame, in a way that survives `run-variant`'s fresh-run boundary
+  (rf2-294yq5.3 → rf2-d2r3um).
 
   Two seams, mirroring `seed-app-db!`:
 
-  1. DIRECT REGISTRATION — `reg-app-schema` against the live frame, so
-     a non-lifecycle reader (`read-failures`, the direct-`elide-app-db`
-     unit tests) sees the declaration immediately.
+  1. DIRECT INSTALL — `frame-class/install!` against the live frame, so a
+     non-lifecycle reader (`read-failures`, the direct-`elide-app-db` unit
+     tests) sees the declaration immediately. The frame container must
+     exist (the elision registry lives in its runtime-db partition), so we
+     `ensure-variant-frame!` first.
 
-  2. `:setup` RE-DECLARATION — append a `[::reapply-app-schema frame path
-     schema]` step to the variant body's `:setup` so each fresh run
-     re-applies the schema to the freshly-allocated frame (phase 2, after
-     allocation). Without this the declaration is dropped when
-     `ensure-fresh-frame!` destroys the pre-run frame, and the wire-egress
+  2. `:events` RE-INSTALL — append a `[::reapply-frame-class frame config]`
+     step to the variant body's `:events` so each fresh run re-installs the
+     classification onto the reset frame (phase 2, after allocation/reset).
+     Without this the declarations are wiped when `ensure-fresh-frame!`
+     resets the pre-run frame's runtime-db to `{}`, and the wire-egress
      walker (which runs at the END of the run) finds no sensitive/large
-     paths to redact. The step is idempotent — duplicate re-declarations
-     overwrite the same schema slot. Skipped when `variant-id` is not a
-     registered variant (nothing to append to)."
-  [variant-id path schema]
+     paths to redact. The step is idempotent — re-installing REPLACES the
+     `:source :frame` entries. Skipped when `variant-id` is not a
+     registered variant (nothing to append to). Because the config carries
+     ALL accumulated paths, only the LATEST appended re-install step
+     matters — the prior steps re-install a subset of the same config."
+  [variant-id kind path]
+  (swap! declared-class update-in [variant-id kind] (fnil conj #{}) (vec path))
   (ensure-variant-frame! variant-id)
-  (schemas/reg-app-schema path schema {:frame variant-id})
-  (when-let [body (story-registrar/handler-meta :variant variant-id)]
-    (story-registrar/reg-variant*
-      variant-id
-      (update body :events (fnil conj [])
-              [::reapply-app-schema variant-id path schema]))))
+  (let [config (classification-config variant-id)]
+    (frame-class/install! variant-id (frame-class/validate+extract variant-id config))
+    (when-let [body (story-registrar/handler-meta :variant variant-id)]
+      (story-registrar/reg-variant*
+        variant-id
+        (update body :events (fnil conj [])
+                [::reapply-frame-class variant-id config])))))
 
 (defn- declare-sensitive!
-  "Declare `path` `:sensitive?` on the named variant's frame. The tool
-  egress helper refreshes schema declarations before `elide-wire-value`,
-  which returns `:rf/redacted` for a declared-sensitive slot."
+  "Declare `path` frame-owned `:sensitive` on the named variant's frame
+  (EP-0015 §8). The egress walker returns `:rf/redacted` for a
+  frame-declared-sensitive slot."
   [variant-id path]
-  (declare-app-schema! variant-id path [:any {:sensitive? true}]))
+  (declare-classification! variant-id :sensitive path))
 
 (defn- declare-large!
-  "Declare `path` `:large?` on the named variant's frame. The tool egress
-  helper refreshes schema declarations before `elide-wire-value`, which
-  substitutes the slot's value with the `:rf.size/large-elided` marker —
-  the leaf the `:elided-large` indicator counts (rf2-koq5m)."
+  "Declare `path` frame-owned `:large` on the named variant's frame
+  (EP-0015 §8). The egress walker substitutes the slot's value with the
+  `:rf.size/large-elided` marker — the leaf the `:elided-large` indicator
+  counts (rf2-koq5m)."
   [variant-id path]
-  (declare-app-schema! variant-id path [:any {:large? true}]))
+  (declare-classification! variant-id :large path))
 
 (defn- seed-app-db!
   "Establish `db` as `variant-id`'s frame app-db for the privacy tests.
@@ -2986,31 +3022,40 @@
 ;; crossed the AI/off-box boundary RAW with no live source to value-match.
 ;;
 ;; The fix collects candidate secrets ALSO from the plan's OWN :db-seed slot
-;; at the variant's declared-sensitive PATHS — read straight from schema
-;; storage (which is keyed by frame id and exists pre-allocation), not the
-;; frame-allocated elision registry. These tests declare a sensitive path
-;; WITHOUT allocating the frame, then assert the secret is redacted by
-;; default and surfaced only via the gated :include-sensitive opt-in. RED
+;; at the variant's frame-declared-sensitive PATHS — read from the frame's
+;; durable elision registry, which frame-owned classification populates at
+;; `reg-frame` time (EP-0015 §8, rf2-d2r3um), so the paths are live from
+;; frame creation onward without any RUN. These tests declare a sensitive
+;; path PRE-RUN (frame allocated, no run-variant / preview-variant has
+;; executed and seeded the live app-db), then assert the secret is redacted
+;; by default and surfaced only via the gated :include-sensitive opt-in. RED
 ;; before the fix (the literal crossed verbatim); GREEN after.
 ;; ---------------------------------------------------------------------------
 
-(defn- declare-sensitive-no-frame!
-  "Register a `{:sensitive? true}` schema for a slot on the named variant's
-  frame WITHOUT allocating the frame — the pre-run posture
-  `explain-variant` must defend (rf2-tag30h). `reg-app-schema` writes to
-  the schemas-by-frame side-table keyed by frame id, which exists whether
-  or not the frame's runtime-db has been allocated."
+(defn- declare-sensitive-prerun!
+  "Install a frame-owned `:sensitive` `:app-db` declaration for a slot on
+  the named variant's frame PRE-RUN — the no-run posture `explain-variant`
+  must defend (rf2-tag30h). Frame-owned classification lives in the frame's
+  durable elision registry (its runtime-db partition), so the frame
+  container must exist; we `ensure-variant-frame!` (allocate at reg-frame
+  time) then `frame-class/install!`. No run-variant / preview-variant has
+  executed, so the LIVE app-db is still empty — the candidate secrets come
+  from the plan's own :db-seed at these declared paths (EP-0015 §8,
+  rf2-d2r3um)."
   [variant-id path]
-  (schemas/reg-app-schema path [:any {:sensitive? true}]
-                          {:frame variant-id}))
+  (ensure-variant-frame! variant-id)
+  (frame-class/install! variant-id
+    (frame-class/validate+extract variant-id {:sensitive {:app-db [(vec path)]}})))
 
 (deftest explain-variant-redacts-preframe-db-seed-by-default
-  (testing "PRE-FRAME: a declared-sensitive value in the plan :db-seed (and re-surfaced in :effective-args / :network) is redacted with NO live frame (rf2-tag30h)"
+  (testing "PRE-RUN: a declared-sensitive value in the plan :db-seed (and re-surfaced in :effective-args / :network) is redacted with NO seeded live app-db (rf2-tag30h)"
     (with-clean-frame [vid :story.button/primary]
-      ;; The frame is NOT allocated — only the sensitive schema is declared.
-      (is (nil? (frame-container vid))
-          "precondition: the variant frame is unallocated (no run yet)")
-      (declare-sensitive-no-frame! vid [:auth :token])
+      ;; No RUN has executed — the live app-db is still empty, so the
+      ;; candidate secrets must come from the plan's own :db-seed at the
+      ;; frame's declared-sensitive paths (EP-0015 §8, rf2-d2r3um).
+      (declare-sensitive-prerun! vid [:auth :token])
+      (is (empty? (rf/app-db-value vid))
+          "precondition: no run has seeded the live app-db")
       (with-redefs [story/explain
                     (fn [_vk & _]
                       {:source-chain   [:story.button/primary]                    ; structure — public
@@ -3022,7 +3067,7 @@
               s (:structuredContent r)]
           (is (success? r))
           (is (not (tree-contains? (:explain s) "DISTINCTIVE-PREFRAME-SECRET"))
-              "PRE-FRAME the secret MUST NOT cross in ANY value-bearing slot — no live app-db is no excuse")
+              "PRE-RUN the secret MUST NOT cross in ANY value-bearing slot — no seeded live app-db is no excuse")
           (is (= :rf/redacted (get-in s [:explain :db-seed :auth :token]))
               ":db-seed (the candidate source itself) is redacted")
           (is (= :rf/redacted (get-in s [:explain :effective-args :api-key]))
@@ -3035,11 +3080,11 @@
               "plan-STRUCTURE slots remain author-published discovery metadata — untouched"))))))
 
 (deftest explain-variant-preframe-includes-sensitive-when-opted-in
-  (testing "PRE-FRAME: :include-sensitive true forwards the raw plan value slots (gate open, rf2-tag30h)"
+  (testing "PRE-RUN: :include-sensitive true forwards the raw plan value slots (gate open, rf2-tag30h)"
     (config/set-allow-sensitive-reads! true)
     (with-clean-frame [vid :story.button/primary]
-      (is (nil? (frame-container vid)))
-      (declare-sensitive-no-frame! vid [:auth :token])
+      (declare-sensitive-prerun! vid [:auth :token])
+      (is (empty? (rf/app-db-value vid)))
       (with-redefs [story/explain
                     (fn [_vk & _]
                       {:db-seed {:auth {:token "DISTINCTIVE-PREFRAME-SECRET"}}})]
@@ -3051,11 +3096,11 @@
               "the documented opt-in surfaces the raw seed value pre-frame too"))))))
 
 (deftest explain-variant-preframe-gate-closed-ignores-opt-in
-  (testing "PRE-FRAME gate closed: :include-sensitive true is ignored — plan value slots stay redacted (rf2-tag30h)"
+  (testing "PRE-RUN gate closed: :include-sensitive true is ignored — plan value slots stay redacted (rf2-tag30h)"
     (is (false? (config/sensitive-reads-allowed?)))
     (with-clean-frame [vid :story.button/primary]
-      (is (nil? (frame-container vid)))
-      (declare-sensitive-no-frame! vid [:auth :token])
+      (declare-sensitive-prerun! vid [:auth :token])
+      (is (empty? (rf/app-db-value vid)))
       (with-redefs [story/explain
                     (fn [_vk & _]
                       {:db-seed {:auth {:token "DISTINCTIVE-PREFRAME-SECRET"}}})]

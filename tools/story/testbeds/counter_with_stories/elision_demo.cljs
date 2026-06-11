@@ -85,20 +85,16 @@
 ;; schema-driven size-elision nomination calls this the AI-consumer
 ;; orientation hook.
 
-;; Container-level props form, per Spec 010 §`:large?` schema-driven
-;; size-elision nomination: when the schema is registered at a path
-;; directly (rather than as a nested slot inside a `:map`), the
-;; `:large?` props live on the schema's own property map. The
-;; framework's `populate-elision-from-schemas!` walker reads those
-;; top-level props and writes a `{:large? true :source :schema}`
-;; entry into `[:rf.runtime/elision :declarations]` in the frame's
-;; runtime-db partition (EP-0001 rf2-vzld77).
+;; Schema describes SHAPE only (EP-0015 §8): `:user/avatar-pdf` is an
+;; optional string. Durable app-db egress classification is FRAME-owned —
+;; the `:large {:app-db [[:user/avatar-pdf]]}` declaration on the testbed's
+;; `:rf/default` frame (see `core/run`) is what makes this slot elide to the
+;; `:rf.size/large-elided` marker at wire egress. Schemas no longer carry
+;; `:large?` / `:sensitive?` app-db egress markers.
 ;;
-;; The runtime ROLLS BACK on a post-commit app-db schema failure —
-;; the slot may be `nil` (when the user hasn't uploaded yet), so the
-;; schema MUST permit nil. We wrap with `:maybe`; the `:large? true`
-;; flag lives on the inner `:string` slot so the walker still surfaces
-;; it under the `[:user/avatar-pdf]` registered path.
+;; The runtime ROLLS BACK on a post-commit app-db schema failure — the slot
+;; may be `nil` (when the user hasn't uploaded yet), so the schema permits
+;; nil via `:maybe`.
 ;;
 ;; EP-0002 (rf2-5q7um6): `reg-app-schema` is context-required frame-local —
 ;; a bare ns-load call under no scope raises `:rf.error/no-frame-context`
@@ -110,8 +106,7 @@
 ;; root provider is owned by the Story/tools bead rf2-bd4div.)
 (with-frame :rf/default
   (rf/reg-app-schema [:user/avatar-pdf]
-                     [:maybe [:string {:large? true
-                                       :hint   "Avatar PDF blob"}]]))
+                     [:maybe :string]))
 
 ;; ============================================================================
 ;; EVENTS  (Spec 009 §`:sensitive?`)
@@ -222,15 +217,14 @@
 
 (defn install-listener!
   "Register the demo console listener. Idempotent — re-registering
-  under the same id replaces. Also calls
-  `rf/populate-elision-from-schemas!` so the schema-driven `:large?`
-  declarations land in the active frame's `[:rf.runtime/elision
-  :declarations]` runtime-db registry (EP-0001 rf2-vzld77) before any
-  wire consumer asks for them.
-  The populate step is normally run once at boot per Spec 009
-  §Schema-driven boot population."
+  under the same id replaces.
+
+  EP-0015 §8: no schema→elision population step — durable app-db
+  classification is frame-owned and installed at `reg-frame` time (see
+  `core/run`'s `:large {:app-db [[:user/avatar-pdf]]}`), so the
+  `[:rf.runtime/elision :declarations]` registry is already live before any
+  wire consumer asks for it."
   []
-  (rf/populate-elision-from-schemas!)
   (rf/register-event-listener! listener-id log-record!))
 
 (defn uninstall-listener!

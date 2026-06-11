@@ -119,15 +119,14 @@
    ;; dispatch and ship in their own namespaces.
    ;; ===========================================================================
 
-   ;; ---- re-frame.elision (rf2-w3n5u schema-first registry) ------------------
-   {:key         :elision/populate-from-schemas!
-    :producer-ns 're-frame.elision
-    :design-bead "rf2-w3n5u"
-    :description "Refresh schema-derived :large? and :sensitive? elision declarations for a frame."}
+   ;; ---- re-frame.elision (frame-owned app-db egress registry) ---------------
+   ;; EP-0015 §8 (rf2-d2r3um): no `:elision/populate-from-schemas!` seam —
+   ;; schemas no longer feed the app-db egress registry. Durable app-db
+   ;; classification is frame-owned (`re-frame.frame-classification`).
    {:key         :elision/sensitive-declarations
     :producer-ns 're-frame.elision
     :design-bead "rf2-w3n5u"
-    :description "Return the frame's schema-derived sensitive path declarations."}
+    :description "Return the frame's frame-owned sensitive app-db path declarations."}
    {:key         :elision/clear-warning-cache!
     :producer-ns 're-frame.elision
     :design-bead "rf2-w3n5u"

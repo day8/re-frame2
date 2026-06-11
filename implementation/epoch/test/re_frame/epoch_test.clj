@@ -67,6 +67,7 @@
             [re-frame.trace :as trace]
             [re-frame.elision]
             [re-frame.epoch :as epoch]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.listeners :as epoch.listeners]
@@ -4090,14 +4091,14 @@
             off-box defaults; bookkeeping slots and structured projections
             pass through unchanged"
     (rf/reg-frame :test/main {})
-    (rf/reg-app-schema [:auth]
-                       [:map [:password {:sensitive? true} :string]]
-                       {:frame :test/main})
-    ;; Force population of [:rf.runtime/elision :sensitive-declarations] —
-    ;; the router refresh runs per-handler-dispatch but only for
-    ;; the handler's resolved frame; populating up-front pins the
-    ;; smoke against the elision walker contract directly.
-    (rf/populate-sensitive-from-schemas! :test/main)
+    ;; EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED.
+    ;; Declare the `[:auth :password]` sensitive path through the
+    ;; frame-classification install seam — it populates
+    ;; [:rf.runtime/elision :sensitive-declarations] directly, pinning the
+    ;; smoke against the elision walker contract.
+    (frame-class/install! :test/main
+      (frame-class/validate+extract :test/main
+        {:sensitive {:app-db [[:auth :password]]}}))
     (rf/reg-event-db :login
                      (fn [db [_ pw]]
                        (assoc-in db [:auth :password] pw)))

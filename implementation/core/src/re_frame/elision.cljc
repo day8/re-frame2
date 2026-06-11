@@ -1,12 +1,19 @@
 (ns re-frame.elision
-  "Schema-first wire-boundary elision.
+  "Frame-owned wire-boundary elision.
 
-  Canonical declarations come from app-schema slot metadata:
-  `{:large? true}` hydrates `[:rf.runtime/elision :declarations]`, and
-  `{:sensitive? true}` hydrates
-  `[:rf.runtime/elision :sensitive-declarations]`. Handler metadata
-  `:sensitive?` remains the coarse escape hatch for cross-cutting
-  handlers. There are no imperative large-path APIs.
+  Canonical durable app-db classification comes from the **frame**:
+  `(rf/reg-frame :app/main {:large {:app-db [[:docs :csv]]}})` hydrates
+  `[:rf.runtime/elision :declarations]`, and `:sensitive {:app-db …}`
+  hydrates `[:rf.runtime/elision :sensitive-declarations]` (installed by
+  `re-frame.frame-classification` under `:source :frame`). EP-0015 §8
+  (Schemas Describe Shape, Not Public Egress Policy): schemas describe
+  shape and validation, NOT durable app-db egress policy — a
+  `reg-app-schema` `{:sensitive? true}` / `{:large? true}` slot prop is
+  **no longer** a second route into this registry. Schema `:sensitive?`
+  still drives schema-validation-failure-trace redaction (the schema's own
+  egress product — `re-frame.schemas`), and machine `:data-schema` per-slot
+  props still classify machine `:data` (EP-0005, unchanged). There are no
+  imperative large-path APIs.
 
   EP-0001 (rf2-vzld77): the elision declaration registry is DURABLE,
   serializable framework state (it must survive epoch-restore / SSR-
@@ -135,8 +142,9 @@
   nil)
 
 (defn declarations
-  "Return schema-derived `:large?` declarations for `frame-id`. EP-0002 —
-  the zero-arity ambient form resolves the frame through the
+  "Return the frame-owned `:large` `:app-db` declarations for `frame-id`
+  (installed by `re-frame.frame-classification` under `:source :frame`).
+  EP-0002 — the zero-arity ambient form resolves the frame through the
   carried-invariant scope chain (`frame/require-current-frame!`); under no
   established scope it raises `:rf.error/no-frame-context` rather than
   reading a synthesised `:rf/default` registry."
@@ -147,8 +155,9 @@
    (or (get (registry-of frame-id) :declarations) {})))
 
 (defn sensitive-declarations
-  "Return schema-derived `:sensitive?` declarations for `frame-id`. EP-0002
-  — the zero-arity ambient form resolves the frame through the
+  "Return the frame-owned `:sensitive` `:app-db` declarations for `frame-id`
+  (installed by `re-frame.frame-classification` under `:source :frame`).
+  EP-0002 — the zero-arity ambient form resolves the frame through the
   carried-invariant scope chain (`frame/require-current-frame!`); under no
   established scope it raises `:rf.error/no-frame-context` rather than
   reading a synthesised `:rf/default` registry."
@@ -158,83 +167,18 @@
   ([frame-id]
    (or (get (registry-of frame-id) :sensitive-declarations) {})))
 
-(defn- schema-declarations
-  [frame-id extract-hook]
-  (let [entries-fn (late-bind/get-fn :schemas/frame-schema-entries)
-        extract-fn (late-bind/get-fn extract-hook)]
-    (if (and entries-fn extract-fn)
-      (reduce-kv
-        (fn [acc base-path entry]
-          (merge acc (extract-fn (:schema entry) base-path)))
-        {}
-        (entries-fn frame-id))
-      {})))
-
-(defn- install-schema-declarations!
-  [frame-id registry-key schema-decls]
-  (swap-elision-slot! frame-id
-    (fn [reg]
-      (let [without-schema (reduce-kv
-                             (fn [acc path decl]
-                               (if (= :schema (:source decl))
-                                 acc
-                                 (assoc acc path decl)))
-                             {}
-                             (get reg registry-key))
-            merged         (merge without-schema schema-decls)
-            reg'           (if (seq merged)
-                             (assoc (or reg {}) registry-key merged)
-                             (dissoc (or reg {}) registry-key))]
-        reg')))
-  (vec (keys schema-decls)))
-
-(defn populate-elision-from-schemas!
-  "Populate `[:rf.runtime/elision :declarations]` from `{:large? true}`
-  schema slot metadata. Returns the populated paths. EP-0002 — the
-  zero-arity ambient form resolves the frame through the carried-invariant
-  scope chain (`frame/require-current-frame!`); under no established scope
-  it raises `:rf.error/no-frame-context` rather than populating a
-  synthesised `:rf/default` registry. The per-dispatch / registration-time
-  callers (router, schema storage) always pass an explicit `frame-id`."
-  ([] (populate-elision-from-schemas!
-        (frame/require-current-frame!
-          :populate-elision-from-schemas
-          {:where 're-frame.elision/populate-elision-from-schemas!})))
-  ([frame-id]
-   (install-schema-declarations!
-     frame-id
-     :declarations
-     (schema-declarations frame-id :schemas/extract-large-paths-from-schema))))
-
-(defn populate-sensitive-from-schemas!
-  "Populate `[:rf.runtime/elision :sensitive-declarations]` from
-  `{:sensitive? true}` schema slot metadata. Returns the populated
-  paths. EP-0002 — the zero-arity ambient form resolves the frame through
-  the carried-invariant scope chain (`frame/require-current-frame!`); under
-  no scope it raises `:rf.error/no-frame-context` rather than populating a
-  synthesised `:rf/default` registry."
-  ([] (populate-sensitive-from-schemas!
-        (frame/require-current-frame!
-          :populate-sensitive-from-schemas
-          {:where 're-frame.elision/populate-sensitive-from-schemas!})))
-  ([frame-id]
-   (install-schema-declarations!
-     frame-id
-     :sensitive-declarations
-     (schema-declarations frame-id :schemas/extract-sensitive-paths-from-schema))))
-
-(defn populate-from-schemas!
-  "Refresh both schema-owned declaration registries for `frame-id`. EP-0002
-  — the zero-arity ambient form resolves the frame through the
-  carried-invariant scope chain; under no scope it raises
-  `:rf.error/no-frame-context`."
-  ([] (populate-from-schemas!
-        (frame/require-current-frame!
-          :populate-from-schemas
-          {:where 're-frame.elision/populate-from-schemas!})))
-  ([frame-id]
-   {:large     (populate-elision-from-schemas! frame-id)
-    :sensitive (populate-sensitive-from-schemas! frame-id)}))
+;; EP-0015 §8 (rf2-d2r3um): the schema-attached `{:sensitive? true}` /
+;; `{:large? true}` slot props are NO LONGER a route into this app-db
+;; egress registry. Durable app-db classification is frame-owned —
+;; `re-frame.frame-classification/install!` writes `:source :frame`
+;; declarations at `reg-frame` time. The former
+;; `populate-{elision,sensitive}-from-schemas!` / `populate-from-schemas!`
+;; functions (which walked `reg-app-schema` slot props into `:source
+;; :schema` declarations) are removed: schemas describe shape, not durable
+;; app-db egress policy. Schema `:sensitive?` still drives
+;; schema-validation-failure-trace redaction (`re-frame.schemas`), and
+;; machine `:data-schema` props still classify machine `:data` (EP-0005) —
+;; both consult the schema directly, not this registry.
 
 (defn clear-warning-cache!
   []
@@ -273,11 +217,15 @@
     [:rf.elision/at path]))
 
 (defn- ->marker
-  [v path {:keys [hint as-of-epoch include-digests?]}]
+  [v path {:keys [hint as-of-epoch include-digests? reason]}]
   (let [body (cond-> {:path   (vec path)
                       :bytes  (pr-str-bytes v)
                       :type   (value-type v)
-                      :reason :schema
+                      ;; EP-0015 §8 (rf2-d2r3um): the declaration source is
+                      ;; now frame-owned (`:source :frame`), not schema —
+                      ;; carry that provenance in `:reason` (defaults to
+                      ;; `:frame` when the decl omits an explicit source).
+                      :reason (or reason :frame)
                       :hint   hint
                       :handle (handle-of (vec path) as-of-epoch)}
                include-digests? (assoc :digest (sha256-hex v)))]
@@ -293,7 +241,7 @@
                      {:frame    frame-id
                       :path     (vec path)
                       :bytes    bytes
-                      :hint     "Add `{:large? true}` to the schema slot for this path."
+                      :hint     "Add this path to the frame's `:large {:app-db [...]}` classification (EP-0015)."
                       :recovery :no-recovery})))))
 
 ;; ---- collection-coordinate declaration matching (rf2-wm9kp) ---------------
@@ -528,6 +476,7 @@
         ;; on a re-projection pass). Per rf2-fq8ep.
         v
         (->marker v path {:hint             (:hint large-decl)
+                          :reason           (:source large-decl)
                           :as-of-epoch      (:as-of-epoch ctx)
                           :include-digests? (:include-digests? ctx)}))
 
@@ -641,6 +590,7 @@
   [v]
   (and (vector? v) (= :rf.elision/at (first v))))
 
-(late-bind/set-fn! :elision/populate-from-schemas! populate-from-schemas!)
+;; EP-0015 §8 (rf2-d2r3um): no `:elision/populate-from-schemas!` hook —
+;; schemas no longer feed the app-db egress registry (frame policy owns it).
 (late-bind/set-fn! :elision/sensitive-declarations sensitive-declarations)
 (late-bind/set-fn! :elision/clear-warning-cache! clear-warning-cache!)

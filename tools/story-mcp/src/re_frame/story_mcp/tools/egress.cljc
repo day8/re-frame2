@@ -12,15 +12,18 @@
   `preview-variant` / `run-variant` (which return the variant frame's
   `:app-db` slice) and `read-failures` (which returns the variant
   frame's `:rf.story/assertions` accumulator). The walker reads the
-  live schema-owned `[:rf.runtime/elision]` registries from the named
-  frame's runtime-db partition; the `:frame variant-id` opts slot is load-bearing.
+  frame-owned `[:rf.runtime/elision]` registries (EP-0015 §8 — durable
+  classification declared at `reg-frame` time via
+  `re-frame.frame-classification`) from the named frame's runtime-db
+  partition; the `:frame variant-id` opts slot is load-bearing.
 
   ## Non-live runtime/captured value scrub (`scrub-frame-value`, rf2-12f2q)
 
   The wire-elision contract (`tools/story/spec/006-MCP-Surface.md`)
   promises EVERY Story-MCP payload crosses elided — not just the three
   live-state tools'. The NON-live tools also cross runtime/captured
-  VALUES that can sit at a frame's declared-`:sensitive?` paths:
+  VALUES that can sit at a frame's frame-declared `:sensitive` `:app-db`
+  paths (EP-0015 §8):
   `explain-variant`'s plan-RESOLVED value slots (`:effective-args` /
   `:args` / `:substitutions` / `:network` / `:db-seed`) and
   `record-as-variant`'s `:captured` event vectors (+ the `:play-snippet`
@@ -36,7 +39,7 @@
 
   Apply the cross-MCP privacy-posture rules to every live `:app-db`
   slice and assertion accumulator before egress. Off-box defaults
-  (schema-declared sensitive paths return `:rf/redacted`; assertion
+  (frame-declared sensitive paths return `:rf/redacted`; assertion
   records stamped `:sensitive? true` are dropped). The shared
   `:include-sensitive` arg is the documented opt-in escape hatch.
 
@@ -49,13 +52,13 @@
   Those are derived from the same app-db, but they are NOT keyed by
   app-db path — the token sits at a hiccup-tree position
   (`[1 :value]`), not at `[:user :token]`. `elide-wire-value` matches
-  the schema-declared SENSITIVE PATHS, so running it over a hiccup
+  the frame-declared SENSITIVE PATHS, so running it over a hiccup
   tree finds nothing: the path-based walker is structurally blind to
   the re-keyed copy.
 
   The sound posture for a DERIVED tree is VALUE-based redaction:
-  collect the live values sitting at the frame's declared-`:sensitive?`
-  app-db paths, then substitute any leaf in the derived tree that
+  collect the live values sitting at the frame's frame-declared
+  `:sensitive` app-db paths, then substitute any leaf in the derived tree that
   EQUALS one of them with the same `:rf/redacted` sentinel
   `elide-wire-value` emits. This honours the Tool-Pair §Direct-read
   privacy MUST intent — 'live runtime state crossing the MCP egress
@@ -75,7 +78,6 @@
   disclosed and MUST stay redacted. See `sensitive-values` for the
   fail-SAFE argument."
   (:require [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
             [re-frame.mcp-base.elision :as base-elision]
             [re-frame.mcp-base.envelope :as base-envelope]
             [re-frame.mcp-base.sensitive :as sensitive]
@@ -85,20 +87,18 @@
 ;; Path-based redaction
 ;; ---------------------------------------------------------------------------
 
-(defn- refresh-elision-from-schemas!
-  "Refresh schema-owned elision declarations before a direct wire read.
-  Event dispatch does this in the router, but MCP tools can read a frame
-  after non-event setup paths too."
-  [variant-id]
-  (when-let [populate! (late-bind/get-fn-cached :elision/populate-from-schemas!)]
-    (try
-      (populate! variant-id)
-      (catch #?(:clj Throwable :cljs :default) _ nil))))
-
 (defn elide-app-db
   "Run `app-db` through `re-frame.core/elide-wire-value` against
   `variant-id`'s frame registry. Returns the elided value, or the input
   unchanged when `include?` is true.
+
+  The egress walker reads `variant-id`'s frame-owned elision registry
+  (`[:rf.runtime/elision :sensitive-declarations]` / `:declarations`),
+  installed by `re-frame.frame-classification` at `reg-frame` time
+  (EP-0015 §8). No per-read refresh is needed — the declarations are
+  durable frame state, live from frame creation onward; the former
+  schema→registry population hook (`:elision/populate-from-schemas!`) was
+  removed with the §8 schema-attached app-db egress route.
 
   Two short-circuits avoid pointless work:
 
@@ -110,16 +110,14 @@
       knobs flipped on the walker yields `v` at every node (per
       `elide-wire-value`'s composition rule: `sensitive?` and `large?`
       both return `v` when their inclusion flag is true; no marker
-      emit, no schema-driven elision, no warning). The walk is a pure
+      emit, no frame-owned elision, no warning). The walk is a pure
       no-op — full traversal, zero edits — so we skip it. The escape
       hatch should be free."
   [app-db variant-id include?]
   (cond
     (nil? app-db) app-db
     include?      app-db
-    :else         (do
-                    (refresh-elision-from-schemas! variant-id)
-                    (rf/elide-wire-value app-db {:frame variant-id}))))
+    :else         (rf/elide-wire-value app-db {:frame variant-id})))
 
 (defn scrub-assertions+count
   "Default-drop any assertion records carrying the top-level
@@ -255,11 +253,12 @@
   trees (rendered hiccup, effective-args, snapshot) where the same value
   reappears at a non-app-db path the path-based walker can't reach.
 
-  Refreshes the schema-owned declarations first (the elision registry is
-  populated from `{:sensitive? true}` schema metadata, same as
-  `elide-app-db`'s pre-step). Nil / boolean values are excluded — a `nil`
-  or `false` leaf is not a secret and value-matching them would scrub
-  swathes of benign tree.
+  Reads the SAME frame-owned `:sensitive` `:app-db` declarations
+  (`re-frame.core/elision-sensitive-declarations`) `elide-app-db` reads —
+  installed by `re-frame.frame-classification` at `reg-frame` time
+  (EP-0015 §8). Nil / boolean values are excluded — a `nil` or `false`
+  leaf is not a secret and value-matching them would scrub swathes of
+  benign tree.
 
   ## Non-unique-secret guard (rf2-g7cd1, hardened rf2-f3kf7)
 
@@ -294,7 +293,6 @@
   uniquely-secret short scalar) still over-scrubs — that residual is
   fail-SAFE, never under-safe."
   [app-db variant-id]
-  (refresh-elision-from-schemas! variant-id)
   (let [decls              (rf/elision-sensitive-declarations variant-id)
         sensitive-prefixes (mapv vec (keys decls))
         ;; Collect candidate secrets by WALKING the raw db at governed
@@ -362,56 +360,44 @@
                         tree
                         (redact-matching tree secrets)))))
 
-(defn- schema-sensitive-prefixes
-  "The `:sensitive?` declaration PATHS for `variant-id`, read STRAIGHT from
-  schema storage — independent of frame allocation (rf2-tag30h). The
-  populated elision registry that `sensitive-values` reads via
-  `rf/elision-sensitive-declarations` is hydrated by
-  `populate-from-schemas!` against an ALLOCATED frame; pre-frame it is
-  empty, so the pre-run `explain-variant` path needs the declarations from
-  the schema entries directly.
+(defn- frame-sensitive-prefixes
+  "The `:sensitive` `:app-db` declaration PATHS for `variant-id`, read from
+  the frame's durable elision registry
+  (`re-frame.core/elision-sensitive-declarations`) — the SAME source
+  `sensitive-values` and `elide-app-db` read.
 
-  Mirrors `re-frame.elision`'s private `schema-declarations` — the SAME
-  two cross-artefact seams (`:schemas/frame-schema-entries` +
-  `:schemas/extract-sensitive-paths-from-schema`) — but composes them here
-  with no frame dependency: schema entries are keyed by frame id in
-  `schemas-by-frame`, which exists whether or not the frame's runtime-db
-  has been allocated. Returns a vec of path-prefix vectors (the
-  `collect-governed-values!` input shape); `[]` when either seam is absent
-  (no schemas artefact loaded) or the variant declares nothing sensitive."
+  Frame-owned classification (EP-0015 §8): `re-frame.frame-classification`
+  installs these `:source :frame` declarations at `reg-frame` time, so they
+  are live for the WHOLE life of the frame — no run required to populate
+  them. (The former schema→registry population route was removed in §8;
+  schema `{:sensitive? true}` slot props no longer feed this registry.)
+  Returns a vec of path-prefix vectors (the `collect-governed-values!`
+  input shape); `[]` when the variant declares nothing sensitive (or its
+  frame is unallocated — `elision-sensitive-declarations` reads an empty
+  registry for an absent frame)."
   [variant-id]
-  (let [entries-fn (late-bind/get-fn-cached :schemas/frame-schema-entries)
-        extract-fn (late-bind/get-fn-cached :schemas/extract-sensitive-paths-from-schema)]
-    (if (and entries-fn extract-fn)
-      (let [decls (reduce-kv
-                    (fn [acc base-path entry]
-                      (merge acc (extract-fn (:schema entry) base-path)))
-                    {}
-                    (entries-fn variant-id))]
-        (mapv vec (keys decls)))
-      [])))
+  (mapv vec (keys (rf/elision-sensitive-declarations variant-id))))
 
 (defn- plan-sensitive-values
   "The candidate-secret set derived from a PLAN-side seed source `seed-db`
   (the explain map's `:db-seed` slot — the authored seed data that BECOMES
   the variant frame's app-db on the next run) at `variant-id`'s declared-
-  `:sensitive?` paths. The pre-frame fail-closed source for
-  `explain-variant` (rf2-tag30h): the live-app-db reader
-  (`scrub-frame-value` ⇒ `sensitive-values`) yields nothing when the frame
-  has not been allocated, so a secret authored into `:db-seed` (and
-  re-surfaced in `:effective-args` / `:network` / a step payload) would
-  cross RAW with no live source to value-match against.
+  `:sensitive` `:app-db` paths. The pre-RUN source for `explain-variant`
+  (rf2-tag30h): `explain-variant` is a documented no-run path, so the live
+  app-db may be unseeded — but a secret authored into `:db-seed` (and
+  re-surfaced in `:effective-args` / `:network` / a step payload) must
+  still be value-matched. We walk the plan's OWN seed map at the frame's
+  declared-sensitive paths to collect the values destined for sensitive
+  positions; those are the secrets to redact out of the sibling
+  value-bearing slots.
 
-  The variant frame's declared-sensitive PATHS are available regardless of
-  allocation — `schema-sensitive-prefixes` reads them straight from schema
-  storage (NOT the frame-allocated elision registry, which is empty
-  pre-run). We then walk the plan's OWN seed map at those governed paths —
-  exactly as `sensitive-values` walks the live app-db — to collect the
-  values destined for sensitive positions. Those are the secrets to redact
-  out of the sibling value-bearing slots.
+  The declared-sensitive PATHS come from the frame's durable elision
+  registry (`frame-sensitive-prefixes`) — frame-owned classification is
+  live from `reg-frame` time (EP-0015 §8), so the paths are available
+  pre-run without any schema→registry population.
 
-  No public-against-the-wire subtraction here: pre-frame there is no
-  `:app-db` egress shipping the seed values verbatim, so every governed
+  No public-against-the-wire subtraction here: this seed source is the
+  authored plan, not the live wire `:app-db` egress, so every governed
   seed value stays in the set (fail-SAFE — over-scrub at worst, never
   under-scrub). `nil` / boolean leaves are skipped by
   `collect-governed-values!` for the same reason `sensitive-values` skips
@@ -419,7 +405,7 @@
   [seed-db variant-id]
   (if (nil? seed-db)
     #{}
-    (let [sensitive-prefixes (schema-sensitive-prefixes variant-id)]
+    (let [sensitive-prefixes (frame-sensitive-prefixes variant-id)]
       (if (empty? sensitive-prefixes)
         #{}
         (persistent!

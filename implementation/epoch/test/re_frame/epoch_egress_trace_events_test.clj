@@ -48,6 +48,7 @@
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             ;; Side-effect require (mirror epoch_test.clj fixture).
@@ -71,18 +72,20 @@
 
 (def ^:private secret "topsecret-do-not-leak")
 
+;; EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED.
+;; Seed the sensitive / large declarations through the frame-classification
+;; install seam (the index-free `:rf/path` is the frame declaration). The
+;; frame container is reg-frame'd by each deftest before this runs.
 (defn- install-sensitive-schema! [frame-id]
-  (rf/reg-app-schema [:auth]
-                     [:map [:password {:sensitive? true} :string]]
-                     {:frame frame-id})
-  (rf/populate-sensitive-from-schemas! frame-id)
+  (frame-class/install! frame-id
+    (frame-class/validate+extract frame-id
+      {:sensitive {:app-db [[:auth :password]]}}))
   nil)
 
 (defn- install-large-schema! [frame-id]
-  (rf/reg-app-schema [:blob]
-                     [:map [:payload {:large? true :hint "big"} :string]]
-                     {:frame frame-id})
-  (rf/populate-elision-from-schemas! frame-id)
+  (frame-class/install! frame-id
+    (frame-class/validate+extract frame-id
+      {:large {:app-db [[:blob :payload]]}}))
   nil)
 
 (defn- big-string [n] (apply str (repeat n "X")))

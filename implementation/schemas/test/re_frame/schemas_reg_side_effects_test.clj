@@ -1,28 +1,26 @@
 (ns re-frame.schemas-reg-side-effects-test
-  "JVM tests for the two dev-only side effects `reg-app-schema` performs
-  on (re-)registration (rf2-ee38b.6):
+  "JVM tests for the dev-only side effect `reg-app-schema` performs on
+  (re-)registration (rf2-ee38b.6):
 
-    1. `:rf.schema/violation` hot-reload trace — Spec 010 §Schema
-       migration on hot-reload + Spec 009 error-catalogue row
-       `:rf.schema/violation`. When a re-registration CHANGES the schema
-       at a `(frame-id, path)` and the live `app-db` value at that path
-       fails the NEW schema, the runtime emits a `:warning` trace so dev
-       panels can highlight the stale slice. The live app keeps running
-       (`:logged-and-skipped`).
+    `:rf.schema/violation` hot-reload trace — Spec 010 §Schema migration
+    on hot-reload + Spec 009 error-catalogue row `:rf.schema/violation`.
+    When a re-registration CHANGES the schema at a `(frame-id, path)` and
+    the live `app-db` value at that path fails the NEW schema, the runtime
+    emits a `:warning` trace so dev panels can highlight the stale slice.
+    The live app keeps running (`:logged-and-skipped`).
 
-    2. Schema-derived elision-registry population — Spec 010 §`:large?`
-       (\"at boot, and on `reg-app-schema` re-registration\") + §Registry
-       feeder (rf2-c1l4d). Registering a schema with `:large?` /
-       `:sensitive?` per-slot flags writes the corresponding declarations
-       into the frame's `[:rf.runtime/elision …]` slots so size-elision / privacy
-       redaction is live for wire emits — including those that fire BEFORE
-       the first dispatch (the gap the per-dispatch router refresh leaves).
+  EP-0015 §8 (rf2-d2r3um): `reg-app-schema` NO LONGER populates the
+  durable elision registry from `:large?` / `:sensitive?` per-slot flags —
+  durable app-db egress classification is frame-owned
+  (`re-frame.frame-classification`, exercised in the core/ssr suites).
+  Schema `:sensitive?` still drives THIS file's hot-reload-trace redaction
+  (`violation-redacts-mismatching-value-when-new-schema-sensitive`),
+  consulting the schema directly rather than any elision-registry feed.
 
-  Both effects are gated on `interop/debug-enabled?` and DCE'd in
+  The effect is gated on `interop/debug-enabled?` and DCE'd in
   production; the JVM test build is always dev-enabled."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
             [re-frame.schemas.malli]
@@ -143,51 +141,3 @@
                                             {:frame :tenant/a})))]
       (is (= 1 (count violations)))
       (is (= :tenant/a (-> violations first :tags :frame))))))
-
-;; ===========================================================================
-;; schema-derived elision-registry auto-population
-;; ===========================================================================
-
-(deftest reg-app-schema-populates-large-declarations
-  (testing "rf2-ee38b.6 — registering a schema with a `:large?` per-slot
-            flag writes the declaration into
-            [:rf.runtime/elision :declarations] at registration time
-            (no dispatch required)"
-    (rf/reg-app-schema [:user]
-                       [:map
-                        [:id          :int]
-                        [:uploaded    {:large? true :hint "blob"} :string]])
-    (let [decls (elision/declarations :rf/default)]
-      (is (= {:large? true :source :schema :hint "blob"}
-             (get decls [:user :uploaded]))
-          "the :large? slot is declared without any dispatch happening"))))
-
-(deftest reg-app-schema-populates-sensitive-declarations
-  (testing "rf2-ee38b.6 — registering a schema with a `:sensitive?`
-            per-slot flag writes the declaration into
-            [:rf.runtime/elision :sensitive-declarations] at registration time"
-    (rf/reg-app-schema [:auth]
-                       [:map [:token {:sensitive? true} :string]])
-    (let [decls (elision/sensitive-declarations :rf/default)]
-      (is (= {:sensitive? true :source :schema}
-             (get decls [:auth :token]))
-          "the :sensitive? slot is declared at registration time"))))
-
-(deftest rereg-refreshes-elision-declarations
-  (testing "rf2-ee38b.6 — re-registering a path with the `:large?` flag
-            removed prunes the stale declaration (population is a
-            refresh, not an accrete)"
-    (rf/reg-app-schema [:user] [:map [:blob {:large? true} :string]])
-    (is (contains? (elision/declarations :rf/default) [:user :blob])
-        "declared after first registration")
-    (rf/reg-app-schema [:user] [:map [:blob :string]])
-    (is (not (contains? (elision/declarations :rf/default) [:user :blob]))
-        "stale schema-owned declaration pruned on re-registration")))
-
-(deftest bulk-reg-populates-elision-for-every-entry
-  (testing "rf2-ee38b.6 — reg-app-schemas populates the elision registry
-            for every entry"
-    (rf/reg-app-schemas {[:a] [:map [:big {:large? true} :string]]
-                         [:b] [:map [:secret {:sensitive? true} :string]]})
-    (is (contains? (elision/declarations :rf/default) [:a :big]))
-    (is (contains? (elision/sensitive-declarations :rf/default) [:b :secret]))))

@@ -69,21 +69,20 @@
 ;; ----------------------------------------------------------------------------
 
 (def SchemaLarge
+  ;; EP-0015 §8: schema describes SHAPE only. The `:large` egress
+  ;; classification for these slots is FRAME-owned (see `run` below).
   [:map
-   [:schema-large-value {:large? true :hint "Nested schema-declared slot"}
-    [:maybe :string]]])
+   [:schema-large-value [:maybe :string]]])
 
 ;; EP-0002 (rf2-5q7um6): reg-app-schemas is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This testbed hosts on
-;; :rf/default, so name it explicitly.
+;; :rf/default, so name it explicitly. These schemas validate SHAPE; the
+;; `:large` egress markers ride the frame's classification (EP-0015 §8).
 (with-frame :rf/default
   (rf/reg-app-schemas
-    {[:declared-large-value]
-     [:maybe [:string {:large? true :hint "Flat schema-declared slot"}]]
-     [:fx-declared-value]
-     [:maybe [:string {:large? true :hint "Second flat schema-declared slot"}]]
-     [:schema-bag]
-     SchemaLarge}))
+    {[:declared-large-value] [:maybe :string]
+     [:fx-declared-value]    [:maybe :string]
+     [:schema-bag]           SchemaLarge}))
 
 ;; ----------------------------------------------------------------------------
 ;; App-db
@@ -140,17 +139,16 @@
         (update-in [:click-count :fx] inc))))
 
 ;; ----------------------------------------------------------------------------
-;; Button D — schema-driven (boot-time declaration on a Malli slot)
+;; Button D — frame-classification-driven (boot-time frame `:large` decl)
 ;; ----------------------------------------------------------------------------
 
 (rf/reg-event-db ::write-schema-large
   (fn [db _ev]
-    ;; HOT PATH — writes a small payload to a path the schema
-    ;; declares :large? true. The runtime read the schema at boot
-    ;; (per `populate-elision-from-schemas!`) and seeded
-    ;; [:rf/elision :declarations [:schema-bag :schema-large-value]]
-    ;; with :source :schema. Elision fires on this path regardless
-    ;; of value size.
+    ;; HOT PATH — writes a small payload to a path the FRAME declares
+    ;; `:large` (EP-0015 §8). The runtime seeded
+    ;; [:rf.runtime/elision :declarations [:schema-bag :schema-large-value]]
+    ;; with :source :frame at `reg-frame` time (see `run`). Elision fires
+    ;; on this path regardless of value size.
     (-> db
         (assoc-in [:schema-bag :schema-large-value] chars-200-string)
         (update-in [:click-count :schema] inc))))
@@ -254,16 +252,17 @@
   (rf/init! reagent-adapter/adapter)
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
   ;; absence — register `:rf/default` as the app frame, scope the boot
-  ;; dispatch + the frame-local elision population (a registration-time
-  ;; frame-local surface, EP §6), and wrap the render in a frame-provider.
-  (rf/reg-frame :rf/default {})
+  ;; dispatch, and wrap the render in a frame-provider.
+  ;;
+  ;; EP-0015 §8: durable app-db `:large` egress classification is FRAME-owned.
+  ;; The three declared-large slots ride the frame's `:large {:app-db …}`
+  ;; classification (installed atomically at `reg-frame`), so they elide to
+  ;; the `:rf.size/large-elided` marker regardless of value size — no
+  ;; schema→elision population step.
+  (rf/reg-frame :rf/default
+    {:large {:app-db [[:declared-large-value]
+                      [:fx-declared-value]
+                      [:schema-bag :schema-large-value]]}})
   (rf/with-frame :rf/default
-    (rf/dispatch-sync [::initialise])
-    ;; Populate the elision registry from any registered schemas
-    ;; carrying :large? marks. Per [API.md §`populate-elision-from-
-    ;; schemas!`] this walks the app-schema registry and writes
-    ;; `{:large? true :source :schema}` slots into the elision
-    ;; declarations map. The schema-driven path's declaration enters
-    ;; the registry without an explicit handler dispatch.
-    (rf/populate-elision-from-schemas!))
+    (rf/dispatch-sync [::initialise]))
   (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

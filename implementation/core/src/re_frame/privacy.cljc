@@ -1,18 +1,22 @@
 (ns re-frame.privacy
   "Privacy policy helpers.
 
-  Schema metadata is the canonical path-level privacy declaration:
-  `{:sensitive? true}` on an app-schema slot feeds the elision registry
-  and the router installs an internal redaction interceptor for matching
-  path-scoped handlers. Path-marked sensitive classification (`add-marks`
-  / `set-marks`, Spec 015 — see `re-frame.marks`) is the live successor
-  to the former handler-meta `:sensitive?` annotation: sensitivity is a
-  property of the data VALUE at a path, not of the handler that touched
-  it. The two declaration sources union at lookup time.
+  Frame-owned classification is the canonical durable app-db privacy
+  declaration (EP-0015 §3 / §8): `(rf/reg-frame :app {:sensitive {:app-db
+  [[:auth :token]]}})` feeds the per-frame sensitive-declarations registry
+  (`[:rf.runtime/elision :sensitive-declarations]`, installed by
+  `re-frame.frame-classification`), and the router installs an internal
+  redaction interceptor for matching path-scoped handlers. Sensitivity is a
+  property of the data VALUE at a path, not of the handler that touched it.
 
-  The helpers here are the schema-path-overlap arm of that scheme — they
-  redact event-payload paths whose path-scoped handler slice overlaps a
-  schema-declared sensitive app-db slot."
+  EP-0015 §8: schemas describe shape, not durable app-db egress policy — a
+  `reg-app-schema` `{:sensitive? true}` slot prop is no longer a route into
+  this registry. (Schema `:sensitive?` still drives schema-validation-
+  failure-trace redaction in `re-frame.schemas`, a separate egress product.)
+
+  The helpers here are the path-overlap arm of that scheme — they redact
+  event-payload paths whose path-scoped handler slice overlaps a
+  frame-declared sensitive app-db path."
   (:require [re-frame.interceptor :as interceptor]
             [re-frame.late-bind :as late-bind]))
 
@@ -52,7 +56,12 @@
 
 (defn schema-redaction-paths
   "Return event-payload paths that should be redacted for a handler
-  whose interceptor chain focuses app-db through `path` interceptors."
+  whose interceptor chain focuses app-db through `path` interceptors.
+
+  The overlap is computed against the frame's sensitive-declarations
+  registry (frame-owned `:sensitive {:app-db …}` classification, EP-0015
+  §3 / §8) — NOT against schema-attached `{:sensitive? true}` slot props,
+  which no longer feed this registry. The fn name is retained for callers."
   [frame-id interceptors]
   (let [sensitive-paths (keys (sensitive-declarations frame-id))]
     (vec
@@ -93,7 +102,7 @@
   (reduce redact-path payload paths))
 
 (defn redact-event
-  "Redact schema-derived payload paths in a conventional event vector.
+  "Redact the given payload paths in a conventional event vector.
   Non-map payload shapes pass through unchanged."
   [event paths]
   (if (and (vector? event)
@@ -110,9 +119,12 @@
       (interceptor/get-coeffect ctx :event)))
 
 (defn schema-redaction-interceptor
-  "Internal interceptor installed by the router for schema-sensitive
-  path-scoped handlers. The handler body keeps the original `:event`
-  coeffect; trace/error emit sites read `:rf/redacted-event`."
+  "Internal interceptor installed by the router for path-scoped handlers
+  whose `:path` slice overlaps a frame-declared sensitive app-db path
+  (EP-0015 §3 / §8 — frame-owned classification, not schema-attached). The
+  handler body keeps the original `:event` coeffect; trace/error emit sites
+  read `:rf/redacted-event`. The `:rf/schema-redaction` interceptor id is
+  retained for wire compatibility."
   [paths]
   (let [paths (vec paths)]
     (interceptor/->interceptor*
@@ -166,10 +178,11 @@
   pass through unchanged.
 
   Composition:
-    - With schema `:sensitive?` on a path-scoped handler — additive. The
-      router installs an internal redaction interceptor for schema-
-      declared paths; this user-installed interceptor extends (does not
-      replace) the stashed `:rf/redacted-event` with its own paths.
+    - With frame-declared sensitive app-db paths on a path-scoped handler
+      (EP-0015 §3 / §8) — additive. The router installs an internal
+      redaction interceptor for the frame-declared overlapping paths; this
+      user-installed interceptor extends (does not replace) the stashed
+      `:rf/redacted-event` with its own paths.
     - With epoch `:redact-fn` — independent. The redact-fn runs at the
       assembled epoch-record boundary; this interceptor runs per
       handler invocation on the trace surface inside the cascade. The
@@ -212,8 +225,9 @@
   of every `redact-interceptor` interceptor it contains.
 
   Read by the router at chain-assembly time so the pre-chain trace events
-  (`:run-start`, `emit-cascade-trailers`'s `:run-end`) and the schema-
-  derived emit-event projection both honour user-declared payload paths."
+  (`:run-start`, `emit-cascade-trailers`'s `:run-end`) and the frame-
+  classification emit-event projection both honour user-declared payload
+  paths."
   [interceptors]
   (into []
         (comp (filter redact-interceptor?)
