@@ -583,12 +583,21 @@
   [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [owner]}]]
   (let [runtime-db (or rt {})
         owned      (get-in runtime-db (conj (state/owner-index-path) owner))
+        ;; rf2-l2gofj: releasing a ROUTE owner ([:route route-id nav-token])
+        ;; happens on every route leave / supersession (route-resource-plan
+        ;; dispatches it). Deterministically clear that nav-token's blocking
+        ;; slot here so a superseded token's blocking state cannot accumulate
+        ;; — reply-driven drain misses it (the owner is already gone from the
+        ;; entries, and an orphaned/aborted in-flight resource never replies).
+        rdb0       (if (and (vector? owner) (= :route (first owner)))
+                     (route/clear-blocking-slot runtime-db (nth owner 2))
+                     runtime-db)
         ;; drop the owner from each owned entry + the index
         rdb1       (-> (reduce
                          (fn [db k]
                            (update-in db (state/entry-path k)
                                       (fn [e] (when e (update e :active-owners disj owner)))))
-                         runtime-db (or owned #{}))
+                         rdb0 (or owned #{}))
                        (update-in (state/owner-index-path) dissoc owner))
         ;; for each owned entry that is still in flight, drop the owner from
         ;; the work record; collect the work ids whose owners are now empty

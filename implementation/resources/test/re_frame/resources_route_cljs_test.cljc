@@ -42,6 +42,7 @@
    [re-frame.schemas]
    [re-frame.http-managed]
    [re-frame.test-support :as core-test-support]
+   [re-frame.trace.tooling :as trace-tooling]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
@@ -104,6 +105,23 @@
                         :work-id      (:current-work e)
                         :generation   (:generation e)
                         :error        error}])))
+
+(defn- record-error-traces!
+  "Run `body-fn` with a trace listener installed; return the vector of every
+  `:op-type :error` trace event emitted during it (capture order). The
+  listener is unregistered in a `finally`. Used by the rf2-u5aj91 +
+  rf2-ac71vm / rf2-xeb4l1 planning-error assertions (the structured error
+  must reach the trace/error stream, not only route state)."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::route-error-recorder]
+    (trace-tooling/register-listener!
+      k (fn [ev] (when (= :error (:op-type ev)) (swap! seen conj ev))))
+    (try (body-fn) (finally (trace-tooling/unregister-listener! k)))
+    @seen))
+
+(defn- errors-of [traces op]
+  (filterv #(= op (:operation %)) traces))
 
 ;; ===========================================================================
 ;; 1. Accepted-key extension
@@ -360,3 +378,252 @@
     (testing "previous data does NOT pollute the new key's cache entry or tags"
       (is (nil? (:data (entry k2))) "the new entry's :data is NOT the previous data")
       (is (empty? (:tags (entry k2))) "the new entry borrows none of the prior key's tags"))))
+
+;; ===========================================================================
+;; 10. rf2-u5aj91 — a blocking first-load failure ALSO emits an error trace
+;; ===========================================================================
+
+(deftest blocking-first-load-failure-emits-error-trace
+  ;; The route slice already carries the structured :error (section 4); this
+  ;; proves the SAME failure is ALSO published on the trace/error stream as
+  ;; `:rf.error/resource-route-blocking` with ResourceRouteBlockingTags shape.
+  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-route :route/article
+                {:path      "/articles/:slug"
+                 :params    [:map [:slug :string]]
+                 :resources [{:resource  :article/by-slug
+                              :params    (fn [route] {:slug (get-in route [:params :slug])})
+                              :blocking? true}]})
+  (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
+  (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})
+        nav-token  (:nav-token (slice))
+        traces     (record-error-traces!
+                     #(settle-failure! scoped-key {:status 503 :message "upstream down"}))
+        evs        (errors-of traces :rf.error/resource-route-blocking)]
+    (testing "exactly one :rf.error/resource-route-blocking error trace is emitted"
+      (is (= 1 (count evs)) "one blocking-failure error trace on the stream"))
+    (testing "the error-trace tags conform to ResourceRouteBlockingTags"
+      (let [ev   (first evs)
+            tags (:tags ev)]
+        (is (= :error (:op-type ev)) "it rides the error channel")
+        (is (= :rf.error/resource-route-blocking (:category tags))
+            ":category is stamped from the operation")
+        (is (= :article/by-slug (:resource-id tags)) ":resource-id tag present")
+        (is (= nav-token (:nav-token tags)) ":nav-token tag present")
+        (is (= {:status 503 :message "upstream down"} (:error tags))
+            ":error carries the resource's first-load failure envelope")
+        (is (string? (:reason tags)) ":reason present")))
+    (testing "route state STILL carries the structured error (both surfaces)"
+      (is (= :error (:transition (slice))))
+      (is (= :rf.error/resource-route-blocking (:rf.error/id (:error (slice))))))))
+
+;; ===========================================================================
+;; 11. rf2-l2gofj — superseded route-resource blocking slots are cleared
+;; ===========================================================================
+
+(deftest superseded-blocking-slot-is-cleared-on-route-leave
+  ;; A BLOCKING route resource that NEVER settles (no reply — e.g. aborted /
+  ;; orphaned in-flight on supersession) used to leave its old-nav-token
+  ;; blocking entry forever, because reply-driven drain only fires on a
+  ;; settle that still names the old owner. Leaving the route releases the
+  ;; prior owner, which MUST now deterministically clear the stale slot.
+  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-route :route/article
+                {:path      "/articles/:slug"
+                 :params    [:map [:slug :string]]
+                 :resources [{:resource  :article/by-slug
+                              :params    (fn [route] {:slug (get-in route [:params :slug])})
+                              :blocking? true}]})
+  (rf/reg-route :route/home {:path "/"})
+  (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
+  (let [token-1    (:nav-token (slice))
+        scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
+    (testing "the blocking slot is populated on entry (resource never settles)"
+      (is (contains? (blocking-slot token-1) scoped-key)))
+    ;; leave WITHOUT the blocking resource ever settling
+    (rf/dispatch-sync [:rf.route/navigate :route/home])
+    (testing "the superseded nav-token's blocking slot is fully cleared on leave"
+      (is (empty? (blocking-slot token-1))
+          "old-token blocking state did not accumulate / leak"))))
+
+(deftest superseded-blocking-slot-does-not-block-future-navigation
+  ;; Prove the stale slot cannot bleed into the LIVE route-blocking? predicate
+  ;; for a later navigation — old-token state must not gate new transitions.
+  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-route :route/article
+                {:path      "/articles/:slug"
+                 :params    [:map [:slug :string]]
+                 :resources [{:resource  :article/by-slug
+                              :params    (fn [route] {:slug (get-in route [:params :slug])})
+                              :blocking? true}]})
+  ;; a plain (no-resources) route — its entry has nothing blocking
+  (rf/reg-route :route/home {:path "/"})
+  (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "a"}])
+  (let [token-1 (:nav-token (slice))]
+    ;; supersede WITHOUT settling — then land on the plain route
+    (rf/dispatch-sync [:rf.route/navigate :route/home])
+    (let [token-2 (:nav-token (slice))]
+      (testing "the plain route lands :idle — the stale token's slot does not block it"
+        (is (not= token-1 token-2) "a new nav-token was minted")
+        (is (= :idle (:transition (slice)))
+            "the plain route is :idle; superseded blocking state is gone")
+        (is (empty? (blocking-slot token-1)) "stale slot cleared")
+        (is (false? (route/route-blocking? (rf/runtime-db-value :rf/default)))
+            "route-blocking? is false for the live token")))))
+
+;; ===========================================================================
+;; 12. rf2-ac71vm — fail-closed ctx + nil planning inputs
+;; ===========================================================================
+
+(deftest scope-resolved-from-ctx-uses-the-ctx-seam
+  ;; The ctx seam is REAL: a :scope resolver reads (:current-session-scope ctx)
+  ;; and the resolved scope is used as the cache scope (not a global fallback).
+  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}))
+  (let [plan (route/route-resource-plan
+               {:id :route/secret :params {:slug "x"}
+                :resources [{:resource :secret/doc
+                             :params   (fn [route] {:slug (get-in route [:params :slug])})
+                             :scope    (fn [_route ctx] (:current-session-scope ctx))}]}
+               {:current-session-scope {:tenant "acme" :user 7}}
+               {:nav-token 1 :prev-id nil :prev-nav-token nil})]
+    (testing "the ctx-resolved session scope is threaded into the ensure"
+      (is (nil? (:plan-error plan)) "no planning error — the ctx resolved a scope")
+      (let [ensure (->> (:fx plan)
+                        (some (fn [[fx-id ev]] (when (= :dispatch fx-id) ev))))]
+        (is (= :rf.resource/ensure (first ensure)))
+        (is (= {:tenant "acme" :user 7} (:scope (second ensure)))
+            "the cache scope came from ctx, NOT a global / spec fallback")))))
+
+(deftest nil-ctx-fails-closed
+  ;; A nil ctx (a routing↔resources seam bug) must throw — not silently
+  ;; proceed with an empty ctx that a session-scope resolver would read as nil.
+  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}))
+  (testing "route-resource-plan throws on a nil ctx"
+    (is (thrown? #?(:clj Throwable :cljs :default)
+                 (route/route-resource-plan
+                   {:id :route/secret :resources []}
+                   nil
+                   {:nav-token 1})))))
+
+(deftest missing-nav-token-fails-closed
+  ;; The nav-token IS the route owner identity; planning without one would
+  ;; mint an unreleasable owner — fail closed.
+  (testing "route-resource-plan throws on a missing nav-token"
+    (is (thrown? #?(:clj Throwable :cljs :default)
+                 (route/route-resource-plan
+                   {:id :route/x :resources []}
+                   {}
+                   {:nav-token nil})))))
+
+(deftest nil-params-resolver-is-a-planning-error
+  ;; A PRESENT :params resolver returning nil is NOT a silent empty-param read
+  ;; — it is a fail-closed planning error (conditional resources use :when).
+  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-route :route/article
+                {:path      "/articles/:slug"
+                 :params    [:map [:slug :string]]
+                 :resources [{:resource :article/by-slug
+                              ;; resolver INTENDS params but returns nil
+                              :params   (fn [_route] nil)}]})
+  (let [traces (record-error-traces!
+                 #(rf/dispatch-sync [:rf.route/navigate :route/article {:slug "x"}]))]
+    (testing "the nil-params resolver surfaces a route planning error"
+      (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice))))
+          "route slice carries the planning error, not a silent empty-param read")
+      (is (= :fix-params (:recovery (:error (slice)))) "carries :fix-params recovery")
+      (is (seq (errors-of traces :rf.error/resource-route-plan))
+          "the planning error is ALSO on the trace/error stream")
+      (is (empty? (entries)) "no entry was ensured for the unplannable resource"))))
+
+(deftest nil-scope-resolver-is-a-planning-error
+  ;; A PRESENT :scope resolver returning nil must NOT silently fall through to
+  ;; the spec policy / a global read — the scope is the leak boundary.
+  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}))
+  (rf/reg-route :route/secret
+                {:path      "/secret/:slug"
+                 :params    [:map [:slug :string]]
+                 :resources [{:resource :secret/doc
+                              :params   (fn [route] {:slug (get-in route [:params :slug])})
+                              :scope    (fn [_route _ctx] nil)}]})  ;; resolver returns nil
+  (rf/dispatch-sync [:rf.route/navigate :route/secret {:slug "x"}])
+  (testing "a nil :scope resolver result is a fail-closed planning error"
+    (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice))))
+        "no silent fallback to spec scope / global read")
+    (is (= :fix-scope (:recovery (:error (slice)))) "carries :fix-scope recovery")
+    (is (empty? (entries)) "no entry was ensured")))
+
+(deftest throwing-when-predicate-is-a-planning-error
+  ;; A :when predicate that THROWS must be a planning error caught at the
+  ;; fail-closed boundary, not an escape that crashes the whole commit.
+  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-route :route/article
+                {:path      "/articles/:slug"
+                 :params    [:map [:slug :string]]
+                 :resources [{:resource :article/by-slug
+                              :params   (fn [route] {:slug (get-in route [:params :slug])})
+                              :when     (fn [_route _ctx] (throw (ex-info "boom" {})))}]})
+  (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "x"}])
+  (testing "a throwing :when is a route planning error"
+    (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice)))))
+    (is (= :fix-when (:recovery (:error (slice)))) "carries :fix-when recovery")
+    (is (empty? (entries)) "no entry was ensured")))
+
+;; ===========================================================================
+;; 13. rf2-xeb4l1 — :after is dispatch-order, fail-closed on missing/cyclic
+;; ===========================================================================
+
+(deftest after-missing-target-is-a-planning-error
+  ;; :after naming an id no entry declares is a typo'd dependency — a
+  ;; planning error, NOT silent declaration-order fallthrough.
+  (rf/reg-resource :comments/list (article-spec {}))
+  (rf/reg-route :route/article
+                {:path      "/articles/:slug"
+                 :params    [:map [:slug :string]]
+                 :resources [{:resource :comments/list
+                              :id       :comments
+                              :params   (fn [route] {:slug (get-in route [:params :slug])})
+                              :after    #{:nope}}]})  ;; :nope is declared by no entry
+  (let [traces (record-error-traces!
+                 #(rf/dispatch-sync [:rf.route/navigate :route/article {:slug "x"}]))]
+    (testing "a missing :after target surfaces a planning error"
+      (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice)))))
+      (is (= :fix-after (:recovery (:error (slice)))) "carries :fix-after recovery")
+      (is (seq (errors-of traces :rf.error/resource-route-plan))
+          "also on the trace/error stream")
+      (is (empty? (entries)) "no entry ensured — the plan failed closed"))))
+
+(deftest after-cycle-is-a-planning-error
+  ;; A cyclic :after dependency degrades NEITHER silently nor into an infinite
+  ;; loop — it is a fail-closed planning error.
+  (rf/reg-resource :a/res (article-spec {}))
+  (rf/reg-resource :b/res (article-spec {}))
+  (rf/reg-route :route/cyc
+                {:path      "/cyc"
+                 :resources [{:resource :a/res :id :a :params (fn [_] {:slug "a"}) :after #{:b}}
+                             {:resource :b/res :id :b :params (fn [_] {:slug "b"}) :after #{:a}}]})
+  (rf/dispatch-sync [:rf.route/navigate :route/cyc])
+  (testing "a cyclic :after is a planning error (no hang, no silent fallthrough)"
+    (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice)))))
+    (is (= :fix-after (:recovery (:error (slice)))))
+    (is (empty? (entries)) "no entry ensured")))
+
+(deftest after-orders-multiple-deps-by-local-id
+  ;; The kept dispatch-order semantics: a dependent's ensure is dispatched
+  ;; AFTER every id it names (a 3-node chain, declared out of order).
+  (let [order (atom [])]
+    (rf/reg-resource :a/res (article-spec {:request (fn [_ _] (swap! order conj :a)
+                                                      {:request {:method :get :url "/a"}})}))
+    (rf/reg-resource :b/res (article-spec {:request (fn [_ _] (swap! order conj :b)
+                                                      {:request {:method :get :url "/b"}})}))
+    (rf/reg-resource :c/res (article-spec {:request (fn [_ _] (swap! order conj :c)
+                                                      {:request {:method :get :url "/c"}})}))
+    (rf/reg-route :route/chain
+                  {:path "/chain"
+                   ;; declared c, a, b — :after must reorder to a → b → c
+                   :resources [{:resource :c/res :id :c :params (fn [_] {:slug "c"}) :after #{:b}}
+                               {:resource :a/res :id :a :params (fn [_] {:slug "a"})}
+                               {:resource :b/res :id :b :params (fn [_] {:slug "b"}) :after #{:a}}]})
+    (rf/dispatch-sync [:rf.route/navigate :route/chain])
+    (testing ":after topologically orders the ensure dispatches by local id"
+      (is (nil? (:error (slice))) "no planning error — all :after targets are valid")
+      (is (= [:a :b :c] @order) "a (no dep) → b (after a) → c (after b)"))))
