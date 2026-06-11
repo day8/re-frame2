@@ -4,7 +4,7 @@ A resource is a named, cached read of remote state — re-frame2's answer to Tan
 
 Resources are an **optional, post-v1 capability** — they ship in `day8/re-frame2-resources` (`re-frame.resources`), require `day8/re-frame2-http` for the transport, and are wired by one `(:require [re-frame.resources])` at app boot. An app that omits the artefact sees the `reg-resource` wrapper throw a clean `:rf.error/resources-artefact-missing`. This chapter covers the registration shape, the events, the subs, and introspection. The tutorial is [Guide ch.27 — Server-state and resources](../guide/27-resources.md); the normative source is [016-Resources.md](../../spec/016-Resources.md).
 
-> **Scope is HTTP-only.** The read-resource MVP **and mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart — see [Mutations](#mutations)) are landed. Focus/reconnect revalidation, optimistic rollback, and GraphQL are deferred to later slices. See [Guide ch.27 §What's deferred](../guide/27-resources.md#whats-deferred).
+> **Scope is HTTP-only.** The first public-beta surface is **landed and complete**: the read-resource MVP, **mutations** (`reg-mutation` / `:rf.mutation/execute`, the causal-write counterpart — see [Mutations](#mutations)), and **focus/reconnect active-stale revalidation** (`:rf.resource/window-focused` / `:rf.resource/network-reconnected` + the `install-revalidation-listeners!` / `remove-revalidation-listeners!` host-listener fns — see [Revalidation](#focusreconnect-revalidation)). **Optimistic rollback, polling (`:poll-ms`), and GraphQL are deferred** to later slices. See [Guide ch.27 §What's deferred](../guide/27-resources.md#whats-deferred).
 
 ## Registration
 
@@ -123,7 +123,26 @@ Resource events take a **map payload**, not a positional argument vector.
 - **Payload**: `{:resource :scope :params}`
 - **Description**: Remove a single resource instance's cache entry.
 
-> **Internal replies — do not dispatch.** `:rf.resource.internal/succeeded` / `…/failed` / `…/aborted` / `…/gc-fired` / `…/stale-suppressed` are framework-internal and carry the verification payload (`:work-id`, `:resource-key`, `:scope`, `:generation`, `:rf.frame/id`). User code MUST NOT dispatch them; success/failure verify frame + work id + generation before writing (the mandatory stale-suppression boundary).
+### Focus/reconnect revalidation
+
+Active-stale revalidation is expressed as **resource events**, never subscription-driven fetching (rf2-vtblcq, landed). On window focus / tab-return / network reconnect, the frame's active-owner **stale** entries are rescanned and refetched by policy — a stale entry with no active owner is left alone (revalidation creates no liveness).
+
+#### `[:rf.resource/window-focused]` / `[:rf.resource/network-reconnected]`
+
+- **Kind**: event (no payload)
+- **Description**: Scan the frame's active-owner stale entries and refetch them by policy. The refetch carries cause `:focus` (window-focused) or `:reconnect` (network-reconnected) — **never an owner** (it creates no liveness); generation + stale-suppression protect any late reply. Dispatch these directly only when driving revalidation yourself; ordinarily the host listeners below dispatch them.
+
+#### `install-revalidation-listeners!` / `remove-revalidation-listeners!`
+
+- **Kind**: function (post-v1 lib)
+- **Signature**:
+  ```clojure
+  (install-revalidation-listeners! frame-id)   ;; → nil
+  (remove-revalidation-listeners!  frame-id)   ;; → nil
+  ```
+- **Description**: `install-revalidation-listeners!` wires three host `window` listeners for `frame-id` — `focus` and `visibilitychange`-to-visible → `[:rf.resource/window-focused]`, and `online` → `[:rf.resource/network-reconnected]` — each dispatched at `frame-id`. Idempotent (re-installing replaces, never stacks — hot-reload safe); CLJS-only (the JVM/SSR arm is a no-op). Listeners are recorded in a host side table and cancelled on frame destroy via the single `:resources/on-frame-destroyed!` hook. `remove-revalidation-listeners!` tears them down (useful for test isolation and single-page hosts that rotate which frame owns revalidation); a no-op when none is installed.
+
+> **Internal replies — do not dispatch.** `:rf.resource.internal/succeeded` / `…/failed` / `…/aborted` / `…/stale-fired` / `…/gc-fired` / `…/stale-suppressed` are framework-internal and carry the verification payload (`:work-id`, `:resource-key`, `:scope`, `:generation`, `:rf.frame/id`). User code MUST NOT dispatch them; success/failure verify frame + work id + generation before writing (the mandatory stale-suppression boundary). (`:rf.resource.internal/stale-fired` is the stale-timer re-check tick — it arms the stale transition, not a fetch.)
 
 ## Subscriptions (passive)
 
@@ -153,13 +172,15 @@ The `:rf.resource/state` view-model — facts plus **derived** booleans:
 
 Status invariants: `:loading` = first load, no usable data; `:fetching` = refresh in flight while prior data stays visible; `:error` = first load failed, no usable data; a failed *background* refresh stays `:loaded`, keeps prior `:data`, records `:refresh-error`. `:stale?` / `:loading?` / `:fetching?` / `:has-data?` are derived sub values, never stored. See [Guide ch.27 §Status](../guide/27-resources.md#status--facts-not-derived-booleans).
 
+> **Lifecycle trace ops (observability, not events you dispatch).** The runtime emits `:rf.resource/cache-hit` when a fresh `ensure` is served from cache with **no fetch** (a fresh-skip: an already-`:loaded` entry still fresh-by-policy serves the cached value, attaches the owner lease, and — for a blocking route resource — drains the blocking slot immediately, with no `:fetching` transition), and `:rf.resource/stale-fired` when a stale timer ticks (arming the stale transition, not a fetch). These are trace surfaces Xray reads — they are not `:status` values and not events user code dispatches.
+
 ## Mutations
 
 A **mutation** is the causal-WRITE counterpart of a resource: a named write to remote state that, on success, invalidates / patches / populates cached resource reads. The write lowers through the **same** `:rf.http/managed` transport as resources, and the runtime owns reply addressing + stale-suppression (work-id + generation) exactly as for reads. Runtime state is keyed by mutation **instance** id, so concurrent submissions of the same mutation never clobber each other. The tutorial is [Guide ch.27 §Mutations](../guide/27-resources.md#mutations--the-causal-write); the normative source is [016-Resources.md §Mutations](../../spec/016-Resources.md#mutations-first-public-beta-gate-rf2-dwme29).
 
 ### `reg-mutation`
 
-- **Kind**: macro (post-v1 lib)
+- **Kind**: function (post-v1 lib)
 - **Signature**:
   ```clojure
   (reg-mutation mutation-id mutation-spec)

@@ -876,6 +876,25 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:rf.event/v     {:optional true} [:vector :any]]
    [:rf.sub/query-v {:optional true} [:vector :any]]])
 
+(def NoFrameContextTags
+  ;; `:rf.error/no-frame-context` — a frame-scoped op (`subscribe` / `dispatch`)
+  ;; carried no frame stamp and ran under no established scope (EP-0002 strict
+  ;; embedded-app absent-target case). The error is itself FRAMELESS (no
+  ;; `:frame` tag): it rides the always-on error axis and is correlated to its
+  ;; capture site through the `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id`
+  ;; ancestry graph instead. Per the 009 error catalogue row, [002 §Frame target
+  ;; resolution], and [004 §The footgun is now `:rf.error/no-frame-context`].
+  [:map
+   [:category    :keyword]                         ;; [:= :rf.error/no-frame-context] in a closed schema
+   [:operation   [:enum :dispatch :subscribe]]      ;; the failing frame-scoped op
+   [:where       :keyword]                          ;; :re-frame.router/dispatch! | :re-frame.subs/subscribe
+   [:event-id    {:optional true} :keyword]         ;; the query-id / event-id the op carried
+   [:recovery    {:optional true} :keyword]         ;; :supply-frame
+   ;; capture-site ancestry (frameless correlation) — present when the op fired
+   ;; inside a continuation captured during a known cascade
+   [:rf.trace/dispatch-id        {:optional true} :any]
+   [:rf.trace/parent-dispatch-id {:optional true} :any]])
+
 (def EffectMapShapeTags
   [:map
    [:category          :keyword]
@@ -1556,8 +1575,9 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 ;; `:rf.warning/dispatch-from-async-callback-fell-through-to-default` is gone.
 ;; Under the carried-frame invariant there is no fall-through-to-`:rf/default` to
 ;; warn about — a frameless async dispatch raises the structured
-;; `:rf.error/no-frame-context` error (its schema lives with the error catalogue),
-;; which carries capture-site ancestry via the `:rf.trace/dispatch-id` graph.
+;; `:rf.error/no-frame-context` error, whose `:tags` schema is `NoFrameContextTags`
+;; (in the §Per-category `:tags` schemas block below, next to `FrameDestroyedTags`),
+;; carrying capture-site ancestry via the `:rf.trace/dispatch-id` graph.
 
 (def CrossFrameDispatchSyncDuringDrainTags
   [:map
@@ -2235,7 +2255,7 @@ A frame owns two durable partitions held as one physical frame-state container (
 **Four subsystems, four sub-containers** (paths are relative to runtime-db; in a frame-state projection they sit under `:rf.db/runtime`):
 
 - **`:rf.runtime/machines`** — owned by [005-StateMachines.md](005-StateMachines.md). Each machine's snapshot lives at `[:rf.runtime/machines :snapshots <machine-id>]`; the system-id reverse index lives at `[:rf.runtime/machines :system-ids]`; the declarative-spawn / spawn-all registry lives at `[:rf.runtime/machines :spawned]`; the hand-emitted-spawn fallback counter lives at `[:rf.runtime/machines :spawn-counter]` (rf2-owvvr — declarative `:spawn`'s counter is snapshot-internal, not here). The runtime composes the `:snapshots` schema additively from registered machines' declared `:data` shapes.
-- **`:rf.runtime/routing`** — owned by [012-Routing.md](012-Routing.md). The live route slice (`{:id :params :query :transition :error :fragment :nav-token}`) lives at `[:rf.runtime/routing :current]`; the pending-navigation slot at `[:rf.runtime/routing :pending-navigation]`; the per-frame routing internals (the monotonic nav-token / pending-nav counters) sit flat alongside under `:rf.runtime/routing`. The route `:resources` blocking slot (`{<nav-token> #{<scoped-resource-key> …}}`, the set of blocking route resources keeping the transition `:loading` per nav-token) lives at `[:rf.runtime/routing :resource-blocking]` — a cross-feature sibling written by the [Resources artefact](016-Resources.md) (Spec 016 §Route integration) via the late-bound `:routing/on-route-entry` plan, read by routing's settle handler through the late-bound `:routing/route-blocking?` predicate; absent in a routing-only app (the keys are only written when a route declares blocking `:resources`). The saved scroll-position LRU is **not** here — it is a host-side transient cache (rf2-1hncp2, [012 §Scroll restoration](012-Routing.md#scroll-restoration)).
+- **`:rf.runtime/routing`** — owned by [012-Routing.md](012-Routing.md). The live route slice (`{:id :params :query :transition :error :fragment :nav-token}`) lives at `[:rf.runtime/routing :current]`; the pending-navigation slot at `[:rf.runtime/routing :pending-navigation]`. The monotonic nav-token / pending-nav **counters** are **NOT** here — they are host-side transient caches held outside the frame value so an epoch restore cannot rewind + recycle a token (rf2-oosjmh / rf2-1hncp2, [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)). The route `:resources` blocking slot (`{<nav-token> #{<scoped-resource-key> …}}`, the set of blocking route resources keeping the transition `:loading` per nav-token) lives at `[:rf.runtime/routing :resource-blocking]` — a cross-feature sibling written by the [Resources artefact](016-Resources.md) (Spec 016 §Route integration) via the late-bound `:routing/on-route-entry` plan, read by routing's settle handler through the late-bound `:routing/route-blocking?` predicate; absent in a routing-only app (the keys are only written when a route declares blocking `:resources`). The saved scroll-position LRU is **not** here — it is a host-side transient cache (rf2-1hncp2, [012 §Scroll restoration](012-Routing.md#scroll-restoration)).
 - **`:rf.runtime/elision`** — owned by [009-Instrumentation.md](009-Instrumentation.md). The size-elision declaration registry lives at `[:rf.runtime/elision :declarations]`; the privacy sibling at `[:rf.runtime/elision :sensitive-declarations]`. The declarations are sourced from the **app-db** schema (`:large?` / `:sensitive?` slots) but the declaration *records* are runtime bookkeeping and live in runtime-db.
 - **`:rf.runtime/ssr`** — owned by [011-SSR.md](011-SSR.md). Server-supplied hydration metadata lives at `[:rf.runtime/ssr :hydration]` (`:server-hash` consumed by `verify-hydration!`, `:version` consumed by `:rf.ssr/check-version`).
 
@@ -2253,7 +2273,7 @@ Cross-reference: `:rf/machine-snapshot` (above) is the value type for each entry
 > **Owner:** [016-Resources.md](016-Resources.md) (the optional `day8/re-frame2-resources` artefact)
 > **Status:** v1-optional (post-v1 artefact)
 
-The Resources artefact owns two runtime-db children — `:rf.runtime/resources` (the cache: durable read-model entries + reverse indexes) and `:rf.runtime/work-ledger` (the serializable frame work ledger: in-flight attempt facts). Both are serializable EDN: host handles (AbortControllers, timer handles, transport promises) live in **host-side side tables keyed by `[frame-id work-id]`**, NEVER in these runtime-db children, so both ride SSR / hydration / epoch snapshots / Xray projection cleanly (per [016 §Frame work ledger](016-Resources.md#frame-work-ledger) / [Runtime-Subsystems §`:rf.runtime/work-ledger`](Runtime-Subsystems.md)).
+The Resources artefact owns three runtime-db children — `:rf.runtime/resources` (the cache: durable read-model entries + reverse indexes), `:rf.runtime/work-ledger` (the serializable frame work ledger: in-flight attempt facts, written by both the resource and mutation writers), and `:rf.runtime/mutations` (the durable mutation-**instance** rows, the causal-write counterpart, present only once the app registers a mutation). All three are serializable EDN: host handles (AbortControllers, timer handles, transport promises) live in **host-side side tables keyed by `[frame-id work-id]`**, NEVER in these runtime-db children, so all three ride epoch snapshots / Xray projection cleanly — and the durable `:rf.runtime/resources` cache facts ride SSR hydration (the work-ledger rows do not: in-flight work belongs to the timeline that owns its host handles) (per [016 §Frame work ledger](016-Resources.md#frame-work-ledger) / [Runtime-Subsystems §`:rf.runtime/work-ledger`](Runtime-Subsystems.md)).
 
 ```clojure
 (def ScopedResourceKey

@@ -1505,6 +1505,8 @@ resource's data. `:after` must target route-local ids rather than resource ids
 because the same resource can appear more than once with different params. Xray
 should show the dependency and any waterfall.
 
+> **Landed (rf2-xeb4l1; the spec governs, [Spec 016 §Route integration](../../spec/016-Resources.md#route-integration)):** `:after` shipped as **dispatch-order only**, narrower than this proposal's "when its params depend on the first resource's data" — the pure synchronous route planner cannot feed an earlier resource's loaded *data* into a later entry's params (a true data-waterfall is a deferred slice). `:after` guarantees ensure-dispatch order, and a missing or cyclic target is a fail-closed planning error (`:fix-after`), not silent declaration-order degradation.
+
 Routes are not required. An app can use resources entirely from events and
 machines:
 
