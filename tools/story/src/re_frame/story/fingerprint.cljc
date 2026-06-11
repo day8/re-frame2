@@ -270,19 +270,55 @@
   #{:frame :rf.trace/dispatch-id :rf.trace/trace-id
     :rf.event/elapsed-ms :rf.fx/elapsed-ms :rf.cofx/elapsed-ms})
 
+(def ^:private volatile-world-input-keys
+  "The per-run volatile keys nested INSIDE the `:rf.world/inputs` causal map
+  that rides a `:rf.event/dispatched` trace event's `:tags` (rf2-jt854w —
+  EP-0010 observability completion: the router dev-stamps the envelope's
+  `:rf.world/inputs` onto the enqueue trace so Xray's Event lens can render
+  the WORLD INPUTS surface).
+
+  The `:rf.world/inputs` MAP is semantic — caller-supplied `:uuid` / `:random`
+  / browser-or-storage facts are the deterministic causal token a scripted /
+  replayed run pins, and a real difference in them MUST still perturb the
+  canonical value. But the framework-stamped `:time-ms` (epoch-ms WALL-CLOCK,
+  filled fresh per dispatch via `interop/epoch-now-ms` when the caller did not
+  supply one — see `re-frame.router/build-envelope`) is per-RUN volatile: two
+  semantically-equal programs replayed into FRESH frames stamp DIFFERENT
+  `:time-ms`, so the determinism gate / semantic-diff / `:run-hash` false-drift
+  unless it is stripped. It is the world-input analogue of the `:committed-at`
+  wall-clock + the `:rf.event/elapsed-ms` handler timing already stripped —
+  same volatile class, one level deeper. Stripping it is also safe when a
+  caller scripted `:time-ms` (two equal runs both strip it; a difference in the
+  surviving `:uuid` / `:random` facts still perturbs the hash)."
+  #{:time-ms})
+
 (defn- trace-event?
   "True iff `m` is a trace event (Spec 009 §Trace event shape): a map
   carrying both `:operation` and `:op-type`. Pure data → data."
   [m]
   (and (map? m) (contains? m :operation) (contains? m :op-type)))
 
+(defn- strip-world-input-stamps
+  "Drop the per-run volatile keys (`volatile-world-input-keys` — the
+  framework-stamped wall-clock `:time-ms`) from a trace event's
+  `[:tags :rf.world/inputs]` causal map, leaving the semantic caller-supplied
+  facts (`:uuid` / `:random` / browser-or-storage) intact (rf2-jt854w). No-op
+  when the tag is absent or not a map. Pure data → data."
+  [tags]
+  (if (map? (:rf.world/inputs tags))
+    (update tags :rf.world/inputs #(apply dissoc % volatile-world-input-keys))
+    tags))
+
 (defn- strip-trace-tags
   "Drop the per-run stamp keys (`volatile-trace-tag-keys`) from a trace
-  event's `:tags` sub-map, leaving the semantic tags. No-op when `:tags`
-  is absent. Pure data → data."
+  event's `:tags` sub-map, leaving the semantic tags, and strip the per-run
+  volatile `:time-ms` nested inside the `:rf.world/inputs` causal tag
+  (rf2-jt854w). No-op when `:tags` is absent. Pure data → data."
   [trace-event]
   (if (map? (:tags trace-event))
-    (update trace-event :tags #(apply dissoc % volatile-trace-tag-keys))
+    (update trace-event :tags
+            #(-> (apply dissoc % volatile-trace-tag-keys)
+                 strip-world-input-stamps))
     trace-event))
 
 (defn- epoch-record?
