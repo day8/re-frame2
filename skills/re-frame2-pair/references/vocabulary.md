@@ -37,6 +37,22 @@ wrong skill — close this and answer from the spec corpus directly.
 - **register-epoch-listener!** / **epoch-history** / **restore-epoch** — the
   assembled-stream listener, the per-frame ring of epoch records, and the
   time-travel entry point.
+- **derivation/process graph** (the EP-0014 algebra view) — the one node-and-edge
+  view subscriptions, flows, resources, route facts, and machine selectors all
+  lower to (`spec/Derivations.md`: inputs / output / storage class / evaluation
+  policy / lifecycle; superkinds `:derivation` / `:process`). If a session asks
+  to "read the derivation graph," know that this is an **internal, structured
+  accessor** the framework produces for tools + conformance fixtures — it ships
+  **no public accessor name** and **no `re-frame.core` facade export** in this
+  slice (the public name is deferred until a third consumer needs it). So do
+  **not** assume a public graph API to call over the wire; the pair surfaces you
+  drive a running app through are the existing structured ops (`list-subscriptions`,
+  `list-handlers`, `read-sub`, `sub-cache` introspection) and raw `eval-cljs`
+  against the bundle-isolated tooling-sibling fns (e.g. `re-frame.subs.tooling/…`,
+  `re-frame.derivation.graph` where the app loads them) — never a stable public
+  name. Static inspection of the graph **never executes** a node's param/scope
+  functions (the don't-execute rule); a parametric edge set reads as
+  `:parametric` until concrete query vectors realise it in the live graph.
 
 ## Toolchain / host
 

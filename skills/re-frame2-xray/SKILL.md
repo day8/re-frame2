@@ -349,6 +349,19 @@ short of improvising.
  [`tools/xray/spec/011-Launch-Modes.md` §Mount lifecycle](../../tools/xray/spec/011-Launch-Modes.md#mount-lifecycle-rf2-9kkrm)
  and the per-panel implementation specs. A `xray-implementor` sibling
  skill is **deferred to post-alpha** until the Xray surface stabilises.
+- **The "derivation/process graph" view** (subs / flows / resources /
+ routes / machines as one node-and-edge graph — the EP-0014 algebra).
+ There is **no shipped Xray tab** that renders that unified graph today.
+ The algebra view is an **internal, structured accessor** the framework
+ produces for Xray + the conformance fixtures to consume — it ships **no
+ public accessor name** and **no `re-frame.core` facade export** (the
+ public name is deferred until a third consumer needs it). So: do **not**
+ tell a user to "open the derivation-graph tab" or call a public graph
+ API — neither exists. What Xray ships *today* is the per-family browse:
+ **Static → Machines / Routes / Flows** (registry catalogues) and the
+ Dynamic per-epoch lenses. If a user asks for the cross-family graph,
+ say it's an internal substrate (not a current panel) and cite
+ [`spec/Derivations.md` §Graph inspection — internal but structured](../../spec/Derivations.md#graph-inspection--internal-but-structured).
 ---
 
 ## Style guidance

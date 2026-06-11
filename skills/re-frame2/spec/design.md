@@ -137,3 +137,14 @@ A growing `evals/` set of input/output pairs would let the skill be regression-t
 ### OQ2 — When to split per-feature skills out of this one?
 
 Some patterns (state machines, managed HTTP) are growing. A future split into `re-frame2-machines/` or `re-frame2-http/` is possible. Status: not until any single leaf exceeds ~400 LoC consistently.
+
+## 10. Decision — EP-0014 derivation/process algebra propagation (2026-06-12, rf2-1w4x3l)
+
+EP-0014 (`spec/Derivations.md`) names the one *inspection/specification* view subscriptions, flows, resources, route facts, and machine selectors lower to (inputs / output / storage class / evaluation policy / lifecycle; superkinds `:derivation` / `:process`). It mints **no new authoring API**. The propagation question for an *authoring-only* skill: does the fundamentals layer benefit from the unified frame as an orienting paragraph?
+
+**Decision: no top-level orienting paragraph; two targeted cross-links only.** A SKILL.md paragraph asserting "subs, flows, resources, and machine views are all declared derivations over the frame fold" is **wrong altitude for authoring guidance** — it's an inspection/specification frame, not a how-to, and the router file (cardinal rules + decision shortcuts) must stay decision-oriented. Folding it in would teach the *theory* the skill's Pillar 4 ("assume training knowledge; teach the binding, not the theory") and "recipes over explanations" cardinal rules explicitly resist. The genuine authoring payoff is narrow and lands at two leaves, not the router:
+
+- `references/fundamentals/flows.md` — the flow-vs-subscription decision already turns on storage / durability / lifecycle. A one-paragraph "same function, different policy" anchor names *why* the decision feels subtle (both are derivations; you're choosing policy, not math) and cross-links the algebra. Highest-value landing spot.
+- `references/fundamentals/frames.md` — the where-state-lives material (two durable partitions + the ephemeral sub-cache) is exactly the four **storage classes** (`:app-db` / `:runtime-db` / `:ephemeral` / `:host-transient`). A cross-link names the vocabulary an author meets in tooling and pins the EP-0014 ruled split: a *remote* fact still has a **local** storage class — "remote" is its `:authority`, never where it's stored.
+
+Both cross-links route through `SKILL-REDIRECT.md` → *Derivations and processes (the algebra)* and explicitly flag the divergence ("you don't author against this shape — it's a view, not an API"). Tool-facing siblings (`re-frame2-xray`, `re-frame2-pair`) and the implementor skill carry the heavier vocabulary; this authoring skill stays light. The graph accessor's **internal-only** status (no public accessor name, no `re-frame.core` facade export in this slice) is made explicit in those tool-facing skills so none leaks a public-name assumption.

@@ -47,7 +47,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 | **Q3 — SSR (011)** | <yes / no> | |
 | **Q4 — Schemas (010)** | <yes-runtime-schema / yes-via-host-types / no> | <which library if runtime-schema> |
 | **Q5 — Stories (007)** | <yes / no> | usually no for v1 |
-| **Q6 — Tool-Pair adapters** | <yes / no> | |
+| **Q6 — Tool-Pair adapters** | <yes / no> | gates the optional derivation/process **graph-inspection** surface (EP-0014, `spec/Derivations.md`) — the algebra view of subs/flows/resources/routes/machines as one `{:mode :nodes :edges}` graph. No new authoring primitive; only built if you ship inspection tooling. |
 | **Q7 — AI-Audit grading** | <yes / no> | |
 | **Q8 — Flows (013)** | <yes / no> | gates the `:flow/*` conformance family |
 | **Q9 — Managed HTTP (014)** | <yes / no> | gates the `:rf.http/managed` conformance family |
@@ -209,6 +209,8 @@ The set of capability tags this port claims:
 :ssr/*            <yes / no>
 :schemas/*        <yes / no — pick yes if D5 ≠ no, regardless of mechanism; a static yes-via-host-types host puts the runtime-trace sub-tags (:schemas/runtime, :schemas/event-payload) on known-skipped-capabilities — the :fixture/dynamic-host-only? fixtures can't produce a runtime trace. See conformance.md §Static hosts and dynamic-host-only fixtures>
 ```
+
+> **The derivation/process algebra (EP-0014) has no own capability family.** [`spec/Derivations.md`](https://day8.github.io/re-frame2/spec/Derivations/) names the one view subs / flows / resources / routes / machines lower to (inputs / output / storage class / evaluation policy / lifecycle; superkinds `:derivation` / `:process`) — but it mints **no new authoring primitive** and **no public accessor**, so there is no `:derivation/*` tag to claim. Its behaviour is verified *through* the source-form families you already claim (`:core/*` subs, `:flow/*`, resources / `:routing/*` / `:fsm/*`). The **only** EP-0014-specific conformance is the optional graph-inspection check (gated by D3 Q6 / whether you build Tool-Pair): if you ship no inspection surface, record that as a `known-skipped-capabilities` reason rather than a claimed tag.
 
 The capability families above track the **conformance corpus** (the `spec/conformance/fixtures/*` files, which are the acceptance test). Both the Implementor-Checklist's family list and the conformance README's prose enumeration usually lag the fixtures (they omit `:flow/*` and its sub-tags, `:rf.http/managed`, `:fsm/final-states`, `:fsm/history`, `:fsm/registration-validation`); when a prose list and the fixtures diverge **for scoring** — what actually runs — the fixtures win. **But the divergence can go the other way for the *vocabulary*:** `:actor/*` is corpus-behind — `spec/conformance/README.md` + Spec 005 declare six actor tags, the fixtures back only four (`:actor/own-state` and `:actor/cross-actor-fx` are spec-mandated but fixture-less today). So `grep`-the-fixtures *under-claims* the actor axis; enumerate `:actor/*` from the README + Spec 005, and a fixture-less spec capability goes on `known-skipped-capabilities` only if you don't implement it. Enumerate the rest of the claimable vocabulary from `spec/conformance/fixtures/*` at the pinned commit (`grep -rho ':fsm/[a-z-]*' spec/conformance/fixtures/ | sort -u`, same for `:flow/`), cross-checked against the README capability table.
 
