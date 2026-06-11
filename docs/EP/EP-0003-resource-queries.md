@@ -2045,7 +2045,11 @@ The landed minimal mutation slice includes:
 - `reg-mutation`, `clear-mutation`, and `:rf.mutation/execute`;
 - mutation pending/error/result state;
 - a generated or caller-supplied mutation instance id;
-- scoped execution, using the same cache-scope rules as resources;
+- scoped execution under a hybrid scope model — the mutation's *execution*
+  scope is fail-open (payload `:scope`, else spec `:scope`, else
+  `:rf.scope/global`, since a causal write has no cached-read leak boundary),
+  while its *invalidation* scope is fail-closed (`:rf.resource/invalidate-tags`
+  requires an explicit scope, `:cross-scope? true` being the only opt-out);
 - concurrency semantics for multiple submissions of the same mutation id;
 - tag invalidation from success and, when useful, failure;
 - explicit invalidation timing: before request, after success, after failure, or

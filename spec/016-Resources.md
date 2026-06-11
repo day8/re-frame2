@@ -573,6 +573,17 @@ A `:mutation` registrar kind is added (the causal-write counterpart of `:resourc
 - **Failure settles `:error`** (no `:refresh-error` analogue — a write has no last-known-good to keep); `:rf.mutation/clear` is the causal reset that clears the runtime instance (and best-effort aborts in-flight work).
 - **Trace-visible instance ids** — the `:rf.mutation/*` trace family (`started` / `succeeded` / `failed` / `cleared` / `stale-suppressed`) carries the instance id; the success trace reserves the optimistic-rollback shape (affected keys, patch summary; snapshot/rollback/reconciliation slots) — **optimistic rollback itself is DEFERRED**.
 
+#### Mutation scope is two distinct scopes (hybrid)
+
+Unlike a resource — whose single scope policy is uniformly fail-closed (§[Scope resolution](#scope-resolution)) — a mutation carries **two distinct scopes** with **opposite default policies**, because a causal write and a cached read have different safety boundaries.
+
+- **Execution scope is FAIL-OPEN.** The scope a mutation's invalidation / patch / populate *defaults to* resolves in precedence order **execute-payload `:scope` → mutation-spec `:scope` → `:rf.scope/global`**. A mutation is a causal write, not a cached read, so it has **no cached-read leak boundary of its own** — defaulting to `:rf.scope/global` leaks nothing, so `:scope` is OPTIONAL at `reg-mutation` and on the execute payload. (The resolved concrete scope is still routed through the shared scope-canonicalization path, so a misspelled `:rf.scope/*` keyword or an opaque host value is still rejected loudly — fail-open on *absence*, not on a *wrong* value.)
+- **Invalidation scope is FAIL-CLOSED.** The success-time invalidation a mutation triggers composes with `:rf.resource/invalidate-tags`, which **requires an explicit scope**: it throws `:rf.error/resource-invalidate-scope-required` when none is supplied, and `:cross-scope? true` is the **only** scope-agnostic opt-out (which MUST be visible and lintable in Xray, as for any broad invalidation). A blind invalidation across all scopes would stale or refetch data for other users, tenants, story frames, or SSR requests — exactly the leak boundary the read path protects.
+
+Because the mutation supplies its resolved execution scope as the invalidation scope, the two compose: the fail-open execution default *becomes* the concrete scope the fail-closed invalidation runs in.
+
+> **Scope-match guidance (the footgun).** A mutation's resolved scope MUST match the scope of the resources it intends to invalidate. `:invalidates` matches only entries **in the resolved scope**; if a `:rf.scope/global`-defaulted mutation invalidates tags owned by a `:rf.scope/session`-scoped resource (or vice versa), the invalidation **silently misses** — no entry matches, the cached read is never refreshed, and no error is raised (it is a legitimate "no match in this scope"). When a write affects session- (or tenant-) scoped reads, the mutation MUST explicitly declare the matching invalidation scope (typically via the execute payload `:scope`). [EP-0016](../docs/EP/EP-0016-resource-mutation-completion.md) is the forward mechanism for per-target / named-scope invalidation, which lets a single mutation invalidate across more than one named scope target without resorting to a blanket cross-scope sweep.
+
 ## Transport
 
 The initial scope ships a **single built-in transport**:
