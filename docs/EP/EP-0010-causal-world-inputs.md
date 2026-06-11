@@ -144,10 +144,11 @@ repaired by silently asking the host again.
 - **EP-0006 (runtime-subsystem contract)** owns the durable / host-transient
   grading this EP's classes build on, including the rf2-oosjmh ruling that
   host-side monotonic allocator counters never rewind.
-- **EP-0008 (production observability channels)** defines the two-channel
-  doctrine this EP relies on: the causal channel is data and replayable; the
-  diagnostic channel is ambient by design. Diagnostic timestamps stay ambient
-  under this EP.
+- **EP-0008 (production observability channels)** defines the channel split
+  this EP relies on: causal facts are data and replayable, diagnostic facts are
+  ambient by design, and the always-on error axis reports production failures
+  without becoming durable state. Diagnostic timestamps stay ambient under this
+  EP.
 - **EP-0011 (uniform async reply envelope)** defines the reply shape that
   carries this EP's completion world facts. This EP requires the facts;
   EP-0011 standardizes the carrier and uses this EP's suffixless durable
@@ -782,7 +783,7 @@ and effect override data. It is the right causal boundary for host facts too.
 Putting world inputs there keeps the fold simple: transitions consume values,
 and effect interpreters produce future values.
 
-This EP deliberately follows the two-channel doctrine (EP-0008). A trace
+This EP deliberately follows EP-0008's causal/diagnostic split. A trace
 timestamp answers "when did the runtime observe this?" A durable timestamp
 answers "what value did the application fold?" Those are different facts. The
 runtime can record both, but it must not let diagnostic convenience become

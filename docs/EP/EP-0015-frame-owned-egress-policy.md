@@ -312,9 +312,11 @@ frames own state, paths are explicit, and boundaries are named.
   privacy fact. One durable app-db path classification should not be expressible
   through schema metadata, frame marks, and a post-creation mutation API as
   equally first-class choices.
-- **EP-0008 (Production Observability Channels).** EP-0008 names which
-  production-survivable records exist. This EP governs how those records are
-  projected and which frame-owned sinks may receive them.
+- **EP-0008 (Production Observability Channels).** EP-0008 names the
+  production-survivable error axis and separates it from causal and diagnostic
+  channels. This EP governs how those error records, and sibling production
+  observability records, are projected and which frame-owned sinks may receive
+  them.
 - **EP-0012 (Path Optics And Canonical Forms).** Sensitive and large
   declarations consume the common `:rf/path` vocabulary and overlap laws.
 - **EP-0013 (App Values And Runtime Realms).** Long term, frame policy and
