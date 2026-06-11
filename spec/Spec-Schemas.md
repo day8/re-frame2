@@ -2297,6 +2297,64 @@ Cross-reference: `:rf/machine-snapshot` (above) is the value type for each entry
 
 > **Further runtime-db children — `:rf.runtime/resources`, `:rf.runtime/work-ledger`, and (with the mutation slice) `:rf.runtime/mutations` — are added by the OPTIONAL post-v1 Resources artefact** (`day8/re-frame2-resources`, [016-Resources.md](016-Resources.md)), NOT by the v1-required `RuntimeDb` validator above. An app that omits the artefact carries none of them; `:rf.runtime/mutations` is present only once the app registers a mutation. Their shapes (`:rf/resource-entry`, `:rf/resource-work-record`, `:rf/scoped-resource-key`, and the `MutationInstance` row) are below.
 
+### `:rf/path`, `:rf/path-template` (the path algebra, EP-0012)
+
+> **Layer:** Value
+> **Owner:** [Conventions.md §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra) (graduated from [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md))
+> **Status:** v1-required (semantics normative immediately; the helper namespaces are internal at this slice)
+
+The shared `:rf/path` shape every path-consuming surface (app-db / runtime-db focus, schema paths, redaction marks, flow inputs/outputs, route params, named declarations) normalizes to. A **concrete path** is a vector of portable-EDN segments; the root path is `[]`. A **path template** additionally admits the canonical template-parameter segment `[:rf.path/param <name>]` (the `'?name` quote-symbol spelling is declaration sugar normalized into this data form — it never appears in a stored shape). The segment schema is the **shared upper bound**: a subsystem MAY narrow it (a stated policy, never a private redefinition).
+
+```clojure
+(def PathSegment
+  ;; The shared segment domain (Conventions §Path shape and segment domain).
+  ;; Portable EDN identity values usable as associative keys / vector indexes.
+  ;; Host values (fns, atoms, promises, DOM nodes, opaque host objects) are
+  ;; NOT segments and are rejected at the boundary that accepts the path.
+  ;; A subsystem MAY narrow this (e.g. flows exclude nil output segments).
+  [:or
+   :keyword
+   :string
+   :symbol
+   :int           ;; portable integer (the canonical-identity safe range applies to identity use)
+   :boolean
+   :uuid
+   inst?          ;; instant
+   :nil])
+
+(def Path
+  ;; A CONCRETE :rf/path — a vector of segments. [] is the root path.
+  ;; The canonical container is a vector; sequential inputs normalize to one.
+  [:vector PathSegment])
+
+(def ParamSegment
+  ;; The canonical stored shape of a template variable (reserved :rf.path/*).
+  ;; This is the ONLY template-variable shape in any stored / serialized path
+  ;; or CEDN-1 encoding (EP-0012 disposition 2).
+  [:tuple [:= :rf.path/param] :keyword])
+
+(def PathTemplate
+  ;; A declaration-time path that MAY carry [:rf.path/param <name>] segments
+  ;; alongside literal segments. Instantiation substitutes bound params into
+  ;; a concrete Path (an unbound param fails closed).
+  [:vector [:or ParamSegment PathSegment]])
+
+(def NamedPathDeclaration
+  ;; A named path declaration map. :rf/path is the reserved path slot (under
+  ;; the :rf/* root). Optional metadata feeds schema / privacy / ownership /
+  ;; derivation consumers. Named paths are optional for app authors.
+  [:map
+   [:id      :keyword]
+   [:rf/path PathTemplate]
+   [:params  {:optional true} :any]     ;; a Malli schema for the template params
+   [:owner   {:optional true} :keyword]
+   [:schema  {:optional true} :keyword]
+   [:privacy {:optional true} [:set :keyword]]
+   [:doc     {:optional true} :string]])
+```
+
+`overlap?` (one path a prefix of the other, either direction) is the shared relation flows use for dependency edges and output-collision detection. Canonical EDN identity over path segments / declarations / params uses the `CEDN-1` rule (Conventions §Canonical byte encoding); out-of-domain values fail closed with `:rf.error/non-edn-identity`.
+
 ### `:rf/scoped-resource-key`, `:rf/resource-entry`, `:rf/resource-work-record` (Resources, Spec 016)
 
 > **Layer:** Runtime

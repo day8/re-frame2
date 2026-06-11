@@ -15,7 +15,7 @@ The v2 prefix migration moved the per-feature trace surfaces (`:rf.machine/*`, `
 
 | Sub-namespace | Used for | Spec |
 |---|---|---|
-| `:rf/*` | Pattern-level events emitted or consumed by the framework (e.g. `:rf/hydrate`, `:rf/server-init`); pattern-level effect-map keys; reserved hiccup heads (`:rf/suspense-boundary` per [011 §Streaming SSR](011-SSR.md#streaming-ssr) — (a)). **`:rf/default`** sits in this `:rf/*` scheme but, per [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md), it is an **ordinary frame id with no framework privilege** — not auto-created by `init!`, not a resolution fallback, not inferred from a missing frame; it is merely a legal id a small app or migration may **explicitly** register and select (the runtime never synthesises it). **Note:** the former reserved app-db root `:rf/runtime` is **retired** — framework durable state now lives in the **runtime-db** partition under the coeffect/effect key `:rf.db/runtime` (per [§Reserved partition keys](#reserved-partition-keys) and [§Reserved runtime-db keys](#reserved-runtime-db-keys)); a stray `:rf/runtime` root in app-db is a hard error in final form (per [§The legacy `:rf/runtime` root](#the-legacy-rfruntime-root-hard-error-in-final-form)). | 002 / 011 / 012 |
+| `:rf/*` | Pattern-level events emitted or consumed by the framework (e.g. `:rf/hydrate`, `:rf/server-init`); pattern-level effect-map keys; reserved hiccup heads (`:rf/suspense-boundary` per [011 §Streaming SSR](011-SSR.md#streaming-ssr) — (a)); the **named-path-declaration slot key `:rf/path`** (the path slot of a named-path-declaration map, per [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md) and [§The `:rf/path` algebra](#the-rfpath-algebra)). **`:rf/default`** sits in this `:rf/*` scheme but, per [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md), it is an **ordinary frame id with no framework privilege** — not auto-created by `init!`, not a resolution fallback, not inferred from a missing frame; it is merely a legal id a small app or migration may **explicitly** register and select (the runtime never synthesises it). **Note:** the former reserved app-db root `:rf/runtime` is **retired** — framework durable state now lives in the **runtime-db** partition under the coeffect/effect key `:rf.db/runtime` (per [§Reserved partition keys](#reserved-partition-keys) and [§Reserved runtime-db keys](#reserved-runtime-db-keys)); a stray `:rf/runtime` root in app-db is a hard error in final form (per [§The legacy `:rf/runtime` root](#the-legacy-rfruntime-root-hard-error-in-final-form)). | 002 / 011 / 012 |
 | `:rf.db/*` | The two-partition frame-state vocabulary — `:rf.db/runtime` (the framework-owned **runtime-db** partition, a coeffect/effect key and the runtime-db slot inside a frame-state projection) and `:rf.db/app` (the app-db slot inside a frame-state projection; the *event-context* spelling of app-db stays the inherited bare `:db`). Per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract) and [§Reserved partition keys](#reserved-partition-keys). | 002 |
 | `:rf.runtime/*` | Runtime-db **subsystem children** — `:rf.runtime/machines`, `:rf.runtime/routing`, `:rf.runtime/elision`, `:rf.runtime/ssr`, and (the post-v1 Resources artefact) `:rf.runtime/resources` + `:rf.runtime/work-ledger` + `:rf.runtime/mutations`. Each is a reserved sub-tree of the runtime-db partition. Per [§Reserved runtime-db keys](#reserved-runtime-db-keys). | 002 / 005 / 009 / 011 / 012 / 016 |
 | `:rf.frame/id` | The current frame's id, threaded as a coeffect on every event context (the runtime-context spelling; distinct from the public `:frame` dispatch/subscribe opt, which is unchanged). Per [002 §Event context threads both partitions](002-Frames.md#event-context-threads-both-partitions). | 002 |
@@ -51,6 +51,7 @@ The v2 prefix migration moved the per-feature trace surfaces (`:rf.machine/*`, `
 | `:rf.scope/*` | Resource cache-scope policy keywords ([016-Resources §Scope resolution](016-Resources.md#scope-resolution)). Closed reserved members: `:rf.scope/global` (the explicit, auditable global-scope claim), `:rf.scope/from-caller` (scope required from the use site), and the scope-shape head keyword `:rf.scope/session` used in example session scopes (`[:rf.scope/session {…}]`). There is **no silent `:rf.scope/global` default** — `:scope` is required at `reg-resource` (fail-closed, rf2-6rrz53). Reserved whether or not the implementation ships the Resources artefact. | 016 |
 | `:rf.work/*` | Frame work-ledger work-id head keywords ([016-Resources §Frame work ledger](016-Resources.md#frame-work-ledger)). The resource writer's work-id head is `:rf.work/resource` (the `[:rf.work/resource resource-key generation]` shape); the mutation writer reuses the same `:rf.work/resource` shape keyed by the mutation instance (the `[:rf.work/resource [:rf.mutation instance-id] generation]` form), `:work/kind :mutation` (rf2-dwme29). Named neutrally so later work-ledger writers (timers, streams, route loaders, spawned actors, machine async work) add their own `:rf.work/<kind>` head under the same reserved segment. Reserved whether or not the implementation ships the Resources artefact. | 016 |
 | `:rf.schema/*` | Schema / validation namespace. Closed reserved set of two members: `:rf.schema/violation` (hot-reload schema-mismatch warning — fires when a file-save re-evaluates `reg-app-schema` with a different schema for the same path and the live app-db value at that path no longer validates against the **new** schema; `:op-type :warning`, recovery `:logged-and-skipped`; per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) and [010 §Schema migration on hot-reload](010-Schemas.md#schema-migration-on-hot-reload)) and `:rf.schema/at-boundary` (the boundary-validation interceptor's `:id` — per [API.md §`validate-at-boundary-interceptor`](API.md#schemas) and [010 §Production builds](010-Schemas.md#production-builds)). v1's `:spec` per-`reg-*` metadata key, the v2 `:rf.spec/*` trace namespace, and the bare `:spec/*` interceptor-id namespace are all collapsed into `:rf.schema/*` under the unified `schema` vocabulary. Migration: see [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema). | 009 / 010 |
+| `:rf.path/*` | Path-algebra namespace ([EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md), [§The `:rf/path` algebra](#the-rfpath-algebra)). Closed reserved member at the segment level: the **template-parameter segment** data form `[:rf.path/param <name>]` — the canonical stored shape of a path-template variable (a 2-vector headed by `:rf.path/param` with a keyword name). This is the ONLY template-variable shape that appears in any stored or serialized path; the `'?name` quote-symbol spelling is declaration-boundary sugar normalized into it (one fact, one identity). Distinct from the path-slot declaration key **`:rf/path`** (under the bare `:rf/*` root, the named-path-declaration map's path slot — first row of this table's scheme). Reserved whether or not a port ships the named-declaration surface — ports MUST NOT register the namespace for any other purpose. | EP-0012 |
 
 ### Error-id and warning-id grammar
 
@@ -466,6 +467,170 @@ A *feature* is identified by its **id prefix**, not by a registry kind. By conve
 A feature does not reach into another feature's slice directly — it goes through the other feature's subs (to read) and dispatches the other feature's events (to write). Construction prompt CP-6 enforces this at scaffold time.
 
 Full rationale: [000-Vision §Pointers to per-area Specs (Features)](000-Vision.md#pointers-to-per-area-specs) and [Construction-Prompts.md §CP-6](Construction-Prompts.md).
+
+## The `:rf/path` algebra
+
+This is the normative home for one path algebra and one canonical-identity rule, stated once, with laws every consumer inherits ([EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md), ACCEPTED — ruling rf2-s7xshi). app-db and runtime-db focus, schema paths, redaction-mark paths, flow inputs/outputs, route params, resource cache keys, work ids, and future feature-module declarations all cite this section instead of restating fragments. Plain vector paths stay valid and mechanically migratable from re-frame v1; this section names the algebra behind them, it does not add a public optics API.
+
+**Internal-first (EP-0012 disposition 1).** The *semantics below are normative immediately*. The reference helpers (conceptually `rf.path/{get,lookup,put,over,compose,prefix?,overlap?,instantiate}` and `rf.identity/{canonical,canonical-bytes}`) are **internal** at this slice — there is no `re-frame.core` facade export and no facade classification yet. An op graduates to a public name only once **two or more** consumers (flows / schemas / routing / resources / [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) frame-config path maps / [EP-0016](../docs/EP/EP-0016-resource-mutation-completion.md) map-form targets) use it through the internal namespace without requiring a shape change; the facade-export classification rule applies to each name at its graduation. Subsystems MUST NOT keep private ad hoc overlap, canonicalization, or path-round-trip logic once these helpers exist — there is no "tool-only" path semantics, and public helpers (when exposed) obey the identical laws.
+
+### Path shape and segment domain
+
+A **concrete `:rf/path`** is a vector of EDN path segments that focuses a value inside an ordinary Clojure/EDN value:
+
+```clojure
+[]
+[:user]
+[:cart :items 42 :qty]
+[:rf.runtime/routing :current :params :slug]
+```
+
+The empty vector `[]` is the **root path** — it focuses the entire value. The primary container is a vector; APIs MAY accept any sequential collection for migration ergonomics, but the canonical form is a vector and **all stored declarations MUST normalize to a vector**.
+
+**Segment domain (the shared upper bound).** Concrete segments MUST be portable EDN identity values usable as associative keys or vector indexes: keywords, strings, symbols, integers (in the safe-integer range — see below), booleans, UUIDs, instants, and `nil` (when the host can represent them as EDN). Functions, atoms, promises, DOM nodes, AbortControllers, opaque host objects, and other host handles are **not** valid segments. This is the shared upper bound, not a requirement that every subsystem accept every type: a spec MAY deliberately *narrow* the domain for its surface (e.g. flows exclude `nil` output segments; SSR allowlists are single-segment) as long as it records the narrowing as a **stated policy over the shared definition**, never a private re-definition. Concrete runtime paths MUST NOT contain host values; such values are rejected at the boundary that accepts the path.
+
+**Partition-relative.** This algebra defines path *semantics*, not partition *ownership*. The owning spec still selects the root value (app-db, runtime-db, the sub/flow output, the event arg-map, the machine `:data` value); the shared algebra applies after that selection.
+
+### Path operations
+
+```clojure
+(get value path)        ;; the focused value, or nil when missing
+(get value path nf)     ;; nf when missing
+(lookup value path)     ;; {:present? true :value v} | {:present? false}
+(put value path x)      ;; value with x installed at path
+(over value path f)     ;; value with f applied to the current focus
+(compose p q)           ;; the two paths appended (canonical vector)
+(prefix? p q)           ;; true when p is a prefix of q
+(overlap? p q)          ;; true when either path is a prefix of the other
+```
+
+`over` on a missing path calls `f` with `nil`, matching `update-in`, unless a surface explicitly provides a not-found-aware operation. A subsystem that must distinguish missing from present `nil` uses `lookup` first.
+
+### Path laws
+
+For concrete paths and EDN values, conforming helpers MUST satisfy these laws:
+
+```text
+lookup(put(s, p, x), p) = {:present? true, :value x}            ;; put-lookup
+if lookup(s, p) = {:present? true, :value x}
+  then put(s, p, x) = s                                          ;; lookup-put
+put(put(s, p, x), p, y) = put(s, p, y)                           ;; put-put
+compose(p, []) = p ; compose([], p) = p                          ;; compose units
+compose(compose(p, q), r) = compose(p, compose(q, r))            ;; compose assoc.
+get(s, compose(p, q), nf) = get(get(s, p), q, nf)                ;; get-compose
+  when lookup(s, p) is present and the focus supports q
+over(s, p, identity) = s    when lookup(s, p) is present         ;; over identity
+over(s, p, f) = put(s, p, f(get(s, p)))                          ;; over (nil-on-missing get)
+```
+
+The root-path laws are:
+
+```text
+get(s, [], nf)  = s
+lookup(s, [])   = {:present? true, :value s}
+put(s, [], x)   = x
+over(s, [], f)  = f(s)
+overlap?([], p) = true
+```
+
+The laws are not decorative: raw `assoc-in` violates the root-path law — `(assoc-in {:a 1} [] {:b 2})` returns `{:a 1, nil {:b 2}}`, assoc'ing under the key `nil` instead of replacing the root. A `put` that delegates to `assoc-in` is therefore non-conforming; the required behaviour is `put(s, [], x) = x`. A second realistic violation: a `put` that "optimizes" `nil` writes by `dissoc`-ing breaks put-lookup at `x = nil` — exactly the missing-vs-present-`nil` ambiguity below.
+
+**Intermediate-container policy (stated once).** Missing or segment-incompatible intermediate values are created as **maps**, matching Clojure's `assoc-in` / `update-in` map-creation behaviour. Vector indexes are supported only for in-range non-negative integer segments; a vector faced with a non-integer or out-of-range segment is replaced by a fresh map (defining the vector-index case explicitly rather than letting a host `assoc` throw). This keeps `put` total so the put-lookup law holds for every path, while never corrupting a compatible existing container.
+
+### Missing versus present `nil`
+
+`nil` is a valid EDN value, and an absent key differs from a key present with value `nil`:
+
+```clojure
+(lookup {} [:page])        ;; => {:present? false}
+(lookup {:page nil} [:page]) ;; => {:present? true :value nil}
+```
+
+Canonical identity preserves this distinction: `(canonical {})` is **not** `(canonical {:page nil})`. A surface MAY intentionally elide `nil` before canonicalization, but that is a surface-specific policy (routing's query printing omits a `nil` query key; resource params get no such elision for free), never the canonical-identity rule.
+
+### Path prefix and overlap
+
+```clojure
+(prefix? [:cart] [:cart :items 42])        ;; => true
+(prefix? [:cart :items 42] [:cart])        ;; => false
+(overlap? [:cart :items] [:cart :items 42]) ;; => true (parent/child)
+(overlap? [:cart :items 42] [:cart :items 43]) ;; => false (siblings)
+(overlap? [] [:anything])                  ;; => true
+```
+
+`overlap?` is true exactly when either path is a prefix of the other, and it is **symmetric**. This is the relation flows already need: flow B depends on flow A when A's output overlaps one of B's inputs, and two output paths in one frame are invalid when they overlap. Flows MUST use the shared relation, not a private one. (Path *templates* need a separate `may-overlap?` relation because variables stand for many concrete values; that is tooling-only and not required for concrete runtime flow sorting.)
+
+### Named path declarations and templates (disposition 2)
+
+A named path declaration is a data map; this EP reserves **`:rf/path`** as the path slot:
+
+```clojure
+{:id      :invoice/customer-email
+ :rf/path [:billing :invoices :by-id [:rf.path/param :invoice-id] :customer :email]
+ :params  [:map [:invoice-id :uuid]]
+ :owner   :billing/invoices
+ :schema  :app/email
+ :privacy #{:sensitive}}
+```
+
+A **path template** is a declaration-time path with named variables. The **canonical stored shape** of a template variable is the explicit data form **`[:rf.path/param <name>]`** (under the reserved `:rf.path/*` namespace). The `'?name` quote-symbol spelling is **declaration-boundary sugar**, normalized into the data form. Per disposition 2's riders: the data form is what `CEDN-1` encodes and what traces/Xray display — **`'?name` never appears in any stored or serialized shape** (one fact, one identity); and EP-0015's frame-config path maps accept **concrete paths only** (no templates), a stated narrowing. A concrete runtime path that literally contains the symbol `?invoice-id` is just a symbol segment — it is not substituted unless processed as a template declaration. Instantiation is pure; an unbound parameter fails closed (an unbound param would silently produce a `nil` segment). Named paths are optional for application authors but SHOULD be preferred when a path carries ownership, schema, privacy, projection, or derivation metadata.
+
+### Canonical EDN identity
+
+Canonical identity is a pure function over portable EDN, used for every equality-sensitive runtime identity: resource params and scopes, scoped resource keys, work ids, route path/query params (after route-specific coercion), named path declarations and templates, schema digest path keys, and any future derivation/process identity. **Equal facts produce the same identity across CLJ/CLJS hosts, and unsupported values fail closed.**
+
+Canonical identity is **not** stringification. `str`, `pr-str` over unordered host maps, `JSON.stringify`, and object identity are not valid identity contracts — they differ by host, leak insertion order, or depend on references.
+
+**Identity vs digest (disposition 5).** The canonical EDN value **is the identity** everywhere — storage, work ledger, traces, epoch/replay records. A **digest** is an *optional, versioned, always-recomputable projection* for size-constrained surfaces (the existing `:rf.size/include-digests?` flag is the precedent); it is never an independent identity fact, never required for correctness, and never the authoritative stored key in v1. Tools SHOULD retain a human-readable EDN projection for debugging (Xray rows stay readable).
+
+The **`CEDN-1` canonical EDN domain** is: `nil`, booleans, strings, keywords, symbols; portable integers in the ECMAScript safe-integer range `[-9007199254740991, 9007199254740991]`; UUIDs and instants (as EDN values or explicit tagged data); and vectors, lists, maps, and sets whose nested values are canonical EDN values. A subsystem MAY choose a smaller input domain for safety, stated explicitly; that is not a fork of the encoding.
+
+The canonicalizer **MUST reject by default** (fail closed, error id `:rf.error/non-edn-identity` — under the reserved `:rf.error/*` namespace and grammar above): functions; atoms, refs, volatiles, promises, futures; DOM nodes, React elements, AbortControllers, request handles, timers; arbitrary host objects or class instances; floating-point values, ratios, arbitrary-precision decimals, NaN, and infinities (unless a future spec encodes the numeric class); and mutable by-reference objects. An out-of-domain value buried anywhere in a structure fails the **whole** identity closed, never a host-comparison fallback. APIs that need such values MUST encode them into portable EDN first (e.g. coerce a host date to an EDN `#inst` instant at the boundary, after which it is an instant fact, not a host object).
+
+### Canonical byte encoding (`CEDN-1`)
+
+`CEDN-1` is the reference byte encoding — an internal comparison/digest format, not a display or URL format. Implementations MAY store a normalized EDN projection or a digest over these bytes, but equality-sensitive comparison MUST be equivalent to comparing `CEDN-1` bytes. It encodes a UTF-8 token stream with a **type tag before every value**:
+
+| EDN value | Canonical token |
+|---|---|
+| `nil` | `n` |
+| Boolean | `b:0` or `b:1` |
+| String | `s:` plus a canonical EDN string literal over Unicode scalar values |
+| Keyword | `k:` plus the canonical EDN keyword token, without auto-resolved `::` shorthand |
+| Symbol | `y:` plus the canonical EDN symbol token |
+| Portable integer | `i:` plus base-10 digits in the safe range, no leading `+`, no leading zero except `0` |
+| UUID | `u:` plus lower-case RFC 4122 text |
+| Instant | `t:` plus RFC 3339 UTC text with millisecond precision |
+| Vector | `v[` elements in order `]` |
+| List | `l(` elements in order `)` |
+| Set | `q#{` elements sorted by their `CEDN-1` bytes `}` |
+| Map | `m{` key/value pairs sorted by key `CEDN-1` bytes `}` |
+
+Adjacent element tokens, and each map key from its value, are separated by a single ASCII space. String/keyword/symbol encoders MUST reject names that cannot round-trip through portable EDN readers on both CLJ and CLJS. Instant encoding normalizes equivalent instants to UTC before printing (timezone text from the source literal is not identity). The type tag is part of the bytes, so `"42"`, `42`, `:42`, `[1 2]`, and `(1 2)` cannot collide; **heterogeneous map keys are therefore legal** within the supported domain (the sort key is the complete type-tagged key byte sequence). If a value is outside the domain, the whole identity fails closed.
+
+**Map key canonicalization.** Map entries MUST be ordered deterministically by the `CEDN-1` bytes of their keys — not by insertion order, hash-map iteration order, locale, or host identity. Compute each key's bytes, sort lexicographically, encode entries in that order. Duplicate canonical keys are invalid and MUST be rejected before the value becomes a cache key, route identity, or work id.
+
+```clojure
+(= (canonical {:page 1 :tag "cljs"}) (canonical {:tag "cljs" :page 1})) ;; => true
+```
+
+**Sequences and sets.** Vectors and lists preserve their kind and element order and are distinct EDN facts (not silently collapsed). Sets are unordered — canonical encoding sorts elements by their canonical element encoding — and remain distinct from vectors/lists. Subsystems SHOULD prefer vectors for public identity tuples (idiomatic, order-preserving, already used for event vectors, resource keys, owner tokens, causes, and work ids).
+
+### Resource identity and work ids
+
+A **scoped resource key** is `[canonical-scope resource-id canonical-params]`, where scope and params use the shared canonical rule, so map insertion order cannot change the key:
+
+```clojure
+(def scope-a [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}])
+(def scope-b [:rf.scope/session {:tenant-id "acme" :user-id "u-42"}])
+(= (canonical scope-a) (canonical scope-b)) ;; => true
+```
+
+**Work ids** build on the same identity (`[:rf.work/resource scoped-resource-key generation]`). One work record MUST have one canonical id — a subsystem MUST NOT carry a second near-duplicate stale-suppression key for the same facts under a different head keyword (EP-0007's one-name-per-fact rule applied to identity; the `:work/id`-vs-`:stale-key` near-duplicate is the motivating instance).
+
+### Routes are prisms (deferred to Spec 012)
+
+Registered route patterns define a lawful partial round trip (a *prism*) between URLs and route data — `match-url(route-url(...))` returns canonical route data, query keys are emitted in deterministic canonical order, `nil` query values are elided, and out-of-domain params fail closed. The prism laws are normative but their **conformance and consumer wiring live in [012-Routing.md](012-Routing.md)** (a tier-2 consumer sweep, epic `rf2-94o54l`); this foundation slice states only the shared path/identity definition they cite. A future data-form route pattern (disposition 4) MUST normalize into the canonical `[:rf.path/param …]` template shape — a second template grammar would be the per-subsystem redefinition this algebra exists to prevent.
 
 ## Canonical event-vector shape (best practice)
 
