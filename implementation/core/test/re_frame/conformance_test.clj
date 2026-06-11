@@ -38,6 +38,13 @@
             ;; expects Malli-backed validation outcomes; absent the
             ;; require the validator soft-passes (no failure traces).
             [re-frame.schemas.malli]
+            ;; EP-0012 (rf2-qyb9l1) — the CEDN-1 canonical-identity + path
+            ;; algebra are the foundation surfaces the canonical-identity
+            ;; golden fixture exercises (the `:canonical-bytes` /
+            ;; `:canonical-identical` / `:canonical-distinct` /
+            ;; `:path-instantiate` call ops). Both are pure `.cljc` namespaces.
+            [re-frame.identity :as identity]
+            [re-frame.path :as path]
             [re-frame.subs :as subs]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
@@ -122,6 +129,12 @@
     :routing/fragment
     :routing/blocking
     :routing/nav-token
+    ;; EP-0012 (rf2-qyb9l1) — the CEDN-1 canonical-identity + `:rf/path`
+    ;; algebra foundation. The `cedn1-path-algebra-golden.edn` fixture pins
+    ;; the canonical-bytes token contract + the instantiate-validation
+    ;; boundary cross-host (the frozen byte-contract that survives an encoder
+    ;; rewrite, complementing the live dual-host property tests).
+    :identity/cedn1
     :actor/spawn-destroy                               ;; rf2-mtq4h — renamed from :actor/spawn to align with spec vocabulary
     :actor/invoke
     :actor/spawn-and-join                              ;; rf2-6vmw / rf2-er0t
@@ -230,7 +243,15 @@
     ;; (e.g. ::after-elapsed); we rewrite to a stable namespace so the
     ;; fixture loads. Tracked as rf2-lu3f.
     (let [raw (slurp file)
-          fixed (clojure.string/replace raw #"::([a-zA-Z][a-zA-Z0-9_-]*)"
+          ;; Rewrite ONLY a standalone auto-resolved keyword `::name` — one
+          ;; that begins a token (preceded by `(` / `[` / `{` / whitespace).
+          ;; The lookbehind keeps the rewrite from corrupting a `::` that
+          ;; appears INSIDE a value, e.g. a CEDN-1 keyword token string like
+          ;; `"k::answer"` in an EP-0012 `:expect` (rf2-qyb9l1), where the
+          ;; `::` is preceded by a letter (the type tag) and must stay
+          ;; literal. Every fixture relying on the rewrite (the `::after-
+          ;; elapsed` timer events) has its `::` at a token boundary.
+          fixed (clojure.string/replace raw #"(?<=[\s(\[{])::([a-zA-Z][a-zA-Z0-9_-]*)"
                                         ":rf.machine.timer/$1")]
       (edn/read-string fixed))
     (catch Throwable e
@@ -1088,6 +1109,61 @@
                     (str "reg-machine\n"
                          "    expected: no error (well-formed machine)\n"
                          "    thrown:   " (ex-message thrown)))}))
+
+    ;; EP-0012 (rf2-qyb9l1) — CEDN-1 canonical-identity golden ops. These
+    ;; pin the FROZEN byte-contract (`re-frame.identity/canonical-bytes`)
+    ;; cross-host: a fixture asserts the exact token stream a value encodes
+    ;; to, so an encoder rewrite that changed the bytes would fail the
+    ;; corpus on BOTH hosts. Complements the live dual-host property tests
+    ;; (identity-cedn1-cljs-test) with a static contract surviving a rewrite.
+
+    ;; `:canonical-bytes` — assert `(canonical-bytes value)` equals `:expect`.
+    :canonical-bytes
+    (let [actual (try (identity/canonical-bytes (:value call))
+                      (catch Throwable e (str "<error: " (.getMessage e) ">")))
+          expect (:expect call)]
+      {:passed? (= expect actual)
+       :detail  (when (not= expect actual)
+                  (str "canonical-bytes " (pr-str (:value call))
+                       "\n    expected: " (pr-str expect)
+                       "\n    actual:   " (pr-str actual)))})
+
+    ;; `:canonical-identical` — assert two values share ONE CEDN-1 identity.
+    :canonical-identical
+    (let [ok? (try (identity/identical-identity? (:a call) (:b call))
+                   (catch Throwable _ false))]
+      {:passed? (boolean ok?)
+       :detail  (when-not ok?
+                  (str "canonical-identical expected = identity: "
+                       (pr-str (:a call)) " vs " (pr-str (:b call))))})
+
+    ;; `:canonical-distinct` — assert two values are DISTINCT CEDN-1 facts.
+    :canonical-distinct
+    (let [same? (try (identity/identical-identity? (:a call) (:b call))
+                     (catch Throwable _ false))]
+      {:passed? (not same?)
+       :detail  (when same?
+                  (str "canonical-distinct expected DISTINCT identities: "
+                       (pr-str (:a call)) " vs " (pr-str (:b call))))})
+
+    ;; `:path-instantiate` — assert `(path/instantiate path bindings)` equals
+    ;; `:expect`, OR (when `:expect-error` is supplied) fails closed with that
+    ;; `:rf.error/id`. Pins the concrete-path PRODUCER boundary (rf2-ehkut7).
+    :path-instantiate
+    (let [want-error (:expect-error call)
+          result     (try {:ok (path/instantiate (:path call) (:bindings call))}
+                          (catch clojure.lang.ExceptionInfo e {:err (:rf.error/id (ex-data e))})
+                          (catch Throwable e {:err (.getMessage e)}))]
+      (if want-error
+        {:passed? (= want-error (:err result))
+         :detail  (when (not= want-error (:err result))
+                    (str "path-instantiate expected error " want-error
+                         " got " (pr-str result)))}
+        {:passed? (= (:expect call) (:ok result))
+         :detail  (when (not= (:expect call) (:ok result))
+                    (str "path-instantiate " (pr-str (:path call))
+                         "\n    expected: " (pr-str (:expect call))
+                         "\n    actual:   " (pr-str result)))}))
 
     ;; unknown call op
     {:passed? false :detail (str "unknown :call form: " (:call call))}))

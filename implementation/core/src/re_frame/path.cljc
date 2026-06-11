@@ -372,22 +372,35 @@
 
       (instantiate [:billing :invoices :by-id '?invoice-id :email]
                    {:invoice-id #uuid \"…\"})
-      ;; => [:billing :invoices :by-id #uuid \"…\" :email]"
+      ;; => [:billing :invoices :by-id #uuid \"…\" :email]
+
+  `instantiate` is a CONCRETE-path PRODUCER: its result is meant to be fed
+  to `get` / `put` / `over` as a runtime path, so it routes the substituted
+  result through `normalize-concrete` — the SAME validated boundary frame
+  classification and resource scope use (rf2-w9x5fv). A binding whose VALUE
+  is outside the concrete-segment domain — a function, host object, or a
+  composite (vector / map / set), including a literal `[:rf.path/param …]`
+  data form — FAILS CLOSED with `:rf.error/bad-path` rather than silently
+  smuggling a non-portable segment into a path presented as concrete
+  (rf2-ehkut7). A present-`nil` binding is a legal concrete segment and
+  passes (the missing-binding case is the fail-closed
+  `:rf.error/missing-path-param` above)."
   [path-or-decl bindings]
   (let [path (normalize-template
                (if (map? path-or-decl)
                  (:rf/path path-or-decl)
                  path-or-decl))]
-    (mapv (fn [seg]
-            (if (param-segment? seg)
-              (let [param (nth seg 1)]
-                (if (contains? bindings param)
-                  (core/get bindings param)
-                  (throw (ex-info (str :rf.error/missing-path-param)
-                                  {:rf.error/id :rf.error/missing-path-param
-                                   :where       'rf.path/instantiate
-                                   :recovery    :supply-binding
-                                   :param       param
-                                   :bad-path    path}))))
-              seg))
-          path)))
+    (normalize-concrete
+      (mapv (fn [seg]
+              (if (param-segment? seg)
+                (let [param (nth seg 1)]
+                  (if (contains? bindings param)
+                    (core/get bindings param)
+                    (throw (ex-info (str :rf.error/missing-path-param)
+                                    {:rf.error/id :rf.error/missing-path-param
+                                     :where       'rf.path/instantiate
+                                     :recovery    :supply-binding
+                                     :param       param
+                                     :bad-path    path}))))
+                seg))
+            path))))
