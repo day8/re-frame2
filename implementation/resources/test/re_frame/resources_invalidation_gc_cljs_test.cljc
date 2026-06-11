@@ -345,6 +345,60 @@
                (:status (work-ledger/get-record (runtime-db) wid)))
             "work row moved to :abort-requested")))))
 
+;; ---- rf2-v4ygg5: abort-requested / terminal work is NON-joinable ----------
+;; A re-ensure after the last owner released (→ :abort-requested) or after a
+;; direct/internal aborted settle (→ terminal :cancelled) must NOT dedupe onto
+;; the doomed/dead prior attempt — it must start a FRESH generation. (Stale
+;; :current-work pointers survive both paths; the LINKED RECORD'S status is
+;; the joinability boundary, not the pointer.)
+
+(deftest re-ensure-after-owner-release-does-not-join-abort-requested
+  (rf/reg-resource :nj/article (article-spec))
+  (let [scope {:user "u"}
+        k     (state/scoped-resource-key scope :nj/article {:slug "w"})]
+    ;; load attempt in flight, single owner
+    (ensure! :nj/article scope "w" [:route :r 1])
+    (let [wid1 (:current-work (entry k))
+          gen1 (:generation (entry k))]
+      (is (= :running (:status (work-ledger/get-record (runtime-db) wid1))))
+      ;; the LAST owner releases → the work record is marked :abort-requested
+      ;; (opportunistic abort issued) but the entry still POINTS at wid1.
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:route :r 1]}])
+      (is (= :abort-requested (:status (work-ledger/get-record (runtime-db) wid1)))
+          "released-last-owner work is abort-requested")
+      (is (= wid1 (:current-work (entry k)))
+          "entry still points at the abort-requested work (stale pointer)")
+      (testing "rf2-v4ygg5 — an immediate re-ensure does NOT join the
+                abort-requested work; it starts a FRESH generation + work id"
+        (ensure! :nj/article scope "w" [:route :r 2])
+        (let [e (entry k)]
+          (is (= (inc gen1) (:generation e)) "fresh generation (no dedupe onto dead work)")
+          (is (not= wid1 (:current-work e)) "a new work id, not the abort-requested one")
+          (is (= :running (:status (work-ledger/get-record (runtime-db) (:current-work e))))
+              "the new attempt is live")
+          (is (contains? (:active-owners e) [:route :r 2])
+              "the new owner is attached to the fresh attempt"))))))
+
+(deftest re-ensure-after-internal-aborted-settle-does-not-join-terminal
+  (rf/reg-resource :njt/article (article-spec))
+  (let [scope {:user "u"}
+        k     (state/scoped-resource-key scope :njt/article {:slug "w"})]
+    (ensure! :njt/article scope "w" [:lease :a 1])
+    (let [wid1 (:current-work (entry k))
+          gen1 (:generation (entry k))]
+      ;; a direct internal aborted settle marks the work TERMINAL :cancelled
+      ;; (the aborted-handler makes no entry write — the pointer dangles).
+      (rf/dispatch-sync [:rf.resource.internal/aborted
+                         {:resource-key k :work-id wid1 :generation gen1}])
+      (is (= :cancelled (:status (work-ledger/get-record (runtime-db) wid1)))
+          "the directly-aborted work row is terminal :cancelled")
+      (testing "rf2-v4ygg5 — a subsequent ensure does NOT join the terminal
+                work; it starts a fresh generation"
+        (ensure! :njt/article scope "w" [:lease :a 2])
+        (let [e (entry k)]
+          (is (= (inc gen1) (:generation e)) "fresh generation")
+          (is (not= wid1 (:current-work e)) "a new live work id"))))))
+
 ;; ===========================================================================
 ;; 3. clear-scope — suppress late reply by entry-vanish + generation
 ;; ===========================================================================
