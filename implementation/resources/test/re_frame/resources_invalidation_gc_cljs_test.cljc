@@ -340,7 +340,12 @@
                 real boundary)"
         (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 1]}])
         (is (empty? (:active-owners (entry k))) "entry now owner-free")
-        (is (= [wid] @aborts) "orphaned in-flight attempt aborted")
+        ;; rf2-sxyrzk — abort carries the frame-QUALIFIED transport request-id
+        ;; (`managed-request-id`), NOT the bare work-id (the managed-HTTP
+        ;; registry keys by request-id process-globally; a bare work-id would
+        ;; collide across frames).
+        (is (= [(work-ledger/managed-request-id :rf/default wid)] @aborts)
+            "orphaned in-flight attempt aborted (by qualified request-id)")
         (is (= :abort-requested
                (:status (work-ledger/get-record (runtime-db) wid)))
             "work row moved to :abort-requested")))))

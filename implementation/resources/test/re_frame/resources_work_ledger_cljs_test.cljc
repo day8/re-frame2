@@ -58,7 +58,12 @@
   (state/reset-cache!)
   (work-ledger/reset-cache!)
   (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  ;; managed-abort args is the request-id (= work-id) directly
+  ;; rf2-sxyrzk — managed-abort args is the frame-QUALIFIED transport
+  ;; request-id (`[:rf.req <frame-id> <work-id>]`, `managed-request-id`), NOT
+  ;; the bare work-id. The managed-HTTP in-flight registry keys by request-id
+  ;; PROCESS-GLOBALLY (Spec 014), so the abort must carry the same qualified
+  ;; token the lower registered or it would miss the request (or, across
+  ;; frames, resolve a sibling frame's colliding request).
   (rf/reg-fx :rf.http/managed-abort (fn [_ctx request-id] (swap! aborts conj request-id) nil))
   (f))
 
@@ -88,6 +93,14 @@
 (defn- ledger
   ([] (ledger :rf/default))
   ([frame-id] (get-in (runtime-db frame-id) [:rf.runtime/work-ledger])))
+
+(defn- req
+  "The frame-QUALIFIED managed-HTTP transport request-id the runtime aborts
+  by (`managed-request-id`, rf2-sxyrzk) — the token captured into `@aborts`
+  for a `work-id` issued in `frame-id` (default `:rf/default`). The abort
+  carries this, NOT the bare work-id, so it matches the registered token."
+  ([work-id] (req :rf/default work-id))
+  ([frame-id work-id] (work-ledger/managed-request-id frame-id work-id)))
 
 (defn- article-spec
   ([] (article-spec {}))
@@ -248,7 +261,7 @@
                                                :params {:slug "w"}}])
       (testing "Spec 016 §Cancellation is opportunistic — supersession fires a
                 best-effort :rf.http/managed-abort for the old work id"
-        (is (contains? (set @aborts) wid1)))
+        (is (contains? (set @aborts) (req wid1))))
       (testing "the OLD work row is marked terminal :suppressed (:superseded)"
         (is (= :suppressed (:status (record wid1))))
         (is (= :superseded (get-in (record wid1) [:outcome :reason]))))
@@ -299,13 +312,13 @@
       (testing "Spec 016 §Race — releasing ONE of two owners does NOT abort
                 the shared in-flight work (the other owner still needs it)"
         (rf/dispatch-sync [:rf.resource/release-owner {:owner [:route :r 1]}])
-        (is (not (contains? (set @aborts) wid)) "shared request not aborted")
+        (is (not (contains? (set @aborts) (req wid))) "shared request not aborted")
         (is (= #{[:lease :x 2]} (:owners (record wid))) "owner dropped from row")
         (is (= :running (:status (record wid))) "row still running"))
       (testing "releasing the LAST owner orphans the attempt → opportunistic
                 abort + :abort-requested row (Spec 016 §Race)"
         (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 2]}])
-        (is (contains? (set @aborts) wid) "orphaned request best-effort aborted")
+        (is (contains? (set @aborts) (req wid)) "orphaned request best-effort aborted")
         (is (= :abort-requested (:status (record wid))))))))
 
 ;; ===========================================================================
@@ -324,7 +337,7 @@
                 terminal :cancelled and best-effort aborted"
         (is (= :cancelled (:status (record wid))))
         (is (= :clear-scope (get-in (record wid) [:outcome :reason])))
-        (is (contains? (set @aborts) wid))))))
+        (is (contains? (set @aborts) (req wid)))))))
 
 (deftest remove-cancels-in-flight-row
   (rf/reg-resource :rm/article (article-spec))
@@ -337,7 +350,7 @@
       (testing "Spec 016 §Events — remove settles the in-flight row :cancelled
                 + best-effort aborts"
         (is (= :cancelled (:status (record wid))))
-        (is (contains? (set @aborts) wid))))))
+        (is (contains? (set @aborts) (req wid)))))))
 
 ;; ===========================================================================
 ;; 9. frame destroy cleans the side tables (durable records may persist)
@@ -380,3 +393,67 @@
                                         :started-at 1})]
         (is (= wid (:work/id r)))
         (is (not (contains? r :stale-key)))))))
+
+;; ===========================================================================
+;; 11. ADVERSARIAL (rf2-sxyrzk / eu2ifi) — two frames issuing the SAME
+;;     resource at the SAME generation get DISTINCT frame-qualified transport
+;;     request-ids, so neither supersedes / aborts the other in the
+;;     process-global managed-HTTP in-flight registry. Both frames settle
+;;     independently; the bare frame-local work-id WOULD collide.
+;; ===========================================================================
+
+(deftest cross-frame-request-id-does-not-collide
+  (rf/reg-resource :xf/article (article-spec))
+  ;; capture every lowered managed-HTTP args map (not just the last) so we can
+  ;; inspect BOTH frames' request-ids.
+  (let [all-args (atom [])]
+    (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (let [fa :xf/frame-a
+          fb :xf/frame-b
+          scoped-key (state/scoped-resource-key :rf.scope/global :xf/article {:slug "w"})]
+      (rf/reg-frame fa {:doc "frame A"})
+      (rf/reg-frame fb {:doc "frame B"})
+      ;; both frames ensure the SAME global-scope resource — same scoped key.
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
+                                              :params {:slug "w"} :owner [:lease :a 1]}]
+                        {:frame fa})
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
+                                              :params {:slug "w"} :owner [:lease :b 1]}]
+                        {:frame fb})
+      (let [wid-a (:current-work (entry fa scoped-key))
+            wid-b (:current-work (entry fb scoped-key))
+            req-ids (mapv :request-id @all-args)]
+        (testing "each frame mints the SAME frame-local work-id at the same
+                  generation — the collision the bare work-id would cause"
+          (is (= [:rf.work/resource scoped-key 1] wid-a))
+          (is (= [:rf.work/resource scoped-key 1] wid-b))
+          (is (= wid-a wid-b) "bare work-ids are identical across frames"))
+        (testing "Spec 016 §Transport — the lowered transport :request-id is
+                  the frame-QUALIFIED token, DISTINCT per frame, so the
+                  process-global managed-HTTP registry cannot supersede one
+                  frame's in-flight request with the other's"
+          (is (= 2 (count req-ids)) "both frames lowered a managed request")
+          (is (contains? (set req-ids) (work-ledger/managed-request-id fa wid-a)))
+          (is (contains? (set req-ids) (work-ledger/managed-request-id fb wid-b)))
+          (is (apply distinct? req-ids) "the two frames' request-ids differ")
+          (is (not= (set req-ids) #{wid-a})
+              "the request-id is NOT the bare work-id (which would collide)"))
+        (testing "both frames carry an independent live work record + host
+                  handle keyed by their own [frame-id work-id]"
+          (is (= :running (:status (record fa wid-a))))
+          (is (= :running (:status (record fb wid-b))))
+          (is (= fa (:work/frame (record fa wid-a))))
+          (is (= fb (:work/frame (record fb wid-b))))
+          (is (some? (work-ledger/get-handle fa wid-a)))
+          (is (some? (work-ledger/get-handle fb wid-b))))
+        (testing "frame A settling does NOT disturb frame B (independent
+                  settlement — no stranded pending entry)"
+          (rf/dispatch-sync [:rf.resource.internal/succeeded
+                             {:resource-key scoped-key :work-id wid-a :generation 1
+                              :rf.frame/id fa :data {:title "A"}}]
+                            {:frame fa})
+          (is (= {:title "A"} (:data (entry fa scoped-key))) "frame A loaded")
+          (is (= :running (:status (record fb wid-b)))
+              "frame B's attempt still in flight — untouched by frame A's reply")
+          (is (not= :loaded (:status (entry fb scoped-key)))
+              "frame B's entry not settled by frame A"))))))

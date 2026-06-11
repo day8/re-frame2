@@ -257,7 +257,14 @@
         ;; suppression keys on it). The scoped "key" for a mutation is the
         ;; instance id (no cache identity — a write is not cached by params).
         work-id    (work-ledger/resource-work-id [:rf.mutation instance-id] generation)
-        request-id work-id
+        ;; rf2-sxyrzk — the transport correlation token is the frame-QUALIFIED
+        ;; request-id, NOT the bare work-id. The managed-HTTP in-flight registry
+        ;; keys by request-id PROCESS-GLOBALLY and supersedes by equal
+        ;; request-id (Spec 014); a mutation instance id is frame-local, so two
+        ;; frames executing the same mutation instance at the same generation
+        ;; would collide on a bare work-id and abort/supersede each other's
+        ;; in-flight write. Qualifying with the frame id isolates them.
+        request-id (work-ledger/managed-request-id frame-id work-id)
         now        (now-ms)
         transport-id (or (:transport spec) transport/default-transport)
         ;; the mutation's :request returns the Spec 014 managed-HTTP args
@@ -370,7 +377,9 @@
                  {:rf.frame/id frame-id :cleared target-ids
                   :aborted (mapv first in-flight)})
     {:rf.db/runtime rdb'
-     :fx (into [] (keep (fn [[wid transport]] (work-ledger/abort-fx transport wid)))
+     ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the token the
+     ;; lower registered); the bare work-id would miss the in-flight request.
+     :fx (into [] (keep (fn [[wid transport]] (work-ledger/abort-fx transport frame-id wid)))
                in-flight)}))
 
 ;; ---- framework-internal reply handlers ------------------------------------

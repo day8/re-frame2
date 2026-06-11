@@ -266,7 +266,15 @@
       :else
       (let [generation (state/next-generation gen-snapshot)
             work-id    (work-ledger/resource-work-id scoped-key generation)
-            request-id work-id
+            ;; rf2-sxyrzk — the transport correlation token is the
+            ;; frame-QUALIFIED request-id, NOT the bare work-id. The
+            ;; managed-HTTP in-flight registry keys by request-id
+            ;; PROCESS-GLOBALLY and supersedes by equal request-id (Spec 014);
+            ;; the work-id is frame-local, so two frames issuing the same
+            ;; resource at the same generation would collide on a bare work-id
+            ;; and supersede/abort each other's in-flight request. Qualifying
+            ;; with the frame id isolates them.
+            request-id (work-ledger/managed-request-id frame-id work-id)
             now        (now-ms)
             deadline   (when-let [ms (:timeout-ms spec)] (+ now ms))
             entry'     (cond-> (state/entry-start-load
@@ -349,8 +357,10 @@
                superseding?
                (-> (conj [:rf.resource/clear-work-handle
                           {:frame-id frame-id :work-id prior-work}])
-                   (cond-> (work-ledger/abort-fx transport-id prior-work)
-                     (conj (work-ledger/abort-fx transport-id prior-work)))))}))))
+                   ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the
+                   ;; token the prior lower registered); a bare work-id misses it.
+                   (cond-> (work-ledger/abort-fx transport-id frame-id prior-work)
+                     (conj (work-ledger/abort-fx transport-id frame-id prior-work)))))}))))
 
 (defn ensure-handler
   "`:rf.resource/ensure` — ensure a resource instance is loaded (load it
@@ -686,8 +696,10 @@
                  {:rf.frame/id frame-id :owner owner :released (vec (or owned #{}))
                   :aborted (mapv first aborts)})
     {:rf.db/runtime rdb2
+     ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the registered
+     ;; token); a bare work-id would miss the orphaned in-flight request.
      :fx (into [] (keep (fn [[wid transport]]
-                          (work-ledger/abort-fx transport wid)))
+                          (work-ledger/abort-fx transport frame-id wid)))
                aborts)}))
 
 ;; ---- clear-scope — the causal logout / tenant-switch boundary --------------
@@ -745,7 +757,9 @@
      ;; gone — release the host handles promptly rather than waiting for frame
      ;; destroy). Stale suppression by work-id + generation remains the
      ;; correctness boundary; the abort + timer-cancel are the optimisation.
-     :fx (cond-> (into [] (keep (fn [[wid transport]] (work-ledger/abort-fx transport wid)))
+     ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the registered
+     ;; token); the bare work-id would miss the in-scope in-flight requests.
+     :fx (cond-> (into [] (keep (fn [[wid transport]] (work-ledger/abort-fx transport frame-id wid)))
                        in-flight)
            (seq in-scope)
            (conj [:rf.resource/cancel-timers
@@ -781,7 +795,9 @@
      ;; best-effort abort of the removed instance's in-flight attempt
      ;; (opportunistic; stale suppression protects correctness) PLUS cancel
      ;; its advisory stale / GC timers (the entry's durable facts are gone).
-     :fx (conj (if-let [fx (and wid (work-ledger/abort-fx transport wid))] [fx] [])
+     ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the registered
+     ;; token); a bare work-id would miss the removed instance's in-flight request.
+     :fx (conj (if-let [fx (and wid (work-ledger/abort-fx transport frame-id wid))] [fx] [])
                [:rf.resource/cancel-timers
                 {:frame-id frame-id :resource-keys [scoped-key]}])}))
 

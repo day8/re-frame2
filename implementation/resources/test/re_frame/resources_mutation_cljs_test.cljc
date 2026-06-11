@@ -38,6 +38,7 @@
    [re-frame.resources.mutation-runtime :as mstate]
    [re-frame.resources.mutation-events :as mevents]
    [re-frame.resources.mutation-registry :as mreg]
+   [re-frame.resources.work-ledger :as work-ledger]
    [re-frame.resources.timers :as timers]
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
@@ -791,3 +792,56 @@
     (let [i (instance [:row 7])]
       (is (= :pending (:status i)))
       (is (= [:row 7] (:instance/id i))))))
+
+;; ===========================================================================
+;; ADVERSARIAL (rf2-sxyrzk / eu2ifi) — two frames executing the SAME mutation
+;; instance at the SAME generation get DISTINCT frame-qualified transport
+;; request-ids, so the process-global managed-HTTP in-flight registry cannot
+;; supersede / abort one frame's write with the other's. Both frames settle
+;; independently. The bare frame-local work-id WOULD collide.
+;; ===========================================================================
+
+(deftest cross-frame-mutation-request-id-does-not-collide
+  (rf/reg-mutation :m/save (save-article-spec))
+  (let [all-args (atom [])]
+    (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (let [fa :xm/frame-a
+          fb :xm/frame-b]
+      (rf/reg-frame fa {:doc "frame A"})
+      (rf/reg-frame fb {:doc "frame B"})
+      ;; both frames execute the SAME mutation under the SAME caller-supplied
+      ;; instance id → SAME frame-local work-id at the same generation.
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :m/save :params {:slug "w"} :instance :form/save-1}]
+                        {:frame fa})
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :m/save :params {:slug "w"} :instance :form/save-1}]
+                        {:frame fb})
+      (let [wid-a (:current-work (instance fa :form/save-1))
+            wid-b (:current-work (instance fb :form/save-1))
+            req-ids (mapv :request-id @all-args)]
+        (testing "each frame mints the SAME frame-local work-id (the collision
+                  a bare work-id request-id would cause)"
+          (is (= wid-a wid-b) "bare work-ids identical across frames"))
+        (testing "Spec 016 §Transport — the lowered transport :request-id is
+                  the frame-QUALIFIED token, DISTINCT per frame"
+          (is (= 2 (count req-ids)))
+          (is (contains? (set req-ids) (work-ledger/managed-request-id fa wid-a)))
+          (is (contains? (set req-ids) (work-ledger/managed-request-id fb wid-b)))
+          (is (apply distinct? req-ids) "the two frames' request-ids differ")
+          (is (not= (set req-ids) #{wid-a})
+              "the request-id is NOT the bare work-id (which would collide)"))
+        (testing "each frame holds an independent live work record keyed by
+                  its own [frame-id work-id]"
+          (is (= :running (:status (work-ledger/get-record (runtime-db fa) wid-a))))
+          (is (= :running (:status (work-ledger/get-record (runtime-db fb) wid-b))))
+          (is (some? (work-ledger/get-handle fa wid-a)))
+          (is (some? (work-ledger/get-handle fb wid-b))))
+        (testing "frame A's reply settles ONLY frame A's instance — frame B's
+                  write stays independently in flight (no stranded instance)"
+          ;; the reply event the live transport appends, dispatched into frame A
+          (rf/dispatch-sync (conj (:on-success (first @all-args)) {:kind :success :value {:ok true}})
+                            {:frame fa})
+          (is (= :success (:status (instance fa :form/save-1))) "frame A settled")
+          (is (= :pending (:status (instance fb :form/save-1)))
+              "frame B's instance still pending — untouched by frame A's reply"))))))
