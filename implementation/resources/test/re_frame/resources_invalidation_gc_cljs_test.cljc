@@ -158,8 +158,10 @@
     (succeed! kb {:title "B"})
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :a 1]}])
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :b 1]}])
+    ;; cross-scope is the AUDITED escape — it MUST carry :cause (rf2-7r8kgd)
     (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope sa :tags #{[:article "w"]} :cross-scope? true}])
+                       {:scope sa :tags #{[:article "w"]} :cross-scope? true
+                        :cause [:admin/cache-poisoning-response]}])
     (testing "Spec 016 §Invalidation — :cross-scope? true matches the tag in
               EVERY scope (the explicit, Xray-visible opt-in)"
       (is (some? (:invalidated-at (entry ka))) "scope A entry marked stale")
@@ -230,6 +232,8 @@
   ;; the ONLY scope-agnostic path: :cross-scope? true with no :scope is
   ;; permitted (scope-agnostic by construction). Proven end-to-end through
   ;; the dispatch path (no throw → the matched entries are marked stale).
+  ;; rf2-7r8kgd: cross-scope is the AUDITED escape, so it MUST still carry
+  ;; :cause even when it carries no :scope (scope-agnostic ≠ cause-free).
   (rf/reg-resource :ivxn/article (article-spec))
   (let [sa {:user "a"} sb {:user "b"}
         ka (state/scoped-resource-key sa :ivxn/article {:slug "w"})
@@ -241,11 +245,45 @@
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :a 1]}])
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :b 1]}])
     (testing "rf2-pvdae1 — cross-scope? true with NO :scope is allowed
-              (scope-agnostic) and invalidates the tag in every scope"
+              (scope-agnostic) and invalidates the tag in every scope (with
+              :cause, the audited escape, per rf2-7r8kgd)"
       (rf/dispatch-sync [:rf.resource/invalidate-tags
-                         {:tags #{[:article "w"]} :cross-scope? true}])
+                         {:tags #{[:article "w"]} :cross-scope? true
+                          :cause [:migration/article-schema-v2]}])
       (is (some? (:invalidated-at (entry ka))) "scope A entry marked stale")
       (is (some? (:invalidated-at (entry kb))) "scope B entry marked stale"))))
+
+;; ---- rf2-7r8kgd: cross-scope MUST carry :cause (the audited escape) ---------
+
+(deftest invalidate-tags-cross-scope-without-cause-fails-closed
+  (testing "rf2-7r8kgd / Spec 016 §The cross-scope lattice — a :cross-scope?
+            true invalidate-tags with NO :cause is a loud
+            :rf.error/resource-cross-scope-cause-required (never a silent
+            unaudited cross-scope sweep). Cross-scope is the audited escape; it
+            MUST carry the privacy-relevant :cause evidence."
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-cross-scope-cause-required"
+          (events/invalidate-tags-handler
+            (invalidate-cofx {})
+            [:rf.resource/invalidate-tags
+             {:tags #{[:article "w"]} :cross-scope? true}]))))
+  (testing "an explicitly nil :cause (not merely absent) is ALSO rejected —
+            fail-closed is about the absence of :cause evidence"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-cross-scope-cause-required"
+          (events/invalidate-tags-handler
+            (invalidate-cofx {})
+            [:rf.resource/invalidate-tags
+             {:scope {:user "a"} :tags #{[:article "w"]}
+              :cross-scope? true :cause nil}]))))
+  (testing "cross-scope WITH a :cause is accepted (the audited escape clears
+            the gate) — no throw"
+    (is (map?
+          (events/invalidate-tags-handler
+            (invalidate-cofx {})
+            [:rf.resource/invalidate-tags
+             {:tags #{[:article "w"]} :cross-scope? true
+              :cause [:admin/manual-purge]}])))))
 
 ;; ---- rf2-hosnba: invalidate-tags scope routes through canonicalize-scope ---
 

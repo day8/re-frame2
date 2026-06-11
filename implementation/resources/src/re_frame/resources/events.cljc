@@ -580,6 +580,17 @@
   multi-user storm is observable + lintable). A cross-scope invalidation with
   no `:scope` is permitted (it is scope-agnostic by construction).
 
+  **Cross-scope MUST carry `:cause`** (rf2-7r8kgd, Spec 016 §The cross-scope
+  lattice — three precise rungs): `:cross-scope? true` is the AUDITED escape —
+  it can stale or refetch data across every user / tenant / story frame / SSR
+  request, so it MUST carry `:cause` evidence (the privacy-relevant trace
+  record of WHY the cache reached outside the mutation's own resolved scope —
+  EP-0015). A `:cross-scope? true` invalidation with a nil / absent `:cause` is
+  a loud `:rf.error/resource-cross-scope-cause-required` — never a silent
+  unaudited cross-scope sweep. The mutation engine always stamps `:cause`
+  (`[:mutation <id> <instance>]`); this gate guards the direct public engine
+  entry. Per Spec 016 §The cross-scope lattice.
+
   **Fail closed without a scope** (rf2-pvdae1, Spec 016 §Invalidation): a
   SCOPED invalidation (the default, `:cross-scope?` false / absent) with NO
   `:scope` is a loud `:rf.error/resource-invalidate-scope-required` — never
@@ -627,6 +638,29 @@
                                                         "invalidate the tags in EVERY scope, opt in "
                                                         "explicitly with :cross-scope? true. Per Spec "
                                                         "016 §Invalidation.")
+                                      :tags        tags})))
+        ;; AUDITED ESCAPE — cross-scope MUST carry :cause (rf2-7r8kgd, Spec 016
+        ;; §The cross-scope lattice). :cross-scope? true can stale / refetch
+        ;; data across every user, tenant, story frame, and SSR request, so it
+        ;; is fail-closed without :cause evidence: a nil/absent :cause is a loud
+        ;; :rf.error/resource-cross-scope-cause-required, never a silent
+        ;; unaudited sweep. (The mutation engine always stamps
+        ;; :cause [:mutation id instance]; this guards the direct public entry.)
+        _          (when (and cross-scope? (nil? cause))
+                     (throw (ex-info ":rf.error/resource-cross-scope-cause-required"
+                                     {:rf.error/id :rf.error/resource-cross-scope-cause-required
+                                      :where       'rf.resource/invalidate-tags
+                                      :recovery    :fix-cause
+                                      :reason      (str "a :cross-scope? true :rf.resource/invalidate-tags "
+                                                        "MUST carry :cause evidence. Cross-scope is the "
+                                                        "AUDITED escape — it can stale or refetch data "
+                                                        "across every user, tenant, story frame, and SSR "
+                                                        "request, so the runtime records WHY the cache "
+                                                        "reached outside the mutation's own resolved "
+                                                        "scope (a privacy-relevant trace, EP-0015). A "
+                                                        "cross-scope invalidation with no :cause is "
+                                                        "rejected — never a silent unaudited sweep. Per "
+                                                        "Spec 016 §The cross-scope lattice.")
                                       :tags        tags})))
         ;; route the concrete scope through the SHARED validation path
         ;; (rf2-hosnba, rf2-lzv9xc): rejects reserved-namespace typos +
