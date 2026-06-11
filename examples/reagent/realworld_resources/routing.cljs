@@ -9,11 +9,17 @@
    and suppresses any stale reply by generation. The views never fetch — they
    read the runtime cache passively.
 
-   `:blocking?` keeps the route transition pending until the resource settles
-   (and is the SSR wait point); a non-blocking resource fetches in the
-   background. `:keep-previous?` keeps the prior list visible while a new
-   filter/page first-loads. `:when` makes a resource conditional without
-   sentinel nil params.
+   `:blocking?` keeps the route transition pending until the resource settles;
+   a non-blocking resource fetches in the background. `:keep-previous?` keeps
+   the prior list visible while a new filter/page first-loads. `:when` makes a
+   resource conditional without sentinel nil params.
+
+   (On the server, the same `:blocking?` flag is the SSR wait point — the route
+   plan drains blocking resources before rendering, then serialises the resource
+   partition for the client to hydrate without refetching, Spec 016 §SSR and
+   hydration over Spec 011. This example is CLIENT-ONLY and does NOT exercise
+   that path; the dedicated worked demo of resource SSR preload + hydration is
+   `examples/reagent/resources_ssr/`.)
 
    The SESSION-scoped personalised feed is NOT a route resource: a route
    `:scope` / `:when` resolver receives only the route + a routing-supplied
