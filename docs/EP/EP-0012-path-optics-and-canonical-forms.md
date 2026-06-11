@@ -1,7 +1,20 @@
 # EP-0012: Path Optics And Canonical Forms
 
-Status: accepted
+Status: final
 Type: standards-track
+
+> **Ruling recorded 2026-06-12 (Mike, in-session).** Graduated `accepted →
+> final`. The implementation is complete and merged (the `:rf/path` algebra +
+> CEDN-1 canonical identity foundation, the fail-closed hardening, and the
+> tier-2 consumer sweeps across routing/resources/flows), the full wave-end
+> review battery passed clean (correctness, testing-coverage, code-comments,
+> completeness, and a final-corrective pass), and the normative rules live in
+> their home — [`spec/Conventions.md`](../../spec/Conventions.md) (the path /
+> canonical-identity rules), validated end-to-end by the `re-frame.path` /
+> `re-frame.identity` reference implementation. This EP is now the **rationale
+> record**; where it and the spec differ, the spec governs. The action epic
+> (`rf2-94o54l`) stays open for the remaining post-graduation item (the
+> deferred cache-key normalisation, `rf2-o84qq2`).
 
 > This EP defines one small path and canonical-identity algebra for app-db
 > paths, runtime-db paths, flow dependencies and outputs, schema and redaction

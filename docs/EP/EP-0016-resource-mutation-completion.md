@@ -1,7 +1,19 @@
 # EP-0016: Resource Mutation Completion, Scoped Invalidation Targets, And Named Scope Resolution
 
-Status: accepted
+Status: final
 Type: standards-track
+
+> **Ruling recorded 2026-06-12 (Mike, in-session).** Graduated `accepted →
+> final`. The implementation is complete and merged (mutation completion with
+> `:reply-to`, scoped invalidation descriptors, named scope resolvers,
+> populate, and request decoration), the full wave-end review battery passed
+> clean (correctness ×2, testing-coverage STRONG, code-comments, and a
+> final-corrective pass), and it was dogfooded through the realworld example.
+> The normative amendment lives in its home —
+> [`spec/016-Resources.md`](../../spec/016-Resources.md). This EP is now the
+> **rationale record**; where it and the spec differ, the spec governs. The
+> action epic (`rf2-fi6tda`) stays open for the deferred derived-sensitivity
+> propagation arm (`rf2-fi6tda.1`).
 
 > This EP defines a narrow post-EP-0003 amendment to Spec 016:
 > mutation completion continuations, per-target scoped invalidation, named

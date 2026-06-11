@@ -1,7 +1,19 @@
 # EP-0014: Derivation And Process Algebra
 
-Status: accepted
+Status: final
 Type: standards-track
+
+> **Ruling recorded 2026-06-12 (Mike, in-session).** Graduated `accepted →
+> final`. The implementation is complete and merged (the five algebra-view
+> tooling siblings, the `re-frame.derivation.graph` composer, and the
+> cross-family conformance tier), the full wave-end review battery passed
+> clean (correctness ×2, testing-coverage STRONG, code-comments, and a
+> final-corrective pass — the one P1 node-kind enum defect found and fixed),
+> and the normative contract lives in its home —
+> [`spec/Derivations.md`](../../spec/Derivations.md). This EP is now the
+> **rationale record**; where it and the spec differ, the spec governs. The
+> action epic (`rf2-k0meap`) stays open for the post-graduation consumer
+> propagation (skills / examples / docs-guide / the Xray graph panel).
 
 > This EP defines the common model behind subscriptions, runtime
 > subscriptions, flows, resources, route facts, and selected machine state:
