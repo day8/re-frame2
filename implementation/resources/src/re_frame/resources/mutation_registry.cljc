@@ -240,10 +240,16 @@
 (defn resolve-scope
   "Resolve the cache scope a mutation's invalidation / patch defaults to,
   in precedence order: the execute payload `:scope`, else the mutation
-  spec's `:scope`, else `:rf.scope/global`. A mutation has NO fail-closed
-  scope requirement (it is a causal write, not a cached read with a leak
-  boundary) — the invalidation it triggers is scoped, so the scope just
-  decides which cache scope the success-time `:invalidate-tags` /
+  spec's `:scope`, else `:rf.scope/global`. A mutation's EXECUTION scope has
+  NO fail-closed scope requirement (it is a causal write, not a cached read
+  with a leak boundary), so defaulting to `:rf.scope/global` is correct here.
+  This is distinct from the mutation's INVALIDATION scope, which IS
+  fail-closed: `:rf.resource/invalidate-tags` throws
+  `:rf.error/resource-invalidate-scope-required` without an explicit scope
+  (rf2-pvdae1), `:cross-scope? true` being the only scope-agnostic opt-out.
+  The resolved scope below is what the success-time invalidation supplies, so
+  the two compose: this fail-open execution default decides which cache scope
+  the success-time `:invalidate-tags` /
   patch / populate target.
 
   Routes the resolved concrete scope through the SAME shared validation
@@ -253,8 +259,8 @@
   `[:rf.scope/global]` singleton-vector spelling normalizes to bare
   `:rf.scope/global` (rf2-vv87xz) — so a mutation can never invalidate /
   patch a silent WRONG (or second, distinct global) cache scope. Returns
-  the canonical scope. Per EP-0003 §Mutations (scoped execution, same
-  cache-scope rules as resources)."
+  the canonical scope. Per EP-0003 §Mutations (hybrid scope: fail-open
+  execution default, fail-closed invalidation)."
   [mutation-id spec payload-scope]
   (let [scope (or payload-scope (:scope spec) :rf.scope/global)]
     (state/canonicalize-scope scope 'rf.mutation/execute mutation-id)))
