@@ -49,6 +49,7 @@
    [re-frame.http-managed]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
+   [re-frame.trace.tooling :as trace-tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
@@ -105,6 +106,21 @@
 (defn- reply-failure!
   ([args failure] (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure})))
   ([args failure opts] (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure}) opts)))
+
+(defn- record-mutation-traces!
+  "Run `body-fn` with a trace listener installed; return the vector of every
+  `:rf.mutation/*`-operation trace event emitted during it (capture order)."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::mutation-trace-recorder]
+    (trace-tooling/register-listener!
+      k (fn [ev]
+          (when (and (keyword? (:operation ev))
+                     (= "rf.mutation" (namespace (:operation ev))))
+            (swap! seen conj ev))))
+    (try (body-fn)
+         (finally (trace-tooling/unregister-listener! k)))
+    @seen))
 
 (defn- save-article-spec
   ([] (save-article-spec {}))
@@ -561,6 +577,90 @@
       (reply-success! @last-managed-args {:fresh "result"})
       (is (= :success (:status (instance :i))))
       (is (= {:fresh "result"} (:result (instance :i)))))))
+
+(deftest stale-mutation-suppressed-trace-carries-canonical-reply-envelope
+  ;; rf2-mn4j89 / rf2-hh8nzd / rf2-uwqs7l — the canonical :status :stale reply
+  ;; envelope rides the PRODUCTION mutation stale-suppression trace. The
+  ;; behaviour-only `stale-mutation-reply-suppressed` above PASSED SILENTLY
+  ;; while the production stale branch discarded the canonical reply; these
+  ;; assertions FAIL before rf2-mn4j89 and pin the fix.
+  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :rv}])
+  (let [gen1-args @last-managed-args]
+    ;; supersede with a second execute under the SAME instance id → gen 2 live.
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :rv}])
+    (is (= 2 (:generation (instance :rv))))
+    (testing "rf2-mn4j89 — the STALE gen-1 reply is recorded :status :stale /
+              :work/status :suppressed via the shared substrate, with the
+              carried-vs-current (1 vs 2) generation pair on the production
+              :rf.mutation/stale-suppressed trace; NO durable write"
+      (let [wid1   (-> gen1-args :on-success (nth 1) :work/id)
+            traces (record-mutation-traces!
+                     #(reply-success! gen1-args {:stale "result"}))
+            sup    (first (filterv #(= :rf.mutation/stale-suppressed (:operation %)) traces))]
+        (is (some? sup) ":rf.mutation/stale-suppressed fired for the stale reply")
+        (let [tags (:tags sup)]
+          ;; bespoke facts preserved (additive, not replaced)
+          (is (= :rv      (:instance tags)))
+          (is (= :success (:outcome tags)))
+          ;; CANONICAL reply-envelope vocabulary via the shared substrate
+          (is (= :stale (:rf.reply/status tags))
+              "the canonical :status :stale reply IS produced via re-frame.reply")
+          (is (= :suppressed (:rf.reply/work-status tags)))
+          (is (= :rf.mutation/superseded (:rf.reply/stale-reason tags)))
+          (is (= wid1 (:rf.reply/work-id tags)) "joined to :work/id")
+          (let [corr (:rf.reply/correlation tags)]
+            (is (= 1 (-> corr :generation :carried)) "carried gen off the stale token")
+            (is (= 2 (-> corr :generation :current)) "current = the LIVE instance gen")
+            (is (= :rv (:instance/id corr)))))
+        ;; (2)/(5) the app target did NOT run — the instance was NOT settled
+        ;; by the stale reply (still :pending on gen 2, no :result written).
+        (let [i (instance :rv)]
+          (is (= :pending (:status i)) "instance still pending on the current gen")
+          (is (= 2 (:generation i)) "generation unchanged")
+          (is (nil? (:result i)) "stale reply did NOT write a result"))))))
+
+;; ===========================================================================
+;; 7b. rf2-jzh5gq — a mutation reply whose stamped :rf.frame/id does not match
+;;     the RECEIVING frame is REJECTED (the mutation analogue of the resource
+;;     cross-frame reply test). Two frames at the same instance/generation: a
+;;     misrouted reply must NOT durably settle the wrong frame.
+;; ===========================================================================
+
+(deftest cross-frame-mutation-reply-rejected-without-mutating-receiving-frame
+  (rf/reg-mutation :m/save (save-article-spec))
+  (let [all-args (atom [])]
+    (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (let [fa :xfm/frame-a
+          fb :xfm/frame-b]
+      (rf/reg-frame fa {:doc "frame A"})
+      (rf/reg-frame fb {:doc "frame B"})
+      ;; both frames execute the SAME mutation under the SAME instance id →
+      ;; the SAME frame-local work-id + generation in each frame.
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :m/save :params {:slug "w"} :instance :form/x}]
+                        {:frame fa})
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :m/save :params {:slug "w"} :instance :form/x}]
+                        {:frame fb})
+      (let [args-a (first @all-args)]
+        (testing "rf2-jzh5gq — frame A's reply (payload stamped :rf.frame/id = A)
+                  dispatched INTO frame B is rejected: frame B's pending
+                  instance is NOT settled (no cross-frame durable write even at
+                  the same instance/generation)"
+          ;; dispatch frame A's reply (its payload carries :rf.frame/id = A)
+          ;; into the WRONG frame B.
+          (rf/dispatch-sync (conj (:on-success args-a) {:kind :success :value {:ok true}})
+                            {:frame fb})
+          (is (= :pending (:status (instance fb :form/x)))
+              "frame B's instance untouched by frame A's misrouted reply")
+          (is (nil? (:result (instance fb :form/x))) "no cross-frame result written")
+          (is (= :pending (:status (instance fa :form/x)))
+              "frame A's own instance also still pending (its reply went to B)"))
+        (testing "frame A's reply dispatched into frame A DOES settle it"
+          (rf/dispatch-sync (conj (:on-success args-a) {:kind :success :value {:ok true}})
+                            {:frame fa})
+          (is (= :success (:status (instance fa :form/x))) "frame A settled by its own reply"))))))
 
 ;; ===========================================================================
 ;; 8. :rf.mutation/clear — causal instance reset

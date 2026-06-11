@@ -487,17 +487,107 @@
 
 (defn- live-instance-for-reply
   "Look the live mutation instance up for an internal reply and verify it is
-  still the one the reply belongs to: the instance exists AND its
-  `:current-work` equals the reply's `:work/id` AND its `:generation`
+  still the one the reply belongs to: the reply's stamped `:rf.frame/id`
+  equals the RECEIVING frame (`receiving-frame-id`), the instance exists,
+  its `:current-work` equals the reply's `:work/id`, AND its `:generation`
   equals the reply's `:generation`. Returns the instance on a match, nil on
-  a stale / superseded / cleared reply (which MUST be suppressed). Mirrors
-  the resource `live-entry-for-reply`. The verification work identity is
-  `:work/id` (EP-0007 — one attempt, one work id, one name)."
-  [runtime-db {work-id :work/id :keys [instance-id generation]}]
-  (when-let [inst (get-in runtime-db (mstate/instance-path instance-id))]
-    (when (and (= work-id (:current-work inst))
-               (= generation (:generation inst)))
-      inst)))
+  a cross-frame / stale / superseded / cleared reply (which MUST be
+  suppressed). Mirrors the resource `live-entry-for-reply`.
+
+  FRAME VERIFICATION (rf2-jzh5gq, the mutation analogue of rf2-eu2ifi): the
+  managed-HTTP transport stamps the qualified `:rf.frame/id` into every
+  reply payload at lowering (`transport/http.cljc`); the reply handler runs
+  in the RECEIVING frame's cofx. A reply whose payload frame does not match
+  the receiving frame is REJECTED without touching this frame's instance or
+  ledger — with two frames using the same mutation instance / generation, a
+  misrouted reply can no longer settle the WRONG frame. The frame stamp is
+  checked FIRST (before the per-frame instance lookup), so a cross-frame
+  reply is rejected even when both frames happen to hold the same instance
+  at the same generation. A reply with no stamped frame (a direct-dispatch
+  test payload that omits `:rf.frame/id`) skips the frame check (nil never
+  collides with a concrete frame id) and is verified by work-id +
+  generation alone.
+
+  The verification work identity is `:work/id` (EP-0007 — one attempt, one
+  work id, one name)."
+  [runtime-db receiving-frame-id {work-id :work/id :keys [instance-id generation] :as payload}]
+  (let [reply-frame (:rf.frame/id payload)]
+    (when (or (nil? reply-frame) (= reply-frame receiving-frame-id))
+      (when-let [inst (get-in runtime-db (mstate/instance-path instance-id))]
+        (when (and (= work-id (:current-work inst))
+                   (= generation (:generation inst)))
+          inst)))))
+
+(defn- instance-current-generation
+  "Read the LIVE counterpart generation for a stale-suppression gate: the
+  `:generation` of the mutation instance currently occupying `instance-id`
+  at completion. nil when no instance occupies the slot (it was cleared —
+  no live counterpart, exactly the supersession the gate records). The
+  `:current` half of the carried-vs-current pair the canonical stale reply
+  carries; the `:carried` half is the generation stamped on the reply token
+  (`(:generation payload)`)."
+  [runtime-db instance-id]
+  (:generation (get-in runtime-db (mstate/instance-path instance-id))))
+
+(defn- stale-suppress-reply
+  "Build the canonical `:status :stale` reply outcome for a superseded /
+  cleared MUTATION reply through the SHARED `re-frame.reply` substrate (via
+  `rreply/stale-reply`), so the mutation family lowers its stale outcome
+  exactly as every other managed-async family does (Managed-Effects §Stale
+  suppression). The carried correlation is the reply token's `:work/id` +
+  `:generation`; the current correlation is the live instance's
+  `:generation` (nil when the slot is gone — no live counterpart). The
+  result rides `:rf.reply/status :stale` / `:rf.reply/work-status
+  :suppressed` / `:rf.reply/stale-reason` / the carried-vs-current
+  generation pair ADDITIVELY onto the existing `:rf.mutation/stale-
+  suppressed` trace via `emit-mutation-stale-suppressed!`.
+
+  Returns the `re-frame.reply/suppress` outcome map (`:deliver?` false — no
+  durable mutation write, no `:reply-to` continuation; `:reply` is the
+  data-only `:status :stale` reply; `:work/status :suppressed`). `extra`
+  threads diagnostic facts (e.g. `:outcome`) onto the stale reply."
+  [runtime-db {work-id :work/id :keys [instance-id generation scope mutation-id] :as payload} extra]
+  (let [carried-gen (:generation payload)
+        current-gen (instance-current-generation runtime-db instance-id)]
+    (rreply/stale-reply
+      {:carried {:work/id work-id :generation carried-gen}
+       :current {:generation current-gen}
+       :extra   (merge {:work/id      work-id
+                        :work/kind    rreply/work-kind-mutation
+                        :stale/reason :rf.mutation/superseded
+                        :correlation  (cond-> {:generation {:carried carried-gen
+                                                             :current current-gen}}
+                                        (some? instance-id)  (assoc :instance/id instance-id)
+                                        (some? mutation-id)  (assoc :mutation/id mutation-id)
+                                        (some? scope)         (assoc :scope scope))}
+                       extra)})))
+
+(defn- emit-mutation-stale-suppressed!
+  "Emit the `:rf.mutation/stale-suppressed` trace for a suppressed late
+  mutation reply, carrying its bespoke facts (`:instance` / `:work-id` /
+  `:generation` / `:outcome`) PLUS the canonical reply-envelope vocabulary
+  ADDITIVELY (joined to `:work/id` via the shared `:rf.reply/*` facts):
+  `:rf.reply/status :stale`, `:rf.reply/work-status :suppressed`,
+  `:rf.reply/stale-reason`, `:rf.reply/work-id`, and `:rf.reply/correlation`
+  (the carried-vs-current generation gate) — the SAME additive shape the
+  machine `:rf.machine/done` and the resource stale path ride (Managed-
+  Effects §Tracing / EP-0011). `stale` is the `stale-suppress-reply`
+  outcome; its trace summary routes wire slots through the shared elider via
+  `rreply/trace-reply`."
+  [frame-id instance-id work-id generation outcome stale]
+  (let [summary (rreply/trace-reply (:reply stale))]
+    (trace/emit! :rf.event :rf.mutation/stale-suppressed
+                 {:rf.frame/id frame-id :instance instance-id
+                  :work-id work-id :generation generation :outcome outcome
+                  ;; reply-envelope vocabulary (Managed-Effects §9) — the
+                  ;; canonical :status :stale reply produced via the shared
+                  ;; substrate, recorded ADDITIVELY (the bespoke facts above
+                  ;; are preserved).
+                  :rf.reply/status      (:status summary)
+                  :rf.reply/work-status (:work/status summary)
+                  :rf.reply/work-id     (:work/id summary)
+                  :rf.reply/stale-reason (:stale/reason summary)
+                  :rf.reply/correlation (:correlation summary)})))
 
 ;; The managed-HTTP transport APPENDS its PUBLIC reply payload as the LAST
 ;; arg of the internal reply event (Spec 014 §Reply addressing), exactly as
@@ -573,18 +663,23 @@
                                          {:work-kind rreply/work-kind-mutation
                                           :completed-at completed-at})
         result     (:value reply)
-        inst       (live-instance-for-reply runtime-db payload)]
+        inst       (live-instance-for-reply runtime-db frame-id payload)]
     (if (nil? inst)
-      ;; STALE SUPPRESSION (mandatory): a superseded / cleared reply never
-      ;; mutates a newer instance. Settle the (already-superseded) work row
-      ;; terminal + clear the host handle.
-      (do (trace/emit! :rf.event :rf.mutation/stale-suppressed
-                       {:rf.frame/id frame-id :instance instance-id
-                        :work-id work-id :generation generation :outcome :success})
-          (work-ledger/clear-handle! frame-id work-id)
-          {:rf.db/runtime (work-ledger/update-record
-                            runtime-db work-id work-ledger/mark-terminal
-                            :suppressed {:reason :stale-reply :outcome :success})})
+      ;; STALE SUPPRESSION (mandatory): a superseded / cleared / cross-frame
+      ;; reply never mutates a newer (or another frame's) instance — NO
+      ;; durable write. Per Managed-Effects §Stale suppression the completion
+      ;; is recorded `:status :stale` / `:work/status :suppressed` through the
+      ;; SHARED `re-frame.reply` substrate (via `stale-suppress-reply`), and
+      ;; the canonical reply-envelope vocabulary rides ADDITIVELY on the
+      ;; `:rf.mutation/stale-suppressed` trace. Settle the (already-superseded)
+      ;; work row terminal + clear the host handle.
+      (let [stale (stale-suppress-reply runtime-db payload {:outcome :success})]
+        (emit-mutation-stale-suppressed!
+          frame-id instance-id work-id generation :success stale)
+        (work-ledger/clear-handle! frame-id work-id)
+        {:rf.db/runtime (work-ledger/update-record
+                          runtime-db work-id work-ledger/mark-terminal
+                          :suppressed {:reason :stale-reply :outcome :success})})
       (let [spec        (mreg/mutation-meta mutation-id)
             params      (:params inst)
             timing      (or (:invalidate-timing spec) :after-success)
@@ -711,15 +806,22 @@
                                          {:work-kind rreply/work-kind-mutation
                                           :completed-at completed-at})
         error      (:error reply)
-        inst       (live-instance-for-reply runtime-db payload)]
+        inst       (live-instance-for-reply runtime-db frame-id payload)]
     (if (nil? inst)
-      (do (trace/emit! :rf.event :rf.mutation/stale-suppressed
-                       {:rf.frame/id frame-id :instance instance-id
-                        :work-id work-id :generation generation :outcome :failure})
-          (work-ledger/clear-handle! frame-id work-id)
-          {:rf.db/runtime (work-ledger/update-record
-                            runtime-db work-id work-ledger/mark-terminal
-                            :suppressed {:reason :stale-reply :outcome :failure})})
+      ;; STALE SUPPRESSION (mandatory): a superseded / cleared / cross-frame
+      ;; failure reply never mutates a newer (or another frame's) instance —
+      ;; NO durable write, NO `:reply-to` continuation. The completion is
+      ;; recorded `:status :stale` / `:work/status :suppressed` through the
+      ;; SHARED `re-frame.reply` substrate (via `stale-suppress-reply`), with
+      ;; the canonical reply-envelope vocabulary riding ADDITIVELY on the
+      ;; `:rf.mutation/stale-suppressed` trace.
+      (let [stale (stale-suppress-reply runtime-db payload {:outcome :failure})]
+        (emit-mutation-stale-suppressed!
+          frame-id instance-id work-id generation :failure stale)
+        (work-ledger/clear-handle! frame-id work-id)
+        {:rf.db/runtime (work-ledger/update-record
+                          runtime-db work-id work-ledger/mark-terminal
+                          :suppressed {:reason :stale-reply :outcome :failure})})
       (let [spec     (mreg/mutation-meta mutation-id)
             params   (:params inst)
             timing   (or (:invalidate-timing spec) :after-success)

@@ -237,7 +237,19 @@ against [Spec 009 §Where trace emission lives](../../../spec/009-Instrumentatio
 `:rf.resource/stale-suppressed` is the single suppression op (entry +
 ledger stale/superseded-reply suppression); an earlier draft also named
 `:rf.resource/work-suppressed`, now folded into it (the runtime never
-emitted a distinct work-suppressed row). `:rf.resource/cache-hit` is a
+emitted a distinct work-suppressed row). It carries the canonical
+reply-envelope vocabulary ADDITIVELY (rf2-mn4j89) — `:rf.reply/status
+:stale`, `:rf.reply/work-status :suppressed`, `:rf.reply/work-id`,
+`:rf.reply/stale-reason` (`:rf.resource/superseded`), and
+`:rf.reply/correlation` (the carried-vs-current generation gate,
+`:generation {:carried N :current M}`) — produced through the shared
+`re-frame.reply` substrate, so a suppressed late resource reply classifies
+the SAME way the HTTP / mutation / machine stale paths do (the bespoke
+`:resource-key` / `:work-id` / `:generation` / `:outcome` facts are
+preserved alongside). The mutation analogue `:rf.mutation/stale-suppressed`
+carries the identical `:rf.reply/*` shape (`:rf.reply/stale-reason
+:rf.mutation/superseded`, correlation `:instance/id` + the generation
+gate). `:rf.resource/cache-hit` is a
 FRESH-SKIP ensure — an `ensure` of an already-`:loaded` entry still
 fresh-by-policy serves the cached value (no fetch, no in-flight join),
 which the panel colours `:dedupe`; distinct from `:rf.resource/deduped`
