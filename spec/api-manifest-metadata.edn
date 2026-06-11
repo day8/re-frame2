@@ -675,6 +675,16 @@
   ["re-frame.flows" "clear-flow"]            {:tier :internal-public :owner "013" :status "v1"}
   ["re-frame.flows" "flows-snapshot"]        {:tier :tooling :owner "013" :status "v1"}
   ["re-frame.flows" "last-inputs-snapshot"]  {:tier :tooling :owner "013" :status "v1"}
+  ;; EP-0014 slice-3 (rf2-s8w3nw): the derivation/process algebra view of
+  ;; registered flows. JVM-only convenience alias of
+  ;; `re-frame.flows.tooling/flow-algebra-view` (the body lives in the
+  ;; bundle-isolated tooling sibling; the CLJS facade never `:require`s it,
+  ;; so prod CLJS bundles DCE it). `:tooling`, no `re-frame.core` facade
+  ;; export (EP-0014 issue-1 disposition). Mirror of `sub-algebra-view`
+  ;; (slice-2) — which carries no manifest row only because its host
+  ;; `re-frame.subs` is not a generator-introspected namespace, whereas
+  ;; `re-frame.flows` is.
+  ["re-frame.flows" "flow-algebra-view"]     {:tier :tooling :owner "013" :status "v1"}
   ["re-frame.flows" "run-flows-on-db"]       {:tier :internal-public :owner "013" :status "v1"}
   ["re-frame.flows" "reset-flows!"]          {:tier :internal-public :owner "013" :status "v1"}
   ["re-frame.flows" "reset-last-inputs!"]    {:tier :internal-public :owner "013" :status "v1"}
