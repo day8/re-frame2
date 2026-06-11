@@ -38,6 +38,7 @@
             [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.marks :as marks]
             [re-frame.path :as path]
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]
@@ -244,10 +245,12 @@
 ;; callers don't have to chase the failure into the topo / evaluator stack.
 ;;
 ;; The OPTIONAL output data-classification keys (`:sensitive` / `:large` /
-;; `:sensitive?` / `:large?`, Spec 015 §7) are validated in the same table
-;; (rf2-cgk0wb): previously they were FAIL-OPEN — a malformed declaration
-;; (`:sensitive [:token]`, `:large "blob"`, `:sensitive? :yes`) registered
-;; cleanly but installed no redaction, the worst failure for a safety feature.
+;; `:rf.egress/output-sensitivity` / `:large?`, Spec 015 §Derived sensitivity)
+;; are validated in the same table (rf2-cgk0wb): previously they were
+;; FAIL-OPEN — a malformed declaration (`:sensitive [:token]`, `:large "blob"`,
+;; a typo'd enum value) registered cleanly but installed no redaction, the
+;; worst failure for a safety feature. The boolean `:sensitive?` declassify
+;; spelling is now REJECTED (EP-0015 issue 9; Spec 015:425).
 
 (defn- valid-path-element?
   "True iff `x` is admissible as a flow path segment — the SHARED EP-0012
@@ -441,16 +444,36 @@
     :extras   (fn [flow] {:bad-key     :large
                           :bad-entries (vec (remove valid-output-subpath? (:large flow)))})}
 
-   ;; Whole-output boolean rules: `:sensitive?` / `:large?`, when PRESENT,
-   ;; must be an actual boolean. `explicit-flow-output-mark-paths` and the
-   ;; propagation resolver branch on literal `true` / `false`; any other
-   ;; present value (`:yes`, `1`, `"true"`) would silently behave as ABSENT
-   ;; (neither force-mark nor opt-out), which is exactly the fail-open trap.
-   {:pred     (fn [flow] (or (not (contains? flow :sensitive?))
-                             (boolean? (:sensitive? flow))))
+   ;; Derived-output sensitivity (EP-0015 issue 9): a flow declares its
+   ;; output's sensitivity with the closed `:rf.egress/output-sensitivity`
+   ;; enum (`:rf.egress/inherit` default | `:rf.egress/sensitive` force |
+   ;; `:rf.egress/public` declassify) — NOT the rejected boolean `:sensitive?`
+   ;; overload (Spec 015:425). REJECT a `:sensitive?` key with a recovery
+   ;; hint naming the enum; an unknown enum value is fail-closed (a typo is a
+   ;; loud error, never a silent permissive inherit).
+   {:pred     (fn [flow] (not (contains? flow :sensitive?)))
     :error-kw :rf.error/flow-bad-marks
-    :reason   ":sensitive?, when present, must be a boolean (true forces the whole output sensitive; false opts out of propagation)"
-    :extras   (fn [flow] {:bad-key :sensitive? :bad-value (:sensitive? flow)})}
+    :reason   (str "the boolean :sensitive? declassify/force spelling is rejected on a "
+                   "flow output (Spec 015) — declare derived-output sensitivity with "
+                   ":rf.egress/output-sensitivity, whose closed value set is "
+                   (pr-str marks/output-sensitivity-values)
+                   " (:rf.egress/public to declassify, :rf.egress/sensitive to force-mark, "
+                   ":rf.egress/inherit — the default — to inherit from inputs)")
+    :extras   (fn [flow] {:bad-key :sensitive?
+                          :bad-value (:sensitive? flow)
+                          :use :rf.egress/output-sensitivity})}
+
+   {:pred     (fn [flow] (or (not (contains? flow :rf.egress/output-sensitivity))
+                             (contains? marks/output-sensitivity-values
+                                        (:rf.egress/output-sensitivity flow))))
+    :error-kw :rf.error/flow-bad-marks
+    :reason   (str ":rf.egress/output-sensitivity, when present, must be one of "
+                   (pr-str marks/output-sensitivity-values)
+                   " — :rf.egress/inherit (default) inherits from inputs, "
+                   ":rf.egress/sensitive force-marks, :rf.egress/public declassifies")
+    :extras   (fn [flow] {:bad-key   :rf.egress/output-sensitivity
+                          :bad-value (:rf.egress/output-sensitivity flow)
+                          :valid     marks/output-sensitivity-values})}
 
    {:pred     (fn [flow] (or (not (contains? flow :large?))
                              (boolean? (:large? flow))))
@@ -469,7 +492,9 @@
 ;; A `reg-flow` registration may carry data-classification keys describing
 ;; the SENSITIVITY / SIZE of the flow's OWN OUTPUT value:
 ;;
-;;   :sensitive? true   — the whole output is sensitive
+;;   :rf.egress/output-sensitivity — the closed derived-output declassification
+;;        enum (EP-0015 issue 9): :rf.egress/inherit (default) | :rf.egress/sensitive
+;;        (force the whole output sensitive) | :rf.egress/public (declassify)
 ;;   :large?     true   — the whole output is large
 ;;   :sensitive  [paths]— per-output-path sensitive sub-slots ([[]] = whole)
 ;;   :large      [paths]— per-output-path large sub-slots ([[]] = whole)
@@ -478,15 +503,17 @@
 ;; 2026-06-09) — a flow OUTPUT inherits the data-classification of its
 ;; INPUT paths. A flow reading a sensitive app-db (or runtime-db-qualified,
 ;; rf2-4eisfr) input emits a sensitive output unless the author explicitly
-;; opts out with `:sensitive? false`. This is the same propagation/override
-;; grammar subscriptions already implement (`marks/resolve-sub-output-marks`)
-;; — flows just need their OWN trigger because a flow does not recompute on a
-;; mark-only change (subs re-resolve on every compute pass). Propagation is
-;; FAIL-CLOSED: an over-redacted derived value is visibly wrong in dev; an
-;; under-redacted one is an invisible privacy leak. Format-preserving
-;; derivations (copy / reformat / concat — e.g. 015's :computed/full-name)
-;; must propagate; de-sensitising derivations (hash / mask / aggregate)
-;; declassify with `:sensitive? false` (015's :computed/hashed-token).
+;; declassifies with `:rf.egress/output-sensitivity :rf.egress/public` (the
+;; rejected `:sensitive? false` spelling is gone — Spec 015:425). This is the
+;; same propagation/override grammar subscriptions already implement
+;; (`marks/resolve-sub-output-marks`) — flows just need their OWN trigger
+;; because a flow does not recompute on a mark-only change (subs re-resolve on
+;; every compute pass). Propagation is FAIL-CLOSED: an over-redacted derived
+;; value is visibly wrong in dev; an under-redacted one is an invisible privacy
+;; leak. Format-preserving derivations (copy / reformat / concat — e.g. 015's
+;; :computed/full-name) propagate by default; de-sensitising derivations (hash /
+;; mask / aggregate) declassify with `:rf.egress/output-sensitivity
+;; :rf.egress/public` (015's :computed/hashed-token).
 ;;
 ;; :large is ASYMMETRIC and is NOT auto-propagated (Mike's lean, rf2-ihfz9o
 ;; OPEN PRECISION, settled here in impl): :sensitive is TRANSITIVE (derived-
@@ -547,10 +574,11 @@
 ;; so lifecycle cleanup (clear-flow / path-change re-register / frame
 ;; destroy) can drop exactly this flow's contributions while leaving
 ;; schema-sourced (`:source :schema`) and add-marks-sourced
-;; (`:source :marks`) entries untouched. A flow's `:sensitive? false`
-;; declassify suppresses only the FLOW's own propagated/whole mark — it can
-;; never unmark a schema- or add-marks-sourced declaration on the same path
-;; (union semantics, Spec 015:295).
+;; (`:source :marks`) entries untouched. A flow's
+;; `:rf.egress/output-sensitivity :rf.egress/public` declassify suppresses only
+;; the FLOW's own propagated/whole mark — it can never unmark a schema- or
+;; add-marks-sourced declaration on the same path (union semantics,
+;; Spec 015:295).
 
 (defn- explicit-flow-output-mark-paths
   "Translate a flow's EXPLICIT output-rooted classification keys into
@@ -559,19 +587,21 @@
   This is the author's hand-declared set; the PROPAGATED whole-output
   sensitive mark (input-inherited) is layered on by the resolver below.
 
-  - whole-output `:sensitive?` / `:large?` (true) ⇒ the flow's `:path`
-    itself;
+  - `:rf.egress/output-sensitivity :rf.egress/sensitive` ⇒ the flow's
+    `:path` itself (force-mark the whole output sensitive); `:large? true`
+    ⇒ the `:path` itself (force-mark large);
   - per-path `:sensitive` / `:large` entries ⇒ `(:path flow)` ++ sub-path
     (`[[]]` whole-value mark ⇒ the `:path` itself);
-  - `:sensitive? false` / `:large? false` ⇒ NO whole-output mark here (the
-    explicit-false override suppresses propagation too — see the resolver);
-    per-path entries, if any, still apply."
+  - `:rf.egress/output-sensitivity :rf.egress/public` / `:large? false` ⇒ NO
+    whole-output mark here (the `:public` declassify suppresses propagation
+    too — see the resolver); per-path entries, if any, still apply."
   [flow]
   (let [base       (:path flow)
         abs        (fn [sub] (into (vec base) sub))
         per-sens   (->> (:sensitive flow) (filter vector?) (map abs))
         per-large  (->> (:large flow)     (filter vector?) (map abs))
-        whole-sens (when (true? (:sensitive? flow)) [(vec base)])
+        whole-sens (when (= :rf.egress/sensitive (:rf.egress/output-sensitivity flow))
+                     [(vec base)])
         whole-lg   (when (true? (:large? flow))     [(vec base)])]
     [(vec (concat whole-sens per-sens))
      (vec (concat whole-lg   per-large))]))
@@ -620,7 +650,7 @@
   [flow]
   (or (contains? flow :sensitive)
       (contains? flow :large)
-      (contains? flow :sensitive?)
+      (contains? flow :rf.egress/output-sensitivity)
       (contains? flow :large?)))
 
 (defn- drop-flow-sourced
@@ -656,21 +686,24 @@
   CURRENT registry `reg` (after THIS flow's own `:source :flow` entries have
   been dropped, so propagation never feeds back on itself). The set is:
 
-    explicit `:sensitive?` true / `:sensitive [paths]` declarations
+    explicit `:rf.egress/output-sensitivity :rf.egress/sensitive` (force) /
+           `:sensitive [paths]` declarations
     UNION  the PROPAGATED whole-output mark — installed iff (a) the flow did
-           not opt out with `:sensitive? false`, and (b) some input path
-           overlaps an existing sensitive declaration on the frame.
+           not declassify with `:rf.egress/output-sensitivity :rf.egress/public`,
+           and (b) some input path overlaps an existing sensitive declaration
+           on the frame.
 
-  `:sensitive? false` is a REAL declassify: it suppresses BOTH the whole-
-  output force-mark and the propagated mark (per-path `:sensitive` entries,
-  being explicit author intent on sub-slots, still apply). It cannot unmark
-  a schema-/add-marks-sourced declaration on the same path — those entries
-  are never `:source :flow`, so they survive the `drop-flow-sourced` carry
-  and re-union at read time (Spec 015:295)."
+  `:rf.egress/output-sensitivity :rf.egress/public` is the DECLASSIFY claim
+  (EP-0015 issue 9; replaces the rejected `:sensitive? false` spelling): it
+  suppresses BOTH the whole-output force-mark and the propagated mark (per-path
+  `:sensitive` entries, being explicit author intent on sub-slots, still
+  apply). It cannot unmark a schema-/add-marks-sourced declaration on the same
+  path — those entries are never `:source :flow`, so they survive the
+  `drop-flow-sourced` carry and re-union at read time (Spec 015:295)."
   [flow reg]
   (let [base        (vec (:path flow))
         [explicit-s _] (explicit-flow-output-mark-paths flow)
-        opted-out?  (false? (:sensitive? flow))
+        opted-out?  (= :rf.egress/public (:rf.egress/output-sensitivity flow))
         ;; Propagate against the carried (non-flow) declarations PLUS any
         ;; OTHER flow's already-resolved sensitive declarations — so a flow
         ;; reading an upstream flow's sensitive `:path` inherits it (the

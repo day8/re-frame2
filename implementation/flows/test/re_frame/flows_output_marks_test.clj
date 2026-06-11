@@ -3,11 +3,12 @@
   (rf2-ouemt — senior-review finding; rf2-ihfz9o — input→output PROPAGATION).
 
   A `reg-flow` registration may carry output data-classification keys
-  (`:sensitive?` / `:large?` whole-output, `:sensitive` / `:large`
-  per-output-path). Pre-fix these were stashed in the frame-blind global
+  (`:rf.egress/output-sensitivity` derived-output sensitivity enum + `:large?`
+  whole-output size, `:sensitive` / `:large` per-output-path). Pre-fix these
+  were stashed in the frame-blind global
   `re-frame.marks` `{flow-id marks}` table whose only reader (`flow-marks`)
   was never wired into the central trace projection switch — so the contract
-  was silently inert: a `{:sensitive [[:secret]]}` or `{:sensitive? true}`
+  was silently inert: a `{:sensitive [[:secret]]}` or `{:rf.egress/output-sensitivity :rf.egress/sensitive}`
   flow emitted its raw `:result` on `:rf.flow/computed` AND wrote the raw
   value to its app-db destination slot (visible to App-DB-Diff / pending-db
   egress / view render-arg egress).
@@ -24,21 +25,21 @@
   of its INPUT paths (Spec 015:313 + the 015:568 conformance fixture). A flow
   reading a SENSITIVE app-db (or runtime-db-qualified, rf2-4eisfr) input
   emits a sensitive output BY DEFAULT (fail-closed — taint by default,
-  declassify explicitly) unless the author opts out with `:sensitive? false`.
+  declassify explicitly) unless the author opts out with `:rf.egress/output-sensitivity :rf.egress/public`.
   `:large` is asymmetric and is NOT auto-propagated (a flow usually shrinks a
-  large input). `:sensitive? false` is now a REAL declassify — it suppresses
+  large input). `:rf.egress/output-sensitivity :rf.egress/public` is now a REAL declassify — it suppresses
   the propagated mark (previously a no-op).
 
   These tests pin the acceptance cases the bead enumerates:
     1. per-path flow output redaction (`:sensitive` / `:large` sub-paths);
-    2. whole-output `:sensitive? true`;
+    2. whole-output `:rf.egress/output-sensitivity :rf.egress/sensitive`;
     3. `:large` whole-output markers;
-    4. `:sensitive? false` opt-out (the explicit-false override);
+    4. `:rf.egress/output-sensitivity :rf.egress/public` declassify (the explicit opt-out);
     5. same-flow-id multi-frame registrations with DIFFERENT marks (frame
        isolation — the frame-blind table would conflate them);
     6. lifecycle (clear-flow / path-change drop & move declarations);
     7. PROPAGATION (rf2-ihfz9o) — default sensitive inheritance, explicit
-       `:sensitive? true` over a sensitive input, explicit `:sensitive? false`
+       `:rf.egress/output-sensitivity :rf.egress/sensitive` over a sensitive input, explicit `:rf.egress/output-sensitivity :rf.egress/public`
        declassify of a sensitive input, per-output-path coexisting with
        propagation, BOTH `:sensitive` AND `:large` axes, runtime-db-qualified
        input propagation, flow→flow DAG propagation, and the t2
@@ -133,18 +134,18 @@
           ":public rides raw on the db egress too"))))
 
 ;; ---------------------------------------------------------------------------
-;; 2. Whole-output `:sensitive? true`
+;; 2. Whole-output `:rf.egress/output-sensitivity :rf.egress/sensitive`
 ;; ---------------------------------------------------------------------------
 
 (deftest reg-flow-whole-output-sensitive-redacts-entire-result
-  (testing "a flow declaring `:sensitive? true` redacts its WHOLE output on
+  (testing "a flow declaring `:rf.egress/output-sensitivity :rf.egress/sensitive` redacts its WHOLE output on
             :result and at the app-db destination slot"
     (rf/reg-event-db :init (fn [db _] (merge db {:n 1})))
     (rf/reg-flow {:id         :token
                   :inputs     [[:n]]
                   :output     (fn [_] {:jwt "header.payload.sig"})
                   :path       [:auth :token]
-                  :sensitive? true})
+                  :rf.egress/output-sensitivity :rf.egress/sensitive})
     (is (contains? (sensitive-decls :rf/default) [:auth :token])
         "the whole-output sensitive declaration is installed at :path itself")
     (reset! *captured* [])
@@ -213,18 +214,18 @@
           ":small rides raw — only the declared sub-path is marked"))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. `:sensitive? false` opt-out — no whole-output mark installed
+;; 4. `:rf.egress/output-sensitivity :rf.egress/public` opt-out — no whole-output mark installed
 ;; ---------------------------------------------------------------------------
 
 (deftest reg-flow-sensitive-false-installs-no-whole-output-mark
-  (testing "a flow declaring `:sensitive? false` over an UNMARKED input
+  (testing "a flow declaring `:rf.egress/output-sensitivity :rf.egress/public` over an UNMARKED input
             installs NO whole-output declaration — its result rides raw. With
             an unmarked input there is nothing to propagate, so the result is
             the same under both the old no-propagation model and the new
             propagate-by-default model; the explicit-false override is still
             the absence of a whole-output mark. Per-path `:sensitive`
             declarations on the same flow still apply. (The sensitive-INPUT
-            declassify — where `:sensitive? false` actively SUPPRESSES a
+            declassify — where `:rf.egress/output-sensitivity :rf.egress/public` actively SUPPRESSES a
             propagated mark — is pinned in `propagation-explicit-false-...`
             below; rf2-ihfz9o.)"
     (rf/reg-event-db :init (fn [db _] (merge db {:n 1})))
@@ -232,11 +233,11 @@
                   :inputs     [[:n]]
                   :output     (fn [_] {:hashed :H :raw :R})
                   :path       [:safe]
-                  :sensitive? false
+                  :rf.egress/output-sensitivity :rf.egress/public
                   :sensitive  [[:hashed]]})
     ;; No whole-output declaration at :path itself.
     (is (not (contains? (sensitive-decls :rf/default) [:safe]))
-        ":sensitive? false installs no whole-output declaration at :path")
+        ":rf.egress/output-sensitivity :rf.egress/public installs no whole-output declaration at :path")
     ;; The per-path declaration still applies.
     (is (contains? (sensitive-decls :rf/default) [:safe :hashed])
         "the per-path :sensitive [[:hashed]] declaration is still installed")
@@ -283,7 +284,7 @@
                   :inputs     [[:n]]
                   :output     (fn [_] {:v :LEFT})
                   :path       [:out]
-                  :sensitive? true}
+                  :rf.egress/output-sensitivity :rf.egress/sensitive}
                  {:frame :left})
     ;; :right — same id, NO marks (rides raw).
     (rf/reg-flow {:id     :shared
@@ -306,7 +307,7 @@
                                                  (= :right (-> % :tags :frame)))
                                            @*captured*)))]
       (is (= privacy/redacted-sentinel (:result left-tags))
-          ":left's result is redacted (its frame declared :sensitive? true)")
+          ":left's result is redacted (its frame declared :rf.egress/output-sensitivity :rf.egress/sensitive)")
       (is (= {:v :RIGHT} (:result right-tags))
           ":right's result rides raw — its frame declared no marks"))))
 
@@ -321,7 +322,7 @@
                   :inputs     [[:n]]
                   :output     (fn [_] {:jwt "x"})
                   :path       [:auth :token]
-                  :sensitive? true})
+                  :rf.egress/output-sensitivity :rf.egress/sensitive})
     (is (contains? (sensitive-decls :rf/default) [:auth :token])
         "declaration present after reg-flow")
     (rf/clear-flow :token)
@@ -338,7 +339,7 @@
                   :inputs     [[:n]]
                   :output     (fn [_] {:jwt "x"})
                   :path       [:auth :token]
-                  :sensitive? true})
+                  :rf.egress/output-sensitivity :rf.egress/sensitive})
     (rf/clear-flow :token)
     (is (not (contains? (sensitive-decls :rf/default) [:auth :token]))
         "the flow-sourced declaration is gone")
@@ -357,7 +358,7 @@
                   :inputs     [[:n]]
                   :output     (fn [_] {:jwt "x"})
                   :path       [:old :token]
-                  :sensitive? true})
+                  :rf.egress/output-sensitivity :rf.egress/sensitive})
     (is (contains? (sensitive-decls :rf/default) [:old :token])
         "declaration at the original path")
     ;; Re-register the SAME id on the SAME frame with a NEW path.
@@ -365,7 +366,7 @@
                   :inputs     [[:n]]
                   :output     (fn [_] {:jwt "x"})
                   :path       [:new :token]
-                  :sensitive? true})
+                  :rf.egress/output-sensitivity :rf.egress/sensitive})
     (is (not (contains? (sensitive-decls :rf/default) [:old :token]))
         "the OLD path's flow declaration is dropped on path-change")
     (is (contains? (sensitive-decls :rf/default) [:new :token])
@@ -400,8 +401,8 @@
 ;; (Spec 015:313 + the 015:568 conformance fixture). The cases below pin the
 ;; bead's enumerated propagation coverage:
 ;;   - default inheritance (no explicit key on the flow);
-;;   - explicit `:sensitive? true` over a sensitive input (force-mark holds);
-;;   - explicit `:sensitive? false` declassify of a sensitive input (the
+;;   - explicit `:rf.egress/output-sensitivity :rf.egress/sensitive` over a sensitive input (force-mark holds);
+;;   - explicit `:rf.egress/output-sensitivity :rf.egress/public` declassify of a sensitive input (the
 ;;     opt-out actively SUPPRESSES the propagated mark — previously a no-op);
 ;;   - per-output-path marks coexisting with whole-output propagation;
 ;;   - both `:sensitive` AND `:large` axes (the asymmetry: :sensitive
@@ -473,7 +474,7 @@
         "the output is redacted on the first drain after the input was marked")))
 
 (deftest propagation-explicit-true-over-sensitive-input-holds
-  (testing "explicit `:sensitive? true` over a sensitive input keeps the
+  (testing "explicit `:rf.egress/output-sensitivity :rf.egress/sensitive` over a sensitive input keeps the
             whole-output redaction (force-mark and propagation agree)"
     (rf/reg-event-db :init (fn [db _] (merge db {:tok "T"})))
     (marks/add-marks :rf/default {[:tok] :sensitive})
@@ -481,7 +482,7 @@
                   :inputs     [[:tok]]
                   :output     (fn [t] {:wrapped t})
                   :path       [:wrapped-tok]
-                  :sensitive? true})
+                  :rf.egress/output-sensitivity :rf.egress/sensitive})
     (is (contains? (sensitive-decls :rf/default) [:wrapped-tok]))
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
@@ -489,7 +490,7 @@
         "whole output redacted")))
 
 (deftest propagation-explicit-false-declassifies-sensitive-input
-  (testing "explicit `:sensitive? false` over a SENSITIVE input is a REAL
+  (testing "explicit `:rf.egress/output-sensitivity :rf.egress/public` over a SENSITIVE input is a REAL
             declassify — it SUPPRESSES the propagated whole-output mark (the
             hash/mask/aggregate opt-out, Spec 015's :computed/hashed-token).
             Previously a no-op; rf2-ihfz9o makes it load-bearing."
@@ -499,16 +500,16 @@
                   :inputs     [[:tok]]
                   :output     (fn [t] (hash t))      ; safe — author de-sensitised
                   :path       [:computed :token-hash]
-                  :sensitive? false})
+                  :rf.egress/output-sensitivity :rf.egress/public})
     (is (not (contains? (sensitive-decls :rf/default) [:computed :token-hash]))
-        ":sensitive? false suppresses the propagated whole-output mark")
+        ":rf.egress/output-sensitivity :rf.egress/public suppresses the propagated whole-output mark")
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (is (integer? (computed-result :computed/hashed-token))
         "the declassified hash output rides RAW (not redacted)")))
 
 (deftest propagation-false-cannot-unmark-schema-or-add-marks-source
-  (testing "a flow's `:sensitive? false` declassify suppresses only the FLOW's
+  (testing "a flow's `:rf.egress/output-sensitivity :rf.egress/public` declassify suppresses only the FLOW's
             own propagated/whole mark — it CANNOT unmark an add-marks-sourced
             declaration on the SAME output path (union semantics, Spec 015:295)"
     (rf/reg-event-db :init (fn [db _] (merge db {:in "x"})))
@@ -519,7 +520,7 @@
                   :inputs     [[:in]]
                   :output     (fn [v] (str v "!"))
                   :path       [:out]
-                  :sensitive? false})
+                  :rf.egress/output-sensitivity :rf.egress/public})
     ;; The add-marks-sourced declaration on [:out] survives — the flow's
     ;; opt-out only governs its OWN :source :flow contribution.
     (is (contains? (sensitive-decls :rf/default) [:out])

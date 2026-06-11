@@ -452,6 +452,39 @@
           :style destroyed-caption-style}
       "Subscriptions cleaned up when their last reader unmounted"]]))
 
+(defn- declassification-audit-section
+  "The STANDING `:public`-claim declassification audit (EP-0015 issue 9;
+  Spec 015 §Derived sensitivity). Enumerates every registered sub / flow
+  carrying `:rf.egress/output-sensitivity :rf.egress/public` — the
+  declassification analogue of the resources panel's `:rf.scope/global`
+  scope-audit list, so a reviewer can see every place an author asserted a
+  derived-from-sensitive value is safe to surface.
+
+  Registry-level (NOT epoch-scoped) — `:public-declassifications` rides the
+  composite independent of the focused cascade, so this list renders even
+  with no event focused (it is the panel's only always-on section)."
+  [data]
+  (let [rows (:public-declassifications data)]
+    [:section {:data-testid "rf-xray-reactive-declassify-section"
+               :style section-margin-top-style}
+     (section-label "declassify" "Declassified Outputs")
+     (if (seq rows)
+       (into [:div {:data-testid "rf-xray-reactive-declassify-list"
+                    :style list-card-style}]
+             (for [{:keys [kind id]} rows]
+               ^{:key (str kind "/" id)}
+               [list-row {:testid (str "rf-xray-reactive-declassify-row-"
+                                       (id-slug id))
+                          :swatch-token :warning
+                          :primary (format-id id)
+                          :tag (str kind " · :rf.egress/public")}]))
+       [:div {:data-testid "rf-xray-reactive-declassify-empty"
+              :style empty-placeholder-style}
+        "(no derived outputs declassified)"])
+     [:p {:data-testid "rf-xray-reactive-declassify-caption"
+          :style destroyed-caption-style}
+      "Outputs an author asserted safe via :rf.egress/output-sensitivity :rf.egress/public — review each"]]))
+
 ;; ---- legend ------------------------------------------------------------
 
 (def ^:private legend-swatch-wrapper-style
@@ -525,11 +558,14 @@
                        :font-family sans-stack
                        :font-size "14px"}}
      [:div {:style {:flex 1 :overflow "auto"}}
-      (cond
-        (not (:has-cascade? data))
-        (empty-state data)
-
-        :else
+      ;; The :public-claim declassification audit is REGISTRY-level (not
+      ;; epoch-scoped), so it renders in BOTH branches — even the no-cascade
+      ;; empty state — at the bottom of the panel.
+      (if (not (:has-cascade? data))
+        [:div {:data-testid "rf-xray-reactive-pipeline-empty"
+               :style {:padding "16px"}}
+         (empty-state data)
+         (declassification-audit-section data)]
         [:div {:data-testid "rf-xray-reactive-pipeline"
                :style {:padding "16px"}}
          [:section {:data-testid "rf-xray-reactive-flow-section"}
@@ -537,4 +573,5 @@
           (flow-graph data)]
          (unmounted-views-section data)
          (destroyed-subs-section data)
+         (declassification-audit-section data)
          (legend)])]]))

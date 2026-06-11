@@ -177,11 +177,32 @@
 
 (deftest reg-sub-stashes-marks-and-overrides
   (rf/reg-sub :s1
-    {:sensitive [[:hashed]] :sensitive? false}
+    {:sensitive [[:hashed]] :rf.egress/output-sensitivity :rf.egress/public}
     (fn [_ _] {:hashed "abc"}))
   (let [m (marks/marks-for :sub :s1)]
     (is (= [[:hashed]] (:sensitive m)))
-    (is (false? (:sensitive? m)))))
+    (is (= :rf.egress/public (:output-sensitivity m))
+        "the derived-output declassify claim is stashed as :output-sensitivity")))
+
+(deftest reg-sub-rejects-sensitive-boolean-overload
+  ;; The rejected `:sensitive?` declassify/force spelling on a derived (sub)
+  ;; output throws at registration — EP-0015 issue 9, Spec 015:425.
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":rf.error/bad-marks"
+        (rf/reg-sub :s/rejected
+          {:sensitive? false}
+          (fn [_ _] {}))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":rf.error/bad-marks"
+        (rf/reg-sub :s/rejected2
+          {:sensitive? true}
+          (fn [_ _] {})))))
+
+(deftest reg-sub-rejects-unknown-output-sensitivity
+  ;; Fail-closed: an unknown enum value throws (the enum is closed; a typo is
+  ;; never a silent permissive inherit).
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #":rf.error/bad-marks"
+        (rf/reg-sub :s/typo
+          {:rf.egress/output-sensitivity :rf.egress/publik}
+          (fn [_ _] {})))))
 
 (deftest reg-fx-stashes-marks
   (rf/reg-fx :myfx
@@ -354,48 +375,48 @@
   (is (= [[:data :a]] (:sensitive (marks/marks-for :event :u4)))
       "a mark-key-free meta is a no-op (does NOT clear, unlike register-marks!)"))
 
-(deftest union-marks-ors-whole-output-flags
-  (marks/register-marks! :sub :u5 {:sensitive? false})
-  (marks/union-marks!    :sub :u5 {:sensitive? true})
-  (is (true? (:sensitive? (marks/marks-for :sub :u5)))
-      "whole-output :sensitive? flags OR (true wins)"))
+;; ---- union-marks! :rf.egress/output-sensitivity monotone (EP-0015 #9) -----
+;; The derived-output declassification enum (`:rf.egress/output-sensitivity`)
+;; replaces the rejected boolean `:sensitive?` declassify spelling. The union
+;; is monotone toward sensitivity (fail-closed): `:rf.egress/sensitive` (force)
+;; on EITHER side wins over `:rf.egress/public` (declassify); an explicit
+;; `:public` is preserved when the other side is absent / path-only.
 
-;; ---- union-marks! preserves explicit false whole-output overrides --------
-;; (rf2-1zqh1z) The OR semantics the contract documents must hold BOTH ways:
-;; a `true` on either side wins, and an explicit `false` opt-out is PRESERVED
-;; when the added declaration touches only paths (or carries no flag). The
-;; prior `(or existing added)` collapsed `(or false nil)` to nil and DROPPED
-;; the opt-out.
+(deftest union-marks-ors-output-sensitivity-flags
+  (marks/register-marks! :sub :u5 {:rf.egress/output-sensitivity :rf.egress/public})
+  (marks/union-marks!    :sub :u5 {:rf.egress/output-sensitivity :rf.egress/sensitive})
+  (is (= :rf.egress/sensitive (:output-sensitivity (marks/marks-for :sub :u5)))
+      "output-sensitivity unions monotone toward sensitive (force wins over public)"))
 
-(deftest union-marks-preserves-false-when-added-has-only-paths
-  (marks/register-marks! :sub :f1 {:sensitive? false})
+(deftest union-marks-preserves-public-when-added-has-only-paths
+  (marks/register-marks! :sub :f1 {:rf.egress/output-sensitivity :rf.egress/public})
   (marks/union-marks!    :sub :f1 {:sensitive [[:data :token]]})
   (let [m (marks/marks-for :sub :f1)]
-    (is (false? (:sensitive? m))
-        "explicit false survives a union that adds only path marks")
+    (is (= :rf.egress/public (:output-sensitivity m))
+        "explicit :public survives a union that adds only path marks")
     (is (= [[:data :token]] (:sensitive m))
-        "the added path mark lands alongside the preserved false override")))
+        "the added path mark lands alongside the preserved :public claim")))
 
-(deftest union-marks-preserves-false-when-added-is-nil-shaped
+(deftest union-marks-preserves-public-when-added-is-nil-shaped
   ;; The added declaration carries a DIFFERENT flag (`:large?`) but no
-  ;; `:sensitive?` — the existing `:sensitive? false` must not vanish.
-  (marks/register-marks! :sub :f2 {:sensitive? false})
+  ;; output-sensitivity claim — the existing `:public` must not vanish.
+  (marks/register-marks! :sub :f2 {:rf.egress/output-sensitivity :rf.egress/public})
   (marks/union-marks!    :sub :f2 {:large? true})
   (let [m (marks/marks-for :sub :f2)]
-    (is (false? (:sensitive? m)) "existing false :sensitive? preserved")
-    (is (true?  (:large? m))     "added true :large? lands")))
+    (is (= :rf.egress/public (:output-sensitivity m)) "existing :public preserved")
+    (is (true? (:large? m))                           "added true :large? lands")))
 
-(deftest union-marks-true-overrides-existing-false
-  (marks/register-marks! :sub :f3 {:sensitive? false})
-  (marks/union-marks!    :sub :f3 {:sensitive? true})
-  (is (true? (:sensitive? (marks/marks-for :sub :f3)))
-      "a later true wins over an existing false (monotone OR)"))
+(deftest union-marks-sensitive-overrides-existing-public
+  (marks/register-marks! :sub :f3 {:rf.egress/output-sensitivity :rf.egress/public})
+  (marks/union-marks!    :sub :f3 {:rf.egress/output-sensitivity :rf.egress/sensitive})
+  (is (= :rf.egress/sensitive (:output-sensitivity (marks/marks-for :sub :f3)))
+      "a later :sensitive wins over an existing :public (monotone toward sensitive)"))
 
-(deftest union-marks-false-added-over-existing-true-stays-true
-  (marks/register-marks! :sub :f4 {:sensitive? true})
-  (marks/union-marks!    :sub :f4 {:sensitive? false})
-  (is (true? (:sensitive? (marks/marks-for :sub :f4)))
-      "an added false cannot retract an existing true (true wins)"))
+(deftest union-marks-public-added-over-existing-sensitive-stays-sensitive
+  (marks/register-marks! :sub :f4 {:rf.egress/output-sensitivity :rf.egress/sensitive})
+  (marks/union-marks!    :sub :f4 {:rf.egress/output-sensitivity :rf.egress/public})
+  (is (= :rf.egress/sensitive (:output-sensitivity (marks/marks-for :sub :f4)))
+      "an added :public cannot retract an existing :sensitive (force wins)"))
 
 ;; ---- machine schema marks: order-independent union (rf2-qpibk0) ----------
 ;; Schema-sourced machine marks live in a SEPARATE table that `marks-for
@@ -677,24 +698,64 @@
   ;; Layer-1 sub with sensitive declarations present → propagation flag set
   (is (true? (marks/sub-output-sensitive? :rf/default :all-users))))
 
-(deftest sub-explicit-opt-out-clears-propagation
-  ;; Spec 015 conformance fixture #4
+(deftest sub-explicit-public-clears-propagation
+  ;; Spec 015 §Derived sensitivity — the conformance
+  ;; `derived-output-declassified-public.edn` fixture: a sub reading a
+  ;; sensitive input with `:rf.egress/output-sensitivity :rf.egress/public`
+  ;; DECLASSIFIES — its output is NOT marked sensitive despite the sensitive
+  ;; input (replaces the rejected `:sensitive? false` spelling).
   (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
   (rf/dispatch-sync [:seed])
   (marks/set-marks :rf/default {[:user :ssn] :sensitive})
   (rf/reg-sub :safe
-    {:sensitive? false}
+    {:rf.egress/output-sensitivity :rf.egress/public}
     (fn [db _] (get-in db [:user :name])))
   @(rf/subscribe [:safe])
   (is (false? (marks/sub-output-sensitive? :rf/default :safe))))
 
 (deftest sub-force-marked
-  ;; :sensitive? true forces even with no upstream
+  ;; :rf.egress/output-sensitivity :rf.egress/sensitive forces sensitive even
+  ;; with no sensitive upstream input.
   (rf/reg-sub :synthetic
-    {:sensitive? true}
+    {:rf.egress/output-sensitivity :rf.egress/sensitive}
     (fn [_ _] "public-input-derived-secret"))
   @(rf/subscribe [:synthetic])
   (is (true? (marks/sub-output-sensitive? :rf/default :synthetic))))
+
+(deftest public-declassification-claims-audit
+  ;; EP-0015 issue 9: every `:rf.egress/output-sensitivity :rf.egress/public`
+  ;; claim is enumerable as a STANDING audit surface (the declassification
+  ;; analogue of `:rf.scope/global`). A `:sensitive` / `:inherit` sub does NOT
+  ;; appear; a `:public` one does.
+  (rf/reg-sub :pub/a
+    {:rf.egress/output-sensitivity :rf.egress/public}
+    (fn [_ _] "ok"))
+  (rf/reg-sub :pub/forced
+    {:rf.egress/output-sensitivity :rf.egress/sensitive}
+    (fn [_ _] "secret"))
+  (rf/reg-sub :pub/inheriting
+    (fn [_ _] "plain"))
+  (let [claims (marks/public-declassification-claims)]
+    (is (some #(= {:kind :sub :id :pub/a} %) claims)
+        "the :public-declassified sub is enumerated in the audit")
+    (is (not (some #(= :pub/forced (:id %)) claims))
+        "a force-:sensitive sub is NOT a declassification claim")
+    (is (not (some #(= :pub/inheriting (:id %)) claims))
+        "an :inherit (default) sub is NOT a declassification claim")))
+
+(deftest sub-inherit-default-propagates
+  ;; Spec 015 §Derived sensitivity — the conformance
+  ;; `derived-output-inherits-sensitivity.edn` fixture: a sub reading a
+  ;; sensitive input with NO `:rf.egress/output-sensitivity` (the `:inherit`
+  ;; default) propagates — its output IS marked sensitive.
+  (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
+  (rf/dispatch-sync [:seed])
+  (marks/set-marks :rf/default {[:user :ssn] :sensitive})
+  (rf/reg-sub :inheriting
+    (fn [db _] (get-in db [:user :name])))
+  @(rf/subscribe [:inheriting])
+  (is (true? (marks/sub-output-sensitive? :rf/default :inheriting))
+      "a layer-1 sub over a frame with sensitive declarations inherits sensitivity by default"))
 
 ;; ---- composed: subs propagation through layer-2 ------------------------
 
