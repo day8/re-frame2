@@ -1078,8 +1078,12 @@
       (and (nil? marks) (not prop-s?) (not prop-l?))
       tags
 
-      ;; Whole-output propagation wins: stamp at root.
-      (and prop-s? (not (false? (:sensitive? marks))))
+      ;; Whole-output propagation wins: stamp at root. `prop-s?` is the
+      ;; RESOLVED sensitivity (`resolve-sub-output-marks` already applied the
+      ;; `:rf.egress/output-sensitivity` claim — a `:public` declassify
+      ;; resolves to false here, a `:sensitive` force / inherited-sensitive to
+      ;; true), so no per-marks declassify guard is needed.
+      prop-s?
       (cond-> (assoc tags :rf.sub/value privacy/redacted-sentinel :sensitive? true)
         has-prev? (assoc :rf.sub/prev-value privacy/redacted-sentinel))
 
