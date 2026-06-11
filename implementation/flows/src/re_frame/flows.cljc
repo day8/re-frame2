@@ -29,7 +29,18 @@
             [re-frame.flows.topo :as topo]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace]
+            ;; EP-0014 slice-3 (rf2-s8w3nw): the JVM-only require of the
+            ;; flows tooling sibling that backs the `flow-algebra-view`
+            ;; alias at the foot of this ns. CLJS deliberately OMITS this
+            ;; require so a CLJS app that loads the flows artefact but never
+            ;; attaches a tool DCEs the tooling body wholesale — the facade
+            ;; never reaches it. JVM has no bundle to protect; the alias
+            ;; gives JVM tools / conformance fixtures the ergonomic
+            ;; `re-frame.flows/flow-algebra-view` shape. Mirrors the
+            ;; `re-frame.subs` → `re-frame.subs.tooling` JVM-only require
+            ;; (rf2-bmzq0 / rf2-gge6mf slice-2).
+            #?@(:clj [[re-frame.flows.tooling :as flows-tooling]])))
 
 ;; ---- public-surface re-exports -------------------------------------------
 ;;
@@ -47,6 +58,20 @@
 (def clear-flow         registry/clear-flow)
 (def reset-flows!       registry/reset-flows!)
 (def reset-last-inputs! registry/reset-last-inputs!)
+
+;; EP-0014 slice-3 (rf2-s8w3nw): the derivation/process algebra view of
+;; registered flows. JVM-runnable (the flow registry is partition-agnostic
+;; registration metadata), so a JVM convenience alias lets tools /
+;; conformance fixtures reach it as `re-frame.flows/flow-algebra-view`
+;; without naming the sibling. The body lives in `re-frame.flows.tooling`
+;; so a CLJS app that loads the flows artefact but attaches no tool DCEs it
+;; (the CLJS facade never `:require`s the tooling sibling — the require
+;; above is `#?@(:clj ...)`-gated). CLJS consumers (Xray + conformance)
+;; call `re-frame.flows.tooling/flow-algebra-view` directly. No
+;; `re-frame.core` facade export (EP-0014 issue-1 disposition). Mirrors the
+;; `re-frame.subs/sub-algebra-view` JVM alias (slice-2).
+#?(:clj
+   (def flow-algebra-view flows-tooling/flow-algebra-view))
 
 ;; ---- evaluation ---------------------------------------------------------
 ;;
