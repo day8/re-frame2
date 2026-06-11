@@ -1,6 +1,6 @@
 # EP-0014: Derivation And Process Algebra
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
 > This EP defines the common model behind subscriptions, runtime
@@ -9,8 +9,27 @@ Type: standards-track
 > lifecycle/owner. Existing APIs remain source forms; the algebra is the
 > canonical view tools, specs, tests, and future source forms share.
 >
-> Normative home after acceptance: subscription, flows, resource, machines,
-> routing, runtime-model, and tool-inspection specs.
+> **Ruling recorded 2026-06-11 (Mike, in-session; bead `rf2-gwezdt`).**
+> Accepted, per the EP's single decision surface: **vocabulary, spec model,
+> internal metadata, and graph inspection now; no new public authoring
+> primitive.** All six open issues are dispositioned in
+> [§Open Issues](#open-issues), merging three convergent analyses. Headline
+> sharpenings: the internal graph accessor gets a **testable structured
+> shape** (incl. EP-0015 redaction metadata) rather than an Xray-private one;
+> the `:remote` storage class is **split** (`:storage` always local,
+> `:authority` a separate projected map); static inspection gains the
+> **don't-execute rule**; the commuting law's home is **named** — a standalone
+> contract document in the Managed-Effects/Runtime-Subsystems family; and the
+> EP-0013 condition in issue 6 **fired** (EP-0013 accepted the same day) — the
+> relocation coordinates via the shape-agreement obligation recorded on the
+> EP-0013 action epic, with optional `:realm/id`/`:app/id`/`:module/id` node
+> fields reserved. Implementation is tracked by the EP-0014 action epic,
+> gated behind the current EP wave epics, with the standard wave tails.
+>
+> Normative home after acceptance: a standalone derivation contract document
+> (the issue-5 disposition; working name `spec/Derivations.md`), cited by the
+> subscription, flows, resource, machines, routing, runtime-model, and
+> tool-inspection specs.
 
 ## Abstract
 
@@ -174,14 +193,20 @@ mental model.
 - [Spec 013](../../spec/013-Flows.md) defines flows as materialized derivations
   into `app-db`, including the drain-integration sequencing this EP's
   `:after-event` policy summarizes.
-- EP-0010, EP-0011, and EP-0012 are companion proposals: causal world inputs,
-  async replies, and canonical path/identity forms make the algebra more
-  precise, but this EP can stand without them.
-- [EP-0013](EP-0013-app-values-and-runtime-realms.md) is the natural future
-  home for algebra declarations: the normalized node this EP defines is
-  exactly the per-fact/per-process row an app value would carry, so if
-  EP-0013 is accepted the algebra view moves from registrar-derived metadata
-  to a section of the app value with no shape change.
+- [EP-0010](EP-0010-causal-world-inputs.md) (final),
+  [EP-0011](EP-0011-uniform-async-reply-envelope.md) (accepted), and
+  [EP-0012](EP-0012-path-optics-and-canonical-forms.md) (accepted) are
+  companions: causal world inputs, async replies, and canonical path/identity
+  forms make the algebra more precise, but this EP can stand without them.
+  Canonical node/fact identity uses EP-0012's rules directly.
+- [EP-0013](EP-0013-app-values-and-runtime-realms.md) (accepted, 2026-06-11)
+  is the natural future home for algebra declarations: the normalized node
+  this EP defines is exactly the per-fact/per-process row an app value
+  carries, so the algebra view moves from registrar-derived metadata to a
+  section of the app value with no shape change — enforced by the
+  **shape-agreement obligation** recorded on the EP-0013 action epic
+  (`rf2-c6armm`), which verifies the two shapes agree before either EP's spec
+  slice lands. The relocation itself happens inside EP-0013's D2.
 
 ## Definitions
 
@@ -1365,36 +1390,91 @@ A conforming implementation should satisfy these checks:
 
 ## Open Issues
 
-- What is the public name and exact return shape for graph inspection?
-  **Recommendation:** defer public naming; let Xray and conformance tests
-  consume an internal accessor first and stabilize the name only after the
-  shape survives real use (the project-before-primitive discipline this EP
-  applies to source forms applies to accessors too).
-- Should `:remote` remain a storage class, or should the final spec split it
-  into `:authority :remote` plus a required local storage class? This EP uses
-  both to keep the distinction visible. **Recommendation:** split — the live
-  resource example already carries `:remote {:authority :server}` alongside
-  `:storage :runtime-db`, which shows authority and local storage are two
-  facts; the final spec should make `:storage` always local and `:authority`
-  a separate key, keeping `:remote` only as prose shorthand.
-- How much route/resource graph information should be available statically when
-  route `:resources` params are arbitrary functions? **Recommendation:** the
-  same rule as parametric subscriptions — report the declaration and mark the
-  edge set `:parametric`; only the live graph shows realized edges.
-- Which machine selector source forms should be standardized beyond ordinary
-  subscriptions over `[:rf/machine ...]`? **Recommendation:** none in the
-  first slice; ordinary subscriptions over the machine snapshot sub remain
-  the only standardized selector form until a concrete ergonomic gap appears.
-- Where should optional delta contracts live normatively: reactive substrate,
-  flows, a new derivation spec, or the graph-inspection spec?
-  **Recommendation:** state the commuting law once in whatever spec home the
-  whole-value derivation vocabulary lands in, with Spec 006 and Spec 013
-  referencing it — the law is about derivation semantics, not about any one
-  mechanism or about inspection.
-- How does the algebra view move from registrar-derived metadata into app
-  values/runtime realms if EP-0013 is accepted? **Recommendation:** no action
-  until EP-0013 is ruled; the node shape is deliberately the row an app value
-  would carry (see Relationships), so the move is a relocation, not a redesign.
+**All six issues were ruled 2026-06-11 (Mike, in-session; bead `rf2-gwezdt`),
+merging three convergent analyses.** Original recommendations are kept verbatim
+as the record of what was ruled; dispositions and riders are inline.
+
+1. What is the public name and exact return shape for graph inspection?
+   **Recommendation:** defer public naming; let Xray and conformance tests
+   consume an internal accessor first and stabilize the name only after the
+   shape survives real use (the project-before-primitive discipline this EP
+   applies to source forms applies to accessors too).
+   **Disposition: as recommended — internal but STRUCTURED, not Xray-private.**
+   The internal accessor has a testable shape from day one: `:mode`
+   (`:static` | `:live`), canonical node ids (EP-0012 identity rules),
+   explicit edge records, source-form metadata, the
+   storage/evaluation/lifecycle classifications, parametric markers, and
+   **EP-0015 redaction metadata** (graph payloads carry source coordinates and
+   value summaries — egress-bearing once any tool ships them off-box).
+   Graduation gate: the public name ships when a consumer **beyond** the two
+   named first consumers (Xray, conformance fixtures) needs it; facade
+   classification per name at graduation. One-accessor rule: the EP-0013
+   module-view demand trigger and this accessor are projections of the same
+   registry — never two overlapping internal accessors.
+2. Should `:remote` remain a storage class, or should the final spec split it
+   into `:authority :remote` plus a required local storage class? This EP uses
+   both to keep the distinction visible. **Recommendation:** split — the live
+   resource example already carries `:remote {:authority :server}` alongside
+   `:storage :runtime-db`, which shows authority and local storage are two
+   facts; the final spec should make `:storage` always local and `:authority`
+   a separate key, keeping `:remote` only as prose shorthand.
+   **Disposition: split, as recommended.** `:storage` always names the local
+   representation home; `:authority` is a separate map — e.g.
+   `{:kind :remote :system :server :transport :rf.http/managed}` — where
+   `:transport` is a **projection of the Spec 016 registration fact, never a
+   second authoritative home** (mirrors are recomputable projections).
+   Shipped resources are the proof case (`:authority` remote + `:storage`
+   runtime-db describes them exactly). `:remote` is removed as a storage
+   class before graduation; this EP's §Definitions storage-class table is
+   swept to the split in the action wave.
+3. How much route/resource graph information should be available statically when
+   route `:resources` params are arbitrary functions? **Recommendation:** the
+   same rule as parametric subscriptions — report the declaration and mark the
+   edge set `:parametric`; only the live graph shows realized edges.
+   **Disposition: as recommended, with two riders.** The **don't-execute
+   rule**: static inspection NEVER invokes param/scope functions — no side
+   effects, no nondeterminism, no hidden runtime assumptions in static
+   analysis. And the **named-resolver enrichment**: an EP-0016
+   `{:from-db <resolver>}` scope gives the static graph genuinely static
+   facts — the resolver id and its declared inputs appear statically even
+   while params remain `:parametric`.
+4. Which machine selector source forms should be standardized beyond ordinary
+   subscriptions over `[:rf/machine ...]`? **Recommendation:** none in the
+   first slice; ordinary subscriptions over the machine snapshot sub remain
+   the only standardized selector form until a concrete ergonomic gap appears.
+   **Disposition: as recommended.** Machines do not become a second
+   subscription system; the graph recognizes machine-derived subscriptions as
+   ordinary nodes. The trigger is a demonstrated ergonomic gap, not
+   anticipation.
+5. Where should optional delta contracts live normatively: reactive substrate,
+   flows, a new derivation spec, or the graph-inspection spec?
+   **Recommendation:** state the commuting law once in whatever spec home the
+   whole-value derivation vocabulary lands in, with Spec 006 and Spec 013
+   referencing it — the law is about derivation semantics, not about any one
+   mechanism or about inspection.
+   **Disposition: as recommended, with the home NAMED:** a standalone contract
+   document in the Managed-Effects/Runtime-Subsystems family (working name
+   `spec/Derivations.md`) — the corpus's proven pattern for cross-cutting
+   shape contracts — holding the node vocabulary, the classification tables
+   (with the issue-2 split), the static/live rule, and the commuting law;
+   Specs 006/013/016/012/005 cite it. The law is **semantic-only** in the
+   first slice: whole-value derivation is the contract; no executable delta
+   protocol ships; a mechanism that later supports deltas must satisfy the
+   law.
+6. How does the algebra view move from registrar-derived metadata into app
+   values/runtime realms if EP-0013 is accepted? **Recommendation:** no action
+   until EP-0013 is ruled; the node shape is deliberately the row an app value
+   would carry (see Relationships), so the move is a relocation, not a redesign.
+   **Disposition: the condition FIRED — EP-0013 was accepted the same day.**
+   The disposition updates from "wait" to "coordinate": the **shape-agreement
+   obligation** recorded on the EP-0013 action epic (`rf2-c6armm`) verifies
+   the EP-0014 node shape and the EP-0013 descriptor shape agree before
+   either EP's spec slice lands. This EP's first slice stays
+   registrar-derived; the relocation lands inside EP-0013's D2 — "a
+   relocation, not a redesign," now enforced rather than hoped. Rider: the
+   node schema **reserves optional `:realm/id` / `:app/id` / `:module/id`
+   fields** (never required in the first slice) so relocation needs no
+   breaking reshape.
 
 ## Recommendation
 
