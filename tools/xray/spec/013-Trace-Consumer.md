@@ -336,6 +336,84 @@ Panels read the buffer through layer-1 subscriptions:
   the L2 event list, the spine, the Event / Issues / Trace / Views
   tabs.
 
+## One work/reply vocabulary — reading the uniform reply envelope
+
+Every managed *async* family (HTTP, resources, mutations, route
+loaders, machine async work, future managed timers) completes through
+the ONE shape defined in [`spec/Managed-Effects.md` §The uniform reply
+envelope](../../../spec/Managed-Effects.md) (EP-0011): a single **reply
+map** carrying one closed `:status`, value/error data, `:work/id` work
+correlation, `:work/kind`, `:work/status`, `:attempt`, `:rf.frame/id`,
+the durable timestamps, and the cancellation/staleness facts. Property 9
+/ §Tracing require each family to emit its trace rows **from those
+reply-envelope facts, not from private callback facts**.
+
+Xray reads that uniform shape — it does **not** learn each family's
+private callback vocabulary. The consumer-side mirror lives in
+[`panels/reply_envelope.cljc`](../src/day8/re_frame2_xray/panels/reply_envelope.cljc)
+(`day8.re-frame2-xray.panels.reply-envelope`, pure data, JVM-runnable),
+and gives one vocabulary across HTTP / resources / mutations / routing /
+machines / timers:
+
+- **The closed vocabularies** — `reply-statuses`
+  (`:ok` / `:partial` / `:error` / `:cancelled` / `:stale`),
+  `work-statuses`, and `work-kinds` — are **mirrored** from
+  `re-frame.reply` as literal data (Xray never `:require`s the
+  substrate; the no-tool-imports-core bundle direction holds, and Xray
+  consumes the *wire facts*). The closed-vocabulary wiring test pins the
+  mirror so a substrate change that drifts the set fails loud.
+- **`reply-row`** projects a uniform reply map (the appended last-arg of
+  a `:rf/reply-to` event, or a `:rf.http/replied` / `:rf.reply/*` trace
+  summary) into ONE render-safe row keyed on `:work/id`, reading
+  issuance/completion **status**, **stale-suppression** (carried+current
+  correlation), **cancellation**, and **delivery-or-non-delivery**
+  (`:delivered?` is `false` for a suppressed `:stale` reply unless a
+  framework test/tool target opted into `:dispatch-stale?`). The
+  wire-bearing slots (`:value` / `:error` / `:correlation` / `:meta`)
+  are summarized — the runtime already elided sensitive/large slots on
+  the wire (Managed-Effects §Tracing).
+- **`phase-of`** lowers every family's emitted trace op onto ONE
+  reply-envelope **phase** — `:issued` / `:retry` / `:cancel-requested`
+  / `:completed` / `:stale-suppressed` / `:delivered` — so a panel
+  groups by phase, not by family. An explicit op table covers the landed
+  literals (`:rf.resource/work-started`, `:rf.http/replied`,
+  `:rf.http/retry-attempt`, `:rf.resource/stale-suppressed`,
+  `:rf.reply/suppressed`, …); a name-suffix heuristic classifies a
+  not-yet-enumerated family op (e.g. a future `:rf.stream/*` surface)
+  before the table learns its literal.
+- **`status->class`** gives the one cross-surface colour class so a
+  `:stale` HTTP reply and a `:stale` resource reply render the **same
+  badge** (Cross-Cutting [F.11](019-Cross-Cutting-Insight.md) — the
+  unified `STALE` rendering).
+
+### "What is still running?" and the stale-races view
+
+Both questions are answered from the **work ledger joined to reply
+status + trace cause, uniformly across families** — never per-family:
+
+- **`live-work`** reads the live (non-terminal) work-ledger rows
+  (`:rf.runtime/work-ledger`, the durable substrate — Managed-Effects
+  §Work-ledger integration) and joins each to the **latest
+  reply-envelope trace phase** for its `:work/id`, so the operator sees
+  "the app is waiting on resource K (issued), HTTP req-5
+  (cancel-requested), …" with one query. `live-work-tally-by-kind`
+  counts live work per family — the active managed-effects dashboard
+  headline (Cross-Cutting F-C4).
+- **The stale-races view keys on `:work/id`** (Managed-Effects
+  §Work-id correlation — `:work/id` is the *single* attempt identity,
+  the key the ledger, stale suppression, and this view all share).
+  `races-by-work-id` groups every cross-family work/reply row by work id
+  into an attempt arc (`:phases`, `:terminal-status`, `:suppressed?`);
+  `stale-suppressions` + `stale-tally-by-kind` surface the
+  cross-surface suppression tally (Cross-Cutting F-C5).
+
+The resources composite (`:rf.xray/resources-tab-data`) carries the
+uniform reads (`:live-work` / `:stale-races` / `:stale-tally`) alongside
+the resource-specific surfaces. The resource family is the only ledger
+writer today; as HTTP / route / machine / timer families write their own
+ledger rows and emit their reply-envelope trace ops, these surfaces pick
+them up with **no panel change** — one vocabulary, many families.
+
 ### What consumers MAY rely on
 
 - A **point-in-time snapshot** of the merged per-frame + frameless

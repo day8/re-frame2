@@ -55,6 +55,7 @@
             [re-frame.core :as rf]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.resources-helpers :as h]
+            [day8.re-frame2-xray.panels.reply-envelope :as reply]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
 
@@ -677,6 +678,18 @@
          :registry      registry-rows
          :instances     instance-rows
          :work          work-rows
+         ;; The UNIFORM reply-envelope reads (rf2-zqefg3.7). These read the
+         ;; canonical EP-0011 work/reply facts (`:work/id` / `:work/kind` /
+         ;; reply `:status` / stale-suppression carried+current) the SAME way
+         ;; for every async family — so "what is still running?" and the
+         ;; stale-races view are cross-family, not resource-private. The
+         ;; resource ledger is the only family writing the ledger today; as
+         ;; HTTP / route / machine / timer families write their own ledger
+         ;; rows + emit their reply-envelope trace ops, these surfaces pick
+         ;; them up with no panel change (one vocabulary, many families).
+         :live-work     (reply/live-work ledger trace-buffer)
+         :stale-races   (reply/races-by-work-id trace-buffer)
+         :stale-tally   (reply/stale-tally-by-kind trace-buffer)
          :route-graph   (h/project-route-graph
                           routes-map
                           {:instance-rows instance-rows

@@ -294,7 +294,7 @@ No event registered here dispatches a `:rf.resource/*` event (read-only).
 | `:rf.xray/resource-work-ledger` | `:rf.xray/target-frame-runtime-db`, override | the live work-ledger map at `[:rf.runtime/work-ledger]`. |
 | `:rf.xray/resource-sub-reads` | override | observed live subscription reads backing the scope-mismatch lint (empty by default). |
 | `:rf.xray/resource-routing-slice` | `:rf.xray/target-frame-runtime-db`, override | the live routing-runtime subtree at `[:rf.runtime/routing]` (current route + nav-token + per-nav-token unsettled-blocking set) backing the live route/resource graph. |
-| `:rf.xray/resources-tab-data` | the five above + `:rf.xray/trace-buffer` + the route registry | the view-facing composite: `{:silent? :registry :instances :work :route-graph :timeline :invalidations :cache-growth :audit}`. Its `:route-graph` joins the static route plan against the live instance/work rows + routing slice. |
+| `:rf.xray/resources-tab-data` | the five above + `:rf.xray/trace-buffer` + the route registry | the view-facing composite: `{:silent? :registry :instances :work :live-work :stale-races :stale-tally :route-graph :timeline :invalidations :cache-growth :audit}`. Its `:route-graph` joins the static route plan against the live instance/work rows + routing slice. The `:live-work` / `:stale-races` / `:stale-tally` slots are the UNIFORM reply-envelope reads (see below). |
 
 ### Events (test-only override hooks)
 
@@ -304,6 +304,24 @@ No event registered here dispatches a `:rf.resource/*` event (read-only).
 `:rf.xray/set-resource-sub-reads-override-for-test`,
 `:rf.xray/set-resource-routing-slice-override-for-test` — production code
 paths MUST NOT dispatch these; `nil` clears the override.
+
+### Uniform reply-envelope reads (`:live-work` / `:stale-races`)
+
+The composite's `:live-work`, `:stale-races`, and `:stale-tally` slots are
+**not** resource-specific — they read the canonical EP-0011 work/reply
+facts (`:work/id` / `:work/kind` / reply `:status` / stale-suppression
+carried+current) the SAME way for **every** managed-async family, via
+[`panels/reply_envelope.cljc`](../src/day8/re_frame2_xray/panels/reply_envelope.cljc).
+"What is still running?" is the live (non-terminal) work-ledger rows
+joined to the latest reply-envelope trace phase per `:work/id`; the
+stale-races view groups every cross-family work/reply row by `:work/id`.
+The resource family is the only ledger writer today, so the rows are all
+`:work/kind :resource` (and `:mutation`) for now; as HTTP / route /
+machine / timer families write their own ledger rows and emit their
+reply-envelope trace ops, these surfaces pick them up with no panel
+change. The contract is owned by
+[`013-Trace-Consumer.md` §One work/reply vocabulary](013-Trace-Consumer.md#one-workreply-vocabulary--reading-the-uniform-reply-envelope);
+this panel is one consumer.
 
 ## Mountable surface
 
