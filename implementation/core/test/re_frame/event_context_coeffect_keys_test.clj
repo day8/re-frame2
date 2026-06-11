@@ -63,19 +63,21 @@
   (testing "a vanilla event with no user cofx sees EXACTLY the framework keys"
     (rf/reg-frame :ck/exact {:doc "ctx"})
     (let [cofx (capture-coeffects :ck/exact)]
-      (is (= #{:db :event :rf.db/runtime :rf.frame/id :source}
+      (is (= #{:db :event :rf.db/runtime :rf.frame/id :rf.world/inputs :source}
              (set (keys cofx)))
           "the coeffect key set is exactly the framework defaults — no bare :frame")
       (is (not (contains? cofx :frame))
           "the retired bare :frame coeffect is absent (one carrier, one name)")
       (is (= :ck/exact (:rf.frame/id cofx))
-          ":rf.frame/id carries the running frame's id"))))
+          ":rf.frame/id carries the running frame's id")
+      (is (number? (get-in cofx [:rf.world/inputs :time-ms]))
+          ":rf.world/inputs carries a stamped :time-ms (EP-0010 rf2-s9ss0t)"))))
 
 (deftest no-frame-coeffect-even-with-trace-id
   (testing "threading a :trace-id adds :trace-id but never re-introduces :frame"
     (rf/reg-frame :ck/traced {:doc "ctx"})
     (let [cofx (capture-coeffects :ck/traced {:trace-id "tid-1"})]
-      (is (= #{:db :event :rf.db/runtime :rf.frame/id :source :trace-id}
+      (is (= #{:db :event :rf.db/runtime :rf.frame/id :rf.world/inputs :source :trace-id}
              (set (keys cofx)))
           ":trace-id appears when threaded; :frame still does not")
       (is (not (contains? cofx :frame))
@@ -109,7 +111,9 @@
         ":frame is not a framework coeffect key (it was the retired duplicate)")
     (is (contains? fx/framework-coeffect-keys :rf.frame/id)
         ":rf.frame/id is the retained frame-stamp coeffect key")
-    (is (= #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id}
+    (is (contains? fx/framework-coeffect-keys :rf.world/inputs)
+        ":rf.world/inputs is a framework coeffect key (EP-0010 rf2-s9ss0t)")
+    (is (= #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.world/inputs}
            fx/framework-coeffect-keys)
         "the framework-coeffect-keys set is exactly the framework defaults")))
 
@@ -117,6 +121,7 @@
   (testing "user-injected-coeffects strips every framework default incl. :rf.frame/id"
     (let [cofx {:db {} :event [:e] :source :unknown :trace-id "t"
                 :rf.db/runtime {} :rf.frame/id :f
+                :rf.world/inputs {:time-ms 1781078400123}
                 :my/cofx 1}]
       (is (= {:my/cofx 1} (fx/user-injected-coeffects cofx))
-          "only the genuinely user-injected coeffect survives the projection"))))
+          "only the genuinely user-injected coeffect survives the projection (EP-0010: :rf.world/inputs filtered too)"))))

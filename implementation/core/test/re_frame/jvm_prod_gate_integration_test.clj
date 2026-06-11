@@ -22,8 +22,8 @@
 
 (def ^:private build-envelope
   "Pull the private envelope builder — the dispatch envelope is not
-  exposed to user handlers, so the `:dispatched-at` gating (rf2-vkey0)
-  is asserted directly against `build-envelope`'s output."
+  exposed to user handlers, so the EP-0010 world-input stamping
+  (rf2-s9ss0t) is asserted directly against `build-envelope`'s output."
   #'router/build-envelope)
 
 (use-fixtures :each
@@ -79,26 +79,33 @@
             "event-emit substrate fired under disabled debug gate
              — always-on means always-on")))))
 
-(deftest dispatched-at-stamped-only-when-debug-enabled
-  (testing "Per rf2-vkey0: `:dispatched-at` is dev-only envelope
-            metadata gated on `interop/debug-enabled?` — exactly like
-            `:dispatch-id`. When the gate is ON, every envelope carries
-            a fresh `:dispatched-at` timestamp; when OFF (the SSR
-            production posture), the `now-ms` call and the assoc both
-            elide so production envelopes carry no `:dispatched-at`."
+(deftest dispatched-at-retired-world-inputs-stamped-regardless-of-gate
+  (testing "Per EP-0010 rider b (rf2-s9ss0t): `:dispatched-at` is RETIRED
+            in the same change that lands the envelope stamp — no
+            coexistence window. Its diagnostic dispatch-time need is the
+            trace event `:time` stamp (Spec 009), not a second envelope
+            field. The replacement causal-time fact is
+            `(:time-ms (:rf.world/inputs envelope))`, which — unlike the
+            dev-gated `:dispatch-id` — is stamped UNCONDITIONALLY because
+            world inputs are DURABLE causal data that durable writes
+            fold, not a diagnostic."
     (rf/reg-frame :rf/default {})
-    (testing "debug ON -> :dispatched-at present"
+    (testing ":dispatched-at is gone under BOTH gate states"
       (with-redefs [interop/debug-enabled? true]
-        (let [env (build-envelope [:noop] {})]
-          (is (contains? env :dispatched-at)
-              "envelope carries :dispatched-at under enabled gate")
-          (is (number? (:dispatched-at env))
-              ":dispatched-at is a timestamp"))))
-    (testing "debug OFF -> :dispatched-at elided (key absent, no now-ms call)"
+        (is (not (contains? (build-envelope [:noop] {}) :dispatched-at))
+            "no :dispatched-at even with the dev gate ON"))
       (with-redefs [interop/debug-enabled? false]
-        (let [env (build-envelope [:noop] {})]
-          (is (not (contains? env :dispatched-at))
-              "envelope carries NO :dispatched-at under disabled gate"))))))
+        (is (not (contains? (build-envelope [:noop] {}) :dispatched-at))
+            "no :dispatched-at with the dev gate OFF")))
+    (testing ":rf.world/inputs with :time-ms is stamped REGARDLESS of the gate"
+      (with-redefs [interop/debug-enabled? true]
+        (let [world (:rf.world/inputs (build-envelope [:noop] {}))]
+          (is (number? (:time-ms world))
+              ":time-ms present + numeric under the dev gate ON")))
+      (with-redefs [interop/debug-enabled? false]
+        (let [world (:rf.world/inputs (build-envelope [:noop] {}))]
+          (is (number? (:time-ms world))
+              ":time-ms present + numeric under the prod gate OFF — durable, not dev-gated"))))))
 
 (deftest always-on-error-emit-still-fires-when-debug-disabled
   (testing "Per Spec 009 §Error-emit + rf2-bacs4: the always-on

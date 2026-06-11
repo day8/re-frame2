@@ -129,6 +129,18 @@
                         Open-vocabulary; distinct from :source which is
                         the closed-enum trigger-kind / functional-origin
                         axis.
+    :rf.world/inputs    EP-0010 causal world-input map (Spec 002 §The
+                        World-Input Rule). The router ensures it exists
+                        and carries `:time-ms` (epoch-ms wall clock)
+                        stamped from `interop/now-ms` HERE — the causal
+                        boundary — UNLESS the caller supplied a map, in
+                        which case it is preserved and only the missing
+                        framework-required `:time-ms` is filled. This is
+                        the durable causal-time contract: the read happens
+                        ONCE, at envelope construction, never re-read in a
+                        handler / flow / resource reducer / commit. Child
+                        dispatches get their OWN map — `:time-ms` is NOT
+                        inherited (a child is a distinct causal token).
     :dispatch-id        process-monotonic id allocated here per
                         Spec 009 §Dispatch correlation
     :parent-dispatch-id the in-flight dispatch's id when this dispatch is
@@ -151,18 +163,37 @@
         ;; referenced syntactically.
         call-site          (when interop/debug-enabled?
                              (:rf.trace/call-site opts))
-        ;; Per rf2-vkey0: `:dispatched-at` is dev-only envelope metadata —
-        ;; the schema (`:rf/dispatch-envelope` in Spec-Schemas) marks it
-        ;; `{:optional true}` ("CLJS reference may add an impl-specific
-        ;; timestamp; tools tolerate"), so its production absence is spec-
-        ;; valid. A corpus grep finds ZERO consumers; carrying it
-        ;; unconditionally cost one `now-ms` call (`js/performance.now` /
-        ;; `System.currentTimeMillis`) + a map assoc on the hot dispatch
-        ;; allocation path of every production dispatch. Gate it exactly
-        ;; like the adjacent `:dispatch-id` slot so both the `now-ms` call
-        ;; and the assoc DCE under `:advanced` + `goog.DEBUG=false` (and
-        ;; the JVM `-Dre-frame.debug=false` SSR-prod gate).
-        dispatched-at      (when interop/debug-enabled? (interop/now-ms))
+        ;; EP-0010 §Dispatch Envelope Stamping (rf2-s9ss0t): the router
+        ;; ensures `:rf.world/inputs` exists and carries `:time-ms`. This
+        ;; is the CAUSAL BOUNDARY — the one `now-ms` read whose value
+        ;; durable writes may fold. It happens HERE, at envelope
+        ;; construction, and is NOT re-read inside the handler, flow
+        ;; transform, resource reducer, work-ledger writer, or commit
+        ;; path (Spec 002 §The World-Input Rule).
+        ;;
+        ;; Caller-supplied wins: a test / replay / SSR-hydration / tool
+        ;; dispatch that supplies `:rf.world/inputs` has its map PRESERVED
+        ;; verbatim — the router fills ONLY the framework-required
+        ;; `:time-ms` when absent, never overwriting a supplied one. This
+        ;; is how fixtures script exact world facts (Spec 002 §Dispatch
+        ;; Envelope Stamping; EP-0010 §Restore, Replay, And Hydration).
+        ;;
+        ;; Child dispatches (`:dispatch` / `:dispatch-later` fx) get their
+        ;; OWN map — `:rf.world/inputs` is deliberately NOT in
+        ;; `re-frame.fx/inheritable-envelope-keys`, so each child is
+        ;; stamped fresh here as a distinct causal token (no `:time-ms`
+        ;; inheritance — Spec 002 §Dispatch Envelope Stamping).
+        ;;
+        ;; Unlike `:dispatch-id` / the retired `:dispatched-at`, this is
+        ;; NOT dev-gated: world inputs are DURABLE causal data, not a
+        ;; diagnostic, so `:time-ms` must be present in production too
+        ;; (durable writes depend on it). The cost is one `now-ms` read +
+        ;; a small map on the dispatch path — the price of a deterministic
+        ;; fold.
+        supplied-world     (:rf.world/inputs opts)
+        world-inputs       (if (contains? supplied-world :time-ms)
+                             supplied-world
+                             (assoc supplied-world :time-ms (interop/now-ms)))
         ;; Per rf2-jbzhj: surface unrecognised opts keys (typically a typo'd
         ;; opt like `:fram` for `:frame`) rather than silently swallowing
         ;; them. Emitted HERE — BEFORE the frame resolution below — so a
@@ -251,7 +282,13 @@
              ;; on `:rf.event/dispatched` (stamped in
              ;; `emit-dispatched-trace`).
              :source-detail          (:source-detail opts)
-             :origin                 (:origin opts :app)}
+             :origin                 (:origin opts :app)
+             ;; EP-0010 (rf2-s9ss0t): the causal world-input map, stamped
+             ;; unconditionally (durable causal data, not a diagnostic —
+             ;; see the `world-inputs` binding above). Always carries
+             ;; `:time-ms`; caller-supplied additional keys (`:uuid`,
+             ;; `:random`, browser/storage facts) ride through preserved.
+             :rf.world/inputs        world-inputs}
       ;; Per rf2-ts1a: the macro form of `dispatch` / `dispatch-sync`
       ;; stamps an `:rf.trace/call-site` on the opts map. The read in
       ;; `call-site` above is gated on interop/debug-enabled? so this
@@ -259,7 +296,6 @@
       ;; goog.DEBUG=false. fn-form callers (`dispatch*`) supply nil
       ;; and the key is omitted.
       call-site          (assoc :call-site         call-site)
-      dispatched-at      (assoc :dispatched-at      dispatched-at)
       dispatch-id        (assoc :dispatch-id        dispatch-id)
       parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id)
       ;; Per rf2-j20a7: carry the machine-internal continuation flag onto
@@ -468,10 +504,21 @@
         ;; populated partition once a subsystem has written to it. Injected by
         ;; reference per Spec 002 §Event context.
         runtime-db  (frame/frame-runtime-db-value frame)]
-    {:coeffects (cond-> {:db            db-value
-                         :event         event
-                         :rf.db/runtime runtime-db
-                         :rf.frame/id   frame}
+    {:coeffects (cond-> {:db              db-value
+                         :event           event
+                         :rf.db/runtime   runtime-db
+                         :rf.frame/id     frame
+                         ;; EP-0010 (rf2-s9ss0t): the causal world-input
+                         ;; map is a framework coeffect alongside `:db` /
+                         ;; `:event` / `:rf.db/runtime` / `:rf.frame/id`
+                         ;; (Spec 002 §Event Context And Coeffects).
+                         ;; `build-envelope` guarantees `:time-ms` on the
+                         ;; envelope, so a durable handler reads
+                         ;; `(:time-ms (:rf.world/inputs cofx))` instead of
+                         ;; an ambient `interop/now-ms`. Filtered out of the
+                         ;; user-cofx trace projection by
+                         ;; `fx/framework-coeffect-keys`.
+                         :rf.world/inputs (:rf.world/inputs envelope)}
                   (:source envelope)   (assoc :source (:source envelope))
                   (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))
      :effects {}

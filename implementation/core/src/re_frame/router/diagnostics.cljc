@@ -113,10 +113,14 @@
     :source                 closed-enum trigger-kind / functional-origin
     :source-detail          per-source-kind detail payload
     :origin                 actor identity tag
+    :rf.world/inputs        EP-0010 causal world-input map (caller-supplied
+                            `:time-ms` / `:uuid` / `:random` / etc.; the
+                            router fills `:time-ms` when absent — rf2-s9ss0t)
     :rf.trace/call-site     macro-stamped invocation coord (dev-only)
     :rf.machine/internal?   machine-internal continuation flag (front-queue)"
   #{:frame :fx-overrides :interceptor-overrides :trace-id :source
-    :source-detail :origin :rf.trace/call-site :rf.machine/internal?})
+    :source-detail :origin :rf.world/inputs :rf.trace/call-site
+    :rf.machine/internal?})
 
 (defn unknown-dispatch-opts
   "Return the seq of keys in `opts` that fall OUTSIDE
