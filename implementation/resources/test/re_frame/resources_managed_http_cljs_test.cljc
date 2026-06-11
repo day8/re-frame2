@@ -32,6 +32,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.frame :as frame]
    ;; load-bearing side-effecting requires: register the :rf.resource/*
    ;; events + subs + the generation cofx/fx these tests dispatch.
    [re-frame.resources]
@@ -386,6 +387,71 @@
           (is (not= :error (:status e)) "orphan abort did not set :error status")
           (is (nil? (:error e)) "no error envelope on the entry")
           (is (empty? (:active-owners e)) "still owner-free"))))))
+
+;; ===========================================================================
+;; 4c. cross-frame reply isolation (rf2-eu2ifi) — a reply whose stamped
+;;     :rf.frame/id does not match the RECEIVING frame is rejected without
+;;     mutating that frame's entry or ledger; the verification payload carries
+;;     the qualified frame stamp the reply handlers compare against.
+;; ===========================================================================
+
+(defn- reply-into-frame!
+  "Dispatch a success reply (the real 3-element transport shape) INTO
+  `frame-id`, with the verification `payload` (which carries `:rf.frame/id`)."
+  [frame-id payload data]
+  (rf/dispatch-sync (conj [(nth (:on-success @last-managed-args) 0) payload]
+                          {:kind :success :value data})
+                    {:frame frame-id}))
+
+(deftest lowering-stamps-receiving-frame-into-reply-payload
+  (rf/reg-resource :ff/article (article-spec))
+  (let [fa :ff/frame-a]
+    (rf/reg-frame fa {:doc "frame stamp frame A"})
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :ff/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:lease :ff 1]}]
+                      {:frame fa})
+    (testing "rf2-eu2ifi — the reply verification payload stamps the issuing
+              frame's qualified :rf.frame/id (so the receiving handler can
+              compare it)"
+      (let [vp (nth (:on-success @last-managed-args) 1)]
+        (is (= fa (:rf.frame/id vp)) "payload carries the issuing frame stamp")))
+    (frame/destroy-frame! fa)))
+
+(deftest cross-frame-reply-rejected-without-mutating-receiving-frame
+  (rf/reg-resource :xf/article (article-spec))
+  (let [fa :xf/frame-a
+        fb :xf/frame-b
+        k  (state/scoped-resource-key :rf.scope/global :xf/article {:slug "w"})]
+    (rf/reg-frame fa {:doc "xframe A"})
+    (rf/reg-frame fb {:doc "xframe B"})
+    ;; both frames issue the SAME resource at the SAME generation (gen 1) —
+    ;; the collision case the bare-work-id correlation could not tell apart.
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
+                                            :params {:slug "w"} :owner [:lease :a 1]}]
+                      {:frame fa})
+    (let [a-payload (nth (:on-success @last-managed-args) 1)]
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
+                                              :params {:slug "w"} :owner [:lease :b 1]}]
+                        {:frame fb})
+      (is (= 1 (:generation (entry fa k))) "frame A entry on gen 1")
+      (is (= 1 (:generation (entry fb k))) "frame B entry on gen 1 (same gen — collision case)")
+      (testing "rf2-eu2ifi — frame A's reply (payload stamped :rf.frame/id = A)
+                dispatched INTO frame B is REJECTED: frame B's entry is not
+                mutated (no cross-frame write even at the same work-id/gen)"
+        (reply-into-frame! fb a-payload {:title "A-data"})
+        (let [eb (entry fb k)]
+          (is (not= {:title "A-data"} (:data eb)) "frame B entry NOT written by frame A's reply")
+          (is (= :loading (:status eb)) "frame B still in flight (reply rejected)")
+          (is (nil? (:data eb)) "frame B has no data")))
+      (testing "frame A's reply dispatched into its OWN frame settles normally
+                (the frame stamp matches the receiving frame)"
+        (reply-into-frame! fa a-payload {:title "A-data"})
+        (is (= {:title "A-data"} (:data (entry fa k))) "frame A settled by its own reply")
+        (is (= :loaded (:status (entry fa k))))
+        (is (= :loading (:status (entry fb k))) "frame B still independently in flight")))
+    (frame/destroy-frame! fa)
+    (frame/destroy-frame! fb)))
 
 ;; ===========================================================================
 ;; 5. ensure dedupe / join while in flight (attach owner, no new generation)
