@@ -314,3 +314,18 @@
 ;; (`error-emit` → `elision` → `frame`). Per EP-0008 / rf2-ini4wr.
 (late-bind/set-fn! :error-emit/dispatch-frame-teardown-report
                    dispatch-frame-teardown-report!)
+
+;; The corpus-wide listener registry's register / unregister surfaces are
+;; published through late-bind so `frame.cljc` can install a TRANSIENT
+;; always-on error listener around the `:on-destroy` dispatch without a
+;; static require (the same `error-emit` → `elision` → `frame` load cycle).
+;; This is the production-survivable replacement for the dev-only
+;; `:trace.tooling/register-listener!` capture the common `:on-destroy`-throw
+;; path used before EP-0008 / rf2-87f7fb: the router fans the handler throw
+;; out as `:rf.error/handler-exception` on THIS always-on axis, so a
+;; transient listener here observes it under `goog.DEBUG=false` where the
+;; dev trace is DCE'd. Survives `:advanced` + `goog.DEBUG=false` — these are
+;; the same surfaces `rf/register-error-listener!` exports, just addressable
+;; from a non-requiring artefact.
+(late-bind/set-fn! :error-emit/register-error-listener!   register-error-listener!)
+(late-bind/set-fn! :error-emit/unregister-error-listener! unregister-error-listener!)
