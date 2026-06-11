@@ -196,6 +196,44 @@
         (is (number? (get-in env [:rf.world/inputs :time-ms]))
             ":time-ms is the replacement for the retired :dispatched-at")))))
 
+(deftest dispatched-at-supplied-is-a-hard-error
+  ;; EP-0010 disposition 5 (rf2-lj39cn): SUPPLYING the retired :dispatched-at
+  ;; dispatch opt is the STANDARD RETIREMENT TREATMENT — a HARD ERROR naming
+  ;; the replacement, not the soft generic unknown-opt warn. The error carries
+  ;; the canonical-replacement category id and a message naming
+  ;; (:time-ms (:rf.world/inputs envelope)).
+  (testing "EP-0010 disposition 5 / EP-0007 rule 2: supplying :dispatched-at throws"
+    (rf/reg-frame :wi/retired-supply {:doc "ctx"})
+    (testing "build-envelope throws on the retired key (always-on, even with the dev gate OFF)"
+      (with-redefs [interop/debug-enabled? false]
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (build-envelope [:noop] {:frame :wi/retired-supply
+                                              :dispatched-at 123}))
+            "supplying :dispatched-at is a hard error, not a warn (prod-survivable)")))
+    (testing "the error names the canonical replacement (:time-ms / :rf.world/inputs)"
+      (let [ex   (try
+                   (build-envelope [:noop] {:frame :wi/retired-supply
+                                            :dispatched-at 123})
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))
+            data (ex-data ex)]
+        (is (some? ex) "an exception was thrown")
+        (is (= :rf.error/dispatched-at-retired (:rf.error/id data))
+            "the error category is the retired-spelling :rf.error/* id")
+        (is (= :dispatched-at (:retired-key data)) "names the retired key")
+        (is (re-find #":time-ms" (:reason data))
+            "the message references :time-ms as the replacement")
+        (is (re-find #":rf\.world/inputs" (:reason data))
+            "the message references :rf.world/inputs as the replacement carrier")
+        (is (= :no-recovery (:recovery data)) "no back-compat alias / recovery")))
+    (testing "the full dispatch path (not just build-envelope) raises it"
+      (rf/reg-event-db :wi/retired-noop (fn [db _] db))
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (rf/dispatch-sync [:wi/retired-noop]
+                                     {:frame :wi/retired-supply
+                                      :dispatched-at 123}))
+          "dispatch-sync surfaces the retirement hard error synchronously"))))
+
 ;; ===========================================================================
 ;; rf2-sppf0m: a handler READS :uuid / :random from the :rf.world/inputs
 ;; coeffect and WRITES the supplied values into a durable app-db entity.

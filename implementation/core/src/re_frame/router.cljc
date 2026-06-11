@@ -203,6 +203,16 @@
         world-inputs       (if (contains? supplied-world :time-ms)
                              supplied-world
                              (assoc supplied-world :time-ms (interop/epoch-now-ms)))
+        ;; EP-0010 disposition 5 (rf2-lj39cn): the RETIRED `:dispatched-at`
+        ;; dispatch opt gets the STANDARD RETIREMENT TREATMENT — a HARD
+        ;; ERROR naming the replacement, NOT the generic warn-on-unknown-opt
+        ;; below. Checked FIRST so a caller still passing `:dispatched-at`
+        ;; gets the specific, actionable retirement error (naming
+        ;; `(:time-ms (:rf.world/inputs envelope))`) rather than a vague
+        ;; "key outside the known set" warning. Always-on (not dev-gated):
+        ;; a retirement hard error is a correctness contract that must fire
+        ;; in production too — see `reject-retired-dispatch-opts!`.
+        _                  (diag/reject-retired-dispatch-opts! opts event)
         ;; Per rf2-jbzhj: surface unrecognised opts keys (typically a typo'd
         ;; opt like `:fram` for `:frame`) rather than silently swallowing
         ;; them. Emitted HERE — BEFORE the frame resolution below — so a

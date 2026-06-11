@@ -122,6 +122,58 @@
     :source-detail :origin :rf.world/inputs :rf.trace/call-site
     :rf.machine/internal?})
 
+(defn reject-retired-dispatch-opts!
+  "Throw `:rf.error/dispatched-at-retired` when a `dispatch` /
+  `dispatch-sync` opts map carries the RETIRED `:dispatched-at` key.
+
+  EP-0010 disposition 5 / rider b retired `:dispatched-at` under the
+  STANDARD RETIREMENT TREATMENT (EP-0007 one-name-per-fact rule 2): a hard
+  error NAMING the replacement, never a silent alias and never a soft
+  warn-on-unknown-opt. Two spellings of \"when was this dispatched\" violate
+  one-name-per-fact, so a caller still passing `:dispatched-at` must be told
+  the canonical replacement, not left to a generic unknown-opt warning that
+  merely lists the known set (which would let the soft path become the
+  de-facto spelling — the cg7llv deterrent precedent).
+
+  The durable causal-time fact is `(:time-ms (:rf.world/inputs envelope))`
+  — stamped by the framework at the dispatch causal boundary, NOT supplied
+  by the caller. (The diagnostic dispatch-time need is the trace event's own
+  ambient `:time` stamp, Spec 009.) The error names `:rf.world/inputs`'s
+  `:time-ms` as the replacement so the programmer rewrites rather than
+  retries.
+
+  ALWAYS-ON — NOT gated on `interop/debug-enabled?`: a retirement hard error
+  is a correctness contract that must fire in `:advanced` +
+  `goog.DEBUG=false` production too (mirrors the `:rf.error/redirect-retired-
+  target-key` SSR precedent), unlike the dev-only unknown-opt warn. The
+  `contains?` check is the only always-on cost on the dispatch path — a
+  single map lookup, no allocation unless the retired key is present.
+
+  Per Spec 002 §`:dispatched-at` is retired + EP-0010 disposition 5."
+  [opts event]
+  (when (contains? opts :dispatched-at)
+    (throw (ex-info ":rf.error/dispatched-at-retired"
+                    {:rf.error/id :rf.error/dispatched-at-retired
+                     :where       're-frame.router/build-envelope
+                     :event-id    (first event)
+                     :event       event
+                     :retired-key :dispatched-at
+                     :replacement '(:time-ms (:rf.world/inputs envelope))
+                     :reason      (str "Dispatch opt `:dispatched-at` is RETIRED "
+                                       "(EP-0010 disposition 5 / EP-0007 "
+                                       "one-name-per-fact). There is no "
+                                       "caller-supplied dispatch-time field. "
+                                       "The durable causal-time fact is "
+                                       "`(:time-ms (:rf.world/inputs envelope))` "
+                                       "— the framework stamps `:time-ms` into "
+                                       "`:rf.world/inputs` at the dispatch causal "
+                                       "boundary; durable code reads it from there. "
+                                       "For a diagnostic dispatch-time, use the "
+                                       "trace event's own ambient `:time` stamp "
+                                       "(Spec 009). Remove `:dispatched-at`; there "
+                                       "is no back-compat alias.")
+                     :recovery    :no-recovery}))))
+
 (defn unknown-dispatch-opts
   "Return the seq of keys in `opts` that fall OUTSIDE
   `known-dispatch-opts`, or nil when every key is known (so callers can
