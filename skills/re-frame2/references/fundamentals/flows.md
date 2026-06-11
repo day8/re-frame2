@@ -29,6 +29,8 @@ A flow's output lives in **`app-db` at a known `:path`**; a sub's value lives in
 
 Use a **subscription** when the value is consumed only by views. Use a **state machine** when the value has discrete states / lifecycle. Compute **inline** when it is only relevant inside one handler. See [`../../decision-trees/slice-or-machine.md`](../../decision-trees/slice-or-machine.md) §Step 0 for the routing.
 
+> **Same function, different policy.** A flow and a subscription can wrap the *identical* whole-value function — `(fn [items discounts] (sum-cart items discounts))` works verbatim in either. What you're choosing is **not the computation; it is policy over it**: where the output lives (the sub's ephemeral cache vs the flow's durable `app-db` `:path`), when it runs (on-demand-on-deref vs after-every-event), and who owns it (the sub-cache entry vs the frame). That is the whole reason the decision feels subtle — both are *derivations*, and re-frame2 names them as one shape (`SKILL-REDIRECT.md` → *Derivations and processes (the algebra)*). You don't author against that shape — it's an inspection/specification view, not a new API — but it's why the four conditions above are all *storage / durability / lifecycle* questions, never "is the math different?".
+
 ## Canonical signature
 
 ```clojure

@@ -34,6 +34,8 @@ The two partitions:
 
 Together they compose a **frame-state** value: `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. The composite is what serialises for SSR, reverts on time-travel, and hydrates as one unit. `reg-app-schema` validates the app-db partition only — keep teaching it as "the app-db schema"; it describes a *pure* application contract with no framework state mixed in.
 
+> **Where any value lives — the four storage classes.** The two durable partitions plus the per-frame sub-cache are the same three homes re-frame2 names as **storage classes** when it describes any declared value: `:app-db` (user-owned durable, this `:db` partition), `:runtime-db` (framework-owned durable, this `:rf.db/runtime` partition), `:ephemeral` (the sub-cache / a reaction value — recomputable, never written to durable frame state), and `:host-transient` (handles *outside* frame state — an `AbortController`, a timer — that must be cleared at a lifecycle boundary, never the only copy of a fact). When you ask "is this durable or ephemeral? app-owned or framework-owned?", that's the storage-class axis. You don't declare it — it falls out of *which* `reg-*` form you reach for (a sub is `:ephemeral`, a flow materialises to `:app-db`, a resource caches in `:runtime-db`) — but the named vocabulary is the one inspection tools and `SKILL-REDIRECT.md` → *Derivations and processes (the algebra)* use, so it's worth recognising. Reminder: a *remote* fact (a server-owned resource) still has a **local** storage class (`:runtime-db` cache entry) — "remote" is its *authority*, never where it's stored.
+
 Frames are mutable runtime objects, not values. User code holds keywords and lets the framework resolve them.
 
 ## Canonical signatures

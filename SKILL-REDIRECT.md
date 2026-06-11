@@ -82,6 +82,7 @@ Audience: `[impl]` (primary), `[app]` (deep-dive lookups). Read EPs in numeric o
 
 - **API contract (must expose)** → https://day8.github.io/re-frame2/spec/API/ `[app]` `[impl]`
 - **Conventions** → https://day8.github.io/re-frame2/spec/Conventions/ `[app]` `[impl]`
+- **Derivations and processes (the algebra)** → https://day8.github.io/re-frame2/spec/Derivations/ `[app]` `[impl]`
 - **Spec schemas** → https://day8.github.io/re-frame2/spec/Spec-Schemas/ `[app]` `[impl]`
 - **Principles** → https://day8.github.io/re-frame2/spec/Principles/ `[app]` `[impl]`
 - **Cross-spec interactions** → https://day8.github.io/re-frame2/spec/Cross-Spec-Interactions/ `[impl]`
