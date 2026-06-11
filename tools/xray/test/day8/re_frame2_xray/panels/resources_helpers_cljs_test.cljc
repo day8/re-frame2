@@ -247,7 +247,80 @@
       (let [res (first (:resources (first nodes)))]
         (is (:blocking? res))
         (is (:params-fn? res))
-        (is (:scope-resolver? res))))))
+        (is (:scope-resolver? res))))
+    (testing "the bare 1-arity stays STATIC — :live rollups are :none, no :current?"
+      (let [res (first (:resources (first nodes)))]
+        (is (= :none (get-in res [:live :freshness]))
+            "no live inputs ⇒ the resource node's freshness is :none")
+        (is (not (:current? (first nodes)))
+            "no live inputs ⇒ no route is flagged active")))))
+
+;; ---- (6b) LIVE route/resource graph join (rf2-m5u3gt) -------------------
+;;
+;; EP-0003 asks the route graph to surface the CURRENT route/nav-token,
+;; active work, and fresh/stale state — not just static declarations. The
+;; optional `live` arg joins the projected instance/work rows + the routing
+;; slice onto the static plan.
+
+(def ^:private m5-nav-token "nav-7")
+(def ^:private m5-article-key [session-scope :article/by-slug {:slug "welcome"}])
+
+(def ^:private m5-routing-slice
+  {:current {:id :route/article :nav-token m5-nav-token
+             :params {:slug "welcome"} :path "/articles/welcome"}
+   :resource-blocking {m5-nav-token #{m5-article-key}}})
+
+(deftest project-route-graph-live-test
+  (let [;; a FRESH cached :article/by-slug entry (loaded, stale-at in future)
+        live-entries  {m5-article-key
+                       {:resource/id :article/by-slug :status :loaded
+                        :data {:title "Welcome"} :generation 4
+                        :loaded-at (- now 1000) :stale-at (+ now 50000)
+                        :active-owners #{[:route :route/article m5-nav-token]}}}
+        instance-rows (h/project-instances live-entries now)
+        ;; one non-terminal work row for :comments/list (the non-blocking sibling)
+        work-rows     (h/project-work-ledger
+                        {[:rf.work/resource [session-scope :comments/list {}] 1]
+                         {:work/id [:rf.work/resource [session-scope :comments/list {}] 1]
+                          :work/kind :resource :resource/key [session-scope :comments/list {}]
+                          :generation 1 :status :running}})
+        nodes (h/project-route-graph
+                routes-map
+                {:instance-rows instance-rows
+                 :work-rows     work-rows
+                 :current       (h/routing-current m5-routing-slice)
+                 :blocking-keys (h/routing-blocking-keys m5-routing-slice)})
+        article-node (first (filter #(= :route/article (:route-id %)) nodes))]
+    (testing "the active route is flagged :current? with its live nav-token"
+      (is (:current? article-node))
+      (is (= m5-nav-token (:nav-token article-node))))
+    (testing "the live unsettled blocking wait point surfaces on the active route"
+      (is (= [:article/by-slug] (:blocking-live article-node))
+          ":blocking-live lists the blocking resource still in the unsettled set"))
+    (testing "per-resource live freshness rollup joins the cache/work state"
+      (let [article-res (first (filter #(= :article/by-slug (:resource %))
+                                       (:resources article-node)))
+            comments-res (first (filter #(= :comments/list (:resource %))
+                                        (:resources article-node)))]
+        (is (= :fresh (get-in article-res [:live :freshness]))
+            "the cached, has-data, non-stale article reads :fresh")
+        (is (= 1 (get-in article-res [:live :entry-count])))
+        (is (get-in article-res [:live :has-data?]))
+        (is (= :loading (get-in comments-res [:live :freshness]))
+            "the non-blocking comments resource with active work + no cache reads :loading")
+        (is (= 1 (get-in comments-res [:live :active-work])))))))
+
+(deftest routing-slice-extractors-test
+  (testing "routing-current pulls the :current slice; nil-safe"
+    (is (= {:id :route/article :nav-token m5-nav-token
+            :params {:slug "welcome"} :path "/articles/welcome"}
+           (h/routing-current m5-routing-slice)))
+    (is (nil? (h/routing-current nil)))
+    (is (nil? (h/routing-current {}))))
+  (testing "routing-blocking-keys flattens the per-nav-token unsettled sets; nil-safe"
+    (is (= [m5-article-key] (h/routing-blocking-keys m5-routing-slice)))
+    (is (= [] (h/routing-blocking-keys nil)))
+    (is (= [] (h/routing-blocking-keys {})))))
 
 ;; ---- (7) timeline / invalidation / cache-growth ------------------------
 

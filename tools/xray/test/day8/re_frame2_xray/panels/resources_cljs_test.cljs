@@ -124,12 +124,15 @@
                :rf.xray/resource-work-ledger-override
                :rf.xray/resource-sub-reads
                :rf.xray/resource-sub-reads-override
+               :rf.xray/resource-routing-slice
+               :rf.xray/resource-routing-slice-override
                :rf.xray/resources-tab-data]]
       (is (some? (registrar/handler :sub s)) (str s " sub registered")))
     (doseq [e [:rf.xray/set-registered-resources-override-for-test
                :rf.xray/set-resource-entries-override-for-test
                :rf.xray/set-resource-work-ledger-override-for-test
-               :rf.xray/set-resource-sub-reads-override-for-test]]
+               :rf.xray/set-resource-sub-reads-override-for-test
+               :rf.xray/set-resource-routing-slice-override-for-test]]
       (is (some? (registrar/handler :event e)) (str e " event registered")))))
 
 (deftest read-only-no-resource-events
@@ -146,7 +149,8 @@
     (doseq [e [:rf.xray/set-registered-resources-override-for-test
                :rf.xray/set-resource-entries-override-for-test
                :rf.xray/set-resource-work-ledger-override-for-test
-               :rf.xray/set-resource-sub-reads-override-for-test]]
+               :rf.xray/set-resource-sub-reads-override-for-test
+               :rf.xray/set-resource-routing-slice-override-for-test]]
       (is (some? (registrar/handler :event e))
           (str e " is registered under the :rf.xray*/ prefix"))
       (is (= "rf.xray" (namespace e))
@@ -200,6 +204,38 @@
             status (find-by-testid tree "rf-xray-resources-instance-row-article/by-slug-g4-status")]
         (is (some? status))
         (is (re-find #"loaded" (node-text status)) "status reads loaded")))))
+
+(deftest route-graph-shows-live-active-route
+  (testing "rf2-m5u3gt — with a live routing slice override, the route/resource
+            graph flags the active route (● active) and surfaces the live
+            unsettled-blocking wait point off the runtime routing slice"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-overrides!)
+      ;; Register the route declaring :resources so the graph has a node.
+      ;; Via the registrar directly (the routing artefact's reg-route macro
+      ;; is not on the xray test classpath); the graph reads the registry map
+      ;; decoupled via (rf/registrations :route).
+      (registrar/register! :route :route/article
+                           {:path "/articles/:slug"
+                            :resources [{:resource :article/by-slug :blocking? true}]})
+      ;; Seed the live routing slice: :route/article active under nav-1, with
+      ;; the article scoped key still in the unsettled-blocking set.
+      (rf/dispatch-sync
+        [:rf.xray/set-resource-routing-slice-override-for-test
+         {:current {:id :route/article :nav-token "nav-1"}
+          :resource-blocking
+          {"nav-1" #{[session-scope :article/by-slug {:slug "welcome"}]}}}]
+        {:frame :rf/xray})
+      (let [tree (resources/Panel)
+            row  (find-by-testid tree "rf-xray-resources-route-row-route/article")]
+        (is (some? row) "the route row renders")
+        (is (some? (find-by-testid tree "rf-xray-resources-route-row-route/article-current"))
+            "the active route is flagged ● active off the live routing slice")
+        (is (some? (find-by-testid tree "rf-xray-resources-route-row-route/article-blocking-live"))
+            "the live unsettled-blocking wait point surfaces")
+        (is (re-find #"fresh" (node-text row))
+            "the blocking :article/by-slug reads :fresh from its live cache entry")))))
 
 ;; ---- (4) PRIVACY --------------------------------------------------------
 

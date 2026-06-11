@@ -288,6 +288,15 @@
 
 ;; ---- §4 ROUTE / RESOURCE GRAPH -----------------------------------------
 
+(defn- freshness-colour [freshness]
+  ;; rf2-m5u3gt — the per-resource live freshness chip colour.
+  (case freshness
+    :fresh   (:success tokens)
+    :stale   (:warning tokens)
+    :loading mode-accent
+    :error   (:error tokens)
+    (:text-tertiary tokens)))   ; :idle / :none / unknown
+
 (defn- route-graph-row-view [node]
   (let [testid (str "rf-xray-resources-route-row-"
                     (when (:route-id node) (-> node :route-id str (subs 1))))]
@@ -300,9 +309,19 @@
        (str (:route-id node))]
       (when (:path node)
         [:span {:style {:color (:text-tertiary tokens)}} (:path node)])
+      ;; rf2-m5u3gt — the LIVE active-route badge.
+      (when (:current? node)
+        [:span {:data-testid (str testid "-current")
+                :style {:color (:success tokens) :font-weight 600}}
+         "● active"])
       (when (:ssr-wait? node)
         [:span {:data-testid (str testid "-ssr-wait")
-                :style {:color (:warning tokens)}} "SSR wait point"])]
+                :style {:color (:warning tokens)}} "SSR wait point"])
+      ;; rf2-m5u3gt — the live unsettled blocking wait points on the active route.
+      (when (seq (:blocking-live node))
+        [:span {:data-testid (str testid "-blocking-live")
+                :style {:color (:warning tokens)}}
+         (str "waiting: " (str/join "," (map str (:blocking-live node))))])]
      (into [:div {:style {:display "flex" :flex-wrap "wrap" :gap "8px"
                           :padding-left "12px" :font-family mono-stack
                           :font-size "11px"}}]
@@ -314,7 +333,15 @@
               (str (:resource res))
               (if (:blocking? res) " [blocking]" " [non-blocking]")
               (when (:keep-previous? res) " keep-prev")
-              (when (seq (:after res)) (str " after " (str/join "," (map str (:after res)))))]))]))
+              (when (seq (:after res)) (str " after " (str/join "," (map str (:after res)))))
+              ;; rf2-m5u3gt — the per-resource live freshness chip.
+              (when-let [live (:live res)]
+                (when (not= :none (:freshness live))
+                  [:span {:style {:color (freshness-colour (:freshness live))
+                                  :margin-left "4px"}}
+                   (str "· " (name (:freshness live))
+                        (when (pos? (:active-work live))
+                          (str " (" (:active-work live) " work)")))]))]))]))
 
 (defn- route-graph-section [nodes]
   (section
@@ -535,9 +562,16 @@
       (`[{:resource-id :params :scope} …]`) backing the scope-mismatch
       lint. Empty by default; the host/runtime populates it (test
       override slot).
+    - `:rf.xray/resource-routing-slice` — the live routing-runtime subtree
+      (`[:rf.runtime/routing]`) from `:rf.xray/target-frame-runtime-db`,
+      backing the LIVE route/resource graph (current route + nav-token +
+      unsettled-blocking set — rf2-m5u3gt). Test override.
     - `:rf.xray/resources-tab-data` — the view-facing composite over the
-      registry + entries + ledger + route registry + trace buffer; the
-      single read the Panel subscribes.
+      registry + entries + ledger + route registry + trace buffer + routing
+      slice; the single read the Panel subscribes. Its `:route-graph` joins
+      the static route plan against the live instance/work rows + routing
+      slice (per-resource freshness rollup, the active route flagged
+      `:current?` with its live `:blocking-live` wait points).
 
   Read-only: NO event registered here dispatches a `:rf.resource/*`
   event — inspection never becomes an owner (Spec 016)."
@@ -573,6 +607,13 @@
   (rf/reg-sub :rf.xray/resource-sub-reads-override
     (fn [db _] (get db :resource-sub-reads-override)))
 
+  (rf/reg-event-db :rf.xray/set-resource-routing-slice-override-for-test
+    (fn [db [_ ov]]
+      (if (nil? ov) (dissoc db :resource-routing-slice-override)
+          (assoc db :resource-routing-slice-override ov))))
+  (rf/reg-sub :rf.xray/resource-routing-slice-override
+    (fn [db _] (get db :resource-routing-slice-override)))
+
   ;; Production data subs --------------------------------------------------
 
   (rf/reg-sub :rf.xray/registered-resources
@@ -603,6 +644,20 @@
     :<- [:rf.xray/resource-sub-reads-override]
     (fn [override _] (or override [])))
 
+  ;; The routing-runtime slice backing the LIVE route/resource graph
+  ;; (rf2-m5u3gt). Reads `[:rf.runtime/routing]` off the target frame's
+  ;; runtime-db (decoupled, like the Routing tab's current-route sub) and
+  ;; surfaces the live `:current` route slice (carrying `:id` + `:nav-token`)
+  ;; + the per-nav-token unsettled-blocking set. Test override slot.
+  (rf/reg-sub :rf.xray/resource-routing-slice
+    :<- [:rf.xray/target-frame-runtime-db]
+    :<- [:rf.xray/resource-routing-slice-override]
+    (fn [[target-runtime-db override] _]
+      (cond
+        (some? override)         override
+        (map? target-runtime-db) (get target-runtime-db h/routing-key)
+        :else                    nil)))
+
   ;; View-facing composite -------------------------------------------------
 
   (rf/reg-sub :rf.xray/resources-tab-data
@@ -611,7 +666,8 @@
     :<- [:rf.xray/resource-work-ledger]
     :<- [:rf.xray/trace-buffer]
     :<- [:rf.xray/resource-sub-reads]
-    (fn [[registrations entries ledger trace-buffer sub-reads] _]
+    :<- [:rf.xray/resource-routing-slice]
+    (fn [[registrations entries ledger trace-buffer sub-reads routing-slice] _]
       (let [now-ms        (.now js/Date)
             routes-map    (rf/registrations :route)
             registry-rows (h/project-registry registrations routes-map)
@@ -621,7 +677,12 @@
          :registry      registry-rows
          :instances     instance-rows
          :work          work-rows
-         :route-graph   (h/project-route-graph routes-map)
+         :route-graph   (h/project-route-graph
+                          routes-map
+                          {:instance-rows instance-rows
+                           :work-rows     work-rows
+                           :current       (h/routing-current routing-slice)
+                           :blocking-keys (h/routing-blocking-keys routing-slice)})
          :timeline      (h/lifecycle-timeline trace-buffer)
          :invalidations (h/invalidation-graph trace-buffer)
          :cache-growth  (h/cache-growth instance-rows work-rows)

@@ -276,6 +276,9 @@
    :rf.xray/resource-work-ledger-override
    :rf.xray/resource-sub-reads
    :rf.xray/resource-sub-reads-override
+   ;; rf2-m5u3gt — the live route/resource graph reads the routing slice.
+   :rf.xray/resource-routing-slice
+   :rf.xray/resource-routing-slice-override
    :rf.xray/resources-tab-data
    ;; rf2-o5f5f.3 — Routes browse + Simulate-URL state lives under
    ;; the Static Routes panel (promoted from `:rf.xray.routing/*` per
@@ -653,6 +656,8 @@
    :rf.xray/set-resource-entries-override-for-test
    :rf.xray/set-resource-work-ledger-override-for-test
    :rf.xray/set-resource-sub-reads-override-for-test
+   ;; rf2-m5u3gt — live route/resource graph routing-slice override.
+   :rf.xray/set-resource-routing-slice-override-for-test
    ;; rf2-o5f5f.3 — Static Routes UI-state events (search input,
    ;; Simulate-URL input, expand-row toggle, hermetic Simulate-nav
    ;; toggle, cross-link to Dynamic Routing). Promoted from the
