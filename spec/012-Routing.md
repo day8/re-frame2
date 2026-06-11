@@ -50,7 +50,7 @@ Audience column: **user** = an event apps dispatch or handle directly; **runtime
 | `:rf.nav/push-url` | `pushState` for the URL. | `:client` |
 | `:rf.nav/replace-url` | `replaceState` for the URL. | `:client` |
 | `:rf.nav/scroll` | Apply a scroll strategy. Args carry `{:strategy :from :to :saved-pos :fragment}`. | `:client` |
-| `:rf.route/with-nav-token` | Threads `:nav-token` into a downstream dispatch for stale-result suppression. | universal |
+| `:rf.route/with-nav-token` | Threads `:nav-token` into a downstream dispatch for stale-result suppression — the nav-token lowered to the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope)'s `{:route/nav-token …}` `:suppress` gate (see [§Lowering onto the uniform reply envelope](#lowering-onto-the-uniform-reply-envelope)). | universal |
 
 ### Subscriptions
 
@@ -714,13 +714,24 @@ Suppression alone fixes the user-visible bug — the older load *does* complete 
 Two trace events surround the nav-token lifecycle (added to the trace-op vocabulary per [Spec-Schemas.md](Spec-Schemas.md#rftrace-event)):
 
 - **`:rf.route.nav-token/allocated`** — emitted when a navigation cascade allocates a fresh token. `:tags {:route-id <id> :nav-token <token>}`.
-- **`:rf.route.nav-token/stale-suppressed`** — emitted when an async result arrives carrying a now-superseded token. `:tags {:carried-token <t1> :current-token <t2> :event-id <id>}`. The handler does NOT run.
+- **`:rf.route.nav-token/stale-suppressed`** — emitted when an async result arrives carrying a now-superseded token. `:tags {:carried-token <t1> :current-token <t2> :event-id <id> :work/id <route-work-id>}`. The handler does NOT run. The `:work/id` tag is the route-loader work-id `[:rf.work/route route-id nav-token loader-id]`, joining the suppression to the superseded attempt's identity (see [§Lowering onto the uniform reply envelope](#lowering-onto-the-uniform-reply-envelope) below).
 
 Naming follows the `<feature>/<reason>` convention used by `:rf.machine.timer/stale-after`. See [Pattern-StaleDetection.md](Pattern-StaleDetection.md) for the cross-cutting pattern.
 
 ### Conformance
 
 Fixture `route-stale-nav-token-suppression.edn` exercises the canonical race: load route A; navigate to route B before A finishes; A finishes; verify the late result is suppressed and the trace shows `:rf.route.nav-token/stale-suppressed`.
+
+### Lowering onto the uniform reply envelope
+
+Route-loader async work is one of the managed *async* surfaces that complete through the framework-wide [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) (property 9 of the [managed-effect contract](Managed-Effects.md#the-nine-properties); [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) is the rationale record). The nav-token mechanism above is **not** a bespoke per-family stale-detection scheme: it is exactly one instance of the envelope's mandatory [stale suppression](Managed-Effects.md#stale-suppression) — the same correctness boundary HTTP ([014](014-HTTPRequests.md)), resources and mutations ([016](016-Resources.md)), and machine async work ([005](005-StateMachines.md)) lower onto. The public routing surface — the `:nav-token` cofx, the `:rf.route/with-nav-token` fx, and `:on-match` loaders — is **preserved verbatim**; the lowering is internal.
+
+The two correlations the envelope requires:
+
+- **Work-id correlation.** A route loader's [work id](Managed-Effects.md#work-id-correlation) is `[:rf.work/route route-id nav-token loader-id]`. One attempt has one work id ([EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)): a fresh navigation epoch (a new `:nav-token`) is a distinct attempt, so the nav-token rides *in* the work-id tuple. It is the **same fact named once** — the component that discriminates a superseded attempt *and* the value of the sole suppression gate (next bullet); it is never a second stale-suppression key alongside the work id.
+- **The nav-token is the suppression gate.** The [stale-suppression](Managed-Effects.md#stale-suppression) gate is the data-only map `{:route/nav-token <captured-token>}`, validated against the live `{:route/nav-token <current>}` read from `[:rf.runtime/routing :current :nav-token]`. The validation step 4 above (the `:rf.route/with-nav-token` check, or a handler comparing the cofx-injected token) is exactly this gate comparison — `carried` vs `current` by value equality. On match the **live** reply (`:ok` / `:error`, and `:cancelled` for an explicit user cancel) flows through to the app handler unchanged; on mismatch the completion is suppressed *before* the handler runs — its outcome is `:status :stale` with no app-db / runtime-db mutation, and the `:rf.route.nav-token/stale-suppressed` trace fires joined to the route `:work/id` (the carried + current gates ride in the trace facts). [§Cancellation as optimisation, not correctness](#cancellation-as-optimisation-not-correctness) above is the envelope's [cancellation-vs-suppression](Managed-Effects.md#cancellation) line: suppression is the correctness boundary; aborting the in-flight fetch is the optional optimisation.
+
+A route loader that fetches through managed HTTP (the common case — an `:on-match` handler emitting `:rf.http/managed`) therefore carries **two** correlated identities: the HTTP attempt's `[:rf.work/http …]` work id (014's gate is request-id + generation) and the route's `[:rf.work/route …]` nav-token gate. Both gates are checked independently before the app reply commits — the HTTP reply is delivered only if its own request is still current *and* the wrapping `:rf.route/with-nav-token` finds the nav-token current. This composition is the worked example in [EP-0011 §Route Loader Completion](../docs/EP/EP-0011-uniform-async-reply-envelope.md#route-loader-completion).
 
 ## Standard runtime events
 
