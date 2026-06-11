@@ -104,6 +104,13 @@
             ;; is byte-identical. `rf/realm` (the public realm constructor) is
             ;; a later stage and NOT shipped here.
             [re-frame.app-value :as app-value]
+            ;; EP-0013 D1 stage 8 (rf2-blibek): the realm-targeted QUERY
+            ;; readers — `realm/realm-registrations` / `realm-handler-meta` /
+            ;; `realm-handler-ids` back the public map-shaped facade forms
+            ;; `(rf/registrations {:realm r :kind k})` etc. (open-issue 11).
+            ;; A leaf on the registrar/late-bind spine; bundle-isolation
+            ;; neutral. The default-realm keyword arities are byte-identical.
+            [re-frame.realm :as realm]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.core-flows    :as rf-flows]
             [re-frame.core-routing  :as rf-routing]
@@ -1413,11 +1420,52 @@
   resolve-resource-scope rf-resources/resolve-resource-scope)
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
+;;
+;; The registrar query workhorses. Each grows a REALM-TARGETED map-shaped form
+;; alongside its existing process-global keyword arities (EP-0013 D1 stage 8,
+;; rf2-blibek; open-issue 11 — map-shaped is the ruled public form, unambiguous
+;; against the keyword arities and extensible). The map-shaped form reads ONLY
+;; the specified realm's registrar (`realm-registrations` / `realm-handler-meta`
+;; / `realm-handler-ids` over the realm's OWN `(kind, id) → metadata` atom), so
+;; "realm-targeted registrar queries return only that realm's registrations"
+;; (EP-0013 §Realm Conformance). The default-realm keyword arities are
+;; BYTE-IDENTICAL — a single-realm caller never spells a realm (the absence-is-
+;; default rule); only a caller that passes an explicit `{:realm …}` map reaches
+;; the realm-scoped path.
 
-(def ^{:doc "Return all ids registered under `kind` with their metadata —
-  the introspection workhorse used by tools, agents, and storybook
-  resolution. Per Spec 002 §The public registrar query API."}
-  registrations registrar/registrations)
+(defn registrations
+  "Return all ids registered under `kind` with their metadata — the
+  introspection workhorse used by tools, agents, and storybook resolution.
+  Per Spec 002 §The public registrar query API.
+
+  Arities:
+    `(registrations kind)`        — the full `{id metadata}` for `kind` in the
+                                     default realm (process-global registrar),
+                                     `{}` if none.
+    `(registrations kind pred-fn)` — same, filtered to entries whose metadata
+                                     satisfies `pred-fn`.
+    `(registrations {:realm r :kind k})` — REALM-TARGETED (EP-0013 stage 8):
+                                     the `{id metadata}` for `:kind` in realm
+                                     `:realm`'s OWN registrar — only THAT
+                                     realm's registrations. `:realm` is a realm
+                                     map, a realm-id keyword, or absent/nil for
+                                     the default realm. An optional `:pred`
+                                     filters by metadata as the positional
+                                     `pred-fn` does.
+
+  The map-shaped form is unambiguous against the keyword arities (a `kind` is a
+  keyword, never a map) — the byte-identical default-realm path is unchanged
+  for every existing caller."
+  ([arg]
+   (if (map? arg)
+     (let [{:keys [realm kind pred]} arg
+           base (realm/realm-registrations realm kind)]
+       (if pred
+         (into {} (filter (fn [[_id meta]] (pred meta))) base)
+         base))
+     (registrar/registrations arg)))
+  ([kind pred-fn]
+   (registrar/registrations kind pred-fn)))
 
 (defn handler-meta
   "Return the registration metadata map for `[kind id]`, or `nil`. The
@@ -1425,8 +1473,18 @@
   source-jump) read to find a (kind, id)'s definition. Per Spec 002 §The
   public registrar query API.
 
-  For the registrar kinds (`:event :sub :fx :cofx :view :frame :route
-  :head :error-projector :flow :resource`) this is `registrar/lookup`.
+  Arities:
+    `(handler-meta kind id)` — the default-realm (process-global) metadata for
+      `[kind id]`. For the registrar kinds (`:event :sub :fx :cofx :view
+      :frame :route :head :error-projector :flow :resource`) this is
+      `registrar/lookup`.
+    `(handler-meta {:realm r :kind k :id id})` — REALM-TARGETED (EP-0013 stage
+      8): the metadata for `[k id]` in realm `r`'s OWN registrar — only THAT
+      realm's registration. `:realm` is a realm map, a realm-id keyword, or
+      absent/nil for the default realm. (The machine kinds are derived from
+      the default realm's machine specs, so the realm-targeted form is for the
+      registrar kinds; a machine kind through the map form resolves against
+      the default-realm derivation.)
 
   The two machine kinds `:machine-guard` / `:machine-action` are NOT
   registrar kinds (rf2-ftrcv, supersedes rf2-ypu5i / rf2-npvsx) — `id` is
@@ -1437,15 +1495,38 @@
   The addressing is uniform: callers read
   `(handler-meta :machine-guard [machine-id guard-id])` exactly as before.
   Production-elided per Spec 009 (the derivation returns nil when the
-  `:source-*` slots are absent)."
-  [kind id]
-  (case kind
-    (:machine-guard :machine-action) (rf-machines/machine-handler-meta kind id)
-    (registrar/handler-meta kind id)))
+  `:source-*` slots are absent).
 
-(def ^{:doc "Return the set of registered ids under `kind` (no metadata).
-  Per Spec 002 §The public registrar query API."}
-  handler-ids  registrar/ids)
+  The map-shaped form is unambiguous against the `(kind id)` arity (a `kind`
+  is a keyword, never a map) — the byte-identical default-realm path is
+  unchanged for every existing caller."
+  ([arg]
+   (let [{:keys [realm kind id]} arg]
+     (case kind
+       (:machine-guard :machine-action) (rf-machines/machine-handler-meta kind id)
+       (realm/realm-handler-meta realm kind id))))
+  ([kind id]
+   (case kind
+     (:machine-guard :machine-action) (rf-machines/machine-handler-meta kind id)
+     (registrar/handler-meta kind id))))
+
+(defn handler-ids
+  "Return the set of registered ids under `kind` (no metadata). Per Spec 002
+  §The public registrar query API.
+
+  Arities:
+    `(handler-ids kind)` — the id set under `kind` in the default realm.
+    `(handler-ids {:realm r :kind k})` — REALM-TARGETED (EP-0013 stage 8): the
+      id set under `:kind` in realm `:realm`'s OWN registrar — only THAT
+      realm's ids. `:realm` is a realm map, a realm-id keyword, or absent/nil
+      for the default realm.
+
+  The map-shaped form is unambiguous against the keyword arity (a `kind` is a
+  keyword, never a map) — the default-realm path is byte-identical."
+  [arg]
+  (if (map? arg)
+    (realm/realm-handler-ids (:realm arg) (:kind arg))
+    (registrar/ids arg)))
 
 (def ^{:doc "Return the set of registered, non-destroyed frame ids. Per
   Spec 002 §The public registrar query API."}
@@ -1571,13 +1652,21 @@
   constructor. Per spec/API.md §App values and composition (EP-0013)."}
   app app-value/app)
 
-(def ^{:doc "Return an app value's registration descriptors for `kind`
-  (`{id descriptor}`), or `nil` — `(app-registrations app :event)`. The
-  enumerable registration view that makes static dispatch-coverage checks
-  possible WITHOUT installing the app. Works over both constructed and
-  projected app values. Per spec/API.md §App values and composition
-  (EP-0013)."}
-  app-registrations app-value/app-registrations)
+(defn app-registrations
+  "Return an app value's registration descriptors for a `kind` (`{id
+  descriptor}`), or `nil`. The enumerable registration view that makes static
+  dispatch-coverage checks possible WITHOUT installing the app. Works over both
+  constructed (`app`) and projected app values. Per spec/API.md §App values and
+  composition (EP-0013).
+
+  Arities:
+    `(app-registrations app kind)`           — the positional form.
+    `(app-registrations {:app app :kind k})` — the map-shaped form (EP-0013
+      stage 8, open-issue 11), parallel to the realm-targeted registrar
+      queries: `:app` is the app value, `:kind` the registry kind. Unambiguous
+      against the positional form (the single-arg map carries both)."
+  ([m] (app-value/app-registrations (:app m) (:kind m)))
+  ([app kind] (app-value/app-registrations app kind)))
 
 (def ^{:doc "Return the set of `:rf.capability/*` requirements an app value
   declares — `(app-requires app)`, the union of its modules' `:requires`. The

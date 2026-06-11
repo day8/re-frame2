@@ -329,10 +329,10 @@ The two migrations the ruling sequences first — **adapter install/test-reset**
 | the realm as the owner of registrar / adapter / capabilities / frame registry / host-transient state | the **app value** — registrations as immutable descriptors (D2) |
 | the **default realm** preserving today's ergonomics; absence = default realm | `install!` / `reinstall!` as the specified contract; hot reload as a diff (D2) |
 | adapter ownership = realm selection + root instances | **module manifests** with ownership claims + collision detection (D3) |
-| capability maps + late-bind-as-bridge; `:rf.capability/*` reserved | the four public constructor names (`rf/app` / `rf/module` / `rf/realm` / `rf/install!`) |
-| host-transient subsystem state + the grading column | realm-targeted **public** registrar queries (map-shaped, issue 11) |
+| capability maps + late-bind-as-bridge; `:rf.capability/*` reserved | the public `app` / `module` / `install!` / `reinstall!` constructors (D2 stages 6–7, now shipped) and the **realm-targeted public registrar queries** (map-shaped, issue 11 — D1 stage 8, now shipped) |
+| host-transient subsystem state + the grading column | the public **realm constructor** `rf/realm` + multi-realm/multi-adapter conformance (stage 9) |
 
-The reserved vocabulary, the realm-targeted query shape (map-shaped — `{:realm … :kind …}`, issue 11), and the descriptor/manifest model are documented as **deferred rationale and examples in [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md)**, not as an accepted public surface. D1 ships the container only.
+Stage 8 (D1) ships the **realm-targeted public registrar query surface**: the registrar-query workhorses (`registrations` / `handler-meta` / `handler-ids`) grow a map-shaped form — `(rf/registrations {:realm r :kind k})` etc. — that reads only the specified realm's registrar (issue 11; "realm-targeted registrar queries return only that realm's registrations"). The default-realm keyword arities stay byte-identical (absence = default realm). What remains deferred is the public **realm constructor** (`rf/realm`) and full multi-realm / multi-adapter-root conformance — stage 9. The descriptor/manifest D3 surface stays documented as **deferred rationale and examples in [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md)**, not an accepted public surface.
 
 ## Cross-references
 
