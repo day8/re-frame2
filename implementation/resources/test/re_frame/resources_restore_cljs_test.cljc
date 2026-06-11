@@ -49,6 +49,7 @@
    [re-frame.resources.mutation-runtime :as mstate]
    [re-frame.resources.ssr :as ssr]
    [re-frame.resources.state :as state]
+   [re-frame.resources.timers :as timers]
    [re-frame.resources.work-ledger :as work-ledger]
    [re-frame.test-support :as core-test-support]
    [re-frame.trace.tooling :as trace-tooling]
@@ -489,6 +490,80 @@
           "tag-index recomputed from the entry's :tags; bogus snapshot index discarded")
       (is (= {[:route :route/article "nav-1"] #{gkey}} (:owner-index sub))
           "owner-index recomputed from the entry's owners; bogus snapshot index discarded"))))
+
+;; ===========================================================================
+;; 4b. Clear host transients on restore (rf2-nd1r9q, part 5)
+;; ===========================================================================
+;;
+;; Host side tables (stale/GC timer handles + work-ledger host handles) belong
+;; to the PRE-restore timeline and are NOT frame-state, so the wholesale
+;; install does not touch them. restore-reconcile must clear them for the
+;; restored frame so a stale timer / abandoned in-flight handle cannot fire
+;; against the restored state — WITHOUT rewinding the generation high-water
+;; mark or re-binding the revalidation listeners.
+
+(defn- frame-timer-keys
+  "The timer-table keys (`[frame-id resource-key kind]`) armed for `frame-id`."
+  [frame-id]
+  (filter (fn [[fid _ _]] (= fid frame-id)) (keys @timers/timer-table)))
+
+(defn- frame-handle-keys
+  "The work-ledger handle-table keys (`[frame-id work-id]`) for `frame-id`."
+  [frame-id]
+  (filter (fn [[fid _]] (= fid frame-id)) (keys @work-ledger/handle-table)))
+
+(deftest clear-host-transients-on-restore-clears-timers-and-handles
+  (testing "rf2-nd1r9q — restore clears the frame's armed stale/GC timer handles
+            and work-ledger host handles (host transients, not frame-state)"
+    (let [fid :restore/transients
+          rkey gkey
+          wid  [:rf.work/resource gkey 4]]
+      ;; arm a stale timer (long delay so it never fires during the test) and a
+      ;; work-ledger host handle for the frame.
+      (timers/schedule! fid rkey timers/stale-kind 600000)
+      (work-ledger/put-handle! fid wid {:transport :rf.http/managed :request-id wid})
+      (is (seq (frame-timer-keys fid)) "a stale timer is armed for the frame")
+      (is (seq (frame-handle-keys fid)) "a work handle is recorded for the frame")
+      ;; restore the frame's snapshot (a mid-flight fetching entry)
+      (let [e (entry {:resource-id :article/by-slug :status :fetching :data {:x 1}
+                      :loaded-at 1 :stale-at 9.0e15 :current-work wid})]
+        (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid))
+      (is (empty? (frame-timer-keys fid))
+          "the frame's stale/GC timer handles are GONE after restore")
+      (is (empty? (frame-handle-keys fid))
+          "the frame's work-ledger host handles are GONE after restore")
+      ;; cleanup any stray timers (none expected)
+      (timers/cancel-for-key! fid rkey))))
+
+(deftest restore-host-clear-preserves-generation-high-water
+  (testing "rf2-nd1r9q — clearing host transients on restore does NOT rewind the
+            generation high-water mark (part 1 — it must stay monotonic)"
+    (let [fid :restore/gen-preserve]
+      (state/commit-generation! fid 11)
+      (timers/schedule! fid gkey timers/stale-kind 600000)
+      (let [e (entry {:resource-id :article/by-slug :status :fetching :data {:x 1}
+                      :loaded-at 1 :stale-at 9.0e15 :current-work [:rf.work/resource gkey 5]})]
+        (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid))
+      (is (= 11 (state/generation-snapshot fid))
+          "the host-side generation high-water mark is UNTOUCHED by the host-transient clear")
+      (timers/cancel-for-key! fid gkey))))
+
+(deftest restore-host-clear-triggers-no-eager-refetch
+  (testing "rf2-nd1r9q — restore clears transients but arms NO eager refetch /
+            timer (scheduling re-arms lazily on the next live-owner touch)"
+    (let [fid :restore/no-eager
+          e   (entry {:resource-id :article/by-slug :status :loaded
+                      :data {:x 1} :loaded-at 1 :stale-at 2})] ;; stale
+      (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid)
+      (is (empty? (frame-timer-keys fid))
+          "no stale/GC timer is armed by restore (lazy re-arm on next ensure)")
+      (is (empty? (frame-handle-keys fid))
+          "no work handle is created by restore (no eager refetch)"))))
+
+(deftest clear-host-transients-on-restore-is-pure-subset
+  (testing "rf2-nd1r9q — clear-host-transients-on-restore! clears timers + work
+            handles but is a no-op on an unarmed frame (idempotent)"
+    (is (nil? (ssr/clear-host-transients-on-restore! :restore/unarmed)))))
 
 ;; ===========================================================================
 ;; 5. The generation allocator is monotonic across restore (part 1)
