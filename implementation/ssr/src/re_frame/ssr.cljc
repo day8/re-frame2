@@ -200,7 +200,7 @@
   it per deployment."
   5000)
 
-(defn default-blocking-pump!
+(defn- default-blocking-pump!
   "The default SSR blocking-drain event PUMP — a host-platform yield of
   `tick-ms` so an in-flight blocking-resource reply (running on the managed-
   HTTP transport thread) makes progress and dispatches its reply event
