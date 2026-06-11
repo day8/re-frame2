@@ -456,7 +456,218 @@ Their algebra views differ only in output, storage, evaluation, and lifecycle:
 | `:materialized?` | `false` | `true` |
 | `:derive` | `#'app.cart/sum-cart` | `#'app.cart/sum-cart` |
 
-`sum-cart` is one whole-value function. The difference between the subscription and the flow is **not the mathematical function; it is policy over the same dependency graph.** That is the whole point of naming the algebra. Full worked source-form/algebra-view pairs for every member — parametric subscriptions, runtime subscriptions, resources (static + live), route facts, machine processes and selectors — live in [EP-0014 §Examples](../docs/EP/EP-0014-derivation-and-process-algebra.md#examples).
+`sum-cart` is one whole-value function. The difference between the subscription and the flow is **not the mathematical function; it is policy over the same dependency graph.** That is the whole point of naming the algebra. The full worked source-form/algebra-view pairs for every member — parametric subscriptions, runtime subscriptions, resources (static + live), route facts, machine processes and selectors — are catalogued [below](#side-by-side-catalogue--every-source-form-and-its-algebra-view) and in [EP-0014 §Examples](../docs/EP/EP-0014-derivation-and-process-algebra.md#examples).
+
+## Side-by-side catalogue — every source form and its algebra view
+
+This section is **illustrative, not normative** — the binding rules are the per-member sections below and the [§Conformance](#conformance) list. It collects, in one scannable place, the source form an author writes next to the algebra view it lowers to, for every member of the algebra. Read it as the worked companion to the [node shape](#the-node-shape): each pair shows which axes are *fixed* for that member (the member's identity in the algebra) and which *vary* per registration (its declared `:inputs` and `:output`). A reader-first walkthrough of the same mapping, anchored to the four-homes mental model, lives in the guide chapter [One graph: derivations and algebra views](../docs/guide/derivations-and-algebra-views.md).
+
+### Subscription (static `:<-`) → ephemeral derivation
+
+```clojure
+;; SOURCE FORM                              ;; ALGEBRA VIEW
+(rf/reg-sub :cart/total                     {:id          :cart/total
+  :<- [:cart/items]                          :kind        :derivation
+  :<- [:pricing/discounts]                   :source-form {:kind :reg-sub :id :cart/total}
+  (fn [[items discounts] _]                  :inputs      [[:sub [:cart/items]]
+    (sum-cart items discounts)))                           [:sub [:pricing/discounts]]]
+                                             :output      [:fact :cart/total]
+                                             :storage     :ephemeral
+                                             :evaluation  :on-demand
+                                             :lifecycle   :subscription-cache-entry
+                                             :materialized? false
+                                             :derive      #'app.cart/sum-cart}
+```
+
+Each literal `:<-` input lowers to a `[:sub query-vector]` edge in declaration order. A **layer-1** `:db` reader, which is handed the whole `app-db` value, lowers conservatively to the app-db projection root `[[:db []]]` ([§Subscriptions expose algebra views](#subscriptions-expose-algebra-views)).
+
+### Parametric subscription → static `:parametric` / live realized edges
+
+```clojure
+;; SOURCE FORM
+(rf/reg-sub :article/page
+  (fn [[_ slug]]                              ;; input function — edges depend on `slug`
+    [[:article/by-slug slug]
+     [:comments/for-article slug]])
+  (fn [[article comments] [_ slug]]
+    {:slug slug :article article :comments comments}))
+```
+
+```clojure
+;; STATIC VIEW                               ;; LIVE VIEW for [:article/page "welcome"]
+{:id :article/page                           {:id [:sub [:article/page "welcome"]]
+ :kind :derivation                            :kind :derivation
+ :inputs :parametric                          :inputs [[:sub [:article/by-slug "welcome"]]
+ :input-producer                                       [:sub [:comments/for-article "welcome"]]]
+   #'app.article/article-page-inputs          :output [:fact [:article/page "welcome"]]
+ :output [:fact :article/page]                :storage :ephemeral
+ :storage :ephemeral                          :evaluation :on-demand
+ :evaluation :on-demand                       :lifecycle :subscription-cache-entry}
+ :lifecycle :subscription-cache-entry}
+```
+
+The static graph reports the `:parametric` marker plus the opaque `:input-producer` token — it never runs the input function ([§The don't-execute rule](#the-dont-execute-rule-ep-0014-issue-3-disposition)). The live sub-cache view reports the realized `[:sub q]` edges the static graph cannot enumerate.
+
+### Runtime subscription → ephemeral derivation over `runtime-db`
+
+```clojure
+;; SOURCE FORM (framework-internal — subsystem facade, not app code)
+(subs/reg-runtime-sub :rf.route/params
+  (fn [runtime-db _]
+    (get-in runtime-db [:rf.runtime/routing :current :params])))
+```
+
+```clojure
+;; ALGEBRA VIEW
+{:id         :rf.route/params
+ :kind       :derivation
+ :inputs     [[:runtime [:rf.runtime/routing :current :params]]]
+ :output     [:fact :rf.route/params]
+ :storage    :ephemeral
+ :evaluation :on-demand
+ :lifecycle  :subscription-cache-entry}
+```
+
+The same ephemeral-derivation classifications as an ordinary subscription; the only difference is the partition the conservative input names — `[:runtime …]` for `reg-runtime-sub`, `[:frame-state …]` for the cross-partition framework-internal `reg-frame-state-sub`.
+
+### Flow → materialized derivation
+
+```clojure
+;; SOURCE FORM                              ;; ALGEBRA VIEW
+(rf/reg-flow                                 {:id          :cart/materialized-total
+  {:id     :cart/materialized-total           :kind        :derivation
+   :inputs [[:cart :items]                    :source-form {:kind :reg-flow
+            [:pricing :discounts]]                          :id   :cart/materialized-total}
+   :output (fn [items discounts]              :inputs      [[:db [:cart :items]]
+             (sum-cart items discounts))                    [:db [:pricing :discounts]]]
+   :path   [:cart :total]})                   :output      [:db [:cart :total]]
+                                              :storage     :app-db
+                                              :evaluation  :after-event
+                                              :lifecycle   :frame
+                                              :materialized? true
+                                              :derive      #'app.cart/sum-cart}
+```
+
+The subscription's exact policy twin — same whole-value function, materialized instead of ephemeral ([§Worked equivalence](#worked-equivalence--one-function-two-policies)). Each `:inputs` path lowers to a `[:db path]` edge (a partition-qualified `[:rf.db/runtime …]` input lowers to `[:runtime …]`); the `:path` lowers to the `[:db …]` output address.
+
+### Resource → process (static, then live)
+
+```clojure
+;; SOURCE FORM
+(rf/reg-resource :article/by-slug
+  {:params-schema  [:map [:slug :string]]
+   :data-schema    :app/article
+   :scope          :rf.scope/from-caller
+   :request        (fn [{:keys [slug]} _ctx]
+                     {:request {:method :get :url (str "/api/articles/" slug)}
+                      :decode  :app/article})
+   :stale-after-ms 60000
+   :gc-after-ms    300000})
+```
+
+```clojure
+;; STATIC ALGEBRA VIEW
+{:id          :article/by-slug
+ :kind        :process                       ;; refinement :resource-process
+ :source-form {:kind :reg-resource :id :article/by-slug}
+ :inputs      [[:param :slug]
+               [:scope :rf.scope/from-caller]]
+ :output      [:runtime [:rf.runtime/resources :entries]]
+ :storage     :runtime-db                     ;; the LOCAL cache home
+ :authority   {:kind :remote :system :server  ;; the source of truth is external
+               :transport :rf.http/managed}
+ :evaluation  #{:on-route :on-reply :scheduled :manual}
+ :lifecycle   :resource-key
+ :materialized? true
+ :selectors   [:rf.resource/state :rf.resource/data :rf.resource/status
+               :rf.resource/loading? :rf.resource/error :rf.resource/has-data?]}
+```
+
+```clojure
+;; LIVE ALGEBRA VIEW for one scoped key
+{:id     [:resource [[:rf.scope/session {:tenant-id "acme"}] :article/by-slug {:slug "welcome"}]]
+ :kind   :process
+ :inputs [[:scope [:rf.scope/session {:tenant-id "acme"}]] [:param {:slug "welcome"}]]
+ :output [:runtime [:rf.runtime/resources :entries
+                    [[:rf.scope/session {:tenant-id "acme"}] :article/by-slug {:slug "welcome"}]]]
+ :storage :runtime-db
+ :authority {:kind :remote :system :server}
+ :status  :loaded
+ :lifecycle {:kind :resource-key :owners #{[:route :route/article 17]}}
+ :host-transient [[:rf.http/in-flight :work/id-123]]}
+```
+
+The split the [§Authority](#authority--the-remote-axis) section names is visible here: `:storage` always names the *local* representation home (`:runtime-db` for the cache entry, `:host-transient` for the live in-flight handle), and `:authority` is the separate external-truth axis. One declaration lowers to **more than one** node — the process node plus its `:selectors` read facts — and reading a selector starts no work ([§Evaluation policy](#evaluation-policy) rule 1).
+
+### Route → route fact (process-like) with an owned resource edge
+
+```clojure
+;; SOURCE FORM
+(rf/reg-route :route/article
+  {:path "/articles/:slug"
+   :params [:map [:slug :string]]
+   :resources [{:resource :article/by-slug
+                :params   (fn [route] {:slug (get-in route [:params :slug])})
+                :blocking? true}]})
+```
+
+```clojure
+;; ALGEBRA VIEW
+{:id          :rf/route                       ;; the one slice name; every route shares it
+ :kind        :process                        ;; refinement :route-fact
+ :source-form {:kind :reg-route :id :route/article}
+ :inputs      [[:event :rf.route/navigate]
+               [:event :rf.route/transitioned]
+               [:event :rf.route/handle-url-change]]
+ :output      [:runtime [:rf.runtime/routing :current]]
+ :storage     :runtime-db
+ :evaluation  :on-route
+ :lifecycle   :frame
+ :materialized? true
+ :resource-edges
+ [{:from   [:runtime [:rf.runtime/routing :current :params]]
+   :to     [:resource :article/by-slug]
+   :role   :param
+   :target :parametric                        ;; concrete key needs a live match + scope
+   :blocking? true}]}
+```
+
+Every route materializes the *same* slice fact `:rf/route`; the per-route id is recorded under `:source-form`. The `:resources` declaration lowers to a route-owned [resource activation edge](#route-owned-resource-activation-edges) whose `:target` stays `:parametric` (the don't-execute rule forbids running the entry's `:params`/`:scope` functions statically).
+
+### Machine → process; its selector → derivation
+
+```clojure
+;; SOURCE FORM
+(rf/reg-machine :upload/main
+  {:initial :idle
+   :data    {:progress 0}
+   :states  {:idle      {:on {:upload/start {:target :uploading}}}
+             :uploading {:entry :start-upload
+                         :on {:upload/progress  {:action :record-progress}
+                              :upload/succeeded {:target :done}
+                              :upload/failed    {:target :failed}}}
+             :failed {} :done {}}})
+```
+
+```clojure
+;; MACHINE PROCESS VIEW                      ;; SELECTOR (a reg-sub over [:rf/machine …])
+{:id          :upload/main                   (rf/reg-sub :upload/progress
+ :kind        :machine-process                 :<- [:rf/machine :upload/main]
+ :source-form {:kind :reg-machine              (fn [snapshot _]
+               :id   :upload/main}               (get-in snapshot [:data :progress] 0)))
+ :inputs      [[:event :upload/start]
+               [:event :upload/progress]     ;; SELECTOR ALGEBRA VIEW
+               [:event :upload/succeeded]    {:id      :upload/progress
+               [:event :upload/failed]]       :kind    :machine-selector   ;; a :derivation refinement
+ :output  [:runtime [:rf.runtime/machines     :inputs  [[:machine :upload/main [:data :progress]]]
+           :snapshots :upload/main]]          :output  [:fact :upload/progress]
+ :storage :runtime-db                         :storage :ephemeral
+ :evaluation #{:on-transition}                :evaluation :on-demand
+ :lifecycle  :machine-instance                :lifecycle  :subscription-cache-entry
+ :materialized? true}                         :derive     #'app.upload/progress}
+```
+
+The machine is the stateful **process**; the selector is an ephemeral **derivation** over its materialized snapshot. `:inputs` are every `:on` event key across the state tree, de-duplicated; `:evaluation` gains `:scheduled` if the spec declares any `:after` transition and `:on-reply` if it spawns children. A selector is an ordinary subscription node ([§Subscriptions expose algebra views](#subscriptions-expose-algebra-views)) the [machines tooling](#machines-expose-algebra-views) merely labels with the `:machine-selector` refinement and edges back to its machine with a `:selector` role — machines do **not** become a second subscription system (EP-0014 issue-4).
 
 ## Subscriptions expose algebra views
 

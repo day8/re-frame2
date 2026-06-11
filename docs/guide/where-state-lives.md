@@ -123,6 +123,8 @@ What it buys: the checkout can now only be in a state it can legally reach, the 
 <summary>For the categorically curious</summary>
 
 All four homes are the same thing seen four ways: a node in **one dependency graph rooted at your state**, distinguished only by its *storage policy* (where the value is kept) and its *evaluation policy* (when it's recomputed). A **subscription** is *no storage, recompute on demand*. A **flow** is *stored in app-db, recompute after each event*. A **resource** is *stored in a runtime cache, recompute on cause and staleness*. A **machine** is *stored as a snapshot, recompute on transition*. Same graph, four policies — which is why "where should this value live?" is really "which storage-and-evaluation policy does this value need?"
+
+If that idea grabs you, [One graph: derivations and algebra views](derivations-and-algebra-views.md) opens it all the way up — it shows each source form (`reg-sub` / `reg-flow` / `reg-resource` / `reg-route` / `reg-machine`) next to the normalized *algebra view* it lowers to, side by side, so you can see the four-policy claim made concrete.
 </details>
 
 ## Signs you picked the wrong home
