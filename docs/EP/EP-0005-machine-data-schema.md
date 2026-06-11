@@ -118,8 +118,8 @@ The transition-table grammar already carries an optional schema slot for `:data`
 `spec/005-StateMachines.md` lists `:schema` as a top-level optional key that
 "validates the machine's `:data` slot at every macrostep boundary + at bootstrap";
 failures emit `:rf.error/schema-validation-failure :where :machine-data` and roll
-back the cascade. `spec/010-Schemas.md` step 4a walks
-`[:rf/runtime :machines :snapshots]` and validates each snapshot's `:data`. The
+back the cascade. `spec/010-Schemas.md` step 4a now walks runtime-db at
+`[:rf.runtime/machines :snapshots]` and validates each snapshot's `:data`. The
 implementation is `re_frame/machines/data_validation.cljc`
 (`validate-machine-data!`, `validate-spawn-data!`, `validate-snapshot-data!`),
 with acceptance, rollback, bootstrap, and spawn coverage in `machine_schema_test.clj`.
@@ -201,11 +201,11 @@ validation + elision vs TypeScript compile-time-only types) is worth recording.
 
 This EP is largely independent but shares one path with another proposal.
 
-- **Sequences after the App/Runtime Partition EP.** The redaction bridge targets the
-  machine-snapshot path `[:rf/runtime :machines :snapshots]`, which the
-  [App/Runtime Partition EP](EP-0001-frame-partitions.md) renames to
-  `[:rf.runtime/machines :snapshots]`. If both land, the bridge work follows the
-  partition rename so it targets the final path. The two are otherwise independent.
+- **Follows the App/Runtime Partition EP.** The redaction bridge targets the
+  machine-snapshot path in runtime-db, `[:rf.runtime/machines :snapshots]`, as
+  graduated by the [App/Runtime Partition EP](EP-0001-frame-partitions.md). The two
+  decisions are otherwise independent, but EP-0005's implementation targets the
+  partitioned path.
 - **Subsumes the deferred `rf2-wto1k` option A.** `rf2-wto1k` shipped the pragmatic
   inference from initial `:data` (option B) and deferred the declared-context schema
   (option A) as a separate spec/005 feature. This EP is that feature.
