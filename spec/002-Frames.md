@@ -878,6 +878,8 @@ Like the other framework coeffects, `:rf.world/inputs` is **filtered out of the 
 
 The earlier optional `:dispatched-at` envelope field is **gone** — retired in the same change that landed the envelope stamp (no coexistence window), per [EP-0010 disposition 5](../docs/EP/EP-0010-causal-world-inputs.md#open-issues). Two spellings of "when was this dispatched" violate one-name-per-fact ([EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)); the *durable* causal-time fact is now `(:time-ms (:rf.world/inputs envelope))`, and the *diagnostic* dispatch-time need is the trace event's own `:time` stamp (Spec 009 — ambient by design). Durable code reads `:rf.world/inputs`.
 
+Per the standard retirement treatment (EP-0007 rule 2 — a hard error naming the replacement, never a silent alias), supplying `:dispatched-at` in a `dispatch` / `dispatch-sync` opts map is a **hard error** (`:rf.error/dispatched-at-retired`) that names `(:time-ms (:rf.world/inputs envelope))` as the replacement — not the generic unknown-opt warning. The error fires in production too (it is a correctness contract, not a dev diagnostic).
+
 ## View ergonomics (the hard part)
 
 > **Pattern vs. CLJS reference:**
