@@ -133,23 +133,18 @@
                        (not= target default-epoch)
                        (state/render-key-already-in-epoch?
                          frame-id target render-key))
-          ;; rf2-82pcg leak-closure + rf2-qhxz6 once-per-slot — pass
-          ;; `assembly/maybe-redact` so `back-fill-render!` runs the
-          ;; installed `:redact-fn` over ONLY the newly-appended delta
-          ;; (the RAW render event for `:trace-events` + the RAW projected
-          ;; row for `:renders`) before splicing it onto the already-
-          ;; redacted record. The redacted record is what lands in the
-          ;; ring AND what we re-fan to listeners — so both the pull egress
-          ;; (`epoch-history` / MCP `read-recording` / `restore-epoch`) and
-          ;; the push egress (this fan-out) see the redacted shape. Without
-          ;; redaction the appended slots reach egress bypassing the
-          ;; `:redact-fn` (the leak). Per rf2-qhxz6 only the delta is
-          ;; redacted, so each slot is scrubbed EXACTLY ONCE — the
-          ;; Tool-Pair 'once per assembled record' contract holds with no
-          ;; idempotency requirement on the app's `:redact-fn`.
+          ;; EP-0015 §15 + open-issue 6 (RULED, hardened): the back-fill
+          ;; appends the RAW render event (to `:trace-events`) + the RAW
+          ;; projected row (to `:renders`). Storage-side redaction was
+          ;; REMOVED — the ring is causal replay material; the `:redact-fn`
+          ;; advanced override runs projection-side only, inside
+          ;; `projected-record`, so the off-box egress (Xray-MCP
+          ;; `watch-epochs`, recorders) sees the redacted shape while the
+          ;; ring + this listener fan-out deliver the raw record. No
+          ;; per-back-fill redact invocation means no storage-side leak to
+          ;; close and no non-idempotent-fn hazard.
           (when-let [updated (state/back-fill-render! frame-id target event
-                                                      (capture/render-row event)
-                                                      assembly/maybe-redact)]
+                                                      (capture/render-row event))]
             ;; Re-fan the corrected record so snapshot consumers re-read
             ;; the ring. The fan-out is failure-isolated per listener
             ;; (same contract as the settle-time fan-out); a render-driven
@@ -178,15 +173,14 @@
   [frame-id event]
   (when interop/debug-enabled?
     (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
-      ;; rf2-82pcg leak-closure + rf2-qhxz6 once-per-slot — pass
-      ;; `assembly/maybe-redact` so the RAW sub-event appended to
-      ;; `:trace-events` + the RAW `:sub-runs` row (the delta) are run
-      ;; through the installed `:redact-fn` before they land in the ring
-      ;; / re-fan to listeners. Only the delta is redacted, so each slot
-      ;; is scrubbed exactly once (see `record-render!`).
+      ;; EP-0015 §15 + open-issue 6 (RULED): the back-fill appends the RAW
+      ;; sub-event (to `:trace-events`) + the RAW `:sub-runs` row. The ring
+      ;; + listener fan-out deliver the raw record; the `:redact-fn`
+      ;; advanced override runs projection-side only (inside
+      ;; `projected-record`), so the off-box egress sees the redacted shape
+      ;; (see `record-render!`).
       (when-let [updated (state/back-fill-sub-run! frame-id epoch-id event
-                                                   (capture/sub-run-row event)
-                                                   assembly/maybe-redact)]
+                                                   (capture/sub-run-row event))]
         ;; Re-fan the corrected record so snapshot consumers re-read the
         ;; ring. Same failure-isolated fan-out + no-loop contract as the
         ;; render back-fill above.
@@ -239,16 +233,15 @@
   [frame-id event]
   (when interop/debug-enabled?
     (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
-      ;; rf2-82pcg leak-closure + rf2-qhxz6 once-per-slot — pass
-      ;; `assembly/maybe-redact` so the RAW unmount event appended to
-      ;; `:trace-events` (the delta) is run through the installed
-      ;; `:redact-fn` before it lands in the ring / re-fans to listeners
-      ;; (see `record-render!`). An unmount carries no structured projection
-      ;; row, so only `:trace-events` is back-filled — but that slot is
-      ;; still egress (Xray's VIEWS-step `unmounted-views-rows` reads it).
-      ;; Only the appended delta is redacted, so the slot is scrubbed once.
-      (when-let [updated (state/back-fill-unmount! frame-id epoch-id event
-                                                   assembly/maybe-redact)]
+      ;; EP-0015 §15 + open-issue 6 (RULED): the back-fill appends the RAW
+      ;; unmount event to `:trace-events`. The ring + listener fan-out
+      ;; deliver the raw record; the `:redact-fn` advanced override runs
+      ;; projection-side only (inside `projected-record`), so the off-box
+      ;; egress (where Xray's VIEWS-step `unmounted-views-rows` consumes
+      ;; the projected record) sees the redacted shape (see
+      ;; `record-render!`). An unmount carries no structured projection row,
+      ;; so only `:trace-events` is back-filled.
+      (when-let [updated (state/back-fill-unmount! frame-id epoch-id event)]
         ;; Re-fan the corrected record so snapshot consumers re-read the
         ;; ring. Same failure-isolated fan-out + no-loop contract as the
         ;; render / sub-run back-fill above.
@@ -345,15 +338,17 @@
     ;; buffered events are read separately for the partial-record build.
     (let [buffered-events (state/buffer-for frame-id)]
       (when (capture/in-flight-cascade? frame-id)
-        ;; Per rf2-wp70d: even on the halted-destroy partial-record
-        ;; commit, `maybe-redact` runs once between `build-record`
-        ;; and listener fan-out so listener consumers see the SAME
-        ;; redacted shape they would see for an :ok cascade record.
-        (let [record (assembly/maybe-redact
-                       (assembly/build-record frame-id fs-before fs-after buffered-events
-                                              committed-at
-                                              :halted-destroy
-                                              {:operation :rf.frame/destroyed-mid-drain}))]
+        ;; Per EP-0015 §15 + open-issue 6 (RULED, hardened): the
+        ;; halted-destroy partial record is delivered RAW to listeners
+        ;; (the same posture as the :ok / :halted-depth ring records).
+        ;; Storage-side redaction was REMOVED — epoch records are causal
+        ;; replay material; the `:redact-fn` advanced override runs
+        ;; projection-side only, inside `projected-record`. A listener
+        ;; that forwards off-box projects at its egress boundary.
+        (let [record (assembly/build-record frame-id fs-before fs-after buffered-events
+                                            committed-at
+                                            :halted-destroy
+                                            {:operation :rf.frame/destroyed-mid-drain})]
           ;; Per rf2-18g1w / rf2-jppad — the cascade-trailer pair (detailed
           ;; `:rf.epoch/snapshotted` `:outcome :halted-destroy` plus the
           ;; consumer-facing `:rf.epoch/outcome :blocked`). Shared with the

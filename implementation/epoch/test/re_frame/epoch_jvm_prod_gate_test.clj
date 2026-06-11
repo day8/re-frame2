@@ -138,15 +138,21 @@
       (is (empty? (epoch/epoch-history :rf/default))
           "no record assembled — rollup never reached"))))
 
-;; ---- rf2-wp70d.5 :redact-fn surface JVM false-path coverage --------------
+;; ---- EP-0015 §15 / open-issue 6 :redact-fn surface JVM coverage ----------
+;;
+;; Post-ruling the `:redact-fn` is the PROJECTION-SIDE advanced override —
+;; storage-side mutation was REMOVED. It is NEVER invoked by `settle!` /
+;; `replace-app-db!` / the back-fill (regardless of gate); it runs ONLY
+;; inside `projected-record`, applied to the projected egress copy. The
+;; ring is causal replay material, delivered raw.
 
-(deftest redact-fn-never-invoked-under-disabled-gate
-  (testing "Per rf2-wp70d.5: with the JVM debug gate off, the
-            installed :redact-fn is NEVER invoked — `settle!`'s body
-            is the gated frontier and elides record assembly entirely.
-            An app that ships a `:redact-fn` and flips the gate to
-            false in production pays zero invocation cost (the slot
-            sits in `@config` but the call path is gone)."
+(deftest redact-fn-never-invoked-at-storage-under-disabled-gate
+  (testing "Per EP-0015 §15 + open-issue 6: with the JVM debug gate off,
+            `settle!` elides record assembly entirely AND the :redact-fn
+            is a projection-side hook anyway — so an installed :redact-fn
+            is NEVER invoked along the dispatch/storage path. An app that
+            ships a `:redact-fn` and flips the gate to false in production
+            pays zero invocation cost."
     (with-redefs [interop/debug-enabled? false]
       (let [invocations (atom 0)]
         (rf/configure! :epoch-history
@@ -159,19 +165,38 @@
         (rf/dispatch-sync [:prod-gate.redact/inc])
         (rf/dispatch-sync [:prod-gate.redact/inc])
         (is (zero? @invocations)
-            ":redact-fn was never called — the gated build-record /
-             maybe-redact path is inert under the disabled gate")
-        ;; Cleanup: clear the fn so it doesn't survive into other
-        ;; tests via the global config atom.
+            ":redact-fn was never called along the storage path — it is a
+             projection-side hook, and record assembly is elided anyway")
+        (is (empty? (epoch/epoch-history :rf/default))
+            "no record assembled under the disabled gate")
         (rf/configure! :epoch-history {:redact-fn nil})))))
 
+(deftest redact-fn-not-invoked-at-storage-under-default-gate
+  (testing "Per EP-0015 §15 + open-issue 6: even under the DEFAULT-TRUE
+            gate, dispatching does NOT invoke the :redact-fn — it is no
+            longer a storage-side hook. The ring record is RAW; the
+            override fires only when `projected-record` is called."
+    (let [invocations (atom 0)]
+      (rf/reg-frame :prod-gate.dev/frame {})
+      (rf/configure! :epoch-history
+                    {:redact-fn (fn [r] (swap! invocations inc) r)})
+      (rf/reg-event-db :prod-gate.redact/dev-inc
+                       (fn [db _] (update db :n (fnil inc 0))))
+      (rf/dispatch-sync [:prod-gate.redact/dev-inc] {:frame :prod-gate.dev/frame})
+      (is (zero? @invocations)
+          ":redact-fn NOT invoked by settle — it is projection-side only")
+      ;; Projecting the recorded record IS where the override fires.
+      (epoch/projected-record (last (epoch/epoch-history :prod-gate.dev/frame)))
+      (is (pos? @invocations)
+          ":redact-fn fires when projected-record is called (the egress
+           override), under the default gate")
+      (rf/configure! :epoch-history {:redact-fn nil}))))
+
 (deftest redact-fn-not-invoked-on-replace-app-db-under-disabled-gate
-  (testing "Per rf2-wp70d.5: `replace-app-db!` returns false under the
-            disabled gate (already pinned above) — the gated arm that
-            would call `perform-replace-app-db!` → `maybe-redact` is
-            elided. A throwing `:redact-fn` cannot run, so it cannot
-            cause a warning emit, and the early-return false is
-            preserved regardless of whether a fn is installed."
+  (testing "`replace-app-db!` returns false under the disabled gate — the
+            gated arm that would record the synthetic epoch is elided. The
+            :redact-fn (projection-side) is never reached on this path
+            regardless; the early-return false is preserved."
     (with-redefs [interop/debug-enabled? false]
       (let [invocations (atom 0)]
         (rf/configure! :epoch-history
@@ -181,56 +206,37 @@
         (is (false? (rf/replace-app-db! :rf/default {:any "db"}))
             "replace-app-db! refuses under the disabled gate")
         (is (zero? @invocations)
-            ":redact-fn was never reached — perform-replace-app-db!
-             never ran")
+            ":redact-fn was never reached — no synthetic record recorded
+             (and the fn is projection-side anyway)")
         (rf/configure! :epoch-history {:redact-fn nil})))))
 
-(deftest redact-fn-warning-not-emitted-under-disabled-gate
-  (testing "Per rf2-wp70d.5: a throwing :redact-fn cannot emit
-            `:rf.warning/epoch-redact-fn-exception` under the disabled
-            gate — the warning op is sourced inside `maybe-redact`'s
-            try/catch, and `maybe-redact` is unreachable because every
-            call site is itself gated. Pinned here so a future
-            refactor that hoists `maybe-redact` outside the universal
-            `interop/debug-enabled?` gate would break visibly."
-    (with-redefs [interop/debug-enabled? false]
-      (let [warnings (atom [])]
-        (rf/register-listener! ::warn-watch
-                               (fn [ev]
-                                 (when (= :warning (:op-type ev))
-                                   (swap! warnings conj ev))))
-        (rf/configure! :epoch-history
-                      {:redact-fn (fn [_r]
-                                    (throw (ex-info "boom" {})))})
-        (rf/reg-event-db :prod-gate.redact/throw
-                         (fn [db _] (update db :n (fnil inc 0))))
-        (rf/dispatch-sync [:prod-gate.redact/throw])
-        (rf/dispatch-sync [:prod-gate.redact/throw])
-        (let [redact-warns (filter (fn [ev]
-                                     (= :rf.warning/epoch-redact-fn-exception
-                                        (:operation ev)))
-                                   @warnings)]
-          (is (empty? redact-warns)
-              ":rf.warning/epoch-redact-fn-exception never fires —
-               maybe-redact is unreachable under the disabled gate"))
-        (rf/unregister-listener! ::warn-watch)
-        (rf/configure! :epoch-history {:redact-fn nil})))))
-
-(deftest redact-fn-slot-survives-default-gate-as-sanity
-  (testing "Sanity companion to the above: under the default-true
-            gate, an installed :redact-fn DOES fire — fails fast if a
-            future refactor accidentally inverts the gate polarity in
-            the redact-fn surface."
-    (let [invocations (atom 0)]
+(deftest redact-fn-warning-not-emitted-on-storage-path
+  (testing "Per EP-0015 §15 + open-issue 6: a throwing :redact-fn cannot
+            emit `:rf.warning/epoch-redact-fn-exception` along the
+            dispatch/storage path — the warning is sourced inside
+            `apply-redact-fn`'s try/catch, which runs ONLY at projection
+            time, never at settle. Pinned so a future refactor that
+            re-attaches redaction to the storage seam would break visibly."
+    (let [warnings (atom [])]
+      (rf/reg-frame :prod-gate.throw/frame {})
+      (rf/register-listener! ::warn-watch
+                             (fn [ev]
+                               (when (= :warning (:op-type ev))
+                                 (swap! warnings conj ev))))
       (rf/configure! :epoch-history
-                    {:redact-fn (fn [r]
-                                  (swap! invocations inc)
-                                  r)})
-      (rf/reg-event-db :prod-gate.redact/dev-inc
+                    {:redact-fn (fn [_r] (throw (ex-info "boom" {})))})
+      (rf/reg-event-db :prod-gate.redact/throw
                        (fn [db _] (update db :n (fnil inc 0))))
-      (rf/dispatch-sync [:prod-gate.redact/dev-inc])
-      (is (pos? @invocations)
-          ":redact-fn fires under the default-true gate")
+      (rf/dispatch-sync [:prod-gate.redact/throw] {:frame :prod-gate.throw/frame})
+      (rf/dispatch-sync [:prod-gate.redact/throw] {:frame :prod-gate.throw/frame})
+      (let [redact-warns (filter (fn [ev]
+                                   (= :rf.warning/epoch-redact-fn-exception
+                                      (:operation ev)))
+                                 @warnings)]
+        (is (empty? redact-warns)
+            ":rf.warning/epoch-redact-fn-exception never fires on the
+             storage path — apply-redact-fn runs only at projection time"))
+      (rf/unregister-listener! ::warn-watch)
       (rf/configure! :epoch-history {:redact-fn nil}))))
 
 (deftest projected-record-pure-transform-survives-disabled-gate

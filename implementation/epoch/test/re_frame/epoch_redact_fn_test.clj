@@ -1,36 +1,46 @@
 (ns re-frame.epoch-redact-fn-test
-  "Per rf2-wp70d.2 — coverage for the in-process redaction hook on
-  `:epoch-history`. Spec contract: Tool-Pair §Time-travel §Redaction
-  hook (rf2-wp70d.1), Security.md §Epoch privacy posture bullet 5,
-  Spec-Schemas §`:rf/epoch-record` 'Redacted slot values', API.md
-  §Configure keys.
+  "Coverage for the `:redact-fn` PROJECTION-SIDE advanced override on
+  `:epoch-history` (EP-0015 §15 Epoch Redaction + open-issue 6 disposition,
+  RULED, hardened).
 
-  Five critical invariants:
+  THE RULING (open-issue 6). `:redact-fn` is the projection-side-only
+  advanced override. Storage-side mutation was REMOVED — post-EP-0010
+  epoch records are causal replay material, and mutating them at rest
+  corrupts the replay contract. So:
 
-    1. **Rollup runs BEFORE redact-fn** — `:rf.epoch/sensitive?` is
-       computed from RAW signals; the redact-fn may erase the leaves
-       the rollup keyed on, but the rollup itself reflects raw truth.
+    * the in-process ring buffer (`epoch-history`) and every
+      `register-epoch-listener!` listener deliver the RAW record;
+    * the app `:redact-fn` runs ONCE per record at the OFF-BOX EGRESS
+      boundary — inside `projected-record`, AFTER the frame/profile
+      `project-egress` projection — never at storage time.
 
-    2. **One pass per record** — ring + listeners see the SAME
-       redacted shape (build-time, not fan-out time).
+  Invariants pinned here:
 
-    3. **Failure isolation** — a throwing redact-fn emits
-       `:rf.warning/epoch-redact-fn-exception` and falls back to the
-       raw record (no broken drain).
+    1. **Ring + listeners are RAW.** `(rf/epoch-history)` and the
+       listener fan-out carry unredacted `:db-after` etc. — the
+       `:redact-fn` does NOT run at storage time. Restore fidelity is
+       preserved by construction.
 
-    4. **Composition with `:trace-events-keep`** — redact-fn runs
-       BEFORE the keep-window dissoc. A redact-fn that sentinels
-       `:trace-events` is idempotent against the later cap.
+    2. **`projected-record` applies the override.** The installed
+       `:redact-fn` runs on the PROJECTED record (after the frame/profile
+       projection). It sees the projected shape (schema-declared sensitive
+       paths already `:rf/redacted`) and is the escape for material the
+       projection cannot prove.
 
-    5. **`projected-record` × `:redact-fn` idempotency** — applying
-       `projected-record` to an already-redacted record produces the
-       same shape (two passes compose under `:rf/redacted`
-       sentinels).
+    3. **`:rf.epoch/sensitive?` rollup is raw-signal-derived.** Computed
+       inside `build-record` from the raw record's schema-declared
+       sensitive leaves; it is a trustworthy off-box-branch signal on the
+       RAW ring record regardless of any projection-side redaction.
 
-  Plus the `configure!` validation surface (`fn?` / `nil` accepted,
-  other shapes silently dropped), and the three per-site wirings
-  (`settle!`, `perform-replace-app-db!`,
-  `on-frame-destroyed!`'s `:halted-destroy` path)."
+    4. **Failure isolation.** A throwing `:redact-fn` emits
+       `:rf.warning/epoch-redact-fn-exception` at projection time and falls
+       back to the projected (frame/profile-redacted) record — neither the
+       drain nor the egress is broken; the RAW ring record is untouched.
+
+    5. **No `:redact-fn` ⇒ projection is the plain frame/profile shape.**
+
+  Plus the `configure!` validation surface (`fn?` / `nil` accepted, other
+  shapes silently dropped) — unchanged by the storage→projection move."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
@@ -86,7 +96,7 @@
 
 ;; ============================================================================
 ;;  configure! validation surface (Spec API.md §Configure keys —
-;;  :redact-fn row; rf2-wp70d.1)
+;;  :redact-fn row) — UNCHANGED by the storage→projection move
 ;; ============================================================================
 
 (deftest configure-accepts-fn
@@ -151,317 +161,321 @@
           ":depth nil dropped; prior 9 survives"))))
 
 ;; ============================================================================
-;;  Invariant 1 — rollup runs BEFORE redact-fn
+;;  Invariant 1 — ring + listeners are RAW (storage-side redaction removed)
 ;; ============================================================================
 
-(deftest invariant-1-rollup-computed-from-raw-before-redact-fn
-  (testing "the :rf.epoch/sensitive? rollup reflects raw signals even
-            when the redact-fn erases the leaves the rollup keyed on
-            — the rollup must remain a trustworthy signal for off-box
-            consumers branching on it"
+(deftest invariant-1-ring-record-is-raw-even-with-redact-fn-installed
+  (testing "with a :redact-fn installed, the in-process ring record is
+            still RAW — storage-side redaction was REMOVED (EP-0015 §15 +
+            open-issue 6). The ring is causal replay material; restore
+            fidelity is preserved by construction."
     (rf/reg-frame :test/main {})
-    (install-sensitive-schema! :test/main)
-
-    ;; Redact-fn wipes the very slot the rollup keyed on. If the
-    ;; rollup ran AFTER the fn, it would observe the wiped leaf and
-    ;; report sensitive? false — silently breaking off-box consumers.
+    ;; A :redact-fn that WOULD wipe :db-after if it ran at storage time.
     (rf/configure! :epoch-history
-                  {:redact-fn (fn [r]
-                                (cond-> r
-                                  (get-in r [:db-after :auth :password])
-                                  (assoc-in [:db-after :auth :password]
-                                            :rf/redacted)))})
-
+                  {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
     (rf/reg-event-db :login
                      (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r (last-record :test/main)]
-      (is (= :rf/redacted (get-in r [:db-after :auth :password]))
-          "redact-fn ran — the password slot is :rf/redacted")
-      (is (true? (:rf.epoch/sensitive? r))
-          "rollup is true because it ran from the RAW record BEFORE
-           the redact-fn erased the leaf"))))
+      (is (= {:auth {:password "topsecret"}} (:db-after r))
+          ":db-after on the ring is RAW — the :redact-fn did NOT run at
+           storage time (it is projection-side only)"))))
 
-;; ============================================================================
-;;  Invariant 2 — one pass per record; ring + listeners see SAME shape
-;; ============================================================================
-
-(deftest invariant-2-ring-and-listener-see-same-redacted-shape
-  (testing "the redact-fn runs ONCE per record at build-time, between
-            assembly and ring-append/listener fan-out. The record
-            stored in the ring is identical to the record delivered
-            to every listener — no per-consumer divergence"
+(deftest invariant-1-listener-receives-raw-record
+  (testing "the listener fan-out delivers the RAW record — the
+            :redact-fn does NOT run before fan-out (it is applied only at
+            the off-box egress boundary, inside projected-record)."
     (rf/reg-frame :test/main {})
-    (install-sensitive-schema! :test/main)
-
-    ;; Track invocation count so we can assert ONE pass per record.
-    (let [invocations (atom 0)
-          listener-records (atom [])]
+    (let [seen (atom nil)]
       (rf/configure! :epoch-history
-                    {:redact-fn (fn [r]
-                                  (swap! invocations inc)
-                                  (assoc-in r [:db-after :auth :password]
-                                            :rf/redacted))})
-
-      (rf/register-epoch-listener! ::watch
-                             (fn [r] (swap! listener-records conj r)))
-
+                    {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
+      (rf/register-epoch-listener! ::watch (fn [r] (reset! seen r)))
       (rf/reg-event-db :login
                        (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
       (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
-      (is (= 1 @invocations)
-          "redact-fn invoked EXACTLY once for the cascade — not once
-           per listener nor once per consumer")
+      (is (= {:auth {:password "topsecret"}} (:db-after @seen))
+          "the listener received the RAW :db-after — listeners fan out
+           the raw record; an off-box forwarder projects at its egress")
+      (is (= @seen (last-record :test/main))
+          "ring and listener hold the SAME raw record — single source of
+           truth, no storage-side per-consumer divergence"))))
 
-      (let [ring-record     (last-record :test/main)
-            listener-record (last @listener-records)]
-        (is (= :rf/redacted (get-in ring-record [:db-after :auth :password]))
-            "ring record is redacted")
-        (is (= :rf/redacted (get-in listener-record [:db-after :auth :password]))
-            "listener record is redacted")
-        (is (= ring-record listener-record)
-            "ring and listener received structurally-equal records —
-             same redacted shape, single source of truth")))))
-
-(deftest invariant-2-multiple-listeners-receive-same-shape
-  (testing "multiple listeners all receive the SAME redacted shape
-            from the single build-time pass (no per-listener fan-out
-            invocation of redact-fn)"
+(deftest invariant-1-redact-fn-not-invoked-at-storage-time
+  (testing "the :redact-fn fires ZERO times across a settle — it is not
+            a storage-side hook. (It fires only when projected-record is
+            called; see invariant 2.)"
     (rf/reg-frame :test/main {})
-    (install-sensitive-schema! :test/main)
-
-    (let [invocations (atom 0)
-          a-rec       (atom nil)
-          b-rec       (atom nil)
-          c-rec       (atom nil)]
+    (let [invocations (atom 0)]
       (rf/configure! :epoch-history
-                    {:redact-fn (fn [r]
-                                  (swap! invocations inc)
-                                  (assoc-in r [:db-after :auth :password]
-                                            :rf/redacted))})
-
-      (rf/register-epoch-listener! ::a (fn [r] (reset! a-rec r)))
-      (rf/register-epoch-listener! ::b (fn [r] (reset! b-rec r)))
-      (rf/register-epoch-listener! ::c (fn [r] (reset! c-rec r)))
-
-      (rf/reg-event-db :login
-                       (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
-      (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
-
-      (is (= 1 @invocations)
-          "three listeners + one ring-append = ONE redact-fn call")
-      (is (= @a-rec @b-rec @c-rec (last-record :test/main))
-          "every consumer sees the same redacted record"))))
-
-;; ============================================================================
-;;  Invariant 3 — failure isolation
-;; ============================================================================
-
-(deftest invariant-3-throwing-redact-fn-warns-and-falls-back
-  (testing "a throwing redact-fn emits
-            :rf.warning/epoch-redact-fn-exception and falls back to
-            the raw record — the drain itself is not broken; the next
-            cascade still records normally"
-    (rf/reg-frame :test/main {})
-
-    (let [warnings (record-warnings!)]
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [_]
-                                  (throw (ex-info "boom" {:why :test})))})
-
+                    {:redact-fn (fn [r] (swap! invocations inc) r)})
+      (rf/register-epoch-listener! ::watch (fn [_] nil))
       (rf/reg-event-db :seed (fn [_ _] {:n 0}))
       (rf/dispatch-sync [:seed] {:frame :test/main})
 
-      ;; Fall-back to raw record landed in the ring.
-      (let [r (last-record :test/main)]
-        (is (some? r) "ring received a record — drain not broken")
-        (is (= {:n 0} (:db-after r))
-            "the record is the RAW shape — redact-fn's throw did not
-             corrupt the build-record output"))
+      (is (= 0 @invocations)
+          "no storage-side invocation — the redact-fn is projection-side
+           only (EP-0015 §15 + open-issue 6)"))))
 
-      ;; Warning fired with the documented op-id and tags.
-      (let [warn (->> @warnings
-                      (filter (fn [ev]
-                                (= :rf.warning/epoch-redact-fn-exception
-                                   (:operation ev))))
-                      first)]
-        (is (some? warn)
-            ":rf.warning/epoch-redact-fn-exception was emitted")
-        (is (= :test/main (get-in warn [:tags :frame]))
-            ":frame tag carries the offending frame-id")
-        (is (string? (get-in warn [:tags :ex-msg]))
-            ":ex-msg tag carries the exception message string")
-        ;; rf2-wmki8.1 — the warning MUST carry :epoch-id (Tool-Pair.md:101)
-        ;; so a tool can correlate the failure to the record that fell back
-        ;; to raw data. The settle-time build-record assigned an :epoch-id;
-        ;; it is the record the fall-back landed under.
-        (is (= (:epoch-id (last-record :test/main))
-               (get-in warn [:tags :epoch-id]))
-            ":epoch-id tag matches the record the redact-fn fell back on
-             (normal settle path)"))
+;; ============================================================================
+;;  Invariant 2 — projected-record applies the :redact-fn override
+;; ============================================================================
 
-      ;; Drain not broken — next cascade records as normal.
-      (rf/configure! :epoch-history {:redact-fn nil})
-      (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
-      (rf/dispatch-sync [:bump] {:frame :test/main})
-      (let [r2 (last-record :test/main)]
-        (is (= {:n 1} (:db-after r2))
-            "next drain after the throw records normally")))))
-
-(deftest invariant-3-throwing-redact-fn-stays-registered
-  (testing "a throwing redact-fn stays registered — the next cascade
-            re-attempts (the registration is not removed on first
-            throw; the framework's posture is 'log and continue')"
+(deftest invariant-2-projected-record-applies-redact-fn
+  (testing "projected-record applies the installed :redact-fn to the
+            PROJECTED record (the advanced override). The override runs
+            ONCE per projection call, after the frame/profile projection."
     (rf/reg-frame :test/main {})
+    (let [invocations (atom 0)]
+      (rf/configure! :epoch-history
+                    {:redact-fn (fn [r]
+                                  (swap! invocations inc)
+                                  (assoc r :rf/test-tag :redacted))})
+      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+
+      (let [r         (last-record :test/main)
+            projected (epoch/projected-record r)]
+        (is (= 1 @invocations)
+            "one projection call = one :redact-fn invocation")
+        (is (= :redacted (:rf/test-tag projected))
+            "the projected record carries the override's tag")
+        (is (not (contains? r :rf/test-tag))
+            "the RAW ring record is untouched by the override")))))
+
+(deftest invariant-2-override-sees-projected-shape
+  (testing "the :redact-fn runs AFTER the frame/profile projection, so it
+            observes the projected record — a schema-declared sensitive
+            path is already :rf/redacted when the override runs. The
+            override is the escape for material the projection cannot
+            prove (a non-schema-declared slot)."
+    (rf/reg-frame :test/main {})
+    (install-sensitive-schema! :test/main)
+    (let [observed (atom nil)]
+      ;; The override records what it SEES at [:db-after :auth :password]
+      ;; and scrubs a NON-schema-declared slot the projection left raw.
+      (rf/configure! :epoch-history
+                    {:redact-fn (fn [r]
+                                  (reset! observed
+                                          (get-in r [:db-after :auth :password]))
+                                  (cond-> r
+                                    (get-in r [:db-after :session :token])
+                                    (assoc-in [:db-after :session :token]
+                                              :rf/redacted)))})
+      (rf/reg-event-db :login
+                       (fn [db [_ pw tok]]
+                         (-> db
+                             (assoc-in [:auth :password] pw)
+                             (assoc-in [:session :token] tok))))
+      (rf/dispatch-sync [:login "topsecret" "tok-xyz"] {:frame :test/main})
+
+      (let [r         (last-record :test/main)
+            projected (epoch/projected-record r)]
+        (is (= :rf/redacted @observed)
+            "the override observed the schema-declared :password ALREADY
+             :rf/redacted by the frame/profile projection (it ran AFTER)")
+        (is (= :rf/redacted (get-in projected [:db-after :session :token]))
+            "the override scrubbed the NON-schema-declared slot the
+             projection could not prove — its purpose as the advanced escape")
+        (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
+            "the schema-declared path stays redacted (projection did it)")
+        (is (= "tok-xyz" (get-in r [:db-after :session :token]))
+            "the RAW ring record keeps the non-declared token verbatim")))))
+
+(deftest invariant-2-no-double-invoke-across-projection-calls
+  (testing "projected-record over the same record N times invokes the
+            :redact-fn N times (once per egress) — it is the egress
+            override, applied per projection call, not cached."
+    (rf/reg-frame :test/main {})
+    (let [invocations (atom 0)]
+      (rf/configure! :epoch-history
+                    {:redact-fn (fn [r] (swap! invocations inc) r)})
+      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+
+      (let [r (last-record :test/main)]
+        (dotimes [_ 5] (epoch/projected-record r))
+        (is (= 5 @invocations)
+            "five projection calls = five override invocations (one per
+             egress); the override is not memoised")))))
+
+;; ============================================================================
+;;  Invariant 3 — :rf.epoch/sensitive? rollup is raw-signal-derived
+;; ============================================================================
+
+(deftest invariant-3-rollup-on-raw-ring-record
+  (testing "the :rf.epoch/sensitive? rollup on the RAW ring record reflects
+            the schema-declared sensitive leaves the cascade touched — a
+            trustworthy off-box-branch signal independent of any
+            projection-side redaction."
+    (rf/reg-frame :test/main {})
+    (install-sensitive-schema! :test/main)
+    (rf/reg-event-db :login
+                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+
+    (let [r         (last-record :test/main)
+          projected (epoch/projected-record r)]
+      (is (true? (:rf.epoch/sensitive? r))
+          "rollup is true on the raw ring record (raw-signal-derived)")
+      (is (true? (:rf.epoch/sensitive? projected))
+          "the projection preserves the rollup verbatim — bookkeeping
+           passes through both the frame/profile walk and any override"))))
+
+;; ============================================================================
+;;  Invariant 4 — failure isolation at PROJECTION time
+;; ============================================================================
+
+(deftest invariant-4-throwing-redact-fn-warns-and-falls-back-at-projection
+  (testing "a throwing :redact-fn emits :rf.warning/epoch-redact-fn-exception
+            at PROJECTION time and falls back to the projected
+            (frame/profile-redacted) record — neither the drain nor the
+            egress breaks, and the RAW ring record is untouched."
+    (rf/reg-frame :test/main {})
+    (install-sensitive-schema! :test/main)
+    (rf/reg-event-db :login
+                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+
+    (let [warnings (record-warnings!)]
+      (rf/configure! :epoch-history
+                    {:redact-fn (fn [_] (throw (ex-info "boom" {:why :test})))})
+      ;; Settle does NOT invoke the redact-fn (storage-side) — no warning yet.
+      (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+      (is (empty? @warnings)
+          "settle fired no redact-fn-exception warning — the fn is not a
+           storage-side hook")
+
+      (let [r         (last-record :test/main)
+            projected (epoch/projected-record r)]
+        ;; The projection ran the (throwing) override → warning + fallback.
+        (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
+            "fallback is the PROJECTED record — the frame/profile projection
+             still redacted the schema-declared path; the throwing override
+             only forfeited its own additional scrub")
+        (is (= "topsecret" (get-in r [:db-after :auth :password]))
+            "the RAW ring record is untouched by the throwing override")
+
+        (let [warn (->> @warnings
+                        (filter #(= :rf.warning/epoch-redact-fn-exception
+                                    (:operation %)))
+                        first)]
+          (is (some? warn)
+              ":rf.warning/epoch-redact-fn-exception emitted at projection")
+          (is (= :test/main (get-in warn [:tags :frame]))
+              ":frame tag carries the offending frame-id")
+          (is (string? (get-in warn [:tags :ex-msg]))
+              ":ex-msg tag carries the exception message string")
+          (is (= (:epoch-id r) (get-in warn [:tags :epoch-id]))
+              ":epoch-id tag matches the projected record's epoch"))))))
+
+(deftest invariant-4-throwing-redact-fn-stays-registered
+  (testing "a throwing :redact-fn stays registered — each projection call
+            re-attempts (the registration is not removed on first throw;
+            the framework's posture is 'log and continue')."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
     (let [call-count (atom 0)]
       (rf/configure! :epoch-history
                     {:redact-fn (fn [_]
                                   (swap! call-count inc)
                                   (throw (ex-info "boom" {})))})
-
-      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-      (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
-      (rf/dispatch-sync [:seed] {:frame :test/main})
-      (rf/dispatch-sync [:bump] {:frame :test/main})
-      (rf/dispatch-sync [:bump] {:frame :test/main})
-
+      (let [r (last-record :test/main)]
+        (epoch/projected-record r)
+        (epoch/projected-record r)
+        (epoch/projected-record r))
       (is (= 3 @call-count)
-          "redact-fn re-invoked on every cascade despite throwing"))))
+          "redact-fn re-invoked on every projection despite throwing"))))
 
 ;; ============================================================================
-;;  Invariant 4 — composition with :trace-events-keep cap
+;;  Invariant 5 — no :redact-fn ⇒ projection is the plain frame/profile shape
 ;; ============================================================================
 
-(deftest invariant-4-redact-fn-runs-before-trace-events-keep-cap
-  (testing "a redact-fn that sentinels :trace-events runs BEFORE the
-            keep-window dissoc — the sentinel survives the cap until
-            the record crosses the keep-window boundary, at which
-            point :trace-events is dissoc'd whether sentinel or raw"
-    (rf/reg-frame :test/main {})
-    ;; Sentinel :trace-events at build-time. The cap will later
-    ;; dissoc :trace-events on records that fall outside the
-    ;; keep-window — the sentinel makes that dissoc idempotent.
-    (rf/configure! :epoch-history
-                  {:trace-events-keep 2
-                   :redact-fn (fn [r]
-                                (assoc r :trace-events :rf/redacted))})
-
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/dispatch-sync [:bump] {:frame :test/main})
-    (rf/dispatch-sync [:bump] {:frame :test/main})
-    (rf/dispatch-sync [:bump] {:frame :test/main})
-
-    (let [history (rf/epoch-history :test/main)]
-      ;; The TWO MOST-RECENT records retain :trace-events (the
-      ;; sentinel) — the redact-fn ran first and replaced the slot
-      ;; value; the keep-window cap left the slot alone because it
-      ;; sits inside the keep window.
-      (doseq [r (take-last 2 history)]
-        (is (= :rf/redacted (:trace-events r))
-            "in-window record has the redact-fn's sentinel as
-             :trace-events"))
-      ;; The older records had their :trace-events dissoc'd by the
-      ;; keep-window cap (whether the slot held the sentinel or the
-      ;; raw vector, the cap dissociates uniformly — idempotent).
-      (doseq [r (drop-last 2 history)]
-        (is (not (contains? r :trace-events))
-            "out-of-window record had :trace-events dissoc'd by the
-             keep-window cap — composition is idempotent")))))
-
-;; ============================================================================
-;;  Invariant 5 — projected-record × :redact-fn idempotency
-;; ============================================================================
-
-(deftest invariant-5-projected-record-idempotent-over-redacted-record
-  (testing "applying projected-record to an already-redacted record
-            produces a structurally-stable shape — both passes
-            compose under :rf/redacted sentinels (rf2-wp70d.3
-            territory; pinned here as a cheap composition smoke)"
+(deftest invariant-5-no-redact-fn-projection-is-plain-frame-profile
+  (testing "without a :redact-fn installed, projected-record is exactly the
+            frame/profile projection — no override stage. A schema-declared
+            sensitive path is redacted by the projection; everything else
+            passes through."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-
-    ;; Redact-fn substitutes :rf/redacted in the same slot the
-    ;; projected-record helper would also redact via the schema-
-    ;; declared sensitive path.
-    (rf/configure! :epoch-history
-                  {:redact-fn (fn [r]
-                                (cond-> r
-                                  (get-in r [:db-after :auth :password])
-                                  (assoc-in [:db-after :auth :password]
-                                            :rf/redacted)))})
-
     (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+                     (fn [db [_ pw]]
+                       (-> db
+                           (assoc-in [:auth :password] pw)
+                           (assoc-in [:public :name] "alice"))))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
-    (let [redacted   (last-record :test/main)
-          projected  (epoch/projected-record redacted)
-          projected2 (epoch/projected-record projected)]
-      (is (= :rf/redacted (get-in redacted [:db-after :auth :password]))
-          "redact-fn produced the sentinel")
+    (let [r         (last-record :test/main)
+          projected (epoch/projected-record r)]
       (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
-          "projection over an already-redacted leaf produces the
-           same sentinel — :rf/redacted is the projection's own
-           target value")
-      (is (= projected projected2)
-          "projection is idempotent — a second pass changes nothing
-           (the leaf is already the sentinel target)"))))
+          "schema-declared sensitive path redacted by the frame/profile walk")
+      (is (= "alice" (get-in projected [:db-after :public :name]))
+          "non-sensitive sibling passes through the projection unchanged")
+      (is (= "topsecret" (get-in r [:db-after :auth :password]))
+          "the RAW ring record is unredacted (no storage-side scrub)"))))
+
+(deftest no-redact-fn-installed-ring-is-raw
+  (testing "without :redact-fn installed, every recorded ring record is
+            the raw shape (the default-nil posture — apps opt in to the
+            advanced override explicitly)."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (let [r (last-record :test/main)]
+      (is (= {:n 0} (:db-after r))
+          "no redact-fn — ring record is the raw shape")
+      (is (not (contains? r :rf/test-tag))
+          "no redact-fn — no synthetic slots added"))))
 
 ;; ============================================================================
-;;  Per-site wirings — settle! / perform-replace-app-db! /
-;;  on-frame-destroyed!'s :halted-destroy path
+;;  Per-site wirings — settle! / replace-app-db! / halted-destroy store RAW
 ;; ============================================================================
 
-(deftest wiring-settle-applies-redact-fn
-  (testing "the settle! drain-settle commit path runs the redact-fn
-            against the assembled record (the dominant per-event
-            recording path)"
+(deftest wiring-settle-stores-raw-record
+  (testing "the settle! drain-settle commit path stores the RAW record —
+            the :redact-fn does not run at this seam (it runs
+            projection-side, in projected-record)."
     (rf/reg-frame :test/main {})
     (rf/configure! :epoch-history
                   {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (is (= :redacted (:rf/test-tag (last-record :test/main)))
-        "settle! path: ring record carries the redact-fn's tag")))
+    (is (not (contains? (last-record :test/main) :rf/test-tag))
+        "settle! path: ring record is RAW (override not applied at storage)")
+    (is (= :redacted (:rf/test-tag (epoch/projected-record
+                                     (last-record :test/main))))
+        "the override IS applied when the record is projected for egress")))
 
-(deftest wiring-replace-app-db-applies-redact-fn
-  (testing "the perform-replace-app-db! synthetic-record commit path
-            runs the redact-fn (pair-tool injection / story tools
-            land the synthetic :rf.epoch/db-replaced record through
-            this seam)"
+(deftest wiring-replace-app-db-stores-raw-record
+  (testing "the perform-replace-app-db! synthetic-record commit path stores
+            the RAW synthetic record (pair-tool injection / story tools land
+            the synthetic :rf.epoch/db-replaced record through this seam);
+            the override applies only on projection."
     (rf/reg-frame :test/main {})
     (let [synthetic (atom nil)]
       (rf/register-epoch-listener! ::watch (fn [r] (reset! synthetic r)))
       (rf/configure! :epoch-history
                     {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
       (rf/replace-app-db! :test/main {:injected :state})
-      (is (= :redacted (:rf/test-tag @synthetic))
-          "replace-app-db! path: listener received the redacted
-           synthetic record")
-      (is (= :redacted (:rf/test-tag (last-record :test/main)))
-          "replace-app-db! path: ring received the same redacted
-           synthetic record"))))
+      (is (not (contains? @synthetic :rf/test-tag))
+          "replace-app-db! path: listener received the RAW synthetic record")
+      (is (not (contains? (last-record :test/main) :rf/test-tag))
+          "replace-app-db! path: ring received the RAW synthetic record")
+      (is (= :redacted (:rf/test-tag (epoch/projected-record @synthetic)))
+          "the override applies when the synthetic record is projected"))))
 
-(deftest wiring-halted-destroy-applies-redact-fn
-  (testing "on-frame-destroyed!'s :halted-destroy partial-record
-            commit runs the redact-fn — devtools observing the
-            halted-cascade record see the same redacted shape they
-            would for an :ok cascade.
+(deftest wiring-halted-destroy-stores-raw-record
+  (testing "on-frame-destroyed!'s :halted-destroy partial-record commit
+            stores the RAW partial record — devtools observing the
+            halted-cascade record see the raw shape (the same posture as an
+            :ok cascade record); a forwarder projects at its egress.
 
             Per the rf2-ee38b correctness review: this drives a REAL
             mid-drain `destroy-frame!` (the handler destroys its own
             frame, matching the live wiring) and asserts UNCONDITIONALLY
-            that exactly one :halted-destroy record reached the listener.
-            The prior `(when @halted ...)` guard silently no-op'd if the
-            live wiring stopped firing the partial record (e.g. an
-            ordering regression leaving the capture buffer without a
-            run-start by destroy time, or an `in-cascade?` gate
-            regression) — both would have passed green with zero executed
-            assertions."
+            that exactly one :halted-destroy record reached the listener."
     (rf/reg-frame :test/main {})
     (let [halted-records (atom [])]
       (rf/register-epoch-listener! ::watch
@@ -476,85 +490,54 @@
                          {}))
       (try (rf/dispatch-sync [:destroy-self] {:frame :test/main})
            (catch Throwable _ nil))
-      ;; UNCONDITIONAL: the live mid-drain destroy must fire exactly one
-      ;; :halted-destroy record at the listener.
       (is (= 1 (count @halted-records))
           "the live mid-drain destroy fires exactly one :halted-destroy
            record to listeners")
       (let [halted (first @halted-records)]
         (is (= :halted-destroy (:outcome halted)))
-        (is (= :redacted (:rf/test-tag halted))
-            "halted-destroy path: listener received the redacted
-             partial record (redact-fn ran on the live partial commit,
-             not just a synthetic build-record call)")))))
+        (is (not (contains? halted :rf/test-tag))
+            "halted-destroy path: listener received the RAW partial record
+             (storage-side redaction was removed)")
+        (is (= :redacted (:rf/test-tag (epoch/projected-record halted)))
+            "the override applies when the halted record is projected")))))
 
 ;; ============================================================================
 ;;  Default no-op posture
 ;; ============================================================================
 
-(deftest no-redact-fn-installed-is-identity-passthrough
-  (testing "without :redact-fn installed, every recorded record
-            passes through unchanged (the default-nil posture — apps
-            opt in explicitly)"
-    (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (let [r (last-record :test/main)]
-      (is (= {:n 0} (:db-after r))
-          "no redact-fn — record is the raw shape")
-      (is (not (contains? r :rf/test-tag))
-          "no redact-fn — no synthetic slots added"))))
-
-(deftest nil-redact-fn-installed-is-identity-passthrough
-  (testing "an explicitly-installed nil :redact-fn is equivalent to
-            'no redact-fn' — same identity-passthrough shape"
+(deftest nil-redact-fn-installed-projection-is-plain
+  (testing "an explicitly-installed nil :redact-fn is equivalent to 'no
+            redact-fn' — the projection is the plain frame/profile shape,
+            no override stage."
     (rf/reg-frame :test/main {})
     (rf/configure! :epoch-history {:redact-fn nil})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [r (last-record :test/main)]
-      (is (= {:n 0} (:db-after r))))))
+      (is (= {:n 0} (:db-after r)))
+      (is (= {:n 0} (:db-after (epoch/projected-record r)))
+          "no override — projection of a non-sensitive db is the plain
+           frame/profile shape"))))
 
 ;; ============================================================================
-;;  Invariant 6 — post-settle back-fill re-notify honours :redact-fn (rf2-82pcg)
+;;  Back-fill stores RAW; projection redacts (EP-0015 §15 / open-issue 6)
 ;; ============================================================================
 ;;
-;; THE LEAK (rf2-82pcg). The settle-time primary path runs `maybe-redact`
-;; ONCE between `build-record` and ring-append / listener fan-out, so the
-;; ring + every listener see the SAME redacted shape (invariant 2 above).
-;; But a post-settle render / sub-run / unmount (React commit / deref /
-;; teardown time, AFTER settle already committed + redacted the epoch) is
-;; back-filled into the already-committed record — `back-fill-*!` appended
-;; the RAW trace event into `:trace-events` + the RAW projected row into
-;; `:renders` / `:sub-runs`, then re-notified listeners — pre-fix WITHOUT
-;; re-running the installed `:redact-fn`. So a value an app scrubs via
-;; `:redact-fn` (but does NOT declare via schema marks — marks-declared
-;; data is redacted UPSTREAM at trace build time) reappeared, unredacted,
-;; in the back-filled slots on BOTH egress channels: the listener re-fan
-;; (push) AND the ring read (`epoch-history` / MCP `read-recording` /
-;; `restore-epoch` — pull).
-;;
-;; THE FIX runs `maybe-redact` over the back-filled DELTA before it lands
-;; in the ring / re-fans to listeners (rf2-qhxz6 narrowed the original
-;; rf2-82pcg whole-record re-redaction to the appended delta — see
-;; invariant 7 below), restoring the settle-time invariant for the
-;; post-settle async classes. These tests pin: (a) a sensitive value in a
-;; back-filled trace-event / sub-run row is REDACTED in the re-notified
-;; record AND in the ring; (b) a non-sensitive value passes through
-;; unchanged (no over-redaction regression — the redact-fn is the
-;; AI/MCP-egress boundary; this fix must close the leak without scrubbing
-;; benign data).
+;; A post-settle render / sub-run / unmount (React commit / deref /
+;; teardown time, AFTER settle committed the epoch) is back-filled into the
+;; already-committed record. Per the ruling the back-fill stores the RAW
+;; delta — the ring is causal replay material. Redaction (frame/profile +
+;; the :redact-fn override) happens at projection time. These tests pin:
+;; (a) a back-filled value is RAW in the ring + listener record; (b) the
+;; projection of that record redacts via the frame/profile projection (a
+;; schema-declared sensitive value) and via the override (a non-declared
+;; value); (c) a benign value passes through.
 ;;
 ;; POST-SETTLE-EMIT TECHNIQUE (mirrors epoch_attribution_test): emit the
 ;; trace the substrate's way — op carrying its `:frame` tag, fired OUTSIDE
 ;; any cascade (empty in-flight buffer, no `*handler-scope*`) — so the
 ;; runtime's back-fill (`record-render!` / `record-sub-run!` /
 ;; `record-unmount!`) routes it into the causing cascade's committed record.
-
-(defn- emit-render! [frame-id view-id]
-  (trace/emit! :rf.view :rf.view/rendered
-               {:rf.view/render-key [view-id 0]
-                :frame              frame-id}))
 
 (defn- emit-sub-run! [frame-id sub-id prev-value value]
   (trace/emit! :rf.sub :rf.sub/run
@@ -567,57 +550,14 @@
                 :rf.sub/cascade?       false
                 :rf.sub/cause-sub      nil}))
 
-(defn- emit-unmount! [frame-id view-id]
-  (trace/emit! :rf.view :rf.view/unmounted
-               {:rf.view/id         view-id
-                :rf.view/render-key [view-id 0]
-                :frame              frame-id}))
-
-;; A redact-fn that scrubs a value the app deems sensitive ANYWHERE it
-;; appears in a back-filled slot — the trace-event tags and the sub-run
-;; row both carry the value into the record post-back-fill. This models a
-;; redact-fn-only redaction (NOT schema-mark-declared), which is exactly
-;; the narrow class the leak bit. It walks `:trace-events` (scrubbing the
-;; sentinel tag on each event) and the `:sub-runs` rows (scrubbing the
-;; `:rf.sub/value` slot), and is idempotent: re-applying it to an
-;; already-scrubbed record is a no-op (the marker is already `:rf/redacted`).
-(def ^:private secret "topsecret-not-schema-declared")
-
-(defn- scrub-secret [v]
-  (if (= v secret) :rf/redacted v))
-
-(defn- redact-back-filled-secrets [r]
-  (cond-> r
-    ;; `:trace-events` entries carry the supplied tags under `:tags`
-    ;; (per `re-frame.trace/emit!` envelope assembly). Scrub the two
-    ;; tag slots the post-settle emits route the secret through: the
-    ;; render/unmount `:rf.view/secret` tag and the sub-run
-    ;; `:rf.sub/value` tag.
-    (vector? (:trace-events r))
-    (update :trace-events
-            (fn [evs]
-              (mapv (fn [ev]
-                      (cond-> ev
-                        (contains? (:tags ev) :rf.view/secret)
-                        (update-in [:tags :rf.view/secret] scrub-secret)
-                        (contains? (:tags ev) :rf.sub/value)
-                        (update-in [:tags :rf.sub/value] scrub-secret)))
-                    evs)))
-    ;; The structured `:sub-runs` projection row carries the value at
-    ;; top-level `:value` (per `capture/sub-run-row`).
-    (vector? (:sub-runs r))
-    (update :sub-runs
-            (fn [rows]
-              (mapv #(update % :value scrub-secret) rows)))))
-
-(deftest inv-6-back-fill-sub-run-redacts-appended-value
-  (testing "rf2-82pcg — a post-settle SUB-RUN back-fill carrying a
-            redact-fn-only sensitive value in its appended :sub-runs row is
-            REDACTED in BOTH the re-notified listener record AND the ring
-            (epoch-history / MCP / restore-epoch egress). Pre-fix the raw
-            value leaked on both channels."
+(deftest back-fill-sub-run-is-raw-in-ring-and-listener
+  (testing "EP-0015 §15 — a post-settle SUB-RUN back-fill stores the RAW
+            value in BOTH the re-notified listener record AND the ring. The
+            ring is causal replay material; no storage-side redaction runs."
     (rf/reg-frame :test/main {})
-    (rf/configure! :epoch-history {:redact-fn redact-back-filled-secrets})
+    ;; A :redact-fn that WOULD scrub the value if it ran at storage time.
+    (rf/configure! :epoch-history
+                  {:redact-fn (fn [r] (assoc r :rf/scrubbed true))})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
 
@@ -626,41 +566,70 @@
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (rf/dispatch-sync [:inc]  {:frame :test/main})
       (let [settle-fanouts (count @seen)]
-        ;; Post-settle reactive recompute: the :secret sub's value is the
-        ;; app's sensitive payload (NOT a schema-declared mark).
-        (emit-sub-run! :test/main :secret nil secret)
+        (emit-sub-run! :test/main :secret nil "topsecret")
         (is (= (inc settle-fanouts) (count @seen))
             "the back-fill re-notified exactly once")
-        (let [renotified  (last @seen)
-              sub-run      (->> (:sub-runs renotified)
-                                (filter #(= :secret (:sub-id %))) first)
-              raw-in-trace (some #(= secret (get-in % [:tags :rf.sub/value]))
-                                 (:trace-events renotified))]
-          ;; PUSH egress (listener re-fan) is redacted.
+        (let [renotified (last @seen)
+              sub-run    (->> (:sub-runs renotified)
+                              (filter #(= :secret (:sub-id %))) first)]
           (is (some? sub-run) "the back-filled :secret sub-run is present")
-          (is (= :rf/redacted (:value sub-run))
-              "the re-notified :sub-runs row's value is REDACTED, not the
-               raw secret — the leak is closed on the push channel")
-          (is (not raw-in-trace)
-              "the raw secret does not survive in the re-notified
-               :trace-events either")
-          ;; PULL egress (ring read) is the SAME redacted shape.
+          (is (= "topsecret" (:value sub-run))
+              "the re-notified :sub-runs row's value is RAW — no
+               storage-side redaction (the ring is causal replay material)")
+          (is (not (contains? renotified :rf/scrubbed))
+              "the :redact-fn did NOT run at the back-fill seam")
           (let [ring (last-record :test/main)]
             (is (= renotified ring)
-                "ring and listener hold the SAME redacted shape — the
-                 settle-time invariant is restored for the back-fill path")
-            (is (= :rf/redacted
+                "ring and listener hold the SAME raw shape")
+            (is (= "topsecret"
                    (:value (->> (:sub-runs ring)
                                 (filter #(= :secret (:sub-id %))) first)))
-                "the ring's back-filled :sub-runs row is REDACTED — no leak
-                 on the epoch-history / MCP / restore-epoch pull egress")))))))
+                "the ring's back-filled :sub-runs row is RAW")))))))
 
-(deftest inv-6-back-fill-render-redacts-appended-trace-event
-  (testing "rf2-82pcg — a post-settle RENDER back-fill carrying a sensitive
-            value in its appended :trace-events tag is REDACTED in the
-            re-notified record + the ring."
+(deftest back-fill-value-redacted-on-projection
+  (testing "EP-0015 §15 — the back-filled RAW value is REDACTED when the
+            record is projected for off-box egress: the frame/profile
+            projection redacts a schema-declared sub-value, and the
+            :redact-fn override can scrub a non-declared one."
     (rf/reg-frame :test/main {})
-    (rf/configure! :epoch-history {:redact-fn redact-back-filled-secrets})
+    (install-sensitive-schema! :test/main)
+    ;; The override scrubs the :secret sub-run's :value (a non-schema-
+    ;; declared, non-app-db-rooted slot the projection cannot prove).
+    (rf/configure! :epoch-history
+                  {:redact-fn (fn [r]
+                                (cond-> r
+                                  (vector? (:sub-runs r))
+                                  (update :sub-runs
+                                          (fn [rows]
+                                            (mapv (fn [row]
+                                                    (if (= :secret (:sub-id row))
+                                                      (assoc row :value :rf/redacted)
+                                                      row))
+                                                  rows)))))})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+    (emit-sub-run! :test/main :secret nil "topsecret")
+
+    (let [r         (last-record :test/main)
+          projected (epoch/projected-record r)
+          raw-row   (->> (:sub-runs r)
+                         (filter #(= :secret (:sub-id %))) first)
+          proj-row  (->> (:sub-runs projected)
+                         (filter #(= :secret (:sub-id %))) first)]
+      (is (= "topsecret" (:value raw-row))
+          "the RAW ring row carries the verbatim value")
+      (is (= :rf/redacted (:value proj-row))
+          "the projected row's value is redacted by the :redact-fn override
+           at the egress boundary"))))
+
+(deftest back-fill-no-redact-fn-projection-passes-benign-value
+  (testing "EP-0015 §15 — with NO :redact-fn installed, a benign back-filled
+            value passes through both the raw ring and the frame/profile
+            projection unchanged (the attribution behaviour is intact;
+            redaction is opt-in via the override or schema classification)."
+    (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
 
@@ -668,314 +637,16 @@
       (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (rf/dispatch-sync [:inc]  {:frame :test/main})
-      ;; Post-settle render whose trace tags carry the sensitive value.
-      (trace/emit! :rf.view :rf.view/rendered
-                   {:rf.view/render-key [:secret-view 0]
-                    :rf.view/secret     secret
-                    :frame              :test/main})
-      (let [renotified (last @seen)
-            secret-evs (->> (:trace-events renotified)
-                            (filter #(contains? (:tags %) :rf.view/secret)))]
-        (is (seq secret-evs)
-            "the back-filled render trace-event is present")
-        (is (every? #(= :rf/redacted (get-in % [:tags :rf.view/secret]))
-                    secret-evs)
-            "the re-notified :trace-events tag is REDACTED, not the raw
-             secret — the leak is closed for the render back-fill")
-        (is (= renotified (last-record :test/main))
-            "ring and listener hold the SAME redacted shape")))))
-
-(deftest inv-6-back-fill-unmount-redacts-appended-trace-event
-  (testing "rf2-82pcg — a post-settle UNMOUNT back-fill (rides ONLY the
-            :trace-events slot, no structured row) carrying a sensitive
-            value is REDACTED in the re-notified record + the ring. Pins
-            the rf2-59hx3 unmount path through the redaction seam."
-    (rf/reg-frame :test/main {})
-    (rf/configure! :epoch-history {:redact-fn redact-back-filled-secrets})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
-
-    (let [seen (atom [])]
-      (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
-      (rf/dispatch-sync [:seed] {:frame :test/main})
-      (rf/dispatch-sync [:inc]  {:frame :test/main})
-      (let [settle-fanouts (count @seen)]
-        (trace/emit! :rf.view :rf.view/unmounted
-                     {:rf.view/id         :secret-view
-                      :rf.view/render-key [:secret-view 0]
-                      :rf.view/secret     secret
-                      :frame              :test/main})
-        (is (= (inc settle-fanouts) (count @seen))
-            "the unmount back-fill re-notified exactly once")
-        (let [renotified (last @seen)
-              secret-evs (->> (:trace-events renotified)
-                              (filter #(contains? (:tags %) :rf.view/secret)))]
-          (is (seq secret-evs) "the back-filled unmount trace-event is present")
-          (is (every? #(= :rf/redacted (get-in % [:tags :rf.view/secret]))
-                      secret-evs)
-              "the re-notified unmount :trace-events tag is REDACTED")
-          (is (= renotified (last-record :test/main))
-              "ring and listener hold the SAME redacted shape"))))))
-
-(deftest inv-6-back-fill-passes-non-sensitive-value-unchanged
-  (testing "rf2-82pcg — NO over-redaction regression. A back-filled
-            sub-run / render carrying a NON-sensitive value passes through
-            the re-notify redaction UNCHANGED. The redact-fn is the
-            AI/MCP-egress boundary; closing the leak must not start
-            scrubbing benign data."
-    (rf/reg-frame :test/main {})
-    (rf/configure! :epoch-history {:redact-fn redact-back-filled-secrets})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
-
-    (let [seen (atom [])]
-      (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
-      (rf/dispatch-sync [:seed] {:frame :test/main})
-      (rf/dispatch-sync [:inc]  {:frame :test/main})
-      ;; A benign sub-run value — must survive the re-notify redaction.
       (emit-sub-run! :test/main :counter 0 42)
       (let [renotified (last @seen)
             sub-run    (->> (:sub-runs renotified)
                             (filter #(= :counter (:sub-id %))) first)]
         (is (some? sub-run) "the benign back-filled sub-run is present")
         (is (= 42 (:value sub-run))
-            "the non-sensitive value passes through UNCHANGED — no
-             over-redaction")
+            "the non-sensitive value is RAW in the ring/listener")
         (is (= true (:value-changed? sub-run))
             "the benign sub-run's value-change attribution survives intact")
-        (is (= renotified (last-record :test/main))
-            "ring and listener still agree")))))
-
-(deftest inv-6-back-fill-no-redact-fn-is-identity-passthrough
-  (testing "rf2-82pcg — with NO :redact-fn installed, the back-fill
-            re-notify path is an identity pass-through (maybe-redact is a
-            no-op) — the rf2-qs6dl/wi900/59hx3 attribution behaviour is
-            byte-for-byte unchanged by the redaction seam."
-    (rf/reg-frame :test/main {})
-    ;; No redact-fn configured (default nil).
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
-
-    (let [seen (atom [])]
-      (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
-      (rf/dispatch-sync [:seed] {:frame :test/main})
-      (rf/dispatch-sync [:inc]  {:frame :test/main})
-      ;; Even the raw secret rides through untouched — no redact-fn means
-      ;; the framework does not scrub (the app opted out; that is the
-      ;; documented default-nil posture).
-      (emit-sub-run! :test/main :secret nil secret)
-      (let [renotified (last @seen)
-            sub-run    (->> (:sub-runs renotified)
-                            (filter #(= :secret (:sub-id %))) first)]
-        (is (= secret (:value sub-run))
-            "no redact-fn — the back-filled value is the RAW shape (the
-             attribution path is unchanged; redaction is opt-in)")
-        (is (= renotified (last-record :test/main))
-            "ring and listener agree on the raw shape")))))
-
-(deftest inv-6-back-fill-throwing-redact-fn-warns-with-epoch-id
-  (testing "rf2-wmki8.1 — a throwing redact-fn on a POST-SETTLE back-fill
-            (non-normal path: a React-deref-timed sub-run back-filled into
-            the most-recently-settled epoch) emits
-            :rf.warning/epoch-redact-fn-exception carrying the BACK-FILL
-            TARGET epoch's :epoch-id (Tool-Pair.md:101). The probe record
-            `compute-redacted-delta` hands `maybe-redact` is shaped
-            `(cond-> record ...)`, so it carries the ring record's
-            :epoch-id — the warning correlates to the record the delta fell
-            back into."
-    (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
-
-    ;; Settle a clean cascade first (no redact-fn) so a back-fill target
-    ;; epoch exists, then install a throwing redact-fn for the back-fill.
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-    (let [target   (last-record :test/main)
-          warnings (record-warnings!)]
-      (rf/configure! :epoch-history
-                    {:redact-fn (fn [_] (throw (ex-info "back-fill boom" {})))})
-
-      ;; Post-settle reactive recompute → back-fill into `target`, running
-      ;; the throwing redact-fn over the appended delta.
-      (emit-sub-run! :test/main :counter 0 1)
-
-      (let [warn (->> @warnings
-                      (filter #(= :rf.warning/epoch-redact-fn-exception
-                                  (:operation %)))
-                      first)]
-        (is (some? warn)
-            "back-fill redact-fn throw emits the warning")
-        (is (= :test/main (get-in warn [:tags :frame]))
-            ":frame carries the offending frame-id on the back-fill path")
-        (is (= (:epoch-id target) (get-in warn [:tags :epoch-id]))
-            ":epoch-id carries the BACK-FILL TARGET epoch (the record the
-             appended delta fell back into) — not nil")
-        (is (string? (get-in warn [:tags :ex-msg]))
-            ":ex-msg carries the exception message on the back-fill path")))))
-
-;; ============================================================================
-;;  Invariant 7 — once-per-slot back-fill redaction; NON-idempotent fns
-;;                are honoured (rf2-qhxz6)
-;; ============================================================================
-;;
-;; THE CONTRACT (Tool-Pair.md §Redaction hook): ":redact-fn ONCE per
-;; assembled record." That entitles an app author to write a NON-idempotent
-;; fn — one that TRANSFORMS a value rather than substituting an idempotent
-;; `:rf/redacted` sentinel (hash-and-truncate, append-an-audit-marker,
-;; increment-a-closure-counter, base64-a-token).
-;;
-;; THE rf2-82pcg DRIFT (closed here). The rf2-82pcg fix closed the back-fill
-;; leak by re-running the fn over the WHOLE record on EVERY post-settle
-;; back-fill — so an epoch accruing K back-fills invoked the fn 1+K times,
-;; each pass re-redacting the slots prior passes already redacted. A
-;; non-idempotent fn corrupts those already-redacted slots (and
-;; `restore-epoch` rewinds to the corrupted `:db-after`).
-;;
-;; THE rf2-qhxz6 FIX (delta-only). `back-fill-event!` now runs the fn over
-;; ONLY the newly-appended delta. Each slot value is redacted EXACTLY ONCE
-;; across the record's lifetime; the already-redacted slots are never
-;; re-touched; the leak stays closed (the delta IS still redacted). No
-;; idempotency requirement is imposed on the app's `:redact-fn`.
-;;
-;; These tests use a deliberately NON-idempotent fn: it STAMPS a fresh
-;; monotonic counter onto each redactable slot value it touches. If a slot
-;; were re-redacted, its stamp would be a LATER counter than its
-;; first-touch stamp — the test asserts every stamp is its first-touch
-;; value (i.e. each slot touched exactly once).
-
-;; A NON-idempotent redact-fn: each invocation increments a shared counter
-;; and stamps the NEXT counter value onto every :sub-runs row's :value and
-;; every :trace-events :rf.sub/value tag it can see. Re-running it over an
-;; already-stamped value would OVERWRITE the stamp with a later counter —
-;; so a stable first-touch stamp proves once-per-slot. `seq` (call count)
-;; and `touched` (every (slot . stamp) pair, in invocation order) are
-;; exposed for assertions.
-(defn- make-counting-redact-fn []
-  (let [seq*    (atom 0)
-        touched (atom [])]
-    {:seq     seq*
-     :touched touched
-     :redact  (fn [r]
-                (let [n (swap! seq* inc)]
-                  (cond-> r
-                    (vector? (:sub-runs r))
-                    (update :sub-runs
-                            (fn [rows]
-                              (mapv (fn [row]
-                                      (swap! touched conj [:sub-run (:sub-id row) n])
-                                      (assoc row :value [:stamped n (:value row)]))
-                                    rows)))
-                    (vector? (:trace-events r))
-                    (update :trace-events
-                            (fn [evs]
-                              (mapv (fn [ev]
-                                      (if (contains? (:tags ev) :rf.sub/value)
-                                        (do (swap! touched conj [:trace n])
-                                            (update-in ev [:tags :rf.sub/value]
-                                                       (fn [v] [:stamped n v])))
-                                        ev))
-                                    evs))))))}))
-
-(deftest inv-7-non-idempotent-redact-fn-invoked-once-per-slot-across-back-fills
-  (testing "rf2-qhxz6 — a NON-idempotent :redact-fn is invoked EXACTLY ONCE
-            per appended slot across a sequence of post-settle back-fills.
-            The settle-time slots keep their first-touch stamp; each
-            back-fill stamps ONLY its own appended delta; no prior slot is
-            re-stamped (which a whole-record re-redaction would do)."
-    (rf/reg-frame :test/main {})
-    (let [{:keys [seq touched redact]} (make-counting-redact-fn)]
-      (rf/configure! :epoch-history {:redact-fn redact})
-      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-      (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
-
-      (rf/dispatch-sync [:seed] {:frame :test/main})
-      (rf/dispatch-sync [:inc]  {:frame :test/main})
-      (let [settle-calls @seq]
-        ;; THREE post-settle sub-run back-fills onto the SAME last-settled
-        ;; epoch record. A whole-record re-redaction would, on back-fill K,
-        ;; re-stamp all K-1 prior sub-run rows (each call walks the whole
-        ;; growing :sub-runs vector). Delta-only redaction stamps ONLY the
-        ;; newly-appended row each time.
-        (emit-sub-run! :test/main :a 0 100)
-        (emit-sub-run! :test/main :b 0 200)
-        (emit-sub-run! :test/main :c 0 300)
-
-        ;; INVARIANT: exactly one fn invocation per back-fill (plus the
-        ;; settle-time calls). NOT 1+K growth in slot-touches.
-        (is (= (+ settle-calls 3) @seq)
-            "redact-fn invoked once per back-fill — three back-fills =
-             three additional invocations")
-
-        ;; INVARIANT: each :sub-runs row was touched EXACTLY ONCE — the
-        ;; (slot . stamp) ledger holds each sub-id once, at its
-        ;; first-touch counter. A re-redaction would log the same sub-id
-        ;; multiple times (once per subsequent back-fill).
-        (let [sub-run-touches (->> @touched
-                                   (filter #(= :sub-run (first %)))
-                                   (map second))]
-          (is (= [:a :b :c] sub-run-touches)
-              "each sub-id appears EXACTLY ONCE in the touch ledger, in
-               append order — no slot re-redacted on a later back-fill"))
-
-        ;; INVARIANT: the ring record's rows each carry their OWN
-        ;; first-touch stamp (monotonic in append order), NOT a later
-        ;; counter. If row :a had been re-stamped on the :b and :c
-        ;; back-fills its stamp would be the :c-era counter.
-        (let [ring  (last-record :test/main)
-              by-id (into {} (map (juxt :sub-id identity)) (:sub-runs ring))
-              stamp (fn [id] (second (:value (by-id id))))]
-          (is (< (stamp :a) (stamp :b) (stamp :c))
-              "row stamps are strictly increasing in append order — each
-               row carries its first-touch counter; none was re-stamped by
-               a later back-fill (which would equalise / invert the order)")
-          ;; INVARIANT (leak stays closed): the appended delta WAS
-          ;; redacted — every back-filled row's value is the stamped form,
-          ;; not the raw value.
-          (is (= [:stamped (stamp :c) 300] (:value (by-id :c)))
-              "the most-recent back-fill's value IS redacted (stamped) —
-               the leak stays closed for the delta")
-          (is (= [:stamped (stamp :a) 100] (:value (by-id :a)))
-              "the first back-fill's value remains its ORIGINAL stamped
-               form — unchanged by the later :b / :c back-fills"))))))
-
-(deftest inv-7-already-redacted-slots-unchanged-across-back-fill
-  (testing "rf2-qhxz6 — a back-fill leaves every PRE-EXISTING slot value
-            byte-for-byte unchanged; only the appended delta is added. The
-            settle-time :sub-runs / :trace-events / :db-after carry through
-            identically before and after a back-fill (a non-idempotent fn
-            re-run over the whole record would mutate them)."
-    (rf/reg-frame :test/main {})
-    (let [{:keys [redact]} (make-counting-redact-fn)]
-      (rf/configure! :epoch-history {:redact-fn redact})
-      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-      ;; A settling cascade whose own :sub-runs the settle-time pass stamps.
-      (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
-      (rf/dispatch-sync [:seed] {:frame :test/main})
-      (emit-sub-run! :test/main :pre 0 1)        ; back-fill #1 — settled slot
-      (rf/dispatch-sync [:inc]  {:frame :test/main})
-
-      (let [before        (last-record :test/main)
-            before-subs   (:sub-runs before)
-            before-traces (:trace-events before)
-            before-after  (:db-after before)]
-        ;; A fresh back-fill onto this record appends a NEW sub-run.
-        (emit-sub-run! :test/main :post 0 2)
-        (let [after (last-record :test/main)]
-          (is (= before-subs (drop-last (:sub-runs after)))
-              "every pre-existing :sub-runs row is unchanged — the back-fill
-               only APPENDED the new row, never re-stamped the old ones")
-          (is (= before-traces
-                 (vec (take (count before-traces) (:trace-events after))))
-              "every pre-existing :trace-events entry is unchanged — only
-               the new delta event was appended + stamped")
-          (is (= before-after (:db-after after))
-              ":db-after is byte-for-byte unchanged across the back-fill —
-               a whole-record re-redaction by a non-idempotent fn keyed on
-               :db-after would have re-transformed it")
-          ;; And the appended delta IS redacted (leak closed).
-          (let [post-row (->> (:sub-runs after)
-                              (filter #(= :post (:sub-id %))) first)]
-            (is (and (vector? (:value post-row))
-                     (= :stamped (first (:value post-row))))
-                "the appended :post row IS redacted (stamped) — leak closed")))))))
+        (is (= 42 (:value (->> (:sub-runs (epoch/projected-record renotified))
+                               (filter #(= :counter (:sub-id %))) first)))
+            "the benign value passes the projection unchanged (no
+             over-redaction)")))))

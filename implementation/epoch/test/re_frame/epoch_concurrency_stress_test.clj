@@ -115,7 +115,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
-            [re-frame.epoch.assembly :as assembly]
             ;; `state` is used in test BODIES for the private back-fill
             ;; path (`state/back-fill-sub-run!`) + the private listeners
             ;; var (`@#'state/listeners`) the concurrency invariants
@@ -531,34 +530,32 @@
                ", restore-ok: " @ok-count
                ", restore-fail: " @fail-count)))))
 
-;; ---- Scenario 4 (rf2-7i872) ----------------------------------------------
+;; ---- Scenario 4 (EP-0015 §15 / open-issue 6) -----------------------------
 ;;
-;; CAS-retry double-invoke of the app `:redact-fn`. `back-fill-event!`
-;; mutates the single global `histories` atom under `swap!`. Pre-rf2-7i872
-;; the redaction transform (which invokes the app `:redact-fn`) ran INSIDE
-;; the swap update fn (`redact-appended-delta`), so a JVM CAS retry of the
-;; ring mutation RE-RAN the update fn → RE-INVOKED `:redact-fn`. A
-;; non-idempotent fn (the documented contract — hash-and-truncate,
-;; increment-a-counter) is corrupted by the re-run, and a THROWING fn emits
-;; one `:rf.warning/epoch-redact-fn-exception` warning PER invocation, so a
-;; retry emits DUPLICATE warnings. rf2-7i872 moved the `:redact-fn`
-;; invocation (`compute-redacted-delta`) OUTSIDE the swap; only the PURE
-;; splice (`splice-redacted-delta`) rides inside, so a retry re-splices but
-;; never re-invokes the fn.
+;; RAW back-fill under CAS contention. `back-fill-event!` mutates the single
+;; global `histories` atom under `swap!`. Per EP-0015 §15 + open-issue 6
+;; (RULED, hardened) the back-fill stores the RAW delta — storage-side
+;; redaction was REMOVED (the ring is causal replay material; the
+;; `:redact-fn` advanced override runs projection-side only). The swap
+;; update fn (`splice-delta`) is therefore PURE — it invokes no injected
+;; fn, so a JVM CAS retry re-runs only the pure splice. The pre-removal
+;; redact-outside-swap dance (rf2-7i872) is gone by construction: there is
+;; no per-back-fill redact invocation, hence no double-invoke / duplicate-
+;; warning hazard.
 ;;
 ;; This scenario drives N threads, each performing M post-settle sub-run
 ;; back-fills (`state/back-fill-sub-run!`) against its OWN frame's settled
 ;; epoch — but ALL frames share the single global `histories` atom, so the
-;; CAS on that atom is heavily contended and retries WILL occur (the whole
-;; point — pre-fix this is where the double-invoke manifests). Each thread
-;; counts its own `:redact-fn` invocations.
+;; CAS on that atom is heavily contended and retries WILL occur. The
+;; invariant the pure splice must hold under that contention:
 ;;
-;;   Invariant 1 (non-idempotent): total `:redact-fn` invocations EQUALS
-;;     total back-fills. A CAS retry re-invoking the fn would push the count
-;;     ABOVE the back-fill count.
-;;   Invariant 2 (throwing fn): a throwing `:redact-fn` emits EXACTLY ONE
-;;     `:rf.warning/epoch-redact-fn-exception` warning per back-fill — never
-;;     a duplicate from a retried update fn.
+;;   Invariant 1 (no loss / no duplication): each frame's target epoch
+;;     accrues EXACTLY M `:sub-runs` rows — one per back-fill — with the
+;;     full distinct value set. A CAS-retry bug that dropped or double-
+;;     appended a splice would surface as a wrong row count or a duplicate.
+;;   Invariant 2 (raw stored): each back-filled `:sub-runs` row carries
+;;     the RAW value verbatim (no redaction at storage — the ring is the
+;;     raw causal-replay surface).
 ;;
 ;; CLJS is single-threaded; the race cannot manifest there — JVM-only.
 
@@ -577,95 +574,63 @@
                :frame          frame-id
                :rf.sub/value   value}})
 
-(deftest redact-fn-invoked-once-per-back-fill-under-cas-contention
+(deftest raw-back-fill-lands-exactly-once-under-cas-contention
   (testing (str n-threads " threads × " stress-iters
                 " sub-run back-fills each, all contending the single global "
-                "histories atom — the app :redact-fn (a counting, throwing "
-                "fn) is invoked EXACTLY ONCE per back-fill (no CAS-retry "
-                "double-invoke) and emits EXACTLY ONE warning per back-fill "
-                "(rf2-7i872)")
+                "histories atom — every RAW back-fill delta lands EXACTLY "
+                "ONCE (no CAS-retry loss / duplication) and the stored rows "
+                "carry the raw value verbatim (EP-0015 §15 / open-issue 6)")
     (rf/configure! :epoch-history {:depth (* 2 stress-iters)})
-    ;; ONE process-global :redact-fn (the shape `maybe-redact` reads from the
-    ;; config atom) shared across every thread. It counts every invocation
-    ;; and ALWAYS throws — so it drives BOTH invariants at once:
-    ;;   * invocation count (the catch-side increment + the throw) must equal
-    ;;     the total number of back-fills, never more;
-    ;;   * each throw routes through `maybe-redact`'s try/catch, emitting one
-    ;;     `:rf.warning/epoch-redact-fn-exception` warning per invocation.
-    (let [n          n-threads
-          invokes    (atom 0)
-          warnings   (atom 0)
-          redact-fn  (fn [_r]
-                       (swap! invokes inc)
-                       (throw (ex-info "rf2-7i872 boom" {})))]
-      (rf/configure! :epoch-history {:redact-fn redact-fn})
-      (rf/register-listener!
-        ::warn-watcher
-        (fn [ev]
-          (when (and (= :warning (:op-type ev))
-                     (= :rf.warning/epoch-redact-fn-exception
-                        (:operation ev)))
-            (swap! warnings inc))))
+    (let [n      n-threads
+          frames (mapv (fn [t] (keyword "ep0015.cas" (str "frame-" t)))
+                       (range n))]
+      ;; Seed each frame with one settled epoch (the back-fill target).
+      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+      (doseq [frame-id frames]
+        (rf/reg-frame frame-id {})
+        (rf/dispatch-sync [:seed] {:frame frame-id}))
 
-      (let [frames (mapv (fn [t] (keyword "rf7i872.cas" (str "frame-" t)))
-                         (range n))]
-        ;; Seed each frame with one settled epoch (the back-fill target).
-        ;; NOTE: the seed cascade itself runs maybe-redact once at settle —
-        ;; account for those baseline invocations below.
-        (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-        (doseq [frame-id frames]
-          (rf/reg-frame frame-id {})
-          (rf/dispatch-sync [:seed] {:frame frame-id}))
-        ;; Baseline: invocations + warnings accrued from the n seed settles
-        ;; (one maybe-redact pass per settle; each throws + warns). Reset the
-        ;; ledgers so the contended back-fill phase is measured in isolation.
-        (reset! invokes 0)
-        (reset! warnings 0)
+      (let [latch   (CountDownLatch. 1)
+            futures (mapv
+                      (fn [frame-id]
+                        (future
+                          (.await latch)
+                          (let [epoch-id (-> (rf/epoch-history frame-id)
+                                             first :epoch-id)]
+                            (dotimes [i stress-iters]
+                              (let [sid (keyword (str "s" i))]
+                                ;; Production post-settle path: the back-fill
+                                ;; stores the RAW delta — no redact arg (the
+                                ;; storage-side hook was removed; redaction is
+                                ;; projection-side, in `projected-record`).
+                                (state/back-fill-sub-run!
+                                  frame-id epoch-id
+                                  (sub-run-event frame-id sid i)
+                                  {:sub-id sid :value i})))
+                            :done)))
+                      frames)]
+        (.countDown latch)
+        (let [results (mapv await-future futures)]
+          (doseq [r results]
+            (is (not= ::timeout r) "back-fill thread completed within timeout"))
 
-        (let [latch   (CountDownLatch. 1)
-              futures (mapv
-                        (fn [frame-id]
-                          (future
-                            (.await latch)
-                            (let [epoch-id (-> (rf/epoch-history frame-id)
-                                               first :epoch-id)]
-                              (dotimes [i stress-iters]
-                                (let [sid (keyword (str "s" i))]
-                                  ;; Production post-settle path: maybe-redact
-                                  ;; is the redact transform (reads the global
-                                  ;; :redact-fn), exactly as
-                                  ;; listeners/record-sub-run! passes it.
-                                  (state/back-fill-sub-run!
-                                    frame-id epoch-id
-                                    (sub-run-event frame-id sid i)
-                                    {:sub-id sid :value i}
-                                    assembly/maybe-redact)))
-                              :done)))
-                        frames)]
-          (.countDown latch)
-          (let [results (mapv await-future futures)]
-            (doseq [r results]
-              (is (not= ::timeout r) "back-fill thread completed within timeout"))
-
-            (let [total-back-fills (* n stress-iters)]
-              ;; --- Invariant 1: the :redact-fn was invoked EXACTLY ONCE per
-              ;;     back-fill — never more. A count ABOVE total-back-fills
-              ;;     means a CAS retry on the contended histories atom
-              ;;     re-invoked the fn (the rf2-7i872 double-invoke bug, when
-              ;;     the redact ran INSIDE the swap). Equality also proves the
-              ;;     fix didn't accidentally DROP the redaction.
-              (is (= total-back-fills @invokes)
-                  (str ":redact-fn invoked " @invokes " times for "
-                       total-back-fills " back-fills (" n " frames × "
-                       stress-iters "). A count above means a CAS retry "
-                       "re-invoked the fn inside the swap (rf2-7i872)."))
-
-              ;; --- Invariant 2: EXACTLY ONE warning per back-fill — never a
-              ;;     duplicate from a retried update fn re-running the
-              ;;     throwing fn.
-              (is (= total-back-fills @warnings)
-                  (str "Expected " total-back-fills
-                       " redact-fn-exception warnings (one per back-fill); "
-                       "got " @warnings ". A higher count means a CAS retry "
-                       "re-invoked the throwing fn and emitted a duplicate "
-                       "warning (rf2-7i872).")))))))))
+          ;; --- Invariant 1: each frame's target epoch accrued EXACTLY
+          ;;     `stress-iters` sub-runs, with the full distinct value set.
+          ;;     A CAS-retry that dropped a splice would shrink the count; a
+          ;;     double-append would inflate it or duplicate a value.
+          (doseq [frame-id frames]
+            (let [record   (-> (rf/epoch-history frame-id) first)
+                  sub-runs (:sub-runs record)
+                  values   (set (map :value sub-runs))]
+              (is (= stress-iters (count sub-runs))
+                  (str frame-id ": expected " stress-iters
+                       " back-filled sub-runs, got " (count sub-runs)
+                       " — a CAS retry on the contended histories atom lost "
+                       "or duplicated a splice."))
+              ;; --- Invariant 2: the RAW values were stored verbatim (the
+              ;;     ring is the raw causal-replay surface; redaction is
+              ;;     projection-side only).
+              (is (= (set (range stress-iters)) values)
+                  (str frame-id ": the back-filled rows carry the full raw "
+                       "value set 0.." (dec stress-iters)
+                       " verbatim — none lost, none redacted at storage.")))))))))

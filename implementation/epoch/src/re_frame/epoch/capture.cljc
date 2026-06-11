@@ -66,12 +66,12 @@
     :rf.epoch/db-replaced
     :rf.epoch/replace-app-db-during-drain
     :rf.epoch/replace-app-db-schema-mismatch
-    ;; Redact-fn exception warning (rf2-wp70d / Tool-Pair §Time-travel
-    ;; §Redaction hook). Emitted by `maybe-redact` AFTER
-    ;; `harvest-buffer!` has emptied the cascade buffer for this
-    ;; frame; if left un-skipped, the `:frame`-tagged emit would
-    ;; otherwise accrete into the NEXT cascade's harvested record
-    ;; for this frame.
+    ;; Redact-fn exception warning (EP-0015 §15 + open-issue 6, RULED /
+    ;; Tool-Pair §Time-travel §Redaction hook). Emitted by
+    ;; `assembly/apply-redact-fn` at PROJECTION time (`projected-record`),
+    ;; which runs outside any cascade; if left un-skipped, the
+    ;; `:frame`-tagged emit could accrete into a cascade's harvested
+    ;; record for this frame.
     :rf.warning/epoch-redact-fn-exception})
 
 ;; ---- render ops (rf2-qs6dl) -----------------------------------------------
