@@ -715,9 +715,12 @@
       (try
         ;; Stub a reconcile that records its inputs and rewrites the runtime-db
         ;; (the resources artefact's real reconcile does the settle/dangling work).
+        ;; rf2-obi8rr — the hook is now consulted with a third `opts` arg
+        ;; (`{:defer-traces? true}`) so its success traces ride back deferred;
+        ;; the stub records it to pin that the seam passes the opts through.
         (late-bind/set-fn! hook-key
-                           (fn [rdb frame-id]
-                             (reset! seen {:rdb rdb :frame-id frame-id})
+                           (fn [rdb frame-id opts]
+                             (reset! seen {:rdb rdb :frame-id frame-id :opts opts})
                              (assoc rdb :rf.runtime/reconciled? true)))
         (let [fs {:rf.db/app     {:n 1}
                   :rf.db/runtime {:rf.runtime/resources {:entries {}}}}
@@ -725,6 +728,8 @@
           (is (= {:rf.runtime/resources {:entries {}}} (:rdb @seen))
               "the hook receives the runtime-db PARTITION value")
           (is (= :test/x (:frame-id @seen)) "the hook receives the carried frame-id")
+          (is (= {:defer-traces? true} (:opts @seen))
+              "rf2-obi8rr — the hook is consulted with :defer-traces? true so it does not emit success rows before the install")
           (is (true? (get-in out [:rf.db/runtime :rf.runtime/reconciled?]))
               "the hook's reconciled runtime-db is installed back into the frame-state")
           (is (= {:n 1} (:rf.db/app out)) "the app-db partition is untouched"))
@@ -781,8 +786,9 @@
         ;; Stub the reconcile: settle the mid-flight entry (loading → loaded-ish)
         ;; + clear current-work, standing in for the resources artefact's real
         ;; reconcile so the epoch wiring is exercised without a resources dep.
+        ;; rf2-obi8rr — accept the third `opts` arg (`{:defer-traces? true}`).
         (late-bind/set-fn! hook-key
-                           (fn [rdb _frame-id]
+                           (fn [rdb _frame-id _opts]
                              (-> rdb
                                  (assoc-in [:rf.runtime/resources :entries :k :status] :idle)
                                  (assoc-in [:rf.runtime/resources :entries :k :current-work] nil)
@@ -4247,6 +4253,124 @@
           (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
         (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
             "no :rf.epoch/restored success trace for the post-liveness drop")))))
+
+;; rf2-obi8rr — the resources restore-reconcile success rows
+;; (:rf.resource/restored / :rf.resource/owner-released) must NOT leak when the
+;; frame-state install fails. The reconcile runs BEFORE the atomic install and
+;; defers those rows (riding them back as metadata); perform-restore! emits
+;; them via :resources/commit-restore-reconcile! only on the install-success
+;; branch. These tests stub the two resources hooks (the resources artefact is
+;; not on the epoch test classpath) — the reconcile defers a `:rf.resource/
+;; restored` intent and the commit hook emits whatever the reconcile deferred,
+;; exactly mirroring the real ssr.cljc bodies — and drive both branches.
+
+(def ^:private rf2-obi8rr-deferred-key
+  ;; the metadata key the real ssr.cljc reconcile uses; the stub mirrors it so
+  ;; the commit stub reads the deferred intents the same way the real one does.
+  :re-frame.resources.ssr/deferred-trace-intents)
+
+(defn- with-stub-resources-restore-hooks
+  "Install stub :resources/reconcile-on-restore (defers a :rf.resource/restored
+  intent as metadata under :defer-traces? true) + :resources/commit-restore-
+  reconcile! (emits whatever intents the reconcile deferred), run `f`, restore."
+  [f]
+  (let [rk :resources/reconcile-on-restore
+        ck :resources/commit-restore-reconcile!
+        r0 (late-bind/get-fn rk)
+        c0 (late-bind/get-fn ck)]
+    (try
+      (late-bind/set-fn! rk
+                         (fn [rdb frame-id {:keys [defer-traces?]}]
+                           (let [intents [{:level :rf.epoch
+                                           :op    :rf.resource/restored
+                                           :tags  {:rf.frame/id frame-id :reconciled 1}}
+                                          {:level :rf.epoch
+                                           :op    :rf.resource/owner-released
+                                           :tags  {:rf.frame/id frame-id
+                                                   :owner [:route :r "nav-OLD"]
+                                                   :reason :stale-nav-orphan}}]]
+                             (if defer-traces?
+                               (vary-meta rdb assoc rf2-obi8rr-deferred-key intents)
+                               (do (doseq [{:keys [level op tags]} intents]
+                                     (trace/emit! level op tags))
+                                   rdb)))))
+      (late-bind/set-fn! ck
+                         (fn [rdb]
+                           (doseq [{:keys [level op tags]} (-> rdb meta (get rf2-obi8rr-deferred-key))]
+                             (trace/emit! level op tags))
+                           nil))
+      (f)
+      (finally
+        (late-bind/set-fn! rk r0)
+        (late-bind/set-fn! ck c0)))))
+
+(deftest restore-failed-install-emits-no-resource-success-traces
+  (testing "rf2-obi8rr ACCEPTANCE — a restore whose frame-state install FAILS
+            (the post-liveness teardown race: replace-frame-state! returns nil)
+            emits NO :rf.resource/restored or :rf.resource/owner-released rows,
+            even though resources rode in the snapshot — the reconcile deferred
+            them and the commit only fires on a successful install."
+    (rf/reg-frame :test/obi8rr-fail {})
+    (rf/reg-event-fx :seed-res
+      (fn [{rt :rf.db/runtime} _]
+        {:db {:n 0}
+         :rf.db/runtime (assoc-in (or rt {})
+                                  [:rf.runtime/resources :entries :k]
+                                  {:status :loaded :data {:x 1}
+                                   :active-owners #{[:route :r "nav-OLD"]}})}))
+    (rf/reg-event-db :clear-res (fn [_ _] {:n 1}))
+    (with-stub-resources-restore-hooks
+      (fn []
+        (rf/dispatch-sync [:seed-res] {:frame :test/obi8rr-fail})
+        (let [target-id (-> (rf/epoch-history :test/obi8rr-fail) last :epoch-id)]
+          (rf/dispatch-sync [:clear-res] {:frame :test/obi8rr-fail})
+          (let [{:keys [outcome epoch]} (tool-pair/check-restore-preconditions!
+                                          :test/obi8rr-fail target-id)]
+            (is (= :ok outcome) "precondition validation passed against the live frame")
+            (let [real-write frame/replace-frame-state!
+                  recorded   (record-trace!)
+                  result     (with-redefs [frame/replace-frame-state!
+                                           (fn [fid fs]
+                                             (rf/destroy-frame! fid)
+                                             (real-write fid fs))]
+                               (tool-pair/perform-restore! :test/obi8rr-fail epoch))]
+              (is (false? result) "perform-restore! reports honest failure for the nil-write teardown")
+              (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
+                  "no :rf.epoch/restored (the install never landed)")
+              (is (not-any? #(= :rf.resource/restored (:operation %)) @recorded)
+                  "ACCEPTANCE — no :rf.resource/restored leaked for the failed restore")
+              (is (not-any? #(= :rf.resource/owner-released (:operation %)) @recorded)
+                  "ACCEPTANCE — no :rf.resource/owner-released leaked for the failed restore"))))))))
+
+(deftest restore-successful-install-emits-deferred-resource-traces
+  (testing "rf2-obi8rr — a SUCCESSFUL restore DOES emit the deferred
+            :rf.resource/restored + :rf.resource/owner-released rows (committed
+            after the install landed) — the deferral does not drop them on the
+            happy path."
+    (rf/reg-frame :test/obi8rr-ok {})
+    (rf/reg-event-fx :seed-res2
+      (fn [{rt :rf.db/runtime} _]
+        {:db {:n 0}
+         :rf.db/runtime (assoc-in (or rt {})
+                                  [:rf.runtime/resources :entries :k]
+                                  {:status :loaded :data {:x 1}
+                                   :active-owners #{[:route :r "nav-OLD"]}})}))
+    (rf/reg-event-db :clear-res2 (fn [_ _] {:n 1}))
+    (with-stub-resources-restore-hooks
+      (fn []
+        (rf/dispatch-sync [:seed-res2] {:frame :test/obi8rr-ok})
+        (let [target-id (-> (rf/epoch-history :test/obi8rr-ok) last :epoch-id)]
+          (rf/dispatch-sync [:clear-res2] {:frame :test/obi8rr-ok})
+          (let [recorded (record-trace!)
+                ok?      (rf/restore-epoch :test/obi8rr-ok target-id)]
+            (is (true? ok?) "restore succeeded")
+            (is (some #(= :rf.epoch/restored (:operation %)) @recorded)
+                ":rf.epoch/restored fired (the install landed)")
+            (is (some #(= :rf.resource/restored (:operation %)) @recorded)
+                "the deferred :rf.resource/restored row is committed on success")
+            (is (some #(and (= :rf.resource/owner-released (:operation %))
+                            (= [:route :r "nav-OLD"] (:owner (:tags %)))) @recorded)
+                "the deferred :rf.resource/owner-released row is committed on success")))))))
 
 (deftest replace-app-db-post-liveness-teardown-returns-false
   (testing "rf2-s93722 — perform-replace-app-db! returns false, emits

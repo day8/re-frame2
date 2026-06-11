@@ -564,14 +564,39 @@
   reconcile can stamp its trace. Other runtime subsystems (machines, routing)
   reconcile their own snapshots through their own contracts; this seam is the
   resources-first extension point, mirroring SSR hydration's single
-  `:resources/hydrate-runtime-db` consult."
+  `:resources/hydrate-runtime-db` consult.
+
+  Per rf2-obi8rr the reconcile is invoked with `{:defer-traces? true}` so it does
+  NOT emit its `:rf.resource/restored` / `:rf.resource/owner-released` success
+  rows inline — the reconcile runs BEFORE the atomic install, which can still
+  fail (a destroyed-frame install returns nil). The deferred trace intents ride
+  back as metadata on the reconciled runtime-db; `perform-restore!` emits them via
+  `:resources/commit-restore-reconcile!` only AFTER a successful install, so a
+  failed restore leaks no resource success traces."
   [frame-id frame-state]
   (if-let [reconcile (late-bind/get-fn :resources/reconcile-on-restore)]
     (if (contains? frame-state frame/runtime-partition-key)
       (update frame-state frame/runtime-partition-key
-              (fn [rdb] (when (some? rdb) (reconcile rdb frame-id))))
+              (fn [rdb] (when (some? rdb) (reconcile rdb frame-id {:defer-traces? true}))))
       frame-state)
     frame-state))
+
+(defn commit-resources-restore-traces!
+  "Emit the resources restore-reconcile trace rows DEFERRED by
+  `reconcile-runtime-db-on-restore` (rf2-obi8rr), consulting the late-bound
+  `:resources/commit-restore-reconcile!` hook with the reconciled runtime-db
+  partition of `frame-state`. Invoked by `perform-restore!` ONLY AFTER a
+  successful `replace-frame-state!` install, so the `:rf.resource/restored` /
+  `:rf.resource/owner-released` success rows fire exactly once the restore has
+  truly installed — never for a destroyed-frame install that wrote nothing.
+  No-op when no resources artefact is loaded (hook nil), when the frame-state
+  carries no runtime-db partition, or when the runtime-db carries no deferred
+  intents (a resource-free restore). Returns nil."
+  [frame-state]
+  (when-let [commit (late-bind/get-fn :resources/commit-restore-reconcile!)]
+    (when-let [rdb (get frame-state frame/runtime-partition-key)]
+      (commit rdb)))
+  nil)
 
 (defn perform-restore!
   "Carry out the actual frame-state rewind once preconditions have passed.
@@ -616,7 +641,15 @@
   entry's vanished `:current-work`, orphans SSR / stale-nav owners, recomputes
   the reverse indexes from `:entries`, and records restored non-terminal
   work-ledger rows as dangling so a pre-restore in-flight reply is suppressed.
-  No-op (passes the runtime-db through) when no resources artefact is loaded."
+  No-op (passes the runtime-db through) when no resources artefact is loaded.
+
+  Per rf2-obi8rr (defer restore trace rows until install succeeds): the resources
+  reconcile above runs BEFORE the atomic install but its `:rf.resource/restored` /
+  `:rf.resource/owner-released` SUCCESS trace rows must fire only once the restore
+  TRULY installs. So the reconcile defers those rows (it is called with
+  `:defer-traces? true`, riding the intents back as metadata); they are emitted
+  via `commit-resources-restore-traces!` ONLY on the success branch below — never
+  for a destroyed-frame install that returns nil and writes nothing."
   [frame-id epoch]
   (let [{:keys [outcome op tags]} (live-container-or-fail frame-id)]
     (if (= :fail outcome)
@@ -651,6 +684,11 @@
           (do (trace/emit! :rf.epoch :rf.epoch/restored
                            {:frame    frame-id
                             :epoch-id (:epoch-id epoch)})
+              ;; rf2-obi8rr — the install succeeded, so it is now safe to emit
+              ;; the resources restore-reconcile success rows the reconcile
+              ;; deferred. A destroyed-frame install (nil branch above) returns
+              ;; before this point, so those rows never fire for a no-op write.
+              (commit-resources-restore-traces! frame-state-target)
               true))))))
 
 ;; ---- replace-app-db! preconditions ----------------------------------------

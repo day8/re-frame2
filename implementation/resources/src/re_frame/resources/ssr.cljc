@@ -73,8 +73,12 @@
 
 ;; `hydrate-runtime-db` (the reconcile) computes the client refetch plan via
 ;; `hydrate-refetch-plan` (defined below) on the `:rf/hydrate` install path
-;; (rf2-fopuj9), so the latter is forward-declared.
+;; (rf2-fopuj9), so the latter is forward-declared. It also settles a hydrated
+;; non-terminal entry whose `:current-work` was stripped on the wire to its last
+;; stable status via `settle-entry-to-last-stable` (rf2-bg6qah), shared with the
+;; restore path — forward-declared for the same file-order reason.
 (declare hydrate-refetch-plan)
+(declare settle-entry-to-last-stable)
 
 ;; ---- shared clock ---------------------------------------------------------
 
@@ -764,7 +768,18 @@
 
   Reconciliation (Spec 016 §SSR and hydration / §Restore and replay):
     1. drop SSR owners from every entry (they orphan — part 4) + clear the
-       transient `:current-work` pointer (part 2);
+       transient `:current-work` pointer (part 2), AND settle a non-terminal
+       `:loading` / `:fetching` entry whose `:current-work` was stripped on the
+       wire to its last STABLE status (`settle-entry-to-last-stable` — rf2-bg6qah):
+       the server projection strips `:current-work` (`project-entry`) but keeps
+       the entry's `:status`, so a hydrated entry can arrive `:loading` / `:fetching`
+       with NO live work behind it. Left as-is it would dangle — a `:fetching`
+       entry with fresh data is skipped by the refetch planner (no double-fetch)
+       yet has no work in flight, so it would render `:fetching` forever. Settling
+       resolves it: `:fetching`-with-data → `:loaded` (the planner then keeps it
+       fresh / background-refetches if stale), `:loading`-with-no-data → `:idle`
+       (the planner then refetches it). This mirrors the restore reconcile (the
+       unprojected snapshot needs the same settle — `reconcile-on-restore`);
     2. recompute `:tag-index` / `:owner-index` from the reconciled
        `:entries` (never trust the wire — part 5);
     3. emit a `:rf.resource/hydrated` trace summarising installed / orphaned
@@ -793,19 +808,28 @@
      (if-not (seq entries)
        runtime-db
        (let [clock-ms (now-ms)
-             ;; reconcile each entry: orphan SSR owners + clear current-work.
+             ;; reconcile each entry: orphan SSR owners + clear current-work +
+             ;; settle a non-terminal entry to last-stable (rf2-bg6qah).
              ;; Hydration passes nil live-nav-token — there is no client
              ;; routing yet, so route owners ride through unchanged (their
              ;; liveness is reconciled by routing on the live client). The
              ;; stale-nav route-owner orphan rule is RESTORE-specific (Spec
              ;; 016 §Restore and replay part 4); see `reconcile-on-restore`.
+             ;; The settle, by contrast, is SHARED with restore: the server
+             ;; projection stripped `:current-work` on the wire but kept the
+             ;; entry's `:status`, so a hydrated `:loading` / `:fetching` entry
+             ;; has no live work behind it — settling it to last-stable
+             ;; (`:fetching`+data → `:loaded`, `:loading`+no-data → `:idle`)
+             ;; lets the refetch planner classify it correctly rather than
+             ;; leaving it dangling in a non-terminal status forever.
              reconciled (reduce-kv
                           (fn [acc k entry]
                             (let [[entry' dropped] (reconcile-entry-owners
                                                      entry hydration-route-owner-policy)
+                                  entry''          (settle-entry-to-last-stable entry')
                                   skew             (clock-skew-ms entry clock-ms)]
                               (-> acc
-                                  (assoc-in [:entries k] entry')
+                                  (assoc-in [:entries k] entry'')
                                   (update :orphaned into (map (fn [o] [k o])) dropped)
                                   (cond-> skew (update :skews assoc k skew)))))
                           {:entries {} :orphaned [] :skews {}}
@@ -1022,6 +1046,59 @@
   (work-ledger/release-frame! frame-id)
   nil)
 
+;; ---- deferred restore trace intents (rf2-obi8rr) --------------------------
+;;
+;; `reconcile-on-restore` runs INSIDE `perform-restore!` BEFORE the atomic
+;; `replace-frame-state!` install (it reconciles the runtime-db the install is
+;; about to write). The install can still FAIL after the reconcile: a frame
+;; destroyed in the post-liveness teardown window makes `replace-frame-state!`
+;; return nil (the rf2-s93722 race), so no frame-state is written. If the
+;; reconcile had ALREADY emitted `:rf.resource/restored` / `owner-released`
+;; success traces, those would leak — announcing a restore that never installed.
+;;
+;; So the restore-reconcile trace rows are computed as INTENTS (plain data,
+;; `{:level :op :tags}`) the reconcile DEFERS: when invoked via the epoch hook
+;; (`:defer-traces? true`) they ride back as metadata on the returned runtime-db
+;; under `::deferred-trace-intents`, and `perform-restore!` emits them through
+;; `commit-restore-reconcile-traces!` ONLY AFTER a successful install. Invoked
+;; directly (the 1-/2-arity, the pure unit-test path) the reconcile still emits
+;; inline — there is no install to gate against. The host-side-transient clear is
+;; NOT deferred: it is idempotent and the only failure path is an already-
+;; destroyed frame whose transients `frame/destroy-frame!` already released.
+
+(def ^:private deferred-trace-intents-key
+  "Metadata key carrying the deferred restore-reconcile trace intents on the
+  runtime-db `reconcile-on-restore` returns under `:defer-traces? true`
+  (rf2-obi8rr). `perform-restore!` reads them via `commit-restore-reconcile-
+  traces!` and emits them only after the frame-state install succeeds."
+  ::deferred-trace-intents)
+
+(defn- emit-trace-intent!
+  "Emit one deferred restore trace intent `{:level :op :tags}` through the
+  matching `trace` emitter. `:error` routes through `trace/emit-error!` (the
+  structured-error channel); every other level (`:rf.epoch` / `:warning` / …)
+  routes through `trace/emit!`. Per rf2-obi8rr."
+  [{:keys [level op tags]}]
+  (if (= :error level)
+    (trace/emit-error! op tags)
+    (trace/emit! level op tags))
+  nil)
+
+(defn commit-restore-reconcile-traces!
+  "Emit the restore-reconcile trace intents DEFERRED on `reconciled-runtime-db`
+  by a `reconcile-on-restore` call made with `:defer-traces? true` (rf2-obi8rr).
+  The body behind the `:resources/commit-restore-reconcile!` hook
+  `perform-restore!` consults AFTER a successful `replace-frame-state!` install,
+  so a failed restore (a destroyed-frame install returning nil) emits NO
+  `:rf.resource/restored` / `:rf.resource/owner-released` rows. Reads the intents
+  from the `::deferred-trace-intents` metadata key and fires each through
+  `emit-trace-intent!`. No-op when the value carries no deferred intents (a
+  resource-free restore, or a reconcile that emitted inline). Returns nil."
+  [reconciled-runtime-db]
+  (doseq [intent (-> reconciled-runtime-db meta (get deferred-trace-intents-key))]
+    (emit-trace-intent! intent))
+  nil)
+
 (defn reconcile-on-restore
   "Reconcile a freshly-INSTALLED resource subtree on `restore-epoch` (the body
   behind the `:resources/reconcile-on-restore` hook epoch `perform-restore!`
@@ -1056,23 +1133,36 @@
        (the mutation reply gate checks the INSTANCE's `:current-work` +
        `:generation`, not the resource entry's, so the resource-side dangle
        alone does NOT suppress it);
-    4. emit a `:rf.resource/restored` trace summarising reconciled / orphaned /
+    4. a `:rf.resource/restored` trace summarising reconciled / orphaned /
        dangled (work + mutation) counts, a `:rf.resource/owner-released` row per
        stale-nav route owner released as an orphan (part 4), and a clock-skew
        diagnostic when a restored `:stale-at` is implausible against the live
-       clock.
+       clock — emitted INLINE by the 1-/2-arity (the pure unit path; no install
+       to gate), or DEFERRED under `:defer-traces? true` (rf2-obi8rr): the
+       intents ride back as metadata for `commit-restore-reconcile-traces!` to
+       emit AFTER `perform-restore!`'s install succeeds, so a failed
+       (destroyed-frame) restore leaks NO `:rf.resource/restored` /
+       `owner-released` rows.
 
   The stale-nav route-owner orphan rule is RESTORE-specific: restore installs
   both partitions wholesale so the live nav-token IS present, whereas SSR
   hydration has no client routing yet — `hydrate-runtime-db` passes a nil live
   nav-token, leaving route owners for routing's own client reconcile.
 
+  `opts` (3-arity, rf2-obi8rr): `{:defer-traces? <bool>}`. When true (the epoch
+  hook path) the trace rows are NOT emitted inline; they ride back as
+  `::deferred-trace-intents` metadata on the returned runtime-db for
+  `commit-restore-reconcile-traces!` to emit post-install. The host-side-transient
+  clear runs regardless (idempotent; the only failure path is an already-
+  destroyed frame whose transients were already released).
+
   NEVER crosses scopes (it only reconciles entries under their own scoped keys).
   Part 1 (the monotone host-side generation allocator) is restore-safe by
   construction — it is NOT frame-state, so restore cannot rewind it; nothing here
   touches it."
-  ([runtime-db] (reconcile-on-restore runtime-db nil))
-  ([runtime-db frame-id]
+  ([runtime-db] (reconcile-on-restore runtime-db nil nil))
+  ([runtime-db frame-id] (reconcile-on-restore runtime-db frame-id nil))
+  ([runtime-db frame-id {:keys [defer-traces?]}]
    (let [resources (get runtime-db state/resources-key)
          entries   (:entries resources)
          ledger    (get runtime-db state/work-ledger-key)
@@ -1115,37 +1205,48 @@
              ;; by the instance work-id + generation gate (rf2-o3d1uf). Runs on
              ;; the resource-reconciled runtime-db; the mutation work-ledger row
              ;; was already dangled by `dangle-non-terminal-work!` above.
-             [rdb''' dangled-mutations] (dangle-pending-mutations! rdb'' clock-ms)]
-         (trace/emit! :rf.epoch :rf.resource/restored
-                      {:rf.frame/id       frame-id
-                       :reconciled        (count entries')
-                       :orphaned-owners   (vec (:orphaned reconciled))
-                       :dangled-work      (vec dangled)
-                       :dangled-mutations (vec dangled-mutations)
-                       :clock-skews       (:skews reconciled)})
-         ;; per-owner row for every STALE-NAV route owner released as an orphan
-         ;; (Spec 016 §Restore and replay part 4: "orphaned owners are dropped
-         ;; with a trace row"). SSR orphans ride the summary above (they belong
-         ;; to a settled server render, not a stale navigation).
-         (doseq [[k owner] (:orphaned reconciled)
-                 :when (route-owner? owner)]
-           (trace/emit! :rf.epoch :rf.resource/owner-released
-                        {:rf.frame/id   frame-id
-                         :resource-key  k
-                         :owner         owner
-                         :nav-token     (nth owner 2 nil)
-                         :live-nav-token live-nav-token
-                         :reason        :stale-nav-orphan
-                         :recovery      :restore-reconcile}))
-         (doseq [[k skew] (:skews reconciled)]
-           (trace/emit! :warning :rf.resource/restore-clock-skew
-                        {:rf.frame/id  frame-id
-                         :resource-key k
-                         :skew-ms      skew
-                         :reason       (str "restored entry's absolute :stale-at is "
-                                            skew "ms ahead of the live clock — clock "
-                                            "skew makes freshness ambiguous; the next "
-                                            "live-owner ensure will resolve it.")}))
+             [rdb''' dangled-mutations] (dangle-pending-mutations! rdb'' clock-ms)
+             ;; rf2-obi8rr — compute the restore-reconcile trace rows as INTENTS
+             ;; (plain `{:level :op :tags}` data). They are emitted inline below
+             ;; for the direct (unit-test) path, or deferred onto the returned
+             ;; runtime-db's metadata under `:defer-traces? true` so the epoch
+             ;; `perform-restore!` only fires them after a successful install.
+             intents (into
+                       [{:level :rf.epoch
+                         :op    :rf.resource/restored
+                         :tags  {:rf.frame/id       frame-id
+                                 :reconciled        (count entries')
+                                 :orphaned-owners   (vec (:orphaned reconciled))
+                                 :dangled-work      (vec dangled)
+                                 :dangled-mutations (vec dangled-mutations)
+                                 :clock-skews       (:skews reconciled)}}]
+                       cat
+                       [;; per-owner row for every STALE-NAV route owner released
+                        ;; as an orphan (Spec 016 §Restore and replay part 4:
+                        ;; "orphaned owners are dropped with a trace row"). SSR
+                        ;; orphans ride the summary above (they belong to a
+                        ;; settled server render, not a stale navigation).
+                        (for [[k owner] (:orphaned reconciled)
+                              :when (route-owner? owner)]
+                          {:level :rf.epoch
+                           :op    :rf.resource/owner-released
+                           :tags  {:rf.frame/id    frame-id
+                                   :resource-key   k
+                                   :owner          owner
+                                   :nav-token      (nth owner 2 nil)
+                                   :live-nav-token live-nav-token
+                                   :reason         :stale-nav-orphan
+                                   :recovery       :restore-reconcile}})
+                        (for [[k skew] (:skews reconciled)]
+                          {:level :warning
+                           :op    :rf.resource/restore-clock-skew
+                           :tags  {:rf.frame/id  frame-id
+                                   :resource-key k
+                                   :skew-ms      skew
+                                   :reason       (str "restored entry's absolute :stale-at is "
+                                                      skew "ms ahead of the live clock — clock "
+                                                      "skew makes freshness ambiguous; the next "
+                                                      "live-owner ensure will resolve it.")}})])]
          ;; rf2-nd1r9q — clear the restored frame's HOST-SIDE transients (stale /
          ;; GC timer handles + work-ledger host handles) that the pre-restore
          ;; timeline armed (Spec 016 §Restore and replay part 5). These are NOT
@@ -1157,9 +1258,18 @@
          ;; — part 1) and the revalidation listeners (frame-lifecycle-scoped, not
          ;; epoch-scoped). Guarded on `frame-id` (the host always passes one; the
          ;; pure-unit 1-arity passes nil and has no live host tables to clear).
+         ;; NOT deferred (rf2-obi8rr): idempotent, and the only failed-install
+         ;; path is an already-destroyed frame whose transients were released.
          (when frame-id
            (clear-host-transients-on-restore! frame-id))
-         rdb''')))))
+         (if defer-traces?
+           ;; rf2-obi8rr — ride the intents back as metadata; the epoch
+           ;; `perform-restore!` emits them via `commit-restore-reconcile-traces!`
+           ;; only after the frame-state install succeeds.
+           (vary-meta rdb''' assoc deferred-trace-intents-key intents)
+           ;; the direct (unit) path: no install to gate against — emit inline.
+           (do (run! emit-trace-intent! intents)
+               rdb''')))))))
 
 ;; ---- client refetch decision (Spec 016 §SSR and hydration) ----------------
 ;;
@@ -1296,7 +1406,14 @@
       about to install (everything the hydrate reconcile does PLUS settling
       mid-flight `:loading` / `:fetching` entries to last-stable and recording
       restored non-terminal work-ledger rows as dangling so a pre-restore reply
-      is suppressed — Spec 016 §Restore and replay parts 2/4/5).
+      is suppressed — Spec 016 §Restore and replay parts 2/4/5). Called by epoch
+      with `:defer-traces? true` so its success rows ride back as metadata
+      instead of firing inline (rf2-obi8rr);
+    - `:resources/commit-restore-reconcile!` — epoch `perform-restore!` emits
+      the restore-reconcile success rows (`:rf.resource/restored` /
+      `:rf.resource/owner-released`) the reconcile deferred, fired ONLY AFTER the
+      frame-state install succeeds so a destroyed-frame restore that writes
+      nothing leaks no success traces (rf2-obi8rr).
 
   No-op effect on an app that never SSRs / time-travels — the hooks simply sit
   unread. All are no-op on an app WITHOUT resources (the projection contributes
@@ -1308,7 +1425,8 @@
     {:ssr/extend-runtime-db-projection project-resources-runtime-db
      :resources/drain-blocking-ssr!    drain-blocking-resources!
      :resources/hydrate-runtime-db     hydrate-runtime-db
-     :resources/reconcile-on-restore   reconcile-on-restore})
+     :resources/reconcile-on-restore   reconcile-on-restore
+     :resources/commit-restore-reconcile! commit-restore-reconcile-traces!})
   nil)
 
 (defn hydrate-resources!

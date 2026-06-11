@@ -26,12 +26,14 @@
     server-state rides `:rf/runtime-db` as a RESOURCE projection under
     `:rf.runtime/resources :entries`, keyed by the scoped resource key
     `[<scope> <resource-id> <canonical-params>]` — NOT as an app-db value.
-    Only the durable `:entries` are serialized; the `:tag-index` /
-    `:owner-index` are recomputed from `:entries` on install (Spec 016 §SSR
-    / §Restore part 5), and host handles never serialize. On hydration the
-    framework `:rf/hydrate` installs this projection into the client frame's
-    runtime partition; a fresh entry renders immediately and does NOT
-    immediately re-fetch.
+    This is exactly what `payload-policy/project-runtime-db` emits in
+    `handle-request`: only the durable `:entries` are serialized; the
+    `:tag-index` / `:owner-index` are EXCLUDED (recomputed from `:entries` on
+    install — Spec 016 §SSR / §Restore part 5), `:current-work` is stripped on
+    the wire, and host handles never serialize. On hydration the framework
+    `:rf/hydrate` installs this projection into the client frame's runtime
+    partition; the reconcile orphans the SSR owner + recomputes the indexes; a
+    fresh entry renders immediately and does NOT immediately re-fetch.
   -->
   <div id="app">
     <div class="page">
@@ -44,6 +46,7 @@
   </div>
   <script id="__rf_payload" type="application/edn">
 {:rf/version 1
+ :rf/frame-id :rf/default
  :rf/app-db {}
  :rf/runtime-db
  {:rf.runtime/resources
@@ -57,7 +60,8 @@
      :loaded-at   1780752000000
      :stale-at    1780752060000
      :generation  1
-     :tags        #{[:article-list]}}}}}}
+     :tags        #{[:article-list]}}}}}
+ :rf/render-hash nil}
   </script>
   <script src="main.js"></script>
 </body>

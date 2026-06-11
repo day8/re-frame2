@@ -18,38 +18,47 @@ The resource SSR contract (Spec 016 §SSR and hydration):
   resource cache would leak data between users. `handle-request` (`:clj`)
   makes the frame, dispatches `:rf/server-init`, renders, and tears the
   frame down in a `finally` on every exit path.
-- **Blocking SSR preload** — `:rf/server-init` ensures the page resource
-  under an `[:ssr request-id nav-token]` owner with cause `:ssr-preload`;
-  the render waits for it to settle.
-- **Allowlist projection** — only the durable resource `:entries` are
-  serialized into the hydration payload's `:rf/runtime-db`. The
-  `:tag-index` / `:owner-index` recompute from `:entries` on install, and
-  host handles never serialize.
+- **Blocking SSR preload + drain** — `:rf/server-init` ensures the page
+  resource under an `[:ssr request-id nav-token]` owner with cause
+  `:ssr-preload`; `handle-request` then calls `ssr/drain-blocking-resources!`
+  to settle that blocking ensure (or time it out into a structured first-load
+  failure) **before** the render walk, so the render never sees a hung
+  `:loading` skeleton.
+- **Allowlist projection** — `handle-request` projects the runtime-db through
+  `payload-policy/project-runtime-db`, so only the durable resource `:entries`
+  ride the hydration payload's `:rf/runtime-db` — per-entry **redacted**
+  (`:sensitive?`) / **omitted** (`:large?`), with the `:tag-index` /
+  `:owner-index` **excluded** (they recompute from `:entries` on install) and
+  host handles never serialized. The full runtime-db is **never** shipped; the
+  `:rf/app-db` slice rides the explicit fail-closed allowlist (`apply-policy`)
+  the real Ring host uses (empty here — the page state is the resource).
 - **No-double-fetch hydration** — the framework `:rf/hydrate` installs the
-  projection into the client frame's `:rf.runtime/resources` slice; a fresh
-  hydrated entry renders immediately and does **not** immediately re-fetch
-  (a stale entry would background-refetch by policy).
+  projection into the client frame's `:rf.runtime/resources` slice; the
+  hydration reconcile orphans the SSR owner, recomputes the reverse indexes,
+  and settles a wire-stripped in-flight entry to a stable status. A fresh
+  hydrated entry renders immediately and does **not** immediately re-fetch; a
+  stale / redacted / omitted entry refetches by the hydration refetch plan.
 - **Scope isolation** — the resource declares an explicit
   `:scope :rf.scope/global` claim; hydration MUST NEVER cross scopes
   (request-local SSR frames and serialized scopes must agree).
 
 The `index.html` next to this file carries a **pre-baked** hydration payload
 illustrating the serialized resource projection (a `:loaded` `:articles/list`
-entry under `[:rf.scope/global :articles/list {}]`), exactly as the sibling
-[`examples/reagent/ssr/`](../ssr/) bakes a plain SSR payload — a stand-in for
-what a real Clojure server emits.
+entry under `[:rf.scope/global :articles/list {}]`) for the runnable
+browser-side `run` — exactly as the sibling [`examples/reagent/ssr/`](../ssr/)
+bakes a plain SSR payload, a stand-in for what `handle-request` emits when a
+real Clojure server sits in front.
 
-## Slice status
+## Landed behaviour
 
-Resources ships at its **skeleton slice** (rf2-p10npe): `reg-resource`, the
-passive subs, and the late-bound SSR projection hook are real, so this
-example **compiles** and the SSR shape is canonical. The blocking-drain +
-hydration-install **runtime** lands in later slices (rf2-ctk2av /
-rf2-pbxj48); until then the live preload would raise
-`:rf.error/resource-not-implemented`, and the static `index.html` payload is
-the illustrative stand-in. The example tree is test-free (rf2-8cevm);
-SSR-resource contract coverage lives in `implementation/resources/test/` and
-the conformance fixtures.
+The SSR-resource runtime is **real** (EP-0003), so `handle-request` drives the
+actual server path rather than a skeleton stand-in: the blocking-drain
+(rf2-er7qx2), the per-entry projection with redaction / omission / scoped-key
+privacy / index omission (rf2-otms75 / rf2-fopuj9), and the client hydration
+reconcile + refetch plan (rf2-ctk2av) all run end-to-end. The example tree is
+test-free (rf2-8cevm); SSR-resource contract coverage lives in
+`implementation/resources/test/` (the SSR + restore CLJS suites) and the
+EP-0003 §9 conformance fixtures.
 
 ## Deferred — not built here
 
