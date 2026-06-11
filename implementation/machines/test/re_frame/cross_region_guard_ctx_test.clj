@@ -222,8 +222,11 @@
 ;; ---- (e) flat / compound guard ctx is UNAFFECTED (regression) -------------
 
 (deftest flat-guard-ctx-has-no-cross-region-keys
-  (testing "a FLAT machine's guard ctx is exactly {:data :event :state :meta}
-            — no :tags, no :all-state"
+  (testing "a FLAT machine's guard ctx carries the four base keys — no :tags,
+            no :all-state (the parallel-region keys never leak to a flat
+            machine). A router-driven dispatch ALSO carries the EP-0010 causal
+            :rf.world/inputs token (rf2-g0m4p5); the cross-region keys stay
+            absent."
     (let [captured (atom nil)
           m {:initial :idle
              :data    {:ok true}
@@ -236,8 +239,10 @@
       (rf/reg-machine :flat/ctx m)
       (rf/dispatch-sync [:flat/ctx [:go]])
       (is (= :done (:state (snapshot :flat/ctx))))
-      (is (= #{:data :event :state :meta} (set (keys @captured)))
-          "flat guard ctx carries ONLY the four base keys")
+      (is (= #{:data :event :state :meta}
+             (set (keys (dissoc @captured :rf.world/inputs))))
+          "flat guard ctx carries the four base keys (+ the EP-0010 causal
+           token a router dispatch always stamps — rf2-g0m4p5)")
       (is (not (contains? @captured :tags))
           "flat guard ctx has no :tags (the committed :tags slot does NOT leak)")
       (is (not (contains? @captured :all-state))
@@ -246,7 +251,9 @@
       (is (= {:ok true} (:data @captured)) "flat guard still sees :data"))))
 
 (deftest compound-guard-ctx-has-no-cross-region-keys
-  (testing "a COMPOUND machine's guard ctx is also exactly the four base keys"
+  (testing "a COMPOUND machine's guard ctx also carries the four base keys and
+            none of the parallel-region keys (a router dispatch additionally
+            carries the EP-0010 :rf.world/inputs token — rf2-g0m4p5)"
     (let [captured (atom nil)
           m {:initial :parent
              :data    {}
@@ -257,8 +264,12 @@
                                           :sibling {}}}}}]
       (rf/reg-machine :compound/ctx m)
       (rf/dispatch-sync [:compound/ctx [:go]])
-      (is (= #{:data :event :state :meta} (set (keys @captured)))
-          "compound guard ctx carries ONLY the four base keys")
+      (is (= #{:data :event :state :meta}
+             (set (keys (dissoc @captured :rf.world/inputs))))
+          "compound guard ctx carries the four base keys (+ the EP-0010 causal
+           token a router dispatch always stamps — rf2-g0m4p5)")
+      (is (not (contains? @captured :tags))
+          "compound guard ctx has no :tags (parallel-region key absent)")
       (is (not (contains? @captured :all-state))))))
 
 ;; ---- (f) action ctx gets the same :tags + :all-state threading ------------
