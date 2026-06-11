@@ -34,6 +34,26 @@
   (str api-base path))
 
 ;; ============================================================================
+;; RETRY POLICY (Spec 014 §Retry and backoff)
+;; ============================================================================
+;;
+;; Reads retry / writes don't (Spec 014). Each read resource's `:request`
+;; returns a Spec 014 managed-HTTP args map, and `:retry` passes through the
+;; resource lowering UNCHANGED (Spec 016 §Transport), so a resource arms retry
+;; simply by including this policy in its return. Writes (mutations) stay
+;; retry-free — a write's intent is one submission per click; a 5xx surfaces
+;; as `:error` so the user retries themselves.
+
+(def data-fetch-retry
+  "Standard retry policy for read-only data fetches (lists, article detail,
+   comments, profiles, tags, the feed). Retries transport blips, 5xx, and
+   timeouts — NOT 4xx (the request shape was valid; retrying won't help).
+   Three attempts total with exponential backoff + jitter."
+  {:on           #{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}
+   :max-attempts 3
+   :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}})
+
+;; ============================================================================
 ;; FAILURE PROJECTION
 ;; ============================================================================
 

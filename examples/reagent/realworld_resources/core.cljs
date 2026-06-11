@@ -149,6 +149,34 @@
    [footer]])
 
 ;; ============================================================================
+;; BEARER-AUTH HTTP INTERCEPTOR  (Spec 014 §Middleware)
+;; ============================================================================
+;;
+;; The cross-cutting decoration the resources/mutations variant was missing
+;; (fable.md F4): a single `:before` fn injects the Bearer token from the auth
+;; slice, so EVERY outbound `:rf.http/managed` request that crosses this frame
+;; picks the header up automatically. Resources AND mutations lower onto
+;; `:rf.http/managed`, so this one interceptor decorates the WHOLE Conduit API
+;; — the route-caused reads (`/articles/feed`, the lists, detail), the writes
+;; (favorite / follow / comment / settings / save-article), and the auth
+;; machine's session-restore `GET /user`. No `:request` fn threads the token
+;; per-call; the auth slice is the single source of truth and this is the
+;; single read site.
+;;
+;; CARRIED-FRAME-CORRECT (EP-0002 rf2-9o48ih): the token is read from
+;; `(:frame ctx)` — the frame the cascade actually runs under — not a
+;; hard-coded `:rf/default`, so the header tracks a renamed / multi-frame
+;; mount. The interceptor returns ctx unchanged when no token is present, so
+;; login / register / the public reads (logged-out) are unaffected.
+
+(defn- bearer-auth-interceptor [ctx]
+  (let [token (some-> (rf/app-db-value (:frame ctx))
+                      :auth :token)]
+    (cond-> ctx
+      token (assoc-in [:request :headers "Authorization"]
+                      (str "Token " token)))))
+
+;; ============================================================================
 ;; MOUNT  (CLJS reference; client-only)
 ;; ============================================================================
 
@@ -167,6 +195,11 @@
      :url-bound?   true
      :interceptors [routing/auth-guard]
      :fx-overrides {:rf.http/managed :realworld-resources.demo/http-stub}})
+  ;; Register the Bearer-auth interceptor at app boot, BEFORE :app/initialise
+  ;; dispatches — session-restore fires an authenticated `GET /user` as soon as
+  ;; the JWT is hydrated, so the header must already be wired.
+  (rf/reg-http-interceptor :realworld/bearer-auth
+                           {:before bearer-auth-interceptor})
   ;; The orchestrator serves this example at /realworld-resources/; strip that
   ;; prefix before the matcher sees the URL so :realworld/home (path "/") matches.
   (routing/set-base-path! "/realworld-resources")

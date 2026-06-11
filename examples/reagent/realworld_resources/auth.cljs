@@ -74,10 +74,14 @@
                                          {:scope old-scope :cause :logout}]]))})))
 
 (rf/reg-event-fx :auth/post-login-redirect
-  {:doc "Bounce the freshly-authenticated user to the route the auth guard
-         intercepted (`[:auth :return-to]`), or home. Machine actions can't
-         navigate or read `:db` directly (Spec 005), so this is an ordinary
-         event. Reads AND clears the slot so a later login can't re-bounce."}
+  {:doc "Bounce the user who INTERACTIVELY logged in / registered to the route
+         the auth guard intercepted (`[:auth :return-to]`), or home. Dispatched
+         ONLY by the `:store-session` action (the interactive `:submitting →
+         :authed` transition) — NOT by `:restore-session` (cold-boot
+         session-restore preserves the restored route, never force-navigates).
+         Machine actions can't navigate or read `:db` directly (Spec 005), so
+         this is an ordinary event. Reads AND clears the slot so a later login
+         can't re-bounce."}
   (fn [{:keys [db]} _]
     (let [return-to (get-in db [:auth :return-to])]
       {:db (update db :auth dissoc :return-to)
@@ -133,13 +137,31 @@
 
     :store-session
     (fn [{[_ {:keys [value]}] :event}]
-      ;; Machine actions see no `:db` and emit no `:db` (Spec 005), so the
-      ;; session store + bounce-back run as ordinary events.
+      ;; INTERACTIVE login / register success: store the session, persist the
+      ;; JWT, AND bounce to the guard-stashed `:return-to` (or home). The
+      ;; bounce is the right behaviour ONLY for an interactive submit — the
+      ;; user just clicked Sign-in from the login page and expects to land
+      ;; somewhere. Machine actions see no `:db` and emit no `:db` (Spec 005),
+      ;; so the session store + bounce-back run as ordinary events.
       (let [user (:user value)]
         {:data {:error nil}
          :fx [[:dispatch [:auth/store-session user]]
               [:realworld-resources.session/persist {:token (:token user)}]
               [:dispatch [:auth/post-login-redirect]]]}))
+
+    :restore-session
+    (fn [{[_ {:keys [value]}] :event}]
+      ;; SESSION-RESTORE success (cold boot with a saved JWT): store the
+      ;; session WITHOUT navigating. A logged-in user cold-booting on a deep
+      ;; link (`/article/x`) must stay on that route — restore only re-hydrates
+      ;; the session; it must NOT force-navigate home (the bug this action
+      ;; fixes). Only an INTERACTIVE login/register bounces (`:store-session`).
+      ;; The token is already in app-db + localStorage from `:auth/initialise`;
+      ;; we re-persist defensively in case the server rotated it on `GET /user`.
+      (let [user (:user value)]
+        {:data {:error nil}
+         :fx [[:dispatch [:auth/store-session user]]
+              [:realworld-resources.session/persist {:token (:token user)}]]}))
 
     :record-error
     (fn [{[_ {:keys [failure]}] :event}]
@@ -161,7 +183,7 @@
     {:on {:auth/success {:target :authed :action :store-session}
           :auth/failure {:target :error  :action :record-error}}}
     :restoring
-    {:on {:auth/success        {:target :authed :action :store-session}
+    {:on {:auth/success        {:target :authed :action :restore-session}
           :auth/restore-failed {:target :idle   :action :clear-session}}}
     :authed
     {:on {:auth/logout {:target :idle :action :clear-session}
