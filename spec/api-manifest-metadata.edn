@@ -702,6 +702,7 @@
   ["re-frame.ssr" "public-error-keys"]             {:tier :internal-public :owner "011" :status "v1"}
   ["re-frame.ssr" "fallback-public-error"]         {:tier :internal-public :owner "011" :status "v1"}
   ["re-frame.ssr" "on-frame-destroyed!"]           {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "drain-blocking-resources!"]     {:tier :internal-public :owner "011" :status "v1"}
   ["re-frame.ssr" "streaming-fallback-template"]   {:tier :internal-public :owner "011" :status "v1"}
   ["re-frame.ssr" "streaming-resolved-template"]   {:tier :internal-public :owner "011" :status "v1"}
   ["re-frame.ssr" "streaming-failed-template"]     {:tier :internal-public :owner "011" :status "v1"}

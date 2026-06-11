@@ -512,6 +512,10 @@
     :producer-ns 're-frame.resources.ssr
     :design-bead "rf2-p10npe"
     :description "Cross-feature LATE-BOUND SSR hydration-payload runtime-db projection extension (Spec 016 §SSR and hydration). Takes the full runtime-db value, returns a {subsystem-key durable-projection} map SSR's project-runtime-db merges into its allowlist-shaped slice; the Resources artefact projects ONLY the durable :entries of :rf.runtime/resources (per-entry redacted/omitted by the resource's :sensitive?/:large? classification; the reverse indexes are recomputable-from-entries). Resources is the first publisher; consumed by re-frame.ssr.payload-policy/project-runtime-db."}
+   {:key         :resources/drain-blocking-ssr!
+    :producer-ns 're-frame.resources.ssr
+    :design-bead "rf2-er7qx2"
+    :description "Cross-feature LATE-BOUND SSR blocking-resource DRAIN hook (Spec 016 §SSR and hydration steps 3-4). The SSR render path (re-frame.ssr/drain-blocking-resources!, called by the Ring / streaming host adapters AFTER frame setup + route resolution and BEFORE the render walk) consults it by key with the carried frame-id + {:deadline-ms :pump! :tick-ms}; the Resources artefact runs the drain LOOP — reads the live nav-token blocking set, pumps the event loop via the :pump! thunk so an in-flight reply lands, and on the wall-clock deadline settles every still-unsettled blocking entry to a first-load failure in the frame's runtime-db so the render sees a structured :error rather than a hung :loading skeleton — returning {:settled? :timed-out :route-blocking-failure}. No-op {:settled? true} when no Resources artefact is loaded (an SSR app without resources never blocks on them). Consumed by re-frame.ssr/drain-blocking-resources!."}
    {:key         :resources/hydrate-runtime-db
     :producer-ns 're-frame.resources.ssr
     :design-bead "rf2-ctk2av"
