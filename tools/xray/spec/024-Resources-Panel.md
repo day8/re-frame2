@@ -159,8 +159,12 @@ stacked sections:
    for the old `/me` heuristic), the **suspicious-explicit-global**
    warnings (defense-in-depth: an explicit-global resource whose id/doc
    looks session-dependent), the **scope-mismatch lint** (an entry under
-   scope A while a live sub reads the same R+P under a different scope B),
-   and the **orphaned-owner lint** (an app-minted `[:lease …]` owner
+   scope A while a live sub reads the same R+P under a different scope B —
+   matched on the **canonical** `[resource-id params]` + `scope` identities
+   read off each row's raw `:scoped-key`, NOT the truncated/redacted display
+   previews, so long-or-colliding params and distinct redacted scopes
+   cannot false-trip or be missed; the surfaced output is summarized for
+   privacy), and the **orphaned-owner lint** (an app-minted `[:lease …]` owner
    pinning an entry with no observed release; route / machine / ssr
    owners are framework-released and not linted).
 
