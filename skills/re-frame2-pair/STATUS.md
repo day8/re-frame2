@@ -20,7 +20,7 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 | Fixture app | **Landed** — `tests/fixture/`. Minimal Reagent counter + `re-frame2-pair.runtime` preload. |
 | `.claude-plugin/plugin.json`, `package.json`, GH Actions (CI + release) | Written |
 
-**Validation envelope is in place.** The changed-surface test surfaces run in PR CI when `skills/re-frame2-pair/**` changes; the live e2e fixture provides ground truth on demand. Boot gates: `eval-cljs` ships ENABLED (`--no-eval` to opt out); `--allow-sensitive-reads` (default OFF) and `--allow-writes` (default OFF) are the privacy + write gates. Still pre-alpha — see *Known unknowns* below.
+**Validation envelope is in place.** The changed-surface test surfaces run in PR CI when `skills/re-frame2-pair/**` changes; the live e2e fixture provides ground truth on demand. Boot gates: `eval-cljs` ships ENABLED (`--no-eval` to opt out); `--allow-sensitive-reads` (default OFF) and `--allow-writes` (default OFF) are the privacy + write gates. The structured-read egress posture is now expressed as the EP-0015 §10 named profile `:rf.egress/off-box-tool` (the off-box default; sensitive → `:rf/redacted`, large → `:rf.size/large-elided`); the `--allow-sensitive-reads` + per-call `:include-sensitive` two-key opt-in selects `:rf.egress/local-raw` (raw). The profile resolves to its `:rf.size/*` floor through the framework table (mirrored byte-identically for the bundle in `re-frame.mcp-base.egress`, pinned by the mcp-conformance wire-vocab gate) — the server never re-derives the redaction posture from an ad-hoc toggle. Still pre-alpha — see *Known unknowns* below.
 
 ---
 

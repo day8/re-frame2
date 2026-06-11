@@ -59,12 +59,81 @@
   explicitly. The MCP wire-key drops the trailing `?` per rf2-y710n +
   rf2-ihq4d (Anthropic's tool-input-schema regex rejects `?`); the
   walker-option keyword `:rf.size/include-sensitive?` is a namespaced
-  framework key (not on the wire) and retains the predicate `?`."
-  (:require [re-frame.mcp-base.vocab :as base-vocab]))
+  framework key (not on the wire) and retains the predicate `?`.
+
+  ## Named `:rf.egress/*` profiles (EP-0015 §10, rf2-qus09h)
+
+  The direct-read surfaces (`snapshot` / `get-path` / `subscribe` /
+  `read-sub` / `list-subscriptions` / `record` / `watch-until`) are an
+  off-box **tool wire** — they hand live frame state to an LLM/MCP
+  client. Per EP-0015 §10 the *named* boundary is the choice an egress
+  surface makes, not a hand-rolled combination of `:rf.size/*` booleans.
+  This MCP server's wire is the graduating consumer of
+  `:rf.egress/off-box-tool`; the trusted-local `--allow-sensitive-reads`
+  opt-in is the graduating consumer of `:rf.egress/local-raw`.
+
+  The profile is resolved through the cross-MCP single source of truth —
+  `re-frame.mcp-base.egress/profile-size-opts` — a pure-data mirror of the
+  framework's `re-frame.projection/profile-size-opts` table that the
+  mcp-conformance wire-vocab gate pins byte-identical to the framework
+  enum (so the server never re-derives the mapping AND never pulls the
+  framework runtime graph into the node bundle). `:rf.egress/off-box-tool`
+  resolves to `{:rf.size/include-sensitive? false :rf.size/include-large?
+  false :rf.size/include-digests? true}` (sensitive redacts, large elides,
+  and the marker carries the structural digest a tool needs to reason
+  about shape); `:rf.egress/local-raw` resolves to both inclusions true
+  (the operator's deliberate raw read). The `:elision` MCP arg composes ON
+  TOP as the EP-0015 §10 explicit override (a caller that turns elision off
+  overlays `:rf.size/include-large? true`, keeping large content even
+  under off-box-tool's floor)."
+  (:require [re-frame.mcp-base.vocab :as base-vocab]
+            [re-frame.mcp-base.egress :as base-egress]))
+
+;; ---------------------------------------------------------------------------
+;; Named `:rf.egress/*` profile adoption (EP-0015 §10, rf2-qus09h).
+;;
+;; The MCP posture (the `--allow-sensitive-reads` gate + the per-call
+;; `:include-sensitive` opt-in, already collapsed to a single boolean
+;; `include-sensitive?` at each tool call site) selects the named
+;; boundary profile; the framework resolves it to the `:rf.size/*`
+;; floor. This server is the off-box-tool / local-raw graduating
+;; consumer — it expresses "which boundary is this", not "which booleans".
+;; ---------------------------------------------------------------------------
+
+(defn posture->profile
+  "Resolve the off-box egress POSTURE of a direct-read tool surface to a
+  named `:rf.egress/*` profile (EP-0015 §10, rf2-qus09h).
+
+  `include-sensitive?` is the already-gated, already-opted-in boolean each
+  tool computes (`(and (raw-state-allowed?) per-call-include-sensitive)`):
+
+  - `false` (the published-build default, or a forgetful caller under the
+    gate) ⇒ `:rf.egress/off-box-tool` — the MCP/AI tool wire. Sensitive
+    redacts, large elides, structural digests on.
+  - `true`  (the trusted-local operator's deliberate raw read) ⇒
+    `:rf.egress/local-raw` — sensitive AND large pass through.
+
+  Revealing sensitive data is the operator's `local-raw` act and is
+  trace-visible (Spec 015 §Cross-tool visibility grain) — the
+  `--allow-sensitive-reads` launch log + the per-call opt-in are the
+  audit record of the reveal."
+  [include-sensitive?]
+  (if include-sensitive?
+    :rf.egress/local-raw
+    :rf.egress/off-box-tool))
 
 (defn elision-opts-edn
   "Render the elision opts map as an EDN string for inlining into a
   CLJS eval form sent over nREPL.
+
+  Resolution (EP-0015 §10, rf2-qus09h): the egress POSTURE
+  (`include-sensitive?`) names a `:rf.egress/*` profile via
+  `posture->profile`; the framework's `re-frame.projection/profile-size-opts`
+  resolves that profile to its `:rf.size/*` floor (the single source of
+  truth — this server never re-derives the table). The `:elision` MCP arg
+  composes on top as the explicit override: when `include-large?` is true
+  it overlays `:rf.size/include-large? true` (a caller turning elision off
+  keeps large content even under the off-box-tool floor).
 
   Knobs (rf2-suoj2 — both follow the walker-opt polarity so the helper
   is symmetric across the two `:rf.size/*` opts):
@@ -75,11 +144,12 @@
                             default for elision-enabled call sites),
                             `false` so the walker substitutes the
                             `:rf.size/large-elided` marker.
-  - `include-sensitive?`  — when true, `:rf.size/include-sensitive?` is
-                            `true` so the walker passes declared-
-                            sensitive slots through unmodified; when
-                            false (the default), `false` so the walker
-                            substitutes the `:rf/redacted` sentinel.
+  - `include-sensitive?`  — when true, the surface is the trusted-local
+                            `:rf.egress/local-raw` boundary (declared-
+                            sensitive slots pass through unmodified); when
+                            false (the default), the off-box
+                            `:rf.egress/off-box-tool` boundary (the walker
+                            substitutes the `:rf/redacted` sentinel).
 
   Polarity note. The MCP arg `elision` is the *operator-facing* on/off
   switch (true = apply the walker = emit markers). The walker opt
@@ -88,20 +158,30 @@
   Pre-rf2-suoj2 the helper buried the inversion (`(not enabled?)`)
   alongside the `include-sensitive?` arg's pass-through parsing —
   sibling opts with opposite parsing rules. The helper now treats both
-  opts uniformly (`(boolean ...)`); call sites compute
-  `(not elision?)` once and pass `include-large?` in directly.
+  opts uniformly via the profile floor + the explicit `include-large?`
+  overlay; call sites compute `(not elision?)` once and pass
+  `include-large?` in directly.
 
   Both knobs default off-box-safe per the Tool-Pair §Direct-read
   privacy posture contract — large slots elide, sensitive slots
   redact, unless the caller opts in explicitly.
 
   Single-arity form retains the legacy default (`include-sensitive?`
-  false) so legacy call-sites don't need to spell it out."
+  false ⇒ `:rf.egress/off-box-tool`) so legacy call-sites don't need to
+  spell it out."
   ([include-large?]
    (elision-opts-edn include-large? false))
   ([include-large? include-sensitive?]
-   (pr-str {base-vocab/include-large-opt     (boolean include-large?)
-            base-vocab/include-sensitive-opt (boolean include-sensitive?)})))
+   (let [profile (posture->profile include-sensitive?)
+         floor   (base-egress/profile-size-opts profile)]
+     ;; The `:elision` arg is the EP-0015 §10 explicit override: a caller
+     ;; turning elision OFF overlays `:rf.size/include-large? true` on the
+     ;; profile floor (the override wins). Sensitive inclusion stays the
+     ;; profile's (local-raw true / off-box-tool false) — the gate already
+     ;; decided it.
+     (pr-str (cond-> floor
+               include-large?
+               (assoc base-vocab/include-large-opt true))))))
 
 (defn elide-sub-value-src
   "CLJS source for a fn that walks ONE sub-cache entry's `:value` slot
