@@ -110,37 +110,39 @@ These inputs-from-the-world have a name: **coeffects**, or *side-causes*. They'r
 | | Inputs (coeffects) | Outputs (effects) |
 |---|---|---|
 | **Where it lives** | `:coeffects` | `:effects` |
-| **Built in for free** | `:db`, `:event` | `:db` |
+| **Built in for free** | `:db`, `:event`, `:rf.world/inputs` | `:db` |
 | **You register more with** | `reg-cofx` | `reg-fx` |
 | **Identified by** | a keyword id | a keyword id |
 | **The impure work happens in** | the cofx handler | the fx handler |
 
-The handler reads from `:coeffects`, writes to `:effects`, and stays pure in the middle. The runtime fills `:coeffects` *before* the handler runs and drains `:effects` *after* it returns. You've actually been using coeffects all along without noticing — that `{:keys [db]}` you destructure in every `reg-event-fx` handler? That first argument *is* the coeffects map. `:db` and `:event` are coeffects the runtime stages automatically, every time. Everything past those two is opt-in.
+The handler reads from `:coeffects`, writes to `:effects`, and stays pure in the middle. The runtime fills `:coeffects` *before* the handler runs and drains `:effects` *after* it returns. You've actually been using coeffects all along without noticing — that `{:keys [db]}` you destructure in every `reg-event-fx` handler? That first argument *is* the coeffects map. `:db`, `:event`, and `:rf.world/inputs` are coeffects the runtime stages automatically, every time. Everything past those three is opt-in.
+
+That third one is the load-bearing newcomer, and it's the answer to the most common impurity of all — *what time is it?* — so we'll take it head-on before the general cofx machinery. The current wall-clock time isn't something you `reg-cofx` for; the runtime already hands it to every handler, recorded so replay reproduces it. The [§Causal world inputs](#causal-world-inputs-where-the-clock-and-fresh-ids-come-from) section below is where that lives. The general `reg-cofx` / `inject-cofx` pair you're about to meet is for *everything else* the world hands you — a `localStorage` read, a subscription's value, a host-transient measurement.
+
+### Causal world inputs — where the clock and fresh ids come from
+
+The handler above wanted three things from the world: the current time, a fresh UUID, and a `localStorage` read. The first two have something in common the third doesn't — *they decide what gets written into durable state*. The todo's `:created-at` is the clock; the todo's `:id` is the UUID; both end up persisted in `app-db` and folded into the running total the ledger reproduces. And [chapter 04](04-events-and-the-cascade.md#the-ledger-view) was firm: for the same log to reproduce the same state, every fact a durable write consults has to be a fact the ledger recorded. A clock the handler reaches out and grabs is a fact the ledger never wrote down — so replay lies.
+
+re-frame2's answer is **causal world inputs**: a small recorded map the runtime stamps onto *every* dispatch and hands to *every* handler as the `:rf.world/inputs` coeffect. It has one always-present key, `:time-ms` — wall-clock epoch milliseconds, read **once** at the moment the event entered the fold and then frozen into the recorded token. Durable writes read the clock from there, never from `(js/Date.)`:
+
+```clojure
+(rf/reg-event-fx :todo/add
+  (fn [{:keys [db] :rf.world/keys [inputs]} [_ {:keys [id text]}]]
+    {:db (assoc-in db [:todos id]
+                   {:id id :text text :created-at (:time-ms inputs)})}))
+```
+
+No `reg-cofx`, no `inject-cofx` — `:rf.world/inputs` is staged automatically, like `:db` and `:event`. The handler is pure: call it twice with the same event *and the same world inputs* and you get the same `:created-at` both times. And because the runtime recorded the `:time-ms` it stamped, replaying the ledger re-presents the same value — `:created-at` reproduces exactly instead of drifting to whatever the wall clock reads on replay day. `:rf.world/inputs` is the canonical home for **every durable wall-clock fact** in the framework: entity `:created-at` / `:updated-at`, resource `:loaded-at` / `:stale-at`, work-ledger and mutation timestamps, durable routing times — they all read `:time-ms`. (The normative contract is [`spec/002-Frames.md` §The `:rf.world/inputs` envelope field](../../spec/002-Frames.md#the-rfworldinputs-envelope-field).)
+
+The fresh **UUID** is the same story — a generated id is a durable fact, so it can't be a `(random-uuid)` the handler grabs mid-body either. Two honest sources: generate it at the dispatch site and put it in the event (`[:todo/add {:id (random-uuid) :text "…"}]` — the id rides the recorded event vector, so replay reproduces it), or, for ids minted inside the fold, read them from world inputs under `:uuid` (a map of domain id-names to generated values: `(get-in inputs [:uuid :todo/id])`). Either way the id lands in the ledger as data, never as an unrecorded host call. The example above takes the dispatch-site route — note the `:id` arrives *in* the event.
+
+> **Tests and replay supply world inputs directly.** Because the clock is a recorded input rather than an ambient read, a test fixes it by *supplying* it on the dispatch — `(rf/dispatch-sync [:todo/add {:id …}] {:rf.world/inputs {:time-ms 1781078400000}})` — and the handler is deterministic, no clock to monkey-patch. SSR hydration, replay fixtures, and host integrations use the same opts key to hand the runtime exact world facts. [Chapter 13](13-testing.md#freezing-the-clock-with-world-inputs) is where that idiom lands.
+
+> **What about `:dispatched-at`?** Earlier drafts of re-frame2 carried an optional `:dispatched-at` field for "when was this dispatched." It's **gone** — durable causal time is now `(:time-ms (:rf.world/inputs …))`, and the *diagnostic* "when did this dispatch fire" need is served by the trace event's own ambient `:time` stamp ([chapter 16](16-observability.md)). One fact, one name.
 
 ### `reg-cofx` and `inject-cofx` — the registry pair
 
-To fix the todo handler, quarantine each impurity inside a named, registered cofx:
-
-```clojure
-(rf/reg-cofx :now
-  (fn [ctx]
-    (assoc-in ctx [:coeffects :now] (js/Date.))))
-
-(rf/reg-cofx :new-id
-  (fn [ctx]
-    (assoc-in ctx [:coeffects :new-id] (random-uuid))))
-
-(rf/reg-event-fx :todo/add
-  [(rf/inject-cofx :now)
-   (rf/inject-cofx :new-id)]
-  (fn [{:keys [db now new-id]} [_ title]]
-    {:db (assoc-in db [:todos new-id]
-                   {:id new-id :title title :created-at now})}))
-```
-
-The handler is pure again. The two impure calls live inside two named cofx handlers, each addressable by id. Two things to read carefully here.
-
-A **cofx handler** is a function from context to context. It receives the full context map (the same one interceptors thread, [chapter 09](09-interceptors.md)) and returns it with the value `assoc-in`'d under `[:coeffects <id>]`. The convention is to inject under the same keyword you registered with — cofx id and coeffect key match. There are two arities: the **unary** `(fn [ctx] ...)` for parameterless cofxes (`:now`, `:new-id` — there's only ever one answer), and the **binary** `(fn [ctx value] ...)` for cofxes parameterised at the call site. The classic binary one is `:local-store`, which takes the key to read:
+World inputs cover the clock and generated ids. *Everything else* the world hands you — a `localStorage` read, a subscription's current value, a host-transient measurement — still arrives through the general coeffect machinery, and that's what `reg-cofx` / `inject-cofx` are for. Quarantine each impurity inside a named, registered cofx:
 
 ```clojure
 (rf/reg-cofx :local-store
@@ -154,7 +156,9 @@ A **cofx handler** is a function from context to context. It receives the full c
     {:db (-> (or local-store {}) (parse-prefs))}))
 ```
 
-One `:local-store` handler serves every event that needs a different key — the *what* stays generic, the *which* lives at the call site.
+The handler is pure again. The impure read lives inside a named cofx handler, addressable by id. Two things to read carefully here.
+
+A **cofx handler** is a function from context to context. It receives the full context map (the same one interceptors thread, [chapter 09](09-interceptors.md)) and returns it with the value `assoc-in`'d under `[:coeffects <id>]`. The convention is to inject under the same keyword you registered with — cofx id and coeffect key match. There are two arities: the **unary** `(fn [ctx] ...)` for parameterless cofxes, and the **binary** `(fn [ctx value] ...)` for cofxes parameterised at the call site. The `:local-store` cofx above is the classic binary one — it takes the storage key to read at the call site (`(rf/inject-cofx :local-store "user-prefs")`). One `:local-store` handler serves every event that needs a different key — the *what* stays generic, the *which* lives at the call site.
 
 `inject-cofx` is the use-site. It's the small interceptor that, on the way in, looks up the registered cofx fn, calls it (with the second value too, if you called it binary), and lets the now-enriched context flow on toward the handler. List several to compose them — they run in declaration order, and by the time the handler runs, every key is present in its coeffects map. It's a `:before`-only interceptor: a cofx is an input, so there's nothing to do on the way out.
 
@@ -162,7 +166,7 @@ One `:local-store` handler serves every event that needs a different key — the
 
 ### See it run
 
-Time to stop reading and start poking. Here's a todo-adder, live, with `:now` and `:new-id` injected as coeffects — a real re-frame2 program in your browser. Click into the cell, hit **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac) to evaluate it, then add some todos. First run takes a beat while the engine wakes; after that it's instant.
+Time to stop reading and start poking. Here's a todo-adder, live, in your browser. The durable facts — *when* each todo was created, *what* its id is — ride causal world inputs and the event, exactly as the section above prescribed; the one genuine `reg-cofx` reads a non-durable display preference. Click into the cell, hit **`Ctrl-Enter`** (or **`Cmd-Enter`** on a Mac) to evaluate it, then add some todos. First run takes a beat while the engine wakes; after that it's instant.
 
 (Live cells are functions-only — the view is a plain `defn` with explicit `rf/dispatch` / `rf/subscribe`; `reg-view` is sugar over exactly this. See [chapter 06](06-views.md#defn-views-and-the-reg-view-equivalence).)
 
@@ -170,22 +174,21 @@ Time to stop reading and start poking. Here's a todo-adder, live, with `:now` an
 (require '[reagent2.core :as r]
          '[re-frame.core :as rf])
 
-;; ---- Coeffects: the two impure inputs, each quarantined behind an id ----
-(rf/reg-cofx :demo.todo/now
-  (fn [ctx] (assoc-in ctx [:coeffects :demo.todo/now] (js/Date.))))
+;; ---- A genuine cofx: a non-durable display preference read from the host ----
+;;      (NOT the clock — the clock is a recorded world input, see below.)
+(rf/reg-cofx :demo.todo/locale
+  (fn [ctx] (assoc-in ctx [:coeffects :demo.todo/locale] "en-US")))
 
-(rf/reg-cofx :demo.todo/new-id
-  (fn [ctx] (assoc-in ctx [:coeffects :demo.todo/new-id] (random-uuid))))
-
-;; ---- Event: a PURE handler that reads injected coeffects, never calls them ----
+;; ---- Event: a PURE handler. The clock comes from :rf.world/inputs (recorded,
+;;      replay-safe); the fresh id rides the event from the dispatch site. ----
 (rf/reg-event-fx :demo.todo/add
-  [(rf/inject-cofx :demo.todo/now)
-   (rf/inject-cofx :demo.todo/new-id)]
-  (fn [{:keys [db demo.todo/now demo.todo/new-id]} _event]
-    {:db (assoc-in db [:demo.todo/items new-id]
-                   {:id new-id
+  [(rf/inject-cofx :demo.todo/locale)]
+  (fn [{:keys [db demo.todo/locale] :rf.world/keys [inputs]} [_ {:keys [id]}]]
+    {:db (assoc-in db [:demo.todo/items id]
+                   {:id id
                     :title (str "Todo #" (inc (count (:demo.todo/items db))))
-                    :created-at now})}))
+                    :created-at (:time-ms inputs)
+                    :locale locale})}))
 
 (rf/reg-event-db :demo.todo/initialise
   (fn [_db _event] {:demo.todo/items {}}))
@@ -194,57 +197,54 @@ Time to stop reading and start poking. Here's a todo-adder, live, with `:now` an
 (rf/reg-sub :demo.todo/items
   (fn [db _query] (vals (:demo.todo/items db))))
 
-;; ---- View: plain defn, explicit rf/ verbs ----
+;; ---- View: plain defn, explicit rf/ verbs. The id is minted at the dispatch
+;;      site and rides the event, so it lands in the ledger as recorded data. ----
 (defn todo-list []
   [:div
-   [:button {:on-click #(rf/dispatch [:demo.todo/add])} "Add a todo"]
+   [:button {:on-click #(rf/dispatch [:demo.todo/add {:id (random-uuid)}])} "Add a todo"]
    [:ul
     (for [{:keys [id title created-at]} @(rf/subscribe [:demo.todo/items])]
       ^{:key id}
       [:li title
        [:span {:style {:color "#888" :margin-left "1em" :font-size "0.85em"}}
-        (.toLocaleTimeString created-at)]])]])
+        (.toLocaleTimeString (js/Date. created-at))]])]])
 
 ;; ---- Seed app-db, then hand back the view ----
 (rf/dispatch-sync [:demo.todo/initialise])
 [todo-list]
 ```
 
-Read the handler again now that it's running: `:demo.todo/add` never calls `js/Date.` or `random-uuid`. It *destructures* `now` and `new-id` out of its coeffects map, where the two `inject-cofx` interceptors put them on the way in. The impurity is real — each new todo genuinely gets a fresh timestamp and a fresh id — but it lives entirely inside the two cofx handlers, not in the event handler.
+Read the handler again now that it's running: `:demo.todo/add` never calls `js/Date.` or `random-uuid`. The timestamp arrives as `(:time-ms inputs)` — the recorded world input the runtime stamped at the causal boundary — and the id arrives *in the event*, minted at the click site. The only `reg-cofx` is `:demo.todo/locale`, a genuinely non-durable display preference. The impurity is real — each todo gets a real timestamp and a real id — but every fact that touches durable state is something the ledger recorded, so replay reproduces it exactly.
 
-> **Try it.** The whole point of a cofx is that you can *swap the impurity out by re-registering the id.* Find `:demo.todo/now` and replace its body with a fixed clock — `(assoc-in ctx [:coeffects :demo.todo/now] (js/Date. "2026-01-01T12:00:00"))` — then re-evaluate and add a few todos. Every one is now stamped noon on New Year's Day. You just stubbed the clock for the whole app by editing five lines, and *the event handler never changed.* That's the testing story, in miniature, and the next section is just this move with a `deftest` around it.
+> **Try it.** Because the clock is a recorded input rather than an ambient read, you fix it by *supplying* it on the dispatch — not by re-registering a cofx. Change the button to `#(rf/dispatch [:demo.todo/add {:id (random-uuid)}] {:rf.world/inputs {:time-ms 1735732800000}})`, re-evaluate, and add a few todos: every one is now stamped that exact instant (noon UTC, New Year's Day 2025), because you handed the runtime the world fact instead of letting it read the wall clock. That's the testing story in miniature — the next section is the same move with a `deftest` around it.
 
-### Testing is just re-registration
+### Testing is just supplying the inputs
 
-This is the payoff that makes the ceremony worth it. A handler that injects `:now` is testable without faking `js/Date`, mocking a clock, or threading a `Clock` argument through every call site. The test re-registers `:now` with a stub, the framework's id-redirect picks it up, and the handler becomes deterministic:
+This is the payoff that makes the discipline worth it. A handler that reads `:rf.world/inputs` is testable without faking `js/Date`, mocking a clock, or threading a `Clock` argument through every call site — the test *supplies* the world inputs on the dispatch and the handler becomes deterministic. And a handler that reads a `reg-cofx`-injected value (like `:demo.todo/locale` above) is made deterministic the other way — by re-registering the cofx against the same id, which the framework's id-redirect picks up with no special test-mode flag:
 
 ```clojure
 (deftest todo-add-stamps-created-at
-  (ts/with-fresh-registrar
-    (rf/reg-cofx :now
-      (fn [ctx] (assoc-in ctx [:coeffects :now] #inst "2026-01-01T12:00:00.000Z")))
-    (rf/reg-cofx :new-id
-      (fn [ctx] (assoc-in ctx [:coeffects :new-id]
-                          #uuid "00000000-0000-0000-0000-000000000001")))
-    (let [handler   (:handler-fn (rf/handler-meta :event :todo/add))
-          coeffects {:db {} :event [:todo/add "buy milk"]
-                     :now #inst "2026-01-01T12:00:00.000Z"
-                     :new-id #uuid "00000000-0000-0000-0000-000000000001"}
-          {:keys [db]} (handler coeffects [:todo/add "buy milk"])
-          todo (get-in db [:todos #uuid "00000000-0000-0000-0000-000000000001"])]
-      (is (= "buy milk" (:title todo)))
-      (is (= #inst "2026-01-01T12:00:00.000Z" (:created-at todo))))))
+  (rf/with-new-frame [f (rf/make-frame {})]
+    ;; Supply the world inputs on the dispatch — the clock is a recorded fact,
+    ;; not a cofx to monkey-patch. The id rides the event, as in production.
+    (rf/dispatch-sync [:todo/add {:id   #uuid "00000000-0000-0000-0000-000000000001"
+                                  :text "buy milk"}]
+                      {:rf.world/inputs {:time-ms 1735732800000}})
+    (let [todo (-> (rf/app-db-value f) :todos
+                   (get #uuid "00000000-0000-0000-0000-000000000001"))]
+      (is (= "buy milk" (:text todo)))
+      (is (= 1735732800000 (:created-at todo))))))
 ```
 
-The stubs aren't mocks — they live in the *same registry* as the production handlers, addressed by the *same keyword id*, and `inject-cofx` finds the re-registered version with no special test-mode flag. `with-fresh-registrar` snapshots the registrar around the body and restores on exit, so production `:now` is intact for the next test (skip it and you've got the classic "passes alone, fails together" bug). And the handler-under-test never knew it was being tested — same shape in production and in the test, only the injected value changed. [Chapter 13](13-testing.md) walks the full testing surface; this is the shape it's built on.
+There's no stub here at all — the test simply *hands the runtime the world fact* it would otherwise read from the wall clock, on the same `:rf.world/inputs` opts key SSR and replay use. The handler-under-test never knew it was being tested: same shape in production and in the test, only the supplied `:time-ms` differs. A handler that reads a `reg-cofx`-injected value (a `localStorage` read, a sub's value) is made deterministic the complementary way — re-register the cofx against the same id under `ts/with-fresh-registrar`, which snapshots the registrar and restores it on exit so production wiring is intact for the next test. [Chapter 13](13-testing.md) walks the full testing surface; this is the shape it's built on.
 
 ### Why handlers never read the clock
 
-You now know the *mechanism* — `reg-cofx` quarantines an impure read, `inject-cofx` delivers its value. What's worth pinning down is the *reason*, because it's bigger than "purity is nice," and it reaches back into [chapter 04](04-events-and-the-cascade.md#the-ledger-view).
+You now know the *mechanism* — durable facts ride `:rf.world/inputs` and the event, while `reg-cofx` quarantines every other impure read. What's worth pinning down is the *reason*, because it's bigger than "purity is nice," and it reaches back into [chapter 04](04-events-and-the-cascade.md#the-ledger-view).
 
-That chapter made a promise: app-db is the running total of an event ledger, and **two fresh apps fed the same event log finish in identical states.** Re-read that and notice what it quietly requires. For the same log to reproduce the same state, *the only thing a handler is allowed to consult is its inputs* — the db and the event that the ledger recorded. The moment a handler calls `(js/Date.now)` in its body, it has consulted something the ledger *never wrote down*. The state it produces now depends on the wall clock, which isn't in the log. Replay the log tomorrow and you get a different answer. **The handler smuggled in an input the ledger never recorded, and so replaying the ledger lies.** The clock is the most common smuggler — random ids and `localStorage` reads are the same crime in a different coat.
+That chapter made a promise: app-db is the running total of an event ledger, and **two fresh apps fed the same event log finish in identical states.** Re-read that and notice what it quietly requires. For the same log to reproduce the same state, *the only thing a handler is allowed to consult is its recorded inputs* — the db, the event, and the world inputs the ledger recorded. The moment a handler calls `(js/Date.now)` in its body, it has consulted something the ledger *never wrote down*. The state it produces now depends on the wall clock, which isn't in the log. Replay the log tomorrow and you get a different answer. **The handler smuggled in an input the ledger never recorded, and so replaying the ledger lies.** The clock is the most common smuggler — random ids and `localStorage` reads are the same crime in a different coat.
 
-The fix is the cofx you already learned, seen now through the ledger lens: the clock stops being something the handler *reaches out and grabs* and becomes a **declared input** — a value the runtime puts on the way in, exactly as if it had ridden the event. Here is the same handler before and after, read for honesty rather than for testability:
+The fix is causal world inputs, seen now through the ledger lens: the clock stops being something the handler *reaches out and grabs* and becomes a **recorded input** — a value the runtime stamps on the way in and the ledger writes down, exactly as if it had ridden the event. Here is the same handler before and after, read for honesty rather than for testability:
 
 ```clojure
 ;; ❌ BROKEN REPLAY — the clock is an ambient read the ledger never recorded.
@@ -253,43 +253,42 @@ The fix is the cofx you already learned, seen now through the ledger lens: the c
   (fn [db [_ title]]
     (assoc-in db [:todos] {:title title :created-at (js/Date.)})))
 
-;; ✅ HONEST REPLAY — the clock is a declared input the runtime delivers.
-;;    Replay re-presents the same :now, so the same log reproduces the same state.
-(rf/reg-cofx :now
-  (fn [ctx] (assoc-in ctx [:coeffects :now] (js/Date.))))
-
+;; ✅ HONEST REPLAY — the clock is a recorded world input the runtime supplies.
+;;    Replay re-presents the same :time-ms, so the same log reproduces the same state.
 (rf/reg-event-fx :todo/add
-  [(rf/inject-cofx :now)]
-  (fn [{:keys [db now]} [_ title]]
-    {:db (assoc-in db [:todos] {:title title :created-at now})}))
+  (fn [{:keys [db] :rf.world/keys [inputs]} [_ title]]
+    {:db (assoc-in db [:todos] {:title title :created-at (:time-ms inputs)})}))
 ```
 
-The difference isn't style. The broken version *cannot* be replayed, restored, or reliably tested; the honest version can, because every fact it used to compute its output is a fact the runtime can re-supply. Two concrete things this buys, one each side of the seam:
+The difference isn't style. The broken version *cannot* be replayed, restored, or reliably tested; the honest version can, because every fact it used to compute its output is a fact the runtime recorded and can re-supply. Two concrete things this buys, one each side of the seam:
 
-- **Time-travel actually travels.** Restore the app to an earlier point ([chapter 16](16-observability.md#epochs-as-state-over-time)) and re-run the log forward, and a handler that read the *ambient* clock makes a decision keyed to whatever `now` happened to be the first time — a decision the restored run can't reproduce, because that instant is gone. The cofx handler re-runs against the *same* injected `now` and lands in the *same* state. Restore stops being a best-effort approximation and becomes exact.
-- **The 23:59:59 test stops flaking.** A handler that reads `(js/Date.)` to decide "is this due today?" is green every afternoon you run it and red the one time CI happens to run it as the date rolls over at midnight — a failure nobody can reproduce because it depends on the second the suite ran. Inject the clock and the test *supplies* it; "due today" is computed against a fixed `now` you chose, and the test means the same thing at 14:00 and at 23:59:59. ([Chapter 13 — Replay is a test](13-testing.md#replay-is-a-test) tells that war story in full.)
+- **Time-travel actually travels.** Restore the app to an earlier point ([chapter 16](16-observability.md#epochs-as-state-over-time)) and re-run the log forward, and a handler that read the *ambient* clock makes a decision keyed to whatever the wall clock happened to read the first time — a decision the restored run can't reproduce, because that instant is gone. The world-input handler re-runs against the *same recorded* `:time-ms` and lands in the *same* state. Restore stops being a best-effort approximation and becomes exact.
+- **The 23:59:59 test stops flaking.** A handler that reads `(js/Date.)` to decide "is this due today?" is green every afternoon you run it and red the one time CI happens to run it as the date rolls over at midnight — a failure nobody can reproduce because it depends on the second the suite ran. Read the clock from world inputs and the test *supplies* it; "due today" is computed against a fixed `:time-ms` you chose, and the test means the same thing at 14:00 and at 23:59:59. ([Chapter 13 — Replay is a test](13-testing.md#replay-is-a-test) tells that war story in full.)
 
 <details markdown="1">
 <summary>For the categorically curious</summary>
 
-A handler is a **pure function of an explicit world**: every input it depends on is a named argument it was handed, never a value it reached out and read. The clock is part of that world *value* — it arrives as a field the runtime supplies — never an *ambient* the function dips into behind the caller's back. "Ambient" is the word for a value read from outside the argument list; the whole cofx discipline is the rule that the world has no ambients, only declared inputs.
+A handler is a **pure function of an explicit world**: every input it depends on is a named argument it was handed, never a value it reached out and read. The clock is part of that world *value* — it arrives as the recorded `:rf.world/inputs` field the runtime supplies — never an *ambient* the function dips into behind the caller's back. "Ambient" is the word for a value read from outside the argument list; the world-input discipline is the rule that durable writes have no ambients, only recorded inputs. (`reg-cofx` extends the same discipline to every *other* world fact a handler needs.)
 </details>
 
 ### When the ceremony isn't worth it — the inline escape hatch
 
 `reg-cofx` + `inject-cofx` is the canonical path, and most of the time it's right. But it isn't the *only* legal way to put a value in the coeffects map. `inject-cofx` is just an interceptor, and the interceptor primitive ([chapter 09](09-interceptors.md)) is open — any map of the shape `{:id <id> :before (fn [ctx] ...)}` is a legal participant in an event's interceptor vector, and if its `:before` happens to `assoc-in` something under `[:coeffects k]`, the handler reads it identically.
 
-So why ever pay the registry hop? Because the id buys you real things. A cofx-with-an-id is **addressable**: it's the surface test code re-registers against, the surface a REPL re-binds to hot-swap behaviour on the next dispatch, the surface Xray enumerates to draw the cofx graph, and the surface that lets one handler serve many call sites with different parameters. For maybe 5–10% of cofxes — `:now`, `:new-id`, `:local-store`, anything you'll stub or surface to a tool — those benefits are load-bearing and `reg-cofx` is the obvious reach. For the other 90% — a cofx defined once, used in two events in the same module, never stubbed, never enumerated, never hot-rebound — the registry indirection is ceremony for benefits you'll never claim. There, reach for the inline interceptor instead:
+So why ever pay the registry hop? Because the id buys you real things. A cofx-with-an-id is **addressable**: it's the surface test code re-registers against, the surface a REPL re-binds to hot-swap behaviour on the next dispatch, the surface Xray enumerates to draw the cofx graph, and the surface that lets one handler serve many call sites with different parameters. For maybe 5–10% of cofxes — `:local-store`, a sub-value cofx, anything you'll stub or surface to a tool — those benefits are load-bearing and `reg-cofx` is the obvious reach. For the other 90% — a cofx defined once, used in two events in the same module, never stubbed, never enumerated, never hot-rebound — the registry indirection is ceremony for benefits you'll never claim. There, reach for the inline interceptor instead:
 
 ```clojure
-(def ^:private inject-now
-  {:id     ::inject-now
-   :before (fn [ctx] (assoc-in ctx [:coeffects :now] (.getTime (js/Date.))))})
+(def ^:private inject-viewport
+  {:id     ::inject-viewport
+   :before (fn [ctx] (assoc-in ctx [:coeffects :viewport-w]
+                               (.-innerWidth js/window)))})
 
-(rf/reg-event-fx :ping
-  [inject-now]
-  (fn [{:keys [db now]} _] {:db (assoc db :last-ping now)}))
+(rf/reg-event-fx :layout/measure
+  [inject-viewport]
+  (fn [{:keys [db viewport-w]} _] {:db (assoc db :layout/breakpoint? (> viewport-w 960))}))
 ```
+
+(Note this measures a *transient* host fact — viewport width — not a durable one. If the value it read decided a durable write, the inline-vs-registry choice would be moot: the clock and generated ids ride world inputs and the event, never a hand-rolled `assoc-in` of `(js/Date.)`.)
 
 Identical runtime behaviour to the registry version; one fewer indirection; no addressability. The rubric writes itself — **use `reg-cofx` if any of these hold**: it might be stubbed in tests by id; you want REPL hot-rebind; devtools should enumerate it; it's parameterised by id. **Use an inline interceptor if all of these hold**: defined once, used in a small set of events in one module; never stubbed; the body is a trivial single `assoc-in`. Default to `reg-cofx` for anything that names a generally-useful input. (Give the inline form a namespaced `::` id anyway, so the runtime can name it in traces and per-frame overrides can target it.) This is design decision **rf2-bku5r** if you want the long version.
 
@@ -305,7 +304,7 @@ Sooner or later you'll write a handler that needs a *subscription's* current val
       {:db (assoc-in db [:orders (:id order)] (assoc order :placed-by current))})))
 ```
 
-This breaks the same purity property cofx exist to protect, for the same reasons calling `(js/Date.)` does: the handler's output now depends on whatever `:user/current` computes at drain time, the test framework can't fix it for one handler without globally re-registering the sub, and a recorded epoch won't carry the sub's value, only its id, so replay goes brittle.
+This breaks the same purity property coeffects exist to protect, for the same reason reading the ambient clock does: the handler's output now depends on whatever `:user/current` computes at drain time, the test framework can't fix it for one handler without globally re-registering the sub, and a recorded epoch won't carry the sub's value, only its id, so replay goes brittle.
 
 The fix is the move you already know — wrap the impure read as a cofx and inject it:
 
@@ -322,7 +321,7 @@ The fix is the move you already know — wrap the impure read as a cofx and inje
 
 `rf/subscribe-once` is the right primitive: it materialises the reaction, derefs it, and unsubscribes in one call, so the cofx leaves no live reaction dangling (`@(rf/subscribe ...)` would also give the right value but leak the reaction until GC). When the sub takes arguments, use the binary form and let the call site pick the query.
 
-You'll reach for this often enough that "wrap as cofx" becomes muscle memory — and you may notice re-frame2 deliberately ships *no* `cofx-from-sub` shortcut to collapse those five lines into a helper. That's on purpose. The five lines aren't friction to be papered over; they're the surface area that says *"this is a coeffect, register it like one."* A helper would whisper that subscribing-inside-handlers is the rule and the cofx is the workaround. It's the reverse. The cofx is the rule, and the wrap is the price of admission for any handler reading anything beyond `:db` and `:event`. Sub-values aren't special; they pay the same toll as `:now`.
+You'll reach for this often enough that "wrap as cofx" becomes muscle memory — and you may notice re-frame2 deliberately ships *no* `cofx-from-sub` shortcut to collapse those five lines into a helper. That's on purpose. The five lines aren't friction to be papered over; they're the surface area that says *"this is a coeffect, register it like one."* A helper would whisper that subscribing-inside-handlers is the rule and the cofx is the workaround. It's the reverse. The cofx is the rule, and the wrap is the price of admission for any handler reading anything beyond `:db`, `:event`, and `:rf.world/inputs`. Sub-values aren't special; they pay the same toll as any other world fact.
 
 ## One firm rule: coeffects must be synchronous
 
@@ -337,19 +336,21 @@ If the world can only hand you the data asynchronously — a fetch, a websocket 
 (rf/reg-cofx :user/profile
   (fn [ctx] (assoc-in ctx [:coeffects :user/profile] (js/fetch "/api/me"))))
 
-;; ✅ Dispatch event → managed effect → follow-on event
+;; ✅ Dispatch event → managed effect → reply event
 (rf/reg-event-fx :profile/show
   (fn [_ _]
     {:fx [[:rf.http/managed
-           {:request {:url "/api/me"}
-            :on-success [:profile/loaded]
-            :on-failure [:profile/load-failed]}]]}))
+           {:request     {:url "/api/me"}
+            :rf/reply-to [:profile/replied]}]]}))
 
-(rf/reg-event-fx :profile/loaded
-  (fn [{:keys [db]} [_ profile]] {:db (assoc db :profile profile)}))
+(rf/reg-event-fx :profile/replied
+  (fn [{:keys [db]} [_ {:keys [status value]}]]
+    (if (= :ok status) {:db (assoc db :profile value)} {})))
 ```
 
-The rule of thumb, then: **cofx for values the world hands back instantly** — `js/Date.`, `random-uuid`, `localStorage.getItem`, a sub's current value. **Managed effects for values the world has to go fetch.** If you catch yourself wanting `await` inside a `reg-cofx`, that's the tell: it was never a coeffect. It's an event chain, and [chapter 10](10-http.md) is where it goes.
+The completion comes back as an *event* carrying the **uniform reply envelope** — a reply map with a closed `:status` ([chapter 10](10-http.md#the-uniform-reply-envelope) is the full tour), the one shape every managed async surface replies through. (The familiar `:on-success` / `:on-failure` vectors are compatibility *sugar* that lowers onto this same envelope — see [chapter 10's note](10-http.md#on-success-on-failure-co-located-rf-reply-are-lowering-sugar) — so either spelling is fine; the envelope is the general model.)
+
+The rule of thumb, then: **cofx for values the world hands back instantly** — a `localStorage.getItem`, a sub's current value, a transient host measurement. **The clock and generated ids ride world inputs and the event, not a cofx.** **Managed effects for values the world has to go fetch.** If you catch yourself wanting `await` inside a `reg-cofx`, that's the tell: it was never a coeffect. It's an event chain, and [chapter 10](10-http.md) is where it goes.
 
 ## The whole trade, said once more
 
