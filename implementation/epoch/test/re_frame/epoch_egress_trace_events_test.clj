@@ -498,3 +498,107 @@
           ev        (first (:trace-events projected))]
       (is (= body (get-in ev [:tags :value]))
           "no stamp ⇒ no omission (the projector only omits an explicit :omit)"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-t55hxg.10 — the RAW error-response body axis. The same disposition-5
+;; fail-closed rule, but for the failure-category trace events that carry the
+;; RAW (unschematized-by-construction) error body: `:rf.http/http-4xx` /
+;; `:rf.http/http-5xx` at `:body`, `:rf.http/decode-failure` at `:body-text`,
+;; and the `:rf.http/retry-attempt` trace whose intermediate failure body
+;; nests at `[:failure :body]`. The emit site always stamps `:omit` for these
+;; (the raw body is unschematized) so the off-box projector omits the slot,
+;; lifted only by the trusted-local `:include-sensitive?` opt-in. On-box stays
+;; raw.
+;; ---------------------------------------------------------------------------
+
+(deftest off-box-omits-raw-http-5xx-body
+  (testing "rf2-t55hxg.10 — a raw :rf.http/http-5xx body (stamped :omit) is
+            OMITTED off-box: the :body tag is replaced with :rf/redacted"
+    (rf/reg-frame :test/http {})
+    (let [record    (http-record :test/http :rf.http/http-5xx :body
+                                  (str "error echoing " http-body-secret) :omit)
+          projected (epoch/projected-record record)
+          ev        (first (:trace-events projected))]
+      (is (= :rf/redacted (get-in ev [:tags :body]))
+          "the raw 5xx body slot is omitted off-box (fail-closed)")
+      (is (not (contains-http-secret? projected))
+          "the raw error-body token appears nowhere in the projected record"))))
+
+(deftest off-box-omits-raw-http-4xx-body
+  (testing "rf2-t55hxg.10 — a raw :rf.http/http-4xx body is omitted off-box"
+    (rf/reg-frame :test/http {})
+    (let [record    (http-record :test/http :rf.http/http-4xx :body
+                                  (str "forbidden " http-body-secret) :omit)
+          projected (epoch/projected-record record)
+          ev        (first (:trace-events projected))]
+      (is (= :rf/redacted (get-in ev [:tags :body])))
+      (is (not (contains-http-secret? projected))))))
+
+(deftest off-box-omits-raw-decode-failure-body-text
+  (testing "rf2-t55hxg.10 — a raw :rf.http/decode-failure body-text is omitted
+            off-box (the decode is what failed, so the body is unschematized)"
+    (rf/reg-frame :test/http {})
+    (let [record    (http-record :test/http :rf.http/decode-failure :body-text
+                                  (str "not-json " http-body-secret) :omit)
+          projected (epoch/projected-record record)
+          ev        (first (:trace-events projected))]
+      (is (= :rf/redacted (get-in ev [:tags :body-text]))
+          "the raw decode-failure body-text is omitted off-box")
+      (is (not (contains-http-secret? projected))))))
+
+(deftest off-box-omits-nested-retry-attempt-failure-body
+  (testing "rf2-t55hxg.10 — a :rf.http/retry-attempt nests the intermediate
+            failure's raw body at [:failure :body]; stamped :omit it is omitted
+            off-box (a retry-eligible 4xx/5xx echoing a token)"
+    (rf/reg-frame :test/http {})
+    (let [record    {:epoch-id      1
+                     :frame         :test/http
+                     :committed-at  0
+                     :event-id      :http/retry
+                     :trigger-event [:http/retry]
+                     :db-before     {}
+                     :db-after      {}
+                     :outcome       :ok
+                     :rf.epoch/sensitive? false
+                     :trace-events  [{:op-type   :rf.trace
+                                      :operation :rf.http/retry-attempt
+                                      :tags      {:request-id :rid
+                                                  :attempt    1
+                                                  :failure    {:kind :rf.http/http-5xx
+                                                               :status 500
+                                                               :body (str "retry-body " http-body-secret)}
+                                                  :rf.http/off-box-body :omit}}]
+                     :sub-runs      []
+                     :renders       []
+                     :effects       []}
+          projected (epoch/projected-record record)
+          ev        (first (:trace-events projected))]
+      (is (= :rf/redacted (get-in ev [:tags :failure :body]))
+          "the nested intermediate-failure raw body is omitted off-box")
+      (is (= 500 (get-in ev [:tags :failure :status]))
+          "non-body failure metadata (:status) rides verbatim")
+      (is (not (contains-http-secret? projected))
+          "no token re-leaks via the nested retry-attempt failure body"))))
+
+(deftest off-box-include-sensitive-lifts-raw-error-body-omission
+  (testing "rf2-t55hxg.10 — a trusted-local :include-sensitive? opt-in lifts
+            the off-box omission of a raw error body (the local-raw boundary)"
+    (rf/reg-frame :test/http {})
+    (let [body      (str "raw error " http-body-secret)
+          record    (http-record :test/http :rf.http/http-5xx :body body :omit)
+          projected (epoch/projected-record record {:include-sensitive? true})
+          ev        (first (:trace-events projected))]
+      (is (= body (get-in ev [:tags :body]))
+          "with :include-sensitive? true the raw error body is NOT omitted"))))
+
+(deftest on-box-raw-error-body-preserved-on-ring
+  (testing "rf2-t55hxg.10 — the ON-BOX ring record is NOT projected: the raw
+            error body rides verbatim on the ring (the local operator sees
+            their own process). The omission is the OFF-BOX boundary."
+    (rf/reg-frame :test/http {})
+    (let [body   (str "raw error " http-body-secret)
+          record (http-record :test/http :rf.http/http-5xx :body body :omit)
+          ev     (first (:trace-events record))]
+      (is (= body (get-in ev [:tags :body]))
+          "the hand-built ring record carries the raw error body (no projection
+           ran) — projected-record is the boundary, the ring stays raw"))))
