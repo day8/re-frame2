@@ -6,7 +6,7 @@ Your auth token must not end up in a Datadog log, and a 40MB PDF must not end up
 
 Let me restate the thing chapter 16 sold you on, because the whole of this chapter is the bill arriving for it.
 
-re-frame2's third pillar is a single trace surface that every tool reads. The Xray cascade graph reads it. The re-frame2-pair-mcp AI surface reads it. The Story playground recorder reads it. The Datadog shipper from [chapter 16](16-observability.md) reads it. Every event a user dispatches, every `:tags :event` payload, every `app-db` snapshot, every `:rf.http/*` request and response — they all ride the one bus. That uniformity is *the* reason the tooling is any good. Six tools telling consistent stories about your running app, because there is one story to tell.
+re-frame2's third pillar is a single trace surface that every *dev* tool reads. The Xray cascade graph reads it. The re-frame2-pair-mcp AI surface reads it. The Story playground recorder reads it. Every event a user dispatches, every `:tags :event` payload, every `app-db` snapshot, every `:rf.http/*` request and response — they all ride the one dev bus. That uniformity is *the* reason the tooling is any good: several tools telling consistent stories about your running app, because there is one story to tell. The production shippers from [chapter 16](16-observability.md) — the Datadog event forwarder, the Sentry error monitor — are a *separate* surface: the always-on event-emit and error-emit listeners, which deliver tight per-event records that survive `goog.DEBUG=false` (the dev trace bus does not). But they share the same leak exposure, because the same `:event` payloads ride them — which is why elision must hold across *both* surfaces, not just the dev one.
 
 Now turn it over. A firehose makes a magnificent debugger and a catastrophic auth-token logger. The first sign-in form on your app puts `{:password "hunter2"}` on the bus, and absent any defence that password is now visible to every dev who attaches a trace listener, every Datadog dashboard, every Sentry queue, every MCP pair-server an agent connected to. You did nothing wrong. You wrote a normal login handler. The architecture's greatest strength is, unmodified, a security incident with your customer's name on it.
 
@@ -247,12 +247,21 @@ Here's the whole login story, declared once and enforced everywhere:
 ;;     :tags      {:request {:url "/auth/login" :body :rf/redacted}}
 ;;     :sensitive? true}            ;; HTTP body redaction fired off the same schema verdict
 
-;;    Event C — the Datadog shipper from ch.16
-;;    Events A and B drop (sensitive). Datadog sees the cascade shape, the
-;;    timing, the error class — it just never sees the password.
+;;    (Events A and B are dev-only trace events. On-box panels render the
+;;    :rf/redacted chip; the dev trace bus elides entirely in production.)
+
+;;    Production: the Datadog event-emit listener from ch.16
+;;    {:event    [:auth/sign-in {:username "ada" :password :rf/redacted}]
+;;     :event-id :auth/sign-in
+;;     :outcome  :ok :frame :rf/default :elapsed-ms 12}
+;;    The always-on event-emit record always fans out — it does NOT whole-drop
+;;    for sensitivity the way a dev trace event can. Its :event payload is
+;;    walked by the SAME elide-wire-value, so :password lands as :rf/redacted
+;;    before Datadog ever sees it. Datadog gets the event-id, frame, outcome,
+;;    and timing — a built-in audit trail of the sign-in, minus the secret.
 ```
 
-One declaration site, one walker, every consumer honours it.
+One declaration site, one walker, every consumer — dev tool or production shipper — honours it.
 
 ## Schema-validation errors: the back door
 
@@ -287,7 +296,7 @@ You've been writing the *producer* side — the declarations. The other half is 
 | Story panel (on-box dev UI) | `false` | `false` | No |
 | Xray panel (on-box dev UI) | `false` | `false` | No |
 
-The Datadog shipper from [chapter 16](16-observability.md) is the sixth consumer and follows the same rule: **off-box shippers MUST default both `include-*` flags to `false`.** Off-box means the data is leaving your trust boundary, and Datadog's trust boundary is not yours. That conservative default is the framework's safety net for the app author who wires up a published integration without reading its source — the failure mode is "I see a `[● ELIDED]` chip and have to opt in," not "I shipped a card number and found out from a customer."
+The production shippers from [chapter 16](16-observability.md) — the Datadog event-emit listener, the Sentry error-emit listener — follow the same rule, with one twist on *who* runs the walker: **off-box egress MUST default both `include-*` flags to `false`.** Off-box means the data is leaving your trust boundary, and Datadog's trust boundary is not yours. Unlike the dev tools above, an event/error-emit listener never calls `elide-wire-value` itself — the always-on substrate walks each record's `:event` payload with those conservative off-box defaults *before* fan-out, so by the time your listener body runs the secret is already `:rf/redacted`. That conservative default is the framework's safety net for the app author who wires up a published integration without reading its source — the failure mode is "I see a `:rf/redacted` in the payload and have to widen the policy deliberately," not "I shipped a card number and found out from a customer."
 
 The on-box dev UIs render a small `[● REDACTED]` / `[● ELIDED 5.2MB]` chip wherever a sentinel or marker lands in the rendered tree; the dev clicks the chip to opt in for a single live-fetch via the marker's `:handle`. That's the *only* path by which a sensitive or large value re-materialises on screen, and it's per-fetch, not session-wide. (There's a deliberate verb split worth internalising if you write your own consumer: `include-*` governs *bytes leaving the process*, `show-*` governs *pixels rendered to the dev*. Both default off; both are explicit when on.)
 
