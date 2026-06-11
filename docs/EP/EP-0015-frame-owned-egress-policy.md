@@ -8,8 +8,9 @@ Type: standards-track
 >
 > Normative home after acceptance: `spec/015-Data-Classification.md`,
 > `spec/009-Instrumentation.md`, `spec/014-HTTPRequests.md`,
-> `spec/Privacy.md`, `spec/API.md`, and guide material for privacy and
-> observability.
+> `spec/011-SSR.md`, `spec/016-Resources.md`, `spec/Tool-Pair.md`,
+> `spec/Security.md`, `spec/Privacy.md`, `spec/API.md`, and guide material
+> for privacy and observability.
 
 ## Abstract
 
@@ -38,11 +39,13 @@ This EP proposes the positive model:
 Frame configuration owns durable frame policy: app-db sensitive paths, app-db
 large paths, frame-local HTTP carrier names, and frame observability sinks.
 Machine definitions own durable machine `:data` policy: sensitive paths and
-large paths in machine-local process state. Registration metadata owns
-transient payload shapes: event args, fx/cofx args, sub outputs, flow outputs,
-machine transition payloads, and other registration-owned values. Egress calls
-own trust-boundary profiles and opts. Everything else should be internal,
-advanced, or removed.
+large paths in machine-local process state. Resource and mutation definitions
+own durable resource-runtime policy: cache data, params, scopes, mutation
+params, patch/populate payloads, and work-ledger summaries. Registration
+metadata owns transient payload shapes: event args, fx/cofx args, sub outputs,
+flow outputs, machine transition payloads, and other registration-owned values.
+Egress calls own trust-boundary profiles and opts. Everything else should be
+internal, advanced, or removed.
 
 Keyword names follow the existing convention: local grammar keys stay bare,
 cross-surface framework policy keys live under `:rf.<area>/*`, and
@@ -53,8 +56,8 @@ user/library-owned ids stay outside the framework namespace.
 Large SPAs leak information through framework-shaped records, not just through
 application log statements. A checkout token can appear in app-db, an event
 vector, an HTTP diagnostic, a schema-validation failure, an epoch record, a
-sub-cache value, an MCP response, an Xray/Story artifact, a hosted monitoring
-payload, or an SSR/hydration payload.
+resource cache entry or scoped key, a sub-cache value, an MCP response, an
+Xray/Story artifact, a hosted monitoring payload, or an SSR/hydration payload.
 
 re-frame2 deliberately makes runtime state highly observable. That is a core
 productivity feature: one runtime story can feed traces, Xray, Story, MCP
@@ -200,8 +203,9 @@ From re-frame2's point of view, sensitive values can live in:
   and cached API payloads matter when app-db is traced, validated, snapshotted,
   read by a tool, sent through SSR/hydration, or projected into an epoch.
 - **Runtime-db values.** Framework-owned state can carry app-sensitive material:
-  machine snapshots, actor `:data`, route state, SSR/hydration state, epoch
-  metadata, and tool/runtime frame state.
+  machine snapshots, actor `:data`, resource cache entries, work-ledger rows,
+  mutation instances, route state, SSR/hydration state, epoch metadata, and
+  tool/runtime frame state.
 - **Event/coeffect/effect payloads.** Secrets can enter through dispatched event
   vectors, injected cofx, returned fx arguments, dispatch child events, HTTP
   request maps, and failure payloads.
@@ -254,6 +258,8 @@ frames own state, paths are explicit, and boundaries are named.
 - Make durable app-db classification a frame creation concern.
 - Make durable machine `:data` classification an explicit machine definition
   concern.
+- Make resource and mutation classification an explicit definition concern,
+  preserving Spec 016's fail-closed scope and hydration projection rules.
 - Make frame-local HTTP carrier-name extensions part of frame policy, not
   process-global mutation.
 - Make production observability sink policy part of frame configuration.
@@ -298,7 +304,9 @@ frames own state, paths are explicit, and boundaries are named.
 - **EP-0003 (Resource Queries) / Spec 016.** Resource entries, work-ledger rows,
   scopes, params, owner/cause summaries, and SSR/hydration payloads are egress
   records under this EP's projection model. This EP must preserve Spec 016's
-  fail-closed scope and resource redaction rules.
+  fail-closed scope and resource redaction rules. Resource and mutation
+  definitions are durable runtime-subsystem owners, not merely transient
+  registration payloads.
 - **EP-0005 (Machine `:data` Schema).** EP-0005 is final and currently governs
   machine `:data` sensitivity: v1 expresses machine data sensitivity only via
   per-slot `:data-schema` `:sensitive?` / `:large?` properties. This proposal
@@ -485,12 +493,17 @@ Examples:
 
 Registration metadata classifies values whose shape is local to the
 registration: event args, cofx values, fx args, sub outputs, flow outputs,
-machine transition payloads, and similar records.
+machine transition payloads, and similar records. Durable runtime-subsystem
+state introduced by resources and mutations follows its own owner rule below;
+it is not classified as a transient registration payload merely because it is
+declared by `reg-resource` or `reg-mutation`.
 
 This keeps the ownership rule compact:
 
 > Frame config classifies frame-owned durable state and frame-owned egress.
 > Machine definitions classify machine-owned durable process state.
+> Resource and mutation definitions classify their durable runtime-subsystem
+> state.
 > Registration metadata classifies registration-owned transient payloads.
 
 ### 5. Machine-Owned Durable Classification
@@ -537,7 +550,38 @@ Semantics:
 This keeps machines from becoming a special schema-based exception to the
 owner-declares-policy rule.
 
-### 6. `redact-interceptor` Is Removed From The Public API
+### 6. Resource And Mutation Durable Classification
+
+This EP must not accidentally treat Spec 016 resources as ordinary transient
+registration payloads. A resource definition creates durable runtime-db state:
+entries under `:rf.runtime/resources`, scoped keys, params, data, errors,
+refresh errors, and associated work-ledger summaries. A mutation definition
+creates durable mutation-instance and work-ledger state, and may patch or
+populate resource entries. Those shapes are owned by the resource or mutation
+definition.
+
+Current Spec 016 and the implementation express that policy with coarse
+resource metadata such as `:sensitive?` and `:large?`, plus schema-based marks.
+They also pin load-bearing rules that this EP must preserve:
+
+- scopes and params can be sensitive, not just resource data;
+- no resource read falls through to an implicit global scope;
+- SSR/hydration projects only an allowlisted resource runtime slice;
+- sensitive resource entries hydrate as metadata-only redacted entries;
+- large resource entries hydrate as metadata-only omitted-data entries;
+- resource keys that carry sensitive scopes or params do not ride raw merely
+  because the entry's `:data` was redacted.
+
+If EP-0015 is accepted, the exact spelling can be reworked in the same spirit
+as frames and machines: either keep coarse `:sensitive?` / `:large?` claims
+where the whole resource is the classification unit, or add explicit
+`:sensitive` / `:large` path maps rooted at `:data`, `:params`, `:scope`, and
+mutation payload shapes. The ownership rule should not change: resource and
+mutation definitions own the durable runtime-subsystem policy they introduce,
+and projection applies it at SSR, tool, trace, epoch, and observability
+boundaries.
+
+### 7. `redact-interceptor` Is Removed From The Public API
 
 `redact-interceptor` now looks like an older escape hatch. If registration
 metadata can classify event payload paths, and projection happens centrally at
@@ -565,7 +609,7 @@ not:
   handler)
 ```
 
-### 7. Schemas Describe Shape, Not Public Egress Policy
+### 8. Schemas Describe Shape, Not Public Egress Policy
 
 Schema metadata is currently used as a public classification path:
 
@@ -596,7 +640,7 @@ Machine `:data-schema` follows the same rule. It describes machine data shape
 and validation. It does not carry public egress classification; explicit
 machine `:sensitive` and `:large` metadata owns that policy.
 
-### 8. Frame-Owned Observability Sink Policy
+### 9. Frame-Owned Observability Sink Policy
 
 Production observability sink policy belongs on the frame:
 
@@ -655,7 +699,7 @@ Low-level listener registries may still exist internally:
 But they should be advanced integration APIs, not the normal production
 Datadog/Sentry story.
 
-### 9. Projection Profiles
+### 10. Projection Profiles
 
 The low-level walker already needs boolean opts:
 
@@ -691,7 +735,7 @@ The exact names are open. The important design point is that the public
 question is "which boundary is this?" rather than "which combination of
 booleans did I remember?"
 
-### 10. `elide-wire-value` Remains The Value Primitive
+### 11. `elide-wire-value` Remains The Value Primitive
 
 `rf/elide-wire-value` remains the single low-level value walker for tree-shaped
 values:
@@ -719,7 +763,7 @@ The record projector knows which slots are app-db-shaped, event-shaped,
 exception-shaped, HTTP-shaped, or public-summary-only. It delegates to
 `elide-wire-value` where a slot is tree-shaped and frame-policy applies.
 
-### 11. Observation Streams
+### 12. Observation Streams
 
 This EP distinguishes three streams:
 
@@ -736,7 +780,7 @@ This EP distinguishes three streams:
 The production stream is not a replacement for dev trace detail. It is a
 small, safe, hosted-monitoring surface.
 
-### 12. Direct Reads And Fail-Closed Frame Resolution
+### 13. Direct Reads And Fail-Closed Frame Resolution
 
 Direct reads bypass trace protection:
 
@@ -759,7 +803,7 @@ frame known:
 If a projection needs frame policy and no frame is known, it must fail closed.
 It must not synthesize `:rf/default`.
 
-### 13. SSR And Hydration Are Allowlist-First
+### 14. SSR And Hydration Are Allowlist-First
 
 SSR/hydration is production egress to the browser. It should not primarily ask
 "which leaves are sensitive?" It should ask "which state is allowed to cross
@@ -781,7 +825,7 @@ slice contains a sensitive child, projection redacts it unless the SSR policy
 explicitly permits it. But the main safety property is that unlisted state does
 not cross.
 
-### 14. Epoch Redaction
+### 15. Epoch Redaction
 
 The current epoch hook is powerful:
 
@@ -802,7 +846,7 @@ Proposed posture:
 - a custom record transform, if retained, should be advanced and explicitly
   warn that it may affect restore fidelity.
 
-### 15. Derived Sensitivity
+### 16. Derived Sensitivity
 
 Derived values are the hardest unresolved case. A subscription, flow, resource
 normalizer, or view prop can copy, summarize, hash, concatenate, or otherwise
@@ -881,7 +925,14 @@ Mechanical upgrade from re-frame v1 remains a secondary goal:
     limited to `:rf.egress/*`, `:rf.observe/*`, and existing `:rf.size/*`
     low-level flags? Recommendation: yes; keep frame-local grammar keys bare
     and keep user/integration sink ids outside framework namespaces.
-11. **EP-0005 supersession.** Should EP-0015 replace EP-0005's final machine
+11. **Resource and mutation spelling.** Should Spec 016 keep its coarse
+    `:sensitive?` / `:large?` registration claims for whole resource entries,
+    or should EP-0015 introduce explicit resource/mutation `:sensitive` /
+    `:large` path maps rooted at `:scope`, `:params`, `:data`, errors, and
+    mutation payloads? Recommendation: preserve the current fail-closed scope
+    and hydration semantics either way; decide the spelling with the Spec 016
+    follow-up.
+12. **EP-0005 supersession.** Should EP-0015 replace EP-0005's final machine
     `:data-schema` sensitivity surface with explicit machine `:sensitive` /
     `:large` metadata, or should machines keep EP-0005's schema-first v1 rule
     while frames move to owner-owned policy? Recommendation: decide this at
@@ -899,20 +950,23 @@ Mechanical upgrade from re-frame v1 remains a secondary goal:
 4. Machine bead: add machine metadata schema for explicit `:sensitive` and
    `:large` paths rooted at machine `:data`, independent of `:data-schema`, if
    the EP-0005 supersession ruling accepts that move.
-5. Projection bead: introduce record-level `project-egress` and profiles over
+5. Resource/mutation bead: align Spec 016 resource and mutation classification
+   with the owner-owned model while preserving fail-closed scope resolution,
+   scoped-key privacy, and SSR/hydration metadata-only projection.
+6. Projection bead: introduce record-level `project-egress` and profiles over
    `elide-wire-value`.
-6. Observability bead: route production handled-event/error records through
+7. Observability bead: route production handled-event/error records through
    frame `:observability` policy.
-7. HTTP bead: move app-specific HTTP carrier declarations to frame policy and
+8. HTTP bead: move app-specific HTTP carrier declarations to frame policy and
    design response-body classification.
-8. Schema bead: remove guide-level schema-attached sensitive/large markers or
+9. Schema bead: remove guide-level schema-attached sensitive/large markers or
    lower them into explicit owner metadata as migration/import only.
-9. Epoch bead: replace ordinary `:redact-fn` use with frame/profile projection
+10. Epoch bead: replace ordinary `:redact-fn` use with frame/profile projection
    and document any retained advanced hook.
-10. Direct-read/tool bead: audit MCP, Xray, Story, SSR/hydration, epoch export,
+11. Direct-read/tool bead: audit MCP, Xray, Story, SSR/hydration, epoch export,
    Datadog/Sentry, schema failures, HTTP diagnostics, and direct-read surfaces
    against `project-egress`.
-11. Guide bead: rewrite the privacy/large-things guide around classification,
+12. Guide bead: rewrite the privacy/large-things guide around classification,
     projection, and sink policy.
 
 ## Guide Impact
