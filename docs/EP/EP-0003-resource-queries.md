@@ -1,21 +1,112 @@
 # EP-0003: Resource Queries
 
-Status: accepted
+Status: final
 
-> **Accepted; HTTP-only spec graduated.** The accepted HTTP-only scope of this
-> proposal has a normative home in
-> [`spec/016-Resources.md`](../../spec/016-Resources.md) (slice 1, rf2-8eqf99).
-> Where this EP and the spec differ, the **spec governs**; this EP remains the
-> design record (rationale, prior-art benchmark, slice plan) and the home of the
-> deferred GraphQL phase. The fresh-skip/cache-hit hold (`rf2-hsa0sv`) is
-> resolved: Mike ruled option (a), and the reference implementation now
-> short-circuits fresh ensures and emits `:rf.resource/cache-hit` as Spec 016
-> describes. The EP itself remains `accepted`, not `final`, pending the separate
-> graduation ruling (`rf2-9l9xs2`). The HTTP implementation slices through the
-> read-resource MVP and first public-beta gate (artefact skeleton, work-ledger
+> **`final` means the decisions are settled.** The HTTP-only scope graduated
+> `accepted`→`final` on 2026-06-11 (Mike ruled option (a) on `rf2-9l9xs2`), once
+> all P1 resources bugs had merged. The accepted HTTP-only scope has its
+> normative home in [`spec/016-Resources.md`](../../spec/016-Resources.md);
+> where this EP and the spec differ, the **spec governs**, and this EP remains
+> the design record (rationale, prior-art benchmark, slice plan) and the home of
+> the deferred GraphQL phase. The fresh-skip/cache-hit hold (`rf2-hsa0sv`) is
+> resolved: the reference implementation short-circuits fresh ensures and emits
+> `:rf.resource/cache-hit` exactly as Spec 016's FSM, §Restore, and §Xray prose
+> describe (PR #3791). All twelve core slices (artefact skeleton, work-ledger
 > substrate, runtime, managed-HTTP, invalidation/GC, route, SSR, Xray,
-> focus/reconnect, mutation, docs) have landed on main and are tracked per
-> [§Bead Structure](#bead-structure).
+> focus/reconnect, mutation, docs) are complete on `main`, and both mandatory
+> wave-end reviews (correctness `rf2-2wzk6g`, docs `rf2-lqpwki`) passed clean —
+> every acceptance criterion and every §9 conformance fixture PASS, including the
+> first-public-beta gate (mutations + focus/reconnect revalidation). Finalizing
+> the *decisions* does not, on its own, assert the *implementation* was gap-free;
+> the [Implementation errata](#implementation-errata) ledger below tracks that
+> separately. All review-wave findings were fixed in-wave (zero open EP-0003
+> errata); the remaining items there are cross-cutting hardening and
+> spec-coherence follow-ups in other subsystems, not contract gaps. Slices are
+> tracked per [§Bead Structure](#bead-structure).
+
+## Implementation errata
+
+The EP decisions are final and the twelve core slices have shipped: **every
+review-wave finding was fixed in-wave, so there are zero open EP-0003 errata.**
+This section is kept as a closed record of the build-completion and
+review-reconciliation work that followed the decision-freeze; none of it reopens
+any ruling. Finalizing the *decisions* did not, on its own, assert the
+*implementation* was gap-free; this ledger tracks that separately.
+
+### Resolved errata — review-wave findings fixed in-wave
+
+The wave-end correctness review (`rf2-2wzk6g`) and the design-fork/lifecycle
+work surfaced the findings below. **All were fixed and merged before
+graduation** — they are kept here as a closed record and no longer reopen any
+ruling:
+
+- **`rf2-hsa0sv`** *(fixed — PR #3791)* — fresh-skip ensure semantics +
+  `:rf.resource/cache-hit` emit. The reference `ensure-load` did not short-circuit
+  a fresh `:loaded` ensure, so an ensure of an already-loaded, still-fresh entry
+  re-fetched unconditionally — diverging from the FSM (a fresh `ensure` has no
+  transition off `:loaded`) and from §Restore ("refetches only on the next
+  `ensure` from a live owner … gated by the entry's own stale/fresh policy").
+  Mike ruled (a) implement: a fresh `:loaded` ensure now attaches the owner lease,
+  emits `:rf.resource/cache-hit`, drains any blocking route slot immediately (a
+  fresh blocking resource settles the navigation at once — no hang), and starts no
+  new generation/fetch. The Spec 016 cache-hit note flipped from
+  reserved/forward-looking to **implemented**; the FSM, trace family, and Xray
+  panel were updated. A stale `:loaded` entry still refetches (fresh-skip never
+  swallows a stale refresh).
+- **`rf2-er7qx2` / `rf2-fopuj9` / `rf2-o3d1uf`** *(fixed — PR #3794, ssr-restore
+  cluster)* — three P1 SSR/restore correctness gaps:
+  - **`er7qx2`** — the SSR blocking-resource drain/timeout loop was helper-only
+    and not wired into the Ring and streaming render paths; a never-settling
+    blocking resource could render against an unchecked loading/skeleton state.
+    The drain/timeout policy is now integrated into both SSR render paths so
+    current-navigation blocking resources settle before render or install a
+    settled timeout error entry.
+  - **`fopuj9`** — the hydration refetch planner only invoked reconciliation, and
+    redacted projected data could be misclassified as usable data. Hydration now
+    refetches stale/omitted/redacted entries needed by the live route while fresh
+    serialized entries do not double-fetch, and the redacted sentinel is treated as
+    metadata-only, not usable data.
+  - **`o3d1uf`** — epoch restore reconciled dangling work-ledger rows and settled
+    resource entries but left pending mutation instances holding current-work and
+    generation, so a late pre-restore mutation reply could still patch/populate/
+    invalidate post-restore state. Restore now terminally settles restored pending
+    mutation instances, so stale pre-restore mutation replies are suppressed.
+- **`rf2-tgm1xu`** *(fixed — PR #3795, xray-resources cluster)* — resource
+  accessors redacted live entries *before* projection, so default
+  `list-resource-instances` / `get-resource-state` could lose status, owners,
+  tags, and request ids without `include-runtime-db`, contradicting the EP-0003
+  tool contract that redacted summaries still expose metadata. Accessors now
+  project metadata summaries *before* egress redaction, keep status/tag/owner/
+  request-id filters working without exposing the raw runtime-db, derive
+  `:has-data?`, and report `:missing-key` for an incomplete scoped key.
+
+Earlier slice-era build-gaps against settled rulings (the EP-0001-style
+authority/error-catalogue/reset-hook reconciliations — `rf2-7r5mc2`,
+`rf2-y7lcqy`, `rf2-4hboqi`, `rf2-gzsyw3`, `rf2-yuc8o0`, `rf2-i1w1pe`) were also
+fixed and merged in-wave (PRs #3768–#3776) and carry no open EP-0003 erratum.
+
+### Cross-cutting known-issues (post-final errata, not contract gaps)
+
+These items are **open** but are **not EP-0003 contract gaps** — there are zero
+open P1s against the resources contract, and graduation does not depend on them.
+They are recorded here as cross-cutting follow-ups so the ledger is honest about
+the surrounding work still in flight:
+
+- **Resources hardening (P2/P3, in flight)** — additional defensive/edge-case
+  hardening across the mutations, routing, events-core, scope-registry, and SSR
+  lanes (all in `implementation/resources/`). These deepen the implementation's
+  robustness; none reopens or changes the locked Spec 016 contract.
+- **Spec-coherence follow-ups (`rf2-cnp8pr`, `rf2-hhn4b6`, `rf2-uqwbhr`,
+  `rf2-ba5acq`, `rf2-c4focn`)** — docs/spec coherence reconciliation after the
+  resources + mutations slices landed: aligning the runtime-subsystem graduation
+  rows' canonical home (Spec 016 vs `Runtime-Subsystems.md`), refreshing the API
+  reference's landed public-beta surface, aligning the resource trace family
+  across runtime/panels/EP docs, wiring a runtime-subsystem conformance-drift
+  test, and syncing the EP's duplicated graduation table to the now-fuller
+  canonical specs. These are **docs/spec coherence, not runtime correctness** —
+  Spec 016 governs and the contract is complete; the EP prose and cross-doc
+  index simply need to catch up to the landed surface. A dedicated spec-coherence
+  wave (sequenced after this graduation) actions them.
 
 ## Abstract
 
@@ -3137,8 +3228,9 @@ deferred follow-on phase (see
 [Deferred: GraphQL (later phase)](#deferred-graphql-later-phase)).
 
 1. EP/spec bead: landed for the HTTP-only scope; Spec 016 is the normative
-   home for that scope, while this EP remains the accepted design record until
-   final graduation.
+   home for that scope, and this EP graduated to `final` on the
+   accepted→final ruling (`rf2-9l9xs2`), retaining its role as the design
+   record and the home of the deferred GraphQL phase.
 2. Artifact skeleton bead: create `day8/re-frame2-resources`, facade wrappers,
    feature probes, and `:resource` registrar metadata.
 3. Work-ledger substrate bead: add the resource-owned frame work ledger slice,
