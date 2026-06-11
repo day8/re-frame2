@@ -97,21 +97,33 @@
                         Defaults to the `:depth` value (50) so trace + epoch
                         evict atomically; pass a smaller value (e.g. 5) to
                         bound dev-session heap more aggressively.
-    :redact-fn          fn? or nil. When non-nil the runtime invokes the fn
-                        once per assembled record between `build-record` and
-                        ring-append / listener fan-out, so the ring and every
-                        listener see the SAME redacted shape. The
-                        `:rf.epoch/sensitive?` rollup is computed BEFORE the
-                        fn runs, so it stays accurate even when the fn erases
-                        the leaves it keyed on. A throwing fn emits
-                        `:rf.warning/epoch-redact-fn-exception` and falls back
-                        to the raw record for that drain only. Passing `nil`
-                        clears any previously-installed fn.
+    :redact-fn          fn? or nil. The ADVANCED PROJECTION-SIDE override
+                        (EP-0015 §15 + open-issue 6, RULED). When non-nil the
+                        framework invokes the fn ONCE per record at the
+                        OFF-BOX EGRESS boundary — inside `projected-record`,
+                        AFTER the frame/profile `project-egress` projection —
+                        NOT at storage time. The ring buffer and every
+                        `register-epoch-listener!` listener receive the RAW
+                        record: post-EP-0010 epoch records are causal replay
+                        material, and mutating them at rest would corrupt the
+                        replay contract. The fn is the rare advanced escape
+                        for an app that records material the schema-driven
+                        projection cannot prove (a non-schema-declared
+                        sensitive slot); ordinary redaction needs only the
+                        frame's `:sensitive?` / `:large?` classification,
+                        which `projected-record` already applies. A throwing
+                        fn emits `:rf.warning/epoch-redact-fn-exception` and
+                        falls back to the projected (frame/profile-redacted)
+                        record. Passing `nil` clears any previously-installed
+                        fn. CAVEAT: the fn runs only on the projected egress
+                        copy; it cannot affect `restore-epoch` fidelity (the
+                        ring stays raw) — that hazard is gone by construction.
 
   Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) and
   malformed `:redact-fn` (not `fn?` / `nil`) are silently dropped at the
-  boundary. See Tool-Pair §Time-travel §Redaction hook + Security.md §Epoch
-  privacy posture for the full contract."
+  boundary. See EP-0015 §15 (Epoch Redaction) + open-issue 6 disposition,
+  Tool-Pair §Time-travel §Redaction hook + Security.md §Epoch privacy posture
+  for the full contract."
   [opts]
   (state/merge-config! opts))
 
@@ -132,9 +144,11 @@
   []
   (state/reset-config!))
 
-;; The record-assembly helpers — `maybe-redact`, `current-schema-digest`,
-;; the sensitive-rollup family, and `build-record` itself — live in
-;; `re-frame.epoch.assembly`.
+;; The record-assembly helpers — `current-schema-digest`, the
+;; sensitive-rollup family, and `build-record` itself — live in
+;; `re-frame.epoch.assembly`. The `:redact-fn` advanced override
+;; (`apply-redact-fn`) is projection-side only (EP-0015 §15 + open-issue
+;; 6, RULED) — invoked from `projected-record`, never at storage time.
 
 ;; ---- the per-frame ring buffer --------------------------------------------
 ;;
@@ -241,7 +255,7 @@
 ;; ---- per-event settle hook ------------------------------------------------
 
 (defn- commit-record!
-  "Build, redact, ring-append, and fan out one `:rf/epoch-record`. Shared
+  "Build, ring-append, and fan out one RAW `:rf/epoch-record`. Shared
   by the per-event clean settle (`settle!`) and the per-event halt commit
   (`commit-halt-record!`). `events` is the harvested cascade buffer (may
   be empty for a halt whose event never ran); `trigger-event` is an
@@ -250,19 +264,22 @@
   per rf2-nj6p7), or nil to let `build-record` derive the trigger from
   the buffer (the normal `:ok` path).
 
+  Per EP-0015 §15 + open-issue 6 (RULED, hardened): the ring buffer and
+  every `register-epoch-listener!` listener receive the RAW record.
+  Storage-side redaction was REMOVED — post-EP-0010 epoch records are
+  causal replay material, and mutating them at rest corrupts the replay
+  contract (not merely restore fidelity). The app-supplied `:redact-fn`
+  is now a PROJECTION-SIDE-ONLY advanced override, applied at the off-box
+  egress boundary inside `projected-record` (never at storage time). The
+  `:rf.epoch/sensitive?` rollup inside `build-record` still reflects raw
+  signals so off-box consumers can branch on it before projecting.
+
   `committed-at` is the record's durable causal time — per EP-0010 §Time
   and Spec 002 §The World-Input Rule (rf2-bh56rc) the committing causal
   token's `:rf.world/inputs` `:time-ms`, threaded down from the router's
   per-event settle / depth-halt seam, NOT an ambient host-clock read at
   assembly time. This makes `:committed-at` replayable."
   [frame-id frame-state-before frame-state-after events committed-at outcome halt-reason trigger-event]
-  ;; Per rf2-wp70d / Tool-Pair §Time-travel §Redaction hook:
-  ;; `maybe-redact` runs ONCE per record between `build-record` and
-  ;; ring-append / listener fan-out so the ring and listeners see the
-  ;; SAME redacted shape. The `:rf.epoch/sensitive?` rollup inside
-  ;; `build-record` runs FIRST — the rollup reflects raw signals even
-  ;; when the redact-fn erases the leaves it keyed on.
-  ;;
   ;; EP-0001 (rf2-3aizt1, decision #2): the canonical snapshot unit is the
   ;; whole frame-state (both partitions); `build-record` stores it as
   ;; `:frame-state-before` / `:frame-state-after` and derives the
@@ -273,11 +290,10 @@
         ;; already resolve one (the halting event never ran, so no
         ;; `:event/run-start` was buffered). Per Spec-Schemas
         ;; §:rf/epoch-record the slots are :keyword / vector — never nil.
-        base+  (cond-> base
+        record (cond-> base
                  (and trigger-event (not (:event-id base)))
                  (assoc :event-id      (first trigger-event)
-                        :trigger-event trigger-event))
-        record (assembly/maybe-redact base+)]
+                        :trigger-event trigger-event))]
     (state/record! record)
     ;; Per rf2-qs6dl: mark this as the frame's most-recently-settled
     ;; epoch so post-settle async render emits (which fire at React
@@ -577,9 +593,10 @@
             ;; Record a synthetic epoch so `restore-epoch` can rewind the
             ;; previous state. The record's :trigger-event is the
             ;; pair-tool injection sentinel (no application event ran).
-            ;; Per rf2-wp70d: `maybe-redact` runs once between assembly and
-            ;; the record!/notify-listeners! split so ring + listeners see
-            ;; the SAME redacted shape on this synthetic record too.
+            ;; Per EP-0015 §15 + open-issue 6 (RULED): the synthetic record
+            ;; is stored RAW — storage-side redaction was removed (the ring
+            ;; is causal replay material); the `:redact-fn` advanced override
+            ;; runs projection-side only, inside `projected-record`.
             ;;
             ;; rf2-bh56rc: this synthetic `:rf.epoch/db-replaced` record is a
             ;; pair-tool injection — NO application event (and therefore no
@@ -599,11 +616,10 @@
             ;; folds the token's `epoch-now-ms` :time-ms), so the Epoch panel
             ;; shows comparable timestamps across tool-injected and normal
             ;; epochs (EP-0010 §Time durable-timestamp rule).
-            (let [record (assembly/maybe-redact
-                           (assoc (assembly/build-record frame-id fs-before fs-after []
-                                                          (interop/epoch-now-ms))
-                                  :event-id      :rf.epoch/db-replaced
-                                  :trigger-event [:rf.epoch/db-replaced]))]
+            (let [record (assoc (assembly/build-record frame-id fs-before fs-after []
+                                                       (interop/epoch-now-ms))
+                                :event-id      :rf.epoch/db-replaced
+                                :trigger-event [:rf.epoch/db-replaced])]
               (state/record! record)
               ;; Per rf2-qs6dl: a `replace-app-db!` re-renders the views that
               ;; read the replaced state; attribute those post-settle renders
@@ -624,10 +640,11 @@
   frame-state values; restore of this synthetic record reinstalls
   `fs-after`, and restore of a PRIOR epoch rewinds past the injection.
 
-  Per rf2-wp70d: `maybe-redact` runs once between assembly and the
-  record!/notify-listeners! split so ring + listeners see the SAME
-  redacted shape. Per rf2-qs6dl: stamps the synthetic epoch as the
-  frame's last-settled so post-settle re-renders attribute back to it
+  Per EP-0015 §15 + open-issue 6 (RULED): the synthetic record is stored
+  RAW — storage-side redaction was removed (the ring is causal replay
+  material); the `:redact-fn` advanced override runs projection-side only,
+  inside `projected-record`. Per rf2-qs6dl: stamps the synthetic epoch as
+  the frame's last-settled so post-settle re-renders attribute back to it
   rather than the next real cascade.
 
   rf2-bh56rc: a pair-tool injection — no application event / causal token
@@ -643,11 +660,10 @@
   epoch's `:committed-at` in the same wall-clock CLASS as the
   router-stamped epochs (EP-0010 §Time durable-timestamp rule)."
   [frame-id fs-before fs-after]
-  (let [record (assembly/maybe-redact
-                 (assoc (assembly/build-record frame-id fs-before fs-after []
-                                                (interop/epoch-now-ms))
-                        :event-id      :rf.epoch/db-replaced
-                        :trigger-event [:rf.epoch/db-replaced]))]
+  (let [record (assoc (assembly/build-record frame-id fs-before fs-after []
+                                             (interop/epoch-now-ms))
+                      :event-id      :rf.epoch/db-replaced
+                      :trigger-event [:rf.epoch/db-replaced])]
     (state/record! record)
     (state/set-last-settled-epoch! frame-id (:epoch-id record))
     (trace/emit! :rf.epoch :rf.epoch/db-replaced

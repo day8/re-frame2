@@ -13,10 +13,13 @@
     2. `sensitive-rollup` — computes `:rf.epoch/sensitive?` from raw
                           signals (trace-event stamps + schema-declared
                           sensitive paths).
-    3. `maybe-redact`   — runs the installed `:redact-fn` once between
-                          assembly and ring-append / listener fan-out
-                          so every downstream consumer sees the SAME
-                          redacted shape.
+    3. `apply-redact-fn` — runs the installed `:redact-fn` advanced
+                          override at the OFF-BOX EGRESS boundary only
+                          (EP-0015 §15 + open-issue 6, RULED). The ring
+                          buffer + listener fan-out deliver the RAW
+                          record (causal replay material); redaction
+                          happens projection-side, inside
+                          `re-frame.epoch.tool-pair/projected-record`.
 
   Plus the `current-schema-digest` accessor that both `build-record`
   (digest pinned on the record) and the restore-preconditions seam
@@ -108,52 +111,43 @@
                 :rf.trace/event-id event-id
                 :outcome           (outcome->consumer-facing outcome)}))
 
-;; ---- redaction hook -------------------------------------------------------
+;; ---- projection-side redaction override (EP-0015 §15 / open-issue 6) ------
 
-(defn maybe-redact
-  "Run the installed `:redact-fn` against `record` and return its
-  result. nil `record` and nil `redact` are pass-throughs (no
-  invocation, no try/catch overhead). A throwing fn emits
-  `:rf.warning/epoch-redact-fn-exception` carrying `:frame`,
-  `:epoch-id`, and `:ex-msg`, then falls back to the raw record so
-  the drain itself is not broken.
+(defn apply-redact-fn
+  "Apply the installed `:redact-fn` advanced override against an
+  already-projected `record` and return its result. nil `record` and
+  nil `redact` are pass-throughs (no invocation, no try/catch
+  overhead). A throwing fn emits `:rf.warning/epoch-redact-fn-exception`
+  carrying `:frame`, `:epoch-id`, and `:ex-msg`, then falls back to the
+  projected record so the egress itself is not broken.
+
+  Per EP-0015 §15 (Epoch Redaction) + open-issue 6 disposition (RULED,
+  hardened): `:redact-fn` is the PROJECTION-SIDE-ONLY advanced override.
+  Storage-side mutation was REMOVED — post-EP-0010 epoch records are
+  causal replay material; mutating them at rest corrupts the replay
+  contract. So this helper runs ONLY at the off-box egress boundary,
+  inside `re-frame.epoch.tool-pair/projected-record`, AFTER the
+  frame/profile `re-frame.projection/project-egress` projection. The ring
+  buffer + every `register-epoch-listener!` listener deliver the RAW
+  record so on-box devtools (Xray diff, REPL, `restore-epoch`) reason
+  about exact state.
+
+  The fn is the rare advanced escape for material the schema-driven
+  projection cannot prove (a non-schema-declared sensitive slot); the
+  ordinary case needs only the frame's `:sensitive?` / `:large?`
+  classification, which `project-egress` already applies. Because it runs
+  on the projected egress COPY (the off-box record), it cannot affect
+  `restore-epoch` fidelity — that hazard the §15 'may affect restore
+  fidelity' warning flagged is gone by construction.
 
   Per Tool-Pair §Time-travel §Redaction hook (spec/Tool-Pair.md:101):
   the warning MUST carry both `:frame` and `:epoch-id` so a tool can
-  correlate the failure to the specific record that fell back to raw
-  data. The assembled record (and the post-settle back-fill probe,
-  which is shaped `(cond-> record ...)`) both carry `:epoch-id`, so
-  the same `(:epoch-id record)` read covers every invocation path:
-  normal settle, `replace-app-db!`, `:halted-destroy`, and the
-  post-settle back-fill (where `compute-redacted-delta` hands this fn
-  a probe carrying the ring record's `:epoch-id`).
-
-  Per Tool-Pair §Time-travel §Redaction hook + Security.md §Epoch
-  privacy posture (rf2-wp70d): the fn runs ONCE per assembled record,
-  BETWEEN `build-record` and ring-append / listener fan-out — the
-  ring buffer, every `register-epoch-listener!` listener, and any off-box
-  projection through `projected-record` all see the SAME redacted
-  shape. The `:rf.epoch/sensitive?` rollup is computed inside
-  `build-record` (which runs first) so the rollup reflects the RAW
-  signal even when the fn erases the leaves it keyed on.
-
-  Per rf2-qhxz6: a post-settle back-fill (render / sub-run / unmount
-  appended to an already-committed, already-redacted record) does NOT
-  re-run the fn over the whole record — `state/back-fill-event!` hands
-  this helper a probe record carrying ONLY the newly-appended delta in
-  the redactable list slots, so the fn redacts each appended slot value
-  EXACTLY ONCE across the record's lifetime. The 'once per assembled
-  record' contract therefore holds with no idempotency requirement on
-  the app's `:redact-fn` — a non-idempotent fn (hash-and-truncate,
-  append-an-audit-marker, increment-a-counter) is safe.
+  correlate the failure to the specific projected record that fell back.
 
   Caller MUST wrap invocations in `(when interop/debug-enabled? ...)`
   — the whole epoch surface shares that gate; this helper carries no
-  separate production gate.
-
-  HOT PATH: fires once per dequeued event (rf2-nj6p7). Hot-path cost when no fn is
-  installed is a single keyword lookup on the config map and an
-  identity return."
+  separate production gate. Cost when no fn is installed is a single
+  keyword lookup on the config map and an identity return."
   [record]
   (if-let [f (state/redact-fn)]
     (if (some? record)
@@ -161,11 +155,11 @@
         (f record)
         (catch #?(:clj Throwable :cljs :default) e
           ;; Failure isolation: emit the warning, fall back to the
-          ;; raw record. The keyword literal sits inside an
-          ;; `(when interop/debug-enabled? ...)` gate at the call
-          ;; site (every consumer of `maybe-redact` is itself gated),
-          ;; so Closure DCE elides the warning emit + literals
-          ;; under :advanced + goog.DEBUG=false.
+          ;; projected record. The keyword literal sits inside an
+          ;; `(when interop/debug-enabled? ...)` gate at the call site
+          ;; (the projection helper is itself gated), so Closure DCE
+          ;; elides the warning emit + literals under :advanced +
+          ;; goog.DEBUG=false.
           (trace/emit! :warning :rf.warning/epoch-redact-fn-exception
                        {:frame    (:frame record)
                         :epoch-id (:epoch-id record)

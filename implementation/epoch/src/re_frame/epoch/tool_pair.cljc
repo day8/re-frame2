@@ -56,6 +56,7 @@
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.marks :as marks]
+            [re-frame.projection :as projection]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
@@ -810,26 +811,39 @@
 
 ;; ---- projected egress -----------------------------------------------------
 ;;
-;; Per Security.md §Epoch privacy posture and rf2-mrsck: the framework's
-;; single normative projection emission site for off-box epoch egress.
-;; The in-process ring buffer (`epoch-history`) and `register-epoch-listener!`
-;; listener fan-out deliver RAW records — restore-epoch and on-box
-;; devtools (Xray diff, REPL inspection) need them. Tools that
-;; egress an epoch record across a process boundary (Xray-MCP
-;; `watch-epochs`, story / pair recorders, hosted forwarders) MUST
-;; route through `projected-record` first, parallel to how direct-read
-;; tools route through `elide-wire-value` (per rf2-czv3p).
+;; Per Security.md §Epoch privacy posture, EP-0015 §15 (Epoch Redaction) +
+;; open-issue 6 (RULED), and rf2-mrsck: the framework's single normative
+;; projection emission site for off-box epoch egress. The in-process ring
+;; buffer (`epoch-history`) and `register-epoch-listener!` listener fan-out
+;; deliver RAW records — restore-epoch and on-box devtools (Xray diff,
+;; REPL inspection) need them, and post-EP-0010 those raw records are
+;; causal replay material. Tools that egress an epoch record across a
+;; process boundary (Xray-MCP `watch-epochs`, story / pair recorders,
+;; hosted forwarders) MUST route through `projected-record` first.
 ;;
-;; The projection routes the record's frame-id and EVERY payload-bearing
-;; slot through the elision boundary. Two of those slots are
-;; value-bearing in ways the original four-slot model missed:
+;; FRAME/PROFILE PROJECTION (EP-0015 §15). Each tree-shaped payload slot is
+;; projected through `re-frame.projection/project-egress` under the
+;; `:rf.egress/off-box-observability` profile — the named export boundary
+;; for hosted-monitoring / log-shipper / recorder egress (EP-0015 §10
+;; default-behaviour table: redact sensitive, elide large, omit digests).
+;; `project-egress` resolves that profile to the `:rf.size/*` opt-set
+;; `elide-wire-value` consumes; the trusted-local plain opts
+;; (`:include-sensitive?` / `:include-large?`) compose on top as explicit
+;; `:rf.size/*` overrides (the override wins). The epoch record is not one
+;; of `project-egress`'s `:rf.observe/*` record kinds, so each tree slot is
+;; handed to `project-egress` as a KINDLESS tree value (the direct-read
+;; path), which delegates to `elide-wire-value` against the frame's
+;; classification. This replaces the prior ad-hoc `elide-wire-value` calls
+;; with the frame/profile projection primitive (EP-0015 bead-plan item 10).
+;;
+;; Two slots are value-bearing in ways the original four-slot model missed:
 ;;
 ;;   - The CANONICAL frame-state slots `:frame-state-before` /
 ;;     `:frame-state-after` (EP-0001 rf2-3aizt1 decision #2 + ruling #14):
-;;     their `:rf.db/app` partition is elided through the same
-;;     `elide-wire-value` walk the `:db-*` projections receive, while
-;;     their `:rf.db/runtime` partition is DEFAULT-REDACTED to
-;;     `:rf/redacted` off-box (see `elide-frame-state-slot`).
+;;     their `:rf.db/app` partition is projected through the same
+;;     frame/profile walk the `:db-*` projections receive, while their
+;;     `:rf.db/runtime` partition is DEFAULT-REDACTED to `:rf/redacted`
+;;     off-box (see `project-frame-state-slot`).
 ;;   - The structured `:sub-runs` rows (rf2-at60h): each carries the
 ;;     sub's computed `:prev-value` / `:value`, so the rows DO carry
 ;;     app-db material and the whole-output `:large?` case is projected
@@ -840,7 +854,7 @@
 ;;
 ;; The remaining full-value slots — the derived `:db-before` /
 ;; `:db-after` app-db projections, `:trigger-event`, and `:trace-events`
-;; — also route through `elide-wire-value`. The structured `:effects`
+;; — also route through `project-egress`. The structured `:effects`
 ;; rows carry payload-bearing `:args` (raw fx-handler arguments) that fail
 ;; closed to `:rf/redacted` off-box (rf2-rlt3sv, `elide-effects-slot`); the
 ;; `:renders` slot carries no app-db material (render-keys + timing +
@@ -852,45 +866,65 @@
 ;; non-sensitive and passes through. `projected-record`'s docstring is
 ;; the authoritative per-slot contract.
 ;;
+;; APP-SUPPLIED `:redact-fn` ADVANCED OVERRIDE (EP-0015 §15 + open-issue 6,
+;; RULED). After the frame/profile projection lands, `projected-record`
+;; applies the installed `:redact-fn` (`assembly/apply-redact-fn`) to the
+;; PROJECTED record — the rare advanced escape for material the
+;; schema-driven projection cannot prove. It runs ONLY here, on the off-box
+;; egress copy; the ring stays raw, so it can never affect `restore-epoch`
+;; fidelity (the §15 hazard is gone by construction).
+;;
 ;; Per-tool reimplementation of the projection is prohibited (the
 ;; same posture as the wire-elision walker). New egress tools call
 ;; `projected-record` and trust the contract.
 
-(defn- elide-wire-opts
-  "Build the `elide-wire-value` opts map from a `projected-record` egress
-  opts map (rf2-5w06uu). `:include-sensitive?` / `:include-large?` default
-  `false` (the off-box default — the safe path); a trusted-local caller
-  opts back in per call. Translates the plain opt keys to the framework's
-  `:rf.size/*` namespaced keys and stamps the record frame so
-  schema-declared sensitive / large paths (keyed by absolute app-db path)
-  match the walked value."
+(def ^:private egress-profile
+  "The named export boundary for epoch off-box egress (EP-0015 §10). The
+  consumers are hosted monitoring / log shippers / Story / pair recorders /
+  Xray-MCP `watch-epochs`; `:rf.egress/off-box-observability` is the
+  matching profile (redact sensitive, elide large, omit digests)."
+  :rf.egress/off-box-observability)
+
+(defn- egress-opts
+  "Build the `project-egress` opts map from a `projected-record` egress
+  opts map (rf2-5w06uu). The `:rf.egress/off-box-observability` profile is
+  the floor; `:include-sensitive?` / `:include-large?` default `false` (the
+  off-box safe path) and, when a trusted-local caller opts them back in,
+  compose on top as explicit `:rf.size/*` overrides (the override wins —
+  see `re-frame.projection/resolve-elision-opts`). The record frame is
+  stamped so schema-declared sensitive / large paths (keyed by absolute
+  app-db path) match the projected value."
   [frame-id {:keys [include-sensitive? include-large?]}]
-  {:frame                      frame-id
+  {:rf.egress/profile          egress-profile
+   :frame                      frame-id
    :rf.size/include-sensitive? (boolean include-sensitive?)
    :rf.size/include-large?     (boolean include-large?)})
 
-(defn- elide-payload-slot
-  "Walk one payload slot through `elide-wire-value` rooted at the named
-  frame. Off-box defaults (`:include-sensitive? false`,
-  `:include-large? false`) hold unless `opts` opts back in (rf2-5w06uu).
-  Returns the elided value; `nil` slots are preserved as nil (a
-  halted-destroy record's `:db-before` / `:db-after` are nil per
+(defn- project-payload-slot
+  "Project one payload slot through `project-egress` under the
+  `:rf.egress/off-box-observability` profile, rooted at the named frame.
+  Off-box defaults (`:include-sensitive? false`, `:include-large? false`)
+  hold unless `opts` opts back in (rf2-5w06uu). The epoch record is not a
+  `:rf.observe/*` record kind, so the slot VALUE is projected as a kindless
+  tree (the direct-read path → `elide-wire-value` against the frame's
+  classification). Returns the projected value; `nil` slots are preserved
+  as nil (a halted-destroy record's `:db-before` / `:db-after` are nil per
   rf2-v0jwt; the schema admits the absent / nil slot — the projection
   MUST NOT fabricate a value)."
   [v frame-id opts]
   (when (some? v)
-    (elision/elide-wire-value v (elide-wire-opts frame-id opts))))
+    (projection/project-egress v (egress-opts frame-id opts))))
 
-(defn- elide-frame-state-slot
+(defn- project-frame-state-slot
   "Project a `:frame-state-before` / `:frame-state-after` slot for off-box
   egress (EP-0001 rf2-3aizt1, Mike ruling #14). The frame-state value is
   `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`; the two partitions
   egress under DIFFERENT default policies:
 
-    - `:rf.db/app` — the application state. Elided through the standard
-      `elide-wire-value` walk (sensitive paths → `:rf/redacted`, large
-      paths → markers), the SAME projection the `:db-before` / `:db-after`
-      app-db projections receive. `opts` `:include-sensitive?` /
+    - `:rf.db/app` — the application state. Projected through the
+      frame/profile `project-egress` walk (sensitive paths → `:rf/redacted`,
+      large paths → markers), the SAME projection the `:db-before` /
+      `:db-after` app-db projections receive. `opts` `:include-sensitive?` /
       `:include-large?` opt the app-db partition's privacy / size posture
       back in (rf2-5w06uu).
 
@@ -903,9 +937,9 @@
       app-db `:include-sensitive?` / `:include-large?` opt-ins — those do
       NOT lift it (the rf2-5w06uu bypass). A TRUSTED-LOCAL caller that
       genuinely needs runtime-db diagnostics opts in explicitly with
-      `:include-runtime-db? true`; the runtime-db value is then elided
-      through the same walk (its own per-slot sensitive / large
-      declarations still apply) rather than redacted whole.
+      `:include-runtime-db? true`; the runtime-db value is then projected
+      through the same frame/profile walk (its own per-slot sensitive /
+      large declarations still apply) rather than redacted whole.
 
   Nil-preserving (a halted-destroy record may carry a nil frame-state slot;
   the projection MUST NOT fabricate a value)."
@@ -913,7 +947,7 @@
   (when (some? fs)
     (cond-> fs
       (contains? fs :rf.db/app)
-      (update :rf.db/app elision/elide-wire-value (elide-wire-opts frame-id opts))
+      (update :rf.db/app projection/project-egress (egress-opts frame-id opts))
       ;; Default-redact the runtime-db side off-box (ruling #14). The
       ;; trusted-local `:include-runtime-db? true` opt-in lifts the
       ;; partition redaction; the value still rides the value walk so its
@@ -922,13 +956,13 @@
       (assoc :rf.db/runtime :rf/redacted)
 
       (and (contains? fs :rf.db/runtime) include-runtime-db?)
-      (update :rf.db/runtime elision/elide-wire-value (elide-wire-opts frame-id opts)))))
+      (update :rf.db/runtime projection/project-egress (egress-opts frame-id opts)))))
 
 (defn- reroot-trace-event-db-slots
   "Per rf2-ta0y7: the `:rf.event/db-pending` (t1) and
   `:rf.event/db-pending-post-flow` (t2) trace events each carry the
   FULL pending `:db` value under `:tags :rf.event/db`. The bulk
-  `elide-payload-slot` above walks `:trace-events` as a single root —
+  `project-payload-slot` above walks `:trace-events` as a single root —
   its path tracker treats the nested `:db` value as `[<i> :tags
   :rf.event/db :a :b …]`, so schema-declared sensitive paths like
   `[:auth :password]` do NOT match (the walker expects them rooted at
@@ -936,8 +970,8 @@
 
   This helper performs the per-event re-root: it walks each trace
   event whose `:operation` is in #{`:rf.event/db-pending`
-  `:rf.event/db-pending-post-flow`}, then calls `elide-wire-value`
-  on the inner `:db` value with `{:path []}` — re-rooting the walk at
+  `:rf.event/db-pending-post-flow`}, then projects the inner `:db` value
+  through `project-egress` with `{:path []}` — re-rooting the walk at
   the frame's app-db so the sensitive / large declarations match
   natively. Symmetric with how `flows.cljc` elides `:rf.flow/computed`'s
   `:result` / `:before` at emit-time using the flow's `:path`; here we
@@ -946,7 +980,7 @@
   pointer-sized; the egress projection is the privacy boundary).
 
   Returns the trace-events vector with the inner `:rf.event/db` slots
-  re-elided; non-t1/t2 events pass through untouched, and events
+  re-projected; non-t1/t2 events pass through untouched, and events
   lacking the `:rf.event/db` slot pass through too. Idempotent: a
   second pass against an already-redacted value just walks scalars
   that no longer match any declaration.
@@ -958,7 +992,7 @@
   [trace-events frame-id opts]
   (if-not (sequential? trace-events)
     trace-events
-    (let [wire-opts (assoc (elide-wire-opts frame-id opts) :path [])]
+    (let [wire-opts (assoc (egress-opts frame-id opts) :path [])]
       (mapv (fn [ev]
               (if-not (map? ev)
                 ev
@@ -967,7 +1001,7 @@
                                (= op :rf.event/db-pending-post-flow))
                            (some? (get-in ev [:tags :rf.event/db])))
                     (update-in ev [:tags :rf.event/db]
-                               elision/elide-wire-value
+                               projection/project-egress
                                wire-opts)
                     ev))))
             trace-events))))
@@ -976,8 +1010,8 @@
   "The `:trace-events` projection chain (rf2-ta0y7): first re-root the
   per-event `:rf.event/db` slots on the t1 / t2 trace events so the
   sensitive / large declarations match natively, then run the bulk
-  `elide-wire-value` walk over the whole vector to handle the other
-  payload-bearing tag values (`:rf.event/v`, `:rf.cofx/value`, etc.)
+  frame/profile `project-egress` walk over the whole vector to handle the
+  other payload-bearing tag values (`:rf.event/v`, `:rf.cofx/value`, etc.)
   with their own per-tag paths. `opts` `:include-sensitive?` /
   `:include-large?` opt the per-call posture back in (rf2-5w06uu).
   Idempotent (a second pass walks already-redacted scalars).
@@ -986,7 +1020,7 @@
   (when (some? v)
     (-> v
         (reroot-trace-event-db-slots frame-id opts)
-        (elision/elide-wire-value (elide-wire-opts frame-id opts)))))
+        (projection/project-egress (egress-opts frame-id opts)))))
 
 (defn- elide-sub-run-row
   "Project a single structured `:sub-runs` row for off-box egress
@@ -1101,10 +1135,29 @@
   "Project an `:rf/epoch-record` for off-box egress. Routes the
   full-value payload slots (`:frame-state-before`, `:frame-state-after`,
   `:db-before`, `:db-after`, `:trigger-event`, `:trace-events`) through
-  `re-frame.elision/elide-wire-value` against the record's frame, with the
-  off-box defaults `:include-sensitive? false` / `:include-large? false`.
-  Sensitive paths land as `:rf/redacted`; large paths land as
-  `:rf.size/large-elided` markers per the §Composition rule.
+  `re-frame.projection/project-egress` under the
+  `:rf.egress/off-box-observability` profile (EP-0015 §15 / §10) against
+  the record's frame, with the off-box defaults `:include-sensitive? false`
+  / `:include-large? false`. Sensitive paths land as `:rf/redacted`; large
+  paths land as `:rf.size/large-elided` markers per the §Composition rule.
+
+  ## Frame/profile projection then `:redact-fn` advanced override (EP-0015 §15)
+
+  This is a TWO-STAGE projection (open-issue 6, RULED):
+
+    1. **Frame/profile projection.** Each tree-shaped slot is projected
+       through `project-egress` with the `:rf.egress/off-box-observability`
+       profile — the ordinary redaction every off-box egress gets,
+       sourced from the frame's `:sensitive?` / `:large?` classification.
+       This is the normal answer; ordinary apps need nothing more.
+
+    2. **`:redact-fn` advanced override.** If the app installed a
+       `(rf/configure! :epoch-history {:redact-fn …})`, it is applied to
+       the already-projected record (`assembly/apply-redact-fn`) as the
+       rare advanced escape for material the schema-driven projection
+       cannot prove. It runs ONLY here, on the off-box egress copy — the
+       ring stays raw (post-EP-0010 causal replay material), so the fn can
+       never affect `restore-epoch` fidelity.
 
   ## Egress opts (rf2-5w06uu)
 
@@ -1131,10 +1184,11 @@
 
   EP-0001 (rf2-3aizt1, decision #2 + Mike ruling #14): the CANONICAL
   `:frame-state-before` / `:frame-state-after` slots egress with their
-  `:rf.db/app` partition elided (the same projection the `:db-*` slots get)
-  and their `:rf.db/runtime` partition DEFAULT-REDACTED to `:rf/redacted`
-  off-box — machine snapshots / route slice / SSR metadata do not egress to
-  AI / log channels by default (see `elide-frame-state-slot`).
+  `:rf.db/app` partition projected (the same projection the `:db-*` slots
+  get) and their `:rf.db/runtime` partition DEFAULT-REDACTED to
+  `:rf/redacted` off-box — machine snapshots / route slice / SSR metadata
+  do not egress to AI / log channels by default (see
+  `project-frame-state-slot`).
 
   The structured `:sub-runs` rows are ALSO value-bearing (rf2-at60h):
   each carries the sub's computed `:prev-value` / `:value`. Their
@@ -1166,50 +1220,67 @@
   continue to deliver the RAW record so on-box devtools (Xray diff,
   REPL, `restore-epoch`) can reason about exact state.
 
+  After the frame/profile projection lands, the installed `:redact-fn`
+  advanced override (`assembly/apply-redact-fn`) runs over the PROJECTED
+  record (EP-0015 §15 + open-issue 6, RULED) — the rare escape for
+  material the schema-driven projection cannot prove. A throwing override
+  emits `:rf.warning/epoch-redact-fn-exception` and falls back to the
+  projected record. When no `:redact-fn` is installed it is an identity
+  pass-through (the common case).
+
   `record` may be `nil` (e.g. a missing epoch lookup) — the projection
-  returns `nil` in that case, no elision called. Production builds
-  elide the entire epoch surface; consumers gate any
-  `register-epoch-listener!` registration under `interop/debug-enabled?`
-  per Spec 009 §User-side listener registration."
+  returns `nil` in that case, nothing called. Production builds elide the
+  entire epoch surface; consumers gate any `register-epoch-listener!`
+  registration under `interop/debug-enabled?` per Spec 009 §User-side
+  listener registration."
   ([record] (projected-record record nil))
   ([record opts]
    (when (map? record)
-     (let [frame-id (:frame record)]
-       (cond-> record
-         ;; EP-0001 (rf2-3aizt1, decision #2 + ruling #14): the CANONICAL
-         ;; frame-state slots egress with the app-db partition elided and the
-         ;; runtime-db partition default-redacted off-box (see
-         ;; `elide-frame-state-slot`). rf2-5w06uu — `opts` thread the
-         ;; trusted-local sensitive / large / runtime-db overrides.
-         (contains? record :frame-state-before)
-         (update :frame-state-before elide-frame-state-slot frame-id opts)
+     (let [frame-id  (:frame record)
+           projected (cond-> record
+                       ;; EP-0001 (rf2-3aizt1, decision #2 + ruling #14): the
+                       ;; CANONICAL frame-state slots egress with the app-db
+                       ;; partition projected and the runtime-db partition
+                       ;; default-redacted off-box (see
+                       ;; `project-frame-state-slot`). rf2-5w06uu — `opts`
+                       ;; thread the trusted-local sensitive / large /
+                       ;; runtime-db overrides.
+                       (contains? record :frame-state-before)
+                       (update :frame-state-before project-frame-state-slot frame-id opts)
 
-         (contains? record :frame-state-after)
-         (update :frame-state-after  elide-frame-state-slot frame-id opts)
+                       (contains? record :frame-state-after)
+                       (update :frame-state-after  project-frame-state-slot frame-id opts)
 
-         (contains? record :db-before)
-         (update :db-before     elide-payload-slot frame-id opts)
+                       (contains? record :db-before)
+                       (update :db-before     project-payload-slot frame-id opts)
 
-         (contains? record :db-after)
-         (update :db-after      elide-payload-slot frame-id opts)
+                       (contains? record :db-after)
+                       (update :db-after      project-payload-slot frame-id opts)
 
-         (contains? record :trigger-event)
-         (update :trigger-event elide-payload-slot frame-id opts)
+                       (contains? record :trigger-event)
+                       (update :trigger-event project-payload-slot frame-id opts)
 
-         (contains? record :trace-events)
-         (update :trace-events  elide-trace-events-slot frame-id opts)
+                       (contains? record :trace-events)
+                       (update :trace-events  elide-trace-events-slot frame-id opts)
 
-         (contains? record :sub-runs)
-         (update :sub-runs      elide-sub-runs-slot opts)
+                       (contains? record :sub-runs)
+                       (update :sub-runs      elide-sub-runs-slot opts)
 
-         ;; rf2-rlt3sv: the structured `:effects` rows carry payload-bearing
-         ;; `:args` (the raw fx-handler argument). They are NOT app-db-rooted,
-         ;; so the schema-path walker cannot prove them safe — off-box egress
-         ;; fails closed, redacting `:args` to `:rf/redacted` while preserving
-         ;; the value-free `:fx-id` / `:outcome` / `:error-trace` metadata. The
-         ;; trusted-local `:include-fx-args? true` opt keeps the raw args.
-         (contains? record :effects)
-         (update :effects       elide-effects-slot opts))))))
+                       ;; rf2-rlt3sv: the structured `:effects` rows carry
+                       ;; payload-bearing `:args` (the raw fx-handler argument).
+                       ;; They are NOT app-db-rooted, so the schema-path walker
+                       ;; cannot prove them safe — off-box egress fails closed,
+                       ;; redacting `:args` to `:rf/redacted` while preserving
+                       ;; the value-free `:fx-id` / `:outcome` / `:error-trace`
+                       ;; metadata. The trusted-local `:include-fx-args? true`
+                       ;; opt keeps the raw args.
+                       (contains? record :effects)
+                       (update :effects       elide-effects-slot opts))]
+       ;; EP-0015 §15 + open-issue 6 (RULED): apply the app `:redact-fn`
+       ;; advanced override to the already-projected record. Projection-side
+       ;; only — the ring stays raw, so restore fidelity is never affected.
+       ;; Identity pass-through when no fn is installed (the common case).
+       (assembly/apply-redact-fn projected)))))
 
 (defn projected-history
   "Convenience: return the projected vector of records for a frame.

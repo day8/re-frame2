@@ -630,99 +630,60 @@
 ;; does the ring mutation and the two public fns are thin wrappers
 ;; pinning the slot.
 
-(defn- compute-redacted-delta
-  "Run `redact` over ONLY the newly-appended delta (the new `:trace-events`
-  `event` and the new `slot` `row`) and return a MAP of the redacted delta
-  VALUES keyed by their target slot:
+(defn- compute-delta
+  "Inspect the newly-appended delta (the new `:trace-events` `event` and
+  the new `slot` `row`) and return a MAP describing what to splice:
 
     {:append?       <bool — was there a :trace-events delta?>
      :row?          <bool — was there a structured `slot` row delta?>
-     :trace-events  <redacted :trace-events delta value, when :append?>
+     :event         <the RAW :trace-events delta value, when :append?>
      :slot          <the structured slot keyword>
-     :slot-value    <redacted `slot` delta value, when :row?>
-     :sensitive?    <bool — did the RAW back-filled event carry the
+     :row-value     <the RAW `slot` delta row, when :row?>
+     :sensitive?    <bool — did the back-filled event carry the
                      `:sensitive?` stamp? (rf2-j1ec6.1 rollup OR-source)>}
 
   Returns `nil` when there is no delta to append (an unmount on a record
   whose `:trace-events` was already dropped by the keep-window cap).
+
+  Per EP-0015 §15 + open-issue 6 (RULED, hardened): the back-fill stores
+  the RAW delta. Storage-side redaction was REMOVED — the ring is causal
+  replay material; the `:redact-fn` advanced override runs projection-side
+  only (inside `projected-record`), so the off-box egress sees the
+  redacted shape while the ring keeps the exact raw delta. There is no
+  per-back-fill redact invocation and therefore no non-idempotent-fn /
+  redact-outside-swap hazard (the old rf2-82pcg / rf2-7i872 / rf2-qhxz6
+  storage-side dance) — those concerns are gone by construction.
 
   Per rf2-j1ec6.1 (Security.md:109 §Sensitive rollup): the record-level
   `:rf.epoch/sensitive?` rollup MUST consider `:trace-events` overlap, but
   `build-record` computes it ONCE at settle time over the SETTLE-TIME
   events — a post-settle back-fill that appends a `:sensitive?`-stamped
   trace event would otherwise leave the rollup stale-false. We capture the
-  RAW (pre-redact) back-filled event's `:sensitive?` stamp HERE so the
-  pure `splice-redacted-delta` can OR it into the record's rollup inside
-  the swap (fail-CLOSED — mayor-ruled option a). The stamp is read off the
-  RAW `event`, not the redacted delta, because a `:redact-fn` may scrub the
-  stamp while the underlying content was still sensitive.
-
-  Per rf2-7i872: `redact` (the app-supplied `:redact-fn`, via
-  `assembly/maybe-redact`) is INVOKED HERE — exactly ONCE — and the caller
-  runs this OUTSIDE the `swap!` retry loop. A JVM CAS retry of the ring
-  mutation must NOT re-invoke the app's `:redact-fn`: it is documented
-  non-idempotent (hash-and-truncate, increment-a-counter) and a throwing
-  fn emits a `:rf.warning/epoch-redact-fn-exception` warning per call — a
-  retry would corrupt the prior output and emit DUPLICATE warnings. Only
-  the PURE splice (`splice-redacted-delta`) rides inside the swap.
-
-  HOW. We hand `redact` a probe record shaped exactly like the assembled
-  record (so an `:redact-fn` that keys on whole-record structure — reads
-  `:db-after` / `:frame` / `:rf.epoch/sensitive?` for its decision — still
-  composes) BUT whose `:trace-events` / `slot` lists carry ONLY the new
-  delta element. The fn redacts that delta in place; we extract the
-  redacted element(s) for the caller to splice onto the real slots. The
-  leak the rf2-82pcg fix closed STAYS closed — the appended slots still
-  pass through `:redact-fn` before reaching either egress channel — and
-  per rf2-qhxz6 each slot is redacted exactly once (no idempotency
-  requirement on `:redact-fn`).
-
-  `record` is the current ring record — supplies the probe CONTEXT (the
-  immutable post-settle fields a whole-record-keyed `:redact-fn` reads).
-  The redacted delta VALUES it returns are spliced by the caller; the
-  context fields themselves are never written back (the real record's
-  already-redacted slots are left untouched)."
-  [record slot event row redact]
+  back-filled event's `:sensitive?` stamp HERE so the pure `splice-delta`
+  can OR it into the record's rollup inside the swap (fail-CLOSED —
+  mayor-ruled option a)."
+  [record slot event row]
   (let [append? (contains? record :trace-events)
         row?    (some? row)
         delta?  (or append? row?)]
     (when delta?
-      (let [probe    (cond-> record
-                       append? (assoc :trace-events [event])
-                       row?    (assoc slot [row]))
-            redacted (redact probe)]
-        (cond-> {:append?    append?
-                 :row?       row?
-                 :slot       slot
-                 ;; rf2-j1ec6.1: read the RAW event's sensitivity stamp
-                 ;; BEFORE redaction so the rollup OR survives a redact-fn
-                 ;; that scrubs the stamp. The back-filled `event` is always
-                 ;; the raw trace event (`back-fill-event!` is handed the raw
-                 ;; emit); the `row` is its projection and carries no
-                 ;; independent stamp.
-                 :sensitive? (privacy/sensitive? event)}
-          append? (assoc :trace-events (:trace-events redacted))
-          row?    (assoc :slot-value (get redacted slot)))))))
+      (cond-> {:append?    append?
+               :row?       row?
+               :slot       slot
+               :sensitive? (privacy/sensitive? event)}
+        append? (assoc :event event)
+        row?    (assoc :row-value row)))))
 
-(defn- splice-redacted-delta
-  "PURE splice of a precomputed redacted delta (from
-  `compute-redacted-delta`) onto `record`'s real slots — leaving every
-  already-redacted slot value untouched. Returns the updated record.
+(defn- splice-delta
+  "PURE splice of a precomputed RAW delta (from `compute-delta`) onto
+  `record`'s real slots. Returns the updated record.
 
-  Per rf2-7i872: this is the ONLY part of the back-fill that rides inside
-  the ring `swap!`. It invokes NO injected fn — a CAS retry re-runs this
-  splice (re-reading the retried record's real slots) but NEVER re-invokes
-  the app's `:redact-fn`, so the non-idempotent / throwing-fn contract is
-  preserved across contention.
-
-  Slot extraction. When the precomputed delta value is still a vector
-  (the common per-element-transform / sentinel-substitution shape) we
-  `conj` its element(s) onto the real slot. When `redact` instead
-  COLLAPSED the whole slot to a non-vector sentinel (e.g.
-  `(assoc r :trace-events :rf/redacted)` — a whole-slot scrub), we adopt
-  that sentinel for the slot. We only `conj` onto a real slot that is a
-  vector (or absent); a real slot already collapsed to a sentinel by a
-  prior whole-slot scrub is left at the sentinel (the delta is subsumed).
+  This is the ONLY part of the back-fill that rides inside the ring
+  `swap!`. It invokes NO injected fn — a CAS retry re-runs this splice
+  (re-reading the retried record's real slots) with no side effects.
+  Conjes the raw delta element onto a vector (or absent) real slot; a
+  slot already collapsed to a non-vector scalar (an unusual shape) is
+  left untouched (the delta is subsumed).
 
   Per rf2-j1ec6.1: the record-level `:rf.epoch/sensitive?` rollup is
   OR'd with the back-filled event's RAW sensitivity (`:sensitive?` on the
@@ -735,40 +696,36 @@
   the CAS-retried swap (a retry re-ORs the same true with no corruption).
 
   `delta` nil (no append) is a pass-through — return the record
-  untouched (do NOT spuriously re-redact it)."
+  untouched."
   [record delta]
   (if (nil? delta)
     record
-    (let [{:keys [append? row? slot trace-events slot-value sensitive?]} delta
+    (let [{:keys [append? row? slot event row-value sensitive?]} delta
           splice (fn [rec real-slot dv]
                    (cond
-                     (and (vector? dv) (vector? (get rec real-slot)))
-                     (update rec real-slot into dv)
+                     (vector? (get rec real-slot))
+                     (update rec real-slot conj dv)
 
-                     (and (vector? dv) (not (contains? rec real-slot)))
-                     (assoc rec real-slot (vec dv))
+                     (not (contains? rec real-slot))
+                     (assoc rec real-slot [dv])
 
-                     (vector? dv)        ; real slot already a sentinel
-                     rec                 ; delta subsumed by prior collapse
-
-                     :else               ; whole-slot collapse by the fn
-                     (assoc rec real-slot dv)))]
+                     :else               ; real slot already a scalar
+                     rec))]              ; delta subsumed
       (cond-> record
-        append?    (splice :trace-events trace-events)
-        row?       (splice slot slot-value)
+        append?    (splice :trace-events event)
+        row?       (splice slot row-value)
         ;; rf2-j1ec6.1 fail-CLOSED rollup recompute: OR the back-filled
         ;; event's sensitivity into the record-level rollup. Only flips
         ;; false→true (never clears a settle-time true).
         sensitive? (assoc :rf.epoch/sensitive? true)))))
 
 (defn- back-fill-event!
-  "Append `event` and its projected `row` (into the `slot` projection)
-  on the already-committed epoch record identified by `frame-id` +
-  `epoch-id`, redacting ONLY the newly-appended delta, then write THAT
-  back to the ring. Returns the updated record (so the caller re-notifies
-  listeners with the same shape the ring now holds), or nil when the
-  target epoch is no longer in the ring (evicted, or the event fired
-  before any cascade settled).
+  "Append the RAW `event` and its projected `row` (into the `slot`
+  projection) on the already-committed epoch record identified by
+  `frame-id` + `epoch-id`, then write THAT back to the ring. Returns the
+  updated record (so the caller re-notifies listeners with the same shape
+  the ring now holds), or nil when the target epoch is no longer in the
+  ring (evicted, or the event fired before any cascade settled).
 
   `row` is the structured projection entry, or nil — a render op that
   carries no `:renders` row (`:rf.view/rendered`) or a `:sub/skip` that
@@ -786,85 +743,52 @@
       (Xray Views / Reactive panel) — is always present on a built
       record; the projected row is appended when non-nil.
 
-  REDACTION (rf2-82pcg leak-closure + rf2-qhxz6 once-per-slot +
-  rf2-7i872 redact-outside-swap fix).
-  `redact` is the installed redaction transform (`assembly/maybe-redact`,
-  injected by the caller so this state ns keeps no `assembly` require —
-  `assembly` already requires this ns). It runs over ONLY the newly-
-  appended delta (via `compute-redacted-delta`), so the redacted delta is
-  what lands in the ring AND what is returned for the listener re-fan.
-  Pre-rf2-82pcg the raw appended slots reached both egress channels
-  (ring-read: `epoch-history` / MCP `read-recording` / `restore-epoch`;
-  and the listener fan-out) bypassing the `:redact-fn` (the leak). The
-  rf2-82pcg fix re-ran the fn over the WHOLE record on every back-fill —
-  closing the leak but invoking the fn 1+K times for an epoch accruing K
-  back-fills, which corrupts a NON-idempotent fn's prior output. rf2-qhxz6
-  narrowed the redaction to the appended delta so the Tool-Pair §Redaction
-  hook 'once per assembled record' contract holds literally: each slot
-  value is redacted EXACTLY ONCE and the fn carries no idempotency
-  requirement. The leak stays closed — the appended delta is still
-  scrubbed before egress. `redact` defaults to `identity` for callers /
-  tests that need the bare raw append.
-
-  Per rf2-7i872: the `:redact-fn` is invoked exactly ONCE, by
-  `compute-redacted-delta`, BEFORE and OUTSIDE the ring `swap!`. The swap
-  update fn is `splice-redacted-delta` — PURE: it splices the
-  PRECOMPUTED redacted delta onto the (re-read) ring record, invoking NO
-  injected fn. A JVM CAS retry re-runs only the pure splice; it NEVER
-  re-invokes the app's `:redact-fn`. This matters because the documented
-  `:redact-fn` is non-idempotent (hash-and-truncate, increment-a-counter)
-  and a throwing fn emits one `:rf.warning/epoch-redact-fn-exception`
-  warning per call — re-invoking it inside a retryable swap would corrupt
-  the prior output and emit DUPLICATE warnings (the bug rf2-7i872 closed:
-  the old `redact-appended-delta` ran `redact` inside the swap fn). The
-  swap fn also smuggles nothing out (the pre-rf2-qhxz6 shape `reset!`'d a
-  local out-param atom from inside the swap fn, itself unsound under CAS
-  retry). The record index is resolved once up-front (within-frame drain
-  is single-threaded — Spec 002 §Run-to-completion — so no append can
-  shift it between this deref and the swap), reused by the delta probe,
-  the pure swap, and the post-swap read. nil when the epoch is absent from
-  the ring (evicted, or fired before any cascade settled)."
-  ([frame-id epoch-id slot event row]
-   (back-fill-event! frame-id epoch-id slot event row identity))
-  ([frame-id epoch-id slot event row redact]
-   (let [idx (epoch-index (history-for frame-id) epoch-id)]
-     (when idx
-       ;; rf2-7i872: invoke `redact` (the app `:redact-fn`) ONCE here,
-       ;; OUTSIDE the swap, against the current ring record (the probe
-       ;; context). The swap below only splices the precomputed redacted
-       ;; delta — a CAS retry re-runs the pure splice, never the fn.
-       (let [record (get-in @histories [frame-id idx])
-             delta  (compute-redacted-delta record slot event row redact)
-             splice (fn [rec] (splice-redacted-delta rec delta))]
-         (-> (swap! histories update-in [frame-id idx] splice)
-             (get-in [frame-id idx])))))))
+  Per EP-0015 §15 + open-issue 6 (RULED, hardened): the back-fill appends
+  the RAW delta. Storage-side redaction was REMOVED — the ring is causal
+  replay material; the `:redact-fn` advanced override runs projection-side
+  only (inside `projected-record`), so the off-box egress sees the
+  redacted shape while the ring keeps the exact raw delta. The whole-record
+  redaction dance the old storage-side hook required (the rf2-82pcg leak
+  the back-fill once needed to plug, the rf2-qhxz6 once-per-slot narrowing,
+  the rf2-7i872 redact-outside-swap fix) is GONE: with no per-back-fill
+  redact invocation there is no leak to close on the storage path and no
+  non-idempotent-fn hazard inside the swap. The record index is resolved
+  once up-front (within-frame drain is single-threaded — Spec 002
+  §Run-to-completion — so no append can shift it between this deref and the
+  swap), reused by the delta computation, the pure swap, and the post-swap
+  read. nil when the epoch is absent from the ring (evicted, or fired
+  before any cascade settled)."
+  [frame-id epoch-id slot event row]
+  (let [idx (epoch-index (history-for frame-id) epoch-id)]
+    (when idx
+      (let [record (get-in @histories [frame-id idx])
+            delta  (compute-delta record slot event row)
+            splice (fn [rec] (splice-delta rec delta))]
+        (-> (swap! histories update-in [frame-id idx] splice)
+            (get-in [frame-id idx]))))))
 
 (defn back-fill-render!
-  "Back-fill `render-event` and its projected `:renders` `render-row`
-  into the already-committed epoch `epoch-id` for `frame-id` (rf2-qs6dl).
-  Thin wrapper over `back-fill-event!` pinning the `:renders` slot.
-  `redact` (rf2-82pcg leak-closure / rf2-qhxz6 once-per-slot) is run over
-  ONLY the appended delta before it lands in the ring / is returned for
-  the listener re-fan; defaults to `identity`."
-  ([frame-id epoch-id render-event render-row]
-   (back-fill-render! frame-id epoch-id render-event render-row identity))
-  ([frame-id epoch-id render-event render-row redact]
-   (back-fill-event! frame-id epoch-id :renders render-event render-row redact)))
+  "Back-fill the RAW `render-event` and its projected `:renders`
+  `render-row` into the already-committed epoch `epoch-id` for `frame-id`
+  (rf2-qs6dl). Thin wrapper over `back-fill-event!` pinning the `:renders`
+  slot. The appended delta is stored RAW (EP-0015 §15 + open-issue 6,
+  RULED — the ring is causal replay material; the `:redact-fn` advanced
+  override runs projection-side only, inside `projected-record`)."
+  [frame-id epoch-id render-event render-row]
+  (back-fill-event! frame-id epoch-id :renders render-event render-row))
 
 (defn back-fill-sub-run!
-  "Back-fill `sub-event` and its projected `:sub-runs` `sub-run-row` into
-  the already-committed epoch `epoch-id` for `frame-id` (rf2-wi900). Thin
-  wrapper over `back-fill-event!` pinning the `:sub-runs` slot. Symmetric
-  with `back-fill-render!`. `redact` (rf2-82pcg leak-closure / rf2-qhxz6
-  once-per-slot) is run over ONLY the appended delta before it lands in
-  the ring / is returned; defaults to `identity`."
-  ([frame-id epoch-id sub-event sub-run-row]
-   (back-fill-sub-run! frame-id epoch-id sub-event sub-run-row identity))
-  ([frame-id epoch-id sub-event sub-run-row redact]
-   (back-fill-event! frame-id epoch-id :sub-runs sub-event sub-run-row redact)))
+  "Back-fill the RAW `sub-event` and its projected `:sub-runs`
+  `sub-run-row` into the already-committed epoch `epoch-id` for `frame-id`
+  (rf2-wi900). Thin wrapper over `back-fill-event!` pinning the `:sub-runs`
+  slot. Symmetric with `back-fill-render!`. The appended delta is stored
+  RAW (EP-0015 §15 + open-issue 6, RULED — the ring is causal replay
+  material; redaction is projection-side, inside `projected-record`)."
+  [frame-id epoch-id sub-event sub-run-row]
+  (back-fill-event! frame-id epoch-id :sub-runs sub-event sub-run-row))
 
 (defn back-fill-unmount!
-  "Back-fill a `:rf.view/unmounted` `unmount-event` into the already-
+  "Back-fill a RAW `:rf.view/unmounted` `unmount-event` into the already-
   committed epoch `epoch-id` for `frame-id` (rf2-59hx3). Thin wrapper over
   `back-fill-event!` — an unmount produces NO structured projection row (it
   is neither a `:renders` nor a `:sub-runs` entry), so `row` is nil and the
@@ -872,13 +796,11 @@
   VIEWS-step `unmounted-views-rows` reads view teardowns. The `:slot`
   argument is irrelevant when `row` is nil; `:renders` is passed for
   documentary parity with the render sibling. Symmetric with
-  `back-fill-render!` / `back-fill-sub-run!`. `redact` (rf2-82pcg leak-
-  closure / rf2-qhxz6 once-per-slot) is run over ONLY the appended delta
-  before it lands in the ring / is returned; defaults to `identity`."
-  ([frame-id epoch-id unmount-event]
-   (back-fill-unmount! frame-id epoch-id unmount-event identity))
-  ([frame-id epoch-id unmount-event redact]
-   (back-fill-event! frame-id epoch-id :renders unmount-event nil redact)))
+  `back-fill-render!` / `back-fill-sub-run!`. The appended delta is stored
+  RAW (EP-0015 §15 + open-issue 6, RULED — the ring is causal replay
+  material; redaction is projection-side, inside `projected-record`)."
+  [frame-id epoch-id unmount-event]
+  (back-fill-event! frame-id epoch-id :renders unmount-event nil))
 
 ;; ---- per-cascade capture buffer -------------------------------------------
 ;;
