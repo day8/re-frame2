@@ -24,6 +24,7 @@
             [re-frame.core         :as rf]
             [re-frame.event-emit   :as event-emit]
             [re-frame.frame        :as frame]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.late-bind    :as late-bind]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -58,26 +59,24 @@
   (try (rf/init! plain-atom/adapter) (catch :default _ nil))
   (frame/ensure-default-frame!)
   (event-emit/clear-event-listeners!)
-  ;; Re-register this demo's app-db schema. The demo namespace's
-  ;; ns-load `reg-app-schema` call ran once at module load; the
-  ;; preceding `(clear!)` step wiped it. Re-stamping it here keeps
-  ;; the schema-driven elision branch (test 3) working.
+  ;; Re-register this demo's app-db schema (SHAPE only — EP-0015 §8). The
+  ;; demo namespace's ns-load `reg-app-schema` call ran once at module load;
+  ;; the preceding `(clear!)` step wiped it. Re-stamping it here keeps the
+  ;; schema present for shape validation.
   ;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local;
   ;; pass the target frame explicitly (the *override*) rather than relying on
   ;; an ambient default.
   (rf/reg-app-schema [:user/avatar-pdf]
-                     [:maybe [:string {:large? true
-                                       :hint   "Avatar PDF blob"}]]
+                     [:maybe :string]
                      {:frame :rf/default})
-  ;; Re-run the schema-driven elision-registry boot population
-  ;; against the post-init frame. The demo ns's `reg-app-schema`
-  ;; call lives in registry-meta land; the per-frame `[:rf.runtime/elision
-  ;; :declarations]` runtime-db slot (EP-0001 rf2-vzld77) is written by this
-  ;; fn from the schemas artefact's walker. Without this, `elide-wire-value`
-  ;; finds no
-  ;; declared-large entry and the assertion that the marker fires
-  ;; on the schema-flagged slot fails.
-  (rf/populate-elision-from-schemas! :rf/default))
+  ;; EP-0015 §8 (rf2-d2r3um): durable app-db egress classification is
+  ;; FRAME-owned. Install the `[:user/avatar-pdf]` large declaration
+  ;; (index-free :rf/path) onto :rf/default's elision registry via the
+  ;; frame-classification seam so `elide-wire-value` finds a declared-large
+  ;; entry and substitutes the `:rf.size/large-elided` marker on that slot.
+  (frame-class/install! :rf/default
+    (frame-class/validate+extract :rf/default
+      {:large {:app-db [[:user/avatar-pdf]]}})))
 
 (defn- after! []
   (when-let [snap @registrar-snapshot]
@@ -135,12 +134,15 @@
 ;; ---- 3. :large? schema slot drives the wire-walker substitution ----------
 
 (deftest large-schema-slot-becomes-wire-marker
-  (testing "The `:user/avatar-pdf` schema slot declares :large? true.
-            Running `rf/elide-wire-value` against a snapshot of the
-            app-db payload that includes a non-trivial value at the
-            slot substitutes the value with a `:rf.size/large-elided`
-            marker map carrying byte-count + path + hint. Spec 010
-            §`:large?` schema-driven size-elision nomination."
+  (testing "The `:user/avatar-pdf` slot is declared `:large` on the frame's
+            own classification (EP-0015 §8 — frame-owned durable
+            classification, NOT schema-attached). Running
+            `rf/elide-wire-value` against a snapshot of the app-db payload
+            that includes a non-trivial value at the slot substitutes the
+            value with a `:rf.size/large-elided` marker map carrying
+            byte-count + path + `:reason :frame` (the install-time
+            provenance). Schema-attached `:hint` no longer propagates — the
+            schema describes shape, not durable egress policy."
     (rf/dispatch-sync [:user.avatar-pdf/set {:bytes 5000}])
     (let [db     (rf/app-db-value :rf/default)
           blob   (:user/avatar-pdf db)
@@ -152,10 +154,12 @@
             ":rf.size/large-elided marker substituted the blob on the wire")
         (is (number? (:bytes marker))
             "marker carries a :bytes count")
-        (is (= "Avatar PDF blob" (:hint marker))
-            "the schema's :hint propagated verbatim into the marker
-             — AI consumers (re-frame2-pair-mcp, Xray) see this without
-             drilling into the blob")))))
+        (is (= [:user/avatar-pdf] (:path marker))
+            "marker carries the index-free :rf/path of the elided slot")
+        (is (= :frame (:reason marker))
+            "the marker's :reason is :frame — the frame-owned classification
+             source (schema-attached props no longer feed the registry,
+             EP-0015 §8)")))))
 
 ;; ---- 4. unschema'd inline event payloads are not size-elided -------------
 

@@ -161,9 +161,11 @@
 ;; Per-slot flag walker (rf2-nwv63 / rf2-kj51z / rf2-oghml). The
 ;; parameterised `walk-flagged-schema` recursion primitive stays internal
 ;; to `re-frame.schemas.walker`; the public surface is the two single-flag
-;; entry points below (the late-bind hooks elision consumes) plus the two
-;; sensitivity predicates — not the raw flag-key-parameterised walker
-;; (rf2-7gclb: dead re-export dropped, no consumer reached it).
+;; entry points below (the late-bind hooks the machine `:data-schema`
+;; bridge + story-mcp consume — NOT the app-db egress registry, which is
+;; frame-owned per EP-0015 §8) plus the two sensitivity predicates (the
+;; schema-validation-failure-trace redactor) — not the raw flag-key-
+;; parameterised walker (rf2-7gclb: dead re-export dropped).
 (def extract-large-paths-from-schema  walker/extract-large-paths-from-schema)
 (def extract-sensitive-paths-from-schema walker/extract-sensitive-paths-from-schema)
 (def schema-has-sensitive?            walker/schema-has-sensitive?)
@@ -246,13 +248,14 @@
 (late-bind/set-fn! :schemas/set-schema-printer!   set-schema-printer!)
 (late-bind/set-fn! :schemas/set-schema-fns!       set-schema-fns!)
 
-;; Schema-walker hooks consumed by `re-frame.elision` to feed the
-;; unified `:rf.runtime/elision` registry without statically depending on the
-;; schemas artefact. Per rf2-ynnq0 Option A — schemas owns the deep
-;; walker; the elision artefact owns the runtime-db write. The Path D impl
-;; (rf2-w3n5u) wires `re-frame.elision/populate-elision-from-schemas!`
-;; to consume these two hooks; the per-slot extract-* hooks are the
-;; single surface elision needs.
+;; Schema-walker hooks: the pure-data per-slot `:large?` / `:sensitive?`
+;; extractors. Per rf2-ynnq0 Option A — schemas owns the deep walker.
+;;
+;; EP-0015 §8 (rf2-d2r3um): these NO LONGER feed the app-db egress registry
+;; (`re-frame.elision`) — schemas describe shape, not durable app-db egress
+;; policy, which is now frame-owned. The hooks remain for the surviving
+;; schema-prop owners: the machine `:data-schema` redaction bridge
+;; (`re-frame.machines`, EP-0005) and story-mcp's tool-egress projector.
 (late-bind/set-fn! :schemas/extract-large-paths-from-schema     extract-large-paths-from-schema)
 (late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema extract-sensitive-paths-from-schema)
 

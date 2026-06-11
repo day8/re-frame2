@@ -19,6 +19,7 @@
             [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
@@ -498,16 +499,17 @@
 (def ^:private host-frame :rf/host)
 
 (defn- seed-sensitive-host! [db-fn]
-  ;; Register the sensitive schema + seed the secret INTO the host frame
-  ;; (not Xray's). `reg-app-schema` / `populate-…!` default to
-  ;; `frame/current-frame`, so we run them inside `(with-frame host …)`.
+  ;; Declare [:auth :password] sensitive + seed the secret INTO the host
+  ;; frame (not Xray's). EP-0015 §8 (rf2-d2r3um): durable app-db
+  ;; classification is frame-owned — the frame-classification install! seam
+  ;; writes a `:source :frame` declaration (index-free :rf/path) on the host
+  ;; frame's elision registry, the SAME registry the off-box egress walker
+  ;; consults.
   (frame/reg-frame host-frame {})
+  (frame-class/install! host-frame
+    (frame-class/validate+extract host-frame
+      {:sensitive {:app-db [[:auth :password]]}}))
   (rf/with-frame host-frame
-    (rf/reg-app-schema [:auth]
-                       [:map
-                        [:username :string]
-                        [:password {:sensitive? true} :string]])
-    (rf/populate-sensitive-from-schemas!)
     (rf/reg-event-db :test/seed-host (fn [db _] (db-fn db)))
     (rf/dispatch-sync [:test/seed-host])))
 
@@ -562,11 +564,13 @@
   (let [sinks (capture-snapshot-sinks!)]
     (try
       (frame/reg-frame host-frame {})
+      ;; EP-0015 §8 (rf2-d2r3um): frame-owned :large declaration (index-free
+      ;; :rf/path) on the host frame's elision registry — the size sibling of
+      ;; the sensitive seed above.
+      (frame-class/install! host-frame
+        (frame-class/validate+extract host-frame
+          {:large {:app-db [[:blob :payload]]}}))
       (rf/with-frame host-frame
-        (rf/reg-app-schema [:blob]
-                           [:map
-                            [:payload {:large? true} :any]])
-        (rf/populate-elision-from-schemas!)
         (rf/reg-event-db :test/seed-blob
           (fn [db _] (assoc db :blob {:payload {:big "value"}})))
         (rf/dispatch-sync [:test/seed-blob]))

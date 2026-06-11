@@ -32,6 +32,7 @@
             [re-frame.core :as rf]
             [re-frame.elision]
             [re-frame.epoch :as epoch]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.privacy :as privacy]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -57,26 +58,25 @@
 (defn- last-record [frame-id]
   (last (rf/epoch-history frame-id)))
 
+;; EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED.
+;; Seed sensitive declarations through the frame-classification install
+;; seam (the index-free `:rf/path` is the frame declaration). The frame
+;; container is reg-frame'd by each deftest before these run.
 (defn- install-sensitive-schema!
-  "Register a `[:auth :password]` sensitive schema slot against
-  `frame-id` and force the elision registry population."
+  "Declare a `[:auth :password]` sensitive path against `frame-id`."
   [frame-id]
-  (rf/reg-app-schema [:auth]
-                     [:map [:password {:sensitive? true} :string]]
-                     {:frame frame-id})
-  (rf/populate-sensitive-from-schemas! frame-id)
+  (frame-class/install! frame-id
+    (frame-class/validate+extract frame-id
+      {:sensitive {:app-db [[:auth :password]]}}))
   nil)
 
 (defn- install-two-sensitive-paths-schema!
-  "Register two sensitive paths against `frame-id` — `[:auth :password]`
+  "Declare two sensitive paths against `frame-id` — `[:auth :password]`
   and `[:auth :token]`."
   [frame-id]
-  (rf/reg-app-schema [:auth]
-                     [:map
-                      [:password {:sensitive? true} :string]
-                      [:token    {:sensitive? true} :string]]
-                     {:frame frame-id})
-  (rf/populate-sensitive-from-schemas! frame-id)
+  (frame-class/install! frame-id
+    (frame-class/validate+extract frame-id
+      {:sensitive {:app-db [[:auth :password] [:auth :token]]}}))
   nil)
 
 ;; ============================================================================

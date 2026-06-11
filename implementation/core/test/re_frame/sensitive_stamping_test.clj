@@ -1,13 +1,28 @@
 (ns re-frame.sensitive-stamping-test
-  "Runtime sensitivity stamping and schema-auto redaction tests."
+  "Runtime sensitivity stamping and frame-classification auto-redaction
+  tests.
+
+  EP-0015 §8 (rf2-d2r3um): the event-payload `:sensitive?` stamp + redaction
+  for a path-scoped handler is driven by the frame-owned `:sensitive
+  {:app-db …}` overlap (the frame elision registry), NOT schema-attached
+  `{:sensitive? true}` slot props (which no longer feed that registry)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
+
+(defn- install-sensitive!
+  "Seed the frame's sensitive app-db classification via the frame-owned
+  path (EP-0015 §3 / §8) — the successor to schema→elision population."
+  [frame-id paths]
+  (frame-class/install! frame-id
+    (frame-class/validate+extract frame-id
+      {:sensitive {:app-db (vec paths)}})))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -68,13 +83,11 @@
           (is (not (true? (:sensitive? ev)))
               (str op " is NOT stamped sensitive (handler-meta annotation removed)"))))))))
 
-(deftest schema-auto-redaction-for-path-scoped-handler
-  (testing "A sensitive schema slot installs redaction without user-written
-            redaction interceptors; the handler still sees the raw payload."
-    (rf/reg-app-schema [:auth]
-                       [:map
-                        [:username :string]
-                        [:password {:sensitive? true} :string]])
+(deftest frame-class-auto-redaction-for-path-scoped-handler
+  (testing "A frame-sensitive app-db path installs redaction without
+            user-written redaction interceptors; the handler still sees the
+            raw payload."
+    (install-sensitive! :rf/default [[:auth :password]])
     (let [seen (atom nil)]
       (rf/reg-event-db :auth/login
                        [(rf/path :auth)]
@@ -89,16 +102,15 @@
         (is (= {:username "ada" :password "shh"} @seen)
             "handler body receives the unredacted event payload")
         (is (true? (:sensitive? run-start))
-            "schema-sensitive handler scope is stamped")
+            "frame-sensitive handler scope is stamped")
         (is (= :rf/redacted
                (get-in run-start [:tags :rf.event/v 1 :password])))
         (is (= :rf/redacted
                (get-in db-changed [:tags :rf.event/v 1 :password])))
         (is (= "ada" (get-in db-changed [:tags :rf.event/v 1 :username])))))))
 
-(deftest schema-auto-redaction-stamps-handler-exception
-  (rf/reg-app-schema [:auth]
-                     [:map [:password {:sensitive? true} :string]])
+(deftest frame-class-auto-redaction-stamps-handler-exception
+  (install-sensitive! :rf/default [[:auth :password]])
   (rf/reg-event-db :auth/throws
                    [(rf/path :auth)]
                    (fn [_ _] (throw (ex-info "boom" {}))))
@@ -110,9 +122,8 @@
     (is (= :rf/redacted
            (get-in err [:tags :event 1 :password])))))
 
-(deftest schema-auto-redaction-does-not-affect-unrelated-paths
-  (rf/reg-app-schema [:auth]
-                     [:map [:password {:sensitive? true} :string]])
+(deftest frame-class-auto-redaction-does-not-affect-unrelated-paths
+  (install-sensitive! :rf/default [[:auth :password]])
   (rf/reg-event-db :profile/save
                    [(rf/path :profile)]
                    (fn [profile [_ payload]]
@@ -127,13 +138,11 @@
 
 (deftest trace-buffer-sensitive-filter
   (testing "Trace-buffer `:sensitive?` filter operates on the trace event's
-            top-level `:sensitive?` field. Now that the handler-meta
-            annotation has been removed, the stamp is schema-derived
-            only: a sensitive app-schema slot drives it."
+            top-level `:sensitive?` field. The stamp is frame-classification
+            -derived: a frame-sensitive app-db path drives it (EP-0015 §8)."
   (rf/clear-trace-buffer! :rf/default)
   (rf/configure! :trace-buffer {:cascades-retained 100})
-  (rf/reg-app-schema [:auth]
-                     [:map [:password {:sensitive? true} :string]])
+  (install-sensitive! :rf/default [[:auth :password]])
   (rf/reg-event-db :sensitive/buf
                    [(rf/path :auth)]
                    (fn [auth _] auth))

@@ -29,6 +29,7 @@
             [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
             [re-frame.frame :as frame]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.interop :as interop]
             [re-frame.marks :as marks]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -69,32 +70,30 @@
   (last (rf/epoch-history frame-id)))
 
 (defn- install-sensitive-schema!
-  "Register a `[:auth :password]` sensitive schema slot against
-  `frame-id` and force the elision registry population. Returns nil.
+  "Declare a `[:auth :password]` sensitive path against `frame-id`.
+  Returns nil.
 
-  The `[:auth]` slot is `[:maybe ...]` and `:password` is `:optional`
-  because these privacy tests legitimately drive cascades where `:auth`
-  is absent (a non-auth event) or `:password` is cleared mid-cascade —
-  states that must pass validation (rf2-v96fh: schema implies validation
-  now enforces every registered path on every commit). The `:sensitive?`
-  flag stays discoverable: the walker descends `:maybe` transparently."
+  EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED —
+  seeded through the frame-classification install seam (the index-free
+  `:rf/path` is the frame's declaration). The frame container is
+  reg-frame'd by each deftest before this runs. Unlike a registered
+  schema, frame classification does NOT enforce per-commit validation, so
+  cascades that legitimately leave `:auth` absent (a non-auth event) or
+  clear `:password` mid-cascade need no `:maybe` / `:optional` wrapper."
   [frame-id]
-  (rf/reg-app-schema [:auth]
-                     [:maybe [:map [:password {:optional true :sensitive? true} :string]]]
-                     {:frame frame-id})
-  (rf/populate-sensitive-from-schemas! frame-id)
+  (frame-class/install! frame-id
+    (frame-class/validate+extract frame-id
+      {:sensitive {:app-db [[:auth :password]]}}))
   nil)
 
 (defn- install-large-schema!
-  "Register a `[:blob :payload]` large schema slot against `frame-id`
-  and force the elision registry population. `[:blob]` is `[:maybe ...]`
-  / `:payload` `:optional` so cascades that never touch the blob path
-  pass validation (rf2-v96fh)."
+  "Declare a `[:blob :payload]` large path against `frame-id` (EP-0015 §8,
+  rf2-d2r3um — frame-owned durable classification). The frame container is
+  reg-frame'd by each deftest before this runs."
   [frame-id]
-  (rf/reg-app-schema [:blob]
-                     [:maybe [:map [:payload {:optional true :large? true :hint "big"} :string]]]
-                     {:frame frame-id})
-  (rf/populate-elision-from-schemas! frame-id)
+  (frame-class/install! frame-id
+    (frame-class/validate+extract frame-id
+      {:large {:app-db [[:blob :payload]]}}))
   nil)
 
 (defn- big-string [n]
@@ -593,11 +592,14 @@
             never as a :rf.size/large-elided marker (the marker would
             leak :path / :bytes / :digest)"
     (rf/reg-frame :test/main {})
-    (rf/reg-app-schema [:secret-pdf]
-                       [:string {:large? true :sensitive? true
-                                 :hint "encrypted blob"}]
-                       {:frame :test/main})
-    (elision/populate-from-schemas! :test/main)
+    ;; EP-0015 §8 (rf2-d2r3um): declare `[:secret-pdf]` BOTH sensitive AND
+    ;; large via frame-owned classification. The install seam applies the
+    ;; sensitive-wins-over-large rule (drops the path from the large set),
+    ;; so the projected slot lands as `:rf/redacted`, never a large marker.
+    (frame-class/install! :test/main
+      (frame-class/validate+extract :test/main
+        {:sensitive {:app-db [[:secret-pdf]]}
+         :large     {:app-db [[:secret-pdf]]}}))
     (rf/reg-event-db :store-pdf
                      (fn [db [_ payload]]
                        (assoc db :secret-pdf payload)))

@@ -47,7 +47,7 @@
     5. `:rf.route.internal/settle-transition` — per-route `:on-match` settle.
     6. machine lifecycle                — reg + first-dispatch bootstrap,
        declarative `:spawn`, explicit `[:rf.machine/destroy …]`.
-    7. elision population               — schema-derived declaration refresh
+    7. elision classification install   — frame-owned declaration install
        into `[:rf.runtime/elision …]`.
     8. SSR `:rf/hydrate`                — runtime-db partition install.
 
@@ -58,6 +58,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
+            [re-frame.frame-classification :as frame-class]
             ;; The routing / ssr / machines subsystem namespaces are loaded
             ;; (and re-installed between tests) by `tf/reset-runtime`, so
             ;; their `:rf.route/*` / `:rf/hydrate` / machine-lifecycle event
@@ -231,33 +232,37 @@
                "diagnostic; got " (diagnostic-ids diags))))))
 
 ;; ===========================================================================
-;; Elision — population goes through privileged frame-state helpers
+;; Elision — frame-owned classification install goes through privileged
+;; frame-state helpers
 ;; ===========================================================================
 
 (deftest elision-population-fires-no-ownership-diagnostic
-  (testing "schema-derived elision population stays silent"
-    ;; Elision writes `[:rf.runtime/elision …]` through
-    ;; `frame/swap-runtime-db!` (a privileged frame-state helper) — NOT
-    ;; through an event-effect, so it never reaches the `:rf.db/runtime`
-    ;; effect path. This guards against a future change that routes it
-    ;; through an app-visible event handler.
-    (rf/reg-app-schema
-      [:profile]
-      [:map
-       [:avatar {:large? true} :string]
-       [:ssn {:sensitive? true} :string]])
+  (testing "frame-owned classification install stays silent"
+    ;; EP-0015 §8 (rf2-d2r3um): durable app-db egress classification is
+    ;; FRAME-OWNED. `frame-class/install!` writes the `:source :frame`
+    ;; declarations into `[:rf.runtime/elision …]` through
+    ;; `elision/swap-elision-slot!` → `frame/swap-runtime-db!` (a privileged
+    ;; frame-state helper) — NOT through an event-effect, so it never reaches
+    ;; the `:rf.db/runtime` effect path. This guards against a future change
+    ;; that routes it through an app-visible event handler. (The frame
+    ;; container — `:rf/default` — already exists via `tf/reset-runtime`.)
     (let [diags (record-ownership-diagnostics! ::elision)]
-      (let [populated (elision/populate-from-schemas! :rf/default)]
-        (is (seq (:large populated))
-            "the :large? schema slot was populated into the elision registry")
-        (is (seq (:sensitive populated))
-            "the :sensitive? schema slot was populated into the elision registry"))
+      (frame-class/install!
+        :rf/default
+        (frame-class/validate+extract
+          :rf/default
+          {:large     {:app-db [[:profile :avatar]]}
+           :sensitive {:app-db [[:profile :ssn]]}}))
+      (is (seq (elision/declarations :rf/default))
+          "the :large frame path was installed into the elision registry")
+      (is (seq (elision/sensitive-declarations :rf/default))
+          "the :sensitive frame path was installed into the elision registry")
       (is (some? (get-in (rf/runtime-db-value :rf/default)
                          [:rf.runtime/elision]))
-          "elision wrote its declaration registry into runtime-db")
+          "the frame-owned install wrote its declaration registry into runtime-db")
       (is (empty? @diags)
-          (str "elision population writes runtime-db through privileged "
-               "frame-state helpers — no ownership diagnostic; got "
+          (str "frame-owned classification install writes runtime-db through "
+               "privileged frame-state helpers — no ownership diagnostic; got "
                (diagnostic-ids diags))))))
 
 ;; ===========================================================================

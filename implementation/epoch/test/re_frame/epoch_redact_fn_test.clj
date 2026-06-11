@@ -45,6 +45,7 @@
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
             [re-frame.frame :as frame]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
             [re-frame.test-support :as test-support]
@@ -76,12 +77,15 @@
 (defn- last-record [frame-id]
   (last (rf/epoch-history frame-id)))
 
+;; EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED —
+;; declare the `[:auth :password]` sensitive path through the
+;; frame-classification install seam. The frame container is reg-frame'd
+;; by each deftest before this runs.
 (defn- install-sensitive-schema!
   [frame-id]
-  (rf/reg-app-schema [:auth]
-                     [:map [:password {:sensitive? true} :string]]
-                     {:frame frame-id})
-  (rf/populate-sensitive-from-schemas! frame-id)
+  (frame-class/install! frame-id
+    (frame-class/validate+extract frame-id
+      {:sensitive {:app-db [[:auth :password]]}}))
   nil)
 
 (defn- record-warnings! []

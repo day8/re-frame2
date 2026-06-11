@@ -1719,24 +1719,23 @@
   §Projection and Security.md §Off-box egress."}
   project-egress                   projection/project-egress)
 
-(def ^{:doc "Populate `[:rf.runtime/elision :declarations]` from
-  `{:large? true}` schema-slot metadata for the frame. Returns the
-  populated paths. Called from boot once app-schemas are registered.
-  Per Spec 010 §Schema metadata flags."}
-  populate-elision-from-schemas!   elision/populate-elision-from-schemas!)
+;; EP-0015 §8 (rf2-d2r3um): the `populate-elision-from-schemas!` /
+;; `populate-sensitive-from-schemas!` facade exports are REMOVED. They were
+;; the public route that walked `reg-app-schema` `{:large? true}` /
+;; `{:sensitive? true}` slot props into the app-db egress registry — a
+;; second route to classify a durable app-db path the frame now owns
+;; (`reg-frame` `:sensitive` / `:large {:app-db …}`). Schemas describe
+;; shape, not durable app-db egress policy; durable app-db classification is
+;; installed once at `reg-frame` time by `re-frame.frame-classification`.
 
-(def ^{:doc "Populate `[:rf.runtime/elision :sensitive-declarations]`
-  from `{:sensitive? true}` schema-slot metadata for the frame. Returns
-  the populated paths. Called from boot once app-schemas are registered.
-  Per Spec 010 §Schema metadata flags."}
-  populate-sensitive-from-schemas! elision/populate-sensitive-from-schemas!)
-
-(def ^{:doc "Return the schema-derived `:large?` declarations for a
-  frame as a `{path -> spec}` map. Per Spec 009 §Wire elision."}
+(def ^{:doc "Return the frame-owned `:large` `:app-db` declarations for a
+  frame as a `{path -> decl}` map (installed by `reg-frame` `:large
+  {:app-db …}`). Per Spec 015 §Frame-owned durable classification."}
   elision-declarations             elision/declarations)
 
-(def ^{:doc "Return the schema-derived `:sensitive?` declarations for a
-  frame as a `{path -> spec}` map. Per Spec 009 §Wire elision."}
+(def ^{:doc "Return the frame-owned `:sensitive` `:app-db` declarations for
+  a frame as a `{path -> decl}` map (installed by `reg-frame` `:sensitive
+  {:app-db …}`). Per Spec 015 §Frame-owned durable classification."}
   elision-sensitive-declarations   elision/sensitive-declarations)
 
 (def ^{:doc "Project a sequence of raw trace events into one cascade

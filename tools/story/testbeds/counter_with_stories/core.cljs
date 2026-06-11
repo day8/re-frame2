@@ -125,7 +125,13 @@
   ;; boot work (seed dispatch + elision listener install) inside its scope.
   ;; The live-app render is frame-scoped via `live-app-root` (the
   ;; `frame-provider` wrapper passed to the host below).
-  (rf/reg-frame :rf/default {})
+  ;;
+  ;; EP-0015 §8: durable app-db size/sensitivity classification is FRAME-owned
+  ;; — declared here as `:large {:app-db …}` so the `:user/avatar-pdf` slot
+  ;; elides to the `:rf.size/large-elided` marker at wire egress. (Schemas
+  ;; describe shape only; they no longer carry app-db egress markers.)
+  (rf/reg-frame :rf/default
+    {:large {:app-db [[:user/avatar-pdf]]}})
   (rf/with-frame :rf/default
     ;; Seed the live app's `:count` slot.
     (rf/dispatch-sync [:counter/initialise 5])

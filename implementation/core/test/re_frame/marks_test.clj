@@ -12,6 +12,7 @@
             [re-frame.elision :as elision]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.marks :as marks]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
@@ -125,24 +126,26 @@
     (is (not (contains? s [:a])))
     (is (not (contains? l [:b])))))
 
-(deftest add-marks-preserves-schema-sourced
-  ;; Schema declarations have :source :schema; add-marks must not drop them
-  (rf/reg-app-schema [:auth]
-                     [:map
-                      [:password {:sensitive? true} :string]])
-  (rf/populate-sensitive-from-schemas!)
+(deftest add-marks-preserves-frame-sourced
+  ;; EP-0015 §8: durable app-db classification is frame-owned
+  ;; (:source :frame). add-marks (:source :marks) must not drop it — the
+  ;; two sources union at lookup, the same invariant that formerly held for
+  ;; schema-sourced declarations.
+  (frame-class/install! :rf/default
+    (frame-class/validate+extract :rf/default
+      {:sensitive {:app-db [[:auth :password]]}}))
   (marks/add-marks :rf/default {[:user :ssn] :sensitive})
   (let [decls (elision/sensitive-declarations :rf/default)]
     (is (contains? decls [:user :ssn]) "add-marks path present")
-    (is (contains? decls [:auth :password]) "schema-sourced path preserved")
-    (is (= :schema (:source (get decls [:auth :password]))))))
+    (is (contains? decls [:auth :password]) "frame-sourced path preserved")
+    (is (= :frame (:source (get decls [:auth :password]))))))
 
-(deftest set-marks-preserves-schema-sourced
-  ;; Schema declarations have :source :schema; set-marks must not drop them
-  (rf/reg-app-schema [:auth]
-                     [:map
-                      [:password {:sensitive? true} :string]])
-  (rf/populate-sensitive-from-schemas!)
+(deftest set-marks-preserves-frame-sourced
+  ;; EP-0015 §8: set-marks (:source :marks, replace) must preserve the
+  ;; frame-owned (:source :frame) declarations — it only replaces its own.
+  (frame-class/install! :rf/default
+    (frame-class/validate+extract :rf/default
+      {:sensitive {:app-db [[:auth :password]]}}))
   (marks/set-marks :rf/default {[:a] :sensitive})
   (marks/set-marks :rf/default {[:b] :sensitive})
   (let [decls (elision/sensitive-declarations :rf/default)]
@@ -574,14 +577,13 @@
             "unmarked db snapshot is the same reference (no walk, no copy)"))
       (trace-tooling/unregister-listener! :db-unmarked))))
 
-(deftest db-pending-schema-sensitive-app-db-path-redacts
-  ;; Schema-sourced `:sensitive?` slot metadata (not add-marks) also
-  ;; drives the t1 db-snapshot redaction — the schema + marks sources
-  ;; union at the elision registry, and the chokepoint reads the same
-  ;; registry via `elide-wire-value`.
-  (rf/reg-app-schema [:auth]
-                     [:map [:token {:sensitive? true} [:maybe :string]]])
-  (rf/populate-sensitive-from-schemas!)
+(deftest db-pending-frame-sensitive-app-db-path-redacts
+  ;; EP-0015 §8: frame-owned `:sensitive {:app-db …}` classification (not
+  ;; add-marks) drives the t1 db-snapshot redaction — the chokepoint reads
+  ;; the frame elision registry via `elide-wire-value`.
+  (frame-class/install! :rf/default
+    (frame-class/validate+extract :rf/default
+      {:sensitive {:app-db [[:auth :token]]}}))
   (rf/reg-event-db :db/login
     (fn [db _] (assoc-in db [:auth :token] "Bearer xyz")))
   (let [traces (collect-traces! :db-schema-sensitive)]
@@ -589,7 +591,7 @@
     (let [[t1] (filterv #(= :rf.event/db-pending (:operation %)) @traces)]
       (is (some? t1) ":rf.event/db-pending fired")
       (is (= :rf/redacted (-> t1 :tags :rf.event/db (get-in [:auth :token])))
-          "the schema-declared sensitive slot is redacted in the db snapshot"))
+          "the frame-declared sensitive slot is redacted in the db snapshot"))
     (trace-tooling/unregister-listener! :db-schema-sensitive)))
 
 ;; ---- :rf.view/render-args (view render args/props) redaction (rf2-rpgq8) -
@@ -601,10 +603,10 @@
 ;; rendered-tags`, wired into `project-trace-event`) routes EACH positional
 ;; arg through `elide-wire-value` against that registry.
 
-(deftest view-render-args-schema-sensitive-path-redacts
-  (rf/reg-app-schema [:auth]
-                     [:map [:password {:sensitive? true} [:maybe :string]]])
-  (rf/populate-sensitive-from-schemas!)
+(deftest view-render-args-frame-sensitive-path-redacts
+  (frame-class/install! :rf/default
+    (frame-class/validate+extract :rf/default
+      {:sensitive {:app-db [[:auth :password]]}}))
   (let [projected (marks/project-trace-event
                     {:operation :rf.view/rendered
                      :op-type   :rf.view
@@ -615,7 +617,7 @@
                                  :frame               :rf/default}})
         args (get-in projected [:tags :rf.view/render-args])]
     (is (= :rf/redacted (get-in (first args) [:auth :password]))
-        "the schema-declared sensitive leaf inside a render arg is redacted")
+        "the frame-declared sensitive leaf inside a render arg is redacted")
     (is (= "ada" (get-in (first args) [:auth :username]))
         "a non-sensitive sibling leaf is preserved")
     (is (= {:public "ok"} (second args))

@@ -22,6 +22,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -209,21 +210,20 @@
 
 ;; ---- composition with schema-derived redaction (additive) -----------------
 
-(deftest composes-additively-with-schema-redaction
-  (testing "when both a schema-declared sensitive slot AND a user
+(deftest composes-additively-with-frame-class-redaction
+  (testing "when both a frame-sensitive app-db path AND a user
             `redact-interceptor` apply, the trace surface scrubs the UNION of
-            paths. The user interceptor's `:before` reads the schema
+            paths. The user interceptor's `:before` reads the frame-class
             interceptor's already-stashed `:rf/redacted-event` and extends
-            it, rather than overwriting it."
-    (rf/reg-app-schema [:auth]
-                       [:map
-                        [:username :string]
-                        [:password {:sensitive? true} :string]])
+            it, rather than overwriting it (EP-0015 §8)."
+    (frame-class/install! :rf/default
+      (frame-class/validate+extract :rf/default
+        {:sensitive {:app-db [[:auth :password]]}}))
     (let [seen (atom nil)]
       (rf/reg-event-db :auth/login+token
-        ;; `path` focuses on `:auth`, which makes the schema-redaction
-        ;; auto-install for `:password` (schema-declared sensitive). The
-        ;; user `redact-interceptor` adds `:token` (NOT schema-declared).
+        ;; `path` focuses on `:auth`, which makes the auto-redaction
+        ;; install for `:password` (frame-declared sensitive). The user
+        ;; `redact-interceptor` adds `:token` (NOT frame-declared).
         [(rf/path :auth)
          (privacy/redact-interceptor [[:token]])]
         (fn [auth [_ payload]]
@@ -240,16 +240,16 @@
             "handler still receives the raw payload")
         ;; Both keys scrubbed on the trace surface (union):
         (is (= :rf/redacted (get-in run-start [:tags :rf.event/v 1 :password]))
-            "schema-declared key scrubbed")
+            "frame-declared key scrubbed")
         (is (= :rf/redacted (get-in run-start [:tags :rf.event/v 1 :token]))
             "user-declared key scrubbed")
         (is (= "ada" (get-in run-start [:tags :rf.event/v 1 :username]))
             "unrelated key flows through")
-        ;; And the schema-sensitive scope-stamp still fires (the schema
+        ;; And the frame-sensitive scope-stamp still fires (the frame
         ;; path drove it; the user interceptor does NOT stamp):
         (is (true? (:sensitive? run-start))
-            "schema-sensitive scope-stamp still fires (driven by the
-             schema-declared sensitive slot, not by `redact-interceptor`)")
+            "frame-sensitive scope-stamp still fires (driven by the
+             frame-declared sensitive path, not by `redact-interceptor`)")
         ;; And the in-chain `:rf.event/db-changed` also carries both:
         (is (= :rf/redacted (get-in db-changed [:tags :rf.event/v 1 :password])))
         (is (= :rf/redacted (get-in db-changed [:tags :rf.event/v 1 :token])))))))

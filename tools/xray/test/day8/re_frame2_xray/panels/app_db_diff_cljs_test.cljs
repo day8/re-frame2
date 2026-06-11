@@ -47,6 +47,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -402,20 +403,20 @@
 ;; (rf2-a96xq).
 
 (defn- seed-sensitive-schema! []
-  ;; Mirror runtime_cljs_test/seed-sensitive-schema! — a `{:sensitive? true}`
-  ;; schema slot hydrates the per-frame sensitive-declarations so the wire
-  ;; walker substitutes :rf/redacted on off-box egress.
-  (rf/reg-app-schema [:auth]
-                     [:map
-                      [:username :string]
-                      [:password {:sensitive? true} :string]])
-  (rf/populate-sensitive-from-schemas!))
+  ;; Mirror runtime_cljs_test/seed-sensitive-schema! — EP-0015 §8
+  ;; (rf2-d2r3um): durable app-db classification is frame-owned. The
+  ;; frame-classification install! seam writes a `:source :frame` declaration
+  ;; (index-free :rf/path) onto :rf/default's per-frame sensitive-declarations
+  ;; so the wire walker substitutes :rf/redacted on off-box egress. Callers
+  ;; reg-frame :rf/default before invoking.
+  (frame-class/install! :rf/default
+    (frame-class/validate+extract :rf/default
+      {:sensitive {:app-db [[:auth :password]]}})))
 
 (defn- seed-large-schema! []
-  (rf/reg-app-schema [:blob]
-                     [:map
-                      [:payload {:large? true} :any]])
-  (rf/populate-elision-from-schemas!))
+  (frame-class/install! :rf/default
+    (frame-class/validate+extract :rf/default
+      {:large {:app-db [[:blob :payload]]}})))
 
 (defn- capture-copy! []
   (let [captured (atom [])]

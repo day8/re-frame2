@@ -58,6 +58,7 @@
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -86,26 +87,23 @@
 (def ^:private payload-size    25000)
 
 (defn- install-mcp-style-schemas!
-  "A realistic mixed schema set: one `:sensitive?` path
-  (`[:auth :password]`) and one `:large?` path (`[:blob :payload]`)
-  against `frame-id`. Matches the shape an app exercising both privacy
-  defences would register."
+  "A realistic mixed classification set: one sensitive path
+  (`[:auth :password]`) and one large path (`[:blob :payload]`) against
+  `frame-id`. Matches the shape an app exercising both privacy defences
+  would declare.
+
+  EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED.
+  Seeded through the frame-classification install seam — the index-free
+  `:rf/path`s are the frame's declarations. The frame container is
+  reg-frame'd by each deftest before this runs. (No schema validation is
+  imposed: the cascade legitimately leaves each path absent in some steps,
+  and frame classification — unlike a registered schema — does not enforce
+  per-commit validation.)"
   [frame-id]
-  ;; Both paths are `[:maybe ...]` with `:optional` leaves: the mixed
-  ;; cascade drives db states where each path is absent (`:seed`/`:inc`
-  ;; write only `:n`; `:login` writes only `:auth`; `:upload` only
-  ;; `:blob`). rf2-v96fh enforces every registered schema path on every
-  ;; commit, so a path that is legitimately absent in a given cascade
-  ;; step must validate as nil. The `:sensitive?` / `:large?` per-slot
-  ;; flags stay discoverable — the walker descends `:maybe` transparently.
-  (rf/reg-app-schema [:auth]
-                     [:maybe [:map [:password {:optional true :sensitive? true} :string]]]
-                     {:frame frame-id})
-  (rf/reg-app-schema [:blob]
-                     [:maybe [:map [:payload {:optional true :large? true :hint "image"} :string]]]
-                     {:frame frame-id})
-  (rf/populate-sensitive-from-schemas! frame-id)
-  (rf/populate-elision-from-schemas!   frame-id)
+  (frame-class/install! frame-id
+    (frame-class/validate+extract frame-id
+      {:sensitive {:app-db [[:auth :password]]}
+       :large     {:app-db [[:blob :payload]]}}))
   nil)
 
 (defn- drive-mixed-ring!

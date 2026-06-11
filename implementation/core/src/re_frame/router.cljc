@@ -1392,14 +1392,11 @@
   [event frame]
   (emit-frame-destroyed! (first event) event frame))
 
-(defn- refresh-elision-from-schemas!
-  "Refresh schema-owned elision registries before a handler runs. No-op
-  when the schemas artefact is absent."
-  [frame]
-  (when-let [populate! (late-bind/get-fn-cached :elision/populate-from-schemas!)]
-    (try
-      (populate! frame)
-      (catch #?(:clj Throwable :cljs :default) _ nil))))
+;; EP-0015 §8 (rf2-d2r3um): the former per-dispatch
+;; `refresh-elision-from-schemas!` is removed — schemas no longer feed the
+;; app-db egress registry. Durable app-db classification is frame-owned and
+;; installed once at `reg-frame` time (`re-frame.frame-classification`), so
+;; there is nothing to refresh per dispatch.
 
 (defn- prepare-handler-ctx
   "Build the effective interceptor chain and initial context for a
@@ -1741,7 +1738,6 @@
   always-on event-emit substrate can report `:elapsed-ms` in its per-
   event record."
   [envelope event-id event frame frame-record handler-meta]
-  (refresh-elision-from-schemas! frame)
   (let [{:keys [full-chain initial-ctx fx-overrides emit-event
                 schema-sensitive?]}
         (prepare-handler-ctx envelope frame frame-record handler-meta)

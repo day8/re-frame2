@@ -1,14 +1,37 @@
 (ns re-frame.elision-test
-  "Schema-first wire elision tests."
+  "Frame-owned wire elision tests.
+
+  EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED —
+  `(rf/reg-frame :app {:sensitive {:app-db [[…]]} :large {:app-db [[…]]}})`
+  installs the declarations the elision walker reads (via
+  `re-frame.frame-classification`, `:source :frame`). Schema-attached
+  `{:sensitive? true}` / `{:large? true}` slot props are NO LONGER a route
+  into this registry. These tests therefore seed declarations through frame
+  policy; the walker behaviour (marker shape, sensitive-wins-over-large,
+  idempotence, threshold interaction, frame isolation) is unchanged."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
+
+(defn- install-class!
+  "Seed the frame's elision registry through the frame-owned classification
+  path (EP-0015 §3 / §8) — the successor to the removed schema→elision
+  population. `sensitive` / `large` are vectors of `:rf/path` vectors."
+  ([sensitive large] (install-class! :rf/default sensitive large))
+  ([frame-id sensitive large]
+   (frame-class/install!
+     frame-id
+     (frame-class/validate+extract frame-id
+       (cond-> {}
+         (seq sensitive) (assoc :sensitive {:app-db (vec sensitive)})
+         (seq large)     (assoc :large     {:app-db (vec large)}))))))
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -49,31 +72,22 @@
   (is (= "hello" (rf/elide-wire-value "hello")))
   (is (= {:a 1 :b [2 3]} (rf/elide-wire-value {:a 1 :b [2 3]}))))
 
-(deftest schema-large-path-emits-marker
-  (rf/reg-app-schema [:user]
-                     [:map
-                      [:name :string]
-                      [:uploaded-pdf {:large? true :hint "Upload preview blob"}
-                       :string]])
-  (is (= [[:user :uploaded-pdf]]
-         (rf/populate-elision-from-schemas!)))
+(deftest frame-large-path-emits-marker
+  (install-class! [] [[:user :uploaded-pdf]])
   (let [decls (rf/elision-declarations)
         out   (rf/elide-wire-value
                 {:user {:name "Ada" :uploaded-pdf "<<5MB-blob>>"}})
         slot  (get-in out [:user :uploaded-pdf])]
-    (is (= {:large? true :source :schema :hint "Upload preview blob"}
+    (is (= {:source :frame}
            (get decls [:user :uploaded-pdf])))
     (is (elision/marker? slot))
     (is (= [:user :uploaded-pdf]
            (get-in slot [:rf.size/large-elided :path])))
-    (is (= :schema (get-in slot [:rf.size/large-elided :reason])))
-    (is (= "Upload preview blob"
-           (get-in slot [:rf.size/large-elided :hint])))
+    (is (= :frame (get-in slot [:rf.size/large-elided :reason])))
     (is (= "Ada" (get-in out [:user :name])))))
 
-(deftest include-large-bypasses-schema-elision
-  (rf/reg-app-schema [:big] [:string {:large? true}])
-  (rf/populate-elision-from-schemas!)
+(deftest include-large-bypasses-frame-elision
+  (install-class! [] [[:big]])
   (is (elision/marker? (:big (rf/elide-wire-value {:big "blob"}))))
   (is (= "blob"
          (:big (rf/elide-wire-value {:big "blob"}
@@ -91,7 +105,7 @@
       (is (= 1 (count warnings)))
       (is (= [:user :photo] (get-in (first warnings) [:tags :path])))
       (is (pos-int? (get-in (first warnings) [:tags :bytes])))
-      (is (= "Add `{:large? true}` to the schema slot for this path."
+      (is (= "Add this path to the frame's `:large {:app-db [...]}` classification (EP-0015)."
              (get-in (first warnings) [:tags :hint]))))
     (rf/unregister-listener! :elision-test/unschema'd)))
 
@@ -204,21 +218,16 @@
 
 (deftest configured-threshold-does-not-affect-declared-elision
   ;; The threshold governs ONLY the runtime auto-detect warning for
-  ;; unschema'd values — schema-declared `:large?` paths still elide to a
-  ;; marker regardless of threshold (including threshold 0).
-  (rf/reg-app-schema [:doc] [:string {:large? true :hint "blob"}])
-  (rf/populate-elision-from-schemas!)
+  ;; unschema'd values — frame-declared `:large` `:app-db` paths still elide
+  ;; to a marker regardless of threshold (including threshold 0).
+  (install-class! [] [[:doc]])
   (rf/configure! :elision {:rf.size/threshold-bytes 0})
   (let [out (rf/elide-wire-value {:doc "x"})]
     (is (elision/marker? (:doc out))
-        "schema-declared :large? paths elide independent of the runtime threshold")))
+        "frame-declared :large paths elide independent of the runtime threshold")))
 
-(deftest schema-sensitive-path-redacts
-  (rf/reg-app-schema [:auth]
-                     [:map
-                      [:username :string]
-                      [:password {:sensitive? true} :string]])
-  (rf/populate-sensitive-from-schemas!)
+(deftest frame-sensitive-path-redacts
+  (install-class! [[:auth :password]] [])
   (let [out (rf/elide-wire-value {:auth {:username "ada"
                                          :password "shh"}})]
     (is (= "ada" (get-in out [:auth :username])))
@@ -229,65 +238,38 @@
                      {:rf.size/include-sensitive? true})
                    [:auth :password])))))
 
-(deftest schema-sensitive-tuple-position-precise-redacts
-  ;; rf2-ss06u.4 — a bare :tuple element marked {:sensitive? true} declares a
-  ;; POSITION-pinned path ([:point 0]); the runtime elision walk descends the
-  ;; tuple value (a vector) through its literal-index fork (fork-index-paths,
-  ;; (conj c i)) and matches that exact position — redacting ONLY the declared
-  ;; element while the non-sensitive sibling rides verbatim. This pins the
-  ;; core-elision coordinate-system consistency: the position-bearing walker
-  ;; decl and the runtime indexed path agree.
-  (rf/reg-app-schema [:point]
-                     [:tuple [:string {:sensitive? true}] :int])
-  (is (= [[:point 0]] (rf/populate-sensitive-from-schemas!))
-      "the sensitive tuple element declares its POSITION-pinned path")
+(deftest frame-sensitive-position-precise-redacts
+  ;; rf2-ss06u.4 / rf2-4q681i — a position-pinned `:rf/path` (e.g.
+  ;; `[:point 0]`) declares an exact vector index; the runtime elision walk
+  ;; descends the value (a vector) through its literal-index fork
+  ;; (`fork-index-paths`, `(conj c i)`) and matches that exact position —
+  ;; redacting ONLY the declared element while the non-sensitive sibling
+  ;; rides verbatim. Under EP-0015 §8 app-db classification is frame-owned,
+  ;; so the position is declared directly as a `:rf/path`; the walker's
+  ;; coordinate-system consistency (declared index ↔ runtime indexed path)
+  ;; is the property under test, independent of how the path was authored.
+  (install-class! [[:point 0]] [])
   (let [out (rf/elide-wire-value {:point ["the-secret" 42]})]
     (is (= :rf/redacted (get-in out [:point 0]))
         "the declared-sensitive element 0 is redacted")
     (is (= 42 (get-in out [:point 1]))
         "the non-sensitive sibling element 1 rides verbatim — no over-redaction")))
 
-(deftest schema-sensitive-cat-position-precise-redacts
-  ;; rf2-4q681i — a `:cat` element marked {:sensitive? true} declares a
-  ;; POSITION-pinned path (`[:ev 1]`), exactly like the `:tuple` case above.
-  ;; The runtime elision walk descends the value (a vector) through the SAME
-  ;; generic literal-index fork (`fork-index-paths`, `(conj c i)`) and matches
-  ;; that exact position — redacting ONLY the declared element while the
-  ;; non-sensitive sibling rides verbatim. This pins the coordinate-system
-  ;; consistency the bead requires for `:cat`/`:catn`: NO elision-side change
-  ;; was needed (the index fork is schema-agnostic — it walks the runtime
-  ;; value, so `:cat` aligns through the same path as `:tuple`).
-  (rf/reg-app-schema [:ev]
-                     [:cat [:= :id] [:string {:sensitive? true}]])
-  (is (= [[:ev 1]] (rf/populate-sensitive-from-schemas!))
-      "the sensitive :cat element declares its POSITION-pinned path")
-  (let [out (rf/elide-wire-value {:ev [:id "the-secret"]})]
-    (is (= :id (get-in out [:ev 0]))
-        "the non-sensitive id element 0 rides verbatim — no over-redaction")
-    (is (= :rf/redacted (get-in out [:ev 1]))
-        "the declared-sensitive element 1 is redacted at its exact position")))
-
 (deftest sensitive-wins-over-large
-  (rf/reg-app-schema [:secret-pdf]
-                     [:string {:large? true
-                               :sensitive? true
-                               :hint "encrypted blob"}])
-  (rf/populate-elision-from-schemas!)
-  (rf/populate-sensitive-from-schemas!)
+  (install-class! [[:secret-pdf]] [[:secret-pdf]])
   (let [out (rf/elide-wire-value {:secret-pdf "payload"})]
     (is (= :rf/redacted (:secret-pdf out)))
     (is (not (elision/marker? (:secret-pdf out))))))
 
 (deftest marker-options
-  (rf/reg-app-schema [:b] [:string {:large? true :hint "hint"}])
-  (rf/populate-elision-from-schemas!)
+  (install-class! [] [[:b]])
   (let [out    (rf/elide-wire-value {:b "X"}
                                     {:rf.size/include-digests? true
                                      :as-of-epoch 42})
         marker (get-in out [:b :rf.size/large-elided])]
     (is (= [:rf.elision/at [:b] :as-of-epoch 42] (:handle marker)))
     (is (= :string (:type marker)))
-    (is (= :schema (:reason marker)))
+    (is (= :frame (:reason marker)))
     (is (string? (:digest marker)))))
 
 (deftest walker-is-idempotent-on-large-marker
@@ -299,9 +281,7 @@
   ;; `:bytes` reflected the printed length of the previous marker —
   ;; not the original payload — which broke fingerprint-based dedup
   ;; for forwarder pipelines that double-projected.
-  (rf/reg-app-schema [:doc]
-                     [:map [:body {:large? true :hint "upload"} :string]])
-  (rf/populate-elision-from-schemas!)
+  (install-class! [] [[:doc :body]])
   (let [input  {:doc {:body (apply str (repeat 2000 "X"))}}
         once   (rf/elide-wire-value input)
         twice  (rf/elide-wire-value once)
@@ -322,9 +302,7 @@
   ;; branch is bypassed) — caller opted in to see the raw payload, so
   ;; the marker is just an opaque map at that point. Pinning so a
   ;; future refactor does not move the guard outside the gate.
-  (rf/reg-app-schema [:doc]
-                     [:map [:body {:large? true :hint "upload"} :string]])
-  (rf/populate-elision-from-schemas!)
+  (install-class! [] [[:doc :body]])
   (let [input  {:doc {:body (apply str (repeat 2000 "X"))}}
         once   (rf/elide-wire-value input)
         opened (rf/elide-wire-value once {:rf.size/include-large? true})]
@@ -335,36 +313,25 @@
          a map whose only key (`:rf.size/large-elided`) sits at a path
          that is not itself `:large?`-declared")))
 
-(deftest nested-schema-population
-  (rf/reg-app-schema [:root]
-                     [:map
-                      [:a [:map
-                           [:b [:map
-                                [:c {:large? true :hint "deep"} :string]
-                                [:token {:sensitive? true} :string]]]]]])
-  (is (= [[:root :a :b :c]]
-         (rf/populate-elision-from-schemas!)))
-  (is (= [[:root :a :b :token]]
-         (rf/populate-sensitive-from-schemas!)))
-  (is (= "deep"
-         (get-in (rf/elision-declarations)
-                 [[:root :a :b :c] :hint]))))
+(deftest nested-frame-classification
+  (install-class! [[:root :a :b :token]] [[:root :a :b :c]])
+  (is (contains? (rf/elision-declarations) [:root :a :b :c]))
+  (is (contains? (rf/elision-sensitive-declarations) [:root :a :b :token]))
+  (is (= {:source :frame}
+         (get (rf/elision-declarations) [:root :a :b :c]))))
 
-(deftest schema-repopulation-prunes-stale-schema-entries
-  (rf/reg-app-schema [:user]
-                     [:map [:pdf {:large? true} :string]])
-  (rf/populate-elision-from-schemas!)
+(deftest frame-reclassification-replaces-frame-entries
+  ;; Re-classifying a frame REPLACES its `:source :frame` declarations
+  ;; (the declaration IS the frame's policy — EP-0015 §3).
+  (install-class! [] [[:user :pdf]])
   (is (contains? (rf/elision-declarations) [:user :pdf]))
-  (rf/reg-app-schema [:user] [:map [:pdf :string]])
-  (rf/populate-elision-from-schemas!)
+  (install-class! [] [])
   (is (not (contains? (rf/elision-declarations) [:user :pdf]))))
 
 (deftest registries-are-frame-isolated
   (frame/reg-frame :elision-test/other {})
-  (rf/reg-app-schema [:blob] [:string {:large? true}] {:frame :rf/default})
-  (rf/reg-app-schema [:blob] [:string] {:frame :elision-test/other})
-  (rf/populate-elision-from-schemas! :rf/default)
-  (rf/populate-elision-from-schemas! :elision-test/other)
+  (install-class! :rf/default [] [[:blob]])
+  (install-class! :elision-test/other [] [])
   (is (contains? (rf/elision-declarations :rf/default) [:blob]))
   (is (not (contains? (rf/elision-declarations :elision-test/other) [:blob]))))
 
@@ -497,32 +464,28 @@
         "include-sensitive? true ⇒ frameless value rides verbatim (opt-out)")))
 
 ;; ---------------------------------------------------------------------------
-;; Collection-nested schema-declared elision at direct-read egress
+;; Collection-nested frame-declared elision at direct-read egress
 ;; (rf2-wm9kp).
 ;;
-;; The schema walker emits INDEX-FREE declarations for positional/keyed
-;; containers — `[:items] [:vector [:map [:token {:sensitive? true} :string]]]`
-;; declares `[:items :token]`, NOT `[:items 0 :token]`; a `:map-of` value
-;; `[:by-id] [:map-of :string [:map [:secret {:sensitive? true} :string]]]`
-;; declares `[:by-id :secret]`, NOT `[:by-id "a" :secret]`. The wire-elision
-;; walker walks a RUNTIME value, so it sees the indexed/keyed paths. Before
-;; rf2-wm9kp the walker matched only EXACT concrete runtime paths, so the
-;; declaration never matched and the secret crossed the direct-read MCP
-;; boundary (`get-app-db` / `get-path` / `snapshot`) RAW. The fix threads a
-;; candidate declaration-coordinate set that drops vector indices / map-of
-;; keys, so the index-free declaration matches the indexed/keyed runtime
-;; path. Mirrors the schema-validation-trace alignment (rf2-g5auo's
-;; `schema-sensitive-at?`), but on the runtime value rather than the schema.
+;; A frame `:sensitive {:app-db [[:items :token]]}` declares an INDEX-FREE
+;; path for positional/keyed containers — `[:items :token]` (NOT `[:items 0
+;; :token]`); a `:map-of` value declares `[:by-id :secret]` (NOT `[:by-id "a"
+;; :secret]`). The wire-elision walker walks a RUNTIME value, so it sees the
+;; indexed/keyed paths. Before rf2-wm9kp the walker matched only EXACT
+;; concrete runtime paths, so the declaration never matched and the secret
+;; crossed the direct-read MCP boundary (`get-app-db` / `get-path` /
+;; `snapshot`) RAW. The fix threads a candidate declaration-coordinate set
+;; that drops vector indices / map-of keys, so the index-free declaration
+;; matches the indexed/keyed runtime path. This walker-matching behaviour is
+;; independent of how the path was declared — EP-0015 §8 makes the declared
+;; path frame-owned, but the index-free matching is the same.
 
 (deftest collection-nested-sensitive-vector-of-maps-redacts
   ;; rf2-wm9kp Finding 1 (the headline leak). WITHOUT the fix
   ;; `(rf/elide-wire-value {:items [{:token "SECRET"}]})` returned the
   ;; secret verbatim because decl `[:items :token]` did not match runtime
   ;; `[:items 0 :token]`.
-  (rf/reg-app-schema [:items]
-                     [:vector [:map [:token {:sensitive? true} :string]]])
-  (is (= [[:items :token]] (rf/populate-sensitive-from-schemas!))
-      "schema walker declares the index-free path")
+  (install-class! [[:items :token]] [])
   (let [out (rf/elide-wire-value {:items [{:token "SECRET"}
                                           {:token "SECRET2"}]})]
     (is (= :rf/redacted (get-in out [:items 0 :token]))
@@ -540,9 +503,7 @@
 (deftest collection-nested-sensitive-map-of-redacts
   ;; rf2-wm9kp Finding 1 — `:map-of` value-map sensitive slot. Decl
   ;; `[:by-id :secret]` must match runtime `[:by-id "a" :secret]`.
-  (rf/reg-app-schema [:by-id]
-                     [:map-of :string [:map [:secret {:sensitive? true} :string]]])
-  (rf/populate-sensitive-from-schemas!)
+  (install-class! [[:by-id :secret]] [])
   (let [out (rf/elide-wire-value {:by-id {"a" {:secret "SECRET"}
                                           "b" {:secret "SECRET2"}}})]
     (is (= :rf/redacted (get-in out [:by-id "a" :secret])))
@@ -550,11 +511,9 @@
         "map-of value-map sensitive slot redacts for every key")))
 
 (deftest collection-nested-sensitive-sequential-redacts
-  ;; rf2-wm9kp Finding 1 — `:sequential` of maps (the runtime value can
+  ;; rf2-wm9kp Finding 1 — a sequential of maps (the runtime value can
   ;; arrive as a lazy seq / list, not just a vector).
-  (rf/reg-app-schema [:logs]
-                     [:sequential [:map [:pw {:sensitive? true} :string]]])
-  (rf/populate-sensitive-from-schemas!)
+  (install-class! [[:logs :pw]] [])
   (let [out (rf/elide-wire-value {:logs (list {:pw "SECRET"})})]
     (is (= :rf/redacted (-> out :logs vec (get-in [0 :pw])))
         "sequential-element sensitive slot redacts")))
@@ -562,9 +521,7 @@
 (deftest collection-nested-sensitive-set-of-maps-redacts
   ;; rf2-wm9kp Finding 1 — `:set` element maps descend at the same base
   ;; path (no positional segment), same as vector/sequential.
-  (rf/reg-app-schema [:tags]
-                     [:set [:map [:s {:sensitive? true} :string]]])
-  (rf/populate-sensitive-from-schemas!)
+  (install-class! [[:tags :s]] [])
   (let [out (rf/elide-wire-value {:tags #{{:s "SECRET"}}})]
     (is (= :rf/redacted (:s (first (:tags out))))
         "set-element sensitive slot redacts")))
@@ -572,9 +529,7 @@
 (deftest collection-nested-sensitive-mixed-map-vector-map-redacts
   ;; rf2-wm9kp Finding 1 — mixed map → vector → map nesting. Decl
   ;; `[:root :rows :pw]` matches runtime `[:root :rows N :pw]`.
-  (rf/reg-app-schema [:root]
-                     [:map [:rows [:vector [:map [:pw {:sensitive? true} :string]]]]])
-  (rf/populate-sensitive-from-schemas!)
+  (install-class! [[:root :rows :pw]] [])
   (let [out (rf/elide-wire-value {:root {:rows [{:pw "SECRET"} {:pw "SECRET2"}]}})]
     (is (= :rf/redacted (get-in out [:root :rows 0 :pw])))
     (is (= :rf/redacted (get-in out [:root :rows 1 :pw])))))
@@ -583,11 +538,7 @@
   ;; rf2-wm9kp Finding 1 — the matcher must be PRECISE: a non-sensitive
   ;; sibling leaf inside the same collection element map rides verbatim.
   ;; The candidate-path fork must not blanket-redact the element.
-  (rf/reg-app-schema [:items]
-                     [:vector [:map
-                               [:token {:sensitive? true} :string]
-                               [:name :string]]])
-  (rf/populate-sensitive-from-schemas!)
+  (install-class! [[:items :token]] [])
   (let [out (rf/elide-wire-value {:items [{:token "SECRET" :name "Ada"}]})]
     (is (= :rf/redacted (get-in out [:items 0 :token])))
     (is (= "Ada" (get-in out [:items 0 :name]))
@@ -601,11 +552,7 @@
   ;; (nested under leading named map slots `:tags :some-other-slot`). The
   ;; empty seed candidate must not be allowed to skip the leading named
   ;; slots and resume the declaration deeper in the tree.
-  (rf/reg-app-schema [:auth]
-                     [:map
-                      [:username :string]
-                      [:password {:sensitive? true} :string]])
-  (rf/populate-sensitive-from-schemas!)
+  (install-class! [[:auth :password]] [])
   (let [out (rf/elide-wire-value
               {;; the DECLARED position — must redact
                :auth {:username "ada" :password "shh"}
@@ -627,9 +574,7 @@
   ;; partial prefix). This pins that the legit map-of path keeps working
   ;; (`[:by-id]` is a non-empty partial match, so it skips the key `"a"`),
   ;; while a leaf at a NON-declared top-level map key never matches.
-  (rf/reg-app-schema [:by-id]
-                     [:map-of :string [:map [:secret {:sensitive? true} :string]]])
-  (rf/populate-sensitive-from-schemas!)
+  (install-class! [[:by-id :secret]] [])
   (let [out (rf/elide-wire-value
               {:by-id   {"a" {:secret "SECRET"}}
                ;; `:secret` here is a top-level map slot, NOT under :by-id —
@@ -671,29 +616,24 @@
           "only the literally-declared index redacts"))))
 
 (deftest collection-nested-large-emits-marker-with-runtime-path
-  ;; rf2-wm9kp Finding 1 (symmetry) — a `:large?` slot nested under a
+  ;; rf2-wm9kp Finding 1 (symmetry) — a `:large` slot nested under a
   ;; collection element map emits the `:rf.size/large-elided` marker, and
   ;; the marker's `:path` is the CONCRETE indexed runtime path so a
   ;; follow-up `get-path` lands on the exact element.
-  (rf/reg-app-schema [:docs]
-                     [:vector [:map [:blob {:large? true :hint "blob"} :string]]])
-  (rf/populate-elision-from-schemas!)
+  (install-class! [] [[:docs :blob]])
   (let [out  (rf/elide-wire-value {:docs [{:blob "<<5MB-blob>>"}]})
         slot (get-in out [:docs 0 :blob])]
     (is (elision/marker? slot)
-        "collection-nested :large? slot emits a size marker")
+        "collection-nested :large slot emits a size marker")
     (is (= [:docs 0 :blob] (get-in slot [:rf.size/large-elided :path]))
         "marker :path is the concrete indexed runtime path (re-fetchable)")
-    (is (= "blob" (get-in slot [:rf.size/large-elided :hint])))))
+    (is (= :frame (get-in slot [:rf.size/large-elided :reason])))))
 
 (deftest collection-nested-sensitive-wins-over-large
   ;; rf2-wm9kp Finding 1 (symmetry) — when a collection-nested slot is
-  ;; BOTH `:large?` and `:sensitive?`, sensitive wins (redact, no marker),
+  ;; BOTH `:large` and `:sensitive`, sensitive wins (redact, no marker),
   ;; same precedence as the top-level `sensitive-wins-over-large` case.
-  (rf/reg-app-schema [:vault]
-                     [:vector [:map [:k {:large? true :sensitive? true} :string]]])
-  (rf/populate-elision-from-schemas!)
-  (rf/populate-sensitive-from-schemas!)
+  (install-class! [[:vault :k]] [[:vault :k]])
   (let [out  (rf/elide-wire-value {:vault [{:k "payload"}]})
         slot (get-in out [:vault 0 :k])]
     (is (= :rf/redacted slot))

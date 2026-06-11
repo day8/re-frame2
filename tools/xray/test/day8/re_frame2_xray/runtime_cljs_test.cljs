@@ -42,6 +42,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -632,21 +633,19 @@
 ;; redact end-to-end.
 
 (defn- seed-sensitive-schema! []
-  ;; Mirror the framework's schema-declared sensitive path setup
-  ;; (implementation/core/test/re_frame/elision_test.clj
-  ;; §schema-sensitive-path-redacts): a `{:sensitive? true}` slot
-  ;; hydrates the per-frame `:sensitive-declarations` so the wire walker
-  ;; substitutes `:rf/redacted` for that path on off-box egress.
+  ;; EP-0015 §8 (rf2-d2r3um): durable app-db classification is frame-owned.
+  ;; The frame-classification install! seam writes a `:source :frame`
+  ;; declaration (index-free :rf/path) onto the frame's
+  ;; `:sensitive-declarations` so the wire walker substitutes `:rf/redacted`
+  ;; for that path on off-box egress.
   ;;
   ;; The `:sensitive-declarations` live in the frame's runtime-db partition
   ;; at `[:rf.runtime/elision :sensitive-declarations]` (EP-0001), so a
   ;; whole-db `reg-event-db` reset that returns a fresh map no longer wipes
   ;; them — a `:db` reset replaces only app-db, never runtime-db.
-  (rf/reg-app-schema [:auth]
-                     [:map
-                      [:username :string]
-                      [:password {:sensitive? true} :string]])
-  (rf/populate-sensitive-from-schemas!))
+  (frame-class/install! :rf/default
+    (frame-class/validate+extract :rf/default
+      {:sensitive {:app-db [[:auth :password]]}})))
 
 (deftest egress-value-redacts-sensitive-on-the-safe-default-path
   (testing "`egress-value` with no opts (the SHORT path) redacts a
@@ -857,16 +856,15 @@
 ;; fail-closed default (redact / size-elide) AND the operator opt-in.
 
 (defn- seed-large-schema! []
-  ;; A `{:large? true}` schema slot hydrates the per-frame `:declarations`
-  ;; so the wire walker substitutes the `:rf.size/large-elided` marker for
-  ;; that path on off-box egress (the size sibling of
-  ;; `seed-sensitive-schema!`). The declaration lives in runtime-db at
-  ;; `[:rf.runtime/elision :declarations]` (EP-0001), so a whole-db `:db`
-  ;; reset leaves it untouched.
-  (rf/reg-app-schema [:blob]
-                     [:map
-                      [:payload {:large? true} :any]])
-  (rf/populate-elision-from-schemas!))
+  ;; EP-0015 §8 (rf2-d2r3um): the frame-owned :large declaration (index-free
+  ;; :rf/path) installs onto the per-frame `:declarations` so the wire walker
+  ;; substitutes the `:rf.size/large-elided` marker for that path on off-box
+  ;; egress (the size sibling of `seed-sensitive-schema!`). The declaration
+  ;; lives in runtime-db at `[:rf.runtime/elision :declarations]` (EP-0001),
+  ;; so a whole-db `:db` reset leaves it untouched.
+  (frame-class/install! :rf/default
+    (frame-class/validate+extract :rf/default
+      {:large {:app-db [[:blob :payload]]}})))
 
 (deftest get-app-db-path-scoped-redacts-sensitive-leaf-by-default
   (testing "a PATH-scoped get-app-db over a schema-declared sensitive

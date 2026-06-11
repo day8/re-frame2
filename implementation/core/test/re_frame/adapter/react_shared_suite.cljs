@@ -84,6 +84,7 @@
             [re-frame.core :as rf]
             [re-frame.disposable :as rf-disposable]
             [re-frame.frame :as frame]
+            [re-frame.frame-classification :as frame-class]
             [re-frame.interop :as interop]
             [re-frame.subs :as subs]
             [re-frame.late-bind :as late-bind]
@@ -1509,14 +1510,14 @@
     (let [id     (mint-kw substrate-kw "view-rendered-args-sensitive")
           traces (record-view-rendered!)]
       ;; Declare [:auth :password] sensitive on this frame's app-db elision
-      ;; registry via the schema path — the SAME registry :rf.event/db
-      ;; consults. `reg-app-schema` records the schema; the populate call
-      ;; hydrates the sensitive-declarations registry the walker reads.
-      (rf/reg-app-schema [:auth]
-                         [:map
-                          [:username :string]
-                          [:password {:sensitive? true} :string]])
-      (rf/populate-sensitive-from-schemas!)
+      ;; registry — the SAME registry :rf.event/db consults. EP-0015 §8
+      ;; (rf2-d2r3um): durable app-db classification is frame-owned; the
+      ;; frame-classification install! seam writes a `:source :frame`
+      ;; declaration (index-free :rf/path) the walker reads. The fixture
+      ;; reg-frames the ambient :rf/default the render lands in.
+      (frame-class/install! :rf/default
+        (frame-class/validate+extract :rf/default
+          {:sensitive {:app-db [[:auth :password]]}}))
       (rf/reg-view* id (fn [_props] (React/createElement "span" #js {} "ok")))
       ;; Pass a render arg whose [:auth :password] leaf mirrors the
       ;; sensitive app-db path. The marks chokepoint elides it before
