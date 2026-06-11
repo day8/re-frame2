@@ -33,6 +33,7 @@
             [re-frame.resources.registry :as registry]
             [re-frame.resources.revalidate-listeners :as revalidate-listeners]
             [re-frame.resources.state :as state]
+            [re-frame.resources.subs :as subs]
             [re-frame.resources.timers :as timers]
             [re-frame.resources.work-ledger :as work-ledger]))
 
@@ -63,6 +64,10 @@
   ;; likewise host-side transient state; detaches any installed window
   ;; listeners so a leftover listener cannot dispatch into a later test's frame.
   (revalidate-listeners/reset-cache!)
+  ;; and the host-side scope-mismatch dev-warning dedupe set (rf2-rsmiru) —
+  ;; host-side transient dev state; clearing it lets each test observe the
+  ;; one-shot warning freshly without a prior test's emission masking it.
+  (subs/reset-scope-mismatch-warnings!)
   nil)
 
 ;; Publish the reset hook from this test-support ns-load — the shared CLJS
