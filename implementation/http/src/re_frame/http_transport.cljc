@@ -400,10 +400,28 @@
           ;; never on the trace event) so the off-box trace-events projector
           ;; omits / classifies the `:decoded` slot. Only failures carrying a
           ;; body slot are gated.
+          ;;
+          ;; rf2-t55hxg.10 — the SAME disposition-5 fail-closed rule for the
+          ;; RAW error-response body: an `:rf.http/http-4xx` / `:rf.http/http-5xx`
+          ;; carries the raw `:body` (response body-text), and an
+          ;; `:rf.http/decode-failure` carries the raw `:body-text`. By
+          ;; construction these bodies are UNSCHEMATIZED — status classification
+          ;; (4xx/5xx) runs BEFORE decode, and a `:rf.http/decode-failure` is the
+          ;; decode step itself failing — so the request's `:decode` schema was
+          ;; never (and could never be) applied to them. The off-box rule is
+          ;; therefore UNCONDITIONALLY `:omit` for a raw error body, irrespective
+          ;; of the per-call `:sensitive?` flag (error bodies frequently echo
+          ;; request context / tokens). On-box ring stays raw; the off-box
+          ;; trace-events projector omits the slot, lifted only by the
+          ;; trusted-local `:include-sensitive?` opt-in.
           redacted   (cond-> redacted
                        (contains? failure :decoded)
                        (assoc :rf.http/off-box-body
-                              (privacy-body/off-box-body-disposition (:decode ctx))))]
+                              (privacy-body/off-box-body-disposition (:decode ctx)))
+
+                       (or (contains? failure :body)
+                           (contains? failure :body-text))
+                       (assoc :rf.http/off-box-body :omit))]
       (trace/emit-error! (:kind failure) redacted)))
   (let [superseded? (and (= :rf.http/aborted (:kind failure))
                          (= :request-id-superseded (:reason failure)))]
@@ -650,15 +668,26 @@
       (let [delay-ms (encoding/compute-backoff-ms (or backoff {}) attempt)]
         (when interop/debug-enabled?
           (trace/emit! :info :rf.http/retry-attempt
-                       (privacy/prepare-emit-tags
-                         {:request-id      request-id
-                          :url             (:url ctx)
-                          :attempt         attempt
-                          :max-attempts    max-attempts
-                          :failure         failure
-                          :next-backoff-ms delay-ms}
-                         (true? (:sensitive? ctx))
-                         {:frame (:frame ctx)})))
+                       ;; rf2-t55hxg.10 — the retry-attempt trace nests the
+                       ;; intermediate `failure` under `:failure`; a retryable
+                       ;; `:rf.http/http-4xx` / `:rf.http/http-5xx` carries the
+                       ;; raw `:body` there. Stamp the off-box `:omit`
+                       ;; disposition forward (the raw error body is
+                       ;; unschematized by construction — fail-closed) so the
+                       ;; off-box trace-events projector omits the nested
+                       ;; `[:failure :body]` slot off-box.
+                       (cond-> (privacy/prepare-emit-tags
+                                 {:request-id      request-id
+                                  :url             (:url ctx)
+                                  :attempt         attempt
+                                  :max-attempts    max-attempts
+                                  :failure         failure
+                                  :next-backoff-ms delay-ms}
+                                 (true? (:sensitive? ctx))
+                                 {:frame (:frame ctx)})
+                         (or (contains? failure :body)
+                             (contains? failure :body-text))
+                         (assoc :rf.http/off-box-body :omit))))
         ;; Clear the prior attempt's live-fetch handle from both indexes;
         ;; `schedule-backoff-handle!` immediately re-registers a fresh
         ;; backoff handle so the request is never invisible to a
@@ -689,16 +718,22 @@
                    (> max-attempts 1)
                    (or (> attempt 1)
                        (contains? on-set kind)))
+          ;; rf2-t55hxg.10 — same off-box `:omit` stamp on the terminal
+          ;; exhaustion retry-attempt trace: its nested `:failure` may carry a
+          ;; raw `:body` (a retry-eligible 4xx/5xx that exhausted attempts).
           (trace/emit! :info :rf.http/retry-attempt
-                       (privacy/prepare-emit-tags
-                         {:request-id      request-id
-                          :url             (:url ctx)
-                          :attempt         attempt
-                          :max-attempts    max-attempts
-                          :failure         failure
-                          :next-backoff-ms nil}
-                         (true? (:sensitive? ctx))
-                         {:frame (:frame ctx)})))
+                       (cond-> (privacy/prepare-emit-tags
+                                 {:request-id      request-id
+                                  :url             (:url ctx)
+                                  :attempt         attempt
+                                  :max-attempts    max-attempts
+                                  :failure         failure
+                                  :next-backoff-ms nil}
+                                 (true? (:sensitive? ctx))
+                                 {:frame (:frame ctx)})
+                         (or (contains? failure :body)
+                             (contains? failure :body-text))
+                         (assoc :rf.http/off-box-body :omit))))
         (finalise-failure! ctx failure)))))
 
 (defn- handle-response!

@@ -1008,7 +1008,7 @@
                     ev))))
             trace-events))))
 
-;; ---- off-box HTTP response-body fail-closed (rf2-t55hxg.6) ----------------
+;; ---- off-box HTTP response-body fail-closed (rf2-t55hxg.6, rf2-t55hxg.10) --
 ;;
 ;; EP-0015 disposition 5: a managed HTTP response body is a
 ;; registration-owned transient payload; an UNSCHEMATIZED body (no Malli
@@ -1022,32 +1022,62 @@
 ;; disposition forward under `:tags :rf.http/off-box-body` (`:omit` for an
 ;; unschematized body, `:classify` for a schema body whose per-slot marks
 ;; were already applied on-box). This projector reads the stamp and OMITS
-;; (replaces with `:rf/redacted`) the body slot for an `:omit` event. A
+;; (replaces with `:rf/redacted`) the body slot(s) for an `:omit` event. A
 ;; `:classify` event's body already carries the classified projection
 ;; (sensitive → `:rf/redacted`, large → `:rf.size/large-elided`) from the
 ;; on-box emit, so it rides as-is. No HTTP-artefact dependency — only the
-;; stamped keyword + the per-operation body-slot name are read.
+;; stamped keyword + the per-operation body-slot path(s) are read.
+;;
+;; rf2-t55hxg.10 — the SAME disposition-5 rule for the RAW error-response
+;; body: `:rf.http/http-4xx` / `:rf.http/http-5xx` carry the raw response
+;; body at `:body`, `:rf.http/decode-failure` carries the raw text at
+;; `:body-text`, and `:rf.http/retry-attempt` nests the intermediate failure
+;; (which may carry a raw `:body`/`:body-text`) under `:failure`. A raw error
+;; body is UNSCHEMATIZED by construction (status classification runs before
+;; decode; a decode-failure is the decode itself failing), so the emit site
+;; always stamps `:omit` for these — irrespective of the per-call
+;; `:sensitive?` flag. This projector omits whichever of the operation's
+;; candidate body-slot paths are present.
 ;;
 ;; The omission is the off-box DEFAULT and is lifted only by an explicit
 ;; trusted-local `:include-sensitive?` opt-in (consistent with the
 ;; runtime-db / event-args opt-back-in), matching the `local-raw` boundary.
 
 (def ^:private http-body-slots
-  "The decoded-body tag slot per off-box-body-bearing `:rf.http/*`
-  operation: a success reply carries the decoded body at `:value`, an
-  accept-failure carries the pre-`:accept` decoded body at `:decoded`."
-  {:rf.http/replied        :value
-   :rf.http/accept-failure :decoded})
+  "The off-box-body-bearing tag-slot PATH(S) per `:rf.http/*` operation —
+  the slots an `:rf.http/off-box-body :omit` stamp omits off-box:
+
+   - `:rf.http/replied`        — the decoded body at `[:value]`;
+   - `:rf.http/accept-failure` — the pre-`:accept` decoded body at `[:decoded]`;
+   - `:rf.http/http-4xx` / `:rf.http/http-5xx` — the raw response body at
+     `[:body]` (rf2-t55hxg.10);
+   - `:rf.http/decode-failure` — the raw response text at `[:body-text]`
+     (rf2-t55hxg.10);
+   - `:rf.http/retry-attempt`  — the intermediate failure's raw body nested at
+     `[:failure :body]` / `[:failure :body-text]` (rf2-t55hxg.10).
+
+  A vector of slot PATHS (each a `get-in`/`assoc-in` path) so an operation
+  whose body can ride in more than one slot (retry-attempt) is covered with
+  one general rule rather than a per-slot special case."
+  {:rf.http/replied        [[:value]]
+   :rf.http/accept-failure [[:decoded]]
+   :rf.http/http-4xx       [[:body]]
+   :rf.http/http-5xx       [[:body]]
+   :rf.http/decode-failure [[:body-text]]
+   :rf.http/retry-attempt  [[:failure :body] [:failure :body-text]]})
 
 (defn- omit-off-box-http-bodies
-  "Per rf2-t55hxg.6: enforce the EP-0015 disposition-5 off-box fail-closed
-  rule on `:rf.http/*` trace events. For each event whose emit site stamped
-  `:tags :rf.http/off-box-body :omit` (an UNSCHEMATIZED response body —
-  whole-sensitive off-box), substitute the `:rf/redacted` sentinel for the
-  decoded-body tag slot (`:value` for `:rf.http/replied`, `:decoded` for
-  `:rf.http/accept-failure`). A `:classify` stamp (a schema-classified body)
-  passes through — its per-slot marks were applied on-box at emit. Events
-  with no stamp (every non-HTTP event) pass through untouched.
+  "Per rf2-t55hxg.6 + rf2-t55hxg.10: enforce the EP-0015 disposition-5 off-box
+  fail-closed rule on `:rf.http/*` trace events. For each event whose emit
+  site stamped `:tags :rf.http/off-box-body :omit` (an UNSCHEMATIZED response
+  body — whole-sensitive off-box, including every RAW error-response body),
+  substitute the `:rf/redacted` sentinel for each of the operation's body-slot
+  paths that is present (e.g. `[:value]` for `:rf.http/replied`, `[:body]` for
+  `:rf.http/http-4xx`/`:rf.http/http-5xx`, `[:body-text]` for
+  `:rf.http/decode-failure`, `[:failure :body]`/`[:failure :body-text]` for
+  `:rf.http/retry-attempt`). A `:classify` stamp (a schema-classified body)
+  passes through — its per-slot marks were applied on-box at emit. Events with
+  no stamp (every non-HTTP event) pass through untouched.
 
   The omission is the off-box default; an explicit trusted-local
   `:include-sensitive?` opt-in lifts it (the `local-raw` boundary).
@@ -1058,11 +1088,16 @@
     (mapv (fn [ev]
             (if-not (map? ev)
               ev
-              (let [slot (get http-body-slots (:operation ev))]
-                (if (and slot
-                         (= :omit (get-in ev [:tags :rf.http/off-box-body]))
-                         (contains? (:tags ev) slot))
-                  (assoc-in ev [:tags slot] :rf/redacted)
+              (let [slot-paths (get http-body-slots (:operation ev))]
+                (if (and slot-paths
+                         (= :omit (get-in ev [:tags :rf.http/off-box-body])))
+                  (reduce (fn [ev slot-path]
+                            (let [tag-path (into [:tags] slot-path)]
+                              (if (some? (get-in ev tag-path))
+                                (assoc-in ev tag-path :rf/redacted)
+                                ev)))
+                          ev
+                          slot-paths)
                   ev))))
           trace-events)))
 

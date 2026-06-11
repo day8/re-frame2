@@ -555,3 +555,124 @@
               "schema body stamped :classify for the off-box projector"))
         (finally
           (stop-server! srv))))))
+
+;; ---- 11. Off-box disposition stamp on RAW error-response bodies (rf2-t55hxg.10) ----
+;;
+;; EP-0015 disposition 5 fail-OPEN gap closed: a raw 4xx/5xx response body
+;; (`:body`) and a decode-failure raw text (`:body-text`) egress raw off-box
+;; and were previously redacted ONLY when the call carried a per-call
+;; `:sensitive?` flag. A raw error body is UNSCHEMATIZED by construction
+;; (status classification runs BEFORE decode), so the emit site UNCONDITIONALLY
+;; stamps `:rf.http/off-box-body :omit` (irrespective of the per-call flag) so
+;; the off-box trace-events projector omits it. The on-box body still rides raw
+;; for the local operator (the omission is the off-box boundary).
+
+(deftest http-5xx-stamps-off-box-omit-on-raw-body-non-sensitive
+  (testing "rf2-t55hxg.10 — a NON-per-call-sensitive 5xx whose raw response
+            body echoes a token stamps :rf.http/off-box-body :omit on the
+            :rf.http/http-5xx trace so the off-box projector omits :body
+            (closing the fail-OPEN that left it raw off-box). The on-box :body
+            still rides raw — the local operator sees their own process."
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  ;; The error body echoes the caller's bearer token — exactly
+                  ;; the leak class disposition 5 fails closed against.
+                  (write-response! ex 500 "text/plain"
+                                   "error: token=bearer-abc123 rejected")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        ;; NO per-call :sensitive? flag — the disposition-5 fix must fire anyway.
+        (rf/reg-event-fx :api/fetch
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:method :get
+                                 :url    (str "http://127.0.0.1:" port "/data")}
+                    :on-failure nil}]]}))
+
+        (rf/dispatch-sync [:api/fetch])
+
+        (let [_  (wait-for!
+                   (fn [] (some #(= :rf.http/http-5xx (:operation %)) @captured))
+                   3000)
+              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))]
+          (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
+              "raw 5xx body stamped :omit for the off-box projector (fail-closed)")
+          (is (= "error: token=bearer-abc123 rejected" (get-in ev [:tags :body]))
+              "the on-box :body still rides raw — the local operator sees it;
+               the omission is the OFF-BOX boundary, enforced by the projector")
+          (is (and (nil? (:sensitive? ev))
+                   (nil? (get-in ev [:tags :sensitive?])))
+              "no per-call :sensitive? was set — the :omit stamp is unconditional,
+               not contingent on the per-call flag (the closed gap)"))
+        (finally
+          (stop-server! srv))))))
+
+(deftest http-4xx-stamps-off-box-omit-on-raw-body
+  (testing "rf2-t55hxg.10 — a 4xx raw body is likewise stamped :omit off-box"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  (write-response! ex 403 "text/plain" "forbidden: secret-ctx")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        (rf/reg-event-fx :api/fetch
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:method :get
+                                 :url    (str "http://127.0.0.1:" port "/data")}
+                    :on-failure nil}]]}))
+
+        (rf/dispatch-sync [:api/fetch])
+
+        (let [_  (wait-for!
+                   (fn [] (some #(= :rf.http/http-4xx (:operation %)) @captured))
+                   3000)
+              ev (first (filter #(= :rf.http/http-4xx (:operation %)) @captured))]
+          (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
+              "raw 4xx body stamped :omit for the off-box projector")
+          (is (= "forbidden: secret-ctx" (get-in ev [:tags :body]))
+              "on-box :body rides raw"))
+        (finally
+          (stop-server! srv))))))
+
+(deftest decode-failure-stamps-off-box-omit-on-raw-body-text
+  (testing "rf2-t55hxg.10 — a :rf.http/decode-failure (a 200 whose body fails
+            the :decode) carries the raw text at :body-text; it is UNSCHEMATIZED
+            by construction (the decode is what failed) so it is stamped :omit
+            off-box, irrespective of the per-call flag"
+    (let [srv (start-server!
+                (fn [^HttpExchange ex]
+                  ;; 200 OK but the body is not valid JSON → decode-failure.
+                  (write-response! ex 200 "application/json"
+                                   "not-json: leaked-token=xyz")))
+          port (:port srv)
+          captured (atom [])]
+      (try
+        (trace/register-listener! :test/capture
+                                  (fn [ev] (swap! captured conj ev)))
+        ;; :json decode of a non-JSON body throws → :rf.http/decode-failure.
+        (rf/reg-event-fx :api/fetch
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:method :get
+                                 :url    (str "http://127.0.0.1:" port "/data")}
+                    :decode     :json
+                    :on-failure nil}]]}))
+
+        (rf/dispatch-sync [:api/fetch])
+
+        (let [_  (wait-for!
+                   (fn [] (some #(= :rf.http/decode-failure (:operation %)) @captured))
+                   3000)
+              ev (first (filter #(= :rf.http/decode-failure (:operation %)) @captured))]
+          (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
+              "raw decode-failure body-text stamped :omit for the off-box projector")
+          (is (= "not-json: leaked-token=xyz" (get-in ev [:tags :body-text]))
+              "on-box :body-text rides raw — the local operator inspects it"))
+        (finally
+          (stop-server! srv))))))
