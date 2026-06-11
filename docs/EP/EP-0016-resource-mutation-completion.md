@@ -418,8 +418,7 @@ with one reply map appended:
   :affected-keys #{{:resource :realworld/article
                     :params   {:slug "first-post"}
                     :scope    :rf.scope/global}}
-  :work/id       [:rf.work/mutation :realworld/save-article
-                  [:editor/save "first-post"] 8]
+  :work/id       [:rf.work/resource [:rf.mutation [:editor/save "first-post"]] 8]
   :rf.frame/id   :app/main
   :completed-at  1781078400456
   :cause         [:mutation :realworld/save-article
@@ -505,7 +504,7 @@ This EP adds descriptor form:
 
 ```clojure
 :invalidates
-(fn [{:keys [slug]} _ctx]
+(fn [{:keys [slug]} _result]
   [{:scope :rf.scope/global
     :tags  #{[:article slug]
              [:article-list]}}
@@ -534,6 +533,12 @@ scope explicitly instead of inheriting the execution scope for every tag.
 Bare shorthand and descriptor form both lower to the same scoped invalidation
 engine. There is one invalidation implementation. The descriptor is only the
 public data that tells the engine which `(tags, scope)` pairs to mark stale.
+
+The `:invalidates` and `:populates` callbacks both receive `(params result)` —
+the one canonical mutation-consequence signature. Db-derived scope is expressed
+through named resolver references (`{:from-db …}`), never by threading `db` /
+`ctx` into the callback (which would reintroduce the anonymous-db-function path
+[Alternatives](#anonymous-db-functions-everywhere) rejects).
 
 #### Cross-scope fan-out
 
@@ -615,10 +620,11 @@ Example resource:
    :params (fn [{:keys [page]}] {:page page})
    :request
    (fn [{:keys [page]} _ctx]
-     {:method :get
-      :uri    "/articles/feed"
-      :query-params {:limit 20
-                     :offset (* 20 (dec page))}})
+     {:request {:method :get
+                :url    "/articles/feed"
+                :params {:limit  20
+                         :offset (* 20 (dec page))}}
+      :decode :json})
    :tags
    (fn [_params _value]
      #{[:feed] [:article-list]})})
@@ -627,13 +633,13 @@ Example resource:
 Example route entry:
 
 ```clojure
-{:name :home/feed
- :path "/"
- :resources
- [{:resource :realworld/feed
-   :params   {:page 1}
-   :scope    {:from-db :realworld/session}
-   :blocking? true}]}
+(rf/reg-route :realworld/home
+  {:path "/"
+   :resources
+   [{:resource  :realworld/feed
+     :params    {:page 1}
+     :scope     {:from-db :realworld/session}
+     :blocking? true}]})
 ```
 
 Example subscription:
@@ -680,6 +686,11 @@ Therefore:
   invalidation pass;
 - the key may still be invalidated/refetched by later events, later mutations,
   focus/reconnect policy, or explicit refetch.
+
+The populated value MUST be the resource's stored shape — the same value a
+successful load of that key produces (e.g. the full decoded envelope), not a
+sub-projection of the reply — so a populated entry reads identically to a
+fetched one.
 
 If a mutation reply is partial relative to the full resource GET, the author can
 ask for a same-mutation refetch:
@@ -740,20 +751,24 @@ Example:
 
 ```clojure
 (rf/reg-http-interceptor :realworld/auth
-  (fn [request {:keys [db]}]
-    (if-let [token (get-in db [:auth :token])]
-      (assoc-in request [:headers "Authorization"] (str "Token " token))
-      request)))
+  {:before (fn [ctx]
+             (let [token (some-> (rf/app-db-value (:frame ctx)) :auth :token)]
+               (cond-> ctx
+                 token (assoc-in [:request :headers "Authorization"]
+                                 (str "Token " token)))))})
 
 (rf/reg-resource :realworld/current-user
   {:request
    (fn [_params _ctx]
-     {:method :get
-      :uri    "/user"})
-   :transport {:http/interceptors [:realworld/auth]
-               :retry {:max-attempts 3
-                       :backoff-ms 250}}})
+     {:request {:method :get :url "/user"}
+      :decode  :json})})
 ```
+
+The interceptor is registered once per frame and decorates *every*
+`:rf.http/managed` request the frame issues — resource reads, mutations, and
+plain managed calls alike — so `:realworld/current-user` needs no per-resource
+opt-in. It reads the token from `(:frame ctx)` (EP-0002 carried-frame-correct),
+not an ambient `db`, and returns `ctx` unchanged when no token is present.
 
 The exact interceptor registration names are illustrative. The normative rule
 is ownership: transport decoration belongs to managed HTTP policy and is reused
@@ -824,18 +839,19 @@ event.
   {:scope :rf.scope/global
    :request
    (fn [{:keys [slug]} _ctx]
-     {:method :post
-      :uri    (str "/articles/" slug "/favorite")})
+     {:request {:method :post
+                :url    (str "/articles/" slug "/favorite")}
+      :decode  :json})
 
    :populates
-   (fn [{:keys [slug]} {:keys [article]} _ctx]
+   (fn [{:keys [slug]} result]
      [{:target {:resource :realworld/article
                 :params   {:slug slug}
                 :scope    :rf.scope/global}
-       :value article}])
+       :value result}])
 
    :invalidates
-   (fn [{:keys [slug]} _ctx]
+   (fn [{:keys [slug]} _result]
      [{:scope :rf.scope/global
        :tags  #{[:article-list]
                 [:article slug]}}
@@ -861,19 +877,20 @@ unless the descriptor opts into `:refetch-populated? true`.
   {:scope {:from-db :realworld/session}
    :request
    (fn [{:keys [page]} _ctx]
-     {:method :get
-      :uri "/articles/feed"
-      :query-params {:limit 20
-                     :offset (* 20 (dec page))}})
+     {:request {:method :get
+                :url    "/articles/feed"
+                :params {:limit  20
+                         :offset (* 20 (dec page))}}
+      :decode :json})
    :tags (fn [_params _value] #{[:feed] [:article-list]})})
 
-{:name :home/following
- :path "/"
- :resources
- [{:resource :realworld/feed
-   :params   {:page 1}
-   :scope    {:from-db :realworld/session}
-   :blocking? true}]}
+(rf/reg-route :realworld/home
+  {:path "/"
+   :resources
+   [{:resource  :realworld/feed
+     :params    {:page 1}
+     :scope     {:from-db :realworld/session}
+     :blocking? true}]})
 ```
 
 Route ownership, route leave release, subscriptions, invalidation descriptors,
