@@ -229,21 +229,19 @@
                      :parent-id         parent-id
                      :work-bearing-path invoke-id
                      :frame             frame-id}
-        reply       (if error-leaf?
-                      (m-reply/error-reply reply-ctx result)
-                      (m-reply/success-reply reply-ctx result))
         ;; (1) Find parent's `:on-done` / `:on-error`, if this is a `:spawn`-
         ;; spawned actor. The parent's spec carries the `:spawn` map at
         ;; `invoke-id`. Per rf2-a2sn1 — resolve the parent's spec from the
         ;; registrar (a singleton parent) OR, for a NESTED spawn whose
         ;; parent is itself a spawned actor (no per-instance registration),
         ;; from the parent's own snapshot `:rf/machine-type`.
+        parent-path (paths/snapshot-path parent-id)
+        parent-snap (when parent-id (get-in runtime-db parent-path))
+        parent-reg  (when parent-id (registrar/lookup :event parent-id))
         parent-meta (when parent-id
-                      (let [m (registrar/lookup :event parent-id)]
-                        (cond
-                          (:rf/machine? m) (:rf/machine m)
-                          :else            (resolver/spec-from-snapshot
-                                             (get-in runtime-db (paths/snapshot-path parent-id))))))
+                      (cond
+                        (:rf/machine? parent-reg) (:rf/machine parent-reg)
+                        :else                     (resolver/spec-from-snapshot parent-snap)))
         spawn-spec  (when (and parent-meta invoke-id)
                       (find-spawn-spec-at parent-meta invoke-id))
         on-done-fn  (:on-done spawn-spec)
@@ -256,39 +254,108 @@
         on-error?   (and error-leaf?
                          parent-id
                          (some? (:on-error spawn-spec)))
-        parent-path (paths/snapshot-path parent-id)
+        ;; Per EP-0011 §Machine Completion / Managed-Effects §Stale
+        ;; suppression (rf2-lohbfg): the one reachable machine-supersession
+        ;; case is a `:spawn`-spawned child reaching `:final?` AFTER its
+        ;; spawning parent was already DESTROYED. The completion is then
+        ;; STALE — its `:on-done` / `:on-error` routing has no live parent to
+        ;; drive, so per §Stale suppression the app target MUST NOT run and
+        ;; the completion is recorded `:status :stale` / `:work/status
+        ;; :suppressed` via the shared substrate (rather than silently
+        ;; reducing `:on-done` to identity, which emitted only an `:ok`
+        ;; reply + no stale vocabulary).
+        ;;
+        ;; LIVENESS is the gate (not `on-done-fn` resolvability): when the
+        ;; parent was destroyed BOTH its snapshot AND — for a singleton
+        ;; parent — its registrar handler are gone, so the `:spawn` spec
+        ;; (and thus `on-done-fn`) is no longer resolvable AT ALL. Keying off
+        ;; `on-done-fn` would miss the case entirely. The robust gate is: a
+        ;; declaratively-spawned child (it carries both `:rf/parent-id` and
+        ;; `:rf/spawn-id`) whose parent is NO LONGER LIVE (no snapshot AND no
+        ;; registered handler). `:on-error` routing (the error-leaf control-
+        ;; flow case) is left to its own dispatch path — a stale error leaf
+        ;; with a dead parent simply dispatches into the void, harmlessly.
+        parent-live?  (or (some? parent-snap) (some? parent-reg))
+        stale-spawn?  (and parent-id invoke-id (not on-error?)
+                           (not parent-live?))
+        ;; The carried generation is parsed off THIS finishing actor's id;
+        ;; the CURRENT generation is the LIVE counterpart — the generation of
+        ;; the actor currently occupying the spawn slot at
+        ;; `[:rf.runtime/machines :spawned parent-id invoke-id]`, read ONLY
+        ;; when the parent is still live. With the parent gone there is no
+        ;; live counterpart, so `:current` is nil — exactly the supersession
+        ;; the gate records (the parity counterpart of the `:after` path's
+        ;; exited-node → nil declaring path). The carried/current pair rides
+        ;; the trace via `stale-spawn-reply`'s correlation.
+        current-generation
+        (when (and parent-live? parent-id invoke-id)
+          (m-reply/actor-generation
+            (get-in runtime-db (paths/spawned-path parent-id invoke-id))))
+        reply       (cond
+                      stale-spawn?
+                      (m-reply/stale-spawn-reply
+                        (assoc reply-ctx :current-generation current-generation))
+                      error-leaf?
+                      (m-reply/error-reply reply-ctx result)
+                      :else
+                      (m-reply/success-reply reply-ctx result))
         ;; (2) Emit `:rf.machine/done` trace BEFORE the destroy cascade
-        ;; (D6 ordering). Fired for EVERY finish (success or error leaf) —
+        ;; (D6 ordering). Fired for EVERY finish (success / error / STALE) —
         ;; `:on-error` is additive, the done trace is the actor-finality
         ;; signal regardless of which spawn hook routes the result. Per
         ;; EP-0011 the reply-envelope facts (`:rf.reply/status`,
         ;; `:rf.reply/work-id`, `:rf.reply/work-status`) ride ADDITIVELY so
         ;; the trace stream classifies the completion the same way HTTP /
         ;; resources do; the public `:output` / `:parent-id` / `:error?`
-        ;; shape is preserved. Wire-bearing slots (`:value` / `:error`)
-        ;; route through the shared elision walker via `m-reply/trace-reply`.
-        done-summary (m-reply/trace-reply reply {:frame frame-id})
+        ;; shape is preserved. Wire-bearing slots (`:value` / `:error` /
+        ;; `:correlation`) route through the shared elision walker via
+        ;; `m-reply/trace-reply`.
+        ;;
+        ;; (rf2-lohbfg) A STALE late completion (parent destroyed before the
+        ;; child finished) additionally rides `:rf.reply/stale-reason`
+        ;; (`:rf.machine/actor-not-live`) and `:rf.reply/correlation` (the
+        ;; carried/current generation gate) — the parity counterpart of the
+        ;; `:after` path's `:rf.machine.timer/stale-after` stale-suppression
+        ;; trace. The summary is built via `m-reply/stale-spawn-trace` for a
+        ;; stale reply so the spawn-stale path reads as the spawn analogue of
+        ;; `after-stale-reply` → `trace-reply`.
+        done-summary (if stale-spawn?
+                       (m-reply/stale-spawn-trace reply {:frame frame-id})
+                       (m-reply/trace-reply reply {:frame frame-id}))
         _ (trace/emit! :rf.machine :rf.machine/done
-                       {:machine-id machine-id
-                        :output     result
-                        :parent-id  parent-id
-                        :error?     error-leaf?
-                        :frame      frame-id
-                        ;; reply-envelope vocabulary (Managed-Effects §9)
-                        :rf.reply/status      (:status done-summary)
-                        :rf.reply/work-id     (:work/id done-summary)
-                        :rf.reply/work-status (:work/status done-summary)})
+                       (cond-> {:machine-id machine-id
+                                :output     result
+                                :parent-id  parent-id
+                                :error?     error-leaf?
+                                :frame      frame-id
+                                ;; reply-envelope vocabulary (Managed-Effects §9)
+                                :rf.reply/status      (:status done-summary)
+                                :rf.reply/work-id     (:work/id done-summary)
+                                :rf.reply/work-status (:work/status done-summary)}
+                         ;; stale-suppression vocabulary (rf2-lohbfg) — carried
+                         ;; ADDITIVELY only for a stale late completion, joined
+                         ;; to `:work/id` via the shared `:rf.reply/*` facts.
+                         stale-spawn? (assoc :rf.reply/stale-reason (:stale/reason done-summary)
+                                             :rf.reply/correlation  (:correlation done-summary))))
         ;; (3) Apply :on-done to the parent's `:data`. The parent's
         ;; snapshot lives at [:rf.runtime/machines :snapshots <parent-id>]; we read it,
         ;; pass the unified context-map (`{:data :result}`) to
         ;; `:on-done`, and write the new `:data` back. Per Spec 005
         ;; §Final states / rf2-grw4i / rf2-v0rrr the callback receives
-        ;; one context-map arg and returns the new `:data` map. If the
-        ;; parent has no snapshot (spawned a child but was itself
-        ;; destroyed) or no `:on-done`, this reduces to identity. An ERROR
+        ;; one context-map arg and returns the new `:data` map. An ERROR
         ;; leaf routing to `:on-error` SKIPS `:on-done` — the two spawn hooks
         ;; are mutually exclusive per finish (error-leaf → transition,
         ;; success-leaf → `:data` callback).
+        ;;
+        ;; (rf2-lohbfg) When the parent was destroyed before the child
+        ;; finished (`stale-spawn?` — no live `parent-snap`), the completion
+        ;; is STALE: per Managed-Effects §Stale suppression the app target
+        ;; (the `:on-done` callback) MUST NOT run, and there is nothing to
+        ;; mutate. We suppress it explicitly here (rather than calling
+        ;; `on-done-fn` against a nil parent `:data` and discarding the
+        ;; result) so the suppression is a positive fact: the canonical
+        ;; `:status :stale` reply was emitted on the done trace above, and
+        ;; `runtime-db` rides through untouched.
         ;;
         ;; Per EP-0011 §Machine Completion the callback's `:result` is now
         ;; driven from the canonical reply's `:value` — the public callback
@@ -299,9 +366,8 @@
         ;; the one canonical reply map so the value the trace/ledger see and
         ;; the value the callback receives are the SAME fact.
         db-after-on-done
-        (if (and on-done-fn parent-id (not on-error?))
-          (let [parent-snap     (get-in runtime-db parent-path)
-                parent-data     (:data parent-snap)
+        (if (and on-done-fn parent-id (not on-error?) (not stale-spawn?))
+          (let [parent-data     (:data parent-snap)
                 new-parent-data (try
                                   (on-done-fn {:data parent-data :result (:value reply)})
                                   (catch #?(:clj Throwable :cljs :default) e

@@ -207,3 +207,121 @@
             (is (= :error (:rf.reply/status tags)))
             (is (= :failed (:rf.reply/work-status tags)))))
         (finally (trace/unregister-listener! ::done-err))))))
+
+;; ===========================================================================
+;; (3) spawn-stale — parent destroyed BEFORE the child finishes (rf2-lohbfg /
+;;     rf2-tkisxm). The PRODUCTION path (not the pure builder): a child reaches
+;;     its :final? leaf AFTER its spawning parent was already destroyed. The
+;;     :on-done callback MUST NOT run (no live parent to mutate), the ledger /
+;;     trace MUST classify the late completion :status :stale / :work/status
+;;     :suppressed via the shared substrate, and the carried/current generation
+;;     gate MUST ride the :rf.machine/done trace. This is the spawn-path
+;;     analogue of (1)'s :after epoch-mismatch production test.
+;; ===========================================================================
+
+(deftest spawn-stale-parent-destroyed-before-child-suppresses-with-reply-vocabulary
+  (testing "a child reaching :final? AFTER its parent was destroyed is STALE: :on-done does NOT run, and the :rf.machine/done trace carries :status :stale / :work/status :suppressed / :rf.machine/actor-not-live + the carried/current generation gate"
+    (let [traces (capture-traces ::spawn-stale)]
+      (try
+        ;; A child that does NOT auto-finish on spawn — it sits in :running
+        ;; until an explicit :finish, so we can destroy the parent while the
+        ;; child is genuinely mid-flight.
+        (rf/reg-machine :rl/schild
+          {:initial :running
+           :data    {}
+           :states  {:running {:on {:finish {:target :done
+                                             :action (fn [{data :data ev :event}]
+                                                       {:data (assoc data :token (second ev))})}}}
+                     :done    {:final? true :output-key :token}}})
+        ;; A parent that spawns the child on :go (declarative :spawn with an
+        ;; :on-done that WOULD set a sentinel) and destroys ITSELF
+        ;; imperatively on :drop. The imperative `[:rf.machine/destroy
+        ;; <parent>]` tears down only the parent (it runs the parent's active
+        ;; :exit actions + clears its snapshot); the independently-spawned
+        ;; child survives — exactly the parent-destroyed-before-child case.
+        (rf/reg-machine :rl/sparent
+          {:initial :idle
+           :data    {:token-from-child :untouched}
+           :states  {:idle {:on {:go :working}}
+                     :working
+                     {:on    {:drop {:action (fn [_]
+                                               {:fx [[:rf.machine/destroy :rl/sparent]]})}}
+                      :spawn {:machine-id :rl/schild
+                              :on-done    (fn [{data :data result :result}]
+                                            ;; If this EVER runs for the stale
+                                            ;; case the assertion below fails.
+                                            (assoc data :token-from-child result))}}}})
+        (rf/dispatch-sync [:rl/sparent [:go]])
+        ;; Child spawned as :rl/schild#1 under [:working], still mid-flight.
+        (is (some? (snapshot :rl/schild#1)) "child spawned and alive")
+        (is (= :running (:state (snapshot :rl/schild#1))) "child mid-flight")
+        ;; Destroy the parent BEFORE the child finishes.
+        (rf/dispatch-sync [:rl/sparent [:drop]])
+        (is (nil? (snapshot :rl/sparent)) "parent destroyed (snapshot gone)")
+        (is (some? (snapshot :rl/schild#1))
+            "child survives the parent's imperative destroy (independent actor)")
+        (reset! traces [])
+        ;; Now the child finishes — reaches :done (:final?). finalize-machine
+        ;; runs with on-done-fn + parent-id present, but parent-snap nil.
+        (rf/dispatch-sync [:rl/schild#1 [:finish :secret-token]])
+        ;; The child auto-destroyed on :final? (the late completion is still
+        ;; behaviourally safe — the actor tears down).
+        (is (nil? (snapshot :rl/schild#1)) "stale-completing child auto-destroyed")
+        ;; Conformance (2)/(5): the app target did NOT run + NO app mutation.
+        ;; The parent is gone, so there is nothing to mutate — and we never
+        ;; called :on-done. (Were :on-done to have run against a resurrected
+        ;; parent, this would surface; it does not run at all.)
+        (is (nil? (snapshot :rl/sparent))
+            ":on-done did NOT resurrect or mutate the destroyed parent")
+        ;; Conformance (2)/(4): the :rf.machine/done trace carries the
+        ;; canonical stale reply vocabulary via the shared substrate.
+        (let [done (->> @traces
+                        (filter #(= :rf.machine/done (:operation %)))
+                        first)]
+          (is (some? done) ":rf.machine/done trace fired for the stale completion")
+          (let [tags (:tags done)]
+            ;; public shape preserved
+            (is (= :rl/schild#1 (:machine-id tags)))
+            (is (false? (:error? tags)) "a plain final leaf is not an error leaf")
+            ;; reply-envelope vocabulary (Managed-Effects §9) — records STALE/suppressed
+            (is (= :stale (:rf.reply/status tags))
+                "the canonical :status :stale reply IS produced via the substrate")
+            (is (= :suppressed (:rf.reply/work-status tags))
+                "the ledger terminal for a stale late completion")
+            (is (= :rf.machine/actor-not-live (:rf.reply/stale-reason tags)))
+            (is (= [:rf.work/machine :rl/schild#1 [:working] 1]
+                   (:rf.reply/work-id tags))
+                "canonical machine work-id (carried generation 1 off #1)")
+            ;; the carried/current generation pair IS the supersession gate —
+            ;; carried (off the finishing actor's id) vs current (the live
+            ;; spawn-slot occupant, gone now the parent was destroyed → nil).
+            (let [corr (:rf.reply/correlation tags)]
+              (is (= 1 (-> corr :generation :carried))
+                  "carried generation parsed off :rl/schild#1")
+              (is (nil? (-> corr :generation :current))
+                  "current generation is nil — the spawn slot is gone (no live counterpart)")
+              (is (= :rl/schild#1 (:actor-id corr))))))
+        (finally (trace/unregister-listener! ::spawn-stale))))))
+
+(deftest spawn-live-parent-still-drives-on-done
+  (testing "behavioural parity: with the parent STILL alive, the child's completion is :ok and :on-done runs (the rf2-lohbfg stale detection did not perturb the live path)"
+    (rf/reg-machine :rl/schild-live
+      {:initial :running
+       :data    {}
+       :states  {:running {:on {:finish {:target :done
+                                         :action (fn [{data :data ev :event}]
+                                                   {:data (assoc data :token (second ev))})}}}
+                 :done    {:final? true :output-key :token}}})
+    (rf/reg-machine :rl/sparent-live
+      {:initial :idle
+       :data    {:token-from-child :untouched}
+       :states  {:idle {:on {:go :working}}
+                 :working
+                 {:spawn {:machine-id :rl/schild-live
+                          :on-done    (fn [{data :data result :result}]
+                                        (assoc data :token-from-child result))}}}})
+    (rf/dispatch-sync [:rl/sparent-live [:go]])
+    ;; Parent stays alive; the child finishes.
+    (rf/dispatch-sync [:rl/schild-live#1 [:finish :live-token]])
+    (is (= :live-token (get-in (snapshot :rl/sparent-live) [:data :token-from-child]))
+        "live parent: :on-done ran with the canonical reply's :value (not suppressed)")))
