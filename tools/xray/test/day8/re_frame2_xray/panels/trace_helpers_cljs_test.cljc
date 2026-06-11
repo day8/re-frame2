@@ -126,7 +126,7 @@
 ;; ---- (2) area-badge classification — spec/023 §3 / §5 ------------------
 
 (deftest area-classifies-the-full-vocabulary
-  (testing "the 12-area badge vocabulary (spec/023 §3)"
+  (testing "the area badge vocabulary (spec/023 §3)"
     (is (= :event    (h/area {:op-type :rf.event :operation :rf.event/dispatched})))
     (is (= :db       (h/area {:op-type :rf.event :operation :rf.event/db-changed})))
     (is (= :coeffect (h/area {:op-type :rf.event :operation :rf.cofx/run})))
@@ -136,9 +136,23 @@
     (is (= :view     (h/area {:op-type :rf.view :operation :rf.view/render})))
     (is (= :machine  (h/area {:op-type :rf.machine :operation :rf.machine/transition})))
     (is (= :routing  (h/area {:op-type :rf.event :operation :rf.route/activated})))
+    (is (= :resource (h/area {:op-type :rf.event :operation :rf.resource/succeeded})))
     (is (= :epoch    (h/area {:op-type :rf.epoch :operation :rf.epoch/snapshotted})))
     (is (= :error    (h/area {:op-type :error :operation :rf.error/x})))
     (is (= :warning  (h/area {:op-type :warning :operation :rf.warning/x}))))
+  (testing "resource ops are RESOURCE, not the generic EVENT they used to
+            fall through to (rf2-uqwbhr — :rf.resource/* emits at op-type
+            :rf.event but is discriminated by namespace)"
+    (is (= :resource (h/area {:op-type :rf.event :operation :rf.resource/registered})))
+    (is (= :resource (h/area {:op-type :rf.event :operation :rf.resource/cache-hit})))
+    (is (= :resource (h/area {:op-type :rf.event :operation :rf.resource/gc-fired})))
+    (is (= :resource (h/area {:op-type :rf.event :operation :rf.resource/restored})))
+    ;; the :warning-level clock-skew rows are cross-cutting WARNING, not a
+    ;; positive RESOURCE row (severity wins — spec/023 §7)
+    (is (= :warning  (h/area {:op-type :warning :operation :rf.resource/hydrate-clock-skew})))
+    (is (= :warning  (h/area {:op-type :warning :operation :rf.resource/restore-clock-skew})))
+    ;; namespace fallback when :op-type isn't stamped
+    (is (= :resource (h/area {:operation :rf.resource/owner-attached}))))
   (testing "namespace fallback when :op-type isn't stamped"
     (is (= :epoch (h/area {:operation :rf.epoch/outcome})))
     (is (= :routing (h/area {:operation :rf.route/deactivated})))
@@ -152,6 +166,7 @@
   (is (= "FX" (h/area-badge {:op-type :rf.fx :operation :rf.fx/handled})))
   (is (= "SUB" (h/area-badge {:op-type :rf.sub :operation :rf.sub/run})))
   (is (= "MACHINE" (h/area-badge {:op-type :rf.machine :operation :rf.machine/transition})))
+  (is (= "RESOURCE" (h/area-badge {:op-type :rf.event :operation :rf.resource/succeeded})))
   (is (= "ERROR" (h/area-badge {:op-type :error :operation :rf.error/x}))))
 
 (deftest project-row-carries-area-badge
@@ -174,9 +189,10 @@
     (is (= :event-handling (h/phase {:op-type :rf.event :operation :rf.flow/computed})))
     (is (= :event-handling (h/phase {:op-type :rf.event :operation :rf.event/db-changed})))
     (is (= :event-handling (h/phase {:op-type :rf.machine :operation :rf.machine/transition}))))
-  (testing "③ EFFECTS / FX — fx + routing nav"
+  (testing "③ EFFECTS / FX — fx + routing nav + resource lifecycle"
     (is (= :effects (h/phase {:op-type :rf.fx :operation :rf.fx/handled})))
-    (is (= :effects (h/phase {:op-type :rf.event :operation :rf.route/activated}))))
+    (is (= :effects (h/phase {:op-type :rf.event :operation :rf.route/activated})))
+    (is (= :effects (h/phase {:op-type :rf.event :operation :rf.resource/work-started}))))
   (testing "④ REACTIVE RENDERING — subs + views"
     (is (= :reactive (h/phase {:op-type :rf.sub :operation :rf.sub/run})))
     (is (= :reactive (h/phase {:op-type :rf.view :operation :rf.view/render})))))
@@ -237,6 +253,18 @@
            (h/target-detail (ev {:id 1 :op-type :rf.event :operation :rf.flow/computed
                                  :tags {:rf.flow/id :totals
                                         :rf.flow/path [:totals]}})))))
+  (testing "resource → resource-id (off the scoped key) + gen (rf2-uqwbhr)"
+    ;; lifecycle rows carry the [scope resource-id params] scoped key
+    (is (= ":article/by-slug  gen 3"
+           (h/target-detail (ev {:id 1 :op-type :rf.event
+                                 :operation :rf.resource/succeeded
+                                 :tags {:resource-key [:rf.scope/global :article/by-slug {:slug "x"}]
+                                        :generation 3}}))))
+    ;; registered carries the bare :resource-id (no scoped key yet)
+    (is (= ":article/by-slug"
+           (h/target-detail (ev {:id 1 :op-type :rf.event
+                                 :operation :rf.resource/registered
+                                 :tags {:resource-id :article/by-slug}})))))
   (testing "an op with no recognised subject → nil (view renders em-dash)"
     (is (nil? (h/target-detail (ev {:id 1 :op-type :rf.event
                                     :operation :rf.event/run-end :tags {}}))))))
@@ -272,6 +300,8 @@
   (is (= :dispatch (h/op-family {:op-type :rf.event :operation :rf.event/dispatched})))
   (is (= :db (h/op-family {:op-type :rf.event :operation :rf.event/db-changed})))
   (is (= :fx (h/op-family {:op-type :rf.fx :operation :rf.fx/handled})))
+  ;; resource lifecycle rides the effect-side :fx band (like routing)
+  (is (= :fx (h/op-family {:op-type :rf.event :operation :rf.resource/work-started})))
   (is (= :reactive (h/op-family {:op-type :rf.sub :operation :rf.sub/run})))
   (is (= :reactive (h/op-family {:op-type :rf.view :operation :rf.view/render})))
   (is (= :machine (h/op-family {:op-type :rf.machine :operation :rf.machine/transition})))
@@ -331,6 +361,8 @@
         "the :db commit is a SIDE EFFECT (the Epoch SIDE-EFFECTS :db sub-step)")
     (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.fx :operation :rf.fx/handled})))
     (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.event :operation :rf.route/activated})))
+    (is (= :SIDE-EFFECTS (h/stage {:op-type :rf.event :operation :rf.resource/work-started}))
+        "resource lifecycle is effect-side — SIDE-EFFECTS (rf2-uqwbhr)")
     (is (= :SUBSCRIPTIONS (h/stage {:op-type :rf.sub :operation :rf.sub/run})))
     (is (= :VIEWS (h/stage {:op-type :rf.view :operation :rf.view/render})))
     (is (= :DISPATCH (h/stage {:op-type :rf.epoch :operation :rf.epoch/snapshotted}))

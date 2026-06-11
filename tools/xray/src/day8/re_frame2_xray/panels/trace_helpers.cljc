@@ -82,7 +82,15 @@
 
   Returns one of:
     :event :coeffect :db :fx :flow :sub :view :machine :routing
-    :epoch :error :warning"
+    :resource :epoch :error :warning
+
+  The resource trace family (`:rf.resource/*`) is emitted at op-type
+  `:rf.event` (the resource runtime rides the event/effect path), so its
+  rows are discriminated by NAMESPACE before the generic `:rf.event`
+  op-type fallthrough — a registered/succeeded/gc-fired row reads as
+  RESOURCE, not a bare EVENT. Severity is cross-cutting: the
+  `:warning`-level `:rf.resource/hydrate-clock-skew` /
+  `:rf.resource/restore-clock-skew` rows classify as WARNING (above)."
   [{:keys [op-type operation] :as _row-or-ev}]
   (let [op-ns (when (keyword? operation) (namespace operation))]
     (cond
@@ -93,6 +101,7 @@
       (= op-ns "rf.cofx")                :coeffect
       (= op-ns "rf.flow")                :flow
       (= op-ns "rf.route")               :routing
+      (= op-ns "rf.resource")            :resource
       (= op-type :rf.event)              :event
       (= op-type :rf.fx)                 :fx
       (= op-type :rf.sub)                :sub
@@ -120,6 +129,7 @@
    :view     "VIEW"
    :machine  "MACHINE"
    :routing  "ROUTING"
+   :resource "RESOURCE"
    :epoch    "EPOCH"
    :error    "ERROR"
    :warning  "WARNING"})
@@ -178,6 +188,7 @@
       :view     :reactive
       :fx       :effects
       :routing  :effects
+      :resource :effects
       :machine  :event-handling
       :event    (if (= operation :rf.event/dispatched)
                   :dispatch
@@ -227,14 +238,14 @@
 
 ;; ---- op-family classification (left-border band — retained) -------------
 ;;
-;; The op-FAMILY (a coarser 5-bucket grouping than the 12-area badge) is
+;; The op-FAMILY (a coarser 5-bucket grouping than the area badge) is
 ;; retained for the 3px op-family left-border band the view paints on
 ;; each row and for the per-band rail colour. Five families plus the two
 ;; severity tiers:
 ;;
 ;;     :dispatch  — the event side (dispatched / run-start / run-end)
 ;;     :db        — :rf.event/db-changed
-;;     :fx        — the effect side (:rf.fx/* · :rf.route/*)
+;;     :fx        — the effect side (:rf.fx/* · :rf.route/* · :rf.resource/*)
 ;;     :reactive  — subs + views (:rf.sub/* · :rf.view/*)
 ;;     :machine   — :rf.machine/*
 ;;
@@ -257,6 +268,7 @@
       :epoch    :dispatch
       :fx       :fx
       :routing  :fx
+      :resource :fx
       :flow     :db
       :sub      :reactive
       :view     :reactive
@@ -329,7 +341,7 @@
 ;; never a parallel palette.
 ;;
 ;; Mapping a trace op to its Epoch stage is a coarse projection of the
-;; 12-area badge onto the 7 Epoch steps:
+;; area badge onto the 7 Epoch steps:
 ;;
 ;;   :event (dispatched)         → :DISPATCH       (the trigger)
 ;;   :event (run-start/run-end)  → :HANDLER        (the handler body ran)
@@ -340,6 +352,9 @@
 ;;                                                  SIDE EFFECTS :db sub-step)
 ;;   :fx                         → :SIDE-EFFECTS   (effect execution)
 ;;   :routing                    → :SIDE-EFFECTS   (routing nav effect)
+;;   :resource                   → :SIDE-EFFECTS   (resource fetch/work/gc
+;;                                                  lifecycle — effect-side,
+;;                                                  like :routing)
 ;;   :sub                        → :SUBSCRIPTIONS  (the reactive recompute)
 ;;   :view                       → :VIEWS          (the reactive render)
 ;;   :epoch                      → :DISPATCH       (envelope lifecycle —
@@ -365,6 +380,7 @@
    :db       :SIDE-EFFECTS
    :fx       :SIDE-EFFECTS
    :routing  :SIDE-EFFECTS
+   :resource :SIDE-EFFECTS
    :sub      :SUBSCRIPTIONS
    :view     :VIEWS
    :epoch    :DISPATCH})
@@ -511,6 +527,9 @@
     :machine  → `machine-id from → to`
     :coeffect → `cofx-id → value`
     :routing  → route-id / fragment
+    :resource → resource-id (the `[scope resource-id params]` scoped key's
+                middle segment, falling back to the bare `:resource-id`
+                tag), optionally with the `gen N` generation
     :epoch    → epoch id · event · frame / outcome
 
   Falls back to nil for an op with no recognised subject so the view
@@ -579,6 +598,19 @@
       :routing
       (or (some-> (or (:rf.route/id tags) (:route-id tags)) str)
           (some-> (:rf.route/fragment tags) str))
+
+      :resource
+      ;; the scoped resource key is `[scope resource-id params]`; surface
+      ;; the resource-id (its identity) + the generation when present.
+      ;; `:resource-id` is carried bare by `:rf.resource/registered`;
+      ;; the lifecycle rows carry the `:resource-key` whose 2nd element
+      ;; is the resource-id.
+      (let [rk  (:resource-key tags)
+            rid (or (:resource-id tags)
+                    (when (and (vector? rk) (>= (count rk) 2)) (nth rk 1)))
+            gen (:generation tags)]
+        (when rid
+          (str rid (when gen (str "  gen " gen)))))
 
       :epoch
       (or (some-> (or (:rf.epoch/outcome tags) (:outcome tags)) str)

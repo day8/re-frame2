@@ -87,6 +87,62 @@
     (is (= :dedupe (h/op-class :rf.resource/deduped)))
     (is (= :hydration (h/op-class :rf.resource/hydrated)))
     (is (= "fetch started" (h/op-label :rf.resource/fetch-started))))
+  (testing "the SSR / route / revalidate ops the runtime also emits are
+            enumerated (rf2-uqwbhr — align the enum with the emitted set)"
+    (is (= :lifecycle (h/op-class :rf.resource/revalidate-scan)))
+    (is (= :lifecycle (h/op-class :rf.resource/route-plan)))
+    (is (= :hydration (h/op-class :rf.resource/hydrate-clock-skew)))
+    (is (= :hydration (h/op-class :rf.resource/restored)))
+    (is (= :hydration (h/op-class :rf.resource/restore-clock-skew)))
+    (is (= "revalidate scan" (h/op-label :rf.resource/revalidate-scan)))
+    (is (= "restored"        (h/op-label :rf.resource/restored))))
+  (testing "the closed enum matches the runtime-emitted set EXACTLY — no
+            extra (e.g. the never-emitted `:rf.resource/ensure` event-id or
+            the folded `work-suppressed`) and none missing (rf2-uqwbhr)"
+    (let [enumerated (set (keys h/trace-ops))
+          ;; the authoritative runtime-emitted `:rf.resource/*` operation
+          ;; set, cross-checked against implementation/resources/ emit sites
+          ;; + Spec 009 §Where trace emission lives.
+          emitted    #{:rf.resource/registered
+                       :rf.resource/owner-attached
+                       :rf.resource/cache-hit
+                       :rf.resource/deduped
+                       :rf.resource/fetch-started
+                       :rf.resource/work-started
+                       :rf.resource/work-abort-requested
+                       :rf.resource/work-completed
+                       :rf.resource/succeeded
+                       :rf.resource/failed
+                       :rf.resource/refresh-failed
+                       :rf.resource/invalidated
+                       :rf.resource/refetch-decision
+                       :rf.resource/revalidate-scan
+                       :rf.resource/route-plan
+                       :rf.resource/owner-released
+                       :rf.resource/stale-scheduled
+                       :rf.resource/stale-fired
+                       :rf.resource/gc-scheduled
+                       :rf.resource/gc-fired
+                       :rf.resource/gc-skipped
+                       :rf.resource/removed
+                       :rf.resource/stale-suppressed
+                       :rf.resource/hydrated
+                       :rf.resource/hydrate-refetch
+                       :rf.resource/hydrate-clock-skew
+                       :rf.resource/restored
+                       :rf.resource/restore-clock-skew}]
+      (is (= emitted enumerated)
+          "trace-ops enum is exactly the runtime-emitted op set")
+      (is (not (contains? enumerated :rf.resource/ensure))
+          ":rf.resource/ensure is a dispatched event-id, NOT a trace op")
+      (is (not (contains? enumerated :rf.resource/work-suppressed))
+          ":rf.resource/work-suppressed was folded into stale-suppressed")))
+  (testing "a dispatched resource EVENT-ID is still recognised as an
+            in-namespace family member for colouring (the namespace fallback),
+            but is NOT a member of the closed enum"
+    (is (h/resource-trace-op? :rf.resource/ensure))
+    (is (not (contains? (set (keys h/trace-ops)) :rf.resource/ensure)))
+    (is (= :lifecycle (h/op-class :rf.resource/ensure))))
   (testing "an in-namespace op not yet enumerated is still a family member"
     (is (h/resource-trace-op? :rf.resource/some-future-op))
     (is (= :lifecycle (h/op-class :rf.resource/some-future-op)))
