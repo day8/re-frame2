@@ -66,6 +66,7 @@
    [re-frame.http-machine-wrapper :as http-wrapper]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
+   [re-frame.trace.tooling :as trace-tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
@@ -277,3 +278,81 @@
     (is (= "https://api.example.com/api/articles/w"
            (get-in @last-decorated [:request :url]))
         "the resource read's url carries the base-URL prefix")))
+
+;; ===========================================================================
+;; 6. The decorated bearer-token VALUE does NOT leak into any trace row
+;;    (Spec 016 §Security, Privacy, And Observability — the adversarial
+;;    complement of validation rule 13; rf2-9htz7c)
+;; ===========================================================================
+;;
+;; §Security: "Request decoration must not leak sensitive header values into
+;; trace rows. Traces should report that an auth interceptor applied, not the
+;; bearer token itself." The contract is structural: the resource / mutation
+;; runtime lowers the DOMAIN request (pre-decoration) into the trace stream;
+;; the header is stamped LATER, inside the managed-HTTP `:before` chain (the
+;; transport seam) — runtime-owned addressing, not a trace facet. The positive
+;; tests above prove the header IS stamped onto the lowered `:rf.http/managed`
+;; request; THIS test is the adversarial complement: it records the full
+;; `:rf.resource/*` + `:rf.mutation/*` lifecycle trace stream across a decorated
+;; read AND a decorated mutation and asserts the bearer-token VALUE never
+;; appears in ANY emitted trace row's serialized form. A regression that started
+;; echoing the post-`:before` decorated request (Authorization header and all)
+;; into a trace facet would pass every existing decoration test silently — this
+;; pins the §Security non-leak against exactly that.
+
+(defn- record-resource+mutation-traces!
+  "Run `body-fn`; return the vector of every `:rf.resource/*` / `:rf.mutation/*`
+  trace row emitted during it (the lifecycle + lower-fx + settlement ops the
+  privacy-leak clause governs)."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::leak-recorder
+        resource-or-mutation-op?
+        (fn [op]
+          (when (keyword? op)
+            (let [ns* (namespace op)]
+              (contains? #{"rf.resource" "rf.resource.internal"
+                           "rf.mutation" "rf.mutation.internal"}
+                         ns*))))]
+    (trace-tooling/register-listener!
+      k (fn [ev] (when (resource-or-mutation-op? (:operation ev)) (swap! seen conj ev))))
+    (try (body-fn) (finally (trace-tooling/unregister-listener! k)))
+    @seen))
+
+(deftest decorated-bearer-token-does-not-leak-into-trace-rows
+  (let [token "abc123"]
+    (seed-token! token)
+    (reg-auth-interceptor!)
+    (rf/reg-resource :rl/article (article-spec))
+    (rf/reg-mutation :ml/save (save-spec))
+    (let [rows (record-resource+mutation-traces!
+                 (fn []
+                   ;; a decorated READ — lower + settle
+                   (rf/dispatch-sync [:rf.resource/ensure
+                                      {:resource :rl/article :scope :rf.scope/global
+                                       :params {:slug "w"} :owner [:lease :rl 1]}])
+                   (reply-success! :on-success {:title "Welcome"})
+                   ;; a decorated MUTATION — lower + settle
+                   (rf/dispatch-sync [:rf.mutation/execute
+                                      {:mutation :ml/save :params {:slug "w"}
+                                       :instance :ml/save-1}])
+                   (reply-success! :on-success {:slug "w"})))]
+      (testing "the test actually exercised the decorated lifecycle (the
+                interceptor DID stamp the header on the lowered request — so
+                the token genuinely entered the seam this trace stream watches)"
+        (is (= (str "Token " token) (auth-header))
+            "the decoration applied (precondition for a meaningful leak check)")
+        (is (seq rows) "resource + mutation lifecycle trace rows were captured"))
+      (testing "Spec 016 §Security — the bearer-token VALUE appears in NO
+                emitted resource/mutation trace row (the decorated request,
+                Authorization header and all, is never echoed into a trace
+                facet; traces carry the DOMAIN request pre-decoration only)"
+        (let [offenders (filterv (fn [ev] (re-find (re-pattern token) (pr-str ev))) rows)]
+          (is (empty? offenders)
+              (str "the bearer token '" token "' leaked into " (count offenders)
+                   " trace row(s); §Security prohibits sensitive header values "
+                   "in trace rows"))))
+      (testing "and the literal Authorization-header SPELLING (the stamped
+                facet) is likewise absent from every trace row"
+        (is (empty? (filterv (fn [ev] (re-find #"Authorization" (pr-str ev))) rows))
+            "no trace row carries the stamped Authorization header")))))

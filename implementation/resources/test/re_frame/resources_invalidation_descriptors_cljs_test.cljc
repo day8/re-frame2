@@ -46,6 +46,7 @@
    [re-frame.http-managed]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
+   [re-frame.error-emit :as error-emit]
    [re-frame.trace.tooling :as trace-tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
@@ -401,6 +402,131 @@
                (set (map :scope (:dispatched inv))))
             "the global descriptor + the {:from-db}-resolved session scope")
         (is (empty? (:unresolved inv)))))))
+
+;; ---- rf2-700p0r: a typo'd CONCRETE literal scope in an :invalidates --------
+;; DESCRIPTOR fails closed at settle through the SAME canonicalize-scope path.
+;; The reserved-scope-typo rejection is covered elsewhere via OTHER surfaces
+;; (the scope-resolver path: scope_registry/resolved-scope-routes-through-
+;; canonicalization; the :patches/:populates target-map path:
+;; mutation/validate-target-key-rejects-reserved-scope-typo). This pins it
+;; through the :invalidates DESCRIPTOR wiring specifically — a regression that
+;; bypassed canonicalize-scope HERE would turn a typo into a silent wrong /
+;; no-op cache-scope invalidation, the exact fail-closed promise the EP makes.
+
+(defn- record-surfaced-errors!
+  "Run `body-fn`; return the vector of always-on error-emit records surfaced
+  during it (the production-survivable error stream the dispatched settle-time
+  throw fans out through, carrying the underlying ex-info as `:exception`)."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::err-recorder]
+    (error-emit/register-error-listener! k (fn [rec] (swap! seen conj rec)))
+    (try (body-fn) (finally (error-emit/unregister-error-listener! k)))
+    @seen))
+
+(defn- error-id-of
+  "The `:rf.error/id` an error-emit record carries — either directly on the
+  record's `:error` (a typed category record) or on the underlying
+  `:exception`'s ex-data (a dispatched handler throw wrapping the boundary
+  ex-info)."
+  [rec]
+  (or (some-> rec :exception ex-data :rf.error/id)
+      (:error rec)))
+
+(deftest descriptor-typo-concrete-scope-fails-closed-at-settle
+  ;; A mutation :invalidates DESCRIPTOR carrying a typo'd CONCRETE reserved
+  ;; scope (:rf.scope/glabal) is resolved at settle time through
+  ;; resolve-descriptor-scope -> state/canonicalize-scope — the SAME
+  ;; typo-rejecting path. It fails closed LOUD (no silent wrong-scope blast).
+  (reg-article-resource!)
+  (rf/reg-mutation :m/save
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+     ;; the descriptor's CONCRETE :scope is a reserved-namespace typo
+     :invalidates (fn [{:keys [slug]} _result]
+                    [{:scope :rf.scope/glabal :tags #{[:article slug]}}])})
+  ;; an ownerless GLOBAL article entry exists; a regression that dropped
+  ;; canonicalization (resolving the typo to itself, or blasting global) would
+  ;; be observable as this entry wrongly marked stale.
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
+                                          :params {:slug "w"} :owner [:v :a]}])
+  (reply-success! @last-managed-args {:title "old"})
+  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
+                                                 :params {:slug "w"} :owner [:v :a]}])
+  (reset! last-managed-args nil)
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ty1}])
+  (let [errs (record-surfaced-errors! #(reply-success! @last-managed-args {:title "new"}))]
+    (testing "the typo'd descriptor scope failed closed at settle through the
+              shared canonicalize-scope path — surfaced as
+              :rf.error/resource-invalid-scope (never a silent wrong cache
+              scope)"
+      (is (some (fn [rec] (= :rf.error/resource-invalid-scope (error-id-of rec))) errs)
+          ":rf.error/resource-invalid-scope was surfaced at the resolution boundary"))
+    (testing "FAIL-CLOSED — no entry was blasted: the global article was NOT
+              marked stale by the typo'd descriptor (the invalidation never
+              dispatched)"
+      (is (nil? (:invalidated-at (entry global-key)))))))
+
+;; ---- rf2-kjpq3f: :cross-scope? true on an :invalidates DESCRIPTOR settles --
+;; end-to-end (the scope-agnostic fan-out reaches entries in MULTIPLE scopes,
+;; and the mutation-supplied [:mutation …] cause satisfies the cause-required
+;; gate). The cross-scope cause-required REJECTION is covered on the raw
+;; :rf.resource/invalidate-tags event (invalidation_gc/invalidate-tags-cross-
+;; scope-*); the descriptor path was covered ONLY by the pure normalize
+;; round-trip (normalize-lowers-the-public-forms), which proves the flag is
+;; carried but does NOT settle a mutation, prove the fan-out, or pin the
+;; [:mutation …] cause wiring. This is the end-to-end pin.
+
+(deftest descriptor-cross-scope-fans-out-and-supplies-mutation-cause-at-settle
+  ;; a FROM-CALLER article so the two entries can live under two concrete
+  ;; (distinct) scopes; a :rf.scope/global-policy resource could not.
+  (rf/reg-resource :rx/article
+    {:scope :rf.scope/from-caller
+     :params-schema [:map [:slug :string]]
+     :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
+     :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+  ;; two same-tag article entries in DIFFERENT scopes, both ownerless +
+  ;; stale-observable. A scoped (non-cross-scope) invalidation would reach at
+  ;; most one; only the scope-agnostic fan-out reaches BOTH.
+  (let [sa {:user "amy"}
+        sb {:user "bo"}
+        ka (state/scoped-resource-key sa :rx/article {:slug "w"})
+        kb (state/scoped-resource-key sb :rx/article {:slug "w"})]
+    (ownerless-stale-load! {:resource :rx/article :scope sa :params {:slug "w"} :owner [:v :a]})
+    (ownerless-stale-load! {:resource :rx/article :scope sb :params {:slug "w"} :owner [:v :b]})
+    (rf/reg-mutation :m/purge
+      {:scope :rf.scope/global
+       :params-schema [:map [:slug :string]]
+       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+       ;; a :cross-scope? true descriptor with NO explicit :cause — the
+       ;; mutation runtime supplies the [:mutation <id> <instance>] cause by
+       ;; construction, satisfying the rf2-7r8kgd cause-required gate.
+       :invalidates (fn [{:keys [slug]} _result]
+                      [{:tags #{[:article slug]} :cross-scope? true}])})
+    (let [seen (atom [])
+          k    ::succeeded-recorder]
+      (trace-tooling/register-listener!
+        k (fn [ev] (when (= :rf.mutation/succeeded (:operation ev)) (swap! seen conj ev))))
+      (try
+        (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/purge :params {:slug "w"} :instance :x1}])
+        (reply-success! @last-managed-args {:purged true})
+        (finally (trace-tooling/unregister-listener! k)))
+      (testing "the scope-agnostic fan-out reached the same tag in BOTH scopes
+                (a scoped descriptor would have reached at most one)"
+        (is (some? (:invalidated-at (entry ka))) "amy's session entry marked stale")
+        (is (some? (:invalidated-at (entry kb))) "bo's session entry marked stale"))
+      (testing "the settlement :invalidation trace facet records the
+                cross-scope dispatch as the audited escape (the :cross-scope?
+                flag rides the dispatched descriptor evidence)"
+        (let [inv (:invalidation (:tags (first @seen)))]
+          (is (= 1 (:descriptor-count inv)))
+          (is (= 1 (count (:dispatched inv))))
+          (let [d (first (:dispatched inv))]
+            (is (true? (:cross-scope? d)) "the descriptor is recorded cross-scope")
+            (is (nil? (:scope d)) "a cross-scope dispatch is scope-agnostic (no concrete scope)")
+            (is (= #{[:article "w"]} (set (:tags d)))))
+          (is (empty? (:unresolved inv)) "no unresolved descriptor"))))))
 
 ;; ===========================================================================
 ;; 7. :rf.scope/same is the default when a descriptor omits :scope
