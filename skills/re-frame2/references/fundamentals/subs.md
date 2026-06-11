@@ -2,7 +2,7 @@
 
 ## When to load
 
-Authoring `reg-sub`: a layer-1 reader of `app-db`, a layer-2/3 derived sub composed from other subs, or a multi-input signal sub.
+Authoring `reg-sub`: a layer-1 reader of `app-db`, a layer-2/3 derived sub composed from other subs (static `:<-` inputs), or a parametric sub whose inputs depend on the query vector (the EP-0004 input fn — the v2 replacement for the v1 "signal fn").
 
 ## Canonical signature
 
@@ -22,11 +22,18 @@ Authoring `reg-sub`: a layer-1 reader of `app-db`, a layer-2/3 derived sub compo
   :<- [:b]
   (fn [[a b] query-v] ...))
 
+;; Layer 2/3: parametric input fn (EP-0004) — inputs depend on the query vector
+(rf/reg-sub :id
+  (fn [[_ arg]] [[:other arg] [:another]])   ;; input fn: query-v -> VECTOR OF QUERY VECTORS
+  (fn [[other another] query-v] ...))         ;; compute fn: resolved-input VECTOR + query-v
+
 ;; Optional metadata as first positional arg
 (rf/reg-sub :id {:doc "..." :schema ...} <chain> handler)
 ```
 
 Verified in `implementation/core/src/re_frame/subs.cljc` (the `reg-sub` fn and the `parse-reg-sub-args` helper). There is **one** registration form in v2 — `reg-sub-raw` is removed.
+
+**The parametric input fn (EP-0004) is the v2 replacement for v1's "signal fn".** When the inputs depend on the query vector (e.g. an entity id rides in `[:my-sub id]`), prefer `:<-` only for *static* inputs; for query-dependent inputs supply a two-arg `reg-sub` whose **first fn is an input fn** taking the query vector and returning a **vector of query vectors** (plain data — `[[:other arg] [:another]]`). The runtime resolves each in the **outer sub's frame** and hands the compute fn the resolved values, in the same order, as a vector. Three breaks from the v1 signal fn: the input fn (a) takes **only** the query vector (no second arg); (b) returns **query vectors, not** `rf/subscribe` reactions; (c) the compute fn destructures the **input vector** (`[[other another] _]`), not scalars. A v1 signal fn that returns live reactions registers cleanly but throws `:rf.error/sub-input-fn-bad-return` at first materialization.
 
 Lookup is via `rf/subscribe`:
 

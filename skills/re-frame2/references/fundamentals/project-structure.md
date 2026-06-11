@@ -160,14 +160,17 @@ helpers stay private.
 
 ## Per-frame organisation (multi-frame apps)
 
-Most apps use one frame (`:rf/default`). Apps with several frames
-(server-render per request, stories shell, embedded widget) name each
-frame and configure it in `core`. Per-frame configuration —
-`:fx-overrides`, `:on-create`, request interceptors — goes through
-`reg-frame` calls at the bottom of `core.cljs`
-(`realworld/core.cljs:298-306`). Feature files do not configure
-frames; they assume `:rf/default` and let the entry ns reroute via
-overrides.
+Most apps run a single frame — but it is an **explicitly registered,
+descriptively-named** one (e.g. `:app/main`); there is no ambient default
+(EP-0002 — `:rf/default` is an ordinary id with no privilege, never inferred
+from a missing frame, and is only worth picking for a tiny app or a v1
+migration). Apps with several frames (server-render per request, stories
+shell, embedded widget) name each frame and configure it in `core`. Per-frame
+configuration — `:fx-overrides`, `:on-create`, request interceptors — goes
+through `reg-frame` calls at the bottom of `core.cljs`
+(`realworld/core.cljs:298-306`). Feature files do not configure frames; they
+register events/subs against no particular frame and let the entry ns own the
+frame wiring, talking to a frame only through `dispatch` / `subscribe`.
 
 If a per-frame concern is large enough to warrant its own file (e.g. a
 "per-request server frame" helper), put it next to `core` —

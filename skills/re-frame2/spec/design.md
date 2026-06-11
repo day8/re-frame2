@@ -49,7 +49,7 @@ The macros capture source-coords that Xray and re-frame2-pair rely on. Functiona
 
 ### L8 — Frames before globals
 
-Code talks to a frame. Default is `:rf/default`; multi-frame apps pass `{:frame :stories}`. Recipes never import frame internals, never bypass `dispatch` / `subscribe` to mutate state.
+Code talks to a frame — an explicitly registered, descriptively-named one (EP-0002 — no ambient `:rf/default`; the frame is carried, never inferred); multi-frame apps pass `{:frame :stories}`. Recipes never import frame internals, never bypass `dispatch` / `subscribe` to mutate state.
 
 ### L9 — Schemas at boundaries, not everywhere
 

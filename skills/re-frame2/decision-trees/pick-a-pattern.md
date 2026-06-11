@@ -14,6 +14,7 @@ Read the prompt for **one** of the following shape-tells. They are mutually excl
 | Shape-tell in the prompt | Primary pattern |
 |---|---|
 | "Fetch / GET / load / refresh / reload" — a request whose response writes to `app-db` | RemoteData |
+| "Query cache / server-state / TanStack-Query / React-Query / SWR / shared cached read / invalidate after a write / refetch on focus / `reg-resource`" | Resources |
 | "Submit / save / form / validation / required / draft / dirty" — user-edited input crossing a server boundary | Forms |
 | "Boot / init / hydrate / startup / first-load / splash" — the initial-load sequence before the app is interactive | Boot |
 | "WebSocket / SSE / EventSource / live / push / subscribe / channel / heartbeat / reconnect" — long-lived connection | WebSocket |
@@ -21,7 +22,7 @@ Read the prompt for **one** of the following shape-tells. They are mutually excl
 | "Empty state / no-results / one-result / too-many / not-found / forbidden / nine UI states" — render every legal lifecycle distinctly | NineStates |
 | "Fire-and-forget / log / analytics / telemetry / external side-effect with no observable reply" | AsyncEffect |
 | "CPU-bound / heavy / parses / hashes / pegs the main thread / chunked / yields / progress bar" | LongRunningWork |
-| "Cache / freshness / TTL / since / etag / `stale-after-ms` / async-result arrives after state moved on" | StaleDetection |
+| "Async-result arrives after state moved on / ignore stale results / don't apply old data after navigating away" | StaleDetection |
 | "Reusable / parameterised widget / customer-card / renders N of the same / works against any X / compare two side by side" | ReusableComponents |
 | "Wrap a JS library / D3 / Mapbox / CodeMirror / Three.js / ag-grid / chart / map / editor / `:ref` + lifecycle / `.setData`" | StatefulComponents |
 | "SSR form POST / progressive enhancement / works without JavaScript / server `action` / POST-redirect-GET / CSRF on submit" | FormAction |
@@ -41,6 +42,15 @@ Both move data over HTTP. The difference is **who owns the lifecycle vocabulary*
 - **ManagedHTTP** — the `:rf.http/managed` fx is the protagonist. The feature wants retry-with-backoff, the eight-category failure taxonomy, abort tokens, in-flight de-dup, the encode/decode pipeline. Choose ManagedHTTP when the *fx contract* (its inputs, its replies, its retry policy) is the thing.
 
 If both, **load RemoteData first, ManagedHTTP second** — RemoteData owns the slice; ManagedHTTP plugs into it. The escape hatch into a state-machine-driven HTTP flow (semantic retries that aren't transport-retries) is documented inside the ManagedHTTP leaf.
+
+### Resources vs RemoteData
+
+Both model "the result of a fetch". The difference is **who owns the cache bookkeeping**.
+
+- **RemoteData** — you hand-roll the slice (or machine region): the 5-key shape, the four-event lifecycle, any TTL/refetch/invalidation logic. Choose it for a **one-off fetch** with no sharing and no cross-read invalidation story, or when the optional `day8/re-frame2-resources` artefact is not on the classpath.
+- **Resources** — the framework owns identity, **cache scope** (fail-closed tenant/user boundary), **staleness/TTL**, dedupe, **tag invalidation** (so a write refreshes related reads), GC, in-flight ownership, route-declared loading, and SSR preload. Choose it when the same fetch is **shared across views**, needs freshness/fresh-skip, must be **invalidated after a mutation**, or wants auditable scoping. It is the TanStack-Query-shaped layer; it lowers onto the same managed HTTP underneath.
+
+Rule of thumb: a single feature's private fetch → RemoteData; a server-state cache several features read and a write must invalidate → Resources.
 
 ### Forms vs RemoteData
 
@@ -113,6 +123,7 @@ If the example contradicts the leaf, **the example wins** — re-frame2's cardin
 | Primary pattern | Leaf to load | Worked example |
 |---|---|---|
 | RemoteData | [`patterns/remote-data.md`](../patterns/remote-data.md) | (inline mini-example) |
+| Resources | [`patterns/resources.md`](../patterns/resources.md) | (inline mini-example) |
 | Forms | [`patterns/forms.md`](../patterns/forms.md) | `examples/reagent/login/` |
 | Boot | [`patterns/boot.md`](../patterns/boot.md) | `examples/reagent/boot/` |
 | WebSocket | [`patterns/websocket.md`](../patterns/websocket.md) | `examples/reagent/websocket/` |

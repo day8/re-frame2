@@ -76,6 +76,7 @@ Audience: `[impl]` (primary), `[app]` (deep-dive lookups). Read EPs in numeric o
 - **EP — Routing (012)** → https://day8.github.io/re-frame2/spec/012-Routing/ `[app]` `[impl]`
 - **EP — Flows (013)** → https://day8.github.io/re-frame2/spec/013-Flows/ `[app]` `[impl]`
 - **EP — HTTP requests (014)** → https://day8.github.io/re-frame2/spec/014-HTTPRequests/ `[app]` `[impl]`
+- **EP — Resources (016)** → https://day8.github.io/re-frame2/spec/016-Resources/ `[app]` `[impl]`
 
 ### Contract & cross-cutting normative docs
 

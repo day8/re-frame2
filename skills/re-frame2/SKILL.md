@@ -4,15 +4,17 @@ description: >
   Writes re-frame2 ClojureScript application code — events, subscriptions,
   effects, flows, frames, state machines (reg-machine, parallel regions,
   tags, spawn), schemas, stories, routing, tests, and the canonical patterns
-  (RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP,
+  (RemoteData, Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP,
   AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents,
   StatefulComponents, FormAction, SSR-Loaders). Use whenever the user
   mentions re-frame2, reg-event-db, reg-event-fx, reg-sub, reg-fx,
   reg-cofx, reg-flow, reg-view, reg-machine, reg-route, reg-story,
-  reg-app-schema, dispatch, subscribe, app-db, flows, frames, regions,
-  tags, the nine UI states, managed HTTP, RemoteData lifecycles, writing
-  tests for a re-frame2 app, or state-machine-for-HTTP shapes — even when
-  re-frame2 is not named explicitly. **Authoring only** (writing new code).
+  reg-app-schema, reg-resource, reg-mutation, dispatch, subscribe, app-db,
+  flows, frames, regions, tags, the nine UI states, managed HTTP,
+  RemoteData lifecycles, cached server-state / query-cache / TanStack-Query
+  shapes, writing tests for a re-frame2 app, or state-machine-for-HTTP
+  shapes — even when re-frame2 is not named explicitly. **Authoring only**
+  (writing new code).
   **Do not use** for: live-app inspection (use `re-frame2-pair`),
   greenfield project bootstrap (use `re-frame2-setup`), v1→v2 migration
   (use `re-frame-migration`), or porting re-frame2 itself (use
@@ -96,6 +98,7 @@ Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing �
 | Need | Pattern leaf |
 |---|---|
 | HTTP request with request/response lifecycle | `patterns/remote-data.md` |
+| Cached server-state shared across views, with invalidation (TanStack-Query-shaped) | `patterns/resources.md` |
 | HTTP with status-aware retries / error projection / batching | `patterns/managed-http.md` |
 | Form input with validation and submit | `patterns/forms.md` |
 | Long-running browser-side work | `patterns/long-running-work.md` |
@@ -103,7 +106,7 @@ Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing �
 | App boot (configure, hydrate, navigate) | `patterns/boot.md` |
 | Real-time bidirectional connection | `patterns/websocket.md` |
 | View rendering every legal lifecycle state | `patterns/nine-states.md` |
-| Cached resource with freshness checks | `patterns/stale-detection.md` |
+| Async result arrives after state moved on (epoch suppression idiom) | `patterns/stale-detection.md` |
 | Parameterised widget rendered N times (entity-id idiom) | `patterns/reusable-components.md` |
 | View wrapping a stateful JS library (chart / map / editor) | `patterns/stateful-components.md` |
 | SSR form POST handling (progressive enhancement) | `patterns/form-action.md` |
