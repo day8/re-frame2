@@ -37,12 +37,12 @@ Three rules, each illustrated by one form.
 
 The id is part of the **sub's identity** — `(subscribe [:customer 42])` and `(subscribe [:customer 43])` cache as distinct entries in the sub-cache. Two instances of `customer-card` rendered with different ids run two independent computations against two distinct app-db slices.
 
-For derived data, the same destructure pattern composes with signal-vector subs:
+For derived data, the same id is threaded into the sub's inputs via a v2 **`input-fn`** (per [006-ReactiveSubstrate.md](006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn)). The `input-fn` takes only the outer query vector and returns a **vector of query vectors**; the runtime resolves each in the outer sub's frame and delivers the resolved input *values* (always a vector for a parametric `input-fn`, including the single-input case) to the computation fn:
 
 ```clojure
 (rf/reg-sub :customer/display-name
-  (fn [[_ id] _] (rf/subscribe [:customer id]))
-  (fn [customer _]
+  (fn [[_ id]] [[:customer id]])
+  (fn [[customer] _]
     (str (:first-name customer) " " (:last-name customer))))
 ```
 
