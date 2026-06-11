@@ -508,7 +508,7 @@
 ;; tool gesture interleaving with the owning component's teardown). Once
 ;; destroyed, `frame/app-db-container` returns nil and the choke-point
 ;; `adapter/replace-container!` no-ops the write with a
-;; `:rf.warning/write-after-destroy` trace (`adapter.cljc`). Per Tool-Pair
+;; `:rf.error/write-after-destroy` trace (`adapter.cljc`). Per Tool-Pair
 ;; §Surface behaviour against destroyed frames the mutating surfaces must
 ;; report this as the SAME structural failure a frame-miss caught at
 ;; validate-time produces (`:rf.error/no-such-handler`, kind `:frame`,
