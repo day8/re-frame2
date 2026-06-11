@@ -225,17 +225,16 @@ There's a mental model hiding in everything above, and naming it makes a whole c
 
 Two payoffs fall straight out of seeing it this way.
 
-**The flaky test that couldn't flake.** Here's the war story, and you've probably lived a version of it. A handler decides "is this item due?" by reading the ambient clock — `(js/Date.)` straight in the body. The test is green every afternoon for months. Then one night CI runs as the date rolls past midnight, the clock the handler read is now *tomorrow*, the "due today" branch flips, and the suite goes red — once, irreproducibly, in a way nobody can pin down because it depended on the wall-clock second the test happened to run. The fix is the cofx version from [chapter 07](07-effects-and-coeffects.md#why-handlers-never-read-the-clock): inject `:now` so the clock is a *declared input*, and then the test **supplies** it. The cofx version literally cannot flake on time, because there's no ambient time left to read — the test handed the handler a fixed `now`, and a fixed input gives a fixed answer at 14:00 and at 23:59:59 alike:
+**The flaky test that couldn't flake.** Here's the war story, and you've probably lived a version of it. A handler decides "is this item due?" by reading the ambient clock — `(js/Date.)` straight in the body. The test is green every afternoon for months. Then one night CI runs as the date rolls past midnight, the clock the handler read is now *tomorrow*, the "due today" branch flips, and the suite goes red — once, irreproducibly, in a way nobody can pin down because it depended on the wall-clock second the test happened to run. The fix is the world-input version from [chapter 07](07-effects-and-coeffects.md#why-handlers-never-read-the-clock): the handler reads the clock from `:rf.world/inputs` rather than the host, so the clock is a *recorded input*, and then the test **supplies** it on the dispatch. The world-input version literally cannot flake on time, because there's no ambient time left to read — the test handed the runtime a fixed `:time-ms`, and a fixed input gives a fixed answer at 14:00 and at 23:59:59 alike:
 
 ```clojure
 (deftest due-today-is-deterministic
-  (ts/with-fresh-registrar
-    (rf/reg-cofx :now
-      (fn [ctx] (assoc-in ctx [:coeffects :now] #inst "2026-06-15T09:00:00.000Z")))
-    (rf/with-new-frame [f (rf/make-frame {})]
-      (rf/dispatch-sync [:item/add {:title "ship it" :due #inst "2026-06-15T17:00:00.000Z"}])
-      (rf/dispatch-sync [:item/recompute-due])
-      (is (true? (-> (rf/app-db-value f) :items first val :due-today?))))))
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/dispatch-sync [:item/add {:title "ship it" :due #inst "2026-06-15T17:00:00.000Z"}])
+    ;; supply the clock on the dispatch — no cofx to stub, no js/Date to patch
+    (rf/dispatch-sync [:item/recompute-due]
+                      {:rf.world/inputs {:time-ms 1750000800000}}) ;; 2026-06-15T09:00Z
+    (is (true? (-> (rf/app-db-value f) :items first val :due-today?)))))
 ```
 
 **The bug report that became the regression test.** A user reports a wrong state and tells you what they did: added two items, marked one done, undid it, filtered. That description *is* an event log — `[[:item/add ...] [:item/add ...] [:item/done 1] [:item/undo] [:filter/set :active]]`. To turn the report into a test you don't need a "capture API" or any special machinery: you write those event vectors into a fresh frame, dispatch them in order, and assert the final state is the *correct* one. The replay reproduces the bug today; once you fix the handler, the same replay reproduces the *fix*, and the report has become a permanent regression guard:
@@ -493,20 +492,36 @@ After a test run, `@recorded` holds the events in order — handy for asserting 
    :interceptor-overrides {:my-app/logger nil}})       ;; nil removes the interceptor
 ```
 
-**Freeze the clock, fix the ids.** A handler that reaches into the world through `inject-cofx` becomes deterministic by re-registering the cofx against the same id. No special test-mode flag — `inject-cofx` finds the override because it's in the same registry:
+### Freezing the clock with world inputs
+
+The clock is the most common impurity a test needs to pin down, and the way you pin it follows from [chapter 07](07-effects-and-coeffects.md#causal-world-inputs-where-the-clock-and-fresh-ids-come-from): a handler that writes a durable timestamp reads it from `:rf.world/inputs`, never from `(js/Date.)`. So a test fixes the clock by *supplying* the world input on the dispatch — there's no cofx to stub and no `js/Date` to monkey-patch, because the clock was never an ambient read:
 
 ```clojure
 (deftest todo-add-stamps-created-at
-  (ts/with-fresh-registrar
-    (rf/reg-cofx :now
-      (fn [ctx] (assoc-in ctx [:coeffects :now] #inst "2026-01-01T12:00:00.000Z")))
-    (rf/with-new-frame [f (rf/make-frame {})]
-      (rf/dispatch-sync [:todo/add "buy milk"])
-      (is (= #inst "2026-01-01T12:00:00.000Z"
-             (-> (rf/app-db-value f) :todos first val :created-at))))))
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/dispatch-sync [:todo/add {:id   #uuid "00000000-0000-0000-0000-000000000001"
+                                  :text "buy milk"}]
+                      {:rf.world/inputs {:time-ms 1735732800000}})
+    (is (= 1735732800000
+           (-> (rf/app-db-value f) :todos
+               (get #uuid "00000000-0000-0000-0000-000000000001") :created-at)))))
 ```
 
-`with-fresh-registrar` scopes the stub to this test, so production `:now` is intact for the next one. The full cofx story — `reg-cofx`, `inject-cofx`, the common cofxes — is [chapter 07](07-effects-and-coeffects.md); this is just where the testing idiom lands.
+The `:rf.world/inputs` opts key is the same surface SSR hydration, replay fixtures, and host integrations use to hand the runtime exact world facts — fixing the clock in a test is just that surface, pointed at a `deftest`. Generated ids ride the event (the `:id` above), so they're fixed the same way: supply them, don't generate them.
+
+**Stub the *other* world facts by re-registering the cofx.** A handler that reaches a non-clock world fact — a `localStorage` read, a subscription's value — through `inject-cofx` becomes deterministic by re-registering that cofx against the same id. No special test-mode flag — `inject-cofx` finds the override because it's in the same registry:
+
+```clojure
+(deftest prefs-load-reads-store
+  (ts/with-fresh-registrar
+    (rf/reg-cofx :local-store
+      (fn [ctx _k] (assoc-in ctx [:coeffects :local-store] "{\"theme\":\"dark\"}")))
+    (rf/with-new-frame [f (rf/make-frame {})]
+      (rf/dispatch-sync [:prefs/load])
+      (is (= :dark (-> (rf/app-db-value f) :prefs :theme))))))
+```
+
+`with-fresh-registrar` scopes the stub to this test, so production wiring is intact for the next one. The full coeffect story — world inputs, `reg-cofx`, `inject-cofx` — is [chapter 07](07-effects-and-coeffects.md); this is just where the testing idiom lands.
 
 ## The change you can actually feel
 

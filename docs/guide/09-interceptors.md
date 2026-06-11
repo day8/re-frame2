@@ -31,15 +31,16 @@ The interceptor and the handler communicate through a single Clojure map, thread
 
 | Key | What's in it | Who fills it |
 |---|---|---|
-| `:coeffects` | The handler's **inputs**: the event vector, the current `app-db`, plus any cofx values you injected (current time, a fresh uuid, a `localStorage` read…). | Cofx interceptors, on the way in. |
+| `:coeffects` | The handler's **inputs**: the event vector, the current `app-db`, the recorded `:rf.world/inputs` (the clock and other world facts — [chapter 07](07-effects-and-coeffects.md#causal-world-inputs-where-the-clock-and-fresh-ids-come-from)), plus any cofx values you injected (a `localStorage` read, a subscription's value…). | The runtime stages the built-ins; cofx interceptors inject the rest, on the way in. |
 | `:effects` | The handler's **outputs**: the new `:db`, the `:fx` vector. | The handler itself, then modified by `:after` interceptors on the way out. |
 
 This is the same `:coeffects` / `:effects` pair from [chapter 07](07-effects-and-coeffects.md) — coeffects are what the handler reads, effects are what it writes. Interceptors live in the gap between them. A typical context map, caught mid-pipeline, looks like this:
 
 ```clojure
-{:coeffects {:event [:cart.item/add {:sku "abc-123" :qty 2}]
-             :db    {:cart {:items [...]} :auth {...}}
-             :now   1747008000}                       ;; injected by an inject-cofx interceptor
+{:coeffects {:event           [:cart.item/add {:sku "abc-123" :qty 2}]
+             :db              {:cart {:items [...]} :auth {...}}
+             :rf.world/inputs {:time-ms 1747008000000}  ;; recorded world inputs, staged by the runtime
+             :cart/total      42.00}                    ;; injected by an inject-cofx interceptor
  :effects   {:db    {:cart {:items [... new-item]} :auth {...}}
              :fx    [[:rf.http/managed {...}]]}}
 ```
@@ -191,9 +192,9 @@ Wiring decides which events are undoable — no registry, no opt-in macro, no me
 ```clojure
 (rf/reg-event-db :drawer/add-circle
   [undoable]
-  (fn [db [_ x y]]
+  (fn [db [_ id x y]]                                   ;; id is minted at the click site and rides the event
     (update-in db [:drawer :circles] conj
-               {:id (random-uuid) :x x :y y :radius 30})))
+               {:id id :x x :y y :radius 30})))
 
 ;; A continuous drag opts OUT — it shouldn't pollute undo history with every pixel.
 (rf/reg-event-db :drawer/dialog-drag
