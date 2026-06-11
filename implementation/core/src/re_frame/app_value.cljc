@@ -641,10 +641,34 @@
   default-realm seating path is byte-identical. A realm with no registry entry
   (unknown id) falls back to the global atom rather than throwing — installing
   into an unconstructed id seats into the default table (the absence-is-default
-  rule). INTERNAL."
+  rule).
+
+  ATOMIC (EP-0013 §Installation step 4 — \"attach the app and registrar
+  atomically\"): the seating loop is all-or-nothing. The thunk seats a
+  MULTI-descriptor app one descriptor at a time, and a malformed descriptor can
+  throw PART-WAY (after kinds 1..N-1 already landed). To keep the realm's
+  registrar and its `:app` slot from ever disagreeing, the registrar atom's
+  value is captured BEFORE the loop and RESTORED on any throw, then the throw
+  re-propagates — so a failed `install!` leaves the realm exactly as it was
+  (no half-populated registrar; `install!` records no partial `:app`, since
+  `set-installed-app!` runs only after the thunk returns cleanly). The
+  default-realm path snapshots the process-global atom the same way; a
+  successful seating restores nothing (the loop's writes stand). INTERNAL."
   [rid thunk]
-  (binding [registrar/*registrar* (realm/registrar (realm/realm rid))]
-    (thunk)))
+  (let [reg (realm/registrar (realm/realm rid))]
+    (binding [registrar/*registrar* reg]
+      (if reg
+        (let [snapshot @reg]
+          (try
+            (thunk)
+            (catch #?(:clj Throwable :cljs :default) e
+              ;; Roll back every registration the partial loop landed, so a
+              ;; mid-stream failure leaves the realm's registrar untouched.
+              (reset! reg snapshot)
+              (throw e))))
+        ;; No registrar atom resolved (an unknown id with no default fallback) —
+        ;; nothing to snapshot; run the thunk as-is.
+        (thunk)))))
 
 (defn install!
   "Seat an immutable app VALUE into a realm — make `app`'s registrations the

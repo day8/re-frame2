@@ -328,24 +328,10 @@
                       (contains? opts :app)          (assoc :app          (:app opts)))]
       (register-realm! realm-map))))
 
-(defn dispose-realm!
-  "Drop a constructed realm from the process `realms` registry, releasing its
-  own registrar (and adapter/host-transient inventory) for GC. nil / the
-  default realm id is a NO-OP — the default realm is never disposed (it backs
-  the byte-identical single-realm path). Returns nil. The teardown counterpart
-  of `construct-realm` for hermetic-test cleanup and multi-tenant realm
-  lifecycle. PUBLIC (`rf/dispose-realm!`).
-
-  Per EP-0013 §Realm Conformance the deeper teardown (disposing adapter/root
-  resources + walking the host-transient subsystem inventory) rides the
-  realm-owned `dispose-realm-adapter!` / `clear-host-transient!` seams; this
-  releases the realm's registry entry so its program + own registrar are no
-  longer reachable."
-  [realm-or-id]
-  (let [rid (realm-id realm-or-id)]
-    (when-not (= rid default-realm-id)
-      (swap! realms dissoc rid)))
-  nil)
+;; `dispose-realm!` (the teardown counterpart of `construct-realm`) lives at the
+;; END of this ns: it walks the realm-owned adapter + host-transient teardown
+;; seams (`dispose-realm-adapter!` / `host-transient` / `clear-host-transient!`),
+;; which are defined further down, so it is placed after them (rf2-kq0yfb).
 
 ;; ---- realm-targeted registrar queries (EP-0013 D1 stage 8, rf2-blibek) ----
 ;;
@@ -661,3 +647,72 @@
   ([realm-or-id]
    (update-realm! (realm-id realm-or-id) dissoc :host-transient)
    nil))
+
+;; ---- realm disposal — the teardown counterpart of construct-realm ----------
+;;
+;; Placed at the END of the ns because it walks the realm-owned adapter +
+;; host-transient teardown seams defined above (`realm-adapter` /
+;; `dispose-realm-adapter!` / `host-transient` / `clear-host-transient!`).
+;; Disposing a realm MUST release the operational resources the realm owns —
+;; a bare `(swap! realms dissoc rid)` would ORPHAN the seated adapter + every
+;; host-transient subsystem the realm inventoried (rf2-kq0yfb).
+
+(defn- dispose-realm-host-transient!
+  "Walk realm `rid`'s host-transient subsystem inventory and run each
+  descriptor's `:teardown` token, then drop the inventory. The `:teardown` is
+  the realm-dispose cleanup hook the descriptor declares (Spec-Schemas
+  §`:rf/host-transient-descriptor`); it is invoked with `rid` so a
+  realm-scoped subsystem tears down THIS realm's entries. A descriptor that
+  declares no `:teardown` (the inventory is a queryable record only — its
+  side-table bytes are reset through the late-bind reset hooks) is skipped,
+  and a non-callable `:teardown` token is ignored. INTERNAL — the
+  host-transient arm of `dispose-realm!`."
+  [rid]
+  (doseq [[_ descriptor] (host-transient rid)]
+    (when-let [td (:teardown descriptor)]
+      (when (fn? td)
+        (td rid))))
+  (clear-host-transient! rid))
+
+(defn dispose-realm!
+  "Dispose a constructed realm: tear down its adapter + host-transient
+  subsystem state, then drop it from the process `realms` registry (releasing
+  its own registrar for GC). nil / the default realm id is a NO-OP — the
+  default realm is never disposed (it backs the byte-identical single-realm
+  path). Returns nil. The teardown counterpart of `construct-realm` for
+  hermetic-test cleanup and multi-tenant realm lifecycle. PUBLIC
+  (`rf/dispose-realm!`).
+
+  Per EP-0013 §Realm Conformance disposing a realm MUST release the operational
+  resources the realm owns, not merely drop the registry entry (a bare `dissoc`
+  would ORPHAN the seated adapter + the host-transient subsystems). The teardown
+  walks the realm-owned seams, in order:
+
+    1. ADAPTER — run the seated adapter's own `:dispose-adapter!` fn (read
+       directly off the realm's `:adapter` slot, so this leaf ns needs no
+       `substrate.adapter` require), then clear the slot + set the disposed
+       breadcrumb via `dispose-realm-adapter!`. Mirrors
+       `substrate.adapter/dispose-adapter!` for the default realm.
+    2. HOST-TRANSIENT — walk the realm's host-transient inventory, running each
+       descriptor's `:teardown` token (the realm-dispose cleanup hook), then
+       drop the inventory via `clear-host-transient!`.
+    3. REGISTRY — `dissoc` the realm so its program + own registrar are no
+       longer reachable.
+
+  The teardown runs only for a CONSTRUCTED realm; for the default realm (and
+  nil) the whole call is a no-op — the default realm's adapter/host-transient
+  lifecycle is owned by `substrate.adapter` + the per-subsystem reset hooks, and
+  the realm itself is never disposed."
+  [realm-or-id]
+  (let [rid (realm-id realm-or-id)]
+    (when-not (= rid default-realm-id)
+      ;; (1) adapter: run the seated adapter's own teardown, then clear the slot.
+      (when-let [adapter (realm-adapter rid)]
+        (when-let [f (:dispose-adapter! adapter)]
+          (f))
+        (dispose-realm-adapter! rid))
+      ;; (2) host-transient: walk the inventory's teardown tokens, then drop it.
+      (dispose-realm-host-transient! rid)
+      ;; (3) registry: drop the realm so its registrar + program are unreachable.
+      (swap! realms dissoc rid)))
+  nil)
