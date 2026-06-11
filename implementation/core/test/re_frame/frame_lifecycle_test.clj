@@ -764,30 +764,33 @@
 ;;
 ;; The fix is a defense-in-depth guard at the single choke point through
 ;; which every container write flows: substrate/adapter/replace-container!
-;; no-ops when container is nil and emits :rf.warning/write-after-destroy.
+;; no-ops when container is nil and emits :rf.error/write-after-destroy.
+;; (EP-0008 / rf2-500ech promoted this from :rf.warning to the always-on
+;; :rf.error category — same destroy-race the dispatch/subscribe paths
+;; already surfaced production-survivably as :rf.error/frame-destroyed.)
 
 (deftest replace-container-no-ops-on-nil-container
   ;; Direct unit-level coverage of the guard at the adapter wrapper. The
-  ;; nil-container call must not throw and must emit the warning trace.
-  (testing "replace-container! with nil container is a no-op + :rf.warning/write-after-destroy"
+  ;; nil-container call must not throw and must emit the error trace.
+  (testing "replace-container! with nil container is a no-op + :rf.error/write-after-destroy"
     (let [recorded (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
       ;; Must not throw NPE.
       (is (nil? (adapter/replace-container! nil {:any :value}))
           "nil container is a documented no-op, not an exception")
-      (let [warns (filterv (fn [ev]
-                             (and (= :warning (:op-type ev))
-                                  (= :rf.warning/write-after-destroy
-                                     (:operation ev))))
-                           @recorded)]
-        (is (= 1 (count warns))
-            "exactly one :rf.warning/write-after-destroy trace fired")))))
+      (let [errs (filterv (fn [ev]
+                            (and (= :error (:op-type ev))
+                                 (= :rf.error/write-after-destroy
+                                    (:operation ev))))
+                          @recorded)]
+        (is (= 1 (count errs))
+            "exactly one :rf.error/write-after-destroy trace fired")))))
 
 (deftest drain-after-destroy-does-not-npe
   ;; Reproducer for the original race (rf2-ft2b): a scheduled drain that
   ;; reaches the per-event :db commit AFTER the frame has been destroyed
   ;; must NOT throw. Instead the adapter-level nil guard skips the write
-  ;; and emits :rf.warning/write-after-destroy.
+  ;; and emits :rf.error/write-after-destroy (EP-0008 / rf2-500ech).
   ;;
   ;; The race is forced deterministically by capturing the next-tick
   ;; callback (instead of running it on the executor) so that the
@@ -921,16 +924,16 @@
         (is (nil? container)
             "app-db-container on a destroyed frame returns nil — the precondition for the rf2-ft2b NPE")
         ;; This is the exact call shape from router.cljc's :db commit.
-        ;; Pre-fix: NPE. Post-fix: no-op + warning trace.
+        ;; Pre-fix: NPE. Post-fix: no-op + always-on error trace.
         (is (nil? (adapter/replace-container! container {:would :have :npe'd true}))
             "writing through the nil container is a documented no-op"))
-      (let [warns (filterv (fn [ev]
-                             (and (= :warning (:op-type ev))
-                                  (= :rf.warning/write-after-destroy
-                                     (:operation ev))))
-                           @recorded)]
-        (is (pos? (count warns))
-            ":rf.warning/write-after-destroy fired for the post-destroy write")))))
+      (let [errs (filterv (fn [ev]
+                            (and (= :error (:op-type ev))
+                                 (= :rf.error/write-after-destroy
+                                    (:operation ev))))
+                          @recorded)]
+        (is (pos? (count errs))
+            ":rf.error/write-after-destroy fired for the post-destroy write")))))
 
 ;; ---- rf2-2e6k: frame-ids / frame-meta re-export round-trip ----------------
 ;;

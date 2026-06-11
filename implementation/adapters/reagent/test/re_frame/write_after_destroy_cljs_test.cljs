@@ -7,7 +7,11 @@
   scheduled drain that races frame destruction (router :db commit, flow
   recompute, epoch restore, SSR write …) cannot NPE on a background
   thread once its frame has been torn down. Instead the call no-ops and
-  fires `:rf.warning/write-after-destroy` with `:recovery :no-recovery`.
+  fires the always-on `:rf.error/write-after-destroy` with
+  `:recovery :ignored` (EP-0008 / rf2-500ech promoted this from the DCE'd
+  `:rf.warning/write-after-destroy` onto the production-survivable axis —
+  the same destroy-race the dispatch/subscribe paths already surfaced as
+  `:rf.error/frame-destroyed`).
 
   Unit-level coverage of that contract lives at
   `re-frame.frame-lifecycle-test/replace-container-no-ops-on-nil-container`
@@ -42,22 +46,22 @@
 
 (def ^:private write-after-destroy-pred
   (fn [ev]
-    (and (= :warning (:op-type ev))
-         (= :rf.warning/write-after-destroy (:operation ev)))))
+    (and (= :error (:op-type ev))
+         (= :rf.error/write-after-destroy (:operation ev)))))
 
 ;; ---- 1. direct nil-container call -----------------------------------------
 
 (deftest reagent-replace-container-no-ops-on-nil-container
   (testing "Under the Reagent adapter, replace-container! with a nil
-            container is a documented no-op + :rf.warning/write-after-destroy
-            (rf2-ft2b, rf2-9od6t)"
-    (with-trace-recorder! [warns {:pred write-after-destroy-pred}]
+            container is a documented no-op + :rf.error/write-after-destroy
+            (rf2-ft2b, rf2-9od6t, rf2-500ech)"
+    (with-trace-recorder! [errs {:pred write-after-destroy-pred}]
       (is (nil? (adapter/replace-container! nil {:any :value}))
           "nil container must NOT throw (background-thread NPE was the original bug)")
-      (is (= 1 (count @warns))
-          "exactly one :rf.warning/write-after-destroy fires per nil-write")
-      (is (= :no-recovery (:recovery (first @warns)))
-          "warning carries :recovery :no-recovery per the rf2-ft2b contract"))))
+      (is (= 1 (count @errs))
+          "exactly one :rf.error/write-after-destroy fires per nil-write")
+      (is (= :ignored (:recovery (first @errs)))
+          "error carries :recovery :ignored (write dropped, frame gone — mirrors frame-destroyed)"))))
 
 ;; ---- 2. live-destroy → captured-container-write ---------------------------
 
@@ -67,7 +71,7 @@
             This is the exact shape router.cljc's per-event :db commit
             takes when a scheduled drain reaches the write AFTER destroy."
     (let [frame-id :rf-9od6t/race]
-      (with-trace-recorder! [warns {:pred write-after-destroy-pred}]
+      (with-trace-recorder! [errs {:pred write-after-destroy-pred}]
         (rf/reg-frame frame-id {:doc "rf2-9od6t race reproducer"})
         (rf/destroy-frame! frame-id)
         (let [container (frame/app-db-container frame-id)]
@@ -75,7 +79,7 @@
               "app-db-container on a destroyed frame returns nil — the rf2-ft2b precondition")
           (is (nil? (adapter/replace-container! container {:would :have :npe'd true}))
               "writing through the nil container is a documented no-op"))
-        (is (pos? (count @warns))
-            ":rf.warning/write-after-destroy fired for the post-destroy write")
-        (is (every? #(= :no-recovery (:recovery %)) @warns)
-            "every fired warning carries :recovery :no-recovery")))))
+        (is (pos? (count @errs))
+            ":rf.error/write-after-destroy fired for the post-destroy write")
+        (is (every? #(= :ignored (:recovery %)) @errs)
+            "every fired error carries :recovery :ignored")))))
