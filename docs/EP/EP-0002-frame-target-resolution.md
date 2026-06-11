@@ -31,6 +31,26 @@ None known.
   (`rf2-rimcm3`), and closed after the 11/11 chain plus greenup rounds landed
   fully green.
 
+### Deliberate divergences from the EP body
+
+- **Missing URL owner is a documented NO-OP, not a config-error.** The EP body's
+  §Routes And URL Ownership sketch (above) proposed that "a missing URL owner
+  *should be* a routing configuration error or `:rf.error/no-frame-context`."
+  The landed contract diverges deliberately: an app with **no** frame declaring
+  `:url-bound? true` simply has **no URL owner** — outbound `:rf.nav/push-url` /
+  `:rf.nav/replace-url` fxs no-op and the inbound `popstate` listener skips. This
+  is a sanctioned routing-config no-op, **not** an error and **not** a
+  default-frame write, normatively pinned at
+  [012 §Multi-frame routing](../../spec/012-Routing.md#multi-frame-routing) and
+  [012 §URL ownership is an explicit declaration](../../spec/012-Routing.md#url-ownership-is-an-explicit-declaration-no-default-frame-floor).
+  The carried invariant only forbids *synthesising a default owner from absence*;
+  having no owner at all is a coherent, intentional configuration (story-variant
+  frames, devcards, per-test fixtures, SSR-per-request), so it stays silent
+  rather than loud. `:rf.error/no-frame-context` is reserved for a frame-scoped
+  *operation* reached with no frame established — registering zero URL owners is
+  not such an operation. (The honest-divergence record follows the EP-0006
+  pattern.)
+
 ## Abstract
 
 This enhancement proposes removing the ambient `:rf/default` fallback from

@@ -1558,12 +1558,14 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:offending-keys [:vector :keyword]]
    [:reason         :string]])
 
-(def PlainFnUnderNonDefaultFrameOnceTags
-  [:map
-   [:category      :keyword]
-   [:fn-name       :string]
-   [:rendered-under :keyword]
-   [:routed-to     :keyword]])
+;; RETIRED (EP-0002): `PlainFnUnderNonDefaultFrameOnceTags` /
+;; `:rf.warning/plain-fn-under-non-default-frame-once` is gone (per [009 §Error
+;; event catalogue](009-Instrumentation.md#error-event-catalogue)). Under the
+;; carried-frame invariant a plain (non-`reg-view`) Reagent fn no longer falls
+;; through to `:rf/default` (there is none) — its ambient `subscribe`/`dispatch`
+;; raises the structured `:rf.error/no-frame-context` error instead, whose `:tags`
+;; schema is `NoFrameContextTags`. The loud error supersedes the warn-once
+;; vocabulary.
 
 (def NoClockConfiguredTags
   [:map
@@ -3064,7 +3066,7 @@ Per-frame epoch snapshot, recorded **per dequeued event** in dev builds — one 
 
 `:trace-events` is optional because for long histories the per-epoch trace can be large — implementations may choose to drop traces from older epochs. The structured slots have the same per-epoch-storage tradeoff and may likewise be elided for older epochs in the ring buffer.
 
-**Redacted slot values.** When the app installs an `:epoch-history` `:redact-fn` (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) and [Security §Epoch privacy posture](Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)), any slot value the fn rewrites may be the `:rf/redacted` sentinel or an app-chosen redacted shape — the record schema is open to substitution at every leaf, and consumers MUST tolerate `:rf/redacted` (or arbitrary app-supplied shapes) in `:frame-state-before`, `:frame-state-after`, the `:db-before` / `:db-after` projections, `:trigger-event`, `:trace-events`, and the structured projections. Off-box egress redacts/omits the runtime-db side of frame-state by default (Mike ruling #14 — per [011](011-SSR.md) and [Security](Security.md)); trusted-local tools may request richer diagnostics explicitly.
+**Redacted slot values.** When the app installs an `:epoch-history` `:redact-fn` (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) and [Security §Epoch privacy posture](Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)), any slot value the fn rewrites may be the `:rf/redacted` sentinel or an app-chosen redacted shape — the record schema is open to substitution at every leaf, and consumers MUST tolerate `:rf/redacted` (or arbitrary app-supplied shapes) in `:frame-state-before`, `:frame-state-after`, the `:db-before` / `:db-after` projections, `:trigger-event`, `:trace-events`, and the structured projections. Off-box egress redacts/omits the runtime-db side of frame-state by default (Mike ruling #14 — per [011](011-SSR.md) and [Privacy §Rule summary](Privacy.md#rule-summary)); trusted-local tools may request richer diagnostics explicitly.
 
 #### Outcomes
 
