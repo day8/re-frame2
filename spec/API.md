@@ -505,6 +505,20 @@ Schema-introspection accessors — `app-schemas`, `app-schema-at`, `app-schemas-
 
 ---
 
+## App values and composition (EP-0013)
+
+> **The program is a value.** `module` lowers a feature's registrations + ownership + capability requirements into an immutable, composable **module value**; `app` composes module values into an immutable **app value** — the description of a program that can be inspected (and, at a later stage, installed into a realm) *before* anything is registered. Both are **pure**: a `module` / `app` call has no registration side effect — it returns inert data, leaving the ordinary `reg-*` sugar path untouched. These are the reserved-vocabulary constructors ruled in [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) issue 1; **install / reinstall (seating an app value into a runtime realm) is a later stage and not yet shipped.**
+
+| API | M/Fn | Signature | Status | Tier | JVM-runnable? | Spec |
+|---|---|---|---|---|---|---|
+| `module` | Fn | `(module {:id … :owns {:app-db [[:cart]] …} :requires #{:rf.capability/http} :events {id entry} :subs {…} …})` → a **module value** `{:rf.module/id … :registrations {kind {id descriptor}} :owns … :requires …}`. Each registration section (`:events` / `:subs` / `:routes` / …, plural per the EP form) lowers to descriptors stamped with the module id as `:owner`. INERT data — no realm, no registrar. Throws `:rf.error/invalid-module` on a missing `:id` or an unknown section key. | v1 | advanced | ✓ | Runtime-Subsystems |
+| `app` | Fn | `(app {:id … :modules [m1 m2 …]})` → an **app value** `{:rf.app/id … :modules {…} :registrations {kind {id descriptor}} :requires #{…}}`. Composition is **deterministic + order-stable**; a same-`(kind,id)` collision across modules **throws** `:rf.error/app-composition-collision` (the ex-data names every colliding source) — never last-writer-wins. Throws `:rf.error/invalid-app` on a missing `:id` or a non-module `:modules` entry. INERT data — an app value is pure until a later-stage install seats it. | v1 | advanced | ✓ | Runtime-Subsystems |
+| `app-registrations` | Fn | `(app-registrations app kind)` → the app value's `{id descriptor}` for that `kind`, or `nil`. The enumerable registration view for static dispatch-coverage checks WITHOUT installing the app. Works over both constructed (`app`) and projected app values. | v1 | advanced | ✓ | Runtime-Subsystems |
+| `app-requires` | Fn | `(app-requires app)` → the set of `:rf.capability/*` requirements (the union of the modules' `:requires`) — the dependency surface a realm must satisfy before install. | v1 | advanced | ✓ | Runtime-Subsystems |
+| `app-owns` | Fn | `(app-owns app [:cart])` → the module id owning that app-db path, or `nil`. Resolves against the modules' `:owns {:app-db [...]}` declarations. | v1 | advanced | ✓ | Runtime-Subsystems |
+
+---
+
 ## Schemas
 
 > **Namespace:** the introspection surfaces below live in `re-frame.schemas` (artefact `day8/re-frame2-schemas`); consumers `(:require [re-frame.schemas :as schemas])`. They are not re-exported from `re-frame.core` — apps targeting schemas add the artefact and require the namespace directly. The registration macros (`reg-app-schema` / `reg-app-schemas`) live in `re-frame.core` and route through the schemas artefact at registration time. Per the §Conventions per-artefact namespace table.

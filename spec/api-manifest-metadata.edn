@@ -428,6 +428,17 @@
   ["re-frame.core" "current-adapter"]      {:tier :advanced :owner "006" :status "v1"}
   ["re-frame.core" "current-adapter-spec"] {:tier :advanced :owner "006" :status "v1"}
   ["re-frame.core" "configure!"]           {:tier :front-porch :owner "Conventions" :status "v1"}
+  ;; EP-0013 D2 stage 6 (rf2-zlhgr6): the PUBLIC app/module constructors +
+  ;; composition algebra (the reserved-vocabulary `rf/app` / `rf/module` per
+  ;; EP-0013 issue 1) + the three inspectors. `advanced` tier — the surface
+  ;; large-SPA code uses to compose a program as a value before install; not
+  ;; a day-one front-porch surface. Owner: Runtime-Subsystems (the EP-0013
+  ;; realm/app-value contract home). install!/reinstall! (stage 7) deferred.
+  ["re-frame.core" "module"]               {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
+  ["re-frame.core" "app"]                  {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
+  ["re-frame.core" "app-registrations"]    {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
+  ["re-frame.core" "app-requires"]         {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
+  ["re-frame.core" "app-owns"]             {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
   ;; Feature registry (optional-artefact presence checks).
   ["re-frame.core" "feature-loaded?"]      {:tier :advanced :owner "Conventions" :status "v1"}
   ["re-frame.core" "features"]             {:tier :advanced :owner "Conventions" :status "v1"}

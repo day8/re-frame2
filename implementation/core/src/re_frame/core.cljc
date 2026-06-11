@@ -74,16 +74,19 @@
             ;; here; the require exists so the hooks are bound at boot before
             ;; any runtime `reg-frame` call.
             [re-frame.frame-classification]
-            ;; EP-0013 D2 stage 5 (rf2-yozjzo): required for its ns-load
-            ;; side-effect only — it publishes the `:app-value/project`
+            ;; EP-0013 D2 stage 5 (rf2-yozjzo) + stage 6 (rf2-zlhgr6): the
+            ;; app-value ns. Stage 5 published the `:app-value/project`
             ;; late-bind hook `re-frame.realm/installed-app` consults to
-            ;; project the realm's installed app VALUE over its registrar.
-            ;; No symbols are referenced here; the require exists so the
-            ;; hook is bound at boot. INTERNAL — no public app constructor /
-            ;; installed-app surface ships in stage 5 (stages 6/7). The ns
-            ;; pulls only `re-frame.realm` + `re-frame.late-bind` (core
-            ;; spine), so it is bundle-isolation neutral.
-            [re-frame.app-value]
+            ;; project the realm's installed app VALUE over its registrar
+            ;; (an ns-load side-effect — bound at boot). Stage 6 adds the
+            ;; PUBLIC construction half (`module` / `app` + the inspectors
+            ;; `app-registrations` / `app-owns` / `app-requires`), re-exported
+            ;; below under `rf/module` / `rf/app` / `rf/app-*`. The ns pulls
+            ;; only `re-frame.realm` + `re-frame.late-bind` (core spine), so it
+            ;; is bundle-isolation neutral; construction is PURE inert data
+            ;; (no realm, no registrar). `rf/realm` + `rf/install!` (stage 7 —
+            ;; seating an app into a realm) are NOT shipped here.
+            [re-frame.app-value :as app-value]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.core-flows    :as rf-flows]
             [re-frame.core-routing  :as rf-routing]
@@ -1521,6 +1524,54 @@
        the tooling ns directly so production bundles DCE the body.
        Per Spec 002 §The public registrar query API."}
        sub-topology subs/sub-topology)))
+
+;; ---- app-value construction + composition (EP-0013 D2 stage 6) -----------
+;;
+;; The PUBLIC construction half of EP-0013 D2: build a program as an INERT app
+;; value from explicit feature modules, then inspect it BEFORE installing it
+;; into a realm. `module` / `app` are the reserved-vocabulary constructors
+;; (EP-0013 issue 1); `app-registrations` / `app-owns` / `app-requires` are
+;; the inspectors the EP's "A Whole App As Data" example shows. PURE — a
+;; `module` / `app` call has no registration side effect (it returns data, not
+;; a realm mutation); the ordinary `reg-*` sugar path is untouched. Seating an
+;; app value into a realm (`rf/install!`) is stage 7 (deferred).
+
+(def ^{:doc "Construct a MODULE value — a composable app-value fragment
+  (EP-0013 §Module Values). `(module {:id … :owns {…} :requires #{…} :events
+  {id entry} :subs {…} …})` lowers each registration section into descriptors
+  stamped with the module id, as INERT data (no realm, no registrar, no side
+  effect). The reserved-vocabulary `rf/module` constructor. Per spec/API.md
+  §App values and composition (EP-0013)."}
+  module app-value/module)
+
+(def ^{:doc "Construct an APP value by composing module values — `(app {:id …
+  :modules [m1 m2 …]})`. Composition is DETERMINISTIC + order-stable; a
+  same-(kind,id) collision across modules THROWS
+  `:rf.error/app-composition-collision` (the ex-data names every colliding
+  source) rather than last-writer-wins. INERT data — an app value is pure
+  until a stage-7 `install!` seats it. The reserved-vocabulary `rf/app`
+  constructor. Per spec/API.md §App values and composition (EP-0013)."}
+  app app-value/app)
+
+(def ^{:doc "Return an app value's registration descriptors for `kind`
+  (`{id descriptor}`), or `nil` — `(app-registrations app :event)`. The
+  enumerable registration view that makes static dispatch-coverage checks
+  possible WITHOUT installing the app. Works over both constructed and
+  projected app values. Per spec/API.md §App values and composition
+  (EP-0013)."}
+  app-registrations app-value/app-registrations)
+
+(def ^{:doc "Return the set of `:rf.capability/*` requirements an app value
+  declares — `(app-requires app)`, the union of its modules' `:requires`. The
+  explicit dependency surface a realm must satisfy before install. Per
+  spec/API.md §App values and composition (EP-0013)."}
+  app-requires app-value/app-requires)
+
+(def ^{:doc "Return the module id that owns app-db `path` in an app value, or
+  `nil` — `(app-owns app [:cart])`. Resolves against the modules' `:owns
+  {:app-db [...]}` ownership declarations. Per spec/API.md §App values and
+  composition (EP-0013)."}
+  app-owns app-value/app-owns)
 
 ;; ---- interceptors --------------------------------------------------------
 
