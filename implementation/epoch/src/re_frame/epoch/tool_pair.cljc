@@ -1008,20 +1008,80 @@
                     ev))))
             trace-events))))
 
+;; ---- off-box HTTP response-body fail-closed (rf2-t55hxg.6) ----------------
+;;
+;; EP-0015 disposition 5: a managed HTTP response body is a
+;; registration-owned transient payload; an UNSCHEMATIZED body (no Malli
+;; `:decode` schema) is whole-sensitive and OMITTED off-box. The on-box ring
+;; keeps the raw body (the local operator sees their own process); the
+;; off-box egress (`projected-record`) omits it.
+;;
+;; The body's shape cannot be proven from the trace event alone — the
+;; request's `:decode` is request-private and never on the trace event — so
+;; the HTTP emit site (`re-frame.http-transport`) STAMPS its off-box
+;; disposition forward under `:tags :rf.http/off-box-body` (`:omit` for an
+;; unschematized body, `:classify` for a schema body whose per-slot marks
+;; were already applied on-box). This projector reads the stamp and OMITS
+;; (replaces with `:rf/redacted`) the body slot for an `:omit` event. A
+;; `:classify` event's body already carries the classified projection
+;; (sensitive → `:rf/redacted`, large → `:rf.size/large-elided`) from the
+;; on-box emit, so it rides as-is. No HTTP-artefact dependency — only the
+;; stamped keyword + the per-operation body-slot name are read.
+;;
+;; The omission is the off-box DEFAULT and is lifted only by an explicit
+;; trusted-local `:include-sensitive?` opt-in (consistent with the
+;; runtime-db / event-args opt-back-in), matching the `local-raw` boundary.
+
+(def ^:private http-body-slots
+  "The decoded-body tag slot per off-box-body-bearing `:rf.http/*`
+  operation: a success reply carries the decoded body at `:value`, an
+  accept-failure carries the pre-`:accept` decoded body at `:decoded`."
+  {:rf.http/replied        :value
+   :rf.http/accept-failure :decoded})
+
+(defn- omit-off-box-http-bodies
+  "Per rf2-t55hxg.6: enforce the EP-0015 disposition-5 off-box fail-closed
+  rule on `:rf.http/*` trace events. For each event whose emit site stamped
+  `:tags :rf.http/off-box-body :omit` (an UNSCHEMATIZED response body —
+  whole-sensitive off-box), substitute the `:rf/redacted` sentinel for the
+  decoded-body tag slot (`:value` for `:rf.http/replied`, `:decoded` for
+  `:rf.http/accept-failure`). A `:classify` stamp (a schema-classified body)
+  passes through — its per-slot marks were applied on-box at emit. Events
+  with no stamp (every non-HTTP event) pass through untouched.
+
+  The omission is the off-box default; an explicit trusted-local
+  `:include-sensitive?` opt-in lifts it (the `local-raw` boundary).
+  Idempotent and nil-preserving."
+  [trace-events {:keys [include-sensitive?]}]
+  (if (or include-sensitive? (not (sequential? trace-events)))
+    trace-events
+    (mapv (fn [ev]
+            (if-not (map? ev)
+              ev
+              (let [slot (get http-body-slots (:operation ev))]
+                (if (and slot
+                         (= :omit (get-in ev [:tags :rf.http/off-box-body]))
+                         (contains? (:tags ev) slot))
+                  (assoc-in ev [:tags slot] :rf/redacted)
+                  ev))))
+          trace-events)))
+
 (defn- elide-trace-events-slot
   "The `:trace-events` projection chain (rf2-ta0y7): first re-root the
   per-event `:rf.event/db` slots on the t1 / t2 trace events so the
-  sensitive / large declarations match natively, then run the bulk
-  frame/profile `project-egress` walk over the whole vector to handle the
-  other payload-bearing tag values (`:rf.event/v`, `:rf.cofx/value`, etc.)
-  with their own per-tag paths. `opts` `:include-sensitive?` /
-  `:include-large?` opt the per-call posture back in (rf2-5w06uu).
-  Idempotent (a second pass walks already-redacted scalars).
-  Nil-preserving."
+  sensitive / large declarations match natively, then enforce the off-box
+  HTTP response-body fail-closed rule (rf2-t55hxg.6 — omit unschematized
+  bodies), then run the bulk frame/profile `project-egress` walk over the
+  whole vector to handle the other payload-bearing tag values
+  (`:rf.event/v`, `:rf.cofx/value`, etc.) with their own per-tag paths.
+  `opts` `:include-sensitive?` / `:include-large?` opt the per-call posture
+  back in (rf2-5w06uu). Idempotent (a second pass walks already-redacted
+  scalars). Nil-preserving."
   [v frame-id opts]
   (when (some? v)
     (-> v
         (reroot-trace-event-db-slots frame-id opts)
+        (omit-off-box-http-bodies opts)
         (projection/project-egress (egress-opts frame-id opts)))))
 
 (defn- elide-sub-run-row

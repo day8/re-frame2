@@ -21,11 +21,14 @@
      true} :string]` redacts the decoded body's `[:token]` slot to the
      `:rf/redacted` sentinel BEFORE the body rides any `:rf.http/*` trace
      event — even when the request was NOT declared per-call `:sensitive?`.
-     The owner's schema declaration is the signal.
+     A slot marked `[:blob {:large? true} :string]` elides to the
+     `:rf.size/large-elided` marker instead. Sensitive wins over large at
+     the same slot. The owner's schema declaration is the signal.
 
   2. **Whole-body root prop.** A root-level (`[]`) `:sensitive?` prop on the
      `:decode` schema (e.g. an opaque-token response whose WHOLE body is the
-     secret) redacts the whole body.
+     secret) redacts the whole body. `:large?` at the root elides it to the
+     `:rf.size/large-elided` marker.
 
   3. **Unschematized is whole-sensitive (fail-closed).** A managed request
      with NO Malli-schema `:decode` (`:auto` / `:json` / `:text` / a custom
@@ -50,21 +53,31 @@
   The existing per-call / per-request `:sensitive?` flag (Spec 014 §Privacy)
   is the COARSE escape hatch: it redacts the whole body wholesale regardless
   of schema marks. This namespace is the FINE-grained, schema-driven layer
-  that fires INDEPENDENTLY of that flag.
+  that fires INDEPENDENTLY of that flag. Sensitive wins over large, matching
+  the shared `re-frame.elision/walk` ordering and the frame-classification
+  install-time rule.
 
-  ## Scope — sensitive marks only (`:large?` not yet applied)
+  ## Per-slot `:sensitive?` and `:large?` (rf2-jhyccs)
 
-  `classify-decoded` applies only the `:decode` schema's `:sensitive?`
-  per-slot marks (via `re-frame.privacy/redact-paths`). The `:large?` axis
-  is EXTRACTED here (`decode-schema-marks` returns both `:sensitive` and
-  `:large` path maps) for the shared-walker symmetry with the resource /
-  app-schema surfaces, but no per-slot `:large?` body elision is wired yet —
-  the response body never rides the `elide-wire-value` walker that would
-  apply it, so there is no large-body marker emit and no sensitive-wins-over-
-  large precedence exercised on this path. Large-body classification is a
-  follow-up (rf2-jhyccs). When it lands it will
-  route through the shared walker, where sensitive already wins over large
-  (the `re-frame.elision/walk` ordering).
+  `classify-decoded` applies BOTH the `:decode` schema's `:sensitive?` and
+  `:large?` per-slot marks via the shared `re-frame.marks/redact-with-paths`
+  walker (sensitive → `:rf/redacted`, large → `:rf.size/large-elided`,
+  sensitive wins over large) — the SAME walker the resource / app-schema
+  surfaces use, never a body-private walker. `decode-schema-marks` extracts
+  both `:sensitive` and `:large` path maps; both are now consumed.
+
+  ## On-box dev trace vs off-box egress (rf2-t55hxg.6)
+
+  `classify-decoded` is the IN-PROCESS dev-trace projection — it applies the
+  per-slot marks but does NOT omit an unschematized body (the local operator
+  inspects their own process). `off-box-classify-body` is the OFF-BOX egress
+  projection — an unschematized body is whole-sensitive and OMITTED, a schema
+  body rides classified. The HTTP trace-emit site stamps `off-box-body-
+  disposition` forward onto the `:rf.http/*` trace event (under
+  `:rf.http/off-box-body`); the off-box trace-events projector
+  (`re-frame.epoch.tool-pair`) enforces it (omits an `:omit` event's body
+  slot), since the request's `:decode` is request-private and never on the
+  trace event.
 
   ## Production elision
 
@@ -72,7 +85,7 @@
   at trace-emit / capture sites that gate on `interop/debug-enabled?`; in
   production builds the trace surface elides entirely and no body walk runs."
   (:require [re-frame.late-bind :as late-bind]
-            [re-frame.privacy :as privacy]))
+            [re-frame.marks :as marks]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -144,41 +157,88 @@
 ;; unschematized body the local operator is entitled to see.
 ;; ---------------------------------------------------------------------------
 
+(def ^:const off-box-body-marker
+  "The off-box sentinel an UNSCHEMATIZED body is replaced with when it would
+  otherwise ride off-box. The `:rf/redacted` sentinel — the same scalar the
+  rest of the egress projection (event args, runtime-db partition, sensitive
+  app-db slots) fails closed to. The omission is the disposition: the slot is
+  present but carries no body content."
+  :rf/redacted)
+
 (defn off-box-body-disposition
   "Classify how a decoded response body MAY ride an OFF-BOX egress, reading
   the request's `:decode`. Returns one of:
 
     :classify  — the body has a Malli `:decode` schema; ride it with the
-                 schema's per-slot marks applied (`classify-decoded`);
+                 schema's per-slot marks applied (`off-box-classify-body`);
     :omit      — the body is UNSCHEMATIZED (`:auto` / `:json` / `:text` /
                  binary / custom fn); whole-sensitive, omitted entirely.
 
-  An unschematized body fails CLOSED off-box (EP-0015 issue 5). Pure."
+  An unschematized body fails CLOSED off-box (EP-0015 issue 5). Pure.
+
+  This is the policy the HTTP trace-emit site stamps forward onto the
+  `:rf.http/replied` / `:rf.http/accept-failure` trace event (under
+  `:rf.http/off-box-body`), so the off-box trace-events projector
+  (`re-frame.epoch.tool-pair`) can enforce the fail-closed rule without
+  re-reading the request's `:decode` (a request-private artefact never on the
+  trace event)."
   [decode]
   (if (schema-decode? decode) :classify :omit))
 
 ;; ---------------------------------------------------------------------------
 ;; Apply the schema's per-slot marks to a decoded body value.
+;;
+;; `classify-decoded` is the IN-PROCESS dev-trace projection (the local
+;; operator sees their own process); `off-box-classify-body` is the OFF-BOX
+;; egress projection (fail-closed for an unschematized body). Both delegate
+;; to the shared `re-frame.marks/redact-with-paths` walker (sensitive →
+;; `:rf/redacted`, large → `:rf.size/large-elided`, sensitive wins over large)
+;; — never a body-private walker.
 ;; ---------------------------------------------------------------------------
 
 (defn classify-decoded
-  "Apply the request's `:decode` schema per-slot `:sensitive?` marks to a
-  decoded response body `decoded`, redacting each marked slot to the
-  `:rf/redacted` sentinel via the shared `re-frame.privacy/redact-paths`.
+  "Apply the request's `:decode` schema per-slot `:sensitive?` / `:large?`
+  marks to a decoded response body `decoded` for the IN-PROCESS dev trace:
+  each `:sensitive?` slot redacts to the `:rf/redacted` sentinel, each
+  `:large?` slot elides to the `:rf.size/large-elided` marker, via the shared
+  `re-frame.marks/redact-with-paths` walker (sensitive wins over large at the
+  same slot — the shared `re-frame.elision/walk` ordering, EP-0015 issue 5).
 
-  This is the FINE-grained, schema-driven layer (EP-0015 issue 5): it fires
-  irrespective of the request's per-call `:sensitive?` flag, so a body slot
-  the owner's `:decode` schema marks sensitive (`[:token]`) redacts on the
-  dev trace even when the whole request was not declared sensitive.
+  This is the FINE-grained, schema-driven layer: it fires irrespective of the
+  request's per-call `:sensitive?` flag, so a body slot the owner's `:decode`
+  schema marks sensitive (`[:token]`) redacts on the dev trace even when the
+  whole request was not declared sensitive.
 
   A root-level (`[]`) sensitive mark — a whole-body opaque-token response —
-  redacts the WHOLE body (`redact-paths` substitutes the sentinel for the
-  empty path). When `decode` is not a schema, the body is returned unchanged
-  (the keyword/fn-decode and unschematized cases are governed by the per-call
-  `:sensitive?` flag for the dev trace and by `off-box-body-disposition` for
-  off-box egress). Pure."
+  redacts the WHOLE body (the walker substitutes the sentinel for the empty
+  path); a root-level `:large?` mark elides the whole body. When `decode` is
+  not a schema, the body is returned unchanged (the keyword/fn-decode and
+  unschematized cases are governed by the per-call `:sensitive?` flag on the
+  dev trace and by `off-box-body-disposition` for off-box egress). Pure."
   [decoded decode]
-  (let [sensitive-paths (keys (:sensitive (decode-schema-marks decode)))]
-    (if (seq sensitive-paths)
-      (privacy/redact-paths decoded sensitive-paths)
+  (let [{:keys [sensitive large]} (decode-schema-marks decode)]
+    (if (or (seq sensitive) (seq large))
+      (marks/redact-with-paths decoded (keys sensitive) (keys large))
       decoded)))
+
+(defn off-box-classify-body
+  "Project a decoded response body `decoded` for an OFF-BOX egress, reading
+  the request's `:decode` disposition (EP-0015 issue 5, fail-closed):
+
+    - UNSCHEMATIZED `:decode` (`:auto` / `:json` / `:text` / binary / custom
+      fn): the body is whole-sensitive and OMITTED entirely — replaced with
+      the `off-box-body-marker` (`:rf/redacted`). The local operator's raw
+      view does NOT cross the trust boundary.
+
+    - Malli-SCHEMA `:decode`: the body rides CLASSIFIED — the per-slot
+      `:sensitive?` / `:large?` marks applied via `classify-decoded` (the
+      same shared walker the dev trace uses), letting the non-sensitive
+      structure through while sensitive slots redact and large slots elide.
+
+  This is the projection the off-box trace-events egress
+  (`re-frame.epoch.tool-pair`) applies to an `:rf.http/*` trace event's body
+  slot, gated on the disposition the emit site stamped forward. Pure."
+  [decoded decode]
+  (if (schema-decode? decode)
+    (classify-decoded decoded decode)
+    off-box-body-marker))

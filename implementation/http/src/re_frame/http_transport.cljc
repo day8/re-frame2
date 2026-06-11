@@ -204,7 +204,9 @@
     ;; no-op here — its body is governed by the per-call `:sensitive?` flag on
     ;; the dev trace (and by the off-box fail-closed disposition for captures).
     ;; Only the success status carries a decoded body; failure / cancel carry
-    ;; `:error`, untouched here.
+    ;; `:error`, untouched here. The schema's per-slot marks now cover BOTH
+    ;; `:sensitive?` (→ `:rf/redacted`) and `:large?` (→ `:rf.size/large-elided`)
+    ;; (rf2-jhyccs — `classify-decoded` routes through the shared marks walker).
     (let [reply' (if (and (= :ok (:status reply))
                           (contains? reply :value)
                           (privacy-body/schema-decode? (:decode ctx)))
@@ -217,9 +219,22 @@
       ;; The per-call `:sensitive?` flag (Spec 014 §Privacy) is forwarded so a
       ;; sensitive request redacts its payload slots wholesale, matching the
       ;; existing `:rf.http/*` trace posture.
+      ;;
+      ;; rf2-t55hxg.6 — OFF-BOX FAIL-CLOSED (EP-0015 disposition 5). The
+      ;; on-box `:value` above is the dev-operator view (an unschematized body
+      ;; rides raw — the local operator sees their own process). For OFF-BOX
+      ;; egress an unschematized body is whole-sensitive and MUST be omitted.
+      ;; The request's `:decode` is request-private — it never rides the trace
+      ;; event — so we STAMP the off-box disposition forward under
+      ;; `:rf.http/off-box-body`; the off-box trace-events projector
+      ;; (`re-frame.epoch.tool-pair`) consults it and omits / classifies the
+      ;; body slot. Only the success status carries a body slot to gate.
       (trace/emit! :info :rf.http/replied
-                   (http-reply/trace-reply reply' (cond-> {:sensitive? (true? (:sensitive? ctx))}
-                                                    (:frame ctx) (assoc :frame (:frame ctx))))))))
+                   (cond-> (http-reply/trace-reply reply' (cond-> {:sensitive? (true? (:sensitive? ctx))}
+                                                            (:frame ctx) (assoc :frame (:frame ctx))))
+                     (= :ok (:status reply))
+                     (assoc :rf.http/off-box-body
+                            (privacy-body/off-box-body-disposition (:decode ctx))))))))
 
 (defn- dispatch-failure!
   "Dispatch a `:failure` reply carrying `failure` as its `:failure` slot.
@@ -376,7 +391,19 @@
                               :url        (:url ctx)
                               :recovery   :no-recovery)
                        sensitive?
-                       {:frame (:frame ctx)})]
+                       {:frame (:frame ctx)})
+          ;; rf2-t55hxg.6 — OFF-BOX FAIL-CLOSED (EP-0015 disposition 5). An
+          ;; `:rf.http/accept-failure` carries the pre-`:accept` decoded body
+          ;; at `:decoded` — same off-box rule as the success `:value`: an
+          ;; unschematized body is whole-sensitive and omitted off-box. Stamp
+          ;; the off-box disposition forward (`:decode` is request-private and
+          ;; never on the trace event) so the off-box trace-events projector
+          ;; omits / classifies the `:decoded` slot. Only failures carrying a
+          ;; body slot are gated.
+          redacted   (cond-> redacted
+                       (contains? failure :decoded)
+                       (assoc :rf.http/off-box-body
+                              (privacy-body/off-box-body-disposition (:decode ctx))))]
       (trace/emit-error! (:kind failure) redacted)))
   (let [superseded? (and (= :rf.http/aborted (:kind failure))
                          (= :request-id-superseded (:reason failure)))]
