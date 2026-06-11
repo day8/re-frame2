@@ -44,7 +44,21 @@
 ;; the article detail AND any list showing it (both carry `[:article slug]`).
 ;; It also `:populates` the detail entry from the write's own Article reply —
 ;; the heart change shows immediately, then the invalidation refetches the
-;; lists. `:scope :rf.scope/global` matches the public reads it invalidates.
+;; lists. `:scope :rf.scope/global` is the mutation's resolved execution scope,
+;; matching the public reads.
+;;
+;; CROSS-SCOPE INVALIDATION IN ONE MUTATION (EP-0016 D2). Favoriting affects
+;; two KINDS of read living in two scopes: the public article + lists
+;; (`:rf.scope/global`) and the authenticated user's personalised feed (the
+;; session scope). A bare tag-set `:invalidates` resolves under ONE scope, so a
+;; global mutation could never reach the session feed — the variant used to
+;; paper over that with an explicit app-level session-scoped invalidation fired
+;; from a home-page reaction (the rf2-em5ab8 interim patch). EP-0016 retires
+;; that: `:invalidates` is a vector of PER-TARGET DESCRIPTORS, each naming its
+;; own scope. One descriptor invalidates the global article tags; a second
+;; names the session feed via the same `{:from-db :realworld/session}` resolver
+;; the feed resource declares, resolved at settle time. One mutation, two
+;; scopes — no app-level cross-scope patch, no home-page watcher.
 
 (rf/reg-mutation :realworld/favorite
   {:doc           "Favorite an article. POST /articles/:slug/favorite."
@@ -56,11 +70,19 @@
    ;; Seed the detail entry from the reply so the heart flips immediately. The
    ;; seeded value matches the `:realworld/article` resource's stored shape —
    ;; the whole `{:article …}` envelope its `:decode schema/ArticleResponse`
-   ;; produces — so the populated entry reads identically to a fetched one.
+   ;; produces — so the populated entry reads identically to a fetched one
+   ;; (Spec 016 §Populate is an authoritative load: the populated detail key is
+   ;; exempt from this same mutation's `[:article slug]` refetch).
    :populates     (fn [{:keys [slug]} result]
                     {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
-   ;; Then invalidate so any list showing this article refetches its count.
-   :invalidates   (fn [{:keys [slug]} _result] #{[:article slug] [:article-list] [:feed]})})
+   ;; Per-target descriptors: global article tags in the global scope, the feed
+   ;; tag in the session scope. The favourited list a profile shows also drops/
+   ;; re-orders via the `[:article slug]` global tag it carries.
+   :invalidates   (fn [{:keys [slug]} _result]
+                    [{:scope :rf.scope/global
+                      :tags  #{[:article slug] [:article-list]}}
+                     {:scope {:from-db :realworld/session}
+                      :tags  #{[:feed]}}])})
 
 (rf/reg-mutation :realworld/unfavorite
   {:doc           "Unfavorite an article. DELETE /articles/:slug/favorite."
@@ -71,7 +93,11 @@
                      :decode  schema/ArticleResponse})
    :populates     (fn [{:keys [slug]} result]
                     {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
-   :invalidates   (fn [{:keys [slug]} _result] #{[:article slug] [:article-list] [:feed]})})
+   :invalidates   (fn [{:keys [slug]} _result]
+                    [{:scope :rf.scope/global
+                      :tags  #{[:article slug] [:article-list]}}
+                     {:scope {:from-db :realworld/session}
+                      :tags  #{[:feed]}}])})
 
 ;; ============================================================================
 ;; FOLLOW / UNFOLLOW

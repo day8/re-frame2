@@ -21,14 +21,16 @@
    that path; the dedicated worked demo of resource SSR preload + hydration is
    `examples/reagent/resources_ssr/`.)
 
-   The SESSION-scoped personalised feed is NOT a route resource: a route
-   `:scope` / `:when` resolver receives only the route + a routing-supplied
-   entry ctx (an empty map here), NOT app-db, so it can't read the
-   authenticated user's scope. The idiomatic answer (Spec 016 §Route
-   integration: \"an app can use resources entirely from events\") is to ensure
-   the feed from the home route's `:on-match` event, which DOES see `:db` — see
-   `:home/on-match` below. The public reads (list, tags) stay declarative on
-   the route; the session read is event-driven under a releaseable lease.
+   The SESSION-scoped personalised feed is now ALSO a declarative route
+   resource (EP-0016 D3): the home route declares it with `:scope {:from-db
+   :realworld/session}`, a named-resolver reference (see scope.cljs) the runtime
+   resolves against the navigation handler's app-db at route entry — so the
+   route owns the feed under its nav-token and releases it on leave, exactly
+   like the public reads. This retires the prior `:home/on-match` event +
+   app-minted lease the variant needed before named scope resolvers existed (a
+   route `:scope` resolver couldn't see app-db, so the feed had to be ensured
+   from an event that could). Logged out, the reference resolves nil and the
+   feed entry is simply not planned (fail-closed — no feed to load).
 
    The resources artefact LATE-BINDS the `:resources` route-metadata key into
    routing, so loading both `re-frame.resources` and `re-frame.routing` is what
@@ -56,18 +58,15 @@
            tag-filtered list and each page are distinct cache entries.
            `:keep-previous?` keeps the prior page/filter visible while the next
            first-loads (no flicker); back to a previously-loaded page is a
-           cache-hit."
+           cache-hit. The session feed is the third route resource, scoped by
+           the named `{:from-db :realworld/session}` resolver (EP-0016 D3) —
+           logged out it resolves nil and is not planned."
    :path  "/"
    :query [:map
            [:tag  {:optional true} :string]
            [:feed {:optional true} :string]
            [:page {:optional true} :int]]
    :scroll   :top
-   ;; The session-scoped feed is ensured from `:on-match` (it needs `:db` —
-   ;; including the page, since the page rides the params, not the route plan
-   ;; for a session-scoped read); the public reads are declarative route
-   ;; resources.
-   :on-match [[:home/on-match]]
    :resources
    [{:resource  :realworld/articles
      ;; Route query → resource params: the `?tag=` AND `?page=` flow into
@@ -79,7 +78,20 @@
      :keep-previous? true}
     {:resource  :realworld/tags
      :params    (fn [_route] {})
-     :blocking? false}]})
+     :blocking? false}
+    ;; The personalised feed — a declarative route resource scoped by the
+    ;; named `{:from-db :realworld/session}` resolver (EP-0016 D3). The runtime
+    ;; resolves the scope against the navigation handler's app-db at route
+    ;; entry, owns it under the route nav-token, and releases it on leave —
+    ;; replacing the prior `:home/on-match` event + app-minted lease. Logged
+    ;; out the reference resolves nil, so the feed is simply not planned (no
+    ;; scope, no fetch — the feed never leaks across users). The `?page=` flows
+    ;; into params here like every other paginated list.
+    {:resource  :realworld/feed
+     :scope     {:from-db :realworld/session}
+     :params    (fn [route] {:page (get-in route [:query :page])})
+     :blocking? false
+     :keep-previous? true}]})
 
 (rf/reg-route :realworld.auth/login
   {:doc "Login page." :path "/login"})

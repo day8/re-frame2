@@ -13,7 +13,11 @@
    resource cache: the user's personalised feed is cached under `[:rf.scope/
    session {:username …}]`, and a logged-out (or next) user must never see it.
    `:rf.resource/clear-scope` is the causal operation for exactly that (Spec
-   016 §clear-scope is causal). The public `:rf.scope/global` reads (article
+   016 §clear-scope is causal). The concrete old scope is resolved with the
+   pure `rf/resolve-resource-scope` helper against the handler's COEFFECT db
+   (the pre-transition causal input) and the SAME named `:realworld/session`
+   resolver every resource site references (EP-0016 D3) — one scope-resolution
+   currency, including teardown. The public `:rf.scope/global` reads (article
    lists, detail, profiles, tags) are unaffected — they are the same for
    everyone, so logout leaves them alone."
   (:require [clojure.string :as str]
@@ -25,7 +29,10 @@
             [re-frame.resources]
             [realworld-resources.http :as rh]
             [realworld-resources.schema :as schema]
-            [realworld-resources.scope :as scope])
+            ;; Required for its side effect: loading it registers the
+            ;; `:realworld/session` resource-scope resolver `:auth/clear-session`
+            ;; resolves via `rf/resolve-resource-scope` below.
+            [realworld-resources.scope])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -63,9 +70,15 @@
   {:doc "Clear the auth slice AND drop the session-scoped resource cache. The
          personalised feed is cached under the session scope (Spec 016
          §Scope); logout MUST clear it (`:rf.resource/clear-scope`) so the next
-         user never reads it. Public `:rf.scope/global` reads are untouched."}
+         user never reads it. The concrete old scope is resolved with the pure
+         `rf/resolve-resource-scope` helper against the COEFFECT db (the
+         pre-transition value, by definition still carrying the logging-out
+         user) and the named `:realworld/session` resolver (EP-0016 D3) — the
+         same resolver every resource site references. Resolves nil when no user
+         was present (nothing to clear). Public `:rf.scope/global` reads are
+         untouched."}
   (fn [{:keys [db]} _]
-    (let [old-scope (scope/session-scope (get-in db [:auth :user]))]
+    (let [old-scope (rf/resolve-resource-scope db :realworld/session)]
       {:db (-> db
                (assoc-in [:auth :user] nil)
                (assoc-in [:auth :token] nil))

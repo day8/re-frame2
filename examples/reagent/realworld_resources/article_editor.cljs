@@ -28,18 +28,22 @@
       the app-shell renders a confirm dialog off the `:rf/pending-navigation`
       sub (see core.cljs). Clean (or saved) drafts leave freely.
 
-   The save-SUCCESS continuation (navigate to the saved article) is off the
-   render path, the same way settings.cljs handles it: a mutation has no
-   reply-side `:on-success` hook and the runtime emits no app-observable settle
-   event, so a Form-3 mount-time `reagent.ratom/run!` reaction watches the save
-   instance and dispatches `:editor/saved` once it first settles success. The
-   render bodies are pure functions of subs and never dispatch.
+   The save / delete SUCCESS continuation (navigate to the saved article, or
+   home on delete) is the mutation's call-site `:reply-to [:editor/replied]`
+   target (EP-0016 D1) — the same idiom settings.cljs uses. When the runtime
+   accepts the reply, it dispatches `[:editor/replied reply]` once, AFTER the
+   `:invalidates` staled the lists + feed and the instance settled; the
+   continuation branches save-vs-delete on the reply value. Save and delete
+   share one instance, so they share one continuation. (Only the seed-on-load
+   reaction stays a Form-3 reaction — it watches a RESOURCE read settle, which
+   has no reply-side continuation.) The render bodies are pure functions of subs
+   and never dispatch out of band.
 
    Contrast the sibling: its editor models the SAME page with Pattern-NineStates
    (a parallel `:mode` × `:lifecycle` machine) + a managed-HTTP write whose
    `:on-success` carries the continuation for free. Here the lifecycle IS the
-   mutation instance, the mode is the route, and the continuation is the Form-3
-   reaction — the resources-variant expression of the same shapes."
+   mutation instance, the mode is the route, and the continuation is the
+   `:reply-to` target — the resources-variant expression of the same shapes."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.http-managed]
@@ -158,12 +162,18 @@
                                                       "/articles"))
                                :body   (article-body (select-keys draft [:title :description :body :tagList]))}
                      :decode  schema/ArticleResponse})
-   ;; The list/feed go stale so they re-read with the new article; an edit's
-   ;; slug also stales its own detail entry. The create path has no prior slug,
-   ;; so it stales only the lists (the new detail is read fresh on navigate).
+   ;; The lists go stale (global scope) so they re-read with the new article;
+   ;; an edit's slug also stales its own detail entry. The create path has no
+   ;; prior slug, so it stales only the lists (the new detail is read fresh on
+   ;; navigate). The session feed lives in the session scope, so it gets its
+   ;; own per-target descriptor naming `{:from-db :realworld/session}`
+   ;; (EP-0016 D2) — one mutation reaches both scopes.
    :invalidates   (fn [{:keys [slug]} _result]
-                    (cond-> #{[:article-list] [:feed]}
-                      slug (conj [:article slug])))})
+                    [{:scope :rf.scope/global
+                      :tags  (cond-> #{[:article-list]}
+                               slug (conj [:article slug]))}
+                     {:scope {:from-db :realworld/session}
+                      :tags  #{[:feed]}}])})
 
 (rf/reg-mutation :realworld/delete-article
   {:doc           "Delete an article. DELETE /articles/:slug. Invalidates the
@@ -176,7 +186,13 @@
                      ;; The delete endpoint returns no body; `:auto` handles
                      ;; 204/empty gracefully.
                      :decode  :auto})
-   :invalidates   (fn [{:keys [slug]} _result] #{[:article slug] [:article-list] [:feed]})})
+   ;; Global article tags + the session feed, each in its own scope (EP-0016
+   ;; D2 — see :realworld/save-article above).
+   :invalidates   (fn [{:keys [slug]} _result]
+                    [{:scope :rf.scope/global
+                      :tags  #{[:article slug] [:article-list]}}
+                     {:scope {:from-db :realworld/session}
+                      :tags  #{[:feed]}}])})
 
 ;; ============================================================================
 ;; EVENTS
@@ -271,35 +287,54 @@
                                        true (assoc :tagList (parse-tag-list (:tagList draft)))
                                        slug (assoc :slug slug))
                            :instance save-instance
+                           ;; The save-success continuation is the call-site
+                           ;; `:reply-to` (EP-0016 D1) — not an off-render
+                           ;; reaction. The save and delete writes share one
+                           ;; instance, so they share one continuation that
+                           ;; branches on the reply (`:value` carries the saved
+                           ;; Article for a save; a delete returns no body).
+                           :reply-to [:editor/replied]
                            :cause    [:submit :editor/save]}]]]}))))
 
-(rf/reg-event-fx :editor/saved
-  {:doc "Save settled success. Re-seed the editor from the saved article (so the
-         draft is clean — the `:can-leave` guard won't block the navigate),
-         clear the save instance, and navigate to the article detail. Dispatched
-         by the editor page's Form-3 save reaction (off the render path)."}
-  (fn [{:keys [db]} [_ article]]
-    {:db (assoc db :editor (editor-slice (:slug article) (draft-from-article article)))
-     :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
-          [:dispatch [:rf.route/navigate :realworld.article/show {:slug (:slug article)}]]]}))
+(rf/reg-event-fx :editor/replied
+  {:doc "The save / delete mutation completion continuation (the `:reply-to`
+         target, EP-0016 D1). Receives the canonical reply map appended as the
+         final arg, observed AFTER the mutation's `:invalidates` staled the
+         lists + feed and the instance settled (phase 6). On a successful SAVE
+         (`:value` carries the saved `{:article …}`), re-seed the editor from
+         the saved article so the draft is clean — the `:can-leave` guard won't
+         block — clear the instance, and navigate to the article detail. On a
+         successful DELETE (no `:article` in the reply value), clear the slice
+         + instance and go home. On `:error` the form already shows the error
+         off the instance state; nothing more to do."}
+  (fn [{:keys [db]} [_ {:keys [status value]}]]
+    (cond
+      (not= :ok status) {}
+
+      (:article value)
+      (let [article (:article value)]
+        {:db (assoc db :editor (editor-slice (:slug article) (draft-from-article article)))
+         :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
+              [:dispatch [:rf.route/navigate :realworld.article/show {:slug (:slug article)}]]]})
+
+      :else
+      {:db (assoc db :editor (editor-slice))
+       :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
+            [:dispatch [:rf.route/navigate :realworld/home]]]})))
 
 (rf/reg-event-fx :editor/delete
-  {:doc "Delete the article (edit mode only). Fires the delete mutation; the
-         success continuation navigates home from the Form-3 reaction."}
+  {:doc "Delete the article (edit mode only). Fires the delete mutation under
+         the same instance the save uses, with the same `:reply-to
+         [:editor/replied]` continuation (which branches save vs delete on the
+         reply value)."}
   (fn [{:keys [db]} _]
     (when-let [slug (get-in db [:editor :slug])]
       {:fx [[:dispatch [:rf.mutation/execute
                         {:mutation :realworld/delete-article
                          :params   {:slug slug}
                          :instance save-instance
+                         :reply-to [:editor/replied]
                          :cause    [:click :editor/delete slug]}]]]})))
-
-(rf/reg-event-fx :editor/deleted
-  {:doc "Delete settled success. Clear the slice + instance and go home."}
-  (fn [{:keys [db]} _]
-    {:db (assoc db :editor (editor-slice))
-     :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
-          [:dispatch [:rf.route/navigate :realworld/home]]]}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
@@ -409,49 +444,41 @@
 
 (defn editor-page
   "The article-editor page. A Reagent Form-3 component: the inner render is the
-   pure `editor-form-view`; the mount hooks install two off-render reactions —
-   one seeding the draft when an edit-mode article read settles with data, one
-   dispatching `:editor/saved` / `:editor/deleted` when the save/delete instance
-   settles success. `rf/frame-handle` is captured here (during render, under the
-   frame-provider), so the reactions' dispatches carry the frame; unmount
-   disposes the reactions and releases the edit-mode article lease."
+   pure `editor-form-view`; the mount hook installs ONE off-render reaction that
+   seeds the draft when an edit-mode article read settles with data. (The
+   save/delete SUCCESS continuation is no longer an off-render reaction — it is
+   the mutation's `:reply-to [:editor/replied]` target, EP-0016 D1. A reply-side
+   continuation only exists for the mutation write; the seed reaction watches a
+   RESOURCE read settle, which has no reply-to, so it stays a Form-3 reaction.)
+   `rf/frame-handle` is captured here (during render, under the frame-provider),
+   so the reaction's dispatch carries the frame; unmount disposes the reaction
+   and releases the edit-mode article lease."
   []
   (let [{:keys [dispatch subscribe]} (rf/frame-handle)
-        saved?    (atom false)
         seeded?   (atom false)
-        watchers  (atom [])]
+        watcher   (atom nil)]
     (r/create-class
      {:display-name "realworld-resources.article-editor/editor-page"
       :component-did-mount
       (fn [_this]
+        ;; Edit-mode seed: when the article read first settles with data, seed
+        ;; the draft + baseline (so dirty-detection has a baseline). The
+        ;; load-article event ensured the read under a lease; this only seeds.
         (reset!
-         watchers
-         [;; Edit-mode seed: when the article read first settles with data,
-          ;; seed the draft + baseline (so dirty-detection has a baseline). The
-          ;; load-article event ensured the read under a lease; this only seeds.
-          (ratom/run!
-           (let [slug  @(subscribe [:editor/slug])
-                 state (when slug
-                         @(subscribe [:rf.resource/state {:resource :realworld/article
-                                                          :params {:slug slug}}]))]
-             (when (and slug (:has-data? state) (not @seeded?))
-               (when-let [article (:article (:data state))]
-                 (reset! seeded? true)
-                 (dispatch [:editor/seed-from-article article])))))
-          ;; Save / delete success continuation. A successful save carries the
-          ;; saved Article in its result → navigate to it; a successful delete
-          ;; returns no body → go home. Fires once.
-          (ratom/run!
-           (let [save @(subscribe [:rf.mutation/state {:instance save-instance}])]
-             (when (and (:success? save) (not @saved?))
-               (reset! saved? true)
-               (if-let [article (:article (:result save))]
-                 (dispatch [:editor/saved article])
-                 (dispatch [:editor/deleted])))))]))
+         watcher
+         (ratom/run!
+          (let [slug  @(subscribe [:editor/slug])
+                state (when slug
+                        @(subscribe [:rf.resource/state {:resource :realworld/article
+                                                         :params {:slug slug}}]))]
+            (when (and slug (:has-data? state) (not @seeded?))
+              (when-let [article (:article (:data state))]
+                (reset! seeded? true)
+                (dispatch [:editor/seed-from-article article])))))))
       :component-will-unmount
       (fn [_this]
-        (doseq [w @watchers] (when w (ratom/dispose! w)))
-        (reset! watchers [])
+        (when @watcher (ratom/dispose! @watcher))
+        (reset! watcher nil)
         ;; Release the edit-mode article lease if we held one.
         (when-let [slug @(subscribe [:editor/slug])]
           (dispatch [:editor/release-article slug])))
