@@ -205,14 +205,51 @@ def _layout_top_level_dirs(block: FencedBlock) -> set[str]:
     }
 
 
+# Gitignored build-artifact directory names that may appear on disk after a
+# local `npm install` + CLJS build but are NOT part of the documented layout
+# map (rf2-wv7d7z).  The bijection must skip these or every post-build local
+# fast-pr run fails the README-inventory check ("node_modules missing from
+# README") — a false failure CI dodged only by running the check before
+# `npm install`, which is fragile job-ordering luck.
+#
+# These mirror the gitignored entries in the repo-root and per-artefact
+# `.gitignore` files (`/node_modules/`, `/out/`, `/target/`, `/classes/`).
+# Dotdir build state (`.cpcache/`, `.shadow-cljs/`) is already excluded by the
+# leading-dot filter in `_disk_dirs`, so only the non-dot names need listing.
+#
+# An explicit, deterministic skip-set is used rather than shelling out to
+# `git check-ignore`: the latter reads the *working-tree* `.gitignore` files,
+# which on Windows checkouts carry CRLF line terminators that defeat git's
+# pattern match (the trailing `\r` becomes part of the pattern) — exactly the
+# environment-dependent fragility this fix exists to remove.  The set is tiny,
+# toolchain-bound, and keeps the script stdlib-only / no-shell-out (its
+# original portability promise).
+_GITIGNORED_BUILD_DIRS = frozenset({
+    "node_modules",  # npm install
+    "out",           # shadow-cljs / cljs build output
+    "target",        # lein / tools.build output
+    "classes",       # AOT-compiled class output
+})
+
+
 def _disk_dirs(base: Path) -> set[str]:
-    """Directory names directly under *base* (excluding dotfiles)."""
+    """Directory names directly under *base* (excluding dotfiles + gitignored
+    build artefacts).
+
+    Dotfiles (``.cpcache`` / ``.shadow-cljs`` / …) are skipped by the
+    leading-dot filter; gitignored build-output dirs that have no leading dot
+    (``node_modules`` / ``out`` / …) are skipped via ``_GITIGNORED_BUILD_DIRS``
+    so the layout-map bijection holds regardless of local build state
+    (rf2-wv7d7z).
+    """
     if not base.is_dir():
         return set()
     return {
         p.name
         for p in base.iterdir()
-        if p.is_dir() and not p.name.startswith(".")
+        if p.is_dir()
+        and not p.name.startswith(".")
+        and p.name not in _GITIGNORED_BUILD_DIRS
     }
 
 
@@ -671,6 +708,22 @@ def _run_self_tests(verbose: bool = False) -> int:
     if sec is not None:
         blocks = _iter_fenced_blocks(sec[1])
         expect("section-block-count", len(blocks), 1)
+
+    # _disk_dirs skips gitignored build artefacts + dotdirs but keeps real
+    # source dirs (rf2-wv7d7z): a post-build local tree carries node_modules/
+    # out/ .shadow-cljs/ .cpcache/ alongside the documented source dirs, and
+    # only the latter must show up in the bijection.
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        for d in ("core", "adapters",            # documented source dirs
+                  "node_modules", "out",          # gitignored build artefacts
+                  "target", "classes",            # gitignored build artefacts
+                  ".shadow-cljs", ".cpcache"):     # gitignored dotdirs
+            (base / d).mkdir()
+        expect("disk-dirs-skips-build-artefacts",
+               _disk_dirs(base), {"core", "adapters"})
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
