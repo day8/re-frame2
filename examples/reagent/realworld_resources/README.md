@@ -77,21 +77,24 @@ The save-success continuation (navigate to the saved article) is **off the rende
 
 Login / register / session-restore / logout are a Spec 005 state machine issuing managed HTTP — auth is a *command*, not a cached read, and is deliberately **not** contorted into a read-resource (Spec 016 §Scope). The one auth-adjacent **write** that *is* a mutation is the settings update (it invalidates the profile read). On **logout** the machine clears the session **and** the session-scoped resource cache via `:rf.resource/clear-scope` — the causal operation for exactly that — so the next user never reads the prior user's feed. The public `:rf.scope/global` reads are untouched.
 
+- **One Bearer header for the whole API — a Spec 014 HTTP interceptor.** Resources, mutations, and the auth machine all lower onto `:rf.http/managed`, so a single frame-wide `:before` interceptor (`:realworld/bearer-auth`, registered in `core.cljs`) injects `Authorization: Token <jwt>` from the auth slice onto **every** outbound request — the authenticated reads (`/articles/feed`), the writes (favourite / follow / comment / settings / save-article), and the restore `GET /user`. No `:request` fn threads the token per-call; the auth slice is the single source of truth and the interceptor is the single read site. It reads the token from the **carried** frame (`(:frame ctx)`, EP-0002), so the header tracks a renamed / multi-frame mount, and returns the ctx unchanged when no token is present (login / register / logged-out public reads are unaffected). This is the cross-cutting-decoration story the resources surface otherwise leaves untold.
+- **Session-restore preserves the route; only interactive login bounces.** Cold-booting with a saved JWT runs the `:restoring → :authed` transition through the `:restore-session` action, which stores the session **without** navigating — a logged-in user who deep-links to `/article/x` stays there once restore settles. Only an **interactive** login / register (`:store-session`) dispatches `:auth/post-login-redirect` to bounce to the guard-stashed `:return-to` (or home).
+
 ## Files
 
 | File | What it holds |
 |---|---|
-| `core.cljs` | Entry point, app shell, route switch, mount; installs the demo `:rf.http/managed` backend stub + the revalidation listeners. |
+| `core.cljs` | Entry point, app shell, route switch, mount; installs the demo `:rf.http/managed` backend stub + the revalidation listeners + the frame-wide `:realworld/bearer-auth` HTTP interceptor. |
 | `resources.cljs` | Every RealWorld read as `reg-resource` (identity / scope / `:request` / `:tags` / stale + GC policy). |
 | `mutations.cljs` | Every RealWorld write as `reg-mutation` (`:invalidates` / `:populates`). |
 | `scope.cljs` | The fail-closed session cache scope + the `:session/scope` sub the view passes on session-scoped reads. |
 | `routing.cljs` | Routes with `:resources` metadata + the `auth-guard` interceptor; the home `:on-match` ensures the session feed. |
-| `auth.cljs` | The `:auth/flow` auth machine (login / register / restore / logout-with-clear-scope) + the login/register forms. |
+| `auth.cljs` | The `:auth/flow` auth machine (login / register / restore-without-navigating / logout-with-clear-scope) + the login/register forms. |
 | `settings.cljs` | The settings page as a mutation instance (`:rf.mutation/state`); the save-success continuation is off the render path (Form-3 settle reaction). |
 | `article_editor.cljs` | Create / edit / delete an article: the `:realworld/save-article` + `:realworld/delete-article` mutations, the `:editor/can-submit?` Spec 013 flow, the `:editor/can-leave?` guard, and the Form-3 settle reactions (seed-on-load + save/delete continuation). |
 | `views.cljs` | Passive pages (home / article / profile) + the small UI event glue (favourite / follow / comment). |
 | `schema.cljs` | Malli wire shapes + the small app-db schemas (auth + form drafts only — the reads live in runtime-db). |
-| `http.cljs` | The demo backend stub (resources + mutations lower onto `:rf.http/managed`, so one stub serves the whole API) + the `:rf.http/*` failure projection. |
+| `http.cljs` | The demo backend stub (resources + mutations lower onto `:rf.http/managed`, so one stub serves the whole API) + the shared `data-fetch-retry` read policy + the `:rf.http/*` failure projection. |
 | `index.html` | Static host page. |
 
 ## How to run

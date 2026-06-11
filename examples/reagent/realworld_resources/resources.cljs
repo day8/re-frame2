@@ -53,6 +53,12 @@
    inactive (Spec 016 §Stale and GC scheduling)."
   (* 5 60 1000))
 
+;; Reads retry / writes don't (Spec 014). Each read's `:request` returns the
+;; shared `rh/data-fetch-retry` policy in its managed-HTTP args; `:retry`
+;; passes through the resource lowering UNCHANGED (Spec 016 §Transport), so a
+;; transport blip / 5xx / timeout retries with backoff+jitter (NOT a 4xx — the
+;; request shape was valid). Mutations (writes) stay retry-free.
+
 ;; ============================================================================
 ;; PUBLIC READS — :scope :rf.scope/global (same for every viewer)
 ;; ============================================================================
@@ -77,7 +83,8 @@
                                 :url    (rh/full-url (if tag
                                                        (str "/articles?tag=" tag)
                                                        "/articles"))}
-                      :decode  schema/ArticlesResponse})
+                      :decode  schema/ArticlesResponse
+                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    ;; Tag the list identity AND every article it contains, so favoriting an
@@ -93,7 +100,8 @@
    :scope          :rf.scope/global
    :request        (fn [{:keys [slug]} _ctx]
                      {:request {:method :get :url (rh/full-url (str "/articles/" slug))}
-                      :decode  schema/ArticleResponse})
+                      :decode  schema/ArticleResponse
+                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    ;; Tag BOTH the per-article identity and the list identity so a save /
@@ -110,7 +118,8 @@
    :scope          :rf.scope/global
    :request        (fn [{:keys [slug]} _ctx]
                      {:request {:method :get :url (rh/full-url (str "/articles/" slug "/comments"))}
-                      :decode  schema/CommentsResponse})
+                      :decode  schema/CommentsResponse
+                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [{:keys [slug]} _data] #{[:comments slug]})})
@@ -122,7 +131,8 @@
    :scope          :rf.scope/global
    :request        (fn [{:keys [username]} _ctx]
                      {:request {:method :get :url (rh/full-url (str "/profiles/" username))}
-                      :decode  schema/ProfileResponse})
+                      :decode  schema/ProfileResponse
+                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [{:keys [username]} _data] #{[:profile username]})})
@@ -134,7 +144,8 @@
    :scope          :rf.scope/global
    :request        (fn [{:keys [username]} _ctx]
                      {:request {:method :get :url (rh/full-url (str "/articles?author=" username))}
-                      :decode  schema/ArticlesResponse})
+                      :decode  schema/ArticlesResponse
+                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [{:keys [username]} data]
@@ -148,7 +159,8 @@
    :scope          :rf.scope/global
    :request        (fn [_params _ctx]
                      {:request {:method :get :url (rh/full-url "/tags")}
-                      :decode  schema/TagsResponse})
+                      :decode  schema/TagsResponse
+                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [_params _data] #{[:tags]})})
@@ -175,7 +187,8 @@
    :scope          :rf.scope/from-caller
    :request        (fn [_params _ctx]
                      {:request {:method :get :url (rh/full-url "/articles/feed")}
-                      :decode  schema/ArticlesResponse})
+                      :decode  schema/ArticlesResponse
+                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [_params data]
