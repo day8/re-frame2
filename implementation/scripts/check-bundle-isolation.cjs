@@ -414,6 +414,32 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
+  // re-frame.derivation.graph (rf2-6xm07h — EP-0014 slice-7: the internal
+  // graph-inspection COMPOSER that stitches the five algebra-view siblings
+  // (subs / flows / resources / routes / machines) into one DerivationGraph
+  // view). It lives in core/src but composes the four OPTIONAL siblings
+  // through a runtime contributor seam (requiring-resolve on JVM; an
+  // explicit contributor map on CLJS) rather than a static cross-artefact
+  // `:require`, so it carries no static dep on the optional artefacts and
+  // can never drag them into a core-only bundle. The composer is consumed
+  // only by dev tools (Xray) + the conformance fixtures, which `:require`
+  // it directly; the counter example never does, so the body is absent
+  // from the counter bundle entirely. Sentinel mirrors the five
+  // algebra-view siblings / trace-tooling shape: a unique string planted at
+  // the bottom of the namespace body, surviving `:advanced` (string
+  // literals are not renamed) and outside any DCE gate.
+  {
+    name: 'derivation-graph',
+    internalSentinels: [
+      // derivation/graph.cljc — explicit sentinel planted at the bottom
+      // of the namespace body (`bundle-isolation-sentinel`).
+      { source: 're-frame.derivation.graph (bundle-isolation-sentinel)',
+        sentinel: 'rf.derivation.graph/sentinel:rf2-6xm07h-2026-06-12:do-not-rename' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
+
   // re-frame.trace.cascade (rf2-931pm — focused-event-only cascade-DAG
   // aggregator). Same posture as `trace.tooling`: the namespace is
   // autoloaded from `re-frame.core` only via the JVM-only conditional
