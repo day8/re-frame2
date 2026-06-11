@@ -98,6 +98,81 @@ Library-owned prefixes live **outside** `:rf.*` (e.g., Story's `:story.*`, Works
 
 The reserved set is **fixed-and-additive**: names already in the table cannot be repurposed; new sub-namespaces are added by extending the table in a Spec change. New Spec areas ship under `:rf.<spec-area>/*` rather than inventing a top-level prefix.
 
+### The naming rules (one name per fact)
+
+The reserved-namespace scheme above fixes *where* a framework id lives; these
+rules fix *that there is exactly one of it*. Together with the
+attribute-shaped-name rule, they complete the project's naming discipline:
+re-frame2 had naming *conventions* (reserved namespaces, attribute-shaped keys)
+but no naming *rules* for synonyms, layers, and carriers, and the gap let
+parallel spellings for single facts re-grow surface by surface. The rationale —
+the review-cycle defect class these rules close, with worked instances — is the
+[EP-0007 rationale record](../docs/EP/EP-0007-one-name-per-fact.md); this section
+is the authoritative rule text.
+
+The rule in one sentence: **every fact has one canonical name per layer; stable
+APIs accept one spelling; where two layers legitimately use different words for
+related concepts, the distinction is recorded as a named vocabulary rule, not
+left as accident.** Spelled out:
+
+1. **One canonical spelling per fact per layer.** A fact appearing in multiple
+   places carries the same key everywhere *within its layer*. The frame id in
+   *runtime context* is `:rf.frame/id` at every site that reads it; the runtime
+   partition slot is `:rf.db/runtime` at every coeffect/effect site. A second
+   spelling for the same fact inside one layer is a defect, not a convenience.
+2. **No stable accepted synonyms.** A stable API accepts exactly **one**
+   spelling. A retired or alternative spelling is a **hard error naming the
+   canonical key**, never a silently-normalised alias — e.g. the redirect
+   surface rejects `:url` / `:to` with
+   [`:rf.error/redirect-retired-target-key`](011-SSR.md) rather than coercing
+   them to `:location`. Temporary **migration aliases** are allowed only when an
+   explicit bead/EP ruling names the alias, the canonical spelling, the
+   diagnostic, and the sunset trigger; they are migration mechanics, never part
+   of the stable contract. (This is the naming-axis counterpart of the v1
+   `:re-frame/*` rule above — the runtime does not coerce a retired spelling to
+   the canonical one; the migration agent rewrites it at migration time.)
+3. **Cross-layer distinctions are named rules.** Where layers legitimately use
+   different words for related concepts, the distinction is *recorded as a rule
+   here*, so it reads as intent rather than inconsistency. The standing rules:
+   - **Public-opt vs runtime-context spelling.** `:frame` is the public
+     dispatch/subscribe opt and the universal per-event routing trace tag (the
+     deliberate bare carve-out noted in [§Reserved namespaces](#reserved-namespaces-framework-owned)
+     and [009 §`:tags` is the open-ended bag](009-Instrumentation.md#tags-is-the-open-ended-bag));
+     `:rf.frame/id` is the *same stamp's* runtime-context coeffect spelling.
+     Two layers, two deliberately different spellings for one fact — first ruled
+     by [EP-0002 R3](../docs/EP/EP-0002-frame-target-resolution.md), recorded
+     here as this pattern's first instance.
+   - **Partition slot vs subsystem child.** `:rf.db/*` names partition *slots*
+     of frame-state (`:rf.db/app`, `:rf.db/runtime`); `:rf.runtime/*` names
+     subsystem *children* inside the runtime partition (`:rf.runtime/machines`,
+     `:rf.runtime/routing`, …). The different prefixes are this rule, not an
+     accident: each `:rf.runtime/*` child is globally greppable when detached
+     from its parent slot. (The two rows are defined in
+     [§The single-root reserved set](#the-single-root-reserved-set).)
+   - **HTTP-response vocabulary vs navigation vocabulary.** Server
+     response-shape surfaces use HTTP **header** vocabulary — `:location` for a
+     redirect target (per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server));
+     client **navigation** surfaces use `:url` (per [012-Routing](012-Routing.md)).
+     Different concepts, deliberately different words — not synonyms for one
+     fact.
+4. **One authoritative home per fact; mirrors are projections.** Denormalised
+   copies — indexes, dual-homed owners, derived fields — are declared
+   recomputable projections of the authoritative home, never co-equal sources,
+   and a projection MUST NOT mint a new key for the same fact. The
+   *state-ownership* half of this rule is
+   [`spec/Runtime-Subsystems.md` §Derived rule 2 — one authoritative home per fact; mirrors are recomputable projections](Runtime-Subsystems.md#derived-rule-2--one-authoritative-home-per-fact-mirrors-are-recomputable-projections);
+   stated here because it is a *naming* discipline too. Worked instance: the
+   resource work-ledger keys one identity on `:rf.work/resource` (per
+   [§The single-root reserved set](#the-single-root-reserved-set) and
+   [016 §Frame work ledger](016-Resources.md#frame-work-ledger)); its
+   denormalised fields are projections of that head, not a second identity.
+
+**Enforcement.** A retired spelling appearing in framework source is a CI
+failure (the no-floor-lint treatment) where the shape allows it, not a doc note.
+The new-surface review question — *"does this introduce a second spelling for an
+existing fact?"* — belongs on the EP template and the implementor skill: a
+second spelling is then a named violation, not a per-review judgment call.
+
 ## Reserved fx-ids
 
 re-frame2 reserves a small set of fx-ids — the runtime, the machine handler, and the navigation layer recognise them by name. User code MUST NOT register a `reg-fx` handler for these ids; doing so is a collision the registrar warns about.
