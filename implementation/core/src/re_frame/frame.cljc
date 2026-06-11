@@ -847,7 +847,28 @@
     runtime state (app-db, sub-cache, queue) is preserved; only the
     metadata/config is replaced. Hot-reload Just Works."
   [id metadata]
-  (let [config (source-coords/merge-coords (expand-preset metadata))]
+  (let [config (source-coords/merge-coords (expand-preset metadata))
+        ;; EP-0015 §3 (rf2-ueg1tn): validate the frame-owned classification
+        ;; keys (`:sensitive` / `:large` / `:observability`) EARLY — pure,
+        ;; container-independent, fail-loud. A malformed path / unknown
+        ;; classification key / non-string carrier name throws here, BEFORE
+        ;; the registrar write and BEFORE any container exists, so a bad
+        ;; declaration leaves no half-registered frame and never reaches
+        ;; `:on-create`. The extracted result (app-db sensitive/large paths,
+        ;; sensitive-wins-resolved) is installed into the durable elision
+        ;; registry once the container exists (below, atomically before
+        ;; `:on-create`). Reached via late-bind: `re-frame.frame-classification`
+        ;; requires `elision` which requires this ns, so a static require
+        ;; would cycle; `re-frame.core` requires it at boot so the hook is
+        ;; always published before any runtime `reg-frame`. Returns nil when
+        ;; the config carries no classification key (the common case).
+        classification (when-let [validate (late-bind/get-fn
+                                            :frame-classification/validate+extract)]
+                         (validate id config))
+        install-classification!
+        (fn []
+          (when-let [install! (late-bind/get-fn :frame-classification/install!)]
+            (install! id classification)))]
     (registrar/register! :frame id config)
     ;; Frame-level trace-emission gate (rf2-2qaqh): a frame registered
     ;; with `:rf.trace/frame-no-emit? true` is a tool / inspector frame
@@ -876,6 +897,14 @@
         (nil? existing)
         (let [f (new-frame-record id config)]
           (swap! frames assoc id f)
+          ;; EP-0015 §3 (rf2-ueg1tn): install the frame-owned app-db
+          ;; classification into the durable elision registry NOW — the
+          ;; container exists, and this MUST land before `:on-create` runs
+          ;; (a `:rf/path` declared sensitive must be redacted in any trace
+          ;; the init cascade emits). Already validated above, so this only
+          ;; mutates the runtime-db elision slot; no-op when the config
+          ;; carries no classification key.
+          (install-classification!)
           ;; Run :on-create events BEFORE emitting :frame/created
           ;; (Spec 002 §Frame creation). The router/dispatch ns is
           ;; reached through late-bind to avoid a cyclic dep at
@@ -963,6 +992,15 @@
         :else
         (do
           (swap! frames update id assoc :config config)
+          ;; EP-0015 §3 (rf2-ueg1tn): re-registration REPLACES frame-owned
+          ;; classification — the declaration IS the frame's policy (no
+          ;; additive merge). `install!` drops the prior `:source :frame`
+          ;; elision entries and overlays the new ones; schema- and
+          ;; marks-sourced declarations survive. A re-registration that
+          ;; DROPS its classification clears the prior frame-sourced entries
+          ;; (absent-key clears, per Spec 002 §Re-registration). Runtime
+          ;; state (app-db, sub-cache, queue) is preserved as ever.
+          (install-classification!)
           (trace/emit! :rf.frame :rf.frame/re-registered
                        {:frame id :config config})
           id)))))

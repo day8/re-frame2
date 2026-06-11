@@ -3138,8 +3138,52 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     [:drain-depth  {:optional true} :int]
     [:url-bound?   {:optional true} :boolean]                              ;; per [012-Routing.md](012-Routing.md)
     [:platform     {:optional true} :keyword]                              ;; the frame's active platform; per [011-SSR.md](011-SSR.md). Single keyword (one platform per frame); compared against `reg-fx`'s `:platforms` set.
+    ;; Frame-owned durable data classification (EP-0015 §3 + §9; the model
+    ;; is normative in [015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification)).
+    ;; Installed atomically before `:on-create`; sensitive wins over large;
+    ;; malformed paths / unknown keys / non-string carriers fail loudly at
+    ;; registration (`:rf.error/bad-frame-classification`).
+    [:sensitive    {:optional true} FrameSensitiveClassification]
+    [:large        {:optional true} FrameLargeClassification]
+    [:observability {:optional true} FrameObservability]
     ]])
+
+;; --- the frame-owned classification sub-shapes (EP-0015 §3 + §9) ---
+
+;; `:app-db` entries are `:rf/path` values (EP-0012; `[]` marks the whole
+;; app-db). `:http` carrier names are frame-local extensions to the
+;; immutable built-in HTTP carrier denylist — strings (header / query-param
+;; names are strings on the wire). `:http` is closed to `:headers` /
+;; `:query-params`.
+(def FrameSensitiveClassification
+  [:map
+   [:app-db {:optional true} [:vector Path]]                               ;; Path = :rf/path
+   [:http   {:optional true}
+    [:map
+     [:headers      {:optional true} [:vector :string]]
+     [:query-params {:optional true} [:vector :string]]]]])
+
+(def FrameLargeClassification
+  [:map
+   [:app-db {:optional true} [:vector Path]]])                             ;; Path = :rf/path
+
+;; Production observation sink policy. Each entry names a user/library-owned
+;; `:sink` keyword id; `:rf.egress/profile` and `:opts` are optional. The
+;; sink ids are NOT framework-claimed (EP-0015 §2). Routing records through
+;; the sinks is the EP-0015 observability slice.
+(def FrameSinkEntry
+  [:map
+   [:sink :keyword]                                                        ;; user/library-owned sink id, e.g. :my-app.sinks/datadog
+   [:rf.egress/profile {:optional true} :keyword]                          ;; e.g. :rf.egress/off-box-observability
+   [:opts {:optional true} [:map-of :keyword :any]]])                      ;; vendor-specific, framework does not own the vocabulary
+
+(def FrameObservability
+  [:map
+   [:handled-events {:optional true} [:vector FrameSinkEntry]]
+   [:errors         {:optional true} [:vector FrameSinkEntry]]])
 ```
+
+`Path` is the `:rf/path` schema (a vector of segments; see [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra)). The three classification keys appear on the *input* `reg-frame` metadata map and on the `frame-meta` readback verbatim — they are durable frame config. The `:sensitive :app-db` / `:large :app-db` paths are additionally lowered into the durable elision registry (`[:rf.runtime/elision …]`) under `:source :frame` at registration, where they union with schema- and marks-sourced declarations.
 
 ### `:rf/preset-expansion`
 
