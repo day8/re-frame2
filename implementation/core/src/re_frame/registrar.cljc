@@ -84,9 +84,46 @@
 ;; ---- the registry state ---------------------------------------------------
 
 (defonce
-  ^{:doc "kind → id → metadata-map. Atomic. The registrar is per-process."}
+  ^{:doc "kind → id → metadata-map. Atomic. The PROCESS-DEFAULT registrar — the
+  default realm owns it (EP-0013 D1: a realm owns the `(kind, id) → metadata`
+  table it dispatches/subscribes/resolves against). A single-realm app routes
+  every `reg-*` / lookup through this one atom, exactly as before."}
   kind->id->metadata
   (atom {}))
+
+;; ---- the active registrar (EP-0013 stage 9 — realm-scoped seating) ---------
+;;
+;; The active `(kind, id) → metadata` atom the registrar reads + writes. nil
+;; means "the process-default registrar" (`kind->id->metadata`) — the
+;; byte-identical single-realm path: unbound, every `reg-*` / `register!` /
+;; `unregister!` / `lookup` / `registrations` hits the one global atom exactly
+;; as before, with ZERO added indirection on the dispatch hot path (the var is
+;; consulted once and resolves to the global atom).
+;;
+;; `re-frame.app-value/install!` (stage 9) BINDS this var to a constructed
+;; realm's OWN registrar for the duration of seating, so the same `reg-*`
+;; lowering path that writes the default realm's table writes the target
+;; realm's table instead — without re-plumbing a realm argument through
+;; `re-frame.events` / `.subs` / `.fx` / `.cofx`. Two realms can thus install
+;; different handlers for the same id without collision: each install! seats
+;; into its own atom (EP-0013 §Realm Conformance). The binding is dynamically
+;; scoped to the install! call; outside it the var is nil and the default-realm
+;; path is unchanged.
+(def ^:dynamic *registrar*
+  "The active registrar atom, or nil for the process-default
+  `kind->id->metadata`. Bound by `re-frame.app-value/install!` /`reinstall!` to
+  seat a constructed realm's program into the realm's OWN registrar (EP-0013
+  stage 9). nil ⇒ the default realm — the byte-identical single-realm path."
+  nil)
+
+(defn active-registrar
+  "Return the registrar atom registration + lookup currently target — the
+  bound `*registrar*` when an explicit-realm seating is in flight, else the
+  process-default `kind->id->metadata`. The single resolution point so every
+  read/write below targets ONE consistent atom under a binding (the default
+  path resolves to the global atom with no allocation)."
+  []
+  (or *registrar* kind->id->metadata))
 
 ;; ---- registration ---------------------------------------------------------
 
@@ -318,9 +355,12 @@
   (when-let [pc source-coords/*pending-coords*]
     (source-coords/remember-error-coords! kind id pc))
   ;; 2-level lookup as paired `get`s rather than `(get-in ... [kind id])` —
-  ;; `get-in` allocates a path vector per call (rf2-mqv4m).
-  (let [previous (-> @kind->id->metadata (get kind) (get id))]
-    (swap! kind->id->metadata assoc-in [kind id] metadata)
+  ;; `get-in` allocates a path vector per call (rf2-mqv4m). Target the ACTIVE
+  ;; registrar (EP-0013 stage 9): the global atom on the default path, the
+  ;; bound realm's own atom while install!/reinstall! seats an explicit realm.
+  (let [reg      (active-registrar)
+        previous (-> @reg (get kind) (get id))]
+    (swap! reg assoc-in [kind id] metadata)
     (cond
       ;; Re-registration path — fire hooks and emit handler-replaced.
       previous
@@ -400,8 +440,9 @@
   "Remove a single id under kind. Hot-reload code paths use this; user code
   rarely does."
   [kind id]
-  (let [previous (-> @kind->id->metadata (get kind) (get id))]
-    (swap! kind->id->metadata update kind dissoc id)
+  (let [reg      (active-registrar)
+        previous (-> @reg (get kind) (get id))]
+    (swap! reg update kind dissoc id)
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
     ;; fires on explicit removal so hot-reload tools can update their
     ;; views. Only emit when something was actually present.
@@ -424,10 +465,11 @@
   a single kind starts each case from a clean diagnostic slate —
   mirrors `clear-all!`'s reset semantics, scoped to the named kind."
   [kind]
-  (let [previous-ids (keys (get @kind->id->metadata kind))
+  (let [reg          (active-registrar)
+        previous-ids (keys (get @reg kind))
         clear-kind   (fn [cache-set]
                        (into #{} (remove #(= kind (first %))) cache-set))]
-    (swap! kind->id->metadata dissoc kind)
+    (swap! reg dissoc kind)
     (swap! missing-doc-warned clear-kind)
     (swap! collision-warned   clear-kind)
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
@@ -481,7 +523,7 @@
   allocates a path vector per call (rf2-mqv4m), and `lookup` runs per
   dispatch (event handler), per fx (handler), and per sub (handler)."
   [kind id]
-  (-> @kind->id->metadata (get kind) (get id)))
+  (-> @(active-registrar) (get kind) (get id)))
 
 (defn handler
   "Return just the handler fn from the metadata, or nil. The handler is
@@ -514,11 +556,11 @@
   custom slots (id-by-keyword filtering composes via the caller's own
   `filter` over the result map's keys when needed)."
   ([kind]
-   (get @kind->id->metadata kind {}))
+   (get @(active-registrar) kind {}))
   ([kind pred-fn]
    (into {}
          (filter (fn [[_id meta]] (pred-fn meta)))
-         (get @kind->id->metadata kind {}))))
+         (get @(active-registrar) kind {}))))
 
 (defn handler-meta
   "Public alias for lookup. Used by tooling."

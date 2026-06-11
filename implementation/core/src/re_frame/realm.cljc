@@ -26,9 +26,18 @@
   r :kind k})` / `(rf/handler-meta {:realm r :kind k :id id})` (EP-0013
   open-issue 11 — map-shaped, unambiguous against the existing keyword
   arities); the no-arg / keyword-arity default-realm calls stay byte-identical.
-  There is still **no public `rf/realm` constructor** (EP-0013 issue 1 — that
-  name is reserved vocabulary; the public realm constructor graduates with the
-  later multi-adapter conformance stage). Everything in a single-realm app
+
+  Stage 9 (rf2-swrf4k — the LAST EP-0013 impl slice) graduates the PUBLIC
+  realm CONSTRUCTOR `construct-realm` (re-exported as `rf/realm`; ruled
+  `rf/realm`, NEVER `rf/runtime`, EP-0013 issue 1). A constructed realm is
+  HERMETIC by default (its OWN registrar atom) and REGISTERED in the `realms`
+  registry by id, so `install!` seats a program into its own table and the
+  realm-targeted query surface above reads only that realm's registrations —
+  N realms isolate (EP-0013 §Realm Conformance). The seating is realm-scoped
+  via `re-frame.registrar/*registrar*`, which `app-value/install!` binds to the
+  target realm's own atom for the duration of seating; live DISPATCH through a
+  non-default realm's own registrar (frame→realm lookup routing) is the future
+  slice the EP flags. Everything in a single-realm app still
   routes through ONE
   process-created **default realm** (`:rf.realm/id` = `:rf.realm/default`),
   so today's single-app ergonomics are byte-identical: a single-realm app
@@ -224,6 +233,119 @@
   ([] (registrar (default-realm)))
   ([realm-map]
    (:registrar (or realm-map (default-realm)))))
+
+;; ---- the public realm constructor (EP-0013 stage 9, rf2-swrf4k) ------------
+;;
+;; The PUBLIC realm CONSTRUCTOR — the LAST EP-0013 impl slice graduates the
+;; reserved `rf/realm` vocabulary (EP-0013 issue 1; ruled `rf/realm`, NEVER
+;; `rf/runtime` — "runtime" already names runtime-db / `:rf.runtime/*` /
+;; Runtime-Architecture, so a realm constructor called `runtime` is a permanent
+;; EP-0007 hazard). `make-realm` above is the pure record FACTORY the default
+;; realm + tests use; this is the public BUILD-AND-REGISTER constructor a caller
+;; uses to stand up an explicit realm to `install!` an app value into and target
+;; queries against (parallel apps / hermetic test isolation / multi-tenant).
+;;
+;; Two things distinguish a constructed realm from the implicit default:
+;;
+;;   1. it is HERMETIC by default — it gets its OWN fresh `(kind, id) →
+;;      metadata` registrar atom (not the process-global one the default realm
+;;      holds), so an app installed into it lives in its own table. Two realms
+;;      can hold different handlers for the same event id without collision
+;;      (EP-0013 §Realm Conformance), and a hermetic test installs exactly the
+;;      program it needs without clearing a process-global registrar. A caller
+;;      MAY pass an explicit `:registrar` atom to share one (the default realm's
+;;      own pattern), but the public default is isolation.
+;;
+;;   2. it is REGISTERED in the process `realms` registry under its `:id`, so it
+;;      resolves by id keyword through `realm` / `realm-registrations` / the
+;;      stage-8 `{:realm …}` query forms, and `install!` can seat into it by id
+;;      or by the realm map. The default realm is the one already-registered
+;;      entry; a constructed realm joins it. Realm ids are unique within a
+;;      process — constructing a realm whose id already exists THROWS rather
+;;      than silently clobbering a live realm.
+;;
+;; A constructed realm carries its own `:adapter` SELECTION + `:capabilities`
+;; map when supplied, so it can run a different substrate root than another
+;; realm (the multi-adapter-root direction the conformance matrix proves).
+
+(defn register-realm!
+  "Insert `realm-map` into the process `realms` registry under its
+  `:rf.realm/id`. INTERNAL — the single mutation seam that adds a realm to the
+  registry (the default realm is seeded at ns-load; constructed realms join via
+  `construct-realm`). Returns the realm map. Does NOT guard id uniqueness — the
+  public `construct-realm` owns that check so this stays a plain setter."
+  [realm-map]
+  (swap! realms assoc (:rf.realm/id realm-map) realm-map)
+  realm-map)
+
+(defn construct-realm
+  "Construct + register a PUBLIC realm — an explicit container a caller installs
+  an app value into and targets queries against (EP-0013 stage 9). PUBLIC
+  (`rf/realm`).
+
+  `opts` (a map) carries:
+
+    :id           the realm id (required) — a stable, process-unique keyword.
+                  Constructing a realm whose id is already registered THROWS
+                  `:rf.error/realm-id-conflict` (realm ids are unique within a
+                  process; a silent clobber would orphan a live realm's program).
+    :registrar    (optional) an explicit `(kind, id) → metadata` atom to share.
+                  OMITTED ⇒ the realm gets its OWN fresh empty atom (HERMETIC —
+                  the public default), so an app installed into it lives in its
+                  own table, isolated from every other realm.
+    :adapter      (optional) the realm's adapter SELECTION (the substrate spec
+                  map) — a realm may carry its own adapter/root, so N realms can
+                  run N different substrate roots.
+    :capabilities (optional) the `:rf.capability/* → service` map a stage-7
+                  `install!` capability-checks the installed app against.
+    :app          (optional) an app value to record in the realm's `:app` slot
+                  up front (the seating that makes it dispatch-ready is still
+                  `install!`'s job — this only records the value).
+
+  Returns the constructed realm map (now in the `realms` registry), so the call
+  composes: `(-> (rf/realm {:id …}) (rf/install! app))`.
+
+  Throws `:rf.error/invalid-realm` when `:id` is missing, and
+  `:rf.error/realm-id-conflict` when `:id` is already registered."
+  [opts]
+  (let [id (:id opts)]
+    (when (nil? id)
+      (throw (ex-info "rf/realm requires an :id"
+                      {:error/id   :rf.error/invalid-realm
+                       :opts       opts
+                       :recovery   :supply-a-realm-id})))
+    (when (contains? @realms id)
+      (throw (ex-info (str "rf/realm: a realm with id " id " is already registered")
+                      {:error/id   :rf.error/realm-id-conflict
+                       :realm      id
+                       :recovery   :use-a-unique-realm-id-or-dispose-the-existing-realm})))
+    (let [;; Hermetic by default: a fresh OWN registrar atom unless the caller
+          ;; shares one explicitly. This is the isolation the public realm
+          ;; constructor exists to provide.
+          realm-map (cond-> (make-realm id {:registrar (get opts :registrar (atom {}))})
+                      (contains? opts :adapter)      (assoc :adapter      (:adapter opts))
+                      (contains? opts :capabilities) (assoc :capabilities (:capabilities opts))
+                      (contains? opts :app)          (assoc :app          (:app opts)))]
+      (register-realm! realm-map))))
+
+(defn dispose-realm!
+  "Drop a constructed realm from the process `realms` registry, releasing its
+  own registrar (and adapter/host-transient inventory) for GC. nil / the
+  default realm id is a NO-OP — the default realm is never disposed (it backs
+  the byte-identical single-realm path). Returns nil. The teardown counterpart
+  of `construct-realm` for hermetic-test cleanup and multi-tenant realm
+  lifecycle. PUBLIC (`rf/dispose-realm!`).
+
+  Per EP-0013 §Realm Conformance the deeper teardown (disposing adapter/root
+  resources + walking the host-transient subsystem inventory) rides the
+  realm-owned `dispose-realm-adapter!` / `clear-host-transient!` seams; this
+  releases the realm's registry entry so its program + own registrar are no
+  longer reachable."
+  [realm-or-id]
+  (let [rid (realm-id realm-or-id)]
+    (when-not (= rid default-realm-id)
+      (swap! realms dissoc rid)))
+  nil)
 
 ;; ---- realm-targeted registrar queries (EP-0013 D1 stage 8, rf2-blibek) ----
 ;;

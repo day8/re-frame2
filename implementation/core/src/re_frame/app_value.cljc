@@ -632,6 +632,20 @@
     (when-not (and lower (lower kind id desc))
       (registrar/register! kind id (descriptor->registration-metadata desc)))))
 
+(defn- seat-into-realm!
+  "Run `thunk` (the per-descriptor seating) with `registrar/*registrar*` bound
+  to realm `rid`'s OWN registrar atom, so every `register!` / `unregister!` the
+  lowering path issues targets THAT realm's `(kind, id) → metadata` table
+  (EP-0013 stage 9 isolation). For the default realm the realm's registrar IS
+  the process-global atom, so the binding rebinds to the same atom — the
+  default-realm seating path is byte-identical. A realm with no registry entry
+  (unknown id) falls back to the global atom rather than throwing — installing
+  into an unconstructed id seats into the default table (the absence-is-default
+  rule). INTERNAL."
+  [rid thunk]
+  (binding [registrar/*registrar* (realm/registrar (realm/realm rid))]
+    (thunk)))
+
 (defn install!
   "Seat an immutable app VALUE into a realm — make `app`'s registrations the
   program `realm-or-id` dispatches/subscribes/resolves against (EP-0013 D2
@@ -667,10 +681,16 @@
      ;; (2) derive the registrar, then record the seated value at the realm
      ;; boundary. Each descriptor is lowered through its kind's real
      ;; registration logic (so a constructed handler becomes dispatch-ready),
-     ;; writing the realm's `(kind, id) → metadata` table — so this is value
+     ;; writing the realm's OWN `(kind, id) → metadata` table — so this is value
      ;; replacement at the realm boundary, not a new global-mutation primitive.
-     (doseq [[kind id desc] (registrations-seq app)]
-       (register-descriptor! kind id desc))
+     ;; The lowering path (`register-descriptor!` → the reg-* fns →
+     ;; `registrar/register!`) targets `registrar/*registrar*`, so binding it to
+     ;; the target realm's own atom seats the program into THAT realm's table
+     ;; (EP-0013 stage 9 isolation). nil resolves to the global atom — the
+     ;; default-realm path is byte-identical (the realm's registrar IS the
+     ;; global atom, so the binding is a no-op rebind to the same atom).
+     (seat-into-realm! rid (fn [] (doseq [[kind id desc] (registrations-seq app)]
+                                    (register-descriptor! kind id desc))))
      (realm/set-installed-app! rid app))))
 
 ;; ---- reinstall: hot-reload a realm as an app-value diff --------------------
@@ -772,14 +792,19 @@
      ;; The capability invariant holds across reloads too — fail loud before
      ;; any mutation if the new app raises a requirement the realm can't meet.
      (check-capabilities! rid new-app)
-     ;; Apply the delta. Added + changed re-derive the registrar slot from the
-     ;; new descriptor (lowered through its kind's real registration logic, so a
-     ;; reloaded handler is dispatch-ready + the registrar's hot-reload
-     ;; replacement hooks fire); removed unregister (future lookups fail loudly).
-     (doseq [[kind id] (concat (:added diff) (:changed diff))]
-       (register-descriptor! kind id (get-in new-app [:registrations kind id])))
-     (doseq [[kind id] (:removed diff)]
-       (registrar/unregister! kind id))
+     ;; Apply the delta against the realm's OWN registrar (EP-0013 stage 9):
+     ;; added + changed re-derive the registrar slot from the new descriptor
+     ;; (lowered through its kind's real registration logic, so a reloaded
+     ;; handler is dispatch-ready + the registrar's hot-reload replacement hooks
+     ;; fire); removed unregister (future lookups fail loudly). The seating
+     ;; binds `*registrar*` to the realm's atom, so a reinstall hot-reloads only
+     ;; THAT realm's program — the default-realm path is byte-identical.
+     (seat-into-realm! rid
+       (fn []
+         (doseq [[kind id] (concat (:added diff) (:changed diff))]
+           (register-descriptor! kind id (get-in new-app [:registrations kind id])))
+         (doseq [[kind id] (:removed diff)]
+           (registrar/unregister! kind id))))
      (realm/set-installed-app! rid new-app)
      (assoc diff
             :realm  rid

@@ -450,6 +450,18 @@
   ;; Runtime-Subsystems (the EP-0013 realm/app-value contract home).
   ["re-frame.core" "install!"]             {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
   ["re-frame.core" "reinstall!"]           {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
+  ;; EP-0013 D1 stage 9 (rf2-swrf4k, the LAST EP-0013 impl slice): the PUBLIC
+  ;; realm CONSTRUCTOR — the reserved `rf/realm` vocabulary graduates (ruled
+  ;; `rf/realm`, NEVER `rf/runtime`, EP-0013 issue 1). `realm` constructs +
+  ;; registers an explicit, HERMETIC-by-default runtime realm a caller installs
+  ;; an app value into + targets the `{:realm …}` queries against (parallel
+  ;; apps / multi-tenant / hermetic tests); `dispose-realm!` is its teardown
+  ;; counterpart. `advanced` tier alongside the stage-6/7 constructors — the
+  ;; surface large-SPA / multi-tenant code uses; the implicit default realm is
+  ;; unchanged + byte-identical (a single-realm app never spells a realm).
+  ;; Owner: Runtime-Subsystems (the EP-0013 realm/app-value contract home).
+  ["re-frame.core" "realm"]                {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
+  ["re-frame.core" "dispose-realm!"]       {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
   ;; Feature registry (optional-artefact presence checks).
   ["re-frame.core" "feature-loaded?"]      {:tier :advanced :owner "Conventions" :status "v1"}
   ["re-frame.core" "features"]             {:tier :advanced :owner "Conventions" :status "v1"}
