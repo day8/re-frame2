@@ -58,10 +58,10 @@
   recomputable-from-`:entries` (rebuilt on install, never trusted from the
   snapshot — Spec 016 §Restore and replay part 5) and need not ride. Per
   Spec 016 §Runtime-subsystem graduation clause 4."
-  (:require [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
+  (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.privacy :as privacy]
+            [re-frame.resources.classification :as classification]
             [re-frame.resources.mutation-runtime :as mutation-runtime]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.state :as state]
@@ -113,21 +113,39 @@
 
 ;; ---- per-entry sensitivity / size classification (Spec 016 clause 4) ------
 ;;
-;; Params, scopes, and data carry `:sensitive?` / `:large?` classification.
-;; A resource registered `:sensitive? true` (or `:large? true`) must NOT
-;; ship its data verbatim onto the wire — every visitor of every SSR page
-;; would otherwise receive it. We run the entry's `:data` through the
-;; SHARED `rf/elide-wire-value` walker (the same per-frame, schema-declared
-;; redaction the trace / epoch egress uses), under the SSR frame so the
-;; resource's declared classification governs. The classification source:
-;; the resource spec's coarse `:sensitive?` / `:large?` flags (registration
-;; metadata) PLUS the schema-slot marks the walker already honours.
+;; EP-0015 §6 reconciliation (rf2-5pld34). Params, scopes, and data carry
+;; `:sensitive?` / `:large?` classification OWNED by the resource definition
+;; (Spec 015 §Resource and mutation durable classification). The owner
+;; surface, per EP-0015 issue 11 (ruled):
+;;
+;;   - the coarse whole-entry `:sensitive?` / `:large?` claims on the
+;;     resource spec are the degenerate ROOT-PROP case (the whole resource is
+;;     the classification unit) — they gate the metadata-only redact / omit
+;;     shape (`whole-entry-disposition`);
+;;   - per-slot `:sensitive?` / `:large?` props on the `:data-schema` /
+;;     `:params-schema` are the canonical FINE-GRAINED surface (the same
+;;     EP-0005 mechanism the machine `:data-schema` uses) — there is NO new
+;;     resource path-map vocabulary.
+;;
+;; A `:sensitive?` (or `:large?`) resource must NOT ship its data verbatim
+;; onto the wire — every visitor of every SSR page would otherwise receive
+;; it. The whole-entry coarse claim drives redact / omit; a `:serialize`
+;; entry's data slice still rides through the merged frame-owned
+;; `re-frame.projection/project-egress` (over the SHARED `rf/elide-wire-value`
+;; walker) under the SSR boundary profile, so any per-slot `:data-schema`
+;; mark the frame classification carries composes as defense-in-depth. The
+;; classification + projection live in `re-frame.resources.classification`
+;; (the owner-classification seam); this slice consults it — never a
+;; family-private elider.
 
 (defn- entry-classification
-  "Classify how `entry` (under `scoped-key`) may ride the wire, reading the
-  resource spec's coarse `:sensitive?` / `:large?` flags. Returns one of:
+  "Classify how `entry` (under `scoped-key`) may ride the wire, deferring to
+  the resource OWNER's coarse root-prop `:sensitive?` / `:large?` claim
+  (`classification/whole-entry-disposition`, EP-0015 §6 / issue 11). Returns
+  one of:
 
-    :serialize  — ship the data verbatim;
+    :serialize  — ship the data (still PROJECTED through frame
+                  classification — see `project-entry`);
     :redact     — ship the entry as METADATA ONLY (status / timestamps /
                   generation) with the data replaced by the redaction
                   sentinel — a `:sensitive?` resource;
@@ -137,14 +155,11 @@
 
   Sensitive wins over large when both are declared (the redaction sentinel
   is the more conservative shape — it still announces an entry exists).
-  Per Spec 016 §Runtime-subsystem graduation clause 4."
+  Per Spec 016 §Runtime-subsystem graduation clause 4 / EP-0015 §6."
   [scoped-key _entry]
   (let [resource-id (nth scoped-key 1)
         spec        (registry/resource-meta resource-id)]
-    (cond
-      (:sensitive? spec) :redact
-      (:large? spec)     :omit
-      :else              :serialize)))
+    (classification/whole-entry-disposition spec)))
 
 ;; ---- scoped-key privacy (Spec 016 clause 4, rf2-otms75) -------------------
 ;;
@@ -254,7 +269,11 @@
   the data projection). A redacted/omitted entry drops `:refresh-error`."
   [frame-id clock-ms scoped-key entry]
   (let [resource-id (nth scoped-key 1)
-        disposition (entry-classification scoped-key entry)
+        ;; resolve the owner spec once: it carries BOTH the coarse root-prop
+        ;; disposition (`whole-entry-disposition`) and the per-slot
+        ;; `:data-schema` marks (`project-data` layer (a)) — EP-0015 §6.
+        spec        (registry/resource-meta resource-id)
+        disposition (classification/whole-entry-disposition spec)
         stale?      (entry-stale? entry clock-ms)
         ;; metadata-only entries refetch on the client if a live route owner
         ;; needs them; serialized stale entries also refetch (background);
@@ -268,20 +287,21 @@
                      :stale-at       (:stale-at entry)
                      :invalidated-at (:invalidated-at entry)}
         wire-entry  (case disposition
-                      ;; ship verbatim, but run the data through the frame's
-                      ;; elision policy (defense in depth) ONLY when a frame is
-                      ;; carried — so a schema-marked sensitive SUB-path is
-                      ;; still redacted even on a coarse-`:serialize` resource.
-                      ;; Frameless egress fails closed to the sentinel, which
-                      ;; would over-redact a non-sensitive resource projected
-                      ;; outside a frame scope (test harness / pure use); guard
-                      ;; the walker on a known frame so the coarse classification
-                      ;; (not frame-presence) governs serialize-vs-redact.
+                      ;; ship the data, but PROJECT it through the merged
+                      ;; frame-owned `project-egress` (EP-0015 §10/§11) under
+                      ;; the SSR boundary profile — so a per-slot `:data-schema`
+                      ;; mark the frame classification carries is still redacted
+                      ;; even on a coarse-`:serialize` resource (defense in
+                      ;; depth). `classification/project-data` defers to
+                      ;; `project-egress`; frameless egress rides the data
+                      ;; UNCHANGED so the coarse owner classification (not
+                      ;; frame-presence) governs serialize-vs-redact for a pure /
+                      ;; test-harness projection outside a frame scope.
                       :serialize
                       (assoc entry :data
-                             (if frame-id
-                               (elision/elide-wire-value (:data entry) {:frame frame-id})
-                               (:data entry)))
+                             (classification/project-data
+                               (:data entry) spec frame-id
+                               :rf.egress/ssr-hydration))
                       ;; sensitive: replace data with the redaction sentinel
                       ;; (the entry still announces it exists; metadata only).
                       ;; The coarse `:sensitive?` claim is the authority — the
