@@ -65,6 +65,7 @@
             [re-frame.resources.mutation-runtime :as mutation-runtime]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.state :as state]
+            [re-frame.resources.timers :as timers]
             [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.trace :as trace]))
 
@@ -894,6 +895,45 @@
                runtime-db pending)
        pending])))
 
+(defn clear-host-transients-on-restore!
+  "Clear the restored `frame-id`'s HOST-SIDE transient resource caches that the
+  pre-restore timeline armed (rf2-nd1r9q, Spec 016 §Restore and replay part 5).
+  Epoch restore installs the durable snapshot wholesale, but host side tables
+  are NOT frame-state — they belong to the pre-restore timeline and must be
+  cleared so a stale timer / abandoned in-flight handle cannot fire against the
+  restored state:
+
+    - **stale / GC timer handles** (`timers/release-frame!`) — cancelled +
+      dropped for the frame; stale/GC scheduling re-arms LAZILY from the
+      restored entries' durable timestamps the next time the runtime touches
+      each entry (the timer is advisory, re-checked against durable facts), so
+      restore arms NO eager timer;
+    - **work-ledger host handles** (`work-ledger/release-frame!`) — the
+      AbortController / transport-promise slots for the frame's in-flight
+      attempts; best-effort aborted on the way out (the work is dangling per
+      part 2 — its durable row was already settled `:suppressed`).
+
+  DELIBERATELY does NOT touch (Spec 016 part 5 / the bead's explicit fence):
+
+    - the host-side GENERATION high-water mark (`state/generation-cache`) — it
+      is monotonic + must NOT rewind (part 1), or a pre-restore reply's
+      generation could re-match a post-restore entry; resetting it here would
+      reintroduce the exact anti-recycling hazard restore exists to prevent;
+    - the focus/reconnect REVALIDATION-LISTENER ownership — those host
+      listeners are frame-lifecycle-scoped (install on frame create, remove on
+      frame destroy), NOT epoch-scoped; a restore is not a frame teardown, so
+      their ownership rides through (re-installing them here would double-bind
+      or orphan the live listeners).
+
+  This is the restore-specific SUBSET of the frame-destroy teardown
+  (`release-resources-host-caches!`), which clears all four. Side-effecting
+  (mutates the module-level `timer-table` / `handle-table`); idempotent;
+  returns nil. No-op for a frame with no armed transients."
+  [frame-id]
+  (timers/release-frame! frame-id)
+  (work-ledger/release-frame! frame-id)
+  nil)
+
 (defn reconcile-on-restore
   "Reconcile a freshly-INSTALLED resource subtree on `restore-epoch` (the body
   behind the `:resources/reconcile-on-restore` hook epoch `perform-restore!`
@@ -1018,6 +1058,19 @@
                                             skew "ms ahead of the live clock — clock "
                                             "skew makes freshness ambiguous; the next "
                                             "live-owner ensure will resolve it.")}))
+         ;; rf2-nd1r9q — clear the restored frame's HOST-SIDE transients (stale /
+         ;; GC timer handles + work-ledger host handles) that the pre-restore
+         ;; timeline armed (Spec 016 §Restore and replay part 5). These are NOT
+         ;; frame-state, so the wholesale install does not touch them; a stale
+         ;; timer or abandoned in-flight handle must not fire against the
+         ;; restored state. Scheduling re-arms LAZILY from the restored durable
+         ;; timestamps on the next live-owner touch, so restore triggers no
+         ;; eager refetch. Skips the generation high-water mark (must not rewind
+         ;; — part 1) and the revalidation listeners (frame-lifecycle-scoped, not
+         ;; epoch-scoped). Guarded on `frame-id` (the host always passes one; the
+         ;; pure-unit 1-arity passes nil and has no live host tables to clear).
+         (when frame-id
+           (clear-host-transients-on-restore! frame-id))
          rdb''')))))
 
 ;; ---- client refetch decision (Spec 016 §SSR and hydration) ----------------
