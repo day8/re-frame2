@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.panels.epoch.badge
   "Pure-data badge taxonomy for the Epoch panel (rf2-sc3r1).
 
-  Maps each of the 7 cascade step badges → its visual chrome (colour
+  Maps each cascade step badge → its visual chrome (colour
   token + label text). The colour resolver returns a CSS-variable
   string off `theme/tokens` so the panel's badges flow through the
   active theme like every other Xray chrome element.
@@ -58,7 +58,11 @@
 ;;                              couldn't separate them at a glance.)
 ;;     var(--devtools-success) — `:success` / `:green`
 ;;
-;; The 7-badge inventory is binding: the view never paints a badge
+;; rf2-9fyn40 — added :WORLD-INPUTS (EP-0010 causal provenance), pulling
+;; :text-secondary (a step lighter than DISPATCH's :text-tertiary — it
+;; reads as orienting causal-context metadata, not a pipeline action).
+;;
+;; The badge inventory is binding: the view never paints a badge
 ;; whose keyword is not in this map.
 
 (def ^:private badge->token-key
@@ -86,6 +90,13 @@
   the interceptor chain WRAPS the handler; they read as one identity
   family in the cascade, the chain around the handler body)."
   {:DISPATCH          :text-tertiary
+   ;; rf2-9fyn40 — WORLD INPUTS (EP-0010 causal provenance) sits right
+   ;; after DISPATCH SITE and reads as CONTEXT, not a pipeline action.
+   ;; `:text-secondary` (brighter muted) keeps it in the dispatch-site
+   ;; muted-family — a step lighter than DISPATCH's `:text-tertiary` —
+   ;; so the causal-input section reads as orienting metadata rather
+   ;; than competing with the action badges (HANDLER / FLOW accent, etc.).
+   :WORLD-INPUTS      :text-secondary
    :COEFFECT          :magenta
    :INTERCEPTOR       :accent
    :HANDLER           :accent
@@ -99,6 +110,7 @@
   "Map from badge keyword → uppercase label rendered in the badge
   pill. Pure data."
   {:DISPATCH          "DISPATCH"
+   :WORLD-INPUTS      "WORLD INPUTS"
    :COEFFECT          "COEFFECT"
    :INTERCEPTOR       "INTERCEPTOR"
    :HANDLER           "EVENT HANDLER"

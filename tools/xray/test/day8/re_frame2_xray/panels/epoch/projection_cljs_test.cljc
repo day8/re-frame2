@@ -272,6 +272,112 @@
       (is (nil? (:source-enrichment r))
           "no parent-dispatch-id → no enrichment map (graceful degrade)"))))
 
+;; ---- WORLD INPUTS (rf2-9fyn40 · EP-0010) --------------------------------
+;;
+;; The dispatch envelope's causal `:rf.world/inputs` map rides under
+;; `[:tags :rf.world/inputs]` on the `:rf.event/dispatched` trace (the
+;; substrate stamps it per rf2-jt854w). The Event lens surfaces it as a
+;; dedicated WORLD INPUTS step right after DISPATCH SITE.
+;;
+;; PRIVACY (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11): `:time-ms`
+;; is ALWAYS safe to surface (rides verbatim); every other key is value-
+;; bearing and REDACTS BY DEFAULT — routed through `resources-helpers/
+;; summarize` (the same path reply_envelope.cljc uses), so the row carries
+;; a privacy summary, never a raw value.
+
+(defn- dispatched-with-world-inputs
+  "A `:rf.event/dispatched` trace event carrying a `:rf.world/inputs` map
+  under `:tags` (the substrate-canonical placement per rf2-jt854w)."
+  [event world-inputs]
+  {:op-type   :rf.event
+   :operation :rf.event/dispatched
+   :tags      {:rf.event/v       event
+               :source           :ui
+               :rf.world/inputs  world-inputs}})
+
+(deftest world-inputs-row-time-ms-only-test
+  (testing "rf2-9fyn40 — a world-input map carrying only :time-ms produces a
+            WORLD INPUTS row surfacing :time-ms verbatim (always safe per
+            EP-0010 Open Issue 4), with no value-bearing input rows"
+    (let [ev (dispatched-with-world-inputs [:counter/inc] {:time-ms 1781078400123})
+          r  (proj/world-inputs-row [ev])]
+      (is (= :world-inputs (:step r)))
+      (is (= :WORLD-INPUTS (:badge r)))
+      (is (= 1781078400123 (:time-ms r)) ":time-ms rides verbatim")
+      (is (nil? (:inputs r)) "no value-bearing keys → no :inputs slot"))))
+
+(deftest world-inputs-row-value-bearing-keys-summarized-test
+  (testing "rf2-9fyn40 — value-bearing keys (:uuid / :random) are routed
+            through resources-helpers/summarize: the KEY rides verbatim
+            (framework vocabulary, not PII); the VALUE is a summary map,
+            never the raw value (EP-0010 §Privacy / Open Issue 4 —
+            redact-by-default for everything except :time-ms)"
+    (let [wi {:time-ms 1781078400123
+              :uuid    {:todo/id #uuid "00000000-0000-0000-0000-000000000001"}
+              :random  {:todo/color :green}}
+          ev (dispatched-with-world-inputs [:todo/create] wi)
+          r  (proj/world-inputs-row [ev])
+          inputs (:inputs r)
+          by-key (into {} (map (juxt :key identity) inputs))]
+      (is (= 1781078400123 (:time-ms r)) ":time-ms still surfaced verbatim")
+      (is (= 2 (count inputs)) "two value-bearing keys (:uuid + :random)")
+      (is (= [:random :uuid] (mapv :key inputs)) "sorted by key name")
+      ;; each value is a summarize SHAPE (a map with :type/:preview/…),
+      ;; never the raw value.
+      (is (map? (:value (by-key :uuid))))
+      (is (contains? (:value (by-key :uuid)) :preview)
+          ":uuid value is a summarize shape, not the raw map")
+      (is (= "map" (:type (:value (by-key :uuid)))))
+      (is (map? (:value (by-key :random))))
+      (is (= "map" (:type (:value (by-key :random)))))
+      ;; the keys ride verbatim — framework vocabulary, not summarized.
+      (is (= :uuid (:key (by-key :uuid))))
+      (is (= :random (:key (by-key :random)))))))
+
+(deftest world-inputs-row-redacted-value-stays-sentinel-test
+  (testing "rf2-9fyn40 — a value already redacted UPSTREAM (the framework
+            :rf/redacted sentinel for a :sensitive? slot) keeps its sentinel
+            status through summarize: the row renders [redacted], NEVER the
+            raw value (EP-0010 §Privacy — marks/projection redact by default)"
+    (let [wi {:time-ms 1781078400123
+              :storage :rf/redacted}   ;; runtime elided a sensitive storage read
+          ev (dispatched-with-world-inputs [:prefs/load] wi)
+          r  (proj/world-inputs-row [ev])
+          row (first (:inputs r))]
+      (is (= :storage (:key row)))
+      (is (true? (:redacted? (:value row))) "the sentinel summarizes as redacted")
+      (is (= "[redacted]" (:preview (:value row)))
+          "renders the redaction marker, not the raw value"))))
+
+(deftest world-inputs-row-absent-when-no-map-test
+  (testing "rf2-9fyn40 — silent-by-default: no :rf.world/inputs tag (older
+            runtimes / prod-elided arm / fixtures) → no WORLD INPUTS step"
+    (let [ev (dispatched-ev [:counter/inc] :ui)]  ;; builder stamps no world inputs
+      (is (nil? (proj/world-inputs-row [ev]))
+          "no world-input map → nil row")))
+  (testing "rf2-9fyn40 — no dispatched trace at all → nil row"
+    (is (nil? (proj/world-inputs-row []))))
+  (testing "rf2-9fyn40 — an EMPTY world-input map → nil row (nothing to show)"
+    (let [ev (dispatched-with-world-inputs [:counter/inc] {})]
+      (is (nil? (proj/world-inputs-row [ev]))))))
+
+(deftest project-places-world-inputs-after-dispatch-test
+  (testing "rf2-9fyn40 — `project` slots the WORLD INPUTS step RIGHT AFTER
+            DISPATCH SITE (before COEFFECTS), and numbers it as a first-class
+            cascade entry"
+    (let [ev    (dispatched-with-world-inputs [:counter/inc] {:time-ms 1781078400123})
+          steps (proj/project-numbered (record [ev]))
+          kinds (mapv :step steps)]
+      (is (= :dispatch (first kinds)) "DISPATCH first")
+      (is (= :world-inputs (second kinds)) "WORLD INPUTS immediately after DISPATCH")
+      (is (= 2 (:step-number (second steps))) "numbered as step 2")))
+  (testing "rf2-9fyn40 — no world-input map → no WORLD INPUTS step in the cascade"
+    (let [ev    (dispatched-ev [:counter/inc] :ui)
+          steps (proj/project (record [ev]))
+          kinds (mapv :step steps)]
+      (is (not (some #{:world-inputs} kinds))
+          "WORLD INPUTS is silent-by-default — absent when no map surfaced"))))
+
 ;; ---- COEFFECT ------------------------------------------------------------
 
 (deftest coeffect-rows-granular-test
@@ -2895,11 +3001,14 @@
                          (view-render-ev ::v [:s])])
           steps (proj/project rec)]
       (is (every? proj/valid-badge? (map :badge steps)))
-      (is (= 9 (count proj/badge-set))
+      (is (= 10 (count proj/badge-set))
           "rf2-sc3r1 7 + rf2-xgeag (SCHEMA-HOT-RELOAD, renamed from
-           SCHEMA-VIOLATIONS) + rf2-yz57h (INTERCEPTOR) = 9 badges.
+           SCHEMA-VIOLATIONS) + rf2-yz57h (INTERCEPTOR) = 9 badges, +
+           rf2-9fyn40 (WORLD-INPUTS, EP-0010 causal provenance) = 10.
            rf2-btt0s deleted :CHILD-DISPATCHES + :APP-DB-DIFF (retired
            steps the projection can no longer emit).")
+      (is (contains? proj/badge-set :WORLD-INPUTS)
+          "rf2-9fyn40 — WORLD-INPUTS badge is in the inventory")
       ;; rf2-btt0s — guard against step-level drift: badge-set must NOT
       ;; advertise a badge no step can produce. The conditional steps
       ;; (FLOW / SIDE-EFFECTS / SCHEMA-HOT-RELOAD / INTERCEPTOR) are

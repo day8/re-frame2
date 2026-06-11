@@ -18,6 +18,7 @@
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.epoch.view :as view]
+            [day8.re-frame2-xray.panels.resources-helpers :as rh]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-orchestrator]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -411,6 +412,49 @@
           "the cofx-id is surfaced in the header")
       (is (string/includes? (or value-text "") "42")
           "the cofx value renders in the body"))))
+
+;; ---- rf2-9fyn40 — WORLD INPUTS step (EP-0010 causal provenance) ---------
+
+(deftest world-inputs-time-ms-renders-verbatim-test
+  (testing "rf2-9fyn40 — :time-ms is ALWAYS safe (EP-0010 Open Issue 4) and
+            renders verbatim in the WORLD INPUTS step body"
+    (let [step {:step :world-inputs :badge :WORLD-INPUTS :step-number 2
+                :time-ms 1781078400123}
+          tree (view/render-world-inputs-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-world-inputs"))
+          "the WORLD INPUTS step wrapper renders")
+      (is (string/includes?
+            (or (text-of tree "rf-xray-epoch-world-inputs-time-ms-value") "")
+            "1781078400123")
+          ":time-ms renders verbatim"))))
+
+(deftest world-inputs-value-bearing-key-renders-summary-test
+  (testing "rf2-9fyn40 — a value-bearing key renders the privacy summary
+            chip (preview), NOT the raw value. The KEY rides verbatim"
+    (let [step {:step :world-inputs :badge :WORLD-INPUTS :step-number 2
+                :time-ms 1781078400123
+                :inputs [{:key :uuid :value (rh/summarize {:todo/id 1})}]}
+          tree (view/render-world-inputs-step step)
+          key-text (text-of tree "rf-xray-epoch-world-input-key-uuid")
+          val-text (text-of tree "rf-xray-epoch-world-input-value-uuid")]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-world-input-row-uuid"))
+          "the value-bearing key row renders")
+      (is (string/includes? (or key-text "") ":uuid")
+          "the key rides verbatim (framework vocabulary)")
+      ;; the summarize preview is shown — a bounded pr-str, not a raw deref
+      (is (string/includes? (or val-text "") "todo/id")
+          "the bounded summary preview renders"))))
+
+(deftest world-inputs-redacted-value-renders-marker-test
+  (testing "rf2-9fyn40 — a value redacted upstream (:rf/redacted sentinel)
+            renders the [redacted] marker, NEVER the raw value (EP-0010
+            §Privacy — redact-by-default for non-:time-ms keys)"
+    (let [step {:step :world-inputs :badge :WORLD-INPUTS :step-number 2
+                :inputs [{:key :storage :value (rh/summarize :rf/redacted)}]}
+          tree (view/render-world-inputs-step step)
+          val-text (text-of tree "rf-xray-epoch-world-input-value-storage")]
+      (is (string/includes? (or val-text "") "[redacted]")
+          "the redaction marker renders, not the raw value"))))
 
 ;; ---- rf2-kfh1v — SUBSCRIPTIONS rows + filter -------------------------
 

@@ -45,7 +45,8 @@
   `tools/xray/spec/Conventions.md` §Pure-data helpers as `.cljc` — the
   projection is data-in / data-out and runs under both targets.
   `feedback_jvm_interop_must_work.md` is binding."
-  (:require [day8.re-frame2-xray.panels.common-helpers :as common]))
+  (:require [day8.re-frame2-xray.panels.common-helpers :as common]
+            [day8.re-frame2-xray.panels.resources-helpers :as rh]))
 
 ;; ---- trace-event lookups -------------------------------------------------
 
@@ -225,6 +226,96 @@
        :event fallback-event}
 
       :else nil)))
+
+;; ---- WORLD INPUTS row (rf2-9fyn40 · EP-0010) ----------------------------
+;;
+;; EP-0010 gives every dispatch envelope a CAUSAL `:rf.world/inputs` map —
+;; the explicit world facts (`:time-ms`, optional `:uuid` / `:random` /
+;; browser / storage) the fold consumed, so durable state is a function of
+;; prior frame-state PLUS explicit tokens (no ambient host reads). The
+;; runtime stamps that map onto the `:rf.event/dispatched` trace under
+;; `[:tags :rf.world/inputs]` (rf2-jt854w · `router/emit-dispatched-trace!`)
+;; — DEBUG-gated, so it rides the same whole-body production elision as the
+;; rest of the dispatched emit. The Event lens surfaces it so the operator
+;; can answer "where did this state value come from?" — the time / id /
+;; randomness that decided a durable write is visible at the dispatch site
+;; rather than reverse-engineered from the app-db diff.
+;;
+;; PRIVACY (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11). World inputs
+;; can carry user/tenant ids, URLs, query strings, storage values, locale,
+;; and permission facts — so they participate in the SAME marks/projection
+;; rules as event payloads and coeffects. The ruling splits the map:
+;;
+;;   - `:time-ms` is ALWAYS safe to surface (a wall-clock fact, never PII) —
+;;     it rides verbatim as `:time-ms` on the row;
+;;   - EVERY OTHER key is value-bearing and REDACTS BY DEFAULT — each value
+;;     is routed through `resources-helpers/summarize`, exactly as
+;;     `reply_envelope.cljc` summarizes its wire-bearing slots, so the panel
+;;     renders a privacy-preserving summary (type + bounded size + a
+;;     redaction-aware preview; an upstream `:rf/redacted` / `:rf.size/
+;;     large-elided` sentinel keeps its sentinel status) and NEVER a raw
+;;     value. The KEY itself is framework vocabulary (`:uuid` / `:random` /
+;;     `:browser/location` / …), not PII, so it rides verbatim as the row
+;;     label; only the VALUE is summarized.
+
+(def time-ms-key
+  "The one ALWAYS-SAFE-to-surface world-input key (EP-0010 §Time / Open
+  Issue 4). A wall-clock epoch-ms fact — never PII — so the Event lens
+  renders its value verbatim, outside the summarize/redact path the
+  value-bearing keys take."
+  :time-ms)
+
+(defn world-input-rows
+  "Project the value-bearing (NON-`:time-ms`) keys of a `:rf.world/inputs`
+  map into privacy-summarized rows (rf2-9fyn40). Each row carries the key
+  verbatim (framework vocabulary — `:uuid` / `:random` / `:browser/*` /
+  `:storage` / … — never PII) and the value SUMMARIZED through
+  `resources-helpers/summarize` (EP-0010 §Privacy / Open Issue 4 — redact
+  by default; mirrors `reply_envelope.cljc`'s wire-slot summarization).
+  Sorted by key name for stable rendering. Empty when the map carries only
+  `:time-ms` (or is nil/empty)."
+  [world-inputs]
+  (if (map? world-inputs)
+    (->> (dissoc world-inputs time-ms-key)
+         (mapv (fn [[k v]] {:key k :value (rh/summarize v)}))
+         (sort-by (comp str :key))
+         vec)
+    []))
+
+(defn world-inputs-row
+  "Build the WORLD INPUTS step from the epoch's `:rf.event/dispatched`
+  trace (rf2-9fyn40 · EP-0010). Reads the causal world-input map off
+  `[:tags :rf.world/inputs]` (the substrate-canonical slot
+  `router/emit-dispatched-trace!` stamps per rf2-jt854w; `common/tag-of`
+  is the canonical reader). Returns nil when the epoch carries no
+  dispatched trace OR no world-input map (older runtimes / fixtures /
+  the production-elided arm) — the step is silent-by-default, like
+  COEFFECTS, so a vanilla cascade with no surfaced world inputs renders
+  no section.
+
+  The row carries:
+
+      {:step      :world-inputs
+       :badge     :WORLD-INPUTS
+       :time-ms   <epoch-ms or nil>   ; ALWAYS-SAFE, surfaced verbatim
+       :inputs    [{:key :uuid   :value <summary>}
+                   {:key :random :value <summary>} …]}  ; PRIVACY-summarized
+
+  PRIVACY: `:time-ms` rides verbatim (always safe per Open Issue 4); every
+  other key's value is `summarize`d (redact-by-default — the same path
+  `reply_envelope.cljc` uses). A map carrying ONLY `:time-ms` still
+  produces a row (the time fact is worth surfacing on its own); a map with
+  no `:time-ms` AND no other keys (empty map) produces nil."
+  [events]
+  (when-let [ev (find-op events :rf.event/dispatched)]
+    (when-let [wi (common/tag-of ev :rf.world/inputs)]
+      (when (and (map? wi) (seq wi))
+        (let [time-ms (get wi time-ms-key)
+              inputs  (world-input-rows wi)]
+          (cond-> {:step  :world-inputs
+                   :badge :WORLD-INPUTS}
+            (some? time-ms) (assoc :time-ms time-ms)
+            (seq inputs)    (assoc :inputs inputs)))))))
 
 ;; ---- COEFFECT rows -------------------------------------------------------
 
@@ -3317,6 +3408,9 @@
   Steps emitted (in cascade order):
 
       :dispatch       — always present (every epoch starts here)
+      :world-inputs   — only when the dispatch envelope surfaced a
+                        `:rf.world/inputs` map (rf2-9fyn40 · EP-0010);
+                        sits right after DISPATCH SITE
       :coeffect…      — one row per user-injected coeffect (folded
                         into a single step group by the view layer)
       :handler        — always present; adapts to handler flavour
@@ -3471,7 +3565,17 @@
                              (exception-rows events))
             base-steps (vec
                         (concat
-                          [(dispatch-row events fallback)]
+                          [(dispatch-row events fallback)
+                           ;; rf2-9fyn40 — WORLD INPUTS sits RIGHT AFTER
+                           ;; DISPATCH SITE: the causal world-input map
+                           ;; (`:time-ms` + privacy-summarized id/random/
+                           ;; browser keys) is part of "who fired this and
+                           ;; with what world facts", so it reads next to
+                           ;; the dispatch site. Silent-by-default — nil
+                           ;; (filtered below) when the cascade surfaced no
+                           ;; world-input map (older runtimes / the prod-
+                           ;; elided arm).
+                           (world-inputs-row events)]
                           cofx-steps
                           cofx-placeholder-steps
                           ;; rf2-yz57h / rf2-vew2n — the INTERCEPTOR step is
@@ -3600,11 +3704,14 @@
   - rf2-zkiu5: CHILD-DISPATCHES + APP-DB-DIFF retired (pair-debug
     2026-05-26) — both redundant with existing steps (FX surfaces
     dispatch-family fx; HANDLER `:db` surfaces the post-handler diff).
+  - rf2-9fyn40: + WORLD-INPUTS (EP-0010 causal provenance, conditional —
+    present only when the dispatch envelope surfaced a `:rf.world/inputs`
+    map; sits right after DISPATCH SITE).
 
   The view's badge resolver bails to `:text-tertiary` on an unknown
   badge, so adding to this set is purely additive."
-  #{:DISPATCH :COEFFECT :INTERCEPTOR :HANDLER :FLOW :SIDE-EFFECTS
-    :SUBSCRIPTIONS :VIEWS
+  #{:DISPATCH :WORLD-INPUTS :COEFFECT :INTERCEPTOR :HANDLER :FLOW
+    :SIDE-EFFECTS :SUBSCRIPTIONS :VIEWS
     :SCHEMA-HOT-RELOAD})
 
 (defn valid-badge?
