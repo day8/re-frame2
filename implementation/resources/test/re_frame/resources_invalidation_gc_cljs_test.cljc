@@ -532,6 +532,74 @@
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
       (is (some? (entry k)) "in-flight entry kept (GC skipped)"))))
 
+;; ---- rf2-07693y: a GC skip RESCHEDULES so a later release/settle is GC'd ---
+
+(deftest gc-skip-while-owned-reschedules-and-collects-after-release
+  (rf/reg-resource :gcr/article (article-spec {:gc-after-ms 1000}))
+  (let [scope {:user "u"}
+        k     (state/scoped-resource-key scope :gcr/article {:slug "w"})]
+    (ensure! :gcr/article scope "w" [:lease :gcr 1])
+    (succeed! k {:title "W"})
+    (reset! scheduled-timers [])
+    (testing "rf2-07693y — a GC timer firing while the entry is still OWNED
+              skips collection but RE-ARMS a fresh GC re-check (so a later
+              release after the original deadline does not strand the entry)"
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (is (some? (entry k)) "owned entry kept (GC skipped)")
+      (is (= 1 (count @scheduled-timers)) "exactly one reschedule fx emitted")
+      (let [args (first @scheduled-timers)]
+        (is (= k (:resource-key args)))
+        (is (= 1000 (:gc-delay-ms args)) "rescheduled with the resource's :gc-after-ms")
+        (is (nil? (:stale-delay-ms args)) "stale timer NOT re-armed on a GC skip")))
+    (testing "the owner releases AFTER the original deadline; the rescheduled
+              GC re-check now finds the entry owner-free + idle and collects it"
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gcr 1]}])
+      (is (empty? (:active-owners (entry k))) "entry now owner-free")
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (is (nil? (entry k)) "the rescheduled GC re-check collected the now-inactive entry"))))
+
+(deftest gc-skip-while-in-flight-reschedules-and-collects-after-settle
+  (rf/reg-resource :gci/article (article-spec {:gc-after-ms 1000}))
+  (let [scope {:user "u"}
+        k     (state/scoped-resource-key scope :gci/article {:slug "w"})]
+    ;; in flight + owner-free (owner released while loading)
+    (ensure! :gci/article scope "w" [:lease :gci 1])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gci 1]}])
+    (is (some? (:current-work (entry k))) "in flight, owner-free")
+    (reset! scheduled-timers [])
+    (testing "rf2-07693y — a GC timer firing while the entry is IN-FLIGHT skips
+              but RE-ARMS a fresh GC re-check"
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (is (some? (entry k)) "in-flight entry kept (GC skipped)")
+      (is (= 1 (count @scheduled-timers)) "one reschedule fx emitted")
+      (is (= 1000 (:gc-delay-ms (first @scheduled-timers)))))
+    (testing "the in-flight work settles (a stale/aborted reply clears
+              :current-work via the work-row terminal); once owner-free + idle
+              the rescheduled GC re-check collects it"
+      ;; settle the work to a non-error idle state via an abort reply (clears
+      ;; :current-work without re-attaching an owner) — the entry is now
+      ;; owner-free + idle (GC-eligible)
+      (let [wid (:current-work (entry k))]
+        (rf/dispatch-sync [:rf.resource.internal/failed
+                           {:resource-key k :work-id wid
+                            :generation (:generation (entry k))
+                            :rf.frame/id :rf/default}
+                           {:kind :failure :failure {:kind :rf.http/aborted :reason :user}}]))
+      (is (nil? (:current-work (entry k))) "work settled — no longer in flight")
+      (is (empty? (:active-owners (entry k))) "owner-free")
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (is (nil? (entry k)) "the rescheduled GC re-check collected the now-idle entry"))))
+
+(deftest gc-skip-no-entry-does-not-reschedule
+  (rf/reg-resource :gcn/article (article-spec {:gc-after-ms 1000}))
+  (let [k (state/scoped-resource-key {:user "u"} :gcn/article {:slug "gone"})]
+    (reset! scheduled-timers [])
+    (testing "rf2-07693y — a GC timer firing for an entry that no longer exists
+              (removed / cleared) does NOT reschedule (nothing to collect)"
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (is (nil? (entry k)))
+      (is (empty? @scheduled-timers) "no reschedule fx for a vanished entry"))))
+
 (deftest stale-fired-rechecks-durable-fact-no-write
   (rf/reg-resource :sf/article (article-spec {:stale-after-ms 60000}))
   (let [scope {:user "u"}
