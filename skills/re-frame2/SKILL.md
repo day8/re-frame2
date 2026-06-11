@@ -121,6 +121,7 @@ Patterns compose; a screen can use Forms on submit, RemoteData for the request, 
 | Declaring a handler or schema slot as containing secrets / PII / large blobs | `references/cross-cutting/privacy-and-elision.md` |
 | Wiring Datadog / Sentry / Honeycomb production listeners that survive `goog.DEBUG=false` | `references/cross-cutting/production-observability.md` |
 | Authoring head/meta (`reg-head` / `render-head` / `active-head`), or extending the framework's shipped `:rf/hydrate` handler (the runtime ships it by default — re-register only to change the merge policy, as documented framework-extension code) | `references/cross-cutting/ssr-authoring.md` |
+| Path overlap / valid path segments / `[:rf.path/param …]` templates, or canonical EDN identity for a resource key / route param / work id (key order, fail-closed host values, digest-as-derived) | `references/cross-cutting/path-and-identity.md` |
 
 ## Testing your views
 
@@ -136,7 +137,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 
 **Tooling — `references/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as a `:script` body), `story-mcp-loop.md` (the story-mcp **author/refine** side this skill owns — write/preview/read-back a variant — and the **handoff** to `re-frame2-pair` for the run/self-heal loop), `xray.md` (the devtools panel — mount strategy, launch modes, host-CSS-variable resize contract, popout, suppress-auto-open). For anything Story, the standing bridge is **think in Storybook JS, then map onto Story** — `stories.md` carries the verified concept map.
 
-**Cross-cutting — `references/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub), `api-cheatsheet.md`, `privacy-and-elision.md` (schema `:sensitive?` / `:large?` / `elide-wire-value`), `production-observability.md` (`register-event-listener!` / `register-error-listener!`), `ssr-authoring.md` (`reg-head` / `render-head` / `active-head` / `head-model->html` and the `:rf.ssr/check-version` + `:rf.ssr/check-schema-digest` fxs).
+**Cross-cutting — `references/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub), `api-cheatsheet.md`, `privacy-and-elision.md` (schema `:sensitive?` / `:large?` / `elide-wire-value`), `production-observability.md` (`register-event-listener!` / `register-error-listener!`), `ssr-authoring.md` (`reg-head` / `render-head` / `active-head` / `head-model->html` and the `:rf.ssr/check-version` + `:rf.ssr/check-schema-digest` fxs), `path-and-identity.md` (the one `:rf/path` algebra + canonical EDN identity every consumer inherits — root `[]`, segment domain, overlap, `[:rf.path/param …]` templates, the `CEDN-1` identity rule, fail-closed host values, digest-as-derived).
 
 **Patterns — `patterns/`**: one leaf per canonical pattern (see table above). Each leaf opens with load triggers, the canonical mini-declaration, the re-frame2 features it uses, trade-offs, and the worked-example link. Cross-reference of pattern → example app: `examples-map.md`.
 
