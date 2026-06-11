@@ -31,7 +31,7 @@ The interceptor and the handler communicate through a single Clojure map, thread
 
 | Key | What's in it | Who fills it |
 |---|---|---|
-| `:coeffects` | The handler's **inputs**: the event vector, the current `app-db`, the recorded `:rf.world/inputs` (the clock and other world facts — [chapter 07](07-effects-and-coeffects.md#causal-world-inputs-where-the-clock-and-fresh-ids-come-from)), plus any cofx values you injected (a `localStorage` read, a subscription's value…). | The runtime stages the built-ins; cofx interceptors inject the rest, on the way in. |
+| `:coeffects` | The handler's **inputs**: the event vector, the current `app-db`, the recorded `:rf.world/inputs` (the clock and other world facts — [chapter 07](07-effects-and-coeffects.md#causal-world-inputs--where-the-clock-and-fresh-ids-come-from)), plus any cofx values you injected (a `localStorage` read, a subscription's value…). | The runtime stages the built-ins; cofx interceptors inject the rest, on the way in. |
 | `:effects` | The handler's **outputs**: the new `:db`, the `:fx` vector. | The handler itself, then modified by `:after` interceptors on the way out. |
 
 This is the same `:coeffects` / `:effects` pair from [chapter 07](07-effects-and-coeffects.md) — coeffects are what the handler reads, effects are what it writes. Interceptors live in the gap between them. A typical context map, caught mid-pipeline, looks like this:
