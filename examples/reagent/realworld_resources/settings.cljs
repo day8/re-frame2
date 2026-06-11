@@ -12,9 +12,38 @@
 
    What stays in app-db is only the editable DRAFT (the live field values) —
    the lifecycle (`:idle` / `:pending` / `:success` / `:error`) is the mutation
-   instance, not a `:status` field."
+   instance, not a `:status` field.
+
+   SUCCESS CONTINUATION (off the render path). A mutation has NO reply-side
+   `:on-success` / `:on-settled` hook (unlike `:rf.http/managed`, Spec 014) and
+   the runtime emits no app-observable settle event — a view observes the
+   instance passively through `[:rf.mutation/state {:instance …}]`. So the
+   \"on save success: fold the saved User into auth + navigate\" continuation has
+   to be triggered by *observing* the instance settle, and re-frame2 forbids
+   dispatching from a render body (Spec 004 §View antipatterns: a render body
+   computes hiccup, it does not advance state — and in Reagent a render-time
+   dispatch can loop). The blessed escape hatch for an after-commit reaction to
+   async settlement is the substrate lifecycle hook (Spec 004 §Views MUST NOT
+   own imperative library lifecycles directly → Form-3 via `reg-view*` /
+   `create-class`): `settings-page` is a Form-3 component whose mount hook
+   installs a single `reagent.ratom/run!` reaction that watches the
+   `:settings/save` instance and dispatches `:settings/saved` exactly once when
+   it first settles success. The frame is captured at render (the `dispatch`
+   the reaction closes over is the frame-bound one), so the reaction's dispatch
+   carries the frame correctly even though it fires outside render; the hook
+   disposes the reaction on unmount. The dispatch site is a named, registered
+   reaction — visible to the trace — not a hidden render-body side-effect.
+
+   Compare the `:rf.http/managed` sibling (`examples/reagent/realworld/`): its
+   settings submit gets the continuation for free via the request's
+   `:on-success [:settings/submit-success]`, because managed HTTP carries
+   reply-side dispatch. The mutation deliberately gives that up (the runtime
+   owns reply addressing for stale-suppression); this lifecycle reaction is the
+   resources-variant equivalent."
   (:require [re-frame.core :as rf]
             [re-frame.resources]
+            [reagent.core :as r]
+            [reagent.ratom :as ratom]
             [realworld-resources.http :as rh])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -61,8 +90,11 @@
 
 (rf/reg-event-fx :settings/saved
   {:doc "Push the saved User (the mutation instance result) into the auth slice
-         and navigate to the user's profile. Dispatched by the view when the
-         `:settings/save` instance transitions to `:success`."}
+         and navigate to the user's profile. Dispatched by the settings page's
+         mount-time settle reaction when the `:settings/save` instance first
+         transitions to `:success` (NOT from a render body — see the ns
+         docstring). Clearing the instance here also makes the dispatch
+         idempotent: a re-fire finds a now-idle instance."}
   (fn [_ [_ user]]
     {:fx [[:dispatch [:auth/store-session user]]
           [:dispatch [:rf.mutation/clear {:instance settings-instance}]]
@@ -71,17 +103,29 @@
 (rf/reg-sub :settings/draft (fn [db _] (get-in db [:settings-form :draft])))
 
 ;; ============================================================================
-;; VIEW
+;; VIEW  (pure Form-1 render + a Form-3 wrapper holding the settle reaction)
 ;; ============================================================================
+;;
+;; The render is a normal registered `reg-view` (Form-1): a pure function of
+;; subs that NEVER dispatches (Spec 004 §View antipatterns). The success
+;; continuation lives off the render path in `settings-page` — a Form-3
+;; `create-class` wrapper whose `:component-did-mount` installs a single
+;; `reagent.ratom/run!` reaction that watches the `:settings/save` instance and
+;; dispatches `:settings/saved` the first time it settles success. A `fired?`
+;; latch makes it strictly once-per-mount (the instance is also cleared by
+;; `:settings/saved`, so the reaction would not re-fire anyway). The reaction
+;; closes over the frame-bound `dispatch` / `subscribe` captured at render-time
+;; via `rf/frame-handle`, so its out-of-render dispatch carries the frame
+;; correctly; `:component-will-unmount` disposes it. (Form-3 is the escape hatch
+;; Spec 004 names for after-commit reactions to async settlement.)
 
-(reg-view settings-page []
+(reg-view ^{:doc "Pure settings form — a function of subs, never dispatches.
+                   The save-success continuation lives in the `settings-page`
+                   Form-3 wrapper, not here."}
+          settings-form-view []
   (let [draft     @(subscribe [:settings/draft])
         save      @(subscribe [:rf.mutation/state {:instance settings-instance}])
         pending?  (:pending? save)]
-    ;; When the save instance settles success, fold the result into auth + go.
-    (when (:success? save)
-      (when-let [user (:user (:result save))]
-        (dispatch [:settings/saved user])))
     [:div.settings-page
      [:div.container.page
       [:div.row
@@ -119,3 +163,38 @@
         [:button.btn.btn-outline-danger {:type "button" :data-testid "logout-button"
                                          :on-click #(dispatch [:auth/flow [:auth/logout]])}
          "Or click here to logout"]]]]]))
+
+(defn settings-page
+  "The settings page. A Reagent Form-3 component (an outer fn that captures the
+   render frame and per-mount state, returning a `create-class`): the inner
+   `:reagent-render` is the pure registered `settings-form-view`; the mount hook
+   installs the save-success settle reaction; the unmount hook disposes it.
+
+   `rf/frame-handle` is called here in the outer body — which Reagent invokes
+   during render, under the frame-provider — so the `dispatch` the reaction
+   closes over is frame-bound and its later out-of-render call carries the
+   frame (Spec 002 §Async fx capture the frame in a closure; Spec 004 §Form-3)."
+  []
+  (let [{:keys [dispatch subscribe]} (rf/frame-handle)
+        fired?  (atom false)
+        watcher (atom nil)]
+    (r/create-class
+     {:display-name "realworld-resources.settings/settings-page"
+      :component-did-mount
+      (fn [_this]
+        ;; One auto-running reaction watching the save instance. The first time
+        ;; it settles success, dispatch the continuation exactly once. This is
+        ;; the after-commit escape hatch Spec 004 sanctions for reacting to
+        ;; async settlement — NOT a render-body dispatch.
+        (reset! watcher
+                (ratom/run!
+                 (let [save @(subscribe [:rf.mutation/state {:instance settings-instance}])]
+                   (when (and (:success? save) (not @fired?))
+                     (when-let [user (:user (:result save))]
+                       (reset! fired? true)
+                       (dispatch [:settings/saved user])))))))
+      :component-will-unmount
+      (fn [_this]
+        (when-let [w @watcher] (ratom/dispose! w) (reset! watcher nil)))
+      :reagent-render
+      (fn [] [settings-form-view])})))
