@@ -409,6 +409,32 @@
       (is (some? (:invalidated-at (entry scoped-key))) "durable fact set")
       (is (true? @(rf/subscribe [:rf.resource/stale? q]))))))
 
+(deftest succeeded-loaded-at-stale-at-from-reply-completed-at
+  ;; rf2-n1rh0f / EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
+  ;; the resource :loaded-at IS the successful reply's completion time
+  ;; (carried on the reply token as the host :completed-at, which the managed
+  ;; transport threads onto the reply event's :rf.world/inputs :time-ms), and
+  ;; :stale-at = :loaded-at + :stale-after-ms — NOT an ambient clock read in
+  ;; the reply handler. Scripting the reply dispatch's :rf.world/inputs pins
+  ;; both; the same reply token rewrites the same durable timestamps.
+  (rf/reg-resource :lra/article (article-spec {:stale-after-ms 60000}))
+  (let [scoped-key (state/scoped-resource-key :rf.scope/global :lra/article {:slug "w"})
+        completed-at 1781078400456]
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :lra/article :scope :rf.scope/global
+                                            :params {:slug "w"} :owner [:lease :lr 1]}])
+    (let [e (entry scoped-key)]
+      (rf/dispatch-sync [:rf.resource.internal/succeeded
+                         {:resource-key scoped-key :work/id (:current-work e)
+                          :generation (:generation e) :data {:title "W"}}]
+                        ;; the managed transport stamps the host :completed-at
+                        ;; here; a fixture scripts it directly on the reply
+                        ;; token's world inputs.
+                        {:rf.world/inputs {:time-ms completed-at}}))
+    (testing ":loaded-at is EXACTLY the reply completion time (not now)"
+      (is (= completed-at (:loaded-at (entry scoped-key)))))
+    (testing ":stale-at = :loaded-at + the :stale-after-ms policy"
+      (is (= (+ completed-at 60000) (:stale-at (entry scoped-key)))))))
+
 ;; ===========================================================================
 ;; 10. owner release / clear-scope / remove / tag invalidation
 ;; ===========================================================================

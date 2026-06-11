@@ -170,7 +170,22 @@
 
 ;; ---- clock ----------------------------------------------------------------
 
-(defn now-ms []
+(defn now-ms
+  "Clock for ELAPSED measurement (trace / perf timing spans, machines timer
+  relative delays). On the JVM this is already `System/currentTimeMillis`
+  (epoch ms) — but the CLJS counterpart is `performance.now()` (origin-
+  relative), so durable wall-clock facts MUST use `epoch-now-ms`, never this,
+  to stay cross-platform (rf2-n1rh0f / EP-0010 §Time)."
+  []
+  (System/currentTimeMillis))
+
+(defn epoch-now-ms
+  "Wall-clock epoch milliseconds — the canonical source for EP-0010 durable
+  causal time (`:rf.world/inputs` `:time-ms`). On the JVM this coincides with
+  `now-ms`; the CLJS counterpart diverges (`performance.now()` vs
+  `js/Date.now()`), which is why durable timestamps read this dedicated
+  surface."
+  []
   (System/currentTimeMillis))
 
 ;; ---- queue primitives -----------------------------------------------------

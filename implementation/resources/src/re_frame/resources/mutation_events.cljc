@@ -72,14 +72,16 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- shared clock ---------------------------------------------------------
-
-(defn- now-ms
-  "Current epoch-ms — `:started-at` / `:settled-at` durable timestamps + the
-  patch / populate `:loaded-at`. Host-platform clock."
-  []
-  #?(:clj  (System/currentTimeMillis)
-     :cljs (.now js/Date)))
+;; ---- durable timestamps ---------------------------------------------------
+;;
+;; EP-0010: every durable mutation timestamp is a causal world input — the
+;; instance / work-ledger `:started-at` is the `:rf.mutation/execute` token's
+;; `:time-ms` (rf2-dsyqmz); the terminal `:settled-at` + any patch / populate
+;; `:loaded-at` is the reply token's completion time (`:completed-at`, carried
+;; on the reply event's `:rf.world/inputs`, rf2-40dqi6 / rf2-r65m41). No
+;; ambient clock is read at a durable write site, so this ns no longer defines
+;; a `now-ms` helper (the remaining timer DELAYS are advisory host transients
+;; computed from the durable absolute timestamps).
 
 (defn- stale-at-for
   "Compute `:stale-at` for a patched / populated resource entry from
@@ -474,14 +476,23 @@
   (the instance-layer spelling — kh9jz6 / EP-0007).
 
   Event shape: `[_ <verification-payload> <http-result>]`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs}
    [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope] :as payload} http-result]]
   (let [runtime-db (or rt {})
+        ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
+        ;; And Work-Ledger Timestamps: the reply is a CAUSAL TOKEN; the host
+        ;; completion time (`:completed-at`, read ONCE at the transport
+        ;; finalisation boundary) rides the reply event's `:rf.world/inputs`
+        ;; `:time-ms`. The handler MUST NOT re-read the clock. It carries onto
+        ;; the canonical reply as `:completed-at` and is the source of the
+        ;; terminal `:settled-at` + any patch/populate `:loaded-at`.
+        completed-at (:time-ms world)
         ;; the ONE canonical reply map (Managed-Effects §The uniform reply
         ;; envelope), `:work/kind :mutation`. The internal mutation reply
         ;; target receives it directly; the decoded result is `:value`.
         reply      (rreply/success-reply payload (reply-success-result payload http-result)
-                                         {:work-kind rreply/work-kind-mutation})
+                                         {:work-kind rreply/work-kind-mutation
+                                          :completed-at completed-at})
         result     (:value reply)
         inst       (live-instance-for-reply runtime-db payload)]
     (if (nil? inst)
@@ -498,7 +509,11 @@
       (let [spec        (mreg/mutation-meta mutation-id)
             params      (:params inst)
             timing      (or (:invalidate-timing spec) :after-success)
-            clock-ms    (now-ms)
+            ;; EP-0010: the terminal mutation reply writes `:settled-at` from
+            ;; the reply completion time, and ANY resource patch/populate
+            ;; `:loaded-at` produced by the mutation uses that SAME causal
+            ;; completion time (off the reply token, never an ambient read).
+            clock-ms    completed-at
             ;; 1. controlled patch / populate (BEFORE invalidation). Each
             ;; arm also returns the per-key advisory stale / GC timer policy
             ;; (the third value) so this handler arms timers exactly as the
@@ -580,14 +595,23 @@
   `:error` stores) is read back from the canonical reply.
 
   Event shape: `[_ <verification-payload> <http-result>]`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs}
    [_event-id {work-id :work/id :keys [instance-id mutation-id generation scope] :as payload} http-result]]
   (let [runtime-db (or rt {})
+        ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
+        ;; And Work-Ledger Timestamps: a terminal mutation reply writes
+        ;; `:settled-at` from the reply completion time. The host
+        ;; `:completed-at` (read ONCE at the transport finalisation boundary)
+        ;; rides the reply event's `:rf.world/inputs` `:time-ms`; the handler
+        ;; MUST NOT re-read the clock. Carried onto the canonical reply as
+        ;; `:completed-at`.
+        completed-at (:time-ms world)
         ;; the ONE canonical reply map (Managed-Effects §The uniform reply
         ;; envelope), `:work/kind :mutation`. `:error` carries the closed
         ;; `:rf.http/*` envelope the instance `:error` also stores.
         reply      (rreply/failure-reply payload (reply-failure-error payload http-result)
-                                         {:work-kind rreply/work-kind-mutation})
+                                         {:work-kind rreply/work-kind-mutation
+                                          :completed-at completed-at})
         error      (:error reply)
         inst       (live-instance-for-reply runtime-db payload)]
     (if (nil? inst)
@@ -601,7 +625,10 @@
       (let [spec     (mreg/mutation-meta mutation-id)
             params   (:params inst)
             timing   (or (:invalidate-timing spec) :after-success)
-            clock-ms (now-ms)
+            ;; EP-0010: the terminal failure reply writes `:settled-at` from
+            ;; the reply completion time (off the reply token, never a fresh
+            ;; ambient read).
+            clock-ms completed-at
             ;; failure-time invalidation (only when the timing opts in):
             ;; some mutations invalidate on failure to force a re-read of
             ;; the authoritative server state after a rejected write.
