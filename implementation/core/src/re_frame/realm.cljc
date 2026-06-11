@@ -246,6 +246,50 @@
      (get (by-realm) rid #{})
      #{})))
 
+;; ---- the installed app VALUE — the projection seam (EP-0013 D2 stage 5) ----
+;;
+;; The realm's `:app` slot (Spec-Schemas §`:rf/realm`, D2-reserved) is the
+;; installed app VALUE — the program-as-a-value the realm is running. D2
+;; makes the registrations a realm carries an enumerable, recomputable VALUE
+;; projected over its registrar, rather than load-order mutation seen only
+;; through the live registrar.
+;;
+;; Stage 5 is INTERNAL + read-only: there is NO construction (stage 6) and no
+;; `install!` (stage 7) yet, so the realm STORES no constructed app value and
+;; the `:app` slot stays absent. The installed app is therefore the
+;; RECOMPUTABLE PROJECTION over the realm's own registrar — `re-frame.app-value`
+;; owns the descriptor format and the projection fn. Because the registrar is
+;; the single source of truth, the ordinary `reg-*` sugar path keeps this app
+;; value current for free: a registration updates the registrar, and the next
+;; `installed-app` reflects it with no invalidation step and no desync.
+;;
+;; `re-frame.app-value` requires THIS ns (it projects over the realm's
+;; registrar), so a static back-require would cycle; the projection is reached
+;; through the `:app-value/project` late-bind hook, which `app-value` publishes
+;; at ns-load. Returns `nil` when the hook is unbound (app-value ns not yet
+;; loaded) — the realm has no enumerated installed-app projection until then.
+
+(defn installed-app
+  "Return the app VALUE installed in `realm-or-id` (defaults to the default
+  realm) — the realm's program as a recomputable value (EP-0013 D2 stage 5,
+  INTERNAL). When the realm STORES an `:app` (a future `install!`, stage 7),
+  that value is returned; otherwise the installed app is the recomputable
+  projection over the realm's registrar (`re-frame.app-value/app-value`,
+  reached via the `:app-value/project` late-bind hook). Returns `nil` when the
+  app-value ns is not yet loaded.
+
+  This is the realm-side read seam over the D2-reserved `:app` slot: the
+  reader's contract — \"give me the realm's installed app value\" — is stable
+  across the stage-6/7 graduation; only its internals change (read the stored
+  slot, else project). INTERNAL — no public installed-app read surface ships
+  in stage 5 (EP-0013 issue 1)."
+  ([] (installed-app default-realm-id))
+  ([realm-or-id]
+   (let [rid (realm-id realm-or-id)]
+     (or (:app (realm rid))
+         (when-let [project (late-bind/get-fn :app-value/project)]
+           (project rid))))))
+
 ;; ---- realm-owned adapter SELECTION (EP-0013 D1 stage 4, rf2-0lq5cd) --------
 ;;
 ;; The adapter SELECTION — the installed adapter spec map and the

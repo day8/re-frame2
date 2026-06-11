@@ -74,6 +74,16 @@
             ;; here; the require exists so the hooks are bound at boot before
             ;; any runtime `reg-frame` call.
             [re-frame.frame-classification]
+            ;; EP-0013 D2 stage 5 (rf2-yozjzo): required for its ns-load
+            ;; side-effect only — it publishes the `:app-value/project`
+            ;; late-bind hook `re-frame.realm/installed-app` consults to
+            ;; project the realm's installed app VALUE over its registrar.
+            ;; No symbols are referenced here; the require exists so the
+            ;; hook is bound at boot. INTERNAL — no public app constructor /
+            ;; installed-app surface ships in stage 5 (stages 6/7). The ns
+            ;; pulls only `re-frame.realm` + `re-frame.late-bind` (core
+            ;; spine), so it is bundle-isolation neutral.
+            [re-frame.app-value]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.core-flows    :as rf-flows]
             [re-frame.core-routing  :as rf-routing]
