@@ -11,9 +11,10 @@ Status: accepted
 > resolved: Mike ruled option (a), and the reference implementation now
 > short-circuits fresh ensures and emits `:rf.resource/cache-hit` as Spec 016
 > describes. The EP itself remains `accepted`, not `final`, pending the separate
-> graduation ruling (`rf2-9l9xs2`). Implementation slices (artefact skeleton,
-> work-ledger substrate, runtime, managed-HTTP, invalidation/GC, route, SSR,
-> Xray, focus/reconnect, mutation, docs) are tracked per
+> graduation ruling (`rf2-9l9xs2`). The HTTP implementation slices through the
+> read-resource MVP and first public-beta gate (artefact skeleton, work-ledger
+> substrate, runtime, managed-HTTP, invalidation/GC, route, SSR, Xray,
+> focus/reconnect, mutation, docs) have landed on main and are tracked per
 > [§Bead Structure](#bead-structure).
 
 ## Abstract
@@ -83,10 +84,10 @@ Two distinctions are important enough to be part of the first specification:
 - params identify the remote read inside a cache scope; scopes prevent
   `/api/me`, tenant, locale, impersonation, and SSR cache leaks.
 
-Mutations and focus/reconnect revalidation should be the first public-beta gate,
-not distant future work. A read-resource MVP is useful for route and SSR data,
-but the artifact should not be presented as complete resource management until
-minimal mutation invalidation and active-stale revalidation are in place.
+Mutations and focus/reconnect revalidation formed the first public-beta gate and
+have landed in the HTTP scope. A read-resource MVP is useful for route and SSR
+data, but the artifact should not be presented as complete resource management
+until minimal mutation invalidation and active-stale revalidation are in place.
 Optimistic updates, polling, infinite resources, generic transport extension
 protocols, and normalized caches are important later slices, but should not make
 the first artifact too wide.
@@ -499,48 +500,35 @@ instead, exactly as elision and SSR's non-event writes do.
 
 ### Runtime-Subsystem Graduation
 
-`:rf.runtime/resources` and `:rf.runtime/work-ledger` are new children of the
-runtime-db partition, so each must **graduate against the runtime-subsystem
-contract** — the five-clause checklist every framework-owned durable-state
-sub-tree inherits, defined normatively in
-[`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md) (the
-durable-state analogue of `Managed-Effects.md`). The contract names five clauses
-every conformant subsystem answers: (1) **subtree**, (2) **write authority**,
-(3) **read API**, (4) **projection / elision**, and (5) **teardown**. A sub-tree
-that answers fewer is ad-hoc runtime state, outside the contract that tools, SSR
-projection, and the AI-Audit assume.
+The HTTP resources artifact adds framework-owned runtime-db children, so each
+child must **graduate against the runtime-subsystem contract**: the five-clause
+checklist every framework-owned durable-state subtree inherits, defined
+normatively in
+[`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md). The contract
+names five clauses every conformant subsystem answers: (1) **subtree**,
+(2) **write authority**, (3) **read API**, (4) **projection / elision**, and
+(5) **teardown**. A subtree that answers fewer is ad-hoc runtime state, outside
+the contract that tools, SSR projection, and AI-audit surfaces assume.
 
-`:rf.runtime/resources` is the contract's **first graduating instance and
-proof-case** outside the four shipped subsystems (machines, routing, elision,
-SSR). It already satisfies four clauses implicitly; clause 2 is the one the
-[Write Authority](#write-authority) section above fills.
+The shipped resource trio is:
 
-#### `:rf.runtime/resources` — resource cache ([`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md))
+- `:rf.runtime/resources` — the resource cache;
+- `:rf.runtime/work-ledger` — the neutral in-flight-work ledger used by resource
+  and mutation work in the HTTP scope, with non-resource future writers still
+  required to settle their own authority path when they join;
+- `:rf.runtime/mutations` — mutation instance state, keyed by mutation instance
+  id so concurrent submissions do not clobber one another.
 
-| Clause | Grade |
-|---|---|
-| **1 Subtree** | ✅ `:rf.runtime/resources` with the closed slot set `:entries` / `:tag-index` / `:owner-index` (reserved in [`spec/Conventions.md` §Reserved runtime-db keys](../../spec/Conventions.md#reserved-runtime-db-keys)). Allocated lazily — absent until the first resource write — and per-frame isolated. |
-| **2 Write authority** | ✅ Event-handler path — every resource `reg-event-fx` stamps `:rf/framework-authority? true` (the generalized rf2-3939ig mechanism); the internal reply handlers carry it too. Stale/GC side-table writes go through privileged frame-state helpers. See [Write Authority](#write-authority) above. **This is the clause the EP previously left implicit; naming it is the point of this graduation.** |
-| **3 Read API** | ✅ The `:rf.resource/*` sub family (`:rf.resource/state`, `:rf.resource/data`, `:rf.resource/status`, `:rf.resource/loading?`, `:rf.resource/fetching?`, `:rf.resource/stale?`, `:rf.resource/error`, `:rf.resource/refresh-error`) plus tool accessors (`resource-state`, `resources`, the `list-resource-instances` / `get-resource-state` family). App code never reads raw `[:rf.runtime/resources …]` paths. |
-| **4 Projection / elision** | ✅ Allowlist-shaped — only the durable resource projection rides the `:rf/hydration-payload` `:rf/runtime-db` slice via the explicit projection hook ([§SSR and Hydration](#ssr-and-hydration)); `:tag-index` / `:owner-index` are recomputable-from-`:entries` and need not ride the wire. Params, scopes, and data carry `:sensitive?` / `:large?` classification through the shared `rf/elide-wire-value` walker; Xray sees redacted summaries, not raw values. |
-| **5 Teardown** | ✅ Side tables are keyed by frame id and work id; frame destroy cancels all resource timers and clears host handles for that frame ([§Stale And GC Scheduling](#stale-and-gc-scheduling), [§Restore and Replay](#restore-and-replay)). **Durable kept:** `:entries` (cache facts ride restore/SSR). **Transient dropped:** AbortControllers, stale/GC timers, transport promises (never serialized); `:tag-index` / `:owner-index` are recomputed from `:entries` on install. |
-
-#### `:rf.runtime/work-ledger` — frame work ledger ([`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md))
-
-| Clause | Grade |
-|---|---|
-| **1 Subtree** | ✅ `:rf.runtime/work-ledger` with serializable work records keyed by `:work/id` (reserved in [`spec/Conventions.md` §Reserved runtime-db keys](../../spec/Conventions.md#reserved-runtime-db-keys)). Allocated lazily; per-frame isolated. Named **neutrally** by design — resources are its first writer, but later slices extend it to timers, streams, route loaders, spawned actors, and machine async work. |
-| **2 Write authority** | ⚠️ **OPEN multi-writer question.** In the initial scope the ledger is written only through the resource event handlers (which already stamp `:rf/framework-authority? true`), so clause 2 is satisfied *for the resource writer*. But the ledger is deliberately designed as a **multi-writer subsystem**: when timers, streams, route loaders, spawned actors, and machine async work join as writers in later slices, **who mints authority for each additional writer is an open clause to resolve per writer**. Machines already imply authority via `:rf/machine? true`; non-machine future writers (timers, streams, route loaders) will each need to stamp `:rf/framework-authority? true` at their own registration sites or write through the privileged helpers. This EP names the ledger neutrally and flags the multi-writer authority question as explicitly **unresolved**, to be settled when the first non-resource writer lands. |
-| **3 Read API** | ✅ Read by framework code and tools only — Xray's live work-ledger table per frame (`list-resource-instances` / the work-ledger accessor family), SSR's blocking-drain wait point, and the resource runtime's join/dedupe logic. **No app-facing read sub by design** — app code observes work indirectly through `:rf.resource/*` subs (`:rf.resource/fetching?` etc.), never the ledger directly. |
-| **4 Projection / elision** | ✅ Allowlist-shaped — only **non-terminal rows' summaries** ride the hydration/epoch wire; terminal rows are pruned to a bounded local Xray tail and are not durable wire payload ([§Restore and Replay](#ledger-row-retention-and-identity)). Causes, owners, and deadlines carry the same privacy/size elision as resource metadata through `rf/elide-wire-value`. |
-| **5 Teardown** | ✅ Host handles (AbortControllers, timeout/poll handles, promises) live in side tables keyed by `[frame-id work-id]`, cleared on frame destroy. **Durable kept:** the bounded set of non-terminal serializable records. **Transient dropped:** host handles; restored non-terminal rows are immediately reconciled to **dangling** (their `:work/id` can never re-match a live entry, because the generation allocator is monotonic and host-side — [§1 The generation allocator is monotonic](#1-the-generation-allocator-is-monotonic-and-host-side-it-does-not-rewind)). |
-
-> The five-clause vocabulary, the grading-table shape, and the "first graduating
-> instance" framing follow the four shipped subsystems' rows in
-> [`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md). The detailed
-> per-value restore behaviour each clause references (allocator monotonicity,
-> dangling-row reconciliation, index recomputation, owner reconciliation) is
-> specified in [§Restore and Replay](#restore-and-replay) below.
+The live grading table now belongs in
+[`spec/Runtime-Subsystems.md` §Grading table](../../spec/Runtime-Subsystems.md#grading-table--the-shipped-subsystems),
+with the resource-origin contract in
+[`spec/016-Resources.md` §Runtime-subsystem graduation](../../spec/016-Resources.md#runtime-subsystem-graduation).
+This EP records why the resource trio needed to graduate; it intentionally does
+not duplicate the table because the spec rows are the normative surface. The
+important EP-level decisions are: resource and mutation handlers mint framework
+write authority, host handles/timers remain transient side tables, indexes are
+recomputable projections, SSR/hydration uses explicit allowlists, and work ids
+plus monotonic generations are the stale-reply and restore boundary.
 
 ### Frame Work Ledger Is The Async Substrate
 
@@ -998,7 +986,7 @@ V1 should include:
 - Xray/tool summaries with redaction;
 - conformance tests.
 
-First public-beta gate:
+First public-beta gate (landed):
 
 - `reg-mutation`;
 - `clear-mutation`;
@@ -1019,8 +1007,8 @@ Later slices:
 - subscription-driven fetching;
 - offline persistence and cross-tab broadcast.
 
-The follow-on mutation slice is still part of the resource-management direction,
-but keeping it out of the read-resource MVP reduces design risk.
+The mutation/revalidation gate stayed out of the read-resource MVP to reduce
+design risk; it is now part of the landed HTTP public-beta surface.
 
 ### Public API
 
@@ -1030,7 +1018,6 @@ Registration:
 (rf/reg-resource resource-id resource-spec)
 (rf/clear-resource resource-id)
 
-;; Later slice:
 (rf/reg-mutation mutation-id mutation-spec)
 (rf/clear-mutation mutation-id)
 ```
@@ -1042,9 +1029,8 @@ When a resource registration is cleared, the implementation must also dispose
 resource-runtime state for that resource id in each affected frame: release owner
 indexes, cancel timers/host handles, abort in-flight requests where possible,
 suppress late replies by generation, remove tag-index rows, and emit a trace.
-`clear-mutation` should follow the same distinction when the mutation slice
-lands: clear the mutation registration and its runtime instances, not masquerade
-as a form-level error reset.
+`clear-mutation` follows the same distinction: it clears the mutation
+registration and its runtime instances, not a form-level error reset.
 
 Events use map payloads, not positional argument vectors:
 
@@ -1079,7 +1065,7 @@ Events use map payloads, not positional argument vectors:
   :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}}]
 
-;; Later slice:
+;; First public-beta gate (landed):
 [:rf.mutation/execute
  {:mutation :article/save
   :params   article}]
@@ -1346,8 +1332,8 @@ Rules:
 - timers and host handles live in side tables, not in frame-state;
 - frame destroy cancels all resource timers for that frame;
 - a hidden tab can delay timers without corrupting correctness; on focus or
-  reconnect, the first public-beta revalidation slice should scan active stale
-  entries and refetch by event.
+  reconnect, the landed revalidation handlers scan active stale entries and
+  refetch by event.
 
 ### Route Integration
 
@@ -1917,14 +1903,14 @@ truth and the client often lacks enough semantic information.
 
 ### Focus And Reconnect Revalidation
 
-Focus and reconnect revalidation should be part of the first public-beta gate.
+Focus and reconnect revalidation is part of the landed first public-beta gate.
 
 TanStack Query's most visible magic is that stale active data refreshes when
-the user returns to the tab or the network reconnects. re-frame2 should provide
+the user returns to the tab or the network reconnects. re-frame2 provides
 the same user-facing behavior, but through events rather than subscription
 lifecycle.
 
-The implementation should reuse v1 primitives:
+The implementation reuses v1 primitives:
 
 - active owners decide which entries are worth refetching;
 - stale/fresh timestamps decide whether refetch is needed;
@@ -1932,7 +1918,7 @@ The implementation should reuse v1 primitives:
 - the selected transport adapter owns transport retry and abort;
 - Xray and traces show why the refresh happened.
 
-Likely public/internal events:
+Public/internal events:
 
 ```clojure
 :rf.resource/window-focused
@@ -1952,16 +1938,16 @@ resource events; views remain passive reads.
 
 ### Mutations
 
-Mutations should be the second slice, not the read-resource MVP. They should
-follow quickly, alongside focus/reconnect revalidation, because a read cache
-without a write/invalidation story feels incomplete next to TanStack Query,
-RTK Query, SWR, and `re-frame-query`.
+Mutations were the second slice, not the read-resource MVP. They landed
+alongside focus/reconnect revalidation because a read cache without a
+write/invalidation story feels incomplete next to TanStack Query, RTK Query,
+SWR, and `re-frame-query`.
 
-Until the mutation slice lands, apps can still dispatch
-`:rf.resource/invalidate-tags` manually after their own write events. That is
-coherent, but it is not the full value proposition.
+Apps can still dispatch `:rf.resource/invalidate-tags` manually after their own
+write events. That is coherent, but it is an escape hatch rather than the full
+value proposition.
 
-The minimal mutation slice should include:
+The landed minimal mutation slice includes:
 
 - `reg-mutation`, `clear-mutation`, and `:rf.mutation/execute`;
 - mutation pending/error/result state;
@@ -2567,9 +2553,9 @@ There is no in-repo resource API to migrate from; migration is adoption.
   `:resources` and SSR blocking-resource drain, so adoption is per-route rather
   than all-at-once.
 
-The slice order — read-resource MVP first, mutations at the first public-beta gate
-— is in [Acceptance Criteria And Rollout](#acceptance-criteria-and-rollout) and
-[Bead Structure](#bead-structure) below.
+The slice order — read-resource MVP first, mutations at the first public-beta
+gate — is in [Acceptance Criteria And Rollout](#acceptance-criteria-and-rollout)
+and [Bead Structure](#bead-structure) below.
 
 ## Reference Implementation Plan
 
@@ -2607,8 +2593,8 @@ Facade integration:
 - expose `reg-resource`, `clear-resource`, `resource-meta`,
   `resource-state`, and `resources`;
 - add feature probe `:resources/reg-resource`;
-- add optional `reg-mutation` and `clear-mutation` only when the mutation slice
-  lands.
+- expose the landed mutation facade: `reg-mutation`, `clear-mutation`,
+  `mutation-meta`, `mutation-state`, and `mutations`.
 
 ### 2. Registrar Kinds
 
@@ -2998,7 +2984,7 @@ The v1 artifact should be considered acceptable when it includes:
 - SSR preload/hydration;
 - Xray/tool metadata and resource trace operations.
 
-The first public-beta gate should add:
+The first public-beta gate has landed with:
 
 - `reg-mutation`;
 - `clear-mutation`;
@@ -3080,9 +3066,9 @@ re-frame2 runtime process.
    Recommendation: API says resources; docs can use "resource queries" when
    comparing to prior art.
 2. Should `reg-mutation` land with v1 or as the next slice?
-   Recommendation: read-resource MVP first, but do not call the artifact
-   complete until minimal mutation invalidation lands in the first public-beta
-   gate.
+   Resolved: read-resource MVP first; `reg-mutation`, `clear-mutation`, and
+   mutation invalidation landed in the first public-beta gate alongside
+   focus/reconnect revalidation.
 3. What exact route `blocking?` behavior should client navigation expose?
    Recommendation: route transition pending and SSR wait; do not block URL
    commit.
@@ -3131,7 +3117,7 @@ re-frame2 runtime process.
 
 Adopt **Option C**: build a first-class optional `day8/re-frame2-resources`
 artifact for declarative server-state, starting with a read-resource MVP and
-gating mutations to the first public-beta slice.
+then extending it through the first public-beta mutation/revalidation gate.
 
 This is the re-frame2 answer to TanStack Query / RTK Query / SWR /
 `shipclojure/re-frame-query`: resource identity, caching, staleness, dedupe, tag
