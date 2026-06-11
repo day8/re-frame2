@@ -243,7 +243,8 @@
       (catch :default _ nil))))
 
 ;; ---------------------------------------------------------------------------
-;; Drain eval-form — server-side elision wrap (rf2-vr2hn + rf2-mscih).
+;; Drain eval-form — server-side off-box projection (rf2-vr2hn + rf2-mscih
+;; + rf2-mahffz/EP-0015 §13).
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `drain-subscription!` returns one of two envelopes per the sub's topic
@@ -258,77 +259,174 @@
 ;;   - Flat topics (`:epoch`/`:frameless`) →
 ;;     `{:ok? :sub-id :events [...] :dropped-events ... :gone? ...}`.
 ;;
-;; The `:epoch` topic ships full epoch records (`:db-after` / `:db-before`
-;; ride verbatim). When the `--allow-sensitive-reads` boot gate is OFF (the
-;; published-build default), each delivered value must flow through
-;; `re-frame.core/elide-wire-value` BEFORE it crosses the nREPL wire —
-;; mirroring the snapshot / get-path gate (rf2-c2dtu) so an operator who
-;; didn't pass `--allow-sensitive-reads` can't be talked into shipping raw
-;; state through a hostile per-call arg.
+;; The delivered slots take DIFFERENT off-box-egress primitives, selected
+;; by topic (rf2-mahffz):
 ;;
-;; The walker reads the live `[:rf.runtime/elision]` runtime-db registry, so it has to run
-;; app-side. We compose `drain-subscription!` server-side with mapv over
-;; whichever slot the drain produced — `:cascades` for cascade-bundle
-;; topics, `:events` for flat topics. When elision is OFF (operator opted
-;; in via `--allow-sensitive-reads` AND passed `:elision false`), the bare
-;; drain form ships raw — the pre-rf2-vr2hn posture.
+;;   - TRACE-event slots — `:cascades` (cascade-bundle topics) + the
+;;     `:frameless` topic's `:events` — are tree-shaped values rooted at
+;;     the frame's app-db, so each flows through
+;;     `re-frame.core/elide-wire-value` (the size-elision walker reading
+;;     the live `[:rf.runtime/elision]` runtime-db registry — it runs
+;;     app-side). Gated by the `:elision` toggle (rf2-vr2hn / rf2-c2dtu):
+;;     gate-OFF forces it on; gate-ON + `:elision false` ships raw.
+;;
+;;   - The `:epoch` topic's `:events` carry whole `:rf/epoch-record`s,
+;;     including the structured `:effects` rows whose `:args` slot is
+;;     payload-bearing fx input NOT rooted at app-db (so the schema-path
+;;     walker cannot prove it safe — `elide-wire-value` over a whole
+;;     record would ship `:effects[].args` RAW). Per Security.md §Epoch
+;;     privacy posture, off-box epoch egress MUST route through
+;;     `re-frame.core/projected-record` — the single normative emission
+;;     site, which FAILS CLOSED on `:effects[].args`, default-redacts the
+;;     frame-state runtime-db partition, and projects every payload slot
+;;     under `:rf.egress/off-box-observability`. Per-tool reimplementation
+;;     (the prior whole-record `elide-wire-value` walk) is prohibited. The
+;;     `:epoch` projection is gated on the SENSITIVE opt-in axis (`incl?`,
+;;     via `--allow-sensitive-reads`), like the pull-mode `watch-epochs` /
+;;     `trace-window` tools — independent of the large-slot `:elision`
+;;     toggle — so a gate-ON `:elision false` caller still gets projected
+;;     (fail-closed) records unless they ALSO pass `:include-sensitive
+;;     true`.
+;;
+;; The projection runs server-side, before any value crosses the nREPL
+;; wire, so an operator who didn't pass `--allow-sensitive-reads` can't be
+;; talked into shipping raw state through a hostile per-call arg.
 
 (defn drain-form
   "Build the nREPL drain eval form. When `elision?` is true, wraps the
   drain envelope so the delivered slot (`:cascades` or `:events`,
-  whichever the runtime produced) flows through
-  `re-frame.core/elide-wire-value` server-side. `incl?` threads into the
-  walker's `:rf.size/include-sensitive?` opt — gate-OFF callers see
-  redacted sensitive slots regardless of any per-call opt-in.
+  whichever the runtime produced) is projected for off-box egress
+  server-side. `incl?` threads into the projection's sensitive opt-in —
+  gate-OFF callers see redacted sensitive slots regardless of any
+  per-call opt-in.
 
   Per rf2-mscih the wrapper handles both delivery shapes (cascade-bundle
-  topics → `:cascades`; flat topics → `:events`) without baking the
-  topic into the form — `cond->` over slot presence keeps the form
-  topic-agnostic and the elision contract single-sourced.
+  topics → `:cascades`; flat topics → `:events`).
 
-  EP-0002 (rf2-bd4div) — the walker opts thread the resolved operating
-  frame in as the explicit `:frame` override. The drain form runs on the
-  nREPL eval thread, which carries NO ambient `with-frame` scope, so a
-  frameless `re-frame.core/elide-wire-value` would FAIL CLOSED and redact
-  every cascade slot to `:rf/redacted` (the carried-frame invariant). We
-  resolve the operating frame app-side via
+  ## Per-slot egress primitive — `topic` selects (rf2-mahffz, EP-0015 §13)
+
+  The two delivered slots are NOT the same shape, so they take DIFFERENT
+  egress primitives — selected by `topic`, not by slot presence:
+
+  - **Trace-event slots** — `:cascades` (cascade-bundle topics
+    `:trace`/`:fx`/`:error`) and the `:frameless` topic's `:events`
+    (raw trace events) — are tree-shaped values rooted at the frame's
+    app-db, so the size-elision walker
+    `re-frame.core/elide-wire-value` is the correct primitive: it
+    redacts schema-declared-sensitive slots and elides large slots.
+
+  - **The `:epoch` topic's `:events`** carry whole `:rf/epoch-record`s
+    (`:db-before` / `:db-after` / `:trigger-event` / `:trace-events`
+    PLUS the structured `:effects` rows whose `:args` slot is
+    payload-bearing fx-handler input — an HTTP body, a dispatched event
+    vector, a payment map — NOT rooted at app-db, so the schema-path
+    walker cannot prove it safe). A bare `elide-wire-value` walk over a
+    whole record therefore ships those `:effects[].args` (and the
+    `:sub-runs` rows + the frame-state runtime-db partition) RAW off-box.
+    Per Security.md §Epoch privacy posture, off-box epoch egress MUST
+    route through `re-frame.core/projected-record` — the single
+    normative emission site — which FAILS CLOSED on `:effects[].args`
+    (`:rf/redacted` unless `:include-fx-args? true`), default-redacts the
+    runtime-db partition, and projects every payload slot under
+    `:rf.egress/off-box-observability`. Per-tool reimplementation of the
+    projection (the prior whole-record `elide-wire-value` walk) is
+    prohibited. This mirrors `watch-epochs` / `trace-window`
+    (`epoch-egress/project-page-src`) and the snapshot `:epochs` slice
+    (rf2-8fin7.1): one off-box epoch-egress site, one projector.
+
+  The `:epoch` projection is gated on `(not incl?)` (the
+  `--allow-sensitive-reads` opt-in axis, like the pull-mode epoch tools)
+  rather than on `elision?`: gate-OFF forces `incl?` false ⇒ every record
+  is projected; gate-ON + `:include-sensitive true` ⇒ records ship raw
+  (the operator's deliberate opt-in). When `elision?` is false (gate-ON +
+  `:elision false`) the trace-event slots ship raw — but a gate-ON caller
+  who left `:include-sensitive` at its default (`incl?` false) still gets
+  PROJECTED epoch records, because epoch projection tracks the sensitive
+  axis, not the large-slot toggle.
+
+  EP-0002 (rf2-bd4div) — the elide-wire-value opts thread the resolved
+  operating frame in as the explicit `:frame` override. The drain form
+  runs on the nREPL eval thread, which carries NO ambient `with-frame`
+  scope, so a frameless `re-frame.core/elide-wire-value` would FAIL
+  CLOSED and redact every cascade slot to `:rf/redacted` (the
+  carried-frame invariant). We resolve the operating frame app-side via
   `(re-frame2-pair.runtime/current-frame)` and merge it into the opts —
   the same idiom `elision/elide-sub-value-src` uses for the sub-cache
   walker and `runtime/pair-dispatch!` uses for the dispatch override — so
   the walker resolves against the frame's `[:rf.runtime/elision]`
-  runtime-db registry instead of failing closed.
+  runtime-db registry instead of failing closed. `projected-record`
+  resolves the frame off each record's own `:frame` slot, so the
+  `:epoch` arm needs no `current-frame` thread.
 
   Public (not `defn-`) so unit tests can pin the form shape directly —
   the form-string is the contract surface between MCP server and the
   app-side runtime."
-  [sub-id elision? incl?]
-  (if elision?
-    (ef/emit
-      (ef/rt-let
-        ['drain (ef/rt-call 'drain-subscription! sub-id)
-         ;; rf2-suoj2 — `elision-opts-edn` first arg is walker-aligned
-         ;; `include-large?` (subscribe always elides, so emit markers ⇒
-         ;; pass `false`). Pre-rf2-suoj2 this was `true` under the old
-         ;; "enabled?" polarity that the helper inverted internally.
-         ;; EP-0002 (rf2-bd4div): merge the resolved operating frame in as
-         ;; the explicit `:frame` override (the nREPL eval thread carries
-         ;; no ambient frame scope, so a frameless elide-wire-value would
-         ;; fail closed → redact every cascade to `:rf/redacted`).
-         'opts  (ef/rt-raw
-                  (str "(merge {:frame (re-frame2-pair.runtime/current-frame)} "
-                       (elision/elision-opts-edn false incl?) ")"))]
-        ;; Apply the walker to whichever slot the drain produced.
-        ;; Per rf2-mscih cascade-bundle topics return `:cascades`; flat
-        ;; topics return `:events`. `cond->` handles both without baking
-        ;; the topic into the form.
-        (ef/rt-raw
-          (str "(let [walk (fn [xs] (mapv (fn [x] (re-frame.core/elide-wire-value x opts)) xs))]"
-               " (cond-> drain"
-               " (contains? drain :cascades)"
-               " (update :cascades walk)"
-               " (contains? drain :events)"
-               " (update :events walk)))"))))
-    (ef/emit (ef/rt-call 'drain-subscription! sub-id))))
+  [sub-id topic elision? incl?]
+  (let [epoch?         (= :epoch topic)
+        ;; Epoch records project on the sensitive opt-in axis (mirrors
+        ;; watch-epochs / trace-window) — independent of the large-slot
+        ;; `elision?` toggle, so a gate-ON `:elision false` caller who
+        ;; left `:include-sensitive` at its default still gets projected
+        ;; (fail-closed) epoch records rather than raw fx-arg payloads.
+        project-epoch? (and epoch? (not incl?))
+        ;; The trace-event walker (`:cascades` / `:frameless` `:events`)
+        ;; rides the `elision?` toggle as before. The `:epoch` topic's
+        ;; `:events` are NOT trace events — they take `projected-record`,
+        ;; never the walker — so the walker arm is suppressed for it.
+        walk-trace?    (and elision? (not epoch?))
+        drain-call     (ef/rt-call 'drain-subscription! sub-id)]
+    (cond
+      ;; Nothing to project: gate-ON + `:elision false` on a non-epoch
+      ;; topic, OR a gate-ON epoch caller who opted into raw via
+      ;; `:include-sensitive true`. Bare drain ships raw (the
+      ;; pre-rf2-vr2hn / operator-opt-in posture).
+      (not (or walk-trace? project-epoch?))
+      (ef/emit drain-call)
+
+      ;; Epoch-only projection (no trace-event walk). Each record routes
+      ;; through `re-frame.core/projected-record` — the single normative
+      ;; off-box epoch-egress site (Security.md §Epoch privacy posture):
+      ;; fails closed on `:effects[].args`, default-redacts the
+      ;; frame-state runtime-db partition, projects every payload slot
+      ;; under `:rf.egress/off-box-observability`. `projected-record`
+      ;; resolves the frame off each record's own `:frame` slot, so no
+      ;; `current-frame` thread is needed. Per-tool reimplementation (the
+      ;; prior whole-record `elide-wire-value` walk, which left
+      ;; `:effects[].args` / `:sub-runs` / runtime-db raw) is prohibited.
+      project-epoch?
+      (ef/emit
+        (ef/rt-let
+          ['drain drain-call]
+          (ef/rt-raw
+            (str "(cond-> drain"
+                 " (contains? drain :events)"
+                 " (update :events (fn [es] (mapv re-frame.core/projected-record es))))"))))
+
+      ;; Trace-event walk (cascade-bundle topics `:trace`/`:fx`/`:error`
+      ;; ship `:cascades`; the `:frameless` topic ships `:events`). These
+      ;; are tree-shaped trace events rooted at the frame's app-db, so the
+      ;; size-elision walker is the correct primitive.
+      ;;
+      ;; rf2-suoj2 — `elision-opts-edn` first arg is walker-aligned
+      ;; `include-large?` (subscribe always elides, so emit markers ⇒ pass
+      ;; `false`). EP-0002 (rf2-bd4div): merge the resolved operating frame
+      ;; in as the explicit `:frame` override (the nREPL eval thread carries
+      ;; no ambient frame scope, so a frameless elide-wire-value would fail
+      ;; closed → redact every cascade to `:rf/redacted`).
+      :else
+      (ef/emit
+        (ef/rt-let
+          ['drain drain-call
+           'opts  (ef/rt-raw
+                    (str "(merge {:frame (re-frame2-pair.runtime/current-frame)} "
+                         (elision/elision-opts-edn false incl?) ")"))]
+          (ef/rt-raw
+            (str "(let [walk (fn [xs] (mapv (fn [x] (re-frame.core/elide-wire-value x opts)) xs))]"
+                 " (cond-> drain"
+                 " (contains? drain :cascades)"
+                 " (update :cascades walk)"
+                 " (contains? drain :events)"
+                 " (update :events walk)))")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Streaming controller — termination + poll loop.
@@ -366,7 +464,7 @@
   [{:keys [conn build-id sub-id topic resolve state
            signal send-note progress-tk poll-ms max-events
            incl? elision? dedup? cap]}]
-  (let [drain-src    (drain-form sub-id elision? incl?)
+  (let [drain-src    (drain-form sub-id topic elision? incl?)
         terminated?  (atom false)
         terminate
         (fn terminate [reason]
