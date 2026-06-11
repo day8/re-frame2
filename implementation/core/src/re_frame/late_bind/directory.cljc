@@ -758,6 +758,16 @@
     :design-bead "rf2-ini4wr"
     :description "Always-on ONE-bounded-record-per-destroy frame-teardown report (EP-0008 promotion criterion / Spec 009 §Channel-promotion catalogue rows). `frame/destroy-frame!` accumulates per-hook failures during the best-effort teardown walk and, through a FINALLY-shaped flush boundary, fires this hook once with the `:frame` + the collected `:hook-failures` vector — so a mid-teardown abort still ships the entries gathered so far. Builds the catalogue-shaped `:rf.error/frame-teardown-failed` record (`:recovery :ignored`) and fans it out to the corpus-wide error listeners. NOT one record per failed hook (the per-hook detail stays on the dev-only `:rf.warning/teardown-hook-exception` trace, DCE'd in prod). `frame` reaches it via late-bind because a static require closes a `error-emit` → `elision` → `frame` load cycle. Survives `:advanced` + `goog.DEBUG=false`. No-op when no hook failed."}
 
+   ;; ---- re-frame.observability (rf2-t55hxg.7 — EP-0015 §9 frame sink routing) -
+   {:key         :observability/route-handled-event
+    :producer-ns 're-frame.observability
+    :design-bead "rf2-t55hxg.7"
+    :description "EP-0015 §9 (the central claim, made production-live): route ONE `:rf.observe/handled-event` record per processed event to the owning frame's declared `:observability :handled-events` sinks. Builds the canonical handled-event record (`:frame` / `:event-id` / `:event` / `:status` / `:elapsed-ms` / `:effects` / `:correlation`), projects it through `project-egress` under the frame's classification and the entry's `:rf.egress/profile` (default `:rf.egress/off-box-observability`), and delivers the ALREADY-PROJECTED record to each entry's registered `:sink` fn. The off-box default omits the `:event` args slot entirely (EP-0015 issue 4); a buggy sink is try/catch isolated. Fail-closed: a NO-OP when the frame is unresolved (destroyed / never-registered) or declares no `:handled-events` policy — never synthesises `:rf/default`, never borrows another frame's policy. Called once per processed event from the router's cascade trailers, ALONGSIDE the always-on `event-emit` listener fan-out. Reached via late-bind because a static `router` → `observability` → `projection` → `elision` → `frame` require closes a load cycle. Survives `:advanced` + `goog.DEBUG=false`."}
+   {:key         :observability/route-error
+    :producer-ns 're-frame.observability
+    :design-bead "rf2-t55hxg.7"
+    :description "EP-0015 §9: route ONE `:rf.observe/error` record per `:rf.error/*` site to the owning frame's declared `:observability :errors` sinks. Builds the canonical error record (`:frame` / `:error` / `:event-id` / `:event` / `:exception` / `:elapsed-ms` / `:time` / `:correlation`), projects it through `project-egress` (the `:event` tree slot redacts under frame policy; `:exception` is dropped under `:rf.egress/public-error`, walked otherwise), and delivers the projected record to each entry's `:sink`. Fail-closed: a NO-OP on an unresolved frame or absent `:errors` policy. Called from `error-emit/dispatch-on-error!`, ALONGSIDE the always-on corpus-wide error-listener fan-out. Reached via late-bind (load-cycle break). Survives `:advanced` + `goog.DEBUG=false`."}
+
    ;; ===========================================================================
    ;; GROUP 3 — ADAPTER-INJECTION
    ;;

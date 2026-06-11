@@ -74,6 +74,18 @@
             ;; here; the require exists so the hooks are bound at boot before
             ;; any runtime `reg-frame` call.
             [re-frame.frame-classification]
+            ;; EP-0015 §9 (rf2-t55hxg.7): frame-owned observability sink
+            ;; routing — the central §9 claim made production-live. Required
+            ;; for BOTH its public façade exports (`reg-observability-sink!`
+            ;; et al., re-exported below) AND its ns-load side-effect: it
+            ;; publishes the `:observability/route-handled-event` /
+            ;; `:observability/route-error` late-bind hooks the router +
+            ;; error-emit substrate fire (a static require would close a
+            ;; load cycle). Pulls only `re-frame.projection` +
+            ;; `re-frame.frame` + `re-frame.late-bind` (core spine), so it is
+            ;; bundle-isolation neutral and production-surviving (the
+            ;; always-on observability stream is NOT DCE'd, by design).
+            [re-frame.observability :as observability]
             ;; EP-0013 D2 stage 5 (rf2-yozjzo) + stage 6 (rf2-zlhgr6): the
             ;; app-value ns. Stage 5 published the `:app-value/project`
             ;; late-bind hook `re-frame.realm/installed-app` consults to
@@ -1780,6 +1792,36 @@
   only when the frame is known; no `:rf/default` synthesis. Per Spec 015
   §Projection and Security.md §Off-box egress."}
   project-egress                   projection/project-egress)
+
+;; ---- frame-owned observability sink routing (EP-0015 §9, rf2-t55hxg.7) ----
+;;
+;; The NORMAL production observability story (Spec 015 §Frame-owned
+;; observability sink policy): an app declares a sink under a frame's
+;; `:observability` config and registers the concrete sink fn against that
+;; sink id here. The runtime routes one handled-event record per processed
+;; event and one error record per `:rf.error/*` site through `project-egress`
+;; (under the frame's classification + the sink's egress profile) to the
+;; declared sinks. Sinks consume ALREADY-PROJECTED records — no sink-local
+;; redaction. The advanced `register-event-listener!` / `register-error-
+;; listener!` corpus-wide registries above remain for advanced integration;
+;; this is the normal Datadog/Sentry surface.
+
+(def ^{:doc "Register an observability sink FN `f` under the keyword
+  `sink-id` — the user/library-owned id a frame's `:observability`
+  `{:sink <sink-id> ...}` entry names (EP-0015 §9). `f` receives a single
+  ALREADY-PROJECTED record (a `:rf.observe/handled-event` or
+  `:rf.observe/error` projected under the owning frame's classification and
+  the entry's egress profile); NO sink-local redaction. Re-registering the
+  same id replaces. Returns `sink-id`. The framework ships no Datadog /
+  Sentry client (EP-0015 Non-Goals); the concrete sink fn is an app /
+  integration-library concern. Survives `:advanced` + `goog.DEBUG=false` —
+  the frame `:observability` stream is the production observation stream.
+  Per Spec 015 §Frame-owned observability sink policy."}
+  reg-observability-sink!          observability/reg-observability-sink!)
+
+(def ^{:doc "Drop the observability sink registered under `sink-id`.
+  Returns nil. Per Spec 015 §Frame-owned observability sink policy."}
+  unregister-observability-sink!   observability/unregister-observability-sink!)
 
 ;; EP-0015 §8 (rf2-d2r3um): the `populate-elision-from-schemas!` /
 ;; `populate-sensitive-from-schemas!` facade exports are REMOVED. They were
