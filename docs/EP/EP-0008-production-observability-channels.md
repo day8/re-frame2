@@ -9,8 +9,9 @@ Type: standards-track
 
 ## Abstract
 
-re-frame2 has three observability channels with different production
-guarantees, but only two are named and none has a promotion rule:
+For failure categories, re-frame2 has three observability channels with
+different production guarantees, but only two are named and none has a
+promotion rule:
 
 1. the **causal channel** — effects-as-data, replayable, part of the semantic
    value; never elided;
@@ -30,6 +31,12 @@ processes its own docstring names as the risk — so a production cleanup failur
 This EP names the channels normatively in Spec 009, states the promotion
 criterion, audits the existing diagnostic categories against it, and fixes the
 gaps the audit finds (teardown failures first).
+
+This is not the complete Spec 009 observation-surface matrix. The always-on
+event-emit listener and Performance API are production observability surfaces
+with their own record shapes and gates; this EP governs the category-routing
+question of when a failure/advisory currently on the diagnostic trace surface
+must instead become a production-survivable always-on error record.
 
 ## Motivation
 
@@ -66,6 +73,9 @@ hand-waving "moot in production."
 - Not production *telemetry* (the 06-06 reviews' north-star) — that remains
   gated on its own privacy work; this EP only governs the error axis that
   already ships.
+- No rename or reclassification of Spec 009's always-on event-emit listener,
+  Performance API channel, SSR projector, or browser-native exception surfaces;
+  those remain observation surfaces outside this EP's category-promotion rule.
 
 ## Relationships
 
