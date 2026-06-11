@@ -14,8 +14,10 @@ Type: standards-track
 > the `:dispatched-at` same-change retirement rule, and the secrets-exclusion
 > boundary on recordable randomness (now normative in [§Randomness, UUIDs, And
 > Generated Identity](#randomness-uuids-and-generated-identity)). Implementation
-> is tracked by the EP-0010 action epic; the reply-token completion-facts slice
-> sequences with/after the in-flight EP-0011 envelope slices.
+> is tracked by the EP-0010 action wave; the EP-0011 lowering chain is scheduled
+> **behind** this wave (Mike, 2026-06-11) — the envelope's completion timestamps
+> are this EP's causal facts, so world inputs land first and each EP-0011
+> family slice is born causally correct.
 >
 > Normative home after acceptance: `spec/002-Frames.md`, `spec/016-Resources.md`,
 > and the managed-effects/runtime-subsystem sections that define dispatch
