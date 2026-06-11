@@ -793,18 +793,36 @@
 
 (defn- live-entry-for-reply
   "Look the live entry up for an internal reply and verify it is still the
-  one the reply belongs to: the entry exists AND its `:current-work` equals
-  the reply's `:work-id` AND its `:generation` equals the reply's
-  `:generation`. Returns the entry on a match, nil on a stale / superseded /
-  vanished reply (which MUST be suppressed — Spec 016 §Cancellation is
-  opportunistic; stale suppression is mandatory). The work-id is the single
-  identity (it embeds the generation); the generation check is belt-and-
-  braces for a future transport that reuses a work-id."
-  [runtime-db {:keys [resource-key work-id generation]}]
-  (when-let [entry (get-in runtime-db (state/entry-path resource-key))]
-    (when (and (= work-id (:current-work entry))
-               (= generation (:generation entry)))
-      entry)))
+  one the reply belongs to: the reply's stamped `:rf.frame/id` equals the
+  RECEIVING frame (`receiving-frame-id`), the entry exists, its
+  `:current-work` equals the reply's `:work-id`, AND its `:generation`
+  equals the reply's `:generation`. Returns the entry on a match, nil on a
+  cross-frame / stale / superseded / vanished reply (which MUST be suppressed
+  — Spec 016 §Cancellation is opportunistic; stale suppression is mandatory).
+
+  FRAME VERIFICATION (rf2-eu2ifi): the runtime stamps the qualified
+  `:rf.frame/id` into every reply payload at lowering; the reply handler runs
+  in the RECEIVING frame's cofx. A reply whose payload frame does not match
+  the receiving frame is REJECTED without touching this frame's entry or
+  ledger — a misrouted reply (a cross-frame request-id collision, or a reply
+  re-dispatched into the wrong frame) can never mutate the wrong frame's
+  cache. The frame stamp is checked FIRST (before the per-frame entry lookup)
+  so a cross-frame reply is rejected even when both frames happen to hold the
+  same scoped key at the same generation.
+
+  The work-id is the single intra-frame identity (it embeds the generation);
+  the generation check is belt-and-braces for a future transport that reuses
+  a work-id. A reply with no stamped frame (a direct-dispatch test payload
+  that omits `:rf.frame/id`) skips the frame check (nil never collides with a
+  concrete frame id) and is verified by work-id + generation alone — the
+  runtime-slice tests stay deterministic."
+  [runtime-db receiving-frame-id {:keys [resource-key work-id generation] :as payload}]
+  (let [reply-frame (:rf.frame/id payload)]
+    (when (or (nil? reply-frame) (= reply-frame receiving-frame-id))
+      (when-let [entry (get-in runtime-db (state/entry-path resource-key))]
+        (when (and (= work-id (:current-work entry))
+                   (= generation (:generation entry)))
+          entry)))))
 
 ;; ---- transport reply payload extraction -----------------------------------
 ;;
@@ -885,7 +903,7 @@
    [_event-id {:keys [resource-key work-id generation] :as payload} http-result]]
   (let [runtime-db (or rt {})
         data       (reply-success-data payload http-result)
-        entry      (live-entry-for-reply runtime-db payload)]
+        entry      (live-entry-for-reply runtime-db frame-id payload)]
     (if (nil? entry)
       ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply never
       ;; mutates a newer entry. Settle its (already-superseded) work row to a
@@ -1012,7 +1030,7 @@
   (let [runtime-db (or rt {})
         error      (reply-failure-error payload http-result)
         aborted?   (abort-failure? error)
-        entry      (live-entry-for-reply runtime-db payload)]
+        entry      (live-entry-for-reply runtime-db frame-id payload)]
     (cond
       ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply (failure
       ;; OR abort) never mutates a newer entry. Settle its work row terminal +
