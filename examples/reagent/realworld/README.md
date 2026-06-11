@@ -39,6 +39,7 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../../spec/014-H
 - **Routing** — route table, path params, query params, auth gating via the `auth-guard` interceptor (`routing.cljs`, wired into the demo frame's `:interceptors` in `core.cljs` — `:requires-auth`-tagged routes redirect unauthenticated users to login per Spec 012 §Redirects and guards), route-driven loads, and navigation blocking for the editor.
 - **Pagination** — every article list (the home global feed, the tag feed, the authenticated "Your Feed", and the profile authored / favorited lists) paginates with the official RealWorld `limit` / `offset` query params and consumes the response's grand `articlesCount` to size a 1-indexed page-number control. The page rides the **route query** (`?page=N`) so back/forward and bookmarking restore it; `:int` coercion turns the URL's `"2"` into `2` and `:query-defaults {:page 1}` fills page 1 when absent (`routing.cljs`). The page-number control renders the canonical Conduit `.pagination` / `.page-item.active` / `.page-link` markup (the shared `articles/pagination` view, reused by the home page and the profile pages). The 1-indexed page → 0-based `offset` math and the `(ceil articlesCount / page-size)` page count live in `http.cljs` (`page-size`, `page->offset`, `page-count`, `paginate-path`). Switching feed or tag resets to page 1 (a fresh query drops `?page=`); a page click re-fires the route `:on-match` with the new window (Spec 012 — same route, changed query). The demo stub (`core.cljs`) serves a 25-article corpus sliced by the request's `limit` / `offset` so all three pages are exercisable offline.
 - **Optimistic updates** — favorite toggle, comment delete, and follow/unfollow all show rollback-friendly event shapes against the managed-HTTP failure path.
+- **Article-detail contextual controls** — per the official Conduit article-page template, the detail page (`comments.cljs`) renders the author byline plus, for a non-author viewer, Follow/Unfollow the author (`:article/toggle-follow-author`, optimistic + rollback against the article's embedded `:author`), or, for the author, Edit Article (→ `/editor/:slug`) + Delete Article (`:article/delete`, navigate home on success). Logged-out viewers see the byline only. The editor's own Delete (`article_editor.cljs`) remains reachable too.
 - **Schemas** — wire payloads and app-db slices are attached with `reg-app-schemas` (the bulk plural form) — one `{path -> schema}` map registers all 22 slices in `schema.cljs`.
 - **SSR boundary** — the app-specific hydration payload helper lives alongside the generic SSR worked example in `examples/reagent/ssr/`.
 
@@ -53,7 +54,7 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../../spec/014-H
 | `auth.cljs` | implemented | Auth machine plus login/register forms (managed-HTTP). |
 | `articles.cljs` | implemented | Home page, global feed, tag filter UI; managed-HTTP with retry + abort. Home page uses Pattern-NineStates — a `:realworld/articles-home` parallel machine with three regions (`:feed` × `:filter` × `:data`) + a render-priority table; the root view is a `case` over `:articles.home/render`. Popular-tags loading moved to `tags.cljs`. Hosts the shared `pagination` view (`.pagination` / `.page-item` / `.page-link`) reused by the profile pages, and the home pagination subs. |
 | `favorites.cljs` | implemented | Favorite toggle and followed-authors feed; optimistic updates with managed-HTTP rollback. The authenticated feed paginates via `?page=` like the global feed. |
-| `comments.cljs` | implemented | Article detail page, comments list, comment form, optimistic delete. **`:article/load` uses default reply addressing.** |
+| `comments.cljs` | implemented | Article detail page, comments list, comment form, optimistic delete, plus the article-detail contextual controls (author Follow/Unfollow for non-author viewers; Edit / Delete for the author — rf2-2xi8sr). **`:article/load` uses default reply addressing.** |
 | `article_editor.cljs` | implemented | New/edit/delete article plus unsaved-change guard. Hosts the `:editor/can-submit?` **flow** (Spec 013) — a materialised valid-AND-dirty boolean read by the submit handler and the submit button. |
 | `profile.cljs` | implemented | Profile banner, authored/favorited tabs, follow/unfollow. Uses Pattern-NineStates — a `:ui/profile` parallel machine with two regions (`:tab` × `:data`) + a render-priority table; the root view is a `case` over `:profile/render`. Each tab's article list paginates via `?page=` (reusing `articles/pagination`). |
 | `settings.cljs` | implemented | User settings form and logout affordance. Form lifecycle as the **`:form-region` machine** variant of Pattern-Forms — `:settings/form` is a single-region state machine whose state-keyword IS the Pattern-Forms lifecycle. |
@@ -80,14 +81,22 @@ The example's behaviour is verified by its CLJS test fixtures (see
 npm run test:cljs
 ```
 
-In production point `realworld.http/api-base` at <https://api.realworld.io/api>; for local development, the upstream spec ships a Node/Postgres reference backend that listens on `http://localhost:3000/api`. The demo entry installs an in-process `:rf.http/managed` override (`:realworld.demo/http-stub`) that synthesises canned responses for the common reads (global feed, tags, profile) — Spec 014 §Testing — so the fixtures run without a network.
-
 To view the app in a browser, build it under shadow-cljs id `examples/realworld` from `implementation/`:
 
 ```bash
 shadow-cljs watch examples/realworld
 # then open the example's index.html (served however you prefer).
 ```
+
+### Running against a real backend
+
+The app supports three backend modes; the default needs no network.
+
+1. **Canned demo stub (default).** The demo entry (`core.cljs`) installs an in-process `:rf.http/managed` override (`:realworld.demo/http-stub`) that synthesises canned Conduit-shaped responses (a 25-article corpus sliced by `limit`/`offset`, tags, profile, auth) — Spec 014 §Testing. `api-base` is **not contacted** in this mode; the stub matches on the URL path suffix. This is what the browser build and the CLJS fixtures use, so everything runs offline.
+
+2. **Official hosted API.** Point `realworld.http/api-base` at the current official hosted API — <https://api.realworld.show/api> (the old `api.realworld.io` host is stale) — and remove the `:fx-overrides {:rf.http/managed :realworld.demo/http-stub}` line from the demo frame in `core.cljs`. The Bearer token is injected by the frame-wide `:realworld/bearer-auth` HTTP interceptor (`core.cljs`), so authenticated calls (feed, favourite, follow, comment, settings, save) carry the header automatically.
+
+3. **Local reference backend.** The upstream spec ships a Node/Postgres reference backend that listens on `http://localhost:3000/api`; set `api-base` to that and drop the stub override as in mode 2.
 
 ## Headless tests
 

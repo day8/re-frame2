@@ -54,6 +54,14 @@ The official Conduit profile has two tabs, and here they are **two routes**, eac
 
 The active tab is **just the current route id** — there is no tab state in `app-db`; the view reads `:rf.route/id` to pick which list resource to subscribe to. The tab links are plain `route-link`s. Favoriting / unfavoriting from the Favorited tab fires the same `:realworld/favorite` / `:realworld/unfavorite` mutations, whose `:invalidates` stales `[:article slug]` — a tag the favorited list **carries** for every article it contains — so the list refetches and the article drops out on unfavorite with no extra wiring. (No dedicated `[:favorited-articles username]` invalidation is needed for the toggle; the per-article tag already reaches it.)
 
+### Article-detail contextual controls (`views.cljs`)
+
+Per the official Conduit article-page template, the detail page renders the author byline plus contextual controls: a non-author viewer sees **Follow / Unfollow** the author (`:ui/follow-author` — fires the `:realworld/follow` / `:realworld/unfollow` mutation, then stales `[:article slug]` so the detail's embedded `:author.following` refetches, since the follow mutation itself only invalidates `[:profile username]`); the author sees **Edit Article** (a `route-link` to `/editor/:slug`) and **Delete Article** (`:ui/delete-article` → the `:realworld/delete-article` mutation, with a Form-3 settle reaction navigating home on success — the same off-render idiom the editor uses, since a mutation has no reply-side `:on-success`). Logged-out viewers see the byline only (rf2-2xi8sr).
+
+### Cross-scope feed invalidation — an interim seam (`views.cljs`)
+
+The favourite / unfavourite mutations are `:rf.scope/global` (matching the public reads they invalidate), so their `[:feed]` tag resolves in the **global** scope — but the personalised feed entry lives under a **session** scope, so the global invalidation is structurally unreachable from it (Spec 016 invalidation is scoped + fail-closed by default; the nx8ip6 HYBRID ruling makes invalidation scope fail-closed). The home page therefore fires an **explicit session-scoped** `[:feed]` invalidation (`:ui/invalidate-session-feed`, derived from the auth slice) when a favourite toggle settles, so Your Feed refreshes. This is the **interim** patch (rf2-em5ab8); the durable fix is EP-0016 per-target scoped invalidation descriptors (`{:scope … :tags #{[:feed]}}`), of which this bug is the minimal failing example.
+
 ### Scope is the fail-closed leak boundary (`scope.cljs`)
 
 This example reads two **kinds** of server-state, so it shows **both** scope policies (Spec 016 §Scope resolution):
@@ -69,7 +77,7 @@ Every RealWorld write is a `reg-mutation` whose `:invalidates` (and, where usefu
 
 | Mutation | Write | Invalidates / populates |
 |---|---|---|
-| `:realworld/favorite` / `:realworld/unfavorite` | POST/DELETE `/articles/:slug/favorite` | `:populates` the detail entry from the reply (heart flips immediately); `:invalidates` `[:article slug] [:article-list] [:feed]` |
+| `:realworld/favorite` / `:realworld/unfavorite` | POST/DELETE `/articles/:slug/favorite` | `:populates` the detail entry from the reply (heart flips immediately); `:invalidates` `[:article slug] [:article-list] [:feed]` (global scope). The personalised feed is **session-scoped**, so a global-scope invalidation can't reach it — `views.cljs` fires an explicit session-scoped `[:feed]` invalidation when a favourite settles (the rf2-em5ab8 interim patch; the durable per-target fix is EP-0016). |
 | `:realworld/follow` / `:realworld/unfollow` | POST/DELETE `/profiles/:username/follow` | `:populates` the profile banner; `:invalidates` `[:profile username]` |
 | `:realworld/post-comment` | POST `/articles/:slug/comments` | `:invalidates` `[:comments slug]` (the mounted page's comments refetch) |
 | `:realworld/delete-comment` | DELETE `/articles/:slug/comments/:id` | `:invalidates` `[:comments slug]` |
@@ -111,7 +119,7 @@ Login / register / session-restore / logout are a Spec 005 state machine issuing
 | `auth.cljs` | The `:auth/flow` auth machine (login / register / restore-without-navigating / logout-with-clear-scope) + the login/register forms. |
 | `settings.cljs` | The settings page as a mutation instance (`:rf.mutation/state`); the save-success continuation is off the render path (Form-3 settle reaction). |
 | `article_editor.cljs` | Create / edit / delete an article: the `:realworld/save-article` + `:realworld/delete-article` mutations, the `:editor/can-submit?` Spec 013 flow, the `:editor/can-leave?` guard, and the Form-3 settle reactions (seed-on-load + save/delete continuation). |
-| `views.cljs` | Passive pages (home / article / profile-with-two-tabs) + the numbered `pagination` control + the keep-previous list render + the small UI event glue (favourite / follow / comment / page navigation). |
+| `views.cljs` | Passive pages (home / article / profile-with-two-tabs) + the numbered `pagination` control + the keep-previous list render + the small UI event glue (favourite / follow / comment / page navigation); the article-detail contextual controls (author follow + author Edit/Delete — rf2-2xi8sr); and the explicit session-scoped feed invalidation on favourite-settle (rf2-em5ab8 interim patch). The `home-page` + `article-page` are Form-3 wrappers holding the off-render settle reactions. |
 | `schema.cljs` | Malli wire shapes + the small app-db schemas (auth + form drafts only — the reads live in runtime-db). |
 | `http.cljs` | The demo backend stub (resources + mutations lower onto `:rf.http/managed`, so one stub serves the whole API) — synthesises a multi-page article set + honours `limit`/`offset` + a distinct favorited subset — plus the shared `data-fetch-retry` read policy + the `:rf.http/*` failure projection. |
 | `index.html` | Static host page. |
@@ -125,7 +133,15 @@ shadow-cljs watch examples/realworld-resources
 # then stage this folder's index.html + _shared/ next to the built main.js and serve over HTTP.
 ```
 
-In production point `realworld-resources.http/api-base` at <https://api.realworld.io/api>; the demo entry installs an in-process `:rf.http/managed` override (`:realworld-resources.demo/http-stub`) that synthesises canned Conduit responses for both the reads (resources) and the writes (mutations), so it runs standalone without a backend.
+### Running against a real backend
+
+The app supports three backend modes; the default needs no network.
+
+1. **Canned demo stub (default).** The demo entry (`core.cljs`) installs an in-process `:rf.http/managed` override (`:realworld-resources.demo/http-stub`) that synthesises canned Conduit responses for both the reads (resources) and the writes (mutations), so it runs standalone without a backend. `api-base` is **not contacted** in this mode — the stub matches on the URL path suffix.
+
+2. **Official hosted API.** Point `realworld-resources.http/api-base` at the current official hosted API — <https://api.realworld.show/api> (the old `api.realworld.io` host is stale) — and remove the `:fx-overrides {:rf.http/managed :realworld-resources.demo/http-stub}` line from the demo frame in `core.cljs`. The frame-wide `:realworld/bearer-auth` HTTP interceptor (`core.cljs`) attaches the JWT to every outbound resource / mutation / restore request, so authenticated calls work against the real API (rf2-j4kbro); the read resources also carry the shared `data-fetch-retry` policy.
+
+3. **Local reference backend.** The upstream spec ships a Node/Postgres reference backend on `http://localhost:3000/api`; set `api-base` to that and drop the stub override as in mode 2.
 
 ## Verification posture
 
