@@ -221,10 +221,14 @@ The metadata map accepted by `reg-sub`. The `:<-` chain is **not** a metadata-ma
    [:map
     [:rf/inputs    {:optional true} [:vector [:vector :any]]]                ;; runtime-stamped: the resolved :<- chain as a vector of query-vectors
     [:rf/layer     {:optional true} [:enum :layer-1 :layer-2+]]              ;; runtime-stamped: derived from :rf/inputs at registration time
+    [:rf.egress/output-sensitivity {:optional true}                         ;; derived-output declassification claim (EP-0015 issue 9); absent ⇒ :rf.egress/inherit
+     [:enum :rf.egress/inherit :rf.egress/sensitive :rf.egress/public]]
     ]])
 ```
 
-`:rf/inputs` and `:rf/layer` are stamped by the runtime at registration time from the `:<-` positional args — user code MUST NOT set them. Static topology queries (`sub-topology`, per [006](006-ReactiveSubstrate.md)) read `:rf/inputs` back to project the `:<-` graph.
+`:rf/inputs` and `:rf/layer` are stamped by the runtime at registration time from the `:<-` positional args — user code MUST NOT set them.
+
+`:rf.egress/output-sensitivity` is the optional derived-output declassification claim (EP-0015 issue 9; [015 §Derived sensitivity](015-Data-Classification.md#derived-sensitivity)) — a closed enum `:rf.egress/inherit` (default, absent ⇒ inherit sensitivity from inputs) / `:rf.egress/sensitive` (force-mark the output sensitive) / `:rf.egress/public` (declassify — surface unredacted despite sensitive inputs). It is the SOLE derived-output sensitivity surface: the boolean `:sensitive?` declassify/force spelling is rejected at registration (`:sensitive` already names a path collection at this layer). An unknown value throws `:rf.error/bad-marks` (fail-closed). The same key + enum is accepted on the `reg-flow` registration map. Static topology queries (`sub-topology`, per [006](006-ReactiveSubstrate.md)) read `:rf/inputs` back to project the `:<-` graph.
 
 #### `:rf/fx-meta`
 
@@ -320,10 +324,15 @@ The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow
     [:inputs       [:vector [:vector :any]]]                                 ;; required: vector of app-db paths; positional args to :output
     [:output       fn?]                                                      ;; required: pure fn (in-1, ..., in-n) → output
     [:path         [:vector :any]]                                           ;; required: app-db path to write output to
+    [:rf.egress/output-sensitivity {:optional true}                         ;; derived-output declassification claim (EP-0015 issue 9); absent ⇒ :rf.egress/inherit
+     [:enum :rf.egress/inherit :rf.egress/sensitive :rf.egress/public]]
+    [:sensitive    {:optional true} [:vector [:vector :any]]]                ;; per-output-path sensitive sub-slots ([[]] = whole)
+    [:large        {:optional true} [:vector [:vector :any]]]                ;; per-output-path large sub-slots ([[]] = whole)
+    [:large?       {:optional true} :boolean]                                ;; whole-output size override (size has no declassification analogue)
     ]])
 ```
 
-`:id`, `:inputs`, `:output`, `:path` are **required** at registration time; the base `:rf/registration-metadata` keys (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`) compose additively. The `[:id :keyword]` constraint is enforced at the API boundary — `reg-flow` rejects a present-but-non-keyword `:id` rather than normalising it later, so the `:flow-id` trace/error slot never carries an arbitrary id shape (rf2-ihfz9o). `reg-flow` rejects malformed maps with one of five distinct error keys — `:rf.error/flow-missing-id` (`:id` absent), `:rf.error/flow-bad-id` (`:id` present but not a keyword), `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path` — surfaced via [009 §Error contract](009-Instrumentation.md#error-contract); see also [013 §The registration shape](013-Flows.md).
+`:id`, `:inputs`, `:output`, `:path` are **required** at registration time; the base `:rf/registration-metadata` keys (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`) compose additively. `:rf.egress/output-sensitivity` is the derived-output declassification claim (EP-0015 issue 9; same closed enum as [`SubMeta`](#rfsub-meta)) — the SOLE derived-output sensitivity surface; the boolean `:sensitive?` declassify/force spelling is rejected at registration with `:rf.error/flow-bad-marks`, and an unknown enum value throws the same key (fail-closed). The `[:id :keyword]` constraint is enforced at the API boundary — `reg-flow` rejects a present-but-non-keyword `:id` rather than normalising it later, so the `:flow-id` trace/error slot never carries an arbitrary id shape (rf2-ihfz9o). `reg-flow` rejects malformed maps with one of five distinct error keys — `:rf.error/flow-missing-id` (`:id` absent), `:rf.error/flow-bad-id` (`:id` present but not a keyword), `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path` — surfaced via [009 §Error contract](009-Instrumentation.md#error-contract); see also [013 §The registration shape](013-Flows.md).
 
 #### `:rf/app-schema-meta`
 
