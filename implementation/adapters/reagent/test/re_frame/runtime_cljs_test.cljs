@@ -685,6 +685,109 @@
           "static sub-topology reports the :parametric sentinel, not the realized edges")
       (rf/unsubscribe [:article/page :a1]))))
 
+;; ---- live sub-cache algebra view (EP-0014 slice-2, rf2-gge6mf) -------------
+;;
+;; Per [spec/Derivations.md] §Static and live graphs + the
+;; `:rf/derivation-node` shape in [spec/Spec-Schemas.md]. The LIVE
+;; counterpart to `sub-algebra-view` (the static, JVM-runnable view): one
+;; algebra node per concrete cached entry, keyed by its query vector, with
+;; the REALIZED `[:sub query-vector]` input edges the static graph cannot
+;; enumerate. CLJS-only / dev-only (DCE'd in production), mirroring
+;; `sub-cache-snapshot`.
+
+(deftest sub-cache-algebra-view-exposes-the-live-node
+  (testing "a live sub-cache entry exposes the full ephemeral / on-demand /
+           cache-entry algebra node, keyed by its concrete query vector"
+    (rf/reg-event-db :seed-av (fn [_ _] {:n 7 :name "ada"}))
+    (rf/reg-sub :n     (fn [db _] (:n db)))
+    (rf/reg-sub :name* (fn [db _] (:name db)))
+    (rf/dispatch-sync [:seed-av])
+    ;; Empty cache is the {} baseline.
+    (is (= {} (subs-tooling/sub-cache-algebra-view :rf/default))
+        "no subs materialised yet → empty map")
+    (let [r1   (rf/subscribe [:n])
+          r2   (rf/subscribe [:n])
+          r3   (rf/subscribe [:name*])
+          view (subs-tooling/sub-cache-algebra-view :rf/default)]
+      (is (= 2 (count view))
+          "one algebra node per materialised query-v")
+      (let [node-n (get view [:n])]
+        (is (= [:n] (:id node-n))
+            "the live node's id is its concrete query vector")
+        (is (= :derivation (:kind node-n)))
+        (is (= :ephemeral (:storage node-n)))
+        (is (= :on-demand (:evaluation node-n)))
+        (is (= :subscription-cache-entry (:lifecycle node-n)))
+        (is (= false (:materialized? node-n)))
+        (is (= [:fact [:n]] (:output node-n))
+            "the output fact is addressed by the concrete query vector")
+        (is (= {:kind :reg-sub :id :n} (:source-form node-n)))
+        (is (= [] (:inputs node-n))
+            "a layer-1 reader has no realized [:sub …] edges")
+        (is (= :db (:input-kind node-n)))
+        (is (= 7 (:value node-n))
+            "the node carries the live deref of the cached reaction")
+        (is (= 2 (:ref-count node-n))
+            "ref-count is the lifecycle evidence the cache-entry owner is kept alive")))
+    ;; No-arg-by-id parity with the active frame.
+    (is (= (subs-tooling/sub-cache-algebra-view :rf/default)
+           (subs-tooling/sub-cache-algebra-view (rf/current-frame-id)))
+        "the named-frame view equals the active-frame view")
+    (rf/unsubscribe [:n])
+    (rf/unsubscribe [:n])
+    (rf/unsubscribe [:name*])
+    (is (nil? (subs-tooling/sub-cache-algebra-view :no-such-frame))
+        "missing frame returns nil")))
+
+(deftest sub-cache-algebra-view-lowers-static-realized-edges
+  (testing "a static :<- entry lowers its literal realized inputs to [:sub q] edges"
+    (rf/reg-event-db :seed-av2 (fn [_ _] {:items [1 2 3] :filter :all}))
+    (rf/reg-sub :items  (fn [db _] (:items db)))
+    (rf/reg-sub :filter (fn [db _] (:filter db)))
+    (rf/reg-sub :visible-items
+                :<- [:items]
+                :<- [:filter]
+                (fn [[items _filter] _] items))
+    (rf/dispatch-sync [:seed-av2])
+    (let [r    (rf/subscribe [:visible-items])
+          view (subs-tooling/sub-cache-algebra-view :rf/default)
+          node (get view [:visible-items])]
+      (is (= :static (:input-kind node)))
+      (is (= [[:sub [:items]] [:sub [:filter]]] (:inputs node))
+          "the static entry's realized edges are its literal :<- query-vectors, lowered to [:sub q]")
+      (rf/unsubscribe [:visible-items]))))
+
+(deftest sub-cache-algebra-view-lowers-parametric-realized-edges
+  (testing "a parametric entry lowers its REALIZED (input-fn query-v) result to [:sub q] edges"
+    ;; This is the load-bearing static/live distinction: the static
+    ;; `sub-algebra-view` reports the :parametric marker; the live view
+    ;; reports the concrete realized [:sub …] edges for THIS query vector.
+    (rf/reg-event-db :seed-av3 (fn [_ _] {:articles {:a1 {:title "T"}}
+                                          :comments {:a1 [:c1]}}))
+    (rf/reg-sub :article/by-id        (fn [db [_ id]] (get-in db [:articles id])))
+    (rf/reg-sub :comments/for-article (fn [db [_ id]] (get-in db [:comments id])))
+    (rf/reg-sub :article/page
+                (fn [[_ id]]
+                  [[:article/by-id id]
+                   [:comments/for-article id]])
+                (fn [[article comments] _]
+                  {:article article :comments comments}))
+    (rf/dispatch-sync [:seed-av3])
+    (let [r    (rf/subscribe [:article/page :a1])
+          view (subs-tooling/sub-cache-algebra-view :rf/default)
+          node (get view [:article/page :a1])]
+      (is (= [:article/page :a1] (:id node))
+          "the live node id is the concrete parametric query vector")
+      (is (= :parametric (:input-kind node)))
+      (is (= [[:sub [:article/by-id :a1]]
+              [:sub [:comments/for-article :a1]]]
+             (:inputs node))
+          "the live view reports the REALIZED [:sub …] edges for :a1")
+      ;; The static view reports the marker, never these realized edges.
+      (is (= :parametric (:inputs (subs-tooling/sub-algebra-view :article/page)))
+          "the static algebra view reports the :parametric marker, not the realized edges")
+      (rf/unsubscribe [:article/page :a1]))))
+
 ;; ---- epoch history (Tool-Pair §Time-travel, rf2-shjf) ---------------------
 ;;
 ;; CLJS smoke test — JVM-side epoch_test.clj covers the broad surface; this

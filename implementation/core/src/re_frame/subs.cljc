@@ -1453,4 +1453,11 @@
 #?(:clj
    (do
      (def sub-topology       subs-tooling/sub-topology)
-     (def sub-cache-snapshot subs-tooling/sub-cache-snapshot)))
+     (def sub-cache-snapshot subs-tooling/sub-cache-snapshot)
+     ;; EP-0014 slice-2: the derivation/process algebra views. The static
+     ;; view is JVM-runnable (registrar-derived, partition-agnostic); the
+     ;; live cache view is CLJS-only (returns nil on the JVM, like
+     ;; `sub-cache-snapshot`). Both live in the tooling sibling so
+     ;; production CLJS bundles DCE the bodies.
+     (def sub-algebra-view       subs-tooling/sub-algebra-view)
+     (def sub-cache-algebra-view subs-tooling/sub-cache-algebra-view)))
