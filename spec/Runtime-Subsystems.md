@@ -2,6 +2,8 @@
 
 > **Type:** Reference
 > The unifying conceptual frame for every framework-owned **durable-state** surface in re-frame2 — the children of the runtime-db partition (machines, routing, elision, SSR, and EP-0003's shipped resources / work-ledger / mutations). Names the five clauses every conformant runtime subsystem inherits, so a new subsystem (a 3rd-party `:rf.runtime/<lib>` extension) can be evaluated against a single checklist instead of re-deriving the shape each time. This is the **durable-state analogue of [Managed-Effects.md](Managed-Effects.md)** — Managed-Effects names the eight-property shape every framework-owned *effect* surface satisfies; this doc names the five-clause shape every framework-owned *state* subtree satisfies.
+>
+> The same doc also owns the **runtime-realm container** ([§Runtime realms](#runtime-realms--the-container), [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) D1) — the value that owns the *non-durable* operational layer beside the durable subsystems: the registrar, the installed adapter, the capability map, and the **host-transient** subsystem state. The durable subsystems live inside the frames a realm owns; the realm owns the operational environment around them.
 
 ## Why this doc exists
 
@@ -198,6 +200,140 @@ EP-0003's `:rf.runtime/resources`, `:rf.runtime/work-ledger`, and `:rf.runtime/m
 
 A subtree that answers fewer than five is ad-hoc runtime state, not a runtime subsystem; tools, SSR projection, and the AI-Audit treat it as out-of-contract.
 
+## Runtime realms — the container
+
+> **EP-0013 D1, accepted 2026-06-11 (Mike, ruling [rf2-1vj3b6](https://github.com/day8/re-frame2/issues/rf2-1vj3b6); D1 = adopt, stands alone).** This section graduates the **realm-container model** from [EP-0013 §D1](../docs/EP/EP-0013-app-values-and-runtime-realms.md). It is **internal**: D1 ships **no public API surface** and no public source break — the four constructor names (`rf/app`, `rf/module`, `rf/realm`, `rf/install!`) are *reserved vocabulary*, not exposed (public exposure is D2/D3, staged later per the EP's `≥2-consumer` graduation criterion). What graduates here is the **shape and the ownership boundary**, so the rest of the corpus can name the container without inventing one per feature.
+
+The five-clause contract above organises the **durable** runtime-db partition: the `:rf.runtime/*` children of `:rf.db/runtime`, which ride frame-state serialization, restore, and SSR hydration. But a running app also holds a second framework-owned layer that is **not** durable frame-state — the registrar it dispatches against, the reactive adapter it renders through, the capability map its features depend on, and the **host-transient** side tables (HTTP abort handles, timers, nav counters, scroll caches, flow last-input caches, machine timer handles). Today these are mostly process-global. The **runtime realm** is the value that owns them.
+
+**A runtime realm is the operational environment an app runs in: the value that owns the registrar, the installed adapter (selection), the capability map, the frame registry, and the host-transient subsystem state — with a lifecycle.** The durable runtime-db subsystems live *inside the frames* the realm owns; the realm owns the non-durable operational layer beside them.
+
+This completes the ownership picture for framework-owned state:
+
+| Layer | Owner | Lifecycle | This doc |
+|---|---|---|---|
+| **Durable frame-state** (`:rf.runtime/*` children) | the **frame** (per-frame, isolated) | rides restore / SSR / time-travel | the five-clause contract + grading table above |
+| **Host-transient subsystem state** (abort handles, timers, caches) | the **realm** (often keyed per-frame) | torn down on frame/realm destroy; never serialized | §Host-transient subsystem state below |
+| **Operational environment** (registrar, adapter, capabilities) | the **realm** | created at boot; disposed with the realm | §Runtime realms (this section) |
+
+### The default realm preserves today's ergonomics
+
+The process creates one **default realm** at boot. Every existing one-argument, ambient-looking surface — `reg-*`, `init!`/adapter install, the registrar query API, late-bind publish/lookup — resolves through it when no explicit realm is supplied. A single-realm app **never spells a realm**, exactly as a single-frame app never spells a frame outside its root: the plural model exists, and the zero-ceremony path stays zero-ceremony (the EP-0002 refinement pattern).
+
+This is **registrar/operational compatibility, not a frame-target fallback.** The default realm answers "which registrar / adapter / capability map does this operation use?" It does **not** answer "which frame does this dispatch target?" — `dispatch`, `subscribe`, and other frame-scoped operations still require an explicit frame, a carried frame, or an established frame scope, and still fail with `:rf.error/no-frame-context` per [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md) / [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant) when no frame is known. **Absence of a realm means the default realm — an explicit, runtime-created realm — never a synthesised one.**
+
+D1 stands alone. It can hold today's single mutable registrar unchanged behind the default realm; the app-value descriptor model that turns registration into an immutable value is **D2**, sequenced behind D1, and module manifests are **D3**. This doc graduates only the container.
+
+### What a realm owns
+
+A runtime realm MUST own:
+
+- a stable **realm id** (`:rf.realm/id`), unique within the process — the default realm's id is `:rf.realm/default`;
+- the **registrar** it dispatches/subscribes/resolves against (the `(kind, id) → registration descriptor` table — owned by [001-Registration](001-Registration.md); under D1 the registrar belongs to a realm, and the default realm's registrar is the surface existing specs call "global");
+- the installed **adapter selection** (§Adapter ownership);
+- the **capability map** (§Capability maps);
+- the **frame registry** for frames in the realm (frame ids are unique *within a realm*, per [002 §Frames reference realms](002-Frames.md#frames-reference-realms));
+- the **host-transient subsystem state** (§Host-transient subsystem state);
+- **lifecycle / disposal** state.
+
+These resources share one lifecycle question — who owns them, and when are they disposed? — and the realm is the smallest useful answer. Putting them on each frame would duplicate behaviour across the common many-frames-one-app case; keeping them process-global blocks multi-tenant and multi-root operation. The realm sits between: many frames share one installed program; one process can host more than one program. The realm-record shape is [`:rf/realm`](Spec-Schemas.md#rfrealm-runtime-realm-ep-0013) in [Spec-Schemas](Spec-Schemas.md).
+
+The `:rf.realm/id` slot was reserved early ([rf2-n92kjm](https://github.com/day8/re-frame2/issues/rf2-n92kjm)) on the [dispatch-envelope](002-Frames.md#routing-the-dispatch-envelope) and the reply-map / continuation record shapes, so the later stamp is non-breaking. Adding the `:rf.realm/*` (and `:rf.capability/*`, §Capability maps) rows to the [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) table is a sequential hot-zone follow-up (Conventions is owned by a separate bead in this wave; [rf2-n92kjm](https://github.com/day8/re-frame2/issues/rf2-n92kjm) reserved the record-shape *slots*, not the namespace-table rows).
+
+### Adapter ownership
+
+The CLJS reference rule "one adapter per process" MAY remain the first implementation strategy. D1 changes the **pattern-level target**: adapter ownership belongs to a realm or render root, not to the process as such.
+
+The boundary the ruling sharpens (issue 4 disposition):
+
+- the **realm owns adapter selection** — *which* reactive substrate (Reagent / UIx / Helix / plain-atom) the realm renders through (the capability);
+- **render roots own concrete mount/disposer instances** of that adapter.
+
+The invariant:
+
+```text
+Reactive values created under a render subtree use that subtree's realm and
+adapter consistently, and are disposed when the subtree, frame, or realm is
+disposed.
+```
+
+Two roots that need **different adapters mean two realms**, unless a future bridge is explicitly designed — D1 does **not** make mixing two adapters inside one frame's reactive graph legal. The no-mixing-within-one-frame's-graph invariant is the conformance test. The adapter contract itself is unchanged (owned by [006-ReactiveSubstrate §The adapter contract](006-ReactiveSubstrate.md)); D1 changes only adapter *ownership* — process → realm/root.
+
+**Named payoff:** two adapters in one process becomes legal via two realms — a legacy Reagent root beside a new UIx root, or stock Reagent beside reagent-slim, impossible today. Moving the adapter install/test-reset slot behind the realm is D1's **proving slice** (issue 5 disposition): it kills the process-singleton install (`:rf.error/adapter-already-installed` ceases to be a process-wide law) and is the fastest hermetic-test payoff. The HTTP in-flight migration sequences **behind the current EP-0011/0016 runtime waves settling** — those are actively editing that runtime, and its reply seams are freshly tested.
+
+### Capability maps
+
+A realm's **capability map** is the explicit dependency surface for runtime services — the conceptual owner of dependencies a feature needs. Capabilities are ordinary maps or records with documented functions and lifecycle: adapter functions, HTTP execution, schema validation, route integration, clocks (EP-0010's `:rf.capability/clock`), randomness (`:rf.capability/random`), SSR hooks, and test doubles.
+
+```clojure
+;; A hermetic test realm — the program and exactly the capabilities it needs,
+;; with no process-global state to clear.
+{:rf.realm/id  :test/cart
+ :adapter      :plain-atom
+ :capabilities {:rf.capability/http   fake-http
+                :rf.capability/clock  fixed-clock
+                :rf.capability/random seeded-random}}
+```
+
+A feature (a D3 module, when manifests graduate) declares the capabilities it `:requires`; installation fails before the program becomes visible if a required capability is absent (`:rf.error/missing-capability`, with `:realm` / `:capability` / `:recovery`). Capabilities make test doubles, SSR services, tenant-specific HTTP clients, schema validators, and routing hosts explicit and injectable, rather than process-global state discovered by namespace load order.
+
+The `:rf.capability/*` capability-key namespace reservation rides the same Conventions follow-up as `:rf.realm/*` (see §What a realm owns above).
+
+### Late-bind compatibility
+
+The late-bind hook table (`late-bind/publish!` / `late-bind/lookup`) remains a necessary implementation tool for **optional artifacts and cyclic namespace pressure** — it is not removed. Under D1 it becomes a **bridge into realm capabilities** rather than the conceptual dependency model. The default realm MAY populate its capability map from late-bound hooks so existing artifact load order keeps working; new explicit-realm code SHOULD prefer explicit capabilities.
+
+The smell D1 addresses is not the existence of late-bind hooks. It is using a process-global hook table as a **service locator for app architecture** — a feature should be able to declare that it requires HTTP, routing, schemas, or a clock, and have that dependency be explicit and injectable. Late-bind stays for compatibility and optional loading; the semantic dependency surface moves to capabilities. The late-bind directory and its drift test are unchanged by this graduation.
+
+### Host-transient subsystem state
+
+**Host-transient subsystem state belongs to the realm.** It is the framework-owned operational state that is *not* durable frame-state: HTTP in-flight handles and abort controllers, routing nav counters and scroll caches, machine timers and spawn-order helpers, flow last-input caches, SSR request side channels, and adapter render roots and disposers. Subsystems MAY still key entries by frame, but the **owner of the table is the realm**, not an arbitrary namespace-level singleton.
+
+This is the **non-durable sibling** of the five-clause contract. A durable runtime subsystem (the rows in the grading table above) lives under `:rf.runtime/*` and rides restore/SSR; a host-transient table is dropped on teardown and **MUST NOT ride the wire**. Most shipped subsystems have both halves — `:rf.runtime/routing` keeps its `:current` route slice durable while its nav-token / scroll caches are host-side transient (the routing grading row's clause 1 + clause 5 above already records exactly this split); `:rf.runtime/resources` keeps `:entries` durable while its AbortControllers and stale/GC timers are host-side (the resources grading row's clause 5 above).
+
+A host-transient subsystem descriptor SHOULD declare:
+
+```clojure
+{:id             :rf.http/in-flight
+ :storage-class  :host-transient
+ :scope          :frame                 ;; entries keyed per-frame; :realm for realm-scoped tables
+ :durability     :none                  ;; never serialized; never rides restore/SSR
+ :teardown       teardown-http-for-frame!  ;; runs on frame destroy
+ :test-reset     reset-http!               ;; the hermetic-test reset hook
+ :snapshot       nil                       ;; excluded from snapshots explicitly
+ :classification {:egress? true            ;; EP-0015 registration-owned classification
+                  :sensitive? false}}
+```
+
+The `:storage-class :host-transient` value is the host-transient member of the four-class storage axis owned by [Derivations §the storage axis](Derivations.md) (`:ephemeral` / `:app-db` / `:runtime-db` / `:host-transient`). The descriptor shape is [`:rf/host-transient-descriptor`](Spec-Schemas.md#rfhost-transient-descriptor-ep-0013) in [Spec-Schemas](Spec-Schemas.md).
+
+#### The host-transient grading column
+
+D1 adds a **host-transient grading column** to this doc — the realm-ownership-and-lifecycle grade for each subsystem's host-transient half (issue 13 disposition: [EP-0006](../docs/EP/EP-0006-runtime-subsystem-contract.md) owns the durable five-clause contract; EP-0013 contributes this column). One row per shipped subsystem that holds host-transient state, graded on **scope** (frame vs realm), **teardown hook** (the named `destroy-frame!` hook that releases it), and **test-reset** (the hermetic-reset hook). ✅ = a named mechanism; **(none)** = the subsystem holds no host-transient state of that kind.
+
+| Subsystem | Host-transient state | Scope | Teardown hook | Test-reset |
+|---|---|---|---|---|
+| `:rf.runtime/machines` | per-actor handler registrations; `:after` timer table | frame | ✅ `:machines/on-frame-destroyed!` (bundled in `:machines/teardown-on-frame-destroy!`, step 2 of [002 §Destroy](002-Frames.md#destroy)) | via the reset-runtime fixture |
+| `:rf.runtime/routing` | nav-token / pending-nav counters; saved-scroll-position LRU | frame (held **outside** frame-state by design — anti-recycling, [derived rule 1](#derived-rule-1--the-restore-question-is-mandatory-allocators-never-rewind)) | ✅ `:routing/on-frame-destroyed!` ([rf2-1hncp2](https://github.com/day8/re-frame2/issues/rf2-1hncp2)) | via the reset-runtime fixture |
+| `:rf.runtime/elision` | privacy-suppression / elision dedupe (warn) caches | frame | ✅ per-feature warn-cache reset (step 5 of [002 §Destroy](002-Frames.md#destroy)) | reset with the warn caches |
+| `:rf.runtime/ssr` | request/response accumulators; head snapshots; streaming continuation registries; pending-error buffers | frame | ✅ `:ssr/on-frame-destroyed` (chains `:ssr.head/on-frame-destroyed`, step 5 of [002 §Destroy](002-Frames.md#destroy)) | via the reset-runtime fixture |
+| `:rf.runtime/resources` + `:rf.runtime/work-ledger` + `:rf.runtime/mutations` | AbortControllers; stale/GC + timeout/poll timers; transport promises (side tables keyed by `[frame-id work-id]`) | frame | ✅ `:resources/on-frame-destroyed!` (cancels timers, clears the `[frame-id work-id]` side tables) | via the reset-runtime fixture |
+| **adapter** (the realm's reactive substrate) | the install slot; render roots + disposers | **realm** (selection) / **root** (instances) | realm/root disposal (§Adapter ownership) | adapter install/test-reset — D1's proving slice (issue 5) |
+
+The two migrations the ruling sequences first — **adapter install/test-reset** and **HTTP in-flight** — are this column's first evidence (issue 5). The column grows as each host-transient table moves behind the realm; the conformance drift test that keeps the durable grading table honest ([rf2-ba5acq](https://github.com/day8/re-frame2/issues/rf2-ba5acq)) **grows to cover this column too**, so a host-transient row cannot silently go missing. This is a `Runtime-Subsystems.md` amendment, not a second contract — EP-0006 is final and its spec evolves.
+
+### What graduates vs what is deferred
+
+| Graduates here (D1, internal) | Deferred (D2 / D3, public-last) |
+|---|---|
+| the realm as the owner of registrar / adapter / capabilities / frame registry / host-transient state | the **app value** — registrations as immutable descriptors (D2) |
+| the **default realm** preserving today's ergonomics; absence = default realm | `install!` / `reinstall!` as the specified contract; hot reload as a diff (D2) |
+| adapter ownership = realm selection + root instances | **module manifests** with ownership claims + collision detection (D3) |
+| capability maps + late-bind-as-bridge; `:rf.capability/*` reserved | the four public constructor names (`rf/app` / `rf/module` / `rf/realm` / `rf/install!`) |
+| host-transient subsystem state + the grading column | realm-targeted **public** registrar queries (map-shaped, issue 11) |
+
+The reserved vocabulary, the realm-targeted query shape (map-shaped — `{:realm … :kind …}`, issue 11), and the descriptor/manifest model are documented as **deferred rationale and examples in [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md)**, not as an accepted public surface. D1 ships the container only.
+
 ## Cross-references
 
 - [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys) — the reserved `:rf.runtime/*` key table (clause 1's canonical home; this doc references, does not duplicate).
@@ -209,4 +345,9 @@ A subtree that answers fewer than five is ad-hoc runtime state, not a runtime su
 - [002 §Destroy](002-Frames.md#destroy) — clause 5's teardown-order contract and per-subsystem hooks.
 - [011 §The hydration payload](011-SSR.md) — clause 4's SSR projection (the allowlist-by-subsystem-child `project-runtime-db`).
 - [Managed-Effects.md](Managed-Effects.md) — the effect-surface sibling of this doc (names the *effect* shape; this names the *state* shape).
+- [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) — the realm-container model (D1), the deferred app-value (D2) and module-manifest (D3) layers, and the thirteen ruled open-issue dispositions §Runtime realms graduates.
+- [EP-0006](../docs/EP/EP-0006-runtime-subsystem-contract.md) — owns the durable five-clause contract; §The host-transient grading column is the EP-0013 realm-ownership amendment, not a second contract.
+- [002 §Frames reference realms](002-Frames.md#frames-reference-realms) — a frame belongs to exactly one realm; frame ids are unique within a realm.
+- [Spec-Schemas §`:rf/realm`](Spec-Schemas.md#rfrealm-runtime-realm-ep-0013) / [§`:rf/host-transient-descriptor`](Spec-Schemas.md#rfhost-transient-descriptor-ep-0013) — the realm-record and host-transient-descriptor shapes.
+- [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the framework-owned `:rf.*` reserved-namespace table (the `:rf.realm/*` + `:rf.capability/*` rows are a sequential hot-zone follow-up; the `:rf.realm/id` record-shape slot is already reserved per [rf2-n92kjm](https://github.com/day8/re-frame2/issues/rf2-n92kjm)).
 - [Ownership](Ownership.md) — the contract-surface → owning-Spec map; consult before naming a new runtime subsystem.
