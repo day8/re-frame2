@@ -194,6 +194,65 @@
     (is (= (state/canonicalize {:a 1 :b 2})
            (state/canonicalize {:b 2 :a 1})))))
 
+;; ===========================================================================
+;; rf2-du585y — resource :params present-nil vs missing boundary
+;; ===========================================================================
+;;
+;; EP-0012 §Missing vs present nil: an absent key differs from a key present
+;; with value `nil`, and canonical identity preserves the distinction —
+;; `(canonical {})` is NOT `(canonical {:k nil})`. Spec 016: nil-vs-missing is
+;; SCHEMA-DEFINED, not accidental — `validate+canonicalize-params` defers to
+;; the `:params-schema`, it does not impose its own nil policy. These pin that
+;; a present-nil param value is preserved through to the cache key (distinct
+;; identity from the absent case) under a schema that accepts nil, and is
+;; rejected with nil reported under a schema that rejects nil.
+
+(defn- accepts-nil-spec []
+  {:scope         :rf.scope/global
+   ;; :x is optional and may be present-with-nil
+   :params-schema [:map [:x {:optional true} [:maybe :string]]]
+   :request       (fn [_ _ctx] {:request {:method :get :url "/x"}})})
+
+(deftest resource-present-nil-param-distinct-from-missing
+  (testing "under a schema that ACCEPTS nil, an explicit {:x nil} param is
+            preserved (NOT coerced to {}) and produces a DISTINCT canonical
+            identity from the absent-key case (EP-0012 §Missing vs present nil)"
+    (let [spec (accepts-nil-spec)
+          ;; explicit present-nil value vs the key absent entirely
+          present-nil (registry/validate+canonicalize-params :r/x spec {:x nil} 'test)
+          absent      (registry/validate+canonicalize-params :r/x spec {} 'test)]
+      (is (= {:x nil} present-nil)
+          "the present-nil param survives validation/canonicalization — not dropped to {}")
+      (is (= {} absent) "the absent-key case canonicalizes to the empty map")
+      (is (not (identity/identical-identity? present-nil absent))
+          "present-nil and absent are DISTINCT canonical identities")
+      ;; and therefore distinct cache keys
+      (is (not (identity/identical-identity?
+                 (state/scoped-resource-key :rf.scope/global :r/x present-nil)
+                 (state/scoped-resource-key :rf.scope/global :r/x absent)))
+          "the scoped resource keys differ — present-nil is its own cache fact"))))
+
+(deftest resource-present-nil-rejected-when-schema-rejects-nil
+  (testing "under a schema that REJECTS nil ([:map [:x :string]]), an explicit
+            {:x nil} fails closed with :rf.error/resource-invalid-params and
+            the structured error data reports the offending params (rf2-du585y)"
+    (let [spec {:scope         :rf.scope/global
+                :params-schema [:map [:x :string]]   ;; :x is required + non-nil
+                :request       (fn [_ _] {:request {:method :get :url "/x"}})}
+          ex   (try (registry/validate+canonicalize-params :r/x spec {:x nil} 'test)
+                    nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]
+      (is (some? ex) "a nil value against a non-nil schema throws")
+      (is (= :rf.error/resource-invalid-params (:rf.error/id (ex-data ex)))
+          "structured :rf.error/id (Spec 009 discriminator)")
+      ;; the structured error data must carry the offending params (with the nil)
+      (let [data (ex-data ex)]
+        (is (= :r/x (:resource-id data)))
+        (is (contains? (:params data) :x)
+            "the params slot reports the offending map, nil value included")
+        (is (nil? (get (:params data) :x))
+            "the reported params preserve the nil value (not coerced away)")))))
+
 ;; rf2-9e0tyq (full fix; was the rf2-o84qq2 deferred-edge pin): the scoped
 ;; resource key carries a kind-PRESERVING canonical VECTOR `[scope rid params]`
 ;; (a list value stays a list, distinct from a vector — rf2-wgutc2), but it is

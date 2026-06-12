@@ -17,6 +17,7 @@
   (:refer-clojure :exclude [])
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
+            [re-frame.identity :as identity]
             [re-frame.path :as path]))
 
 ;; ---- a deterministic, host-portable PRNG ---------------------------------
@@ -444,5 +445,49 @@
     (is (= [:a 1 nil "x"] (path/normalize-concrete [:a 1 nil "x"])))
     (is (= :rf.error/bad-path
            (try (path/normalize-concrete [:a [:nested] :b]) nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                  (:rf.error/id (ex-data e))))))))
+
+;; ---- rf2-ujmc3u: segment? shares the CEDN-1 safe-integer range -----------
+;;
+;; The shared path vocabulary MUST NOT be wider than canonical EDN identity
+;; (Conventions §Segment domain limits integer segments to the CEDN-1 safe-
+;; integer range). The prior `segment?` admitted EVERY `integer?`, so a
+;; consumer keying off it could accept an integer segment the canonicalizer
+;; rejects — a path that cannot be portably compared, printed, routed, or
+;; digested. `segment?` now composes `re-frame.identity/safe-segment-integer?`,
+;; the SAME predicate the CEDN-1 encoder enforces, so the two surfaces agree.
+
+(deftest segment-integer-shares-cedn1-safe-range
+  (testing "both safe-integer boundaries are accepted"
+    (is (true? (path/segment? 9007199254740991))  "max safe integer is a segment")
+    (is (true? (path/segment? -9007199254740991)) "min safe integer is a segment")
+    (is (true? (path/segment? 0)))
+    (is (true? (path/segment? 1)))
+    (is (true? (path/segment? -1))))
+  (testing "an integer ONE BEYOND either safe boundary is NOT a segment"
+    (is (false? (path/segment? 9007199254740992))
+        "2^53 is outside the CEDN-1 safe range — not a portable segment")
+    (is (false? (path/segment? -9007199254740992))
+        "-2^53 is outside the CEDN-1 safe range — not a portable segment"))
+  (testing "normalize-concrete fails closed on an out-of-range integer segment,
+            accepting both boundaries (the segment? predicate counterpart)"
+    (is (= [:a 9007199254740991 :b]  (path/normalize-concrete [:a 9007199254740991 :b])))
+    (is (= [:a -9007199254740991 :b] (path/normalize-concrete [:a -9007199254740991 :b])))
+    (is (= :rf.error/bad-path
+           (try (path/normalize-concrete [:a 9007199254740992 :b]) nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                  (:rf.error/id (ex-data e)))))
+        "an unsafe-high integer segment fails closed")
+    (is (= :rf.error/bad-path
+           (try (path/normalize-concrete [:a -9007199254740992 :b]) nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                  (:rf.error/id (ex-data e)))))
+        "an unsafe-low integer segment fails closed"))
+  (testing "segment? and canonical-bytes AGREE on the integer domain (one
+            definition, not two): an out-of-range integer is rejected by BOTH"
+    (is (false? (path/segment? 9007199254740992)))
+    (is (= :rf.error/non-edn-identity
+           (try (identity/canonical-bytes 9007199254740992) nil
                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
                   (:rf.error/id (ex-data e))))))))

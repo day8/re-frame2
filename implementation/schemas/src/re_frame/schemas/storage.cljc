@@ -117,22 +117,33 @@
 
 (defn valid-app-schema-path?
   "True when `path` is a valid `reg-app-schema` path: a sequential
-  collection of keys (a vector / seq), INCLUDING the empty vector `[]`
-  for the whole-`app-db` root schema. Non-sequential scalars — a bare
-  keyword, string, number, nil, map, set — are rejected: they break the
-  `(get-in db path)` the validation hot path runs.
+  collection of CONCRETE path segments (a vector / seq), INCLUDING the
+  empty vector `[]` for the whole-`app-db` root schema. Non-sequential
+  scalars — a bare keyword, string, number, nil, map, set — are rejected:
+  they break the `(get-in db path)` the validation hot path runs.
 
   `sequential?` (not `vector?`) is deliberate — APIs MAY accept any
   sequential collection for migration ergonomics (Conventions §The
-  `:rf/path` algebra §Path shape). The only hard requirement at the
-  acceptance boundary is sequential-ness so the validation walk's
-  `get-in` cannot throw; the accepted seq is then NORMALIZED to its
-  canonical vector form (`re-frame.path/normalize`) before it becomes a
-  stored declaration / digest path key, so a list path and the equivalent
-  vector path are ONE identity (EP-0012 §Path shape — \"all stored
-  declarations MUST normalize to a vector\")."
+  `:rf/path` algebra §Path shape). The accepted seq is then NORMALIZED to
+  its canonical vector form before it becomes a stored declaration / digest
+  path key, so a list path and the equivalent vector path are ONE identity
+  (EP-0012 §Path shape — \"all stored declarations MUST normalize to a
+  vector\").
+
+  rf2-ujmc3u: each SEGMENT must additionally be a concrete `:rf/path`
+  segment (`re-frame.path/segment?` — a portable EDN identity value:
+  keyword, string, symbol, safe-range integer, boolean, UUID, instant, or
+  nil). Schema paths are full `:rf/path` citizens (Conventions §The
+  `:rf/path` algebra cites schema paths), so a composite / function / host
+  / float / unsafe-integer segment is rejected at registration rather than
+  riding into a stored declaration and a digest path key — the same shared
+  concrete boundary every other path consumer inherits, no private
+  shape-only grammar. `segment?` shares the CEDN-1 safe-integer predicate,
+  so an out-of-safe-range integer segment fails here AND would fail the
+  canonical digest-key encoding."
   [path]
-  (sequential? path))
+  (and (sequential? path)
+       (every? path/segment? path)))
 
 ;; ---- runtime-db first-segment rejection (rf2-k0ew8n) ----------------------
 ;;
@@ -208,8 +219,14 @@
    (when-not (valid-app-schema-path? path)
      (throw (ex-info ":rf.error/bad-app-schema-path"
                      {:received path
-                      :expected (str "a sequential get-in path (vector/seq "
-                                     "of keys), or [] for the app-db root")
+                      :expected (str "a sequential get-in path (vector/seq) "
+                                     "of CONCRETE :rf/path segments (keyword, "
+                                     "string, symbol, safe-range integer, "
+                                     "boolean, UUID, instant, or nil), or [] "
+                                     "for the app-db root — composite / "
+                                     "function / host / float / unsafe-integer "
+                                     "segments are rejected (EP-0012 §The "
+                                     ":rf/path algebra)")
                       :rf.error/id :rf.error/bad-app-schema-path})))
    (when (runtime-app-schema-path? path)
      (throw (ex-info ":rf.error/app-schema-runtime-path"
@@ -593,17 +610,22 @@
    (assert-app-schema-path! path (best-effort-frame opts-or-frame-id))
    (let [opts         (coerce-opts opts-or-frame-id)
          frame-id     (resolve-frame opts)
-         ;; EP-0012 §Path shape (rf2-94o54l.2): a `reg-app-schema` path is
-         ;; accepted as any sequential collection but NORMALIZED to its
-         ;; canonical vector form before it becomes the stored key / digest
-         ;; path key, so a list path `(list :a :b)` and the equivalent
-         ;; vector `[:a :b]` are ONE identity — the side-table key, the
-         ;; `schema-meta` `:path`, the prior-schema lookup, and the digest
-         ;; line all derive from the same canonical vector. `normalize`
-         ;; (not `normalize-concrete`) — a `reg-app-schema` path validates
-         ;; SHAPE only (Spec 010 permits any get-in segment), so we coerce
-         ;; the container without narrowing the segment domain.
-         path         (path/normalize path)
+         ;; EP-0012 §Path shape (rf2-94o54l.2 + rf2-ujmc3u): a
+         ;; `reg-app-schema` path is accepted as any sequential collection
+         ;; but NORMALIZED to its canonical vector form before it becomes
+         ;; the stored key / digest path key, so a list path `(list :a :b)`
+         ;; and the equivalent vector `[:a :b]` are ONE identity — the
+         ;; side-table key, the `schema-meta` `:path`, the prior-schema
+         ;; lookup, and the digest line all derive from the same canonical
+         ;; vector. `normalize-concrete` (not bare `normalize`) routes the
+         ;; path through the SHARED concrete-segment boundary so a schema
+         ;; path is a full `:rf/path` citizen — composite / function / host
+         ;; / float / unsafe-integer segments fail closed rather than riding
+         ;; into a stored declaration and digest key. The up-front
+         ;; `assert-app-schema-path!` already validated the same segment
+         ;; domain (and the runtime-db first-segment category); this is the
+         ;; canonical-vector producer + a defense-in-depth re-check.
+         path         (path/normalize-concrete path)
          ;; The per-frame schema-metadata map (the {path → schema-meta}
          ;; entry value) — `:schema` + `:path` + `:frame` + source-coords.
          ;; Named `schema-meta` to match the slice vocabulary
@@ -738,12 +760,15 @@
   Per Spec 010 §Schemas as a tooling and agent surface."
   ([path] (app-schema-at path {}))
   ([path opts-or-frame-id]
-   ;; EP-0012 §Path shape (rf2-94o54l.2): normalize the lookup path to its
-   ;; canonical vector so a `(list :a :b)` read finds the entry stored under
-   ;; the equivalent `[:a :b]` key (registration normalizes the same way) —
-   ;; storage and lookup AGREE on one canonical-vector identity.
+   ;; EP-0012 §Path shape (rf2-94o54l.2 + rf2-ujmc3u): normalize the lookup
+   ;; path to its canonical vector THROUGH the shared concrete-segment
+   ;; boundary so a `(list :a :b)` read finds the entry stored under the
+   ;; equivalent `[:a :b]` key (registration normalizes the same way) —
+   ;; storage and lookup AGREE on one canonical-vector identity — and a
+   ;; bad-segment lookup (composite / host / float / unsafe-integer) fails
+   ;; closed loudly rather than silently missing.
    (let [frame-id (coerce->frame-id opts-or-frame-id)
-         path     (path/normalize path)]
+         path     (path/normalize-concrete path)]
      (when-let [m (get-in @schemas-by-frame [frame-id path])]
        (:schema m)))))
 
@@ -766,11 +791,12 @@
                                       ;; (keyword sugar also accepted)"
   ([path] (app-schema-meta-at path {}))
   ([path opts-or-frame-id]
-   ;; EP-0012 §Path shape (rf2-94o54l.2): normalize the lookup path so a
-   ;; non-vector seq read resolves to the canonically-stored vector entry
-   ;; (registration normalizes the key the same way).
+   ;; EP-0012 §Path shape (rf2-94o54l.2 + rf2-ujmc3u): normalize the lookup
+   ;; path THROUGH the shared concrete-segment boundary so a non-vector seq
+   ;; read resolves to the canonically-stored vector entry (registration
+   ;; normalizes the key the same way) and a bad-segment lookup fails closed.
    (let [frame-id (coerce->frame-id opts-or-frame-id)
-         path     (path/normalize path)]
+         path     (path/normalize-concrete path)]
      (get-in @schemas-by-frame [frame-id path]))))
 
 (defn app-schemas

@@ -303,6 +303,90 @@
            (rf/app-schemas-digest :seq-frame))
         "list-keyed and vector-keyed frames produce byte-identical digests")))
 
+;; ===========================================================================
+;; rf2-ujmc3u — schema paths are full :rf/path citizens (concrete segments)
+;; ===========================================================================
+;;
+;; EP-0012 §The :rf/path algebra: schema paths inherit the shared path algebra
+;; and concrete segments are portable EDN identity values. Pre-fix
+;; `reg-app-schema` validated path SHAPE only (`sequential?`), so a sequential
+;; path carrying a COMPOSITE / function / host / float / unsafe-integer
+;; segment registered fine — outside the one `:rf/path` contract EP-0012
+;; centralizes (and a non-portable segment would later poison the canonical
+;; digest key). Registration + lookup now route through the SHARED concrete
+;; boundary (`re-frame.path/normalize-concrete`).
+
+(deftest reg-app-schema-rejects-non-concrete-segments
+  (testing "a sequential path carrying a composite / function / host / float /
+            unsafe-integer SEGMENT is rejected (not just non-sequential
+            shapes) — schema paths are full :rf/path citizens (rf2-ujmc3u)"
+    (doseq [bad-path [[:a [:nested] :b]          ;; composite (vector) segment
+                      [:a {:k 1}]                ;; composite (map) segment
+                      [:a #{:s}]                 ;; composite (set) segment
+                      [:a 1.5]                   ;; float segment
+                      [:a (fn [_])]              ;; function segment
+                      [:a (Object.)]             ;; host-object segment
+                      [:a 9007199254740992]      ;; unsafe-high integer segment
+                      [:a -9007199254740992]]]   ;; unsafe-low integer segment
+      (let [before (schemas/snapshot-schemas-by-frame)
+            thrown (try (rf/reg-app-schema bad-path :int)
+                        (catch clojure.lang.ExceptionInfo e e))]
+        (is (instance? clojure.lang.ExceptionInfo thrown)
+            (str "bad-segment path " (pr-str bad-path) " throws"))
+        (is (= :rf.error/bad-app-schema-path (:rf.error/id (ex-data thrown)))
+            (str "structured :rf.error/id for " (pr-str bad-path)))
+        (is (= before (schemas/snapshot-schemas-by-frame))
+            (str "store unchanged after rejecting " (pr-str bad-path)))))))
+
+(deftest reg-app-schema-accepts-concrete-non-keyword-segments
+  (testing "the full concrete-segment domain (keyword / string / safe-integer
+            / boolean / UUID / instant / nil) is admitted — the narrowing is
+            to the SHARED concrete domain, NOT keyword-only (which would break
+            integer-indexed app-db paths like [:cart :items 42])"
+    (rf/reg-app-schema [:cart :items 42 :qty] :int)
+    (is (= :int (rf/app-schema-at [:cart :items 42 :qty]))
+        "an integer-indexed app-db path registers + looks up")
+    (rf/reg-app-schema [:by-name "alice"] :string)
+    (is (= :string (rf/app-schema-at [:by-name "alice"])) "a string segment")
+    (rf/reg-app-schema [:flag true] :boolean)
+    (is (= :boolean (rf/app-schema-at [:flag true])) "a boolean segment")
+    ;; both safe-integer boundaries register (the canonical-identity range)
+    (rf/reg-app-schema [:n 9007199254740991] :int)
+    (is (= :int (rf/app-schema-at [:n 9007199254740991]))
+        "the max safe integer is an admitted segment")))
+
+(deftest app-schema-lookup-rejects-non-concrete-segment
+  (testing "a LOOKUP with a non-concrete segment fails closed loudly rather
+            than silently missing (registration AND lookup route through the
+            concrete boundary — rf2-ujmc3u acceptance)"
+    (is (= :rf.error/bad-path
+           (try (rf/app-schema-at [:a [:nested]]) nil
+                (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+        "app-schema-at with a composite segment fails closed")
+    (is (= :rf.error/bad-path
+           (try (rf/app-schema-meta-at [:a 1.5]) nil
+                (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+        "app-schema-meta-at with a float segment fails closed")))
+
+(deftest reg-app-schemas-bulk-rejects-bad-segment-atomically
+  (testing "bulk registration fails ATOMICALLY on an invalid-segment path —
+            no entry in the batch lands when ANY key carries a non-concrete
+            segment (the up-front sweep validates every segment before any
+            store mutation — rf2-ujmc3u acceptance)"
+    (let [before (schemas/snapshot-schemas-by-frame)
+          thrown (try (rf/reg-app-schemas {[:good]            :int
+                                           [:also :good]      :string
+                                           [:bad [:composite]] :int}   ;; bad segment
+                                          {:frame :bulk-frame})
+                      (catch clojure.lang.ExceptionInfo e e))]
+      (is (instance? clojure.lang.ExceptionInfo thrown)
+          "the batch with one bad-segment key throws")
+      (is (= :rf.error/bad-app-schema-path (:rf.error/id (ex-data thrown))))
+      (is (= before (schemas/snapshot-schemas-by-frame))
+          "NOTHING in the batch landed — atomic all-or-nothing")
+      (is (nil? (rf/app-schema-at [:good] :bulk-frame))
+          "the earlier-iterated good key did NOT register before the bad one threw"))))
+
 (deftest reg-app-schemas-rejects-batch-with-bad-path-atomically
   (testing "rf2-sk0ql — a bulk batch containing a non-sequential path key
             is rejected ATOMICALLY: the whole call throws and NO entry

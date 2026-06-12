@@ -1177,6 +1177,38 @@
                          "\n    expected: " (pr-str (:expect call))
                          "\n    actual:   " (pr-str result)))}))
 
+    ;; EP-0012 (rf2-du585y) — `:rf/path` algebra LAW ops. The frozen path
+    ;; laws (Conventions §Path laws / EP-0012 §1361-1374) become a NON-CLOJURE
+    ;; conformance target: a port that implements only CEDN bytes + template
+    ;; instantiation no longer passes EP-0012 conformance. Pure ops over EDN
+    ;; values — no runtime, no frame. `:path-over` carries a NAMED transform
+    ;; (`:fn`) so the fixture stays pure data: `:inc` increments the focus,
+    ;; `:wrap-vec` wraps it in `[:wrapped <focus>]`.
+    (:path-get :path-lookup :path-put :path-over :path-compose :path-prefix :path-overlap)
+    (let [run-path-op
+          (fn []
+            (case (:call call)
+              :path-get     (if (contains? call :not-found)
+                              (path/get (:value call) (:path call) (:not-found call))
+                              (path/get (:value call) (:path call)))
+              :path-lookup  (path/lookup (:value call) (:path call))
+              :path-put     (path/put (:value call) (:path call) (:x call))
+              :path-over    (path/over (:value call) (:path call)
+                                       (case (:fn call)
+                                         :inc       (fn [v] (inc (or v 0)))
+                                         :wrap-vec  (fn [v] [:wrapped v])))
+              :path-compose (path/compose (:p call) (:q call))
+              :path-prefix  (path/prefix? (:p call) (:q call))
+              :path-overlap (path/overlap? (:p call) (:q call))))
+          actual (try (run-path-op)
+                      (catch Throwable e (str "<error: " (.getMessage e) ">")))
+          expect (:expect call)]
+      {:passed? (= expect actual)
+       :detail  (when (not= expect actual)
+                  (str (name (:call call)) " " (pr-str (dissoc call :call :expect))
+                       "\n    expected: " (pr-str expect)
+                       "\n    actual:   " (pr-str actual)))})
+
     ;; EP-0015 (rf2-t55hxg.2) — `:project-egress`. Pin the centralised
     ;; egress projector's observable contract host-agnostically (Spec 015
     ;; §Tests). The call carries the record/value under `:value`, the

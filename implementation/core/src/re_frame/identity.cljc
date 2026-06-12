@@ -90,6 +90,22 @@
 (def ^:private max-safe-integer 9007199254740991)
 (def ^:private min-safe-integer -9007199254740991)
 
+(defn safe-segment-integer?
+  "True iff `n` is an integer inside the CEDN-1 portable safe-integer range
+  `[-9007199254740991, 9007199254740991]` (the ECMAScript safe-integer
+  range). This is the SHARED predicate the CEDN-1 encoder and the `:rf/path`
+  concrete-segment domain both key off (rf2-ujmc3u): the shared path
+  vocabulary MUST NOT be wider than canonical EDN identity, so an integer
+  that cannot be portably compared / printed / routed / digested is not a
+  valid concrete path segment either. `re-frame.path/segment?` composes this
+  on top of its `integer?` check so the two surfaces share ONE definition of
+  \"portable integer\" rather than `path` re-admitting unsafe integers the
+  canonicalizer rejects. Non-integers return false."
+  [n]
+  (and (integer? n)
+       (<= min-safe-integer n)
+       (<= n max-safe-integer)))
+
 (defn- safe-integer?
   [n]
   (and (<= min-safe-integer n) (<= n max-safe-integer)))

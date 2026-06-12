@@ -565,6 +565,47 @@
 
     :else v))
 
+(defn query-key->url-token
+  "The REVERSIBLE URL-string token for a declared query keyword `k`
+  (rf2-jlufhn). A namespaced keyword keeps its namespace in the token so
+  the prism leg is bijective:
+
+    :page     -> \"page\"
+    :user/id  -> \"user/id\"
+
+  `(name :user/id)` returns just `\"id\"` — it DROPS the namespace, so two
+  declared keys `:user/id` and `:account/id` would both emit `id=` and a
+  route declaring `:query [:map [:user/id :string]]` could never round-trip
+  `{:user/id \"u\"}` through `route-url`/`match-url`. EP-0012 §Route Prism
+  Laws require `match-url(route-url(...))` to recover the canonical route
+  data, and namespaced query keys are distinct canonical EDN facts
+  (Conventions §Canonical EDN identity), so the namespace must survive the
+  URL round-trip. The token is the keyword's full qualified name —
+  `(subs (str k) 1)` strips the leading `:` from `(str :user/id)` =>
+  `\":user/id\"`, yielding `\"user/id\"` — which `(keyword \"user/id\")`
+  reads back to the identical `:user/id`. The `/` is percent-encoded by
+  `url/url-encode` on emission and decoded by the match-side parse, so the
+  token survives the wire (`user%2Fid=u`) and decodes back to `\"user/id\"`
+  before the declared-key lookup."
+  [k]
+  (subs (str k) 1))
+
+(defn- declared-query-tokens
+  "Build the `{url-token -> declared-keyword}` map for a route's declared
+  query vocabulary (rf2-jlufhn). The token is the REVERSIBLE
+  `query-key->url-token` of each declared keyword (namespace-preserving),
+  so the match-side parse can recover the EXACT declared keyword — namespace
+  included — rather than collapsing `:user/id` to `:id` via a lossy
+  `(keyword (name k))`. `:query-coerce`, `:query-defaults`, and
+  `:query-retain` all contribute their keys; a later slot does not clobber
+  an earlier mapping for the same token (the token -> keyword relation is
+  unique by construction, since each maps from one declared keyword)."
+  [query-coerce defaults retain]
+  (cond-> {}
+    query-coerce   (into (map (fn [k] [(query-key->url-token k) k])) (keys query-coerce))
+    (seq defaults) (into (map (fn [k] [(query-key->url-token k) k])) (keys defaults))
+    (seq retain)   (into (map (fn [k] [(query-key->url-token k) k])) retain)))
+
 (defn- coerce-query
   "Coerce a raw `{string-key string-value}` map against a precompiled
   `query-coerce` table (`{:keyword-key type-form}`). Returns an
@@ -590,18 +631,23 @@
 
   `:query-defaults` and `:query-retain` slots widen the declared
   universe (they are author-named intent, identical trust class to
-  the `:query` schema itself)."
+  the `:query` schema itself).
+
+  rf2-jlufhn: the declared-key match is by the REVERSIBLE
+  `query-key->url-token` (namespace-preserving), not a bare `(keyword k)`.
+  A declared `:user/id` round-trips through the URL token `\"user/id\"`
+  back to `:user/id` — the prior `(keyword k)` collapsed it to `:id`,
+  losing the namespace and breaking the EP-0012 route-prism law for any
+  namespaced query key (and silently merging `:user/id` + `:account/id`
+  into one `:id`)."
   [query-coerce defaults retain raw-query]
-  (let [declared-names (cond-> #{}
-                         query-coerce   (into (map name) (keys query-coerce))
-                         (seq defaults) (into (map name) (keys defaults))
-                         (seq retain)   (into (map name) retain))]
+  (let [token->declared (declared-query-tokens query-coerce defaults retain)]
     (reduce-kv
       (fn [m k v]
-        (if (contains? declared-names k)
-          ;; Declared key: promote to keyword + apply type coercion.
-          (let [kk (keyword k)]
-            (assoc m kk (coerce-by-type-form (get query-coerce kk) v)))
+        (if-let [kk (get token->declared k)]
+          ;; Declared key: recover the EXACT declared keyword (namespace
+          ;; included) from the reversible token + apply type coercion.
+          (assoc m kk (coerce-by-type-form (get query-coerce kk) v))
           ;; Undeclared key: pass through with the **string** key, no
           ;; type coercion. The framework does not burn a keyword slot
           ;; per unique URL key the route did not declare (rf2-5ifai).
@@ -1104,6 +1150,44 @@
                   :rf.error/cause  (ex-data ex)}))
         (throw ex)))))
 
+(defn- assert-fragment!
+  "Fail closed when `fragment` is not an admitted `route-url` fragment value
+  (rf2-jlufhn). Per Spec 012 §Fragments a fragment is `<string-or-nil>`: only
+  `nil`, the empty string, or a string is accepted. Returns `fragment`
+  unchanged when admitted; raises `:rf.error/route-url-non-edn-value` for
+  EVERY other value (a function, atom, host object, number, keyword, boolean,
+  …) BEFORE `url/url-encode` host-stringifies it into a fabricated URL
+  identity.
+
+  The fragment is part of EP-0012 canonical route data and requires
+  encode/decode symmetry (EP-0012 §Route Prism Laws). The path/query value
+  boundary (`assert-url-value!`) already fails closed on host values, but
+  it ADMITS portable scalars like numbers / keywords / booleans (they are
+  canonical EDN identities). A fragment is NARROWER: `match-url` always
+  returns a `<string-or-nil>` fragment, so a non-string fragment can never
+  round-trip — `route-url(42)` would emit `#42` which `match-url` reads back
+  as the STRING `\"42\"`, and `route-url(false)` / `route-url(:x)` would be
+  host-stringified or truthiness-elided into a bogus identity. Narrowing the
+  fragment to string-only on emission keeps the same fail-closed route-data
+  boundary EP-0012 added for params/query (the `false` fragment is the
+  motivating trap: the prior `(and fragment (not= \"\" fragment))` gate
+  silently ELIDED a `false` fragment as if it were nil)."
+  [route-id fragment]
+  (if (or (nil? fragment) (string? fragment))
+    fragment
+    (throw (route-error
+             :rf.error/route-url-non-edn-value
+             'rf/route-url
+             (str "route " route-id " fragment must be a string or nil "
+                  "(Spec 012 §Fragments: `match-url` returns a "
+                  "<string-or-nil> fragment, so a non-string fragment has "
+                  "no round-trippable URL form; EP-0012 §Route Prism Laws). "
+                  "re-frame2 will not host-stringify it into a URL — encode "
+                  "it as a string at the boundary first")
+             {:route-id route-id
+              :slot     :fragment
+              :value    fragment}))))
+
 (defn route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Build a URL string from a
   route-id + path-params (+ optional query-params + optional fragment).
@@ -1419,12 +1503,23 @@
            ;; the URL. Guard each non-nil value through `assert-url-value!`
            ;; (nil values are already elided out of `emitted-query`) so the
            ;; value side fails closed the same way the key side does.
+           ;; rf2-jlufhn: emit a keyword key via the REVERSIBLE
+           ;; `query-key->url-token` (namespace-preserving) so `:user/id`
+           ;; emits `user/id` (percent-encoded `user%2Fid`) and round-trips
+           ;; back to `:user/id` on the match side — `(name :user/id)` =>
+           ;; `"id"` dropped the namespace, collapsing `:user/id` and
+           ;; `:account/id` into one `id=` URL key and breaking the EP-0012
+           ;; route-prism law. A string key (an undeclared caller-supplied
+           ;; query key the route did not name) is emitted verbatim.
            qs (when (seq emitted-query)
                 (str "?"
                      (clojure.string/join "&"
                        (map (fn [[k v]]
                               (assert-url-value! route-id :query k v)
-                              (str (url/url-encode (name k)) "="
+                              (str (url/url-encode (if (keyword? k)
+                                                     (query-key->url-token k)
+                                                     k))
+                                   "="
                                    (url/url-encode v)))
                             emitted-query))))
            ;; Per Spec 012 §Fragments §Programmatic navigation with
@@ -1442,6 +1537,14 @@
            ;; then read as malformed (`safe-url-decode` throws on the bare
            ;; `%`) → nil — breaking the bidirectional URL contract for any
            ;; fragment with a `%` or other %-significant character.
+           ;; rf2-jlufhn: validate the fragment is a string-or-nil BEFORE
+           ;; the truthiness/empty gate, so a non-string fragment (a number,
+           ;; keyword, boolean, function, host object) FAILS CLOSED rather
+           ;; than being host-stringified into a bogus URL identity or
+           ;; silently elided by truthiness (the `false` trap). nil and the
+           ;; empty string remain elided (no `#`); a non-empty string is
+           ;; percent-encoded and appended.
+           fragment (assert-fragment! route-id fragment)
            frag (when (and fragment (not= "" fragment))
                   (str "#" (url/url-encode fragment)))]
        (str path-out qs frag)))))
