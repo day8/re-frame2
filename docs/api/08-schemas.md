@@ -1,10 +1,10 @@
 # 08 — Schemas and data classification
 
-Schemas in re-frame2 are *Malli schemas attached to `app-db` paths*. You register them with `reg-app-schema` (path-keyed, not id-keyed — the only `reg-*` that breaks that pattern, deliberately); the runtime validates `app-db` writes against the matching schemas in dev; production builds elide the validation at the call sites; and a small set of marks (`:sensitive?`, `:large?`) on the schemas drive automatic redaction and size-elision at every wire boundary.
+Schemas in re-frame2 are *Malli schemas attached to `app-db` paths*. You register them with `reg-app-schema` (path-keyed, not id-keyed — the only `reg-*` that breaks that pattern, deliberately); the runtime validates `app-db` writes against the matching schemas in dev; production builds elide the validation at the call sites.
 
-The payoff is that the same schema declaration drives three separate surfaces: dev-time validation, observability redaction (Xray, story-mcp, off-box error forwarders), and bundle-time size protection. You don't write the privacy rules three times in three different places; you declare them once on the schema, and the framework's wire-boundary walker enforces them everywhere.
+Schemas describe **shape and validation**. Per [EP-0015](../../docs/EP/EP-0015-frame-owned-egress-policy.md), durable `app-db` data classification is *not* a schema concern: a schema must not be a second route to classify an `app-db` path the **frame** already owns. Where a schema *is* the owner's natural surface — a machine's `:data`, a resource's data/params, an HTTP response body's `:decode` slots — per-slot `:sensitive?` / `:large?` Malli props remain the one-and-only classification route for that owner's data. The full three-owner model (frame config for durable `app-db`; per-slot schema props for owner-local schema'd data; registration metadata for transient payloads) lives in [Guide ch.23 — Privacy and large things](../guide/23-privacy-and-large-things.md).
 
-This chapter covers the registration macros (rowed in [01 — Core](01-core.md), summarised here), the introspection surface in `re-frame.schemas`, the validator-extension seams (`set-schema-validator!` etc.), the boundary-validation interceptor, and the data-classification mechanism (`add-marks`, `set-marks`, plus the egress-side `sensitive?` / `redact-interceptor` / `elide-wire-value` surface). For the canonical contract, see [010-Schemas.md](../../spec/010-Schemas.md) and [Privacy.md](../../spec/Privacy.md).
+This chapter covers the registration macros (rowed in [01 — Core](01-core.md), summarised here), the introspection surface in `re-frame.schemas`, the validator-extension seams (`set-schema-validator!` etc.), and the boundary-validation interceptor. For the canonical contracts, see [010-Schemas.md](../../spec/010-Schemas.md), [015-Data-Classification.md](../../spec/015-Data-Classification.md), and [Privacy.md](../../spec/Privacy.md).
 
 ## Registration
 
@@ -151,102 +151,27 @@ The pattern: dev-time validation runs at every commit by default; production-tim
 
 ## Data classification
 
-The same schemas that drive validation also drive **redaction** and **size-elision** at every wire boundary. The mechanism: schemas carry `:sensitive?` and `:large?` flags on the paths that need them; the framework's egress-side walker `elide-wire-value` consults the registered marks; sensitive paths render as `:rf/redacted` and large paths render as `:rf.size/large-elided` summaries.
+Schemas describe shape; **classification of durable `app-db` data is frame-owned**, not schema-attached. Per [EP-0015](../../docs/EP/EP-0015-frame-owned-egress-policy.md), you declare sensitive/large `app-db` paths on the **frame** at creation (`reg-frame` / `make-frame`), and the framework's centralized projection enforces them at every wire boundary:
 
-### The mark-set
+```clojure
+(rf/reg-frame :app/main
+  {:sensitive {:app-db [[:auth :token]
+                        [:tenant :partner-api-key]]
+               :http   {:headers ["X-Honeycomb-Team"]}}
+   :large     {:app-db [[:documents :csv-upload]]}})
+```
 
-#### `add-marks`
+There is **no** schema-attached or imperative-mark route to classify the same `app-db` path; the frame owns it, full stop. (Schema `:sensitive?` / `:large?` props remain the route for *owner-local schema'd* data — machine `:data`, resource data/params, HTTP response bodies — see [04 — Machines](04-machines.md), [16 — Resources](16-resources.md), [07 — HTTP](07-http.md).) Transient payloads (event args, sub/flow outputs) are classified by `:sensitive` / `:large` metadata on the registration that introduces the shape.
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (add-marks frame-id {path mark, ...})
-  ```
-- **Description**: Frame-scoped path-marks. **Additively merges** into the frame's existing mark-set — paths not mentioned keep their prior state. Schema-attached marks per `reg-app-schema` `:sensitive?` / `:large?` are preserved and union at lookup time. Pure declaration — does not mutate `app-db`. Returns `frame-id`.
-
-#### `set-marks`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (set-marks frame-id {path mark, ...})
-  ```
-- **Description**: Frame-scoped path-marks. **Wholesale replaces** the frame's prior mark-set — paths not mentioned are CLEARED. Schema-attached marks are preserved. Pure declaration. Returns `frame-id`.
-
-The two-verb shape (`add` vs `set`) follows the [Conventions §Tear-down verb axis](../../spec/Conventions.md) — `add-` merges; `set-` replaces. Most apps reach for `add-marks` because path classifications accumulate (an audit reveals a new sensitive path; you `add-marks` the path without affecting the rest of the corpus). Reach for `set-marks` when you're declaring the entire authoritative classification at once (a server-pushed policy update; a feature-flag toggle that swaps the whole privacy posture).
-
-### The egress-side surface: `elide-wire-value`
-
-This is the framework primitive that walks tree-shaped values at the wire boundary and substitutes elision markers for sensitive or large slots. Every tool that emits wire data — off-box error-monitor forwarders, the Xray-MCP and re-frame2-pair-mcp and story-mcp servers, the on-box dev panels — routes through this walker. **The walker is the single normative emission site for the `:rf/redacted` sentinel and the `:rf.size/large-elided` marker.** Per-tool reimplementation is prohibited.
-
-#### `elide-wire-value`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (elide-wire-value v opts) → v or an elision-marker substitution
-  ```
-- **Description**: Walk `v` consulting `[:rf.runtime/elision :declarations]` and `[:rf.runtime/elision :sensitive-declarations]` of the named frame's **runtime-db**. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots. `opts` map: `{:rf.size/include-large? :rf.size/include-sensitive? :rf.size/include-digests? :rf.size/threshold-bytes :path :frame}`. Defaults: both `include-*` flags `false` (maximum elision); `:rf.size/threshold-bytes` falls back to `(rf/configure! :elision ...)` then `16384`.
-
-#### `elision-declarations`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (elision-declarations)
-  (elision-declarations frame-id)
-  ```
-- **Description**: "What paths has the frame nominated for elision?" Returns the current `[:rf.runtime/elision :declarations]` map (from runtime-db) for the frame (or `{}`). Pair-tool and introspection reader.
-
-#### `populate-elision-from-schemas!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (populate-elision-from-schemas!) → vector of paths populated
-  (populate-elision-from-schemas! frame-id) → vector of paths populated
-  ```
-- **Description**: Boot-time hydrator that walks the frame's registered app-schemas and writes `{:large? true :source :schema}` declarations for every path whose Malli schema carries `:large? true`. Idempotent. No-op when the schemas artefact isn't on the classpath.
+The full teaching of the three owners, the two projection primitives, and the egress profiles lives in [Guide ch.23 — Privacy and large things](../guide/23-privacy-and-large-things.md). For the framework-internal egress primitives (`project-egress`, `elide-wire-value`) consumed by tools and sinks, see [11 — Instrumentation](11-instrumentation.md).
 
 ### Composition rule
 
-When both predicates match (`:sensitive?` AND `:large?` apply to the same path), **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest` information from a sensitive slot. The walker's composition rule is normative; per [009 §Size elision in traces](../../spec/009-Instrumentation.md#size-elision-in-traces).
-
-### Schema-only declaration path
-
-The `[:rf.runtime/elision]` registry (in runtime-db) has exactly two slots: `:declarations` (schema-derived `:large?` paths, populated by `populate-elision-from-schemas!`) and `:sensitive-declarations` (schema-derived `:sensitive?` paths). **There is no runtime declaration API** — apps declare `:large?` / `:sensitive?` on the Malli schema and `rf/reg-app-schema` it; the boot-time hydrator does the rest.
-
-The single normative reference for "schemas are the only path" lives in [Guide ch.25 — Large blobs](../guide/23-privacy-and-large-things.md).
-
-## Privacy: the always-on predicate and the interceptor
-
-The trace runtime stamps `:sensitive? true` at the top level of every trace event emitted inside the scope of a handler whose schema-derived path overlap declares sensitivity. (The legacy handler-meta `:sensitive?` annotation has been removed — sensitive data marking is path-based per the data-classification mechanism above.) Framework-published trace consumers — Sentry / Honeybadger forwarders, the re-frame2-pair server, Xray, Story, story-mcp, re-frame2-pair-mcp — MUST default-drop the stamped events at their egress boundary.
-
-### `sensitive?`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (sensitive? trace-event) → boolean
-  ```
-- **Description**: The framework-published predicate every consumer composes against. Replaces per-consumer reimplementations of the same five-token check.
-
-### `redact-interceptor`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (redact-interceptor paths) → interceptor
-  ```
-- **Description**: Build a positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel **before the handler chain runs**. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only. `paths` is a vector of `get-in`-style key paths into the payload map.
-
-The composition pattern: schema-derived `:sensitive?` marks drive `elide-wire-value` at egress, and `redact-interceptor` scrubs in-place where the trace surface needs to see only a partial view. The two surfaces stack — the interceptor scrubs the trace; the walker enforces redaction at the wire boundary.
-
-See [Security §Privacy / secret handling](../../spec/Security.md#privacy--secret-handling) for the framework-wide pattern-level posture, and [Privacy.md](../../spec/Privacy.md) for the cross-artefact inventory and composition order.
+When both classifications match the same slot (`:sensitive?` AND `:large?`), **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest` information from a sensitive slot. The composition rule is normative; per [009 §Size elision in traces](../../spec/009-Instrumentation.md#size-elision-in-traces) and [015 §Projection](../../spec/015-Data-Classification.md).
 
 ## See also
 
-- [01 — Core](01-core.md) — `reg-app-schema` / `reg-app-schemas` / `add-marks` / `set-marks` rowed in registration.
+- [01 — Core](01-core.md) — `reg-app-schema` / `reg-app-schemas` rowed in registration.
 - [03 — Effects and interceptors](03-effects.md) — `validate-at-boundary-interceptor` rowed in the interceptor table.
-- [11 — Instrumentation](11-instrumentation.md) — `elide-wire-value` and the trace-surface privacy posture.
-- [Spec 010 — Schemas](../../spec/010-Schemas.md), [Privacy.md](../../spec/Privacy.md), [Security.md](../../spec/Security.md).
+- [11 — Instrumentation](11-instrumentation.md) — `project-egress` / `elide-wire-value` and the trace-surface privacy posture.
+- [Spec 010 — Schemas](../../spec/010-Schemas.md), [015-Data-Classification.md](../../spec/015-Data-Classification.md), [Privacy.md](../../spec/Privacy.md), [Security.md](../../spec/Security.md).
