@@ -41,6 +41,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.path :as path]
             [re-frame.privacy :as privacy]
             [re-frame.substrate.adapter :as adapter]))
 
@@ -114,19 +115,30 @@
 ;; shape) and names the offending key + value/entry so the author can fix it
 ;; without a stack-trace dig.
 
-(defn- valid-mark-element?
-  "A mark path element is a scalar map key: keyword / string / integer /
-  symbol / boolean. A collection element is never a valid `get-in` step and
-  signals a caller bug (e.g. a nested-vector path `[[:a [:b]]]`)."
-  [x]
-  (or (keyword? x) (string? x) (integer? x) (symbol? x) (boolean? x)))
+;; A mark-path SEGMENT is admitted by the shared EP-0012 segment domain
+;; (`re-frame.path/segment?` — Conventions §The `:rf/path` algebra §Segment
+;; domain), NOT a private re-enumeration. Redaction-mark paths are
+;; `:rf/path` consumers (Spec 015 §6 points classification path maps at the
+;; shared `:rf/path` identity), so a mark path inherits the one segment
+;; algebra every other path-shaped fact uses — keyword / string / symbol /
+;; boolean / integer / UUID / instant / nil. The prior private
+;; `valid-mark-element?` omitted UUID, instant, and nil, narrowing the
+;; domain with no recorded policy (rf2-94o54l.2 finding 2, rf2-94o54l.6):
+;; a `:sensitive [[:user #uuid "…"]]` mark — a perfectly valid `get-in`
+;; path against a uuid-keyed map — was silently REJECTED. Per Conventions
+;; §The `:rf/path` algebra a subsystem MUST NOT keep private ad hoc path
+;; logic once the shared helper exists; marks compose ON the shared domain.
 
 (defn- valid-mark-subpath?
-  "A `:sensitive` / `:large` entry is a vector of scalar path elements. Unlike
-  a flow `:inputs` path the EMPTY vector `[]` is legal — it marks the whole
-  value (the `[[]]` convention)."
+  "A `:sensitive` / `:large` entry is a vector of EP-0012 path segments
+  (`re-frame.path/segment?` — the shared segment domain). Unlike a flow
+  `:inputs` path the EMPTY vector `[]` is legal — it marks the whole value
+  (the `[[]]` convention). A composite element (a nested vector / map) is
+  not a concrete segment and signals a caller bug (e.g. the nested-vector
+  path `[[:a [:b]]]`); `path/segment?` rejects it without re-enumerating
+  the host-type discrimination here."
   [x]
-  (and (vector? x) (every? valid-mark-element? x)))
+  (and (vector? x) (every? path/segment? x)))
 
 (defn- marks-error
   "Build the malformed-marks ex-info with the canonical thrown-error shape
@@ -171,8 +183,9 @@
      (not (every? valid-mark-subpath? paths))
      (throw (marks-error mark-key
                          (str mark-key " entries must each be a vector of "
-                              "scalar keys (keyword / string / integer / "
-                              "symbol / boolean); [] marks the whole value")
+                              "EP-0012 path segments (keyword / string / "
+                              "symbol / boolean / integer / UUID / instant / "
+                              "nil); [] marks the whole value")
                          {:bad-entries (vec (remove valid-mark-subpath? paths))}))
 
      :else
@@ -326,13 +339,21 @@
 (defn- union-path-vecs
   "Union `existing` and `added` path-vector collections, preserving order
   (existing first, then any added paths not already present) and dropping
-  non-vector / duplicate entries. Returns a vector, or nil when the union
-  is empty — so the caller can omit an empty slot rather than stash `[]`."
+  DUPLICATE entries. Returns a vector, or nil when the union is empty — so
+  the caller can omit an empty slot rather than stash `[]`.
+
+  Both inputs are routed through `coerce-paths`, which now REJECTS a
+  malformed (non-vector) entry LOUDLY with `:rf.error/bad-marks`
+  (rf2-y7l5t5) — so every entry reaching the reduce is a validated path
+  vector. The reduce's sole remaining job is order-preserving dedup; there
+  is no silent non-vector drop (the stale `(not (vector? p))` guard that
+  doc once described was a no-op after the fail-loud validation landed and
+  has been removed — rf2-94o54l.6)."
   [existing added]
   (let [seen   (volatile! #{})
         result (reduce (fn [acc p]
                          (let [p (vec p)]
-                           (if (or (not (vector? p)) (contains? @seen p))
+                           (if (contains? @seen p)
                              acc
                              (do (vswap! seen conj p)
                                  (conj acc p)))))
@@ -582,16 +603,48 @@
                {}
                decls)))
 
+(def ^:private app-db-mark-values
+  "The closed value set of an `add-marks` / `set-marks` `{path mark}` map's
+  mark slot. A mark is `:sensitive` (redact the value) or `:large` (emit a
+  size marker) — nothing else."
+  #{:sensitive :large})
+
 (defn- split-by-mark
-  "Partition `{path mark}` map into `[sensitive-paths large-paths]`.
-  Any unknown mark value is silently dropped (best-effort — the
-  declaration is non-validating)."
+  "Partition `{path mark}` map into `[sensitive-paths large-paths]`, with
+  each path routed through `re-frame.path/normalize-concrete` — the same
+  VALIDATED concrete boundary frame classification and resource scope use
+  (EP-0012, rf2-w9x5fv). An `add-marks` / `set-marks` path is a CONCRETE
+  app-db path, so it normalizes to its canonical vector form AND fails
+  closed (`:rf.error/bad-path`) on any host-object / composite segment that
+  could never match a real `get-in` step.
+
+  FAIL-CLOSED on the mark VALUE too (rf2-94o54l.6): a mark outside the
+  closed set `#{:sensitive :large}` is REJECTED LOUDLY with
+  `:rf.error/bad-marks` naming the offending path + mark — NOT silently
+  dropped. The prior silent drop was a privacy footgun (Conventions §No
+  silent swallow, §738 — recognized-but-unhonored input MUST signal): a
+  typoed mark (`{[:user :ssn] :sensitivee}`) made the author believe a
+  path was redacted while `split-by-mark` quietly discarded it, the same
+  armed-trap shape the `:sensitive` / `:large` declaration validator
+  (`coerce-paths`) already rejects. The mark enum is closed, so a typo is
+  a loud error, never a permissive no-op."
   [path->mark]
   (reduce-kv (fn [[s l] path mark]
-               (case mark
-                 :sensitive [(conj s (vec path)) l]
-                 :large     [s (conj l (vec path))]
-                 [s l]))
+               (let [p (path/normalize-concrete path)]
+                 (case mark
+                   :sensitive [(conj s p) l]
+                   :large     [s (conj l p)]
+                   (throw (ex-info (str :rf.error/bad-marks)
+                                   {:rf.error/id :rf.error/bad-marks
+                                    :where       'rf/add-marks
+                                    :recovery    :fix-mark-value
+                                    :reason      (str "an app-db mark value must be one of "
+                                                      (pr-str app-db-mark-values)
+                                                      " — :sensitive redacts the value, :large "
+                                                      "emits a size marker")
+                                    :bad-path    path
+                                    :bad-mark    mark
+                                    :valid       app-db-mark-values})))))
              [[] []]
              path->mark))
 
@@ -610,7 +663,10 @@
   `path->mark` is a map from `get-in`-shaped path vectors to mark
   keywords (`:sensitive` or `:large`). Paths supplied here MERGE into
   the frame's existing marks — paths NOT mentioned keep their prior
-  state. Repeat calls accumulate.
+  state. Repeat calls accumulate. Each path is normalized to its
+  canonical EP-0012 vector form, and a mark value outside the closed set
+  `#{:sensitive :large}` FAILS CLOSED with `:rf.error/bad-marks` (a typoed
+  mark is never silently dropped — rf2-94o54l.6).
 
       (marks/add-marks :rf/default
         {[:user :ssn]   :sensitive
@@ -653,6 +709,9 @@
   `path->mark` is a map from `get-in`-shaped path vectors to mark
   keywords (`:sensitive` or `:large`). Paths supplied here REPLACE the
   frame's prior marks set wholesale — paths NOT mentioned are CLEARED.
+  Each path is normalized to its canonical EP-0012 vector form, and a
+  mark value outside the closed set `#{:sensitive :large}` FAILS CLOSED
+  with `:rf.error/bad-marks` (rf2-94o54l.6).
 
       (marks/set-marks :rf/default
         {[:user :ssn]   :sensitive

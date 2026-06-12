@@ -332,6 +332,88 @@
     (is (nil? (:sensitive (marks/marks-for :event :empty)))
         "an empty :sensitive vector is accepted (no throw, no paths)")))
 
+;; ---- EP-0012 shared segment domain (rf2-94o54l.2 / .6) -------------------
+;;
+;; Mark-path segment validity is the SHARED `re-frame.path/segment?` domain,
+;; not a private re-enumeration. The prior private `valid-mark-element?`
+;; omitted UUID / instant / nil segments — perfectly valid `get-in` path
+;; segments under the EP-0012 segment domain — so a `:sensitive [[:user
+;; #uuid "…"]]` mark against a uuid-keyed map was silently rejected. These
+;; tests pin that the shared segment types are now ACCEPTED.
+
+(deftest register-marks-accepts-uuid-segment
+  (testing "rf2-94o54l.2 — a UUID path segment (valid EP-0012 segment, was
+            omitted by the private validator) is accepted"
+    (let [uid (java.util.UUID/randomUUID)]
+      (marks/register-marks! :event :uuid-seg {:sensitive [[:invoices uid :total]]})
+      (is (= [[:invoices uid :total]] (:sensitive (marks/marks-for :event :uuid-seg)))
+          "a UUID segment registers — shared segment domain, not the narrow private one"))))
+
+(deftest register-marks-accepts-instant-segment
+  (testing "rf2-94o54l.2 — an instant path segment (valid EP-0012 segment)
+            is accepted"
+    (let [inst (java.time.Instant/parse "2026-06-12T00:00:00Z")]
+      (marks/register-marks! :event :inst-seg {:large [[:audit inst :payload]]})
+      (is (= [[:audit inst :payload]] (:large (marks/marks-for :event :inst-seg)))
+          "an instant segment registers"))))
+
+(deftest register-marks-accepts-nil-segment
+  (testing "rf2-94o54l.2 — a nil path segment (valid EP-0012 segment, a real
+            map key) is accepted — distinct from the [[]] whole-value mark"
+    (marks/register-marks! :event :nil-seg {:sensitive [[:by-key nil :secret]]})
+    (is (= [[:by-key nil :secret]] (:sensitive (marks/marks-for :event :nil-seg)))
+        "a nil segment registers — segment? admits nil")))
+
+(deftest register-marks-still-rejects-composite-segment
+  (testing "rf2-94o54l.6 — widening to the shared domain did NOT loosen the
+            composite-segment rejection: a nested-vector element is still a
+            loud :rf.error/bad-marks (segment? rejects composites)"
+    (let [data (bad-marks-data {:sensitive [[:a [:b]]]})]
+      (is (= :rf.error/bad-marks (:rf.error/id data)))
+      (is (= [[:a [:b]]] (:bad-entries data))
+          ":bad-entries names the composite-segment entry"))))
+
+;; ---- add-marks / set-marks fail-closed on unknown mark (rf2-94o54l.6) ----
+;;
+;; `split-by-mark` used to SILENTLY DROP a mark value outside
+;; `#{:sensitive :large}`, so a typoed mark (`:sensitivee`) made the author
+;; believe a path was redacted while the declaration was quietly discarded —
+;; a privacy footgun (Conventions §No silent swallow). It now FAILS CLOSED.
+
+(deftest add-marks-rejects-unknown-mark-value
+  (testing "rf2-94o54l.6 — a typoed mark value fails closed with
+            :rf.error/bad-marks naming the offending path + mark"
+    (let [ex (try (marks/add-marks :rf/default {[:user :ssn] :sensitivee})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "add-marks threw on the unknown mark")
+      (let [data (ex-data ex)]
+        (is (= :rf.error/bad-marks (:rf.error/id data)) ":rf.error/id discriminator")
+        (is (= [:user :ssn] (:bad-path data)) ":bad-path names the offending path")
+        (is (= :sensitivee (:bad-mark data)) ":bad-mark names the typoed value")
+        (is (= #{:sensitive :large} (:valid data)) ":valid lists the closed mark set")))
+    (is (empty? (elision/sensitive-declarations :rf/default))
+        "no marks landed — the rejected declaration did not partially apply")))
+
+(deftest set-marks-rejects-unknown-mark-value
+  (testing "rf2-94o54l.6 — set-marks shares the split-by-mark chokepoint, so a
+            typoed mark fails closed too"
+    (let [ex (try (marks/set-marks :rf/default {[:docs :csv] :largeish})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :rf.error/bad-marks (:rf.error/id (ex-data ex))))
+      (is (= :largeish (:bad-mark (ex-data ex)))))))
+
+(deftest add-marks-normalizes-seq-path-to-vector
+  (testing "rf2-94o54l.2 — a non-vector seq path key normalizes to its
+            canonical vector form in the elision registry"
+    (marks/add-marks :rf/default {(list :user :ssn) :sensitive})
+    (let [decls (elision/sensitive-declarations :rf/default)]
+      (is (contains? decls [:user :ssn])
+          "the seq path is stored under the canonical vector key")
+      (is (every? vector? (keys decls))
+          "every declaration key is a canonical vector"))))
+
 (deftest union-marks-rejects-malformed
   (testing "union-marks! shares the coerce-paths chokepoint, so a malformed
             added declaration is rejected too"
