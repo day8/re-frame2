@@ -233,7 +233,7 @@ There's a mental model hiding in everything above, and naming it makes a whole c
 
 Two payoffs fall straight out of seeing it this way.
 
-**The flaky test that couldn't flake.** Here's the war story, and you've probably lived a version of it. A handler decides "is this item due?" by reading the ambient clock — `(js/Date.)` straight in the body. The test is green every afternoon for months. Then one night CI runs as the date rolls past midnight, the clock the handler read is now *tomorrow*, the "due today" branch flips, and the suite goes red — once, irreproducibly, in a way nobody can pin down because it depended on the wall-clock second the test happened to run. The fix is the world-input version from [chapter 07](07-effects-and-coeffects.md#why-handlers-never-read-the-clock): the handler reads the clock from `:rf.world/inputs` rather than the host, so the clock is a *recorded input*, and then the test **supplies** it on the dispatch. The world-input version literally cannot flake on time, because there's no ambient time left to read — the test handed the runtime a fixed `:time-ms`, and a fixed input gives a fixed answer at 14:00 and at 23:59:59 alike:
+**The flaky test that couldn't flake.** Here's the war story, and you've probably lived a version of it. A handler decides "is this item due?" by reading the ambient clock — `(js/Date.)` straight in the body. The test is green every afternoon for months. Then one night CI runs as the date rolls past midnight, the clock the handler read is now *tomorrow*, the "due today" branch flips, and the suite goes red — once, irreproducibly, in a way nobody can pin down because it depended on the wall-clock second the test happened to run. The fix is the recordable-coeffect version from [chapter 07](07-effects-and-coeffects.md#why-handlers-never-read-the-clock): the handler **declares** `:rf.cofx/requires [:rf/time-ms]` and reads the clock from that fact rather than the host, so the clock is a *recorded fact*, and then the test **supplies** it on the dispatch. That version literally cannot flake on time, because there's no ambient time left to read — the test handed the runtime a fixed `:rf/time-ms`, and a fixed input gives a fixed answer at 14:00 and at 23:59:59 alike:
 
 ```clojure
 (deftest due-today-is-deterministic
@@ -241,7 +241,7 @@ Two payoffs fall straight out of seeing it this way.
     (rf/dispatch-sync [:item/add {:title "ship it" :due #inst "2026-06-15T17:00:00.000Z"}])
     ;; supply the clock on the dispatch — no cofx to stub, no js/Date to patch
     (rf/dispatch-sync [:item/recompute-due]
-                      {:rf.world/inputs {:time-ms 1781514000000}}) ;; 2026-06-15T09:00Z
+                      {:rf.cofx {:rf/time-ms 1781514000000}}) ;; 2026-06-15T09:00Z
     (is (true? (-> (rf/app-db-value f) :items first val :due-today?)))))
 ```
 
@@ -503,53 +503,52 @@ After a test run, `@recorded` holds the events in order — handy for asserting 
    :interceptor-overrides {:my-app/logger nil}})       ;; nil removes the interceptor
 ```
 
-### Freezing the clock with world inputs
+### Freezing the clock with recordable coeffects
 
-The clock is the most common impurity a test needs to pin down, and the way you pin it follows from [chapter 07](07-effects-and-coeffects.md#causal-world-inputs--where-the-clock-and-fresh-ids-come-from): a handler that writes a durable timestamp reads it from `:rf.world/inputs`, never from `(js/Date.)`. So a test fixes the clock by *supplying* the world input on the dispatch — there's no cofx to stub and no `js/Date` to monkey-patch, because the clock was never an ambient read:
+The headline idiom for coeffects in tests is **supply data, don't swap mechanisms.** A handler that consumes a world fact *declares* it ([chapter 07](07-effects-and-coeffects.md#recordable-coeffects--where-the-clock-and-fresh-ids-come-from)) and reads it as a recorded value; a test makes it deterministic by *supplying* that value on the dispatch — there's no cofx to stub, no `js/Date` to monkey-patch, because a recordable fact was never an ambient read. The clock is the most common case:
 
 ```clojure
 (deftest todo-add-stamps-created-at
   (rf/with-new-frame [f (rf/make-frame {})]
     (rf/dispatch-sync [:todo/add {:id   #uuid "00000000-0000-0000-0000-000000000001"
                                   :text "buy milk"}]
-                      {:rf.world/inputs {:time-ms 1735732800000}})
+                      {:rf.cofx {:rf/time-ms 1735732800000}})
     (is (= 1735732800000
            (-> (rf/app-db-value f) :todos
                (get #uuid "00000000-0000-0000-0000-000000000001") :created-at)))))
 ```
 
-The `:rf.world/inputs` opts key is the same surface SSR hydration, replay fixtures, and host integrations use to hand the runtime exact world facts — fixing the clock in a test is just that surface, pointed at a `deftest`. Generated ids ride the event (the `:id` above), so they're fixed the same way: supply them, don't generate them.
+The `:rf.cofx` opts key is the same surface SSR hydration, replay fixtures, and host integrations use to hand the runtime exact facts — fixing the clock in a test is just that surface, pointed at a `deftest`. Supplied values win: the runtime fills only what's missing and never overwrites. And the handler's own `:rf.cofx/requires` is the **fixture checklist** — it lists exactly which facts a test must supply (readable straight off `handler-meta`). Generated ids ride the event (the `:id` above), so they're fixed the same way: supply them, don't generate them.
 
-**Fixing generated ids and random choices that are minted *inside* the fold.** The example above mints the id at the dispatch site, so it lands in the event vector and there's nothing extra to fix. When a handler instead reads a fresh id or a random choice *from world inputs* — the policy for ids minted inside the fold ([chapter 07](07-effects-and-coeffects.md#causal-world-inputs--where-the-clock-and-fresh-ids-come-from)) — the test supplies those facts on the very same opts key, beside `:time-ms`. `:uuid` is a map of domain id-names to generated values; `:random` carries recorded random *choices*:
+**Supply recordable facts the handler declares.** When a handler declares an app-registered recordable fact — say a fold-internal id or random choice generated by an app supplier — the test supplies it flat on the same `:rf.cofx` opts key, beside `:rf/time-ms`, each under its own owner-qualified name:
 
 ```clojure
 (deftest game-deal-is-deterministic
   (rf/with-new-frame [f (rf/make-frame {})]
     (rf/dispatch-sync [:game/new-round]
-                      {:rf.world/inputs
-                       {:time-ms 1735732800000
-                        :uuid    {:game/id #uuid "00000000-0000-0000-0000-0000000000aa"}
-                        :random  {:game/first-card 7}}})
+                      {:rf.cofx
+                       {:rf/time-ms      1735732800000
+                        :game/id         #uuid "00000000-0000-0000-0000-0000000000aa"
+                        :game/first-card 7}})
     (let [g (:game (rf/app-db-value f))]
       (is (= #uuid "00000000-0000-0000-0000-0000000000aa" (:id g)))
       (is (= 7 (:first-card g))))))
 ```
 
-The handler reads `(get-in inputs [:uuid :game/id])` and `(get-in inputs [:random :game/first-card])`; the test hands both in, and the round deals identically every run — no `random-uuid` to monkey-patch, no RNG to seed. (If your app's policy is "ids ride the event payload" instead, there's nothing to supply here — fix them the way the clock example fixes `:id`. The world-input route is for facts minted *inside* the fold.)
+The handler declares `:rf.cofx/requires [:rf/time-ms :game/id :game/first-card]` and reads each flat; the test hands all three in, and the round deals identically every run — no `random-uuid` to monkey-patch, no RNG to seed. Under the `:test` preset's **strict** mint policy, forgetting a declared fact is a loud `:rf.error/missing-required-cofx`, never a silently different random — strict-by-default is what keeps a determinism feature from quietly degrading the test culture it exists to serve. (If your app's policy is "ids ride the event payload" instead, there's nothing to supply here — fix them the way the clock example fixes `:id`.)
 
-**Stub the *other* world facts by re-registering the cofx.** A handler that reaches a non-clock, non-durable world fact — a display-preference `localStorage` read, a subscription's value, a host measurement — through `inject-cofx` becomes deterministic by re-registering that cofx against the same id. No special test-mode flag — `inject-cofx` finds the override because it's in the same registry:
+**Stub *ambient* facts by re-registering the supplier.** The one place you swap a mechanism rather than supply data is an *ambient* cofx — a display-preference `localStorage` read, a subscription's value, a host measurement. It's made deterministic by re-registering its supplier against the same id; the seam is re-registration (visible, greppable), never a monkey-patch, and it's legal precisely because ambient facts never feed durable state:
 
 ```clojure
 (deftest apply-theme-reads-store
   (ts/with-fresh-registrar
-    (rf/reg-cofx :local-store
-      (fn [ctx _k] (assoc-in ctx [:coeffects :local-store] "dark")))
+    (rf/reg-cofx :ui/local-theme {:doc "Test stub."} (fn [_k] "dark"))
     (rf/with-new-frame [f (rf/make-frame {})]
       (rf/dispatch-sync [:prefs/apply-theme])
       (is (= "dark" (-> (rf/app-db-value f) :ui/theme))))))
 ```
 
-`with-fresh-registrar` scopes the stub to this test, so production wiring is intact for the next one. This re-registration idiom is for cofxes that read *ambient, non-durable* facts — the only kind a plain `reg-cofx` should carry ([chapter 07](07-effects-and-coeffects.md#reg-cofx-and-inject-cofx--the-registry-pair)). A storage value that feeds a *durable* write isn't stubbed this way at all: it rides `:rf.world/inputs` (under `:storage`) or the event payload, so you *supply* it on the dispatch exactly as you supply the clock above — same `{:rf.world/inputs …}` opts key, not a cofx re-registration. The full coeffect story — world inputs, `reg-cofx`, `inject-cofx` — is [chapter 07](07-effects-and-coeffects.md); this is just where the testing idiom lands.
+`with-fresh-registrar` scopes the stub to this test, so production wiring is intact for the next one. This re-registration idiom is for *ambient* cofxes only — the kind that re-runs on replay ([chapter 07](07-effects-and-coeffects.md#reg-cofx--registering-a-supplier)). A storage value that feeds a *durable* write isn't stubbed this way at all: it's a recordable fact, so you *supply* it on the dispatch exactly as you supply the clock above — same `:rf.cofx` opts key, not a re-registration. The full coeffect story — the two grades, `reg-cofx`, `:rf.cofx/requires` — is [chapter 07](07-effects-and-coeffects.md); this is just where the testing idiom lands.
 
 ## The change you can actually feel
 
