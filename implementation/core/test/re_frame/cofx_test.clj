@@ -297,6 +297,113 @@
                     nil (catch clojure.lang.ExceptionInfo e e))
                ex-data :rf.error/id)))))
 
+(deftest provided-without-recordable-is-rejected-at-registration
+  (testing "`reg-cofx` with `{:provided? true}` but no `:recordable? true` is
+            a registration-time hard error — a provided fact is recordable by
+            definition; the malformed grade would otherwise register as an
+            ambient fact with a nil supplier and surface only as an opaque
+            host throw at delivery (rf2-cu8wet · Spec-Schemas §`:rf/cofx-meta`)"
+    (let [ex (try (rf/reg-cofx :cofx-test/bad-grade {:provided? true})
+                  nil (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "the malformed registration threw")
+      (is (= :rf.error/cofx-name-collision (:rf.error/id (ex-data ex)))
+          "rejected at the call site, not as a late delivery NPE")
+      (is (= :cofx-test/bad-grade (:rf.cofx/id (ex-data ex)))
+          "the offending id rides the error payload")
+      (is (re-find #":recordable\? true" (:reason (ex-data ex)))
+          "the reason points the author at the fix")
+      (is (nil? (registrar/lookup :cofx :cofx-test/bad-grade))
+          "the malformed fact did NOT register"))))
+
+(deftest provided-recordable-registers-cleanly
+  (testing "the well-formed provided-recordable grade
+            (`{:recordable? true :provided? true}`) still registers without a
+            supplier — the cu8wet guard rejects ONLY the meaningless combo"
+    (is (= :cofx-test/well-formed
+           (rf/reg-cofx :cofx-test/well-formed
+             {:recordable? true :provided? true})))
+    (let [meta (registrar/lookup :cofx :cofx-test/well-formed)]
+      (is (true? (:recordable? meta)))
+      (is (true? (:provided? meta)))
+      (is (nil? (:handler-fn meta)) "a provided fact legitimately omits its supplier"))))
+
+;; ===========================================================================
+;; 6c. :rf.cofx/run stamps the PRODUCED value under :rf.cofx/value and the
+;;     requirement-arg under :rf.cofx/arg (rf2-sepqgg)
+;; ===========================================================================
+
+(deftest cofx-run-stamps-produced-value-and-arg
+  (testing "the `:rf.cofx/run` success op carries the supplier's PRODUCED
+            value under `:rf.cofx/value` (the coeffect that egresses) and the
+            requirement-arg under the distinct `:rf.cofx/arg` (rf2-sepqgg)"
+    (let [traces (collect-traces! ::run-tags)]
+      ;; A parameterized ambient supplier: the requirement-arg is the
+      ;; storage key; the produced value is what it reads back.
+      (rf/reg-cofx :cofx-test/local-pref
+        (fn [storage-key] (str "value-for-" storage-key)))
+      (rf/reg-event-fx :cofx-test/read-pref
+        {:rf.cofx/requires [[:cofx-test/local-pref "theme"]]}
+        (fn [_ _] {}))
+      (rf/dispatch-sync [:cofx-test/read-pref])
+      (rf/unregister-listener! ::run-tags)
+      (let [runs (filter #(= :rf.cofx/run (:operation %)) @traces)
+            run  (first (filter #(= :cofx-test/local-pref
+                                    (get-in % [:tags :rf.cofx/id]))
+                                runs))]
+        (is (some? run) "the parameterized supplier emitted a :rf.cofx/run op")
+        (is (= "value-for-theme" (get-in run [:tags :rf.cofx/value]))
+            ":rf.cofx/value is the PRODUCED value, not the requirement-arg")
+        (is (= "theme" (get-in run [:tags :rf.cofx/arg]))
+            "the requirement-arg rides the distinct :rf.cofx/arg tag")))))
+
+(deftest cofx-run-no-arg-omits-arg-tag
+  (testing "a bare (no-arg) ambient supplier stamps `:rf.cofx/value` (the
+            produced value) and OMITS `:rf.cofx/arg` (rf2-sepqgg — parity with
+            the prior arg-omission on the 1-arity path)"
+    (let [traces (collect-traces! ::run-noarg)]
+      (rf/reg-cofx :cofx-test/locale2 (fn [] "en-AU"))
+      (rf/reg-event-fx :cofx-test/read-locale2
+        {:rf.cofx/requires [:cofx-test/locale2]}
+        (fn [_ _] {}))
+      (rf/dispatch-sync [:cofx-test/read-locale2])
+      (rf/unregister-listener! ::run-noarg)
+      (let [run (first (filter #(and (= :rf.cofx/run (:operation %))
+                                     (= :cofx-test/locale2
+                                        (get-in % [:tags :rf.cofx/id])))
+                               @traces))]
+        (is (some? run))
+        (is (= "en-AU" (get-in run [:tags :rf.cofx/value])))
+        (is (not (contains? (:tags run) :rf.cofx/arg))
+            "no requirement-arg ⇒ :rf.cofx/arg is omitted")))))
+
+(deftest cofx-run-sensitive-produced-value-is-redacted-end-to-end
+  (testing "a sensitive PRODUCED value from a real ambient supplier is
+            redacted on the `:rf.cofx/run` trace by the marks chokepoint
+            (`marks/project-cofx-run-tags`, wired to `:rf.cofx/value`) before
+            the event reaches any listener — the bug rf2-sepqgg guards against:
+            the redaction must act on what actually egresses"
+    (let [traces (collect-traces! ::run-redact)]
+      ;; The supplier PRODUCES a map with a sensitive sub-path. Marks are
+      ;; declared on the cofx registration; the produced value egresses into
+      ;; :coeffects, so the run-op stamp of it must be redacted.
+      (rf/reg-cofx :cofx-test/session
+        {:sensitive [[:token]]}
+        (fn [] {:token "super-secret-jwt" :public "ok"}))
+      (rf/reg-event-fx :cofx-test/read-session
+        {:rf.cofx/requires [:cofx-test/session]}
+        (fn [_ _] {}))
+      (rf/dispatch-sync [:cofx-test/read-session])
+      (rf/unregister-listener! ::run-redact)
+      (let [run (first (filter #(and (= :rf.cofx/run (:operation %))
+                                     (= :cofx-test/session
+                                        (get-in % [:tags :rf.cofx/id])))
+                               @traces))]
+        (is (some? run) "the supplier emitted a :rf.cofx/run op")
+        (is (= :rf/redacted (get-in run [:tags :rf.cofx/value :token]))
+            "the sensitive sub-path of the PRODUCED value is redacted on the trace")
+        (is (= "ok" (get-in run [:tags :rf.cofx/value :public]))
+            "non-sensitive sub-paths pass through")))))
+
 ;; ===========================================================================
 ;; 7. inject-cofx is REMOVED — hard error :rf.error/inject-cofx-removed
 ;; ===========================================================================

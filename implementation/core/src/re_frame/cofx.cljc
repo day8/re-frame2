@@ -198,6 +198,24 @@
              "under an application namespace.")))
     (let [recordable? (boolean (:recordable? meta))
           provided?   (boolean (:provided? meta))]
+      ;; `:provided?` is meaningful ONLY alongside `:recordable? true` — a
+      ;; provided fact is recordable by definition (its owner stamps the
+      ;; value onto the token; an ambient fact always runs a supplier). A
+      ;; `{:provided? true}` without `:recordable? true` is a malformed
+      ;; grade that would otherwise register as an ambient fact with a nil
+      ;; supplier, surfacing only as an opaque host NPE at delivery
+      ;; (`run-ambient-supplier` invoking nil). Reject it loudly at the call
+      ;; site instead (Spec-Schemas §`:rf/cofx-meta`, rf2-cu8wet).
+      (when (and provided? (not recordable?))
+        (emit-cofx-name-collision!
+          id
+          (str "`reg-cofx` id `" id "` declared `:provided? true` without "
+               "`:recordable? true`. A provided coeffect is recordable by "
+               "definition (its owner stamps the value onto the token); an "
+               "ambient coeffect always runs a supplier. Either add "
+               "`:recordable? true` (a provided recordable fact) or drop "
+               "`:provided?` and supply a value-returning fn (an ambient "
+               "fact).")))
       ;; A non-recordable (ambient) fact with no supplier cannot produce a
       ;; value; only a PROVIDED recordable fact legitimately omits its
       ;; generator (its owner stamps the token). An ambient fact MUST carry a
@@ -394,11 +412,20 @@
                           (emit-coeffect-exception! cofx-id failing-id frame-id t)
                           [:threw nil]))
               elapsed (when interop/debug-enabled? (- (interop/now-ms) t0))]
+          ;; `:rf.cofx/value` carries the supplier's PRODUCED value — the
+          ;; coeffect that actually egresses into `:coeffects` — so the
+          ;; marks chokepoint (`marks/project-cofx-run-tags`, wired to
+          ;; `:rf.cofx/value`) redacts a declared-`:sensitive` produced
+          ;; value before it surfaces in trace. The requirement-arg rides
+          ;; under the distinct `:rf.cofx/arg`, present only for a
+          ;; parameterized `[id arg]` requirement (rf2-sepqgg). Both ride
+          ;; under the `interop/debug-enabled?` gate so production DCEs them.
           (when (and interop/debug-enabled? (= :delivered (first outcome)))
             (trace/emit! :rf.cofx :rf.cofx/run
-                         (cond-> {:rf.cofx/id cofx-id
-                                  :frame      frame-id}
-                           valued?           (assoc :rf.cofx/value arg)
+                         (cond-> {:rf.cofx/id    cofx-id
+                                  :frame         frame-id
+                                  :rf.cofx/value (second outcome)}
+                           valued?           (assoc :rf.cofx/arg arg)
                            (some? elapsed)   (assoc :rf.cofx/elapsed-ms elapsed))))
           outcome))
       (do
