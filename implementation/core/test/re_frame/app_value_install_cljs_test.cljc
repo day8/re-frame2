@@ -631,10 +631,13 @@
 ;; parse, the fx/cofx slot stamp); every OTHER kind falls back to the FLAT
 ;; registrar lowering (`descriptor->registration-metadata` → `registrar/register!`).
 ;; These tests pin (a) all four wired kinds lower correctly through a single
-;; install!, (b) the unknown-realm→global fallback, and (c) CHARACTERIZE the
-;; flat-fallback gap for a non-wired kind that carries real registration logic
-;; (the audit's concern — the flat path seats a registrar slot WITHOUT running
-;; the subsystem's own registration, so the slot is malformed for the subsystem).
+;; install!, (b) an EXPLICIT unknown realm id throws :rf.error/unknown-realm
+;; before any mutation (rf2-c6armm.1 #1 — the prior unknown-realm→global
+;; fallback was a defect; nil/default sugar + the realm-map form still work),
+;; and (c) CHARACTERIZE the flat-fallback gap for a non-wired kind that carries
+;; real registration logic (the audit's concern — the flat path seats a
+;; registrar slot WITHOUT running the subsystem's own registration, so the slot
+;; is malformed for the subsystem).
 
 (deftest install-lowers-the-four-wired-kinds-through-real-registration-logic
   (testing "a single install! lowers :event/:sub/:fx/:cofx descriptors through
@@ -677,23 +680,150 @@
     (is (contains? (registrar/lookup :event :xms/evfx) :interceptors)
         "it ran through reg-event-fx (interceptor chain seated), not the flat path")))
 
-(deftest install-into-an-unknown-realm-id-falls-back-to-the-global-registrar
-  (testing "seat-into-realm! documents 'a realm with no registry entry (unknown
-            id) falls back to the global atom rather than throwing — the
-            absence-is-default rule.' Installing into a NEVER-CONSTRUCTED realm
-            id seats into the DEFAULT/global registrar (rf2-xmslkr)"
+(deftest install-into-an-unknown-realm-id-throws-before-any-mutation
+  (testing "FLIPPED (rf2-c6armm.1 #1 / .2 #2): installing into an EXPLICIT,
+            never-constructed realm id THROWS :rf.error/unknown-realm BEFORE any
+            registrar mutation — it does NOT silently fall back to the global
+            registrar. EP/API defaulting is for the ABSENCE of a realm, not for
+            an arbitrary unknown explicit id; the old fallback polluted the
+            default registrar while recording no installed app on the requested
+            realm."
     ;; :xms/ghost was never `rf/realm`-constructed, so it has no registry entry.
     (is (nil? (realm/realm :xms/ghost)) "the realm id was never constructed")
-    (let [h (fn [db _] db)]
-      (rf/install! :xms/ghost
-                   (rf/app {:id :xms/ghost-app :modules
-                            [(rf/module {:id :m :events {:xms/ghost-ev {:handler h}}})]}))
-      ;; The descriptor seated into the GLOBAL registrar (the default realm's
-      ;; atom), per the absence-is-default fallback — not into a phantom table.
-      (is (identical? h (registrar/handler :event :xms/ghost-ev))
-          "the unknown-realm install seated into the global/default registrar")
-      (is (= h (get-in @registrar/kind->id->metadata [:event :xms/ghost-ev :handler-fn]))
-          "it is the process-global atom, confirming the absence-is-default fallback"))))
+    (let [h  (fn [db _] db)
+          a  (rf/app {:id :xms/ghost-app :modules
+                      [(rf/module {:id :m :events {:xms/ghost-ev {:handler h}}})]})
+          ed (try (rf/install! :xms/ghost a)
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                    (ex-data e)))]
+      (is (= :rf.error/unknown-realm (:error/id ed))
+          "an explicit unknown realm id throws :rf.error/unknown-realm")
+      (is (= :xms/ghost (:realm ed)) "the diagnostic names the unknown realm id")
+      (is (= :construct-the-realm-first (:recovery ed)))
+      ;; Pre-mutation: NOTHING leaked into the default/global registrar.
+      (is (nil? (registrar/lookup :event :xms/ghost-ev))
+          "no descriptor leaked into the default registrar — the throw was pre-mutation")
+      (is (nil? (get-in @registrar/kind->id->metadata [:event :xms/ghost-ev]))
+          "the global atom is untouched"))))
+
+(deftest install-absent-and-default-and-realm-map-still-work
+  (testing "rf2-c6armm.1 #1: the unknown-realm guard preserves the nil/default
+            sugar and the realm-map compose form — only an EXPLICIT unknown id
+            throws"
+    ;; (a) nil / absent realm → the default realm (the byte-identical sugar path).
+    (rf/install! (rf/app {:id :ok/default :modules
+                          [(rf/module {:id :m :events {:ok/absent {:handler cart-add}}})]}))
+    (is (identical? cart-add (registrar/handler :event :ok/absent))
+        "absent realm seats into the default realm (sugar preserved)")
+    ;; (b) explicit default-realm id → also fine (seeded at boot).
+    (rf/install! :rf.realm/default
+                 (rf/app {:id :ok/expl :modules
+                          [(rf/module {:id :m :events {:ok/explicit {:handler cart-add}}})]}))
+    (is (identical? cart-add (registrar/handler :event :ok/explicit))
+        "explicit default realm id seats fine")
+    ;; (c) a constructed realm MAP composes through.
+    (let [r (rf/realm {:id :ok/constructed})]
+      (try
+        (rf/install! r (rf/app {:id :ok/c :modules
+                                [(rf/module {:id :m :events {:ok/in-realm {:handler cart-add}}})]}))
+        (is (identical? cart-add (get-in @(realm/registrar r) [:event :ok/in-realm :handler-fn]))
+            "a constructed realm map seats into its own registrar")
+        (finally (rf/dispose-realm! :ok/constructed))))))
+
+;; ---------------------------------------------------------------------------
+;; (5b) :frame descriptors into a non-default realm are refused (rf2-c6armm.1 #3)
+;; ---------------------------------------------------------------------------
+;;
+;; The realm-aware frame-registration path is a NOT-YET-SHIPPED EP-0013 slice:
+;; `reg-frame` hardcodes `:realm default-realm-id`, and live dispatch/subscribe
+;; resolve through the default registrar. So a `:frame` seated into an explicit
+;; realm would be stamped default + keyed globally by frame-id (colliding across
+;; realms). install!/reinstall! refuse such descriptors loudly, BEFORE lowering,
+;; rather than silently mis-seating (fail-closed). The default realm is fine.
+
+(deftest install-frame-into-non-default-realm-is-refused-loudly
+  (testing "rf2-c6armm.1 #3: a :frame descriptor seated into a NON-default realm
+            throws :rf.error/realm-frames-unsupported BEFORE any mutation — the
+            realm-aware frame path is a later slice, so a :frame in an explicit
+            realm would be stamped default + collide globally"
+    (let [r (rf/realm {:id :rf-frame/r})]
+      (try
+        (let [a  (rf/app {:id :rf-frame/app :modules
+                          [(rf/module {:id :m :frames {:rf-frame/f {:doc "would mis-seat"}}})]})
+              ed (try (rf/install! r a)
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                        (ex-data e)))]
+          (is (= :rf.error/realm-frames-unsupported (:error/id ed))
+              "a non-default-realm :frame install is refused loudly")
+          (is (= :rf-frame/r (:realm ed)) "the diagnostic names the realm")
+          (is (= [:rf-frame/f] (:frame-ids ed)) "the refused frame id is enumerated")
+          ;; Atomic: no frame container was created (the throw is pre-lowering),
+          ;; so no live frame leaked into the global frame registry.
+          (is (not (contains? (frame/frame-ids) :rf-frame/f))
+              "no live frame was created — the refusal is pre-lowering (no orphan)")
+          (is (= {} @(realm/registrar r))
+              "the realm's own registrar is untouched"))
+        (finally (rf/dispose-realm! :rf-frame/r))))))
+
+(deftest install-frame-into-default-realm-still-works
+  (testing "rf2-c6armm.1 #3: the refusal is scoped to NON-default realms — a
+            :frame descriptor into the DEFAULT realm still lowers through
+            reg-frame (the rf2-chc8vs wiring is unchanged)"
+    (rf/install! (rf/app {:id :df-frame/app :modules
+                          [(rf/module {:id :m :frames {:df-frame/f {:doc "default frame"}}})]}))
+    (is (contains? (frame/frame-ids) :df-frame/f)
+        "a default-realm :frame install creates a real frame container as before")))
+
+;; ---------------------------------------------------------------------------
+;; (5c) rf/realm rejects a public :app (no false installed-app state)
+;;      (rf2-c6armm.2 #1)
+;; ---------------------------------------------------------------------------
+
+(deftest realm-rejects-public-app-key
+  (testing "rf2-c6armm.2 #1: rf/realm with an :app key THROWS :rf.error/invalid-realm
+            — :app is install-owned state, not a constructor input. A public :app
+            would record an installed-app VALUE without seating its descriptors,
+            so installed-app would report a program the registrar does not hold
+            and the first reinstall! would diff against that phantom"
+    (let [app (rf/app {:id :false/app :modules
+                       [(rf/module {:id :m :events {:false/e {:handler cart-add}}})]})
+          ed  (try (rf/realm {:id :false/r :app app})
+                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                     (ex-data e)))]
+      (is (= :rf.error/invalid-realm (:error/id ed))
+          "a public :app on rf/realm is rejected")
+      (is (= :false/r (:realm ed)) "the diagnostic names the realm")
+      (is (nil? (realm/realm :false/r))
+          "no realm was registered — the constructor threw before register-realm!"))))
+
+(deftest realm-without-app-then-install-is-the-correct-path
+  (testing "rf2-c6armm.2 #1: the SUPPORTED path — construct a realm, then
+            install! — seats descriptors AND records the app, so installed-app
+            and the registrar AGREE (no phantom installed-app, no reinstall! that
+            skips registrar population)"
+    (let [r   (rf/realm {:id :seat/r})
+          app (rf/app {:id :seat/app :modules
+                       [(rf/module {:id :m :events {:seat/e {:handler cart-add}}})]})]
+      (try
+        ;; A fresh realm has no installed app beyond its empty projection.
+        (is (= {} (:registrations (realm/installed-app r)))
+            "a fresh realm projects an empty program (no false :app)")
+        (rf/install! r app)
+        ;; install! seated the descriptor into the registrar AND recorded the app.
+        (is (identical? cart-add (get-in @(realm/registrar r) [:event :seat/e :handler-fn]))
+            "install! actually seated the descriptor into the realm's registrar")
+        (is (= app (realm/installed-app r))
+            "installed-app returns the seated app — registrar + :app agree")
+        ;; reinstall! now diffs against a REAL installed app, not a phantom.
+        (let [v2   (rf/app {:id :seat/app :modules
+                            [(rf/module {:id :m :events {:seat/e2 {:handler cart-items}}})]})
+              diff (rf/reinstall! r v2)]
+          (is (= [[:event :seat/e2]] (:added diff)) ":seat/e2 added")
+          (is (= [[:event :seat/e]] (:removed diff))
+              ":seat/e removed — the diff saw the genuinely-seated base program")
+          (is (identical? cart-items (get-in @(realm/registrar r) [:event :seat/e2 :handler-fn]))
+              "the reinstall actually populated the registrar with the new program"))
+        (finally (rf/dispose-realm! :seat/r))))))
 
 (deftest install-wires-the-frame-kind-through-reg-frame
   (testing "rf2-chc8vs: :frame is an EP-0013 step-7 FIRST-format kind, so a
