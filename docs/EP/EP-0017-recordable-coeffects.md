@@ -1,6 +1,6 @@
 # EP-0017: Recordable Coeffects
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
 > This EP unifies re-frame2's coeffect surface around one principle — **durable
@@ -17,6 +17,30 @@ Type: standards-track
 > `spec/Conventions.md` (fact naming), `spec/005-StateMachines.md` (machine
 > attachment), with schema registrations in `spec/Spec-Schemas.md` and trace
 > vocabulary in `spec/009-Instrumentation.md`.
+
+> **`accepted` means the decisions are settled; the build is pending (ruling
+> recorded 2026-06-13, Mike).** Accepted with all twelve dispositions in
+> [§Open Issues](#open-issues) **as recommended**: (1) flat `:rf.cofx`
+> envelope; (2) the declaration key is `:rf.cofx/requires`; (3) remove
+> `inject-cofx` with value-returning `reg-cofx`, no alias, in slice A; (4) no
+> implicit time — `:rf/time-ms` is the framework's provided registration,
+> delivered only on declaration; (5) declared-only delivery; (6) no framework
+> generators (apps own supplier semantics); (7) provided registrations for
+> generator-less boundary facts; (8) mint policies and their binding points
+> (`:live` router default, `:strict` hard-wired for replay and the `:test`
+> preset default, `:explicit-live` escape); (9) supplied-value validation a
+> hard error in production as well as dev; (10) machine consumer-attachment on
+> named entries with pre-selection ensure, **with the action-fact precision
+> refinement deferred-with-trigger** (revisit if recorded-but-unconsumed action
+> facts become real record noise); (11) the slice-A-now / slice-B-gated phasing
+> adopted; (12) frame-id out of scope here, filed as a follow-on question
+> against EP-0002. No disposition text below is rewritten — each Open Issue
+> already carries its recommendation; this note records that all twelve are
+> accepted as recommended. `accepted` settles the design, not the build:
+> slice A proceeds as one sequential hot-zone wave and slice B's contract is
+> settled here with its build gated on the first real generator consumer
+> (EP-0016 optimistic temp-ids the named candidate) — both tracked as the
+> separate slice-A action wave, not by this status flip.
 
 ## Abstract
 

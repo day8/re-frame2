@@ -126,6 +126,15 @@ closing bead-ids / commits are cited per step.
   them today, and the replay-determinism fixture above exercises both), but no
   framework `reg-cofx` for them ships yet — by design, not as a gap. This item
   graduates with that EP.
+- **Successor — [EP-0017 Recordable Coeffects](EP-0017-recordable-coeffects.md)
+  (accepted 2026-06-13).** EP-0017 is that follow-on EP: it completes and
+  continues this EP's authoring surface, renaming the envelope field
+  `:rf.world/inputs` → `:rf.cofx` (flat), re-expressing the deferred recordable
+  `:uuid` / `:random` slice as app-registered value-returning suppliers, and
+  superseding this EP's optimistic-mutations gate with its own slice-B gate.
+  EP-0010 stays `final` and its recording contract is preserved verbatim; this
+  is a forward pointer to where the deferred slice and the renamed surface land,
+  not a status change here.
 
 ### Review series — closed clean
 
