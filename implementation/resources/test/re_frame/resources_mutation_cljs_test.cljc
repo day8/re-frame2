@@ -31,6 +31,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.reply :as reply]
    ;; load-bearing side-effecting requires: register the :rf.resource/* +
    ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
@@ -1161,6 +1162,51 @@
       (is (= [:test/save-replied {:kind :article} 7] (subvec ev 0 3)))
       (is (map? (last ev)))
       (is (= :ok (:status (last ev)))))))
+
+(deftest reply-to-durable-target-rejects-malformed-and-host-handle-at-fn-boundary
+  ;; rf2-6kdcs9 — the call-site `:reply-to` is transport-payload-only, but it
+  ;; MUST be data-only. The execute handler runs it through
+  ;; `re-frame.reply/durable-target` AT ISSUANCE, before any runtime-db /
+  ;; work-ledger write, transport lower, or trace. The throw itself is asserted
+  ;; HERE at the fn boundary (the event loop catches a handler throw and
+  ;; surfaces it as :rf.error/handler-exception rather than rethrowing to
+  ;; dispatch-sync's caller — same convention as the instance-id validation).
+  (testing "a malformed call-site target (non-vector / bare-keyword :event) is rejected"
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #"event-vector|Invalid"
+          (reply/durable-target {:event :not-a-vector})))
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #"event-vector|Invalid"
+          (reply/durable-target {}))))
+  (testing "a host handle smuggled into a public slot (a fn in :suppress) is rejected"
+    (try
+      (reply/durable-target {:event [:test/save-replied] :suppress {:cb (fn [] 1)}})
+      (is false "expected durable-target to reject a host-handle target")
+      (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+        (is (= :rf.reply/non-data-target (:rf.error/kind (ex-data e)))))))
+  (testing "a WELL-FORMED data-only call-site target survives durable projection"
+    (is (= {:event [:test/save-replied] :delivery :append}
+           (reply/durable-target [:test/save-replied])))))
+
+(deftest execute-rejects-malformed-reply-to-fails-closed
+  ;; rf2-6kdcs9 — the dispatch-path fail-closed EFFECT: a malformed call-site
+  ;; `:reply-to` rejects BEFORE any transport lower / instance write (the throw
+  ;; itself is asserted directly above). The event loop catches the throw, so
+  ;; we observe the absence of side effects (mirrors
+  ;; `execute-rejects-non-serializable-instance-id-fails-closed`).
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec))
+  (reset! last-managed-args nil)
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :bad-rt
+                      :reply-to {:event :not-a-vector}}])
+  (testing "nothing was lowered to transport (fail-closed BEFORE the write)"
+    (is (nil? @last-managed-args)))
+  (testing "no instance row was written and no continuation fired"
+    (is (nil? (instance :bad-rt)))
+    (is (empty? @replied))))
 
 (deftest reply-to-observes-settled-instance-and-cache-consequences
   ;; Validation rule 3: the continuation fires AFTER cache consequences and

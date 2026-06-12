@@ -28,6 +28,7 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.frame :as frame]
+   [re-frame.reply :as reply]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + the work-ledger side-table fx these tests
    ;; dispatch through.
@@ -430,6 +431,62 @@
                                         :started-at 1})]
         (is (= wid (:work/id r)))
         (is (not (contains? r :stale-key)))))))
+
+;; ===========================================================================
+;; 10b. DURABLE REPLY-TARGET BOUNDARY (rf2-6kdcs9) — Managed-Effects §Work-
+;;      ledger integration: a ledger row IS the reified continuation, and its
+;;      `:reply-to` is the reply target made durable. `durable-reply-to`
+;;      reconstructs the resource-read row's framework-internal continuation
+;;      from the row's own durable facts and asserts it DATA-ONLY.
+;; ===========================================================================
+
+(deftest durable-reply-to-derives-data-only-continuation-from-the-row
+  (testing "the row's reified continuation is DERIVED from its durable facts
+            (work-id / resource-key / generation / work-frame) — not a stored
+            copy that could drift from the stale-suppression identity"
+    (let [scoped-key [:rf.scope/global :r/x {:id 1}]
+          wid        (work-ledger/resource-work-id scoped-key 4)
+          r          (work-ledger/work-record {:work-id wid :frame-id :app/main
+                                               :resource-key scoped-key
+                                               :generation 4 :transport :rf.http/managed
+                                               :started-at 1})
+          target     (work-ledger/durable-reply-to r)]
+      (testing "the continuation addresses the framework-internal reply handler
+                carrying the verification payload the handler gates on"
+        (is (= [:rf.resource.internal/succeeded
+                {:work/id      wid
+                 :resource-key scoped-key
+                 :generation   4
+                 :rf.frame/id  :app/main}]
+               (:event target)))
+        (is (= :append (:delivery target))))
+      (testing "the reconstructed durable continuation is DATA-ONLY (no
+                ephemeral ::post / ::stale-authority, no host handle) and EDN-
+                serializable — it can ride the durable row / SSR / epoch wire"
+        (is (true? (reply/data-only-target? target)))
+        (is (work-ledger/serializable-record? target)))
+      (testing "the durable continuation carries ONLY the suppression identity
+                — no scope (correlation metadata, not a suppression key) and no
+                :stale-key synonym (one name per fact)"
+        (let [vp (second (:event target))]
+          (is (not (contains? vp :scope)))
+          (is (not (contains? vp :stale-key)))
+          (is (= wid (:work/id vp)) "the single suppression identity")))))
+  (testing "durable-reply-to FAILS LOUD if a host handle ever hid in a row fact
+            (an impossible-by-construction smuggle, but the boundary asserts it)"
+    ;; A record whose :resource/key carried a host handle (a fn) must never
+    ;; produce a durable continuation — durable-target rejects it before the
+    ;; bogus target could ride a row / transport / trace.
+    (let [bad (work-ledger/work-record {:work-id [:rf.work/resource [(fn [] 1)] 4]
+                                        :frame-id :app/main
+                                        :resource-key [(fn [] 1)]
+                                        :generation 4 :transport :rf.http/managed
+                                        :started-at 1})]
+      (try
+        (work-ledger/durable-reply-to bad)
+        (is false "expected durable-reply-to to reject a host-handle row fact")
+        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+          (is (= :rf.reply/non-data-target (:rf.error/kind (ex-data e)))))))))
 
 ;; ===========================================================================
 ;; 11. ADVERSARIAL (rf2-sxyrzk / eu2ifi) — two frames issuing the SAME

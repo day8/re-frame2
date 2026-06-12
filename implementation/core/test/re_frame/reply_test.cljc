@@ -42,7 +42,17 @@
     (is (some #(= :rf.reply/ok-missing-value (:rf.reply/problem %))
               (reply/validate-reply {:status :ok})))
     (is (some #(= :rf.reply/ok-has-error (:rf.reply/problem %))
-              (reply/validate-reply {:status :ok :value 1 :error {:kind :x}})))))
+              (reply/validate-reply {:status :ok :value 1 :error {:kind :x}}))))
+  (testing "a PRESENT :error key on :ok — including a nil placeholder — is rejected (rf2-o7pqbm finding 3)"
+    ;; The contract says :error is ABSENT for :ok (omit optional fields when
+    ;; absent rather than fill a nil sentinel). A {:status :ok :error nil}
+    ;; reply previously slipped through because validation rejected only
+    ;; `(some? error)`; it now rejects a present-but-nil :error too.
+    (is (some #(= :rf.reply/ok-has-error (:rf.reply/problem %))
+              (reply/validate-reply {:status :ok :value 1 :error nil}))
+        "{:status :ok :error nil} fails — :error should be OMITTED on :ok, not nil-filled")
+    (is (reply/valid-reply? {:status :ok :value 1})
+        "the well-formed shape OMITS :error entirely")))
 
 (deftest error-conventions
   (testing ":error requires :error as a family error MAP carrying a :kind"
@@ -133,6 +143,42 @@
            :completed-at 1781078400456
            :correlation  {:request-id [:article/by-id 42]}}))))
 
+(deftest data-only-invariant-rejects-non-edn-host-objects
+  ;; rf2-o7pqbm finding 4 — the host-handle docstring named JS Date / RegExp
+  ;; (and the JVM counterparts) among the rejected host objects, but the
+  ;; predicate never checked them. The detector and its documented contract
+  ;; are now ALIGNED: a Date / RegExp (a non-EDN host object that neither
+  ;; round-trips through the EDN reader nor compares by value) is a host handle
+  ;; and fails the data-only invariant on BOTH runtimes — a durable timestamp
+  ;; is an epoch-millisecond long (EP-0010), never a host Date.
+  (testing "a host Date in the reply is a host handle (CLJS js/Date, JVM java.util.Date)"
+    (let [d #?(:cljs (js/Date.) :clj (java.util.Date.))]
+      (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
+                (reply/validate-reply {:status :ok :value {:settled-at d}}))
+          "a host Date must not ride a data-only reply — use an epoch-ms long")
+      (let [probs (reply/validate-reply {:status :ok :value {:settled-at d}})
+            path  (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %)) probs)]
+        (is (= [:value :settled-at] path) "the problem reports the exact path to the Date"))))
+  (testing "a host RegExp in the reply is a host handle (CLJS js/RegExp, JVM java.util.regex.Pattern)"
+    (let [re #?(:cljs (js/RegExp. "x") :clj (java.util.regex.Pattern/compile "x"))]
+      (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
+                (reply/validate-reply {:status :error :error {:kind :x :re re}}))
+          "a host RegExp must not ride a data-only reply")
+      (let [probs (reply/validate-reply {:status :error :error {:kind :x :re re}})
+            path  (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %)) probs)]
+        (is (= [:error :re] path) "the problem reports the exact path to the RegExp"))))
+  (testing "the durable-target guard rejects a non-EDN host object in a public field too"
+    (let [d #?(:cljs (js/Date.) :clj (java.util.Date.))]
+      (try
+        (reply/durable-target {:event [:x] :suppress {:at d}})
+        (is false "expected durable-target to reject a host Date in :suppress")
+        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+          (is (= :rf.reply/non-data-target (:rf.error/kind (ex-data e))))
+          (is (= [:suppress :at] (:path (ex-data e))))))))
+  (testing "plain EDN — including an epoch-ms long instant — still passes"
+    (is (reply/valid-reply?
+          {:status :ok :value {:title "x"} :completed-at 1781078400456}))))
+
 ;; ---------------------------------------------------------------------------
 ;; Group 1b — target normalization.
 ;; ---------------------------------------------------------------------------
@@ -156,6 +202,67 @@
     (is (map? (reply/target->short-form {:event [:x] :suppress {:g 1}}))))
   (testing "nil target ⇒ nil (no continuation)"
     (is (nil? (reply/normalize-target nil)))))
+
+;; ---------------------------------------------------------------------------
+;; Group 1b'' — MALFORMED target rejection (rf2-o7pqbm finding 1+2). The
+;; descriptor's `:event` is REQUIRED and is an event-vector prefix
+;; (Managed-Effects §The reply target). A descriptor missing `:event`, or
+;; carrying a non-vector / empty / non-keyword-headed `:event`, must FAIL
+;; CLOSED at normalization rather than travel on to `complete` and become a
+;; bogus dispatch shape. `map-target` must preserve the nil/no-continuation
+;; semantics rather than fabricate an eventless `{::post f}` descriptor.
+;; ---------------------------------------------------------------------------
+
+(defn- invalid-target? [thunk]
+  (try (thunk) false
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         (= :rf.reply/invalid-target (:rf.error/kind (ex-data e))))))
+
+(deftest malformed-target-fails-closed
+  (testing "a descriptor with NO :event is rejected (not silently passed to complete)"
+    (is (invalid-target? #(reply/normalize-target {}))
+        "{} carries no event — it cannot become a dispatch shape")
+    (is (invalid-target? #(reply/normalize-target {:delivery :append :suppress {:g 1}}))
+        "a descriptor with gates but no :event is still malformed"))
+  (testing "a descriptor whose :event is nil / a bare keyword / not a vector is rejected"
+    (is (invalid-target? #(reply/normalize-target {:event nil}))
+        "{:event nil} would (vec nil) into a garbage event")
+    (is (invalid-target? #(reply/normalize-target {:event :x}))
+        "{:event :x} is a bare keyword, not an event-vector prefix")
+    (is (invalid-target? #(reply/normalize-target {:event "boom"})))
+    (is (invalid-target? #(reply/normalize-target {:event {:id 1}}))))
+  (testing "an EMPTY or non-keyword-headed event vector is rejected"
+    (is (invalid-target? #(reply/normalize-target []))
+        "an empty vector has no event id to dispatch")
+    (is (invalid-target? #(reply/normalize-target {:event []})))
+    (is (invalid-target? #(reply/normalize-target [42 :arg]))
+        "the head must be a keyword event id, not a number")
+    (is (invalid-target? #(reply/normalize-target ["not-a-keyword"]))))
+  (testing "a non-vector / non-map target is rejected"
+    (is (invalid-target? #(reply/normalize-target :x)))
+    (is (invalid-target? #(reply/normalize-target 42)))
+    (is (invalid-target? #(reply/normalize-target "boom"))))
+  (testing "a WELL-FORMED target still normalizes (the guard rejects only malformed shapes)"
+    (is (= {:event [:x 1] :delivery :append} (reply/normalize-target [:x 1])))
+    (is (= {:event [:x] :delivery :append} (reply/normalize-target {:event [:x]}))))
+  (testing "the malformed-target rejection propagates through complete / target->short-form"
+    (is (invalid-target? #(reply/complete {:event :x} {:status :ok :value 1}))
+        "complete fails closed on a malformed descriptor (never (vec :x))")
+    (is (invalid-target? #(reply/target->short-form {})))))
+
+(deftest map-target-preserves-nil-no-continuation
+  (testing "mapping a nil target stays nil — NOT a bogus {::post f} eventless descriptor"
+    (is (nil? (reply/map-target identity nil)))
+    (is (nil? (reply/map-target (fn [e] [:wrap e]) nil))
+        "mapping the absence of a continuation is still the absence of a continuation")
+    (is (nil? (reply/complete (reply/map-target (fn [e] [:wrap e]) nil)
+                              {:status :ok :value 1}))
+        "and completing that mapped-nil target yields nil (no delivery)"))
+  (testing "mapping a well-formed target still relocates it (the nil guard does not weaken mapping)"
+    (let [mapped (reply/map-target (fn [e] [:parent e]) [:x {:id 1}])]
+      (is (some? mapped))
+      (is (= [:parent [:x {:id 1} {:status :ok :value 7}]]
+             (reply/complete mapped {:status :ok :value 7}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Group 1b' — the reply-target-as-data contract (rf2-r16hfc item 1). A

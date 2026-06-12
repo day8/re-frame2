@@ -54,8 +54,36 @@
   route loaders / spawned actors / machine async work), but who mints
   authority for each additional writer is an OPEN question deferred to the
   first non-resource writer (Spec 016 §Open questions). This slice keeps
-  it single-writer / resource-owned."
-  (:require [re-frame.resources.state :as state]))
+  it single-writer / resource-owned.
+
+  ## The durable reply-target boundary (rf2-6kdcs9, EP-0011 §Work Ledger
+  ## Integration / Managed-Effects §Work-ledger integration)
+
+  Managed-Effects §Work-ledger integration says a ledger row *is* the
+  reified continuation, and its `:reply-to` field is the reply target made
+  DURABLE — \"where the ledger row and the reply envelope visibly become one
+  fact.\" The resource-read row's continuation is the FRAMEWORK-INTERNAL
+  reply target (`:rf.resource.internal/succeeded` carrying the verification
+  payload), which is DETERMINISTICALLY RECONSTRUCTABLE from the row's own
+  durable facts (`:work/id` / `:resource/key` / `:generation` / `:work/frame`)
+  — so the durable continuation is a DERIVED row fact, not a separately stored
+  copy that could drift from the verification identity. `durable-reply-to`
+  reconstructs it and runs it through `re-frame.reply/durable-target` so the
+  reified continuation is asserted DATA-ONLY (no host handle, no ephemeral
+  `::post` / `::stale-authority` slot) before it could ride a durable row —
+  the same crispness the spec illustrates.
+
+  An app-supplied CALL-SITE continuation (the mutation `:reply-to`, EP-0016
+  D1) is a DIFFERENT continuation: a transport-payload-only app target fired
+  once on an accepted reply, NOT a durable ledger row fact. It is hardened at
+  its OWN boundary (the mutation execute handler runs it through
+  `re-frame.reply/durable-target` before it rides the transport payload, so a
+  malformed / host-handle target fails LOUD at issuance, before transport /
+  trace). The two continuations are kept distinct: the ledger owns the
+  framework-internal reified continuation; the call-site target is the app's
+  transport-payload continuation."
+  (:require [re-frame.reply :as reply]
+            [re-frame.resources.state :as state]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -181,6 +209,53 @@
    :cancellable? (if (some? cancellable?) cancellable? true)
    :started-at   started-at
    :deadline-at  deadline-at})
+
+;; ---- durable reply-target (rf2-6kdcs9) ------------------------------------
+;;
+;; The framework-internal resource-read reply target made DURABLE
+;; (Managed-Effects §Work-ledger integration — "the row's `:reply-to` field is
+;; the reply target made durable"). The target is DERIVED from the durable row
+;; facts (it is the verification payload the internal reply handlers gate on),
+;; then asserted DATA-ONLY via `re-frame.reply/durable-target`.
+
+(def resource-internal-succeeded
+  "The framework-internal resource success reply event id — the head of the
+  resource-read row's reified continuation (Spec 016 §Events; matches
+  `re-frame.resources.transport.http/succeeded-reply`, spelled here so the
+  ledger reconstructs its durable continuation without inverting the
+  transport dependency). The success leg is canonical: the failure leg
+  (`:rf.resource.internal/failed`) shares the SAME verification payload, so
+  one durable target represents the reified continuation."
+  :rf.resource.internal/succeeded)
+
+(defn durable-reply-to
+  "Reconstruct the DURABLE, data-only reply target for a resource-read work
+  `record` — the reified continuation Managed-Effects §Work-ledger
+  integration says the row carries as `:reply-to`. The target is DERIVED from
+  the record's own durable facts (the verification payload the internal reply
+  handler gates on: `:work/id` + `:resource/key` + `:generation` +
+  `:work/frame`), so the durable continuation can never drift from the
+  stale-suppression identity. Runs the reconstructed descriptor through
+  `re-frame.reply/durable-target`, which strips any ephemeral slot and FAILS
+  LOUD (`:rf.reply/non-data-target`) if a host handle hid in a public field —
+  asserting the reified continuation is data-only before it could ride a
+  durable row / SSR / hydration / epoch snapshot. Returns the data-only
+  normalized descriptor. Per Spec 016 §Frame work ledger / Managed-Effects
+  §Work-ledger integration.
+
+  The verification payload carries exactly the stale-suppression identity the
+  internal reply handler gates on — `:work/id` (the single suppression key,
+  EP-0007), the linked `:resource/key`, the `:generation`, and the carried
+  `:rf.frame/id` (the `:work/frame` stamp). Scope is NOT a suppression key (it
+  is correlation metadata derivable from the resource key), so it is omitted
+  from the durable continuation — one name per fact."
+  [record]
+  (reply/durable-target
+    {:event [resource-internal-succeeded
+             {:work/id      (:work/id record)
+              :resource-key (:resource/key record)
+              :generation   (:generation record)
+              :rf.frame/id  (:work/frame record)}]}))
 
 (defn join-owner+cause
   "Dedupe-join a SUPPLEMENTARY ensure onto an existing non-terminal work
