@@ -347,6 +347,73 @@
             "app-db carries only the pre-removal write — the dropped handler did not run")
         (finally (rf/unregister-error-listener! :q4x5zz/recorder))))))
 
+;; ---------------------------------------------------------------------------
+;; (4b) reinstall! — the ONE reachable live-instance edge: :frame removal
+;; (EP-0013 issue 12 PRECISED — rf2-7zn9kg)
+;; ---------------------------------------------------------------------------
+
+(deftest reinstall-removing-a-live-frame-refuses-loudly
+  (testing "EP-0013 issue 12 (PRECISED, rf2-7zn9kg): :frame is the one wired kind
+            that IS a live instance. A reinstall! whose diff would :removed a
+            :frame that still backs a LIVE container REFUSES LOUDLY with
+            :rf.error/live-frame-removal-unsupported — enumerating the blocking
+            frame-id — BEFORE any mutation, rather than silently ORPHANING the
+            container (registrar/unregister! :frame alone drops only the slot,
+            leaving the container live + dispatchable with destroy-frame!'s
+            :on-destroy / machine teardown / sub-cache disposal SKIPPED)."
+    ;; v1: install an app whose only registration is a :frame — a real live
+    ;; container exists in the core frame registry after install.
+    (rf/install! :rf.realm/default
+                 (rf/app {:id :fr0/app :modules
+                          [(rf/module {:id :m :frames {:fr0/live {:doc "live frame"}}})]}))
+    (is (some? (frame/frame :fr0/live)) "the installed :frame is a live container")
+    (is (contains? (frame/frame-ids) :fr0/live) "and appears in the live registry")
+    ;; v2: reinstall WITHOUT :fr0/live — the diff would :removed it, but the
+    ;; container is live → refuse loudly before any mutation.
+    (let [ed (try (rf/reinstall! :rf.realm/default
+                                 (rf/app {:id :fr0/app :modules
+                                          [(rf/module {:id :m2
+                                                       :events {:fr0/ev {:handler (fn [db _] db)}}})]}))
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                    (ex-data e)))]
+      (is (= :rf.error/live-frame-removal-unsupported (:error/id ed))
+          "removing a live :frame refuses loudly with the targeted error id")
+      (is (= [:fr0/live] (:live-frames ed))
+          "the diagnostic enumerates exactly the blocking live frame-id")
+      (is (= :destroy-frame-then-reinstall (:recovery ed))
+          "the error names the recovery: destroy-frame! then reinstall"))
+    ;; The refusal was BEFORE any mutation — the live frame + its registrar slot
+    ;; are untouched, and the new :added event was NOT seated.
+    (is (some? (frame/frame :fr0/live)) "the live frame survives the refused reinstall")
+    (is (some? (registrar/lookup :frame :fr0/live)) "its registrar slot is untouched")
+    (is (nil? (registrar/lookup :event :fr0/ev))
+        "the refused reinstall seated nothing — it failed before any mutation")))
+
+(deftest reinstall-removing-a-frame-after-explicit-destroy-succeeds
+  (testing "EP-0013 issue 12 (PRECISED, rf2-7zn9kg): the recovery path — once the
+            frame is explicitly destroyed (destroy-frame!, the proper teardown),
+            its container is no longer live, so a reinstall! that removes the
+            :frame descriptor succeeds and the slot is dropped cleanly."
+    (rf/install! :rf.realm/default
+                 (rf/app {:id :fr1/app :modules
+                          [(rf/module {:id :m :frames {:fr1/live {:doc "to be destroyed"}}})]}))
+    (is (some? (frame/frame :fr1/live)) "the frame is live after install")
+    ;; The documented recovery: destroy the frame first (full teardown), THEN
+    ;; reinstall without it.
+    (frame/destroy-frame! :fr1/live)
+    (is (nil? (frame/frame :fr1/live)) "destroy-frame! tore the container down")
+    (let [diff (rf/reinstall! :rf.realm/default
+                              (rf/app {:id :fr1/app :modules
+                                       [(rf/module {:id :m2
+                                                    :events {:fr1/ev {:handler (fn [db _] db)}}})]}))]
+      ;; The :frame is :removed (its registrar slot dropped) — no live container
+      ;; blocks it, so the reinstall applies the delta cleanly.
+      (is (some #{[:frame :fr1/live]} (:removed diff))
+          "the now-dead :frame is removed cleanly")
+      (is (some #{[:event :fr1/ev]} (:added diff)) "the new event was added")
+      (is (nil? (registrar/lookup :frame :fr1/live)) "the :frame registrar slot is dropped")
+      (is (some? (registrar/lookup :event :fr1/ev)) "the new event handler is seated"))))
+
 (deftest reinstall-changed-sub-invalidates-the-live-cache
   (testing "the EP-0013 §Hot Reload behavioural claim the registrar-slot
             assertion only approximates: a :changed sub reinstall INVALIDATES the
@@ -432,9 +499,14 @@
     (rf/reg-event-db :boot/a {:doc "a"} cart-add)
     ;; Reinstall a new app value. The diff is against the projection of the
     ;; sugar-booted registrar, so :boot/a (present in the projection, absent in
-    ;; the new app) shows as :removed, and :boot/b shows as :added.
+    ;; the new app) shows as :removed, and :boot/b shows as :added. The new app
+    ;; RE-DECLARES the fixture's live `:rf/default` frame (in the projection too)
+    ;; so it stays unchanged, not :removed — otherwise the reinstall would
+    ;; (correctly) refuse to orphan that live frame (rf2-7zn9kg).
     (let [diff (rf/reinstall! (rf/app {:id :app :modules
-                                       [(rf/module {:id :m :events {:boot/b {:handler cart-add}}})]}))]
+                                       [(rf/module {:id :m
+                                                    :events {:boot/b {:handler cart-add}}
+                                                    :frames {:rf/default {}}})]}))]
       (is (some #{[:event :boot/b]} (:added diff))
           ":boot/b is added relative to the projected installed app")
       (is (some #{[:event :boot/a]} (:removed diff))

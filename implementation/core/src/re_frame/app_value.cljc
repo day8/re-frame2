@@ -740,12 +740,18 @@
 ;; its cache — §Hot Reload: "changed subscriptions invalidate the relevant
 ;; caches", "future lookups use the new registrar").
 ;;
-;; This is the descriptor-only first slice (EP-0013 issue 12: the first reinstall
-;; slice is descriptor-only). Live-instance migration (active machines /
-;; resources / route transitions whose runtime state would need migrating) is a
-;; later slice; the per-kind hot-reload rules each subsystem already honours
+;; This is the descriptor-only first slice (EP-0013 issue 12, PRECISED: the first
+;; reinstall slice is descriptor-only). Refuse-loudly binds at the KIND BOUNDARY:
+;; the step-8-deferred kinds throw `:rf.error/unsupported-descriptor-kind` at
+;; install/reinstall, so the live-instance classes the disposition worried about
+;; (machine actors / in-flight resources/mutations / route transitions) are
+;; STRUCTURALLY UNREACHABLE through the diff — the per-kind live-instance
+;; blocker/continue/migrate rule binds when each deferred kind becomes
+;; installable. The per-kind hot-reload rules each subsystem already honours
 ;; (active machine instances continue with their captured spec, etc.) are
-;; unchanged.
+;; unchanged. The ONE reachable live edge — `:frame` removal of a live container
+;; — is refused loudly (`refuse-live-frame-removal!`) rather than silently
+;; orphaned.
 
 (defn- diff-registrations
   "Diff two `:registrations` maps (`kind → id → descriptor`) into added /
@@ -765,6 +771,57 @@
     {:added   (vec added)
      :changed (vec changed)
      :removed (vec removed)}))
+
+(defn- refuse-live-frame-removal!
+  "The ONE reachable live-instance edge in the descriptor-only slice
+  (EP-0013 issue 12, PRECISED — see `reinstall!`'s docstring). Of the
+  step-7 wired kinds, `:frame` is the only one that IS a live instance: a
+  removed `:event`/`:fx`/`:cofx` has no live runtime instance (it
+  fail-loud's on future use per EP body rule 960), a removed `:sub`'s
+  disposal/loud-read is pre-existing per-kind hot-reload behaviour, and
+  the step-8-deferred kinds are STRUCTURALLY UNREACHABLE through the diff
+  (they throw `:rf.error/unsupported-descriptor-kind` at install/reinstall,
+  so no live instance of those classes can be seated through the descriptor
+  path). `:frame` is the exception: a removed `:frame` whose live container
+  still exists would be ORPHANED — `registrar/unregister! :frame id` drops
+  only the registrar SLOT, leaving the container live in the core frame
+  registry (`@frame/frames`), still dispatchable/subscribable, with its
+  `:on-destroy`, the machine teardown cascade, and sub-cache disposal that
+  `destroy-frame!` runs all SKIPPED. That silent orphan is exactly what
+  disposition 12 closed; refuse-loudly is the per-kind rule here.
+
+  This is a TARGETED check against the core frame registry only (the
+  `:realm/frames-by-realm` late-bind hook `re-frame.frame` publishes —
+  realm-id → live, non-destroyed frame-ids), NOT the cross-subsystem
+  blocker query the original disposition imagined. It throws BEFORE any
+  mutation so a refused reinstall leaves the realm untouched. The
+  diagnostic enumerates exactly the live frame-ids that block. The
+  recovery is explicit `destroy-frame!` then reinstall — orphaning a live
+  frame is never the framework's silent default. INTERNAL."
+  [rid diff]
+  (let [removed-frame-ids (->> (:removed diff)
+                               (filter (fn [[kind _]] (= :frame kind)))
+                               (map second)
+                               set)]
+    (when (seq removed-frame-ids)
+      (let [frames-by-realm (when-let [f (late-bind/get-fn :realm/frames-by-realm)]
+                              (f))
+            live-in-realm   (get frames-by-realm rid #{})
+            blocking        (set/intersection removed-frame-ids live-in-realm)]
+        (when (seq blocking)
+          (throw (ex-info (str "rf/reinstall!: cannot remove the live frame(s) "
+                               (pr-str (sort blocking)) " from realm " rid
+                               " — a :frame descriptor still backs a live frame"
+                               " container. Removing it through the descriptor"
+                               " diff would orphan the container (its :on-destroy,"
+                               " machine teardown, and sub-cache disposal would be"
+                               " skipped). Destroy the frame explicitly"
+                               " (re-frame.frame/destroy-frame!) before reinstalling"
+                               " without it.")
+                          {:error/id       :rf.error/live-frame-removal-unsupported
+                           :realm          rid
+                           :live-frames    (vec (sort blocking))
+                           :recovery       :destroy-frame-then-reinstall})))))))
 
 (defn reinstall!
   "Hot-reload a realm by replacing its installed app VALUE with `new-app` —
@@ -795,10 +852,28 @@
   that adds an unmet capability requirement THROWS `:rf.error/missing-capability`
   before any mutation, exactly as `install!` would.
 
-  Descriptor-only slice (EP-0013 issue 12): the diff is over registration
-  descriptors; live-instance migration (active machines/resources that would
-  need state migration) is a later slice and the per-kind hot-reload rules each
-  subsystem already honours are unchanged.
+  Descriptor-only slice (EP-0013 issue 12, PRECISED): the diff is over
+  registration descriptors. Refuse-loudly binds at the KIND BOUNDARY in this
+  slice — the step-8-deferred kinds (`:route`/`:flow`/`:resource`/`:mutation`/
+  `:resource-scope`/…) THROW `:rf.error/unsupported-descriptor-kind` at
+  install/reinstall, so the live-instance classes the disposition worried about
+  (machine actors, in-flight resources/mutations, route transitions) are
+  STRUCTURALLY UNREACHABLE through the descriptor diff; the live-instance
+  blocker/continue/migrate rule binds PER-KIND when each deferred kind becomes
+  installable (defining that rule is a precondition of lifting the kind throw).
+  The per-kind hot-reload rules each subsystem already honours (active machine
+  instances continue with their captured spec; changed subs invalidate caches;
+  removed registrations fail loudly on future use) are unchanged.
+
+  The ONE reachable live-instance edge is `:frame` REMOVAL — `:frame` is the
+  only wired kind that IS a live instance. A `:removed` `:frame` whose live
+  container still exists is REFUSED loudly (`refuse-live-frame-removal!` →
+  `:rf.error/live-frame-removal-unsupported`, enumerating the blocking
+  frame-ids) BEFORE any mutation, rather than silently orphaning the container
+  (which `registrar/unregister! :frame id` alone would, skipping the
+  `destroy-frame!` teardown). The check reads only the core frame registry (the
+  `:realm/frames-by-realm` hook), not cross-subsystem machinery. The recovery is
+  explicit `destroy-frame!` then reinstall.
 
   Arities (the realm is the LEADING positional when present, matching
   `install!` + the EP's `(reinstall! shop-realm new-app {:reason …})` examples):
@@ -821,6 +896,11 @@
      ;; The capability invariant holds across reloads too — fail loud before
      ;; any mutation if the new app raises a requirement the realm can't meet.
      (check-capabilities! rid new-app)
+     ;; The ONE reachable live-instance edge (EP-0013 issue 12, PRECISED): a
+     ;; `:removed` `:frame` that still backs a live container is refused loudly
+     ;; here — before any mutation — rather than silently orphaned. Targeted
+     ;; check against the core frame registry only; no cross-subsystem machinery.
+     (refuse-live-frame-removal! rid diff)
      ;; Apply the delta against the realm's OWN registrar (EP-0013 stage 9):
      ;; added + changed re-derive the registrar slot from the new descriptor
      ;; (lowered through its kind's real registration logic, so a reloaded
