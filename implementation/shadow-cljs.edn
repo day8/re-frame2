@@ -430,7 +430,17 @@
             8042 ["../tools/story/testbeds/counter_with_stories"
                   "out/examples/counter-with-stories"]
             8043 ["../tools/story/testbeds/login_form"
-                  "out/examples/login-form"]}
+                  "out/examples/login-form"]
+            ;; --- Top-level testbeds (rf2-5e22yc) ---------------------
+            ;; The 806x band for top-level testbeds/<surface>/ dev-http
+            ;; servers (Xray testbeds own 803x + 8765, Story 804x, the
+            ;; examples orchestrator 805x). The tenant-switcher testbed is
+            ;; the first such server: source dir first so the hand-written
+            ;; index.html resolves at `/`, the compiled main.js falls
+            ;; through to out/testbeds/tenant-switcher per the same cascade
+            ;; as the testbeds above.
+            8060 ["../testbeds/tenant_switcher"
+                  "out/testbeds/tenant-switcher"]}
 
  :builds
  {:node-test
@@ -1618,6 +1628,28 @@
    :output-dir "out/testbeds/large-dispatcher"
    :asset-path "."
    :modules    {:main {:init-fn large-dispatcher.core/run}}
+   :devtools   {:preloads [re-frame2-pair.runtime
+                           day8.re-frame2-xray.preload]}}
+
+  ;; rf2-5e22yc (EP-0013/resources) — tenant-switcher testbed. The
+  ;; scoped-cache leak-boundary Part-2 scenario 5 as a LIVE demonstrator:
+  ;; one app, one frame, two tenant SCOPES coexisting in one cache (an
+  ;; admin impersonating tenant acme then globex), with the active scope
+  ;; deciding which entry a read can address. The multi-SCOPE consumer the
+  ;; rest of the testbed tree lacks (multi_frame is multi-FRAME, not
+  ;; multi-scope). Carries its OWN colocated spec.cjs (testbeds are exempt
+  ;; from the examples-test-free rule); run via the
+  ;; `npm run test:testbed-tenant-switcher` gate. Served on :dev-http 8060
+  ;; (the top-level testbeds band) — source dir first so the hand-written
+  ;; index.html resolves at `/`, compiled main.js falls through to
+  ;; out/testbeds/tenant-switcher. rf2-54jz4 — re-frame2-pair.runtime
+  ;; preload added so pair-MCP can probe this dev testbed's live runtime
+  ;; alongside Xray.
+  :testbeds/tenant-switcher
+  {:target     :browser
+   :output-dir "out/testbeds/tenant-switcher"
+   :asset-path "."
+   :modules    {:main {:init-fn tenant-switcher.core/run}}
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 

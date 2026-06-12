@@ -98,6 +98,8 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 //   805x        examples orchestrator     DEFAULT_PORT in
 //                                           examples/scripts/examples-port.cjs
 //                                           (8050; pre-flight + forward scan).
+//   806x        Top-level testbeds        :dev-http (shadow-cljs.edn):
+//                                           8060 tenant-switcher (rf2-5e22yc)
 //   8765        Xray panel-gallery        :dev-http (shadow-cljs.edn).
 //
 // The :dev-http bands (8030-8035 / 8040-8043 / 8765) are mirrored in the
@@ -124,6 +126,8 @@ const DEV_HTTP = {
   ':examples/login-with-stories': { port: 8041, story: true },
   ':examples/counter-with-stories': { port: 8042, story: true },
   ':examples/login-form': { port: 8043, story: true },
+  // rf2-5e22yc — top-level tenant-switcher testbed (806x band).
+  ':testbeds/tenant-switcher': { port: 8060 },
 };
 
 /**
