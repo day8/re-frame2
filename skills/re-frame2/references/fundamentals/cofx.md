@@ -53,9 +53,11 @@ The framework already carries those facts on every dispatch envelope as the `:rf
 ```clojure
 (rf/reg-event-fx :todo/create
   (fn [{:keys [db] :rf.world/keys [inputs]} [_ {:keys [text]}]]
-    {:db (assoc-in db [:todos (random-uuid)]                 ;; (id also a world-input candidate — see below)
+    {:db (assoc-in db [:todos (-> inputs :uuid :todo/id)]    ;; durable id from the token's :uuid subsystem
                    {:text text :created-at (:time-ms inputs)})}))  ;; durable time from the token
 ```
+
+(A bare `(random-uuid)` at the write site would re-roll a different id on every replay — epoch restore, SSR hydration, and time-travel would each diverge. The id has to ride the causal token, exactly like `:time-ms`, or arrive on the event payload from a caller that already pinned it.)
 
 - **Generated ids / random choices / durable host facts** (a localStorage value, a browser fact that *becomes durable state*) ride `:rf.world/inputs` subsystem keys (`:uuid`, `:random`, `:storage`, `:browser/*`) **or** a **recordable** `reg-cofx` — a cofx whose value is EDN-serializable, captured in the replay record, and returned from the record on replay rather than re-read from the host. Declare `:schema` on such a cofx so the recorded value is validated.
 - **Ambient `reg-cofx` is for diagnostics / host-transient reads only** — a value used in a dev log, a perf span, or a host-transient side-table that decides **no** durable write. There an ordinary unrecorded cofx (or the inline-interceptor escape hatch) is correct.
