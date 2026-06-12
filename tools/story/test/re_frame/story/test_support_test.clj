@@ -193,47 +193,48 @@
             order-independent unit coverage of the reset surface
             (rf2-6ez1u)"
     ;; Dirty every leakable atom via the public configure! surface…
-    (story/configure! {:rf.story/global-args       {:theme :dark}
-                       :rf.story/editor            :cursor
-                       :rf.story/project-root      "/tmp/proj"
-                       :rf.privacy/show-sensitive? true})
+    (story/configure! {:rf.story/global-args     {:theme :dark}
+                       :rf.story/editor          :cursor
+                       :rf.story/project-root    "/tmp/proj"
+                       :rf.story/egress-profile  :rf.egress/local-raw})
     (config/note-suppressed! :some.variant/x)
     (config/add-global-decorator! [:some/global-decorator])
     ;; sanity: the mutations landed
     (is (= {:theme :dark} (config/get-global-args)))
-    (is (true? (config/get-show-sensitive)))
+    (is (= :rf.egress/local-raw (config/get-egress-profile)))
     ;; …then reset and assert the pristine load-time defaults.
     (config/reset-all!)
     (is (= {}      (config/get-global-args))      "global-args → {}")
     (is (= []      (config/get-global-decorators)) "global-decorators → []")
     (is (= :vscode (config/get-editor))           "editor → :vscode")
     (is (nil?      (config/get-project-root))     "project-root → nil")
-    (is (false?    (config/get-show-sensitive))   "show-sensitive? → false")
+    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+        "egress-profile → :rf.egress/local-redacted")
     (is (= 0       (config/suppressed-count :some.variant/x))
         "suppressed-counters → {}")))
 
 (deftest config-reset-all-leaves-toggle-off-callbacks
   (testing "config/reset-all! does NOT clear toggle-off-callbacks — those
             are load-time module registrations, not per-test state
-            (rf2-6ez1u). Resetting show-sensitive? also does not FIRE them
+            (rf2-6ez1u). Resetting egress-profile also does not FIRE them
             (reset! restores the default; it does not simulate a runtime
-            true → false privacy toggle)."
+            reveal → redact narrowing)."
     (let [fired (atom 0)]
       (config/register-toggle-off-callback! ::probe #(swap! fired inc))
-      ;; flip on via the public surface, then reset-all!
-      (config/set-show-sensitive! true)
+      ;; widen to raw via the public surface, then reset-all!
+      (config/set-egress-profile! :rf.egress/local-raw)
       (config/reset-all!)
       (try
-        (is (false? (config/get-show-sensitive))
-            "the flag was restored to its false default")
+        (is (= :rf.egress/local-redacted (config/get-egress-profile))
+            "the profile was restored to its redacting default")
         (is (zero? @fired)
-            "reset-all! restored the flag without firing the toggle-off hook")
-        ;; the callback is still REGISTERED — a real runtime toggle fires it
-        (config/set-show-sensitive! true)
-        (config/set-show-sensitive! false)
+            "reset-all! restored the profile without firing the toggle-off hook")
+        ;; the callback is still REGISTERED — a real runtime narrowing fires it
+        (config/set-egress-profile! :rf.egress/local-raw)
+        (config/set-egress-profile! :rf.egress/local-redacted)
         (is (= 1 @fired)
             "the load-time callback survived reset-all! and still fires on a
-             real true → false runtime toggle")
+             real reveal → redact runtime narrowing")
         (finally
           (config/unregister-toggle-off-callback! ::probe))))))
 
@@ -244,29 +245,29 @@
     (is (= {} (config/get-global-args))
         "global-args is the pristine {} default — no sibling test leaked a
          configure! into this one")
-    (is (false? (config/get-show-sensitive))
-        "show-sensitive? is the pristine false default")
+    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+        "egress-profile is the pristine :rf.egress/local-redacted default")
     ;; A variant with NO args resolves to exactly the empty global layer.
     (story/reg-variant :story.cfg/probe-a {:tags #{:test}})
     (is (= {} (story/resolve-args :story.cfg/probe-a))
         "with a clean global layer, an arg-less variant resolves to {}")
-    ;; Now leak a Layer-1 global arg + flip the privacy gate. If the
+    ;; Now leak a Layer-1 global arg + widen the egress profile. If the
     ;; fixture's config/reset-all! did NOT run, config-isolation-b would
     ;; observe these.
-    (story/configure! {:rf.story/global-args       {:rf.cfg/leaked :from-a}
-                       :rf.privacy/show-sensitive? true})
+    (story/configure! {:rf.story/global-args     {:rf.cfg/leaked :from-a}
+                       :rf.story/egress-profile  :rf.egress/local-raw})
     (is (= {:rf.cfg/leaked :from-a} (story/resolve-args :story.cfg/probe-a))
         "the leaked global arg IS Layer 1 of resolution within this test —
          which is exactly why it must not survive into the next")))
 
 (deftest config-isolation-b
   (testing "the sibling test sees its OWN clean config slate — the
-            global-args + show-sensitive? config-isolation-a set are gone
+            global-args + egress-profile config-isolation-a set are gone
             (config/reset-all! ran in the fixture between them) (rf2-6ez1u)"
     (is (= {} (config/get-global-args))
         "config-isolation-a's leaked global-args did NOT survive the reset")
-    (is (false? (config/get-show-sensitive))
-        "config-isolation-a's show-sensitive? flip did NOT survive the reset")
+    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+        "config-isolation-a's egress-profile widening did NOT survive the reset")
     (story/reg-variant :story.cfg/probe-b {:tags #{:test}})
     (is (= {} (story/resolve-args :story.cfg/probe-b))
         "with the global layer reset, an arg-less variant resolves to {} —

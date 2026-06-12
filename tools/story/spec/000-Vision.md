@@ -232,13 +232,13 @@ The posture is normative across Story's surfaces:
    `:sensitive?` by dropping the event payload (per
    [spec/Security.md §Recorder redact-but-record](../../../spec/Security.md);
    per rf2-hdadz). With path-level marks, the recorder additionally
-   substitutes `:rf/redacted` at arg-paths the elision registry
-   resolves on the recorded event-vector — narrower than the
-   event-level drop, more useful for replay. The dispatch console
-   (the `:rf.privacy/show-sensitive?` knob in `configure!`) gates whether
-   the on-box devtool surfaces the underlying values when set true
-   (per [spec/Security.md §`include-sensitive?` vs `show-sensitive?`
-   verb split](../../../spec/Security.md)).
+   substitutes `:rf/redacted` at arg-paths the centralized
+   `re-frame.core/project-egress` walker resolves on the recorded
+   event-vector — narrower than the event-level drop, more useful for
+   replay. The dispatch console (Story's `:rf.story/egress-profile`
+   in `configure!`, EP-0015 rf2-3t26eh) gates whether the on-box devtool
+   surfaces the underlying values: `:rf.egress/local-redacted` (default,
+   redact) vs `:rf.egress/local-raw` (the trusted-local opt-in).
 7. **Snapshot-identity content-hash computes over real values.** The
    `snapshot-identity` content-hash (per
    [`002-Runtime.md`](002-Runtime.md) §Snapshot-identity computation)
@@ -253,17 +253,21 @@ The posture is normative across Story's surfaces:
    inputs that produced it, the inputs go through the wire-elision
    walker per §5 above.
 
-**Knob — the event-level `:rf.privacy/show-sensitive?` flag.** The legacy
-event-level `:sensitive?` flag (declared on `reg-event` per
+**Knob — the local-render egress profile (`:rf.story/egress-profile`).**
+The event-level `:sensitive?` flag (declared on `reg-event` per
 [spec/009 §Privacy / sensitive data in traces](../../../spec/009-Instrumentation.md))
-remains valid and Story honours it. The
-`configure! {:rf.privacy/show-sensitive? true}` knob is the on-box dev
-override (`show-sensitive?` verb, on-box UI visibility per
-[spec/Security.md §`include-sensitive?` vs `show-sensitive?` verb
-split](../../../spec/Security.md)). Off-box wire egress (the MCP jar)
-gates on the parallel `include-sensitive?` verb and defaults to
-suppress. The two knobs do NOT collide — they govern different
-surfaces.
+remains valid and Story honours it. EP-0015 (frame-owned egress policy,
+rf2-3t26eh) retired the process-global `:rf.privacy/show-sensitive?`
+boolean toggle: on-box dev visibility is now a NAMED egress profile, not
+an on/off switch (EP-0015 issue 7 — "no single process-global user
+toggle"). The `configure! {:rf.story/egress-profile :rf.egress/local-raw}`
+knob is the trusted-local opt-in; the default `:rf.egress/local-redacted`
+fails closed. Story's value-bearing surfaces project through the
+centralized `re-frame.core/project-egress` walker under the chosen
+profile. Off-box wire egress (the MCP jar) is a SEPARATE boundary —
+`:rf.egress/off-box-tool` with its own `--allow-sensitive-reads`
+opt-in — and defaults to suppress. The two knobs do NOT collide; they
+name different boundaries.
 
 **What Story is NOT.** Story does not invent its own classification
 vocabulary, its own sentinel set, or its own propagation rules.

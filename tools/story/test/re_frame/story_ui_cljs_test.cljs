@@ -1148,19 +1148,20 @@
         (is (= 1 (count (:subs c))))
         (is (= 1 (count (:renders c))))))))
 
-;; ---- privacy: retroactive scrub on set-show-sensitive! false (rf2-lqmje)
+;; ---- privacy: retroactive scrub on egress-profile narrowing (rf2-lqmje)
 ;;
-;; Per Spec 009 §Privacy §Retroactive-scrub: toggling
-;; `:rf.privacy/show-sensitive?` from true → false MUST clear every
+;; Per Spec 009 §Privacy §Retroactive-scrub (EP-0015 rf2-3t26eh): narrowing
+;; the local-render egress profile from a sensitive-revealing boundary
+;; (`:rf.egress/local-raw`) back to the redacting default MUST clear every
 ;; per-variant trace buffer. The Story trace listener only gates at
-;; ingest time, so without this scrub a sensitive cascade emitted
-;; while the flag was true would remain visible in every variant's
+;; ingest time, so without this scrub a sensitive cascade buffered
+;; while the raw profile was active would remain visible in every variant's
 ;; downstream consumer of the per-variant buffer after the user expected privacy to be
 ;; restored. The trade-off (non-sensitive history also lost) is the
 ;; simplest correct semantic — see Spec 009 for the rationale.
 
-(deftest set-show-sensitive!-false-clears-every-variant-buffer-rf2-lqmje
-  (testing "true → false toggle clears every per-variant Story trace buffer"
+(deftest narrowing-profile-clears-every-variant-buffer-rf2-lqmje
+  (testing "reveal → redact narrowing clears every per-variant Story trace buffer"
     (let [v-a       :story.priv-scrub/a
           v-b       :story.priv-scrub/b
           buf-a     (trace-buffer/ensure-buffer! v-a)
@@ -1176,9 +1177,9 @@
                                            :rf.event/v           [:foo]}}
                         sensitive? (assoc :sensitive? true)))]
       (try
-        ;; Engineer flips the flag on to investigate.
-        (story-config/set-show-sensitive! true)
-        ;; Simulate the per-variant listener body: with the flag on, the
+        ;; Engineer opts into the trusted-local raw boundary to investigate.
+        (story-config/set-egress-profile! :rf.egress/local-raw)
+        ;; Simulate the per-variant listener body: under the raw profile the
         ;; listener appends every event (no suppression).
         (reset! buf-a [(mk-ev v-a true) (mk-ev v-a false)])
         (reset! buf-b [(mk-ev v-b true)])
@@ -1187,11 +1188,11 @@
         (is (= 1 (count @buf-b)))
         (is (pos? (story-config/suppressed-count v-a)))
 
-        ;; Engineer flips the flag back off expecting privacy restored.
-        (story-config/set-show-sensitive! false)
+        ;; Engineer narrows the profile back expecting privacy restored.
+        (story-config/set-egress-profile! :rf.egress/local-redacted)
 
         (is (= 0 (count @buf-a))
-            "variant A's buffer must be empty — sensitive payloads cannot survive the toggle")
+            "variant A's buffer must be empty — sensitive payloads cannot survive the narrowing")
         (is (= 0 (count @buf-b))
             "variant B's buffer must be empty too — the clear is global")
         (is (zero? (story-config/suppressed-count v-a))
@@ -1199,37 +1200,37 @@
         (finally
           (trace-buffer/drop-buffer! v-a)
           (trace-buffer/drop-buffer! v-b)
-          (story-config/set-show-sensitive! false)
+          (story-config/set-egress-profile! :rf.egress/local-redacted)
           (story-config/reset-suppressed-count!))))))
 
-(deftest set-show-sensitive!-no-clear-when-already-false-rf2-lqmje
-  (testing "false → false toggle leaves the buffers alone"
+(deftest narrowing-profile-no-clear-when-already-redacting-rf2-lqmje
+  (testing "redact → redact narrowing leaves the buffers alone"
     (let [vid :story.priv-scrub/idempotent
           buf (trace-buffer/ensure-buffer! vid)]
       (try
-        ;; The flag started false, so no sensitive events ever landed.
-        ;; A redundant set-show-sensitive! false call must NOT throw away
-        ;; the buffered non-sensitive history.
+        ;; The profile started redacting, so no sensitive events ever landed.
+        ;; A redundant set-egress-profile! local-redacted call must NOT throw
+        ;; away the buffered non-sensitive history.
         (reset! buf [{:op-type :rf.event :tags {:frame vid}}])
-        (story-config/set-show-sensitive! false) ; redundant; default is false
+        (story-config/set-egress-profile! :rf.egress/local-redacted) ; redundant; default
         (is (= 1 (count @buf))
-            "redundant set-show-sensitive! false must not clear the buffer")
+            "redundant redact → redact must not clear the buffer")
         (finally
           (trace-buffer/drop-buffer! vid)
-          (story-config/set-show-sensitive! false))))))
+          (story-config/set-egress-profile! :rf.egress/local-redacted))))))
 
-(deftest set-show-sensitive!-true-does-not-clear-rf2-lqmje
-  (testing "false → true toggle leaves the buffers alone (no buffered sensitive risk)"
+(deftest widening-profile-does-not-clear-rf2-lqmje
+  (testing "redact → reveal widening leaves the buffers alone (no buffered sensitive risk)"
     (let [vid :story.priv-scrub/opt-in
           buf (trace-buffer/ensure-buffer! vid)]
       (try
         (reset! buf [{:op-type :rf.event :tags {:frame vid}}])
-        (story-config/set-show-sensitive! true)
+        (story-config/set-egress-profile! :rf.egress/local-raw)
         (is (= 1 (count @buf))
-            "opting in must not clear pre-existing non-sensitive history")
+            "opting into raw must not clear pre-existing non-sensitive history")
         (finally
           (trace-buffer/drop-buffer! vid)
-          (story-config/set-show-sensitive! false))))))
+          (story-config/set-egress-profile! :rf.egress/local-redacted))))))
 
 ;; ---- shell render smoke -------------------------------------------------
 ;;

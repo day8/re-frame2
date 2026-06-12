@@ -63,9 +63,22 @@
   hint stays accurate — the user sees an N-redacted-rows hint
   alongside the placeholders themselves. Hosts that want the
   unscrubbed payload in the recording (their own machine, dev loop)
-  flip `:rf.privacy/show-sensitive?` true via `story/configure!`; with
-  that flag set the listener captures the verbatim event vector
-  (existing behaviour, unchanged).
+  opt into the trusted-local boundary via
+  `(story/configure! {:rf.story/egress-profile :rf.egress/local-raw})`;
+  with that profile active the listener captures the verbatim event
+  vector (existing behaviour, unchanged).
+
+  ## EP-0015 fold (rf2-3t26eh)
+
+  The whole-event `:sensitive?` redact/pass decision above is now driven
+  by Story's local-render EGRESS PROFILE — `:rf.egress/local-redacted`
+  (the fail-closed default) redacts; `:rf.egress/local-raw` (the
+  trusted-local opt-in) passes — resolved through the framework's
+  centralized projection table (`config/suppress-sensitive?` →
+  `project-egress`'s `:rf.size/include-sensitive?` floor), NOT a
+  process-global boolean. EP-0015 retired the cross-tool
+  `:rf.privacy/show-sensitive?` toggle (rf2-bclgj) in favour of this
+  named-boundary, frame-owned model.
 
   ## Pure / impure split
 
@@ -151,9 +164,10 @@
 
 (def ^:const redacted-event
   "The placeholder event vector the recorder appends in place of a
-  `:sensitive? true` event when the show-sensitive? flag is false
-  (default). Per rf2-hdadz: record-but-redact preserves the row's
-  temporal position in the captured `:play-script` body without leaking the
+  `:sensitive? true` event when the local-render profile redacts (the
+  `:rf.egress/local-redacted` default, EP-0015 rf2-3t26eh). Per rf2-hdadz:
+  record-but-redact preserves the row's temporal position in the captured
+  `:play-script` body without leaking the
   credential / PII / auth-token. The single-element vector keeps the
   captured-events shape (vector-of-event-vectors) intact so the snippet
   round-trips through `read-string` cleanly; re-play sees a well-
@@ -848,9 +862,12 @@
   published trace consumer that default-suppresses sensitive events)
   so the UI's redaction-indicator hint stays accurate.
 
-  Hosts that explicitly opted in via `:rf.privacy/show-sensitive? true`
-  (via `story/configure!`) get the verbatim event vector — existing
-  in-box debug behaviour, unchanged.
+  Hosts that opted into the trusted-local boundary via
+  `(story/configure! {:rf.story/egress-profile :rf.egress/local-raw})`
+  get the verbatim event vector — existing in-box debug behaviour,
+  unchanged. The redact/pass decision is the profile's, resolved through
+  the centralized projection table (EP-0015, rf2-3t26eh) — NOT a
+  process-global boolean.
 
   `record-event!` applies the `recordable-event?` filter (assertion
   events, internal helpers) before appending; the redact path also

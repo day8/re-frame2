@@ -29,7 +29,16 @@
   true (the registration call); to `nil` when false. Production code
   that accidentally requires a stories ns sees the namespace load but
   with no registrations, every Story query returns empty."
-  (:require [re-frame.privacy :as privacy])
+  (:require [re-frame.privacy    :as privacy]
+            ;; EP-0015 (rf2-3t26eh): the on-box dev visibility choice is a
+            ;; named `:rf.egress/*` profile resolved through the framework's
+            ;; centralized projection table — NOT a process-global on/off
+            ;; toggle. `re-frame.projection` is the pure-CLJC home of the
+            ;; six ruled profiles + their `:rf.size/*` resolution; requiring
+            ;; it directly (rather than the whole `re-frame.core` facade)
+            ;; keeps this config ns JVM-runnable for the test corpus and
+            ;; pins the egress vocabulary to the ONE canonical source.
+            [re-frame.projection :as projection])
   #?(:cljs (:require-macros [re-frame.story.config])))
 
 ;; ---- the compile-time flag -----------------------------------------------
@@ -293,45 +302,87 @@
   []
   @project-root)
 
-;; ---- *show-sensitive?* (rf2-bclgj — :sensitive? trace-event policy) ------
+;; ---- *egress-profile* (rf2-3t26eh — EP-0015 frame-owned egress policy) ---
 ;;
-;; Per Spec 009 §Privacy (resolved by rf2-a32kd): framework-published
-;; trace-consuming integrations MUST default-suppress `:sensitive? true`
-;; events. Story is a framework-published consumer — the trace panel,
-;; actions panel, recorder, and play assertions module all subscribe to
-;; the raw trace stream — so each listener body gates on this flag.
+;; EP-0015 (frame-owned egress policy, graduated 2026-06-11) retired the
+;; process-global privacy on/off toggle in favour of (a) frame-owned
+;; `:sensitive` / `:large` classification declared on registration, and
+;; (b) the centralized `re-frame.core/project-egress` boundary primitive
+;; resolved against one of the six ruled `:rf.egress/*` profiles. Issue 7
+;; of the EP rules the on-box-visibility grain explicitly: NO single
+;; process-global user toggle — visibility is a *named boundary profile*
+;; per (tool, frame). Local tools default `:rf.egress/local-redacted`
+;; (suppress sensitive display); raw requires an explicit trusted-local
+;; opt-in (`:rf.egress/local-raw`).
 ;;
-;; Default is `false` (suppress sensitive events). A story author
-;; debugging redaction policy flips this on via
-;; `(story/configure! {:rf.privacy/show-sensitive? true})`. The
-;; `:rf.privacy/*` namespace is cross-tool — Xray reads the same key
-;; via its own `configure!` (rf2-xea9u).
+;; This atom holds Story's local-render egress PROFILE — the predecessor
+;; `:rf.privacy/show-sensitive?` boolean (rf2-bclgj) is folded onto it.
+;; Story is a framework-published trace consumer (the recorder, the
+;; play-runner's per-frame listener, the runtime's capture-phase listener,
+;; the UI trace-buffer) — every value-bearing slot it projects onto a
+;; dev surface ships under this profile. The "is a `:sensitive?` event
+;; visible?" decision is no longer a hand-held boolean: it derives from
+;; the profile's `:rf.size/include-sensitive?` resolution via the
+;; framework's projection table (`projection/profile-size-opts`), the same
+;; table `project-egress` consumes — one source of truth, no re-implemented
+;; redaction policy.
 ;;
-;; The flag is read at the head of every listener body, so toggling it
+;; Default is `:rf.egress/local-redacted` — FAIL-CLOSED: sensitive display
+;; suppressed. A story author debugging redaction policy on their own
+;; machine opts into the trusted-local raw boundary via
+;; `(story/configure! {:rf.story/egress-profile :rf.egress/local-raw})`.
+;; The profile is read at the head of every listener body, so changing it
 ;; takes effect on the next trace event without re-registering listeners.
 
+(def default-egress-profile
+  "Story's default local-render egress profile (EP-0015 issue 7): the
+  on-box dev UI boundary that suppresses sensitive display. Fail-closed."
+  :rf.egress/local-redacted)
+
+(def trusted-local-profile
+  "The trusted-local-operator opt-in profile (EP-0015 §10): includes
+  sensitive AND large. The single boundary a story author flips on to see
+  path-marked values verbatim on their own machine."
+  :rf.egress/local-raw)
+
+(def egress-profiles
+  "The closed six-member `:rf.egress/profile` vocabulary — re-exported from
+  the framework's `re-frame.projection/profiles` so `configure!` can
+  validate `:rf.story/egress-profile` against the ONE canonical enum (no
+  forked copy)."
+  projection/profiles)
+
+(defn known-egress-profile?
+  "True iff `profile` is a member of the closed `:rf.egress/*` enum."
+  [profile]
+  (contains? egress-profiles profile))
+
 (defonce
-  ^{:doc "Atom holding the `:rf.privacy/show-sensitive?` flag. Default
-         `false`. When `false` (default), every Story-registered trace
-         listener short-circuits on events whose `:sensitive?` field is
-         true, and the UI surface tracks how many were suppressed.
-         When `true`, listeners receive every event unchanged. Per
-         Spec 009 §Privacy + bead rf2-bclgj. Cross-tool key shared
-         with Xray (rf2-xea9u)."}
-  show-sensitive?
-  (atom false))
+  ^{:doc "Atom holding Story's local-render `:rf.egress/*` profile.
+         Default `:rf.egress/local-redacted` (suppress sensitive
+         display — fail-closed). Set to `:rf.egress/local-raw` for the
+         trusted-local verbatim opt-in. Read by every Story trace
+         listener via `include-sensitive?` / `suppress-sensitive?` —
+         the whole-event `:sensitive?` redact/pass decision derives from
+         this profile's `:rf.size/include-sensitive?` resolution via the
+         framework projection table, the same table `project-egress`
+         consumes (one source of truth). Per EP-0015 (rf2-3t26eh),
+         folding the retired `:rf.privacy/show-sensitive?` boolean
+         (rf2-bclgj) onto the frame-owned model."}
+  egress-profile
+  (atom default-egress-profile))
 
 ;; ---- toggle-off callbacks (rf2-lqmje — retroactive scrub) ----------------
 ;;
-;; Per Spec 009 §Privacy §Retroactive-scrub on `set-show-sensitive!`
-;; false (rf2-lqmje), toggling the flag from true → false MUST clear
-;; the per-variant trace buffers — the flag is NOT a one-way trapdoor.
-;; The Story trace listener (`re-frame.story.ui.trace-buffer`) only
-;; gates at ingest time via `suppress-sensitive?`, so without this
-;; scrub a sensitive cascade emitted while the flag was true would
-;; remain visible in every downstream consumer of the per-variant
-;; buffer after the user flipped the flag back to false expecting
-;; privacy to be restored.
+;; Per Spec 009 §Privacy §Retroactive-scrub (rf2-lqmje), narrowing the
+;; egress profile from a sensitive-revealing boundary (`:rf.egress/local-raw`)
+;; back to the redacting default MUST clear the per-variant trace buffers —
+;; the reveal is NOT a one-way trapdoor. The Story trace listener
+;; (`re-frame.story.ui.trace-buffer`) only gates at ingest time via
+;; `suppress-sensitive?`, so without this scrub a sensitive cascade
+;; buffered while the raw profile was active would remain visible in every
+;; downstream consumer of the per-variant buffer after the user narrowed
+;; the profile back expecting privacy to be restored.
 ;;
 ;; The cost: non-sensitive history that was buffered alongside the
 ;; sensitive cascade is also lost. This is the documented trade-off —
@@ -341,16 +392,17 @@
 ;; per-variant buffer is the simplest correct semantic.
 ;;
 ;; The hook design avoids a circular require — `ui.trace` depends on
-;; `config` to read the flag and bump the counter, so `config` cannot
+;; `config` to read the profile and bump the counter, so `config` cannot
 ;; directly invoke `ui.trace/clear-buffer!`. Instead, `ui.trace`
 ;; registers its clear-buffer fn into this atom at load time;
-;; `set-show-sensitive!` walks the atom on every true → false
+;; `set-egress-profile!` walks the atom on every reveal → redact
 ;; transition. CLJC-pure so the registration shape is testable under
 ;; the JVM target.
 
 (defonce
   ^{:doc "Atom holding `{id → (fn [] ...)}` callbacks invoked when
-         `set-show-sensitive!` transitions the flag from true → false.
+         `set-egress-profile!` narrows the profile from a
+         sensitive-revealing boundary back to a redacting one.
          `ui.trace` registers its `clear-buffer!` at load time.
          Internal — host applications should not register here."}
   toggle-off-callbacks
@@ -358,10 +410,11 @@
 
 (defn register-toggle-off-callback!
   "Register `f` (a zero-arg fn) under `id` to be invoked when
-  `set-show-sensitive!` transitions the flag from `true` → `false`.
-  Replaces any existing entry under the same id. Internal API — Story
-  modules use it to wire their buffer-clear hooks; host applications
-  should NOT register here.
+  `set-egress-profile!` narrows the profile from a sensitive-revealing
+  boundary (`:rf.egress/local-raw`) back to a redacting one. Replaces
+  any existing entry under the same id. Internal API — Story modules use
+  it to wire their buffer-clear hooks; host applications should NOT
+  register here.
 
   Returns `id`."
   [id f]
@@ -386,33 +439,59 @@
       (catch #?(:clj Throwable :cljs :default) e
         (tap> {:tag ::toggle-off-callback-failed :id id :error e})))))
 
-(defn set-show-sensitive!
-  "Replace the `:rf.privacy/show-sensitive?` flag. Story's `configure!`
-  calls this. `nil` resets to the default (`false`).
+(defn- profile-includes-sensitive?
+  "True iff `profile` resolves (via the framework projection table) to a
+  `:rf.size/include-sensitive? true` floor — i.e. it is a
+  sensitive-revealing boundary. `:rf.egress/local-raw` is the only Story-
+  relevant profile that does. An unknown / nil profile is fail-closed
+  (does NOT reveal)."
+  [profile]
+  (boolean (:rf.size/include-sensitive? (projection/profile-size-opts profile))))
+
+(defn set-egress-profile!
+  "Replace Story's local-render `:rf.egress/*` profile (EP-0015, rf2-3t26eh).
+  Story's `configure!` calls this via `:rf.story/egress-profile`. `nil`
+  resets to the default (`:rf.egress/local-redacted` — fail-closed,
+  sensitive display suppressed). An unknown profile keyword is rejected
+  by `configure!` before reaching here; defence-in-depth, a non-member
+  value coerces to the fail-closed default.
 
   Per rf2-lqmje (Spec 009 §Privacy §Retroactive-scrub): when the call
-  transitions the flag from `true` → `false`, every per-variant trace
-  buffer is cleared by invoking the registered
-  `toggle-off-callbacks`. The trade-off — non-sensitive history
-  buffered alongside the sensitive cascade is also lost — is
-  intentional: clearing the whole buffer is the simplest correct
-  semantic because a sensitive event emitted while the flag was true
-  can have caused later cascades whose payloads structurally reveal
-  the redacted value. The flag is NOT a one-way trapdoor; toggling it
-  false MUST restore privacy fully. true → true and false → ANY
-  transitions do NOT invoke the callbacks."
-  [v]
-  (let [prev @show-sensitive?
-        next (boolean v)]
-    (reset! show-sensitive? next)
-    (when (and prev (not next))
+  NARROWS the profile from a sensitive-revealing boundary
+  (`:rf.egress/local-raw`) back to a redacting one, every per-variant
+  trace buffer is cleared by invoking the registered
+  `toggle-off-callbacks`. The trade-off — non-sensitive history buffered
+  alongside the sensitive cascade is also lost — is intentional: clearing
+  the whole buffer is the simplest correct semantic because a sensitive
+  event buffered while the raw profile was active can have caused later
+  cascades whose payloads structurally reveal the redacted value. The
+  reveal is NOT a one-way trapdoor; narrowing MUST restore privacy fully.
+  A widening (redact → reveal) and any same-class transition do NOT invoke
+  the callbacks."
+  [profile]
+  (let [next (if (contains? projection/profiles profile)
+               profile
+               default-egress-profile)
+        prev @egress-profile]
+    (reset! egress-profile next)
+    (when (and (profile-includes-sensitive? prev)
+               (not (profile-includes-sensitive? next)))
       (run-toggle-off-callbacks!)))
   nil)
 
-(defn get-show-sensitive
-  "Return the current `:rf.privacy/show-sensitive?` flag value."
+(defn get-egress-profile
+  "Return Story's current local-render `:rf.egress/*` profile."
   []
-  @show-sensitive?)
+  @egress-profile)
+
+(defn include-sensitive?
+  "True iff Story's current local-render profile reveals sensitive values
+  (i.e. resolves to `:rf.size/include-sensitive? true`). The successor to
+  the retired `get-show-sensitive` boolean read — every Story trace
+  listener consults this (via `suppress-sensitive?`) to decide whether a
+  `:sensitive?` event is shown or redacted. Fail-closed by default."
+  []
+  (profile-includes-sensitive? @egress-profile))
 
 (defn sensitive-event?
   "True iff the trace event `ev` carries `:sensitive? true` at the top
@@ -426,15 +505,18 @@
   (privacy/sensitive? ev))
 
 (defn suppress-sensitive?
-  "Should this trace event be suppressed by a Story-registered
-  listener under the current `:rf.privacy/show-sensitive?` setting?
+  "Should this trace event be suppressed by a Story-registered listener
+  under the current local-render egress profile (EP-0015, rf2-3t26eh)?
 
   Returns `true` iff (a) the event is `:sensitive? true` AND (b) the
-  show-sensitive flag is `false`. Listeners wrap their body in
-  `(when-not (suppress-sensitive? ev) ...)`."
+  current profile does NOT reveal sensitive values (`include-sensitive?`
+  is false — the `:rf.egress/local-redacted` default). Listeners wrap
+  their body in `(when-not (suppress-sensitive? ev) ...)`. The redaction
+  policy is the profile's, resolved through the framework projection
+  table — it is NOT a re-implemented boolean."
   [ev]
   (and (sensitive-event? ev)
-       (not @show-sensitive?)))
+       (not (include-sensitive?))))
 
 ;; ---- *suppressed-counters* (rf2-bclgj — UI redaction indicator) ----------
 ;;
@@ -496,8 +578,8 @@
 ;; play run-state — they did NOT touch these config atoms.
 ;;
 ;; That left a green-but-wrong footgun: a test that called
-;; `(story/configure! {:rf.story/global-args {...}})` or flipped
-;; `:rf.privacy/show-sensitive?` leaked that global state into every
+;; `(story/configure! {:rf.story/global-args {...}})` or set
+;; `:rf.story/egress-profile` leaked that global state into every
 ;; SUBSEQUENT test. Because `global-args` is Layer 1 of args resolution
 ;; (`re-frame.story.args/resolve-args` reads `(get-global-args)` at
 ;; resolve time), a leaked global arg silently changes the EFFECTIVE
@@ -511,10 +593,10 @@
 ;; once at ns-load), not per-test state; wiping them would silently
 ;; break the retroactive-scrub hook for the rest of the run.
 ;;
-;; `show-sensitive?` is `reset!` directly (not via `set-show-sensitive!`)
-;; so a reset does NOT fire the true → false toggle-off callbacks —
+;; `egress-profile` is `reset!` directly (not via `set-egress-profile!`)
+;; so a reset does NOT fire the reveal → redact toggle-off callbacks —
 ;; `reset-all!` restores the load-time default, it does not simulate a
-;; live runtime privacy-toggle.
+;; live runtime profile narrowing.
 
 (defn reset-all!
   "Reset every leakable process-global config atom to its load-time
@@ -527,8 +609,9 @@
   - `global-decorators`  → `[]`
   - `editor`             → `:vscode`
   - `project-root`       → `nil`
-  - `show-sensitive?`    → `false`  (reset directly — does NOT fire the
-                                     true → false toggle-off callbacks)
+  - `egress-profile`     → `:rf.egress/local-redacted`  (reset directly —
+                                     does NOT fire the reveal → redact
+                                     toggle-off callbacks)
   - `suppressed-counters`→ `{}`
 
   Deliberately leaves `toggle-off-callbacks` intact — those are
@@ -538,6 +621,6 @@
   (reset! global-decorators [])
   (reset! editor :vscode)
   (reset! project-root nil)
-  (reset! show-sensitive? false)
+  (reset! egress-profile default-egress-profile)
   (reset! suppressed-counters {})
   nil)

@@ -131,10 +131,10 @@
   this listener once also fed is removed; warnings / fx / dispatched are
   answered from the epoch tape + stub-call log, the SSOT):
 
-  1. PRIVACY (Spec 009 §Privacy + rf2-bclgj): events whose `:sensitive?`
-     flag is true are DROPPED here when the global
-     `:rf.privacy/show-sensitive?` flag is false (the default). The
-     suppressed-events counter bumps (`config/note-suppressed!`) for the
+  1. PRIVACY (Spec 009 §Privacy + EP-0015 rf2-3t26eh): events whose
+     `:sensitive?` flag is true are DROPPED here when Story's local-render
+     egress profile redacts (`:rf.egress/local-redacted` — the default).
+     The suppressed-events counter bumps (`config/note-suppressed!`) for the
      targeted frame so the UI can surface a `[● REDACTED]` hint. This is
      the egress gate — it runs BEFORE the listener does anything else, so
      a sensitive event never reaches the exception capture below.

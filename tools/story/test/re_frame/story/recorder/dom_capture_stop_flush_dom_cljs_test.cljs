@@ -58,7 +58,7 @@
       (recorder/clear!)
       (dom/set-enabled! true)
       (dom/set-debounce-ms! 0)
-      (config/set-show-sensitive! false)
+      (config/set-egress-profile! config/default-egress-profile)
       (config/reset-suppressed-count!)
       (let [_ (mount-root!)]
         (dom/install! @test-root)
@@ -68,7 +68,7 @@
             (dom/remove!)
             (unmount-root!)
             (recorder/clear!)
-            (config/set-show-sensitive! false)
+            (config/set-egress-profile! config/default-egress-profile)
             (config/reset-suppressed-count!)
             (dom/set-debounce-ms! 250)))))))
 

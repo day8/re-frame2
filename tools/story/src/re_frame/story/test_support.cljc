@@ -113,7 +113,7 @@
   [install]
   ;; Mirror `re-frame.story/clear-all!`: reset the side-table, reset every
   ;; leakable process-global config atom (rf2-6ez1u —
-  ;; global-args/global-decorators/editor/project-root/show-sensitive?/
+  ;; global-args/global-decorators/editor/project-root/egress-profile/
   ;; suppressed-counters; so a `configure!` in one test cannot leak into
   ;; the next), reset the canonical-vocab auto-install gate, and clear the
   ;; two per-process play atoms (`pending-exceptions` + `stepper-state`,

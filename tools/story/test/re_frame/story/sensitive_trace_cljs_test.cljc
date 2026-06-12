@@ -12,8 +12,8 @@
 
   - **Pure config**: `sensitive-event?`, `suppress-sensitive?`,
     `note-suppressed!`, `suppressed-count`, `reset-suppressed-count!`
-    against the `show-sensitive?` flag.
-  - **`configure!`**: the `:rf.privacy/show-sensitive?` opts key wires
+    against the `egress-profile` (EP-0015 frame-owned egress, rf2-3t26eh).
+  - **`configure!`**: the `:rf.story/egress-profile` opts key wires
     through to the config atom.
   - **Play listener**: the per-frame trace listener (the Spec 009 privacy
     egress seam, rf2-luzky) default-drops sensitive events at the gate
@@ -39,14 +39,14 @@
 ;; ---------------------------------------------------------------------------
 
 (defn reset-config! [f]
-  ;; Always restore the flag to the default before AND after every test
-  ;; so a failing test can't poison the next one.
-  (config/set-show-sensitive! false)
+  ;; Always restore the profile to the redacting default before AND after
+  ;; every test so a failing test can't poison the next one.
+  (config/set-egress-profile! config/default-egress-profile)
   (config/reset-suppressed-count!)
   (try
     (f)
     (finally
-      (config/set-show-sensitive! false)
+      (config/set-egress-profile! config/default-egress-profile)
       (config/reset-suppressed-count!))))
 
 (use-fixtures :each reset-config!)
@@ -127,48 +127,64 @@
     (is (not (config/sensitive-event? 42)))))
 
 (deftest suppress-sensitive?-default-suppresses
-  (testing "by default (show-sensitive? false) sensitive events are suppressed"
-    (is (false? (config/get-show-sensitive)))
+  (testing "by default (:rf.egress/local-redacted) sensitive events are suppressed"
+    (is (= :rf.egress/local-redacted (config/get-egress-profile)))
+    (is (false? (config/include-sensitive?)))
     (is (true?  (config/suppress-sensitive?
                   (sensitive-dispatch-event :v/x [:auth/login])))))
   (testing "non-sensitive events are never suppressed"
     (is (false? (config/suppress-sensitive?
                   (plain-dispatch-event :v/x [:counter/inc]))))))
 
-(deftest suppress-sensitive?-opts-out-when-flag-on
-  (testing "with show-sensitive? true, sensitive events are NOT suppressed"
-    (config/set-show-sensitive! true)
-    (is (true? (config/get-show-sensitive)))
+(deftest suppress-sensitive?-opts-out-under-local-raw
+  (testing "under :rf.egress/local-raw, sensitive events are NOT suppressed"
+    (config/set-egress-profile! :rf.egress/local-raw)
+    (is (= :rf.egress/local-raw (config/get-egress-profile)))
+    (is (true? (config/include-sensitive?)))
     (is (false? (config/suppress-sensitive?
                   (sensitive-dispatch-event :v/x [:auth/login])))))
-  (testing "non-sensitive events remain unsuppressed regardless of flag"
-    (config/set-show-sensitive! true)
+  (testing "non-sensitive events remain unsuppressed regardless of profile"
+    (config/set-egress-profile! :rf.egress/local-raw)
     (is (false? (config/suppress-sensitive?
                   (plain-dispatch-event :v/x [:counter/inc]))))))
 
-(deftest configure!-wires-show-sensitive-flag
-  (testing "story/configure! routes :rf.privacy/show-sensitive? to the config atom"
-    (is (false? (config/get-show-sensitive)) "default is false")
-    (story/configure! {:rf.privacy/show-sensitive? true})
-    (is (true? (config/get-show-sensitive))
-        "opt-in flips the flag")
-    (story/configure! {:rf.privacy/show-sensitive? false})
-    (is (false? (config/get-show-sensitive))
-        "passing false toggles back"))
-  (testing "configure! without the key leaves the flag untouched"
-    (config/set-show-sensitive! true)
+(deftest configure!-wires-egress-profile
+  (testing "story/configure! routes :rf.story/egress-profile to the config atom"
+    (is (= :rf.egress/local-redacted (config/get-egress-profile)) "default is local-redacted")
+    (story/configure! {:rf.story/egress-profile :rf.egress/local-raw})
+    (is (= :rf.egress/local-raw (config/get-egress-profile))
+        "opt-in flips the profile to the trusted-local boundary")
+    (is (true? (config/include-sensitive?)))
+    (story/configure! {:rf.story/egress-profile :rf.egress/local-redacted})
+    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+        "passing local-redacted narrows back")
+    (is (false? (config/include-sensitive?))))
+  (testing "configure! without the key leaves the profile untouched"
+    (config/set-egress-profile! :rf.egress/local-raw)
     (story/configure! {:rf.story/editor :cursor})
-    (is (true? (config/get-show-sensitive))
-        "the unrelated key didn't reset the flag")))
+    (is (= :rf.egress/local-raw (config/get-egress-profile))
+        "the unrelated key didn't reset the profile")))
 
-(deftest set-show-sensitive!-coerces-to-bool
-  (testing "set-show-sensitive! always stores a boolean"
-    (config/set-show-sensitive! "truthy string")
-    (is (true? (config/get-show-sensitive)))
-    (config/set-show-sensitive! nil)
-    (is (false? (config/get-show-sensitive)))
-    (config/set-show-sensitive! false)
-    (is (false? (config/get-show-sensitive)))))
+(deftest configure!-rejects-unknown-egress-profile
+  (testing "an unknown profile keyword raises :rf.error/unknown-egress-profile (closed enum)"
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #"unknown-egress-profile"
+          (story/configure! {:rf.story/egress-profile :rf.egress/not-a-profile})))
+    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+        "the rejected call left the profile at the redacting default")))
+
+(deftest set-egress-profile!-fail-closed-defaults
+  (testing "set-egress-profile! resets nil + non-member values to the fail-closed default"
+    (config/set-egress-profile! :rf.egress/local-raw)
+    (config/set-egress-profile! nil)
+    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+        "nil resets to the redacting default")
+    (config/set-egress-profile! :rf.egress/local-raw)
+    (config/set-egress-profile! :not-a-profile)
+    (is (= :rf.egress/local-redacted (config/get-egress-profile))
+        "a non-member value coerces fail-closed (defence-in-depth)")
+    (is (false? (config/include-sensitive?)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Suppressed-events counter
@@ -215,7 +231,7 @@
 ;;     counter bumps; the exception capture never sees it);
 ;;   - a NON-sensitive event passes the gate (the counter stays zero; a
 ;;     handler-exception reaches `pending-exceptions`);
-;;   - with `show-sensitive?` true the gate is open (a sensitive event is
+;;   - under `:rf.egress/local-raw` the gate is open (a sensitive event is
 ;;     NOT dropped and the counter stays zero).
 ;;
 ;; The listener is private; invoke the fn the `listener-for-frame` builder
@@ -253,8 +269,8 @@
           "the suppressed-events counter bumped"))))
 
 (deftest play-listener-passes-sensitive-when-opted-in
-  (testing "with show-sensitive? true the gate is open — a sensitive handler-exception is captured"
-    (config/set-show-sensitive! true)
+  (testing "under :rf.egress/local-raw the gate is open — a sensitive handler-exception is captured"
+    (config/set-egress-profile! :rf.egress/local-raw)
     (let [frame-id :story.sensitive/v
           build    @#'play/listener-for-frame
           listen   (build frame-id)
@@ -327,8 +343,8 @@
     (recorder/clear!)))
 
 (deftest recorder-listener-captures-sensitive-when-opted-in
-  (testing "with show-sensitive? true the recorder captures :sensitive? events"
-    (config/set-show-sensitive! true)
+  (testing "under :rf.egress/local-raw the recorder captures :sensitive? events"
+    (config/set-egress-profile! :rf.egress/local-raw)
     (recorder/clear!)
     (recorder/start-recording! :story.recorder/sens 0)
     (let [listen @#'recorder/trace-listener
@@ -352,50 +368,51 @@
     (recorder/clear!)))
 
 ;; ---------------------------------------------------------------------------
-;; Retroactive scrub on set-show-sensitive! false (rf2-lqmje)
+;; Retroactive scrub on egress-profile narrowing (rf2-lqmje / EP-0015 rf2-3t26eh)
 ;; ---------------------------------------------------------------------------
 ;;
-;; Per Spec 009 §Privacy §Retroactive-scrub: toggling
-;; `:rf.privacy/show-sensitive?` from true → false MUST clear every
-;; per-variant trace buffer. The Story config layer exposes a generic
-;; callback registry that `ui.trace` (CLJS-only) hooks into; this
-;; pure-data shape is JVM-runnable so the algebra is covered here. The
-;; CLJS-only buffer-clear is covered in `re-frame.story-ui-cljs-test`.
+;; Per Spec 009 §Privacy §Retroactive-scrub: narrowing the local-render
+;; egress profile from a sensitive-revealing boundary (`:rf.egress/local-raw`)
+;; back to the redacting default MUST clear every per-variant trace buffer.
+;; The Story config layer exposes a generic callback registry that
+;; `ui.trace` (CLJS-only) hooks into; this pure-data shape is JVM-runnable
+;; so the algebra is covered here. The CLJS-only buffer-clear is covered in
+;; `re-frame.story-ui-cljs-test`.
 
-(deftest set-show-sensitive!-false-runs-toggle-off-callbacks-rf2-lqmje
-  (testing "true → false transition invokes registered callbacks"
+(deftest narrowing-profile-runs-toggle-off-callbacks-rf2-lqmje
+  (testing "reveal → redact transition invokes registered callbacks"
     (let [called?  (atom false)
           token-id ::scrub-callback-test]
       (config/register-toggle-off-callback! token-id #(reset! called? true))
       (try
-        (config/set-show-sensitive! true)
+        (config/set-egress-profile! :rf.egress/local-raw)
         (is (false? @called?)
-            "false → true must NOT invoke callbacks (no buffered sensitive risk)")
-        (config/set-show-sensitive! false)
+            "redact → reveal must NOT invoke callbacks (no buffered sensitive risk)")
+        (config/set-egress-profile! :rf.egress/local-redacted)
         (is (true? @called?)
-            "true → false must invoke every registered callback")
+            "reveal → redact must invoke every registered callback")
         (finally
           (config/unregister-toggle-off-callback! token-id))))))
 
-(deftest set-show-sensitive!-no-transition-no-callback-rf2-lqmje
-  (testing "true → true and false → false are no-ops for the callbacks"
+(deftest profile-no-transition-no-callback-rf2-lqmje
+  (testing "reveal → reveal and redact → redact are no-ops for the callbacks"
     (let [calls    (atom 0)
           token-id ::scrub-callback-no-transition]
       (config/register-toggle-off-callback! token-id #(swap! calls inc))
       (try
-        (config/set-show-sensitive! false) ; default → false, no transition
+        (config/set-egress-profile! :rf.egress/local-redacted) ; default → redact, no transition
         (is (= 0 @calls))
-        (config/set-show-sensitive! true)
-        (config/set-show-sensitive! true)  ; true → true
+        (config/set-egress-profile! :rf.egress/local-raw)
+        (config/set-egress-profile! :rf.egress/local-raw)  ; reveal → reveal
         (is (= 0 @calls))
-        (config/set-show-sensitive! false) ; true → false, the only transition
+        (config/set-egress-profile! :rf.egress/local-redacted) ; reveal → redact, the only transition
         (is (= 1 @calls))
-        (config/set-show-sensitive! false) ; false → false
+        (config/set-egress-profile! :rf.egress/local-redacted) ; redact → redact
         (is (= 1 @calls))
         (finally
           (config/unregister-toggle-off-callback! token-id))))))
 
-(deftest set-show-sensitive!-callback-failure-isolated-rf2-lqmje
+(deftest narrowing-profile-callback-failure-isolated-rf2-lqmje
   (testing "one buggy callback does not prevent others from running"
     (let [other-called? (atom false)
           token-bad     ::scrub-callback-bad
@@ -405,8 +422,8 @@
       (config/register-toggle-off-callback!
         token-good (fn [] (reset! other-called? true)))
       (try
-        (config/set-show-sensitive! true)
-        (config/set-show-sensitive! false)
+        (config/set-egress-profile! :rf.egress/local-raw)
+        (config/set-egress-profile! :rf.egress/local-redacted)
         (is (true? @other-called?)
             "the good callback must still run after the bad one throws")
         (finally
