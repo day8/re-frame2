@@ -964,6 +964,46 @@ Reinstall MUST preserve the existing hot-reload safety rules:
 The implementation MAY still mutate registrar slots internally. The specified
 behavior is app-value replacement and diff-driven invalidation.
 
+#### Live-instance refusal binds at the kind boundary, then per-kind
+
+The first reinstall slice is descriptor-only (issue 12). Refuse-loudly binds at
+the **kind boundary** in this slice: the step-8-deferred kinds (`:route` /
+`:flow` / `:resource` / `:mutation` / `:resource-scope` / `:view` / `:head` /
+`:error-projector`) throw `:rf.error/unsupported-descriptor-kind` at
+install/reinstall, so the live-instance classes the refusal rule worried about
+(machine actors, in-flight resources/mutations, route transitions) are
+**structurally unreachable** through the descriptor diff. The per-kind
+live-instance **blocker / continue / migrate** rule binds **when each deferred
+kind becomes installable** — it is not a single global query over a universal
+work ledger.
+
+The ONE wired kind that *is* a live instance is `:frame`. A `:removed` `:frame`
+whose live container still exists MUST be **refused loudly** — never silently
+orphaned. `registrar/unregister! :frame id` alone drops only the registrar slot,
+leaving the container live in the core frame registry (still
+dispatchable/subscribable) with the `destroy-frame!` teardown (its `:on-destroy`,
+the machine teardown cascade, sub-cache disposal) skipped. `reinstall!` therefore
+raises `:rf.error/live-frame-removal-unsupported`, enumerating the blocking
+frame-ids, **before any mutation**; the recovery is explicit `destroy-frame!`
+then reinstall. The check reads only the core frame registry (the realm's
+live-frame view), not cross-subsystem machinery. (Removed `:event` / `:fx` /
+`:cofx` have no live instance — they fail loudly on future use per the rule
+above; a removed `:sub`'s disposal/loud-read is pre-existing per-kind hot-reload
+behaviour.)
+
+> **Step-8 installability obligation (binding, bead `rf2-7zn9kg`).** EVERY
+> step-8 kind, when it is made installable through the app-value path, MUST ship
+> its own live-instance **blocker / continue / migrate** rule **and** a per-class
+> refusal test BEFORE its `:rf.error/unsupported-descriptor-kind` throw is
+> lifted. Lifting the kind throw without first defining that rule reopens the
+> silent-orphaning window this disposition closed. This is an **acceptance
+> criterion of the step-8 bead(s)**, not a follow-up nicety. The blocker source
+> is **per-kind**: the durable work ledger (`:rf.runtime/work-ledger`) for the
+> ledger-backed classes (resource + mutation writers — the only writers it
+> carries today), and the **per-subsystem live registries** (machine snapshots,
+> routing `:current`, the core frame registry) for the rest. There is no
+> universal enumeration source.
+
 ### Source Coordinates
 
 Source coordinates are part of the app-value contract. They are required for
@@ -1701,6 +1741,40 @@ inline.
     block the reinstall — and the work ledger is the enumeration source (after
     the EP-0011/0016 waves, every live instance class carries a ledger row),
     so the refusal check is a ledger query, not new machinery.
+
+    > **Errata — 2026-06-12 (Mike, bead `rf2-7zn9kg`).** This disposition is
+    > PRECISED, not deleted, against what shipped. Two corrections:
+    >
+    > 1. **Where refuse-loudly binds in slice 1.** The shipped slice 1
+    >    (`reinstall!`) is descriptor-only and binds refuse-loudly **at the kind
+    >    boundary**: the step-8-deferred kinds (`:route` / `:flow` /
+    >    `:resource` / `:mutation` / `:resource-scope` / `:view` / `:head` /
+    >    `:error-projector`) throw `:rf.error/unsupported-descriptor-kind` at
+    >    install/reinstall, so the live-instance classes this disposition worried
+    >    about (machine actors, in-flight resources/mutations, route transitions)
+    >    are **structurally unreachable** through the descriptor diff — a generic
+    >    blocker query would protect nothing reachable while inventing
+    >    cross-subsystem machinery ahead of those kinds having install semantics.
+    >    The live-instance **blocker / continue / migrate rule binds PER-KIND**,
+    >    when each deferred kind becomes installable; defining that rule is a
+    >    **precondition of lifting the unsupported-kind throw** for that kind (see
+    >    the §Implementation step-8 obligation). The ONE wired kind that *is* a
+    >    live instance — `:frame` — is handled: a `:removed` `:frame` whose live
+    >    container still exists is refused loudly
+    >    (`:rf.error/live-frame-removal-unsupported`, enumerating the blocking
+    >    frame-ids) rather than silently orphaned.
+    >
+    > 2. **The enumeration-source overclaim.** "The work ledger is THE
+    >    enumeration source … every live instance class carries a ledger row" is
+    >    corrected: per the shipped ledger (`spec/016` §What Spec 016 does NOT
+    >    cover / §Work-ledger multi-writer authority, ~L1249/L1259) the durable
+    >    ledger carries **only resource + mutation writers** —
+    >    timers, route loaders, spawned actors, and machine async are explicitly
+    >    *future*. The work ledger is therefore **one** blocker source for the
+    >    ledger-backed classes, never the universal enumeration source. The other
+    >    blocker sources are the **per-subsystem live registries** (machine
+    >    snapshots, routing `:current`, the core frame registry). Each per-kind
+    >    rule names its own source when that kind becomes installable.
 13. Does the host-transient subsystem descriptor live here or as an extension row
     in EP-0006's grading table? **Recommendation:** EP-0006 owns the contract;
     this EP contributes realm ownership and lifecycle as the host-transient
