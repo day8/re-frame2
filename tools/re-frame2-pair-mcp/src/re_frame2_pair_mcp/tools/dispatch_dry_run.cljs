@@ -28,20 +28,41 @@
 
   The fix reuses the EXISTING read-surface posture (snapshot /
   get-path / subscribe, rf2-c2dtu / rf2-vflrg) rather than minting a
-  new confirmation gate:
+  new confirmation gate. The two egress slots egress under DIFFERENT
+  policies because they are different keyspaces:
 
-    - `:db-state-after-simulation` and every `:would-fire-effects[*]
-      :args` slot are run through `re-frame.core/elide-wire-value`
-      SERVER-SIDE (app-side, where the `[:rf.runtime/elision]`
-      runtime-db registry is reachable) before the EDN crosses the wire. Large
-      slots collapse to `:rf.size/large-elided` markers; declared-
-      sensitive slots redact to `:rf/redacted`.
-    - The walker runs BY DEFAULT. The per-call `:elision false` /
-      `:include-sensitive true` knobs are honoured ONLY when the
-      operator launched with `--allow-sensitive-reads`
-      (`raw-state/raw-state-allowed?` — same gate that governs the
-      direct-read surfaces). When the gate is OFF the knobs are
-      forced safe (`elision` true, `include-sensitive` false).
+    - `:db-state-after-simulation` (the would-be app-db) is run
+      through `re-frame.core/elide-wire-value` SERVER-SIDE (app-side,
+      where the `[:rf.runtime/elision]` runtime-db registry is
+      reachable) before the EDN crosses the wire. Large slots collapse
+      to `:rf.size/large-elided` markers; declared-sensitive slots
+      redact to `:rf/redacted`. This slot IS rooted at the frame's
+      app-db, so the schema-path walker can prove it safe.
+      - The walker runs BY DEFAULT. The per-call `:elision false` /
+        `:include-sensitive true` knobs are honoured ONLY when the
+        operator launched with `--allow-sensitive-reads`
+        (`raw-state/raw-state-allowed?` — same gate that governs the
+        direct-read surfaces). When the gate is OFF the knobs are
+        forced safe (`elision` true, `include-sensitive` false).
+
+    - `:would-fire-effects[*].args` (the RAW fx-handler arguments — an
+      HTTP request body, a dispatched event vector, a payment map) are
+      NOT rooted at app-db, so the schema-path-keyed walker CANNOT
+      prove them safe. This is the same leak class as an epoch
+      record's `:effects[*].args`, which `projected-record` already
+      FAILS CLOSED off-box (`elide-effect-row`). Consistency wins
+      (rf2-6to9xj, EP-0015 §13 residual): off-box egress fails closed
+      here too — `:args` redacts to `:rf/redacted` for EVERY recorded
+      fx BY DEFAULT, while the value-free row structure (`:fx-id`, the
+      effect kind) rides through so the operator still sees WHICH
+      effects would fire. The fail-close runs on BOTH the elision-on
+      and elision-off paths — turning the size walker off must not
+      re-leak the unprovable fx args. The trusted-local
+      `:include-fx-args true` opt-in keeps the raw args, honoured ONLY
+      under `--allow-sensitive-reads` (the same two-key gate as
+      `:include-sensitive`); it is ORTHOGONAL to `:include-sensitive`
+      (a different keyspace, not app-db values).
+
     - `:cascade-summary` is a depth-bounded projection (path lists +
       counts, not verbatim values) so it rides through unwalked, the
       same way `dispatch` / `replace-app-db` / `restore-epoch` surface
@@ -120,23 +141,70 @@
           :else
           [:ok parsed])))))
 
+(defn- redact-fx-args-src
+  "CLJS source for a fn that FAIL-CLOSES the `:would-fire-effects[*]
+  :args` slot of the runtime envelope (rf2-6to9xj, EP-0015 §13 residual).
+
+  Each recorded fx call's `:args` is the RAW fx-handler argument — an
+  HTTP request body, a dispatched event vector, a payment map. These are
+  NOT rooted at the frame's app-db, so the schema-path-keyed
+  `elide-wire-value` walker CANNOT prove them safe. This is the same leak
+  class as an epoch record's `:effects[*].args`, which `projected-record`
+  already fails closed off-box (`elide-effect-row`,
+  `:include-fx-args? false`). Consistency wins: off-box egress FAILS
+  CLOSED here too — `:args` is replaced with the `:rf/redacted` sentinel
+  for EVERY recorded fx by default.
+
+  The value-free row structure rides through unchanged — `:fx-id`, the
+  effect kind, and any other non-`:args` row key — so the operator still
+  sees WHICH effects would fire, just not their (unprovable) payloads.
+
+  `redact?` is the already-gated boolean (`(not include-fx-args?)`):
+  `true` (the default / gate-OFF posture) redacts; `false` (the
+  trusted-local `--allow-sensitive-reads` + `:include-fx-args true`
+  opt-in) keeps the raw `:args`. When `redact?` is false this returns the
+  identity walk (no `:args` mutation), so the opt-in path ships the raw
+  payload.
+
+  Only the happy-path envelope (`:ok? true`) carries `:would-fire-effects`,
+  so a soft-failure envelope (`:no-epoch-recorded` / `:no-new-epoch`)
+  flows through untouched. Idempotent: a row whose `:args` already carries
+  `:rf/redacted` re-redacts to the same sentinel."
+  [redact?]
+  (if-not redact?
+    "(fn [env] env)"
+    (str "(fn [env]"
+         "  (if (and (map? env) (:ok? env) (contains? env :would-fire-effects))"
+         "    (update env :would-fire-effects"
+         "            (fn [fx] (mapv (fn [e]"
+         "                             (if (and (map? e) (contains? e :args))"
+         "                               (assoc e :args :rf/redacted) e))"
+         "                           fx)))"
+         "    env))")))
+
 (defn- elide-envelope-src
-  "CLJS source for a fn that walks the runtime envelope's egress slots
-  through `re-frame.core/elide-wire-value` (rf2-z7roa). The two slots
-  that can carry app-db-derived / fx-derived data:
+  "CLJS source for a fn that walks the runtime envelope's app-db-rooted
+  egress slot through `re-frame.core/elide-wire-value` (rf2-z7roa):
 
     - `:db-state-after-simulation` — the would-be app-db verbatim.
-    - `:would-fire-effects[*].args` — each recorded fx call's args.
 
-  Both ride the same walker the direct-read surfaces use, so a
-  declared-sensitive slot redacts to `:rf/redacted` and a declared-
-  large slot collapses to `:rf.size/large-elided` — server-side,
-  before the EDN crosses the wire. `:cascade-summary` is a depth-
-  bounded projection (path lists + counts, not verbatim values) and
-  is intentionally NOT walked, matching the other cascade-summary
-  surfaces (rf2-6yqdl).
+  This slot IS rooted at the frame's app-db, so the schema-path-keyed
+  walker can prove it safe: a declared-sensitive slot redacts to
+  `:rf/redacted` and a declared-large slot collapses to
+  `:rf.size/large-elided` — server-side, before the EDN crosses the wire.
 
-  Only the happy-path envelope (`:ok? true`) carries those slots, so a
+  The `:would-fire-effects[*].args` slot is NOT walked here — those are
+  RAW fx-handler args (HTTP bodies, dispatched event vectors, payment
+  maps) that are NOT app-db-rooted, so the walker cannot prove them safe.
+  They fail closed via `redact-fx-args-src` (rf2-6to9xj), matching
+  `projected-record`'s `:effects[*].args` posture, independently of
+  whether this size-elision walker runs at all.
+
+  `:cascade-summary` is a depth-bounded projection (path lists + counts,
+  not verbatim values) and is intentionally NOT walked, matching the
+  other cascade-summary surfaces (rf2-6yqdl).
+
+  Only the happy-path envelope (`:ok? true`) carries the db slot, so a
   soft-failure envelope (`:no-epoch-recorded` / `:no-new-epoch`) flows
   through untouched.
 
@@ -151,14 +219,7 @@
        "    (let [opts (merge {:frame " frame-edn "} " elision-opts ")"
        "          f    (fn [v] (re-frame.core/elide-wire-value v opts))"
        "          env  (if (contains? env :db-state-after-simulation)"
-       "                 (update env :db-state-after-simulation f) env)"
-       "          env  (if (contains? env :would-fire-effects)"
-       "                 (update env :would-fire-effects"
-       "                         (fn [fx] (mapv (fn [e]"
-       "                                          (if (and (map? e) (contains? e :args))"
-       "                                            (update e :args f) e))"
-       "                                        fx)))"
-       "                 env)]"
+       "                 (update env :db-state-after-simulation f) env)]"
        "      env)"
        "    env))"))
 
@@ -188,6 +249,17 @@
         incl?        (if (raw-state/raw-state-allowed?)
                        (args/parse-bool-arg raw-args :include-sensitive)
                        false)
+        ;; rf2-6to9xj — :would-fire-effects[*].args are RAW fx-handler
+        ;; arguments NOT rooted at app-db, so `elide-wire-value` cannot
+        ;; prove them safe (same leak class as an epoch record's
+        ;; :effects[*].args). Off-box egress FAILS CLOSED: :args redacts to
+        ;; :rf/redacted by default, matching `projected-record`. The
+        ;; trusted-local :include-fx-args true opt-in is honoured ONLY under
+        ;; --allow-sensitive-reads (same two-key gate as :include-sensitive);
+        ;; gate OFF forces the redaction on regardless of the per-call knob.
+        incl-fx-args? (if (raw-state/raw-state-allowed?)
+                        (args/parse-bool-arg raw-args :include-fx-args)
+                        false)
         ;; rf2-suoj2 — `elision-opts-edn` takes the walker-aligned
         ;; `include-large?` polarity directly. MCP `elision` true =
         ;; emit markers = `:include-large?` false; hence `(not elision?)`.
@@ -210,29 +282,42 @@
             opts-form (cond-> {}
                         frame        (assoc :frame frame)
                         fx-overrides (assoc :fx-overrides fx-overrides))
-            ;; The runtime returns the structured dry-run envelope. When
-            ;; elision is ON (the default) we wrap it server-side: the
-            ;; `:db-state-after-simulation` + `:would-fire-effects[*]
-            ;; :args` egress slots run through `re-frame.core/elide-wire-
-            ;; value` (the walker reaches the live elision registry only
-            ;; app-side), and the marker count piggybacks on the same
-            ;; round-trip so the client doesn't re-walk. When elision is
-            ;; OFF (operator opted in via --allow-sensitive-reads + per-
-            ;; call :elision false) the bare envelope rides through.
+            ;; The runtime returns the structured dry-run envelope. We
+            ;; transform it server-side in two composed stages (the walker
+            ;; reaches the live elision registry only app-side):
+            ;;
+            ;;   1. fx-args fail-close (rf2-6to9xj, ALWAYS) — the
+            ;;      `:would-fire-effects[*].args` slot carries RAW fx-handler
+            ;;      arguments that are NOT app-db-rooted, so the size walker
+            ;;      cannot prove them safe. Off-box egress fails closed:
+            ;;      `:args` redacts to `:rf/redacted` for every fx unless the
+            ;;      operator opted in (`--allow-sensitive-reads` +
+            ;;      `:include-fx-args true`). This runs on BOTH the
+            ;;      elision-on and elision-off paths — turning the size
+            ;;      walker off must NOT re-leak the unprovable fx args.
+            ;;   2. size-elision walk (rf2-z7roa, when `elision?`) — the
+            ;;      app-db-rooted `:db-state-after-simulation` slot runs
+            ;;      through `re-frame.core/elide-wire-value`; the marker
+            ;;      count piggybacks on the same round-trip so the client
+            ;;      doesn't re-walk. When elision is OFF (operator opted in
+            ;;      via --allow-sensitive-reads + :elision false) the db slot
+            ;;      rides raw — but stage 1 still fail-closes the fx args.
+            redact-src   (redact-fx-args-src (not incl-fx-args?))
             form (if elision?
                    (ef/emit
                      (ef/rt-let
-                       ['env    (ef/rt-call 'dispatch-dry-run event-vec opts-form)
-                        'walked (ef/rt-raw (str "(" (elide-envelope-src frame-edn elision-opts) " env)"))]
+                       ['env      (ef/rt-call 'dispatch-dry-run event-vec opts-form)
+                        'redacted (ef/rt-raw (str "(" redact-src " env)"))
+                        'walked   (ef/rt-raw (str "(" (elide-envelope-src frame-edn elision-opts) " redacted)"))]
                        (ef/rt-raw
                          (str "{:value walked"
                               " :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
                               "                              (tree-seq coll? seq walked)))}"))))
                    (ef/emit
-                     (ef/rt-raw
-                       (str "{:value "
-                            (ef/emit (ef/rt-call 'dispatch-dry-run event-vec opts-form))
-                            " :elided-count 0}"))))]
+                     (ef/rt-let
+                       ['env      (ef/rt-call 'dispatch-dry-run event-vec opts-form)
+                        'redacted (ef/rt-raw (str "(" redact-src " env)"))]
+                       (ef/rt-raw "{:value redacted :elided-count 0}"))))]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))

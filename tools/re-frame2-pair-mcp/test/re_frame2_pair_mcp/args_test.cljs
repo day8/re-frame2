@@ -36,14 +36,17 @@
   ;; The catalogued arg keys; their default postures are the cross-MCP
   ;; convention. Drift here = drift across consumers. `:include-values`
   ;; was added by rf2-qicji for the reactive `list-subscriptions` tool;
-  ;; `:drain` / `:stop` by rf2-zo4b9 for `read-recording`.
-  (is (= #{:dedup :elision :cache :include-sensitive :include-values
-           :drain :stop}
+  ;; `:drain` / `:stop` by rf2-zo4b9 for `read-recording`;
+  ;; `:include-fx-args` by rf2-6to9xj for `dispatch-dry-run`'s
+  ;; fail-closed :would-fire-effects[*].args.
+  (is (= #{:dedup :elision :cache :include-sensitive :include-fx-args
+           :include-values :drain :stop}
          (set (keys args/bool-args))))
   (is (true?  (get-in args/bool-args [:dedup             :default])))
   (is (true?  (get-in args/bool-args [:elision           :default])))
   (is (false? (get-in args/bool-args [:cache             :default])))
   (is (false? (get-in args/bool-args [:include-sensitive :default])))
+  (is (false? (get-in args/bool-args [:include-fx-args   :default])))
   (is (false? (get-in args/bool-args [:include-values    :default])))
   (is (false? (get-in args/bool-args [:drain             :default])))
   (is (false? (get-in args/bool-args [:stop              :default]))))

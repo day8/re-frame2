@@ -770,25 +770,29 @@
      :reason :not-an-event-vector}}
 
    ;; rf2-z7roa — dry-run is an AI-facing READ surface. Gate OFF (the
-   ;; default published posture) MUST run the egress slots
-   ;; (:db-state-after-simulation + :would-fire-effects[*].args) through
-   ;; the elision walker server-side, with sensitive slots forced to
-   ;; redact and large slots forced to elide. The eval form must carry
-   ;; the walker call + the safe walker opts, and must signal the
-   ;; raw-state tap posture (configure-raw-state!) before the dispatch.
+   ;; default published posture) MUST run the app-db-rooted egress slot
+   ;; (:db-state-after-simulation) through the elision walker server-side,
+   ;; with sensitive slots forced to redact and large slots forced to
+   ;; elide. rf2-6to9xj — the :would-fire-effects[*].args slot is NOT
+   ;; app-db-rooted, so it FAILS CLOSED (assoc :rf/redacted) rather than
+   ;; running through the walker. The eval form must carry the walker call
+   ;; (for the db slot) + the safe walker opts + the fx-args redaction
+   ;; (touching :would-fire-effects), and must signal the raw-state tap
+   ;; posture (configure-raw-state!) before the dispatch.
    {:fixture/id    :dispatch-dry-run/gate-off-redacts-egress
-    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads OFF (default): the form runs :db-state-after-simulation + :would-fire-effects args through elide-wire-value with :rf.size/include-sensitive? false (rf2-z7roa)."
+    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads OFF (default): the form runs :db-state-after-simulation through elide-wire-value with :rf.size/include-sensitive? false, and FAILS CLOSED the :would-fire-effects[*].args to :rf/redacted (rf2-z7roa + rf2-6to9xj)."
     :fixture/tool  "dispatch-dry-run"
     :fixture/allow-raw-state? false
     :fixture/args  {:event "[:auth/login]"
                     ;; caller tries to bypass; the gate forces safe.
                     :elision false
-                    :include-sensitive true}
+                    :include-sensitive true
+                    :include-fx-args true}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      ["configure-raw-state!"      nil]
      ["dispatch-dry-run"          {:value {:ok? true :dry-run? true :rolled-back? true
-                                           :would-fire-effects [{:fx-id :http :args {:headers {:authorization :rf/redacted}}}]
+                                           :would-fire-effects [{:fx-id :http :args :rf/redacted}]
                                            :db-state-after-simulation {:user {:token :rf/redacted}}}
                                    :elided-count 0}]
      [:default                    nil]]
@@ -805,7 +809,7 @@
      :edn-submap {:ok? true :dry-run? true :elision true}}}
 
    {:fixture/id    :dispatch-dry-run/gate-on-honours-opt-out
-    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads ON + caller :elision false ships the raw simulation details — NO walker wrap (rf2-z7roa)."
+    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads ON + caller :elision false ships the raw simulation details — NO walker wrap for the db slot (rf2-z7roa). With :include-fx-args unset the fx args still fail closed (rf2-6to9xj), so the form still touches :would-fire-effects (assoc :rf/redacted), but never elide-wire-value."
     :fixture/tool  "dispatch-dry-run"
     :fixture/allow-raw-state? true
     :fixture/args  {:event "[:cart/checkout]" :elision false}
@@ -820,6 +824,35 @@
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :elision false}}}
+
+   ;; rf2-6to9xj — the :would-fire-effects[*].args slot carries RAW
+   ;; fx-handler arguments (HTTP bodies, dispatched event vectors, payment
+   ;; maps) NOT rooted at app-db, so the schema-path walker cannot prove
+   ;; them safe. Off-box egress FAILS CLOSED: :args redacts to :rf/redacted
+   ;; for every fx by default, while :fx-id rides through. The emitted form
+   ;; carries the fail-close (assoc :args :rf/redacted on :would-fire-effects).
+   ;; Gate ON (--allow-sensitive-reads) + :include-fx-args true is the
+   ;; trusted-local opt-in that keeps the raw args — the form then does NOT
+   ;; touch the :args slot.
+   {:fixture/id    :dispatch-dry-run/gate-on-include-fx-args-reveals
+    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads ON + :include-fx-args true keeps the raw :would-fire-effects[*].args — the emitted form does NOT assoc :rf/redacted onto the args (rf2-6to9xj)."
+    :fixture/tool  "dispatch-dry-run"
+    :fixture/allow-raw-state? true
+    :fixture/args  {:event "[:auth/login]" :include-fx-args true}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["dispatch-dry-run"          {:value {:ok? true :dry-run? true :rolled-back? true
+                                           :would-fire-effects [{:fx-id :http :args {:headers {:authorization "Bearer raw-token"}}}]
+                                           :db-state-after-simulation {:user {:token "raw"}}}
+                                   :elided-count 0}]
+     [:default                    nil]]
+    :fixture/eval-form-must-not-contain
+    ["assoc e :args :rf/redacted"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :dry-run? true
+                  :would-fire-effects [{:fx-id :http :args {:headers {:authorization "Bearer raw-token"}}}]}}}
 
    {:fixture/id    :dispatch-dry-run/no-new-epoch
     :fixture/doc   "dispatch-dry-run surfaces the runtime's {:ok? false :reason :no-new-epoch} as an isError envelope (rf2-wdxyx3 finding 2 — a non-landed dry-run is never a silent success; parity with dispatch/no-new-epoch)."

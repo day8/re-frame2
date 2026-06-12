@@ -289,6 +289,111 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-6to9xj — :would-fire-effects[*].args fail closed. The recorded fx
+;; args are RAW fx-handler arguments (HTTP bodies, dispatched event
+;; vectors, payment maps) NOT rooted at app-db, so the schema-path
+;; `elide-wire-value` walker cannot prove them safe — the same leak class
+;; as an epoch record's :effects[*].args, which projected-record fails
+;; closed. The dry-run egress MUST fail closed too: the emitted form
+;; assoc's :rf/redacted onto every :would-fire-effects row's :args BY
+;; DEFAULT (independently of the size-elision walker), and the trusted-
+;; local :include-fx-args true opt-in keeps the raw args — honoured ONLY
+;; under --allow-sensitive-reads.
+;; ---------------------------------------------------------------------------
+
+(deftest default-redacts-fx-args
+  ;; The published-build default (gate OFF). The emitted form fail-closes
+  ;; the fx args (assoc :rf/redacted on each :would-fire-effects row),
+  ;; while the app-db slot still rides the elide-wire-value walker — the
+  ;; two egress slots egress under different policies.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-raw-gate! false
+            (fn []
+              (with-captured-eval! forms (wrap {:ok? true :dry-run? true} 0)
+                (fn []
+                  (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                                 #js {:event "[:cart/checkout]"
+                                                      ;; caller tries to opt in; gate OFF ignores it.
+                                                      :include-fx-args true})))))
+          (.then (fn [_]
+                   (let [form (dispatch-form forms)]
+                     (is (str/includes? form ":would-fire-effects")
+                         "the fx-args fail-close touches :would-fire-effects")
+                     (is (str/includes? form ":args :rf/redacted")
+                         "gate OFF forces fx args to :rf/redacted even when caller passed :include-fx-args true")
+                     (is (str/includes? form "re-frame.core/elide-wire-value")
+                         "the app-db slot still rides the size-elision walker"))
+                   (done)))))))
+
+(deftest gate-on-default-still-redacts-fx-args
+  ;; Even under --allow-sensitive-reads, fx args fail closed UNLESS the
+  ;; caller passes :include-fx-args true. Revealing app-db (gate ON) is a
+  ;; different keyspace than revealing the unprovable fx args.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-raw-gate! true
+            (fn []
+              (with-captured-eval! forms (wrap {:ok? true :dry-run? true} 0)
+                (fn []
+                  (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                                 #js {:event "[:cart/checkout]"
+                                                      ;; gate ON but no :include-fx-args opt-in
+                                                      :include-sensitive true})))))
+          (.then (fn [_]
+                   (let [form (dispatch-form forms)]
+                     (is (str/includes? form ":args :rf/redacted")
+                         "fx args fail closed by default even under the gate (orthogonal to :include-sensitive)"))
+                   (done)))))))
+
+(deftest opt-in-reveals-fx-args
+  ;; --allow-sensitive-reads + :include-fx-args true is the trusted-local
+  ;; opt-in: the emitted form does NOT redact the fx args (the redaction
+  ;; walk collapses to identity), so the raw :args ride through.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-raw-gate! true
+            (fn []
+              (with-captured-eval! forms (wrap {:ok? true :dry-run? true} 0)
+                (fn []
+                  (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                                 #js {:event "[:cart/checkout]"
+                                                      :include-fx-args true})))))
+          (.then (fn [_]
+                   (let [form (dispatch-form forms)]
+                     (is (not (str/includes? form ":args :rf/redacted"))
+                         "gate ON + :include-fx-args true ships raw fx args — no fail-close"))
+                   (done)))))))
+
+(deftest fx-args-redacted-markers-ride-through
+  ;; End-to-end envelope unwrap: the server-side form has already failed
+  ;; closed (the stub canned value is post-redaction), so the wire result
+  ;; carries :rf/redacted at each fx row's :args while :fx-id rides through.
+  (async done
+    (let [env {:ok?                true
+               :dry-run?           true
+               :rolled-back?       true
+               :would-fire-effects [{:fx-id :http     :args :rf/redacted}
+                                    {:fx-id :navigate :args :rf/redacted}]
+               :db-state-after-simulation {:cart {:items []}}}]
+      (-> (with-captured-eval! (atom []) (wrap env 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                             #js {:event "[:cart/checkout]"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [edn (read-result-text r)]
+                     (is (= :rf/redacted (get-in edn [:would-fire-effects 0 :args]))
+                         "first fx row's args fail closed")
+                     (is (= :rf/redacted (get-in edn [:would-fire-effects 1 :args]))
+                         "second fx row's args fail closed")
+                     (is (= :http (get-in edn [:would-fire-effects 0 :fx-id]))
+                         "fx-id rides through — operator still sees WHICH effects fire")
+                     (is (= :navigate (get-in edn [:would-fire-effects 1 :fx-id]))
+                         "second fx-id rides through"))
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
 ;; Envelope unwrap — the runtime's structured envelope rides through the
 ;; wire boundary, unwrapped from the `{:value ... :elided-count ...}`
 ;; eval-form shape.
