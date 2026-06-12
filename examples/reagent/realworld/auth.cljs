@@ -54,39 +54,30 @@
         (.setItem    ls "jwtToken" token)
         (.removeItem ls "jwtToken")))))
 
-;; EP-0010 (causal world inputs, rf2-lk86xl): the saved JWT is a STORAGE world
-;; fact that `:auth/initialise` folds into durable app-db (and that drives
-;; session restore). A durable write must be a function of prior frame-state
-;; plus the causal token — not of an ambient `localStorage` read at the write
-;; site, which replay/restore could not reproduce. The host-boundary boot read
-;; happens once, in `realworld.core/run`, and rides the boot dispatch token as
-;; the flat recordable coeffect `:rf.cofx {:auth.session/stored-token …}`.
+;; EP-0017 (rf2-oa2dun): the saved JWT is read from localStorage at boot. This
+;; is a value-returning AMBIENT coeffect (EP-0017 §2): `reg-cofx` registers a
+;; supplier `(fn [] value)`; a handler takes delivery by declaring
+;; `:rf.cofx/requires [:auth.session/token]` and reading the value FLAT under
+;; that id. The supplier runs at context assembly; it is not recorded, and
+;; replay re-runs it. Tests / replay that need a deterministic token re-register
+;; the supplier (the visible, greppable seam — EP-0017 §10 ambient-stub idiom),
+;; never a monkey-patch.
 (defn read-jwt-from-storage
-  "Host-boundary read of the saved JWT from localStorage (or nil). Called from
-   `realworld.core/run` so the token rides the boot dispatch token as a causal
-   world input rather than being read ambiently in the durable initialise
-   handler. nil when absent / unavailable (e.g. node, logged-out first run)."
+  "Host-boundary read of the saved JWT from localStorage (or nil). The
+   value-returning supplier for the `:auth.session/token` ambient coeffect.
+   nil when absent / unavailable (e.g. node, logged-out first run)."
   []
   (some-> (.-localStorage js/globalThis)
           (.getItem "jwtToken")))
 
 (rf/reg-cofx :auth.session/token
-  {:doc "Inject the saved JWT (or nil) into coeffects.
-
-         EP-0010 / EP-0017 recordable storage coeffect (the `:app/now-ms`
-         pattern, EP-0010 §Backwards Compatibility): returns the captured
-         `(:auth.session/stored-token (:rf.cofx cofx))` value when the boot
-         token supplied one (replay / restore / test fixtures get the exact
-         recorded value, no host re-read), falling back to a live
-         `read-jwt-from-storage` host read only when none was supplied — i.e.
-         when building a fresh live token at the boundary where reading the host
-         IS correct."}
-  (fn cofx-auth-session-token [ctx _]
-    (let [cofx (get-in ctx [:coeffects :rf.cofx])]
-      (rf/assoc-coeffect ctx :auth.session/token
-                         (if (contains? cofx :auth.session/stored-token)
-                           (:auth.session/stored-token cofx)
-                           (read-jwt-from-storage))))))
+  {:doc "Ambient coeffect: the saved JWT (or nil) read from localStorage.
+         A handler that needs the token declares
+         `:rf.cofx/requires [:auth.session/token]` and reads it flat. The
+         supplier runs at context assembly and is never recorded (EP-0017 §2);
+         tests / replay re-register the supplier to stub it."}
+  (fn cofx-auth-session-token []
+    (read-jwt-from-storage)))
 
 ;; ============================================================================
 ;; SUPPORT EVENTS
@@ -244,7 +235,7 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :auth/initialise
-  [(rf/inject-cofx :auth.session/token)]
+  {:rf.cofx/requires [:auth.session/token]}
   (fn handler-auth-initialise [{:keys [db auth.session/token]} _]
     ;; ITEM 8 (rf2-ygh4m): we dispatch `:auth/flow [:auth/restore token]`
     ;; UNCONDITIONALLY — even when `token` is nil — on purpose. This first

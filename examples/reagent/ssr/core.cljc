@@ -101,8 +101,8 @@
   {:doc       "Per-request server-side initialisation. Reads the request
                via the :rf.server/request cofx (Spec 011 §Request storage
                substrate), dispatches setup events. Server only."
-   :platforms #{:server}}
-  [(rf/inject-cofx :rf.server/request)]
+   :platforms #{:server}
+   :rf.cofx/requires [:rf.server/request]}
   (fn handler-rf-server-init [{:keys [db rf.server/request]} _]
     ;; `request` is the host-supplied HTTP request map (Ring shape under
     ;; the bundled adapter); read URL/headers/cookies from here rather

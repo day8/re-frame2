@@ -184,13 +184,13 @@
                           :on-failure [:profile/load-failed]})]]})))
 
 (rf/reg-event-fx :profile/loaded
-  [(rf/inject-cofx :realworld/now)]
-  (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
+  {:rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     {:db (-> db
              (assoc-in [:profile :status] :loaded)
              (assoc-in [:profile :data] (:profile value))
              (assoc-in [:profile :error] nil)
-             (assoc-in [:profile :loaded-at] now))
+             (assoc-in [:profile :loaded-at] time-ms))
      :fx [[:dispatch [:ui/profile [:fetch-succeeded]]]]}))
 
 (rf/reg-event-fx :profile/load-failed
@@ -226,14 +226,14 @@
                           :on-failure [:profile.articles/load-failed]})]]})))
 
 (rf/reg-event-fx :profile.articles/loaded
-  [(rf/inject-cofx :realworld/now)]
-  (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
+  {:rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     {:db (-> db
              (assoc-in [:profile.articles :status] :loaded)
              (assoc-in [:profile.articles :data] (vec (:articles value)))
              (assoc-in [:profile.articles :articles-count]
                        (or (:articlesCount value) (count (:articles value))))
-             (assoc-in [:profile.articles :loaded-at] now))}))
+             (assoc-in [:profile.articles :loaded-at] time-ms))}))
 
 (rf/reg-event-db :profile.articles/load-failed
   (fn [db [_ {:keys [failure]}]]
@@ -266,14 +266,14 @@
                           :on-failure [:profile.favorites/load-failed]})]]})))
 
 (rf/reg-event-fx :profile.favorites/loaded
-  [(rf/inject-cofx :realworld/now)]
-  (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
+  {:rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     {:db (-> db
              (assoc-in [:profile.favorites :status] :loaded)
              (assoc-in [:profile.favorites :data] (vec (:articles value)))
              (assoc-in [:profile.favorites :articles-count]
                        (or (:articlesCount value) (count (:articles value))))
-             (assoc-in [:profile.favorites :loaded-at] now))}))
+             (assoc-in [:profile.favorites :loaded-at] time-ms))}))
 
 (rf/reg-event-db :profile.favorites/load-failed
   (fn [db [_ {:keys [failure]}]]

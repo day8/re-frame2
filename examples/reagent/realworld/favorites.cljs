@@ -93,16 +93,16 @@
 (rf/reg-event-fx :feed/loaded
   {:doc "Successful user-feed fetch. Folds the new count into the home
          machine via `:fetch-succeeded`; the `:data` region's
-         `:resolving` `:always`-cascade picks `:empty` or `:some`."}
-  [(rf/inject-cofx :realworld/now)]
-  (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
+         `:resolving` `:always`-cascade picks `:empty` or `:some`."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     (let [items (vec (:articles value))
           total (or (:articlesCount value) (count items))]
       {:db (-> db
                (assoc-in [:feed :status] :loaded)
                (assoc-in [:feed :data] items)
                (assoc-in [:feed :articles-count] total)
-               (assoc-in [:feed :loaded-at] now))
+               (assoc-in [:feed :loaded-at] time-ms))
        :fx [[:dispatch [:realworld/articles-home
                         [:fetch-succeeded {:items items}]]]]})))
 
