@@ -61,10 +61,15 @@
   is distinguishable from a path that legitimately points at nil. The
   deepest-valid-prefix loop is inlined so a stale runtime (no helper)
   still answers correctly. Elision (rf2-urjnc) + server-side marker
-  count (rf2-e35a5) ride on the `:value` / `:elided-count` slots."
-  [snapshot-call path elision? frame-edn elision-opts]
-  (let [elide-call (elide-call-src elision? "v" "path" frame-edn elision-opts)
-        count-expr (if elision?
+  count (rf2-e35a5) ride on the `:value` / `:elided-count` slots.
+
+  `walk?` (rf2-t55hxg.13) — whether the per-slot walker fires at all. It
+  is NOT `elision?`: a bare `:elision false` still walks (sensitive
+  redacts, large passes); only a deliberate full-raw opt-in
+  (`:elision false` AND `:include-sensitive true`) skips it."
+  [snapshot-call path walk? frame-edn elision-opts]
+  (let [elide-call (elide-call-src walk? "v" "path" frame-edn elision-opts)
+        count-expr (if walk?
                      (str "(count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
                           "               (tree-seq coll? seq elided-v)))")
                      "0")]
@@ -100,9 +105,12 @@
   :elided-count N}`; the `:results` map preserves the caller's path
   vectors as keys so the agent can correlate hits without re-deriving
   order. The marker `:path` handle is the per-iteration path `p` so a
-  drill-down via singular `get-path` lands on the right slot."
-  [snapshot-call paths elision? frame-edn elision-opts]
-  (let [elide-call (elide-call-src elision? "raw-v" "p" frame-edn elision-opts)]
+  drill-down via singular `get-path` lands on the right slot.
+
+  `walk?` (rf2-t55hxg.13) — see `single-path-form`: the walker fires
+  unless the caller opted into full-raw egress."
+  [snapshot-call paths walk? frame-edn elision-opts]
+  (let [elide-call (elide-call-src walk? "raw-v" "p" frame-edn elision-opts)]
     (ef/emit
       (ef/rt-let
         ['db      snapshot-call
@@ -153,6 +161,16 @@
         ;; `include-large?` polarity directly. MCP `elision` true =
         ;; emit markers = `:include-large?` false; hence `(not elision?)`.
         elision-opts  (elision/elision-opts-edn (not elision?) incl?)
+        ;; rf2-t55hxg.13 — fail-CLOSED: the walker runs UNLESS the caller
+        ;; opted into BOTH raw axes (`:elision false` ⇒ include-large? true
+        ;; AND `:include-sensitive true` ⇒ incl? true). A bare `:elision
+        ;; false` still walks — `elision-opts` overlays include-large? true
+        ;; so large passes, but include-sensitive? stays false so a frame-
+        ;; declared-sensitive slot still redacts to `:rf/redacted`. Pre-fix
+        ;; the walker gated on `elision?` alone, so `:elision false` leaked
+        ;; sensitive slots off-box. The `:elision` echo below still reports
+        ;; the caller's large-slot intent.
+        walk?         (elision/walk-required? (not elision?) incl?)
         snapshot-call (if frame
                         (ef/rt-call 'snapshot frame)
                         (ef/rt-call 'snapshot))
@@ -221,7 +239,7 @@
           (wire/err-text {:ok? false :reason :empty-paths
                           :hint "usage: get-path {paths '[[:cart :items] [:user :id]]' [frame :rf/default]}"}))
         (run-eval
-          (batch-paths-form snapshot-call paths elision? frame-edn elision-opts)
+          (batch-paths-form snapshot-call paths walk? frame-edn elision-opts)
           :results
           (fn [envelope' results]
             (cond-> (assoc envelope' :results results :elision elision?)
@@ -238,7 +256,7 @@
       ;; `:value` slot is only re-attached on a hit.
       :else
       (run-eval
-        (single-path-form snapshot-call path elision? frame-edn elision-opts)
+        (single-path-form snapshot-call path walk? frame-edn elision-opts)
         (fn [envelope] (when (:ok? envelope) (:value envelope)))
         (fn [envelope' value]
           (let [ok? (:ok? envelope')]

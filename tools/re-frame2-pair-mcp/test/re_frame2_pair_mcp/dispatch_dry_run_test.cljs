@@ -250,9 +250,13 @@
                          "the gate-OFF posture is pushed to the runtime"))
                    (done)))))))
 
-(deftest gate-on-honours-elision-false
-  ;; With --allow-sensitive-reads, the caller's :elision false wins —
-  ;; the form ships the bare runtime call with NO walker wrap.
+(deftest gate-on-bare-elision-false-still-walks
+  ;; rf2-t55hxg.13 — fail-CLOSED. Pre-fix this asserted that gate-ON +
+  ;; `:elision false` shipped the db slot raw with NO walker — which let a
+  ;; declared-sensitive db slot leak off-box WITHOUT the per-call
+  ;; `:include-sensitive true` opt-in (the EP-0015 two-key gate collapse).
+  ;; A BARE `:elision false` now STILL walks: large content passes
+  ;; (`include-large? true`) but a declared-sensitive db slot redacts.
   (async done
     (let [forms (atom [])]
       (-> (with-raw-gate! true
@@ -264,8 +268,34 @@
                                                       :elision false})))))
           (.then (fn [r]
                    (let [form (dispatch-form forms)]
+                     (is (str/includes? form "re-frame.core/elide-wire-value")
+                         "bare :elision false MUST still walk the db slot — no sensitive bypass")
+                     (is (str/includes? form ":rf.size/include-sensitive? false")
+                         "sensitive db slot redacts (caller didn't opt in)")
+                     (is (str/includes? form ":rf.size/include-large? true")
+                         ":elision false overlays include-large? true — large content passes"))
+                   (let [edn (read-result-text r)]
+                     (is (false? (:elision edn)) "the echo reports the caller's large-slot intent"))
+                   (done)))))))
+
+(deftest gate-on-full-raw-opt-in-skips-walker
+  ;; rf2-t55hxg.13 — the deliberate full-raw local opt-in (`:elision
+  ;; false` AND `:include-sensitive true`) is the ONLY combination that
+  ;; ships the db slot raw with no walker wrap.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-raw-gate! true
+            (fn []
+              (with-captured-eval! forms (wrap {:ok? true :dry-run? true} 0)
+                (fn []
+                  (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                                 #js {:event "[:cart/checkout]"
+                                                      :elision false
+                                                      :include-sensitive true})))))
+          (.then (fn [r]
+                   (let [form (dispatch-form forms)]
                      (is (not (str/includes? form "elide-wire-value"))
-                         "gate ON + :elision false ships raw — no walker wrap"))
+                         "full-raw opt-in (elision false + include-sensitive true) ships raw — no walker wrap"))
                    (let [edn (read-result-text r)]
                      (is (false? (:elision edn)) "effective elision is false"))
                    (done)))))))

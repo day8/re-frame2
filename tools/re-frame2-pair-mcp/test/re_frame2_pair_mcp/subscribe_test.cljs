@@ -625,17 +625,38 @@
     (is (str/includes? form ":rf.size/include-sensitive? true")
         "include-sensitive? true threads into the walker opts")))
 
-(deftest drain-form-elision-off-bare-drain
-  ;; Gate ON + caller passes `:elision false` on a trace-event topic —
-  ;; the form must NOT wrap with the walker. Bare `drain-subscription!`
-  ;; call ships raw events (the pre-rf2-vr2hn posture).
+(deftest drain-form-bare-elision-false-still-walks-trace
+  ;; rf2-t55hxg.13 — fail-CLOSED. Pre-fix a gate-ON `:elision false` on a
+  ;; trace-event topic shipped the bare `drain-subscription!` call with NO
+  ;; walker — which let a declared-sensitive frame slot inside a cascade
+  ;; leak off-box WITHOUT the per-call `:include-sensitive true` opt-in (the
+  ;; EP-0015 two-key gate collapse). A BARE `:elision false` (incl? false)
+  ;; now STILL walks: large content passes (`include-large? true`) but a
+  ;; declared-sensitive slot redacts to `:rf/redacted`.
   (let [form (sub/drain-form "sub-raw" :trace false false)]
     (is (str/includes? form "drain-subscription!"))
+    (is (str/includes? form "re-frame.core/elide-wire-value")
+        "bare :elision false MUST still walk trace events — no sensitive bypass")
+    (is (str/includes? form ":rf.size/include-sensitive? false")
+        "sensitive cascade slots redact (caller didn't opt in)")
+    ;; subscribe is a streaming TRACE surface that always emits large-slot
+    ;; markers (it hardcodes include-large? false in the walker opts —
+    ;; unlike snapshot / get-path, where :elision false overlays
+    ;; include-large? true). The fail-closed point here is that the walker
+    ;; still RUNS so sensitive slots redact; the large toggle is moot.
+    (is (str/includes? form ":rf.size/include-large? false")
+        "subscribe always emits large markers (the trace surface elides large slots)")))
+
+(deftest drain-form-full-raw-opt-in-bare-drain-trace
+  ;; rf2-t55hxg.13 — the deliberate full-raw local opt-in (`:elision
+  ;; false` AND `:include-sensitive true`) is the ONLY combination that
+  ;; ships raw trace events with no walker (the operator's `local-raw` act).
+  (let [form (sub/drain-form "sub-raw" :trace false true)]
     (is (not (str/includes? form "re-frame.core/elide-wire-value"))
-        "elision OFF ⇒ no walker; raw events ride the wire")
+        "full-raw opt-in ⇒ no walker; raw events ride the wire")
     (is (= "(re-frame2-pair.runtime/drain-subscription! \"sub-raw\")"
            form)
-        "bare drain form is the pre-rf2-vr2hn shape")))
+        "bare drain form is the operator full-raw opt-in shape")))
 
 (deftest drain-form-sub-id-pr-str-literal
   ;; The sub-id is an EDN string literal — `pr-str` escapes quotes /

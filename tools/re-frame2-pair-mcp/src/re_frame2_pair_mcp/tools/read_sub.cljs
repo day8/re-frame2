@@ -97,12 +97,17 @@
   through `re-frame.core/elide-wire-value` server-side before it crosses
   the nREPL wire. The error envelopes (`:unknown-id` / `:ambiguous-frame`
   / `:sub-error` / `:not-a-sub-vector`) carry no `:value` slot, so the
-  elision walk fires only on `(:ok? res)`."
-  [query-v frame elision? frame-edn elision-opts]
+  elision walk fires only on `(:ok? res)`.
+
+  `walk?` (rf2-t55hxg.13) — whether the walker fires at all. NOT
+  `elision?`: a bare `:elision false` still walks (sensitive redacts,
+  large passes via `elision-opts`); only a deliberate full-raw opt-in
+  (`:elision false` AND `:include-sensitive true`) ships the value bare."
+  [query-v frame walk? frame-edn elision-opts]
   (let [read-call (if frame
                     (ef/rt-call 'read-sub! query-v frame)
                     (ef/rt-call 'read-sub! query-v))]
-    (if-not elision?
+    (if-not walk?
       (ef/emit read-call)
       (ef/emit
         (ef/rt-let
@@ -132,6 +137,11 @@
         ;; `elision-opts-edn` takes walker-aligned `include-large?` — MCP
         ;; `elision` true = emit markers = `:include-large?` false.
         elision-opts (elision/elision-opts-edn (not elision?) incl?)
+        ;; rf2-t55hxg.13 — fail-CLOSED: walk UNLESS the caller opted into
+        ;; both raw axes (`:elision false` AND `:include-sensitive true`).
+        ;; A bare `:elision false` still walks so a declared-sensitive sub
+        ;; value redacts to `:rf/redacted` while large content passes.
+        walk?        (elision/walk-required? (not elision?) incl?)
         frame-edn    (if frame
                        (pr-str frame)
                        (ef/emit (ef/rt-call 'current-frame)))
@@ -142,7 +152,7 @@
 
       :ok
       (let [query-v payload
-            form    (read-sub-form query-v frame elision? frame-edn elision-opts)]
+            form    (read-sub-form query-v frame walk? frame-edn elision-opts)]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))

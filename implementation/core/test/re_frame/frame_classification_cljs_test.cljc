@@ -227,6 +227,59 @@
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= [:observability :handled-events :sink] (:bad-key data))))))
 
+(deftest fail-loud-on-unknown-observability-profile
+  ;; rf2-t55hxg.13 — `:rf.egress/profile` is a member of the closed EP-0015
+  ;; §10 profile enum. A typo'd / unknown profile must fail loudly at
+  ;; reg-frame (the seam that owns the policy), not silently install and
+  ;; only blow up downstream when the sink first fires.
+  (testing "an :observability entry naming an unknown :rf.egress/profile fails loudly"
+    (let [data (bad-classification-ex
+                 #(rf/reg-frame :app/bad-profile
+                    {:observability
+                     {:handled-events [{:sink :my-app.sinks/datadog
+                                        :rf.egress/profile :rf.egress/bogus-profile}]}}))]
+      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
+      (is (= [:observability :handled-events :rf.egress/profile] (:bad-key data)))
+      (is (= :rf.egress/bogus-profile (:bad-value data)))
+      (is (contains? (:valid data) :rf.egress/off-box-observability)
+          "the error carries the closed profile enum"))
+    ;; The :errors stream is validated identically.
+    (let [data (bad-classification-ex
+                 #(rf/reg-frame :app/bad-profile-err
+                    {:observability
+                     {:errors [{:sink :my-app.sinks/sentry
+                                :rf.egress/profile :not-even-egress-namespaced}]}}))]
+      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
+      (is (= [:observability :errors :rf.egress/profile] (:bad-key data)))))
+  (testing "a well-formed :rf.egress/profile from the closed enum is accepted"
+    (rf/reg-frame :app/good-profile
+      {:observability {:handled-events [{:sink :my-app.sinks/datadog
+                                         :rf.egress/profile :rf.egress/off-box-observability}]}})
+    (is (= :my-app.sinks/datadog
+           (get-in (rf/frame-meta :app/good-profile)
+                   [:observability :handled-events 0 :sink])))))
+
+(deftest fail-loud-on-bad-observability-opts
+  ;; rf2-t55hxg.13 — `:opts`, when present, is the sink's option bag and
+  ;; must be a map (or nil). A non-map :opts is malformed — fail at reg-frame
+  ;; rather than handing junk to the sink at fire time.
+  (testing "an :observability entry with non-map :opts fails loudly"
+    (let [data (bad-classification-ex
+                 #(rf/reg-frame :app/bad-opts
+                    {:observability
+                     {:handled-events [{:sink :my-app.sinks/datadog
+                                        :opts "not-a-map"}]}}))]
+      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
+      (is (= [:observability :handled-events :opts] (:bad-key data)))
+      (is (= "not-a-map" (:bad-value data)))))
+  (testing "nil :opts and an omitted :opts are both accepted"
+    (rf/reg-frame :app/nil-opts
+      {:observability {:handled-events [{:sink :my-app.sinks/datadog :opts nil}]
+                       :errors         [{:sink :my-app.sinks/sentry}]}})
+    (is (= :my-app.sinks/datadog
+           (get-in (rf/frame-meta :app/nil-opts)
+                   [:observability :handled-events 0 :sink])))))
+
 (deftest fail-loud-leaves-no-frame-state
   (testing "a malformed classification throws BEFORE the frame is registered (transactional)"
     (bad-classification-ex
