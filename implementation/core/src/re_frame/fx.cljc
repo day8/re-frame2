@@ -926,10 +926,11 @@
 
 (def framework-coeffect-keys
   "Coeffect keys populated by the runtime itself (not by user-registered
-  `reg-cofx` / `inject-cofx`). Filtered OUT of the `:rf.event/coeffects`
-  stamp on `:rf.event/run-end` (rf2-9dk9y) so the Xray Event lens's
-  COEFFECTS section shows only user-injected coeffects (mirrors the
-  AFTER INTERCEPTORS section's filter-out-framework-defaults posture).
+  `reg-cofx` suppliers declared via `:rf.cofx/requires`). Filtered OUT of
+  the `:rf.event/coeffects` stamp on `:rf.event/run-end` (rf2-9dk9y) so the
+  Xray Event lens's COEFFECTS section shows only handler-declared coeffects
+  (mirrors the AFTER INTERCEPTORS section's filter-out-framework-defaults
+  posture).
 
   `:db` + `:event` are populated by `assemble-initial-ctx`.
   `:source` + `:trace-id` are envelope keys also surfaced on the cofx
@@ -943,7 +944,7 @@
   `:rf.cofx` (the EP-0017 flat recordable-coeffect map, rf2-s9ss0t /
   rf2-alc1lf) is a framework coeffect stamped at envelope construction, so it
   is filtered out here exactly like the other framework defaults — the
-  COEFFECTS section shows only genuinely user-injected coeffects (Spec
+  COEFFECTS section shows only genuinely handler-declared coeffects (Spec
   002 §Event Context And Coeffects)."
   #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.cofx})
 

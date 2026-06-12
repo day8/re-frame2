@@ -1,7 +1,9 @@
 (ns re-frame.core-call-site-macros
   "Helpers for the call-site-capturing macros — `dispatch`,
-  `dispatch-sync`, `subscribe`, `inject-cofx`. Each user-facing surface
-  ships as a macro + `*`-fn pair (Conventions §`*`-suffix naming).
+  `dispatch-sync`, `subscribe`. Each user-facing surface ships as a
+  macro + `*`-fn pair (Conventions §`*`-suffix naming). (`inject-cofx`
+  is REMOVED in EP-0017 — it survives only as a throwing stub macro/fn
+  pair, no longer a call-site-capturing surface.)
 
   Carved out of `re-frame.core` so the public namespace stays a thin
   facade focused on user-visible Var resolution rather than macro

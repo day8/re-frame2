@@ -135,9 +135,9 @@
 #?(:clj
    (defmacro with-call-site
      "Bind `*handler-scope*` with `:call-site` set to `cs`, inheriting
-     the rest. For surface macros (`subscribe`, `inject-cofx`) and
-     synchronous error emits in `dispatch!` / `dispatch-sync!`. Per
-     Spec 009 §Handler-scope and §`:rf.trace/call-site`."
+     the rest. For surface macros (`subscribe`) and synchronous error
+     emits in `dispatch!` / `dispatch-sync!`. Per Spec 009 §Handler-scope
+     and §`:rf.trace/call-site`."
      [cs & body]
      `(let [cs# ~cs
             parent# *handler-scope*]
@@ -290,7 +290,7 @@
   Per rf2-twt7m Change 1: `:rf.trace/call-site` rides BOTH error and
   success-path emits when the in-scope cascade was kicked off by a
   call-site-capturing macro (`rf/dispatch` / `rf/dispatch-sync` /
-  `rf/subscribe` / `rf/inject-cofx`). Previously gated to errors
+  `rf/subscribe`). Previously gated to errors
   only; widened so consumers (Event lens, Xray, Story) can render
   jump-to-source links from every event in a cascade, not just
   errors."
