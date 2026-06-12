@@ -101,7 +101,23 @@
     :rf.error/malformed-hydration-payload
     :rf.error/ssr-head-resolution-failed
     :rf.error/sanitised-on-projection
-    :rf.error/ssr-ring-error-view-failed})
+    :rf.error/ssr-ring-error-view-failed
+    ;; EP-0017 (rf2-alc1lf): the cofx error family graduated `always-on` in
+    ;; the Spec 009 catalogue by the `:rf.cofx` contract spec commit
+    ;; (2536b2d98). Each is a causal-token / coeffect-contract validation that
+    ;; fires in production too (the `:dispatched-at` precedent — an
+    ;; out-of-contract durable value is corrupt state), so it rides the
+    ;; always-on axis. The emit SITES land across slices A.2/A.3/B; this leg
+    ;; drives every always-on category through `dispatch-on-error!` to prove
+    ;; the listener fan-out, so the literal pins the catalogue's always-on set
+    ;; regardless of which slice wires up the emit site. The JVM companion
+    ;; (`parsed-always-on-set-equals-the-exercise-literal`) keeps this set ==
+    ;; the parsed catalogue.
+    :rf.error/unregistered-cofx
+    :rf.error/missing-required-cofx
+    :rf.error/cofx-value-invalid
+    :rf.error/inject-cofx-removed
+    :rf.error/world-inputs-renamed})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
