@@ -79,18 +79,24 @@
     [:vector :any]]
    [:? :any]])
 
-(def AuthLoginSnapshot
+;; The machine's `:data-schema` validates the machine's `:data` slot ONLY —
+;; the user-domain extended state `{:attempts ... :error ...}` — NOT the whole
+;; `{:state ... :data ...}` snapshot. Per Spec 005 §Schema validation and Spec
+;; 010 §Machine data schema, `:data-schema` sits as a top-level key on the
+;; machine spec beside `:data`, and the framework validates it at every
+;; macrostep-commit boundary + at bootstrap (`:where :machine-data`). Identical
+;; to examples/reagent/login + examples/uix/login_uix — the artefact layer is
+;; byte-for-byte parity across the three substrates (see the divider above).
+(def AuthLoginData
   [:map
-   [:state [:enum :idle :submitting :error-shown :authed :locked-out]]
-   [:data  [:map
-            [:attempts {:default 0} :int]
-            [:error    [:maybe :string]]]]])
+   [:attempts {:default 0} :int]
+   [:error    [:maybe :string]]])
 
 ;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db state, not app-db —
 ;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
 ;; schemas validate the app-db partition only, Mike ruling #11). The
-;; machine's own `:data-schema` is the snapshot-validation surface, so the
-;; vestigial app-schema reg is removed.
+;; machine's own `:data-schema` (attached below) is the snapshot-validation
+;; surface, so no app-schema reg applies to the login snapshot.
 
 ;; ============================================================================
 ;; FX
@@ -155,6 +161,11 @@
   {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
    :schema AuthLoginEvent}
   {:initial :idle
+   ;; Spec 010 §Machine data schema — `:data-schema` validates the snapshot's
+   ;; `:data` slot (not the whole snapshot) at the `:where :machine-data`
+   ;; boundary; `reg-machine` (above) bridges its `:sensitive?` / `:large?`
+   ;; redaction marks into snapshot egress. Parity with reagent/login + uix.
+   :data-schema AuthLoginData
    :data    {:attempts 0 :error nil}
 
    :guards
