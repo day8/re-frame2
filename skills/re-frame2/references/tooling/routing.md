@@ -16,13 +16,21 @@ Do **not** load this leaf to learn what routing is — that is training knowledg
 The routing artefact ships separately in `day8/re-frame2-routing`. `re-frame.core` does **not** require it; the consuming app must `:require [re-frame.routing]` at boot, or `reg-route` throws `:rf.error/routing-artefact-missing`. Once required, the surface lives on `re-frame.core` (via the late-bind table).
 
 ```clojure
-(rf/reg-route id metadata)              ;; metadata keys below
-(rf/route-url route-id path-params)     ;; pure; build URL from id + params
+(rf/reg-route id metadata)                            ;; metadata keys below
+(rf/route-url route-id path-params)                   ;; pure; build URL from id + params
 (rf/route-url route-id path-params query-params)
+(rf/route-url route-id path-params query-params fragment)  ;; 4-arity adds #fragment
 (rf/match-url url)                      ;; pure; => {:route-id :params :query :fragment} or nil
 ```
 
-Reserved `metadata` keys on `reg-route` (all optional except `:path`): `:doc :path :params :query :query-defaults :query-retain :tags :parent :on-match :on-error :scroll :can-leave`. Application keys may sit alongside in non-`:rf/*` namespaces.
+The 4-arity `route-url` appends the `#fragment` part. A `nil` (or empty-string) fragment is **omitted** from the URL — `route-url` percent-encodes a present fragment, `match-url` decodes it back and normalises absence to `nil`, so the fragment round-trips lawfully (EP-0012 route-prism law). Build fragment links through this arity; do **not** hand-concatenate `(str url "#" frag)`.
+
+Reserved **routing-owned** `metadata` keys on `reg-route` (twelve total, all optional except `:path`): `:doc :path :params :query :query-defaults :query-retain :tags :parent :on-match :on-error :scroll :can-leave`. Bare keys outside this set throw `:rf.error/invalid-route-metadata` at registration — **except** the late-bound cross-feature keys other framework artefacts publish:
+
+- `:resources` — owned by the Resources artefact (route-owned server-state; see [`../../patterns/resources.md`](../../patterns/resources.md)). Accepted only when the Resources artefact is loaded.
+- `:head` — owned by SSR (names which head/meta block the route uses).
+
+These pass the guard because the framework owns them; they are not app typos. Application keys may sit alongside in non-`:rf/*` namespaces.
 
 Path-pattern grammar:
 
@@ -47,7 +55,7 @@ The runtime maintains one slice in the runtime-db partition at `[:rf.runtime/rou
  :nav-token  "nav-42"}          ;; per-navigation epoch token
 ```
 
-Framework-shipped subs (registered by `re-frame.routing`): `:rf/route` (whole slice), `:rf.route/id`, `:rf.route/params`, `:rf.route/query`, `:rf.route/transition`, `:rf.route/error`.
+Framework-shipped subs (registered by `re-frame.routing`): `:rf/route` (whole slice), `:rf.route/id`, `:rf.route/params`, `:rf.route/query`, `:rf.route/fragment` (the URL `#fragment` or nil), `:rf.route/transition`, `:rf.route/error`. Read the active fragment via `:rf.route/fragment` — do **not** parse `js/location.hash` or peek the runtime-db slice directly.
 
 ## Canonical mini-example
 
