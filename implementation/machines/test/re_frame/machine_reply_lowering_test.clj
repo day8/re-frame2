@@ -342,3 +342,110 @@
     (rf/dispatch-sync [:rl/schild-live#1 [:finish :live-token]])
     (is (= :live-token (get-in (snapshot :rl/sparent-live) [:data :token-from-child]))
         "live parent: :on-done ran with the canonical reply's :value (not suppressed)")))
+
+;; ===========================================================================
+;; (4) causal :completed-at threading (rf2-6mfkp3). A spawned machine
+;;     completion can mutate durable parent-machine data (:on-done writes
+;;     the parent's :data). Per spec/Managed-Effects.md §155/§231 a
+;;     completion that affects durable state MUST carry causal completion
+;;     metadata — the ROUTER's `:rf.world/inputs` `:time-ms` (EP-0010, the
+;;     single causal-boundary clock read), NOT an ambient host-clock read.
+;;     The production finalize path threads that world-input time into the
+;;     reply-ctx so the done reply + `:rf.machine/done` trace carry the
+;;     causal `:completed-at` instead of silently losing it.
+;; ===========================================================================
+
+(deftest spawned-completion-threads-causal-completed-at
+  (testing "the done reply trace carries the CAUSAL :completed-at — the finishing event's :rf.world/inputs :time-ms — when a spawned child completion mutates durable parent data"
+    (let [traces      (capture-traces ::completed-at)
+          completed-at 1781078400888]                ;; the causal token time
+      (try
+        (rf/reg-machine :rl/cchild
+          {:initial :running
+           :data    {}
+           :states  {:running {:on {:finish {:target :done
+                                             :action (fn [{data :data ev :event}]
+                                                       {:data (assoc data :token (second ev))})}}}
+                     :done    {:final? true :output-key :token}}})
+        (rf/reg-machine :rl/cparent
+          {:initial :idle
+           :data    {:token-from-child nil}
+           :states  {:idle {:on {:go :working}}
+                     :working
+                     {:spawn {:machine-id :rl/cchild
+                              ;; :on-done mutates the parent's DURABLE :data —
+                              ;; the §155/§231 "affects durable state" case
+                              ;; that demands causal completion metadata.
+                              :on-done    (fn [{data :data result :result}]
+                                            (assoc data :token-from-child result))}}}})
+        (rf/dispatch-sync [:rl/cparent [:go]])
+        ;; The child finishes under a SCRIPTED causal time — the finishing
+        ;; dispatch supplies :rf.world/inputs {:time-ms completed-at}, the
+        ;; one host-clock read the router captures at the causal boundary.
+        (rf/dispatch-sync [:rl/cchild#1 [:finish :secret-token]]
+                          {:rf.world/inputs {:time-ms completed-at}})
+        ;; Behavioural parity: :on-done still ran with the canonical value.
+        (is (= :secret-token (get-in (snapshot :rl/cparent) [:data :token-from-child]))
+            ":on-done mutated the parent's durable :data (the §155/§231 case)")
+        (let [done (->> @traces
+                        (filter #(= :rf.machine/done (:operation %)))
+                        first)]
+          (is (some? done) ":rf.machine/done trace fired")
+          (let [tags (:tags done)]
+            ;; THE coverage gap: the causal completion timestamp rides the
+            ;; done trace — the supplied :rf.world/inputs :time-ms VERBATIM,
+            ;; not an ambient clock read. Both the additive reply-envelope
+            ;; spelling and the bare :completed-at carry it.
+            (is (= completed-at (:rf.reply/completed-at tags))
+                "the causal :rf.world/inputs :time-ms rides the done reply trace")
+            (is (= completed-at (:completed-at tags))
+                "the bare :completed-at fact carries the same causal time")
+            ;; sanity: the rest of the canonical envelope is intact.
+            (is (= :ok (:rf.reply/status tags)))
+            (is (= :completed (:rf.reply/work-status tags)))))
+        (finally (trace/unregister-listener! ::completed-at))))))
+
+(deftest unscripted-completion-omits-completed-at
+  (testing "adversarial: an UNSCRIPTED completion (no :rf.world/inputs) carries NO :completed-at — the fact is OMITTED, never nil-filled or stamped from an ambient clock (Managed-Effects §The reply map)"
+    (let [traces (capture-traces ::no-completed-at)]
+      (try
+        (rf/reg-machine :rl/uchild
+          {:initial :running
+           :data    {}
+           :states  {:running {:on {:finish {:target :done
+                                             :action (fn [{data :data ev :event}]
+                                                       {:data (assoc data :token (second ev))})}}}
+                     :done    {:final? true :output-key :token}}})
+        (rf/reg-machine :rl/uparent
+          {:initial :idle
+           :data    {:token-from-child nil}
+           :states  {:idle {:on {:go :working}}
+                     :working
+                     {:spawn {:machine-id :rl/uchild
+                              :on-done    (fn [{data :data result :result}]
+                                            (assoc data :token-from-child result))}}}})
+        (rf/dispatch-sync [:rl/uparent [:go]])
+        ;; The finishing dispatch supplies NO :rf.world/inputs — the
+        ;; unscripted path. The router seeds its own world-inputs only when
+        ;; running the full dispatch path with a clock; in this direct
+        ;; dispatch-sync with no override the machine def carries whatever
+        ;; the router stamped. We assert the CONTRACT: when the finalize
+        ;; path finds no causal time, the trace MUST NOT carry a nil
+        ;; :completed-at sentinel (the key is absent OR carries a real
+        ;; number — never an explicit nil).
+        (rf/dispatch-sync [:rl/uchild#1 [:finish :tok]])
+        (let [done (->> @traces
+                        (filter #(= :rf.machine/done (:operation %)))
+                        first)
+              tags (:tags done)]
+          (is (some? done))
+          ;; The invariant: NO nil sentinel. Either the key is absent, or it
+          ;; carries a genuine number (if the router seeded a causal time);
+          ;; an explicit nil would be the silent-loss bug the bead guards.
+          (is (not (and (contains? tags :completed-at)
+                        (nil? (:completed-at tags))))
+              ":completed-at is never an explicit nil sentinel (omitted when no causal time)")
+          (is (not (and (contains? tags :rf.reply/completed-at)
+                        (nil? (:rf.reply/completed-at tags))))
+              ":rf.reply/completed-at is never an explicit nil sentinel"))
+        (finally (trace/unregister-listener! ::no-completed-at))))))

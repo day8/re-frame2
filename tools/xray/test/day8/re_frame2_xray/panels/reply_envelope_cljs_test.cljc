@@ -367,7 +367,50 @@
       (is (= [:rf.work/http :search 1 1] (:work-id row)))
       (is (some? (:carried row)))
       (is (some? (:current row)))
-      (is (= :rf.http/request-id-superseded (:stale-reason row))))))
+      (is (= :rf.http/request-id-superseded (:stale-reason row)))))
+  (testing "rf2-6mfkp3 — a PRODUCTION-shaped :rf.resource/stale-suppressed row,
+            EXACTLY as `re-frame.resources.events/emit-resource-stale-
+            suppressed!` emits it (bespoke :resource-key/:generation/:outcome
+            PLUS the additive canonical :rf.reply/* vocabulary), projects work
+            id, kind, status, work-status, stale reason, and correlation —
+            the gap the synthetic mixed-trace fixture (`:outcome :success`
+            only) did not pin: a resource stale row could lose canonical
+            status / work-status / stale-reason in Xray without a failure"
+    (let [work-id [:rf.work/resource [:s :article/by-id {:id 1}] 1]
+          row (re/work-event-row
+                {:id 14 :operation :rf.resource/stale-suppressed
+                 :time 240
+                 :tags {;; the bespoke facts the resource family stamps
+                        :rf.frame/id  :rf/default
+                        :resource-key [:s :article/by-id {:id 1}]
+                        :work/id      work-id
+                        :generation   1
+                        :outcome      {:reason :stale-reply}
+                        ;; the additive canonical EP-0011 reply-envelope
+                        ;; vocabulary (Managed-Effects §9) — the SAME shape
+                        ;; the machine / HTTP families ride
+                        :rf.reply/status       :stale
+                        :rf.reply/work-status  :suppressed
+                        :rf.reply/work-id      work-id
+                        :rf.reply/stale-reason :rf.resource/superseded
+                        :rf.reply/correlation  {:generation   {:carried 1 :current 2}
+                                                :resource-key [:s :article/by-id {:id 1}]}
+                        ;; the shared substrate carried/current gate facts
+                        :rf.reply/carried {:work/id work-id :generation 1}
+                        :rf.reply/current {:generation 2}}})]
+      (is (= :stale-suppressed (:phase row)) "production resource stale row → :stale-suppressed phase")
+      (is (true? (:stale? row)))
+      (is (= :resource (:work-kind row)) "work-kind inferred from the :rf.work/resource head")
+      (is (= work-id (:work-id row)) "the canonical :work/id join key")
+      (is (= :rf/default (:frame row)) "frame attribution preserved")
+      ;; THE coverage gap: the canonical status / work-status / stale-reason
+      ;; survive the projection (read off the additive :rf.reply/* facts).
+      (is (= :suppressed (:work-status row))
+          "canonical :rf.reply/work-status survives the projection")
+      (is (= :rf.resource/superseded (:stale-reason row))
+          "canonical :rf.reply/stale-reason survives the projection")
+      (is (some? (:carried row)) "carried gate summarized + present")
+      (is (some? (:current row)) "current gate summarized + present"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (7) stale-races — keyed on :work/id; cross-surface tally; attempt arcs.
