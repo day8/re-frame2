@@ -250,6 +250,40 @@
     (registrar/handler-meta :variant variant-id)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
+;; ---- replay realm targeting (rf2-0io9uq, EP-0013) ------------------------
+;;
+;; A recording targets a FRAME (`variant-id`); the frame references the
+;; runtime REALM it lives in (Spec 002 §Frames reference realms). Replay
+;; dispatches through `{:frame variant-id}` — the framework derives the realm
+;; from the frame, so frame-scoped dispatch ALREADY lands in the frame's own
+;; realm. `replay-target` makes that address EXPLICIT + verifiable: it returns
+;; the `{:realm r :frame v}` map the recording replays against, reading the
+;; live realm via `rf/frame-realm` and applying the DEFAULT-realm absent-key
+;; rule — a default-realm / unknown frame omits `:realm`, so a single-realm
+;; recording's target is `{:frame v}` (byte-identical to the pre-realm shape,
+;; zero ceremony). A frame in a constructed realm reports `{:realm r :frame
+;; v}` so a caller can assert replay targets the SAME realm the recording was
+;; captured in.
+
+(defn replay-target
+  "Resolve the `{:realm r :frame v}` address replay dispatches `variant-id`'s
+  script against (rf2-0io9uq, EP-0013). Pure-ish — reads the live frame's realm
+  via `rf/frame-realm`, no dispatch.
+
+  Always carries `:frame variant-id`. Carries `:realm` ONLY when the frame is
+  in a NON-default realm (the absent-key rule — absence of `:realm` means the
+  default realm). So a single-realm recording resolves to `{:frame v}` and a
+  multi-realm recording to `{:realm r :frame v}`. Tolerant: a frame-realm read
+  that throws (no frame, framework absent) yields `{:frame v}` (the default-
+  realm target). The frame-scoped dispatch the runner already performs lands in
+  exactly this realm — this is the readable, assertable counterpart to it."
+  [variant-id]
+  (let [realm (try (rf/frame-realm variant-id)
+                   (catch #?(:clj Throwable :cljs :default) _ nil))]
+    (cond-> {:frame variant-id}
+      (and (some? realm) (not= realm :rf.realm/default))
+      (assoc :realm realm))))
+
 ;; ---- folded-plan consumption (rf2-5x1wt.19) ------------------------------
 ;;
 ;; The runtime CONSUMES the `.18`-folded plan: every play's script is folded

@@ -355,8 +355,17 @@
       :wait-threshold-ms  ms threshold above which the translator
                          inserts a `[:wait Δt]` step between entries.
                          Default `default-wait-threshold-ms` (50ms).
+      :realm             optional — the runtime realm id the recording was
+                         captured in (rf2-0io9uq, EP-0013). When supplied AND
+                         non-default, it is carried onto the body under
+                         `:rf.realm/id` so replay targets the same realm the
+                         recording was captured in. The DEFAULT-realm absent-
+                         key rule applies: a nil / `:rf.realm/default` realm
+                         stamps NOTHING, so a single-realm recording's body is
+                         byte-identical to the pre-realm shape and replays
+                         unchanged (zero ceremony).
 
-  Returns a map: `{:script [...steps] :auto-run? bool :name str?}`.
+  Returns a map: `{:script [...steps] :auto-run? bool :name str? :rf.realm/id kw?}`.
   The script is pre-coerced via `runner/coerce-script` so it round-
   trips through `runner/parse-spec` without further normalisation —
   what you get back is what the runner will execute.
@@ -366,7 +375,7 @@
   ([events]
    (recording->play-script events {}))
   ([events {:keys [name auto-assert? final-db seed-db max-auto-assertions
-                   auto-run? wait-threshold-ms]
+                   auto-run? wait-threshold-ms realm]
             :or   {auto-assert?         false
                    auto-run?            true
                    max-auto-assertions  default-max-auto-assertions
@@ -381,9 +390,15 @@
                           [])
          script         (vec (concat dispatch-steps assert-steps))
          base           {:script    script
-                         :auto-run? (boolean auto-run?)}]
+                         :auto-run? (boolean auto-run?)}
+         ;; rf2-0io9uq (EP-0013): carry the realm stamp WHERE present, by the
+         ;; absent-key rule. A nil / default realm assocs nothing (zero
+         ;; ceremony), so a single-realm body round-trips unchanged.
+         realm-stamp    (when (and (some? realm) (not= realm :rf.realm/default))
+                          realm)]
      (cond-> base
-       (and (string? name) (seq name)) (assoc :name name)))))
+       (and (string? name) (seq name)) (assoc :name name)
+       (some? realm-stamp)             (assoc :rf.realm/id realm-stamp)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: render the play-script map as EDN

@@ -92,12 +92,20 @@
   the write-back produces a new variant body and the origin tag
   identifies the MCP write surface as its producer.
 
+  rf2-0io9uq (EP-0013): the captured recording's runtime-realm stamp (read off
+  the source frame at recording time, `realm`) is threaded into
+  `recording->play-script` so the written-back body carries `:rf.realm/id`
+  WHERE the source frame is in a non-default realm — replay targets the same
+  realm. The default-realm absent-key rule applies: a single-realm recording
+  passes a nil / default realm, so the body carries no realm key and replays
+  unchanged (zero ceremony).
+
   Returns the structured success result on the happy path, or an
   `error-result` whose `:structuredContent` merges the base recorder
   payload, the failure flag, and the registrar's `ex-data`."
-  [base body events target-vid]
+  [base body events realm target-vid]
   (try
-    (let [play-body (story/recording->play-script events)
+    (let [play-body (story/recording->play-script events {:realm realm})
           id        (story/reg-variant*
                       target-vid
                       (assoc body :script play-body :origin config/origin))
@@ -289,6 +297,12 @@
                       _           (sleep-ms duration-ms)
                       final-state (story/stop-recording!)
                       events      (vec (:events final-state))
+                      ;; rf2-0io9uq (EP-0013): the recorder stamped the source
+                      ;; frame's runtime realm onto the recording WHERE it is a
+                      ;; non-default realm (absent-key rule). Read it back so the
+                      ;; write-back body can target the same realm on replay; nil
+                      ;; for a single-realm recording (no realm key emitted).
+                      realm       (get final-state :rf.realm/id)
                       ;; rf2-12f2q — the captured event vectors cross the
                       ;; AI/off-box boundary in BOTH the `:captured` slot
                       ;; and the `:play-snippet` text. A recorded event can
@@ -320,7 +334,7 @@
                                    :written-back?        false}]
                   (if-not write-back?
                     (result/edn-result base)
-                    (write-back! base body events target-vid))))))))))))
+                    (write-back! base body events realm target-vid))))))))))))
 
 (def descriptors
   "Registry descriptors for the recorder's MCP surface — the single
