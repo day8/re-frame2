@@ -2,216 +2,180 @@
 
 ## When to load
 
-Registering a `reg-cofx` handler that injects an input (current time, localStorage value, generated id, ...) into the handler's coeffect map; or attaching one to an event via `inject-cofx`.
+Registering a coeffect supplier (current time, a localStorage value, a generated id, a sub's value, …) with `reg-cofx`; or declaring a handler's coeffect dependencies with `:rf.cofx/requires`.
 
-## Canonical signature
+## The one mental model (EP-0017)
+
+A coeffect is a **fact the causal run consumed** — data from outside the event. There is **one registrar** (`reg-cofx`, a value-returning supplier) and **one declaration surface** (`:rf.cofx/requires`, registration metadata). A handler receives `:db`, `:event` (the fold's own arguments) **plus exactly the facts it declares**, delivered flat under their ids. Nothing is delivered implicitly — including the time.
+
+> **`inject-cofx` is REMOVED (EP-0017, no alias).** Calling it is the hard error `:rf.error/inject-cofx-removed`. Declare the coeffect on the handler's registration metadata instead. If you are migrating a v1 app, see [`skills/re-frame-migration/references/causal-world-inputs.md`].
+
+## Canonical signature — `reg-cofx` is value-returning
 
 ```clojure
-(rf/reg-cofx :cofx-id           handler-fn)
-(rf/reg-cofx :cofx-id metadata? handler-fn)
+(rf/reg-cofx :cofx-id           supplier)
+(rf/reg-cofx :cofx-id metadata? supplier)
 
-;; handler-fn :: (fn [ctx])         -> ctx                  ;; 1-arg form
-;;             | (fn [ctx value])   -> ctx                  ;; 2-arg form (paired with inject-cofx ... value)
+;; supplier :: (fn [] value)      ;; nullary — the ordinary supplier
+;;           | (fn [arg] value)   ;; call-site-parameterized; declared [id arg]
 ;;
-;; The handler stashes data under (:coeffects ctx). The conventional key
-;; is the cofx-id itself.
-
-(rf/inject-cofx :cofx-id)
-(rf/inject-cofx :cofx-id value)
+;; The supplier RETURNS the coeffect VALUE directly (the EP-0017 shape).
+;; The retired ctx→ctx form ((fn [ctx] (assoc-in ctx [:coeffects k] v))) is gone.
 ```
 
-Verified in `implementation/core/src/re_frame/cofx.cljc` (the `reg-cofx` and `inject-cofx` fns). Metadata may carry:
+Verified in `implementation/core/src/re_frame/cofx.cljc` (the `reg-cofx`, `parse-requires`, and `deliver-declared-cofx` fns). Metadata may carry:
 
-- `:doc` — one-sentence what-and-why
-- `:schema` — Malli schema for the injected value (Spec 010 §Validation order step 2)
-- `:platforms` — `#{:client :server}`; defaults to both. Cofx with mismatched platforms emit `:rf.cofx/skipped-on-platform` instead of running. Mirrors the `reg-fx` contract per `spec/011-SSR.md` §Effect handling on the server — a client-only cofx (browser locale, localStorage, navigator-info) silently no-ops when injected under an SSR-server frame so it neither blows up under JVM render nor injects nonsense values. The event handler still runs; only the injection is skipped. Example: `(rf/reg-cofx :browser-locale {:platforms #{:client}} (fn [ctx] (assoc-in ctx [:coeffects :browser-locale] js/navigator.language)))` is safe to register on both platforms; under an `:ssr-server` frame the injection is skipped and the handler sees `nil` for `:browser-locale`.
+- `:doc` — one-sentence what-and-why; surfaces via `(rf/handler-meta :cofx id)`.
+- `:recordable?` — mark the fact **recordable** (see grades below). Default `false` (ambient).
+- `:provided?` — (recordable only) the fact has **no generator**; its owner stamps the value onto the token.
+- `:schema` — Malli schema validating supplied / replayed values. (The `:schema` *validation step* is built in slice B; declare it now so the contract is recorded.)
+- `:platforms` — `#{:client :server}`; defaults to both. A supplier tagged `:platforms #{:client}` is **skipped** on server-side frames (emits `:rf.cofx/skipped-on-platform`; the declaring handler sees no value for that id). Mirrors `reg-fx`'s contract per `spec/011-SSR.md`. Example: `(rf/reg-cofx :browser-locale {:platforms #{:client}} (fn [] js/navigator.language))` is safe to register on both platforms; under an `:ssr-server` frame the supplier is skipped.
 
-> **`:platforms` lives in the positional metadata-map, NOT reader metadata.** `reg-cofx` reads `:platforms` only from the optional metadata-map argument (`(reg-cofx :id metadata? handler-fn)`). Reader metadata on the registration form — `^{:platforms #{:client}} (rf/reg-cofx ...)` — attaches to the form's source coordinates and is **never consulted** for registration. Writing it that way registers a browser-only cofx for *both* platforms, so an SSR-server frame will run it (and any browser-only code such as `js/navigator.language`) instead of skipping it.
+> **`:platforms` lives in the metadata-map, NOT reader metadata.** `reg-cofx` reads `:platforms` only from the optional metadata-map argument. Reader metadata on the form (`^{:platforms #{:client}} (rf/reg-cofx ...)`) is **never consulted** — it would register a browser-only supplier for both platforms.
 
-`inject-cofx` returns an **interceptor** — pass it in the event's interceptors vector (the positional slot, not the metadata-map):
+## Declaration — `:rf.cofx/requires`
+
+A handler takes delivery by declaring the ids it consumes in `:rf.cofx/requires` (Spec 001 standard metadata key, on `reg-event-fx` and `reg-event-ctx`). The declared values arrive **flat** in the coeffects map under their ids — never a nested `:cofx` sub-map:
 
 ```clojure
-(rf/reg-event-fx :id
-  [(rf/inject-cofx :browser-locale) (rf/inject-cofx :feature/new-checkout?)]   ;; interceptors slot
-  (fn [{:keys [db browser-locale] :feature/keys [new-checkout?]} [_ payload]] ...))
+(rf/reg-event-fx :counter/inc
+  {:doc "Increment by a delta, stamping the durable update time."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} _event]
+    {:db (-> db (update :count inc) (assoc :last-updated-at time-ms))}))
 ```
 
-> For durable *time* and durable *ids*, prefer `:rf.world/inputs` (`:time-ms`, `:uuid`, `:random`) over a hand-rolled `:now` / `:random-id` cofx — see [§`:rf.world/inputs` for durable host facts](#rfworldinputs-for-durable-host-facts--read-the-token-dont-register-a-clock-cofx). Plain cofx are for non-durable / diagnostic inputs like the ones above.
+- A parameterized id appears as `[id arg]` (mirroring the binary supplier arity): `:rf.cofx/requires [[:ui/local-theme "theme"]]`.
+- Delivery is **declared-only**: a leaf on the token but not declared by this handler is **not staged** (`handler-meta` is the complete consumption record). Forgetting to declare what you destructure is a lint target ("consuming without declaring").
+- On `reg-event-db`, `:rf.cofx/requires` is a registration-time error — a db handler receives only the db and cannot take delivery. Needing the world is what graduates a handler to the `fx` form.
 
-## Standard cofx
+## The two grades — ambient vs recordable
 
-The runtime ships `:db`, `:event`, and `:rf.world/inputs` — all populated on the context before the chain runs (the standard cofx in `cofx.cljc`), so explicitly injecting them is a no-op. `:db` / `:event` exist for symmetry with v1; `:rf.world/inputs` is the EP-0010 causal world-input map (see below). Everything else (browser language, localStorage values, custom inputs) is user-registered.
+The grade is a property of the registration, not a namespace:
 
-## `:rf.world/inputs` for durable host facts — read the token, don't register a clock cofx
+- **Ambient** (default) — the supplier runs at context assembly, the value is delivered to declaring handlers and **never recorded**; replay re-runs the supplier. Legal **only where no durable write depends on the value** — display preferences, diagnostics, host-transient measurements, or a read of state that is *already* recorded durable state.
+- **Recordable** (`:recordable? true`) — the fact is **ensured onto the causal token**, recorded, and re-presented verbatim by replay. Required for any fact that can affect durable frame-state. A `:provided? true` recordable fact has **no generator** — its owner (framework, subsystem, dispatch boundary) stamps the value. App-owned generator-backed recordable suppliers are slice B.
 
-Before you register a cofx for current time / a generated id / a browser fact, ask **where the value lands**. re-frame2's durable-write rule (Spec 002 §Causal world inputs, graduated from EP-0010): *a host fact that decides a durable write — anything written to app-db, runtime-db, a resource, a machine snapshot, a work-ledger row, or a hydration payload — MUST come from the causal token or a recordable coeffect, never an ambient host read at the write site.* Otherwise the same event replays to a different value (epoch restore / SSR hydration / time-travel all diverge).
+**The durable-write rule (the whole discipline in one sentence): durable state folds facts, never reads.** A transition that performs a durable write — anything written to app-db, runtime-db, a resource, a machine snapshot, a work-ledger row, or a hydration payload — MUST consume world facts from the token's recordable coeffects (or the event payload), never from an ambient read at the write site. Otherwise the same event replays to a different value (epoch restore / SSR hydration / time-travel all diverge).
 
-The framework already carries those facts on every dispatch envelope as the `:rf.world/inputs` coeffect:
+### `:rf/time-ms` — the framework's one built-in coeffect
 
-- **Durable wall-clock time → `:rf.world/inputs` `:time-ms`.** This is the canonical durable timestamp — `:created-at` / `:updated-at`, resource `:loaded-at`, ledger `:started-at` / `:completed-at`, etc. It is stamped once at the causal boundary, pinnable by tests/replay, and replayed from the token on restore. **Do not register a `:now` cofx that reads `js/Date` for a durable timestamp** — read `:time-ms` off the world-input coeffect instead.
+The framework ships exactly **one** registration: `:rf/time-ms` — recordable, provided, stamped onto every dispatch and reply envelope at enqueue. It is the canonical durable wall-clock fact. A handler that folds a timestamp into durable state declares `:rf.cofx/requires [:rf/time-ms]` and reads `time-ms` flat. **Do not register a `:now` cofx that reads `js/Date` for a durable timestamp** — declare `:rf/time-ms`.
 
 ```clojure
 (rf/reg-event-fx :todo/create
-  (fn [{:keys [db] :rf.world/keys [inputs]} [_ {:keys [text]}]]
-    {:db (assoc-in db [:todos (-> inputs :uuid :todo/id)]    ;; durable id from the token's :uuid subsystem
-                   {:text text :created-at (:time-ms inputs)})}))  ;; durable time from the token
+  {:rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [id text]}]]
+    ;; the durable id rides the event payload (the caller pinned it);
+    ;; the durable time rides the recorded :rf/time-ms fact.
+    {:db (assoc-in db [:todos id] {:text text :created-at time-ms})}))
 ```
 
-(A bare `(random-uuid)` at the write site would re-roll a different id on every replay — epoch restore, SSR hydration, and time-travel would each diverge. The id has to ride the causal token, exactly like `:time-ms`, or arrive on the event payload from a caller that already pinned it.)
+(A bare `(random-uuid)` or `(js/Date.now)` at the write site would re-roll on every replay. Durable ids ride the event payload from a caller that pinned them, or — slice B — a recordable generator cofx; durable time rides `:rf/time-ms`.)
 
-- **Generated ids / random choices / durable host facts** (a localStorage value, a browser fact that *becomes durable state*) ride `:rf.world/inputs` subsystem keys (`:uuid`, `:random`, `:storage`, `:browser/*`) **or** a **recordable** `reg-cofx` — a cofx whose value is EDN-serializable, captured in the replay record, and returned from the record on replay rather than re-read from the host. Declare `:schema` on such a cofx so the recorded value is validated.
-- **Ambient `reg-cofx` is for diagnostics / host-transient reads only** — a value used in a dev log, a perf span, or a host-transient side-table that decides **no** durable write. There an ordinary unrecorded cofx (or the inline-interceptor escape hatch) is correct.
+## The minting ladder (where does X come from?)
 
-The rule is "no hidden host facts in durable writes," not "no cofx for host reads": a custom input that never lands in durable state stays a plain cofx. The `:rf.world/keys [inputs]` destructuring above pulls the world-input map out of the coeffect context like any other coeffect.
+"My handler needs X from the world" resolves in preference order:
 
-## Canonical mini-example
+1. **Derive from recorded state** where possible (e.g. a monotone counter already in a snapshot). No new fact recorded.
+2. **Ride the event payload** where the dispatch site owns the fact's meaning (an optimistic-create id the view must render now).
+3. **Recorded coeffect** (`:rf/time-ms`, or a slice-B generator) only for genuinely fold-internal facts.
 
-From `examples/reagent/todomvc/db.cljs`:
+Recorded coeffects are the *last* rung, not the default.
+
+## Canonical mini-example — an ambient supplier
+
+From `examples/reagent/todomvc/db.cljs` (the boot localStorage read):
 
 ```clojure
 (rf/reg-cofx :todo.storage/todos
-  {:doc "Inject the saved TodoMVC items from localStorage into coeffects."}
-  (fn cofx-todo-storage-todos [ctx]
-    (assoc-in ctx [:coeffects :todo.storage/todos]
-              (some-> (.-localStorage js/globalThis)
-                      (.getItem ls-key)
-                      (storage->todos)))))
+  {:doc "Ambient localStorage read for the saved TodoMVC items."}
+  (fn [] (some-> (.-localStorage js/globalThis)
+                 (.getItem ls-key)
+                 (storage->todos))))
 ```
 
-And the handler that ingests it (`examples/reagent/todomvc/events.cljs`):
+And the handler that ingests it:
 
 ```clojure
 (rf/reg-event-fx :todo/initialise
-  [(rf/inject-cofx :todo.storage/todos)]
-  (fn [{:todo.storage/keys [todos]} _]
+  {:rf.cofx/requires [:todo.storage/todos]}
+  (fn [{:keys [todo.storage/todos]} _]
     {:db (assoc db/default-db :todos todos)}))
 ```
 
-The cofx writes under `[:coeffects :todo.storage/todos]`; the handler destructures the same key off the coeffect map.
+The supplier returns the value; the handler declares the id and reads it flat off the coeffects map.
 
-> **This boot value is durable — make the cofx recordable (EP-0010).** `:todo/initialise` writes the localStorage read straight into `:db`, so the read decides a **durable** write and falls squarely under the durable-write rule above (Spec 002 §Causal world inputs). A plain cofx that re-reads `js/localStorage` at the write site re-reads the *current* host on every replay — epoch restore, SSR hydration, and time-travel each diverge from the recorded boot. Reading (and validating) the value is **necessary but not sufficient**. For a durable boot/rehydrate value, make the read **recordable**: register the cofx with a `:schema` so its captured value is validated *and recorded* in the replay record (returned from the record on replay rather than re-read from the host), or source the value from `:rf.world/inputs` `:storage`. The plain-cofx shape above is the right *shape*; the durable-determinism caveat is what a copy-paste into a real app must add. (A storage read that lands only in a diagnostic / host-transient slot — deciding no durable write — stays an ordinary unrecorded cofx.)
+> **Is this read durable?** `:todo/initialise` writes the localStorage value straight into `:db`, so on a strict reading the boot read decides a durable write. In practice the localStorage value *is* the persisted durable state — there is no recorded epoch before boot to diverge from — so an ambient supplier is the right shape for a boot/rehydrate read. A storage read that feeds durable state *mid-session* (where a recorded epoch exists to replay against) would instead need to arrive as recorded data. The fork is about whether a prior recorded epoch can diverge, not about the call being impure.
 
-## When `reg-cofx` is overkill — the inline-interceptor escape hatch
+## Reading a sub from a handler — `subscribe-once`, wrapped as an ambient cofx
 
-`reg-cofx` + `inject-cofx` is the canonical path. It earns its weight by giving the cofx an **id** — and an id is what lets you stub it in tests, hot-rebind it at the REPL (re-registering takes effect on the next dispatch with no event-handler re-registration), enumerate it from devtools (Xray's cofx list), and parameterise it across many call sites (one `:local-store` handler, many keys).
+A handler that needs a sub's current value **must not** open a **reactive** subscription (`@(rf/subscribe ...)`) from its body — that leaks a reaction. The shipped one-shot read is **`rf/subscribe-once`** (Spec 006): it subscribes, derefs, and unsubscribes in one call, leaving no reaction behind. A bare `(rf/subscribe-once [:some/sub])` in a handler body is correct and supported.
 
-But many cofxes never claim those benefits. A handler that needs a current-millis stamp for one event, defined once in the same module, never stubbed — paying the two-line registry hop just to land a value under `[:coeffects :now]` is ceremony without payoff. For that case, the framework's interceptor primitive (Spec 002 §`:interceptors`, [event-state-cycle](event-state-cycle.md)) is the escape hatch: an inline `{:id ... :before (fn [ctx] (assoc-in ctx [:coeffects k] v))}` map is a legal participant in any event's interceptor vector, with no registry indirection.
-
-### Decision rubric
-
-**Use `reg-cofx` + `inject-cofx` when ANY of:**
-
-- the cofx might be mocked/stubbed in tests by id
-- you want hot-rebind at the REPL — re-registering picks up on the next dispatch without re-registering event handlers
-- devtools (Xray, re-frame2-pair) should enumerate it
-- it's parameterised by id (e.g. `:local-store`-by-key — one handler, many call-site keys)
-
-**Use an inline interceptor map when ALL of:**
-
-- defined once, used in a small set of events, in the same module
-- never stubbed in tests
-- the cofx body is trivial (a single `assoc-in` typically)
-
-Default to `reg-cofx` for anything that names a generally-useful input (`:new-id`, `:local-store`, browser locale, anything cross-cutting). Reach for the inline form only when the registry indirection visibly buys nothing. (For durable *time*, neither form: read `:rf.world/inputs` `:time-ms` — see above. The cofx-vs-inline trade below is illustrated with a **non-durable** host read, a localStorage feature flag that gates a runtime decision and never lands in durable app-db state.)
-
-### Worked example — both forms
-
-A localStorage feature flag read to *decide which branch runs* — the read powers a runtime gate, not a durable write, so it is a legitimate ambient cofx either way:
+The **preferred** shape, when the read should be reusable / parameterised / stubbable / named, is to wrap the `subscribe-once` read as an ambient cofx:
 
 ```clojure
-;; Registry path (preferred when reuse / stubbing / enumeration matter):
-(rf/reg-cofx :feature/new-checkout?
-  {:doc "Inject the local 'new-checkout' feature flag from localStorage."}
-  (fn [ctx]
-    (assoc-in ctx [:coeffects :feature/new-checkout?]
-              (= "on" (some-> (.-localStorage js/globalThis)
-                              (.getItem "ff:new-checkout"))))))
-
-(rf/reg-event-fx :checkout/begin
-  [(rf/inject-cofx :feature/new-checkout?)]
-  (fn [{:keys [db] :feature/keys [new-checkout?]} _]
-    {:fx [[:dispatch (if new-checkout? [:checkout/v2-start] [:checkout/v1-start])]]}))
-
-;; Inline-interceptor path (preferred when ceremony outweighs benefit):
-(def ^:private inject-new-checkout-flag
-  {:id     ::inject-new-checkout-flag
-   :before (fn [ctx]
-             (assoc-in ctx [:coeffects :feature/new-checkout?]
-                       (= "on" (some-> (.-localStorage js/globalThis)
-                                       (.getItem "ff:new-checkout")))))})
-
-(rf/reg-event-fx :checkout/begin
-  [inject-new-checkout-flag]
-  (fn [{:keys [db] :feature/keys [new-checkout?]} _]
-    {:fx [[:dispatch (if new-checkout? [:checkout/v2-start] [:checkout/v1-start])]]}))
-```
-
-Both produce identical runtime behaviour for this event. The trade is per the rubric above — the inline form trades registry-id-addressability (and everything that flows from it) for one fewer indirection. Note the flag value decides only *which event dispatches*; it is never written into app-db, so an ambient read is correct. If the flag's value were instead *persisted* into app-db (a durable write), it would need a recordable cofx (or to ride `:rf.world/inputs` `:storage`) so a replay reproduces the recorded flag rather than re-reading localStorage.
-
-The narrative treatment for humans is at [`docs/guide/07-effects-and-coeffects.md`](../../../../docs/guide/07-effects-and-coeffects.md) §When `reg-cofx` is overkill.
-
-## Why coeffects instead of `(.-localStorage ...)` in the handler?
-
-Pure handlers are testable, replayable (for re-frame2-pair epoch restore), and serialisable (for SSR snapshots). A handler that reads `localStorage` (or `Date.now()`, `Math.random`) directly is non-deterministic; the same handler that destructures the value off its coeffect map (or, for durable time/ids, off `:rf.world/inputs`) is a pure function of its inputs. For durable host facts the coeffect must additionally be **recordable** (or carried on `:rf.world/inputs`) so replay returns the captured value rather than re-reading the host — see [§`:rf.world/inputs` for durable host facts](#rfworldinputs-for-durable-host-facts--read-the-token-dont-register-a-clock-cofx) above. For a diagnostic / host-transient read an ordinary ambient cofx is enough.
-
-## Reading a sub from a handler — `subscribe-once`, preferably wrapped as a cofx
-
-A handler that needs a sub's current value **must not** open a **reactive** subscription — `(rf/subscribe ...)` / `@(rf/subscribe ...)` — from inside its body. Reactive subscriptions are a view-layer concern; opening one implicitly from a handler silently establishes a reaction in whatever evaluation context the drain loop happened to be in, and leaks it until GC.
-
-The shipped one-shot read for non-reactive consumers is **`rf/subscribe-once`** (Spec 006 §`subscribe-once`; Spec API). It subscribes, derefs, and unsubscribes in one call — it leaves no reaction behind — and the contract explicitly names event handlers, machine actions, REPL sessions, and SSR builders as legitimate callers. A bare `(rf/subscribe-once [:some/sub])` in a handler body is a correct, supported read.
-
-The **preferred** shape, when the read should be reusable / parameterised / stubbable in tests / schema-validated / visible as a named input, is to wrap the `subscribe-once` read as a cofx and inject it — the cofx body is where the read lives, and the handler stays a function of its coeffects map. Reach for the cofx wrap when one of those properties matters; a one-shot, single-handler current-value read can stay a direct `subscribe-once`.
-
-```clojure
-;; Register a cofx that materialises the sub at injection time.
 (rf/reg-cofx :user/current
-  {:doc "Inject the value of the [:user/current] sub into coeffects."}
-  (fn [ctx]
-    (assoc-in ctx [:coeffects :user/current]
-              (rf/subscribe-once [:user/current]))))
+  {:doc "Ambient read of the [:user/current] sub value."}
+  (fn [] (rf/subscribe-once [:user/current])))
 
-;; Inject and destructure like any other cofx.
 (rf/reg-event-fx :order/place
-  [(rf/inject-cofx :user/current)]
+  {:rf.cofx/requires [:user/current]}
   (fn [{:keys [db user/current]} [_ order]]
-    {:db (assoc-in db [:orders (:id order)]
-                   (assoc order :placed-by current))}))
+    {:db (assoc-in db [:orders (:id order)] (assoc order :placed-by current))}))
 ```
 
-Two notes on the cofx body:
-
-- **`rf/subscribe-once` is the right primitive** — it materialises, derefs, and unsubscribes in one call, so the cofx leaves no reaction behind. `@(rf/subscribe ...)` inside the cofx would also work but leaks the reaction until GC.
-- **Parameterise with the 2-arg form.** If the sub takes args (`[:order/by-id 42]`), register the cofx binary and pass the args through `inject-cofx`:
+Parameterise with the binary supplier + `[id arg]` declaration when the sub takes args:
 
 ```clojure
 (rf/reg-cofx :sub/value
-  (fn [ctx query-v]
-    (assoc-in ctx [:coeffects :sub/value] (rf/subscribe-once query-v))))
+  (fn [query-v] (rf/subscribe-once query-v)))
 
-;; Used:
 (rf/reg-event-fx :order/cancel
-  [(rf/inject-cofx :sub/value [:order/by-id 42])]
+  {:rf.cofx/requires [[:sub/value [:order/by-id 42]]]}
   (fn [{:keys [db sub/value]} _] ...))
 ```
 
-There is deliberately **no `cofx-from-sub` shortcut helper** in `re-frame.core`. The five-line `reg-cofx` wrapper above is the canonical shape; collapsing it into a one-liner would imply that subscribing-inside-handlers is the rule and the wrap is the workaround, when it is the other way around.
+There is deliberately **no `cofx-from-sub` shortcut helper** in `re-frame.core` — the small `reg-cofx` wrapper is the canonical shape.
 
-Narrative treatment of the same pattern (for humans): [`docs/guide/07-effects-and-coeffects.md`](../../../../docs/guide/07-effects-and-coeffects.md) §Reading a sub from a handler.
+A sub value that feeds a **durable** write follows the durable-write rule: if the sub reads recorded durable state, the wrapped read is a read of already-recorded data (ambient is fine); if it reads ambient host state, the durable write needs that fact recorded instead.
+
+## Testing — supply data, don't swap mechanisms
+
+The testing story is *supply the facts; don't monkey-patch the clock or RNG*:
+
+```clojure
+;; 1. Pure handler test — no runtime, no mocks. The coeffects map is a
+;;    literal; :rf.cofx/requires is the fixture checklist.
+(deftest todo-create-pure-test
+  (let [{:keys [db]} (todo-create {:db {} :rf/time-ms 1781078400123}
+                                  [:todo/create {:id "t1" :text "x"}])]
+    (is (= 1781078400123 (get-in db [:todos "t1" :created-at])))))
+
+;; 2. Dispatch-level — supply recordable facts in the :rf.cofx opt.
+(rf/dispatch-sync [:todo/create {:id "t1" :text "x"}]
+                  {:rf.cofx {:rf/time-ms 1781078400123}})
+
+;; 3. Ambient stub — the seam is RE-REGISTRATION (visible, greppable), never
+;;    a monkey-patch; legal only because ambient facts never feed durable state.
+(rf/reg-cofx :ui/local-theme {:doc "Test stub."} (fn [_k] "dark"))
+```
+
+The dispatch-opts key is `:rf.cofx` (`(rf/dispatch [:e] {:rf.cofx {...}})`); supplied values are preserved verbatim and never overwritten. The retired `:rf.world/inputs` dispatch opt is a hard error (`:rf.error/world-inputs-renamed`) naming `:rf.cofx`.
 
 ## Common gotchas
 
-- **`inject-cofx` returns an interceptor, not the value.** It must go in the positional interceptors vector, not the metadata-map (the metadata-map's `:interceptors` key is silently dropped — see [events.md](events.md)).
-- **The injected key convention is the cofx-id itself.** Stash under `[:coeffects :my/cofx-id]` so destructuring with `{:my/keys [...]}` works cleanly. If `:schema` validation is declared on the cofx metadata, the validator looks up under the cofx-id key (`maybe-validate-cofx!` in `cofx.cljc`).
-- **Order matters.** Interceptors run in vector order; a cofx that depends on another cofx's value must come after it.
-- **Two-arg form is for parameterised injection.** Use `(inject-cofx :random-int max-value)` when the same cofx-id needs a different value per attachment.
-- **A cofx that feeds a durable write must be recordable — or use `:rf.world/inputs`.** A plain ambient cofx re-reads the host on replay, so a value it writes into app-db (a timestamp, a generated id, a persisted host fact) replays to a *different* value. For durable time/ids prefer `:rf.world/inputs` (`:time-ms` / `:uuid` / `:random`); for other durable host facts make the cofx recordable (stable id, EDN value captured in the replay record, returned from the record on replay). Diagnostic / host-transient reads (a value that decides no durable write) may stay ambient. See [§`:rf.world/inputs` for durable host facts](#rfworldinputs-for-durable-host-facts--read-the-token-dont-register-a-clock-cofx).
-- **Missing registration is a structured error trace, not a throw.** `inject-cofx` of an unregistered id emits `:rf.error/no-such-cofx` (carrying `:cofx-id`, `:event-id`, and the optional 2-arity `:cofx-value`) and lets the ctx flow through unchanged (`cofx.cljc:~78,88`). Subscribe via `register-listener!` (or watch through Xray / re-frame2-pair) to surface these.
-- **`:platforms #{:client}` makes the cofx skip silently under an SSR-server frame.** A `:rf.cofx/skipped-on-platform` warning trace fires (carrying `:cofx-id`, `:frame`, `:platform`, `:registered-platforms`, and on the 2-arity form `:cofx-value`); the event handler still runs but reads `nil` for the injected key. Active platform comes from the frame's `:config :platform` (set by the `:ssr-server` preset) falling back to the host-wide marker `(interop/active-platform)` (settable at boot via `(rf/init-platform :server|:client)`). Check this first if a cofx mysteriously doesn't fire under SSR. Spec: `spec/011-SSR.md` §Effect handling on the server.
+- **`reg-cofx` is value-returning now.** `(fn [] value)` or `(fn [arg] value)`. A ctx→ctx supplier (`(fn [ctx] (assoc-in ctx ...))`) is wrong shape — the returned ctx would be delivered as the value.
+- **`:rf.cofx/requires` is registration metadata, not an interceptor.** It goes in the metadata-map slot (`(reg-event-fx :id {:rf.cofx/requires [...]} handler)`), not the positional interceptors vector.
+- **Declared-only delivery.** You receive exactly what you declare. An undeclared leaf on the token is never staged — destructuring it gives `nil`.
+- **A durable write folds facts.** A timestamp / generated id / persisted host fact written into app-db must be a recorded fact (`:rf/time-ms`, the event payload, or a slice-B recordable generator) — never an ambient read. Diagnostic / host-transient reads (deciding no durable write) stay ambient.
+- **`:platforms #{:client}` skips the supplier under an SSR-server frame** (`:rf.cofx/skipped-on-platform` warning trace). The declaring handler sees no value for that id. Check this first if a server-side cofx mysteriously delivers nothing. Spec: `spec/011-SSR.md`.
+- **A declared id with no registration is `:rf.error/unregistered-cofx`** (the typo case). A declared **provided** fact absent from the token is `:rf.error/missing-required-cofx` in every mode. A supplier that throws emits `:rf.error/coeffect-exception` and the handler is skipped.
 
 ## Deeper material
 
-Cofx validation (`:schema`), the late-bind seam for `:schemas/validate-cofx!`, full coeffect-map shape: `SKILL-REDIRECT.md` → **EP — Schemas (010)**, **Definitive API reference**.
+Full coeffect-map shape, the satisfaction algorithm, the error family, mint policies: `spec/002-Frames.md` §Recordable coeffects, `spec/001-Registration.md` §Coeffects, `docs/EP/EP-0017-recordable-coeffects.md`.
 
 ---
 
-*Derived from `implementation/core/src/re_frame/cofx.cljc` @ main `9d548e18`. Citations are symbol-level; re-verify symbol homes after cofx-chain, schema-validation, or `:platforms`-gate changes.*
+*Derived from `implementation/core/src/re_frame/cofx.cljc` + `spec/002-Frames.md` / `spec/001-Registration.md` (EP-0017 slice A). Citations are symbol-level; re-verify symbol homes after the slice-B generation/validation work lands.*

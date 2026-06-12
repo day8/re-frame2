@@ -26,7 +26,7 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 
 **3. Drain pops envelope.** For each event, the runtime looks up the registered handler's interceptor chain.
 
-**4. Cofx injection.** Each `inject-cofx` interceptor runs in source order; each writes under `[:coeffects :cofx-id]`. The standard `:db` (current `app-db` value) and `:event` (the dispatched vector) are already populated (`cofx.cljc`).
+**4. Coeffect assembly.** The runtime delivers the handler's **declared** coeffects (`:rf.cofx/requires`) flat into the coeffects map — recordable values read from the token's `:rf.cofx`, ambient values from running their suppliers now (`deliver-declared-cofx` in `cofx.cljc`). `:db` (current `app-db` value) and `:event` (the dispatched vector) are the fold's own arguments, always staged. Delivery is **declared-only**: an undeclared leaf on the token is not staged. (EP-0017 — `inject-cofx` is removed; there is no separate injector pass and so no cofx ordering question.)
 
 **5. Validation (dev only).** If the handler carries a `:schema`, the runtime validates the event vector against it. Failure sets `:rf/skip-handler?` on the context and the handler short-circuits (the schema check + skip-handler honouring in `spec.cljc` / `events.cljc`). `validate-at-boundary-interceptor` runs this same check in production.
 
@@ -54,7 +54,7 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 |---|---|---|
 | Dispatch / queue | `router.cljc` (`dispatch!` / `dispatch-sync!`) | `rf/dispatch`, `rf/dispatch-sync` |
 | Interceptor chain | `events.cljc` (handler-wrapping fns) | metadata `:schema`, interceptors vector |
-| Cofx injection | `cofx.cljc` | `rf/inject-cofx` |
+| Coeffect assembly | `cofx.cljc` (`deliver-declared-cofx`) | `:rf.cofx/requires` metadata |
 | Handler invocation | `events.cljc` (handler-wrapping fns) | `reg-event-db` / `-fx` / `-ctx` |
 | Effect-map policing | `events.cljc` (`police-effect-map-shape!`) | `:rf.error/effect-map-shape` trace |
 | `:db` commit | `subs.cljc` + substrate adapter | atomic via `replace-container!` |
