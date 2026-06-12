@@ -61,6 +61,9 @@
 ;; rf2-9fyn40 — added :WORLD-INPUTS (EP-0010 causal provenance), pulling
 ;; :text-secondary (a step lighter than DISPATCH's :text-tertiary — it
 ;; reads as orienting causal-context metadata, not a pipeline action).
+;; rf2-g7tf6c (EP-0017 §9) — :WORLD-INPUTS → :RECORDABLE-COFX (the surface
+;; now reads the flat `:rf.cofx` map's declared recordable leaves; same
+;; muted causal-context tone).
 ;;
 ;; The badge inventory is binding: the view never paints a badge
 ;; whose keyword is not in this map.
@@ -90,13 +93,15 @@
   the interceptor chain WRAPS the handler; they read as one identity
   family in the cascade, the chain around the handler body)."
   {:DISPATCH          :text-tertiary
-   ;; rf2-9fyn40 — WORLD INPUTS (EP-0010 causal provenance) sits right
-   ;; after DISPATCH SITE and reads as CONTEXT, not a pipeline action.
-   ;; `:text-secondary` (brighter muted) keeps it in the dispatch-site
-   ;; muted-family — a step lighter than DISPATCH's `:text-tertiary` —
-   ;; so the causal-input section reads as orienting metadata rather
-   ;; than competing with the action badges (HANDLER / FLOW accent, etc.).
-   :WORLD-INPUTS      :text-secondary
+   ;; rf2-9fyn40 · EP-0017 §9 — RECORDABLE COEFFECTS (EP-0010 causal
+   ;; provenance, the flat `:rf.cofx` map's declared recordable leaves)
+   ;; sits right after DISPATCH SITE and reads as CONTEXT, not a pipeline
+   ;; action. `:text-secondary` (brighter muted) keeps it in the
+   ;; dispatch-site muted-family — a step lighter than DISPATCH's
+   ;; `:text-tertiary` — so the causal-input section reads as orienting
+   ;; metadata rather than competing with the action badges (HANDLER /
+   ;; FLOW accent, etc.).
+   :RECORDABLE-COFX   :text-secondary
    :COEFFECT          :magenta
    :INTERCEPTOR       :accent
    :HANDLER           :accent
@@ -110,7 +115,7 @@
   "Map from badge keyword → uppercase label rendered in the badge
   pill. Pure data."
   {:DISPATCH          "DISPATCH"
-   :WORLD-INPUTS      "WORLD INPUTS"
+   :RECORDABLE-COFX   "RECORDABLE COEFFECTS"
    :COEFFECT          "COEFFECT"
    :INTERCEPTOR       "INTERCEPTOR"
    :HANDLER           "EVENT HANDLER"

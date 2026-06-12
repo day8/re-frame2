@@ -11,9 +11,9 @@
       ┌── ① DISPATCH      from ui ↗                    0.1ms
       │      [:counter-inc]
       │
-      ├── ② WORLD INPUTS  causal world inputs
-      │      time-ms  1781078400123
-      │      :uuid    {:todo/id #uuid …}   (or [redacted])
+      ├── ② RECORDABLE COEFFECTS  recordable coeffects
+      │      time-ms         1781078400123
+      │      :counter/delta  4   (or [redacted])
       │
       ├── ③ COEFFECT      :session ↗
       │      + [:session] {:user-id 42 …}
@@ -393,15 +393,15 @@
    :flex       1
    :word-break "break-word"})
 
-;; -- WORLD INPUTS (rf2-9fyn40 · EP-0010) -----------------------------------
+;; -- RECORDABLE COEFFECTS (rf2-9fyn40 · EP-0010 · EP-0017 §9) ---------------
 ;;
-;; The causal world-input map (`:rf.world/inputs` off the dispatched trace).
-;; Reuses the COEFFECT body grammar (one `<key> <value>` row per input)
-;; since both surface "the inputs the fold consumed". PRIVACY: `:time-ms`
-;; rides verbatim (always safe per EP-0010 Open Issue 4); every other key's
+;; The flat recordable-coeffect map (`:rf.cofx` off the dispatched trace).
+;; Reuses the COEFFECT body grammar (one `<leaf-id> <value>` row per leaf)
+;; since both surface "the inputs the fold consumed". PRIVACY: `:rf/time-ms`
+;; rides verbatim (always safe per EP-0010 Open Issue 4); every other leaf's
 ;; value renders as a `resources-helpers/summarize` chip (redact-by-default).
 
-(def ^:private world-input-row-style
+(def ^:private recordable-cofx-row-style
   {:padding     "3px 0"
    :display     "flex"
    :align-items "flex-start"
@@ -409,11 +409,11 @@
    :font-family mono-stack
    :font-size   "12px"})
 
-(def ^:private world-input-key-style
+(def ^:private recordable-cofx-key-style
   {:color       text-tertiary-colour
    :white-space "nowrap"})
 
-(def ^:private world-input-time-value-style
+(def ^:private recordable-cofx-time-value-style
   {:color      text-primary-colour
    :min-width  0
    :flex       1
@@ -422,25 +422,25 @@
 ;; A `summarize` shape that came back `:redacted?` renders muted (it carries
 ;; no value — only the `[redacted]` sentinel preview); a `:large?` shape
 ;; renders at the warning tone; everything else at the primary text colour.
-(def ^:private world-input-summary-redacted-style
+(def ^:private recordable-cofx-summary-redacted-style
   {:color       text-tertiary-colour
    :min-width   0
    :flex        1
    :word-break  "break-word"})
 
-(def ^:private world-input-summary-large-style
+(def ^:private recordable-cofx-summary-large-style
   {:color       warning-colour
    :min-width   0
    :flex        1
    :word-break  "break-word"})
 
-(def ^:private world-input-summary-plain-style
+(def ^:private recordable-cofx-summary-plain-style
   {:color       text-primary-colour
    :min-width   0
    :flex        1
    :word-break  "break-word"})
 
-(def ^:private world-input-summary-size-style
+(def ^:private recordable-cofx-summary-size-style
   {:color text-tertiary-colour})
 
 ;; -- db-diff / fx-entry ----------------------------------------------------
@@ -2431,81 +2431,83 @@
      ;; COEFFECT step by cofx-id.
      (violation-blocks :coeffect violations)]))
 
-;; ---- WORLD INPUTS step (rf2-9fyn40 · EP-0010) ---------------------------
+;; ---- RECORDABLE COEFFECTS step (rf2-9fyn40 · EP-0010 · EP-0017 §9) -------
 
-(defn- world-input-summary-view
+(defn- recordable-cofx-summary-view
   "Render a `resources-helpers/summarize` shape (the privacy-summarized
-  value of a value-bearing world-input key) as a compact chip — NEVER the
-  raw value (EP-0010 §Privacy / Open Issue 4 — redact-by-default). Redacted
-  → muted `[redacted]`; large → amber `[large — elided]`; else the bounded
-  preview + a `(N)` size badge for collections. Mirrors the resources
-  panel's `summary-chip` grammar so the privacy summary reads identically
-  across surfaces."
+  value of a value-bearing recordable-coeffect leaf) as a compact chip —
+  NEVER the raw value (EP-0010 §Privacy / Open Issue 4 — redact-by-default).
+  Redacted → muted `[redacted]`; large → amber `[large — elided]`; else the
+  bounded preview + a `(N)` size badge for collections. Mirrors the
+  resources panel's `summary-chip` grammar so the privacy summary reads
+  identically across surfaces."
   [{:keys [type size preview redacted? large?]} testid]
   [:span {:data-testid testid
           :style       (cond
-                         redacted? world-input-summary-redacted-style
-                         large?    world-input-summary-large-style
-                         :else     world-input-summary-plain-style)}
+                         redacted? recordable-cofx-summary-redacted-style
+                         large?    recordable-cofx-summary-large-style
+                         :else     recordable-cofx-summary-plain-style)}
    preview
    (when (and size (#{"map" "set" "vector" "seq"} type))
-     [:span {:style world-input-summary-size-style} (str " (" size ")")])])
+     [:span {:style recordable-cofx-summary-size-style} (str " (" size ")")])])
 
-(defn render-world-inputs-step
-  "Render the WORLD INPUTS step (rf2-9fyn40 · EP-0010) — the dispatch
-  envelope's causal `:rf.world/inputs` map surfaced right after DISPATCH
-  SITE. The map answers 'where did this state value come from?' — the
-  explicit time / id / randomness / browser facts the fold consumed, so a
-  durable write reads as a function of prior state PLUS these tokens.
+(defn render-recordable-cofx-step
+  "Render the RECORDABLE COEFFECTS step (rf2-9fyn40 · EP-0010 · EP-0017 §9)
+  — the dispatch envelope's flat `:rf.cofx` map surfaced right after
+  DISPATCH SITE. The map answers 'where did this state value come from?' —
+  the explicit time / id / randomness facts the fold consumed, so a durable
+  write reads as a function of prior state PLUS these recorded tokens. These
+  are the handler's DECLARED RECORDABLE LEAVES (EP-0017 §9).
 
-  PRIVACY (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11):
+  PRIVACY (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11; EP-0017 §9):
 
-    - `:time-ms` is ALWAYS safe to surface (a wall-clock fact, never PII) —
-      it renders verbatim as `time-ms <ms>`;
-    - every other key is value-bearing and REDACTS BY DEFAULT — the
+    - `:rf/time-ms` is ALWAYS safe to surface (a wall-clock fact, never
+      PII) — it renders verbatim as `time-ms <ms>`;
+    - every other leaf is value-bearing and REDACTS BY DEFAULT — the
       projection routed each value through `resources-helpers/summarize`
       (the same path `reply_envelope.cljc` uses), so this view renders a
       privacy-preserving summary chip, NEVER a raw value. The KEY itself is
-      framework vocabulary (`:uuid` / `:random` / `:browser/*` / `:storage`)
-      and rides verbatim as the row label.
+      owner-qualified vocabulary (the app's `:counter/delta`, a subsystem's
+      `:rf.route/location`, …) and rides verbatim as the row label.
 
-  Conditional (silent-by-default, like COEFFECTS): the projection emits
-  this step ONLY when the dispatch envelope surfaced a world-input map."
+  Conditional (silent-by-default, like the ambient COEFFECT step): the
+  projection emits this step ONLY when the dispatch envelope surfaced a
+  `:rf.cofx` map."
   [{:keys [time-ms inputs step-number]}]
-  [:div {:data-testid "rf-xray-epoch-step-world-inputs"
-         :data-step-kw "world-inputs"}
-   (numbered-circle step-number :WORLD-INPUTS)
+  [:div {:data-testid "rf-xray-epoch-step-recordable-cofx"
+         :data-step-kw "recordable-cofx"}
+   (numbered-circle step-number :RECORDABLE-COFX)
    (step-header
-     {:step :world-inputs
-      :badge :WORLD-INPUTS
+     {:step :recordable-cofx
+      :badge :RECORDABLE-COFX
       :verb [:span {:style coeffect-verb-plain-style
-                    :data-testid "rf-xray-epoch-world-inputs-verb"}
-             "causal world inputs"]
+                    :data-testid "rf-xray-epoch-recordable-cofx-verb"}
+             "recordable coeffects"]
       :expandable? false
-      :testid "rf-xray-epoch-world-inputs"}
+      :testid "rf-xray-epoch-recordable-cofx"}
      nil)
-   ;; `:time-ms` — ALWAYS surfaced verbatim (always safe, Open Issue 4).
+   ;; `:rf/time-ms` — ALWAYS surfaced verbatim (always safe, Open Issue 4).
    (when (some? time-ms)
-     [:div {:data-testid "rf-xray-epoch-world-inputs-time-ms"
-            :style world-input-row-style}
-      [:span {:style world-input-key-style} "time-ms"]
-      [:span {:data-testid "rf-xray-epoch-world-inputs-time-ms-value"
-              :style world-input-time-value-style}
+     [:div {:data-testid "rf-xray-epoch-recordable-cofx-time-ms"
+            :style recordable-cofx-row-style}
+      [:span {:style recordable-cofx-key-style} "time-ms"]
+      [:span {:data-testid "rf-xray-epoch-recordable-cofx-time-ms-value"
+              :style recordable-cofx-time-value-style}
        (str time-ms)]])
-   ;; value-bearing keys — each rendered as a privacy summary chip
-   ;; (redact-by-default). The key rides verbatim (framework vocabulary,
-   ;; not PII); only the VALUE is summarized.
+   ;; value-bearing leaves — each rendered as a privacy summary chip
+   ;; (redact-by-default). The leaf id rides verbatim (owner-qualified
+   ;; vocabulary, not PII); only the VALUE is summarized.
    (for [[idx {:keys [key value]}] (map-indexed vector inputs)]
-     ^{:key (str "world-input-" idx)}
-     [:div {:data-testid (str "rf-xray-epoch-world-input-row-" (name key))
-            :data-world-input-key (name key)
-            :style world-input-row-style}
-      [:span {:data-testid (str "rf-xray-epoch-world-input-key-" (name key))
-              :style world-input-key-style}
+     ^{:key (str "recordable-cofx-" idx)}
+     [:div {:data-testid (str "rf-xray-epoch-recordable-cofx-row-" (name key))
+            :data-recordable-cofx-key (name key)
+            :style recordable-cofx-row-style}
+      [:span {:data-testid (str "rf-xray-epoch-recordable-cofx-key-" (name key))
+              :style recordable-cofx-key-style}
        (fmt/ns-keyword key)]
-      (world-input-summary-view
+      (recordable-cofx-summary-view
         value
-        (str "rf-xray-epoch-world-input-value-" (name key)))])])
+        (str "rf-xray-epoch-recordable-cofx-value-" (name key)))])])
 
 ;; ---- INTERCEPTOR step (rf2-yz57h) ---------------------------------------
 ;;
@@ -5522,7 +5524,7 @@
   [step ctx]
   (case (:step step)
     :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx))
-    :world-inputs      (render-world-inputs-step step)
+    :recordable-cofx   (render-recordable-cofx-step step)
     :coeffect          (render-coeffect-step step)
     :interceptor       (render-interceptor-step step)
     :handler           (render-handler-step step)
