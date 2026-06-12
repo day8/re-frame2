@@ -184,22 +184,25 @@
 ;; COEFFECT — :standard-epochs/now  (button #2)
 ;; ============================================================================
 ;;
-;; A wall-clock injection point so the handler stays a pure fn of
-;; (coeffects, event). Xray's Epoch event-detail shows this coeffect
+;; A wall-clock supplier so the handler stays a pure fn of (coeffects,
+;; event). EP-0017: `reg-cofx` is value-returning + graded; this is an
+;; AMBIENT cofx (a host-transient read, never recorded — display chrome,
+;; not durable state). Xray's Epoch event-detail shows this coeffect
 ;; feeding the handler.
 
 (rf/reg-cofx :standard-epochs/now
-  {:doc "Inject the current wall-clock time (ms since epoch) under
-         `:standard-epochs/now`."}
-  (fn cofx-now [ctx]
-    (rf/assoc-coeffect ctx :standard-epochs/now (.getTime (js/Date.)))))
+  {:doc "Ambient wall-clock supplier — the current time (ms since epoch),
+         delivered under `:standard-epochs/now` to declaring handlers."}
+  (fn cofx-now [] (.getTime (js/Date.))))
 
-;; A coeffect that throws on injection (button #15). A FEATURE being
-;; exercised — the supported way to light up the cofx error surface.
+;; A coeffect supplier that throws when it runs (button #15). A FEATURE
+;; being exercised — the supported way to light up the cofx error surface
+;; (`:rf.error/coeffect-exception`, EP-0017 §8).
 (rf/reg-cofx :standard-epochs/throwing-cofx
-  {:doc "Throws during coeffect injection so Xray's Issues lens surfaces
-         a cofx error. A feature being exercised, not a buggy demo."}
-  (fn cofx-throws [_ctx]
+  {:doc "Throws when its supplier runs at context assembly so Xray's Issues
+         lens surfaces a cofx error. A feature being exercised, not a buggy
+         demo."}
+  (fn cofx-throws []
     (throw (ex-info "standard-epochs / coeffect (intentional — exercises the cofx error surface)"
                     {:surface :coeffect-exception}))))
 
@@ -298,9 +301,10 @@
 
 ;; -- 2. increment + coeffect -------------------------------------------------
 (rf/reg-event-fx :standard-epochs/increment-cofx
-  {:doc "Button 2 — inject the `:standard-epochs/now` cofx. Epoch's event
-         detail shows the coeffect feeding the handler."}
-  [(rf/inject-cofx :standard-epochs/now)]
+  {:doc "Button 2 — declare the `:standard-epochs/now` cofx via
+         `:rf.cofx/requires`. Epoch's event detail shows the coeffect
+         feeding the handler (EP-0017 declared-only delivery)."
+   :rf.cofx/requires [:standard-epochs/now]}
   (fn handler-increment-cofx [{:keys [db standard-epochs/now]} _ev]
     {:db (assoc db :last-clicked now)}))
 
@@ -415,11 +419,11 @@
   [throwing-interceptor-after]
   (fn handler-before-throwing-after-interceptor [db _ev] db))
 
-;; -- 15. exception in a coeffect handler → Issues: cofx error ----------------
+;; -- 15. exception in a coeffect supplier → Issues: cofx error ---------------
 (rf/reg-event-fx :standard-epochs/throw-cofx
-  {:doc "Button 15 — a coeffect throws on injection. Issues shows the
-         cofx error; the handler never runs."}
-  [(rf/inject-cofx :standard-epochs/throwing-cofx)]
+  {:doc "Button 15 — a declared coeffect's supplier throws at context
+         assembly. Issues shows the cofx error; the handler never runs."
+   :rf.cofx/requires [:standard-epochs/throwing-cofx]}
   (fn handler-after-throwing-cofx [{:keys [db]} _ev] {:db db}))
 
 ;; -- 16. exception in an effect handler (post-commit) → Issues: fx error -----

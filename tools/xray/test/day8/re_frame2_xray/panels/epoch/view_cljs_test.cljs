@@ -413,46 +413,47 @@
       (is (string/includes? (or value-text "") "42")
           "the cofx value renders in the body"))))
 
-;; ---- rf2-9fyn40 — WORLD INPUTS step (EP-0010 causal provenance) ---------
+;; ---- rf2-9fyn40 · EP-0017 §9 — RECORDABLE COEFFECTS step ----------------
 
-(deftest world-inputs-time-ms-renders-verbatim-test
-  (testing "rf2-9fyn40 — :time-ms is ALWAYS safe (EP-0010 Open Issue 4) and
-            renders verbatim in the WORLD INPUTS step body"
-    (let [step {:step :world-inputs :badge :WORLD-INPUTS :step-number 2
+(deftest recordable-cofx-time-ms-renders-verbatim-test
+  (testing "rf2-9fyn40 · EP-0017 — :rf/time-ms is ALWAYS safe (EP-0010 Open
+            Issue 4) and renders verbatim in the RECORDABLE COEFFECTS step body"
+    (let [step {:step :recordable-cofx :badge :RECORDABLE-COFX :step-number 2
                 :time-ms 1781078400123}
-          tree (view/render-world-inputs-step step)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-world-inputs"))
-          "the WORLD INPUTS step wrapper renders")
+          tree (view/render-recordable-cofx-step step)]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-recordable-cofx"))
+          "the RECORDABLE COEFFECTS step wrapper renders")
       (is (string/includes?
-            (or (text-of tree "rf-xray-epoch-world-inputs-time-ms-value") "")
+            (or (text-of tree "rf-xray-epoch-recordable-cofx-time-ms-value") "")
             "1781078400123")
-          ":time-ms renders verbatim"))))
+          ":rf/time-ms renders verbatim"))))
 
-(deftest world-inputs-value-bearing-key-renders-summary-test
-  (testing "rf2-9fyn40 — a value-bearing key renders the privacy summary
-            chip (preview), NOT the raw value. The KEY rides verbatim"
-    (let [step {:step :world-inputs :badge :WORLD-INPUTS :step-number 2
+(deftest recordable-cofx-value-bearing-leaf-renders-summary-test
+  (testing "rf2-9fyn40 · EP-0017 — a value-bearing leaf renders the privacy
+            summary chip (preview), NOT the raw value. The leaf id rides
+            verbatim (owner-qualified vocabulary)"
+    (let [step {:step :recordable-cofx :badge :RECORDABLE-COFX :step-number 2
                 :time-ms 1781078400123
-                :inputs [{:key :uuid :value (rh/summarize {:todo/id 1})}]}
-          tree (view/render-world-inputs-step step)
-          key-text (text-of tree "rf-xray-epoch-world-input-key-uuid")
-          val-text (text-of tree "rf-xray-epoch-world-input-value-uuid")]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-world-input-row-uuid"))
-          "the value-bearing key row renders")
-      (is (string/includes? (or key-text "") ":uuid")
-          "the key rides verbatim (framework vocabulary)")
+                :inputs [{:key :counter/delta :value (rh/summarize {:todo/id 1})}]}
+          tree (view/render-recordable-cofx-step step)
+          key-text (text-of tree "rf-xray-epoch-recordable-cofx-key-delta")
+          val-text (text-of tree "rf-xray-epoch-recordable-cofx-value-delta")]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-recordable-cofx-row-delta"))
+          "the value-bearing leaf row renders")
+      (is (string/includes? (or key-text "") "counter/delta")
+          "the leaf id rides verbatim (owner-qualified vocabulary)")
       ;; the summarize preview is shown — a bounded pr-str, not a raw deref
       (is (string/includes? (or val-text "") "todo/id")
           "the bounded summary preview renders"))))
 
-(deftest world-inputs-redacted-value-renders-marker-test
-  (testing "rf2-9fyn40 — a value redacted upstream (:rf/redacted sentinel)
-            renders the [redacted] marker, NEVER the raw value (EP-0010
-            §Privacy — redact-by-default for non-:time-ms keys)"
-    (let [step {:step :world-inputs :badge :WORLD-INPUTS :step-number 2
-                :inputs [{:key :storage :value (rh/summarize :rf/redacted)}]}
-          tree (view/render-world-inputs-step step)
-          val-text (text-of tree "rf-xray-epoch-world-input-value-storage")]
+(deftest recordable-cofx-redacted-value-renders-marker-test
+  (testing "rf2-9fyn40 · EP-0017 — a value redacted upstream (:rf/redacted
+            sentinel) renders the [redacted] marker, NEVER the raw value
+            (EP-0015 §Privacy — redact-by-default for non-:rf/time-ms leaves)"
+    (let [step {:step :recordable-cofx :badge :RECORDABLE-COFX :step-number 2
+                :inputs [{:key :prefs/theme :value (rh/summarize :rf/redacted)}]}
+          tree (view/render-recordable-cofx-step step)
+          val-text (text-of tree "rf-xray-epoch-recordable-cofx-value-theme")]
       (is (string/includes? (or val-text "") "[redacted]")
           "the redaction marker renders, not the raw value"))))
 
