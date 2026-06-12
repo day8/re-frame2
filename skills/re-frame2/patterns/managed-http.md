@@ -117,7 +117,7 @@ Both layers compose. A machine's `:spawn` spawns a managed request that itself r
 
 ## Variations
 
-**Reply addressing.** Default is reply-to-origin. Override with explicit `:on-success` / `:on-failure` event vectors. Pass `:on-failure nil` to swallow. Reply envelope: `{:kind :success :value v}` or `{:kind :failure :failure m}`.
+**Reply addressing.** Default is reply-to-origin. Override with explicit `:on-success` / `:on-failure` event vectors. Pass `:on-failure nil` to swallow. **Public HTTP compatibility reply payload**: `{:kind :success :value v}` or `{:kind :failure :failure m}` — this `:kind` map is the public sugar you author against, NOT the EP-0011 reply envelope. Every delivered payload is reshaped from the internal canonical reply map (which carries `:status` / `:work/id` / `:completed-at`); a stale canonical envelope (`:status :stale`, suppressed by `:work/id`) never dispatches an app target, so a payload that reaches your handler is always current.
 
 **Abort.** `:request-id <id>` → `[:rf.http/managed-abort id]` cancels; reply path dispatches `:rf.http/aborted`. External `AbortController` via `:abort-signal`. The wrapper form aborts automatically on state-exit.
 

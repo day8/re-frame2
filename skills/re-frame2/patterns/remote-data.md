@@ -16,8 +16,8 @@ The pattern composes:
 
 - **`reg-app-schema`** — schema-binds the slice path so the slice's shape is enforced at boundaries (per cardinal rule 4 — schemas at boundaries, not everywhere).
 - **`reg-event-fx` for `:feature/load`** — dispatches the HTTP effect; picks `:loading` vs `:fetching` based on whether prior `:data` exists; bumps `:attempt`.
-- **`reg-event-db` for `:feature/loaded` / `:feature/load-failed`** — folds the reply into the slice. On failure, **prior `:data` is kept**; only `:status` and `:error` change.
-- **`:rf.http/managed` fx** (or the host's HTTP fx) — issues the request; its `:on-success` and `:on-failure` dispatch the lifecycle events.
+- **`reg-event-fx` for `:feature/loaded`** — folds the success reply into the slice and stamps a durable `:loaded-at` from the causal clock (`:rf.world/inputs` `:time-ms`, EP-0010), so it must be an event-fx that reads the world inputs — not a host-clock read. **`reg-event-db` for `:feature/load-failed`** — folds the failure; **prior `:data` is kept**, only `:status` and `:error` change.
+- **`:rf.http/managed` fx** (or the host's HTTP fx) — issues the request; its `:on-success` and `:on-failure` dispatch the lifecycle events. The reply each delivers is the **public HTTP compatibility payload** (`{:kind :success :value v}` / `{:kind :failure :failure m}`), reshaped from the internal EP-0011 reply envelope — NOT the canonical reply map itself (see managed-http.md).
 - **Layered subs `:feature/status`, `:feature/data`, `:feature/loading?`, `:feature/fetching?`** — convenience subs over the slice. `:loading?` means truly empty + in-flight; `:fetching?` means any in-flight (covers both `:loading` and `:fetching`).
 - **(machine variant) `:initial :idle` + states `:idle :loading :fetching :loaded :error` + `:tags`** — the lifecycle as machine states. `:rf/machine-has-tag?` answers the same question `:loading?` / `:fetching?` did.
 
@@ -53,20 +53,28 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
               :on-success [:articles/loaded]
               :on-failure [:articles/load-failed]}]]})))
 
-(rf/reg-event-db :articles/loaded
-  ;; :loaded-at is a DURABLE timestamp, so it rides the causal reply
-  ;; (EP-0010 §Causal world inputs / EP-0011 §Causal completion metadata):
-  ;; read `:completed-at` off the reply map — do NOT call (current-time-ms)
-  ;; here, or the same reply replays to a different `:loaded-at` on epoch
-  ;; restore / SSR hydration / time-travel.
-  (fn [db [_ {:keys [value completed-at]}]]
-    (-> db
-        (assoc-in [:articles :status]    :loaded)
-        (assoc-in [:articles :data]      value)
-        (assoc-in [:articles :error]     nil)
-        (assoc-in [:articles :loaded-at] completed-at))))
+(rf/reg-event-fx :articles/loaded
+  ;; The HTTP `:on-success` reply is the PUBLIC compatibility payload
+  ;; `{:kind :success :value v}` — it carries `:value` and nothing else.
+  ;; It does NOT expose canonical envelope fields (`:status` / `:work/id` /
+  ;; `:completed-at`); those are the EP-0011 reply map, the *internal*
+  ;; lowered shape for HTTP (see managed-http.md). So destructure `:value`
+  ;; only off the reply.
+  ;;
+  ;; :loaded-at is a DURABLE timestamp, so it must source CAUSALLY
+  ;; (EP-0010 §Causal world inputs): read `:time-ms` off `:rf.world/inputs`,
+  ;; the per-dispatch causal clock the runtime stamps on every event — do NOT
+  ;; call (current-time-ms) here, or the same reply replays to a different
+  ;; `:loaded-at` on epoch restore / SSR hydration / time-travel.
+  (fn [{:keys [db] :rf.world/keys [inputs]} [_ {:keys [value]}]]
+    {:db (-> db
+             (assoc-in [:articles :status]    :loaded)
+             (assoc-in [:articles :data]      value)
+             (assoc-in [:articles :error]     nil)
+             (assoc-in [:articles :loaded-at] (:time-ms inputs)))}))
 
 (rf/reg-event-db :articles/load-failed
+  ;; Failure compat payload: `{:kind :failure :failure m}` — read `:failure`.
   (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:articles :status] :error)
