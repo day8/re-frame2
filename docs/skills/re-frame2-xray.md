@@ -15,7 +15,7 @@ The skill answers two questions:
 
 Xray runs in one of two modes, flipped by the L1 mode pill or `Cmd/Ctrl+Shift+M`:
 
-- **Dynamic** — the event-coupled spine (4-layer chrome). Every tab is a lens on the *one focused event*. 6 tabs: **Epoch · app-db · Views · Trace · Machine · Routes** (mnemonics `e a v t m r`). There is **no Issues tab** — issues surface inline (in the Epoch cascade, the L2 event-row pink-wash, and the always-on issues-ribbon signal).
+- **Dynamic** — the event-coupled spine (4-layer chrome). Every tab is a lens on the *one focused event*. 8 tabs: **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph** (mnemonics `e a v t m r s g`) — the core six plus the cross-feature **Resources** (declarative server-state) and **Graph** (Xray's UI over the EP-0014 derivation/process graph) lenses. There is **no Issues tab** — issues surface inline (in the Epoch cascade, the L2 event-row pink-wash, and the always-on issues-ribbon signal).
 - **Static** — event-INDEPENDENT registry browse (3-layer chrome, no spine). Every tab is a catalogue of what's *registered* in the picked frame. 5 tabs: **Machines · Routes · Schemas · Flows · Interceptors**.
 
 When the user wants to inspect a single dispatch, that's Dynamic; when they want to browse the whole registry, that's Static.

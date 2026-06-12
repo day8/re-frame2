@@ -14,14 +14,17 @@ Sources of truth: the live tab inventory is the set of
 palette tokens, density. Tab order is set declaratively via `reg-l4-tab!`
 `:order` and rendered by `shell.cljs` (Dynamic) / `static/shell.cljs`
 (Static). The live Dynamic `:order` values are Epoch `-1` · app-db `1` ·
-Views `2` · Trace `3` · Machine `4` · Routes `6`.
+Views `2` · Trace `3` · Machine `4` · Routes `6` · Resources `7` ·
+Graph `8` — eight Dynamic tabs in all (the core six plus the two
+cross-feature lenses, **Resources** and **Graph**, each registered by its
+own panel through the `reg-l4-tab!` seam).
 
 ## Two modes
 
 The two-mode model (Dynamic event-spine 4-layer chrome · Static registry
 3-layer chrome, flipped by the L1 mode pill or `Cmd/Ctrl+Shift+M`) is
 covered in [`SKILL.md` §Two modes](../SKILL.md#two-modes). This leaf is
-the per-panel tour: the 6 Dynamic tabs in §Panel-by-panel below, the 5
+the per-panel tour: the 8 Dynamic tabs in §Panel-by-panel below, the 5
 Static tabs in §Static mode — registry browse. One binding constraint to
 restate: **no cross-epoch L4 panels** — every Dynamic L4 tab is a lens on
 the one focused epoch; aggregate signal lives on L2 badges only (§021
@@ -72,14 +75,19 @@ tab-bar ribbon, which rewinds the observed frame's live
 
 ## Panel-by-panel (Dynamic mode)
 
-Six Dynamic tabs, in their fixed L3-tab order (§018 §5 + §021 §9.1;
-mnemonics `e a v t m r`): **Epoch · app-db · Views · Trace · Machine ·
-Routes.** (Internal tab ids stay `:epoch :app-db :views :trace :machines
-:routing` — the display labels rebased over a rename history but the ids
-are stable.) The pre-rebuild **Event** panel was retired
-(2026-05-27 — `panels/event_detail.cljs` is deleted) and the **Issues**
-tab was retired (2026-05-31 — `panels/issues_ribbon.cljs` is
-deleted); see §What's deliberately NOT here.
+Eight Dynamic tabs, left-to-right by `:order` (mnemonics
+`e a v t m r s g`): **Epoch · app-db · Views · Trace · Machine · Routes ·
+Resources · Graph.** The first six are the core spine lenses (§018 §5 +
+§021 §9.1); **Resources** (`:order 7`) and **Graph** (`:order 8`) are the
+two cross-feature lenses that landed last, each self-registered through
+the `reg-l4-tab!` seam (`panels/resources.cljs`,
+`panels/derivation_graph.cljs`). (Internal tab ids stay `:epoch :app-db
+:views :trace :machines :routing :resources :derivation-graph` — the
+display labels rebased over a rename history but the ids are stable.) The
+pre-rebuild **Event** panel was retired (2026-05-27 —
+`panels/event_detail.cljs` is deleted) and the **Issues** tab was retired
+(2026-05-31 — `panels/issues_ribbon.cljs` is deleted); see §What's
+deliberately NOT here.
 
 Most Dynamic tabs share the same chrome: panel icon (left of stripe) ·
 panel title · focused-event id · `[◀ Prev] [Next ▶]` film-strip walking
@@ -436,6 +444,104 @@ Spec: [`021-Dynamic-Panel-Designs.md` §7](../../../tools/xray/spec/021-Dynamic-
 + [`spec/012-Routing.md`](../../../spec/012-Routing.md);
 implementation at
 [`panels/routing.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/routing.cljs).
+
+### Resources — cross-feature · mnem `s` · `:order 7`
+
+Question: **Where is my server state — what owns it, and is it stale?**
+(Display label **Resources**, plural-noun convention; internal tab id
+`:resources`.) The Xray surface for re-frame2's declarative server-state
+(Spec 016 §Xray and AI tooling). Sections, top → bottom:
+
+- **STATIC RESOURCE REGISTRY** — every registered resource + scope,
+ stale-after, GC-after, and the routes that activate it.
+- **LIVE INSTANCES** (per frame) — each scoped cache entry with state,
+ generation, owner count, and freshness; scope/params summarized.
+- **WORK LEDGER** — live fetch attempts (running · cancellable ·
+ deadline); host handles are inaccessible by design.
+- **ROUTE / RESOURCE GRAPH** — blocking activations are the SSR wait
+ points; plus lifecycle timeline, invalidation graph, cache growth.
+- **SCOPE AUDIT** — every `:rf.scope/global` use + lints.
+
+**Read-only** — opening this panel pins nothing: it dispatches no
+`:rf.resource/ensure`, attaches no owner, refetches nothing, extends no
+GC (Spec 016 §Active owners and causes). **Privacy**: params, scopes, AND
+data all get the same summarize-and-redact treatment — every value is a
+bounded, redaction-aware preview, never the raw value. **Decoupled**:
+Xray does **not** `:require` the optional `re-frame.resources.*` artefact;
+the panel reads the static registry via `(rf/registrations :resource)`
+and the live cache/ledger from the runtime-db slice the spine already
+publishes — so it renders cleanly even when the host wired no resources
+(identical posture to the Routes tab's route slice + the Machine tab's
+snapshots).
+
+**Open when:** "where's my server state?", "what's in flight?", "is this
+resource stale?", "what owns this cache entry?"
+
+Spec: [`spec/016-Resources.md` §Xray and AI tooling](../../../spec/016-Resources.md);
+implementation at
+[`panels/resources.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/resources.cljs)
++ [`panels/resources_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/resources_helpers.cljc).
+
+### Graph — cross-feature · mnem `g` · `:order 8`
+
+Question: **Where does this value come from — when is it evaluated, where
+does it live, who owns it?** — across families, in one place. (Display
+label **Graph**; internal tab id `:derivation-graph`.) Xray's UI over the
+**EP-0014 derivation/process algebra graph** and the **named first
+consumer** of EP-0014's structured graph accessor. Every declared fact
+and process in the host app — subscriptions, flows, resources, route
+facts, machine processes + selectors — is a node in **one**
+node-and-edge graph over the frame fold.
+
+- **Classification by the two closed superkinds.** Each node is grouped +
+ classified by its `:kind` — exactly `:derivation` or `:process` — read
+ off `:kind` alone (a tool MUST classify knowing only the two
+ superkinds). The refined kinds (`:resource-process`, `:route-fact`,
+ `:machine-process`, `:machine-selector`) are the **colour** axis (family
+ accent), never the contract; an unknown future refinement still renders
+ and classifies off its superkind.
+- **Per-panel static ↔ live toggle** (its OWN toggle, in the panel
+ header — distinct from the L1 Dynamic/Static mode pill). **Static**: the
+ registration-derived graph (process-global); a parametric sub shows the
+ `:parametric` marker and contributes **no** edge — the **don't-execute
+ rule** (static inspection never invokes param/scope functions).
+ **Live**: the graph realized in the observed frame — concrete
+ subscription query vectors with realized edges, active resource keys,
+ live machine instances, the materialized route slice with its nav-token
+ owner.
+- **Contributor coverage today.** The panel composes the families Xray's
+ artefact carries — **subscriptions, flows, routes**. Machines and
+ resources are optional artefacts Xray does **not** `:require`, so they
+ contribute **no nodes** today (the no-machines / no-resources story); the
+ composer's present-family-only seam accepts them with no panel change
+ the moment those artefacts join Xray's classpath.
+- **On-box raw, off-box redacted.** On-box rendering shows raw value
+ summaries (the developer is entitled to their own app's values; previews
+ are bounded for ergonomics, not privacy). The off-box egress boundary —
+ shipping the graph to a remote agent or a serialized capture — projects
+ each node's value-bearing fields through the frame's wire-elision policy
+ (per-frame, fail-closed), preserving node + edge structure.
+
+**Read-only** — observing the graph pins nothing, dispatches nothing,
+mutates no host state.
+
+> **The graph accessor is internal, not a public API.** The Graph tab
+> *consumes* EP-0014's internal `re-frame.derivation.graph` composer — a
+> **structured** internal accessor, **not** a `re-frame.core` facade
+> export and **not** a public app authoring/accessor primitive. EP-0014
+> defers the public name until a third consumer (beyond Xray + the
+> conformance fixtures) needs it. Route users to **open the Graph tab**;
+> do **not** tell them to call a public graph API from app code.
+
+**Open when:** "where does this value come from?", "show me the whole
+derivation graph", "what's the dependency graph for this page?", "is this
+ephemeral or materialized, and who owns it?"
+
+Spec: [`spec/Derivations.md` §Graph inspection — internal but structured](../../../spec/Derivations.md)
++ [`docs/EP/EP-0014-derivation-and-process-algebra.md`](../../../docs/EP/EP-0014-derivation-and-process-algebra.md);
+implementation at
+[`panels/derivation_graph.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/derivation_graph.cljs)
++ [`panels/derivation_graph_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/derivation_graph_helpers.cljc).
 
 ### Issues — no longer a Dynamic tab
 

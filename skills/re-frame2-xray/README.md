@@ -5,7 +5,7 @@
 `re-frame2-xray` is a Claude Code **tour skill** for [Xray](https://github.com/day8/re-frame2/tree/main/tools/xray) — the re-frame2 in-app devtools panel. It answers three questions, and only three:
 
 1. **How do I launch Xray?** — the inline panel, the overlay fallback (`open-overlay!`, for hosts that can't give Xray a layout column), the pop-out, the programmatic `init!`, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
-2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 6 Dynamic event-spine tabs (Epoch · app-db · Views · Trace · Machine · Routes) and the 5 Static registry-browse tabs.
+2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 8 Dynamic event-spine tabs (Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph) and the 5 Static registry-browse tabs. The **Graph** tab is Xray's UI over the EP-0014 derivation/process graph; the underlying graph accessor stays internal (no `re-frame.core` facade export).
 3. **What's the chrome around the tabs for?** — the first-screen navigation primitives: time-travel inspect / `Reset`-rewind, the filter-pill cluster, the command palette, and the Settings popup.
 
 Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction-marker semantics) are out of scope for this iteration — see `SKILL.md` §Out of scope for what to do when one of those comes up.
@@ -20,7 +20,7 @@ Xray is the **human-facing** panel; for an AI agent surface against the running 
 
 - `SKILL.md` — the compact tour/router (launch quick-reference, mode/tab chooser, chrome one-liners, and the leaf-loading guide)
 - `references/launch-modes.md` — full launch-mode decision tree (preload vs `init!`, suppress-auto-open, `:rf.xray/layout-host-selector`, host-CSS-variable resize, the `open-overlay!` no-layout-host fallback, pop-out lifecycle, wired hotkeys)
-- `references/panels.md` — the full tab tour in depth (6 Dynamic event-spine tabs + 5 Static registry-browse tabs, deeper "open it when…" guidance, the retired-panel content-home mapping)
+- `references/panels.md` — the full tab tour in depth (8 Dynamic event-spine tabs + 5 Static registry-browse tabs, deeper "open it when…" guidance, the retired-panel content-home mapping)
 - `references/chrome.md` — the first-screen chrome inventory in depth (LIVE/RETRO, time-travel rewind, filter pills, command-palette sources, the Settings-popup tabs, the Snapshot app-db redaction contract)
 - `references/shared-components.md` — the components every L4 panel reuses (`edn-inspector/render-node`, `film_strip/header`, `focus_resolver`) + the tab-icon / L2-badge / cross-panel-arrow glyph reference
 - `evals/evals.json` — eval fixtures (trigger accuracy + answer-quality assertions for the high-drift launch / chrome / tab-routing prompts)
