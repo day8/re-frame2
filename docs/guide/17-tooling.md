@@ -24,7 +24,9 @@ The useful question is not "what component is selected?" It is "what did that ev
 
 Xray owns the diagnostic panels. Story can embed or focus those panels, but it should not grow a second app-db diff engine, a second schema timeline, or a second subscription inspector. Duplication here would be worse than waste; it would create two tools that can tell different stories about the same event. That is how developer trust dies, usually in a meeting where everyone keeps saying "interesting" and nobody is having fun.
 
-For installation, panels, time travel, click-to-source, schema timelines, hydration, machines, and app-db diffing, use the [Xray docs](../xray/index.md).
+Xray also answers a quieter question: *where does this value come from?* The same registration facts assemble into one **derivation graph** — every subscription, flow, resource, route fact, and machine selector as a node in a single dependency graph rooted at your state. When you want to read that graph, start with [One graph: derivations and algebra views](derivations-and-algebra-views.md) for the model, then reach for Xray's graph view to see it for your running app.
+
+For installation, panels, time travel, click-to-source, schema timelines, hydration, machines, app-db diffing, and the derivation graph, use the [Xray docs](../xray/index.md).
 
 ## Story answers: what states should this thing have?
 

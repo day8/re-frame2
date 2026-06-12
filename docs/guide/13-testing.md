@@ -380,6 +380,7 @@ Runs on the JVM:
 - `machine-transition` (a pure function)
 - `compute-sub` (sub computation against an `app-db` value)
 - public registrar queries — `registrations`, `frame-meta`, `sub-topology`, and friends
+- the **derivation graph** assembled from those registrations — composed and checked purely, with no app-db and no browser (it's how the conformance tier verifies the algebra; the model lives in [One graph: derivations and algebra views](derivations-and-algebra-views.md))
 - **hiccup → HTML** via the SSR renderer — also a pure function, so snapshot tests and SSR conformance run headlessly too
 
 Needs CLJS:
