@@ -654,3 +654,74 @@
                                (filter #(= :counter (:sub-id %))) first)))
             "the benign value passes the projection unchanged (no
              over-redaction)")))))
+
+;; ============================================================================
+;;  Restore / replay under redaction — disposition 6's explicit
+;;  "verify with a restore/replay test" instruction (rf2-t55hxg.9)
+;; ============================================================================
+;;
+;; Disposition 6 (epoch redaction) is IMPLEMENTED CORRECTLY — the storage-side
+;; `:redact-fn` mutation was removed, so the in-process ring carries the RAW
+;; record (invariant 1, above) and the restore path reads that raw ring,
+;; never the projected copy. The replay-faithful-under-redaction property
+;; therefore holds BY CONSTRUCTION. But the disposition's explicit instruction
+;; is "verify with a restore/replay test", and the rf2-kkfd3g tail-1 review
+;; found the property was pinned only COMPOSITIONALLY — `invariant-1-ring-
+;; record-is-raw-even-with-redact-fn-installed` stops at the ring READ (never
+;; calls restore-epoch), and `epoch_test.clj`'s genuine restore tests run with
+;; NO `:redact-fn` installed. This test closes that gap: it COMBINES a live
+;; projection-side `:redact-fn` install with a `restore-epoch` call and asserts
+;; the restored frame-state equals the RAW un-redacted value — the literal
+;; combined assertion the disposition asks for.
+
+(deftest restore-replays-raw-value-under-redact-fn
+  (testing "disposition 6 — a wiping projection-side :redact-fn installed, a
+            sensitive event dispatched, then restore-epoch: the RESTORED
+            frame-state equals the RAW un-redacted value. Redaction is a
+            projection-side EGRESS concern; the durable ring the restore reads
+            is replay-faithful, untouched by the override."
+    (rf/reg-frame :test/main {})
+    ;; Frame-owned sensitive classification (EP-0015 §8) AND a wiping
+    ;; projection-side :redact-fn — BOTH redaction routes active. Neither may
+    ;; corrupt the stored ring the restore replays from.
+    (install-sensitive-schema! :test/main)
+    (rf/configure! :epoch-history
+                  {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
+    (rf/reg-event-db :login
+                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event-db :logout
+                     (fn [db _] (assoc-in db [:auth :password] nil)))
+
+    ;; (a) Dispatch a sensitive event — the password lands at the
+    ;; frame-sensitive [:auth :password] path.
+    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+    (let [login-epoch (:epoch-id (last-record :test/main))]
+      ;; (b) Advance past it so restore is a genuine rewind, not a no-op.
+      (rf/dispatch-sync [:logout] {:frame :test/main})
+      (is (nil? (get-in (rf/app-db-value :test/main) [:auth :password]))
+          "after logout the live password is cleared")
+
+      ;; (c) Restore to the sensitive epoch.
+      (is (true? (rf/restore-epoch :test/main login-epoch))
+          "restore to the sensitive login epoch succeeded")
+
+      ;; (d) The RESTORED frame-state equals the RAW un-redacted value — the
+      ;; replay is faithful DESPITE the wiping :redact-fn AND the sensitive
+      ;; classification. The override is egress-only; the ring is raw.
+      (is (= "topsecret" (get-in (rf/app-db-value :test/main) [:auth :password]))
+          "restore replayed the RAW password — the projection-side :redact-fn
+           did NOT corrupt the durable ring (disposition 6: replay-faithful
+           under redaction)")
+
+      ;; (e) Cross-check the mechanism: the SAME ring record projects REDACTED
+      ;; at egress (the :redact-fn DOES run there) — proving the two surfaces
+      ;; diverge exactly as the disposition requires: egress redacts, the
+      ;; replay-source ring stays raw.
+      (let [login-record (->> (rf/epoch-history :test/main)
+                              (filter #(= login-epoch (:epoch-id %)))
+                              first)]
+        (is (= "topsecret" (get-in login-record [:db-after :auth :password]))
+            "the durable ring record is RAW (the replay source)")
+        (is (= :rf/redacted (:db-after (epoch/projected-record login-record)))
+            "the SAME record projects REDACTED at egress — egress redacts,
+             storage stays raw")))))

@@ -1,0 +1,34 @@
+;; Conformance fixture: data-classification/project-egress-fails-closed-no-frame
+;;
+;; Per Spec 015 §Tests (the `project-egress-fails-closed-no-frame.edn` row)
+;; and EP-0002 fail-closed — `project-egress` of a tree-shaped value with NO
+;; known frame fails closed: it does NOT synthesise `:rf/default` and borrow
+;; that frame's (possibly permissive) policy. A frameless egress cannot prove
+;; any path safe, so the delegated wire walker redacts the WHOLE value to
+;; `:rf/redacted`. "Frameless means frameless" (re-frame.marks/project-db-tags
+;; rationale) — the value must not leak through an invented ambient scope.
+;;
+;; Mode-B pure-call (`:project-egress`) with NO `:frame` key: the runner runs
+;; the projection with `*current-frame*` bound to nil, so the call site is
+;; genuinely frameless (the off-box posture a tool reading outside any frame
+;; scope sees). The off-box-observability profile floors
+;; `:rf.size/include-sensitive? false`, so absent a frame to declassify
+;; against, the whole tree fails closed.
+;;
+;; Mirrors the unit-level `re-frame.projection-cljs-test/fails-closed-with-no-
+;; frame` deftest AND the runtime fail-closed leg in
+;; `re-frame.observability-routing-cljs-test/unresolved-frame-routes-nothing-
+;; no-default-synthesis` (rf2-t55hxg.7), lifted to the host-agnostic corpus.
+
+{:fixture/id           :data-classification/project-egress-fails-closed-no-frame
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:data-classification/marks}
+ :fixture/doc          "project-egress of a tree value with NO known frame fails closed — it does not synthesise :rf/default; the delegated walker redacts the whole value to :rf/redacted (EP-0002 fail-closed / no-default-frame)."
+
+ :fixture/calls
+ ;; NO :frame key — the runner projects with *current-frame* bound to nil,
+ ;; so this is genuinely frameless. The whole tree fails closed.
+ [{:call              :project-egress
+   :rf.egress/profile :rf.egress/off-box-observability
+   :value             {:auth {:token "super-secret"} :public {:count 3}}
+   :expect            :rf/redacted}]}

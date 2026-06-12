@@ -1,0 +1,58 @@
+;; Conformance fixture: data-classification/ssr-hydration-allowlist-first
+;;
+;; Per Spec 015 §Tests (the `ssr-hydration-allowlist-first.edn` row) and
+;; Spec 011 §14 — an SSR hydration payload is ALLOWLIST-FIRST: a frame ships
+;; ONLY the allowlisted top-level app-db slice; an unlisted path does not
+;; cross even if unclassified. A sensitive child of an allowlisted slice is
+;; redacted as defence-in-depth (the `:rf.egress/ssr-hydration` projection
+;; profile runs AFTER the allowlist).
+;;
+;; Two pure calls pin the two halves:
+;;
+;;   1. `:ssr-apply-policy` — the allowlist projection
+;;      (`re-frame.ssr.payload-policy/apply-policy`): `:payload [:public]`
+;;      ships ONLY `:public`; the unlisted `:private` slice does NOT cross
+;;      even though it carries no classification. Fail-closed: an ABSENT
+;;      policy throws `:rf.error/ssr-missing-payload-policy` (a frame must
+;;      explicitly declare what crosses — shipping the whole app-db is an
+;;      opt-in, never the default).
+;;   2. `:project-egress` under `:rf.egress/ssr-hydration` — defence-in-depth:
+;;      a frame-sensitive `[:public :token]` INSIDE the allowlisted `:public`
+;;      slice redacts to `:rf/redacted` even though `:public` is allowlisted.
+;;      The allowlist controls SHAPE (which keys cross); the projection
+;;      controls CONTENT (sensitive leaves inside a crossing key still redact).
+;;
+;; Mode-B pure calls — no dispatch loop. The defence-in-depth call registers
+;; its frame via `:fixture/frames` so the projector resolves the sensitive
+;; classification.
+
+{:fixture/id           :data-classification/ssr-hydration-allowlist-first
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:data-classification/marks}
+ :fixture/doc          "SSR hydration is allowlist-first (Spec 011 §14): :payload [:public] ships ONLY :public; the unlisted :private slice does not cross even unclassified; an absent policy fails closed (:rf.error/ssr-missing-payload-policy). Defence-in-depth: a frame-sensitive [:public :token] inside the allowlisted slice still redacts under the :rf.egress/ssr-hydration profile."
+
+ :fixture/frames
+ [{:id :ssr/main :sensitive {:app-db [[:public :token]]}}]
+
+ :fixture/calls
+ [;; 1a. Allowlist projection — only :public crosses; :private dropped.
+  {:call    :ssr-apply-policy
+   :app-db  {:public  {:articles [1 2]}
+             :private {:session "secret"}}
+   :opts    {:payload [:public]}
+   :expect  {:public {:articles [1 2]}}}
+
+  ;; 1b. Fail-closed — an absent payload policy throws (a frame must declare
+    ;; what crosses; the whole-app-db ship is an explicit opt-in, not default).
+  {:call         :ssr-apply-policy
+   :app-db       {:public {:articles [1 2]}}
+   :opts         {}
+   :expect-error :rf.error/ssr-missing-payload-policy}
+
+  ;; 2. Defence-in-depth — the ssr-hydration profile redacts a frame-sensitive
+    ;; leaf inside the allowlisted slice; the unmarked sibling rides verbatim.
+  {:call              :project-egress
+   :frame             :ssr/main
+   :rf.egress/profile :rf.egress/ssr-hydration
+   :value             {:public {:articles [1 2] :token "leak-me"}}
+   :expect            {:public {:articles [1 2] :token :rf/redacted}}}]}

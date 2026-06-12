@@ -1,0 +1,52 @@
+;; Conformance fixture: data-classification/project-egress-omits-event-args-off-box
+;;
+;; Per Spec 015 §Tests (the `project-egress-omits-event-args-off-box.edn` row)
+;; and EP-0015 issue 4 — `project-egress` of an `:rf.observe/handled-event`
+;; record under `:rf.egress/off-box-observability` carries `:frame` /
+;; `:event-id` / `:status` / `:elapsed-ms` / `:effects` / `:correlation` /
+;; `:kind` and OMITS the `:event` args slot ENTIRELY. The off-box default
+;; fails closed on the raw event payload: a hosted-monitoring sink consuming
+;; the projected record never sees the dispatched arg-map.
+;;
+;; Mode-B pure-call (`:project-egress`): the `:rf.observe/handled-event`
+;; record is projected directly, no dispatch loop. A frame
+;; (`:obs/main`) is registered via `:fixture/frames` so the projector
+;; resolves its classification (here empty — the omission is profile-driven,
+;; not classification-driven). The off-box-observability profile floors
+;; `:rf.size/include-sensitive? false`, and the handled-event projector drops
+;; the `:event` key whenever sensitive content is not explicitly opted in.
+;;
+;; Mirrors the unit-level `re-frame.projection-cljs-test/handled-event-off-box-
+;; omits-event-args` deftest AND the runtime e2e leg in
+;; `re-frame.observability-routing-cljs-test/handled-event-routes-projected-
+;; to-declared-sink` (rf2-t55hxg.7 / .4), lifted to the host-agnostic corpus.
+
+{:fixture/id           :data-classification/project-egress-omits-event-args-off-box
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:data-classification/marks}
+ :fixture/doc          "project-egress of an :rf.observe/handled-event record under :rf.egress/off-box-observability carries the summary fields (:kind / :frame / :event-id / :status / :elapsed-ms / :effects / :correlation) and OMITS the :event args slot entirely — the off-box default fails closed on the raw event payload (EP-0015 issue 4)."
+
+ :fixture/frames
+ [{:id :obs/main}]
+
+ :fixture/calls
+ [{:call              :project-egress
+   :frame             :obs/main
+   :rf.egress/profile :rf.egress/off-box-observability
+   :value             {:kind        :rf.observe/handled-event
+                       :frame       :obs/main
+                       :event-id    :auth/login
+                       :event       [:auth/login {:password "secret"}]
+                       :status      :ok
+                       :elapsed-ms  12
+                       :effects     [:db]
+                       :correlation {:work-id "w-77" :dispatch-id "d-91"}}
+   ;; The :event key is GONE from the projected record (no :rf/redacted
+   ;; placeholder — omitted entirely).
+   :expect            {:kind        :rf.observe/handled-event
+                       :frame       :obs/main
+                       :event-id    :auth/login
+                       :status      :ok
+                       :elapsed-ms  12
+                       :effects     [:db]
+                       :correlation {:work-id "w-77" :dispatch-id "d-91"}}}]}

@@ -1,0 +1,56 @@
+;; Conformance fixture: data-classification/sensitive-wins-over-large
+;;
+;; Per Spec 015 §Tests (the `sensitive-wins-over-large.edn` row) — a path
+;; declared in BOTH `:sensitive` and `:large` projects as `:rf/redacted`; NO
+;; large marker that could leak path / size / digest is emitted. Sensitive
+;; strictly dominates the size axis: a both-marked path is a SECRET first, so
+;; even the structural metadata a `:rf.size/large-elided` marker would carry
+;; (`:path` / `:bytes` / `:type` / `:handle`) must not escape.
+;;
+;; The OBSERVABLE seam is the t1 `:rf.event/db-pending` trace event (same
+;; emit + projection path as the sibling sensitive / large fixtures). The
+;; both-marked path elides to the bare `:rf/redacted` sentinel; the assertion
+;; pins that EXACT value, which by construction proves no large marker leaked
+;; (a marker map would fail the literal `=`).
+;;
+;; Mirrors the unit-level `re-frame.projection-cljs-test/sensitive-wins-over-
+;; large` deftest, lifted to the host-agnostic corpus through the runtime's
+;; emit-time projection chokepoint.
+;;
+;; Harness note: `:fixture/app-marks` declares the path BOTH sensitive and
+;; large via two ordered `add-marks` ops. Capability `:data-classification/marks`.
+
+{:fixture/id           :data-classification/sensitive-wins-over-large
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/trace
+                         :data-classification/marks}
+ :fixture/doc          "A path declared BOTH sensitive AND large projects as :rf/redacted in the t1 :rf.event/db-pending trace event — sensitive dominates the size axis, so NO :rf.size/large-elided marker (which would leak path / size / type / handle) is emitted. An unmarked sibling rides egress verbatim."
+
+ :fixture/registry
+ {:event {:dc/store {:doc "Writes a both-marked secret blob + an unmarked sibling into app-db."}}}
+
+ :fixture/handlers
+ {:event {:dc/store [[:set [:secret] "xy"]
+                     [:set [:public] "ok"]]}}
+
+ ;; Declare [:secret] BOTH sensitive AND large — two ordered add-marks ops.
+ ;; Sensitive must win at egress regardless of declaration order.
+ :fixture/app-marks
+ [{:add-marks {[:secret] :large}}
+  {:add-marks {[:secret] :sensitive}}]
+
+ :fixture/frame-config
+ {:on-create [:dc/store]}
+
+ :fixture/dispatches
+ [[:dc/store]]
+
+ :fixture/expect
+ ;; The committed app-db is the RAW value — redaction is trace-egress only.
+ {:final-app-db {:secret "xy" :public "ok"}
+
+  ;; The load-bearing assertion: the both-marked path is the bare :rf/redacted
+  ;; sentinel (NOT a large marker), and the unmarked sibling rides raw.
+  :trace-emissions
+  [{:operation :rf.event/db-pending
+    :tags      {:rf.event/db {:secret :rf/redacted :public "ok"}}}]}}

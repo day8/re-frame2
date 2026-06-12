@@ -1,0 +1,75 @@
+;; Conformance fixture: data-classification/observability-sink-receives-projected-record
+;;
+;; Per Spec 015 §Tests (the `observability-sink-receives-projected-record.edn`
+;; row) and §9 (frame-owned observability sink policy) — a frame declaring an
+;; `:observability` sink delivers an ALREADY-PROJECTED record to the sink on
+;; each processed event: the framework performs projection, sinks consume
+;; projected records only. The off-box default omits the `:event` args slot on
+;; a handled-event record; a declared `:errors` sink receives a projected
+;; `:rf.observe/error` record with a frame-sensitive path inside the error's
+;; `:event` redacted.
+;;
+;; This fixture pins the host-agnostic PROJECTION CONTRACT that the §9 sink
+;; consumes — the exact record shape a sink fn must accept — via two pure
+;; `:project-egress` calls against a frame (`:obs/main`) that classifies
+;; `[:auth :token]` sensitive:
+;;
+;;   1. handled-event under off-box-observability → summary fields, `:event`
+;;      OMITTED (the sink never sees the raw arg-map);
+;;   2. error record under off-box-observability → `:event` RETAINED but the
+;;      sensitive `[:auth :token]` inside it REDACTED (the sink never sees the
+;;      raw token; it never re-implements redaction).
+;;
+;; The RUNTIME WIRING leg — that a real `dispatch-sync` routes these projected
+;; records through `route-handled-event!` / `route-error!` to a frame-declared
+;; sink (`reg-observability-sink!`), fail-closed on an unresolved frame, with
+;; sibling-sink isolation — is pinned end-to-end by the dual-runtime CLJC test
+;; `re-frame.observability-routing-cljs-test` (rf2-t55hxg.7 / .4), which runs
+;; under BOTH `npm run test:cljs` and the JVM `clojure -M:test`. The corpus
+;; cannot capture a sink fan-out host-neutrally (no render/side-effect-capture
+;; harness), so it pins the projection the sink consumes; the wiring test pins
+;; the route to it.
+
+{:fixture/id           :data-classification/observability-sink-receives-projected-record
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:data-classification/marks}
+ :fixture/doc          "A frame's :observability sink consumes ALREADY-PROJECTED records (Spec 015 §9): a handled-event record under off-box-observability has its :event args slot OMITTED, and an error record has the frame-sensitive [:auth :token] inside its :event REDACTED. The framework projects; the sink never re-implements redaction. (Runtime sink ROUTING is pinned e2e by re-frame.observability-routing-cljs-test.)"
+
+ :fixture/frames
+ [{:id :obs/main :sensitive {:app-db [[:auth :token]]}}]
+
+ :fixture/calls
+ [;; 1. The handled-event record the :handled-events sink receives: off-box
+    ;; default omits the :event args slot entirely.
+  {:call              :project-egress
+   :frame             :obs/main
+   :rf.egress/profile :rf.egress/off-box-observability
+   :value             {:kind        :rf.observe/handled-event
+                       :frame       :obs/main
+                       :event-id    :auth/login
+                       :event       [:auth/login {:password "hunter2"}]
+                       :status      :ok
+                       :elapsed-ms  7
+                       :effects     [:db]}
+   :expect            {:kind        :rf.observe/handled-event
+                       :frame       :obs/main
+                       :event-id    :auth/login
+                       :status      :ok
+                       :elapsed-ms  7
+                       :effects     [:db]}}
+
+  ;; 2. The error record the :errors sink receives: :event RETAINED but the
+    ;; frame-sensitive [:auth :token] inside it is REDACTED.
+  {:call              :project-egress
+   :frame             :obs/main
+   :rf.egress/profile :rf.egress/off-box-observability
+   :value             {:kind     :rf.observe/error
+                       :frame    :obs/main
+                       :error    :rf.error/handler-exception
+                       :event-id :auth/login
+                       :event    [:auth/login {:auth {:token "super-secret-token"}}]}
+   :expect            {:kind     :rf.observe/error
+                       :frame    :obs/main
+                       :error    :rf.error/handler-exception
+                       :event-id :auth/login
+                       :event    [:auth/login {:auth {:token :rf/redacted}}]}}]}
