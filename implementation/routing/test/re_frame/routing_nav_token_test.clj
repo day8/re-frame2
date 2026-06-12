@@ -290,7 +290,7 @@
 ;; the result. These tests are the failing-before / passing-after guard.
 
 (deftest nav-token-cofx-injects-the-live-token
-  (testing "(inject-cofx :nav-token) injects the current slice token — not nil"
+  (testing ":rf.cofx/requires [:nav-token] delivers the current slice token — not nil"
     ;; The minimal contract: a handler declaring the cofx sees the live
     ;; navigation epoch. Pre-fix this was nil (no reg-cofx :nav-token).
     (rf/reg-route :route/article {:path   "/articles/:id"
@@ -301,7 +301,7 @@
     (let [seen (atom :unset)]
       ;; An :on-match-reached handler that captures the injected token.
       (rf/reg-event-fx :article/capture-token
-                       [(rf/inject-cofx :nav-token)]
+                       {:rf.cofx/requires [:nav-token]}
                        (fn [{:keys [nav-token]} _]
                          (reset! seen nav-token)
                          {}))
@@ -352,7 +352,7 @@
       ;; The capture closes over `captured` so the test replays the
       ;; completion later, out of order.
       (rf/reg-event-fx :article/load
-                       [(rf/inject-cofx :nav-token)]
+                       {:rf.cofx/requires [:nav-token]}
                        (fn [{:keys [nav-token]} [_ id]]
                          (swap! captured assoc id nav-token)
                          {}))
