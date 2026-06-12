@@ -8,9 +8,28 @@
   `:stack` / `:data`). These tests pin the canonical shape and confirm the
   drift is gone — every routed site now yields the SAME
   `{:message :stack :data}` shape."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story.error :as story-error]))
+
+;; ---- fixture ---------------------------------------------------------------
+;;
+;; Most assertions here are pure (`throwable->error-map` is data→data), but
+;; the `exception-record` projection is FRAME-SCOPED egress (EP-0015 issue 1,
+;; rf2-t55hxg.18): the `:data` slot is walked against the record's frame and
+;; FAILS CLOSED when that frame is unresolvable. Tests that need a live
+;; variant frame (`reg-frame`) require an installed adapter, so init the
+;; plain-atom adapter and clean frame state around each test.
+(use-fixtures :each
+  (fn [test-fn]
+    (reset! frame/frames {})
+    (try (rf/init! plain-atom/adapter)
+         (catch clojure.lang.ExceptionInfo _ nil))
+    (frame/ensure-default-frame!)
+    (test-fn)))
 
 ;; ---- throwable->error-map -------------------------------------------------
 
@@ -71,19 +90,34 @@
 (deftest exception-record-wraps-the-projection
   (testing "exception-record builds the full :rf.error/exception assertion
             record with the canonical error projection embedded"
-    (let [e (ex-info "kaboom" {:k :v})
-          r (story-error/exception-record :story.x/v :phase-2-events
-                                          [:some/event 1] e)]
-      (is (= :rf.error/exception (:assertion r)))
-      (is (= :story.x/v          (:variant-id r)))
-      (is (= :phase-2-events     (:phase r)))
-      (is (= [:some/event 1]     (:event r)))
-      (is (false?                (:passed? r)))
-      (is (= (story-error/throwable->error-map e) (:error r))
-          "the :error slot is exactly the shared projection")
-      (is (= "kaboom" (-> r :error :message)))
-      (is (= {:k :v}  (-> r :error :data)))
-      (is (string?    (-> r :error :stack))))))
+    ;; EP-0015 issue 1 (rf2-t55hxg.18) — `exception-record` threads
+    ;; `variant-id` as the `:frame` for the `:data` wire-elision. The
+    ;; `:data` projection is FRAME-SCOPED egress: the frame must RESOLVE to
+    ;; a live frame for its (empty) policy to be consulted; an unresolvable
+    ;; frame FAILS CLOSED and redacts the whole `ex-data` map. In the real
+    ;; Story runtime the variant frame is always live when an error is
+    ;; recorded (`re-frame.story.frames` `reg-frame`s `variant-id` before
+    ;; the phases run), so register it here too — the public `{:k :v}` then
+    ;; walks through verbatim under the empty policy. `throwable->error-map`
+    ;; in the assertion below must be projected against the SAME live frame
+    ;; (a frameless call would itself fail closed) to match `exception-record`.
+    (rf/reg-frame :story.x/v {})
+    (try
+      (let [e (ex-info "kaboom" {:k :v})
+            r (story-error/exception-record :story.x/v :phase-2-events
+                                            [:some/event 1] e)]
+        (is (= :rf.error/exception (:assertion r)))
+        (is (= :story.x/v          (:variant-id r)))
+        (is (= :phase-2-events     (:phase r)))
+        (is (= [:some/event 1]     (:event r)))
+        (is (false?                (:passed? r)))
+        (is (= (story-error/throwable->error-map e {:frame :story.x/v}) (:error r))
+            "the :error slot is exactly the shared projection (same live frame)")
+        (is (= "kaboom" (-> r :error :message)))
+        (is (= {:k :v}  (-> r :error :data)))
+        (is (string?    (-> r :error :stack))))
+      (finally
+        (rf/destroy-frame! :story.x/v)))))
 
 (deftest exception-record-threads-message-override
   (testing "the opts arity threads :message through to the embedded
