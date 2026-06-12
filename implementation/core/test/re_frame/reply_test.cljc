@@ -448,6 +448,34 @@
     (is (= :rf.reply/correlation-mismatch
            (:stale/reason (:reply (reply/suppress [:x] {:g 1} {:g 2})))))))
 
+(deftest suppress-extra-cannot-override-stale-boundary
+  (testing "rf2-waawic — `extra` CANNOT override the stale boundary: threading a
+            natural success reply as extra still produces a valid :status :stale
+            reply with NO :value (the correctness boundary is structural)"
+    ;; The dangerous caller mistake the guardrail closes: passing a complete
+    ;; natural-completion reply (status :ok, a :value, work-status :completed)
+    ;; as `extra`. Before the fix `merge` let those win; now the stale fields
+    ;; are forced and :value is stripped.
+    (let [{:keys [reply deliver?]}
+          (reply/suppress nil {:g 1} {:g 2}
+                          {:status      :ok
+                           :value       {:title "should-be-stripped"}
+                           :work/status :completed
+                           :work/id     [:rf.work/http :req 1 1]
+                           :work/kind   :http
+                           :rf.frame/id :app/main})]
+      (is (= :stale (:status reply)) "status forced to :stale, not the :ok in extra")
+      (is (true? (:stale? reply)))
+      (is (= :suppressed (:work/status reply)) "work-status forced, not :completed")
+      (is (not (contains? reply :value)) "the :value in extra is stripped — a stale reply MUST NOT carry one")
+      (is (false? deliver?))
+      ;; identity facts from extra still ride verbatim
+      (is (= [:rf.work/http :req 1 1] (:work/id reply)))
+      (is (= :http (:work/kind reply)))
+      (is (= :app/main (:rf.frame/id reply)))
+      ;; the result validates as a conformant stale reply
+      (is (reply/valid-reply? reply) (str (reply/validate-reply reply))))))
+
 (deftest suppress-dispatch-stale-opt-in
   (testing "the default — every target, app or framework — is NON-delivery of a stale reply"
     (is (false? (:deliver? (reply/suppress {:event [:x]} {:g 1} {:g 2})))

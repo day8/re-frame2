@@ -187,11 +187,11 @@ The tuple head is owned by each family, but the heads in use are:
 
 | Family | Work-id tuple | Owning spec |
 |---|---|---|
-| HTTP | `[:rf.work/http logical-id args... generation]` | [014](014-HTTPRequests.md) |
+| HTTP | `[:rf.work/http logical-id issuance attempt]` — `issuance` is the monotonic per-`request-id` re-issuance counter (a fresh request under the same `:request-id` bumps it, so a superseded attempt and its superseder carry distinct work ids); `attempt` discriminates transport retries within one issuance | [014](014-HTTPRequests.md) |
 | Resource | `[:rf.work/resource scoped-resource-key generation]` | [016](016-Resources.md) |
 | Mutation | `[:rf.work/resource [:rf.mutation instance-id] generation]` — mutation work reuses the resource head with a mutation-instance key; the ledger row distinguishes the writer with `:work/kind :mutation` | [016](016-Resources.md) |
 | Route loader | `[:rf.work/route route-id nav-token loader-id]` | [012](012-Routing.md) |
-| Timer | `[:rf.work/timer logical-timer-id generation]` | future timer surface |
+| Timer | `[:rf.work/timer logical-timer-id generation]` — the machine `:after` instance uses `[:rf.work/timer [machine-id decl-path…] scheduled-epoch]` ([005 §`:after` timers](005-StateMachines.md#after-timers--the-existing-specialized-stale-gated-instance)) | machine `:after` ([005](005-StateMachines.md)); future public timer surface |
 | Machine | `[:rf.work/machine actor-id work-bearing-path generation]` | [005](005-StateMachines.md) |
 
 Because the frame-local work id carries no frame id, it is **not** a safe process-global transport correlation token; the landed Spec 016 lowers a frame-qualified transport request-id `[:rf.req frame-id work-id]` as the one sanctioned second identity for transport-level in-flight correlation (registry keying, supersede-on-lower, opportunistic abort). Intra-frame stale suppression still keys on `:work/id` + generation. See [016 §Ledger row retention and identity](016-Resources.md#ledger-row-retention-and-identity).

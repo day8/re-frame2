@@ -73,8 +73,14 @@
   `:on-success-event` continuation; mismatch → suppress and emit
   `:rf.route.nav-token/stale-suppressed` joined to the route work-id
   (same trace shape as production, so a single conformance assertion
-  covers both paths)."
-  [{frame :rf.frame/id rdb :rf.db/runtime} [_ {:keys [on-success-event carried-nav-token]}]]
+  covers both paths).
+
+  rf2-azcmd3 — the payload's optional `:carried-route-id` is the route id
+  CAPTURED at request time (mirrors the production `:route-id` arg). It is
+  used for the suppressed attempt's work-id rather than the live slice id at
+  stale-arrival, so a cross-route stale completion attributes its work-id to
+  the route-loader attempt, not whatever route is live when it arrives."
+  [{frame :rf.frame/id rdb :rf.db/runtime} [_ {:keys [on-success-event carried-nav-token carried-route-id]}]]
   ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
   (let [slice   (get-in (or rdb {}) [:rf.runtime/routing :current])
         current (:nav-token slice)]
@@ -92,7 +98,12 @@
            :current-token current
            :event-id      event-id
            :frame-id      frame
-           :route-id      (:id slice)
+           ;; rf2-azcmd3 — use the CAPTURED route id (carried with the
+           ;; nav-token at request time), NOT `(:id slice)` (the route live
+           ;; at stale-arrival). Mirrors the production `with-nav-token-
+           ;; handler` fix so a cross-route stale completion attributes its
+           ;; work-id to the route-loader attempt, not the current route id.
+           :route-id      carried-route-id
            :loader-id     event-id})
         {}))))
 

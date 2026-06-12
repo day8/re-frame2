@@ -88,7 +88,8 @@
 ;; rf2-zqefg3.2 — the canonical-reply lowering seam (EP-0011 §Managed HTTP
 ;; Lowering). Every completion (success / failure / abort) now flows through
 ;; ONE canonical reply map built in `re-frame.http-reply` — `:status`,
-;; `:work/id` `[:rf.work/http logical-id attempt]`, `:work/kind :http`,
+;; `:work/id` `[:rf.work/http logical-id issuance attempt]` (rf2-azcmd3),
+;; `:work/kind :http`,
 ;; `:work/status`, `:attempt`, `:rf.frame/id`, `:completed-at`, and
 ;; `:correlation {:request-id …}` (the `:request-id` is correlation metadata,
 ;; NOT a second stale-suppression key). The canonical reply is the single
@@ -118,6 +119,9 @@
   [ctx]
   {:request-id   (:request-id ctx)
    :origin-event (:origin-event ctx)
+   ;; rf2-azcmd3 — the per-request-id issuance discriminator rides into the
+   ;; work-id so a superseded attempt and its superseder carry distinct ids.
+   :issuance     (:issuance ctx)
    :attempt      (:attempt ctx)
    :frame        (:frame ctx)
    :completed-at (interop/epoch-now-ms)})
@@ -235,6 +239,61 @@
                      (= :ok (:status reply))
                      (assoc :rf.http/off-box-body
                             (privacy-body/off-box-body-disposition (:decode ctx))))))))
+
+(defn emit-superseded-stale-trace!
+  "rf2-azcmd3 — emit the canonical EP-0011 `:status :stale` /
+  `:work/status :suppressed` reply-envelope trace for a SUPERSEDED HTTP
+  attempt, WITHOUT dispatching any app target (Managed-Effects §Stale
+  suppression — clauses 2/3/4: the superseded attempt's reply outcome becomes
+  `:stale`, its ledger row reaches `:suppressed`, and the trace stream records
+  the carried + current correlation).
+
+  Called from `managed-handler` when a fresh request supersedes a prior
+  in-flight one with the same `:request-id`. `superseded-handle` is the OLD
+  attempt's handle (carrying its `:request-id` / `:origin-event` / `:issuance`
+  / `:attempt` / `:frame` identity facts, stamped at `record-in-flight!`);
+  `current-work-id` is the SUPERSEDING attempt's work-id (the new live
+  `:work/id`). The carried (superseded) and current (superseding) work ids are
+  `=`-distinct because the per-request-id issuance counter bumped — so tooling
+  and conformance can tell the suppressed attempt from its replacement by
+  `:work/id` (the EP-0011 single-attempt-identity rule this restores).
+
+  The wire-bearing slots route through the shared
+  `http-reply/trace-reply` → `re-frame.reply/trace-summary` →
+  `re-frame.elision/elide-wire-value` walker; the carried/current correlation
+  rides as `:rf.reply/carried` / `:rf.reply/current` (the shared
+  `re-frame.reply/suppress` trace facts) so Xray's reply-envelope view joins
+  it as a uniform stale-suppression row. Gated on `debug-enabled?` like the
+  other `:rf.http/*` trace rows."
+  [superseded-handle current-work-id]
+  (when interop/debug-enabled?
+    (let [stale-ctx {:request-id   (:request-id superseded-handle)
+                     :origin-event (:origin-event superseded-handle)
+                     :issuance     (:issuance superseded-handle)
+                     :attempt      (:attempt superseded-handle)
+                     :frame        (:frame superseded-handle)}
+          {:keys [reply trace]} (http-reply/suppress stale-ctx current-work-id)
+          summary (http-reply/trace-reply
+                    reply
+                    (cond-> {:sensitive? (true? (:sensitive? superseded-handle))}
+                      (:frame superseded-handle) (assoc :frame (:frame superseded-handle))))]
+      (trace/emit! :info :rf.http/stale-suppressed
+                   (cond-> {:rf.reply/status       (:status summary)
+                            :rf.reply/work-status   (:work/status summary)
+                            :rf.reply/stale-reason  (:stale/reason summary)
+                            :rf.reply/work-id       (:work/id summary)
+                            ;; canonical join key for Xray's uniform
+                            ;; work/reply grouping (reads bare `:work/id`).
+                            :work/id                (:work/id summary)
+                            :work/kind              :http
+                            ;; the shared carried/current correlation facts
+                            ;; the `re-frame.reply/suppress` trace computes —
+                            ;; carried = superseded work-id, current =
+                            ;; superseding work-id (Managed-Effects §Tracing).
+                            :rf.reply/carried       (:rf.reply/carried trace)
+                            :rf.reply/current       (:rf.reply/current trace)
+                            :recovery               :superseded-by-fresh-request}
+                     (:frame superseded-handle) (assoc :frame (:frame superseded-handle)))))))
 
 (defn- dispatch-failure!
   "Dispatch a `:failure` reply carrying `failure` as its `:failure` slot.
@@ -1153,7 +1212,14 @@
                     ;; rf2-ppkh3v — carry the originating frame so the
                     ;; actor-destroy abort trace can resolve the frame's
                     ;; frame-local HTTP carriers for URL redaction.
-                    :frame      (:frame ctx)})
+                    :frame      (:frame ctx)
+                    ;; rf2-azcmd3 — carry the superseded attempt's reply-ctx
+                    ;; identity facts on the handle so `supersede!` can build
+                    ;; this (now-stale) attempt's canonical `:status :stale`
+                    ;; reply-envelope trace when a fresh request replaces it.
+                    :origin-event (:origin-event ctx)
+                    :issuance     (:issuance ctx)
+                    :attempt      (:attempt ctx)})
         ;; rf2-lz7se — publish the stamped handle so the abort-fn closure
         ;; (defined above, before `handle` was bound) can pass it to the
         ;; 2-arg `clear-in-flight!` via `@handle-holder`. The reset!

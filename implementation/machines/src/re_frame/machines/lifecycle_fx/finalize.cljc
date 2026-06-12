@@ -329,6 +329,15 @@
                                 :error?     error-leaf?
                                 :frame      frame-id
                                 ;; reply-envelope vocabulary (Managed-Effects §9)
+                                ;; rf2-niarhz — the CANONICAL `:work/id` joins
+                                ;; this spawned-actor completion into Xray's
+                                ;; uniform work/reply rows + stale-race
+                                ;; grouping, which key on bare `:work/id`. The
+                                ;; `:rf.reply/work-id` spelling is retained for
+                                ;; back-compat readers, but the canonical key
+                                ;; is what tooling groups by.
+                                :work/id              (:work/id done-summary)
+                                :work/kind            (:work/kind done-summary)
                                 :rf.reply/status      (:status done-summary)
                                 :rf.reply/work-id     (:work/id done-summary)
                                 :rf.reply/work-status (:work/status done-summary)}

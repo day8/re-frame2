@@ -22,17 +22,38 @@
    :completed-at 1781078400456})
 
 (deftest work-id-and-transport-id
-  (testing "HTTP work-id head [:rf.work/http logical-id attempt]"
-    (is (= [:rf.work/http :article/by-id 1] (http-reply/work-id ctx)))
-    (is (= [:rf.work/http :article/load 1]
+  (testing "HTTP work-id head [:rf.work/http logical-id issuance attempt]"
+    (is (= [:rf.work/http :article/by-id 1 1] (http-reply/work-id ctx)))
+    (is (= [:rf.work/http :article/load 1 1]
            (http-reply/work-id (dissoc ctx :request-id)))
         "logical-id falls back to origin event-id")
-    (is (= [:rf.work/http :article/by-id 2]
+    (is (= [:rf.work/http :article/by-id 1 2]
            (http-reply/work-id (assoc ctx :attempt 2)))
-        "attempt is the generation slot — retries are distinct"))
+        "attempt slot discriminates retries within one issuance")
+    (testing "issuance slot discriminates re-issuances across supersessions (rf2-azcmd3)"
+      (is (= [:rf.work/http :article/by-id 2 1]
+             (http-reply/work-id (assoc ctx :issuance 2))))
+      (is (not= (http-reply/work-id ctx)
+                (http-reply/work-id (assoc ctx :issuance 2))))))
   (testing "frame-qualified transport request-id [:rf.req frame-id work-id]"
-    (is (= [:rf.req :app/main [:rf.work/http :article/by-id 1]]
+    (is (= [:rf.req :app/main [:rf.work/http :article/by-id 1 1]]
            (http-reply/transport-request-id :app/main (http-reply/work-id ctx))))))
+
+(deftest suppress-builds-canonical-stale-reply
+  (testing "rf2-azcmd3 — http-reply/suppress produces a :status :stale / :work/status :suppressed reply with carried/current work-id correlation, joined to :work/id"
+    (let [{:keys [deliver? reply trace]}
+          (http-reply/suppress ctx [:rf.work/http :article/by-id 2 1])]
+      (is (false? deliver?) "a superseded attempt's app target MUST NOT run")
+      (is (= :suppressed (:work/status reply)))
+      (is (= :stale (:status reply)))
+      (is (= :rf.http/request-id-superseded (:stale/reason reply)))
+      (is (not (contains? reply :value)) "a stale reply MUST NOT carry :value")
+      (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
+      ;; carried = the superseded attempt's work-id (issuance 1);
+      ;; current = the superseding attempt's work-id (issuance 2); =-distinct.
+      (is (= [:rf.work/http :article/by-id 1 1] (:work/id (:rf.reply/carried trace))))
+      (is (= [:rf.work/http :article/by-id 2 1] (:work/id (:rf.reply/current trace))))
+      (is (= [:rf.work/http :article/by-id 1 1] (:work/id trace))))))
 
 (deftest canonical-replies-validate
   (testing ":status :ok success"
@@ -85,7 +106,7 @@
     (let [r       (http-reply/success-reply ctx {:secret "x"})
           summary (http-reply/trace-reply r {:sensitive? true})]
       (is (= :ok (:status summary)))
-      (is (= [:rf.work/http :article/by-id 1] (:work/id summary)))
+      (is (= [:rf.work/http :article/by-id 1 1] (:work/id summary)))
       (is (= :http (:work/kind summary)))
       (testing "a sensitive request redacts the wire slots wholesale"
         (is (= :rf/redacted (:value summary)))))))

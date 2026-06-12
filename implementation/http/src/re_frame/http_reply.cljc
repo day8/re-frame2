@@ -16,9 +16,11 @@
   Three concerns:
 
    1. **Work-id correlation** (`work-id`). One HTTP attempt has one
-      `:work/id` head `[:rf.work/http logical-id attempt]` (the `attempt`
-      number is HTTP's generation slot — see `work-id`)
-      (Managed-Effects §Work-id correlation). The HTTP `:request-id` is
+      `:work/id` head `[:rf.work/http logical-id issuance attempt]`
+      (`issuance` is the monotonic per-`request-id` re-issuance counter so a
+      superseded attempt and its superseder carry distinct work ids;
+      `attempt` discriminates transport retries within one issuance — see
+      `work-id`) (Managed-Effects §Work-id correlation). The HTTP `:request-id` is
       NOT a second stale-suppression key — it rides as `:correlation`
       metadata on the reply map. The frame-qualified transport
       request-id `[:rf.req frame-id work-id]` (landed in Spec 016) is the
@@ -59,29 +61,43 @@
 ;; ---------------------------------------------------------------------------
 ;; Work-id correlation (Managed-Effects §Work-id correlation).
 ;;
-;; HTTP head: `[:rf.work/http logical-id attempt]` (the trailing `attempt`
-;; is HTTP's generation slot — see below). The logical
+;; HTTP head: `[:rf.work/http logical-id issuance attempt]`. The logical
 ;; identity is the caller's `:request-id` when supplied (a stable, =-
 ;; comparable handle the caller already chose for supersede/abort), else
 ;; the originating event-id (the default reply target's identity). HTTP has
 ;; no generation counter of its own — supersession is keyed on `:request-id`
-;; equality, not a monotonic generation — so the generation slot carries the
-;; attempt number, which is what discriminates retries of the same logical
-;; request. One ATTEMPT, one `:work/id` (the EP-0007 rule): attempt 1 and
-;; attempt 2 of the same request are distinct work ids.
+;; equality — so two discriminators ride the tuple:
+;;
+;;  - `issuance` — the monotonic per-request-id ISSUANCE number (rf2-azcmd3,
+;;    allocated by `http-registry/next-issuance!`). It bumps on each fresh
+;;    request issued under the same `:request-id`, so a SUPERSEDED attempt
+;;    (issuance N) and the SUPERSEDING one (issuance N+1) carry DISTINCT work
+;;    ids even though both reset their retry `:attempt` to 1. Without it both
+;;    computed `[:rf.work/http logical-id 1]` and tooling/conformance could
+;;    not tell the old suppressed attempt from the new one (the EP-0011
+;;    single-attempt-identity break this fixes).
+;;  - `attempt`  — the retry attempt number WITHIN one issuance, which
+;;    discriminates transport retries of the same issuance.
+;;
+;; Together: one ATTEMPT (issuance × retry) has one `:work/id` (the EP-0007
+;; rule — Managed-Effects §Work-id correlation §184).
 ;; ---------------------------------------------------------------------------
 
 (defn work-id
   "Build the HTTP work-id head for one attempt.
 
-  `[:rf.work/http logical-id attempt]` where `logical-id` is the caller's
-  `:request-id` (when non-nil) else the originating event-id. The trailing
-  `attempt` is the generation slot — HTTP discriminates retries by attempt
-  number, not a separate monotonic generation. `=`-comparable and EDN-
-  serializable (Managed-Effects §Work-id correlation)."
-  [{:keys [request-id origin-event attempt]}]
+  `[:rf.work/http logical-id issuance attempt]` where `logical-id` is the
+  caller's `:request-id` (when non-nil) else the originating event-id;
+  `issuance` is the monotonic per-request-id issuance number (rf2-azcmd3 —
+  bumped on each fresh request under the same `:request-id`, so a superseded
+  attempt and its superseder carry distinct work ids); `attempt` is the retry
+  attempt within that issuance. `=`-comparable and EDN-serializable
+  (Managed-Effects §Work-id correlation). `issuance` defaults to 1 (the first
+  issuance, and the only value an anonymous / non-superseding request ever
+  sees)."
+  [{:keys [request-id origin-event issuance attempt]}]
   (let [logical-id (if (some? request-id) request-id (first origin-event))]
-    [:rf.work/http logical-id (or attempt 1)]))
+    [:rf.work/http logical-id (or issuance 1) (or attempt 1)]))
 
 (defn transport-request-id
   "Build the frame-qualified transport request-id `[:rf.req frame-id
@@ -108,7 +124,7 @@
   `:completed-at`, and `:correlation {:request-id …}`. Optional facts
   (`:completed-at`, `:correlation`) are omitted when absent rather than
   filled with nil sentinels (Managed-Effects §The reply map)."
-  [{:keys [request-id origin-event attempt frame completed-at] :as ctx}]
+  [{:keys [request-id origin-event issuance attempt frame completed-at] :as ctx}]
   (let [wid (work-id ctx)]
     (cond-> {:work/id     wid
              :work/kind   :http
@@ -179,6 +195,52 @@
          :cancelled?    true
          :cancel/reason (:reason failure)
          :error         failure))
+
+;; ---------------------------------------------------------------------------
+;; Stale suppression for HTTP supersession (Managed-Effects §Stale
+;; suppression; rf2-azcmd3). When a fresh request supersedes a prior one with
+;; the same `:request-id`, the prior (superseded) attempt's app reply MUST NOT
+;; run, its ledger row reaches `:suppressed`, and the trace stream records a
+;; `:status :stale` / `:work/status :suppressed` reply-envelope row carrying
+;; the CARRIED (the superseded attempt's work-id) and CURRENT (the superseding
+;; attempt's work-id) correlation. The supersession gate is data-only: the
+;; carried `:work/id` no longer being the current `:work/id` under the
+;; request-id IS the supersession. Delegates to the shared
+;; `re-frame.reply/suppress` correctness boundary, exactly as routing /
+;; resources do — no bespoke HTTP suppression shape.
+;; ---------------------------------------------------------------------------
+
+(def stale-reason
+  "The `:stale/reason` a superseded HTTP completion carries: a fresh request
+  under the same `:request-id` replaced this one. Named once (EP-0007)."
+  :rf.http/request-id-superseded)
+
+(defn suppress
+  "Produce the stale-suppression outcome for a SUPERSEDED HTTP attempt —
+  WITHOUT dispatching the app reply target (rf2-azcmd3). Delegates to the
+  shared `re-frame.reply/suppress` (the correctness boundary made concrete):
+  the returned `:reply` is `:status :stale` (no `:value`, no app mutation),
+  `:deliver?` is false, and `:trace` carries the carried/current work-id
+  correlation joined to `:work/id`.
+
+  `ctx` is the superseded attempt's reply-ctx (`{:request-id … :origin-event
+  … :issuance … :attempt … :frame …}`) — it supplies the carried HTTP
+  work-id. `current-work-id` is the SUPERSEDING attempt's work-id (the live
+  `:work/id` now registered under the same `:request-id`); when nil the gate
+  still suppresses (a carried id against a nil current is stale). The
+  superseding work-id is `=`-distinct from the carried one because the
+  issuance counter bumped (`work-id` embeds the per-request-id issuance)."
+  [ctx current-work-id]
+  (let [carried-wid (work-id ctx)]
+    (reply/suppress nil
+                    {:work/id carried-wid}
+                    {:work/id current-work-id}
+                    (cond-> {:work/id      carried-wid
+                             :work/kind    :http
+                             :attempt      (or (:attempt ctx) 1)
+                             :stale/reason stale-reason}
+                      (some? (:frame ctx))      (assoc :rf.frame/id (:frame ctx))
+                      (some? (:request-id ctx)) (assoc :correlation {:request-id (:request-id ctx)})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Public compatibility reshape (Managed-Effects §Public Compatibility

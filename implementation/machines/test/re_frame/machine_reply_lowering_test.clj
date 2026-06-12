@@ -89,6 +89,16 @@
               (is (= :stale (:rf.reply/status tags)))
               (is (= :suppressed (:rf.reply/work-status tags)))
               (is (= :rf.machine.timer/after-epoch-mismatch (:rf.reply/stale-reason tags)))
+              ;; rf2-niarhz — the canonical :work/id joins the uniform
+              ;; work/reply rows (the timer work-id keyed on the SCHEDULED
+              ;; epoch — the timer's attempt identity). The pick-transition
+              ;; stale `match` carries no machine-id, so the logical-id is the
+              ;; bare declaring path (the timer's unique chart-local identity).
+              (is (= [:rf.work/timer [:loading] scheduled-epoch]
+                     (:work/id tags))
+                  "canonical timer :work/id on the stale-after trace")
+              (is (= (:work/id tags) (:rf.reply/work-id tags)))
+              (is (= :timer (:work/kind tags)))
               ;; the declaring path + epoch ARE the data-only suppression gate
               (let [corr (:rf.reply/correlation tags)]
                 (is (= {:path [:loading] :rf/after-epoch scheduled-epoch}
@@ -158,7 +168,14 @@
             (is (= :completed (:rf.reply/work-status tags)))
             (is (= [:rf.work/machine :rl/child#1 [:working] 1]
                    (:rf.reply/work-id tags))
-                "canonical machine work-id")))
+                "canonical machine work-id (additive spelling)")
+            ;; rf2-niarhz — the CANONICAL :work/id is now stamped so Xray's
+            ;; uniform work/reply grouping (keys on bare :work/id) joins this
+            ;; spawned-actor completion.
+            (is (= [:rf.work/machine :rl/child#1 [:working] 1]
+                   (:work/id tags))
+                "canonical :work/id join key on the done trace")
+            (is (= :machine (:work/kind tags)))))
         (finally (trace/unregister-listener! ::done-ok))))))
 
 (deftest spawned-error-drives-on-error-transition

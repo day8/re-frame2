@@ -2990,7 +2990,8 @@ Args of the framework-supplied `:rf.route/with-nav-token` fx wrapper, per [012 �
 (def WithNavTokenFxArgs
   [:map
    [:do        [:vector :any]]                                            ;; an fx entry to perform — typically [:dispatch [<event-id> args ...]]
-   [:nav-token :any]])                                                    ;; the token captured at scheduling time (gensym or counter)
+   [:nav-token :any]                                                      ;; the token captured at scheduling time (gensym or counter)
+   [:route-id {:optional true} :any]])                                    ;; OPTIONAL captured route id (rf2-azcmd3): when present, a cross-route stale completion attributes its work-id to the route-loader attempt, not the route live at arrival
 ```
 
 Registered under spec id `:rf.fx/with-nav-token-args`. The wrapped fx receives the carried token in cofx; on receipt, the framework-provided `:nav-token` cofx checks the carried token against the current route slice's (`[:rf.runtime/routing :current]`) `:nav-token`. Mismatch → suppress + emit `:rf.route.nav-token/stale-suppressed` trace.

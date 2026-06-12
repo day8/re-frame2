@@ -41,16 +41,19 @@
                              [:rf.runtime/routing :current :nav-token]))
           "second navigation advanced the epoch to nav-2")
 
-      ;; 3. A's stale response carries "nav-1"; current is "nav-2";
-      ;; the runtime suppresses [:article/loaded "A" "A-payload"].
+      ;; 3. A's stale response carries "nav-1" and the route id CAPTURED
+      ;; at request time (:route/article); current is "nav-2"; the runtime
+      ;; suppresses [:article/loaded "A" "A-payload"].
       (rf/dispatch-sync [:rf.test/simulate-http-resolution
                          {:on-success-event   [:article/loaded "A" "A-payload"]
-                          :carried-nav-token  "nav-1"}])
+                          :carried-nav-token  "nav-1"
+                          :carried-route-id   :route/article}])
 
       ;; 4. B's response carries "nav-2"; matches current; commits.
       (rf/dispatch-sync [:rf.test/simulate-http-resolution
                          {:on-success-event   [:article/loaded "B" "B-payload"]
-                          :carried-nav-token  "nav-2"}])
+                          :carried-nav-token  "nav-2"
+                          :carried-route-id   :route/article}])
 
       (rf/unregister-listener! ::nav-token)
 
@@ -68,15 +71,72 @@
 
       ;; rf2-zqefg3.5 — the suppression trace is joined to the route
       ;; work-id `[:rf.work/route route-id nav-token loader-id]`
-      ;; (EP-0011 §Route Loader Completion). The carried (stale) token
-      ;; rides in the work-id tuple, so the suppressed attempt is
-      ;; correlatable by `:work/id` in the trace stream.
+      ;; (EP-0011 §Route Loader Completion). rf2-azcmd3 — the route-id is the
+      ;; CAPTURED id (:route/article), not the live slice id at arrival; the
+      ;; carried (stale) token rides in the tuple, so the suppressed attempt
+      ;; is correlatable by `:work/id` in the trace stream.
       (is (some (fn [ev]
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= [:rf.work/route :route/article "nav-1" :article/loaded]
                           (-> ev :tags :work/id))))
                 @traces)
           "the stale-suppressed trace is joined to the route :work/id (the carried nav-token rides in the tuple)"))))
+
+(deftest cross-route-stale-uses-captured-route-id-not-live-route
+  (testing "rf2-azcmd3 — when route A's stale completion arrives AFTER navigating to a DIFFERENT route B, the work-id carries route A's CAPTURED id, never route B's live id"
+    ;; The masking the prior tests had (A and B on the SAME route id) is gone
+    ;; here: A is :route/article, B is :route/profile. Reading the LIVE slice
+    ;; id at stale-arrival would mint a corrupt
+    ;; `[:rf.work/route :route/profile "nav-1" :article/loaded]` (route B's id
+    ;; with route A's carried nav-token). The fix uses the CAPTURED route id.
+    (rf/reg-route :route/article {:path   "/articles/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/profile {:path   "/profile/:id"
+                                  :params [:map [:id :string]]})
+    (rf/reg-event-db :article/loaded
+                     (fn [db [_ id payload]]
+                       (assoc db :article {:id id :payload payload})))
+
+    (let [traces (atom [])]
+      (rf/register-listener! ::cross-route (fn [ev] (swap! traces conj ev)))
+
+      ;; 1. Navigate to /articles/A (:route/article) — nav-token "nav-1".
+      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+      (is (= "nav-1" (get-in (rf/runtime-db-value :rf/default)
+                             [:rf.runtime/routing :current :nav-token])))
+
+      ;; 2. Navigate to a DIFFERENT route /profile/P (:route/profile) — "nav-2".
+      (rf/dispatch-sync [:rf.route/transitioned "/profile/P"])
+      (is (= "nav-2" (get-in (rf/runtime-db-value :rf/default)
+                             [:rf.runtime/routing :current :nav-token])))
+      (is (= :route/profile (get-in (rf/runtime-db-value :rf/default)
+                                    [:rf.runtime/routing :current :id]))
+          "the live route is now route B (:route/profile)")
+
+      ;; 3. Route A's stale loader completes, carrying nav-1 AND route A's
+      ;; CAPTURED route id (:route/article). Current is nav-2 → suppressed.
+      (rf/dispatch-sync [:rf.test/simulate-http-resolution
+                         {:on-success-event  [:article/loaded "A" "A-payload"]
+                          :carried-nav-token "nav-1"
+                          :carried-route-id  :route/article}])
+
+      (rf/unregister-listener! ::cross-route)
+
+      (is (nil? (:article (rf/app-db-value :rf/default)))
+          "route A's stale loader was suppressed; nothing committed")
+
+      ;; The work-id carries route A's CAPTURED id, NOT route B's live id.
+      (is (some (fn [ev]
+                  (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
+                       (= [:rf.work/route :route/article "nav-1" :article/loaded]
+                          (-> ev :tags :work/id))))
+                @traces)
+          "the stale work-id uses the CAPTURED route id (:route/article), not the live route (:route/profile)")
+      (is (not-any? (fn [ev]
+                      (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
+                           (= :route/profile (first (rest (-> ev :tags :work/id))))))
+                    @traces)
+          "no stale work-id is mis-attributed to the live route B (:route/profile)"))))
 
 (deftest with-nav-token-fx-suppresses-stale-do-and-commits-fresh
   (testing ":rf.route/with-nav-token fx: stale `:do` is suppressed; fresh `:do` runs"
@@ -108,10 +168,14 @@
     ;; fx entry. The runtime then either dispatches `[:article/loaded ...]`
     ;; (match) or suppresses (mismatch).
     (rf/reg-event-fx :article/loaded-via-nav-token
-                     (fn [_ctx [_ {:keys [carried-token id payload]}]]
+                     (fn [_ctx [_ {:keys [carried-token carried-route-id id payload]}]]
                        {:fx [[:rf.route/with-nav-token
                               {:do        [:dispatch [:article/loaded id payload]]
-                               :nav-token carried-token}]]}))
+                               :nav-token carried-token
+                               ;; rf2-azcmd3 — thread the CAPTURED route id so
+                               ;; a cross-route stale completion attributes its
+                               ;; work-id to the route-loader attempt.
+                               :route-id  carried-route-id}]]}))
 
     (let [traces (atom [])]
       (rf/register-listener! ::with-nav-token-fx
@@ -133,16 +197,18 @@
       ;; wrapper. Current is "nav-2"; the inner :dispatch must be
       ;; suppressed and the trace must fire.
       (rf/dispatch-sync [:article/loaded-via-nav-token
-                         {:carried-token "nav-1"
-                          :id            "A"
-                          :payload       "A-payload"}])
+                         {:carried-token    "nav-1"
+                          :carried-route-id :route/article
+                          :id               "A"
+                          :payload          "A-payload"}])
 
       ;; 4. B's fresh :on-success arrives carrying "nav-2"; matches
       ;; current; inner :dispatch fires; :article/loaded commits.
       (rf/dispatch-sync [:article/loaded-via-nav-token
-                         {:carried-token "nav-2"
-                          :id            "B"
-                          :payload       "B-payload"}])
+                         {:carried-token    "nav-2"
+                          :carried-route-id :route/article
+                          :id               "B"
+                          :payload          "B-payload"}])
 
       (rf/unregister-listener! ::with-nav-token-fx)
 
@@ -159,10 +225,11 @@
           "stale :do produced :rf.route.nav-token/stale-suppressed with the inner dispatch's event-id")
 
       ;; rf2-zqefg3.5 — the production fx path joins the suppression
-      ;; trace to the route work-id. `route-id` is read from the live
-      ;; slice (`:route/article`, the route B is on); `nav-token` is the
-      ;; carried (stale) token "nav-1"; `loader-id` is the suppressed
-      ;; inner dispatch's event-id.
+      ;; trace to the route work-id. rf2-azcmd3 — `route-id` is now the
+      ;; CAPTURED id (`:route/article`, carried with the nav-token at request
+      ;; time), NOT the live slice id at stale-arrival; `nav-token` is the
+      ;; carried (stale) token "nav-1"; `loader-id` is the suppressed inner
+      ;; dispatch's event-id.
       (is (some (fn [ev]
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= [:rf.work/route :route/article "nav-1" :article/loaded]

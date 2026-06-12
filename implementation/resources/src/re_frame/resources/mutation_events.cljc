@@ -897,7 +897,14 @@
                   :rf.reply/work-status (:work/status summary)
                   :rf.reply/work-id     (:work/id summary)
                   :rf.reply/stale-reason (:stale/reason summary)
-                  :rf.reply/correlation (:correlation summary)})))
+                  :rf.reply/correlation (:correlation summary)
+                  ;; rf2-waawic — the SHARED carried/current stale-gate facts
+                  ;; `re-frame.reply/suppress` already computed on `(:trace
+                  ;; stale)`, projected so the uniform reply-envelope view
+                  ;; reads the stale gate without mutation-family-specific
+                  ;; parsing (Xray's reply-envelope panel reads them at :518).
+                  :rf.reply/carried     (:rf.reply/carried (:trace stale))
+                  :rf.reply/current     (:rf.reply/current (:trace stale))})))
 
 ;; The managed-HTTP transport APPENDS its PUBLIC reply payload as the LAST
 ;; arg of the internal reply event (Spec 014 §Reply addressing), exactly as

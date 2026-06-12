@@ -531,7 +531,7 @@ The `{:kind …}` payload above is the **public** shape, and it is unchanged. In
 {:status       :ok            ;; one of :ok | :error | :cancelled
  :value        <decoded-and-accepted-payload>   ;; on :ok
  :error        {:kind <one of :rf.http/*> …}     ;; on :error / :cancelled
- :work/id      [:rf.work/http logical-id attempt] ;; the attempt identity
+ :work/id      [:rf.work/http logical-id issuance attempt] ;; the attempt identity
  :work/kind    :http
  :work/status  :completed | :failed | :timed-out | :cancelled
  :attempt      1
@@ -547,7 +547,7 @@ Status mapping (per [Managed-Effects §Status taxonomy](Managed-Effects.md#statu
 - a **timeout** → `:status :error` with `:work/status :timed-out` — **timeout is not a top-level status**, it is an error kind (`:rf.http/timeout`) plus a work status;
 - an **abort** → `:status :cancelled` with `:cancelled? true`, `:cancel/reason`, and the `:rf.http/aborted` shape under `:error`.
 
-The HTTP `:request-id` is **correlation metadata** under `:correlation` — it is **not** a second stale-suppression key ([Managed-Effects §Work-id correlation](Managed-Effects.md#work-id-correlation); [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md): one attempt, one `:work/id`). The single `:work/id` head is `[:rf.work/http logical-id attempt]` (the `logical-id` is the caller's `:request-id` when supplied, else the originating event-id; the trailing `attempt` is the generation slot, so retries of the same logical request are distinct work ids). The frame-qualified transport request-id `[:rf.req frame-id work-id]` (landed in [Spec 016](016-Resources.md#ledger-row-retention-and-identity)) is the sanctioned second identity for process-global transport correlation; intra-frame stale suppression still keys on `:work/id`.
+The HTTP `:request-id` is **correlation metadata** under `:correlation` — it is **not** a second stale-suppression key ([Managed-Effects §Work-id correlation](Managed-Effects.md#work-id-correlation); [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md): one attempt, one `:work/id`). The single `:work/id` head is `[:rf.work/http logical-id issuance attempt]` (the `logical-id` is the caller's `:request-id` when supplied, else the originating event-id; `issuance` is the monotonic per-`request-id` re-issuance counter so a superseded request and the request that supersedes it carry **distinct** work ids even though both reset their retry `attempt` to 1; `attempt` discriminates transport retries within one issuance — retries of the same logical request are distinct work ids). The frame-qualified transport request-id `[:rf.req frame-id work-id]` (landed in [Spec 016](016-Resources.md#ledger-row-retention-and-identity)) is the sanctioned second identity for process-global transport correlation; intra-frame stale suppression still keys on `:work/id`.
 
 `:completed-at` is causal completion metadata ([EP-0010](../docs/EP/EP-0010-causal-world-inputs.md)) read **once** from the host completion at finalisation and carried on the reply — a reply handler derives a durable timestamp from `(:completed-at reply)`, never from a fresh ambient clock read. Completion trace rows (`:rf.http/replied`) are emitted from these canonical reply facts, routing every wire-bearing slot through the shared [`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker) walker (property 5).
 
@@ -621,7 +621,7 @@ A subsequent `:rf.http/managed-abort` fx with the same id (compared by `=`) canc
 {:fx [[:rf.http/managed-abort [:articles :load "hello"]]]}
 ```
 
-When a fresh request supersedes a prior one with the same `:request-id`, the prior request's `:on-failure` reply is **not dispatched** — semantically the new request *replaces* the old one (the debounce-search mental model). The supersede event still emits to the trace bus (`:rf.http/aborted` with `:reason :request-id-superseded`); consumers wanting abort telemetry subscribe via `register-listener!` at `:warning` or `:error` severity. A manual `:rf.http/managed-abort` aborts whichever request currently holds the id and DOES dispatch `:on-failure` with `:reason :user`.
+When a fresh request supersedes a prior one with the same `:request-id`, the prior request's `:on-failure` reply is **not dispatched** — semantically the new request *replaces* the old one (the debounce-search mental model). The supersession records the superseded attempt the [uniform reply-envelope way](Managed-Effects.md#stale-suppression): a canonical `:rf.http/stale-suppressed` trace row carrying `:rf.reply/status :stale` / `:rf.reply/work-status :suppressed` (`:stale/reason :rf.http/request-id-superseded`) and the **carried** (the superseded attempt's `:work/id`) and **current** (the superseding attempt's `:work/id`) correlation — the two being `=`-distinct because the per-`request-id` issuance counter bumped. The legacy `:rf.http/aborted` trace (with `:reason :request-id-superseded`) still emits for abort-telemetry consumers; consumers wanting either subscribe via `register-listener!`. No app target runs for the superseded attempt. A manual `:rf.http/managed-abort` aborts whichever request currently holds the id and DOES dispatch `:on-failure` with `:reason :user`.
 
 ### `:abort-signal` (external)
 

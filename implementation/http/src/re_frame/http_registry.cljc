@@ -132,15 +132,70 @@
   (when request-id
     (get @in-flight request-id)))
 
+;; ---- per-request-id issuance generation (rf2-azcmd3) -----------------------
+;;
+;; EP-0011 §Work-id correlation: "one attempt has one work id". HTTP has no
+;; generation counter of its own — supersession is keyed on `:request-id`
+;; equality — so two requests issued under the SAME `:request-id` both reset
+;; their retry `:attempt` to 1 and, before this counter, computed the SAME
+;; work-id `[:rf.work/http logical-id 1]`. Tooling and conformance could then
+;; not distinguish the superseded attempt from the superseding one by
+;; `:work/id`, and EP-0011's single-attempt identity was broken for HTTP
+;; supersession (Managed-Effects §Work-id correlation — §184: "one attempt has
+;; one work id").
+;;
+;; This monotonic per-request-id ISSUANCE counter discriminates them: each
+;; fresh issuance under a given request-id bumps the counter, so the
+;; superseded request (issuance N) and the superseding one (issuance N+1) get
+;; distinct work-id tuples. The retry `:attempt` still discriminates retries
+;; WITHIN one issuance; the issuance discriminates re-issuances ACROSS
+;; supersessions. An anonymous request (no `:request-id`) never supersedes, so
+;; it stays at issuance 1.
+
+(defonce ^:private issuance-counters
+  ;; request-id → highest issuance number allocated so far. Monotonic per
+  ;; request-id; never decremented (a re-issuance after a completion still
+  ;; advances, so a late completion of the old attempt cannot collide with a
+  ;; fresh request reusing the same id).
+  (atom {}))
+
+(defn next-issuance!
+  "Allocate and return the next monotonic issuance number for `request-id`
+  (rf2-azcmd3). The FIRST issuance under a request-id is 1; each subsequent
+  re-issuance (the caller bumps this before `supersede!`) returns the next
+  integer, so the superseded and superseding attempts carry distinct
+  `:work/id`s. Returns 1 for a nil `request-id` (an anonymous request never
+  supersedes — there is nothing to discriminate)."
+  [request-id]
+  (if (nil? request-id)
+    1
+    (get (swap! issuance-counters update request-id (fnil inc 0)) request-id)))
+
+(defn reset-issuance-counters-for-test!
+  "Test-time helper (rf2-azcmd3): drop the per-request-id issuance counters so
+  a fresh test run starts every request-id at issuance 1. Not part of the
+  user-facing API."
+  []
+  (reset! issuance-counters {})
+  nil)
+
 (defn supersede!
   "If a request is already in flight under `request-id`, abort it with
-  `:reason :request-id-superseded`. Per Spec 014 §`:request-id` (internal)."
+  `:reason :request-id-superseded`. Per Spec 014 §`:request-id` (internal).
+
+  rf2-azcmd3 — returns the superseded handle (or nil when nothing was in
+  flight) so the caller can emit the canonical `:status :stale` /
+  `:work/status :suppressed` reply-envelope trace for the OLD attempt
+  (Managed-Effects §Stale suppression). The handle carries the old attempt's
+  identity facts (`:work/id`, `:request-id`, `:origin-event`, `:attempt`,
+  `:frame`) the stale-reply trace needs."
   [request-id]
   (when-let [prev (lookup-in-flight request-id)]
     (clear-in-flight! request-id)
     (try
       ((:abort-fn prev) :request-id-superseded)
-      (catch #?(:clj Throwable :cljs :default) _ nil))))
+      (catch #?(:clj Throwable :cljs :default) _ nil))
+    prev))
 
 (defn clear-all-in-flight!
   "Test-time helper: cancel every in-flight managed request, then drop the
@@ -186,6 +241,9 @@
           (catch #?(:clj Throwable :cljs :default) _ nil)))))
   (reset! in-flight {})
   (reset! actor-in-flight {})
+  ;; rf2-azcmd3 — drop the per-request-id issuance counters too, so the next
+  ;; test run starts every request-id at issuance 1.
+  (reset! issuance-counters {})
   nil)
 
 (defn in-flight-snapshot

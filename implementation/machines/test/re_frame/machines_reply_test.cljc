@@ -127,8 +127,22 @@
       (is (true? (reply/stale? carried (m-reply/after-suppression-gate nil nil)))
           "node exited ⇒ stale"))))
 
+(deftest timer-work-id-head
+  (testing "rf2-niarhz — machine :after timer work-id [:rf.work/timer logical-id epoch]"
+    ;; logical-id = [machine-id decl-path...] when both known
+    (is (= [:rf.work/timer [:a/multi :loading] 3]
+           (m-reply/timer-work-id :a/multi [:loading] 3)))
+    ;; bare decl-path when no machine-id
+    (is (= [:rf.work/timer [:loading] 3]
+           (m-reply/timer-work-id nil [:loading] 3)))
+    ;; the epoch discriminates a re-armed timer on node re-entry (distinct ids)
+    (is (not= (m-reply/timer-work-id :a/multi [:loading] 1)
+              (m-reply/timer-work-id :a/multi [:loading] 2)))
+    ;; exited node (nil decl-path) is still a valid distinct id
+    (is (= [:rf.work/timer nil 3] (m-reply/timer-work-id nil nil 3)))))
+
 (deftest after-stale-reply-is-canonical
-  (testing ":after stale reply carries the timer work-kind + suppression facts"
+  (testing ":after stale reply carries the timer work-id + work-kind + suppression facts"
     (let [r (m-reply/after-stale-reply
               {:machine-id      :a/multi
                :state           :loading
@@ -139,9 +153,38 @@
                :frame           :rf/default})]
       (is (= :stale (:status r)))
       (is (= :timer (:work/kind r)) "machine :after is a specialized timer instance")
+      ;; rf2-niarhz — the canonical :work/id joins the uniform work/reply rows;
+      ;; the SCHEDULED epoch (the timer's attempt identity) keys it.
+      (is (= [:rf.work/timer [:a/multi :loading] 1] (:work/id r)))
       (is (= :suppressed (:work/status r)))
       (is (= :rf.machine.timer/after-epoch-mismatch (:stale/reason r)))
       (is (not (contains? r :value)))
       (is (= {:path [:loading] :rf/after-epoch 1} (-> r :correlation :carried)))
       (is (= {:path [:loading] :rf/after-epoch 2} (-> r :correlation :current)))
       (is (reply/valid-reply? r)))))
+
+(deftest after-fired-reply-is-canonical
+  (testing "rf2-niarhz — a FIRED (live) :after timer is a closed :status :ok / :work/status :completed completion carrying the canonical :work/id"
+    (let [r (m-reply/after-fired-reply
+              {:machine-id :a/multi
+               :state      :loading
+               :delay      30000
+               :decl-path  [:loading]
+               :epoch      2
+               :frame      :rf/default})]
+      (is (= :ok (:status r)))
+      (is (= :timer (:work/kind r)))
+      (is (= :completed (:work/status r)))
+      (is (= [:rf.work/timer [:a/multi :loading] 2] (:work/id r)))
+      (is (nil? (:value r)) "a timer carries no payload — :value is an explicit nil (completed-with-no-payload)")
+      (is (reply/valid-reply? r) (str (reply/validate-reply r))))
+    (testing "a guard-suppressed fired timer stays :ok/:completed (NOT stale) — the
+              guard decision rides under :correlation, work-status stays closed"
+      (let [r (m-reply/after-fired-reply
+                {:machine-id :a/multi :state :loading :delay 30000
+                 :decl-path [:loading] :epoch 2 :frame :rf/default
+                 :guard-suppressed? true})]
+        (is (= :ok (:status r)))
+        (is (= :completed (:work/status r)))
+        (is (true? (-> r :correlation :guard-suppressed?)))
+        (is (reply/valid-reply? r))))))

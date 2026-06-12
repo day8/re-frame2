@@ -3299,26 +3299,71 @@
                       :frame              frame-id
                       :recovery           :replaced-with-default
                       ;; reply-envelope vocabulary (Managed-Effects §9)
+                      ;; rf2-niarhz — `:work/id` (canonical) joins this stale
+                      ;; `:after` completion into the uniform work/reply rows
+                      ;; the same way every other managed async family does;
+                      ;; `:rf.reply/work-id` retained for back-compat readers.
+                      :work/id              (:work/id summary)
+                      :work/kind            (:work/kind summary)
                       :rf.reply/status      (:status summary)
+                      :rf.reply/work-id     (:work/id summary)
                       :rf.reply/work-status (:work/status summary)
                       :rf.reply/stale-reason (:stale/reason summary)
                       :rf.reply/correlation (:correlation summary)})))
+    ;; rf2-niarhz — a FIRED (live) `:after` timer is a CLOSED `:after`
+    ;; completion (`:status :ok` / `:work/status :completed`). Build the
+    ;; canonical fired reply and stamp the reply-envelope facts (`:work/id`,
+    ;; `:work/kind :timer`, status, work-status) onto the
+    ;; `:rf.machine.timer/fired` trace so it joins the uniform work/reply rows
+    ;; (Managed-Effects §Tracing). Was previously a bespoke epoch trace with
+    ;; no reply vocabulary at all.
     (when (:guard-suppressed? match)
-      (trace/emit! :rf.machine :rf.machine.timer/fired
-                   {:state  (:state match)
-                    :delay  (:delay match)
-                    :epoch  (:epoch match)
-                    :fired? false
-                    :frame  frame-id}))
+      (let [fired-reply (m-reply/after-fired-reply
+                          {:machine-id        (:machine-id match)
+                           :state             (:state match)
+                           :delay             (:delay match)
+                           :decl-path         (:decl-path match)
+                           :epoch             (:epoch match)
+                           :frame             frame-id
+                           :guard-suppressed? true})
+            summary     (m-reply/trace-reply fired-reply {:frame frame-id})]
+        (trace/emit! :rf.machine :rf.machine.timer/fired
+                     {:state  (:state match)
+                      :delay  (:delay match)
+                      :epoch  (:epoch match)
+                      :fired? false
+                      :frame  frame-id
+                      ;; reply-envelope vocabulary (Managed-Effects §9)
+                      :work/id              (:work/id summary)
+                      :work/kind            (:work/kind summary)
+                      :rf.reply/status      (:status summary)
+                      :rf.reply/work-id     (:work/id summary)
+                      :rf.reply/work-status (:work/status summary)
+                      :rf.reply/correlation (:correlation summary)})))
     (when (and (not (:stale? match))
                (not (:guard-suppressed? match))
                (:delay match))
-      (trace/emit! :rf.machine :rf.machine.timer/fired
-                   {:state  (last (:decl-path match))
-                    :delay  (:delay match)
-                    :epoch  (:epoch match)
-                    :fired? true
-                    :frame  frame-id}))))
+      (let [fired-reply (m-reply/after-fired-reply
+                          {:machine-id (:machine-id match)
+                           :state      (last (:decl-path match))
+                           :delay      (:delay match)
+                           :decl-path  (:decl-path match)
+                           :epoch      (:epoch match)
+                           :frame      frame-id})
+            summary     (m-reply/trace-reply fired-reply {:frame frame-id})]
+        (trace/emit! :rf.machine :rf.machine.timer/fired
+                     {:state  (last (:decl-path match))
+                      :delay  (:delay match)
+                      :epoch  (:epoch match)
+                      :fired? true
+                      :frame  frame-id
+                      ;; reply-envelope vocabulary (Managed-Effects §9)
+                      :work/id              (:work/id summary)
+                      :work/kind            (:work/kind summary)
+                      :rf.reply/status      (:status summary)
+                      :rf.reply/work-id     (:work/id summary)
+                      :rf.reply/work-status (:work/status summary)
+                      :rf.reply/correlation (:correlation summary)})))))
 
 (defn drain-to-fixed-point
   "Shared settling tail of the single-machine macrostep — steps 3-5 of

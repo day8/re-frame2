@@ -215,7 +215,16 @@
     (is (= :stale-suppressed (re/phase-of :rf.resource/stale-suppressed)))
     ;; EP-0016 D1 — a stale mutation reply suppresses, never fires :reply-to.
     (is (= :stale-suppressed (re/phase-of :rf.mutation/stale-suppressed)))
-    (is (= :stale-suppressed (re/phase-of :rf.reply/suppressed))))
+    (is (= :stale-suppressed (re/phase-of :rf.reply/suppressed)))
+    ;; rf2-waawic — the machine `:after` timer stale completion is now
+    ;; EXPLICITLY classified (the suffix heuristic catches `stale-suppress` /
+    ;; `suppressed`, NOT `stale-after`), so a machines managed-async stale
+    ;; completion is visible in the uniform reply-envelope view.
+    (is (= :stale-suppressed (re/phase-of :rf.machine.timer/stale-after)))
+    ;; routing emits the explicit literal too.
+    (is (= :stale-suppressed (re/phase-of :rf.route.nav-token/stale-suppressed)))
+    ;; rf2-azcmd3 — HTTP supersession's superseded-attempt stale row.
+    (is (= :stale-suppressed (re/phase-of :rf.http/stale-suppressed))))
   (testing "delivery — the call-site :reply-to continuation is the mutation
             delivery row (EP-0016 D1, phase 6)"
     (is (= :delivered (re/phase-of :rf.mutation/replied)))
@@ -291,6 +300,74 @@
     (let [rows (re/project-work-events mixed-trace)]
       (is (= 5 (count rows)))                     ;; 5 managed of 6 events
       (is (= [2 3 4 5 6] (mapv :id rows))))))
+
+(deftest production-reply-trace-vocabulary
+  (testing "rf2-waawic — a machine :rf.machine/done completion row stamped with
+            the canonical :work/id (rf2-niarhz) + additive :rf.reply/* facts
+            joins the uniform work/reply rows"
+    ;; the SHAPE finalize.cljc actually emits: canonical :work/id + :work/kind
+    ;; PLUS the additive :rf.reply/* facts.
+    (let [row (re/work-event-row
+                {:id 10 :operation :rf.machine/done
+                 :time 200 :tags {:machine-id :auth :parent-id :root :error? false
+                                  :work/id   [:rf.work/machine :auth#1 [:fetch] 1]
+                                  :work/kind :machine
+                                  :rf.reply/status      :ok
+                                  :rf.reply/work-id     [:rf.work/machine :auth#1 [:fetch] 1]
+                                  :rf.reply/work-status :completed}})]
+      (is (= :completed (:phase row)))
+      (is (= :machine (:work-kind row)))
+      ;; the canonical :work/id is the join key (Xray groups on bare :work/id)
+      (is (= [:rf.work/machine :auth#1 [:fetch] 1] (:work-id row)))
+      ;; status read from :rf.reply/status; work-status from :rf.reply/work-status
+      (is (= :ok (:status row)))
+      (is (= :completed (:work-status row)))))
+  (testing "rf2-niarhz — a machine done row that carries ONLY the additive
+            :rf.reply/work-id (no canonical :work/id) still joins via the
+            work-id-of fallback, so an older-shaped row is not lost"
+    (let [row (re/work-event-row
+                {:id 11 :operation :rf.machine/done
+                 :time 210 :tags {:machine-id :auth
+                                  :rf.reply/status      :ok
+                                  :rf.reply/work-id     [:rf.work/machine :auth#1 [:fetch] 1]
+                                  :rf.reply/work-status :completed}})]
+      (is (= [:rf.work/machine :auth#1 [:fetch] 1] (:work-id row)))
+      (is (= :machine (:work-kind row)))
+      (is (= :ok (:status row)))))
+  (testing "rf2-waawic — a machine :after timer stale completion is a
+            stale-suppressed row carrying carried/current gate + work-id"
+    (let [row (re/work-event-row
+                {:id 12 :operation :rf.machine.timer/stale-after
+                 :time 220 :tags {:state :loading :delay 500
+                                  :work/id [:rf.work/timer [:auth :loading] 3]
+                                  :work/kind :timer
+                                  :rf.reply/status       :stale
+                                  :rf.reply/work-status  :suppressed
+                                  :rf.reply/stale-reason :rf.machine.timer/after-epoch-mismatch
+                                  :rf.reply/correlation  {:carried {:path [:auth :loading] :rf/after-epoch 3}
+                                                          :current {:path [:auth :loading] :rf/after-epoch 4}}}})]
+      (is (= :stale-suppressed (:phase row)))
+      (is (true? (:stale? row)))
+      (is (= :timer (:work-kind row)))
+      (is (= [:rf.work/timer [:auth :loading] 3] (:work-id row)))
+      (is (= :rf.machine.timer/after-epoch-mismatch (:stale-reason row)))))
+  (testing "rf2-azcmd3 — an HTTP supersession stale row reads carried/current
+            work-id correlation + the canonical join key"
+    (let [row (re/work-event-row
+                {:id 13 :operation :rf.http/stale-suppressed
+                 :time 230 :tags {:work/id [:rf.work/http :search 1 1] :work/kind :http
+                                  :rf.reply/status      :stale
+                                  :rf.reply/work-status :suppressed
+                                  :rf.reply/stale-reason :rf.http/request-id-superseded
+                                  :rf.reply/carried {:work/id [:rf.work/http :search 1 1]}
+                                  :rf.reply/current {:work/id [:rf.work/http :search 2 1]}}})]
+      (is (= :stale-suppressed (:phase row)))
+      (is (true? (:stale? row)))
+      (is (= :http (:work-kind row)))
+      (is (= [:rf.work/http :search 1 1] (:work-id row)))
+      (is (some? (:carried row)))
+      (is (some? (:current row)))
+      (is (= :rf.http/request-id-superseded (:stale-reason row))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (7) stale-races — keyed on :work/id; cross-surface tally; attempt arcs.

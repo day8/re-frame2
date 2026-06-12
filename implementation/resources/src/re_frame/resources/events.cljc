@@ -1144,7 +1144,17 @@
                   :rf.reply/work-status (:work/status summary)
                   :rf.reply/work-id     (:work/id summary)
                   :rf.reply/stale-reason (:stale/reason summary)
-                  :rf.reply/correlation (:correlation summary)})))
+                  :rf.reply/correlation (:correlation summary)
+                  ;; rf2-waawic — the SHARED carried/current stale-gate facts
+                  ;; `re-frame.reply/suppress` already computed on `(:trace
+                  ;; stale)`. Projecting them here lets the uniform
+                  ;; reply-envelope view read the stale gate without
+                  ;; resource-family-specific parsing (the `:rf.reply/
+                  ;; correlation` above is the reply's bespoke generation pair;
+                  ;; these are the shared substrate facts Xray's
+                  ;; reply-envelope panel reads at :518).
+                  :rf.reply/carried     (:rf.reply/carried (:trace stale))
+                  :rf.reply/current     (:rf.reply/current (:trace stale))})))
 
 (defn- live-entry-for-reply
   "Look the live entry up for an internal reply and verify it is still the
